@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>АЕМР — Интерактивный прототип</title>
+<style>
+  :root {
+    --bg-sidebar: #0f172a;
+    --bg-main: #f1f5f9;
+    --bg-card: #ffffff;
+    --accent: #3b82f6;
+    --accent-light: #dbeafe;
+    --green: #10b981;
+    --green-bg: #d1fae5;
+    --yellow: #f59e0b;
+    --yellow-bg: #fef3c7;
+    --red: #ef4444;
+    --red-bg: #fee2e2;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg-main); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar { width: 260px; background: var(--bg-sidebar); color: white; display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-header { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .sidebar-header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .sidebar-header p { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 4px; }
+  .nav { flex: 1; overflow-y: auto; padding: 12px 8px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.7); transition: all 0.15s; margin-bottom: 2px; }
+  .nav-item:hover { background: rgba(255,255,255,0.08); color: white; }
+  .nav-item.active { background: var(--accent); color: white; font-weight: 600; }
+  .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+  .nav-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 12px; }
+
+  /* Main content */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+  .filter-group { display: flex; gap: 4px; background: var(--bg-main); border-radius: 8px; padding: 3px; }
+  .filter-btn { padding: 6px 14px; border-radius: 6px; border: none; font-size: 12px; cursor: pointer; background: transparent; color: var(--text-muted); font-weight: 500; transition: all 0.15s; }
+  .filter-btn.active { background: var(--accent); color: white; }
+  .filter-btn:hover:not(.active) { background: rgba(0,0,0,0.05); }
+  .topbar-spacer { flex: 1; }
+  .topbar-info { font-size: 11px; color: var(--text-muted); }
+
+  .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* Cards */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .kpi-card { background: var(--bg-card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; }
+  .kpi-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+  .kpi-label { font-size: 12px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-value { font-size: 32px; font-weight: 700; margin: 8px 0; letter-spacing: -1px; }
+  .kpi-delta { font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 20px; }
+  .kpi-delta.up { background: var(--green-bg); color: var(--green); }
+  .kpi-delta.down { background: var(--red-bg); color: var(--red); }
+  .kpi-delta.neutral { background: var(--yellow-bg); color: var(--yellow); }
+  .kpi-sparkline { position: absolute; bottom: 0; right: 0; width: 100px; height: 40px; opacity: 0.3; }
+  .kpi-source { font-size: 10px; color: var(--text-muted); margin-top: 8px; font-style: italic; border-top: 1px dashed var(--border); padding-top: 6px; display: none; }
+  .kpi-card:hover .kpi-source { display: block; }
+
+  /* Charts area */
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .chart-card { background: var(--bg-card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); min-height: 250px; }
+  .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .chart-placeholder { background: var(--bg-main); border-radius: 8px; height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 13px; position: relative; overflow: hidden; }
+
+  /* Departments grid */
+  .dept-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .dept-card { background: var(--bg-card); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); cursor: pointer; transition: all 0.2s; border-left: 4px solid var(--accent); }
+  .dept-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
+  .dept-card.green { border-left-color: var(--green); }
+  .dept-card.yellow { border-left-color: var(--yellow); }
+  .dept-card.red { border-left-color: var(--red); }
+  .dept-name { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .dept-metric { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .dept-metric .label { color: var(--text-muted); }
+  .dept-bar { height: 6px; background: var(--bg-main); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .dept-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+
+  /* Issues */
+  .issues-section { margin-bottom: 24px; }
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .issue-card { background: var(--bg-card); border-radius: 8px; padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 8px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.15s; }
+  .issue-card:hover { box-shadow: var(--shadow-lg); }
+  .issue-severity { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .issue-severity.high { background: var(--red); }
+  .issue-severity.medium { background: var(--yellow); }
+  .issue-severity.low { background: var(--green); }
+  .issue-text { flex: 1; font-size: 13px; }
+  .issue-dept { font-size: 11px; color: var(--text-muted); padding: 2px 8px; background: var(--bg-main); border-radius: 4px; }
+
+  /* Table */
+  .table-container { background: var(--bg-card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .table-toolbar { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .table-toolbar select, .table-toolbar input { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+  .table-toolbar input { flex: 1; max-width: 300px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: var(--bg-main); padding: 10px 12px; text-align: left; font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; cursor: pointer; }
+  th:hover { background: #e2e8f0; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #f8fafc; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: var(--green-bg); color: var(--green); }
+  .badge-red { background: var(--red-bg); color: var(--red); }
+  .badge-yellow { background: var(--yellow-bg); color: var(--yellow); }
+  .badge-blue { background: var(--accent-light); color: var(--accent); }
+  .cell-formula { background: #f0f9ff; font-family: monospace; font-size: 11px; color: var(--accent); cursor: not-allowed; }
+  .cell-editable { cursor: text; }
+  .cell-editable:hover { background: #fffbeb; outline: 2px solid var(--yellow); border-radius: 2px; }
+  .pagination { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
+
+  /* Trust gauge */
+  .trust-container { display: flex; gap: 24px; margin-bottom: 24px; }
+  .trust-gauge { background: var(--bg-card); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); text-align: center; width: 280px; flex-shrink: 0; }
+  .gauge-circle { width: 160px; height: 160px; margin: 0 auto 16px; position: relative; }
+  .gauge-circle svg { width: 100%; height: 100%; }
+  .gauge-value { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 36px; font-weight: 700; }
+  .gauge-grade { font-size: 24px; font-weight: 700; }
+  .trust-components { flex: 1; background: var(--bg-card); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }
+  .trust-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .trust-label { width: 200px; font-size: 13px; }
+  .trust-bar-bg { flex: 1; height: 10px; background: var(--bg-main); border-radius: 5px; overflow: hidden; }
+  .trust-bar-fill { height: 100%; border-radius: 5px; }
+  .trust-weight { font-size: 11px; color: var(--text-muted); width: 40px; text-align: right; }
+
+  /* Economy page */
+  .economy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .economy-stat { background: var(--bg-card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+  .economy-stat .value { font-size: 28px; font-weight: 700; margin: 8px 0; }
+  .economy-zone { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .zone-green { background: var(--green-bg); color: var(--green); }
+  .zone-yellow { background: var(--yellow-bg); color: var(--yellow); }
+  .zone-red { background: var(--red-bg); color: var(--red); }
+
+  /* Journal */
+  .journal-entry { display: flex; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .journal-time { color: var(--text-muted); font-family: monospace; font-size: 12px; white-space: nowrap; }
+  .journal-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .journal-icon.import { background: var(--accent-light); }
+  .journal-icon.warning { background: var(--yellow-bg); }
+  .journal-icon.edit { background: var(--green-bg); }
+  .journal-icon.error { background: var(--red-bg); }
+  .journal-body { flex: 1; }
+  .journal-action { font-weight: 600; }
+  .journal-detail { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+
+  /* Mapping editor */
+  .mapping-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .mapping-metric { width: 200px; font-size: 13px; font-weight: 500; }
+  .mapping-cell { width: 80px; }
+  .mapping-cell input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: monospace; text-align: center; }
+  .mapping-value { width: 100px; font-size: 13px; text-align: right; font-weight: 600; }
+  .mapping-status { width: 80px; text-align: center; }
+
+  /* Tooltip */
+  .data-tip { position: relative; }
+  .data-tip::after { content: attr(data-source); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--bg-sidebar); color: white; padding: 6px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 100; }
+  .data-tip:hover::after { opacity: 1; }
+
+  /* Page transitions */
+  .page { display: none; }
+  .page.active { display: block; animation: fadeIn 0.2s; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+  /* Responsive */
+  @media (max-width: 1200px) { .kpi-grid, .dept-grid { grid-template-columns: repeat(2, 1fr); } .charts-grid { grid-template-columns: 1fr; } }
+
+  /* Interactive annotations */
+  .annotation { background: #fffbeb; border: 1px dashed var(--yellow); border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #92400e; margin-top: 8px; line-height: 1.5; }
+  .annotation strong { color: #78350f; }
+  .annotation code { background: #fef3c7; padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 10px; }
+
+  /* Recon table */
+  .recon-ok { background: var(--green-bg); color: var(--green); }
+  .recon-warn { background: var(--yellow-bg); color: var(--yellow); }
+  .recon-crit { background: var(--red-bg); color: var(--red); }
+
+  .clickable-hint { font-size: 10px; color: var(--accent); opacity: 0; transition: opacity 0.2s; }
+  .kpi-card:hover .clickable-hint, .dept-card:hover .clickable-hint { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h1>АЕМР Аналитика</h1>
+    <p>Елизовский муниципальный район</p>
+  </div>
+  <div class="nav">
+    <div class="nav-item active" onclick="showPage('dashboard')"><span class="icon">📊</span> Дашборд</div>
+    <div class="nav-item" onclick="showPage('data')"><span class="icon">📋</span> Построчные данные</div>
+    <div class="nav-item" onclick="showPage('economy')"><span class="icon">💰</span> Экономика</div>
+    <div class="nav-item" onclick="showPage('analytics')"><span class="icon">📈</span> Аналитика</div>
+    <div class="nav-item" onclick="showPage('recon')"><span class="icon">🔍</span> Сверка</div>
+    <div class="nav-divider"></div>
+    <div class="nav-item" onclick="showPage('grbs')"><span class="icon">🏛️</span> ГРБС</div>
+    <div class="nav-item" onclick="showPage('trust')"><span class="icon">🛡️</span> Доверие</div>
+    <div class="nav-item" onclick="showPage('issues')"><span class="icon">⚠️</span> Замечания</div>
+    <div class="nav-item" onclick="showPage('recs')"><span class="icon">💡</span> Рекомендации</div>
+    <div class="nav-divider"></div>
+    <div class="nav-item" onclick="showPage('journal')"><span class="icon">📜</span> Журнал</div>
+    <div class="nav-item" onclick="showPage('sources')"><span class="icon">📡</span> Источники</div>
+    <div class="nav-item" onclick="showPage('mapping')"><span class="icon">⚙️</span> Маппинг</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="filter-group">
+      <button class="filter-btn active">Год</button>
+      <button class="filter-btn">Q1</button>
+      <button class="filter-btn">Q2</button>
+      <button class="filter-btn">Q3</button>
+      <button class="filter-btn">Q4</button>
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active">тыс. ₽</button>
+      <button class="filter-btn">млн ₽</button>
+      <button class="filter-btn">млрд ₽</button>
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active">Все</button>
+      <button class="filter-btn">КП</button>
+      <button class="filter-btn">ЕП</button>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-info">Обновлено: 05.04.2026 10:15 &nbsp;|&nbsp; Снапшот #47</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ==================== DASHBOARD PAGE ==================== -->
+    <div class="page active" id="page-dashboard">
+      <div class="kpi-grid">
+        <div class="kpi-card data-tip" data-source="СВОД ТД-ПМ!E14 / D14 × 100" onclick="showPage('analytics')">
+          <div class="kpi-label">Исполнение плана</div>
+          <div class="kpi-value" style="color: var(--yellow);">42,3%</div>
+          <div class="kpi-delta down">▼ 5,2% к прош. кварталу</div>
+          <div class="kpi-source"><strong>Откуда:</strong> Ячейка E14 (факт количество КП за год) / D14 (план количество КП за год) листа СВОД ТД-ПМ. Формула: =COUNTIFS(ПЛ!L$4:L$3334,"<>ЕП",...)</div>
+          <div class="clickable-hint">→ Аналитика</div>
+        </div>
+        <div class="kpi-card data-tip" data-source="СВОД ТД-ПМ!U259 (экономия год)" onclick="showPage('economy')">
+          <div class="kpi-label">Экономия</div>
+          <div class="kpi-value" style="color: var(--green);">35 420</div>
+          <div class="kpi-delta up">▲ 8,7% — зона 5-15%</div>
+          <div class="kpi-source"><strong>Откуда:</strong> Ячейка U259 листа СВОД ТД-ПМ (экономия за год, тыс.руб). Расчёт: НМЦК − Цена контракта по всем завершённым КП. % экономии = экономия / план × 100</div>
+          <div class="clickable-hint">→ Экономика</div>
+        </div>
+        <div class="kpi-card data-tip" data-source="Агрегат сигналов из строк отделов">
+          <div class="kpi-label">Просроченные</div>
+          <div class="kpi-value" style="color: var(--red);">23</div>
+          <div class="kpi-delta down">▲ 7 новых за неделю</div>
+          <div class="kpi-source"><strong>Откуда:</strong> Подсчёт строк у которых: плановая дата прошла + нет факта + не подписан + не отменён. Данные из листов ВСЕ каждого отдела, колонки O/P (план) и Q (факт)</div>
+        </div>
+        <div class="kpi-card data-tip" data-source="Trust Score: 0.4×данные + 0.25×контроль + 0.25×маппинг + 0.10×закупки" onclick="showPage('trust')">
+          <div class="kpi-label">Trust Score</div>
+          <div class="kpi-value" style="color: var(--accent);">B+</div>
+          <div class="kpi-delta neutral">72 / 100</div>
+          <div class="kpi-source"><strong>Откуда:</strong> Взвешенный скоринг: качество данных (40%) + контроль формул (25%) + согласованность маппинга (25%) + закупочная дисциплина (10%)</div>
+          <div class="clickable-hint">→ Доверие</div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">📊 Исполнение по отделам</div>
+          <div class="chart-placeholder">
+            <svg width="380" height="180" viewBox="0 0 380 180">
+              <rect x="10" y="130" width="35" height="50" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="10" y="80" width="35" height="100" rx="4" fill="#3b82f6"/>
+              <rect x="55" y="100" width="35" height="80" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="55" y="120" width="35" height="60" rx="4" fill="#3b82f6"/>
+              <rect x="100" y="60" width="35" height="120" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="100" y="140" width="35" height="40" rx="4" fill="#ef4444"/>
+              <rect x="145" y="90" width="35" height="90" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="145" y="110" width="35" height="70" rx="4" fill="#3b82f6"/>
+              <rect x="190" y="70" width="35" height="110" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="190" y="90" width="35" height="90" rx="4" fill="#3b82f6"/>
+              <rect x="235" y="110" width="35" height="70" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="235" y="130" width="35" height="50" rx="4" fill="#f59e0b"/>
+              <rect x="280" y="80" width="35" height="100" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="280" y="100" width="35" height="80" rx="4" fill="#3b82f6"/>
+              <rect x="325" y="50" width="35" height="130" rx="4" fill="#3b82f6" opacity="0.3"/><rect x="325" y="60" width="35" height="120" rx="4" fill="#10b981"/>
+              <text x="27" y="178" text-anchor="middle" font-size="9" fill="#64748b">УЭР</text>
+              <text x="72" y="178" text-anchor="middle" font-size="9" fill="#64748b">УИО</text>
+              <text x="117" y="178" text-anchor="middle" font-size="9" fill="#64748b">УАГЗО</text>
+              <text x="162" y="178" text-anchor="middle" font-size="9" fill="#64748b">УФБП</text>
+              <text x="207" y="178" text-anchor="middle" font-size="9" fill="#64748b">УД</text>
+              <text x="252" y="178" text-anchor="middle" font-size="9" fill="#64748b">УДТХ</text>
+              <text x="297" y="178" text-anchor="middle" font-size="9" fill="#64748b">УКСиМП</text>
+              <text x="342" y="178" text-anchor="middle" font-size="9" fill="#64748b">УО</text>
+            </svg>
+          </div>
+          <div class="annotation"><strong>Маппинг:</strong> План (прозрачный) из ячеек <code>D64, D94, D124...</code> СВОД; Факт (яркий) из <code>E64, E94...</code>. Цвет: зелёный &gt;80%, синий 50-80%, жёлтый 30-50%, красный &lt;30%</div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🍩 Конкурсные vs Единственный поставщик</div>
+          <div class="chart-placeholder">
+            <svg width="200" height="200" viewBox="0 0 200 200">
+              <circle cx="100" cy="100" r="80" fill="none" stroke="#3b82f6" stroke-width="30" stroke-dasharray="310 503" transform="rotate(-90 100 100)"/>
+              <circle cx="100" cy="100" r="80" fill="none" stroke="#f59e0b" stroke-width="30" stroke-dasharray="193 503" stroke-dashoffset="-310" transform="rotate(-90 100 100)"/>
+              <circle cx="100" cy="100" r="60" fill="white"/>
+              <text x="100" y="95" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">62%</text>
+              <text x="100" y="112" text-anchor="middle" font-size="10" fill="#64748b">КП</text>
+            </svg>
+            <div style="position:absolute;right:20px;top:20px;font-size:11px;text-align:right;">
+              <div style="color:#3b82f6">● КП: 491 (62%)</div>
+              <div style="color:#f59e0b">● ЕП: 2 205 (38%)</div>
+            </div>
+          </div>
+          <div class="annotation"><strong>Маппинг:</strong> КП количество из <code>СВОД!D14</code>, ЕП из <code>СВОД!D26</code>. Высокая доля ЕП — антикоррупционный индикатор (44-ФЗ ст.93)</div>
+        </div>
+      </div>
+
+      <!-- Department cards -->
+      <div class="section-title">🏛️ Отделы (ГРБС)</div>
+      <div class="dept-grid">
+        <div class="dept-card green" onclick="showPage('grbs')">
+          <div class="dept-name">УЭР</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--green)">87%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span>0</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>2</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:87%;background:var(--green)"></div></div>
+          <div class="clickable-hint">→ Карточка ГРБС</div>
+        </div>
+        <div class="dept-card yellow" onclick="showPage('grbs')">
+          <div class="dept-name">УИО</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--yellow)">52%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span style="color:var(--red)">5</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>8</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:52%;background:var(--yellow)"></div></div>
+        </div>
+        <div class="dept-card red" onclick="showPage('grbs')">
+          <div class="dept-name">УАГЗО</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--red)">28%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span style="color:var(--red)">12</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span style="color:var(--red)">15</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:28%;background:var(--red)"></div></div>
+        </div>
+        <div class="dept-card green" onclick="showPage('grbs')">
+          <div class="dept-name">УФБП</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--green)">71%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span>1</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>3</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:71%;background:var(--green)"></div></div>
+        </div>
+        <div class="dept-card yellow">
+          <div class="dept-name">УД</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--yellow)">45%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span style="color:var(--red)">3</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>6</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:45%;background:var(--yellow)"></div></div>
+        </div>
+        <div class="dept-card yellow">
+          <div class="dept-name">УДТХ</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--yellow)">38%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span>2</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>5</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:38%;background:var(--yellow)"></div></div>
+        </div>
+        <div class="dept-card green">
+          <div class="dept-name">УКСиМП</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--green)">65%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span>0</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>1</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:65%;background:var(--green)"></div></div>
+        </div>
+        <div class="dept-card green">
+          <div class="dept-name">УО</div>
+          <div class="dept-metric"><span class="label">Исполнение</span><span style="color:var(--green)">92%</span></div>
+          <div class="dept-metric"><span class="label">Просрочки</span><span>0</span></div>
+          <div class="dept-metric"><span class="label">Замечания</span><span>0</span></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width:92%;background:var(--green)"></div></div>
+        </div>
+      </div>
+
+      <!-- Top issues -->
+      <div class="section-title">⚠️ Критические замечания</div>
+      <div class="issues-section">
+        <div class="issue-card" onclick="showPage('issues')">
+          <div class="issue-severity high"></div>
+          <div class="issue-text">Расхождение СВОД/расчёт по УАГЗО: дельта −4 800 тыс.руб. Формулы СВОД не совпадают с суммой строк.</div>
+          <div class="issue-dept">УАГЗО</div>
+        </div>
+        <div class="issue-card" onclick="showPage('issues')">
+          <div class="issue-severity high"></div>
+          <div class="issue-text">12 закупок просрочены более 30 дней. Плановые сроки прошли, факт отсутствует, статус не обновлён.</div>
+          <div class="issue-dept">УАГЗО</div>
+        </div>
+        <div class="issue-card" onclick="showPage('issues')">
+          <div class="issue-severity medium"></div>
+          <div class="issue-text">Подозрительная экономия: ЕП закупка на 2.1 млн с экономией 45%. Возможно завышение НМЦК (44-ФЗ ст.37).</div>
+          <div class="issue-dept">УИО</div>
+        </div>
+        <div class="issue-card" onclick="showPage('issues')">
+          <div class="issue-severity medium"></div>
+          <div class="issue-text">5 закупок УИО: факт заполнен, но статус "планируется" — несогласованность данных.</div>
+          <div class="issue-dept">УИО</div>
+        </div>
+        <div class="issue-card" onclick="showPage('issues')">
+          <div class="issue-severity low"></div>
+          <div class="issue-text">2 строки УЭР: обязательное поле "Способ определения" пустое.</div>
+          <div class="issue-dept">УЭР</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== DATA BROWSER PAGE ==================== -->
+    <div class="page" id="page-data">
+      <div class="table-container">
+        <div class="table-toolbar">
+          <select><option>УЭР</option><option>УИО</option><option>УАГЗО</option><option>УФБП</option><option>УД</option><option>УДТХ</option><option>УКСиМП</option><option>УО</option></select>
+          <input type="text" placeholder="Поиск по предмету закупки...">
+          <select><option>Все статусы</option><option>Подписан</option><option>Планируется</option><option>Просрочен</option><option>Отменён</option></select>
+          <button class="filter-btn" style="background:var(--accent);color:white;">Экспорт XLSX</button>
+          <select><option>25 строк</option><option>50 строк</option><option>100 строк</option></select>
+        </div>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>№</th>
+                <th>Предмет закупки</th>
+                <th>Способ</th>
+                <th>План кол-во</th>
+                <th>Факт кол-во</th>
+                <th>План сумма</th>
+                <th>Факт сумма</th>
+                <th>Экономия</th>
+                <th>Статус</th>
+                <th>Сигналы</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td class="cell-editable">Ремонт дорожного полотна ул. Ленина</td>
+                <td>Аукцион</td>
+                <td class="cell-formula" title="Формула: =COUNTIFS(...)">3</td>
+                <td class="cell-editable">3</td>
+                <td class="cell-formula" title="Формула: =SUMIFS(...)">1 250,0</td>
+                <td class="cell-editable">1 180,5</td>
+                <td style="color:var(--green)">+69,5 (5,6%)</td>
+                <td><span class="badge badge-green">● Подписан</span></td>
+                <td><span class="badge badge-green">✓ Факт</span> <span class="badge badge-blue">💰 Эконом.</span></td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td class="cell-editable">Поставка компьютерного оборудования</td>
+                <td>ЕП</td>
+                <td class="cell-formula">1</td>
+                <td class="cell-editable">—</td>
+                <td class="cell-formula">890,0</td>
+                <td class="cell-editable">—</td>
+                <td>—</td>
+                <td><span class="badge badge-red">● Просрочен</span></td>
+                <td><span class="badge badge-red">⏰ 32 дня</span> <span class="badge badge-yellow">⚡ ЕП-риск</span></td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td class="cell-editable">Услуги по уборке территории</td>
+                <td>Аукцион</td>
+                <td class="cell-formula">1</td>
+                <td class="cell-editable">—</td>
+                <td class="cell-formula">2 100,0</td>
+                <td class="cell-editable">—</td>
+                <td>—</td>
+                <td><span class="badge badge-yellow">● Планируется</span></td>
+                <td><span class="badge badge-blue">📅 Скоро</span></td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td class="cell-editable">Закупка канцтоваров для нужд</td>
+                <td>ЕП</td>
+                <td class="cell-formula">1</td>
+                <td class="cell-editable">1</td>
+                <td class="cell-formula">340,0</td>
+                <td class="cell-editable">340,0</td>
+                <td style="color:var(--text-muted)">0 (0%)</td>
+                <td><span class="badge badge-green">● Есть факт</span></td>
+                <td><span class="badge badge-green">✓ Факт</span></td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td class="cell-editable">Капитальный ремонт здания адм.</td>
+                <td>Конкурс</td>
+                <td class="cell-formula">1</td>
+                <td class="cell-editable">1</td>
+                <td class="cell-formula">15 800,0</td>
+                <td class="cell-editable">8 700,0</td>
+                <td style="color:var(--red)">+7 100 (45%)</td>
+                <td><span class="badge badge-green">● Подписан</span></td>
+                <td><span class="badge badge-red">🚨 >25%</span> <span class="badge badge-yellow">⚡ Антидемп.</span></td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td class="cell-editable" style="color:var(--red)">ОШИБКА: "ремонт двоорого полотна"</td>
+                <td>—</td>
+                <td class="cell-formula">—</td>
+                <td class="cell-editable">—</td>
+                <td class="cell-formula">—</td>
+                <td class="cell-editable">—</td>
+                <td>—</td>
+                <td><span class="badge badge-red">● Ошибка</span></td>
+                <td><span class="badge badge-red">⚠️ Грязные данные</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <span>Показано: 1-25 из 287</span>
+          <div style="display:flex;gap:4px;">
+            <button class="filter-btn">‹</button>
+            <button class="filter-btn active">1</button>
+            <button class="filter-btn">2</button>
+            <button class="filter-btn">3</button>
+            <button class="filter-btn">...</button>
+            <button class="filter-btn">12</button>
+            <button class="filter-btn">›</button>
+          </div>
+        </div>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Интерактивность:</strong> Серые ячейки = формулы (нередактируемые, колонки K, O, P, R, S, T, Y, Z, AA, AB, AC).
+        Белые ячейки = ручной ввод (клик → инлайн-редактирование → валидация → нормализация → сохранение в Google Sheets + лог).
+        Бейджи = автоматические сигналы. Красная экономия >25% = антидемпинговый порог (44-ФЗ ст.37).
+        <strong>Навигация:</strong> Клик на строку → детальная карточка закупки. Клик на отдел → фильтрация.
+      </div>
+    </div>
+
+    <!-- ==================== ECONOMY PAGE ==================== -->
+    <div class="page" id="page-economy">
+      <div class="economy-grid">
+        <div class="economy-stat">
+          <div class="kpi-label">Общая экономия (НМЦК − Цена контракта)</div>
+          <div class="value" style="color:var(--green)">35 420 тыс.₽</div>
+          <div class="economy-zone zone-green">Зона 5-15%: норма</div>
+          <div class="kpi-source" style="display:block;margin-top:8px"><strong>Откуда:</strong> Сумма (НМЦК − цена контракта) по всем завершённым КП. Ячейки U по блокам отделов СВОД ТД-ПМ (U64+U94+U124+...)</div>
+        </div>
+        <div class="economy-stat">
+          <div class="kpi-label">Средний % снижения</div>
+          <div class="value" style="color:var(--green)">8,7%</div>
+          <div class="economy-zone zone-green">Среднероссийский: ~8%</div>
+          <div class="kpi-source" style="display:block;margin-top:8px"><strong>Откуда:</strong> Средневзвешенный % по всем КП: Σ(НМЦК−Цена)/Σ(НМЦК)×100</div>
+        </div>
+        <div class="economy-stat">
+          <div class="kpi-label">Антидемпинговые сигналы (>25%)</div>
+          <div class="value" style="color:var(--red)">3</div>
+          <div class="economy-zone zone-red">Требуют проверки (ст.37 44-ФЗ)</div>
+        </div>
+        <div class="economy-stat">
+          <div class="kpi-label">Подозрительно низкая экономия (<2%)</div>
+          <div class="value" style="color:var(--yellow)">7</div>
+          <div class="economy-zone zone-yellow">Возможен предопред. победитель</div>
+        </div>
+      </div>
+
+      <div class="section-title">💰 Экономия по отделам</div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Отдел</th>
+              <th>НМЦК (тыс.₽)</th>
+              <th>Цена контрактов</th>
+              <th>Экономия</th>
+              <th>% снижения</th>
+              <th>Зона</th>
+              <th>Конфликты</th>
+              <th>1 участник</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>УЭР</strong></td>
+              <td>150 000</td>
+              <td>142 500</td>
+              <td style="color:var(--green)">+7 500</td>
+              <td>5,0%</td>
+              <td><span class="badge badge-green">Норма</span></td>
+              <td>0</td>
+              <td>2</td>
+            </tr>
+            <tr>
+              <td><strong>УАГЗО</strong></td>
+              <td>210 000</td>
+              <td>195 200</td>
+              <td style="color:var(--green)">+14 800</td>
+              <td>7,0%</td>
+              <td><span class="badge badge-green">Норма</span></td>
+              <td>0</td>
+              <td>5</td>
+            </tr>
+            <tr style="background:#fff5f5">
+              <td><strong>УИО</strong></td>
+              <td>95 000</td>
+              <td>52 250</td>
+              <td style="color:var(--red)">+42 750</td>
+              <td style="color:var(--red)">45,0%</td>
+              <td><span class="badge badge-red">>25% ⚠️</span></td>
+              <td style="color:var(--red)"><strong>2</strong></td>
+              <td>0</td>
+            </tr>
+            <tr>
+              <td><strong>УФБП</strong></td>
+              <td>80 000</td>
+              <td>78 800</td>
+              <td style="color:var(--yellow)">+1 200</td>
+              <td style="color:var(--yellow)">1,5%</td>
+              <td><span class="badge badge-yellow"><2% ⚠️</span></td>
+              <td>0</td>
+              <td style="color:var(--red)">8</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Методика экономии (44-ФЗ):</strong><br>
+        Экономия = НМЦК − Цена контракта. Считается ТОЛЬКО для конкурсных процедур (КП). Для ЕП (ст.93) экономия = 0, это норма — нет конкуренции.<br>
+        <strong>Зоны:</strong> 🟢 5-15% — норма | 🟡 2-5% или 15-25% — внимание | 🔴 >25% — антидемпинг (ст.37), <2% — предопред. победитель<br>
+        <strong>Конфликты:</strong> Колонка AD (флаг "экономия" от уполномоченного органа) vs фактический расчёт. Если AD="есть экономия" но факт ≥ НМЦК → конфликт.<br>
+        <strong>Приоритет:</strong> Решение уполномоченного органа (колонка AD) > комментарии ГРБС.<br>
+        <strong>"1 участник":</strong> Закупки с единственным участником — формальная конкуренция отсутствует.
+      </div>
+    </div>
+
+    <!-- ==================== ANALYTICS PAGE ==================== -->
+    <div class="page" id="page-analytics">
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">📈 Динамика исполнения (по снапшотам)</div>
+          <div class="chart-placeholder" style="height:220px;">
+            <svg width="380" height="200" viewBox="0 0 380 200">
+              <!-- Plan line (dashed) -->
+              <path d="M 20 160 L 80 140 L 140 120 L 200 100 L 260 80 L 320 60 L 360 50" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,4" opacity="0.5"/>
+              <!-- Fact line -->
+              <path d="M 20 180 L 80 170 L 140 155 L 200 140 L 260 120 L 320 115 L 360 110" fill="none" stroke="#3b82f6" stroke-width="3"/>
+              <circle cx="20" cy="180" r="4" fill="#3b82f6"/><circle cx="80" cy="170" r="4" fill="#3b82f6"/>
+              <circle cx="140" cy="155" r="4" fill="#3b82f6"/><circle cx="200" cy="140" r="4" fill="#3b82f6"/>
+              <circle cx="260" cy="120" r="4" fill="#3b82f6"/><circle cx="320" cy="115" r="4" fill="#3b82f6"/>
+              <circle cx="360" cy="110" r="4" fill="#3b82f6"/>
+              <text x="20" y="198" font-size="9" fill="#64748b">Янв</text>
+              <text x="80" y="198" font-size="9" fill="#64748b">Фев</text>
+              <text x="140" y="198" font-size="9" fill="#64748b">Мар</text>
+              <text x="200" y="198" font-size="9" fill="#64748b">Апр</text>
+              <text x="260" y="198" font-size="9" fill="#64748b">Май</text>
+              <text x="320" y="198" font-size="9" fill="#64748b">Июн</text>
+              <text x="50" y="15" font-size="10" fill="#64748b">--- План   — Факт</text>
+            </svg>
+          </div>
+          <div class="annotation"><strong>Маппинг:</strong> Каждая точка = снапшот из БД. План — из ячеек СВОД на момент снапшота. Факт — из ячеек СВОД. Тренд показывает динамику отставания/прогресса.</div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">📊 Бюджеты: ФБ / КБ / МБ</div>
+          <div class="chart-placeholder" style="height:220px;">
+            <svg width="300" height="200" viewBox="0 0 300 200">
+              <!-- Stacked bars -->
+              <rect x="20" y="60" width="50" height="60" rx="2" fill="#3b82f6"/>
+              <rect x="20" y="120" width="50" height="40" rx="2" fill="#8b5cf6"/>
+              <rect x="20" y="160" width="50" height="30" rx="2" fill="#06b6d4"/>
+              <rect x="90" y="40" width="50" height="80" rx="2" fill="#3b82f6"/>
+              <rect x="90" y="120" width="50" height="50" rx="2" fill="#8b5cf6"/>
+              <rect x="90" y="170" width="50" height="20" rx="2" fill="#06b6d4"/>
+              <rect x="160" y="80" width="50" height="40" rx="2" fill="#3b82f6"/>
+              <rect x="160" y="120" width="50" height="30" rx="2" fill="#8b5cf6"/>
+              <rect x="160" y="150" width="50" height="40" rx="2" fill="#06b6d4"/>
+              <rect x="230" y="50" width="50" height="70" rx="2" fill="#3b82f6"/>
+              <rect x="230" y="120" width="50" height="45" rx="2" fill="#8b5cf6"/>
+              <rect x="230" y="165" width="50" height="25" rx="2" fill="#06b6d4"/>
+              <text x="45" y="198" text-anchor="middle" font-size="9" fill="#64748b">Q1</text>
+              <text x="115" y="198" text-anchor="middle" font-size="9" fill="#64748b">Q2</text>
+              <text x="185" y="198" text-anchor="middle" font-size="9" fill="#64748b">Q3</text>
+              <text x="255" y="198" text-anchor="middle" font-size="9" fill="#64748b">Q4</text>
+              <text x="160" y="15" font-size="10" fill="#64748b">● ФБ  ● КБ  ● МБ</text>
+            </svg>
+          </div>
+          <div class="annotation"><strong>Маппинг:</strong> ФБ из колонок V (Q1), W (Q2)... КБ из X, Y... МБ из Z, AA... по каждому блоку отделов СВОД ТД-ПМ</div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">📊 Причины неисполнения (из отчётов)</div>
+          <div class="chart-placeholder" style="height:220px;">
+            <svg width="380" height="200" viewBox="0 0 380 200">
+              <rect x="160" y="15" width="200" height="16" rx="3" fill="#ef4444" opacity="0.2"/><rect x="160" y="15" width="160" height="16" rx="3" fill="#ef4444"/>
+              <text x="155" y="27" text-anchor="end" font-size="10" fill="#64748b">Нет предложений</text><text x="325" y="27" font-size="10" fill="#1e293b">31</text>
+              <rect x="160" y="40" width="200" height="16" rx="3" fill="#f59e0b" opacity="0.2"/><rect x="160" y="40" width="105" height="16" rx="3" fill="#f59e0b"/>
+              <text x="155" y="52" text-anchor="end" font-size="10" fill="#64748b">Недост. финансир.</text><text x="270" y="52" font-size="10" fill="#1e293b">21</text>
+              <rect x="160" y="65" width="200" height="16" rx="3" fill="#3b82f6" opacity="0.2"/><rect x="160" y="65" width="50" height="16" rx="3" fill="#3b82f6"/>
+              <text x="155" y="77" text-anchor="end" font-size="10" fill="#64748b">Срыв сроков</text><text x="215" y="77" font-size="10" fill="#1e293b">8</text>
+              <rect x="160" y="90" width="200" height="16" rx="3" fill="#8b5cf6" opacity="0.2"/><rect x="160" y="90" width="35" height="16" rx="3" fill="#8b5cf6"/>
+              <text x="155" y="102" text-anchor="end" font-size="10" fill="#64748b">Отказ участников</text><text x="200" y="102" font-size="10" fill="#1e293b">5</text>
+              <rect x="160" y="115" width="200" height="16" rx="3" fill="#06b6d4" opacity="0.2"/><rect x="160" y="115" width="25" height="16" rx="3" fill="#06b6d4"/>
+              <text x="155" y="127" text-anchor="end" font-size="10" fill="#64748b">Доп. согл.</text><text x="190" y="127" font-size="10" fill="#1e293b">3</text>
+            </svg>
+          </div>
+          <div class="annotation"><strong>Маппинг:</strong> Категории причин из анализа колонки U (статус) + AE/AF (комментарии). Группировка по нормализованным шаблонам причин.</div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">📊 Распределение сигналов</div>
+          <div class="chart-placeholder" style="height:220px;">
+            <svg width="380" height="200" viewBox="0 0 380 200">
+              <rect x="120" y="15" width="240" height="20" rx="4" fill="#10b981" opacity="0.2"/><rect x="120" y="15" width="180" height="20" rx="4" fill="#10b981"/>
+              <text x="115" y="30" text-anchor="end" font-size="11" fill="#64748b">Подписан</text><text x="305" y="30" font-size="11" fill="#1e293b" font-weight="600">156</text>
+              <rect x="120" y="45" width="240" height="20" rx="4" fill="#3b82f6" opacity="0.2"/><rect x="120" y="45" width="130" height="20" rx="4" fill="#3b82f6"/>
+              <text x="115" y="60" text-anchor="end" font-size="11" fill="#64748b">Есть факт</text><text x="255" y="60" font-size="11" fill="#1e293b" font-weight="600">108</text>
+              <rect x="120" y="75" width="240" height="20" rx="4" fill="#f59e0b" opacity="0.2"/><rect x="120" y="75" width="100" height="20" rx="4" fill="#f59e0b"/>
+              <text x="115" y="90" text-anchor="end" font-size="11" fill="#64748b">Планируется</text><text x="225" y="90" font-size="11" fill="#1e293b" font-weight="600">85</text>
+              <rect x="120" y="105" width="240" height="20" rx="4" fill="#ef4444" opacity="0.2"/><rect x="120" y="105" width="30" height="20" rx="4" fill="#ef4444"/>
+              <text x="115" y="120" text-anchor="end" font-size="11" fill="#64748b">Просрочен</text><text x="155" y="120" font-size="11" fill="#1e293b" font-weight="600">23</text>
+              <rect x="120" y="135" width="240" height="20" rx="4" fill="#64748b" opacity="0.2"/><rect x="120" y="135" width="20" height="20" rx="4" fill="#64748b"/>
+              <text x="115" y="150" text-anchor="end" font-size="11" fill="#64748b">Отменён</text><text x="145" y="150" font-size="11" fill="#1e293b" font-weight="600">15</text>
+            </svg>
+          </div>
+          <div class="annotation"><strong>Маппинг:</strong> Агрегация сигналов из всех строк всех отделов. Каждая строка → detectSignals() → classifyRowState() → счётчик.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== RECONCILIATION PAGE ==================== -->
+    <div class="page" id="page-recon">
+      <div class="section-title">🔍 Сверка: СВОД vs Расчёт (единая методика)</div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Отдел</th>
+              <th>План СВОД</th>
+              <th>План расчёт</th>
+              <th>Δ план</th>
+              <th>Факт СВОД</th>
+              <th>Факт расчёт</th>
+              <th>Δ факт</th>
+              <th>Оценка</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>УЭР</strong></td>
+              <td class="data-tip" data-source="СВОД!D64">150 000</td>
+              <td class="data-tip" data-source="SUMIFS по строкам УЭР">148 500</td>
+              <td style="color:var(--yellow)">−1 500</td>
+              <td class="data-tip" data-source="СВОД!E64">82 000</td>
+              <td class="data-tip" data-source="SUMIFS по строкам УЭР">82 000</td>
+              <td style="color:var(--green)">0</td>
+              <td><span class="badge badge-yellow">Допустимо</span></td>
+            </tr>
+            <tr>
+              <td><strong>УИО</strong></td>
+              <td>95 000</td>
+              <td>95 000</td>
+              <td style="color:var(--green)">0</td>
+              <td>41 200</td>
+              <td>39 800</td>
+              <td style="color:var(--yellow)">−1 400</td>
+              <td><span class="badge badge-yellow">Допустимо</span></td>
+            </tr>
+            <tr style="background:#fff5f5">
+              <td><strong>УАГЗО</strong></td>
+              <td>210 000</td>
+              <td>205 200</td>
+              <td style="color:var(--red)">−4 800</td>
+              <td>58 800</td>
+              <td>52 100</td>
+              <td style="color:var(--red)">−6 700</td>
+              <td><span class="badge badge-red">Критично</span></td>
+            </tr>
+            <tr>
+              <td><strong>УФБП</strong></td>
+              <td>80 000</td>
+              <td>80 000</td>
+              <td style="color:var(--green)">0</td>
+              <td>56 800</td>
+              <td>56 800</td>
+              <td style="color:var(--green)">0</td>
+              <td><span class="badge badge-green">OK</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Единая методика сверки:</strong><br>
+        1. «План СВОД» — из ячеек СВОД ТД-ПМ (D64, D94, D124...) — значения формул COUNTIFS/SUMIFS<br>
+        2. «План расчёт» — НАША реплика тех же COUNTIFS/SUMIFS по тем же строкам листа ВСЕ (колонки L, O, P, F, K)<br>
+        3. Дельта ≠ 0 означает: формулы СВОД считают не то же, что строки — <strong>проблема в формулах или данных</strong><br>
+        <strong>Оценка:</strong> |Δ| < 1% = OK | 1-3% = Допустимо | >3% = Критично
+      </div>
+    </div>
+
+    <!-- ==================== GRBS PAGE ==================== -->
+    <div class="page" id="page-grbs">
+      <div class="section-title">🏛️ Карточка ГРБС: УЭР</div>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Всего закупок</div>
+          <div class="kpi-value">47</div>
+          <div class="kpi-source" style="display:block">Количество строк в листе ВСЕ отдела УЭР (spreadsheet <code>15NEAE1z...</code>)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Исполнение плана</div>
+          <div class="kpi-value" style="color:var(--green)">87%</div>
+          <div class="kpi-source" style="display:block">Факт КП / План КП из ячеек <code>СВОД!E64/D64</code></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Экономия</div>
+          <div class="kpi-value" style="color:var(--green)">7 500</div>
+          <div class="kpi-source" style="display:block">Ячейка <code>СВОД!U64</code> — разница НМЦК и цены контрактов</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Замечания</div>
+          <div class="kpi-value">2</div>
+          <div class="kpi-source" style="display:block">Из таблицы <code>issues</code> БД, фильтр dept=УЭР, status≠closed</div>
+        </div>
+      </div>
+      <div class="annotation">
+        <strong>Навигация:</strong> Из дашборда → клик на карточку отдела → эта страница.
+        Клик на "Всего закупок" → DataBrowser с фильтром dept=УЭР.
+        Клик на "Замечания" → страница Замечания с фильтром dept=УЭР.
+        Каждая метрика содержит tooltip с объяснением откуда взято значение.
+      </div>
+    </div>
+
+    <!-- ==================== TRUST PAGE ==================== -->
+    <div class="page" id="page-trust">
+      <div class="section-title">🛡️ Индекс доверия к данным</div>
+      <div class="trust-container">
+        <div class="trust-gauge">
+          <div class="gauge-circle">
+            <svg viewBox="0 0 160 160">
+              <circle cx="80" cy="80" r="70" fill="none" stroke="#e2e8f0" stroke-width="12"/>
+              <circle cx="80" cy="80" r="70" fill="none" stroke="#3b82f6" stroke-width="12" stroke-dasharray="316" stroke-dashoffset="88" transform="rotate(-90 80 80)" stroke-linecap="round"/>
+            </svg>
+            <div class="gauge-value">72</div>
+          </div>
+          <div class="gauge-grade" style="color:var(--accent)">B+</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Данные в целом надёжны, но есть проблемы</div>
+        </div>
+        <div class="trust-components">
+          <h3 style="margin-bottom:16px;font-size:14px;">Компоненты скоринга</h3>
+          <div class="trust-row">
+            <div class="trust-label">Качество данных (полнота, корректность)</div>
+            <div class="trust-bar-bg"><div class="trust-bar-fill" style="width:68%;background:var(--yellow)"></div></div>
+            <div class="trust-weight">40%</div>
+          </div>
+          <div class="trust-row">
+            <div class="trust-label">Целостность формул (нет #REF, #VALUE)</div>
+            <div class="trust-bar-bg"><div class="trust-bar-fill" style="width:85%;background:var(--green)"></div></div>
+            <div class="trust-weight">25%</div>
+          </div>
+          <div class="trust-row">
+            <div class="trust-label">Согласованность маппинга (СВОД = расчёт)</div>
+            <div class="trust-bar-bg"><div class="trust-bar-fill" style="width:62%;background:var(--yellow)"></div></div>
+            <div class="trust-weight">25%</div>
+          </div>
+          <div class="trust-row">
+            <div class="trust-label">Закупочная дисциплина (сроки, полнота)</div>
+            <div class="trust-bar-bg"><div class="trust-bar-fill" style="width:78%;background:var(--green)"></div></div>
+            <div class="trust-weight">10%</div>
+          </div>
+        </div>
+      </div>
+      <div class="annotation">
+        <strong>Формула:</strong> Trust = 0.40 × данные + 0.25 × формулы + 0.25 × маппинг + 0.10 × дисциплина<br>
+        <strong>Грейды:</strong> A (90+) = полное доверие | B (70-89) = в целом надёжно | C (50-69) = есть проблемы | D (<50) = данные ненадёжны<br>
+        <strong>Расширяемость:</strong> Компоненты и веса можно менять. Можно добавить: соответствие 44-ФЗ, антикоррупционный скоринг, и др.
+      </div>
+    </div>
+
+    <!-- ==================== ISSUES PAGE ==================== -->
+    <div class="page" id="page-issues">
+      <div class="section-title">⚠️ Замечания</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <select class="filter-btn" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;">
+          <option>Все отделы</option><option>УЭР</option><option>УАГЗО</option>
+        </select>
+        <select class="filter-btn" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;">
+          <option>Все статусы</option><option>Новое</option><option>В работе</option><option>Исправлено</option>
+        </select>
+      </div>
+
+      <div style="background:var(--bg-card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <span class="badge badge-red" style="font-size:12px;">Критичное</span>
+          <strong style="font-size:14px;">R005: Расхождение СВОД/расчёт</strong>
+          <span class="badge badge-blue">УАГЗО</span>
+          <span style="flex:1"></span>
+          <span class="badge badge-yellow">В работе</span>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
+          Плановые суммы в СВОД ТД-ПМ (ячейка D124 = 210 000) не совпадают с суммой строк листа ВСЕ отдела УАГЗО (расчёт = 205 200). Дельта: −4 800 тыс.руб (2,3%). Вероятная причина: формулы COUNTIFS не учитывают строки с пустым полем P (квартал).
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <button class="filter-btn" style="background:var(--green);color:white;">Исправлено</button>
+          <button class="filter-btn" style="background:var(--yellow);color:white;">Исключение</button>
+          <button class="filter-btn" style="border:1px solid var(--border);">Отклонить</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;">
+          ● 04.04 10:15 — Создано автоматически при обновлении данных<br>
+          ● 04.04 11:30 — Взято в работу (Система)
+        </div>
+      </div>
+      <div class="annotation">
+        <strong>Жизненный цикл:</strong> Новое → В работе → Исправлено / Отклонено / Исключение / Закрыто<br>
+        <strong>Данные:</strong> Таблица <code>issues</code> + <code>issue_history</code> в БД. Создаются автоматически при обнаружении проблем пайплайном.<br>
+        <strong>Расширяемость:</strong> Правила из <code>rule-book.ts</code> — можно добавлять новые (ФЗ-соответствие, антикоррупция, и т.д.)
+      </div>
+    </div>
+
+    <!-- ==================== RECOMMENDATIONS PAGE ==================== -->
+    <div class="page" id="page-recs">
+      <div class="section-title">💡 Рекомендации</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border-left:4px solid var(--red);">
+          <div style="font-weight:600;margin-bottom:8px;">🔴 УАГЗО: Критическое отставание</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+            Исполнение плана — 28%. 12 закупок просрочены более 30 дней. Расхождение с СВОД: −4 800 тыс.руб.
+            <strong>Рекомендуется:</strong> провести совещание с руководителем УАГЗО, запросить причины просрочек, проверить формулы СВОД на корректность.
+          </p>
+        </div>
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border-left:4px solid var(--yellow);">
+          <div style="font-weight:600;margin-bottom:8px;">🟡 УИО: Подозрительная экономия</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+            Средняя экономия 45% — значительно выше нормы (8%). 2 конфликта: флаг "экономия" не соответствует фактическим данным.
+            <strong>Рекомендуется:</strong> провести аудит НМЦК по закупкам с экономией >25%, проверить обоснованность начальных цен.
+          </p>
+        </div>
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border-left:4px solid var(--green);">
+          <div style="font-weight:600;margin-bottom:8px;">🟢 УЭР: Позитивная динамика</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+            Исполнение 87%, экономия в зоне нормы (5%), все данные согласованы. Ноль просрочек.
+            <strong>Рекомендация:</strong> отметить как лучшую практику, использовать как образец для других отделов.
+          </p>
+        </div>
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border-left:4px solid var(--yellow);">
+          <div style="font-weight:600;margin-bottom:8px;">🟡 УФБП: Слишком низкая конкуренция</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+            8 закупок с единственным участником. Средняя экономия 1,5% — ниже нормы. Возможен предопределённый победитель.
+            <strong>Рекомендуется:</strong> проверить качество ТЗ, расширить публикацию извещений, рассмотреть привлечение дополнительных поставщиков.
+          </p>
+        </div>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Источник:</strong> Рекомендации генерируются автоматически на основе: сигналов строк, скоринга доверия, сверки, экономии и тренда. Написаны на управленческом языке, а не техническом. Расширяемы через <code>recommendations.ts</code>.
+      </div>
+    </div>
+
+    <!-- ==================== JOURNAL PAGE ==================== -->
+    <div class="page" id="page-journal">
+      <div class="section-title">📜 Журнал изменений</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <input type="text" placeholder="Поиск..." style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:300px;">
+        <select style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+          <option>Все действия</option><option>Импорт</option><option>Правка</option><option>Замечание</option><option>Ошибка ввода</option>
+        </select>
+        <select style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+          <option>Все отделы</option>
+        </select>
+      </div>
+      <div style="background:var(--bg-card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;">
+        <div class="journal-entry">
+          <div class="journal-time">05.04 10:15</div>
+          <div class="journal-icon import">🔄</div>
+          <div class="journal-body">
+            <div class="journal-action">Импорт данных</div>
+            <div class="journal-detail">Пайплайн запущен. Обработано 287 строк из 9 таблиц. 3 ячейки нормализованы. Создан снапшот #47.</div>
+          </div>
+        </div>
+        <div class="journal-entry">
+          <div class="journal-time">05.04 10:16</div>
+          <div class="journal-icon warning">⚠️</div>
+          <div class="journal-body">
+            <div class="journal-action">Новое замечание</div>
+            <div class="journal-detail">R005: Расхождение СВОД/расчёт УАГЗО — дельта −4 800 тыс.руб. Правило: reconciliation_delta > 3%</div>
+          </div>
+        </div>
+        <div class="journal-entry">
+          <div class="journal-time">05.04 11:30</div>
+          <div class="journal-icon edit">✏️</div>
+          <div class="journal-body">
+            <div class="journal-action">Правка ячейки</div>
+            <div class="journal-detail">Иванова А.В. — УЭР, строка 15, поле "Статус": пусто → "Подписан". Нормализовано: "подписанн" → "подписан".</div>
+          </div>
+        </div>
+        <div class="journal-entry">
+          <div class="journal-time">05.04 11:31</div>
+          <div class="journal-icon error">🚫</div>
+          <div class="journal-body">
+            <div class="journal-action">Ошибка ввода</div>
+            <div class="journal-detail">Петрова О.Н. — УАГЗО, строка 42, поле "Сумма план": попытка ввести "абв вместо числа". Отклонено: невалидный формат.</div>
+          </div>
+        </div>
+        <div class="journal-entry">
+          <div class="journal-time">05.04 14:00</div>
+          <div class="journal-icon edit">🔧</div>
+          <div class="journal-body">
+            <div class="journal-action">Изменение маппинга</div>
+            <div class="journal-detail">Администратор — Метрика "КП год план" перенесена с ячейки D14 на D15 (коррекция структуры СВОД).</div>
+          </div>
+        </div>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Данные:</strong> Таблица <code>audit_log</code> в БД. Каждое действие: кто, когда, что, старое значение → новое. Включая: импорты, правки, ошибки ввода, нормализации, изменения маппинга, смены статусов замечаний. Полная хронология для антикоррупционного контроля.
+      </div>
+    </div>
+
+    <!-- ==================== SOURCES PAGE ==================== -->
+    <div class="page" id="page-sources">
+      <div class="section-title">📡 Источники данных (9 таблиц)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);border-left:4px solid var(--green);">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>СВОД ТД-ПМ</strong>
+            <span class="badge badge-green">● Online</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">ID: 1e8edyfu... | Обновлено: 05.04 10:15 | 275 строк</div>
+        </div>
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);border-left:4px solid var(--green);">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>УЭР</strong>
+            <span class="badge badge-green">● Online</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">ID: 15NEAE1z... | Обновлено: 05.04 10:15 | 47 строк</div>
+        </div>
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);border-left:4px solid var(--green);">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>УИО</strong>
+            <span class="badge badge-green">● Online</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">ID: 1qCBY5ED... | 52 строки</div>
+        </div>
+        <div style="background:var(--bg-card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);border-left:4px solid var(--red);">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>УАГЗО</strong>
+            <span class="badge badge-red">● Ошибка</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">ID: 1DgO0t_Z... | Последнее успешное: 04.04 | Ошибка: 403 Forbidden</div>
+        </div>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Данные:</strong> Статус каждой из 9 таблиц Google Sheets. Время последнего успешного чтения, количество строк, ошибки. При ошибке — система использует кэшированные данные из последнего успешного снапшота.
+      </div>
+    </div>
+
+    <!-- ==================== MAPPING PAGE ==================== -->
+    <div class="page" id="page-mapping">
+      <div class="section-title">⚙️ Настройка маппинга ячеек</div>
+      <div class="table-container">
+        <div class="table-toolbar">
+          <button class="filter-btn" style="background:var(--accent);color:white;">Проверить все</button>
+          <button class="filter-btn" style="border:1px solid var(--border);">Сбросить к умолчанию</button>
+          <div style="flex:1"></div>
+          <button class="filter-btn" style="background:var(--green);color:white;">Сохранить</button>
+        </div>
+        <div class="mapping-row" style="background:var(--bg-main);font-weight:600;font-size:11px;">
+          <div class="mapping-metric">Метрика</div>
+          <div class="mapping-cell" style="text-align:center;">Ячейка</div>
+          <div class="mapping-value">Значение</div>
+          <div class="mapping-status">Статус</div>
+        </div>
+        <div class="mapping-row">
+          <div class="mapping-metric">КП год: план количество</div>
+          <div class="mapping-cell"><input value="D14"></div>
+          <div class="mapping-value">491</div>
+          <div class="mapping-status"><span class="badge badge-green">OK</span></div>
+        </div>
+        <div class="mapping-row">
+          <div class="mapping-metric">КП год: факт количество</div>
+          <div class="mapping-cell"><input value="E14"></div>
+          <div class="mapping-value">103</div>
+          <div class="mapping-status"><span class="badge badge-green">OK</span></div>
+        </div>
+        <div class="mapping-row">
+          <div class="mapping-metric">КП Q1: план количество</div>
+          <div class="mapping-cell"><input value="D9"></div>
+          <div class="mapping-value">194</div>
+          <div class="mapping-status"><span class="badge badge-green">OK</span></div>
+        </div>
+        <div class="mapping-row">
+          <div class="mapping-metric">ЕП год: план количество</div>
+          <div class="mapping-cell"><input value="D26"></div>
+          <div class="mapping-value">2 205</div>
+          <div class="mapping-status"><span class="badge badge-green">OK</span></div>
+        </div>
+        <div class="mapping-row" style="background:#fff5f5">
+          <div class="mapping-metric">УЭР: КП план количество</div>
+          <div class="mapping-cell"><input value="D64" style="border-color:var(--red)"></div>
+          <div class="mapping-value" style="color:var(--red)">—</div>
+          <div class="mapping-status"><span class="badge badge-red">Пусто</span></div>
+        </div>
+        <div class="mapping-row">
+          <div class="mapping-metric">Экономия год (общая)</div>
+          <div class="mapping-cell"><input value="U259"></div>
+          <div class="mapping-value">35 420</div>
+          <div class="mapping-status"><span class="badge badge-green">OK</span></div>
+        </div>
+      </div>
+      <div class="annotation" style="margin-top:12px;">
+        <strong>Как это работает:</strong> Дефолтный маппинг загружается из <code>report-map.ts</code> (61 метрика). Здесь можно изменить ячейку для любой метрики. При клике "Проверить все" — система запрашивает значения из Google Sheets в реальном времени. Оверрайды сохраняются в таблице <code>mapping_overrides</code> БД. Можно сбросить к дефолту.
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script>
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  // Find matching nav item
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.onclick && n.onclick.toString().includes("'" + id + "'")) {
+      n.classList.add('active');
+    }
+  });
+}
+
+// Filter buttons toggle
+document.querySelectorAll('.filter-group').forEach(group => {
+  group.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+});
+
+// Table header sort simulation
+document.querySelectorAll('th').forEach(th => {
+  th.addEventListener('click', () => {
+    th.textContent = th.textContent.replace(/ [▲▼]$/, '');
+    th.textContent += th.dataset.sort === 'asc' ? ' ▼' : ' ▲';
+    th.dataset.sort = th.dataset.sort === 'asc' ? 'desc' : 'asc';
+  });
+});
+</script>
+</body>
+</html>

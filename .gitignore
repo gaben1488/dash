@@ -1,0 +1,35 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+.turbo
+coverage/
+drizzle/meta/
+
+# Large analysis/report files
+*.txt
+!packages/**/*.txt
+KARPATHY_SYNTHESIS.md
+FINAL_REPORT.txt
+SIGNAL_AUDIT_RESULTS.md
+SIGNAL_SYSTEM_AUDIT.md
+UX_RESEARCH_TEMPLATES.md
+
+# Temp/analysis
+.tmp-zip/
+tmp-analysis/
+_analyze_*.py
+
+# Credentials
+*.json
+!package.json
+!packages/**/package.json
+!tsconfig*.json
+!eslint.config.js
+!.prettierrc
+
+# Old code references
+old/
+data/
