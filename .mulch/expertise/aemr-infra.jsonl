@@ -1,0 +1,1 @@
+{"type":"pattern","name":"postgres-target","description":"PG migration target: 11 tables per design_postgresql_schema.md. CalcEngine -> SQL backend. Use Supabase MCP + postgres skill + ag-data-analytics-database-architect.","classification":"tactical","recorded_at":"2026-04-17T12:43:16.916Z","tags":["postgres"],"id":"mx-d2a1b5"}
