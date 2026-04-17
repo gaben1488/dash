@@ -1,21 +1,21 @@
 import { useState, useMemo } from 'react';
-import { useStore, type Page, type PeriodScope, type ProcurementFilter } from '../store';
+import { useStore, type Page, type PeriodScope } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
+import { useMultiDimMetrics } from '../hooks/useMultiDimMetrics';
 import { HeroKPICard, DeptBreakdown, BudgetBreakdown, TrustComponents } from '../components/HeroKPICard';
 import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
-import { FilterBreadcrumb } from '../components/FilterBreadcrumb';
 import { CriticalBannerV2 } from '../components/CriticalBannerV2';
 import { RatingTableV2, type DeptRowV2 } from '../components/RatingTableV2';
+import { DrillPieChart } from '../components/charts/DrillPieChart';
 import { KBTooltip } from '../components/ui/kb-tooltip';
-import { AlertTriangle, TrendingUp, TrendingDown, Clock, FileCheck2, Info, Download } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  Cell, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   ComposedChart, Line, CartesianGrid,
 } from 'recharts';
 import { useTheme } from '../components/ThemeProvider';
-import { getChartColors, getTooltipStyle, getAxisColor, getGridColor, getExecutionBarColor } from '../lib/chart-colors';
+import { getTooltipStyle, getAxisColor, getGridColor, getExecutionBarColor } from '../lib/chart-colors';
 import { getThresholdColor } from '../lib/metrics-registry';
-import { CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────────
 // Dashboard — Phase 4 Redesign
@@ -35,15 +35,6 @@ import { CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK } from '@aemr/shared';
 //
 // Principle: Click = Expand inline. "Подробнее →" for navigation.
 // ────────────────────────────────────────────────────────────────
-
-type PieDimension = 'procurement' | 'budget' | 'department' | 'execution';
-
-const PIE_DIMENSION_LABELS: Record<PieDimension, string> = {
-  procurement: 'Способ закупки',
-  budget: 'Бюджеты',
-  department: 'Управления',
-  execution: 'Исполнение',
-};
 
 function StatusLine({ data }: { data: any }) {
   const ts = data?.lastRefreshed
@@ -77,17 +68,14 @@ function StatusLine({ data }: { data: any }) {
 export function Dashboard() {
   const { dashboardData, loading, error, navigateTo, formatMoney, procurementFilter, toggleDepartment, selectedDepartments } = useStore();
   const fd = useFilteredData();
+  const mdm = useMultiDimMetrics();
   const isDark = useTheme(s => s.theme) === 'dark';
-  const chartColors = getChartColors(isDark);
   const { contentStyle: tooltipStyle } = getTooltipStyle(isDark);
   const cursorStyle = { fill: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(0,0,0,0.06)', stroke: 'none' };
 
-  const [pieDimension, setPieDimension] = useState<PieDimension>('procurement');
   const [expandedKpi, setExpandedKpi] = useState<string | null>(null);
 
-  const { topKpis, depts, barData, totalKP, totalEP, issues, periodKey, criticalIssues } = fd;
-
-  const pieData = buildPieData(pieDimension, fd, procurementFilter, formatMoney);
+  const { depts, barData, issues, periodKey } = fd;
 
   const planFactData = useMemo(() => {
     const sbp = fd.summaryByPeriod;
@@ -113,15 +101,10 @@ export function Dashboard() {
 
   // ── Build RatingTable data ──
   const ratingDepts = useMemo<DeptRowV2[]>(() => {
-    return depts.map((d: any) => {
-      // Quarterly sparkline data for exec_count_pct
-      const spark = (['q1', 'q2', 'q3', 'q4'] as const).map(qk => {
-        const q = d.quarters?.[qk];
-        if (!q) return 0;
-        const pc = q.planCount ?? 0;
-        const fc = q.factCount ?? 0;
-        return pc > 0 ? +((fc / pc) * 100).toFixed(1) : 0;
-      });
+    return mdm.departments.map((dm) => {
+      const d = dm.raw;
+      // Quarterly sparkline from mdm
+      const spark = dm.quarters.map(q => q.execPct);
 
       // ФБ execution %
       let fbExecPct: number | null = null;
@@ -132,32 +115,45 @@ export function Dashboard() {
         fbExecPct = planFB > 0 ? +((factFB / planFB) * 100).toFixed(1) : null;
       }
 
-      // Subordinates
-      const subs = (d.subordinates ?? []).map((s: any) => ({
-        name: s.name,
-        execAmountPct: s.planTotal > 0 ? +((s.factTotal / s.planTotal) * 100).toFixed(1) : null,
-        execCountPct: (s.planCount ?? 0) > 0
-          ? +(((s.factCount ?? 0) / s.planCount) * 100).toFixed(1)
-          : null,
-        issueCount: s.issueCount ?? 0,
-      }));
+      // Subordinates: _org_itself at top with dept name, then real subs
+      const subs: Array<{ name: string; execAmountPct: number | null; execCountPct: number | null; issueCount: number }> = [];
+
+      // Org-itself first (named as dept, not "_org_itself")
+      if (dm.orgSelf) {
+        subs.push({
+          name: `${dm.dept} (само)`,
+          execAmountPct: dm.orgSelf.metrics.executionPct || null,
+          execCountPct: dm.orgSelf.metrics.execCountPct || null,
+          issueCount: 0,
+        });
+      }
+
+      // Real subordinates
+      for (const s of dm.realSubs) {
+        subs.push({
+          name: s.displayName,
+          execAmountPct: s.metrics.executionPct || null,
+          execCountPct: s.metrics.execCountPct || null,
+          issueCount: 0,
+        });
+      }
 
       return {
-        id: d.department?.id ?? '',
-        name: d.department?.name ?? '',
-        nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
-        execAmountPct: fd.deptCardOverrides[d.department?.id]?.executionPercent ?? d.executionPercent ?? null,
-        execCountPct: fd.execCountPctByDeptId[d.department?.id] ?? null,
+        id: dm.deptId,
+        name: dm.deptName,
+        nameShort: dm.dept,
+        execAmountPct: dm.total.executionPct || null,
+        execCountPct: dm.total.execCountPct || null,
         fbExecPct,
         trustScore: d.trustScore ?? null,
         issueCount: d.issueCount ?? 0,
         criticalIssueCount: d.criticalIssueCount ?? 0,
         sparkData: spark.some(v => v > 0) ? spark : undefined,
-        deltaWeek: null, // TODO: compute from previous snapshot
+        deltaWeek: dm.delta ? +dm.delta.execPctChange.toFixed(1) : null,
         subordinates: subs.length > 0 ? subs : undefined,
       };
     });
-  }, [depts, periodKey, fd.deptCardOverrides, fd.execCountPctByDeptId]);
+  }, [mdm.departments, periodKey]);
 
 
   if (loading && !dashboardData) {
@@ -198,9 +194,6 @@ export function Dashboard() {
       <div className="flex items-center gap-3 flex-wrap">
         <StatusLine data={dashboardData} />
       </div>
-
-      {/* 2. FilterBreadcrumb */}
-      <FilterBreadcrumb />
 
       {/* 3. CriticalBanner — expandable with dept grouping */}
       <CriticalBannerV2
@@ -253,11 +246,29 @@ export function Dashboard() {
       {depts.length > 0 && (
         <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              Рейтинг управлений
-            </h3>
+            <KBTooltip metric="dept_rank">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Рейтинг управлений
+              </h3>
+            </KBTooltip>
             <span className="text-[10px] text-zinc-400">{depts.length} ГРБС</span>
           </div>
+          {/* Assertion header — anti-slop: insight, not description */}
+          {(() => {
+            const lagging = ratingDepts.filter((d) => (d.execCountPct ?? 0) < 50);
+            if (lagging.length > 0) {
+              return (
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-2">
+                  {lagging.length} {lagging.length === 1 ? 'управление отстаёт' : 'управлений отстают'} от графика (&lt;50%)
+                </p>
+              );
+            }
+            return (
+              <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-2">
+                Все управления в графике
+              </p>
+            );
+          })()}
           <RatingTableV2
             departments={ratingDepts}
             showSubordinates={selectedDepartments.size > 0}
@@ -333,6 +344,7 @@ export function Dashboard() {
       )}
 
       {/* 7. Charts row — Execution Bar + Pie (compact, not hero) */}
+      {/* Charts inherit responsive grid: 2/3 bar + 1/3 pie */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Bar: execution by department — takes 2/3 */}
         <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
@@ -385,66 +397,14 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Donut: multi-dimension — compact 1/3 */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-          <div className="flex items-center justify-between mb-3">
-            <KBTooltip metric={`pie_${pieDimension}`}>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                {pieDimension === 'execution' ? 'Исп. по кол-ву' : 'Распределение'}
-              </h3>
-            </KBTooltip>
-          </div>
-          <div className="flex flex-wrap gap-1 mb-3">
-            {(Object.keys(PIE_DIMENSION_LABELS) as PieDimension[]).map(dim => (
-              <button
-                key={dim}
-                onClick={() => setPieDimension(dim)}
-                className={`px-2 py-1 text-[10px] font-medium rounded-full transition ${
-                  pieDimension === dim
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                }`}
-              >
-                {PIE_DIMENSION_LABELS[dim]}
-              </button>
-            ))}
-          </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%" cy="50%"
-                innerRadius={45} outerRadius={70}
-                paddingAngle={3} dataKey="value" cursor="pointer"
-                onClick={(data: any) => {
-                  if (pieDimension === 'department' || pieDimension === 'execution') {
-                    const dept = depts.find((d: any) => (d.department?.nameShort ?? d.department?.id) === data?.name);
-                    if (dept?.department?.nameShort) toggleDepartment(dept.department.nameShort);
-                  } else if (pieDimension === 'procurement') {
-                    const filter = data?.name?.includes('КП') ? 'competitive' : 'single';
-                    navigateTo('analytics', { procurement: filter as ProcurementFilter });
-                  } else if (pieDimension === 'budget') {
-                    navigateTo('analytics');
-                  }
-                }}
-              >
-                {pieData.map((_, i) => (
-                  <Cell key={i} fill={chartColors[i % chartColors.length]} className="cursor-pointer" />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(v: number, name: string) => [
-                  pieDimension === 'budget' ? formatMoney(v) :
-                  pieDimension === 'execution' ? `${v}%` :
-                  `${v} шт.`,
-                  name
-                ]}
-                contentStyle={tooltipStyle} cursor={cursorStyle}
-              />
-              <Legend wrapperStyle={{ fontSize: 10, color: getAxisColor(isDark) }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        {/* DrillPieChart — interactive hierarchy drill (УО → подведы) */}
+        <DrillPieChart
+          mdm={mdm}
+          procurementFilter={procurementFilter}
+          formatMoney={formatMoney}
+          onDeptToggle={toggleDepartment}
+          onNavigate={navigateTo}
+        />
       </section>
 
       {/* 8. Blind Spots — signal cards */}
@@ -702,61 +662,6 @@ function KPIExpandPanel({
 // Pie chart data builder
 // ────────────────────────────────────────────────────────────────
 
-function buildPieData(
-  dimension: PieDimension,
-  fd: ReturnType<typeof useFilteredData>,
-  procurementFilter: string,
-  formatMoney: (v: number) => string,
-) {
-  switch (dimension) {
-    case 'procurement': {
-      const data = [
-        { name: 'Конкурсные (КП)', value: fd.totalKP || 0 },
-        { name: 'Единственный пост. (ЕП)', value: fd.totalEP || 0 },
-      ].filter(d => {
-        if (procurementFilter === 'competitive') return d.name.includes('КП');
-        if (procurementFilter === 'single') return d.name.includes('ЕП');
-        return true;
-      });
-      return data;
-    }
-    case 'budget': {
-      let fbPlan = 0, kbPlan = 0, mbPlan = 0;
-      for (const d of fd.depts) {
-        const q = d.quarters?.[fd.periodKey];
-        fbPlan += q?.planFB ?? 0;
-        kbPlan += q?.planKB ?? 0;
-        mbPlan += q?.planMB ?? 0;
-      }
-      return [
-        { name: 'ФБ (федеральный)', value: fbPlan },
-        { name: 'КБ (краевой)', value: kbPlan },
-        { name: 'МБ (местный)', value: mbPlan },
-      ].filter(d => d.value > 0);
-    }
-    case 'department': {
-      return fd.depts.map((d: any) => {
-        const q = d.quarters?.[fd.periodKey];
-        return {
-          name: d.department?.nameShort ?? d.department?.id ?? '?',
-          value: (q?.kpCount ?? d.competitiveCount ?? 0) + (q?.epCount ?? d.soleCount ?? 0),
-        };
-      }).filter((d: any) => d.value > 0);
-    }
-    case 'execution': {
-      return fd.depts.map((d: any) => {
-        const pct = fd.execCountPctByDeptId[d.department?.id] ?? 0;
-        return {
-          name: d.department?.nameShort ?? d.department?.id ?? '?',
-          value: +pct.toFixed(1),
-        };
-      }).filter((d: any) => d.value > 0);
-    }
-    default:
-      return [];
-  }
-}
-
 // ────────────────────────────────────────────────────────────────
 // Blind Spots Widget
 // ────────────────────────────────────────────────────────────────
@@ -779,13 +684,45 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
     { label: 'Просрочки', signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red', icon: '⏰' },
     { label: 'Флаг экономии', signal: 'economyConflict', search: 'флаг эконом', metricKey: 'signal_economy_conflict', color: 'rose', icon: '⚡' },
     { label: 'Высокая экономия', signal: 'highEconomy', search: 'высокая экономия', metricKey: 'signal_high_economy', color: 'orange', icon: '📊' },
-    { label: 'Раннее закрытие', signal: 'earlyClosure', search: 'раннее закрытие', color: 'amber', icon: '🔒' },
-    { label: 'Факт без даты', signal: 'factWithoutDate', search: 'факт без даты', color: 'purple', icon: '📅' },
+    // Wave 3 TODO: add `signal_early_closure` to METRIC_KB; inline fallback until then.
+    {
+      label: 'Раннее закрытие',
+      signal: 'earlyClosure',
+      search: 'раннее закрытие',
+      color: 'amber',
+      icon: '🔒',
+      kbFallback: {
+        whatIs: 'Строки плана, где факт закрыт раньше плановой даты окончания. Может указывать на подгонку отчётности.',
+        howCalc: 'COUNT(fact_date < plan_end_date AND plan_end_date NOT EMPTY).',
+        thresholdsFull: '🟢 0 — чисто\n🟡 1–3 — проверь выборочно\n🔴 > 3 — системный признак',
+      },
+    },
+    // Wave 3 TODO: add `signal_fact_without_date` to METRIC_KB; inline fallback until then.
+    {
+      label: 'Факт без даты',
+      signal: 'factWithoutDate',
+      search: 'факт без даты',
+      color: 'purple',
+      icon: '📅',
+      kbFallback: {
+        whatIs: 'Строки, где указана сумма факта, но пустая дата исполнения. Строка не пригодна к сверке и выпадает из отчёта.',
+        howCalc: 'COUNT(fact_total > 0 AND fact_date IS EMPTY).',
+        thresholdsFull: '🟢 0 — чисто\n🟡 1–5 — исправимо\n🔴 > 5 — нарушение дисциплины ввода',
+      },
+    },
     { label: 'Дата без сумм', signal: 'dateWithoutFact', search: 'факт дата без сумм', metricKey: 'signal_fact_date_before_plan', color: 'cyan', icon: '💰' },
     { label: 'Подвисшие', signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue', icon: '⏸' },
     { label: 'Факт > план', signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo', icon: '📈' },
     { label: 'Факт < план дата', signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal', icon: '📉' },
-  ];
+  ] as Array<{
+    label: string;
+    signal: string;
+    search: string;
+    metricKey?: string;
+    color: string;
+    icon: string;
+    kbFallback?: { whatIs: string; howCalc: string; thresholdsFull: string };
+  }>;
 
   const colorMap: Record<string, { bg: string; border: string; text: string; number: string; glow: string }> = {
     red:    { bg: 'bg-red-500/8', border: 'border-red-500/15 hover:border-red-500/30', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
@@ -807,9 +744,16 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
     <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Сигналы и аномалии
-          </h2>
+          <KBTooltip
+            whatIs="Сигналы — автоматически детектированные аномалии и отклонения в данных закупок: просрочки, флаги экономии, расхождения планов/фактов. Каждый сигнал формируется по отдельному правилу из каталога CHECK_REGISTRY."
+            thresholdsFull={'🔴 overdue/economyConflict — критические\n🟡 stalled/factWithoutDate — варнинги\n🟢 ноль сигналов — чистые данные'}
+            example="9 просрочек, 3 флага экономии, 1 факт > план"
+            actions="Клик по карточке открывает вкладку Качество с фильтром по данному сигналу."
+          >
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              Сигналы и аномалии
+            </h2>
+          </KBTooltip>
           <span className="text-[9px] px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-bold tabular-nums">
             {totalSpots}
           </span>
@@ -821,10 +765,17 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
           const colors = colorMap[spot.color] ?? colorMap.blue;
           const isActive = count > 0;
           return (
-            <KBTooltip key={spot.signal} metric={spot.metricKey}>
+            <KBTooltip
+              key={spot.signal}
+              metric={spot.metricKey}
+              whatIs={spot.kbFallback?.whatIs}
+              howCalc={spot.kbFallback?.howCalc}
+              thresholdsFull={spot.kbFallback?.thresholdsFull}
+            >
               <button
                 onClick={() => onNavigate(spot.signal, spot.search)}
                 disabled={count === 0}
+                aria-label={`${spot.label}: ${count}`}
                 className={`
                   ${colors.bg} border ${colors.border} rounded-xl p-3 text-left
                   transition-all duration-200 cursor-pointer w-full

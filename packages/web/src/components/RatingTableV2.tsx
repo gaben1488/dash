@@ -49,7 +49,7 @@ export interface SubRow {
   issueCount: number;
 }
 
-type SortKey = 'execCountPct' | 'execAmountPct' | 'fbExecPct' | 'trustScore' | 'issueCount';
+type SortKey = 'execCountPct' | 'execAmountPct' | 'fbExecPct' | 'fbPct' | 'trustScore' | 'issueCount';
 
 interface RatingTableV2Props {
   departments: DeptRowV2[];
@@ -78,8 +78,15 @@ export function RatingTableV2({
   const sorted = useMemo(
     () =>
       [...departments].sort((a, b) => {
-        const va = a[sortKey] ?? -1;
-        const vb = b[sortKey] ?? -1;
+        // fbExecPct: prefer fbExecPct, fall back to legacy fbPct (backwards compat)
+        const pick = (d: DeptRowV2): number => {
+          if (sortKey === 'fbExecPct' || sortKey === 'fbPct') {
+            return (d.fbExecPct ?? (d as any).fbPct ?? -1) as number;
+          }
+          return (d[sortKey as keyof DeptRowV2] ?? -1) as number;
+        };
+        const va = pick(a);
+        const vb = pick(b);
         return sortAsc ? va - vb : vb - va;
       }),
     [departments, sortKey, sortAsc],
@@ -105,15 +112,23 @@ export function RatingTableV2({
     className?: string;
   }) => (
     <th
+      scope="col"
       className={cn(
-        'px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase cursor-pointer select-none',
-        'hover:text-blue-500 transition-colors duration-150',
+        'px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase select-none',
         className,
       )}
-      onClick={() => toggleSort(field)}
     >
       <KBTooltip metric={metricKey} side="bottom">
-        <span className="flex items-center gap-0.5 whitespace-nowrap">
+        <button
+          type="button"
+          onClick={() => toggleSort(field)}
+          className={cn(
+            'inline-flex items-center gap-0.5 whitespace-nowrap font-semibold text-[10px] uppercase tracking-wider',
+            'text-zinc-500 dark:text-zinc-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded',
+            'transition-colors duration-150 cursor-pointer',
+          )}
+          aria-sort={sortKey === field ? (sortAsc ? 'ascending' : 'descending') : 'none'}
+        >
           {label}
           <ArrowUpDown
             size={10}
@@ -122,7 +137,7 @@ export function RatingTableV2({
               sortKey === field ? 'text-blue-500' : 'opacity-20',
             )}
           />
-        </span>
+        </button>
       </KBTooltip>
     </th>
   );
@@ -132,29 +147,40 @@ export function RatingTableV2({
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b-2 border-zinc-200/80 dark:border-zinc-700/60">
-            <th className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase w-10">
-              #
+            <th scope="col" className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase w-10">
+              <KBTooltip metric="dept_rank" side="bottom">
+                <button type="button" className="font-semibold text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded">
+                  #
+                </button>
+              </KBTooltip>
             </th>
-            <th className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase text-left min-w-[80px]">
-              ГРБС
+            <th scope="col" className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase text-left min-w-[80px]">
+              <KBTooltip metric="dept_name" side="bottom">
+                <button type="button" className="font-semibold text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded">
+                  ГРБС
+                </button>
+              </KBTooltip>
             </th>
             <SortHeader label="Кол-во%" field="execCountPct" metricKey="dept_exec_count_pct" />
             <SortHeader label="Сумма%" field="execAmountPct" metricKey="dept_exec_amount_pct" />
-            <SortHeader label="ФБ%" field="fbExecPct" metricKey="dept_fb_pct" />
-            <th className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase w-20">
-              <KBTooltip
-                metric="dept_exec_count_pct"
-                description="Тренд исполнения по кварталам (q1→q4)"
-              >
-                <span>Тренд</span>
+            <SortHeader label="ФБ%" field="fbExecPct" metricKey="dept_fb_exec_pct" />
+            <th scope="col" className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase w-20">
+              <KBTooltip metric="dept_sparkline" side="bottom">
+                <button type="button" className="font-semibold text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded">
+                  Спарк
+                </button>
               </KBTooltip>
             </th>
             <SortHeader label="Доверие" field="trustScore" metricKey="dept_trust" />
             <SortHeader label="Замеч." field="issueCount" metricKey="dept_issues" />
-            <th className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase">
-              Δ нед.
+            <th scope="col" className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase">
+              <KBTooltip metric="dept_delta_week" side="bottom">
+                <button type="button" className="font-semibold text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded whitespace-nowrap">
+                  Δ нед.
+                </button>
+              </KBTooltip>
             </th>
-            <th className="px-1 py-3 w-8" />
+            <th scope="col" className="px-1 py-3 w-8" />
           </tr>
         </thead>
         <tbody>
@@ -295,7 +321,7 @@ function DeptRowComponent({
 
         {/* ФБ% */}
         <td className="px-2 py-3 text-center w-16">
-          <CellProgress value={dept.fbExecPct ?? null} metricKey="dept_fb_pct" />
+          <CellProgress value={dept.fbExecPct ?? null} metricKey="dept_fb_exec_pct" />
         </td>
 
         {/* Sparkline — area */}

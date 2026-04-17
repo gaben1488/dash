@@ -1,18 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import NumberFlow from '@number-flow/react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from './ui/kb-tooltip';
-import { STANDARD_METRICS } from '@/lib/metrics-registry';
 import {
   TrendingUp,
   TrendingDown,
   Minus,
   ChevronDown,
-  ExternalLink,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Activity,
 } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
@@ -35,16 +29,22 @@ export interface HeroKPICardProps {
   label: string;
   value: number;
   displayValue?: string;
-  unit?: '%' | 'шт.' | '₽' | 'тыс. ₽' | 'млн ₽';
+  unit?: '%' | 'шт.' | '₽' | 'тыс. ₽' | 'млн ₽' | 'binary';
   status?: 'normal' | 'warning' | 'critical';
   trend?: 'up' | 'down' | 'stable';
+  /** Display text for delta (e.g. "+1,2 pp"). If omitted but deltaValue present, auto-formatted as "X,X pp". */
   delta?: string;
+  /** Numeric delta (positive = increase). Unit implied by `unit` prop. */
   deltaValue?: number;
+  /** If true, negative deltaValue is "good" (green). Use for metrics where fewer is better (e.g. critical_issues). */
   invertDelta?: boolean;
+  /** Quarterly sparkline: expect exactly 4 points (q1..q4). Missing/empty → hide. <4 → render available + dev warn. */
   sparkData?: number[];
   sourceCell?: string;
   origin?: 'official' | 'calculated' | string;
+  /** Mark this card as binary trust indicator. Also auto-detected via `unit === 'binary'` or `metricKey === 'trust_binary'`. */
   isTrust?: boolean;
+  /** Trust pass flag. When undefined and value is numeric, derived as value >= 75. */
   trustOk?: boolean;
   secondaryValue?: number;
   secondaryLabel?: string;
@@ -119,17 +119,56 @@ export function HeroKPICard({
 
   const config = STATUS_CONFIG[status];
 
-  // Delta color
-  const deltaIsGood = deltaValue != null
-    ? invertDelta ? deltaValue < 0 : deltaValue > 0
+  // ── Trust binary detection ─────────────────────────────────────
+  // isTrust prop wins; fallback: unit === 'binary' OR metricKey === 'trust_binary'
+  const isBinaryTrust = isTrust === true || unit === 'binary' || metricKey === 'trust_binary';
+  const resolvedTrustOk = trustOk ?? (typeof value === 'number' ? value >= 75 : true);
+
+  // ── Δ-за-неделю badge logic ────────────────────────────────────
+  // Hide silently if no numeric delta. Color by sign + invertDelta.
+  const hasDelta = deltaValue != null && Number.isFinite(deltaValue);
+  const deltaIsZero = hasDelta && deltaValue === 0;
+  const deltaIsPositive = hasDelta && (deltaValue as number) > 0;
+  // "Good" means improvement: positive delta is good by default; inverted for critical_issues (fewer = better).
+  const deltaIsGood = hasDelta
+    ? (invertDelta ? (deltaValue as number) < 0 : (deltaValue as number) > 0)
     : false;
-  const deltaColor = deltaValue == null
-    ? 'text-zinc-400'
+  const deltaColor = !hasDelta || deltaIsZero
+    ? 'text-zinc-400 dark:text-zinc-500'
     : deltaIsGood
       ? 'text-emerald-600 dark:text-emerald-400'
-      : deltaValue === 0
-        ? 'text-zinc-400'
-        : 'text-red-600 dark:text-red-400';
+      : 'text-red-600 dark:text-red-400';
+  const deltaBg = !hasDelta || deltaIsZero
+    ? 'bg-zinc-100 dark:bg-zinc-800'
+    : deltaIsGood
+      ? 'bg-emerald-50 dark:bg-emerald-500/10'
+      : 'bg-red-50 dark:bg-red-500/10';
+  // Auto-formatted fallback label: "+1,2 pp" / "−3,0 pp"
+  const deltaUnitSuffix = unit === '%' ? 'pp' : unit && unit !== 'binary' ? unit : '';
+  const autoDeltaText = hasDelta
+    ? `${deltaIsPositive ? '+' : ''}${(deltaValue as number).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}${deltaUnitSuffix ? ' ' + deltaUnitSuffix : ''}`
+    : '';
+  const deltaLabel = delta ?? autoDeltaText;
+  // Trending icon picks on direction (visual), color separately encodes good/bad.
+  const DeltaIcon = deltaIsZero ? Minus : deltaIsPositive ? TrendingUp : TrendingDown;
+
+  // ── Sparkline: enforce 4-quarter contract ──────────────────────
+  // length === 4: render. length === 0 or missing: hide. length < 4: render what's there + dev warn.
+  const sparkLen = sparkData?.length ?? 0;
+  const showSparkline = !!sparkData && sparkLen > 0 && !isBinaryTrust;
+  // Dev-only warning for <4 points (not done in prod to avoid console spam).
+  // Using `as any` on import.meta for tsconfig portability (vite supplies `env` at runtime).
+  if (
+    (import.meta as any)?.env?.DEV &&
+    sparkData &&
+    sparkLen > 0 &&
+    sparkLen < 4
+  ) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[HeroKPICard] sparkData for "${metricKey}" has ${sparkLen} points; expected 4 quarterly buckets.`,
+    );
+  }
 
   // Sparkline colors
   const sparkColor = trend === 'down' ? '#f87171' : trend === 'up' ? '#34d399' : '#94a3b8';
@@ -175,34 +214,36 @@ export function HeroKPICard({
             {/* Value row */}
             <div className="flex items-end gap-3">
               <div className="flex-1">
-                {isTrust ? (
-                  // Binary trust display — premium
+                {isBinaryTrust ? (
+                  // ── Binary trust pill ─────────────────────────
+                  // Spec §5.2 / §10.8: render pill "Норма" (emerald, ≥75) or "Требует проверки" (red, <75)
+                  // in place of @number-flow animated numeric value.
                   <div className="flex items-center gap-2.5">
-                    <div className={cn(
-                      'w-10 h-10 rounded-xl flex items-center justify-center',
-                      trustOk
-                        ? 'bg-emerald-50 dark:bg-emerald-500/10'
-                        : 'bg-red-50 dark:bg-red-500/10',
-                    )}>
-                      {trustOk ? (
-                        <CheckCircle2 size={22} className="text-emerald-500" />
-                      ) : (
-                        <XCircle size={22} className="text-red-500" />
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold leading-none',
+                        'ring-1 tabular-nums',
+                        resolvedTrustOk
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-500/30'
+                          : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-500/30',
                       )}
-                    </div>
-                    <div>
-                      <span className={cn(
-                        'text-base font-bold leading-tight',
-                        trustOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
-                      )}>
-                        {trustOk ? 'Можно доверять' : 'Расхождения'}
+                      role="status"
+                      aria-label={resolvedTrustOk ? 'Норма' : 'Требует проверки'}
+                    >
+                      <span
+                        className={cn(
+                          'w-1.5 h-1.5 rounded-full',
+                          resolvedTrustOk ? 'bg-emerald-500' : 'bg-red-500 animate-pulse',
+                        )}
+                        aria-hidden="true"
+                      />
+                      {resolvedTrustOk ? 'Норма' : 'Требует проверки'}
+                    </span>
+                    {typeof value === 'number' && value > 0 && (
+                      <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono tabular-nums">
+                        Score {value}
                       </span>
-                      {value > 0 && (
-                        <div className="text-[10px] text-zinc-400 mt-0.5 font-mono tabular-nums">
-                          Score: {value}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -222,7 +263,7 @@ export function HeroKPICard({
                         </span>
                       )}
                     </div>
-                    {/* Trend + delta row */}
+                    {/* Trend + Δ-за-неделю row */}
                     <div className="flex items-center gap-2 mt-1.5">
                       {trend && (
                         <span className={cn(
@@ -237,9 +278,19 @@ export function HeroKPICard({
                           {trend === 'up' ? 'Рост' : trend === 'down' ? 'Падение' : 'Стабильно'}
                         </span>
                       )}
-                      {delta && (
-                        <span className={cn('text-[10px] font-medium tabular-nums', deltaColor)}>
-                          {delta}
+                      {/* Δ-за-неделю badge — hidden silently when no data (Spec §5.4 / §10.10) */}
+                      {hasDelta && (
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums',
+                            deltaBg,
+                            deltaColor,
+                          )}
+                          title={`Δ за неделю: ${deltaLabel}`}
+                          aria-label={`Изменение за неделю ${deltaLabel}`}
+                        >
+                          <DeltaIcon size={10} aria-hidden="true" />
+                          Δ {deltaLabel}
                         </span>
                       )}
                     </div>
@@ -247,8 +298,8 @@ export function HeroKPICard({
                 )}
               </div>
 
-              {/* Sparkline — area chart (right side) */}
-              {sparkData && sparkData.length > 1 && !isTrust && (
+              {/* Sparkline — 4-quarter AreaChart (Spec §5.5 / §10.9). Hidden silently when data missing. */}
+              {showSparkline && sparkData && (
                 <div className="w-20 h-10 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={sparkData.map((v, i) => ({ v, i }))}>
@@ -273,7 +324,36 @@ export function HeroKPICard({
                         strokeWidth={1.5}
                         fill={sparkFill}
                         dot={false}
+                        activeDot={false}
+                        // Last-point dot per Spec §5.5
+                        isAnimationActive={false}
                       />
+                      {sparkLen > 0 && (
+                        <Line
+                          type="monotone"
+                          dataKey="v"
+                          stroke="transparent"
+                          strokeWidth={0}
+                          dot={(props: any) => {
+                            const lastIdx = sparkLen - 1;
+                            if (props?.index !== lastIdx) return (<g key={props?.index} />) as any;
+                            return (
+                              <circle
+                                key={`spark-dot-${props.index}`}
+                                cx={props.cx}
+                                cy={props.cy}
+                                r={2}
+                                fill={sparkColor}
+                                stroke="#ffffff"
+                                strokeWidth={1}
+                              />
+                            ) as any;
+                          }}
+                          activeDot={false}
+                          isAnimationActive={false}
+                          legendType="none"
+                        />
+                      )}
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -281,7 +361,7 @@ export function HeroKPICard({
             </div>
 
             {/* Secondary metric (dual mode) */}
-            {secondaryValue != null && !isTrust && (
+            {secondaryValue != null && !isBinaryTrust && (
               <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-medium">
