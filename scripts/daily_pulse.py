@@ -487,9 +487,14 @@ def main():
     VAULT_DAILY.mkdir(parents=True, exist_ok=True)
     (VAULT_DAILY / f"{target.isoformat()}-pulse.md").write_text(doc, encoding='utf-8')
 
+    # Mirror of vault/50-Workflow/daily/; canonical is vault.
+    # Kept for ccd-analysis / scratch — vault is source of truth.
     mem_daily = MEMORY / "daily-pulse"
     mem_daily.mkdir(parents=True, exist_ok=True)
-    (mem_daily / f"{target.isoformat()}.md").write_text(doc, encoding='utf-8')
+    mirror_header = ("<!-- Mirror of vault/50-Workflow/daily/; "
+                     "canonical is vault. -->\n")
+    (mem_daily / f"{target.isoformat()}.md").write_text(
+        mirror_header + doc, encoding='utf-8')
 
     print(f"\n[WRITTEN]")
     print(f"  vault:  {VAULT_DAILY / (target.isoformat() + '-pulse.md')}")

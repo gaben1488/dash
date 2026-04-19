@@ -1,3 +1,13 @@
+---
+type: plan
+status: reference-only
+role: "СВОД rebrand UI detail. Superseded in Ф4 UI portion by rustling-sniffing-lobster.md. Not source of truth — see NOW.md."
+superseded_by: "rustling-sniffing-lobster.md (Ф4 UI portion)"
+related: ["[[NOW]]", "[[FINAL_MASTER_ROADMAP]]"]
+---
+
+> Активный текущий шаг см. [[NOW]] в vault AEMR/10-Index/. Этот файл содержит детализацию но не источник истины — при расхождении с NOW.md следовать NOW. В части Ф4 UI — superseded by `rustling-sniffing-lobster.md`.
+
 # СВОД Rebrand UI — Implementation Plan
 
 Branch: `feature/svod-rebrand-ui`

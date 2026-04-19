@@ -1,3 +1,12 @@
+---
+type: plan
+status: reference-only
+role: "UI Ф4-Ф8 detail reference. Not source of truth — see NOW.md in vault AEMR/10-Index/."
+related: ["[[NOW]]", "[[FINAL_MASTER_ROADMAP]]"]
+---
+
+> Активный текущий шаг см. [[NOW]] в vault AEMR/10-Index/. Этот файл содержит детализацию но не источник истины — при расхождении с NOW.md следовать NOW.
+
 # Plan: Закрытие всех расхождений сверки + ревизия эвристик
 
 ## Контекст
