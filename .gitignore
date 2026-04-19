@@ -36,6 +36,11 @@ graphify-out/
 graphify-corpus/
 reports/
 
+# Claude Code local artifacts (plugins are user-installed)
+.claude/plugins/
+docs/superpowers/
+migrate_memory.py
+
 # Credentials
 *.json
 !package.json

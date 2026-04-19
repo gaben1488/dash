@@ -1,0 +1,30 @@
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+.cache/
+coverage/
+graphify-out/
+.claude/
+.git/
+data/
+tmp/
+temp/
+*.jsonl
+sessions/
+*.min.js
+*.map
+*.lock
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+# Binary data we don't want parsed as code
+*.sqlite
+*.sqlite3
+*.db
+*.xlsx
+*.pptx
+*.zip
+# Keep memory (Obsidian-friendly) but exclude raw session logs
+.claude/projects/**/*.jsonl
