@@ -48,6 +48,7 @@ migrate_memory.py
 !tsconfig*.json
 !eslint.config.js
 !.prettierrc
+!biome.json
 
 # Old code references
 old/

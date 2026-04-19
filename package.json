@@ -16,11 +16,18 @@
     "db:migrate": "pnpm -F @aemr/server db:migrate",
     "db:studio": "pnpm -F @aemr/server db:studio",
     "lint": "eslint .",
+    "lint:biome": "biome lint .",
+    "biome:check": "biome check .",
+    "biome:check:fix": "biome check --write .",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\"",
+    "format:biome": "biome format --write .",
     "typecheck": "pnpm -r typecheck",
-    "test": "..."
+    "typecheck:all": "pnpm -r --workspace-concurrency=1 exec tsc --noEmit",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm -r --parallel test --watch"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.12",
     "@eslint/js": "^10.0.1",
     "concurrently": "^9.1.0",
     "eslint": "^10.2.0",
