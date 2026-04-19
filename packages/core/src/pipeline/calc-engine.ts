@@ -11,7 +11,13 @@
  * Replaces the monolithic recalculate() function with a composable pipeline.
  */
 
-import { DEPT_COLUMNS } from '@aemr/shared';
+import {
+  DEPT_COLUMNS,
+  normalizeMethod,
+  isCompetitive,
+  PROCUREMENT_METHODS,
+  type ProcurementMethodCode,
+} from '@aemr/shared';
 
 // ── Column Reference ─────────────────────────────────────────────────
 
@@ -218,11 +224,16 @@ function defaultMonthExtractor(row: RawRow): number | null {
 }
 
 function defaultMethodExtractor(row: RawRow): 'competitive' | 'ep' | null {
-  const method = String(row[COL.METHOD] ?? '').trim();
-  // Match СВОД/ШДЮ logic: L <> "ЕП" = competitive (includes ЭА, ЭК, ЭЗК, and any other non-ЕП)
-  // Empty method = 'competitive' (СВОД FILTER: L<>"ЕП" — everything that is not ЕП is competitive, including blanks)
-  if (!method) return 'competitive';
-  if (method === 'ЕП') return 'ep';
+  // Канонизируем сырое значение через METHOD_ALIAS_MAP в dictionaries.
+  // Это снимает drift: 'ЭА (МЭП)', 'Ед. поставщик', 'ЭЕП', lowercase 'еп' и т.д.
+  // сводятся к одному из {ЭА, ЕП, ЭК, ЭЗК} (или undefined для пустых/мусора).
+  //
+  // Семантика исторически унаследована из СВОД/ШДЮ: пустое поле или любой
+  // не-ЕП код = competitive. Это инвариант, не меняем — только нормализуем вход.
+  const canonical: ProcurementMethodCode | undefined = normalizeMethod(row[COL.METHOD]);
+  if (canonical === 'ЕП') return 'ep';
+  if (canonical && isCompetitive(canonical)) return 'competitive';
+  // Пусто или нераспознано → competitive (legacy СВОД FILTER: L<>"ЕП")
   return 'competitive';
 }
 
@@ -603,7 +614,9 @@ export class CalcEngine {
 // ── Factory: Standard row filter with classification scoring ─────────
 
 const SKIP_PREFIXES = ['итого', 'всего', 'справочно'];
-const ALL_METHODS = new Set(['ЭА', 'ЕП', 'ЭК', 'ЭЗК']);
+// Canonical method codes from shared/dictionaries (single source of truth).
+// PROCUREMENT_METHODS = ['ЭА', 'ЕП', 'ЭК', 'ЭЗК'] as const.
+const ALL_METHODS = new Set<string>(PROCUREMENT_METHODS);
 
 /**
  * Row classification heuristic matching recalculate.ts classifyRow().
