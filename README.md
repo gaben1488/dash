@@ -48,7 +48,7 @@ SQLITE_PATH=./data/aemr.db
 2. Создайте проект (или используйте существующий)
 3. Включите **Google Sheets API** (`APIs & Services` → `Enable APIs`)
 4. Создайте **Service Account** (`IAM & Admin` → `Service Accounts`)
-5. Создайте ключ ��ля сервисного аккаунта (формат JSON)
+5. Создайте ключ для сервисного аккаунта (формат JSON)
 6. Из JSON файла скопируйте `client_email` и `private_key` в `.env`
 7. **Откройте каждую таблицу** в Google Sheets и расшарьте на `client_email` (права: Viewer)
 
