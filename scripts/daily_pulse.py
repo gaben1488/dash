@@ -150,9 +150,12 @@ def mulch_metrics(target_day: date) -> dict:
     """Mulch counters.
 
     - `records`: lifetime total (from `ml status --json`) — baseline context.
-    - `records_today`: parsed from .mulch/expertise/*.jsonl by `timestamp`
+    - `records_today`: parsed from .mulch/expertise/*.jsonl by `recorded_at`
       prefix == target day. THIS is what `rule_to_code` should watch;
       lifetime total is meaningless as a daily signal.
+
+    Bug fix (2026-04-19): mulch writes `recorded_at`, not `timestamp`. Was
+    reading wrong field → always 0 today. Accept both for compat.
     """
     today_iso = target_day.isoformat()
     records_today = 0
@@ -175,7 +178,10 @@ def mulch_metrics(target_day: date) -> dict:
                         if f'"{today_iso}' in line:
                             domain_count += 1
                         continue
-                    ts = rec.get('timestamp') if isinstance(rec, dict) else None
+                    ts = None
+                    if isinstance(rec, dict):
+                        # Accept both: `recorded_at` (actual mulch schema) + `timestamp` (legacy)
+                        ts = rec.get('recorded_at') or rec.get('timestamp')
                     if isinstance(ts, str) and ts.startswith(today_iso):
                         domain_count += 1
             except OSError:
