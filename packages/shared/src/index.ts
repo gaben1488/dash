@@ -1,7 +1,7 @@
 // Re-export everything from types (base definitions)
 export * from './types.js';
 
-// Re-export schemas
+// Re-export schemas (zod schemas for runtime validation, API contracts, drizzle-lite)
 export * from './schemas.js';
 
 // Re-export report-map, explicitly handling name collisions.
