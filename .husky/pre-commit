@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Pre-commit gate (R1 из CLAUDE.md §3): блокирует коммит при tsc/test errors.
+# Обход — только `--no-verify` по явной просьбе пользователя.
+
+set -e
+
+echo "[husky/pre-commit] typecheck all 4 packages..."
+(cd packages/shared && npx tsc --noEmit) || { echo "shared tsc failed"; exit 1; }
+(cd packages/core && npx tsc --noEmit) || { echo "core tsc failed"; exit 1; }
+(cd packages/server && npx tsc --noEmit) || { echo "server tsc failed"; exit 1; }
+(cd packages/web && npx tsc --noEmit) || { echo "web tsc failed"; exit 1; }
+
+echo "[husky/pre-commit] running core tests..."
+(cd packages/core && npx vitest run --reporter=dot) || { echo "core tests failed"; exit 1; }
+
+echo "[husky/pre-commit] gate passed"

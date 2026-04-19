@@ -29,6 +29,8 @@
 | R3 | Новый `feedback_*.md` → `verified: true/false` в frontmatter, в issue-tracker или PR | Manual; pulse сигнал `fb_to_rule` считает. |
 | R4 | Каждая Ф-phase close → `mark_chapter` | Manual; `/close` ritual напоминает. |
 | R5 | `ml record` каждый значимый инсайт **внутри** турна, не в конце | Stop-hook напоминает если `.mulch/` не трогали. |
+| R6 | **Стиль ответов**: литературный русский, связная проза. Английские термины (API, hook, skill, schema) раскрываются в скобках при первом упоминании. Таблицы только для сравнения по нескольким осям (2+ колонок данных), не для статусов. Эмодзи только функциональные (🟢🔴 в pulse), не декоративные. Перед финализацией длинного ответа (>500 слов) — мысленно применить skill `humanizer` (убрать em-dash abuse, parallel structure в тройках, hedging «it's worth noting»). См. mulch `mx-9185e2` + `feedback_kb_tooltip_russian_literary.md`. | Manual; при жалобе пользователя на стиль — немедленный рефакторинг. |
+| R7 | **`mulch search <тема>` ПЕРЕД `ml record`**. Если найдена близкая запись — расширить/supersede, не дублировать. Без этого — противоречия в мулче плодятся невидимо (как `mx-abfa44` vs `mx-ccaa11`). | Manual для `ml record`; TODO: `ml record --check-duplicates` на стороне CLI. |
 
 ## 4. Активные планы (single-pointer)
 
