@@ -13,21 +13,36 @@ import { createDemoSnapshot } from './demo-data.js';
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: DataSnapshot; timestamp: number }>();
 
+import type { DeptSheetResult } from './google-sheets.js';
+
 /**
  * Кэш данных из отдельных таблиц управлений.
  * Заполняется при вызове loadAllSources / fetchDepartmentSpreadsheets.
  * Ключи — русские короткие имена ('УЭР', 'УИО', …).
+ * BUG-2 FIX: Теперь включает и формулы (values + formulas).
  */
-let cachedDeptSheetData: Record<string, unknown[][]> = {};
+let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
 /** Обновить кэш данных управлений (вызывается из index.ts / dashboard route) */
-export function setDeptSheetCache(data: Record<string, unknown[][]>): void {
+export function setDeptSheetCache(data: Record<string, DeptSheetResult>): void {
   cachedDeptSheetData = { ...cachedDeptSheetData, ...data };
 }
 
-/** Получить текущий кэш данных управлений */
-export function getDeptSheetCache(): Record<string, unknown[][]> {
+/** Получить текущий кэш данных управлений (полный: values + formulas) */
+export function getDeptSheetCache(): Record<string, DeptSheetResult> {
   return cachedDeptSheetData;
+}
+
+/**
+ * Получить только значения (без формул) из кэша управлений.
+ * Обратная совместимость для потребителей, которым нужны raw rows.
+ */
+export function getDeptSheetValues(): Record<string, unknown[][]> {
+  const result: Record<string, unknown[][]> = {};
+  for (const [key, val] of Object.entries(cachedDeptSheetData)) {
+    result[key] = val.values;
+  }
+  return result;
 }
 
 /**
@@ -74,12 +89,18 @@ export function setSHDYUCache(data: Record<string, any>): void {
 }
 
 /**
- * Получает актуальный снимок данных (с кэшированием per year)
+ * Получает актуальный снимок данных (с кэшированием per year).
+ * Ключ кэша — это явно нормализованный год (никогда не undefined),
+ * чтобы запросы без year-фильтра и запросы текущего года попадали в одну запись.
  * @param force — пропустить кэш
- * @param targetYear — целевой год (по умолчанию текущий)
+ * @param targetYear — целевой год (если не указан, используется текущий)
  */
 export async function getSnapshot(force = false, targetYear?: number): Promise<DataSnapshot> {
-  const year = targetYear ?? new Date().getFullYear();
+  // Validate targetYear: reject NaN / out-of-range silently → currentYear fallback.
+  const currentYear = new Date().getFullYear();
+  const year = Number.isInteger(targetYear) && (targetYear as number) >= 2020 && (targetYear as number) <= 2100
+    ? (targetYear as number)
+    : currentYear;
   const now = Date.now();
   const ttl = config.cache.ttlSeconds * 1000;
 
@@ -125,12 +146,13 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
     });
 
     // Read ШДЮ sheet in parallel (from СВОД_для_Google spreadsheet)
-    const shdyuPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((rows: unknown[][]) => {
-      if (rows.length > 0) {
-        const parsed = parseSHDYUSheet(rows);
+    // BUG-2 FIX: Now receives { values, formulas }
+    const shdyuPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((result) => {
+      if (result.values.length > 0) {
+        const parsed = parseSHDYUSheet(result.values);
         cachedSHDYUData = parsed;
-        cachedSHDYURawRowCount = rows.length;
-        console.log(`📊 ШДЮ: ${rows.length} строк, ${Object.keys(parsed).length} ГРБС`);
+        cachedSHDYURawRowCount = result.values.length;
+        console.log(`📊 ШДЮ: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
       }
     }).catch((err: unknown) => {
       console.warn('Не удалось загрузить ШДЮ:', err);
@@ -139,13 +161,13 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
     await Promise.all([...sheetReadPromises, shdyuPromise]);
 
     // 2b. Дополняем данными из отдельных таблиц управлений (если они закэшированы).
-    // Это критично для пересчёта/дельт: если в СВОД нет листов управлений,
-    // данные берутся из отдельных spreadsheets.
-    for (const [deptName, rows] of Object.entries(cachedDeptSheetData)) {
+    // BUG-2 FIX: cachedDeptSheetData теперь содержит { values, formulas, sheetName }.
+    // В sheetRows кладём values (для пересчёта), формулы доступны через getDeptSheetCache().
+    for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
       if (!sheetRows[deptName] || sheetRows[deptName].length === 0) {
-        if (rows.length > 0) {
-          sheetRows[deptName] = rows;
-          console.log(`📋 Лист "${deptName}": ${rows.length} строк из кэша отдельных таблиц`);
+        if (deptResult.values.length > 0) {
+          sheetRows[deptName] = deptResult.values;
+          console.log(`📋 Лист "${deptName}": ${deptResult.values.length} строк из кэша (формулы: ${deptResult.formulas.length} строк)`);
         }
       }
     }

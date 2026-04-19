@@ -14,7 +14,15 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const query = request.query as Record<string, string>;
     const force = query.refresh === 'true';
     const yearParam = query.year; // e.g. '2026' or 'all'
-    const targetYear = yearParam && yearParam !== 'all' ? parseInt(yearParam, 10) || undefined : undefined;
+    // Strict validation: only 4-digit year in plausible range is accepted.
+    // 'all', missing, or invalid → undefined (snapshot falls back to current year).
+    let targetYear: number | undefined;
+    if (yearParam && yearParam !== 'all') {
+      const parsed = parseInt(yearParam, 10);
+      if (Number.isInteger(parsed) && parsed >= 2020 && parsed <= 2100) {
+        targetYear = parsed;
+      }
+    }
     let snapshot;
     try {
       snapshot = await getSnapshot(force, targetYear);
@@ -29,8 +37,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const metric = snapshot.officialMetrics[entry.metricKey];
       if (!metric) continue;
 
-      const delta = snapshot.deltas.find((d: DeltaResult) => d.metricKey === entry.metricKey);
-      const issues = snapshot.issues.filter((i: Issue) => i.metricKey === entry.metricKey);
+      const delta = snapshot.deltas?.find((d: DeltaResult) => d.metricKey === entry.metricKey);
+      const issues = snapshot.issues?.filter((i: Issue) => i.metricKey === entry.metricKey) ?? [];
       const hasCritical = issues.some((i: Issue) => i.severity === 'critical');
       const hasWarning = issues.some((i: Issue) => i.severity === 'warning' || i.severity === 'significant');
 
@@ -54,7 +62,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     // Aggregate signal counts per department from pipeline issues (single source of truth)
     const deptSignalCounts: Record<string, Record<string, number>> = {};
-    for (const iss of snapshot.issues) {
+    for (const iss of (snapshot.issues ?? [])) {
       const i = iss as Issue;
       if (!i.departmentId || !i.signal) continue;
       if (!deptSignalCounts[i.departmentId]) deptSignalCounts[i.departmentId] = {};
@@ -65,23 +73,45 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const calc = snapshot.calculatedMetrics ?? {};
     const departmentSummaries: DepartmentSummary[] = DEPARTMENTS.map(dept => {
       const _deptMetrics = getMetricsByDepartment(dept.id);
-      const deptIssues = snapshot.issues.filter((i: Issue) => i.departmentId === dept.id);
+      const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
 
-      const planMetric = snapshot.officialMetrics[`grbs.${dept.id}.kp.year.total_plan`]
-        ?? snapshot.officialMetrics[`grbs.${dept.id}.kp.q1.total_plan`];
-      const factMetric = snapshot.officialMetrics[`grbs.${dept.id}.kp.year.total_fact`]
-        ?? snapshot.officialMetrics[`grbs.${dept.id}.kp.q1.total_fact`];
-      const q1Metric = snapshot.officialMetrics[`grbs.${dept.id}.kp.q1.percent`];
-      const ecoKP = snapshot.officialMetrics[`grbs.${dept.id}.economy.kp`]?.numericValue ?? 0;
-      const ecoEP = snapshot.officialMetrics[`grbs.${dept.id}.economy.ep`]?.numericValue ?? 0;
-      const ecoTotal = ecoKP + ecoEP;
+      // Prefer calc-engine year-filtered totals (they respect targetYear).
+      // SVOD cells are static and not year-filtered — use only as fallback.
+      const prefix = `grbs.${dept.id}`;
+      const calcGet = (key: string) => calc[key]?.numericValue;
+      const svodGet = (key: string) => snapshot.officialMetrics[key]?.numericValue;
+
+      const calcPlanYear = calcGet(`${prefix}.year.plan_total`);
+      const calcFactYear = calcGet(`${prefix}.year.fact_total`);
+      const calcEcoYear = calcGet(`${prefix}.year.economy_total`);
+      const calcKpYear = calcGet(`${prefix}.kp.year.count`);
+      const calcEpYear = calcGet(`${prefix}.ep.year.count`);
+      const calcExecYear = calcGet(`${prefix}.year.execution_pct`); // fraction 0..1
+
+      const planTotalVal = calcPlanYear != null
+        ? calcPlanYear
+        : svodGet(`${prefix}.kp.year.total_plan`) ?? svodGet(`${prefix}.kp.q1.total_plan`) ?? null;
+      const factTotalVal = calcFactYear != null
+        ? calcFactYear
+        : svodGet(`${prefix}.kp.year.total_fact`) ?? svodGet(`${prefix}.kp.q1.total_fact`) ?? null;
+      const ecoTotal = calcEcoYear != null
+        ? calcEcoYear
+        : ((svodGet(`${prefix}.economy.kp`) ?? 0) + (svodGet(`${prefix}.economy.ep`) ?? 0)) || null;
 
       const criticalCount = deptIssues.filter((i: Issue) => i.severity === 'critical').length;
-      const rawPct = q1Metric?.numericValue ?? null;
-      const executionPct = rawPct != null ? +(rawPct * 100).toFixed(1) : null;
+      const executionPct = calcExecYear != null
+        ? +(calcExecYear * 100).toFixed(1)
+        : (() => {
+            const p = svodGet(`${prefix}.kp.q1.percent`);
+            return p != null ? +(p * 100).toFixed(1) : null;
+          })();
 
-      const kpCount = snapshot.officialMetrics[`grbs.${dept.id}.kp.q1.count`]?.numericValue ?? null;
-      const epCount = snapshot.officialMetrics[`grbs.${dept.id}.ep.q1.count`]?.numericValue ?? null;
+      const kpCount = calcKpYear != null
+        ? calcKpYear
+        : svodGet(`${prefix}.kp.q1.count`) ?? null;
+      const epCount = calcEpYear != null
+        ? calcEpYear
+        : svodGet(`${prefix}.ep.q1.count`) ?? null;
 
       // Per-department trust score via computeTrustScore
       const deptPrefix = `grbs.${dept.id}`;
@@ -90,9 +120,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           .filter(([key]) => key.startsWith(deptPrefix))
           .map(([key, val]) => [key, val as NormalizedMetric]),
       );
-      const deptDeltas = snapshot.deltas.filter(
+      const deptDeltas = snapshot.deltas?.filter(
         (d: DeltaResult) => d.metricKey?.startsWith(deptPrefix),
-      );
+      ) ?? [];
       const deptTrust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id);
       const trustScore = deptTrust.overall;
 
@@ -141,7 +171,6 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
       // Build monthly data (m1-m12) from calculated metrics
       const months: Record<number, any> = {};
-      const prefix = `grbs.${dept.id}`;
       const cGetM = (key: string) => calc[key]?.numericValue ?? null;
       for (let mi = 1; mi <= 12; mi++) {
         const mk = `m${mi}`;
@@ -193,10 +222,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return {
         department: dept,
         months,
-        planTotal: planMetric?.numericValue ?? null,
-        factTotal: factMetric?.numericValue ?? null,
+        planTotal: planTotalVal,
+        factTotal: factTotalVal,
         executionPercent: executionPct,
-        economyTotal: ecoTotal || null,
+        economyTotal: ecoTotal,
         competitiveCount: kpCount,
         soleCount: epCount,
         issueCount: deptIssues.length,
@@ -311,20 +340,21 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // Determine the data year from the year query param or default to current year
-    const dataYear = yearParam && yearParam !== 'all' ? parseInt(yearParam, 10) || new Date().getFullYear() : new Date().getFullYear();
+    // Data year returned to client: targetYear if valid, else current year.
+    const dataYear = targetYear ?? new Date().getFullYear();
 
     // ── Full issue aggregation (ALL issues, not truncated) ──
     const signalCounts: Record<string, number> = {};
+    const allIssues = snapshot.issues ?? [];
     const issueSummary = {
-      total: snapshot.issues.length,
+      total: allIssues.length,
       bySeverity: {} as Record<string, number>,
       byCategory: {} as Record<string, number>,
       byDepartment: {} as Record<string, number>,
       byOrigin: {} as Record<string, number>,
       signalCounts: {} as Record<string, number>,
     };
-    for (const iss of snapshot.issues) {
+    for (const iss of allIssues) {
       const i = iss as Issue;
       // Signal counts for BlindSpots
       if (i.signal) {
@@ -351,7 +381,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       kpiCards,
       departmentSummaries,
       summaryByPeriod,
-      recentIssues: snapshot.issues,
+      recentIssues: allIssues,
       signalCounts,
       issueSummary,
       trust: snapshot.trust,
@@ -384,10 +414,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         .filter(([key]) => key.startsWith(deptPrefix))
         .map(([key, val]) => [key, val as NormalizedMetric]),
     );
-    const deptIssues = snapshot.issues.filter((i: Issue) => i.departmentId === dept.id);
-    const deptDeltas = snapshot.deltas.filter(
+    const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
+    const deptDeltas = snapshot.deltas?.filter(
       (d: DeltaResult) => d.metricKey?.startsWith(deptPrefix),
-    );
+    ) ?? [];
     const trust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id);
 
     return reply.send({ trust, issues: deptIssues, deltas: deptDeltas });
@@ -420,10 +450,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
         const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
         const now = new Date().toISOString();
-        for (const [deptName, rows] of Object.entries(data)) {
-          deptRows[deptName] = rows;
-          loadMeta[deptName] = { loadedAt: now, rowCount: rows.length, sheetName: deptName };
-          sources.push({ name: deptName, type: 'department', loaded: true, rowCount: rows.length });
+        for (const [deptName, result] of Object.entries(data)) {
+          deptRows[deptName] = result.values;
+          loadMeta[deptName] = { loadedAt: now, rowCount: result.values.length, sheetName: result.sheetName };
+          sources.push({ name: deptName, type: 'department', loaded: true, rowCount: result.values.length });
         }
         for (const [deptName, errMsg] of Object.entries(errors)) {
           loadMeta[deptName] = { loadedAt: now, rowCount: 0, sheetName: deptName, error: errMsg };

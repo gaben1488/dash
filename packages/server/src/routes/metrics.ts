@@ -8,33 +8,43 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
 
   /** GET /api/metrics — все метрики текущего снимка */
   app.get('/api/metrics', async (_request, reply) => {
-    const snapshot = await getSnapshot();
-    return reply.send({
-      official: snapshot.officialMetrics,
-      calculated: snapshot.calculatedMetrics,
-      deltas: snapshot.deltas,
-    });
+    try {
+      const snapshot = await getSnapshot();
+      return reply.send({
+        official: snapshot.officialMetrics,
+        calculated: snapshot.calculatedMetrics,
+        deltas: snapshot.deltas,
+      });
+    } catch (err) {
+      app.log.error({ err }, 'Metrics unavailable');
+      return reply.status(503).send({ error: 'Metrics unavailable - data source error' });
+    }
   });
 
   /** GET /api/metrics/:key — конкретная метрика с историей */
   app.get('/api/metrics/:key', async (request, reply) => {
-    const { key } = request.params as { key: string };
-    const snapshot = await getSnapshot();
-    const metric = snapshot.officialMetrics[key];
-    const mapEntry = REPORT_MAP.find((e) => e.metricKey === key);
-    const trend = getMetricTrend(key);
+    try {
+      const { key } = request.params as { key: string };
+      const snapshot = await getSnapshot();
+      const metric = snapshot.officialMetrics[key];
+      const mapEntry = REPORT_MAP.find((e) => e.metricKey === key);
+      const trend = getMetricTrend(key);
 
-    if (!metric && !mapEntry) {
-      return reply.status(404).send({ error: `Метрика "${key}" не найдена` });
+      if (!metric && !mapEntry) {
+        return reply.status(404).send({ error: `Метрика "${key}" не найдена` });
+      }
+
+      return reply.send({
+        metric,
+        mapEntry,
+        trend,
+        delta: snapshot.deltas.find((d: DeltaResult) => d.metricKey === key),
+        issues: snapshot.issues.filter((i: Issue) => i.metricKey === key),
+      });
+    } catch (err) {
+      app.log.error({ err }, 'Metric detail unavailable');
+      return reply.status(503).send({ error: 'Metrics unavailable - data source error' });
     }
-
-    return reply.send({
-      metric,
-      mapEntry,
-      trend,
-      delta: snapshot.deltas.find((d: DeltaResult) => d.metricKey === key),
-      issues: snapshot.issues.filter((i: Issue) => i.metricKey === key),
-    });
   });
 
   /** GET /api/report-map — полная карта метрик */

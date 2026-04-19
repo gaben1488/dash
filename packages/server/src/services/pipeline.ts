@@ -11,6 +11,7 @@ import {
   DEPARTMENT_SHORT_NAMES,
   buildDepartmentMetrics,
   buildSummaryMetrics,
+  LATIN_TO_CYRILLIC,
 } from '@aemr/shared';
 import type {
   DataSnapshot,
@@ -438,11 +439,7 @@ function mapSeverity(s: string): 'error' | 'warning' | 'info' {
 }
 
 function mapDeptIdToShortName(deptId: string): string {
-  const map: Record<string, string> = {
-    uer: 'УЭР', uio: 'УИО', uagzo: 'УАГЗО', ufbp: 'УФБП',
-    ud: 'УД', udtx: 'УДТХ', uksimp: 'УКСиМП', uo: 'УО',
-  };
-  return map[deptId] ?? deptId;
+  return LATIN_TO_CYRILLIC[deptId as import('@aemr/shared').LatinDeptId] ?? deptId;
 }
 
 // ────────────────────────────────────────────────────────────

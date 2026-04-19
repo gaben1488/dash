@@ -4,6 +4,7 @@ import {
   ALL_SHEETS,
   SVOD_SHEET_NAME,
   DEPARTMENT_SHEETS,
+  DEPARTMENT_REGISTRY,
 } from '@aemr/shared';
 import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
 
@@ -265,40 +266,87 @@ export async function getSheetDataFromSpreadsheet(
 }
 
 /**
+ * Reads a single sheet from an EXTERNAL spreadsheet WITH both values AND formulas.
+ * Returns { values, formulas } where formulas[r][c] starts with '=' if it's a formula cell.
+ *
+ * BUG-2 FIX: Department sheets must include formula info for:
+ * - SIG-INT-003 (broken formula detection)
+ * - Field profiling (input vs formula vs protected columns)
+ * - Trust scoring (formula integrity component)
+ */
+export async function getSheetDataWithFormulas(
+  spreadsheetId: string,
+  sheetName: string,
+): Promise<{ values: unknown[][]; formulas: unknown[][] }> {
+  const api = await getSheetsApi();
+  const range = `'${sheetName}'`;
+
+  const [valResp, fmlResp] = await Promise.all([
+    api.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING',
+      majorDimension: 'ROWS',
+    }),
+    api.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+      valueRenderOption: 'FORMULA',
+      majorDimension: 'ROWS',
+    }),
+  ]);
+
+  return {
+    values: (valResp.data.values as unknown[][]) ?? [],
+    formulas: (fmlResp.data.values as unknown[][]) ?? [],
+  };
+}
+
+/** Result of department spreadsheet fetch — includes both values and formulas */
+export interface DeptSheetResult {
+  values: unknown[][];
+  formulas: unknown[][];
+  sheetName: string;
+}
+
+/**
  * Fetches row data from all department-specific spreadsheets in parallel.
  * Each department has its own Google Sheets spreadsheet ID (from config).
- * Returns map: departmentName → 2D array of rows.
+ *
+ * BUG-2 FIX: Now reads BOTH values AND formulas for each department sheet.
+ * Sheet names are derived from DEPARTMENT_REGISTRY (единый реестр управлений).
+ *
+ * Returns map: departmentName → { values, formulas, sheetName }.
  */
 export async function fetchDepartmentSpreadsheets(
   deptSpreadsheets: Record<string, string>,
-): Promise<{ data: Record<string, unknown[][]>; errors: Record<string, string> }> {
-  const data: Record<string, unknown[][]> = {};
+): Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }> {
+  const data: Record<string, DeptSheetResult> = {};
   const errors: Record<string, string> = {};
 
-  // Canonical sheet name per department (verified with user 2026-04-12).
-  // УЭР/УО/УКСиМП/УД read "Все"; УФБП/УДТХ/УИО/УАГЗО read their own name.
-  const DEPT_SHEET_NAME: Record<string, string> = {
-    'УЭР': 'Все', 'УО': 'Все', 'УКСиМП': 'Все', 'УД': 'Все',
-    'УФБП': 'УФБП', 'УДТХ': 'УДТХ', 'УИО': 'УИО', 'УАГЗО': 'УАГЗО',
-  };
+  // Canonical sheet name from department-registry (single source of truth).
+  const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
+    DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
+  );
 
   const entries = Object.entries(deptSpreadsheets);
   const results = await Promise.allSettled(
     entries.map(async ([deptName, ssId]) => {
-      // Use canonical sheet name, fallback to dept name if not in map
+      // Use canonical sheet name from registry, fallback to dept name
       const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
       try {
-        const rows = await getSheetDataFromSpreadsheet(ssId, sheetName);
-        if (rows.length > 0) {
-          return { deptName, rows, sheetName };
+        const result = await getSheetDataWithFormulas(ssId, sheetName);
+        if (result.values.length > 0) {
+          return { deptName, ...result, sheetName };
         }
       } catch {
         // Fallback: try 'Все' if dept-specific sheet failed, or vice versa
         const fallback = sheetName === 'Все' ? deptName : 'Все';
         try {
-          const rows = await getSheetDataFromSpreadsheet(ssId, fallback);
-          if (rows.length > 0) {
-            return { deptName, rows, sheetName: fallback };
+          const result = await getSheetDataWithFormulas(ssId, fallback);
+          if (result.values.length > 0) {
+            return { deptName, ...result, sheetName: fallback };
           }
         } catch {
           // Both failed
@@ -310,10 +358,10 @@ export async function fetchDepartmentSpreadsheets(
 
   for (const result of results) {
     if (result.status === 'fulfilled') {
-      data[result.value.deptName] = result.value.rows;
+      const { deptName, values, formulas, sheetName } = result.value;
+      data[deptName] = { values, formulas, sheetName };
     } else {
       const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      // Extract dept name from error message
       const match = msg.match(/for (.+)$/);
       if (match) errors[match[1]] = msg;
     }
@@ -324,13 +372,16 @@ export async function fetchDepartmentSpreadsheets(
 
 /**
  * Fetch ШДЮ (monthly dynamics) sheet from СВОД_для_Google spreadsheet.
+ * BUG-2 FIX: Now reads both values AND formulas.
  */
-export async function fetchSHDYUSheet(spreadsheetId: string): Promise<unknown[][]> {
+export async function fetchSHDYUSheet(
+  spreadsheetId: string,
+): Promise<{ values: unknown[][]; formulas: unknown[][] }> {
   try {
-    return await getSheetDataFromSpreadsheet(spreadsheetId, 'ШДЮ');
+    return await getSheetDataWithFormulas(spreadsheetId, 'ШДЮ');
   } catch (error) {
     console.warn('Не удалось прочитать лист ШДЮ:', error);
-    return [];
+    return { values: [], formulas: [] };
   }
 }
 

@@ -138,8 +138,8 @@ try {
       setDeptSheetCache(data);
       const now = new Date().toISOString();
       const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
-      for (const [name, rows] of Object.entries(data)) {
-        loadMeta[name] = { loadedAt: now, rowCount: rows.length, sheetName: name };
+      for (const [name, result] of Object.entries(data)) {
+        loadMeta[name] = { loadedAt: now, rowCount: result.values.length, sheetName: result.sheetName };
       }
       for (const [name, errMsg] of Object.entries(errors)) {
         loadMeta[name] = { loadedAt: now, rowCount: 0, sheetName: name, error: errMsg };
@@ -147,7 +147,7 @@ try {
       setDeptLoadMeta(loadMeta);
       const loaded = Object.keys(data);
       const failed = Object.keys(errors);
-      app.log.info(`✅ Управления: ${loaded.length} загружено${failed.length > 0 ? `, ${failed.length} ошибок (${failed.join(', ')})` : ''}`);
+      app.log.info(`✅ Управления: ${loaded.length} загружено (с формулами)${failed.length > 0 ? `, ${failed.length} ошибок (${failed.join(', ')})` : ''}`);
     } catch (err) {
       app.log.warn('⚠️ Таблицы управлений недоступны: %s', (err as Error).message);
     }

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
 import { getSheetData, getSheetDataFromSpreadsheet, writeCellValue } from '../services/google-sheets.js';
-import { getSnapshot, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
+import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
@@ -65,7 +65,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // 3. Department's own spreadsheet (last resort, live API call)
     const sheetName = dept.sheetName;
     let rawRows: unknown[][];
-    const cached = getDeptSheetCache()[dept.nameShort];
+    const cached = getDeptSheetValues()[dept.nameShort];
     if (cached && cached.length > 0) {
       rawRows = cached;
     } else {
@@ -298,7 +298,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Read sheet data — cache-first, then SVOD fallback, then live API
     const sheetName = dept.sheetName;
     let rawRows: unknown[][];
-    const cached = getDeptSheetCache()[dept.nameShort];
+    const cached = getDeptSheetValues()[dept.nameShort];
     if (cached && cached.length > 0) {
       rawRows = cached;
     } else {
@@ -445,14 +445,14 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
       // Invalidate cache for this dept so next read picks up the change
-      const cache = getDeptSheetCache();
-      if (cache[dept.nameShort]) {
-        // Update the cached row in-place
-        const rows = cache[dept.nameShort];
+      const fullCache = getDeptSheetCache();
+      const deptResult = fullCache[dept.nameShort];
+      if (deptResult) {
+        // Update the cached row in-place (values array)
         const colIdx = COL_LETTER_INDEX[field];
-        if (colIdx !== undefined && rows[idx - 1]) {
-          (rows[idx - 1] as unknown[])[colIdx] = normalizedValue;
-          setDeptSheetCache({ ...cache });
+        if (colIdx !== undefined && deptResult.values[idx - 1]) {
+          (deptResult.values[idx - 1] as unknown[])[colIdx] = normalizedValue;
+          setDeptSheetCache({ ...fullCache });
         }
       }
 
@@ -607,13 +607,13 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           const writeResult = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
           // Update cache in-place
-          const cache = getDeptSheetCache();
-          if (cache[dept.nameShort]) {
-            const rows = cache[dept.nameShort];
+          const batchFullCache = getDeptSheetCache();
+          const batchDeptResult = batchFullCache[dept.nameShort];
+          if (batchDeptResult) {
             const colIdx = COL_LETTER_INDEX[field];
-            if (colIdx !== undefined && rows[entry.rowIndex - 1]) {
-              (rows[entry.rowIndex - 1] as unknown[])[colIdx] = normalizedValue;
-              setDeptSheetCache({ ...cache });
+            if (colIdx !== undefined && batchDeptResult.values[entry.rowIndex - 1]) {
+              (batchDeptResult.values[entry.rowIndex - 1] as unknown[])[colIdx] = normalizedValue;
+              setDeptSheetCache({ ...batchFullCache });
             }
           }
 
@@ -778,7 +778,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     for (const dept of DEPARTMENTS) {
       let rawRows: unknown[][];
-      const cachedSub = getDeptSheetCache()[dept.nameShort];
+      const cachedSub = getDeptSheetValues()[dept.nameShort];
       if (cachedSub && cachedSub.length > 0) {
         rawRows = cachedSub;
       } else {
@@ -843,7 +843,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     for (const dept of DEPARTMENTS) {
       let rawRows: unknown[][];
-      const cachedSubj = getDeptSheetCache()[dept.nameShort];
+      const cachedSubj = getDeptSheetValues()[dept.nameShort];
       if (cachedSubj && cachedSubj.length > 0) {
         rawRows = cachedSubj;
       } else {
@@ -984,7 +984,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     for (const dept of departments) {
       let rawRows: unknown[][];
-      const cachedScatter = getDeptSheetCache()[dept.nameShort];
+      const cachedScatter = getDeptSheetValues()[dept.nameShort];
       if (cachedScatter && cachedScatter.length > 0) {
         rawRows = cachedScatter;
       } else {

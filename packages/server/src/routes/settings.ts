@@ -33,8 +33,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/api/settings/env', async (request, reply) => {
-    if (process.env.NODE_ENV === 'production') {
-      return reply.status(403).send({ error: 'Изменение .env запрещено в production' });
+    // Fail-safe guard: разрешаем ТОЛЬКО если явно development. Если NODE_ENV unset —
+    // считаем это production-like и блокируем. Дополнительно требуем X-Dev-Token,
+    // который сервер читает из env (отсутствует в .env.example — только локально).
+    if (process.env.NODE_ENV !== 'development') {
+      return reply.status(403).send({ error: 'Изменение .env разрешено только в development' });
+    }
+    const expectedToken = process.env.DEV_SETTINGS_TOKEN;
+    const providedToken = request.headers['x-dev-token'];
+    if (!expectedToken || providedToken !== expectedToken) {
+      return reply.status(403).send({ error: 'Требуется X-Dev-Token (см. DEV_SETTINGS_TOKEN в локальном .env)' });
     }
 
     const body = parseBody(EnvUpdateSchema, request, reply);
