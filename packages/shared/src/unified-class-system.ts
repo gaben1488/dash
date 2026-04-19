@@ -569,20 +569,7 @@ export const CHECK_REGISTRY: CheckRegistryEntry[] = [
     legacyId: 'q1_leq_year',
     sourceType: 'rule',
   },
-  {
-    id: 'formula_continuity',
-    group: 'formula_consistency',
-    name: 'Непрерывность данных в столбцах',
-    description: 'Пустое значение среди заполненных соседей — возможно удалённая формула.',
-    severity: 'warning',
-    origin: 'bi_heuristic',
-    scope: 'department',
-    kbHint: 'Если 3+ соседних строк содержат данные, а текущая пуста — возможно, формула была случайно удалена.',
-    recommendation: 'Проверить ячейку: восстановить формулу или подтвердить корректность пустого значения',
-    trustComponent: 'formula_integrity',
-    legacyId: 'formula_continuity',
-    sourceType: 'rule',
-  },
+  // formula_continuity УДАЛЁН — дублирует budget_sum_plan (#1a) + dept_fact_sum (#10)
 
   // ================================================================
   // ГРУППА: field_validation — Валидация полей
@@ -905,6 +892,20 @@ export const CHECK_REGISTRY: CheckRegistryEntry[] = [
     sourceType: 'signal',
   },
   {
+    id: 'budget_source_missing',
+    group: 'data_integrity',
+    name: 'Источники бюджета не указаны',
+    description: 'K (план итого) > 0, но H/I/J (ФБ/КБ/МБ план) все пусты или нули.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Плановая сумма заполнена, но разбивка по уровням бюджета (федеральный/краевой/муниципальный) отсутствует. Это затрудняет анализ источников финансирования.',
+    recommendation: 'Заполнить столбцы H/I/J (ФБ/КБ/МБ план) для корректной бюджетной разбивки',
+    trustComponent: 'data_quality',
+    legacyId: 'budgetSourceMissing',
+    sourceType: 'signal',
+  },
+  {
     id: 'budget_underallocation',
     group: 'data_integrity',
     name: 'Факт без планового бюджета',
@@ -1024,16 +1025,17 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   factWithoutDate: 'fact_without_date',
   dateWithoutFact: 'date_without_fact',
   dataQuality: 'data_quality',
-  singleParticipant: 'single_participant',
+  // singleParticipant УДАЛЁН из Issue-генерации — ненадёжная текстовая детекция, только badge
   factDateBeforePlan: 'fact_date_before_plan',
   financeDelay: 'finance_delay',
   // Дополнительные сигналы (без Issue, только badge)
-  lowCompetition: 'low_competition',
+  // lowCompetition УДАЛЁН из Issue-генерации — <2% экономия не является надёжным индикатором
   formulaBroken: 'formula_broken',
   // P1: Новые сигналы (аудит 2026-04-13)
   planWithoutExecution: 'plan_without_execution',
   epJustificationMissing: 'ep_justification_missing',
   budgetUnderallocation: 'budget_underallocation',
+  budgetSourceMissing: 'budget_source_missing',
 };
 
 /**
@@ -1053,7 +1055,7 @@ export const LEGACY_RULE_TO_CHECK: Record<string, string> = {
   dept_fact_sum: 'dept_fact_sum',
   dept_economy_sum: 'dept_economy_sum',
   dept_fact_leq_plan: 'fact_vs_plan',     // ОБЪЕДИНЁН
-  formula_continuity: 'formula_continuity',
+  // formula_continuity УДАЛЁН — дублирует budget_sum_plan + dept_fact_sum
 };
 
 // ────────────────────────────────────────────────────────────

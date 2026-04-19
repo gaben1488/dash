@@ -98,8 +98,8 @@ describe('ROW_COLUMN_DEFS coverage', () => {
 });
 
 describe('RULE_BOOK', () => {
-  it('has at least 13 rules', () => {
-    expect(RULE_BOOK.length).toBeGreaterThanOrEqual(13);
+  it('has at least 12 rules', () => {
+    expect(RULE_BOOK.length).toBeGreaterThanOrEqual(12);
   });
 
   it('every rule has required fields', () => {

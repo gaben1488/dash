@@ -1,4 +1,5 @@
 import type { DepartmentId, IssueSeverity, ControlIssueSeverity, TrustGrade } from './types.js';
+import { ALL_DEPT_IDS } from './department-registry.js';
 
 // ============================================================
 // AEMR Platform — Constants
@@ -14,10 +15,8 @@ export const SVOD_SPREADSHEET_ID = '1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg
 /** Главный лист свода */
 export const SVOD_SHEET_NAME = 'СВОД ТД-ПМ';
 
-/** Листы управлений (для построчного пересчёта) */
-export const DEPARTMENT_SHEETS: readonly DepartmentId[] = [
-  'УЭР', 'УИО', 'УАГЗО', 'УФБП', 'УД', 'УДТХ', 'УКСиМП', 'УО',
-] as const;
+/** Листы управлений (для построчного пересчёта). Derived from DEPARTMENT_REGISTRY. */
+export const DEPARTMENT_SHEETS: readonly DepartmentId[] = ALL_DEPT_IDS;
 
 /** Все читаемые листы */
 export const ALL_SHEETS = [SVOD_SHEET_NAME, ...DEPARTMENT_SHEETS] as const;

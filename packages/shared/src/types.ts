@@ -189,52 +189,70 @@ export interface ProcurementRow {
 // 6. Row signals (v22 / v26 getRowSignals logic)
 // ────────────────────────────────────────────────────────────
 
-/** Аналитические сигналы строки */
+/**
+ * Аналитические сигналы строки.
+ * MUST stay in sync with RowSignals in core/pipeline/signals.ts
+ * and RowSignalSchema in schemas.ts
+ */
 export interface RowSignal {
-  /** Процедура подписана / заключён контракт */
+  /** Контракт подписан/заключён/исполнен (колонка U) */
   signed: boolean;
-  /** В стадии планирования */
+  /** В стадии планирования/подготовки/разработки (колонка U) */
   planning: boolean;
-  /** Срок ещё не наступил */
+  /** Срок не наступил (колонка U) */
   notDue: boolean;
-  /** Задержка финансирования */
+  /** Задержка финансирования (AE/AF: "финансир", "перенос") */
   financeDelay: boolean;
-  /** Отменена */
+  /** Отменена / снята / не требуется (колонка U) */
   canceled: boolean;
-  /** Просрочена */
+  /** Просрочена: плановая дата прошла, факта нет, не подписана, не отменена */
   overdue: boolean;
-  /** Имеется фактическое исполнение */
+  /** Есть фактические данные: факт дата ИЛИ факт суммы > 0 */
   hasFact: boolean;
   /** Плановая дата в прошлом */
   planPast: boolean;
-  /** Плановая дата скоро (<=14 дней) */
+  /** Плановая дата наступит в ближайшие 14 дней */
   planSoon: boolean;
   /** Несогласованность: подписано, но нет факта */
   inconsistentSigned: boolean;
-  /** Флаг экономии (AD = "экономия") */
+  /** Флаг экономии от уполномоченного органа (колонка AD) */
   economyFlag: boolean;
   /** Конфликт флага экономии: (а) AD="экономия" но факт ≥ план; (б) экономия >15% но финансовый орган не определил флаг */
   economyConflict: boolean;
-  /** ЕП-риск: единственный поставщик > 500K */
+  /** ЕП (колонка L) с суммой > 500 000 руб. — антикоррупционный сигнал */
   epRisk: boolean;
-  /** Качество данных: пустые обязательные поля */
+  /** Пустые обязательные поля — проблема качества данных */
   dataQuality: boolean;
-  /** Формула сломана (#REF, #VALUE, etc.) */
+  /** Формула вернула ошибку (#REF, #VALUE, #N/A и т.д.) */
   formulaBroken: boolean;
-  /** Единственный участник */
+  /** 1 участник — формальная конкуренция */
   singleParticipant: boolean;
   /** Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт */
   highEconomy: boolean;
-  /** Низкая конкуренция: экономия < 2% */
+  /** Экономия < 2% — предопределённый победитель */
   lowCompetition: boolean;
-  /** Раннее закрытие: факт > 14 дней до плана */
+  /** Раннее закрытие: факт дата раньше плановой на >30 дней */
   earlyClosure: boolean;
-  /** Факт превышает план > 10% */
+  /** Факт > план на >10% */
   factExceedsPlan: boolean;
-  /** Подвисший контракт: подписан, нет факта, > 60 дней просрочки */
+  /** Подвисший контракт: подписан, нет факт даты, план дата просрочена >60 дней */
   stalledContract: boolean;
-  /** Расхождение бюджета: H+I+J ≠ K */
+  /** @deprecated Удалён — дублирует правило budget_sum_plan в RULE_BOOK */
   budgetMismatch: boolean;
+  /** Есть факт суммы но нет факт даты */
+  factWithoutDate: boolean;
+  /** Есть факт дата но нет факт сумм — потенциальное отсутствие данных */
+  dateWithoutFact: boolean;
+  /** Факт дата раньше плановой даты — логическая ошибка в данных */
+  factDateBeforePlan: boolean;
+  /** План есть (K > 0, N задана), факта нет, год идёт — невыполненный план */
+  planWithoutExecution: boolean;
+  /** ЕП без обоснования: метод ЕП, но столбец M (обоснование) пуст */
+  epJustificationMissing: boolean;
+  /** Факт без плана: Y > 0, но K = 0 — бюджетная аномалия */
+  budgetUnderallocation: boolean;
+  /** Источники бюджета не указаны: H/I/J все пусты/нули, но K > 0 */
+  budgetSourceMissing: boolean;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -485,6 +503,8 @@ export interface DataSnapshot {
   recalcResults?: Record<string, any>;
   /** ШДЮ monthly dynamics data (keyed by grbsId) */
   shdyuData?: Record<string, any>;
+  /** Dataset-level analysis per department: Benford, Z-score, composite score, noise map (keyed by deptId) */
+  datasetAnalyses?: Record<string, any>;
   metadata: {
     sheetsRead: string[];
     cellsRead: number;

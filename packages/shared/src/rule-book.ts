@@ -1,5 +1,5 @@
 import type { ValidationRule, RuleCheckContext, RuleCheckResult, RuleScope } from './types.js';
-import { DEPARTMENT_ROWS } from './report-map.js';
+import { DEPARTMENT_REGISTRY } from './department-registry.js';
 
 // ============================================================
 // RuleBook — правила проверки данных АЕМР
@@ -262,10 +262,10 @@ const Q1_YEAR_PAIRS: Array<{ q1Row: number; yearRow: number; label: string }> = 
   // Summary level: row 9 = КП Q1, row 14 = КП Year; row 21 = ЕП Q1, row 26 = ЕП Year
   { q1Row: 9, yearRow: 14, label: 'КП (СВОД)' },
   { q1Row: 21, yearRow: 26, label: 'ЕП (СВОД)' },
-  // Per-department pairs from DEPARTMENT_ROWS
-  ...Object.values(DEPARTMENT_ROWS).flatMap(cfg => [
-    { q1Row: cfg.kpQ1, yearRow: cfg.kpYear, label: `КП (${cfg.id})` },
-    { q1Row: cfg.epQ1, yearRow: cfg.epYear, label: `ЕП (${cfg.id})` },
+  // Per-department pairs from DEPARTMENT_REGISTRY (canonical source)
+  ...DEPARTMENT_REGISTRY.flatMap(dept => [
+    { q1Row: dept.svod.kpQ1, yearRow: dept.svod.kpYear, label: `КП (${dept.latinId})` },
+    { q1Row: dept.svod.epQ1, yearRow: dept.svod.epYear, label: `ЕП (${dept.latinId})` },
   ]),
 ];
 
@@ -745,7 +745,7 @@ export const RULE_BOOK: ValidationRule[] = [
   deptFactSumConsistency,    // 10 -- Y=V+W+X (dept fact total)
   deptEconomySumConsistency, // 11 -- AC=Z+AA+AB (dept economy total)
   // deptFactLeqPlan УДАЛЁН (#12) — дубль сигнала factExceedsPlan
-  formulaContinuity,         // 13 -- K/Y sum integrity (component-sum check)
+  // formulaContinuity УДАЛЁН (#13) — дублирует budget_sum_plan (#1a) + dept_fact_sum (#10)
 ];
 
 /** Получить все правила (все активны по умолчанию) */

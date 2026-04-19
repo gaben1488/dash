@@ -11,48 +11,39 @@
  */
 
 import type { ReportMapEntry, Department } from './types.js';
+import { SVOD_SHEET_NAME } from './constants.js';
+import {
+  DEPARTMENT_REGISTRY,
+  ALL_LATIN_IDS,
+  type LatinDeptId,
+} from './department-registry.js';
 
 // ────────────────────────────────────────────────────────────────
 // 1. Идентификаторы департаментов (ГРБС)
+//    Derived from canonical DEPARTMENT_REGISTRY (Occam's razor).
 // ────────────────────────────────────────────────────────────────
 
-/** Идентификаторы всех 8 ГРБС */
-export const DEPARTMENT_IDS = [
-  'uer', 'uio', 'uagzo', 'ufbp', 'ud', 'udtx', 'uksimp', 'uo',
-] as const;
+/** Идентификаторы всех 8 ГРБС (latin). Derived from DEPARTMENT_REGISTRY. */
+export const DEPARTMENT_IDS = ALL_LATIN_IDS;
 
-export type DepartmentId = (typeof DEPARTMENT_IDS)[number];
+export type DepartmentId = LatinDeptId;
 
-/** Полные русские наименования управлений */
-export const DEPARTMENT_NAMES: Record<DepartmentId, string> = {
-  uer:    'Управление экономического развития',
-  uio:    'Управление имущественных отношений',
-  uagzo:  'Управление архитектуры, градостроительства и земельных отношений',
-  ufbp:   'Управление финансово-бюджетной политики',
-  ud:     'Управление делами',
-  udtx:   'Управление дорожно-транспортного хозяйства',
-  uksimp: 'Управление культуры, спорта и молодёжной политики',
-  uo:     'Управление образования',
-} as const;
+/** Полные русские наименования управлений. Derived from DEPARTMENT_REGISTRY. */
+export const DEPARTMENT_NAMES = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map(d => [d.latinId, d.fullName]),
+) as Record<DepartmentId, string>;
 
-/** Краткие русские наименования */
-export const DEPARTMENT_SHORT_NAMES: Record<DepartmentId, string> = {
-  uer:    'УЭР',
-  uio:    'УИО',
-  uagzo:  'УАГЗО',
-  ufbp:   'УФБП',
-  ud:     'УД',
-  udtx:   'УДТХ',
-  uksimp: 'УКСиМП',
-  uo:     'УО',
-} as const;
+/** Краткие русские наименования. Derived from DEPARTMENT_REGISTRY. */
+export const DEPARTMENT_SHORT_NAMES = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map(d => [d.latinId, d.shortName]),
+) as Record<DepartmentId, string>;
 
 // ────────────────────────────────────────────────────────────────
 // 2. Название листа
 // ────────────────────────────────────────────────────────────────
 
-/** Имя сводного листа в Google Sheets */
-export const SVOD_SHEET = 'СВОД ТД-ПМ' as const;
+/** @deprecated Use SVOD_SHEET_NAME from constants.ts */
+export const SVOD_SHEET = SVOD_SHEET_NAME;
 
 // ────────────────────────────────────────────────────────────────
 // 3. Маппинг столбцов → 0-based индекс
@@ -62,7 +53,7 @@ export const SVOD_SHEET = 'СВОД ТД-ПМ' as const;
  * Столбцы листа СВОД ТД-ПМ: буква → 0-based индекс.
  * A=0, B=1, ... Z=25, AA=26, AB=27, ... AG=32
  */
-export const COLUMNS = {
+export const SVOD_COLUMNS = {
   A: 0,   B: 1,   C: 2,   D: 3,   E: 4,   F: 5,   G: 6,
   H: 7,   I: 8,   J: 9,   K: 10,  L: 11,  M: 12,  N: 13,
   O: 14,  P: 15,  Q: 16,  R: 17,  S: 18,  T: 19,  U: 20,
@@ -70,7 +61,10 @@ export const COLUMNS = {
   AA: 26, AB: 27, AC: 28, AD: 29, AE: 30, AF: 31, AG: 32,
 } as const;
 
-export type ColumnLetter = keyof typeof COLUMNS;
+export type ColumnLetter = keyof typeof SVOD_COLUMNS;
+
+/** @deprecated Use SVOD_COLUMNS */
+export const COLUMNS = SVOD_COLUMNS;
 
 /** Столбцы, содержащие формулы (ожидаем, что НЕ будут вручную) */
 export const FORMULA_COLUMNS: ColumnLetter[] = [
@@ -80,11 +74,11 @@ export const FORMULA_COLUMNS: ColumnLetter[] = [
 /** Столбцы с правилами валидации данных */
 export const RULE_COLUMNS = {
   /** F (5) — Отклонение: должно быть = D - E */
-  F: COLUMNS.F,
+  F: SVOD_COLUMNS.F,
   /** L (11) — ФБ факт: проверка целостности */
-  L: COLUMNS.L,
+  L: SVOD_COLUMNS.L,
   /** AD (29) — Признак/флаг */
-  AD: COLUMNS.AD,
+  AD: SVOD_COLUMNS.AD,
 } as const;
 
 // ────────────────────────────────────────────────────────────────
@@ -239,24 +233,20 @@ export const SUMMARY_ROWS = {
  * Массив департаментов (обратная совместимость).
  * Используется в dashboard.ts, demo-data.ts и др.
  */
-// Canonical sheet name per department.
-// УЭР/УО/УКСиМП/УД → лист "Все" (имя листа-вкладки, НЕ "все листы").
-// УФБП/УДТХ/УИО/УАГЗО → одноимённый лист.
-const DEPT_SHEET_NAMES: Record<string, string> = {
-  uer: 'Все', uo: 'Все', uksimp: 'Все', ud: 'Все',
-  uio: 'УИО', uagzo: 'УАГЗО', ufbp: 'УФБП', udtx: 'УДТХ',
-};
-
-export const DEPARTMENTS: Department[] = DEPARTMENT_IDS.map((id) => {
-  const cfg = DEPARTMENT_ROWS[id];
+/**
+ * Массив департаментов (обратная совместимость).
+ * Derived from canonical DEPARTMENT_REGISTRY.
+ */
+export const DEPARTMENTS: Department[] = DEPARTMENT_REGISTRY.map((d) => {
+  const cfg = DEPARTMENT_ROWS[d.latinId];
   return {
-    id,
-    name: DEPARTMENT_NAMES[id],
-    nameShort: DEPARTMENT_SHORT_NAMES[id],
-    sheetName: DEPT_SHEET_NAMES[id] ?? DEPARTMENT_SHORT_NAMES[id],
-    svodRange: { startRow: cfg.kpQ1, endRow: cfg.kpQ1 + 30 },
+    id: d.latinId,
+    name: d.fullName,
+    nameShort: d.shortName,
+    sheetName: d.sheetName,
+    svodRange: { startRow: d.svod.kpQ1, endRow: d.svod.kpQ1 + 30 },
     controlCells: {
-      q1Percent: `G${cfg.epQ1}`,
+      q1Percent: `G${d.svod.epQ1}`,
       ...(cfg.economyEpCell ? { economyEp: cfg.economyEpCell } : {}),
       ...(cfg.economyKpCell ? { economyKp: cfg.economyKpCell } : {}),
     },
@@ -307,7 +297,7 @@ function parseCellAddress(cell: string): { col: number; row: number } | null {
   if (!match) return null;
   const letter = match[1] as ColumnLetter;
   const row = parseInt(match[2], 10);
-  const col = COLUMNS[letter];
+  const col = SVOD_COLUMNS[letter];
   if (col === undefined || !Number.isFinite(row)) return null;
   return { col, row };
 }
@@ -372,24 +362,24 @@ export interface RowMetrics {
  */
 function extractRowMetrics(sheetData: SheetData, row: number): RowMetrics {
   return {
-    planCount:        extractMetric(sheetData, row, COLUMNS.D),
-    factCount:        extractMetric(sheetData, row, COLUMNS.E),
-    deviation:        extractMetric(sheetData, row, COLUMNS.F),
-    executionPercent: extractMetric(sheetData, row, COLUMNS.G),
-    fbPlan:           extractMetric(sheetData, row, COLUMNS.H),
-    kbPlan:           extractMetric(sheetData, row, COLUMNS.I),
-    mbPlan:           extractMetric(sheetData, row, COLUMNS.J),
-    totalPlan:        extractMetric(sheetData, row, COLUMNS.K),
-    fbFact:           extractMetric(sheetData, row, COLUMNS.L),
-    kbFact:           extractMetric(sheetData, row, COLUMNS.M),
-    mbFact:           extractMetric(sheetData, row, COLUMNS.N),
-    totalFact:        extractMetric(sheetData, row, COLUMNS.O),
-    amountDeviation:  extractMetric(sheetData, row, COLUMNS.P),
-    savingsPercent:   extractMetric(sheetData, row, COLUMNS.Q),
-    economyFB:        extractMetric(sheetData, row, COLUMNS.R),
-    economyKB:        extractMetric(sheetData, row, COLUMNS.S),
-    economyMB:        extractMetric(sheetData, row, COLUMNS.T),
-    economyTotal:     extractMetric(sheetData, row, COLUMNS.U),
+    planCount:        extractMetric(sheetData, row, SVOD_COLUMNS.D),
+    factCount:        extractMetric(sheetData, row, SVOD_COLUMNS.E),
+    deviation:        extractMetric(sheetData, row, SVOD_COLUMNS.F),
+    executionPercent: extractMetric(sheetData, row, SVOD_COLUMNS.G),
+    fbPlan:           extractMetric(sheetData, row, SVOD_COLUMNS.H),
+    kbPlan:           extractMetric(sheetData, row, SVOD_COLUMNS.I),
+    mbPlan:           extractMetric(sheetData, row, SVOD_COLUMNS.J),
+    totalPlan:        extractMetric(sheetData, row, SVOD_COLUMNS.K),
+    fbFact:           extractMetric(sheetData, row, SVOD_COLUMNS.L),
+    kbFact:           extractMetric(sheetData, row, SVOD_COLUMNS.M),
+    mbFact:           extractMetric(sheetData, row, SVOD_COLUMNS.N),
+    totalFact:        extractMetric(sheetData, row, SVOD_COLUMNS.O),
+    amountDeviation:  extractMetric(sheetData, row, SVOD_COLUMNS.P),
+    savingsPercent:   extractMetric(sheetData, row, SVOD_COLUMNS.Q),
+    economyFB:        extractMetric(sheetData, row, SVOD_COLUMNS.R),
+    economyKB:        extractMetric(sheetData, row, SVOD_COLUMNS.S),
+    economyMB:        extractMetric(sheetData, row, SVOD_COLUMNS.T),
+    economyTotal:     extractMetric(sheetData, row, SVOD_COLUMNS.U),
   };
 }
 
@@ -785,7 +775,7 @@ export function getAllCellAddresses(): string[] {
   for (const e of REPORT_MAP) {
     const match = e.sourceCell.match(/^([A-Z]{1,2})(\d+)$/);
     if (!match) continue;
-    const col = COLUMNS[match[1] as ColumnLetter];
+    const col = SVOD_COLUMNS[match[1] as ColumnLetter];
     const row = parseInt(match[2], 10);
     if (col === undefined) continue;
 

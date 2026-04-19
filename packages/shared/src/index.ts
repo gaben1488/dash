@@ -13,6 +13,7 @@ export {
   DEPARTMENT_NAMES,
   DEPARTMENT_SHORT_NAMES,
   SVOD_SHEET,
+  SVOD_COLUMNS,
   COLUMNS,
   FORMULA_COLUMNS,
   RULE_COLUMNS,
@@ -53,3 +54,6 @@ export * from './shdyu-map.js';
 
 // Re-export unified class system
 export * from './unified-class-system.js';
+
+// Re-export department registry (canonical source of truth)
+export * from './department-registry.js';
