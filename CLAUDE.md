@@ -43,15 +43,21 @@
 
 ## 5. Слеш-команды
 
-| Slash | Файл |
-|-------|------|
-| `/pulse` | `scripts/daily_pulse.py` — пишет `vault/50-Workflow/daily/` + `memory/daily-pulse/` |
-| `/graphify` | rebuild `graphify-out/` |
-| `/supersede` | `scripts/archive_supersede.py` — dry-run; apply вручную |
-| `/telemetry` | `scripts/skill_telemetry.py` — skills+mcp usage за N дней |
-| `/close` | ritual (ml learn → tsc+test → commit → ml sync → mark_chapter → pulse → update NOW.md) |
+| Slash | Файл / Skill | Что делает |
+|-------|---|---|
+| `/pulse` | `scripts/daily_pulse.py` | пишет `vault/50-Workflow/daily/` + `memory/daily-pulse/` |
+| `/graphify` | rebuild `graphify-out/` | knowledge graph код |
+| `/supersede` | `scripts/archive_supersede.py` | dry-run; apply вручную |
+| `/telemetry` | `scripts/skill_telemetry.py` | skills+mcp usage за N дней |
+| `/distill <topic>` | `~/.claude/skills/distill/SKILL.md` | дистилляция темы из vault+memory+mulch (Express stage Karpathy LLM-Wiki) |
+| `/lint` | `~/.claude/skills/lint/SKILL.md` | health-check vault: орфаны, противоречия mulch, stale dates (Karpathy Lint operation) |
+| `/close` | ritual | ml learn → tsc+test → commit → ml sync → mark_chapter → pulse → update NOW.md |
 
-## 6. Skills/MCP (краткий регистр; полный — `memory/AEMR_TOOLKIT_REGISTRY.md`)
+**Hybrid поиск (после Карпатого / VaultSearch стандарта)**: `python scripts/semantic_search.py "<query>"` — BM25 × векторы × RRF (k=60), мультиязычная модель `paraphrase-multilingual-MiniLM-L12-v2`. Использовать когда grep/wikilink не справляются. `--bm25-only` для точных терминов, `--vector-only` для смысла. Перед первым запуском: `pip install sentence-transformers numpy rank-bm25` + `--reindex`.
+
+**Vault-spec для AI-агентов**: `vault/AEMR/00-Meta/CLAUDE-VAULT.md` (3-слойная архитектура raw/wiki/spec по Karpathy). Lint-queries: `vault/AEMR/00-Meta/Vault-Lint.md`.
+
+## 6. Skills/MCP (краткий регистр; полный — `memory/REGISTRIES.md` Часть I)
 
 **P0 каждая сессия:** `graphify`, `ag-essentials-lint-and-validate`, `ag-essentials-systematic-debugging`, `update-config`.
 
@@ -72,4 +78,4 @@
 - новый slash-command (§5).
 - новая direction в hooks (§1 → settings.json).
 
-**Декоративное/принципиальное** → не сюда, в `memory/PROCEDURE.md` или `feedback_*.md`. Правило: если нельзя написать «auto-check: ...» — это не enforceable rule, это convention.
+**Декоративное/принципиальное** → не сюда, в `memory/PROCESS.md` или `memory/FEEDBACK.md`. Правило: если нельзя написать «auto-check: ...» — это не enforceable rule, это convention.
