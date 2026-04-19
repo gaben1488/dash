@@ -15,6 +15,10 @@
 
 import { DEPT_COLUMNS } from '@aemr/shared';
 
+/** Placeholder values in column C that mean "org itself" (no subordinate).
+ *  Must match calc-engine.ts PLACEHOLDERS for consistency. */
+const ORG_SELF_PLACEHOLDERS = new Set(['х', 'x', '-', '—', '–', 'н/д', 'нет', 'не определена']);
+
 // Alias for brevity within this module
 const COL = {
   A: DEPT_COLUMNS.ID,
@@ -536,7 +540,11 @@ export function recalculateFromRows(
         : 'current_program';
 
     // ── Subordinate org (column C) ───────────────────────────────
-    const subName = String(row[COL.C] ?? '').trim();
+    // Normalize self-reference patterns: empty, "X"/"Х"(Cyrillic), "-"/"—"/"–", "н/д", "нет"
+    const rawSubName = String(row[COL.C] ?? '').trim();
+    const subName = (!rawSubName || /^[XxХх\-—–]$/u.test(rawSubName) || ORG_SELF_PLACEHOLDERS.has(rawSubName.toLowerCase()))
+      ? ''
+      : rawSubName;
 
     const hVal = num(row[COL.H]);
     const iVal = num(row[COL.I]);

@@ -76,6 +76,8 @@ export interface RowSignals {
   epJustificationMissing: boolean;
   /** Факт без плана: Y > 0, но K = 0 — бюджетная аномалия */
   budgetUnderallocation: boolean;
+  /** Источники бюджета не указаны: H/I/J все пусты/нули, но K > 0 */
+  budgetSourceMissing: boolean;
 }
 
 /**
@@ -106,8 +108,8 @@ export interface SignalBadge {
 // Константы
 // ────────────────────────────────────────────────────────────
 
-/** Порог ЕП-риска в рублях (600 тыс. — п.4 ст.93 44-ФЗ) */
-const EP_RISK_THRESHOLD = 600_000;
+/** Порог ЕП-риска в рублях (2 млн — п.4 ч.1 ст.93 44-ФЗ, актуальный лимит ЕП) */
+const EP_RISK_THRESHOLD = 2_000_000;
 
 /** Антидемпинговый порог экономии (44-ФЗ ст.37) */
 const ANTI_DUMPING_PERCENT = 25;
@@ -196,10 +198,11 @@ function parseDate(val: unknown): Date | null {
 }
 
 /**
- * Возвращает разницу в днях (a - b), округлённую вниз.
+ * Возвращает разницу в днях (a - b), используя Math.round для устойчивости к DST.
+ * Math.floor может потерять 1 день при переходе на зимнее время (23 часа вместо 24).
  */
 function daysDiff(a: Date, b: Date): number {
-  return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 /**
@@ -297,7 +300,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let planSoon = false;
 
   // Check if AE/AF indicates a known schedule change (переносится на...) — not truly overdue
-  const hasScheduleTransfer = textIncludes(grbsComment, ['переносится на', 'планируется на', 'планирование на']);
+  const hasScheduleTransfer = textIncludes(grbsComment, [
+    'переносится на', 'планируется на', 'планирование на',
+    'перенос', 'перенесен', 'перенесён', 'отложен', 'переносится',
+  ]);
 
   if (planDateParsed) {
     const daysUntilPlan = daysDiff(planDateParsed, now);
@@ -414,7 +420,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let earlyClosure = false;
   if (factDateParsed && planDateParsed && !canceled) {
     const diff = daysDiff(planDateParsed, factDateParsed); // planDate - factDate
-    if (diff > 30) {
+    // Retroactive date entry filter: if planDate is in the future, the dates may have been
+    // entered retroactively (common in СВОД — operators fill in dates after the fact).
+    // Only flag if planDate is already past (real deadline, not a future placeholder).
+    const planInPast = daysDiff(now, planDateParsed) > 0; // now > planDate
+    if (diff > 30 && planInPast) {
       earlyClosure = true;
     }
   }
@@ -473,10 +483,19 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Also skip rows already flagged as overdue (to avoid overlap).
   let planWithoutExecution = false;
   if (!isNaN(planTotal) && planTotal > 0 && !hasFact && !signed && !canceled && !planning && !notDue && !overdue) {
-    // If we're past Q1 (April) and the row has no fact — flag it
-    const currentMonth = now.getMonth(); // 0-indexed
-    if (currentMonth >= 3) { // April+
-      planWithoutExecution = true;
+    // Gate: plan date must exist AND be in the past (>30 days ago to avoid noise on recent plans)
+    // Without this gate, signal fires on 48% of rows including future-dated plans.
+    if (planDateParsed) {
+      const daysSincePlan = daysDiff(now, planDateParsed); // now - planDate
+      if (daysSincePlan > 30) {
+        planWithoutExecution = true;
+      }
+    } else {
+      // No plan date but plan sum exists — only flag after April (Q2+) as before
+      const currentMonth = now.getMonth(); // 0-indexed
+      if (currentMonth >= 3) { // April+
+        planWithoutExecution = true;
+      }
     }
   }
 
@@ -490,6 +509,17 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Y > 0 but K = 0 (or NaN) — execution without budget allocation.
   // This is a data integrity issue — spending money not in the plan.
   const budgetUnderallocation = factTotal > 0 && (isNaN(planTotal) || planTotal === 0) && !canceled;
+
+  // ── Источники бюджета не указаны ──
+  // H/I/J (columns 7,8,9 = ФБ/КБ/МБ план) все пусты/нули, но K (column 10 = план итого) > 0.
+  // Это значит, что итого плана есть, но разбивка по бюджетам не заполнена.
+  const planFB = toNumber(cells['H']);
+  const planKB = toNumber(cells['I']);
+  const planMB = toNumber(cells['J']);
+  const budgetSourceMissing = !isNaN(planTotal) && planTotal > 0 && !canceled &&
+    (isNaN(planFB) || planFB === 0) &&
+    (isNaN(planKB) || planKB === 0) &&
+    (isNaN(planMB) || planMB === 0);
 
   return {
     signed,
@@ -518,6 +548,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     planWithoutExecution,
     epJustificationMissing,
     budgetUnderallocation,
+    budgetSourceMissing,
   };
 }
 
@@ -639,6 +670,9 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   }
   if (signals.budgetUnderallocation) {
     badges.push({ label: 'Факт без плана', color: 'red', icon: 'banknote' });
+  }
+  if (signals.budgetSourceMissing) {
+    badges.push({ label: 'Нет разбивки бюджета', color: 'yellow', icon: 'wallet' });
   }
 
   // ── Зелёные (позитивные) ──

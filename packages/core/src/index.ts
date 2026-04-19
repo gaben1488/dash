@@ -12,7 +12,9 @@ export { recalculateFromRows, type RecalculatedMetrics, type QuarterMetrics, typ
 export { CalcEngine, standardRowFilter, getValue, sliceResults, DEFAULT_EXTRACTORS, STANDARD_METRICS, STANDARD_DERIVED, type RawRow, type GroupedResults, type AccumulatedValue, type MetricDefinition, type DerivedMetricDefinition, type SliceFilter, type GateCondition } from './pipeline/calc-engine.js';
 export { adaptToRecalcMetrics } from './pipeline/calc-engine-adapter.js';
 export { reconcile, reconcileMonthly, crossVerifyQuarterly, type ReconSummary, type ReconRow, type MonthlyReconSummary, type MonthlyReconRow, type MonthlyReconCell, type QuarterCrossSummary, type QuarterCrossRow, type QuarterCrossCell } from './pipeline/reconcile.js';
-export { parseSHDYUSheet } from './pipeline/shdyu-ingest.js';
+export { parseSHDYUSheet, validateSHDYUConsistency } from './pipeline/shdyu-ingest.js';
+export { analyzeDataset, benfordTest, detectOutliers, classifyEpRisk, classifyExecution, computeCompositeScore, buildNoiseMap, detectDataAnomalies, detectBehavioralAnomalies, detectSystemicAnomalies } from './pipeline/dataset-signals.js';
+export type { BenfordResult, OutlierResult, EpRiskClassification, EpRiskLevel, ExecutionLevel, AnomalySeverity, AnomalyResult, DataAnomaly, BehavioralAnomaly, SystemicAnomaly, CompositeScore, NoiseGroup, DatasetAnalysis, DatasetAnalysisInput } from './pipeline/dataset-signals.js';
 
 // Analytics modules
 export * from './analytics/index.js';

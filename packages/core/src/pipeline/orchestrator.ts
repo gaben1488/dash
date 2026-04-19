@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, LEGACY_RULE_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, LEGACY_RULE_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -11,6 +11,7 @@ import type { RecalculatedMetrics } from './recalculate.js';
 import { CalcEngine, standardRowFilter } from './calc-engine.js';
 import { adaptToRecalcMetrics } from './calc-engine-adapter.js';
 import { detectSignals, type RowSignals } from './signals.js';
+import { analyzeDataset, type DatasetAnalysis } from './dataset-signals.js';
 
 export interface PipelineInput {
   /** Ответ batchGet для официальных ячеек */
@@ -31,11 +32,9 @@ export interface PipelineInput {
   targetYear?: number;
 }
 
-/** Map Russian short names → Latin IDs used in REPORT_MAP keys */
-const SHEET_TO_DEPT_ID: Record<string, string> = {
-  'УЭР': 'uer', 'УИО': 'uio', 'УАГЗО': 'uagzo', 'УФБП': 'ufbp',
-  'УД': 'ud', 'УДТХ': 'udtx', 'УКСиМП': 'uksimp', 'УО': 'uo',
-};
+/** Map Russian short names → Latin IDs used in REPORT_MAP keys.
+ *  Delegates to canonical CYRILLIC_TO_LATIN from department-registry. */
+const SHEET_TO_DEPT_ID: Record<string, string> = { ...CYRILLIC_TO_LATIN };
 
 /**
  * Merge RecalculatedMetrics into the calculatedMetrics map.
@@ -249,7 +248,7 @@ function mergeRecalcIntoMetrics(
   if (recalc.months) {
     for (let mi = 1; mi <= 12; mi++) {
       const m = recalc.months[mi];
-      if (!m || m.planCount === 0 && m.factCount === 0) continue;
+      if (!m || (m.planCount === 0 && m.factCount === 0)) continue;
       const mk = `m${mi}`;
       put(`${yp}.${mk}.plan_count`, m.planCount, 'count', 'year');
       put(`${yp}.${mk}.fact_count`, m.factCount, 'count', 'year');
@@ -483,7 +482,35 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     });
   }
 
-  // 4b. Aggregate summary-level calculated metrics (competitive.*, sole.*)
+  // 4b. Dataset-level signal analysis (Benford, Z-score, composite score, noise map)
+  const datasetAnalyses: Record<string, DatasetAnalysis> = {};
+  for (const [sheetName, rows] of Object.entries(input.sheetRows)) {
+    if (sheetName === SVOD_SHEET_NAME) continue;
+    const deptId = SHEET_TO_DEPT_ID[sheetName] ?? sheetName.toLowerCase();
+    const recalc = recalcResults[deptId];
+    if (!recalc) continue;
+
+    // Collect per-row signals for this sheet
+    const rowSignals = new Map<number, RowSignals>();
+    const sheetRows = rows as unknown[][];
+    for (let r = DEPT_HEADER_ROWS; r < sheetRows.length; r++) {
+      const row = sheetRows[r];
+      if (!row || row.length < 5) continue;
+      const cells = buildCellDict(row);
+      try {
+        rowSignals.set(r, detectSignals(cells));
+      } catch { /* skip unparseable rows */ }
+    }
+
+    datasetAnalyses[deptId] = analyzeDataset({
+      rows: sheetRows,
+      rowSignals,
+      execCountPct: recalc.year.execCountPct,
+      epSharePct: recalc.epSharePct,
+    });
+  }
+
+  // 4c. Aggregate summary-level calculated metrics (competitive.*, sole.*)
   // These sum across all departments to match REPORT_MAP summary keys.
   mergeSummaryMetrics(calculatedMetrics);
 
@@ -504,6 +531,7 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     trust,
     rowCount: totalRows,
     recalcResults,
+    datasetAnalyses,
     metadata: {
       sheetsRead: ingestResult.sheets,
       cellsRead: ingestResult.cells.size,
@@ -568,8 +596,9 @@ function detectSignalsToIssues(sheetName: string, rows: unknown[][], deptId: str
     }
 
     const subject = String(cells['G'] ?? cells['D'] ?? '').slice(0, 80);
-    // Column C = subordinate org; empty = org itself
-    const subordinateId = String(cells['C'] ?? '').trim() || '_org_itself';
+    // Column C = subordinate org; empty or placeholder (Х/x/-/—) = org itself
+    const subRaw = String(cells['C'] ?? '').trim();
+    const subordinateId = (!subRaw || /^[XxХх\-—–]$/u.test(subRaw)) ? '_org_itself' : subRaw;
 
     for (const [signalKey, meta] of Object.entries(SIGNAL_ISSUE_MAP)) {
       if (signals[signalKey as keyof RowSignals] !== true) continue;

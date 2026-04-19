@@ -1,8 +1,17 @@
 /**
- * Anomaly Detection Module
+ * Anomaly Detection Module — Inter-department outlier detection.
  * Detects anomalies in procurement data using statistical methods.
  * Based on procurement_report.gs anomaly detection (Benford's Law, EWMA, Z-scores).
+ *
+ * ⚠️ PARALLEL IMPLEMENTATION: See also ../pipeline/dataset-signals.ts
+ * - anomaly.ts (THIS): Inter-department outlier detection (Z threshold=2.0, chi-square Benford)
+ *   Consumer: server/routes/analytics.ts — REST API для кросс-департаментного сравнения
+ * - dataset-signals.ts: Intra-dataset anomaly detection (Z threshold=3.0, MAD Benford)
+ *   Consumer: pipeline/orchestrator.ts — dataset-level analysis в пайплайне
+ * Both use shared utilities from ../utils/statistics.ts
  */
+
+import { calculateMeanAndStdDev, calculateZScore, firstSignificantDigit } from '../utils/statistics.js';
 
 export interface BenfordResult {
   /** Chi-square statistic */
@@ -52,11 +61,10 @@ export function benfordAnalysis(amounts: number[]): BenfordResult {
   let validCount = 0;
 
   for (const amount of amounts) {
-    const abs = Math.abs(amount);
-    if (abs < 1) continue;
-    const firstDigit = parseInt(String(abs).charAt(0), 10);
-    if (firstDigit >= 1 && firstDigit <= 9) {
-      digitCounts[firstDigit - 1]++;
+    if (Math.abs(amount) < 1) continue;
+    const digit = firstSignificantDigit(amount);
+    if (!isNaN(digit)) {
+      digitCounts[digit - 1]++;
       validCount++;
     }
   }
@@ -109,9 +117,9 @@ export function ewmaDetection(
     return { smoothed: [...series], ucl: [], lcl: [], outliers: [] };
   }
 
-  const mean = series.reduce((s, v) => s + v, 0) / series.length;
-  const variance = series.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / series.length;
-  const sigma = Math.sqrt(variance);
+  const stats = calculateMeanAndStdDev(series);
+  const mean = stats.mean;
+  const sigma = stats.stdDev;
 
   const smoothed: number[] = [series[0]];
   const ucl: number[] = [];
@@ -153,19 +161,16 @@ export function zScoreAnalysis(
     }));
   }
 
-  const mean = values.reduce((s, v) => s + v, 0) / values.length;
-  const stdDev = Math.sqrt(
-    values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length
-  );
+  const stats = calculateMeanAndStdDev(values);
 
-  if (stdDev === 0) {
+  if (stats.stdDev === 0) {
     return Object.entries(deptValues).map(([deptId, value]) => ({
       deptId, value, zScore: 0, isOutlier: false,
     }));
   }
 
   return Object.entries(deptValues).map(([deptId, value]) => {
-    const zScore = (value - mean) / stdDev;
+    const zScore = calculateZScore(value, stats.mean, stats.stdDev);
     return {
       deptId,
       value,

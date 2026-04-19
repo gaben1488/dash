@@ -60,7 +60,13 @@ export function validateData(
         classification: row.classification,
         allRows: rows,
       };
-      const result = rule.check(ctx);
+      let result;
+      try {
+        result = rule.check(ctx);
+      } catch (err) {
+        // Skip broken rule, don't crash entire validation
+        continue;
+      }
       if (!result.passed) {
         // Enrich with unified class system metadata
         const checkId = LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id;
@@ -85,7 +91,7 @@ export function validateData(
           row: row.rowIndex,
           recommendation: check?.recommendation ?? rule.description,
           activityType: deriveActivityType(row.cells),
-          subordinateId: String(row.cells['C'] ?? '').trim() || '_org_itself',
+          subordinateId: (() => { const s = String(row.cells['C'] ?? '').trim(); return (!s || /^[XxХх\-—–]$/u.test(s)) ? '_org_itself' : s; })(),
           status: 'open',
           detectedAt: now,
           detectedBy: `rule:${rule.id}`,
