@@ -115,6 +115,8 @@ export function SettingsPage() {
   // Re-fetch sources after refresh completes
   const refreshResult = useStore(s => s.refreshResult);
   const lastRefreshed = useStore(s => s.lastRefreshed);
+  const storeError = useStore(s => s.error);
+  const isOnline = !storeError;
 
   // Parse sources from API response
   const parseSources = useCallback((data: any): SheetSource[] => {
@@ -433,6 +435,31 @@ SQLITE_PATH=./data/aemr.db
 
   return (
     <div className="space-y-6">
+      {/* Health mini-dashboard — assertion: system status at a glance */}
+      <div className="flex items-center gap-6 px-4 py-3 bg-white dark:bg-zinc-800/60 rounded-lg border border-zinc-200/60 dark:border-zinc-700/50 text-xs mb-4">
+        <div className="flex items-center gap-2">
+          <div className={clsx(
+            'w-2 h-2 rounded-full',
+            isOnline ? 'bg-emerald-500' : 'bg-red-500'
+          )} />
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            {isOnline ? 'Система работает штатно' : 'Ошибка подключения'}
+          </span>
+        </div>
+        {lastRefreshed && (
+          <>
+            <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+            <span className="text-zinc-500 dark:text-zinc-400">
+              Обновление: <span className="font-mono tabular-nums">{new Date(lastRefreshed).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+            </span>
+          </>
+        )}
+        <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+        <span className="text-zinc-500 dark:text-zinc-400">
+          Ошибок: <span className={clsx('font-medium', storeError ? 'text-red-500' : 'text-emerald-500')}>{storeError ? '1' : '0'}</span>
+        </span>
+      </div>
+
       {/* Verification signal bar */}
       {(globalValidation.lastChecked || aggregatedData > 0) && (
         <div className={clsx(

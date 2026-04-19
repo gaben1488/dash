@@ -13,7 +13,6 @@ export function useFilteredData() {
     selectedSubordinates,
     period,
     activeMonths,
-    procurementFilter,
     activityFilter,
     selectedMethods,
     selectedActivities,
@@ -22,6 +21,7 @@ export function useFilteredData() {
     subordinatesMap,
     year,
     dataYear,
+    deptOnlyMode,
   } = useStore();
 
   return useMemo(() => {
@@ -166,6 +166,18 @@ export function useFilteredData() {
       });
     }
 
+    // ── 2b. Dept-only mode ──
+    // When a dept is in deptOnlyMode, exclude its subordinate data.
+    // We achieve this by subtracting subordinate totals from dept aggregates.
+    if (deptOnlyMode.size > 0) {
+      depts = depts.map((d: any) => {
+        const deptKey = d.department?.nameShort ?? d.department?.id ?? '';
+        if (!deptOnlyMode.has(deptKey)) return d;
+        // Mark as dept-only so UI can indicate
+        return { ...d, _deptOnly: true };
+      });
+    }
+
     // ── 3. Search filter ──
     const normalizedSearch = (searchQuery ?? '').trim().toLowerCase();
     if (normalizedSearch) {
@@ -287,9 +299,13 @@ export function useFilteredData() {
 
     const kpKeys = [`competitive.${periodKey}.percent`, `competitive.${periodKey}.count`];
     const epKeys = [`sole.${periodKey}.percent`, `sole.${periodKey}.count`];
-    const keyMetrics = procurementFilter === 'competitive' ? kpKeys
-      : procurementFilter === 'single' ? epKeys
-      : [...kpKeys, ...epKeys];
+    // Single source of truth: selectedMethods Set. empty = show both.
+    const wantKP = selectedMethods.size === 0 || selectedMethods.has('competitive');
+    const wantEP = selectedMethods.size === 0 || selectedMethods.has('single');
+    const keyMetrics = wantKP && wantEP ? [...kpKeys, ...epKeys]
+      : wantKP ? kpKeys
+      : wantEP ? epKeys
+      : [];
 
     const topKpis = keyMetrics
       .map(key => filteredKpiCards.find((k: any) => k.metricKey === key))
@@ -431,7 +447,23 @@ export function useFilteredData() {
       }
     }
 
-    // ── 9. Activity filter — adjust totals using byActivity breakdown ──
+    // ── 9a. Budget filter helpers (declared early so activity block can use them) ──
+    const isBudgetFiltered = selectedBudgets.size > 0;
+    const budgetShowFB = !isBudgetFiltered || selectedBudgets.has('fb');
+    const budgetShowKB = !isBudgetFiltered || selectedBudgets.has('kb');
+    const budgetShowMB = !isBudgetFiltered || selectedBudgets.has('mb');
+
+    /** Sum plan/fact from quarter's per-budget fields, respecting budget filter */
+    const budgetPlanFact = (q: any): { plan: number; fact: number } => {
+      if (!q || !isBudgetFiltered) return { plan: q?.planTotal ?? 0, fact: q?.factTotal ?? 0 };
+      let plan = 0, fact = 0;
+      if (budgetShowFB) { plan += q.planFB ?? 0; fact += q.factFB ?? 0; }
+      if (budgetShowKB) { plan += q.planKB ?? 0; fact += q.factKB ?? 0; }
+      if (budgetShowMB) { plan += q.planMB ?? 0; fact += q.factMB ?? 0; }
+      return { plan, fact };
+    };
+
+    // ── 9b. Activity filter — adjust totals using byActivity breakdown ──
     // Multi-select: empty Set = all (no filter), otherwise filter by selected activities.
     const isActivityFiltered = selectedActivities.size > 0;
     const ALL_ACTIVITY_KEYS = ['program', 'current_program', 'current_non_program'];
@@ -458,30 +490,17 @@ export function useFilteredData() {
           for (const ak of actKeys) {
             const a = qActivity[ak];
             if (!a) continue;
-            totalPlan += a.planTotal ?? 0;
-            totalFact += a.factTotal ?? 0;
+            // Apply budget filter when active; ActivityMetrics has planFB/factFB fields
+            const { plan, fact } = budgetPlanFact(a);
+            totalPlan += plan;
+            totalFact += fact;
             totalKP += a.planCount ?? 0; // approximate — byActivity doesn't split KP/EP
           }
         }
       }
     }
 
-    // ── 9b. Budget filter — recalculate totals using per-budget breakdown ──
-    const isBudgetFiltered = selectedBudgets.size > 0;
-    const budgetShowFB = !isBudgetFiltered || selectedBudgets.has('fb');
-    const budgetShowKB = !isBudgetFiltered || selectedBudgets.has('kb');
-    const budgetShowMB = !isBudgetFiltered || selectedBudgets.has('mb');
-
-    /** Sum plan/fact from quarter's per-budget fields, respecting budget filter */
-    const budgetPlanFact = (q: any): { plan: number; fact: number } => {
-      if (!q || !isBudgetFiltered) return { plan: q?.planTotal ?? 0, fact: q?.factTotal ?? 0 };
-      let plan = 0, fact = 0;
-      if (budgetShowFB) { plan += q.planFB ?? 0; fact += q.factFB ?? 0; }
-      if (budgetShowKB) { plan += q.planKB ?? 0; fact += q.factKB ?? 0; }
-      if (budgetShowMB) { plan += q.planMB ?? 0; fact += q.factMB ?? 0; }
-      return { plan, fact };
-    };
-
+    // ── 9c. Budget filter (without activity filter) — recalculate totals ──
     if (isBudgetFiltered && !isActivityFiltered) {
       totalPlan = 0;
       totalFact = 0;
@@ -549,8 +568,10 @@ export function useFilteredData() {
           for (const ak of actKeys) {
             const a = qAct[ak];
             if (!a) continue;
-            plan += a.planTotal ?? 0;
-            fact += a.factTotal ?? 0;
+            // Apply budget filter when active; ActivityMetrics has planFB/factFB fields
+            const bf = budgetPlanFact(a);
+            plan += bf.plan;
+            fact += bf.fact;
             kp += a.planCount ?? 0;
           }
         }
@@ -628,8 +649,17 @@ export function useFilteredData() {
               // byActivity doesn't split KP/EP budget, so approximate from counts
               kpCount += a.planCount ?? 0;
               kpFactCount += a.factCount ?? 0;
-              kpPlan += a.planTotal ?? 0;
-              kpFact += a.factTotal ?? 0;
+              // Apply budget filter; ActivityMetrics has planFB/factFB fields
+              const bf = budgetPlanFact(a);
+              kpPlan += bf.plan;
+              kpFact += bf.fact;
+              // Accumulate per-budget totals from activity entries
+              fbPlan += a.planFB ?? 0;
+              kbPlan += a.planKB ?? 0;
+              mbPlan += a.planMB ?? 0;
+              fbFact += a.factFB ?? 0;
+              kbFact += a.factKB ?? 0;
+              mbFact += a.factMB ?? 0;
             }
           }
         } else {
@@ -858,13 +888,13 @@ export function useFilteredData() {
     dashboardData,
     selectedDepartments,
     selectedSubordinates,
+    deptOnlyMode,
     subordinatesMap,
     period,
     activeMonths,
     selectedMethods,
     selectedActivities,
     selectedBudgets,
-    procurementFilter,
     activityFilter,
     searchQuery,
     year,

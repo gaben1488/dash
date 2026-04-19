@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aemr/core": "workspace:*",
     "@aemr/shared": "workspace:*",
     "@number-flow/react": "^0.6.0",
     "@radix-ui/react-accordion": "^1.2.12",

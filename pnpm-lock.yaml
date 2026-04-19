@@ -116,6 +116,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@aemr/core':
+        specifier: workspace:*
+        version: link:../core
       '@aemr/shared':
         specifier: workspace:*
         version: link:../shared

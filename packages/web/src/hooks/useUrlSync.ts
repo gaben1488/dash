@@ -41,13 +41,17 @@ export function useUrlSync() {
     const periodParam = params.get('period');
     if (periodParam != null && VALID_PERIODS.includes(periodParam as PeriodScope)) {
       updates.period = periodParam;
+      updates.periodMode = 'explicit'; // URL has explicit period → explicit mode
     }
 
     // months
     const monthsParam = params.get('months');
     if (monthsParam) {
       const nums = monthsParam.split(',').map(Number).filter((n) => n >= 1 && n <= 12);
-      if (nums.length > 0) updates.activeMonths = new Set(nums);
+      if (nums.length > 0) {
+        updates.activeMonths = new Set(nums);
+        updates.periodMode = 'explicit'; // URL has explicit months → explicit mode
+      }
     }
 
     // depts
@@ -124,8 +128,8 @@ export function useUrlSync() {
           params.set('period', state.period);
         }
 
-        // months
-        if (state.activeMonths.size > 0) {
+        // months — only serialize when in explicit mode (week mode months are auto-derived)
+        if (state.activeMonths.size > 0 && state.periodMode === 'explicit') {
           params.set('months', Array.from(state.activeMonths).sort((a, b) => a - b).join(','));
         }
 

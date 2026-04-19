@@ -1,18 +1,20 @@
-import { ShieldCheck, GitCompare, AlertTriangle, Lightbulb } from 'lucide-react';
+import { ShieldCheck, GitCompare, AlertTriangle, Lightbulb, BookOpen } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
 import { TrustPage } from './Trust';
 import { ReconPage } from './Recon';
 import { IssuesPage } from './Issues';
 import { RecsPage } from './Recs';
+import { JournalPage } from './Journal';
 
-type QualityTab = 'trust' | 'recon' | 'issues' | 'recs';
+type QualityTab = 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
 
 const TABS: { id: QualityTab; label: string; icon: typeof ShieldCheck; description: string }[] = [
-  { id: 'trust', label: 'Надёжность', icon: ShieldCheck, description: 'Индекс надёжности данных' },
+  { id: 'trust', label: 'Качество', icon: ShieldCheck, description: 'Индекс надёжности данных' },
   { id: 'recon', label: 'Сверка', icon: GitCompare, description: 'СВОД vs расчёт' },
   { id: 'issues', label: 'Замечания', icon: AlertTriangle, description: 'Выявленные проблемы' },
   { id: 'recs', label: 'Рекомендации', icon: Lightbulb, description: 'Действия и решения' },
+  { id: 'journal', label: 'Журнал', icon: BookOpen, description: 'Журнал событий системы' },
 ];
 
 export function QualityPage() {
@@ -49,6 +51,7 @@ export function QualityPage() {
       {qualityTab === 'recon' && <ReconPage />}
       {qualityTab === 'issues' && <IssuesPage />}
       {qualityTab === 'recs' && <RecsPage />}
+      {qualityTab === 'journal' && <JournalPage />}
     </div>
   );
 }

@@ -1,19 +1,20 @@
 import { create } from 'zustand';
+import { ALL_DEPT_IDS } from '@aemr/shared';
 import { api } from './api';
 
-/** Все страницы приложения (10 уникальных, 0 дублирования) */
+/** СВОД — 6 страниц + legacy aliases */
 export type Page =
-  | 'dashboard'     // Сводная панель мониторинга
-  | 'data'          // Построчные данные (DataBrowser)
-  | 'economy'       // Анализ экономии
-  | 'analytics'     // Аналитика и графики
-  | 'quality'       // Качество данных (Trust+Recon+Issues+Recs)
-  | 'recon'         // Сверка СВОД vs расчёт (legacy, redirects to quality)
-  | 'trust'         // Индекс надёжности данных (legacy, redirects to quality)
-  | 'issues'        // Замечания (legacy, redirects to quality)
-  | 'recs'          // Рекомендации (legacy, redirects to quality)
-  | 'journal'       // Журнал изменений
-  | 'settings';     // Настройки (источники + маппинг)
+  | 'dashboard'     // Пульт (сводная панель)
+  | 'data'          // Реестр (построчные данные)
+  | 'economy'       // Экономия
+  | 'analytics'     // Аналитика
+  | 'quality'       // Контроль (Trust+Recon+Issues+Journal)
+  | 'recon'         // → Контроль (legacy alias)
+  | 'trust'         // → Контроль (legacy alias)
+  | 'issues'        // → Контроль (legacy alias)
+  | 'recs'          // → Контроль (legacy alias)
+  | 'journal'       // → Контроль/Журнал (legacy alias, now sub-tab)
+  | 'settings';     // Система
 
 /** Период фильтрации */
 export type PeriodScope = 'year' | 'q1' | 'q2' | 'q3' | 'q4';
@@ -29,6 +30,24 @@ export type ActivityFilter = 'all' | 'program' | 'current_program' | 'current_no
 
 /** Тип бюджета */
 export type BudgetType = 'fb' | 'kb' | 'mb';
+
+/**
+ * Period mode determines how period filtering works:
+ * - 'week': Default. activeMonths auto-derived from focusedWeekStart.
+ *   WeekRoller scrolling changes data. Resets to this on clearAllPeriods().
+ * - 'explicit': User has manually selected months/quarters/year.
+ *   WeekRoller is visual-only, doesn't drive data.
+ */
+export type PeriodMode = 'week' | 'explicit';
+
+/** Get month(s) from a week's Monday date.
+ *  If week spans two months, returns both. */
+export function getMonthsForWeek(monday: Date): Set<number> {
+  const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const m1 = monday.getMonth() + 1;
+  const m2 = sunday.getMonth() + 1;
+  return m1 === m2 ? new Set([m1]) : new Set([m1, m2]);
+}
 
 // ── Динамические годы: не хардкодим, определяем от текущей даты ──
 const FIRST_DATA_YEAR = 2025; // первый год с данными
@@ -58,12 +77,14 @@ export const MONTHS = [
   { id: 12, short: 'Дек', full: 'Декабрь' },
 ] as const;
 
-/** Fallback subordinates (used until API loads real data) */
+/** Fallback subordinates (used until API loads real data).
+ *  Empty array = dept has no subordinates (the dept IS the org).
+ *  УИО/УФБП/УАГЗО: "x" in source sheet name column = row belongs to dept itself. */
 const SUBORDINATES_FALLBACK: Record<string, string[]> = {
   'УЭР':    ['МКУ "ЦЭР"'],
-  'УИО':    ['МКУ "УИО"'],
-  'УАГЗО':  ['МКУ "УАГЗО"'],
-  'УФБП':   ['МКУ "ЦБ"'],
+  'УИО':    [],
+  'УАГЗО':  [],
+  'УФБП':   [],
   'УД':     ['МКУ "ХОЗУ"', 'МКУ "АХО"'],
   'УДТХ':   ['МКУ "УДТХ"', 'МБУ "БДХ"'],
   'УКСиМП': ['МКУ "ДКСМП"', 'МБУ "СК"', 'МБУ "ДК"'],
@@ -78,6 +99,16 @@ export const QUARTER_MONTHS: Record<string, number[]> = {
   q4: [10, 11, 12],
 };
 
+/** Get Monday of the week containing the given date */
+export function getMondayOfWeek(d: Date): Date {
+  const result = new Date(d);
+  const day = result.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + diff);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
 export interface AppState {
   // Навигация
   page: Page;
@@ -90,6 +121,8 @@ export interface AppState {
   setYear: (year: YearFilter) => void;
   period: PeriodScope;
   setPeriod: (period: PeriodScope) => void;
+  /** Period mode: 'week' = auto-derive from WeekRoller, 'explicit' = manual selection */
+  periodMode: PeriodMode;
   /** Активные месяцы (toggle on/off) */
   activeMonths: Set<number>;
   toggleMonth: (month: number) => void;
@@ -116,8 +149,8 @@ export interface AppState {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   /** Активная вкладка Quality страницы */
-  qualityTab: 'trust' | 'recon' | 'issues' | 'recs';
-  setQualityTab: (tab: 'trust' | 'recon' | 'issues' | 'recs') => void;
+  qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
+  setQualityTab: (tab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal') => void;
   /** Сброс всех фильтров */
   resetAllFilters: () => void;
   /** Навигация с предзаполненными фильтрами */
@@ -131,7 +164,7 @@ export interface AppState {
     search: string;
     months: number[];
     category: string;
-    qualityTab: 'trust' | 'recon' | 'issues' | 'recs';
+    qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
   }>) => void;
   /** Выбранные отделы (пустой Set = все) */
   selectedDepartments: Set<string>;
@@ -141,10 +174,30 @@ export interface AppState {
   selectedSubordinates: Set<string>;
   toggleSubordinate: (sub: string) => void;
   clearSubordinates: () => void;
+  /** Dept-only mode: depts where ONLY dept-level data shows (no subs) */
+  deptOnlyMode: Set<string>;
+  setDeptOnly: (deptId: string) => void;
+  clearDeptOnly: (deptId: string) => void;
   /** Выбрать/снять все месяцы квартала */
   setQuarterMonths: (quarter: string) => void;
   /** Сбросить все месяцы */
   clearMonths: () => void;
+
+  /** Per-year month selections (multi-year support) */
+  monthsByYear: Record<number, Set<number>>;
+  /** Toggle a month for a specific year — syncs year + activeMonths */
+  toggleMonthInYear: (yr: number, month: number) => void;
+  /** Toggle all months in a quarter for a specific year */
+  toggleQuarterInYear: (yr: number, qKey: string) => void;
+  /** Toggle all 12 months for a year (click on year label) */
+  toggleYearFull: (yr: number) => void;
+  /** Clear all per-year months */
+  clearAllPeriods: () => void;
+
+  /** Focused week start (Monday) for WeekRoller navigation */
+  focusedWeekStart: Date;
+  /** Shift focused week by ±N weeks */
+  shiftFocusedWeek: (delta: number) => void;
 
   // Подведомственные учреждения (из API)
   subordinatesMap: Record<string, string[]>;
@@ -181,16 +234,25 @@ function isDemoData(data: any): boolean {
 export const useStore = create<AppState>((set, get) => ({
   // Навигация
   page: 'dashboard',
-  setPage: (page) => set({ page }),
+  setPage: (page) => {
+    if (page === 'journal') {
+      set({ page: 'quality', qualityTab: 'journal' });
+    } else {
+      set({ page });
+    }
+  },
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
-  // Фильтры
-  year: 2026,
+  // Фильтры — default year: current year if in AVAILABLE_YEARS, else last available
+  year: (AVAILABLE_YEARS.includes(new Date().getFullYear())
+    ? new Date().getFullYear()
+    : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]) as YearFilter,
   setYear: (year) => set({ year }),
   period: 'year',
-  setPeriod: (period) => set({ period }),
-  activeMonths: new Set<number>(),
+  setPeriod: (period) => set({ period, periodMode: 'explicit' as PeriodMode }),
+  periodMode: 'week' as PeriodMode,
+  activeMonths: getMonthsForWeek(getMondayOfWeek(new Date())),
   toggleMonth: (month) => {
     const current = new Set(get().activeMonths);
     if (current.has(month)) {
@@ -198,7 +260,8 @@ export const useStore = create<AppState>((set, get) => ({
     } else {
       current.add(month);
     }
-    set({ activeMonths: current });
+    // Manual month toggle → switch to explicit mode
+    set({ activeMonths: current, periodMode: 'explicit' as PeriodMode });
   },
   moneyUnit: 'тыс',
   setMoneyUnit: (moneyUnit) => set({ moneyUnit }),
@@ -254,20 +317,31 @@ export const useStore = create<AppState>((set, get) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   qualityTab: 'trust',
   setQualityTab: (qualityTab) => set({ qualityTab }),
-  resetAllFilters: () => set({
-    year: new Date().getFullYear(),
-    period: 'year',
-    moneyUnit: 'тыс',
-    procurementFilter: 'all',
-    activityFilter: 'all',
-    selectedMethods: new Set<string>(),
-    selectedActivities: new Set<string>(),
-    selectedBudgets: new Set<string>(),
-    selectedDepartments: new Set<string>(),
-    selectedSubordinates: new Set<string>(),
-    activeMonths: new Set<number>(),
-    searchQuery: '',
-  }),
+  resetAllFilters: () => {
+    const monday = getMondayOfWeek(new Date());
+    const currentYear = new Date().getFullYear();
+    const defaultYear: YearFilter = AVAILABLE_YEARS.includes(currentYear)
+      ? currentYear
+      : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
+    set({
+      year: defaultYear,
+      period: 'year',
+      periodMode: 'week' as PeriodMode,
+      moneyUnit: 'тыс',
+      procurementFilter: 'all',
+      activityFilter: 'all',
+      selectedMethods: new Set<string>(),
+      selectedActivities: new Set<string>(),
+      selectedBudgets: new Set<string>(),
+      selectedDepartments: new Set<string>(),
+      selectedSubordinates: new Set<string>(),
+      deptOnlyMode: new Set<string>(),
+      activeMonths: getMonthsForWeek(monday),
+      focusedWeekStart: monday,
+      monthsByYear: {},
+      searchQuery: '',
+    });
+  },
   navigateTo: (page, filters) => {
     const updates: Partial<Pick<AppState,
       'page' | 'period' | 'procurementFilter' | 'activityFilter' |
@@ -303,6 +377,9 @@ export const useStore = create<AppState>((set, get) => ({
       updates.qualityTab = 'recs';
     } else if (page === 'trust') {
       updates.qualityTab = 'trust';
+    } else if (page === 'journal') {
+      updates.qualityTab = 'journal';
+      updates.page = 'quality';
     } else if (page === 'quality' && (filters?.category || filters?.search)) {
       updates.qualityTab = 'issues';
     }
@@ -311,6 +388,9 @@ export const useStore = create<AppState>((set, get) => ({
   selectedDepartments: new Set<string>(),
   toggleDepartment: (deptId) => {
     const current = new Set(get().selectedDepartments);
+    const deptOnly = new Set(get().deptOnlyMode);
+    // Always clear dept-only when toggling via dept header (dept header = dept+subs)
+    deptOnly.delete(deptId);
     if (current.has(deptId)) {
       current.delete(deptId);
       // Auto-clear subordinates of removed department
@@ -321,24 +401,24 @@ export const useStore = create<AppState>((set, get) => ({
         for (const sub of deptSubs) {
           if (currentSubs.has(sub)) { currentSubs.delete(sub); changed = true; }
         }
-        if (changed) set({ selectedDepartments: current, selectedSubordinates: currentSubs });
-        else set({ selectedDepartments: current });
+        if (changed) set({ selectedDepartments: current, selectedSubordinates: currentSubs, deptOnlyMode: deptOnly });
+        else set({ selectedDepartments: current, deptOnlyMode: deptOnly });
         return;
       }
     } else {
       current.add(deptId);
     }
-    set({ selectedDepartments: current });
+    set({ selectedDepartments: current, deptOnlyMode: deptOnly });
   },
   selectAllDepartments: () => {
     const current = get().selectedDepartments;
     if (current.size > 0) {
       // Some selected → clear all (show all)
-      set({ selectedDepartments: new Set<string>(), selectedSubordinates: new Set<string>() });
+      set({ selectedDepartments: new Set<string>(), selectedSubordinates: new Set<string>(), deptOnlyMode: new Set<string>() });
     } else {
       // None selected → select all explicitly
-      const allDepts = new Set(['УЭР', 'УИО', 'УАГЗО', 'УФБП', 'УД', 'УДТХ', 'УКСиМП', 'УО']);
-      set({ selectedDepartments: allDepts });
+      const allDepts = new Set<string>(ALL_DEPT_IDS);
+      set({ selectedDepartments: allDepts, deptOnlyMode: new Set<string>() });
     }
   },
   selectedSubordinates: new Set<string>(),
@@ -352,6 +432,24 @@ export const useStore = create<AppState>((set, get) => ({
     set({ selectedSubordinates: current });
   },
   clearSubordinates: () => set({ selectedSubordinates: new Set<string>() }),
+  deptOnlyMode: new Set<string>(),
+  setDeptOnly: (deptId) => {
+    const current = new Set(get().deptOnlyMode);
+    current.add(deptId);
+    // Ensure dept is selected
+    const depts = new Set(get().selectedDepartments);
+    depts.add(deptId);
+    // Clear any sub selections for this dept
+    const subs = new Set(get().selectedSubordinates);
+    const deptSubs = get().subordinatesMap[deptId] ?? [];
+    for (const s of deptSubs) subs.delete(s);
+    set({ deptOnlyMode: current, selectedDepartments: depts, selectedSubordinates: subs });
+  },
+  clearDeptOnly: (deptId) => {
+    const current = new Set(get().deptOnlyMode);
+    current.delete(deptId);
+    set({ deptOnlyMode: current });
+  },
   setQuarterMonths: (quarter) => {
     const months = QUARTER_MONTHS[quarter];
     if (!months) return;
@@ -363,9 +461,116 @@ export const useStore = create<AppState>((set, get) => ({
     } else {
       months.forEach(m => next.add(m));
     }
-    set({ activeMonths: next });
+    // If clearing all months → back to week mode; otherwise explicit
+    if (next.size === 0) {
+      const monday = getMondayOfWeek(new Date());
+      set({ activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+    } else {
+      set({ activeMonths: next, periodMode: 'explicit' as PeriodMode });
+    }
   },
-  clearMonths: () => set({ activeMonths: new Set<number>() }),
+  clearMonths: () => {
+    const yr = get().year;
+    const mby = { ...get().monthsByYear };
+    if (typeof yr === 'number') delete mby[yr];
+    // Clearing months → back to week mode
+    const monday = getMondayOfWeek(new Date());
+    set({
+      activeMonths: getMonthsForWeek(monday),
+      monthsByYear: mby,
+      periodMode: 'week' as PeriodMode,
+      focusedWeekStart: monday,
+    });
+  },
+
+  // Multi-year month selections
+  monthsByYear: {} as Record<number, Set<number>>,
+
+  toggleMonthInYear: (yr, month) => {
+    const mby = { ...get().monthsByYear };
+    const current = new Set(mby[yr] ?? []);
+    if (current.has(month)) current.delete(month); else current.add(month);
+    if (current.size === 0) delete mby[yr]; else mby[yr] = current;
+
+    // Sync: set year to this year if it has selections, update activeMonths
+    const targetYear = yr;
+    const activeForTarget = mby[targetYear] ?? new Set<number>();
+
+    // If all months cleared → back to week mode
+    if (activeForTarget.size === 0 && Object.keys(mby).length === 0) {
+      const monday = getMondayOfWeek(new Date());
+      set({ monthsByYear: mby, year: targetYear, activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+    } else {
+      set({ monthsByYear: mby, year: targetYear, activeMonths: new Set(activeForTarget), periodMode: 'explicit' as PeriodMode });
+    }
+  },
+
+  toggleQuarterInYear: (yr, qKey) => {
+    const months = QUARTER_MONTHS[qKey];
+    if (!months) return;
+    const mby = { ...get().monthsByYear };
+    const current = new Set(mby[yr] ?? []);
+    const allSelected = months.every(m => current.has(m));
+    if (allSelected) {
+      months.forEach(m => current.delete(m));
+    } else {
+      months.forEach(m => current.add(m));
+    }
+    if (current.size === 0) delete mby[yr]; else mby[yr] = current;
+
+    const activeForYear = mby[yr] ?? new Set<number>();
+    // If all months cleared → back to week mode
+    if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
+      const monday = getMondayOfWeek(new Date());
+      set({ monthsByYear: mby, year: yr, activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+    } else {
+      set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
+    }
+  },
+
+  toggleYearFull: (yr) => {
+    const mby = { ...get().monthsByYear };
+    const current = mby[yr];
+    const allSelected = current && current.size === 12;
+    if (allSelected) {
+      delete mby[yr];
+    } else {
+      mby[yr] = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    }
+    const activeForYear = mby[yr] ?? new Set<number>();
+    set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear) });
+  },
+
+  clearAllPeriods: () => {
+    const monday = getMondayOfWeek(new Date());
+    set({
+      monthsByYear: {},
+      activeMonths: getMonthsForWeek(monday),
+      focusedWeekStart: monday,
+      periodMode: 'week' as PeriodMode,
+      period: 'year' as PeriodScope,
+    });
+  },
+
+  // Week roller
+  focusedWeekStart: getMondayOfWeek(new Date()),
+  shiftFocusedWeek: (delta) => {
+    const current = get().focusedWeekStart;
+    const newDate = new Date(current.getTime() + delta * 7 * 24 * 60 * 60 * 1000);
+    const minYear = AVAILABLE_YEARS[0];
+    const maxYear = AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
+    if (newDate.getFullYear() < minYear || newDate.getFullYear() > maxYear) return;
+    const updates: Record<string, unknown> = { focusedWeekStart: newDate };
+    const newYear = newDate.getFullYear();
+    if (AVAILABLE_YEARS.includes(newYear)) {
+      updates.year = newYear;
+    }
+    // In week mode: auto-derive activeMonths from the new week
+    if (get().periodMode === 'week') {
+      updates.activeMonths = getMonthsForWeek(newDate);
+    }
+    set(updates as any);
+  },
 
   // Подведы
   subordinatesMap: { ...SUBORDINATES_FALLBACK },
@@ -376,7 +581,9 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const data = await api.getSubordinates();
       if (data && Object.keys(data).length > 0) {
-        set({ subordinatesMap: data, subordinatesLoading: false });
+        // Merge: keep fallback depts that API didn't return, overlay API data on top
+        const merged = { ...SUBORDINATES_FALLBACK, ...data };
+        set({ subordinatesMap: merged, subordinatesLoading: false });
       } else {
         set({ subordinatesLoading: false });
       }

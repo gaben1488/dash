@@ -525,6 +525,45 @@ export function DataBrowserPage() {
         </button>
       </div>
 
+      {/* Summary bar — aggregate stats for filtered rows */}
+      {!loadingRows && filtered.length > 0 && (
+        <div className="flex items-center gap-4 px-4 py-2.5 bg-white dark:bg-zinc-800/60 rounded-lg border border-zinc-200/60 dark:border-zinc-700/50 text-xs">
+          <span className="font-medium text-zinc-900 dark:text-zinc-100">
+            {filtered.length} строк
+          </span>
+          <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+          <span className="text-zinc-500 dark:text-zinc-400">
+            План: <span className="font-medium text-zinc-700 dark:text-zinc-300 tabular-nums">{formatMoney(filtered.reduce((s: number, r: any) => s + (r.planSum || 0), 0))}</span>
+          </span>
+          <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+          <span className="text-zinc-500 dark:text-zinc-400">
+            Факт: <span className="font-medium text-zinc-700 dark:text-zinc-300 tabular-nums">{formatMoney(filtered.reduce((s: number, r: any) => s + (r.factSum || 0), 0))}</span>
+          </span>
+          {(() => {
+            const CRITICAL_SIGNALS = ['overdue', 'epRisk', 'highEconomy', 'economyConflict', 'factExceedsPlan', 'formulaBroken', 'budgetMismatch'];
+            const WARNING_SIGNALS = ['stalledContract', 'earlyClosure', 'financeDelay', 'planSoon', 'lowCompetition', 'singleParticipant'];
+            const critCount = filtered.filter((r: any) => (r.signals ?? []).some((s: string) => CRITICAL_SIGNALS.includes(s))).length;
+            const warnCount = filtered.filter((r: any) => (r.signals ?? []).some((s: string) => WARNING_SIGNALS.includes(s))).length;
+            return (
+              <>
+                {critCount > 0 && (
+                  <>
+                    <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+                    <span className="text-red-600 dark:text-red-400 font-medium">{critCount} критич.</span>
+                  </>
+                )}
+                {warnCount > 0 && (
+                  <>
+                    <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">{warnCount} предупр.</span>
+                  </>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
         <div className="overflow-x-auto">

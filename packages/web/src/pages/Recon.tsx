@@ -4,7 +4,7 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { api } from '../api';
 import { GitCompare, ChevronDown, ChevronUp, Info, AlertTriangle, CheckCircle2, Clock, FileSpreadsheet, Building2, ArrowRight, ExternalLink, Download, Users } from 'lucide-react';
 import clsx from 'clsx';
-import { SVOD_SPREADSHEET_ID } from '@aemr/shared';
+import { SVOD_SPREADSHEET_ID, LATIN_TO_CYRILLIC } from '@aemr/shared';
 
 /** СВОД ТД-ПМ cell references per department for expanded diagnostics */
 const DEPT_SVOD_CELLS: Record<string, { planCount: string; factCount: string; planTotal: string; factTotal: string; economy: string; percent: string }> = {
@@ -246,10 +246,7 @@ export function ReconPage() {
 
   // Filter out rows where both values are 0 (empty metrics)
   // Also filter by selected departments via metric key pattern grbs.{deptId}.
-  const DEPT_ID_TO_RU: Record<string, string> = {
-    uer: 'УЭР', uio: 'УИО', uagzo: 'УАГЗО', ufbp: 'УФБП',
-    ud: 'УД', udtx: 'УДТХ', uksimp: 'УКСиМП', uo: 'УО',
-  };
+  const DEPT_ID_TO_RU: Record<string, string> = { ...LATIN_TO_CYRILLIC };
   const activeMetricRows = metricRows.filter(r => {
     if (r.official === 0 && r.calculated === 0) return false;
     if (selectedDepartments.size === 0) return true;

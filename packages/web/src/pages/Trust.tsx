@@ -193,7 +193,9 @@ export function TrustPage() {
   if (hasDeptFilter && filteredDeptSummaries.length > 0) {
     // Weighted average of filtered dept trust scores (equal weight per dept)
     const scores = filteredDeptSummaries.map((d: any) => d.trustScore ?? 0);
-    overallScore = Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length);
+    overallScore = scores.length > 0
+      ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length)
+      : 0;
 
     // Merge component scores across filtered depts
     const allComponentNames = trustData?.components?.map((c: any) => c.name) ?? [];

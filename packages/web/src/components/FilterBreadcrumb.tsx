@@ -1,11 +1,15 @@
 import { useStore, MONTHS } from '../store';
 import { X, Filter } from 'lucide-react';
+import clsx from 'clsx';
 
 /**
  * Premium breadcrumb showing active filters as removable pills.
  * Renders only when at least one filter is active.
+ *
+ * variant="panel" (default) — standalone rounded panel with label + reset button
+ * variant="inline" — bare chips only, for embedding in the header bar
  */
-export function FilterBreadcrumb() {
+export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'inline' } = {}) {
   const {
     selectedDepartments, selectedSubordinates, activeMonths,
     selectedMethods, selectedActivities, selectedBudgets,
@@ -27,6 +31,8 @@ export function FilterBreadcrumb() {
     ? [...activeMonths].sort((a, b) => a - b).map(m => MONTHS.find(mo => mo.id === m)?.short ?? String(m)).join(', ')
     : null;
 
+  const isInline = variant === 'inline';
+
   const Chip = ({
     label,
     onRemove,
@@ -47,18 +53,31 @@ export function FilterBreadcrumb() {
     return (
       <button
         onClick={onRemove}
-        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150 ${colorClasses[color]} active:scale-95`}
+        className={clsx(
+          'inline-flex items-center gap-1 rounded-md font-medium transition-all duration-150 active:scale-95 shrink-0',
+          isInline ? 'px-1.5 py-[2px] text-[10px]' : 'px-2.5 py-1 rounded-lg text-[11px]',
+          colorClasses[color]
+        )}
       >
-        <span className="truncate max-w-[200px]">{label}</span>
-        <X size={10} className="opacity-50 hover:opacity-100 shrink-0" />
+        <span className={clsx('truncate', isInline ? 'max-w-[110px]' : 'max-w-[200px]')}>{label}</span>
+        <X size={isInline ? 9 : 10} className="opacity-50 hover:opacity-100 shrink-0" />
       </button>
     );
   };
 
   return (
-    <div className="flex items-center flex-wrap gap-1.5 text-xs bg-zinc-50/80 dark:bg-zinc-800/30 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/40 dark:border-zinc-700/40">
-      <Filter size={12} className="text-zinc-400 shrink-0" />
-      <span className="text-zinc-400 dark:text-zinc-500 font-medium text-[11px] shrink-0">Активные фильтры:</span>
+    <div
+      className={clsx(
+        'flex items-center text-xs',
+        isInline
+          ? 'gap-1 ml-auto flex-nowrap overflow-hidden'
+          : 'flex-wrap gap-1.5 bg-zinc-50/80 dark:bg-zinc-800/30 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/40 dark:border-zinc-700/40'
+      )}
+    >
+      <Filter size={isInline ? 10 : 12} className="text-zinc-400 shrink-0" />
+      {!isInline && (
+        <span className="text-zinc-400 dark:text-zinc-500 font-medium text-[11px] shrink-0">Активные фильтры:</span>
+      )}
 
       {hasDept && (
         <Chip
@@ -108,13 +127,15 @@ export function FilterBreadcrumb() {
         />
       )}
 
-      <button
-        onClick={resetAllFilters}
-        className="ml-auto text-[10px] text-zinc-400 hover:text-red-500 font-medium transition-colors shrink-0 flex items-center gap-1"
-      >
-        <X size={10} />
-        Сбросить
-      </button>
+      {!isInline && (
+        <button
+          onClick={resetAllFilters}
+          className="ml-auto text-[10px] text-zinc-400 hover:text-red-500 font-medium transition-colors shrink-0 flex items-center gap-1"
+        >
+          <X size={10} />
+          Сбросить
+        </button>
+      )}
     </div>
   );
 }

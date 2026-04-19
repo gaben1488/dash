@@ -4,7 +4,6 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
 import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon } from 'lucide-react';
-import { FilterBreadcrumb } from '../components/FilterBreadcrumb';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, Cell, AreaChart, Area,
@@ -38,18 +37,18 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
   const [open, setOpen] = useState(defaultOpen);
   const sourceLabel = source === 'official' ? 'СВОД' : source === 'hybrid' ? 'Комби' : 'Расчёт';
   const sourceColor = source === 'official' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-    : source === 'hybrid' ? 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
+    : source === 'hybrid' ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400'
     : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+    <div className="analytics-chart-card group">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-5 py-3.5 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-700/20 transition"
+        className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-zinc-50/30 dark:hover:bg-zinc-700/10 transition-colors"
       >
-        {Icon && <Icon size={15} className="text-zinc-400" />}
-        <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{title}</h3>
+        {Icon && <Icon size={15} className="text-zinc-400 dark:text-zinc-500 group-hover:text-blue-500 transition-colors" />}
+        <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{title}</h3>
         {source && <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${sourceColor}`}>{sourceLabel}</span>}
-        {open ? <ChevronDown size={15} className="text-zinc-400" /> : <ChevronRight size={15} className="text-zinc-400" />}
+        {open ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
       </button>
       {open && <div className="px-5 pb-5">{children}</div>}
     </div>
@@ -390,6 +389,36 @@ export function Analytics() {
     return all.sort((a, b) => b.planTotal - a.planTotal).slice(0, 15);
   }, [filteredDepts, hasDeptData]);
 
+  // ── Assertion-driven title data ──
+  const epTotal = quarterlyTrend.reduce((s, q) => s + q.ep, 0);
+  const kpTotal = quarterlyTrend.reduce((s, q) => s + q.kp, 0);
+  const epSharePct = (epTotal + kpTotal) > 0 ? (epTotal / (epTotal + kpTotal)) * 100 : 0;
+
+  const totalPlan = budgetByDept.reduce((s, d) => s + d.planTotal, 0);
+  const totalFact = budgetByDept.reduce((s, d) => s + d.factTotal, 0);
+  const overallExecPct = totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0;
+
+  const topDeptByPlan = deptShares.length > 0
+    ? deptShares.reduce((max, d) => d.planShare > max.planShare ? d : max, deptShares[0])
+    : null;
+
+  const avgEconomy = scatterData.length > 0
+    ? scatterData.reduce((s: number, d: any) => s + (d.economyPercent ?? 0), 0) / scatterData.length
+    : 0;
+  const suspiciousCount = scatterData.filter((d: any) => d.economyPercent < 2 || d.economyPercent > 25).length;
+
+  const avgExecHeatmap = heatmapData.length > 0
+    ? heatmapData.reduce((s: number, d: any) => s + (d.execPct ?? 0), 0) / heatmapData.length
+    : 0;
+
+  const avgTrust = trustData.length > 0
+    ? trustData.reduce((s, d) => s + d.trust, 0) / trustData.length
+    : 0;
+  const lowTrustCount = trustData.filter(d => d.trust < 60).length;
+
+  const totalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0) + ((d as any).significant ?? 0) + ((d as any).warning ?? 0) + ((d as any).info ?? 0), 0);
+  const criticalIssues = issuesByDept.reduce((s, d) => s + ((d as any).critical ?? 0), 0);
+
   // ── Treemap: spend hierarchy by department ──
   const treemapData = useMemo(() => {
     if (!hasDeptData) return [];
@@ -409,7 +438,6 @@ export function Analytics() {
 
   return (
     <div className="space-y-4">
-      <FilterBreadcrumb />
       {/* Subordinate filter info banner */}
       {selectedSubordinates.size > 0 && (
         <div className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-300">
@@ -417,33 +445,55 @@ export function Analytics() {
           <span>Аналитика отображается по полному управлению. Фильтр по подведомственным применяется на вкладках Дашборд и Экономия.</span>
         </div>
       )}
-      {/* KPI row */}
-      {fd.topKpis.length > 0 && (
-        <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3">
-          {fd.topKpis.map((card: any) => (
+      {/* KPI row — Anti-Slop Rule #3: size = importance (2 large + 2 medium + 2 compact) */}
+      {fd.topKpis.length > 0 && (() => {
+        const cards = fd.topKpis;
+        // Split into tiers: first 2 = hero (large), next 2 = medium, rest = compact
+        const heroCards = cards.slice(0, 2);
+        const medCards = cards.slice(2, 4);
+        const compactCards = cards.slice(4);
+
+        const renderCard = (card: any, tier: 'hero' | 'med' | 'compact') => {
+          const cleanValue = card.value?.replace(/\s*(percent|count|rubles|thousand_rubles|million_rubles|days|none)\s*$/i, '').trim() ?? '—';
+          const hasWarning = card.delta && !card.delta.withinTolerance;
+          return (
             <div
               key={card.metricKey}
-              className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-4 hover:shadow-lg hover:scale-[1.02] hover:border-blue-200 dark:hover:border-blue-600/60 active:scale-[0.98] transition-all duration-200 cursor-pointer"
+              className={`analytics-kpi analytics-kpi-${tier} cursor-pointer`}
               onClick={() => navigateTo('quality', {
-                qualityTab: card.delta && !card.delta.withinTolerance ? 'recon' : 'trust',
+                qualityTab: hasWarning ? 'recon' : 'trust',
                 search: card.label,
               })}
             >
-              <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">{card.label}</span>
-              <div className="text-xl font-bold text-zinc-800 dark:text-white mt-1">
-                {card.value?.replace(/\s*(percent|count|rubles|thousand_rubles|million_rubles|days|none)\s*$/i, '').trim() ?? '—'}
+              <span className={`analytics-kpi-label ${tier === 'hero' ? 'text-[11px]' : 'text-[10px]'}`}>{card.label}</span>
+              <div className={`analytics-kpi-value ${tier === 'hero' ? 'text-2xl' : tier === 'med' ? 'text-lg' : 'text-base'}`}>
+                {cleanValue}
               </div>
-              {card.delta && !card.delta.withinTolerance && (
-                <div className="text-[10px] mt-1 text-amber-500">Расхождение: {card.delta.deltaPercent}</div>
+              {hasWarning && (
+                <div className="text-[10px] mt-1 text-amber-500 font-medium">Δ {card.delta.deltaPercent}</div>
               )}
             </div>
-          ))}
-        </div>
-      )}
+          );
+        };
+
+        return (
+          <div className="analytics-kpi-grid">
+            {/* Hero tier (2 large) */}
+            <div className="analytics-kpi-hero-row">
+              {heroCards.map(c => renderCard(c, 'hero'))}
+            </div>
+            {/* Medium tier (2 medium) + Compact tier (rest) */}
+            <div className="analytics-kpi-secondary-row">
+              {medCards.map(c => renderCard(c, 'med'))}
+              {compactCards.map(c => renderCard(c, 'compact'))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Row 1: Quarterly procurement trend + Execution trend line */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <AnalyticsCard title="Динамика закупок по кварталам: КП vs ЕП" icon={BarChart3} source="calculated">
+        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: КП vs ЕП'} icon={BarChart3} source="calculated">
           {quarterlyTrend.some(q => q.kp > 0 || q.ep > 0) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={quarterlyTrend} barCategoryGap="20%">
@@ -465,6 +515,7 @@ export function Analytics() {
           )}
         </AnalyticsCard>
 
+        {/* TODO: make assertion-based when aggregated execution trend data available */}
         <AnalyticsCard title="Тренд исполнения по кварталам, %" icon={LineChartIcon} source="calculated">
           {execTrend.length > 0 && deptNames.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
@@ -486,7 +537,7 @@ export function Analytics() {
       </div>
 
       {/* Row 2: Plan vs Fact comparison by department */}
-      <AnalyticsCard title={`Сравнение План / Факт по управлениям (${periodLabel})`} icon={Layers} source="calculated">
+      <AnalyticsCard title={overallExecPct > 0 ? `Исполнение ${overallExecPct.toFixed(0)}% — ${overallExecPct < 25 ? 'отставание от графика' : overallExecPct > 90 ? 'на уровне плана' : 'в работе'} (${periodLabel})` : `Сравнение План / Факт по управлениям (${periodLabel})`} icon={Layers} source="calculated">
         {budgetByDept.length > 0 ? (
           <div>
             <ResponsiveContainer width="100%" height={300}>
@@ -577,7 +628,7 @@ export function Analytics() {
       </AnalyticsCard>
 
       {/* Row 3: Department shares — 100% stacked horizontal bar */}
-      <AnalyticsCard title={`Доли управлений в закупках (${periodLabel})`} icon={TrendingUp}>
+      <AnalyticsCard title={topDeptByPlan ? `${topDeptByPlan.name} лидирует с ${topDeptByPlan.planShare}% плана (${periodLabel})` : `Доли управлений в закупках (${periodLabel})`} icon={TrendingUp}>
         {deptShares.length > 0 ? (
           <div>
             {/* Plan shares */}
@@ -770,6 +821,7 @@ export function Analytics() {
       </div>
 
       {/* Forecast */}
+      {/* TODO: make assertion-based when forecast data is lifted to parent scope */}
       {filteredDepts.length > 0 && (
         <AnalyticsCard title="Прогноз исполнения" icon={TrendingUp} source="calculated">
           <ForecastCard depts={filteredDepts} isDark={isDark} formatMoney={formatMoney} />
@@ -777,7 +829,7 @@ export function Analytics() {
       )}
 
       {/* Economy Scatter: Limit vs Fact */}
-      <AnalyticsCard title="Экономия: Лимит vs Факт по закупкам" icon={TrendingUp} source="calculated">
+      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — ${suspiciousCount} подозрительных закупок` : ''}` : 'Экономия: Лимит vs Факт по закупкам'} icon={TrendingUp} source="calculated">
         {scatterLoading ? (
           <div className="flex items-center justify-center py-12 text-sm text-zinc-500 animate-pulse">Загрузка...</div>
         ) : scatterData.length === 0 ? (
@@ -853,7 +905,7 @@ export function Analytics() {
       {/* Row 4: Heatmap + Trust */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Heatmap */}
-        <AnalyticsCard title="Сводка по управлениям" icon={Building2} defaultOpen={true} source="calculated">
+        <AnalyticsCard title={avgExecHeatmap > 0 ? `Среднее исполнение ${avgExecHeatmap.toFixed(0)}% по ${heatmapData.length} управлениям` : 'Сводка по управлениям'} icon={Building2} defaultOpen={true} source="calculated">
           {heatmapData.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -906,7 +958,7 @@ export function Analytics() {
         </AnalyticsCard>
 
         {/* Trust by department */}
-        <AnalyticsCard title="Индекс доверия" icon={TrendingUp} source="hybrid">
+        <AnalyticsCard title={avgTrust > 0 ? `Доверие: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Индекс доверия'} icon={TrendingUp} source="hybrid">
           {trustData.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={trustData} layout="vertical" margin={{ left: 0 }}>
@@ -930,7 +982,7 @@ export function Analytics() {
       </div>
 
       {/* Row 5: Issues by department */}
-      <AnalyticsCard title="Замечания по управлениям" icon={Info} source="hybrid">
+      <AnalyticsCard title={totalIssues > 0 ? `${totalIssues} замечаний${criticalIssues > 0 ? `, ${criticalIssues} критических` : ''} по управлениям` : 'Замечания по управлениям'} icon={Info} source="hybrid">
         {issuesByDept.length > 0 ? (
           <div>
             <ResponsiveContainer width="100%" height={Math.max(160, issuesByDept.length * 32)}>

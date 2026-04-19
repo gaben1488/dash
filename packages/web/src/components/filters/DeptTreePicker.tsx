@@ -2,18 +2,14 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../../store';
 import { Building2, ChevronDown, ChevronRight, Search, X, Check } from 'lucide-react';
 import clsx from 'clsx';
+import { DEPARTMENT_REGISTRY } from '@aemr/shared';
 
-/** Department list (matches @aemr/shared DEPARTMENTS) */
-const DEPARTMENTS = [
-  { id: 'uer', shortName: 'УЭР', name: 'Управление экономического развития' },
-  { id: 'uio', shortName: 'УИО', name: 'Управление имущественных отношений' },
-  { id: 'uagzo', shortName: 'УАГЗО', name: 'Управление архитектуры и градостроительства' },
-  { id: 'ufbp', shortName: 'УФБП', name: 'Управление финансово-бюджетной политики' },
-  { id: 'ud', shortName: 'УД', name: 'Управление делами' },
-  { id: 'udtx', shortName: 'УДТХ', name: 'Управление дорожно-транспортного хозяйства' },
-  { id: 'uksimp', shortName: 'УКСиМП', name: 'Управление культуры, спорта и молодёжной политики' },
-  { id: 'uo', shortName: 'УО', name: 'Управление образования' },
-] as const;
+/** Department list derived from canonical DEPARTMENT_REGISTRY */
+const DEPARTMENTS = DEPARTMENT_REGISTRY.map(d => ({
+  id: d.latinId,
+  shortName: d.shortName,
+  name: d.fullName,
+}));
 
 /** Accent colors per department */
 const DEPT_COLORS: Record<string, { bar: string; bg: string; text: string }> = {

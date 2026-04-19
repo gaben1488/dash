@@ -2,14 +2,13 @@ import { useEffect, useRef, Component, type ReactNode } from 'react';
 import { useStore } from './store';
 import { useThemeInit } from './components/ThemeProvider';
 import { useUrlSync } from './hooks/useUrlSync';
-import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { OrgStrip } from './components/OrgStrip';
 import { Dashboard } from './pages/Dashboard';
 import { DataBrowserPage } from './pages/DataBrowser';
 import { EconomyPage } from './pages/Economy';
 import { Analytics } from './pages/Analytics';
 import { QualityPage } from './pages/Quality';
-import { JournalPage } from './pages/Journal';
 import { SettingsPage } from './pages/Settings';
 import { TooltipProvider } from './components/ui/tooltip';
 import { setKBRegistry } from './components/ui/kb-tooltip';
@@ -117,7 +116,7 @@ export function App() {
       case 'trust': return <QualityPage />;
       case 'issues': return <QualityPage />;
       case 'recs': return <QualityPage />;
-      case 'journal': return <JournalPage />;
+      case 'journal': return <QualityPage />;  // Now sub-tab of Контроль
       case 'settings': return <SettingsPage />;
       default: return <Dashboard />;
     }
@@ -125,10 +124,12 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
-        <Sidebar />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Header />
+      <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+        {/* Horizontal bar — FULL WIDTH, always on top */}
+        <Header />
+        {/* Below header: OrgStrip + main content side by side */}
+        <div className="flex flex-1 overflow-hidden">
+          <OrgStrip />
           <main className="flex-1 overflow-y-auto">
             <div className="max-w-[1400px] mx-auto p-6">
               <ErrorBoundary resetKey={page}>
