@@ -21,6 +21,20 @@ UX_RESEARCH_TEMPLATES.md
 .tmp-zip/
 tmp-analysis/
 _analyze_*.py
+_tmp_*.py
+_tmp_*.js
+_convert*.ps1
+_uwp_*.ps1
+cleanup_*.ps1
+admin_cleanup.ps1
+apps_scan.ps1
+extra_check.ps1
+__pycache__/
+
+# Auto-generated outputs (regenerate on demand)
+graphify-out/
+graphify-corpus/
+reports/
 
 # Credentials
 *.json
