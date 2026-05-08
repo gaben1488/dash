@@ -33,9 +33,7 @@ COPY packages/web    packages/web
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --offline --filter @aemr/web... && \
-    pnpm -F @aemr/shared build && \
-    pnpm -F @aemr/core   build && \
-    pnpm -F @aemr/web    build
+    pnpm -F @aemr/web build
 
 # ============================================================================
 # Stage 2 — caddy serves built static files

@@ -1,27 +1,27 @@
 # Multi-stage build для AEMR Fastify server
-# Сначала ставим pnpm, собираем все workspaces, затем тонкий runtime-образ.
+# shared/core — source-only пакеты (main: src/index.ts), build не нужен.
+# Production runtime: tsx src/index.ts (читает TS на лету через esbuild).
 
 ARG NODE_VERSION=22-bookworm-slim
 
 # ============================================================================
-# Stage 1 — install + build всех workspaces (нужны для @aemr/shared @aemr/core)
+# Stage 1 — установка всех workspaces (shared + core + server, без web)
 # ============================================================================
 FROM node:${NODE_VERSION} AS builder
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
-# better-sqlite3 = native build, нужны build-tools
+# better-sqlite3 = native build (node-gyp), нужны Python + gcc
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# corepack -> pnpm
 RUN corepack enable
 
 WORKDIR /app
 
-# 1) сначала только манифесты — кэшируем node_modules layer
+# 1) сначала только манифесты — кэшируем pnpm fetch layer
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/core/package.json   packages/core/
@@ -29,46 +29,52 @@ COPY packages/server/package.json packages/server/
 COPY packages/web/package.json    packages/web/
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm fetch --frozen-lockfile
+    pnpm install --frozen-lockfile --filter @aemr/server...
 
-# 2) копируем исходники
+# 2) копируем только то что нужно server (shared, core, server). web НЕ копируем.
 COPY packages/shared packages/shared
 COPY packages/core   packages/core
 COPY packages/server packages/server
 
-# 3) install + build только server-цепочки
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --offline --filter @aemr/server... && \
-    pnpm -F @aemr/shared build && \
-    pnpm -F @aemr/core   build && \
-    pnpm -F @aemr/server build && \
-    pnpm -F @aemr/server deploy --prod /app/server-bundle
+# Финальная dedup на случай новых файлов
+RUN pnpm rebuild
 
 # ============================================================================
 # Stage 2 — runtime
+# Используем тот же layout: /app c node_modules-symlinks pnpm.
+# Нативные модули (better-sqlite3) уже скомпилированы на Stage 1.
 # ============================================================================
 FROM node:${NODE_VERSION} AS runtime
 
-# Установка curl для healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/server-bundle /app
 
-# data/ — volume для SQLite файла
-RUN mkdir -p /app/data && chown -R node:node /app
+# pnpm для resolveрезо workspace symlinks
+RUN corepack enable
+
+# Копируем всё дерево из builder. Это самый надёжный путь:
+# pnpm-структура с symlinks сохраняется как есть.
+COPY --from=builder /app /app
+
+# data/ — volume для SQLite
+RUN mkdir -p /app/packages/server/data && chown -R node:node /app
 USER node
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
-ENV SQLITE_PATH=/app/data/aemr.db
+ENV SQLITE_PATH=/app/packages/server/data/aemr.db
 ENV LOG_LEVEL=info
+
+WORKDIR /app/packages/server
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:3000/api/health || exit 1
 
-CMD ["node", "dist/index.js"]
+# tsx читает TS на лету (через esbuild в runtime). Это упрощает резолв
+# @aemr/shared и @aemr/core (которые экспортируют сорсы) без отдельного build-шага.
+CMD ["./node_modules/.bin/tsx", "src/index.ts"]

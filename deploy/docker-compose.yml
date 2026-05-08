@@ -43,7 +43,7 @@ services:
     env_file:
       - ./.env.production
     volumes:
-      - server_data:/app/data
+      - server_data:/app/packages/server/data
     networks: [aemr]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]

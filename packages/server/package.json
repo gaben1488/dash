@@ -7,6 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:prod": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -23,12 +24,13 @@
     "drizzle-orm": "^0.38.0",
     "fastify": "^5.2.0",
     "googleapis": "^144.0.0",
+    "pino-pretty": "^11.3.0",
+    "tsx": "^4.19.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "drizzle-kit": "^0.30.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.7.3"
   }
 }
