@@ -1,0 +1,25 @@
+# Edge-Caddy: единая точка входа на 80/443.
+# Делает reverse-proxy к web и api, и при наличии домена — авто-HTTPS Let's Encrypt.
+#
+# Используется через docker-compose: переменная DOMAIN.
+# Если DOMAIN=":80" → работаем по IP без TLS.
+# Если DOMAIN="aemr.example.ru" → TLS включится автоматически.
+
+{$DOMAIN} {
+    encode gzip
+
+    # все /api/* → Fastify сервер
+    handle /api/* {
+        reverse_proxy server:3000
+    }
+
+    # всё остальное → web (статика)
+    handle {
+        reverse_proxy web:80
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

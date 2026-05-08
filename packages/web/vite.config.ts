@@ -14,6 +14,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // allow any host (включая трюнели cloudflare/ngrok/serveo/localtunnel/pinggy для live-демо)
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

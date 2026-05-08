@@ -1,0 +1,45 @@
+# Multi-stage build для AEMR React frontend
+# 1) собираем vite build из всех workspaces
+# 2) переносим dist в caddy-runtime, который сам отдаёт статику
+ARG NODE_VERSION=22-bookworm-slim
+ARG CADDY_VERSION=2.10-alpine
+
+FROM node:${NODE_VERSION} AS builder
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+RUN corepack enable
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json   packages/core/
+COPY packages/server/package.json packages/server/
+COPY packages/web/package.json    packages/web/
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm fetch --frozen-lockfile
+
+COPY packages/shared packages/shared
+COPY packages/core   packages/core
+COPY packages/web    packages/web
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --offline --filter @aemr/web... && \
+    pnpm -F @aemr/shared build && \
+    pnpm -F @aemr/core   build && \
+    pnpm -F @aemr/web    build
+
+# ============================================================================
+# Stage 2 — caddy serves built static files
+# ============================================================================
+FROM caddy:${CADDY_VERSION} AS runtime
+
+COPY --from=builder /app/packages/web/dist /usr/share/caddy
+
+# минимальный Caddyfile внутри web-образа (отдаёт SPA на :80, fallback /index.html)
+COPY deploy/Caddyfile.web /etc/caddy/Caddyfile
+
+EXPOSE 80
