@@ -9,6 +9,11 @@ FROM node:${NODE_VERSION} AS builder
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
+# better-sqlite3 в transitive deps требует node-gyp → python3 + build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 WORKDIR /app
