@@ -21,9 +21,6 @@ export * from './budget-sources.js';
 export * from './legal-refs.js';
 export * from './ep-reason-clusters.js';
 
-// ── Таксономия сигналов ───────────────────────────────────────
-export * from './signals-taxonomy.js';
-
 // ── Роли пользователей ────────────────────────────────────────
 export * from './user-roles.js';
 
