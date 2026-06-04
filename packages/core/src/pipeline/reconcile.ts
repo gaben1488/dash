@@ -263,6 +263,144 @@ export interface BudgetReconCells {
   economyMB: MonthlyReconCell;
 }
 
+export type SHDYUReconRootCauseId =
+  | 'formula_scope_limited'
+  | 'economy_flag_gated'
+  | 'procurement_method_mismatch'
+  | 'activity_filter_hidden_rows'
+  | 'department_alias_mismatch'
+  | 'formula_source_mismatch'
+  | 'contract_split_rows'
+  | 'reserve_status_excluded';
+
+export interface SHDYUReconRootCauseDefinition {
+  id: SHDYUReconRootCauseId;
+  label: string;
+  severity: 'warning' | 'critical';
+  suggestedAction: string;
+}
+
+export interface SHDYUReconRootCause extends SHDYUReconRootCauseDefinition {
+  confidence: 'low' | 'medium' | 'high';
+  evidence: string;
+}
+
+export const SHDYU_RECON_ROOT_CAUSES: readonly SHDYUReconRootCauseDefinition[] = [
+  {
+    id: 'formula_scope_limited',
+    label: 'Формулы ШДЮ ограничены рабочим диапазоном',
+    severity: 'critical',
+    suggestedAction: 'Проверить диапазоны формул на листе ШДЮ и убедиться, что месяц/ГРБС попадает в рабочий диапазон.',
+  },
+  {
+    id: 'economy_flag_gated',
+    label: 'Экономия учитывается только при флаге AD="да"',
+    severity: 'warning',
+    suggestedAction: 'Проверить флаг AD="да" и колонки Z/AA/AB: CalcEngine считает только утверждённую экономию.',
+  },
+  {
+    id: 'procurement_method_mismatch',
+    label: 'Метод закупки попал в другую группу КП/ЕП',
+    severity: 'warning',
+    suggestedAction: 'Сверить исходное значение способа закупки и словарь классификации КП/ЕП для этой строки.',
+  },
+  {
+    id: 'activity_filter_hidden_rows',
+    label: 'Фильтр ТД/ПМ скрывает часть строк',
+    severity: 'warning',
+    suggestedAction: 'Сверить фильтры ТД/ПМ и программный контекст строк в исходном листе.',
+  },
+  {
+    id: 'department_alias_mismatch',
+    label: 'Алиас ГРБС не сопоставился',
+    severity: 'critical',
+    suggestedAction: 'Проверить алиас ГРБС, имя листа и ключ отдела в ШДЮ/реестре управлений.',
+  },
+  {
+    id: 'formula_source_mismatch',
+    label: 'Формула ШДЮ ссылается на другой источник',
+    severity: 'critical',
+    suggestedAction: 'Проверить диапазоны формул ШДЮ: лист, ГРБС, метод КП/ЕП и месяц должны ссылаться на тот же источник, который подписан в блоке.',
+  },
+  {
+    id: 'contract_split_rows',
+    label: 'Один контракт расщеплён на несколько строк',
+    severity: 'warning',
+    suggestedAction: 'Проверить исходные строки закупки/контракта: возможно, одна закупка отражена несколькими строками.',
+  },
+  {
+    id: 'reserve_status_excluded',
+    label: 'Строка в резервном статусе исключена на одной стороне',
+    severity: 'warning',
+    suggestedAction: 'Сверить статус строки и правила исключения резервных/отменённых закупок в источнике.',
+  },
+] as const;
+
+interface MonthlyRecalcBlock {
+  plan?: number;
+  fact?: number;
+  planSum?: number;
+  factSum?: number;
+  planFB?: number;
+  planKB?: number;
+  planMB?: number;
+  factFB?: number;
+  factKB?: number;
+  factMB?: number;
+  economyFB?: number;
+  economyKB?: number;
+  economyMB?: number;
+}
+
+interface MonthlyRecalcMonth {
+  planCount?: number;
+  factCount?: number;
+  competitive?: MonthlyRecalcBlock;
+  ep?: MonthlyRecalcBlock;
+}
+
+interface MonthlyRecalcDepartment {
+  months?: Record<number, MonthlyRecalcMonth | undefined>;
+}
+
+interface MonthlySHDYUBlock {
+  planFB?: number;
+  planKB?: number;
+  planMB?: number;
+  factFB?: number;
+  factKB?: number;
+  factMB?: number;
+  economyFB?: number;
+  economyKB?: number;
+  economyMB?: number;
+}
+
+interface MonthlySHDYUMonth {
+  compPlanCount?: number;
+  compFactCount?: number;
+  compPlanTotal?: number;
+  compFactTotal?: number;
+  epPlanCount?: number;
+  epFactCount?: number;
+  epPlanTotal?: number;
+  epFactTotal?: number;
+  comp?: MonthlySHDYUBlock;
+  ep?: MonthlySHDYUBlock;
+  formulaIssues?: Array<{
+    type?: string;
+    expectedSheet?: string;
+    actualSheets?: string[];
+    row?: number;
+    month?: number;
+    block?: 'comp' | 'ep';
+    evidence?: string;
+  }>;
+}
+
+interface MonthlySHDYUDepartment {
+  months?: Record<number, MonthlySHDYUMonth | undefined>;
+}
+
 export interface MonthlyReconRow {
   deptId: string;
   deptName: string;
@@ -278,6 +416,7 @@ export interface MonthlyReconRow {
   compBudget?: BudgetReconCells;
   epBudget?: BudgetReconCells;
   warnings?: string[];
+  rootCause?: SHDYUReconRootCause;
 }
 
 export interface MonthlyReconSummary {
@@ -298,6 +437,134 @@ function makeCell(shdyu: number, calc: number): MonthlyReconCell {
   return { shdyu, calc, delta, deltaPct: pctVal, status };
 }
 
+function n(value: number | undefined): number {
+  return value ?? 0;
+}
+
+function rootCauseById(id: SHDYUReconRootCauseId): SHDYUReconRootCauseDefinition {
+  const cause = SHDYU_RECON_ROOT_CAUSES.find((item) => item.id === id);
+  if (!cause) throw new Error(`Unknown SHDYU root cause: ${id}`);
+  return cause;
+}
+
+function calcPlanCount(rc: MonthlyRecalcMonth | undefined): number {
+  return (rc?.competitive?.plan ?? 0) + (rc?.ep?.plan ?? 0);
+}
+
+function hasEconomyMismatch(cells: BudgetReconCells | undefined): boolean {
+  if (!cells) return false;
+  return [cells.economyFB, cells.economyKB, cells.economyMB]
+    .some((cell) => cell.status === 'warning' || cell.status === 'high');
+}
+
+function closeEnough(a: number | undefined, b: number | undefined): boolean {
+  return Math.abs((a ?? 0) - (b ?? 0)) < 0.0001;
+}
+
+function isNonZero(value: number | undefined): boolean {
+  return Math.abs(value ?? 0) > 0.0001;
+}
+
+function hasCrossMethodMismatch(sh: MonthlySHDYUMonth | undefined, rc: MonthlyRecalcMonth | undefined): boolean {
+  if (!sh || !rc) return false;
+
+  const shCompMatchesCalcEp =
+    isNonZero(sh.compPlanCount) &&
+    closeEnough(sh.compPlanCount, rc.ep?.plan) &&
+    closeEnough(sh.compPlanTotal, rc.ep?.planSum) &&
+    !closeEnough(sh.compPlanCount, rc.competitive?.plan);
+
+  const shEpMatchesCalcComp =
+    isNonZero(sh.epPlanCount) &&
+    closeEnough(sh.epPlanCount, rc.competitive?.plan) &&
+    closeEnough(sh.epPlanTotal, rc.competitive?.planSum) &&
+    !closeEnough(sh.epPlanCount, rc.ep?.plan);
+
+  return shCompMatchesCalcEp || shEpMatchesCalcComp;
+}
+
+function formulaSourceMismatch(
+  sh: MonthlySHDYUMonth | undefined,
+): NonNullable<MonthlySHDYUMonth['formulaIssues']>[number] | undefined {
+  return sh?.formulaIssues?.find((issue) => issue.type === 'sheet_reference_mismatch');
+}
+
+function inferSHDYURootCause(args: {
+  deptId: string;
+  deptName: string;
+  month: number;
+  hasSHDYUDepartment: boolean;
+  sh: MonthlySHDYUMonth | undefined;
+  rc: MonthlyRecalcMonth | undefined;
+  compBudget: BudgetReconCells | undefined;
+  epBudget: BudgetReconCells | undefined;
+}): SHDYUReconRootCause | undefined {
+  const {
+    deptId,
+    deptName,
+    month,
+    hasSHDYUDepartment,
+    sh,
+    rc,
+    compBudget,
+    epBudget,
+  } = args;
+  const calcPlanCount = (rc?.competitive?.plan ?? 0) + (rc?.ep?.plan ?? 0);
+  const formulaIssue = formulaSourceMismatch(sh);
+  if (formulaIssue) {
+    const definition = rootCauseById('formula_source_mismatch');
+    const actualSheets = formulaIssue.actualSheets?.join(', ') || 'другой лист';
+    return {
+      ...definition,
+      confidence: 'high',
+      evidence: formulaIssue.evidence
+        ?? `ШДЮ ${deptName}, месяц ${month}: формула строки ${formulaIssue.row ?? '?'} ожидает ${formulaIssue.expectedSheet ?? deptName}, но ссылается на ${actualSheets}`,
+    };
+  }
+
+  if (calcPlanCount <= 0) {
+    return undefined;
+  }
+
+  if (!hasSHDYUDepartment) {
+    const definition = rootCauseById('department_alias_mismatch');
+    return {
+      ...definition,
+      confidence: 'medium',
+      evidence: `ШДЮ не содержит блок ГРБС ${deptId} (${deptName}), CalcEngine видит ${calcPlanCount} плановых закупок за месяц ${month}`,
+    };
+  }
+
+  if (!sh) {
+    const definition = rootCauseById('formula_scope_limited');
+    return {
+      ...definition,
+      confidence: 'high',
+      evidence: `ШДЮ не содержит месяц ${month} для ${deptName}, CalcEngine видит ${calcPlanCount} плановых закупок`,
+    };
+  }
+
+  if (hasCrossMethodMismatch(sh, rc)) {
+    const definition = rootCauseById('procurement_method_mismatch');
+    return {
+      ...definition,
+      confidence: 'medium',
+      evidence: `За месяц ${month} одна и та же count/amount пара видна на противоположных группах КП/ЕП между ШДЮ и CalcEngine`,
+    };
+  }
+
+  if (hasEconomyMismatch(compBudget) || hasEconomyMismatch(epBudget)) {
+    const definition = rootCauseById('economy_flag_gated');
+    return {
+      ...definition,
+      confidence: 'medium',
+      evidence: `План/факт ШДЮ и CalcEngine сопоставимы за месяц ${month}, но экономия расходится; CalcEngine применяет gate AD="да"`,
+    };
+  }
+
+  return undefined;
+}
+
 /**
  * Compare SHDYU monthly dynamics data against row-by-row recalculation.
  *
@@ -305,9 +572,22 @@ function makeCell(shdyu: number, calc: number): MonthlyReconCell {
  * @param shdyuData      Per-department SHDYUDeptData (from ШДЮ sheet)
  * @param deptNames      Map grbsId → display name
  */
+/** Все статус-ячейки побюджетного разбора (ФБ/КБ/МБ × план/факт/экономия) одной строки. */
+function budgetReconCells(b: BudgetReconCells): MonthlyReconCell[] {
+  return [
+    b.planFB, b.planKB, b.planMB,
+    b.factFB, b.factKB, b.factMB,
+    b.economyFB, b.economyKB, b.economyMB,
+  ];
+}
+
+function cellNeedsAttention(cell: MonthlyReconCell): boolean {
+  return cell.status === 'warning' || cell.status === 'high';
+}
+
 export function reconcileMonthly(
-  recalcResults: Record<string, any>,
-  shdyuData: Record<string, any>,
+  recalcResults: Record<string, MonthlyRecalcDepartment>,
+  shdyuData: Record<string, MonthlySHDYUDepartment>,
   deptNames: Record<string, string>,
 ): MonthlyReconSummary {
   const rows: MonthlyReconRow[] = [];
@@ -342,33 +622,52 @@ export function reconcileMonthly(
       const shComp = sh?.comp;
       const shEp = sh?.ep;
       const compBudget: BudgetReconCells | undefined = shComp ? {
-        planFB: makeCell(shComp.planFB, rc?.competitive?.planFB ?? 0),
-        planKB: makeCell(shComp.planKB, rc?.competitive?.planKB ?? 0),
-        planMB: makeCell(shComp.planMB, rc?.competitive?.planMB ?? 0),
-        factFB: makeCell(shComp.factFB, rc?.competitive?.factFB ?? 0),
-        factKB: makeCell(shComp.factKB, rc?.competitive?.factKB ?? 0),
-        factMB: makeCell(shComp.factMB, rc?.competitive?.factMB ?? 0),
-        economyFB: makeCell(shComp.economyFB, rc?.competitive?.economyFB ?? 0),
-        economyKB: makeCell(shComp.economyKB, rc?.competitive?.economyKB ?? 0),
-        economyMB: makeCell(shComp.economyMB, rc?.competitive?.economyMB ?? 0),
+        planFB: makeCell(n(shComp.planFB), rc?.competitive?.planFB ?? 0),
+        planKB: makeCell(n(shComp.planKB), rc?.competitive?.planKB ?? 0),
+        planMB: makeCell(n(shComp.planMB), rc?.competitive?.planMB ?? 0),
+        factFB: makeCell(n(shComp.factFB), rc?.competitive?.factFB ?? 0),
+        factKB: makeCell(n(shComp.factKB), rc?.competitive?.factKB ?? 0),
+        factMB: makeCell(n(shComp.factMB), rc?.competitive?.factMB ?? 0),
+        economyFB: makeCell(n(shComp.economyFB), rc?.competitive?.economyFB ?? 0),
+        economyKB: makeCell(n(shComp.economyKB), rc?.competitive?.economyKB ?? 0),
+        economyMB: makeCell(n(shComp.economyMB), rc?.competitive?.economyMB ?? 0),
       } : undefined;
       const epBudget: BudgetReconCells | undefined = shEp ? {
-        planFB: makeCell(shEp.planFB, rc?.ep?.planFB ?? 0),
-        planKB: makeCell(shEp.planKB, rc?.ep?.planKB ?? 0),
-        planMB: makeCell(shEp.planMB, rc?.ep?.planMB ?? 0),
-        factFB: makeCell(shEp.factFB, rc?.ep?.factFB ?? 0),
-        factKB: makeCell(shEp.factKB, rc?.ep?.factKB ?? 0),
-        factMB: makeCell(shEp.factMB, rc?.ep?.factMB ?? 0),
-        economyFB: makeCell(shEp.economyFB, rc?.ep?.economyFB ?? 0),
-        economyKB: makeCell(shEp.economyKB, rc?.ep?.economyKB ?? 0),
-        economyMB: makeCell(shEp.economyMB, rc?.ep?.economyMB ?? 0),
+        planFB: makeCell(n(shEp.planFB), rc?.ep?.planFB ?? 0),
+        planKB: makeCell(n(shEp.planKB), rc?.ep?.planKB ?? 0),
+        planMB: makeCell(n(shEp.planMB), rc?.ep?.planMB ?? 0),
+        factFB: makeCell(n(shEp.factFB), rc?.ep?.factFB ?? 0),
+        factKB: makeCell(n(shEp.factKB), rc?.ep?.factKB ?? 0),
+        factMB: makeCell(n(shEp.factMB), rc?.ep?.factMB ?? 0),
+        economyFB: makeCell(n(shEp.economyFB), rc?.ep?.economyFB ?? 0),
+        economyKB: makeCell(n(shEp.economyKB), rc?.ep?.economyKB ?? 0),
+        economyMB: makeCell(n(shEp.economyMB), rc?.ep?.economyMB ?? 0),
       } : undefined;
 
       // Detect missing SHDYU data: calculated > 0 but SHDYU = 0
       const warnings: string[] = [];
-      if (!sh && rc && (rc.competitive.plan > 0 || rc.ep.plan > 0)) {
-        warnings.push(`ШДЮ: данные за месяц ${m} отсутствуют, но расчёт содержит ${rc.competitive.plan + rc.ep.plan} закупок`);
+      const calcPlanCountValue = calcPlanCount(rc);
+      if (!sh && calcPlanCountValue > 0) {
+        warnings.push(`ШДЮ: данные за месяц ${m} отсутствуют, но расчёт содержит ${calcPlanCountValue} закупок`);
       }
+      const rowHasMismatch = [
+        compPlan, compFact, compPlanTotal, compFactTotal,
+        epPlan, epFact, epPlanTotal, epFactTotal,
+        ...(compBudget ? budgetReconCells(compBudget) : []),
+        ...(epBudget ? budgetReconCells(epBudget) : []),
+      ].some(cellNeedsAttention);
+      const rootCause = rowHasMismatch
+        ? inferSHDYURootCause({
+          deptId,
+          deptName,
+          month: m,
+          hasSHDYUDepartment: Boolean(shdyu),
+          sh,
+          rc,
+          compBudget,
+          epBudget,
+        })
+        : undefined;
 
       rows.push({
         deptId,
@@ -385,14 +684,22 @@ export function reconcileMonthly(
         ...(compBudget ? { compBudget } : {}),
         ...(epBudget ? { epBudget } : {}),
         ...(warnings.length > 0 ? { warnings } : {}),
+        ...(rootCause ? { rootCause } : {}),
       });
     }
   }
 
-  const allCells = rows.flatMap(r => [
-    r.compPlan, r.compFact, r.compPlanTotal, r.compFactTotal,
-    r.epPlan, r.epFact, r.epPlanTotal, r.epFactTotal,
-  ]);
+  const allCells = rows.flatMap(r => {
+    const cells: MonthlyReconCell[] = [
+      r.compPlan, r.compFact, r.compPlanTotal, r.compFactTotal,
+      r.epPlan, r.epFact, r.epPlanTotal, r.epFactTotal,
+    ];
+    // Учитываем вложенные побюджетные ячейки (ФБ/КБ/МБ): расхождение внутри
+    // разбора должно попадать в общий counts, а не только top-level суммы.
+    if (r.compBudget) cells.push(...budgetReconCells(r.compBudget));
+    if (r.epBudget) cells.push(...budgetReconCells(r.epBudget));
+    return cells;
+  });
 
   const counts = {
     ok: allCells.filter(c => c.status === 'ok').length,

@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, LEGACY_RULE_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -91,9 +91,9 @@ function mergeRecalcIntoMetrics(
     put(`${prefix}.kp.${qk}.fb_fact`, q.competitive.factFB, 'rub', qk);
     put(`${prefix}.kp.${qk}.kb_fact`, q.competitive.factKB, 'rub', qk);
     put(`${prefix}.kp.${qk}.mb_fact`, q.competitive.factMB, 'rub', qk);
-    // KP: deviation (F), amount_dev (P = fact−plan), savings_pct (Q = fact/plan), economy (R-U)
+    // KP: deviation (F), amount_dev (P = plan−fact), savings_pct (Q = fact/plan), economy (R-U)
     put(`${prefix}.kp.${qk}.deviation`, q.competitive.fact - q.competitive.plan, 'count', qk);
-    const kpAmtDev = q.competitive.factSum - q.competitive.planSum;
+    const kpAmtDev = q.competitive.planSum - q.competitive.factSum;
     put(`${prefix}.kp.${qk}.amount_dev`, kpAmtDev, 'rub', qk);
     put(`${prefix}.kp.${qk}.savings_pct`, q.competitive.planSum > 0 ? q.competitive.factSum / q.competitive.planSum : 0, 'percent', qk);
     put(`${prefix}.kp.${qk}.economy_fb`, q.competitive.economyFB, 'rub', qk);
@@ -111,9 +111,9 @@ function mergeRecalcIntoMetrics(
     put(`${prefix}.ep.${qk}.fb_fact`, q.ep.factFB, 'rub', qk);
     put(`${prefix}.ep.${qk}.kb_fact`, q.ep.factKB, 'rub', qk);
     put(`${prefix}.ep.${qk}.mb_fact`, q.ep.factMB, 'rub', qk);
-    // EP: deviation (F), amount_dev (P = fact−plan), savings_pct (Q = fact/plan), economy (R-U)
+    // EP: deviation (F), amount_dev (P = plan−fact), savings_pct (Q = fact/plan), economy (R-U)
     put(`${prefix}.ep.${qk}.deviation`, q.ep.fact - q.ep.plan, 'count', qk);
-    const epAmtDev = q.ep.factSum - q.ep.planSum;
+    const epAmtDev = q.ep.planSum - q.ep.factSum;
     put(`${prefix}.ep.${qk}.amount_dev`, epAmtDev, 'rub', qk);
     put(`${prefix}.ep.${qk}.savings_pct`, q.ep.planSum > 0 ? q.ep.factSum / q.ep.planSum : 0, 'percent', qk);
     put(`${prefix}.ep.${qk}.economy_fb`, q.ep.economyFB, 'rub', qk);
@@ -180,7 +180,7 @@ function mergeRecalcIntoMetrics(
   put(`${yp}.kp.year.total_plan`, kpYearPlanSum, 'rub', 'year');
   put(`${yp}.kp.year.total_fact`, kpYearFactSum, 'rub', 'year');
   put(`${yp}.kp.year.deviation`, kpYearFact - kpYearPlan, 'count', 'year');
-  const kpYearAmtDev = kpYearFactSum - kpYearPlanSum;
+  const kpYearAmtDev = kpYearPlanSum - kpYearFactSum;
   put(`${yp}.kp.year.amount_dev`, kpYearAmtDev, 'rub', 'year');
   put(`${yp}.kp.year.savings_pct`, kpYearPlanSum > 0 ? kpYearFactSum / kpYearPlanSum : 0, 'percent', 'year');
   put(`${yp}.kp.year.economy_fb`, sumQ(q => q.competitive.economyFB), 'rub', 'year');
@@ -198,7 +198,7 @@ function mergeRecalcIntoMetrics(
   put(`${yp}.ep.year.total_plan`, epYearPlanSum, 'rub', 'year');
   put(`${yp}.ep.year.total_fact`, epYearFactSum, 'rub', 'year');
   put(`${yp}.ep.year.deviation`, epYearFact - epYearPlan, 'count', 'year');
-  const epYearAmtDev = epYearFactSum - epYearPlanSum;
+  const epYearAmtDev = epYearPlanSum - epYearFactSum;
   put(`${yp}.ep.year.amount_dev`, epYearAmtDev, 'rub', 'year');
   put(`${yp}.ep.year.savings_pct`, epYearPlanSum > 0 ? epYearFactSum / epYearPlanSum : 0, 'percent', 'year');
   put(`${yp}.ep.year.economy_fb`, sumQ(q => q.ep.economyFB), 'rub', 'year');
@@ -382,7 +382,7 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     putSummary(`competitive.${p}.fb_fact`, kpFbFact, 'rub', p);
     putSummary(`competitive.${p}.kb_fact`, kpKbFact, 'rub', p);
     putSummary(`competitive.${p}.mb_fact`, kpMbFact, 'rub', p);
-    const kpAmtDev = kpFactTotal - kpPlanTotal;
+    const kpAmtDev = kpPlanTotal - kpFactTotal;
     putSummary(`competitive.${p}.amount_dev`, kpAmtDev, 'rub', p);
     putSummary(`competitive.${p}.savings_pct`, kpPlanTotal > 0 ? kpFactTotal / kpPlanTotal : 0, 'percent', p);
     putSummary(`competitive.${p}.economy_fb`, kpEcoFb, 'rub', p);
@@ -404,7 +404,7 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     putSummary(`sole.${p}.fb_fact`, epFbFact, 'rub', p);
     putSummary(`sole.${p}.kb_fact`, epKbFact, 'rub', p);
     putSummary(`sole.${p}.mb_fact`, epMbFact, 'rub', p);
-    const epAmtDev = epFactTotal - epPlanTotal;
+    const epAmtDev = epPlanTotal - epFactTotal;
     putSummary(`sole.${p}.amount_dev`, epAmtDev, 'rub', p);
     putSummary(`sole.${p}.savings_pct`, epPlanTotal > 0 ? epFactTotal / epPlanTotal : 0, 'percent', p);
     putSummary(`sole.${p}.economy_fb`, epEcoFb, 'rub', p);

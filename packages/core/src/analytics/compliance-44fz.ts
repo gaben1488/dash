@@ -5,6 +5,7 @@
  */
 
 import type { GRBSRole } from './grbs-profile.js';
+import { LAW_44FZ_THRESHOLDS } from '@aemr/shared';
 
 export interface ComplianceIssue {
   grbsId: string;
@@ -21,23 +22,23 @@ export interface ComplianceIssue {
 /** Legal thresholds from 44-ФЗ */
 export const LAW_44FZ = {
   /** п.4 ч.1 ст.93 — single EP contract limit */
-  epSingleContractLimit: 600_000,
+  epSingleContractLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit,
   /** п.5 ч.1 ст.93 — education services EP limit */
-  epEducationLimit: 5_000_000,
+  epEducationLimit: LAW_44FZ_THRESHOLDS.epEducationSingleContractLimit,
   /** п.5 ч.1 ст.93 — education EP annual share limit */
-  epEducationShareLimit: 0.50,
+  epEducationShareLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualShareLimit,
   /** Electronic shop (магазин) purchase limit */
-  eShopLimit: 5_000_000,
+  eShopLimit: LAW_44FZ_THRESHOLDS.eShopPurchaseLimit,
   /** Request for quotations (запрос котировок) limit */
-  quotationLimit: 10_000_000,
-  /** Annual EP limit for п.4 — 2M or 10% of total */
-  epAnnualSmallPurchaseLimit: 2_000_000,
+  quotationLimit: LAW_44FZ_THRESHOLDS.quotationPurchaseLimit,
+  /** Annual EP limit for п.4 — 2M or 10% of total, capped at 50M */
+  epAnnualSmallPurchaseLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualFixedLimit,
   /** Anti-dumping threshold (ст. 37) */
-  antiDumpingThreshold: 0.25,
+  antiDumpingThreshold: LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare,
   /** Annual EP share limit (% of total) */
-  epAnnualShareLimit: 0.10,
+  epAnnualShareLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualShareLimit,
   /** Annual EP absolute limit */
-  epAnnualAbsoluteLimit: 100_000_000,
+  epAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimit,
 } as const;
 
 /** EP share thresholds by ГРБС role */
@@ -88,7 +89,7 @@ export function checkEPContractLimits(rows: RowData[], grbsId: string): Complian
         grbsId,
         ruleCode: 'ep_contract_limit',
         severity: 'critical',
-        title: `ЕП превышает лимит 600 тыс. ₽ (строка ${row.rowIndex})`,
+        title: `ЕП превышает лимит ${(LAW_44FZ.epSingleContractLimit / 1000).toFixed(0)} тыс. ₽ (строка ${row.rowIndex})`,
         description: `Сумма контракта ${(row.planTotal / 1000).toFixed(1)} тыс. ₽ превышает предельный размер для ЕП по п.4 ч.1 ст.93`,
         article: 'ст. 93 ч.1 п.4',
         threshold: LAW_44FZ.epSingleContractLimit,
@@ -163,8 +164,8 @@ export function checkEPShareLimits(
       grbsId,
       ruleCode: 'ep_annual_absolute',
       severity: 'critical',
-      title: `Годовой объём ЕП превышает 100 млн ₽`,
-      description: `Объём ЕП: ${(epTotal / 1_000_000).toFixed(1)} млн ₽. Предельный годовой объём: 100 млн ₽`,
+      title: `Годовой объём ЕП превышает 50 млн ₽`,
+      description: `Объём ЕП: ${(epTotal / 1_000_000).toFixed(1)} млн ₽. Предельный годовой объём: 50 млн ₽`,
       article: 'ст. 93',
       threshold: LAW_44FZ.epAnnualAbsoluteLimit,
       actualValue: epTotal,

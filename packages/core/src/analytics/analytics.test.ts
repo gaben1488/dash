@@ -23,8 +23,6 @@ import {
   checkEPShareLimits,
   classifyEPReason,
   analyzeEPReasons,
-  LAW_44FZ,
-  EP_SHARE_BY_ROLE,
 } from './compliance-44fz.js';
 
 import {
@@ -429,15 +427,15 @@ describe('compliance — checkEPShareLimits', () => {
     expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(false);
   });
 
-  it('flags annual EP absolute > 100M', () => {
-    const issues = checkEPShareLimits(10, 100, 150_000_000, 500_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
+  it('flags annual EP absolute > 50M', () => {
+    const issues = checkEPShareLimits(10, 100, 50_000_001, 500_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
     expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(true);
   });
 
   it('returns no issues for zero totalCount', () => {
     const issues = checkEPShareLimits(0, 0, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
-    // No ep_share_role since totalCount=0, but might flag absolute
     expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(false);
+    expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(false);
   });
 });
 

@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { DEPT_COLUMNS, normalizeMethod, isCompetitive, PROCUREMENT_METHODS } from '@aemr/shared';
 import { CalcEngine } from './calc-engine.js';
+import { recalculateFromRows } from './recalculate.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -37,6 +38,15 @@ function makeRow(method: string, overrides: Partial<Record<number, unknown>> = {
     row[Number(k)] = v;
   }
   return row;
+}
+
+function buildSheet(dataRows: unknown[][]): unknown[][] {
+  return [
+    new Array(32).fill('Header1'),
+    new Array(32).fill('Header2'),
+    new Array(32).fill('Header3'),
+    ...dataRows,
+  ];
 }
 
 describe('method alias integration — dictionaries → calc-engine', () => {
@@ -80,22 +90,20 @@ describe('method alias integration — dictionaries → calc-engine', () => {
     });
   });
 
-  describe('CalcEngine.byMethod grouping via aliases (end-to-end)', () => {
+  describe('CalcEngine method grouping and count metrics via aliases (end-to-end)', () => {
     const engine = new CalcEngine();
     const acceptAll = () => true;
 
-    // byMethod группировка пользуется extractors.method(row), которая теперь
-    // проходит через normalizeMethod() из dictionaries. Проверяем что alias-строки
-    // попадают в правильный бакет ('ep' | 'competitive').
-    //
-    // Метрики competitive_count / ep_count имеют GATE_METHOD_{EP|COMPETITIVE} с
-    // сырым сравнением row[COL.METHOD] === 'ЕП', поэтому test не через них, а
-    // через наличие ключа в byMethod Map (что и доказывает — extractor отработал).
     function bucketFor(method: string): 'ep' | 'competitive' | null {
       const res = engine.compute([makeRow(method)], acceptAll);
       if (res.byMethod.has('ep')) return 'ep';
       if (res.byMethod.has('competitive')) return 'competitive';
       return null;
+    }
+
+    function metricFor(method: string, key: string, overrides: Partial<Record<number, unknown>> = {}): number {
+      const res = engine.compute([makeRow(method, overrides)], acceptAll);
+      return res.total.get(key)?.value ?? 0;
     }
 
     it('"ЕП" → ep bucket', () => {
@@ -124,6 +132,58 @@ describe('method alias integration — dictionaries → calc-engine', () => {
 
     it('empty method → competitive (legacy СВОД FILTER L<>"ЕП")', () => {
       expect(bucketFor('')).toBe('competitive');
+    });
+
+    it('unknown non-empty method → no method bucket', () => {
+      expect(bucketFor('ГАРБАЖ')).toBeNull();
+      expect(metricFor('ГАРБАЖ', 'competitive_count')).toBe(0);
+      expect(metricFor('ГАРБАЖ', 'ep_count')).toBe(0);
+    });
+
+    it('EP aliases contribute to EP count metrics, not only to byMethod buckets', () => {
+      for (const method of ['ЕП', 'Ед. поставщик', 'ЭЕП', 'ЕП (ст.93)', 'еп']) {
+        expect(metricFor(method, 'ep_count')).toBe(1);
+        expect(metricFor(method, 'competitive_count')).toBe(0);
+        expect(metricFor(method, 'ep_share_pct')).toBe(1);
+      }
+    });
+
+    it('competitive aliases contribute to competitive count metrics', () => {
+      for (const method of ['ЭА', 'ЭА (МЭП)', 'эа']) {
+        expect(metricFor(method, 'competitive_count')).toBe(1);
+        expect(metricFor(method, 'ep_count')).toBe(0);
+        expect(metricFor(method, 'ep_share_pct')).toBe(0);
+      }
+    });
+
+    it('method aliases are honored by fact-count metrics', () => {
+      const factDate = { [COL.FACT_DATE]: '20.02.2025', [COL.TOTAL_FACT]: 90 };
+
+      expect(metricFor('Ед. поставщик', 'ep_fact_count', factDate)).toBe(1);
+      expect(metricFor('Ед. поставщик', 'comp_fact_count', factDate)).toBe(0);
+
+      expect(metricFor('ЭА (МЭП)', 'comp_fact_count', factDate)).toBe(1);
+      expect(metricFor('ЭА (МЭП)', 'ep_fact_count', factDate)).toBe(0);
+    });
+  });
+
+  describe('legacy recalculateFromRows method counts via aliases', () => {
+    it('normalizes EP and competitive aliases before counting method totals', () => {
+      const rows = buildSheet([
+        makeRow('Ед. поставщик', { [COL.FACT_DATE]: '20.02.2025', [COL.TOTAL_FACT]: 90 }),
+        makeRow('ЭА (МЭП)', { [COL.FACT_DATE]: '21.02.2025', [COL.TOTAL_FACT]: 95 }),
+        makeRow('еп'),
+        makeRow('эа'),
+        makeRow('ГАРБАЖ'),
+      ]);
+
+      const result = recalculateFromRows(rows, 'УЭР', 3, 2025);
+
+      expect(result.totalEP).toBe(2);
+      expect(result.totalCompetitive).toBe(2);
+      expect(result.year.epExecCountPct).toBeCloseTo(0.5, 3);
+      expect(result.year.compExecCountPct).toBeCloseTo(0.5, 3);
+      expect(result.epSharePct).toBeCloseTo(0.5, 3);
     });
   });
 });

@@ -13,6 +13,7 @@ import { DEPT_COLUMNS } from '@aemr/shared';
 import { CalcEngine, standardRowFilter } from './calc-engine.js';
 import { adaptToRecalcMetrics } from './calc-engine-adapter.js';
 import { recalculateFromRows } from './recalculate.js';
+import { runPipeline } from './orchestrator.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -107,6 +108,49 @@ describe('exec_count_pct pipeline (A8)', () => {
       // Q2 competitive: 1 plan, 0 fact → 0
       expect(result.quarters.q2.compExecCountPct).toBeCloseTo(0, 3);
     });
+
+    it('economy_total is AD-gated Z+AA+AB, not plan_total - fact_total', () => {
+      const economyRows = [
+        makeRow({
+          id: 'eco-1',
+          totalPlan: 1000,
+          totalFact: 700,
+          factDate: '20.02.2025',
+          ecoFB: 10,
+          ecoKB: 20,
+          ecoMB: 5,
+          flag: 'да',
+        }),
+        makeRow({
+          id: 'eco-2',
+          totalPlan: 500,
+          totalFact: 450,
+          factDate: '21.02.2025',
+          ecoFB: 100,
+          ecoKB: 100,
+          ecoMB: 100,
+          flag: '',
+        }),
+        makeRow({
+          id: 'eco-3',
+          totalPlan: 200,
+          totalFact: 100,
+          factDate: '',
+          ecoFB: 50,
+          ecoKB: 50,
+          ecoMB: 50,
+          flag: 'да',
+        }),
+      ];
+
+      const groupedEconomy = engine.compute(economyRows, standardRowFilter, 0, 2025);
+      const adapted = adaptToRecalcMetrics(groupedEconomy, 'УЭР');
+
+      expect(groupedEconomy.total.get('amount_deviation')?.value).toBe(550);
+      expect(groupedEconomy.total.get('economy_total')?.value).toBe(35);
+      expect(adapted.year.economyTotal).toBe(35);
+      expect(adapted.year.economyTotal).not.toBe(adapted.year.planTotal - adapted.year.factTotal);
+    });
   });
 
   describe('_org_itself in bySubordinate', () => {
@@ -163,6 +207,47 @@ describe('exec_count_pct pipeline (A8)', () => {
     it('legacy quarter exec_count_pct', () => {
       expect(legacy.quarters.q1.execCountPct).toBeCloseTo(1.0, 3);
       expect(legacy.quarters.q2.execCountPct).toBeCloseTo(0, 3);
+    });
+  });
+
+  describe('orchestrator amount_dev contract', () => {
+    it('exports amount_dev as plan_total minus fact_total for method and summary metrics', () => {
+      const snapshot = runPipeline({
+        batchGetData: [],
+        sheetRows: {
+          'УЭР': buildSheet([
+            makeRow({
+              id: 'amt-kp',
+              method: 'ЭА',
+              planQuarter: 1,
+              totalPlan: 1000,
+              totalFact: 700,
+              factDate: '20.02.2025',
+            }),
+            makeRow({
+              id: 'amt-ep',
+              method: 'ЕП',
+              planQuarter: 1,
+              totalPlan: 500,
+              totalFact: 450,
+              factDate: '21.02.2025',
+            }),
+          ]),
+        },
+        reportMap: [],
+        rules: [],
+        spreadsheetId: 'test-spreadsheet',
+        targetYear: 2025,
+      });
+
+      const metrics = snapshot.calculatedMetrics as Record<string, { numericValue: number }>;
+
+      expect(metrics['grbs.uer.kp.q1.amount_dev'].numericValue).toBe(300);
+      expect(metrics['grbs.uer.ep.q1.amount_dev'].numericValue).toBe(50);
+      expect(metrics['grbs.uer.kp.year.amount_dev'].numericValue).toBe(300);
+      expect(metrics['grbs.uer.ep.year.amount_dev'].numericValue).toBe(50);
+      expect(metrics['competitive.q1.amount_dev'].numericValue).toBe(300);
+      expect(metrics['sole.q1.amount_dev'].numericValue).toBe(50);
     });
   });
 

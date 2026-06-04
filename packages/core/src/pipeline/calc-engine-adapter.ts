@@ -81,10 +81,6 @@ function buildQuarterMetrics(
   };
 }
 
-// ── Activity breakdown builder ───────────────────────────────────────
-
-const ACTIVITY_KEYS = ['program', 'current_program', 'current_non_program'] as const;
-
 function buildActivityEntry(map: Map<string, AccumulatedValue> | undefined): ActivityMetrics {
   const pc = get(map, 'plan_count');
   const fc = get(map, 'fact_count');

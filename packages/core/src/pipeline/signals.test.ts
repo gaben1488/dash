@@ -274,16 +274,16 @@ describe('Financial signals', () => {
   });
 
   describe('epRisk', () => {
-    it('true: method=ЕП, plan > 2M, not canceled', () => {
+    it('true: method=ЕП, plan > 600K, not canceled', () => {
       const s = detectSignals(makeCells({
-        L: 'ЕП', K: 2_500_000, M: '',
+        L: 'ЕП', K: 600_001, M: '',
       }), REF_DATE);
       expect(s.epRisk).toBe(true);
     });
 
-    it('false: ЕП but plan <= 2M', () => {
+    it('false: ЕП but plan <= 600K', () => {
       const s = detectSignals(makeCells({
-        L: 'ЕП', K: 2_000_000, M: '',
+        L: 'ЕП', K: 600_000, M: '',
       }), REF_DATE);
       expect(s.epRisk).toBe(false);
     });
@@ -910,25 +910,25 @@ describe('Edge cases', () => {
     expect(s.highEconomy).toBe(false);
   });
 
-  it('boundary: EP_RISK_THRESHOLD exactly 2000000 (not exceeded)', () => {
+  it('boundary: EP_RISK_THRESHOLD exactly 600000 (not exceeded)', () => {
     const s = detectSignals(makeCells({
-      L: 'ЕП', K: 2_000_000, M: '',
+      L: 'ЕП', K: 600_000, M: '',
     }), REF_DATE);
     expect(s.epRisk).toBe(false);
   });
 
-  it('boundary: EP_RISK_THRESHOLD 2000001 (exceeded)', () => {
+  it('boundary: EP_RISK_THRESHOLD 600001 (exceeded)', () => {
     const s = detectSignals(makeCells({
-      L: 'ЕП', K: 2_000_001, M: '',
+      L: 'ЕП', K: 600_001, M: '',
     }), REF_DATE);
     expect(s.epRisk).toBe(true);
   });
 
-  it('600K EP is no longer flagged (threshold raised to 2M per п.4 ст.93)', () => {
+  it('2M EP is not treated as the single-contract boundary', () => {
     const s = detectSignals(makeCells({
-      L: 'ЕП', K: 600_001, M: '',
+      L: 'ЕП', K: 2_000_000, M: '',
     }), REF_DATE);
-    expect(s.epRisk).toBe(false);
+    expect(s.epRisk).toBe(true);
   });
 
   it('budgetMismatch is always false (deprecated)', () => {

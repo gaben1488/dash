@@ -53,15 +53,6 @@ function buildSheet(dataRows: unknown[][]): unknown[][] {
   return [...headers, ...dataRows];
 }
 
-// ── Comparison helper ──────────────────────────────────────────────
-
-function compareMetrics(label: string, newVal: number, oldVal: number, tolerance = 0.001) {
-  if (Math.abs(newVal - oldVal) > tolerance) {
-    return `${label}: new=${newVal}, old=${oldVal}, diff=${(newVal - oldVal).toFixed(6)}`;
-  }
-  return null;
-}
-
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('CalcEngine regression vs recalculateFromRows', () => {

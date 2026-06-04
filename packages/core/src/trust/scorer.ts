@@ -1,6 +1,6 @@
 import type { TrustScore, TrustComponent, Issue, NormalizedMetric, DeltaResult } from '@aemr/shared';
 import { THRESHOLDS, TRUST_COMPONENT_CONFIG } from '@aemr/shared';
-import type { TrustComponentId, IssueGroup } from '@aemr/shared';
+import type { TrustComponentId } from '@aemr/shared';
 
 /**
  * Filter issues belonging to a trust component using group-based matching.

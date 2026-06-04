@@ -13,7 +13,7 @@
  *   AD=29 (flag), AE=30 (comment GRBS), AF=31 (comment UER)
  */
 
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, normalizeMethod, isCompetitive, PROCUREMENT_METHODS, type ProcurementMethodCode } from '@aemr/shared';
 
 /** Placeholder values in column C that mean "org itself" (no subordinate).
  *  Must match calc-engine.ts PLACEHOLDERS for consistency. */
@@ -261,8 +261,8 @@ function num(v: unknown): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-const COMPETITIVE_METHODS = new Set(['ЭА', 'ЭК', 'ЭЗК']);
-const ALL_METHODS = new Set(['ЭА', 'ЕП', 'ЭК', 'ЭЗК']);
+const ALL_METHODS = new Set<string>(PROCUREMENT_METHODS);
+type MethodGroup = 'competitive' | 'ep';
 
 type QuarterKey = 'q1' | 'q2' | 'q3' | 'q4';
 
@@ -287,26 +287,21 @@ function cellPresent(v: unknown): boolean {
   return v != null && String(v).trim() !== '';
 }
 
+function classifyMethodGroup(raw: unknown): MethodGroup | null {
+  const canonical: ProcurementMethodCode | undefined = normalizeMethod(raw);
+  if (canonical === 'ЕП') return 'ep';
+  if (canonical && isCompetitive(canonical)) return 'competitive';
+  // Legacy СВОД formulas use L<>"ЕП"; keep only blank values in that bucket.
+  // Unknown non-empty values are data-quality issues, not competitive procedures.
+  return String(raw ?? '').trim() === '' ? 'competitive' : null;
+}
+
 /**
  * Strict date presence check for fact date column (Q).
  * Returns true only if the value looks like a real date:
  * - Date objects, numeric serials (>1000), or strings matching dd.mm.yyyy / yyyy-mm-dd patterns.
  * Rejects placeholder text like "—", "Х", "н/д", "не определена".
  */
-function isDatePresent(v: unknown): boolean {
-  if (v == null) return false;
-  if (v instanceof Date) return !isNaN(v.getTime());
-  if (typeof v === 'number') return v > 1000; // Excel date serial
-  const s = String(v).trim();
-  if (s === '' || s.length < 6) return false;
-  // dd.mm.yyyy, dd/mm/yyyy, yyyy-mm-dd
-  if (/\d{2}[.\/]\d{2}[.\/]\d{4}/.test(s)) return true;
-  if (/\d{4}-\d{2}-\d{2}/.test(s)) return true;
-  // Try parsing as date
-  const d = new Date(s);
-  return !isNaN(d.getTime()) && d.getFullYear() > 2000;
-}
-
 /**
  * Compute planTotal from individual budget columns.
  * Uses K (total plan) if available, otherwise sums H+I+J.
@@ -383,10 +378,10 @@ function emptyMonths(): Record<number, QuarterMetrics> {
  * Threshold: score >= 3 qualifies as a data row.
  */
 function classifyRow(row: unknown[]): boolean {
-  const method = String(row[COL.L] ?? '').trim();
+  const method = normalizeMethod(row[COL.L]);
   const typeText = String(row[COL.F] ?? '').trim().toLowerCase();
 
-  const hasMethod = ALL_METHODS.has(method);
+  const hasMethod = method ? ALL_METHODS.has(method) : false;
   const hasType =
     typeText === 'текущая деятельность' || typeText === 'программное мероприятие';
 
@@ -518,11 +513,11 @@ export function recalculateFromRows(
     result.dataRowCount++;
 
     // ── Extract values ────────────────────────────────────────────
-    const method = String(row[COL.L] ?? '').trim();
-    const isCompetitive = COMPETITIVE_METHODS.has(method);
-    const isEP = method === 'ЕП';
+    const methodGroup = classifyMethodGroup(row[COL.L]);
+    const isCompetitiveMethod = methodGroup === 'competitive';
+    const isEP = methodGroup === 'ep';
 
-    if (isCompetitive) result.totalCompetitive++;
+    if (isCompetitiveMethod) result.totalCompetitive++;
     if (isEP) result.totalEP++;
 
     // ── Activity type (column F + column D/E program name) ──────────
@@ -558,8 +553,6 @@ export function recalculateFromRows(
     const rowPlanTotal = planTotalFor(kVal, hVal, iVal, jVal);
     const rowFactTotal = factTotalFor(yVal, vVal, wVal, xVal);
 
-    const factMoney = vVal + wVal + xVal;
-
     // Fact detection: primarily based on fact date (column Q),
     // matching СВОД COUNTIFS logic which gates on fact date presence.
     // Fallback: if no fact date but fact quarter (column R) is filled
@@ -570,7 +563,6 @@ export function recalculateFromRows(
     const qRaw = String(row[COL.Q] ?? '').trim();
     const PLACEHOLDERS = new Set(['х', 'x', '-', '—', '–', 'н/д', 'нет', 'не определена']);
     const factDatePresent = qRaw !== '' && !PLACEHOLDERS.has(qRaw.toLowerCase());
-    const factQuarterPresent = cellPresent(row[COL.R]);
     // СВОД uses COUNTIFS gated on column Q (fact date) only.
     // The previous fallback (factQuarterPresent && factMoney > 0.009) was too
     // permissive because column R is often pre-populated for planned rows,
@@ -588,7 +580,7 @@ export function recalculateFromRows(
       q.planMB += jVal;
       q.planTotal += rowPlanTotal;
 
-      if (isCompetitive) {
+      if (isCompetitiveMethod) {
         q.competitive.plan++;
         q.competitive.planSum += rowPlanTotal;
         q.competitive.planFB += hVal;
@@ -610,7 +602,7 @@ export function recalculateFromRows(
         q.factMB += xVal;
         q.factTotal += rowFactTotal;
 
-        if (isCompetitive) {
+        if (isCompetitiveMethod) {
           q.competitive.fact++;
           q.competitive.factSum += rowFactTotal;
           q.competitive.factFB += vVal;
@@ -636,7 +628,7 @@ export function recalculateFromRows(
       m.planKB += iVal;
       m.planMB += jVal;
       m.planTotal += rowPlanTotal;
-      if (isCompetitive) {
+      if (isCompetitiveMethod) {
         m.competitive.plan++; m.competitive.planSum += rowPlanTotal;
         m.competitive.planFB += hVal; m.competitive.planKB += iVal; m.competitive.planMB += jVal;
       }
@@ -650,7 +642,7 @@ export function recalculateFromRows(
         m.factKB += wVal;
         m.factMB += xVal;
         m.factTotal += rowFactTotal;
-        if (isCompetitive) {
+        if (isCompetitiveMethod) {
           m.competitive.fact++; m.competitive.factSum += rowFactTotal;
           m.competitive.factFB += vVal; m.competitive.factKB += wVal; m.competitive.factMB += xVal;
         }
@@ -709,7 +701,7 @@ export function recalculateFromRows(
         result.quarters[planQ].economyFB += ecoFB;
         result.quarters[planQ].economyKB += ecoKB;
         result.quarters[planQ].economyMB += ecoMB;
-        if (isCompetitive) {
+        if (isCompetitiveMethod) {
           result.quarters[planQ].competitive.economyTotal += ecoTotal;
           result.quarters[planQ].competitive.economyFB += ecoFB;
           result.quarters[planQ].competitive.economyKB += ecoKB;
@@ -727,7 +719,7 @@ export function recalculateFromRows(
         result.months[planMonth].economyFB += ecoFB;
         result.months[planMonth].economyKB += ecoKB;
         result.months[planMonth].economyMB += ecoMB;
-        if (isCompetitive) {
+        if (isCompetitiveMethod) {
           result.months[planMonth].competitive.economyTotal += ecoTotal;
           result.months[planMonth].competitive.economyFB += ecoFB;
           result.months[planMonth].competitive.economyKB += ecoKB;
@@ -801,7 +793,7 @@ export function recalculateFromRows(
         sub.factTotal += rowFactTotal;
         sub.factFB += vVal; sub.factKB += wVal; sub.factMB += xVal;
       }
-      if (isCompetitive) sub.competitiveCount++;
+      if (isCompetitiveMethod) sub.competitiveCount++;
       if (isEP) sub.epCount++;
       sub.economyTotal += rowEconomy;
       if (hasFact && isEconomyApproved) {

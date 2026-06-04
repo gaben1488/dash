@@ -3,10 +3,8 @@ import {
   reconcile,
   reconcileMonthly,
   crossVerifyQuarterly,
+  SHDYU_RECON_ROOT_CAUSES,
   type OfficialMetrics,
-  type ReconSummary,
-  type MonthlyReconSummary,
-  type QuarterCrossSummary,
 } from './reconcile.js';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -213,6 +211,19 @@ describe('reconcile', () => {
 // ────────────────────────────────────────────────────────────
 
 describe('reconcileMonthly', () => {
+  it('exposes the known SHDYU discrepancy root causes in product order', () => {
+    expect(SHDYU_RECON_ROOT_CAUSES.map((cause) => cause.id)).toEqual([
+      'formula_scope_limited',
+      'economy_flag_gated',
+      'procurement_method_mismatch',
+      'activity_filter_hidden_rows',
+      'department_alias_mismatch',
+      'formula_source_mismatch',
+      'contract_split_rows',
+      'reserve_status_excluded',
+    ]);
+  });
+
   it('returns matching monthly data as ok', () => {
     const recalc = {
       dept1: {
@@ -312,6 +323,197 @@ describe('reconcileMonthly', () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].warnings).toBeDefined();
     expect(result.rows[0].warnings![0]).toContain('месяц 5');
+    expect(result.rows[0].rootCause).toEqual(expect.objectContaining({
+      id: 'formula_scope_limited',
+      severity: 'critical',
+      confidence: 'high',
+      suggestedAction: expect.stringContaining('ШДЮ'),
+    }));
+  });
+
+  it('marks a missing SHDYU department as department_alias_mismatch', () => {
+    const recalc = {
+      dept1: {
+        months: {
+          5: {
+            planCount: 10, factCount: 5,
+            competitive: { plan: 10, fact: 5, planSum: 1000, factSum: 500 },
+            ep: { plan: 0, fact: 0, planSum: 0, factSum: 0 },
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, {}, { dept1: 'D1' });
+
+    expect(result.rows[0].rootCause).toEqual(expect.objectContaining({
+      id: 'department_alias_mismatch',
+      severity: 'critical',
+      confidence: 'medium',
+    }));
+    expect(result.rows[0].rootCause?.evidence).toContain('dept1');
+    expect(result.rows[0].rootCause?.suggestedAction).toContain('алиас');
+  });
+
+  it('marks economy-only budget mismatches as economy_flag_gated', () => {
+    const recalc = {
+      dept1: {
+        months: {
+          1: {
+            planCount: 10, factCount: 5,
+            competitive: {
+              plan: 10, fact: 5, planSum: 1000, factSum: 500,
+              planFB: 1000, planKB: 0, planMB: 0,
+              factFB: 500, factKB: 0, factMB: 0,
+              economyFB: 35, economyKB: 0, economyMB: 0,
+            },
+            ep: { plan: 0, fact: 0, planSum: 0, factSum: 0 },
+          },
+        },
+      },
+    };
+    const shdyu = {
+      dept1: {
+        months: {
+          1: {
+            compPlanCount: 10, compFactCount: 5, compPlanTotal: 1000, compFactTotal: 500,
+            epPlanCount: 0, epFactCount: 0, epPlanTotal: 0, epFactTotal: 0,
+            comp: {
+              planFB: 1000, planKB: 0, planMB: 0,
+              factFB: 500, factKB: 0, factMB: 0,
+              economyFB: 300, economyKB: 0, economyMB: 0,
+            },
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].compPlanTotal.status).toBe('ok');
+    expect(result.rows[0].compFactTotal.status).toBe('ok');
+    expect(result.rows[0].rootCause).toEqual(expect.objectContaining({
+      id: 'economy_flag_gated',
+      severity: 'warning',
+      confidence: 'medium',
+    }));
+    expect(result.rows[0].rootCause?.evidence).toContain('AD');
+    expect(result.rows[0].rootCause?.suggestedAction).toContain('AD');
+  });
+
+  it('marks cross-method KP/EP flips as procurement_method_mismatch', () => {
+    const recalc = {
+      dept1: {
+        months: {
+          12: {
+            planCount: 1,
+            factCount: 0,
+            competitive: { plan: 0, fact: 0, planSum: 0, factSum: 0 },
+            ep: { plan: 1, fact: 0, planSum: 75, factSum: 0 },
+          },
+        },
+      },
+    };
+    const shdyu = {
+      dept1: {
+        months: {
+          12: {
+            compPlanCount: 1, compFactCount: 0, compPlanTotal: 75, compFactTotal: 0,
+            epPlanCount: 0, epFactCount: 0, epPlanTotal: 0, epFactTotal: 0,
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].rootCause).toEqual(expect.objectContaining({
+      id: 'procurement_method_mismatch',
+      severity: 'warning',
+      confidence: 'medium',
+    }));
+    expect(result.rows[0].rootCause?.evidence).toContain('КП');
+    expect(result.rows[0].rootCause?.evidence).toContain('ЕП');
+  });
+
+  it('marks SHDYU-only rows with wrong formula references as formula_source_mismatch', () => {
+    const recalc = {
+      dept1: { months: { 11: { planCount: 0, factCount: 0 } } },
+    };
+    const shdyu = {
+      dept1: {
+        months: {
+          11: {
+            compPlanCount: 0, compFactCount: 0, compPlanTotal: 0, compFactTotal: 0,
+            epPlanCount: 2, epFactCount: 0, epPlanTotal: 175.78801, epFactTotal: 0,
+            formulaIssues: [
+              {
+                type: 'sheet_reference_mismatch',
+                expectedSheet: 'УАГЗО',
+                actualSheets: ['УФБП'],
+                row: 129,
+                month: 11,
+                block: 'ep' as const,
+                evidence: 'ШДЮ row 129 УАГЗО/11/ЕП references УФБП instead of УАГЗО',
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].rootCause).toEqual(expect.objectContaining({
+      id: 'formula_source_mismatch',
+      severity: 'critical',
+      confidence: 'high',
+    }));
+    expect(result.rows[0].rootCause?.evidence).toContain('УАГЗО');
+    expect(result.rows[0].rootCause?.evidence).toContain('УФБП');
+    expect(result.rows[0].rootCause?.suggestedAction).toContain('формул');
+  });
+
+  it('does not expose formula issues as root causes when the reconciliation row is fully matched', () => {
+    const recalc = {
+      dept1: {
+        months: {
+          11: {
+            planCount: 2,
+            factCount: 0,
+            competitive: { plan: 0, fact: 0, planSum: 0, factSum: 0 },
+            ep: { plan: 2, fact: 0, planSum: 175.78801, factSum: 0 },
+          },
+        },
+      },
+    };
+    const shdyu = {
+      dept1: {
+        months: {
+          11: {
+            compPlanCount: 0, compFactCount: 0, compPlanTotal: 0, compFactTotal: 0,
+            epPlanCount: 2, epFactCount: 0, epPlanTotal: 175.78801, epFactTotal: 0,
+            formulaIssues: [
+              {
+                type: 'sheet_reference_mismatch',
+                expectedSheet: 'УАГЗО',
+                actualSheets: ['УФБП'],
+                row: 129,
+                month: 11,
+                block: 'ep' as const,
+                evidence: 'ШДЮ row 129 УАГЗО/11/ЕП references УФБП instead of УАГЗО',
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].epPlan.status).toBe('ok');
+    expect(result.rows[0].epPlanTotal.status).toBe('ok');
+    expect(result.rows[0].rootCause).toBeUndefined();
   });
 
   it('handles empty inputs', () => {
@@ -414,6 +616,47 @@ describe('reconcileMonthly', () => {
     expect(result.rows[0].compBudget).toBeDefined();
     expect(result.rows[0].compBudget!.planFB.status).toBe('ok');
     expect(result.rows[0].compBudget!.planFB.delta).toBe(0);
+  });
+
+  it('includes budget breakdown discrepancies in monthly status counts', () => {
+    const recalc = {
+      dept1: {
+        months: {
+          1: {
+            planCount: 10, factCount: 5,
+            competitive: {
+              plan: 10, fact: 5, planSum: 1000, factSum: 500,
+              planFB: 0, planKB: 1000, planMB: 0,
+              factFB: 0, factKB: 500, factMB: 0,
+              economyFB: 0, economyKB: 20, economyMB: 0,
+            },
+            ep: { plan: 0, fact: 0, planSum: 0, factSum: 0 },
+          },
+        },
+      },
+    };
+    const shdyu = {
+      dept1: {
+        months: {
+          1: {
+            compPlanCount: 10, compFactCount: 5, compPlanTotal: 1000, compFactTotal: 500,
+            epPlanCount: 0, epFactCount: 0, epPlanTotal: 0, epFactTotal: 0,
+            comp: {
+              planFB: 1000, planKB: 0, planMB: 0,
+              factFB: 500, factKB: 0, factMB: 0,
+              economyFB: 20, economyKB: 0, economyMB: 0,
+            },
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].compPlanTotal.status).toBe('ok');
+    expect(result.rows[0].compBudget!.planFB.status).toBe('high');
+    expect(result.counts.high).toBeGreaterThan(0);
+    expect(result.overallStatus).toBe('Есть расхождения');
   });
 });
 

@@ -11,10 +11,11 @@
  */
 
 import {
-  SHDYU_BLOCKS, SHDYU_ALL_BLOCK, SHDYU_COLS, SHDYU_QUARTERLY_COLS,
-  MONTH_TEXT_MAP,
+  SHDYU_BLOCKS, SHDYU_ALL_BLOCK, SHDYU_COLS, SHDYU_LEGACY_ALL_BLOCK,
+  SHDYU_LEGACY_BLOCKS, SHDYU_LEGACY_COLS, SHDYU_QUARTERLY_COLS,
   type SHDYUBlock, type SHDYUDeptData, type SHDYUMonthlyEntry,
   type SHDYUBlockMetrics, type SHDYUSummaryData, type SHDYUQuarterlyEntry,
+  type SHDYUFormulaIssue,
 } from '@aemr/shared';
 
 function num(v: unknown): number {
@@ -32,10 +33,13 @@ const ZERO_METRICS: SHDYUBlockMetrics = {
   economyFB: 0, economyKB: 0, economyMB: 0, economyTotal: 0,
 };
 
+type SHDYUMonthlyCols = typeof SHDYU_COLS | typeof SHDYU_LEGACY_COLS;
+type SHDYUMetricCols = SHDYUMonthlyCols | typeof SHDYU_QUARTERLY_COLS;
+
 /**
  * Extract metrics from a single row using column mapping.
  */
-function extractRowMetrics(row: unknown[], cols: typeof SHDYU_COLS | typeof SHDYU_QUARTERLY_COLS): SHDYUBlockMetrics {
+function extractRowMetrics(row: unknown[], cols: SHDYUMetricCols): SHDYUBlockMetrics {
   return {
     planCount: num(row[cols.PLAN_COUNT]),
     factCount: num(row[cols.FACT_COUNT]),
@@ -65,6 +69,7 @@ function extractRowMetrics(row: unknown[], cols: typeof SHDYU_COLS | typeof SHDY
 function parseMonthlyBlock(
   rows: unknown[][],
   startRow: number,
+  cols: SHDYUMonthlyCols,
 ): Record<number, SHDYUBlockMetrics> {
   const result: Record<number, SHDYUBlockMetrics> = {};
 
@@ -80,17 +85,8 @@ function parseMonthlyBlock(
       continue;
     }
 
-    // Verify month text matches expected position (optional sanity check)
-    const monthText = String(row[SHDYU_COLS.MONTH_TEXT] ?? '').trim();
-    const expectedMonth = month;
-    const actualMonth = MONTH_TEXT_MAP[monthText];
-    if (actualMonth && actualMonth !== expectedMonth) {
-      console.warn(
-        `[ШДЮ] Month mismatch at row ${rowIdx + 1}: expected month ${expectedMonth}, got "${monthText}" (month ${actualMonth})`
-      );
-    }
-
-    result[month] = extractRowMetrics(row, SHDYU_COLS);
+    // Month labels are advisory; row position remains the canonical month source.
+    result[month] = extractRowMetrics(row, cols);
   }
 
   return result;
@@ -102,12 +98,13 @@ function parseMonthlyBlock(
 function parseSingleRow(
   rows: unknown[][],
   rowNum: number,
+  cols: SHDYUMonthlyCols,
 ): SHDYUBlockMetrics {
   const rowIdx = rowNum - 1;
   if (rowIdx < 0 || rowIdx >= rows.length) return { ...ZERO_METRICS };
   const row = rows[rowIdx];
   if (!row) return { ...ZERO_METRICS };
-  return extractRowMetrics(row, SHDYU_COLS);
+  return extractRowMetrics(row, cols);
 }
 
 /**
@@ -149,6 +146,7 @@ function buildMonthlyEntry(
   month: number,
   comp: SHDYUBlockMetrics,
   ep: SHDYUBlockMetrics,
+  formulaIssues: SHDYUFormulaIssue[] = [],
 ): SHDYUMonthlyEntry {
   return {
     month,
@@ -163,7 +161,54 @@ function buildMonthlyEntry(
     epFactCount: ep.factCount,
     epPlanTotal: ep.planTotal,
     epFactTotal: ep.factTotal,
+    ...(formulaIssues.length > 0 ? { formulaIssues } : {}),
   };
+}
+
+function extractFormulaSheetRefs(formulaRow: unknown[] | undefined): string[] {
+  if (!formulaRow) return [];
+  const refs = new Set<string>();
+  const quotedSheetRef = /'((?:[^']|'')+)'!/g;
+
+  for (const cell of formulaRow) {
+    if (typeof cell !== 'string' || !cell.includes('!')) continue;
+    for (const match of cell.matchAll(quotedSheetRef)) {
+      refs.add(match[1].replaceAll("''", "'"));
+    }
+  }
+
+  return [...refs];
+}
+
+function formulaIssuesForMonthlyBlock(
+  formulaData: unknown[][] | undefined,
+  block: SHDYUBlock,
+  startRow: number,
+  side: 'comp' | 'ep',
+): Record<number, SHDYUFormulaIssue[]> {
+  const result: Record<number, SHDYUFormulaIssue[]> = {};
+  if (!formulaData || block.grbsId === 'all') return result;
+
+  for (let month = 1; month <= 12; month++) {
+    const rowNum = startRow + (month - 1);
+    const rowIdx = rowNum - 1;
+    const actualSheets = extractFormulaSheetRefs(formulaData[rowIdx])
+      .filter((sheetName) => sheetName !== block.grbsShort);
+    const uniqueActualSheets = [...new Set(actualSheets)];
+    if (uniqueActualSheets.length === 0) continue;
+
+    result[month] = [{
+      type: 'sheet_reference_mismatch',
+      expectedSheet: block.grbsShort,
+      actualSheets: uniqueActualSheets,
+      row: rowNum,
+      month,
+      block: side,
+      evidence: `ШДЮ row ${rowNum} ${block.grbsShort}/${month}/${side === 'comp' ? 'КП' : 'ЕП'} references ${uniqueActualSheets.join(', ')} instead of ${block.grbsShort}`,
+    }];
+  }
+
+  return result;
 }
 
 /**
@@ -171,35 +216,45 @@ function buildMonthlyEntry(
  */
 function parseGRBSBlock(
   sheetData: unknown[][],
+  formulaData: unknown[][] | undefined,
   block: SHDYUBlock,
+  cols: SHDYUMonthlyCols,
+  includeQuarterly: boolean,
 ): SHDYUDeptData {
   // Monthly КП and ЕП data (12 rows each)
-  const compData = parseMonthlyBlock(sheetData, block.compStartRow);
-  const epData = parseMonthlyBlock(sheetData, block.epStartRow);
+  const compData = parseMonthlyBlock(sheetData, block.compStartRow, cols);
+  const epData = parseMonthlyBlock(sheetData, block.epStartRow, cols);
+  const compFormulaIssues = formulaIssuesForMonthlyBlock(formulaData, block, block.compStartRow, 'comp');
+  const epFormulaIssues = formulaIssuesForMonthlyBlock(formulaData, block, block.epStartRow, 'ep');
 
   const months: Record<number, SHDYUMonthlyEntry> = {};
   for (let m = 1; m <= 12; m++) {
-    months[m] = buildMonthlyEntry(m, compData[m], epData[m]);
+    months[m] = buildMonthlyEntry(m, compData[m], epData[m], [
+      ...(compFormulaIssues[m] ?? []),
+      ...(epFormulaIssues[m] ?? []),
+    ]);
   }
 
   // Итого rows (КП and ЕП yearly totals)
-  const compTotal = parseSingleRow(sheetData, block.compTotalRow);
-  const epTotal = parseSingleRow(sheetData, block.epTotalRow);
+  const compTotal = parseSingleRow(sheetData, block.compTotalRow, cols);
+  const epTotal = parseSingleRow(sheetData, block.epTotalRow, cols);
 
   // Summary rows: ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП
   const summary: SHDYUSummaryData = {
-    total: parseSingleRow(sheetData, block.totalRow),
-    compSharePct: parseSingleRow(sheetData, block.compShareRow),
-    epSharePct: parseSingleRow(sheetData, block.epShareRow),
+    total: parseSingleRow(sheetData, block.totalRow, cols),
+    compSharePct: parseSingleRow(sheetData, block.compShareRow, cols),
+    epSharePct: parseSingleRow(sheetData, block.epShareRow, cols),
   };
 
   // Quarterly data (from right section, cols U-AM)
   // Quarterly rows occupy the same data rows as monthly — scan from compStartRow to epEndRow
-  const quarterly = parseQuarterlyData(
-    sheetData,
-    block.compStartRow,
-    block.epEndRow,
-  );
+  const quarterly = includeQuarterly
+    ? parseQuarterlyData(
+      sheetData,
+      block.compStartRow,
+      block.epEndRow,
+    )
+    : {};
 
   return {
     grbsId: block.grbsId,
@@ -211,18 +266,43 @@ function parseGRBSBlock(
   };
 }
 
+function isYearCell(value: unknown): boolean {
+  return typeof value === 'number' && value >= 2000 && value <= 2100;
+}
+
+function detectSHDYUFormat(sheetData: unknown[][]): 'legacy' | 'current' {
+  const firstLegacyDataRow = sheetData[3];
+  if (firstLegacyDataRow && isYearCell(firstLegacyDataRow[SHDYU_LEGACY_COLS.YEAR])) {
+    return 'legacy';
+  }
+  return 'current';
+}
+
 /**
  * Parse the entire ШДЮ sheet and return per-ГРБС monthly data.
  * Includes the "ALL" block for cross-validation.
  */
-export function parseSHDYUSheet(sheetData: unknown[][]): Record<string, SHDYUDeptData> {
+export function parseSHDYUSheet(
+  sheetData: unknown[][],
+  formulaData?: unknown[][],
+): Record<string, SHDYUDeptData> {
   const result: Record<string, SHDYUDeptData> = {};
+  const format = detectSHDYUFormat(sheetData);
+  const allBlock = format === 'legacy' ? SHDYU_LEGACY_ALL_BLOCK : SHDYU_ALL_BLOCK;
+  const blocks = format === 'legacy' ? SHDYU_LEGACY_BLOCKS : SHDYU_BLOCKS;
+  const cols = format === 'legacy' ? SHDYU_LEGACY_COLS : SHDYU_COLS;
 
   // Parse ALL block + individual department blocks
-  const allBlocks = [SHDYU_ALL_BLOCK, ...SHDYU_BLOCKS];
+  const allBlocks = [allBlock, ...blocks];
 
   for (const block of allBlocks) {
-    result[block.grbsId] = parseGRBSBlock(sheetData, block);
+    result[block.grbsId] = parseGRBSBlock(
+      sheetData,
+      formulaData,
+      block,
+      cols,
+      format === 'current',
+    );
   }
 
   return result;

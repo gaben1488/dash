@@ -63,7 +63,7 @@ export function validateData(
       let result;
       try {
         result = rule.check(ctx);
-      } catch (err) {
+      } catch (_err) {
         // Skip broken rule, don't crash entire validation
         continue;
       }

@@ -22,7 +22,7 @@ import {
   firstSignificantDigit,
   BENFORD_EXPECTED as BENFORD_EXPECTED_SHARED,
 } from '../utils/statistics.js';
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -270,8 +270,8 @@ const ANOMALY_SCORES: Record<AnomalySeverity, number> = {
 /** EXACT_MATCH threshold: |fact - plan| / plan < 0.0001 */
 const EXACT_MATCH_THRESHOLD = 0.0001;
 
-/** EP splitting threshold: п.4 ст.93 44-ФЗ limit for sole-source */
-const EP_SPLITTING_THRESHOLD = 600_000;
+/** EP splitting threshold: п.4 ч.1 ст.93 44-ФЗ single-contract limit for sole-source */
+const EP_SPLITTING_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit;
 
 /** Minimum number of similar EP rows to flag as suspicious splitting */
 const SPLITTING_MIN_GROUP_SIZE = 3;
@@ -388,10 +388,12 @@ export function classifyEpRisk(
   // Original procurement_report.gs: ≤0 НИЗКИЙ, ≤0.10 УМЕРЕННЫЙ, ≤0.25 ПОВЫШЕННЫЙ, ≤0.40 ВЫСОКИЙ, >0.40 КРИТИЧЕСКИЙ
   const eps = 1e-9;
   let level: EpRiskLevel = 'НИЗКИЙ';
-  if (excess > 0.40 + eps) level = 'КРИТИЧЕСКИЙ';
-  else if (excess > 0.25 + eps) level = 'ВЫСОКИЙ';
-  else if (excess > 0.10 + eps) level = 'ПОВЫШЕННЫЙ';
-  else if (excess > eps) level = 'УМЕРЕННЫЙ';
+  for (const [threshold, thresholdLevel] of EP_EXCESS_THRESHOLDS) {
+    if (excess > threshold + eps) {
+      level = thresholdLevel;
+      break;
+    }
+  }
 
   return { epShare, normalShare, excess, level };
 }

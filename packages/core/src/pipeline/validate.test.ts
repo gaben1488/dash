@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { validateData } from './validate.js';
 import type { ClassifiedRow, NormalizedMetric, ValidationRule, ReportMapEntry, RuleCheckContext } from '@aemr/shared';
 

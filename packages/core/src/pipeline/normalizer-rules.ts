@@ -370,7 +370,7 @@ export function normalizeCell(column: string, value: unknown): NormalizationResu
     case 'status': return normalizeStatus(value);
     case 'number': return normalizeNumber(value);
     case 'percent': return normalizeNumber(value);
-    default:
+    default: {
       // Text — just trim
       if (value === null || value === undefined) {
         return { original: value, normalized: null, changed: false, rule: null, fieldType: 'text' };
@@ -380,5 +380,6 @@ export function normalizeCell(column: string, value: unknown): NormalizationResu
         return { original: value, normalized: null, changed: true, rule: 'empty_to_null', fieldType: 'empty' };
       }
       return { original: value, normalized: str, changed: str !== value, rule: str !== value ? 'text_trim' : null, fieldType: 'text' };
+    }
   }
 }

@@ -61,13 +61,12 @@ export function linearForecast(
 }
 
 /**
- * Seasonal-adjusted forecast using ГРБС profile baselines.
- * Accounts for typical seasonal procurement patterns.
+ * Seasonal-adjusted forecast using a default government procurement curve.
  */
 export function seasonalForecast(
   monthlyFacts: number[],
   yearPlan: number,
-  profile?: GRBSBaseline,
+  _profile?: GRBSBaseline,
 ): ForecastScenario {
   // Default seasonal weights (typical government procurement pattern)
   const seasonalWeights = [

@@ -41,16 +41,20 @@ function cellPresent(v: unknown): boolean {
 /** A raw row from a department sheet (array of cell values). */
 export type RawRow = unknown[];
 
+type MethodGroup = 'competitive' | 'ep';
+
 /** Gate condition: determines whether a row contributes to a metric. */
 export interface GateCondition {
   /** Column index in the row. */
   column: number;
   /** Comparison operator. */
-  op: 'eq' | 'neq' | 'notEmpty' | 'gt' | 'gte' | 'inSet';
+  op: 'eq' | 'neq' | 'notEmpty' | 'gt' | 'gte' | 'inSet' | 'methodGroup';
   /** Value to compare against (for eq/neq/gt/gte). */
   value?: string | number;
   /** Set of values (for inSet). */
   values?: Set<string>;
+  /** Method group to compare against (for methodGroup). */
+  methodGroup?: MethodGroup;
 }
 
 /** Aggregation type for a metric. */
@@ -103,7 +107,7 @@ export interface DimensionExtractors {
   /** Extract month from row (null = no month). */
   month: (row: RawRow) => number | null;
   /** Extract method group: 'competitive' | 'ep' | null. */
-  method: (row: RawRow) => 'competitive' | 'ep' | null;
+  method: (row: RawRow) => MethodGroup | null;
   /** Extract subordinate org name ("_org_itself" when col C is empty). */
   subordinate: (row: RawRow) => string;
   /** Extract activity type. */
@@ -181,6 +185,8 @@ function evaluateGate(row: RawRow, gate: GateCondition): boolean {
       return num(raw) >= (gate.value as number);
     case 'inSet':
       return gate.values?.has(String(raw ?? '').trim()) ?? false;
+    case 'methodGroup':
+      return classifyMethodGroup(raw) === gate.methodGroup;
   }
 }
 
@@ -190,7 +196,14 @@ function evaluateAllGates(row: RawRow, gates: GateCondition[]): boolean {
 
 // ── Default Dimension Extractors ─────────────────────────────────────
 
-const COMPETITIVE_METHODS = new Set(['ЭА', 'ЭК', 'ЭЗК']);
+function classifyMethodGroup(raw: unknown): MethodGroup | null {
+  const canonical: ProcurementMethodCode | undefined = normalizeMethod(raw);
+  if (canonical === 'ЕП') return 'ep';
+  if (canonical && isCompetitive(canonical)) return 'competitive';
+  // Legacy СВОД formulas use L<>"ЕП"; keep only blank values in that bucket.
+  // Unknown non-empty values are data-quality issues, not competitive procedures.
+  return String(raw ?? '').trim() === '' ? 'competitive' : null;
+}
 
 function defaultQuarterExtractor(row: RawRow): string | null {
   const q = num(row[COL.PLAN_QUARTER]);
@@ -223,18 +236,14 @@ function defaultMonthExtractor(row: RawRow): number | null {
   return null;
 }
 
-function defaultMethodExtractor(row: RawRow): 'competitive' | 'ep' | null {
+function defaultMethodExtractor(row: RawRow): MethodGroup | null {
   // Канонизируем сырое значение через METHOD_ALIAS_MAP в dictionaries.
   // Это снимает drift: 'ЭА (МЭП)', 'Ед. поставщик', 'ЭЕП', lowercase 'еп' и т.д.
   // сводятся к одному из {ЭА, ЕП, ЭК, ЭЗК} (или undefined для пустых/мусора).
   //
   // Семантика исторически унаследована из СВОД/ШДЮ: пустое поле или любой
   // не-ЕП код = competitive. Это инвариант, не меняем — только нормализуем вход.
-  const canonical: ProcurementMethodCode | undefined = normalizeMethod(row[COL.METHOD]);
-  if (canonical === 'ЕП') return 'ep';
-  if (canonical && isCompetitive(canonical)) return 'competitive';
-  // Пусто или нераспознано → competitive (legacy СВОД FILTER: L<>"ЕП")
-  return 'competitive';
+  return classifyMethodGroup(row[COL.METHOD]);
 }
 
 function defaultSubordinateExtractor(row: RawRow): string {
@@ -284,8 +293,8 @@ export const DEFAULT_EXTRACTORS: DimensionExtractors = {
 /** Standard gates used across metrics. */
 const GATE_HAS_FACT: GateCondition = { column: COL.FACT_DATE, op: 'notEmpty' };
 const GATE_ECONOMY_APPROVED: GateCondition = { column: COL.FLAG, op: 'eq', value: 'да' };
-const GATE_METHOD_COMPETITIVE: GateCondition = { column: COL.METHOD, op: 'inSet', values: COMPETITIVE_METHODS };
-const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'eq', value: 'ЕП' };
+const GATE_METHOD_COMPETITIVE: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'competitive' };
+const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'ep' };
 
 /**
  * Standard metric definitions matching СВОД ТД-ПМ columns D-U.
@@ -335,8 +344,9 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   { key: 'execution_pct', label: '% исполнения', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // P: Amount deviation = plan_total - fact_total
   { key: 'amount_deviation', label: 'Отклонение сумм', unit: 'currency', formula: { op: 'diff', a: 'plan_total', b: 'fact_total' } },
-  // Q: Savings % = (plan_total - fact_total) / plan_total (decimal)
-  { key: 'savings_pct', label: '% экономии', unit: 'percent', formula: { op: 'pct', numerator: 'amount_deviation', denominator: 'plan_total' } },
+  // Q: Amount deviation % = (plan_total - fact_total) / plan_total (decimal).
+  // This is not approved economy; approved economy is economy_total.
+  { key: 'savings_pct', label: '% отклонения суммы', unit: 'percent', formula: { op: 'pct', numerator: 'amount_deviation', denominator: 'plan_total' } },
   // U: Economy total = economy_fb + economy_kb + economy_mb
   { key: 'economy_total', label: 'Экономия ИТОГО', unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
   // Total procedures and EP share
@@ -638,8 +648,8 @@ export function standardRowFilter(row: RawRow): boolean {
   if (SKIP_PREFIXES.some(p => subject.startsWith(p))) return false;
 
   // Classification scoring
-  const method = String(row[COL.METHOD] ?? '').trim();
-  const hasMethod = ALL_METHODS.has(method);
+  const method = normalizeMethod(row[COL.METHOD]);
+  const hasMethod = method ? ALL_METHODS.has(method) : false;
 
   const typeText = String(row[COL.TYPE] ?? '').trim().toLowerCase();
   const hasType = typeText === 'текущая деятельность' || typeText === 'программное мероприятие';

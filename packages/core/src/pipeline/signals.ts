@@ -15,6 +15,8 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
+import { LAW_44FZ_THRESHOLDS } from '@aemr/shared';
+
 // ────────────────────────────────────────────────────────────
 // Типы
 // ────────────────────────────────────────────────────────────
@@ -44,7 +46,7 @@ export interface RowSignals {
   economyFlag: boolean;
   /** Конфликт флага экономии: (а) AD="экономия" но факт ≥ план; (б) экономия >15% но финансовый орган не определил флаг */
   economyConflict: boolean;
-  /** ЕП (колонка L) с суммой > 500 000 руб. — антикоррупционный сигнал */
+  /** ЕП (колонка L) с суммой > 600 000 руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
   epRisk: boolean;
   /** Пустые обязательные поля — проблема качества данных */
   dataQuality: boolean;
@@ -108,8 +110,8 @@ export interface SignalBadge {
 // Константы
 // ────────────────────────────────────────────────────────────
 
-/** Порог ЕП-риска в рублях (2 млн — п.4 ч.1 ст.93 44-ФЗ, актуальный лимит ЕП) */
-const EP_RISK_THRESHOLD = 2_000_000;
+/** Порог ЕП-риска в рублях: лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ. */
+const EP_RISK_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit;
 
 /** Антидемпинговый порог экономии (44-ФЗ ст.37) */
 const ANTI_DUMPING_PERCENT = 25;
@@ -139,15 +141,6 @@ function cellText(cells: Record<string, unknown>, col: string): string {
   const v = cells[col];
   if (v === null || v === undefined) return '';
   return String(v).trim().toLowerCase();
-}
-
-/**
- * Возвращает сырое строковое значение ячейки (без toLowerCase).
- */
-function cellRaw(cells: Record<string, unknown>, col: string): string {
-  const v = cells[col];
-  if (v === null || v === undefined) return '';
-  return String(v).trim();
 }
 
 /**
