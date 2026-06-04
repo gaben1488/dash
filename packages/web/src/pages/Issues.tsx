@@ -276,13 +276,15 @@ export function IssuesPage() {
 
   const toggleSev = (s: Severity) => {
     const next = new Set(sevFilter);
-    next.has(s) ? next.delete(s) : next.add(s);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
     setSevFilter(next);
   };
 
   const toggleStatus = (s: Status) => {
     const next = new Set(statusFilter);
-    next.has(s) ? next.delete(s) : next.add(s);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
     setStatusFilter(next);
   };
 

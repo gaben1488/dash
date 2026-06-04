@@ -105,13 +105,11 @@ export function HeroKPICard({
   secondaryValue,
   secondaryLabel,
   secondaryUnit,
-  secondaryMetricKey,
   secondaryTrend,
   secondarySparkData,
   expandContent,
   expanded: controlledExpanded,
   onToggleExpand,
-  id,
 }: HeroKPICardProps) {
   const [internalExpanded, setInternalExpanded] = useState(false);
   const isExpanded = controlledExpanded ?? internalExpanded;

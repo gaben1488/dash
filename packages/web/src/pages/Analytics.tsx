@@ -290,9 +290,6 @@ export function Analytics() {
     }));
   }, [budgetByDept, hasDeptData]);
 
-  // ── Execution bar chart ──
-  const barData = fd.barData;
-
   // ── Issues by department ──
   const issuesByDept = useMemo(() => {
     const byDept: Record<string, Record<string, number>> = {};

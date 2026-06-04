@@ -102,7 +102,8 @@ export function DeptTreePicker() {
   const toggleExpand = (deptId: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(deptId) ? next.delete(deptId) : next.add(deptId);
+      if (next.has(deptId)) next.delete(deptId);
+      else next.add(deptId);
       return next;
     });
   };
@@ -110,7 +111,8 @@ export function DeptTreePicker() {
   const toggleGroupExpand = (key: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };

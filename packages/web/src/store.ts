@@ -325,7 +325,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
   searchQuery: '',
   setSearchQuery: (searchQuery) => set({ searchQuery }),
-  qualityTab: 'trust',
+  qualityTab: 'recon',
   setQualityTab: (qualityTab) => set({ qualityTab }),
   resetAllFilters: () => {
     const monday = getMondayOfWeek(new Date());
@@ -355,12 +355,25 @@ export const useStore = create<AppState>((set, get) => ({
   navigateTo: (page, filters) => {
     const updates: Partial<Pick<AppState,
       'page' | 'period' | 'procurementFilter' | 'activityFilter' |
+      'selectedMethods' | 'selectedActivities' |
       'selectedDepartments' | 'selectedSubordinates' | 'year' |
       'searchQuery' | 'activeMonths' | 'qualityTab'
     >> = { page };
     if (filters?.period) updates.period = filters.period;
-    if (filters?.procurement) updates.procurementFilter = filters.procurement;
-    if (filters?.activity) updates.activityFilter = filters.activity;
+    if (filters?.procurement) {
+      updates.procurementFilter = filters.procurement;
+      updates.selectedMethods = filters.procurement === 'all'
+        ? new Set<string>()
+        : filters.procurement === 'competitive'
+          ? new Set(['competitive'])
+          : new Set(['single']);
+    }
+    if (filters?.activity) {
+      updates.activityFilter = filters.activity;
+      updates.selectedActivities = filters.activity === 'all'
+        ? new Set<string>()
+        : new Set([filters.activity]);
+    }
     if (filters?.department) {
       updates.selectedDepartments = new Set([filters.department]);
     }

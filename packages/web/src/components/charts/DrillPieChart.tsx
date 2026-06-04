@@ -6,7 +6,7 @@ import { KBTooltip } from '../ui/kb-tooltip';
 import { useTheme } from '../ThemeProvider';
 import { getChartColors, getTooltipStyle } from '@/lib/chart-colors';
 import { useStore } from '../../store';
-import type { MultiDimResult, DeptMetrics } from '../../hooks/useMultiDimMetrics';
+import type { MultiDimResult } from '../../hooks/useMultiDimMetrics';
 
 // ────────────────────────────────────────────────────────────────
 // DrillPieChart — 10/10 multidimensional donut

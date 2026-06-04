@@ -16,6 +16,7 @@ import {
 import { useTheme } from '../components/ThemeProvider';
 import { getTooltipStyle, getAxisColor, getGridColor, getExecutionBarColor } from '../lib/chart-colors';
 import { getThresholdColor } from '../lib/metrics-registry';
+import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 
 // ────────────────────────────────────────────────────────────────
 // Dashboard — Phase 4 Redesign
@@ -97,7 +98,7 @@ export function Dashboard() {
   const showStacked = procurementFilter === 'all';
 
   // ── Build Hero KPI data ──
-  const heroKpis = useMemo(() => buildHeroKPIs(fd, formatMoney), [fd, formatMoney]);
+  const heroKpis = useMemo(() => buildHeroKPIs(fd), [fd]);
 
   // ── Build RatingTable data ──
   const ratingDepts = useMemo<DeptRowV2[]>(() => {
@@ -421,7 +422,7 @@ export function Dashboard() {
 // Hero KPI builder
 // ────────────────────────────────────────────────────────────────
 
-function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, formatMoney: (v: number) => string) {
+function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
   const kpis: Array<Omit<import('../components/HeroKPICard').HeroKPICardProps, 'expanded' | 'onToggleExpand' | 'expandContent'>> = [];
 
   // 1. ИСПОЛНЕНИЕ — dual metric: count (primary) + amount (secondary)
@@ -495,7 +496,7 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, formatMoney: (v: 
 
   // 3. economy_rate
   if (fd.totalPlan > 0) {
-    const economyTotal = fd.totalPlan - fd.totalFact;
+    const economyTotal = getFilteredEconomyTotal(fd);
     const savingsPct = +((economyTotal / fd.totalPlan) * 100).toFixed(1);
     kpis.push({
       metricKey: 'economy_rate',
@@ -546,7 +547,7 @@ function KPIExpandPanel({
   const isDualExecution = kpi.metricKey === 'exec_count_pct' && kpi.secondaryValue != null;
   const deptBreakdown = depts.map((d: any) => {
     const q = d.quarters?.[periodKey];
-    let value = 0;
+    let value: number;
     let secondaryValue: number | undefined;
     let colorClass: string | undefined;
     let secondaryColor: string | undefined;
@@ -677,8 +678,8 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       const sig = iss.signal;
       if (sig) counts[sig] = (counts[sig] || 0) + 1;
     }
-    return counts;
-  }, [issues]);
+    return { ...counts, ...(apiSignalCounts ?? {}) };
+  }, [apiSignalCounts, issues]);
 
   const spots = [
     { label: 'Просрочки', signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red', icon: '⏰' },
@@ -748,7 +749,7 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
             whatIs="Сигналы — автоматически детектированные аномалии и отклонения в данных закупок: просрочки, флаги экономии, расхождения планов/фактов. Каждый сигнал формируется по отдельному правилу из каталога CHECK_REGISTRY."
             thresholdsFull={'🔴 overdue/economyConflict — критические\n🟡 stalled/factWithoutDate — варнинги\n🟢 ноль сигналов — чистые данные'}
             example="9 просрочек, 3 флага экономии, 1 факт > план"
-            actions="Клик по карточке открывает вкладку Качество с фильтром по данному сигналу."
+            actions="Клик по карточке открывает вкладку Доверие с фильтром по данному сигналу."
           >
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
               Сигналы и аномалии

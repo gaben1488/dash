@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useFilteredData } from './useFilteredData';
-import { useStore } from '../store';
+import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 
 // ────────────────────────────────────────────────────────────────
 // useMultiDimMetrics — Universal 6-axis data layer
@@ -110,6 +110,8 @@ export interface MultiDimResult {
   fd: ReturnType<typeof useFilteredData>;
 }
 
+export type FilteredDataResult = ReturnType<typeof useFilteredData>;
+
 // ── Helpers ──
 
 const EMPTY_BUDGET: BudgetBreakdown = {
@@ -173,13 +175,9 @@ function sumBudgets(a: BudgetBreakdown, b: BudgetBreakdown): BudgetBreakdown {
   };
 }
 
-// ── Hook ──
+// ── Builder ──
 
-export function useMultiDimMetrics(): MultiDimResult {
-  const fd = useFilteredData();
-  const { selectedBudgets } = useStore();
-
-  return useMemo(() => {
+export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Omit<MultiDimResult, 'fd'> {
     const departments: DeptMetrics[] = fd.depts.map((d: any) => {
       const deptShort = d.department?.nameShort ?? d.department?.id ?? '?';
       const deptId = d.department?.id ?? '';
@@ -292,6 +290,7 @@ export function useMultiDimMetrics(): MultiDimResult {
       (acc, d) => sumBudgets(acc, d.total.budget),
       { ...EMPTY_BUDGET },
     );
+    const globalEconomyTotal = getFilteredEconomyTotal(fd);
 
     const totals: ExecutionMetrics = {
       planTotal: fd.totalPlan,
@@ -300,8 +299,8 @@ export function useMultiDimMetrics(): MultiDimResult {
       planCount: fd.totalPlanCount,
       factCount: fd.totalFactCount,
       execCountPct: fd.overallExecCountPct ?? 0,
-      economyTotal: fd.totalPlan - fd.totalFact,
-      economyPct: fd.totalPlan > 0 ? safePct(fd.totalPlan - fd.totalFact, fd.totalPlan) : 0,
+      economyTotal: globalEconomyTotal,
+      economyPct: fd.totalPlan > 0 ? safePct(globalEconomyTotal, fd.totalPlan) : 0,
       competitiveCount: fd.totalKP,
       epCount: fd.totalEP,
       epSharePct: safePct(fd.totalEP, fd.totalKP + fd.totalEP),
@@ -341,6 +340,12 @@ export function useMultiDimMetrics(): MultiDimResult {
       }
     }
 
-    return { departments, totals, globalDelta, quarterSpark, allSubs, fd };
-  }, [fd, selectedBudgets]);
+    return { departments, totals, globalDelta, quarterSpark, allSubs };
+}
+
+// ── Hook ──
+
+export function useMultiDimMetrics(): MultiDimResult {
+  const fd = useFilteredData();
+  return useMemo(() => ({ ...buildMultiDimMetricsFromFilteredData(fd), fd }), [fd]);
 }

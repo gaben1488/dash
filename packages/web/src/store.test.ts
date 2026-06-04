@@ -1,0 +1,26 @@
+import { describe, expect, it } from 'vitest';
+import { useStore } from './store';
+
+describe('useStore navigation filters', () => {
+  it('opens the quality workspace on reconciliation by default', () => {
+    expect(useStore.getState().qualityTab).toBe('recon');
+  });
+
+  it('syncs navigateTo activity filter into selectedActivities used by useFilteredData', () => {
+    useStore.getState().resetAllFilters();
+
+    useStore.getState().navigateTo('analytics', { activity: 'program' });
+
+    expect(useStore.getState().activityFilter).toBe('program');
+    expect([...useStore.getState().selectedActivities]).toEqual(['program']);
+  });
+
+  it('syncs navigateTo procurement filter into selectedMethods used by useFilteredData', () => {
+    useStore.getState().resetAllFilters();
+
+    useStore.getState().navigateTo('analytics', { procurement: 'single' });
+
+    expect(useStore.getState().procurementFilter).toBe('single');
+    expect([...useStore.getState().selectedMethods]).toEqual(['single']);
+  });
+});

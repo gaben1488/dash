@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { KBTooltip } from '../ui/kb-tooltip';
 import { getThresholdColor } from '@/lib/metrics-registry';
-import { ArrowRight, Building2 } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import type { Page } from '@/store';
 
 /* ─── Types ────────────────────────────────────────────────────── */
@@ -23,7 +22,6 @@ interface DeptExecution {
 
 interface ExecutionOverviewProps {
   depts: DeptExecution[];
-  formatMoney: (v: number) => string;
   onDeptClick: (nameShort: string) => void;
   onNavigate: (page: Page, params?: any) => void;
 }
@@ -57,7 +55,7 @@ function MiniBar({ pct, className }: { pct: number; className?: string }) {
  * Each row shows: rank, dept name, dual progress bars (count + amount),
  * FB%, issue count, and action button.
  */
-export function ExecutionOverview({ depts, formatMoney, onDeptClick, onNavigate }: ExecutionOverviewProps) {
+export function ExecutionOverview({ depts, onDeptClick, onNavigate }: ExecutionOverviewProps) {
   const sorted = useMemo(
     () => [...depts].sort((a, b) => (b.execCountPct ?? 0) - (a.execCountPct ?? 0)),
     [depts],

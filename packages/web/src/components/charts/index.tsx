@@ -300,42 +300,6 @@ export function ExecutionBarsChart({ data, onDeptClick, formatMoney }: Execution
 
   const maxPct = useMemo(() => Math.max(100, ...data.map(d => d.pct)), [data]);
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (!active || !payload?.[0]?.payload) return null;
-    const d = payload[0].payload;
-    return (
-      <GlassTooltip>
-        <p className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1.5">{d.name}</p>
-        <div className="space-y-0.5">
-          <p className="text-zinc-500 dark:text-zinc-400">
-            По сумме: <strong className="text-zinc-700 dark:text-zinc-200">{d.pct.toFixed(1)}%</strong>
-            {d.pct > 100 && <span className="ml-1 text-purple-500 text-[10px]">Факт {'>'} План</span>}
-          </p>
-          {d.execCountPct != null && (
-            <p className="text-zinc-500 dark:text-zinc-400">
-              По кол-ву: <strong className="text-zinc-700 dark:text-zinc-200">{d.execCountPct.toFixed(1)}%</strong>
-            </p>
-          )}
-          {d.planTotal != null && (
-            <p className="text-zinc-500 dark:text-zinc-400">
-              План: <strong>{formatMoney(d.planTotal)}</strong>
-            </p>
-          )}
-          {d.factTotal != null && (
-            <p className="text-zinc-500 dark:text-zinc-400">
-              Факт: <strong>{formatMoney(d.factTotal)}</strong>
-            </p>
-          )}
-          {(d.kpCount != null || d.epCount != null) && (
-            <p className="text-zinc-400 dark:text-zinc-500 text-[10px] mt-1">
-              КП: {d.kpCount ?? 0} | ЕП: {d.epCount ?? 0}
-            </p>
-          )}
-        </div>
-      </GlassTooltip>
-    );
-  };
-
   return (
     <div style={{ animation: 'slideUp 0.5s cubic-bezier(0.16,1,0.3,1) 0.05s both' }}>
       {/* Mini progress bar layout */}
@@ -344,10 +308,18 @@ export function ExecutionBarsChart({ data, onDeptClick, formatMoney }: Execution
           const barColor = getExecutionBarColor(d.pct, isDark);
           const widthPct = Math.min((d.pct / maxPct) * 100, 100);
           const countWidthPct = d.execCountPct != null ? Math.min((d.execCountPct / maxPct) * 100, 100) : null;
+          const title = [
+            `${d.name}: ${d.pct.toFixed(1)}% по сумме`,
+            d.execCountPct != null ? `${d.execCountPct.toFixed(1)}% по количеству` : null,
+            d.planTotal != null ? `План: ${formatMoney(d.planTotal)}` : null,
+            d.factTotal != null ? `Факт: ${formatMoney(d.factTotal)}` : null,
+            d.kpCount != null || d.epCount != null ? `КП: ${d.kpCount ?? 0} | ЕП: ${d.epCount ?? 0}` : null,
+          ].filter(Boolean).join('\n');
 
           return (
             <button
               key={d.nameShort ?? d.name}
+              title={title}
               onClick={() => onDeptClick?.(d.nameShort ?? d.name)}
               className="w-full text-left group cursor-pointer"
               style={{ animation: `slideUp 0.4s cubic-bezier(0.16,1,0.3,1) ${i * 0.04}s both` }}

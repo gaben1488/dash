@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useStore, QUARTER_MONTHS, type PeriodScope } from '../store';
+import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 
 /**
  * Centralized data filtering hook.
@@ -531,7 +532,7 @@ export function useFilteredData() {
       ? +((totalFactCount / totalPlanCount) * 100).toFixed(1) : null;
 
     const barData = depts.map((d: any) => {
-      let pct = 0, plan = 0, fact = 0, kp = 0, ep = 0;
+      let pct: number, plan = 0, fact = 0, kp = 0, ep = 0;
       let execCountPct: number | null = null;
 
       // Subordinate-filtered: use the already-overridden dept-level values
@@ -787,7 +788,7 @@ export function useFilteredData() {
 
     // ── 11d. Derived KPI cards: fill up to 6 ──
     if (topKpis.length < 6 && totalPlan > 0) {
-      const economyTotal = totalPlan - totalFact;
+      const economyTotal = getFilteredEconomyTotal({ depts, periodKey, coveredQuarters, selectedBudgets });
       const savingsRate = totalPlan > 0 ? (economyTotal / totalPlan) * 100 : 0;
       topKpis.push({
         metricKey: '_derived.savings_rate',
@@ -852,6 +853,7 @@ export function useFilteredData() {
       totalEP,
       totalPlan,
       totalFact,
+      totalEconomy: getFilteredEconomyTotal({ depts, periodKey, coveredQuarters, selectedBudgets }),
       overallExecCountPct,
       totalPlanCount,
       totalFactCount,

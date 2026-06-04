@@ -6,7 +6,7 @@
  * Now: thin wrapper importing from @aemr/core + UI color helpers
  */
 
-import { METRIC_KB, getMetricKB as coreGetMetricKB } from '@aemr/core';
+import { METRIC_KB } from '@aemr/core';
 import type { KBEntry } from '../components/ui/kb-tooltip';
 
 // ── Re-export KB as STANDARD_METRICS (backward compatibility) ──

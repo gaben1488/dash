@@ -4,19 +4,93 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { api } from '../api';
 import { GitCompare, ChevronDown, ChevronUp, Info, AlertTriangle, CheckCircle2, Clock, FileSpreadsheet, Building2, ArrowRight, ExternalLink, Download, Users } from 'lucide-react';
 import clsx from 'clsx';
-import { SVOD_SPREADSHEET_ID, LATIN_TO_CYRILLIC } from '@aemr/shared';
+import { SVOD_SPREADSHEET_ID, LATIN_TO_CYRILLIC, DEPARTMENT_IDS, DEPARTMENT_ROWS } from '@aemr/shared';
 
-/** СВОД ТД-ПМ cell references per department for expanded diagnostics */
-const DEPT_SVOD_CELLS: Record<string, { planCount: string; factCount: string; planTotal: string; factTotal: string; economy: string; percent: string }> = {
-  'УЭР':    { planCount: 'D42',  factCount: 'E42',  planTotal: 'K42',  factTotal: 'O42',  economy: 'U46',  percent: 'G42' },
-  'УИО':    { planCount: 'D72',  factCount: 'E72',  planTotal: 'K72',  factTotal: 'O72',  economy: 'U77',  percent: 'G72' },
-  'УАГЗО':  { planCount: 'D102', factCount: 'E102', planTotal: 'K102', factTotal: 'O102', economy: 'U107', percent: 'G102' },
-  'УФБП':   { planCount: 'D132', factCount: 'E132', planTotal: 'K132', factTotal: 'O132', economy: 'U137', percent: 'G132' },
-  'УД':     { planCount: 'D163', factCount: 'E163', planTotal: 'K163', factTotal: 'O163', economy: 'U168', percent: 'G163' },
-  'УДТХ':   { planCount: 'D195', factCount: 'E195', planTotal: 'K195', factTotal: 'O195', economy: 'U200', percent: 'G195' },
-  'УКСиМП': { planCount: 'D225', factCount: 'E225', planTotal: 'K225', factTotal: 'O225', economy: 'U230', percent: 'G225' },
-  'УО':     { planCount: 'D255', factCount: 'E255', planTotal: 'K255', factTotal: 'O255', economy: 'U260', percent: 'G255' },
-};
+// ── Локальные view-model типы для данных сверки. Исходные массивы приходят из
+//    useFilteredData как any[]; эти интерфейсы аннотируют использование внутри Recon,
+//    чтобы ошибки формы ловились локально. Зеркало DTO из @aemr/core (reconcile.ts).
+interface ReconCell {
+  shdyu?: number;
+  calc?: number;
+  delta?: number;
+  deltaPct?: number;
+  status?: 'ok' | 'warning' | 'high' | 'empty';
+}
+type ReconBudget = Record<string, ReconCell>;
+interface ReconMonthlyRootCause {
+  id?: string;
+  label: string;
+  severity: 'warning' | 'critical';
+  confidence: 'low' | 'medium' | 'high';
+  evidence: string;
+  suggestedAction?: string;
+}
+interface ReconMonthlyRow {
+  deptId: string;
+  deptName: string;
+  month: number;
+  compPlan?: ReconCell;
+  compFact?: ReconCell;
+  compPlanTotal?: ReconCell;
+  compFactTotal?: ReconCell;
+  epPlan?: ReconCell;
+  epFact?: ReconCell;
+  epPlanTotal?: ReconCell;
+  epFactTotal?: ReconCell;
+  compBudget?: ReconBudget;
+  epBudget?: ReconBudget;
+  warnings?: string[];
+  rootCause?: ReconMonthlyRootCause;
+}
+interface ReconMonthlyData {
+  rows?: ReconMonthlyRow[];
+  counts?: { ok?: number; warning?: number; high?: number; empty?: number };
+  warning?: string;
+}
+interface ReconMetricDelta {
+  metricKey: string;
+  label?: string;
+  officialValue?: number | null;
+  calculatedValue?: number | null;
+  deltaPercent: number | null;
+  withinTolerance: boolean;
+}
+interface ReconSubordinate {
+  name: string;
+  rowCount?: number;
+  competitiveCount?: number;
+  epCount?: number;
+  planTotal?: number;
+  factTotal?: number;
+  economyTotal?: number;
+  executionPct?: number;
+}
+interface ReconDeptNode {
+  department?: { id?: string; name?: string; nameShort?: string };
+  subordinates?: ReconSubordinate[];
+}
+
+/**
+ * СВОД ТД-ПМ cell references per department (КП «Итого год» row).
+ * DERIVED from the canonical DEPARTMENT_ROWS so the "open in Google Sheets" deep-links
+ * can never silently drift from @aemr/shared (was a hardcoded map pointing at wrong cells,
+ * e.g. economy U46 vs canonical U47). Reconciliation shows year-level KP+ЕП money values,
+ * so plan/fact link to the money columns K/O of the year row.
+ */
+const DEPT_SVOD_CELLS: Record<string, { planCount: string; factCount: string; planTotal: string; factTotal: string; economy: string; percent: string }> =
+  Object.fromEntries(
+    DEPARTMENT_IDS.map((id) => {
+      const cfg = DEPARTMENT_ROWS[id];
+      return [LATIN_TO_CYRILLIC[id], {
+        planCount: `D${cfg.kpYear}`,
+        factCount: `E${cfg.kpYear}`,
+        planTotal: `K${cfg.kpYear}`,
+        factTotal: `O${cfg.kpYear}`,
+        economy: cfg.economyKpCell ?? `U${cfg.kpYear}`,
+        percent: `G${cfg.kpYear}`,
+      }];
+    }),
+  );
 
 /** Diagnose the likely source of a discrepancy */
 function diagnoseDelta(row: ReconDeptRow): { source: string; detail: string; severity: 'info' | 'warn' | 'error' } {
@@ -174,26 +248,34 @@ export function ReconPage() {
   const fd = useFilteredData();
   const [reconData, setReconData] = useState<ReconSummaryData | null>(null);
   const [reconLoading, setReconLoading] = useState(false);
+  const [reconError, setReconError] = useState<string | null>(null);
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
   const [expandedMetric, setExpandedMetric] = useState<string | null>(null);
   const [methodOpen, setMethodOpen] = useState(false);
   const [view, setView] = useState<'departments' | 'metrics' | 'monthly' | 'subordinates'>('departments');
-  const [monthlyData, setMonthlyData] = useState<any>(null);
+  const [monthlyData, setMonthlyData] = useState<ReconMonthlyData | null>(null);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
+  const [monthlyError, setMonthlyError] = useState<string | null>(null);
+  const [expandedMonthly, setExpandedMonthly] = useState<string | null>(null);
 
   // Fetch reconciliation data
   useEffect(() => {
     let cancelled = false;
     setReconLoading(true);
+    setReconError(null);
     api.getReconciliation()
       .then((res) => {
         if (!cancelled) {
           setReconData(res.reconciliation ?? null);
+          setReconError(null);
           setReconLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) setReconLoading(false);
+      .catch((err) => {
+        if (!cancelled) {
+          setReconError(err instanceof Error ? err.message : 'Не удалось загрузить данные сверки');
+          setReconLoading(false);
+        }
       });
     return () => { cancelled = true; };
   }, [dashboardData]);
@@ -203,30 +285,35 @@ export function ReconPage() {
     if (view !== 'monthly') return;
     let cancelled = false;
     setMonthlyLoading(true);
+    setMonthlyError(null);
     api.getReconciliationMonthly()
       .then((res) => {
         if (!cancelled) {
           setMonthlyData(res);
+          setMonthlyError(null);
           setMonthlyLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) setMonthlyLoading(false);
+      .catch((err) => {
+        if (!cancelled) {
+          setMonthlyError(err instanceof Error ? err.message : 'Не удалось загрузить помесячную сверку ШДЮ');
+          setMonthlyLoading(false);
+        }
       });
     return () => { cancelled = true; };
   }, [dashboardData, view]);
 
   // Metric-level deltas
   const deltas = period !== 'year'
-    ? fd.deltas.filter((d: any) => {
+    ? fd.deltas.filter((d: ReconMetricDelta) => {
         const key = d.metricKey ?? '';
         return key.includes(`.${period}.`) || key.includes('.year.');
       })
     : fd.deltas;
 
   const metricRows: MetricReconRow[] = deltas
-    .filter((d: any) => d.officialValue != null || d.calculatedValue != null)
-    .map((d: any) => {
+    .filter((d: ReconMetricDelta) => d.officialValue != null || d.calculatedValue != null)
+    .map((d: ReconMetricDelta) => {
       const official = d.officialValue ?? 0;
       const calculated = d.calculatedValue ?? 0;
       const deltaAbs = Math.abs(official - calculated);
@@ -354,8 +441,20 @@ export function ReconPage() {
         </div>
       </div>
 
+      {/* Error state — сбой запроса, а не отсутствие данных */}
+      {reconError && !reconLoading && (
+        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-red-800/50 p-12 text-center">
+          <AlertTriangle className="mx-auto text-red-400 dark:text-red-500 mb-3" size={40} />
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Не удалось загрузить сверку</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">{reconError}</p>
+          <p className="text-[11px] text-zinc-400">
+            Это сбой запроса к API, а не отсутствие данных. Проверьте, что сервер доступен, и обновите страницу.
+          </p>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!hasAnyData && !reconLoading && (
+      {!hasAnyData && !reconLoading && !reconError && (
         <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-amber-200 dark:border-amber-700/50 p-12 text-center">
           <GitCompare className="mx-auto text-amber-400 dark:text-amber-500 mb-3" size={40} />
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Сверка не выполнена</p>
@@ -526,9 +625,9 @@ export function ReconPage() {
                                     {cells ? (
                                       <>
                                         {[
-                                          ['План кол-во', cells.planCount, fmtNum(row.fullPlanOfficial)],
-                                          ['Факт кол-во', cells.factCount, fmtNum(row.fullFactOfficial)],
-                                          ['Экономия', cells.economy, fmtNum(row.ecoTotalOfficial)],
+                                          ['План, тыс. ₽', cells.planTotal, fmtNum(row.fullPlanOfficial)],
+                                          ['Факт, тыс. ₽', cells.factTotal, fmtNum(row.fullFactOfficial)],
+                                          ['Экономия, тыс. ₽', cells.economy, fmtNum(row.ecoTotalOfficial)],
                                         ].map(([label, cell, val]) => (
                                           <div key={cell as string} className="flex items-center justify-between text-[10px]">
                                             <span className="text-blue-600 dark:text-blue-400">{label}</span>
@@ -637,7 +736,7 @@ export function ReconPage() {
                     const cfg = METRIC_ASSESS_CONFIG[row.assessment];
                     const Icon = cfg.icon;
                     const isExpanded = expandedMetric === row.metric;
-                    const delta = deltas.find((d: any) => d.metricKey === row.metric);
+                    const delta = deltas.find((d: ReconMetricDelta) => d.metricKey === row.metric);
                     return (
                       <React.Fragment key={row.metric}>
                         <tr
@@ -779,23 +878,30 @@ export function ReconPage() {
               <p className="text-xs text-zinc-500">Загрузка помесячных данных ШДЮ...</p>
             </div>
           )}
+          {monthlyError && !monthlyLoading && (
+            <div className="bg-white dark:bg-zinc-800/60 rounded-xl border border-red-200 dark:border-red-800 p-5 text-center">
+              <AlertTriangle className="mx-auto text-red-500 mb-2" size={28} />
+              <p className="text-sm text-red-700 dark:text-red-400">{monthlyError}</p>
+              <p className="text-[11px] text-zinc-400 mt-1">Сбой запроса к API, а не отсутствие данных ШДЮ.</p>
+            </div>
+          )}
           {monthlyData?.warning && (
             <div className="bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800 p-5 text-center">
               <AlertTriangle className="mx-auto text-amber-500 mb-2" size={28} />
               <p className="text-sm text-amber-700 dark:text-amber-400">{monthlyData.warning}</p>
             </div>
           )}
-          {monthlyData?.rows?.length > 0 && (
+          {(monthlyData?.rows?.length ?? 0) > 0 && (
             <>
               <div className="flex gap-3 text-xs">
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-medium">
-                  <CheckCircle2 size={13} /> {monthlyData.counts?.ok ?? 0} совпадает
+                  <CheckCircle2 size={13} /> {monthlyData?.counts?.ok ?? 0} совпадает
                 </span>
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-medium">
-                  <Clock size={13} /> {monthlyData.counts?.warning ?? 0} допустимо
+                  <Clock size={13} /> {monthlyData?.counts?.warning ?? 0} допустимо
                 </span>
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 font-medium">
-                  <AlertTriangle size={13} /> {monthlyData.counts?.high ?? 0} расхождение
+                  <AlertTriangle size={13} /> {monthlyData?.counts?.high ?? 0} расхождение
                 </span>
               </div>
               <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
@@ -824,18 +930,46 @@ export function ReconPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
-                      {monthlyData.rows.map((r: any, i: number) => {
+                      {(monthlyData?.rows ?? []).map((r: ReconMonthlyRow, i: number) => {
                         const MONTH_NAMES = ['', 'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
-                        const cellCls = (cell: any) => clsx(
+                        const cellCls = (cell: ReconCell | undefined) => clsx(
                           'px-2 py-2 text-right tabular-nums',
                           cell?.status === 'ok' && 'text-emerald-600 dark:text-emerald-400',
                           cell?.status === 'warning' && 'text-amber-600 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20',
                           cell?.status === 'high' && 'text-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20',
                           cell?.status === 'empty' && 'text-zinc-300 dark:text-zinc-600',
                         );
+                        const rowKey = `${r.deptId}-${r.month}`;
+                        const isOpen = expandedMonthly === rowKey;
+                        const rc = r.rootCause;
+                        const deltaCls = (cell: ReconCell | undefined) => clsx(
+                          'font-semibold tabular-nums',
+                          cell?.status === 'ok' && 'text-emerald-600 dark:text-emerald-400',
+                          cell?.status === 'warning' && 'text-amber-600 dark:text-amber-400',
+                          cell?.status === 'high' && 'text-red-600 dark:text-red-400',
+                          (!cell || cell?.status === 'empty') && 'text-zinc-400 dark:text-zinc-500',
+                        );
+                        const moneyRow = (label: string, cell: ReconCell | undefined) => (
+                          <div key={label} className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className="text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{label}</span>
+                            <span className="flex items-center gap-1.5 tabular-nums">
+                              <span className="text-zinc-400 dark:text-zinc-500">{formatMoney(cell?.shdyu ?? 0)}</span>
+                              <ArrowRight size={9} className="text-zinc-300 dark:text-zinc-600 shrink-0" />
+                              <span className="text-zinc-600 dark:text-zinc-300">{formatMoney(cell?.calc ?? 0)}</span>
+                              <span className={deltaCls(cell)}>Δ {fmtNum(cell?.delta ?? 0)}</span>
+                            </span>
+                          </div>
+                        );
                         return (
-                          <tr key={`${r.deptId}-${r.month}-${i}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/30 cursor-pointer" onClick={() => navigateTo('data', { department: r.deptId, months: [r.month] })}>
-                            <td className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-200">{r.deptName}</td>
+                          <React.Fragment key={`${rowKey}-${i}`}>
+                          <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/30 cursor-pointer" onClick={() => setExpandedMonthly(isOpen ? null : rowKey)}>
+                            <td className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-200">
+                              <span className="flex items-center gap-1.5">
+                                {isOpen ? <ChevronUp size={12} className="text-zinc-400 shrink-0" /> : <ChevronDown size={12} className="text-zinc-400 shrink-0" />}
+                                {r.deptName}
+                                {rc && <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', rc.severity === 'critical' ? 'bg-red-500' : 'bg-amber-500')} title={rc.label} />}
+                              </span>
+                            </td>
                             <td className="px-3 py-2 text-center text-zinc-500">{MONTH_NAMES[r.month]}</td>
                             <td className={cellCls(r.compPlan)}>{fmtNum(r.compPlan?.shdyu ?? 0)}</td>
                             <td className={cellCls(r.compPlan)}>{fmtNum(r.compPlan?.calc ?? 0)}</td>
@@ -846,6 +980,89 @@ export function ReconPage() {
                             <td className={cellCls(r.epFact)}>{fmtNum(r.epFact?.shdyu ?? 0)}</td>
                             <td className={cellCls(r.epFact)}>{fmtNum(r.epFact?.calc ?? 0)}</td>
                           </tr>
+                          {isOpen && (
+                            <tr className="bg-zinc-50/80 dark:bg-zinc-900/40">
+                              <td colSpan={10} className="px-5 py-4">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+                                  <div className="space-y-2">
+                                    <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
+                                      <AlertTriangle size={13} className={rc ? (rc.severity === 'critical' ? 'text-red-500' : 'text-amber-500') : 'text-zinc-400'} />
+                                      Причина расхождения с ШДЮ
+                                    </div>
+                                    {rc ? (
+                                      <div className={clsx('rounded-lg p-3 border',
+                                        rc.severity === 'critical' ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800')}>
+                                        <div className="flex items-start justify-between gap-2">
+                                          <span className={clsx('font-bold text-[11px]', rc.severity === 'critical' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400')}>{rc.label}</span>
+                                          <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/60 dark:bg-black/20 text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{rc.confidence === 'high' ? 'высокая' : rc.confidence === 'medium' ? 'средняя' : 'низкая'} достоверность</span>
+                                        </div>
+                                        <div className="text-[10px] mt-1 text-zinc-600 dark:text-zinc-400 leading-relaxed">{rc.evidence}</div>
+                                        {rc.suggestedAction && (
+                                          <div className="text-[10px] mt-2 font-medium text-zinc-700 dark:text-zinc-300 leading-relaxed">{rc.suggestedAction}</div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="rounded-lg p-3 border bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200 dark:border-zinc-700 text-[10px] text-zinc-400 dark:text-zinc-500">Существенных расхождений нет или причина не классифицирована.</div>
+                                    )}
+                                    {r.warnings && r.warnings.length > 0 && (
+                                      <ul className="space-y-1">
+                                        {r.warnings.map((w: string, wi: number) => (
+                                          <li key={wi} className="flex items-start gap-1.5 text-[10px] text-amber-700 dark:text-amber-400">
+                                            <AlertTriangle size={10} className="mt-0.5 shrink-0" /> {w}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                    <button
+                                      className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+                                      onClick={(e) => { e.stopPropagation(); navigateTo('data', { department: r.deptId, months: [r.month] }); }}
+                                    >
+                                      <ArrowRight size={11} /> Открыть строки за {MONTH_NAMES[r.month]} в данных
+                                    </button>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
+                                      <FileSpreadsheet size={13} className="text-blue-500" /> Суммы, тыс. ₽ — ШДЮ → Расчёт, Δ
+                                    </div>
+                                    <div className="bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5">
+                                      {moneyRow('КП план', r.compPlanTotal)}
+                                      {moneyRow('КП факт', r.compFactTotal)}
+                                      {moneyRow('ЕП план', r.epPlanTotal)}
+                                      {moneyRow('ЕП факт', r.epFactTotal)}
+                                    </div>
+                                    {(() => {
+                                      if (!r.compBudget && !r.epBudget) return null;
+                                      const budgetRows: Array<[string, any]> = [];
+                                      const collect = (tag: string, b: ReconBudget | undefined) => {
+                                        if (!b) return;
+                                        const defs: Array<[string, string]> = [
+                                          ['план ФБ', 'planFB'], ['план КБ', 'planKB'], ['план МБ', 'planMB'],
+                                          ['факт ФБ', 'factFB'], ['факт КБ', 'factKB'], ['факт МБ', 'factMB'],
+                                          ['эконом. ФБ', 'economyFB'], ['эконом. КБ', 'economyKB'], ['эконом. МБ', 'economyMB'],
+                                        ];
+                                        for (const [lab, fk] of defs) {
+                                          const c = b[fk];
+                                          if (c && (c.status === 'warning' || c.status === 'high')) budgetRows.push([`${tag} ${lab}`, c]);
+                                        }
+                                      };
+                                      collect('КП', r.compBudget);
+                                      collect('ЕП', r.epBudget);
+                                      return budgetRows.length === 0 ? (
+                                        <div className="text-[10px] text-emerald-600 dark:text-emerald-400 px-1">Бюджетная разбивка (ФБ/КБ/МБ) сходится.</div>
+                                      ) : (
+                                        <div className="bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5">
+                                          <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">Расхождения по бюджетам (ФБ/КБ/МБ)</div>
+                                          {budgetRows.map(([lab, c]) => moneyRow(lab, c))}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -876,15 +1093,15 @@ export function ReconPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
-                  {fd.depts.map((dept: any) => {
-                    const subs: any[] = dept.subordinates ?? [];
+                  {fd.depts.map((dept: ReconDeptNode) => {
+                    const subs: ReconSubordinate[] = dept.subordinates ?? [];
                     if (subs.length === 0) return null;
 
-                    const deptPlanCount = subs.reduce((s: number, sub: any) => s + (sub.rowCount ?? 0), 0);
-                    const deptFactCount = subs.reduce((s: number, sub: any) => s + (sub.competitiveCount ?? 0) + (sub.epCount ?? 0), 0);
-                    const deptPlanTotal = subs.reduce((s: number, sub: any) => s + (sub.planTotal ?? 0), 0);
-                    const deptFactTotal = subs.reduce((s: number, sub: any) => s + (sub.factTotal ?? 0), 0);
-                    const deptEconomy = subs.reduce((s: number, sub: any) => s + (sub.economyTotal ?? 0), 0);
+                    const deptPlanCount = subs.reduce((s: number, sub: ReconSubordinate) => s + (sub.rowCount ?? 0), 0);
+                    const deptFactCount = subs.reduce((s: number, sub: ReconSubordinate) => s + (sub.competitiveCount ?? 0) + (sub.epCount ?? 0), 0);
+                    const deptPlanTotal = subs.reduce((s: number, sub: ReconSubordinate) => s + (sub.planTotal ?? 0), 0);
+                    const deptFactTotal = subs.reduce((s: number, sub: ReconSubordinate) => s + (sub.factTotal ?? 0), 0);
+                    const deptEconomy = subs.reduce((s: number, sub: ReconSubordinate) => s + (sub.economyTotal ?? 0), 0);
                     const deptExecPct = deptPlanCount > 0 ? (deptFactCount / deptPlanCount) * 100 : 0;
 
                     const deptName = dept.department?.nameShort ?? dept.department?.name ?? dept.department?.id ?? '?';
@@ -904,8 +1121,8 @@ export function ReconPage() {
                         </tr>
 
                         {/* Subordinate rows */}
-                        {subs.map((sub: any, idx: number) => {
-                          const execPct = sub.executionPct ?? (sub.rowCount > 0 ? ((sub.competitiveCount + sub.epCount) / sub.rowCount) * 100 : 0);
+                        {subs.map((sub: ReconSubordinate, idx: number) => {
+                          const execPct = sub.executionPct ?? ((sub.rowCount ?? 0) > 0 ? (((sub.competitiveCount ?? 0) + (sub.epCount ?? 0)) / (sub.rowCount ?? 1)) * 100 : 0);
                           return (
                             <tr
                               key={`${deptKey}-${sub.name}-${idx}`}
@@ -1054,14 +1271,14 @@ export function ReconPage() {
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
                   {[
-                    ['УЭР',    'Все',   42,  47,  53,  58, 'U46', 'U57'],
-                    ['УИО',    'Все',   72,  77,  83,  88, '—',   '—'],
+                    ['УЭР',    'УЭР',   42,  47,  53,  58, 'U46', 'U57'],
+                    ['УИО',    'УИО',   72,  77,  83,  88, '—',   '—'],
                     ['УАГЗО',  'УАГЗО', 102, 107, 113, 118, '—',  '—'],
                     ['УФБП',   'УФБП',  132, 137, 143, 148, '—',  'U147'],
-                    ['УД',     'Все',   163, 168, 175, 180, 'U167','U179'],
+                    ['УД',     'ВСЕ',   163, 168, 175, 180, 'U167','U179'],
                     ['УДТХ',   'УДТХ',  195, 200, 206, 211, 'U199','U210'],
-                    ['УКСиМП', 'Все',   225, 230, 236, 241, 'U229','U240'],
-                    ['УО',     'Все',   255, 260, 266, 271, 'U259','U270'],
+                    ['УКСиМП', 'ВСЕ',   225, 230, 236, 241, 'U229','U240'],
+                    ['УО',     'ВСЕ',   255, 260, 266, 271, 'U259','U270'],
                   ].map(([name, sheet, kpQ1, kpY, epQ1, epY, ecoKP, ecoEP]) => (
                     <tr key={name as string}>
                       <td className="px-2 py-1 font-medium">{name}</td>

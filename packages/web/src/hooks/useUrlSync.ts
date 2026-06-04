@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import type { PeriodScope, ProcurementFilter, ActivityFilter, YearFilter, BudgetType } from '../store';
+import type { PeriodScope, ProcurementFilter, ActivityFilter, BudgetType } from '../store';
 
 const VALID_PERIODS: PeriodScope[] = ['year', 'q1', 'q2', 'q3', 'q4'];
 const VALID_METHODS: ProcurementFilter[] = ['all', 'competitive', 'single'];

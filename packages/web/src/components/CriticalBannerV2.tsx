@@ -61,6 +61,12 @@ export function CriticalBannerV2({
   const [activeGroupIdx, setActiveGroupIdx] = useState(0);
   const groupRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+  useEffect(() => {
+    if (!expanded) return;
+    const el = groupRefs.current[activeGroupIdx];
+    el?.focus({ preventScroll: false });
+  }, [activeGroupIdx, expanded]);
+
   // ── Empty state ───────────────────────────────────────────
   if (criticalCount === 0 && warningCount === 0) {
     return (
@@ -141,13 +147,6 @@ export function CriticalBannerV2({
       });
     }
   };
-
-  // Focus active group on keyboard nav
-  useEffect(() => {
-    if (!expanded) return;
-    const el = groupRefs.current[activeGroupIdx];
-    el?.focus({ preventScroll: false });
-  }, [activeGroupIdx, expanded]);
 
   return (
     <div className="space-y-1.5">

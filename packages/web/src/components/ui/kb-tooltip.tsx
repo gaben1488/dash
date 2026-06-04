@@ -107,7 +107,7 @@ function ThresholdLine({ text }: { text: string }) {
         return (
           <div key={i} className="flex items-start gap-1.5">
             <span className={cn('w-1.5 h-1.5 rounded-full mt-1 shrink-0', dotColor)} />
-            <span className="text-[10px] text-zinc-300">{trimmed.replace(/^[🟢🟡🔴]\s*/, '')}</span>
+            <span className="text-[10px] text-zinc-300">{trimmed.replace(/^[🟢🟡🔴]\s*/u, '')}</span>
           </div>
         );
       })}

@@ -4,7 +4,43 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Info } from 'lucide-react';
 import clsx from 'clsx';
 import { TRUST_COMPONENT_CONFIG } from '@aemr/shared';
-import type { TrustComponentId } from '@aemr/shared';
+import type { TrustComponentId, TrustComponent } from '@aemr/shared';
+import { buildTrustViewModel } from '../lib/trust-metrics';
+
+// ── Локальные view-model типы для данных доверия (источники из useFilteredData — any[]).
+interface TrustIssue {
+  severity?: string;
+  title?: string;
+  description?: string;
+  sheet?: string;
+  cell?: string;
+  category?: string;
+  departmentId?: string;
+  group?: string;
+  origin?: string;
+  kbHint?: string;
+}
+interface TrustDelta {
+  withinTolerance: boolean;
+  deltaPercent: number | null;
+  label?: string;
+  metricKey?: string;
+}
+interface TrustDept {
+  trustScore?: number;
+  department?: { id?: string; name?: string; nameShort?: string };
+  issueCount?: number;
+  criticalIssueCount?: number;
+  trustComponents?: TrustComponent[];
+}
+interface TrustFactor {
+  severity: string;
+  text: string;
+  description: string;
+  ref: string;
+  category: string;
+  departmentId: string;
+}
 
 /** Russian descriptions for each trust component */
 const COMPONENT_DESCRIPTIONS: Record<string, string> = {
@@ -186,32 +222,18 @@ export function TrustPage() {
 
   // When departments are filtered, compute weighted average trust from filtered depts
   const hasDeptFilter = fd.hasDeptFilter || fd.hasSubFilter;
-  const filteredDeptSummaries = [...fd.depts].sort((a: any, b: any) => (a.trustScore ?? 0) - (b.trustScore ?? 0));
+  const filteredDeptSummaries = [...fd.depts].sort((a: TrustDept, b: TrustDept) => (a.trustScore ?? 0) - (b.trustScore ?? 0));
 
   let overallScore: number;
-  let components: any[];
+  let components: TrustComponent[];
   if (hasDeptFilter && filteredDeptSummaries.length > 0) {
-    // Weighted average of filtered dept trust scores (equal weight per dept)
-    const scores = filteredDeptSummaries.map((d: any) => d.trustScore ?? 0);
-    overallScore = scores.length > 0
-      ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length)
-      : 0;
-
-    // Merge component scores across filtered depts
-    const allComponentNames = trustData?.components?.map((c: any) => c.name) ?? [];
-    components = allComponentNames.map((name: string) => {
-      const globalComp = trustData?.components?.find((c: any) => c.name === name);
-      const deptScores = filteredDeptSummaries
-        .map((d: any) => d.trustComponents?.find((tc: any) => tc.name === name)?.score)
-        .filter((s: any) => s != null) as number[];
-      const avgScore = deptScores.length > 0
-        ? Math.round(deptScores.reduce((a, b) => a + b, 0) / deptScores.length)
-        : (globalComp?.score ?? 0);
-      return { ...globalComp, score: avgScore };
-    });
+    const trustView = buildTrustViewModel(trustData, filteredDeptSummaries);
+    overallScore = trustView.overallScore;
+    components = trustView.components;
   } else {
-    overallScore = trustData?.overall ?? 0;
-    components = trustData?.components ?? [];
+    const trustView = buildTrustViewModel(trustData);
+    overallScore = trustView.overallScore;
+    components = trustView.components;
   }
 
   const overallGrade = scoreToGrade(overallScore);
@@ -224,8 +246,8 @@ export function TrustPage() {
   const deltas = fd.deltas;
 
   const factors = filteredIssues
-    .filter((issue: any) => issue.severity === 'critical' || issue.severity === 'significant')
-    .map((issue: any) => ({
+    .filter((issue: TrustIssue) => issue.severity === 'critical' || issue.severity === 'significant')
+    .map((issue: TrustIssue) => ({
       severity: issue.severity as string,
       text: issue.title as string,
       description: issue.description as string,
@@ -283,7 +305,7 @@ export function TrustPage() {
             <p className="text-xs text-zinc-400 dark:text-zinc-500">Компоненты доверия отсутствуют.</p>
           ) : (
             <div className="space-y-3">
-              {components.map((c: any) => {
+              {components.map((c: TrustComponent) => {
                 const isExpanded = expandedComponent === c.name;
                 const description = COMPONENT_DESCRIPTIONS[c.name] ?? c.details ?? '';
                 const componentIssues = getComponentIssues(c.name, filteredIssues, deltas);
@@ -332,7 +354,7 @@ export function TrustPage() {
                         {/* Per-rule breakdown for rule_compliance */}
                         {c.name === 'rule_compliance' && componentIssues.length > 0 && (() => {
                           const byCat: Record<string, number> = {};
-                          componentIssues.forEach((i: any) => { byCat[i.category || 'unknown'] = (byCat[i.category || 'unknown'] || 0) + 1; });
+                          componentIssues.forEach((i: TrustIssue) => { byCat[i.category || 'unknown'] = (byCat[i.category || 'unknown'] || 0) + 1; });
                           return (
                             <div className="ml-5 mb-3">
                               <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mb-2">Нарушения по правилам:</p>
@@ -372,7 +394,7 @@ export function TrustPage() {
                             <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1">
                               Связанные замечания ({componentIssues.length}):
                             </p>
-                            {componentIssues.slice(0, 5).map((issue: any, idx: number) => (
+                            {componentIssues.slice(0, 5).map((issue: TrustIssue, idx: number) => (
                               <div key={idx} className={clsx(
                                 'text-xs p-2 rounded',
                                 issue.severity === 'critical' ? 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300'
@@ -440,7 +462,7 @@ export function TrustPage() {
                 <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                   <th className="px-5 py-3 text-left">Управление</th>
                   <th className="px-3 py-3 text-center">Общий</th>
-                  {components.map((c: any) => (
+                  {components.map((c: TrustComponent) => (
                     <th key={c.name} className="px-2 py-3 text-center" title={c.label}>
                       {COMPONENT_SHORT_LABELS[c.name] ?? c.name.slice(0, 2).toUpperCase()}
                     </th>
@@ -450,9 +472,8 @@ export function TrustPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
-                {deptSummaries.map((d: any) => {
+                {deptSummaries.map((d: TrustDept) => {
                   const score = d.trustScore ?? 0;
-                  const grade = scoreToGrade(score);
                   const deptComponents = d.trustComponents ?? [];
 
                   return (
@@ -469,8 +490,8 @@ export function TrustPage() {
                           {score}
                         </span>
                       </td>
-                      {components.map((c: any) => {
-                        const dc = deptComponents.find((tc: any) => tc.name === c.name);
+                      {components.map((c: TrustComponent) => {
+                        const dc = deptComponents.find((tc: TrustComponent) => tc.name === c.name);
                         const cs = dc?.score ?? null;
                         return (
                           <td key={c.name} className="px-2 py-3 text-center">
@@ -508,7 +529,7 @@ export function TrustPage() {
           <p className="text-xs text-zinc-400 dark:text-zinc-500">Критических и значительных замечаний не обнаружено.</p>
         ) : (
           <div className="space-y-2">
-            {factors.slice(0, 20).map((f: any, i: number) => (
+            {factors.slice(0, 20).map((f: TrustFactor, i: number) => (
               <div key={i} className={clsx(
                 'flex items-start gap-3 p-3 rounded-lg',
                 f.severity === 'critical' && 'bg-red-50 dark:bg-red-950/20',
@@ -545,12 +566,12 @@ export function TrustPage() {
  * MUST match scorer.ts filters exactly to avoid frontend/backend divergence.
  */
 /** Group-based issue filtering aligned with scorer.ts via TRUST_COMPONENT_CONFIG */
-function getComponentIssues(componentName: string, issues: any[], deltas: any[]): any[] {
+function getComponentIssues(componentName: string, issues: TrustIssue[], deltas: TrustDelta[]): TrustIssue[] {
   // mapping_consistency uses deltas, not issues
   if (componentName === 'mapping_consistency') {
     return deltas
-      .filter((d: any) => !d.withinTolerance)
-      .map((d: any) => ({
+      .filter((d: TrustDelta) => !d.withinTolerance)
+      .map((d: TrustDelta) => ({
         title: `${d.label}: расхождение ${d.deltaPercent?.toFixed(1) ?? '?'}%`,
         severity: Math.abs(d.deltaPercent ?? 0) > 5 ? 'critical' : 'significant',
         sheet: 'СВОД',
@@ -563,7 +584,7 @@ function getComponentIssues(componentName: string, issues: any[], deltas: any[])
 
   const groups = new Set<string>(config.issueGroups);
 
-  return issues.filter((i: any) => {
+  return issues.filter((i: TrustIssue) => {
     // Primary: use group field if populated
     if (i.group) return groups.has(i.group);
     // Fallback: legacy category matching
@@ -571,7 +592,7 @@ function getComponentIssues(componentName: string, issues: any[], deltas: any[])
   });
 }
 
-function matchLegacyCategory(i: any, componentName: string): boolean {
+function matchLegacyCategory(i: TrustIssue, componentName: string): boolean {
   switch (componentName) {
     case 'data_quality':
       return i.category === 'signal:dataQuality' ||

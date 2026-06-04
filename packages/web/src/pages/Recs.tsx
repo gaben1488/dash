@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api } from '../api';
 import { Lightbulb, ChevronDown, ChevronUp, AlertTriangle, Info, Zap, HelpCircle, Inbox, Search } from 'lucide-react';
@@ -63,7 +62,6 @@ function generateRecommendation(issue: any): string {
 }
 
 export function RecsPage() {
-  const { dashboardData } = useStore();
   const fd = useFilteredData();
   const [openDepts, setOpenDepts] = useState<Set<string>>(new Set());
 
@@ -111,7 +109,8 @@ export function RecsPage() {
   const toggleDept = (dept: string) => {
     setHasInteracted(true);
     const next = new Set(effectiveOpen);
-    next.has(dept) ? next.delete(dept) : next.add(dept);
+    if (next.has(dept)) next.delete(dept);
+    else next.add(dept);
     setOpenDepts(next);
   };
 

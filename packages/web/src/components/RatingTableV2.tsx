@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from './ui/kb-tooltip';
-import { Badge } from './ui/badge';
 import {
   ArrowUpDown,
   ChevronRight,
@@ -12,7 +11,7 @@ import {
   ExternalLink,
   Building2,
 } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { getThresholdColor, getThresholdBg } from '@/lib/metrics-registry';
 
 // ────────────────────────────────────────────────────────────────
@@ -279,7 +278,10 @@ function DeptRowComponent({
           'hover:bg-blue-50/40 dark:hover:bg-blue-950/10',
           isExpanded && 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/30 dark:border-blue-800/30',
         )}
-        onClick={onToggleExpand}
+        onClick={() => {
+          onDeptClick();
+          onToggleExpand();
+        }}
       >
         {/* Rank */}
         <td className="px-2 py-3 text-center">

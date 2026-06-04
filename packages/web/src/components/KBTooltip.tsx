@@ -74,8 +74,8 @@ export function KBTooltip({ kb, children, position = 'top', showIcon = false, cl
     const tooltip = tooltipRef.current.getBoundingClientRect();
     const pad = 8;
 
-    let top = 0;
-    let left = 0;
+    let top: number;
+    let left: number;
 
     switch (position) {
       case 'bottom':

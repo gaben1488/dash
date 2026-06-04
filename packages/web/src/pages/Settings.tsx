@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Database, Map, Key, RefreshCw, CheckCircle2, AlertTriangle, Clock, ExternalLink, Save, Eye, EyeOff, HelpCircle, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Database, Map, Key, RefreshCw, CheckCircle2, AlertTriangle, Clock, ExternalLink, Save, Eye, EyeOff, HelpCircle, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '../api';
 import { useStore } from '../store';

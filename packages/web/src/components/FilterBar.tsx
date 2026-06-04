@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import type { MoneyUnit, BudgetType } from '../store';
-import { Search, X, ChevronDown, Calendar, Filter, RotateCcw } from 'lucide-react';
+import { Search, X, ChevronDown, Calendar, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
 
 import { YearScroller } from './filters/YearScroller';

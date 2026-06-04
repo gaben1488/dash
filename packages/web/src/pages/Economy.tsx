@@ -1,19 +1,19 @@
-import { useState, useMemo, useCallback, Fragment, useRef } from 'react';
+import { useState, useMemo, useCallback, Fragment } from 'react';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 // HeroKPICard removed — Economy uses custom dense hero strip
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import {
   Inbox, Download, ChevronDown, ChevronUp, ChevronRight,
-  AlertTriangle, Users, BarChart3, TrendingUp, TrendingDown,
-  Minus, ArrowRight, FileText, CircleDot, Filter, Sparkles,
-  Building2, Layers, ArrowUpDown, Zap, Shield, Eye, EyeOff,
-  ExternalLink, Hash, Percent, DollarSign, Activity,
+  AlertTriangle, BarChart3, TrendingUp,
+  CircleDot, Sparkles,
+  Building2, Layers, ArrowUpDown, Zap,
+  ExternalLink, Activity,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
-  ResponsiveContainer, Legend, CartesianGrid, LineChart, Line,
-  Cell, ComposedChart, Area,
+  Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
+  ResponsiveContainer, CartesianGrid, Line,
+  ComposedChart, Area,
 } from 'recharts';
 import clsx from 'clsx';
 
@@ -295,7 +295,7 @@ function EconomyChartTooltip({ active, payload, formatMoney: fmt }: {
 
 export function EconomyPage() {
   const { formatMoney, toggleDepartment, toggleSubordinate, navigateTo, period, activeMonths,
-    selectedBudgets, selectedMethods, deptOnlyMode, selectedDepartments } = useStore();
+    selectedBudgets, selectedMethods, deptOnlyMode } = useStore();
   const fd = useFilteredData();
 
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
@@ -308,7 +308,8 @@ export function EconomyPage() {
   const toggleExpand = useCallback((dept: string) => {
     setExpandedDepts(prev => {
       const next = new Set(prev);
-      next.has(dept) ? next.delete(dept) : next.add(dept);
+      if (next.has(dept)) next.delete(dept);
+      else next.add(dept);
       return next;
     });
   }, []);
@@ -357,9 +358,10 @@ export function EconomyPage() {
       // Raw budget components
       const planFB = q?.planFB ?? 0, planKB = q?.planKB ?? 0, planMB = q?.planMB ?? 0;
       const factFB = q?.factFB ?? 0, factKB = q?.factKB ?? 0, factMB = q?.factMB ?? 0;
-      const rawEcoFB = q?.economyFB ?? (planFB - factFB);
-      const rawEcoKB = q?.economyKB ?? (planKB - factKB);
-      const rawEcoMB = q?.economyMB ?? (planMB - factMB);
+      // Economy is approved (AD="да") Z/AA/AB only — never plan−fact (METRICS_CONTRACT.md:11).
+      const rawEcoFB = q?.economyFB ?? 0;
+      const rawEcoKB = q?.economyKB ?? 0;
+      const rawEcoMB = q?.economyMB ?? 0;
 
       // Apply budget filter: use only selected budget components
       const limit = isBudgetFiltered
@@ -370,7 +372,7 @@ export function EconomyPage() {
         : (q?.factTotal ?? s.factTotal ?? 0);
       const economy = isBudgetFiltered
         ? sumBudget(rawEcoFB, rawEcoKB, rawEcoMB)
-        : (q?.economyTotal ?? s.economyTotal ?? (limit - price));
+        : (q?.economyTotal ?? s.economyTotal ?? 0);
       const pct = limit > 0 ? (economy / limit) * 100 : 0;
 
       // Subordinates (respect budget filter + deptOnly mode)
@@ -380,10 +382,10 @@ export function EconomyPage() {
         .map((sub: any) => {
           const sPlanFB = sub.planFB ?? 0, sPlanKB = sub.planKB ?? 0, sPlanMB = sub.planMB ?? 0;
           const sFactFB = sub.factFB ?? 0, sFactKB = sub.factKB ?? 0, sFactMB = sub.factMB ?? 0;
-          const sEcoFB = sPlanFB - sFactFB, sEcoKB = sPlanKB - sFactKB, sEcoMB = sPlanMB - sFactMB;
+          const sEcoFB = sub.economyFB ?? 0, sEcoKB = sub.economyKB ?? 0, sEcoMB = sub.economyMB ?? 0;
           const sp = isBudgetFiltered ? sumBudget(sPlanFB, sPlanKB, sPlanMB) : (sub.planTotal ?? 0);
           const sf = isBudgetFiltered ? sumBudget(sFactFB, sFactKB, sFactMB) : (sub.factTotal ?? 0);
-          const se = isBudgetFiltered ? sumBudget(sEcoFB, sEcoKB, sEcoMB) : (sub.economyTotal ?? (sp - sf));
+          const se = isBudgetFiltered ? sumBudget(sEcoFB, sEcoKB, sEcoMB) : (sub.economyTotal ?? 0);
           return {
             name: sub.name,
             planTotal: sp, factTotal: sf, economy: se,
@@ -451,7 +453,7 @@ export function EconomyPage() {
           const eFB = q.economyFB ?? 0, eKB = q.economyKB ?? 0, eMB = q.economyMB ?? 0;
           const pFB = q.planFB ?? 0, pKB = q.planKB ?? 0, pMB = q.planMB ?? 0;
           fbEco += eFB; kbEco += eKB; mbEco += eMB;
-          totalEco += isBudgetFiltered ? sumBudget(eFB, eKB, eMB) : (q.economyTotal ?? ((q.planTotal ?? 0) - (q.factTotal ?? 0)));
+          totalEco += isBudgetFiltered ? sumBudget(eFB, eKB, eMB) : (q.economyTotal ?? 0);
           totalPlan += isBudgetFiltered ? sumBudget(pFB, pKB, pMB) : (q.planTotal ?? 0);
         }
       }
@@ -470,7 +472,7 @@ export function EconomyPage() {
         if (!q) return 0;
         return isBudgetFiltered
           ? sumBudget(q.economyFB ?? 0, q.economyKB ?? 0, q.economyMB ?? 0)
-          : (q.economyTotal ?? ((q.planTotal ?? 0) - (q.factTotal ?? 0)));
+          : (q.economyTotal ?? 0);
       });
       return { id, data, color: DEPT_COLORS_CHART[idx % DEPT_COLORS_CHART.length] };
     });
@@ -497,7 +499,7 @@ export function EconomyPage() {
         const q = s.quarters?.[qk];
         if (!q) return 0;
         if (isBudgetFiltered) return sumBudget(q.economyFB ?? 0, q.economyKB ?? 0, q.economyMB ?? 0);
-        return q.economyTotal ?? ((q.planTotal ?? 0) - (q.factTotal ?? 0));
+        return q.economyTotal ?? 0;
       });
     }
     return map;
@@ -512,7 +514,7 @@ export function EconomyPage() {
         if (q) {
           eco += isBudgetFiltered
             ? sumBudget(q.economyFB ?? 0, q.economyKB ?? 0, q.economyMB ?? 0)
-            : (q.economyTotal ?? ((q.planTotal ?? 0) - (q.factTotal ?? 0)));
+            : (q.economyTotal ?? 0);
         }
       }
       return eco;
@@ -529,7 +531,7 @@ export function EconomyPage() {
             eco += sumBudget(q.economyFB ?? 0, q.economyKB ?? 0, q.economyMB ?? 0);
           } else {
             plan += q.planTotal ?? 0;
-            eco += q.economyTotal ?? ((q.planTotal ?? 0) - (q.factTotal ?? 0));
+            eco += q.economyTotal ?? 0;
           }
         }
       }
@@ -547,12 +549,6 @@ export function EconomyPage() {
   const totalFbEco = deptEconomy.reduce((s, d) => s + d.budget.economyFB, 0);
   const totalKbEco = deptEconomy.reduce((s, d) => s + d.budget.economyKB, 0);
   const totalMbEco = deptEconomy.reduce((s, d) => s + d.budget.economyMB, 0);
-
-  const ecoTrend = economySpark.length >= 2
-    ? economySpark[3] > economySpark[2] ? 'up' as const
-      : economySpark[3] < economySpark[2] ? 'down' as const
-      : 'stable' as const
-    : undefined;
 
   // ── Deltas: compare last non-zero quarter vs previous ──
   const lastQIdx = economySpark.reduce((last, v, i) => v !== 0 ? i : last, -1);

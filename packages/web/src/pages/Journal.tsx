@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { api } from '../api';
 import { BookOpen, Search, Filter, Inbox, Database, FileEdit, AlertTriangle, Settings, RefreshCw, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
@@ -75,7 +75,8 @@ export function JournalPage() {
 
   const toggleType = (t: EventType) => {
     const next = new Set(typeFilter);
-    next.has(t) ? next.delete(t) : next.add(t);
+    if (next.has(t)) next.delete(t);
+    else next.add(t);
     setTypeFilter(next);
     setCurrentPage(1);
   };

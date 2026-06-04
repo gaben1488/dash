@@ -87,6 +87,20 @@ function displayValue(value: unknown, type: CellType): string {
   }
 }
 
+function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const { [key]: _removed, ...rest } = record;
+  return rest;
+}
+
+function omitRecordKeys<T>(
+  record: Record<string, T>,
+  shouldOmit: (key: string) => boolean,
+): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => !shouldOmit(key)),
+  ) as Record<string, T>;
+}
+
 // ────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────
@@ -213,11 +227,7 @@ export function TableEditor({
       if (err) {
         setErrors(prev => ({ ...prev, [errKey]: err }));
       } else {
-        setErrors(prev => {
-          const next = { ...prev };
-          delete next[errKey];
-          return next;
-        });
+        setErrors(prev => omitRecordKey(prev, errKey));
       }
     }
 
@@ -316,11 +326,7 @@ export function TableEditor({
     try {
       await onSaveRow(rowId, { ...row });
       // Clear dirty state on success
-      setDirty(prev => {
-        const next = { ...prev };
-        delete next[rowId];
-        return next;
-      });
+      setDirty(prev => omitRecordKey(prev, rowId));
     } finally {
       setSavingRows(prev => {
         const next = new Set(prev);
@@ -332,19 +338,9 @@ export function TableEditor({
 
   const handleRevertRow = useCallback((rowId: string) => {
     onRevertRow?.(rowId);
-    setDirty(prev => {
-      const next = { ...prev };
-      delete next[rowId];
-      return next;
-    });
+    setDirty(prev => omitRecordKey(prev, rowId));
     // Clear errors for this row
-    setErrors(prev => {
-      const next = { ...prev };
-      for (const k of Object.keys(next)) {
-        if (k.startsWith(`${rowId}:`)) delete next[k];
-      }
-      return next;
-    });
+    setErrors(prev => omitRecordKeys(prev, key => key.startsWith(`${rowId}:`)));
   }, [onRevertRow]);
 
   // ── Add column handler ──

@@ -1,12 +1,11 @@
-import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from '../ui/kb-tooltip';
 import { useTheme } from '../ThemeProvider';
-import { getChartColors, getTooltipStyle, getAxisColor, getGridColor } from '@/lib/chart-colors';
-import type { PeriodScope, ProcurementFilter, Page } from '@/store';
+import { getAxisColor, getGridColor } from '@/lib/chart-colors';
+import type { PeriodScope } from '@/store';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, Legend, Cell,
+  ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts';
 
 /* ─── Types ────────────────────────────────────────────────────── */
