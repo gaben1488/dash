@@ -1,65 +1,109 @@
-# AEMR — production deploy на VPS
+# AEMR Production Deploy
 
-Цель: запустить полный AEMR (web + Fastify API + SQLite) на VPS через docker compose.
+Канонический production stack: Docker Compose с тремя контейнерами.
 
-## Быстрый старт
+- `caddy`: edge proxy на 80/443, gzip, optional Let's Encrypt.
+- `web`: собранная Vite SPA, отдаётся Caddy внутри контейнера.
+- `server`: Node 22 + Fastify + SQLite. Данные лежат в volume `server_data`.
 
-```bash
-# на VPS (193.233.244.217), пользователь aemr
-cd ~/dash/deploy
-cp .env.production.example .env.production
-nano .env.production  # заполнить Google credentials, AEMR_API_KEY, DOMAIN
-
-docker compose -f docker-compose.yml --env-file .env.production up -d --build
-```
-
-## Архитектура
-
-Три контейнера в одной сети `aemr`:
-
-- **caddy** (80/443) — единый edge-proxy с автоматическим Let's Encrypt сертификатом, если задан реальный DOMAIN. Маршрутизирует `/api/*` → server, всё остальное → web.
-- **web** — собранный Vite SPA, отдаётся встроенным Caddy на :80.
-- **server** — Node 22 + Fastify + better-sqlite3. БД лежит в томе `server_data` (`/app/data/aemr.db`).
-
-## Перенос локальной БД на VPS
-
-С локального ноутбука:
-```bash
-# 1. остановить server-контейнер на VPS
-ssh aemr@193.233.244.217 'cd ~/dash/deploy && docker compose stop server'
-
-# 2. скопировать SQLite файл
-scp packages/server/data/aemr.db aemr@193.233.244.217:/tmp/aemr.db
-
-# 3. перенести в volume и запустить
-ssh aemr@193.233.244.217 << 'EOF'
-docker run --rm -v aemr_server_data:/data -v /tmp/aemr.db:/in/aemr.db alpine \
-    sh -c 'cp /in/aemr.db /data/aemr.db && chown 1000:1000 /data/aemr.db'
-cd ~/dash/deploy && docker compose start server
-EOF
-```
-
-## Backup БД
-
-Каждую ночь cron создаёт snapshot БД в `/var/backups/aemr/`, хранятся 7 дней.
-Скрипт: `/usr/local/bin/aemr-backup.sh` (создаётся при первом деплое).
-
-## Обновление кода
+## Подготовка
 
 ```bash
-cd ~/dash
-git pull origin main
 cd deploy
+cp .env.production.example .env.production
+```
+
+Заполните `.env.production`:
+
+```env
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=3000
+LOG_LEVEL=info
+SQLITE_PATH=/app/packages/server/data/aemr.db
+AEMR_API_KEY=<strong-random-key>
+GOOGLE_SHEETS_SPREADSHEET_ID=<spreadsheet-id>
+GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email>
+GOOGLE_PRIVATE_KEY=<private-key-with-\n-or-real-newlines>
+DOMAIN=:80
+```
+
+`AEMR_API_KEY` обязателен в production. Сгенерировать:
+
+```bash
+openssl rand -base64 32
+```
+
+## Запуск
+
+Из каталога `deploy/`:
+
+```bash
 docker compose --env-file .env.production up -d --build
 ```
 
-Авто-deploy через GitHub Actions описан в `.github/workflows/deploy.yml` (отдельная задача).
+Из корня репозитория:
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production up -d --build
+```
 
 ## Проверка
 
 ```bash
-curl http://193.233.244.217/                  # → 200 + HTML «СВОД»
-curl http://193.233.244.217/api/health        # → 200 + JSON {"status":"ok",...}
-docker compose logs -f server                 # streaming логов
-docker compose ps                              # статус контейнеров
+docker compose --env-file .env.production ps
+docker compose --env-file .env.production logs -f server
+curl http://127.0.0.1/api/health
 ```
+
+Health endpoint публичный и должен вернуть JSON вида:
+
+```json
+{"status":"ok","service":"aemr-server","timestamp":"..."}
+```
+
+Остальные `/api/*` требуют:
+
+```bash
+curl -H "Authorization: Bearer $AEMR_API_KEY" http://127.0.0.1/api/dashboard
+```
+
+## Обновление
+
+```bash
+git pull
+cd deploy
+docker compose --env-file .env.production up -d --build
+```
+
+## SQLite Backup
+
+В репозитории нет автоматического cron backup. Делайте backup volume явно:
+
+```bash
+docker run --rm \
+  -v aemr_server_data:/data:ro \
+  -v "$PWD":/backup \
+  alpine sh -c 'cp /data/aemr.db /backup/aemr-db-$(date +%F-%H%M%S).db'
+```
+
+Restore:
+
+```bash
+docker compose --env-file .env.production stop server
+docker run --rm \
+  -v aemr_server_data:/data \
+  -v "$PWD":/backup \
+  alpine sh -c 'cp /backup/aemr.db /data/aemr.db && chown 1000:1000 /data/aemr.db'
+docker compose --env-file .env.production start server
+```
+
+## Web Auth Bootstrap
+
+Пока полноценного login-flow нет, web client берёт API key из browser localStorage:
+
+```js
+localStorage.setItem('aemr_api_key', '<same-key-as-AEMR_API_KEY>')
+```
+
+Это MLP-режим для внутреннего контура. Для публичного доступа нужен отдельный login/session слой.

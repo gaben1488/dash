@@ -1,5 +1,6 @@
 node_modules/
 dist/
+*.tsbuildinfo
 .env
 .env.local
 .env.production
@@ -37,6 +38,8 @@ __pycache__/
 graphify-out/
 graphify-corpus/
 reports/
+artifacts/
+.playwright-cli/
 
 # Claude Code local artifacts (plugins are user-installed)
 .claude/plugins/
@@ -55,3 +58,8 @@ migrate_memory.py
 # Old code references
 old/
 data/
+# Local agent/browser workspaces
+.analysis/
+.claude/
+.mulch/
+.playwright-cli/
