@@ -6,6 +6,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "concurrently \"pnpm -F @aemr/server dev\" \"pnpm -F @aemr/web dev\"",
     "build": "pnpm -r build",
