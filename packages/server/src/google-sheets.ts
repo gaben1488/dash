@@ -1,5 +1,15 @@
 import { google, type sheets_v4 } from 'googleapis';
 import { config } from './config.js';
+import { sheetValuesRange } from './services/sheet-range.js';
+
+// ============================================================
+// Google Sheets API (spreadsheetId-aware) — AEMR Platform
+// ============================================================
+// Корневой модуль = версия с ЯВНЫМ spreadsheetId: getSheetData() и
+// getSpreadsheetMetadata() принимают необязательный spreadsheetId и читают
+// именно его (по умолчанию — config.google.spreadsheetId). Импортируется
+// routes/journal.ts (источники по управлениям) и services/snapshot.ts.
+// Не путать с services/google-sheets.ts, где spreadsheetId не принимается.
 
 let sheetsApi: sheets_v4.Sheets | null = null;
 
@@ -88,7 +98,7 @@ export async function getSheetData(
 
   const response = await api.spreadsheets.values.get({
     spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
-    range: `'${sheetName}'`,
+    range: sheetValuesRange(sheetName),
     valueRenderOption: 'UNFORMATTED_VALUE',
     dateTimeRenderOption: 'FORMATTED_STRING',
     majorDimension: 'ROWS',

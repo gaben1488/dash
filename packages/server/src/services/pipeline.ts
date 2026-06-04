@@ -7,7 +7,6 @@ import {
   SVOD_SHEET_NAME,
   DEPARTMENT_SHEETS,
   DEPARTMENT_IDS,
-  DEPARTMENT_ROWS,
   DEPARTMENT_SHORT_NAMES,
   buildDepartmentMetrics,
   buildSummaryMetrics,
@@ -20,18 +19,12 @@ import type {
   DepartmentId as TypesDepartmentId,
   DepartmentMetrics as TypesDepartmentMetrics,
   ControlIssue,
-  TrustScore,
   ProcurementRow,
   BudgetBreakdown,
   PeriodMetrics,
-  CompetitiveMetrics,
-  SoleSupplierMetrics,
   Issue,
-  NormalizedMetric,
 } from '@aemr/shared';
 import type {
-  ReportMapDepartmentId,
-  RawSheetData,
   ReportMapDepartmentMetrics,
   RowMetrics,
   SummaryMetrics,
@@ -331,7 +324,7 @@ function reportMapDeptToTyped(
 /** Extract procurement rows from a department sheet */
 function extractProcurementRows(
   sheetData: Record<string, { v: unknown; f?: string } | undefined>,
-  deptId: string,
+  _deptId: string,
 ): ProcurementRow[] {
   const array2D = sheetDataTo2DArray(sheetData);
   const rows: ProcurementRow[] = [];
@@ -413,7 +406,7 @@ function parseType(v: unknown): 'Текущая деятельность' | 'П�
 
 /** Map pipeline Issue[] to ControlIssue[] for the dashboard */
 function mapToControlIssues(issues: Issue[]): ControlIssue[] {
-  return issues.map((issue, idx) => ({
+  return issues.map((issue) => ({
     id: issue.id,
     ruleId: issue.category ?? 'unknown',
     severity: mapSeverity(issue.severity),
@@ -447,7 +440,7 @@ function mapDeptIdToShortName(deptId: string): string {
 // ────────────────────────────────────────────────────────────
 
 /** Get DataSnapshot directly (for routes that need pipeline output) */
-export async function getDataSnapshot(force = false): Promise<DataSnapshot> {
+export async function getDataSnapshot(_force = false): Promise<DataSnapshot> {
   try {
     const cellAddresses = getAllCellAddresses();
     const [batchValues, batchFormulasData] = await Promise.all([

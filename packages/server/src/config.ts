@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { z } from 'zod';
 import type { AppConfig } from '@aemr/shared';
-import { SVOD_SPREADSHEET_ID as SHARED_SVOD_ID } from '@aemr/shared';
+import { DEPARTMENT_SPREADSHEET_IDS, SVOD_SPREADSHEET_ID as SHARED_SVOD_ID } from '@aemr/shared';
 
 // Load .env from monorepo root (2 levels up from packages/server/)
 const rootEnv = resolve(process.cwd(), '.env');
@@ -52,20 +52,13 @@ const env = parsedEnv.data;
 
 // ---------------------------------------------------------------------------
 
-const DEFAULT_DEPARTMENT_SPREADSHEETS: Record<string, string> = {
-  'УЭР': '15NEAE1zK0qc5li4BCwT4Jq-MH6uuA_SFFMG22ZrM4t4',
-  'УИО': '1qCBY5EDSASxK6_ZPQbxzdF8cKIjcwcuykbnOc45Ukn8',
-  'УАГЗО': '1DgO0t_Zx-PXmtLBp5ddkQvb2_pTkmyFKP_PaDqjOyXk',
-  'УФБП': '14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ',
-  'УД': '1zrpgVaCyS4S4KBNMFuDleMJS-PSTonHmPY_bRLgTVsg',
-  'УДТХ': '1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4',
-  'УКСиМП': '1aFAw9AfNxkTVCqwp6G6fchn3ZeDi8FwFu5-xgRSo7aI',
-  'УО': '1AGvXDSKSjpPc11ce4NDK262qySM4W6nFTq2YcgQ6Sds',
-};
+export const DEFAULT_DEPARTMENT_SPREADSHEETS = { ...DEPARTMENT_SPREADSHEET_IDS };
 
 /**
  * СВОД_для_Google — единственная основная таблица.
- * Содержит листы: СВОД ТД-ПМ, ШДЮ, Все (УЭР/УИО/УД/УКСиМП/УО), УАГЗО, УФБП, УДТХ
+ * Содержит листы: СВОД ТД-ПМ, ШДЮ, УЭР, УИО, УАГЗО, УФБП, УД, УДТХ, УКСиМП, УО.
+ * Отдельные книги управлений читаются через DEPARTMENT_SPREADSHEETS; агрегирующий лист
+ * подведомственных называется "ВСЕ".
  * ID определён в @aemr/shared/constants — единый источник истины.
  */
 export const SVOD_SPREADSHEET_ID = SHARED_SVOD_ID;

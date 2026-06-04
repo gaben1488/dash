@@ -1,11 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot, getDeptLoadMeta, getSHDYURawRowCount } from '../services/snapshot.js';
-import { createDemoSnapshot } from '../services/demo-data.js';
 import { db, schema } from '../db/index.js';
 import { desc } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId } from '../config.js';
 import { getSpreadsheetMetadata, getSheetData } from '../google-sheets.js';
-import { detectSignals, classifyRowState } from '@aemr/core';
+import { detectSignals } from '@aemr/core';
 import { DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
 
 /**
@@ -22,7 +21,7 @@ import { DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
 /**
  * Возвращает русскоязычную метку для типа действия аудит-лога.
  */
-function formatAuditAction(action: string | null, entity: string | null): string {
+function formatAuditAction(action: string | null, _entity: string | null): string {
   switch (action) {
     case 'import':        return 'Импорт данных';
     case 'edit':          return 'Правка данных';
@@ -448,7 +447,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     const { name } = request.params as { name: string };
 
     // Find spreadsheet for this source
-    let spreadsheetId: string | null = null;
+    let spreadsheetId: string | null;
     if (name === 'СВОД ТД-ПМ') {
       spreadsheetId = config.google.spreadsheetId;
     } else if (name === 'ШДЮ') {
@@ -463,7 +462,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const rawRows = await getSheetData(name);
+      const rawRows = await getSheetData(name, spreadsheetId);
       if (!rawRows || rawRows.length <= 1) {
         return reply.send({
           success: true,
@@ -483,7 +482,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       }> = [];
 
       let dataErrors = 0;
-      let formulaIssues = 0;
+      const formulaIssues = 0;
       let emptyRequired = 0;
 
       for (let i = DEPT_HEADER_ROWS; i < rawRows.length; i++) {
@@ -497,8 +496,6 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
 
         // Run signal detection
         const signals = detectSignals(cells);
-        const state = classifyRowState(signals);
-
         // Check for data type errors
         const planTotal = cells.K;
         if (planTotal !== null && planTotal !== '' && isNaN(Number(planTotal))) {

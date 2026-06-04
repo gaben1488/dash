@@ -8,7 +8,7 @@ import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalizatio
 
 /**
  * Returns the canonical sheet tab name for a department.
- * E.g. УО → "Все", УИО → "УИО".
+ * E.g. УО → "ВСЕ", УИО → "УИО".
  * Uses DEPARTMENTS[].sheetName from report-map (single source of truth).
  */
 function getDeptSheetName(deptShortName: string): string {
@@ -396,7 +396,6 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Column type expectations for validation
     const NUMERIC_COLUMNS = new Set(['H', 'I', 'J', 'V', 'W', 'X']);
     const DATE_COLUMNS = new Set(['N', 'Q']);
-    const TEXT_COLUMNS = new Set(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L', 'U', 'AD', 'AE', 'AF']);
 
     const field = body.field.toUpperCase();
     let normalizedValue: unknown = body.value;
@@ -435,7 +434,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send({ error: `Нет spreadsheetId для "${dept.nameShort}"` });
     }
 
-    // Use canonical sheet name from DEPARTMENTS (e.g. "Все" for УО, "УИО" for УИО)
+    // Use canonical sheet name from DEPARTMENTS (e.g. "ВСЕ" for УО, "УИО" for УИО)
     const sheetName = getDeptSheetName(dept.nameShort);
 
     const cellAddress = `${field}${idx}`;

@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "start:prod": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
@@ -17,20 +18,21 @@
     "@aemr/core": "workspace:*",
     "@aemr/shared": "workspace:*",
     "@fastify/cors": "^10.0.0",
-    "@fastify/static": "^8.0.0",
-    "@fastify/websocket": "^11.0.0",
+    "@fastify/static": "^9.1.3",
+    "@fastify/websocket": "^11.2.0",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^16.4.7",
-    "drizzle-orm": "^0.38.0",
-    "fastify": "^5.2.0",
-    "googleapis": "^144.0.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.8.5",
+    "googleapis": "^173.0.0",
     "pino-pretty": "^11.3.0",
     "tsx": "^4.19.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
-    "drizzle-kit": "^0.30.0",
-    "typescript": "^5.7.3"
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.8"
   }
 }

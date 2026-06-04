@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta } from '../services/snapshot.js';
+import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta, getSHDYULoadError } from '../services/snapshot.js';
 import { createDemoSnapshot } from '../services/demo-data.js';
 import { fetchDepartmentSpreadsheets } from '../services/google-sheets.js';
-import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
-import { REPORT_MAP, DEPARTMENTS, getMetricsByDepartment, DashboardDataSchema } from '@aemr/shared';
+import { DEPARTMENT_SPREADSHEETS } from '../config.js';
+import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, reconcile, reconcileMonthly, crossVerifyQuarterly } from '@aemr/core';
 
@@ -72,7 +72,6 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     // Формируем сводки по ГРБС с quarterly data из calculatedMetrics
     const calc = snapshot.calculatedMetrics ?? {};
     const departmentSummaries: DepartmentSummary[] = DEPARTMENTS.map(dept => {
-      const _deptMetrics = getMetricsByDepartment(dept.id);
       const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
 
       // Prefer calc-engine year-filtered totals (they respect targetYear).
@@ -638,9 +637,12 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const shdyuData = snapshot.shdyuData ?? {};
 
     if (Object.keys(shdyuData).length === 0) {
+      // Сообщаем КОНКРЕТНУЮ причину (пусто vs ошибка чтения), а не общий текст.
+      const cause = getSHDYULoadError();
       return reply.send({
         error: null,
-        warning: 'ШДЮ данные не загружены. Нажмите «Обновить» для загрузки.',
+        warning: cause ?? 'ШДЮ данные не загружены. Нажмите «Обновить» для загрузки.',
+        cause,
         rows: [],
         counts: { ok: 0, warning: 0, high: 0, empty: 0 },
         overallStatus: 'Нет данных ШДЮ',

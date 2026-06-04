@@ -2,15 +2,26 @@ import { google, type sheets_v4 } from 'googleapis';
 import { config } from '../config.js';
 import {
   ALL_SHEETS,
-  SVOD_SHEET_NAME,
-  DEPARTMENT_SHEETS,
   DEPARTMENT_REGISTRY,
+  SHDYU_SHEET_NAME_CANDIDATES,
 } from '@aemr/shared';
 import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
+import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
+import { sheetValuesRange } from './sheet-range.js';
 
 // ============================================================
 // Google Sheets API Service — AEMR Platform
 // ============================================================
+//
+// ВНИМАНИЕ: модулей google-sheets в server ДВА (исторически), не путать:
+//   • services/google-sheets.ts (ЭТОТ) — getSheetData(sheetName) и
+//     getSpreadsheetMetadata() читают ТОЛЬКО основную таблицу
+//     config.google.spreadsheetId; параметр spreadsheetId здесь НЕ
+//     принимается. Для произвольной таблицы — getSheetDataFromSpreadsheet()
+//     или getSheetDataWithFormulas() ниже (оба берут spreadsheetId).
+//   • src/google-sheets.ts (корневой) — getSheetData(sheetName, spreadsheetId?)
+//     и getSpreadsheetMetadata(spreadsheetId?) honor явный spreadsheetId;
+//     его импортируют routes/journal.ts и services/snapshot.ts.
 
 let sheetsApi: sheets_v4.Sheets | null = null;
 
@@ -92,7 +103,7 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
 
   // Build ranges for all sheets
   const sheetNames = ALL_SHEETS as readonly string[];
-  const valueRanges = sheetNames.map((s) => `'${s}'`);
+  const valueRanges = sheetNames.map((s) => sheetValuesRange(s));
 
   // Fetch values (UNFORMATTED_VALUE for accurate numbers)
   const [valuesResponse, formulasResponse] = await Promise.all([
@@ -168,7 +179,7 @@ export async function getSheetData(sheetName: string): Promise<unknown[][]> {
 
   const response = await api.spreadsheets.values.get({
     spreadsheetId: config.google.spreadsheetId,
-    range: `'${sheetName}'`,
+    range: sheetValuesRange(sheetName),
     valueRenderOption: 'UNFORMATTED_VALUE',
     dateTimeRenderOption: 'FORMATTED_STRING',
     majorDimension: 'ROWS',
@@ -256,7 +267,7 @@ export async function getSheetDataFromSpreadsheet(
 
   const response = await api.spreadsheets.values.get({
     spreadsheetId,
-    range: `'${sheetName}'`,
+    range: sheetValuesRange(sheetName),
     valueRenderOption: 'UNFORMATTED_VALUE',
     dateTimeRenderOption: 'FORMATTED_STRING',
     majorDimension: 'ROWS',
@@ -279,7 +290,7 @@ export async function getSheetDataWithFormulas(
   sheetName: string,
 ): Promise<{ values: unknown[][]; formulas: unknown[][] }> {
   const api = await getSheetsApi();
-  const range = `'${sheetName}'`;
+  const range = sheetValuesRange(sheetName);
 
   const [valResp, fmlResp] = await Promise.all([
     api.spreadsheets.values.get({
@@ -333,26 +344,20 @@ export async function fetchDepartmentSpreadsheets(
   const entries = Object.entries(deptSpreadsheets);
   const results = await Promise.allSettled(
     entries.map(async ([deptName, ssId]) => {
-      // Use canonical sheet name from registry, fallback to dept name
+      // Use canonical sheet name from registry, then tolerate legacy register variants.
       const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
-      try {
-        const result = await getSheetDataWithFormulas(ssId, sheetName);
-        if (result.values.length > 0) {
-          return { deptName, ...result, sheetName };
-        }
-      } catch {
-        // Fallback: try 'Все' if dept-specific sheet failed, or vice versa
-        const fallback = sheetName === 'Все' ? deptName : 'Все';
+      const candidates = departmentSheetNameCandidates(sheetName, deptName);
+      for (const candidate of candidates) {
         try {
-          const result = await getSheetDataWithFormulas(ssId, fallback);
+          const result = await getSheetDataWithFormulas(ssId, candidate);
           if (result.values.length > 0) {
-            return { deptName, ...result, sheetName: fallback };
+            return { deptName, ...result, sheetName: candidate };
           }
         } catch {
-          // Both failed
+          // Try next candidate.
         }
       }
-      throw new Error(`No readable sheet found in spreadsheet for ${deptName}`);
+      throw new Error(`No readable sheet found in spreadsheet for ${deptName}; tried: ${candidates.join(', ')}`);
     }),
   );
 
@@ -376,13 +381,22 @@ export async function fetchDepartmentSpreadsheets(
  */
 export async function fetchSHDYUSheet(
   spreadsheetId: string,
-): Promise<{ values: unknown[][]; formulas: unknown[][] }> {
-  try {
-    return await getSheetDataWithFormulas(spreadsheetId, 'ШДЮ');
-  } catch (error) {
-    console.warn('Не удалось прочитать лист ШДЮ:', error);
-    return { values: [], formulas: [] };
+): Promise<{ values: unknown[][]; formulas: unknown[][]; sheetName: string }> {
+  // Не глушим ошибку: реальная ошибка чтения (нет листа / переименован / нет прав)
+  // должна всплыть, чтобы caller сообщил причину. Существующий, но пустой лист вернёт
+  // { values: [] } — это легитимный случай «помесячная динамика не заполнена».
+  let lastError: unknown;
+
+  for (const sheetName of SHDYU_SHEET_NAME_CANDIDATES) {
+    try {
+      const result = await getSheetDataWithFormulas(spreadsheetId, sheetName);
+      return { ...result, sheetName };
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  throw lastError;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -429,7 +443,7 @@ export async function writeCellValue(
   value: unknown,
 ): Promise<{ updatedRange: string; updatedCells: number }> {
   const api = await getWriteApi();
-  const range = `'${sheetName}'!${cell}`;
+  const range = sheetValuesRange(sheetName, cell);
   const response = await api.spreadsheets.values.update({
     spreadsheetId,
     range,

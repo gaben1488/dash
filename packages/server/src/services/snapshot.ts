@@ -1,5 +1,5 @@
 import { runPipeline, type PipelineInput } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME } from '@aemr/shared';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS } from '@aemr/shared';
 import type { DataSnapshot, NormalizedMetric } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
 import { fetchSHDYUSheet } from './google-sheets.js';
@@ -72,6 +72,8 @@ export function getDeptLoadMeta(): Record<string, DeptLoadMeta> {
 let cachedSHDYUData: Record<string, any> | null = null;
 /** Raw row count from ШДЮ sheet (before parsing into blocks) */
 let cachedSHDYURawRowCount = 0;
+/** Последний исход загрузки ШДЮ: null = успех, иначе человекочитаемая причина (пусто / ошибка чтения). */
+let cachedSHDYULoadError: string | null = null;
 
 /** Get SHDYU data from cache */
 export function getSHDYUCache(): Record<string, any> | null {
@@ -81,6 +83,11 @@ export function getSHDYUCache(): Record<string, any> | null {
 /** Get raw row count from ШДЮ sheet */
 export function getSHDYURawRowCount(): number {
   return cachedSHDYURawRowCount;
+}
+
+/** Причина отсутствия ШДЮ-данных (null, когда лист загружен успешно). */
+export function getSHDYULoadError(): string | null {
+  return cachedSHDYULoadError;
 }
 
 /** Set SHDYU data cache */
@@ -148,13 +155,20 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
     // Read ШДЮ sheet in parallel (from СВОД_для_Google spreadsheet)
     // BUG-2 FIX: Now receives { values, formulas }
     const shdyuPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((result) => {
+      const shdyuSheetLabel = result.sheetName;
       if (result.values.length > 0) {
-        const parsed = parseSHDYUSheet(result.values);
+        const parsed = parseSHDYUSheet(result.values, result.formulas);
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
-        console.log(`📊 ШДЮ: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
+        cachedSHDYULoadError = null;
+        console.log(`📊 ${shdyuSheetLabel}: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
+      } else {
+        // Лист прочитан, но пуст — помесячная динамика (ШДЮ) в источнике не заполнена за период.
+        cachedSHDYULoadError = `Лист «${shdyuSheetLabel}» прочитан, но пуст (0 строк): помесячная динамика в источнике не заполнена за выбранный период.`;
       }
     }).catch((err: unknown) => {
+      // Реальная ошибка чтения: лист отсутствует / переименован / нет прав.
+      cachedSHDYULoadError = `Не удалось прочитать лист «ШДЮ»: ${err instanceof Error ? err.message : String(err)}`;
       console.warn('Не удалось загрузить ШДЮ:', err);
     });
 
