@@ -17,6 +17,9 @@ services:
       - caddy_config:/config
     environment:
       - DOMAIN=${DOMAIN:-:80}
+      # ключ читается из --env-file .env.production; Caddyfile инжектит его
+      # в Authorization для /api/* (сервер fail-closed требует этот ключ)
+      - AEMR_API_KEY=${AEMR_API_KEY:-}
     depends_on:
       web:
         condition: service_started

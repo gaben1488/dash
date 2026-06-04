@@ -8,9 +8,13 @@
 {$DOMAIN} {
     encode gzip
 
-    # все /api/* → Fastify сервер
+    # все /api/* → Fastify сервер.
+    # Edge инжектит Bearer-токен: сервер fail-closed (требует AEMR_API_KEY),
+    # браузер ключа не знает — токен живёт только на сервере (env caddy).
     handle /api/* {
-        reverse_proxy server:3000
+        reverse_proxy server:3000 {
+            header_up Authorization "Bearer {$AEMR_API_KEY}"
+        }
     }
 
     # всё остальное → web (статика)
