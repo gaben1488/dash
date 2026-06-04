@@ -5,6 +5,9 @@ domains:
   - aemr-44fz
   - aemr-process
   - aemr-infra
+  - aemr-server
+  - aemr-trust
+  - aemr-debt
 governance:
   max_entries: 100
   warn_entries: 150
