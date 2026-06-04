@@ -9,9 +9,7 @@
 import type {
   DepartmentId,
   ProcurementMethod,
-  IssueSeverity,
   IssueStatus,
-  MetricOrigin,
   RuleScope,
   RowClassification,
   TrustGrade,

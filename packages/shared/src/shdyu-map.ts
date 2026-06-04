@@ -152,6 +152,61 @@ export const SHDYU_COLS = {
   ECONOMY_TOTAL: 19, // Was 20, shifted -1
 } as const;
 
+/** Legacy production tab layout with an explicit Year column in C. */
+export const SHDYU_LEGACY_COLS = {
+  GRBS_NAME: 0,
+  MONTH_TEXT: 1,
+  YEAR: 2,
+  PLAN_COUNT: 3,
+  FACT_COUNT: 4,
+  DEVIATION: 5,
+  EXECUTION_PCT: 6,
+  PLAN_FB: 7,
+  PLAN_KB: 8,
+  PLAN_MB: 9,
+  PLAN_TOTAL: 10,
+  FACT_FB: 11,
+  FACT_KB: 12,
+  FACT_MB: 13,
+  FACT_TOTAL: 14,
+  DEVIATION_AMOUNT: 15,
+  SPENT_PCT: 16,
+  ECONOMY_FB: 17,
+  ECONOMY_KB: 18,
+  ECONOMY_MB: 19,
+  ECONOMY_TOTAL: 20,
+} as const;
+
+function legacyBlock(grbsId: string, grbsShort: string, compStartRow: number): SHDYUBlock {
+  return {
+    grbsId,
+    grbsShort,
+    compStartRow,
+    compEndRow: compStartRow + 11,
+    compTotalRow: compStartRow + 12,
+    epStartRow: compStartRow + 16,
+    epEndRow: compStartRow + 27,
+    epTotalRow: compStartRow + 28,
+    totalRow: 0,
+    compShareRow: 0,
+    epShareRow: 0,
+  };
+}
+
+/** Legacy 33-row block layout currently exposed by the production `ШДЮ старый` tab. */
+export const SHDYU_LEGACY_ALL_BLOCK: SHDYUBlock = legacyBlock('all', 'ВСЕ', 4);
+
+export const SHDYU_LEGACY_BLOCKS: SHDYUBlock[] = [
+  legacyBlock('uer', 'УЭР', 37),
+  legacyBlock('uio', 'УИО', 70),
+  legacyBlock('uagzo', 'УАГЗО', 103),
+  legacyBlock('ufbp', 'УФБП', 136),
+  legacyBlock('ud', 'УД', 169),
+  legacyBlock('udtx', 'УДТХ', 202),
+  legacyBlock('uksimp', 'УКСиМП', 235),
+  legacyBlock('uo', 'УО', 268),
+];
+
 /**
  * Column layout within ШДЮ RIGHT section (quarterly, cols U-AM, 0-based):
  * NEW in redesigned ШДЮ. 4 rows per block (Q1-Q4), aggregating 3 months each.
@@ -249,6 +304,16 @@ export interface SHDYUBlockMetrics {
 /** Quarterly aggregated metrics (same shape as BlockMetrics) */
 export type SHDYUQuarterlyMetrics = SHDYUBlockMetrics;
 
+export interface SHDYUFormulaIssue {
+  type: 'sheet_reference_mismatch';
+  expectedSheet: string;
+  actualSheets: string[];
+  row: number;
+  month: number;
+  block: 'comp' | 'ep';
+  evidence: string;
+}
+
 export interface SHDYUMonthlyEntry {
   month: number;  // 1-12
   comp: SHDYUBlockMetrics;
@@ -262,6 +327,7 @@ export interface SHDYUMonthlyEntry {
   epFactCount: number;
   epPlanTotal: number;
   epFactTotal: number;
+  formulaIssues?: SHDYUFormulaIssue[];
 }
 
 /** Summary row data (ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП) */
@@ -294,3 +360,8 @@ export interface SHDYUDeptData {
 }
 
 export const SHDYU_SHEET_NAME = 'ШДЮ';
+
+// 2026-06-04 production metadata exposes the same logical control sheet as
+// "ШДЮ старый". Keep the preferred name first so a renamed workbook starts
+// using it automatically, while current production continues to load.
+export const SHDYU_SHEET_NAME_CANDIDATES = [SHDYU_SHEET_NAME, 'ШДЮ старый'] as const;

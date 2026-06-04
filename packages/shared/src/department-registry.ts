@@ -65,7 +65,7 @@ export interface DepartmentEntry {
   // ── Sheet resolution ──
   /** Имя вкладки в рабочей книге управления */
   sheetName: string;
-  /** Есть подведомственные (лист "Все" агрегирует) */
+  /** Есть подведомственные (лист "ВСЕ" агрегирует) */
   hasSubordinates: boolean;
 
   // ── СВОД ТД-ПМ row positions (1-based) ──
@@ -130,7 +130,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     id: 'УАГЗО', latinId: 'uagzo',
     fullName: 'Управление архитектуры, градостроительства и земельных отношений',
     shortName: 'УАГЗО',
-    sheetName: 'УАГЗО', hasSubordinates: false,
+    sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 102, kpYear: 107, epQ1: 113, epYear: 118, totalCombined: 120, totalCurrent: 121, compShareRow: 123, epShareRow: 124 },
     shdyu: { compStartRow: 125, compEndRow: 136, compTotalRow: 137, epStartRow: 142, epEndRow: 153, epTotalRow: 154, totalRow: 156, compShareRow: 157, epShareRow: 158 },
   },
@@ -146,7 +146,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     id: 'УД', latinId: 'ud',
     fullName: 'Управление делами',
     shortName: 'УД',
-    sheetName: 'Все', hasSubordinates: true,
+    sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 163, kpYear: 168, epQ1: 175, epYear: 180, totalCombined: 182, totalCurrent: 183, compShareRow: 185, epShareRow: 186 },
     shdyu: { compStartRow: 205, compEndRow: 216, compTotalRow: 217, epStartRow: 222, epEndRow: 233, epTotalRow: 234, totalRow: 236, compShareRow: 237, epShareRow: 238 },
   },
@@ -162,7 +162,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     id: 'УКСиМП', latinId: 'uksimp',
     fullName: 'Управление капитального строительства и молодёжной политики',
     shortName: 'УКСиМП',
-    sheetName: 'Все', hasSubordinates: true,
+    sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 225, kpYear: 230, epQ1: 236, epYear: 241, totalCombined: 243, totalCurrent: 244, compShareRow: 246, epShareRow: 247 },
     shdyu: { compStartRow: 285, compEndRow: 296, compTotalRow: 297, epStartRow: 302, epEndRow: 313, epTotalRow: 314, totalRow: 316, compShareRow: 317, epShareRow: 318 },
   },
@@ -170,7 +170,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     id: 'УО', latinId: 'uo',
     fullName: 'Управление образования',
     shortName: 'УО',
-    sheetName: 'Все', hasSubordinates: true,
+    sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 255, kpYear: 260, epQ1: 266, epYear: 271, totalCombined: 273, totalCurrent: 274, compShareRow: 276, epShareRow: 277 },
     shdyu: { compStartRow: 325, compEndRow: 336, compTotalRow: 337, epStartRow: 342, epEndRow: 353, epTotalRow: 354, totalRow: 356, compShareRow: 357, epShareRow: 358 },
   },

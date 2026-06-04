@@ -46,6 +46,9 @@ export * from './rule-book.js';
 // Re-export constants
 export * from './constants.js';
 
+// Re-export production data-source defaults
+export * from './data-sources.js';
+
 // Re-export centralized column mapping
 export * from './column-map.js';
 

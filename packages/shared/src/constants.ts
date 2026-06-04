@@ -1,4 +1,4 @@
-import type { DepartmentId, IssueSeverity, ControlIssueSeverity, TrustGrade } from './types.js';
+import type { DepartmentId, IssueSeverity, TrustGrade } from './types.js';
 import { ALL_DEPT_IDS } from './department-registry.js';
 
 // ============================================================
@@ -33,12 +33,13 @@ export const BUDGET_COLUMNS = {
   TOTAL: 'K', // Итого
 } as const;
 
-/** Столбцы экономии */
+/** Столбцы утверждённой экономии на листах управлений. */
 export const ECONOMY_COLUMNS = {
-  V: 'V',    // Экономия ФБ
-  W: 'W',    // Экономия КБ
-  X: 'X',    // Экономия МБ
-  AD: 'AD',  // Флаг/признак экономии
+  FB: 'Z',      // Экономия ФБ
+  KB: 'AA',     // Экономия КБ
+  MB: 'AB',     // Экономия МБ
+  TOTAL: 'AC',  // Экономия итого
+  FLAG: 'AD',   // Флаг/признак экономии
 } as const;
 
 // ────────────────────────────────────────────────────────────
@@ -54,6 +55,27 @@ export const NUMBER_FORMAT = {
 // ────────────────────────────────────────────────────────────
 // 4. Thresholds
 // ────────────────────────────────────────────────────────────
+
+export const LAW_44FZ_THRESHOLDS = {
+  /** 44-FZ art. 93 part 1 p.4: one small EP contract must not exceed this amount. */
+  epSmallPurchaseSingleContractLimit: 600_000,
+  /** 44-FZ art. 93 part 1 p.4: fixed annual small-purchase limit alternative. */
+  epSmallPurchaseAnnualFixedLimit: 2_000_000,
+  /** 44-FZ art. 93 part 1 p.4: annual SGOZ share alternative. */
+  epSmallPurchaseAnnualShareLimit: 0.10,
+  /** 44-FZ art. 93 part 1 p.4: annual absolute cap for the SGOZ-share alternative. */
+  epSmallPurchaseAnnualAbsoluteLimit: 50_000_000,
+  /** 44-FZ art. 93 part 1 p.5: one education/culture/sport EP contract limit. */
+  epEducationSingleContractLimit: 5_000_000,
+  /** 44-FZ art. 93 part 1 p.5: annual share cap for education/culture/sport EP. */
+  epEducationAnnualShareLimit: 0.50,
+  /** Electronic-shop purchase limit used by source spreadsheets. */
+  eShopPurchaseLimit: 5_000_000,
+  /** Request-for-quotations limit. */
+  quotationPurchaseLimit: 10_000_000,
+  /** 44-FZ art. 37 anti-dumping threshold; AEMR uses limit-fact as an approximation. */
+  antiDumpingSavingsShare: 0.25,
+} as const;
 
 export const THRESHOLDS = {
   EXECUTION: {

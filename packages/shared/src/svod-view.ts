@@ -51,7 +51,7 @@ export interface SvodRow {
   factTotal: number | null;
   /** P — Отклонение сумм */
   amountDeviation: number | null;
-  /** Q — Экономия, % (доля 0..1) */
+  /** Q — Потрачено, % (расход = O/K; шапка листа «Потрачено, %»; доля 0..1). Ключ исторически savingsPct — переименовать в spentPct отдельным шагом. */
   savingsPct: number | null;
   /** R — Экономия ФБ */
   economyFB: number | null;
@@ -176,9 +176,10 @@ function sumRows(a: SvodRow, b: SvodRow): SvodRow {
     factMB: add(a.factMB, b.factMB),
     factTotal,
     amountDeviation: add(a.amountDeviation, b.amountDeviation),
-    savingsPct: planTotal !== null && planTotal !== 0
-      ? (planTotal - (factTotal ?? 0)) / planTotal
-      : null,
+    // Q = «Потрачено, %» (шапка листа СВОД) = O/K = факт/план, как держат ячейки КП/ЕП
+    // (orchestrator.ts: savings_pct = factSum/planSum). ИТОГО обязан быть той же семантики,
+    // что суммируемые строки — НЕ (K−O)/K (это было бы «недоосвоено», обратный смысл).
+    savingsPct: ratio(factTotal, planTotal),
     economyFB: add(a.economyFB, b.economyFB),
     economyKB: add(a.economyKB, b.economyKB),
     economyMB: add(a.economyMB, b.economyMB),

@@ -116,7 +116,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
     id: 'УД',
     fullName: 'Управление делами',
     shortName: 'УД',
-    svodSheetName: 'Все',     // dept-файл содержит лист «Все» как агрегатор
+    svodSheetName: 'ВСЕ',     // dept-файл содержит лист «ВСЕ» как агрегатор
     hasSubordinates: true,
     subordinateCount: 1,      // МКУ «ЕДДС»
   },

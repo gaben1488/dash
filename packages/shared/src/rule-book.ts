@@ -1,4 +1,4 @@
-import type { ValidationRule, RuleCheckContext, RuleCheckResult, RuleScope } from './types.js';
+import type { ValidationRule, RuleCheckContext, RuleCheckResult } from './types.js';
 import { DEPARTMENT_REGISTRY } from './department-registry.js';
 
 // ============================================================
@@ -23,17 +23,6 @@ function toNumber(val: unknown): number | null {
 
 function hasData(val: unknown): boolean {
   return val !== null && val !== undefined && val !== '';
-}
-
-/**
- * Строка считается «строкой данных» (т.е. строкой закупки), если содержит
- * метод закупки (L) или тип (F) — заголовки/итоги/пустые строки таких не имеют.
- * Одни лишь числа в бюджетных столбцах НЕ достаточны — итоговые строки тоже имеют суммы.
- */
-function isDataRow(cells: Record<string, unknown>): boolean {
-  const method = cells['L'];
-  const type = cells['F'];
-  return hasData(method) || hasData(type);
 }
 
 // --- Допустимые значения ---
@@ -605,103 +594,6 @@ const deptEconomySumConsistency: ValidationRule = {
 // Проверка Y>K на dept sheets выполняется ТОЛЬКО через signal → Issue.
 // Правило fact_leq_plan (СВОД, E>D, кол-во) остаётся — другой scope и предмет.
 // ============================================================
-
-// ============================================================
-// ПРАВИЛО 13: Formula Continuity (BI heuristic)
-// Обнаружение случайно удалённых формул по паттерну соседей.
-// ============================================================
-const formulaContinuity: ValidationRule = {
-  id: 'formula_continuity',
-  name: 'Целостность итоговых сумм',
-  description:
-    'K (план итого) = H+I+J (ФБ+КБ+МБ), Y (факт итого) = V+W+X. ' +
-    'Расхождение указывает на ошибку данных в источнике.',
-  severity: 'warning',
-  origin: 'bi_heuristic',
-  scope: 'department',
-  params: {},
-  check(ctx: RuleCheckContext): RuleCheckResult {
-    if (!isDataRow(ctx.cells)) return { passed: true };
-
-    // Data is imported from Google Sheets (cached values, no native formulas).
-    // Instead of neighbor-based heuristics, check actual sum consistency:
-    //   K (plan total) should = H + I + J (budget components)
-    //   Y (fact total) should = V + W + X (fact components)
-    // A mismatch indicates data integrity issue in the source.
-
-    const h = toNumber(ctx.cells['H']) ?? 0;
-    const i = toNumber(ctx.cells['I']) ?? 0;
-    const j = toNumber(ctx.cells['J']) ?? 0;
-    const k = toNumber(ctx.cells['K']);
-    const sumHIJ = h + i + j;
-
-    // K should equal H+I+J when components exist
-    if (k !== null && sumHIJ > 0 && Math.abs(k - sumHIJ) > 0.01) {
-      return {
-        passed: false,
-        message:
-          `K${ctx.rowIndex}=${k?.toLocaleString('ru')}, но H+I+J=${sumHIJ.toLocaleString('ru')}. ` +
-          `Сумма лимитов не сходится.`,
-        cell: `K${ctx.rowIndex}`,
-        actual: k,
-        expected: sumHIJ,
-      };
-    }
-
-    // K=0 but components > 0 → total missing
-    if ((k === null || k === 0) && sumHIJ > 0) {
-      return {
-        passed: false,
-        message:
-          `K${ctx.rowIndex} пуст/0, но H+I+J=${sumHIJ.toLocaleString('ru')}. ` +
-          `Итого (план) не заполнено.`,
-        cell: `K${ctx.rowIndex}`,
-        actual: k ?? 0,
-        expected: sumHIJ,
-      };
-    }
-
-    // Same for fact: Y vs V+W+X
-    const factDateVal = ctx.cells['Q'];
-    const factPlaceholders = ['х', 'x', 'не состоялась', 'не состоялось', ''];
-    const hasFact = hasData(factDateVal) &&
-      !factPlaceholders.includes(String(factDateVal).trim().toLowerCase());
-
-    if (hasFact) {
-      const v = toNumber(ctx.cells['V']) ?? 0;
-      const w = toNumber(ctx.cells['W']) ?? 0;
-      const x = toNumber(ctx.cells['X']) ?? 0;
-      const y = toNumber(ctx.cells['Y']);
-      const sumVWX = v + w + x;
-
-      if (y !== null && sumVWX > 0 && Math.abs(y - sumVWX) > 0.01) {
-        return {
-          passed: false,
-          message:
-            `Y${ctx.rowIndex}=${y?.toLocaleString('ru')}, но V+W+X=${sumVWX.toLocaleString('ru')}. ` +
-            `Сумма факта не сходится.`,
-          cell: `Y${ctx.rowIndex}`,
-          actual: y,
-          expected: sumVWX,
-        };
-      }
-
-      if ((y === null || y === 0) && sumVWX > 0) {
-        return {
-          passed: false,
-          message:
-            `Y${ctx.rowIndex} пуст/0, но V+W+X=${sumVWX.toLocaleString('ru')}. ` +
-            `Итого (факт) не заполнено.`,
-          cell: `Y${ctx.rowIndex}`,
-          actual: y ?? 0,
-          expected: sumVWX,
-        };
-      }
-    }
-
-    return { passed: true };
-  },
-};
 
 // ============================================================
 // Экспорт
