@@ -1,6 +1,7 @@
-# Mulch — четыре когнитивных операции (cognee-вдохновлённая рамка)
+# Mulch — четыре когнитивных операции
 
-> Дата: 2026-04-19
+> Дата исходной рамки: 2026-04-19
+> Last verified: 2026-06-04
 > Контекст: внедрение операционной модели cognee (`remember / recall / forget / improve`) поверх
 > существующего mulch без замены инструмента. Это организационный апгрейд, не новый код.
 
@@ -10,16 +11,42 @@ Cognee предлагает **четыре базовые операции** д�
 
 | Cognee operation | Описание | Mulch-аналог сейчас | Что добавить |
 |---|---|---|---|
-| **remember** | Зафиксировать факт / решение / правило в долгосрочной памяти | `ml record <domain> --type ...` | ✅ есть, переименование не нужно |
-| **recall** | Извлечь по запросу: «что мы знаем про X?» | `ml search "<query>"` + `mulch prime` | ✅ есть, добавить семантический слой через `scripts/semantic_search.py` |
-| **forget** | Удалить устаревшую запись (была верной → теперь неверна) | `ml delete <domain> --records <id>` | ✅ есть, но **дисциплина слабая** — см. §2 |
-| **improve** | Объединить две близкие записи в одну, supersede старую | **отсутствует как операция** | ❌ создать — см. §3 |
+| **remember** | Зафиксировать факт / решение / правило в долгосрочной памяти | `ml record <domain> --type ...` | Есть, переименование не нужно |
+| **recall** | Извлечь по запросу: «что мы знаем про X?» | `ml search "<query>"` + `mulch prime` | Есть, добавить семантический слой через `scripts/semantic_search.py` |
+| **forget** | Удалить устаревшую запись (была верной, теперь неверна) | `ml delete <domain> --records <id>` | Есть, но дисциплина слабая |
+| **improve** | Объединить две близкие записи в одну, supersede старую | Отсутствует как операция | Создать дисциплину слияния |
 
-Все четыре операции на одном уровне абстракции. Это даёт ясность: каждое действие
-с памятью — это либо новое знание, либо извлечение, либо забывание, либо улучшение.
-Никакого «по-другому» нет.
+Все четыре операции на одном уровне абстракции. Каждое действие с памятью должно
+быть либо новым знанием, либо извлечением, либо забыванием, либо улучшением.
 
-## §1. Remember (есть, не меняется)
+## Safety Note 2026-06-04
+
+Предыдущая длинная версия этого документа была удалена во время консолидации
+memory-документов. Это было слишком агрессивно: часть текста действительно
+дублировала другие документы, но операционная модель оставалась полезной.
+Текущая версия восстанавливает исходную рамку и добавляет явные правила
+безопасного удаления.
+
+Mulch может содержать rough working memory. Product documentation не должна
+жить только в `.mulch/`. Когда память становится стабильной истиной проекта,
+переноси её в canonical docs: `README.md`, `docs/ARCHITECTURE.md`,
+`docs/DATA_SOURCES.md`, `docs/METRICS_CONTRACT.md`, затем оставляй в mulch
+только ссылку или удаляй устаревшую запись.
+
+## Rules
+
+1. Перед добавлением памяти сначала ищи существующую запись.
+2. Любой durable claim должен иметь evidence: code path, document path,
+   transcript, commit, spreadsheet/source id.
+3. Не хранить secrets, tokens, credentials или private production data в `.mulch/`.
+4. Не превращать `.mulch/` в product docs. Если информация нужна пользователю,
+   maintainer или reviewer, продвигай её в `docs/`.
+5. Удаляй память только после проверки replacement или irrelevance.
+6. Если удаление меняет то, как будущий agent должен понимать проект, оставляй
+   decision trail.
+7. Один точный record лучше нескольких перекрывающихся.
+
+## §1. Remember
 
 ```bash
 ml record <domain> --type convention|pattern|failure|decision|reference|guide \
@@ -27,106 +54,112 @@ ml record <domain> --type convention|pattern|failure|decision|reference|guide \
                    [--evidence-commit SHA] [--evidence-bead ID]
 ```
 
-**Дисциплина** (CLAUDE.md §2):
-- Перед `ml record` — обязательно `mulch search "<тема>"` чтобы не плодить дубли.
-- Если близкая запись найдена → `improve` (см. §3), не `remember`.
-- Inside-turn, не в конце сессии (CLAUDE.md R5).
+Дисциплина:
 
-## §2. Recall — расширить семантическим слоем
+- Перед `ml record` обязательно `mulch search "<тема>"`, чтобы не плодить дубли.
+- Если близкая запись найдена, делай `improve`, а не новый `remember`.
+- Записывай важные уроки внутри работы, не только в конце сессии.
+
+## §2. Recall
 
 ### Сейчас
 
-`ml search "query"` — точный текстовый поиск по полю description. Хорошо для
-известных терминов, плохо для парафразов.
+`ml search "query"` — точный текстовый поиск по полю description. Он хорош для
+известных терминов, но плохо работает для парафразов.
 
-`mulch prime` (в SessionStart hook) — загружает все expertise-records в контекст
-автоматически.
+`mulch prime` загружает expertise-records в контекст автоматически.
 
-### Добавить (semantic layer)
+### Семантический слой
 
 ```bash
 python scripts/semantic_search.py "as-of дата исполнения" --top 8
 ```
 
-Семантический поиск по vault + memory + plans (sentence-transformers локально,
-без OpenAI). Использовать когда:
+Использовать, когда:
+
 - забыл точное название термина;
-- ищешь концептуально близкое («trust score»+«надёжность данных»+«ДОВЕРИЕ К ДАННЫМ»);
+- ищешь концептуально близкое: trust score, надёжность данных, доверие к данным;
 - grep дал слишком много шума.
 
-Не использовать когда:
-- знаешь точный path / имя — `Read` быстрее;
-- ищешь по коду — `Grep` точнее.
+Не использовать, когда:
 
-### Правило приоритета recall
+- знаешь точный path или имя файла;
+- ищешь по коду, где `rg` точнее.
 
+### Приоритет recall
+
+```text
+точное имя файла  -> Read
+точная строка     -> rg
+смысловой запрос  -> semantic_search.py
+тактический урок  -> ml search
+полный контекст   -> mulch prime / SessionStart
 ```
-точное имя файла  → Read
-точная строка     → Grep
-смысловой запрос  → semantic_search.py
-тактический урок  → ml search
-полный контекст   → mulch prime / SessionStart
-```
 
-## §3. Forget — дисциплина (новое)
+## §3. Forget
 
 ### Проблема
 
-Mulch-record «mx-abfa44 audit 4.8/10» жил рядом с актуальным «mx-ccaa11 audit 4.76/10»,
-оба правдивые в своё время, но **противоречивые сейчас**. Контекст загружает оба →
-модель видит конфликт → выбор случайный.
+Mulch-record «mx-abfa44 audit 4.8/10» может жить рядом с актуальным
+«mx-ccaa11 audit 4.76/10». Оба были правдивыми в своё время, но вместе дают
+конфликт. Контекст загружает оба, модель видит противоречие и выбор становится
+случайным.
 
-### Решение: явная операция forget
+### Явная операция forget
 
 ```bash
 ml delete <domain> --records <id>
 ```
 
-**Когда forget**:
-- запись supersedes (новая запись содержит/уточняет старую);
-- факт стал неверен (дата прошла, метрика обновилась, инфра сменилась);
-- запись была gut-feeling, опровергнута данными.
+Когда forget:
 
-**Триггер для forget**:
-- При `ml record` найдено что новая запись supersedes какой-то старый ID — сразу
-  `ml delete <id>` после подтверждения нового.
-- Раз в неделю (включить в `/close` ритуал): `ml learn` + проверка top-10 старых
-  по `recorded_at` на актуальность.
+- новая запись supersedes старую;
+- факт стал неверен: дата прошла, метрика обновилась, инфраструктура сменилась;
+- запись была предположением и опровергнута данными;
+- запись дублирует canonical docs и больше не добавляет контекст.
 
-**Не forget**:
-- если запись историческая (decision: «выбрали Postgres 2026-04-19» — историю
-  решений не стираем, она нужна для ADR);
-- если факт всё ещё верен но устарел стилистически — это `improve`, не `forget`.
+Триггер для forget:
 
-## §4. Improve — слияние близких записей (новое)
+- При `ml record` найдено, что новая запись supersedes старый ID.
+- Раз в неделю в close ritual: `ml learn` + проверка top старых записей по
+  `recorded_at` на актуальность.
+
+Не forget:
+
+- исторические decisions, если они объясняют почему проект устроен именно так;
+- факты, которые всё ещё верны, но плохо написаны. Это `improve`, не `forget`.
+
+## §4. Improve
 
 ### Проблема
 
-Через 100+ records часть тем размазывается на 3-5 близких записей: «mulch как-то
-работает», «mulch — это .mulch/expertise/jsonl», «mulch prime инжектит в контекст»,
+Через 100+ records темы размазываются на 3-5 близких записей: «mulch работает»,
+«mulch — это .mulch/expertise/jsonl», «mulch prime инжектит в контекст»,
 «mulch sync коммитит». Все правдивые, но фрагментарные.
 
 ### Решение
 
-**Шаги improve**:
-1. Найти близкие через `mulch search "<topic>"` или `semantic_search.py`.
-2. Если найдено ≥3 близких → составить одну консолидированную запись.
-3. Записать новую через `ml record` с `--description "consolidates: id1, id2, id3 — <new full text>"`.
+Шаги improve:
+
+1. Найти близкие записи через `mulch search "<topic>"` или `semantic_search.py`.
+2. Если найдено три или больше близких записи, составить одну consolidated запись.
+3. Записать новую через `ml record` с описанием `consolidates: id1, id2, id3`.
 4. Удалить старые через `ml delete --records <id1> <id2> <id3>`.
+5. Если content стал project truth, перенести truth в `docs/`, а mulch оставить
+   как trace discovery.
 
-**Метрика**: после improve мощность множества expertise по теме сокращается с N до 1.
+Метрика: после improve количество active expertise по теме сокращается с N до 1.
 
-### Когда improve
+Когда improve:
 
-- После сессии где была глубокая работа по теме (новый record + 2-3 старых
-  близких → консолидация).
-- При обнаружении противоречия между двумя records (одна из них улучшается,
-  старая удаляется через forget).
+- после глубокой работы по теме;
+- при обнаружении противоречия между несколькими records;
+- когда memory note стал слишком длинным и должен быть разделён на canonical doc
+  + короткий pointer.
 
-## §5. Интеграция в close-ritual
+## §5. Close Protocol
 
 ```bash
-# /close теперь:
 ml learn                          # что изменилось
 ml search "<keywords из learn>"   # уже знаем?
 # Если новое:
@@ -135,41 +168,55 @@ ml record <domain> --type ... --description ...
 ml delete --records <old>          # forget
 ml record ... --description "consolidates: <old>, <new content>"  # improve
 
-# Проверка устаревшего (раз в неделю):
-ml search "audit" --recent 90d   # что устарело?
-ml delete --records <obsolete>    # forget
+# Проверка устаревшего:
+ml search "audit" --recent 90d
+ml delete --records <obsolete>
 
-ml sync                           # commit .mulch/
+ml sync
 ```
 
-## §6. Зачем это всё
+Перед окончанием substantial pass:
 
-**Без рамки** (как было): mulch — куча записей, иногда противоречивых, не
-понятно когда удалять. Через 6 месяцев — 500 записей, половина устарела, прайм
-тонет в шуме.
+1. Записать только решения или открытия, которые понадобятся позже.
+2. Merge/delete notes, созданные во время прохода и уже superseded.
+3. Sync canonical docs, если memory раскрыла стабильную истину проекта.
+4. Оставить repo так, чтобы следующий agent начинал с code, docs и tests, а не
+   с transcript archaeology.
 
-**С рамкой** (cognee operations): каждое касание памяти — одно из 4 действий,
-дисциплина forget/improve активная, не пассивная. 100 records → 100 актуальных,
-не 200 разных эпох.
+## §6. Зачем это нужно
 
-**Не cognee целиком**: cognee требует Python runtime, OpenAI API, Neo4j. Нам не
-нужно — у нас mulch (jsonl + git) + semantic_search.py (локально, без сервера).
-Брать **только идею операционной модели**, не код.
+Без рамки mulch становится набором записей разных эпох, иногда противоречивых.
+Через несколько месяцев prime тонет в шуме.
+
+С рамкой каждое касание памяти — одно из четырёх действий. `forget` и `improve`
+такие же first-class операции, как `remember`.
+
+Не нужно внедрять cognee целиком: cognee требует отдельный Python runtime, API,
+Neo4j. Для `dash` достаточно mulch (`jsonl + git`) и локального semantic search.
 
 ## §7. Метрики дисциплины
 
-В `daily_pulse.py` добавить (TODO):
-
 | Метрика | Цель | Сигнал |
 |---|---|---|
-| `mulch_age_p50` | < 30 days | если > 60 → forget overdue |
-| `mulch_contradictions` | 0 | semantic similarity ≥ 0.9 между двумя active = warning |
-| `mulch_consolidation_ratio` | > 0.8 | (1 - records_per_topic) — близко к 1 = чисто |
+| `mulch_age_p50` | < 30 days | если > 60, forget overdue |
+| `mulch_contradictions` | 0 | semantic similarity >= 0.9 между active records = warning |
+| `mulch_consolidation_ratio` | > 0.8 | близко к 1 значит тема не размазана по дублям |
 
 Пока считать вручную.
 
----
+## Current Project Boundary
 
-> **Принцип**: память — это не landfill. Каждый record должен либо повышать
-> качество следующей сессии, либо быть удалён. forget и improve — такие же
-> first-class операции как remember.
+Для `dash` расчётная истина принадлежит этим местам:
+
+- `docs/METRICS_CONTRACT.md` — formulas, gates, examples, UI usage.
+- `docs/DATA_SOURCES.md` — production Google Sheets and forbidden sources.
+- `packages/core/src/metrics/registry.ts` — executable metric metadata.
+- `packages/core/src/pipeline/` — calculation behavior and regression tests.
+
+Mulch может помнить, как эти истины были найдены, но не должен быть единственным
+местом, где они существуют.
+
+## Restoration Trail
+
+2026-06-04: исходная версия была восстановлена после ошибочного удаления.
+Backup старой версии и текущего merge лежит в `docs/deleted-backups/2026-06-04/`.
