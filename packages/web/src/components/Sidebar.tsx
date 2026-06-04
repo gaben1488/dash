@@ -1,8 +1,8 @@
 import { useStore, type Page } from '../store';
 import {
   Gauge, TrendingUp, ShieldCheck,
-  Settings, Table2, Coins,
-  ChevronLeft, ChevronRight,
+  Settings, Table2, Coins, FileSpreadsheet,
+  ChevronRight,
   Wifi, WifiOff,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -21,6 +21,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Пульт', icon: Gauge },
+  { id: 'svod', label: 'Свод ТД-ПМ', icon: FileSpreadsheet, badge: 'new' },
   { id: 'data', label: 'Реестр', icon: Table2 },
   { id: 'economy', label: 'Экономия', icon: Coins },
   { id: 'quality', label: 'Контроль', icon: ShieldCheck },
@@ -269,7 +270,6 @@ function ShieldMark({ size = 36 }: { size?: number }) {
   const s = size;
   const p = s * 0.18; // padding inside mark
   const cx = s / 2;
-  const cy = s / 2;
 
   // Shield path (rounded, tapered bottom)
   const shieldD = `

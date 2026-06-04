@@ -52,6 +52,9 @@ export * from './column-map.js';
 // Re-export ШДЮ mapping
 export * from './shdyu-map.js';
 
+// Re-export СВОД view builder (панель просмотра — точная копия листа из officialMetrics)
+export * from './svod-view.js';
+
 // Re-export unified class system
 export * from './unified-class-system.js';
 

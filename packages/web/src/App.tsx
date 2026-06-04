@@ -5,6 +5,7 @@ import { useUrlSync } from './hooks/useUrlSync';
 import { Header } from './components/Header';
 import { OrgStrip } from './components/OrgStrip';
 import { Dashboard } from './pages/Dashboard';
+import { SvodView } from './pages/SvodView';
 import { DataBrowserPage } from './pages/DataBrowser';
 import { EconomyPage } from './pages/Economy';
 import { Analytics } from './pages/Analytics';
@@ -108,6 +109,7 @@ export function App() {
   const renderPage = () => {
     switch (page) {
       case 'dashboard': return <Dashboard />;
+      case 'svod': return <SvodView />;
       case 'data': return <DataBrowserPage />;
       case 'economy': return <EconomyPage />;
       case 'analytics': return <Analytics />;

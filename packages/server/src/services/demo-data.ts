@@ -1,4 +1,4 @@
-import { REPORT_MAP, DEPARTMENTS } from '@aemr/shared';
+import { REPORT_MAP } from '@aemr/shared';
 import type {
   DataSnapshot,
   NormalizedMetric,
@@ -6,6 +6,7 @@ import type {
   Issue,
   TrustScore,
   TrustComponent,
+  PeriodScope,
 } from '@aemr/shared';
 
 // ============================================================
@@ -359,6 +360,128 @@ function buildTrustScore(issues: Issue[]): TrustScore {
   };
 }
 
+// ── Полная демо-сетка СВОД ТД-ПМ (ключи REPORT_MAP) ───────────────────
+// Делает демо-режим (и VPS без Google-кредов) полноценным: страница «СВОД
+// ТД-ПМ» и сводки дашборда показывают согласованные числа вместо пустых ячеек.
+
+interface DemoRow {
+  planCount: number; factCount: number; deviationCount: number; executionPct: number;
+  planFB: number; planKB: number; planMB: number; planTotal: number;
+  factFB: number; factKB: number; factMB: number; factTotal: number;
+  amountDeviation: number; savingsPct: number;
+  economyFB: number; economyKB: number; economyMB: number; economyTotal: number;
+}
+
+const DEMO_DEPTS = [
+  { id: 'uer',    kpPlan: 70,   kpExec: 0.70, epPlan: 16,   epExec: 0.80, price: 520, econ: 0.12, fb: 0.30, kb: 0.50 },
+  { id: 'uio',    kpPlan: 50,   kpExec: 0.66, epPlan: 22,   epExec: 0.75, price: 410, econ: 0.10, fb: 0.10, kb: 0.70 },
+  { id: 'uagzo',  kpPlan: 30,   kpExec: 0.74, epPlan: 15,   epExec: 0.82, price: 380, econ: 0.15, fb: 0.05, kb: 0.75 },
+  { id: 'ufbp',   kpPlan: 28,   kpExec: 0.81, epPlan: 22,   epExec: 0.78, price: 600, econ: 0.09, fb: 0.40, kb: 0.45 },
+  { id: 'ud',     kpPlan: 95,   kpExec: 0.65, epPlan: 77,   epExec: 0.72, price: 350, econ: 0.11, fb: 0.20, kb: 0.60 },
+  { id: 'udtx',   kpPlan: 40,   kpExec: 0.62, epPlan: 27,   epExec: 0.70, price: 700, econ: 0.14, fb: 0.15, kb: 0.65 },
+  { id: 'uksimp', kpPlan: 360,  kpExec: 0.71, epPlan: 308,  epExec: 0.74, price: 280, econ: 0.13, fb: 0.10, kb: 0.70 },
+  { id: 'uo',     kpPlan: 1300, kpExec: 0.79, epPlan: 1068, epExec: 0.77, price: 230, econ: 0.16, fb: 0.25, kb: 0.60 },
+] as const;
+
+function demoGenRow(planCount: number, execFrac: number, price: number, econRate: number, fbShare: number, kbShare: number): DemoRow {
+  const factCount = Math.round(planCount * execFrac);
+  const planTotal = Math.round(planCount * price);
+  const factTotal = Math.round(factCount * price * 0.96);
+  const planFB = Math.round(planTotal * fbShare);
+  const planKB = Math.round(planTotal * kbShare);
+  const factFB = Math.round(factTotal * fbShare);
+  const factKB = Math.round(factTotal * kbShare);
+  const economyTotal = Math.round(factTotal * econRate);
+  const economyFB = Math.round(economyTotal * fbShare);
+  const economyKB = Math.round(economyTotal * kbShare);
+  return {
+    planCount, factCount,
+    deviationCount: factCount - planCount,
+    executionPct: planCount > 0 ? factCount / planCount : 0,
+    planFB, planKB, planMB: planTotal - planFB - planKB, planTotal,
+    factFB, factKB, factMB: factTotal - factFB - factKB, factTotal,
+    amountDeviation: planTotal - factTotal,
+    savingsPct: planTotal > 0 ? (planTotal - factTotal) / planTotal : 0,
+    economyFB, economyKB, economyMB: economyTotal - economyFB - economyKB, economyTotal,
+  };
+}
+
+function demoBlankRow(): DemoRow {
+  return {
+    planCount: 0, factCount: 0, deviationCount: 0, executionPct: 0,
+    planFB: 0, planKB: 0, planMB: 0, planTotal: 0,
+    factFB: 0, factKB: 0, factMB: 0, factTotal: 0,
+    amountDeviation: 0, savingsPct: 0,
+    economyFB: 0, economyKB: 0, economyMB: 0, economyTotal: 0,
+  };
+}
+
+function demoAccumulate(acc: DemoRow, r: DemoRow): void {
+  acc.planCount += r.planCount; acc.factCount += r.factCount;
+  acc.planFB += r.planFB; acc.planKB += r.planKB; acc.planMB += r.planMB; acc.planTotal += r.planTotal;
+  acc.factFB += r.factFB; acc.factKB += r.factKB; acc.factMB += r.factMB; acc.factTotal += r.factTotal;
+  acc.economyFB += r.economyFB; acc.economyKB += r.economyKB; acc.economyMB += r.economyMB; acc.economyTotal += r.economyTotal;
+}
+
+function demoFinalize(acc: DemoRow): DemoRow {
+  acc.deviationCount = acc.factCount - acc.planCount;
+  acc.executionPct = acc.planCount > 0 ? acc.factCount / acc.planCount : 0;
+  acc.amountDeviation = acc.planTotal - acc.factTotal;
+  acc.savingsPct = acc.planTotal > 0 ? (acc.planTotal - acc.factTotal) / acc.planTotal : 0;
+  return acc;
+}
+
+function demoEmitRow(out: Record<string, NormalizedMetric>, prefix: string, row: DemoRow, eKey: 'fact' | 'fact_count'): void {
+  const now = new Date().toISOString();
+  const period: PeriodScope = prefix.includes('.q1') ? 'q1' : 'annual';
+  const put = (suffix: string, v: number, kind: 'count' | 'currency' | 'percent') => {
+    const key = `${prefix}.${suffix}`;
+    const metric: NormalizedMetric = {
+      metricKey: key, value: v, numericValue: v,
+      displayValue: kind === 'percent' ? `${(v * 100).toFixed(1)}%` : v.toLocaleString('ru-RU'),
+      origin: 'official', period,
+      unit: kind === 'percent' ? 'percent' : kind === 'count' ? 'count' : 'thousand_rubles',
+      sourceSheet: 'СВОД ТД-ПМ', sourceCell: '', formula: null,
+      confidence: 0.95, readAt: now, warnings: [],
+    };
+    out[key] = metric;
+  };
+  put('count', row.planCount, 'count');
+  put(eKey, row.factCount, 'count');
+  put('deviation', row.deviationCount, 'count');
+  put('percent', row.executionPct, 'percent');
+  put('fb_plan', row.planFB, 'currency'); put('kb_plan', row.planKB, 'currency'); put('mb_plan', row.planMB, 'currency'); put('total_plan', row.planTotal, 'currency');
+  put('fb_fact', row.factFB, 'currency'); put('kb_fact', row.factKB, 'currency'); put('mb_fact', row.factMB, 'currency'); put('total_fact', row.factTotal, 'currency');
+  put('amount_dev', row.amountDeviation, 'currency'); put('savings_pct', row.savingsPct, 'percent');
+  put('economy_fb', row.economyFB, 'currency'); put('economy_kb', row.economyKB, 'currency'); put('economy_mb', row.economyMB, 'currency'); put('economy_total', row.economyTotal, 'currency');
+}
+
+/** Полная демо-сетка СВОД ТД-ПМ по ключам REPORT_MAP (сводный + 8 ГРБС × КП/ЕП × Q1/Год). */
+function buildSvodDemoCells(): Record<string, NormalizedMetric> {
+  const out: Record<string, NormalizedMetric> = {};
+  const sumKpY = demoBlankRow(), sumEpY = demoBlankRow();
+  const sumKpQ1 = demoBlankRow(), sumEpQ1 = demoBlankRow();
+
+  for (const d of DEMO_DEPTS) {
+    const kpY = demoGenRow(d.kpPlan, d.kpExec, d.price, d.econ, d.fb, d.kb);
+    const epY = demoGenRow(d.epPlan, d.epExec, d.price * 0.9, d.econ * 0.7, d.fb, d.kb);
+    const kpQ1 = demoGenRow(Math.round(d.kpPlan * 0.45), Math.min(1, d.kpExec * 1.1), d.price, d.econ, d.fb, d.kb);
+    const epQ1 = demoGenRow(Math.round(d.epPlan * 0.45), Math.min(1, d.epExec * 1.08), d.price * 0.9, d.econ * 0.7, d.fb, d.kb);
+    demoEmitRow(out, `grbs.${d.id}.kp.year`, kpY, 'fact');
+    demoEmitRow(out, `grbs.${d.id}.ep.year`, epY, 'fact');
+    demoEmitRow(out, `grbs.${d.id}.kp.q1`, kpQ1, 'fact');
+    demoEmitRow(out, `grbs.${d.id}.ep.q1`, epQ1, 'fact');
+    demoAccumulate(sumKpY, kpY); demoAccumulate(sumEpY, epY);
+    demoAccumulate(sumKpQ1, kpQ1); demoAccumulate(sumEpQ1, epQ1);
+  }
+
+  demoEmitRow(out, 'competitive.year', demoFinalize(sumKpY), 'fact_count');
+  demoEmitRow(out, 'sole.year', demoFinalize(sumEpY), 'fact_count');
+  demoEmitRow(out, 'competitive.q1', demoFinalize(sumKpQ1), 'fact_count');
+  demoEmitRow(out, 'sole.q1', demoFinalize(sumEpQ1), 'fact_count');
+  return out;
+}
+
 /**
  * Creates a complete DataSnapshot with realistic demo/mock data.
  * Used as fallback when Google Sheets credentials are unavailable.
@@ -366,7 +489,8 @@ function buildTrustScore(issues: Issue[]): TrustScore {
 export function createDemoSnapshot(): DataSnapshot {
   const now = new Date().toISOString();
 
-  const officialMetrics = buildOfficialMetrics();
+  // Полная сетка СВОД (наш генератор) + точечные legacy-значения сверху.
+  const officialMetrics = { ...buildOfficialMetrics(), ...buildSvodDemoCells() };
   const calculatedMetrics = buildCalculatedMetrics(officialMetrics);
   const deltas = buildDeltas(officialMetrics, calculatedMetrics);
   const issues = buildIssues();

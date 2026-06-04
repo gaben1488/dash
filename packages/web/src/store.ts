@@ -5,6 +5,7 @@ import { api } from './api';
 /** СВОД — 6 страниц + legacy aliases */
 export type Page =
   | 'dashboard'     // Пульт (сводная панель)
+  | 'svod'          // СВОД ТД-ПМ (панель просмотра — точная копия листа)
   | 'data'          // Реестр (построчные данные)
   | 'economy'       // Экономия
   | 'analytics'     // Аналитика
@@ -98,6 +99,15 @@ export const QUARTER_MONTHS: Record<string, number[]> = {
   q3: [7, 8, 9],
   q4: [10, 11, 12],
 };
+
+function omitYearSelection(
+  monthsByYear: Record<number, Set<number>>,
+  year: number,
+): Record<number, Set<number>> {
+  return Object.fromEntries(
+    Object.entries(monthsByYear).filter(([key]) => Number(key) !== year),
+  ) as Record<number, Set<number>>;
+}
 
 /** Get Monday of the week containing the given date */
 export function getMondayOfWeek(d: Date): Date {
@@ -471,8 +481,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
   clearMonths: () => {
     const yr = get().year;
-    const mby = { ...get().monthsByYear };
-    if (typeof yr === 'number') delete mby[yr];
+    const mby = typeof yr === 'number'
+      ? omitYearSelection(get().monthsByYear, yr)
+      : { ...get().monthsByYear };
     // Clearing months → back to week mode
     const monday = getMondayOfWeek(new Date());
     set({
@@ -487,10 +498,11 @@ export const useStore = create<AppState>((set, get) => ({
   monthsByYear: {} as Record<number, Set<number>>,
 
   toggleMonthInYear: (yr, month) => {
-    const mby = { ...get().monthsByYear };
+    let mby = { ...get().monthsByYear };
     const current = new Set(mby[yr] ?? []);
     if (current.has(month)) current.delete(month); else current.add(month);
-    if (current.size === 0) delete mby[yr]; else mby[yr] = current;
+    if (current.size === 0) mby = omitYearSelection(mby, yr);
+    else mby[yr] = current;
 
     // Sync: set year to this year if it has selections, update activeMonths
     const targetYear = yr;
@@ -508,7 +520,7 @@ export const useStore = create<AppState>((set, get) => ({
   toggleQuarterInYear: (yr, qKey) => {
     const months = QUARTER_MONTHS[qKey];
     if (!months) return;
-    const mby = { ...get().monthsByYear };
+    let mby = { ...get().monthsByYear };
     const current = new Set(mby[yr] ?? []);
     const allSelected = months.every(m => current.has(m));
     if (allSelected) {
@@ -516,7 +528,8 @@ export const useStore = create<AppState>((set, get) => ({
     } else {
       months.forEach(m => current.add(m));
     }
-    if (current.size === 0) delete mby[yr]; else mby[yr] = current;
+    if (current.size === 0) mby = omitYearSelection(mby, yr);
+    else mby[yr] = current;
 
     const activeForYear = mby[yr] ?? new Set<number>();
     // If all months cleared → back to week mode
@@ -529,11 +542,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleYearFull: (yr) => {
-    const mby = { ...get().monthsByYear };
+    let mby = { ...get().monthsByYear };
     const current = mby[yr];
     const allSelected = current && current.size === 12;
     if (allSelected) {
-      delete mby[yr];
+      mby = omitYearSelection(mby, yr);
     } else {
       mby[yr] = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     }

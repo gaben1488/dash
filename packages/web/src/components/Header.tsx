@@ -1,12 +1,11 @@
 import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getMondayOfWeek, getMonthsForWeek } from '../store';
-import type { MoneyUnit, BudgetType, Page } from '../store';
+import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
-  Wifi, WifiOff, Loader2,
-  Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins,
+  Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
 import { FilterBreadcrumb } from './FilterBreadcrumb';
 
@@ -17,6 +16,7 @@ export type FilterGroup =
 
 const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   dashboard:  ['period', 'currency', 'procurement', 'activity', 'budget'],
+  svod:       ['currency'],
   data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
   economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
   analytics:  ['period', 'currency', 'procurement', 'activity', 'budget'],
@@ -35,7 +35,8 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 /* ─── Nav items with BRAND COLORS ────────────────────────── */
 
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[] = [
-  { id: 'dashboard', label: 'Пульт',     icon: Gauge,       color: '#3b82f6' },  // Electric Blue
+  { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#3b82f6' },  // Electric Blue
+  { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2' },  // Cyan — источник истины
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
   { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald
   { id: 'quality',   label: 'Контроль',   icon: ShieldCheck, color: '#ef4444' },  // Ruby Red
@@ -316,11 +317,11 @@ function WeekRoller() {
     if (!el) return;
     const handler = (e: WheelEvent) => {
       e.preventDefault();
-      useStore.getState().shiftFocusedWeek(e.deltaY > 0 ? 1 : -1);
+      shiftFocusedWeek(e.deltaY > 0 ? 1 : -1);
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, []);
+  }, [shiftFocusedWeek]);
   useEffect(() => {
     // Only sync week→month when in explicit mode (manual month selection syncs roller)
     if (isWeekMode) return;
@@ -446,13 +447,13 @@ export function Header() {
     loading, error, isDemo, page, setPage,
     moneyUnit, setMoneyUnit,
     selectedMethods, toggleMethod, clearMethods,
-    selectedActivities, toggleActivity, clearActivities,
-    selectedBudgets, toggleBudget, clearBudgets,
+    selectedActivities, toggleActivity,
+    selectedBudgets, toggleBudget,
     searchQuery, setSearchQuery,
     resetAllFilters, selectedDepartments, selectedSubordinates, monthsByYear,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
-  const { secondsLeft, loading: autoLoading, isOnline } = useAutoRefresh();
+  const { secondsLeft, isOnline } = useAutoRefresh();
   const fg = PAGE_FILTERS[page] ?? [];
   const has = (k: string) => fg.includes(k as FilterGroup);
 
