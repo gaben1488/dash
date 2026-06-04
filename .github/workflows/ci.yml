@@ -11,10 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  typecheck-and-test:
-    name: TypeScript + Tests
+  verify:
+    name: Lint, TypeScript, Tests, Build, Audit
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,15 +33,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: TypeScript check (all 4 packages)
-        run: |
-          echo "=== shared ==="; cd packages/shared && npx tsc --noEmit && cd ../..
-          echo "=== core ==="; cd packages/core && npx tsc --noEmit && cd ../..
-          echo "=== server ==="; cd packages/server && npx tsc --noEmit && cd ../..
-          echo "=== web ==="; cd packages/web && npx tsc --noEmit && cd ../..
+      - name: ESLint
+        run: pnpm lint
+
+      - name: TypeScript
+        run: pnpm typecheck
 
       - name: Tests
         run: pnpm -r test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
 
   lint-biome:
     name: Biome lint (advisory)

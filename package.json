@@ -15,13 +15,13 @@
     "db:generate": "pnpm -F @aemr/server db:generate",
     "db:migrate": "pnpm -F @aemr/server db:migrate",
     "db:studio": "pnpm -F @aemr/server db:studio",
-    "lint": "eslint .",
+    "lint": "eslint \"packages/**/*.{ts,tsx}\"",
     "lint:biome": "biome lint .",
     "biome:check": "biome check .",
     "biome:check:fix": "biome check --write .",
     "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\"",
     "format:biome": "biome format --write .",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "node scripts/typecheck-workspaces.mjs",
     "typecheck:all": "pnpm -r --workspace-concurrency=1 exec tsc --noEmit",
     "test": "pnpm -r test",
     "test:watch": "pnpm -r --parallel test --watch",
@@ -40,5 +40,15 @@
     "prettier": "^3.8.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.58.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "brace-expansion": "^5.0.6",
+      "esbuild": "^0.25.0",
+      "fast-uri": "^3.1.2",
+      "lodash": "^4.18.1",
+      "qs": "^6.15.2",
+      "ws": "^8.20.1"
+    }
   }
 }
