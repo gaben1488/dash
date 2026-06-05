@@ -14,7 +14,9 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
 
   /** GET /api/history — история снимков */
   app.get('/api/history', async (request, reply) => {
-    const limit = parseInt((request.query as Record<string, string>).limit ?? '50', 10);
+    const rawLimit = parseInt((request.query as Record<string, string>).limit ?? '50', 10);
+    // Guard: ?limit=abc -> NaN в drizzle; ?limit=1e9 -> unbounded. Clamp как в других роутах.
+    const limit = Number.isFinite(rawLimit) ? Math.min(500, Math.max(1, rawLimit)) : 50;
     const history = getSnapshotHistory(limit);
     return reply.send(history);
   });

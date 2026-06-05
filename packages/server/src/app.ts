@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
@@ -35,6 +36,32 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(cors, {
     origin: ['http://localhost:5173', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  });
+
+  // Security-заголовки. CSP подобран под реальный SPA (Vite + Google Fonts) на HTTP-деплое:
+  // - script/style 'unsafe-inline' — Vite modulepreload-polyfill + Tailwind inline-стили;
+  // - connect-src 'self' — БЛОКИРУЕТ exfil API-ключа из localStorage на чужой домен (главная защита при XSS);
+  // - style/font allow fonts.googleapis.com/gstatic.com (index.html их грузит);
+  // - useDefaults:false → НЕТ upgrade-insecure-requests (прод по HTTP 193.233.244.217, иначе SPA сломается);
+  // - hsts/COEP off — HTTP-деплой + кросс-загрузка Google Fonts.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    hsts: false,
+    crossOriginEmbedderPolicy: false,
   });
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
