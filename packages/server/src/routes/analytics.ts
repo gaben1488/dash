@@ -12,7 +12,11 @@ import {
   buildSubjectAnalysis,
   findCentralizationOpportunities,
   GRBS_BASELINES,
+  EP_SHARE_BY_ROLE,
+  detectAntiCorruption,
   type ComplianceIssue,
+  type AntiCorruptionRow,
+  type AntiCorruptionResult,
 } from '@aemr/core';
 import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
 import { getDeptSheetValues } from '../services/snapshot.js';
@@ -115,6 +119,45 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       return result;
     } catch (err) {
       app.log.error({ err }, 'Analytics ep-reasons unavailable');
+      return reply.status(503).send({ error: 'Analytics unavailable - data source error' });
+    }
+  });
+
+  /** GET /api/analytics/anticorruption — антикор-индикаторы (Layer C decision-engine) per ГРБС */
+  app.get('/api/analytics/anticorruption', async (_request, reply) => {
+    try {
+      const snapshot = await getSnapshot();
+      const recalcResults = snapshot.recalcResults ?? {};
+      const deptCache = getDeptSheetValues();
+      const result: Record<string, AntiCorruptionResult> = {};
+      for (const dept of DEPARTMENTS) {
+        const rows = deptCache[dept.nameShort];
+        if (!rows || rows.length === 0) continue;
+        const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+          rowIndex: i + DEPT_HEADER_ROWS + 1,
+          method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
+          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          economy: Math.max(0,
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_FB] ?? 0)) || 0) +
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_KB] ?? 0)) || 0) +
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_MB] ?? 0)) || 0)
+          ),
+          subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+        }));
+        const recalc = recalcResults[dept.id] as any;
+        const baseline = GRBS_BASELINES.find(b => b.grbsId === dept.id);
+        const epShareLimit = baseline ? EP_SHARE_BY_ROLE[baseline.role] : 0.5;
+        result[dept.id] = detectAntiCorruption(dept.id, {
+          rows: rowData,
+          epTotal: recalc?.totalEP ?? 0,
+          totalPlan: recalc?.year?.planTotal ?? 0,
+          epShareLimit,
+        });
+      }
+      return result;
+    } catch (err) {
+      app.log.error({ err }, 'Anticorruption analysis unavailable');
       return reply.status(503).send({ error: 'Analytics unavailable - data source error' });
     }
   });
