@@ -109,4 +109,40 @@ describe('server security routes in production', () => {
 
     expect(res.statusCode).toBe(404);
   });
+
+  it('rejects row write range injection and invalid row numbers before Google Sheets write', async () => {
+    const rangeField = await app!.inject({
+      method: 'PUT',
+      url: '/api/rows/uo/2/field',
+      headers: { Authorization: 'Bearer secret-key' },
+      payload: { field: 'A5:Z5', value: '=IMPORTXML("https://example.test","//x")' },
+    });
+    const invalidRow = await app!.inject({
+      method: 'PUT',
+      url: '/api/rows/uo/not-a-row/field',
+      headers: { Authorization: 'Bearer secret-key' },
+      payload: { field: 'G', value: 'safe text' },
+    });
+    const batch = await app!.inject({
+      method: 'POST',
+      url: '/api/data/rows',
+      headers: { Authorization: 'Bearer secret-key' },
+      payload: {
+        rows: [
+          { deptId: 'uo', rowIndex: 2, changes: { 'A5:Z5': 'bad' } },
+          { deptId: 'uo', rowIndex: 1, changes: { G: 'header write' } },
+        ],
+      },
+    });
+
+    expect(rangeField.statusCode).toBe(400);
+    expect(rangeField.json<{ error: string }>().error).toContain('Неизвестная колонка');
+    expect(invalidRow.statusCode).toBe(400);
+    expect(invalidRow.json<{ error: string }>().error).toContain('Некорректный номер строки');
+    expect(batch.statusCode).toBe(200);
+    expect(batch.json<{ results: Array<{ success: boolean; error?: string }> }>().results).toEqual([
+      expect.objectContaining({ success: false, error: expect.stringContaining('Неизвестная колонка') }),
+      expect.objectContaining({ success: false, error: expect.stringContaining('некорректная строка 1') }),
+    ]);
+  });
 });
