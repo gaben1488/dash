@@ -1,6 +1,6 @@
 # Runbook
 
-Last verified: 2026-06-04.
+Last verified: 2026-06-05.
 
 ## Local Development
 
@@ -34,7 +34,7 @@ Before changing spreadsheet IDs, sheet names, or metric formulas:
 1. Check [DATA_SOURCES.md](DATA_SOURCES.md) for the production source set.
 2. Check [METRICS_CONTRACT.md](METRICS_CONTRACT.md) for the source column, gate, formula, DTO field and UI label.
 3. Add or update regression coverage for the changed source or metric.
-4. Run `pnpm -F @aemr/server test source-inventory.test.ts` for source defaults.
+4. Run `pnpm -F @aemr/server test source-inventory.test.ts` for source defaults and runtime spreadsheet ID validation.
 5. Run the full verification block above before handoff.
 
 ## Production Deploy

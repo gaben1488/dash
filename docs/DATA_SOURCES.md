@@ -1,6 +1,6 @@
 # Data Sources
 
-Last verified: 2026-06-04.
+Last verified: 2026-06-05.
 
 This document separates production inputs from archives, copies, generated reports, and reference material. Production code must not silently switch to a copy or archive.
 
@@ -36,6 +36,8 @@ Department workbooks:
 | `УО` | Управление образования | `1AGvXDSKSjpPc11ce4NDK262qySM4W6nFTq2YcgQ6Sds` | `ВСЕ` |
 
 Department IDs are configured in `packages/server/src/config.ts` as `DEPARTMENT_SPREADSHEETS`. Runtime overrides are stored in `data/sources.json`; any override must be treated as a production source change.
+
+Runtime source changes must pass `validateSpreadsheetIdForSourceChange()` in `packages/server/src/config.ts`: the API accepts only raw Google Sheets IDs, rejects URLs/file names, and rejects demo sentinel IDs.
 
 ## Runtime Read Path
 
@@ -81,6 +83,7 @@ Before changing any spreadsheet ID or production sheet name:
 1. Update `packages/server/src/config.ts`.
 2. Update `packages/shared/src/department-registry.ts` if the sheet name changed.
 3. Update `packages/shared/src/shdyu-map.ts` if the SHDYU tab name or layout changed.
-4. Update this document.
-5. Run `pnpm typecheck`, `pnpm -r test`, and a dashboard refresh against the new source.
-6. Verify that `METRICS_CONTRACT.md` still maps every displayed KPI to source columns.
+4. If changing a runtime source through `/api/sources/:name`, submit only the raw spreadsheet ID, not a Google Sheets URL or exported file name.
+5. Update this document.
+6. Run `pnpm typecheck`, `pnpm -r test`, and a dashboard refresh against the new source.
+7. Verify that `METRICS_CONTRACT.md` still maps every displayed KPI to source columns.

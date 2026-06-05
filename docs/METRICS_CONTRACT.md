@@ -1,12 +1,13 @@
 # Metrics Contract
 
-Last verified: 2026-06-04.
+Last verified: 2026-06-05.
 
 This document is the contract from Google Sheet cells to dashboard numbers. If code, UI labels, or docs disagree with this file, the metric is not production-ready.
 
 ## Rule
 
 - `amount_deviation` is `plan_total - fact_total`.
+- `savings_pct` is a legacy key for `СВОД ТД-ПМ` column `Q`: `fact_total / plan_total` ("Потрачено, %"). It is not savings/economy.
 - `economy_total` is approved economy from columns `Z + AA + AB` only when the row has `fact_date` and `AD = "да"`.
 - The UI must not call `amount_deviation` economy. Economy cards and economy percentages must use `economy_total`.
 - Procurement method buckets use the shared classifier, not raw string equality.
@@ -43,6 +44,7 @@ Production row-level calculations use department workbooks. The same layout is m
 | Факт, сумма | `V/W/X/Y` | `Q` not empty | `SUM(Y)` or `SUM(V+W+X)` | `fact_total` | `factTotal`, `totalFact` | Plan/fact charts |
 | Исполнение, сумма | `plan_total`, `fact_total` | denominator > 0 | `fact_total / plan_total` | `execution_pct` | `executionPct` | Secondary execution value |
 | Отклонение, сумма | `plan_total`, `fact_total` | none | `plan_total - fact_total` | `amount_deviation` | calculated metric only | Diagnostics, not economy |
+| Потрачено, % | `plan_total`, `fact_total` | denominator > 0 | `fact_total / plan_total` | `savings_pct` legacy key for SVOD `Q` | official metrics | Svod/Reconciliation; not economy |
 | Экономия ФБ/КБ/МБ | `Z/AA/AB` | `Q` not empty and `AD="да"` | `SUM(Z)`, `SUM(AA)`, `SUM(AB)` | `economy_fb`, `economy_kb`, `economy_mb` | `economyFB`, `economyKB`, `economyMB` | Economy page, budget slices |
 | Экономия итого | `Z/AA/AB` | `Q` not empty and `AD="да"` | `economy_fb + economy_kb + economy_mb` | `economy_total` | `economyTotal`, `totalEconomy` | Economy KPI, SvodView |
 | Экономия, % | `economy_total`, `plan_total` | denominator > 0 | `economy_total / plan_total` | UI metric `economy_rate` | derived in web from `economyTotal` | Dashboard economy KPI |
@@ -97,6 +99,7 @@ Result:
 | `plan_total` | `1000 + 500 + 200` | 1700 |
 | `fact_total` | `700 + 450` | 1150 |
 | `amount_deviation` | `1700 - 1150` | 550 |
+| `savings_pct` | legacy SVOD `Q`: `1150 / 1700` | `67.6%` |
 | `economy_total` | only row 1 has `Q` and `AD="да"`: `35` | 35 |
 | `economy_rate` | `35 / 1700` | `2.1%` |
 | `competitive_count` | rows 1 and 3 | 2 |
@@ -105,7 +108,7 @@ Result:
 | `ep_fact_count` | row 2 | 1 |
 | `ep_share_pct` | `1 / (2 + 1)` | `33.3%` |
 
-The critical distinction is visible here: `amount_deviation = 550`, but approved `economy_total = 35`.
+The critical distinction is visible here: `amount_deviation = 550`, legacy `savings_pct = 67.6%` spent, but approved `economy_total = 35`.
 
 ## Implementation References
 

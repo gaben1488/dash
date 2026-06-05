@@ -1,6 +1,6 @@
 # Code And Security Review
 
-Review date: 2026-06-04.
+Review date: 2026-06-05.
 
 ## Scope Reviewed
 
@@ -32,9 +32,9 @@ Review date: 2026-06-04.
 ## Verification Results
 
 ```text
-pnpm lint                         passed, 0 errors, warnings remain for any/hook-deps
+pnpm lint                         passed, 0 errors, 279 warnings remain for any/hook-deps
 pnpm typecheck                    passed
-pnpm -r test                      passed: shared 41, core 618, server 4
+pnpm -r test                      passed: shared 48, core 636, server 14, web 15
 pnpm build                        passed
 pnpm audit --audit-level moderate passed, no known vulnerabilities
 git diff --check                  passed, line-ending warnings only
@@ -43,7 +43,7 @@ git diff --check                  passed, line-ending warnings only
 ## Residual Risks
 
 - `@typescript-eslint/no-explicit-any` is warning-only. There are many remaining `any` sites, especially in web data shaping and server route payloads.
-- Web bundle is large; Vite reports the main minified chunk at about 1.34 MB.
+- Web bundle is large; Vite reports the main minified chunk at about 1.365 MB.
 - Auth is one shared API key stored in browser localStorage; this is acceptable only for internal MLP use.
 - No rate limiting or per-user authorization exists yet.
 - Biome remains advisory; ESLint is the primary gate.
