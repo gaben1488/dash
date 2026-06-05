@@ -455,6 +455,28 @@ describe('FP-fixes 2026-06-05 (SIGNAL_VALIDATION §4)', () => {
   });
 });
 
+describe('EP reason classification (ep-reason-clusters wiring 2026-06-05)', () => {
+  it('methodReasonMismatch: ЕП + «малая электронная закупка» (процедура, не основание)', () => {
+    const s = detectSignals(makeCells({ L: 'ЕП', M: 'малая электронная закупка', K: 100_000 }), REF_DATE);
+    expect(s.methodReasonMismatch).toBe(true);
+    expect(s.unmappedReasonEP).toBe(false);
+  });
+  it('methodReasonMismatch: NOT for competitive method (ЭА)', () => {
+    const s = detectSignals(makeCells({ L: 'ЭА', M: 'малая электронная закупка', K: 100_000 }), REF_DATE);
+    expect(s.methodReasonMismatch).toBe(false);
+  });
+  it('unmappedReasonEP: ЕП + нераспознанное обоснование', () => {
+    const s = detectSignals(makeCells({ L: 'ЕП', M: 'согласовано руководством учреждения', K: 100_000 }), REF_DATE);
+    expect(s.unmappedReasonEP).toBe(true);
+    expect(s.methodReasonMismatch).toBe(false);
+  });
+  it('recognized legitimate reason (монополист): neither EP-reason signal fires', () => {
+    const s = detectSignals(makeCells({ L: 'ЕП', M: 'монополист', K: 100_000 }), REF_DATE);
+    expect(s.methodReasonMismatch).toBe(false);
+    expect(s.unmappedReasonEP).toBe(false);
+  });
+});
+
 // ────────────────────────────────────────────────────────────
 // 5. Data Quality Signals
 // ────────────────────────────────────────────────────────────
@@ -1012,6 +1034,7 @@ describe('classifyRowState', () => {
       factExceedsPlan: false, stalledContract: false, budgetMismatch: false,
       factWithoutDate: false, dateWithoutFact: false, factDateBeforePlan: false,
       planWithoutExecution: false, epJustificationMissing: false,
+      methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
       budgetSourceMissing: false,
       ...overrides,
@@ -1086,6 +1109,7 @@ describe('getSignalBadges', () => {
       factExceedsPlan: false, stalledContract: false, budgetMismatch: false,
       factWithoutDate: false, dateWithoutFact: false, factDateBeforePlan: false,
       planWithoutExecution: false, epJustificationMissing: false,
+      methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
       budgetSourceMissing: false,
       ...overrides,

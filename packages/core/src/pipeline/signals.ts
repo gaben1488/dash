@@ -15,7 +15,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, isProceduralMismatch } from '@aemr/shared';
 import { parseAE } from './ae-parser.js';
 
 // ────────────────────────────────────────────────────────────
@@ -77,6 +77,10 @@ export interface RowSignals {
   planWithoutExecution: boolean;
   /** ЕП без обоснования: метод ЕП, но столбец M (обоснование) пуст */
   epJustificationMissing: boolean;
+  /** Процедурный мисматч: ЕП, но обоснование (M) = «малая электронная закупка» — это процедура ЭА≤600тыс, не основание ЕП */
+  methodReasonMismatch: boolean;
+  /** Обоснование ЕП (M) не распознано среди 15 кластеров или расплывчато («действующее законодательство») */
+  unmappedReasonEP: boolean;
   /** Факт без плана: Y > 0, но K = 0 — бюджетная аномалия */
   budgetUnderallocation: boolean;
   /** Источники бюджета не указаны: H/I/J все пусты/нули, но K > 0 */
@@ -526,6 +530,17 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const epJustificationMissing =
     isEP && !canceled && epJustification.length === 0 && !aeParsed.hasLegalBasis && !isNaN(planTotal) && planTotal > 0;
 
+  // ── Классификация обоснования ЕП (M) по 15 каноническим кластерам (ep-reason-clusters) ──
+  // Воскрешает 2 сигнала, потерянных при удалении signals-taxonomy.ts (DEADCODE_DISPOSITION_2026-06-05).
+  // ReDoS-cap 2000 символов (SECURITY S-M5: regex некоторых кластеров содержат .*).
+  const epReasonCluster = isEP ? canonicalizeReasonEp(epJustification.slice(0, 2000)).cluster : 'EMPTY';
+  // methodReasonMismatch: ЕП + обоснование = процедура «малая электронная закупка» (EP_SMALL_EL_PURCH)
+  const methodReasonMismatch =
+    isEP && !canceled && epReasonCluster !== 'EMPTY' && epReasonCluster !== 'UNMAPPED' && isProceduralMismatch(epReasonCluster);
+  // unmappedReasonEP: ЕП + обоснование не распознано (UNMAPPED) или расплывчатое (EP_CURRENT_LAW)
+  const unmappedReasonEP =
+    isEP && !canceled && (epReasonCluster === 'UNMAPPED' || epReasonCluster === 'EP_CURRENT_LAW');
+
   // ── Факт без плана (budget underallocation) ──
   // Y > 0 but K = 0 (or NaN) — execution without budget allocation.
   // This is a data integrity issue — spending money not in the plan.
@@ -568,6 +583,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factDateBeforePlan,
     planWithoutExecution,
     epJustificationMissing,
+    methodReasonMismatch,
+    unmappedReasonEP,
     budgetUnderallocation,
     budgetSourceMissing,
   };

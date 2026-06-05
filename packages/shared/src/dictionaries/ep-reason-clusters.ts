@@ -134,7 +134,7 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     legal_refs: ['AEMR_112', 'AEMR_112_1', 'AEMR_112_5', 'AEMR_112_8', 'AEMR_112_11'],
     regex: [
       /распоряжени[ея]\s+а[ея]мр?[\s\S]{0,40}№?\s*112/i,
-      /\bпп\.?\s*(?:1|5|8|11)\s*,?\s*п\.?\s*1\b/i,
+      /пп\.?\s*(?:1|5|8|11)\s*,?\s*п\.?\s*1/i, // FP-fix 2026-06-05: убран \b (не работает с кириллицей в JS)
     ],
     is_legitimate: true,
     approx_count: 221,
@@ -169,7 +169,7 @@ export const EP_REASON_DICT: Record<EpReasonCluster, EpReasonEntry> = {
     label_ru: 'Естественный монополист',
     legal_refs: ['44_FZ_93_1_1', '44_FZ_93_1_8', '147_FZ'],
     regex: [
-      /\bмонополист(?:ы|ов)?\b/i,
+      /монополист/i, // FP-fix 2026-06-05: \b (word-boundary) не матчит кириллицу в JS без флага u → был баг (монополист → UNMAPPED)
     ],
     is_legitimate: true,
     approx_count: 43,
