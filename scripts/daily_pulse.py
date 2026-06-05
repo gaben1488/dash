@@ -431,9 +431,9 @@ tags: [daily, pulse, сила-петли, meta]
 {_recommendations(strength, signals)}
 
 ## Навигация
-- [[Home]]
 - [[NOW]]
 - [[GOAL]]
+- [[MOC-pulse]]
 """
 
 
