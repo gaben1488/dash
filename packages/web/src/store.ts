@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ALL_DEPT_IDS, type DashboardData } from '@aemr/shared';
+import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type DashboardData } from '@aemr/shared';
 import { api } from './api';
 
 /** СВОД — 6 страниц + legacy aliases */
@@ -78,19 +78,23 @@ export const MONTHS = [
   { id: 12, short: 'Дек', full: 'Декабрь' },
 ] as const;
 
-/** Fallback subordinates (used until API loads real data).
- *  Empty array = dept has no subordinates (the dept IS the org).
- *  УИО/УФБП/УАГЗО: "x" in source sheet name column = row belongs to dept itself. */
-const SUBORDINATES_FALLBACK: Record<string, string[]> = {
-  'УЭР':    ['МКУ "ЦЭР"'],
-  'УИО':    [],
-  'УАГЗО':  [],
-  'УФБП':   [],
-  'УД':     ['МКУ "ХОЗУ"', 'МКУ "АХО"'],
-  'УДТХ':   ['МКУ "УДТХ"', 'МБУ "БДХ"'],
-  'УКСиМП': ['МКУ "ДКСМП"', 'МБУ "СК"', 'МБУ "ДК"'],
-  'УО':     ['МКУ "ЦБ УО"', 'Школы', 'Детские сады'],
-};
+/**
+ * Fallback subordinates (используется до загрузки реальных данных из API).
+ * ПРОИЗВОДНЫЕ от канонического SUBORDINATE_REGISTRY (single source of truth)
+ * через мост GrbsId → DepartmentId (биекция УАГиЗО↔УАГЗО и т.д.).
+ * Раньше — рукописная карта с плейсхолдерами («Школы») и непроверенными именами;
+ * теперь — канон. Пустой массив = у управления нет подведов (управление = сама орг).
+ * Полнота канона дозаполняется в subordinate-registry.ts; /api остаётся primary.
+ */
+export const SUBORDINATES_FALLBACK: Record<string, string[]> = (() => {
+  const map: Record<string, string[]> = Object.fromEntries(ALL_DEPT_IDS.map((id) => [id, [] as string[]]));
+  for (const sub of SUBORDINATE_REGISTRY) {
+    if (sub.isOrgItself) continue; // строка самого управления — не подвед
+    const deptId = GRBS_ID_TO_DEPARTMENT_ID[sub.grbsId]; // канон GrbsId → форма данных/фильтра
+    (map[deptId] ??= []).push(sub.displayName);
+  }
+  return map;
+})();
 
 /** Месяцы, входящие в каждый квартал */
 export const QUARTER_MONTHS: Record<string, number[]> = {
