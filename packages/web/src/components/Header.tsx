@@ -1,4 +1,4 @@
-import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getMondayOfWeek, getMonthsForWeek } from '../store';
+import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek, getMonthsForWeek } from '../store';
 import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
@@ -445,12 +445,14 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
 export function Header() {
   const {
     loading, error, isDemo, page, setPage,
+    year,
     moneyUnit, setMoneyUnit,
     selectedMethods, toggleMethod, clearMethods,
     selectedActivities, toggleActivity,
     selectedBudgets, toggleBudget,
     searchQuery, setSearchQuery,
-    resetAllFilters, selectedDepartments, selectedSubordinates, monthsByYear,
+    resetAllFilters, selectedDepartments, selectedSubordinates,
+    activeMonths, monthsByYear, periodMode,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
   const { secondsLeft, isOnline } = useAutoRefresh();
@@ -466,12 +468,19 @@ export function Header() {
     }
   })();
 
-  const activeCount =
-    (moneyUnit !== 'тыс' ? 1 : 0) +
-    (selectedMethods.size > 0 ? 1 : 0) + (selectedActivities.size > 0 ? 1 : 0) +
-    (selectedBudgets.size > 0 ? 1 : 0) + (Object.keys(monthsByYear).length > 0 ? 1 : 0) +
-    (selectedDepartments.size > 0 ? 1 : 0) + (selectedSubordinates.size > 0 ? 1 : 0) +
-    (searchQuery ? 1 : 0);
+  const activeCount = getActiveFilterCount({
+    yearChanged: year !== new Date().getFullYear(),
+    moneyUnitChanged: moneyUnit !== 'тыс',
+    selectedMethods,
+    selectedActivities,
+    selectedBudgets,
+    selectedDepartments,
+    selectedSubordinates,
+    activeMonths,
+    monthsByYear,
+    periodMode,
+    searchQuery,
+  });
 
   const showTime = has('period');
   const showMethod = has('procurement');
