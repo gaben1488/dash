@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useStore } from '../store';
+import { hasExplicitPeriodFilter, useStore } from '../store';
 import type { MoneyUnit, BudgetType } from '../store';
 import { Search, X, ChevronDown, Calendar, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
@@ -124,6 +124,8 @@ export function FilterBar({ groups, compact, enabledFilters }: FilterBarProps) {
 
   const {
     activeMonths,
+    monthsByYear,
+    periodMode,
     moneyUnit, setMoneyUnit,
     selectedMethods, toggleMethod, clearMethods,
     selectedActivities, toggleActivity, clearActivities,
@@ -138,6 +140,8 @@ export function FilterBar({ groups, compact, enabledFilters }: FilterBarProps) {
   const [monthsOpen, setMonthsOpen] = useState(false);
 
   // Count active filters
+  const hasPeriodFilter = hasExplicitPeriodFilter(periodMode, activeMonths, monthsByYear);
+
   const activeCount =
     (year !== new Date().getFullYear() ? 1 : 0) +
     (moneyUnit !== 'тыс' ? 1 : 0) +
@@ -146,7 +150,7 @@ export function FilterBar({ groups, compact, enabledFilters }: FilterBarProps) {
     (selectedBudgets.size > 0 ? 1 : 0) +
     (selectedDepartments.size > 0 ? 1 : 0) +
     (selectedSubordinates.size > 0 ? 1 : 0) +
-    (activeMonths.size > 0 ? 1 : 0) +
+    (hasPeriodFilter ? 1 : 0) +
     (searchQuery ? 1 : 0);
 
   const procOptions: { value: string; label: string }[] = [

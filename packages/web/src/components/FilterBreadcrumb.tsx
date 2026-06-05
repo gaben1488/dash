@@ -1,4 +1,4 @@
-import { useStore, MONTHS } from '../store';
+import { hasExplicitPeriodFilter, useStore, MONTHS } from '../store';
 import { X, Filter } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -13,6 +13,7 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
   const {
     selectedDepartments, selectedSubordinates, activeMonths,
     selectedMethods, selectedActivities, selectedBudgets,
+    periodMode, monthsByYear,
     selectAllDepartments, clearSubordinates, toggleMonth,
     clearMethods, clearActivities, clearBudgets,
     resetAllFilters,
@@ -20,7 +21,7 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
 
   const hasDept = selectedDepartments.size > 0;
   const hasSub = selectedSubordinates.size > 0;
-  const hasMonth = activeMonths.size > 0;
+  const hasMonth = hasExplicitPeriodFilter(periodMode, activeMonths, monthsByYear);
   const hasMethod = selectedMethods.size > 0;
   const hasActivity = selectedActivities.size > 0;
   const hasBudget = selectedBudgets.size > 0;

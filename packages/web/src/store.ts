@@ -41,6 +41,16 @@ export type BudgetType = 'fb' | 'kb' | 'mb';
  */
 export type PeriodMode = 'week' | 'explicit';
 
+export function hasExplicitPeriodFilter(
+  periodMode: PeriodMode,
+  activeMonths: Set<number>,
+  monthsByYear: Record<number, Set<number>>,
+): boolean {
+  if (periodMode !== 'explicit') return false;
+  if (activeMonths.size > 0) return true;
+  return Object.values(monthsByYear).some((months) => months.size > 0);
+}
+
 /** Get month(s) from a week's Monday date.
  *  If week spans two months, returns both. */
 export function getMonthsForWeek(monday: Date): Set<number> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { useStore } from './store';
+import { hasExplicitPeriodFilter, useStore } from './store';
 
 describe('useStore navigation filters', () => {
   it('opens the quality workspace on reconciliation by default', () => {
@@ -22,5 +22,13 @@ describe('useStore navigation filters', () => {
 
     expect(useStore.getState().procurementFilter).toBe('single');
     expect([...useStore.getState().selectedMethods]).toEqual(['single']);
+  });
+
+  it('does not count implicit week months as an explicit period filter', () => {
+    expect(hasExplicitPeriodFilter('week', new Set([6]), {})).toBe(false);
+  });
+
+  it('counts manually selected months as an explicit period filter', () => {
+    expect(hasExplicitPeriodFilter('explicit', new Set([4, 5]), {})).toBe(true);
   });
 });
