@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import {
   ALL_SHEETS,
   DEPARTMENT_REGISTRY,
-  SHDYU_SHEET_NAME_CANDIDATES,
+  SHDYU_MONTHLY_SHEET_NAME,
 } from '@aemr/shared';
 import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
 import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
@@ -25,10 +25,6 @@ import { sheetValuesRange } from './sheet-range.js';
 
 let sheetsApi: sheets_v4.Sheets | null = null;
 
-/**
- * Initializes and returns the Google Sheets API client.
- * Supports three auth modes: Service Account, API Key, ADC.
- */
 async function getSheetsApi(): Promise<sheets_v4.Sheets> {
   if (sheetsApi) return sheetsApi;
 
@@ -53,16 +49,9 @@ async function getSheetsApi(): Promise<sheets_v4.Sheets> {
   return sheetsApi;
 }
 
-// ────────────────────────────────────────────────────────────
-// Cache layer
-// ────────────────────────────────────────────────────────────
-
 let cachedSnapshot: WorkbookSnapshot | null = null;
 let cacheTimestamp = 0;
 
-/**
- * Returns the cached workbook snapshot if still valid, otherwise fetches fresh.
- */
 export async function getSnapshot(force = false): Promise<WorkbookSnapshot> {
   const now = Date.now();
   const ttl = config.cache.ttlSeconds * 1000;
@@ -78,34 +67,18 @@ export async function getSnapshot(force = false): Promise<WorkbookSnapshot> {
   return snapshot;
 }
 
-/** Invalidate the in-memory cache */
 export function invalidateCache(): void {
   cachedSnapshot = null;
   cacheTimestamp = 0;
 }
 
-// ────────────────────────────────────────────────────────────
-// Workbook fetching
-// ────────────────────────────────────────────────────────────
-
-/**
- * Fetches ALL sheets from the spreadsheet and returns a WorkbookSnapshot.
- *
- * For each sheet we do two reads:
- * - UNFORMATTED_VALUE: actual values (numbers as numbers)
- * - FORMULA: to detect which cells contain formulas
- *
- * The result is a map of sheet name -> Record<cellAddress, CellValue>.
- */
 export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
   const api = await getSheetsApi();
   const spreadsheetId = config.google.spreadsheetId;
 
-  // Build ranges for all sheets
   const sheetNames = ALL_SHEETS as readonly string[];
   const valueRanges = sheetNames.map((s) => sheetValuesRange(s));
 
-  // Fetch values (UNFORMATTED_VALUE for accurate numbers)
   const [valuesResponse, formulasResponse] = await Promise.all([
     api.spreadsheets.values.batchGet({
       spreadsheetId,
@@ -143,19 +116,14 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
       for (let c = 0; c < maxCols; c++) {
         const value = valRow[c] ?? null;
         const formulaRaw = fmtRow[c];
-
-        // Skip completely empty cells
         if (value === null && (formulaRaw === null || formulaRaw === undefined)) continue;
         if (value === '' && (formulaRaw === undefined || formulaRaw === '')) continue;
 
         const cellAddr = columnToLetter(c) + (r + 1);
         const cell: CellValue = { v: value };
-
-        // If the formula render returns a string starting with '=', it's a formula
         if (typeof formulaRaw === 'string' && formulaRaw.startsWith('=')) {
           cell.f = formulaRaw;
         }
-
         sheetData[cellAddr] = cell;
       }
     }
@@ -163,17 +131,9 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
     sheets[sheetName] = sheetData;
   }
 
-  return {
-    sheets,
-    loadedAt: new Date().toISOString(),
-    spreadsheetId,
-  };
+  return { sheets, loadedAt: new Date().toISOString(), spreadsheetId };
 }
 
-/**
- * Reads a single sheet as a 2D array (for row-level analysis).
- * Returns raw rows for pipeline usage.
- */
 export async function getSheetData(sheetName: string): Promise<unknown[][]> {
   const api = await getSheetsApi();
 
@@ -188,9 +148,6 @@ export async function getSheetData(sheetName: string): Promise<unknown[][]> {
   return (response.data.values as unknown[][]) ?? [];
 }
 
-/**
- * Reads specific cells via batchGet (used by pipeline).
- */
 export async function batchGetCells(
   ranges: string[],
 ): Promise<Array<{ range: string; values: unknown[][] }>> {
@@ -210,9 +167,6 @@ export async function batchGetCells(
   }));
 }
 
-/**
- * Reads formulas for diagnostics.
- */
 export async function batchGetFormulas(
   ranges: string[],
 ): Promise<Array<{ range: string; formulas: unknown[][] }>> {
@@ -231,9 +185,6 @@ export async function batchGetFormulas(
   }));
 }
 
-/**
- * Gets spreadsheet metadata (list of sheets).
- */
 export async function getSpreadsheetMetadata(): Promise<{
   title: string;
   sheets: Array<{ name: string; rowCount: number; colCount: number }>;
@@ -255,10 +206,6 @@ export async function getSpreadsheetMetadata(): Promise<{
   };
 }
 
-/**
- * Reads a single sheet from an EXTERNAL spreadsheet (by ID) as a 2D array.
- * Used for loading department-specific spreadsheets.
- */
 export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,
@@ -276,15 +223,6 @@ export async function getSheetDataFromSpreadsheet(
   return (response.data.values as unknown[][]) ?? [];
 }
 
-/**
- * Reads a single sheet from an EXTERNAL spreadsheet WITH both values AND formulas.
- * Returns { values, formulas } where formulas[r][c] starts with '=' if it's a formula cell.
- *
- * BUG-2 FIX: Department sheets must include formula info for:
- * - SIG-INT-003 (broken formula detection)
- * - Field profiling (input vs formula vs protected columns)
- * - Trust scoring (formula integrity component)
- */
 export async function getSheetDataWithFormulas(
   spreadsheetId: string,
   sheetName: string,
@@ -314,29 +252,18 @@ export async function getSheetDataWithFormulas(
   };
 }
 
-/** Result of department spreadsheet fetch — includes both values and formulas */
 export interface DeptSheetResult {
   values: unknown[][];
   formulas: unknown[][];
   sheetName: string;
 }
 
-/**
- * Fetches row data from all department-specific spreadsheets in parallel.
- * Each department has its own Google Sheets spreadsheet ID (from config).
- *
- * BUG-2 FIX: Now reads BOTH values AND formulas for each department sheet.
- * Sheet names are derived from DEPARTMENT_REGISTRY (единый реестр управлений).
- *
- * Returns map: departmentName → { values, formulas, sheetName }.
- */
 export async function fetchDepartmentSpreadsheets(
   deptSpreadsheets: Record<string, string>,
 ): Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }> {
   const data: Record<string, DeptSheetResult> = {};
   const errors: Record<string, string> = {};
 
-  // Canonical sheet name from department-registry (single source of truth).
   const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
     DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
   );
@@ -344,7 +271,6 @@ export async function fetchDepartmentSpreadsheets(
   const entries = Object.entries(deptSpreadsheets);
   const results = await Promise.allSettled(
     entries.map(async ([deptName, ssId]) => {
-      // Use canonical sheet name from registry, then tolerate legacy register variants.
       const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
       const candidates = departmentSheetNameCandidates(sheetName, deptName);
       for (const candidate of candidates) {
@@ -375,41 +301,15 @@ export async function fetchDepartmentSpreadsheets(
   return { data, errors };
 }
 
-/**
- * Fetch ШДЮ (monthly dynamics) sheet from СВОД_для_Google spreadsheet.
- * BUG-2 FIX: Now reads both values AND formulas.
- */
 export async function fetchSHDYUSheet(
   spreadsheetId: string,
 ): Promise<{ values: unknown[][]; formulas: unknown[][]; sheetName: string }> {
-  // Не глушим ошибку: реальная ошибка чтения (нет листа / переименован / нет прав)
-  // должна всплыть, чтобы caller сообщил причину. Существующий, но пустой лист вернёт
-  // { values: [] } — это легитимный случай «помесячная динамика не заполнена».
-  let lastError: unknown;
-
-  for (const sheetName of SHDYU_SHEET_NAME_CANDIDATES) {
-    try {
-      const result = await getSheetDataWithFormulas(spreadsheetId, sheetName);
-      return { ...result, sheetName };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError;
+  const result = await getSheetDataWithFormulas(spreadsheetId, SHDYU_MONTHLY_SHEET_NAME);
+  return { ...result, sheetName: SHDYU_MONTHLY_SHEET_NAME };
 }
-
-// ────────────────────────────────────────────────────────────
-// Write Support
-// ────────────────────────────────────────────────────────────
 
 let writeApi: sheets_v4.Sheets | null = null;
 
-/**
- * Get a write-capable Sheets API client.
- * Uses full 'spreadsheets' scope instead of 'spreadsheets.readonly'.
- * Only works with service account credentials.
- */
 async function getWriteApi(): Promise<sheets_v4.Sheets> {
   if (writeApi) return writeApi;
 
@@ -429,13 +329,6 @@ async function getWriteApi(): Promise<sheets_v4.Sheets> {
   return writeApi;
 }
 
-/**
- * Write a single cell value to a Google Spreadsheet.
- * @param spreadsheetId — target spreadsheet
- * @param sheetName — sheet/tab name
- * @param cell — cell address like "G5"
- * @param value — value to write
- */
 export async function writeCellValue(
   spreadsheetId: string,
   sheetName: string,
@@ -444,37 +337,27 @@ export async function writeCellValue(
 ): Promise<{ updatedRange: string; updatedCells: number }> {
   const api = await getWriteApi();
   const range = sheetValuesRange(sheetName, cell);
-  // SECURITY (H1): valueInputOption USER_ENTERED исполняет ведущий '=' как ЖИВУЮ формулу.
-  // Строковое значение, начинающееся с = + - @, — потенциальная формула-инъекция (=IMPORTXML→exfil
-  // данных 44-ФЗ таблицы на чужой домен). Префикс апострофа форсит текст в Sheets (отображается без
-  // апострофа). Числа/даты приходят как number или строки-с-цифры → не затрагиваются, type-coercion цел.
   const safeValue =
     typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
   const response = await api.spreadsheets.values.update({
     spreadsheetId,
     range,
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [[safeValue]],
-    },
+    requestBody: { values: [[safeValue]] },
   });
+
   return {
     updatedRange: response.data.updatedRange ?? range,
     updatedCells: response.data.updatedCells ?? 0,
   };
 }
 
-// ────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────
-
-/** Converts a 0-based column index to A, B, ... Z, AA, AB, etc. */
 function columnToLetter(col: number): string {
-  let letter = '';
-  let c = col;
-  while (c >= 0) {
-    letter = String.fromCharCode((c % 26) + 65) + letter;
-    c = Math.floor(c / 26) - 1;
+  let result = '';
+  let n = col;
+  while (n >= 0) {
+    result = String.fromCharCode(65 + (n % 26)) + result;
+    n = Math.floor(n / 26) - 1;
   }
-  return letter;
+  return result;
 }
