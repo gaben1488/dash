@@ -23,3 +23,7 @@ export * from './analytics/index.js';
 // Metrics KB registry
 export { METRIC_KB, getMetricKB, getMetricTooltip, getMetricsByCategory, ALL_METRIC_KEYS } from './metrics/index.js';
 export type { KBEntryData, MetricCategory, MetricUnit } from './metrics/index.js';
+
+// History — snapshot-diff (слой 1 фичи «История изменений»)
+export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';
+export type { Direction, Sentiment, MetricRow, MetricDelta } from './history/snapshot-diff.js';
