@@ -49,7 +49,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
         // Extract row data for compliance checks
         const rowData = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
-          rowIndex: i + 3,
+          rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
           factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
@@ -101,7 +101,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         if (!rows || rows.length === 0) continue;
 
         const rowData = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
-          rowIndex: i + 3,
+          rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
           factTotal: 0,
@@ -180,10 +180,15 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         return { error: `No data for department ${deptId}` };
       }
 
-      const monthlyFacts: number[] = [];
+      const allMonths: number[] = [];
       for (let m = 1; m <= 12; m++) {
-        monthlyFacts.push(recalc.months?.[m]?.factTotal ?? 0);
+        allMonths.push(recalc.months?.[m]?.factTotal ?? 0);
       }
+      // forecast.* проецируют ХВОСТ (месяцы ПОСЛЕ данных) циклом from monthlyFacts.length to 12.
+      // Если передать padded-12 массив, цикл не выполняется и прогноз вырождается в текущий YTD
+      // (особенно seasonalForecast). Обрезаем хвостовые нули → передаём только истёкшие месяцы.
+      const lastData = allMonths.reduce((last, v, i) => (v > 0 ? i : last), -1);
+      const monthlyFacts = lastData >= 0 ? allMonths.slice(0, lastData + 1) : allMonths;
 
       const baseline = GRBS_BASELINES.find(b => b.grbsId === deptId);
       const forecast = buildScenarios(monthlyFacts, recalc.year.planTotal, baseline);
