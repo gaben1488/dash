@@ -133,6 +133,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         id: cells.A,
         regNumber: cells.B ?? '',
         subordinate: cells.C ?? '',
+        programName: cells.D ?? '',
         type: cells.F ?? '',
         subject: cells.G ?? '',
         planFB: parseFloat(String(cells.H ?? 0)) || 0,
@@ -209,13 +210,13 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Apply activity filter (column F = TYPE + column D/E program name)
+    // Apply activity filter (column F = TYPE + column D program name)
     // F = "Текущая деятельность" / "Программное мероприятие"
-    // ТД sub-classification: наличие реального текста ПМ в D/E → в рамках ПМ, иначе (X/x/Х/х/пусто) → вне ПМ
+    // ТД sub-classification: наличие реального текста ПМ в D → в рамках ПМ, иначе (X/x/Х/х/пусто) → вне ПМ
     if (filterActivity) {
       filtered = filtered.filter(r => {
         const at = String(r.type).toLowerCase();
-        const pmVal = String((r as any).programName ?? '').trim();
+        const pmVal = String(r.programName ?? '').trim();
         const hasPM = pmVal.length > 0 && !/^[XxХх]$/u.test(pmVal);
         switch (filterActivity) {
           case 'program':
