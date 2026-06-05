@@ -95,6 +95,17 @@ describe('ROW_COLUMN_DEFS coverage', () => {
       expect(uerKpQ1Keys).toContain(suffix);
     }
   });
+
+  it('labels legacy savings_pct column Q as spent/execution percent, not economy', () => {
+    const entries = REPORT_MAP.filter(e => e.metricKey.endsWith('.savings_pct'));
+    expect(entries.length).toBeGreaterThan(0);
+
+    for (const entry of entries) {
+      expect(entry.sourceCell.startsWith('Q')).toBe(true);
+      expect(entry.label.toLowerCase()).not.toContain('эконом');
+      expect(entry.label.toLowerCase()).toMatch(/потрачен|исполнен|факт к плану/);
+    }
+  });
 });
 
 describe('RULE_BOOK', () => {

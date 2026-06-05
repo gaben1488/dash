@@ -4,8 +4,10 @@
  * Структура столбцов:
  *   D  — План (кол-во)          H  — ФБ план     L  — ФБ факт     U — Экономия
  *   E  — Факт (кол-во)          I  — КБ план     M  — КБ факт
- *   F  — Отклонение (план-факт)  J  — МБ план     N  — МБ факт
- *   G  — Исполнение %            K  — Итого план   O  — Итого факт
+ *   F  — Отклонение (план-факт)  J  — МБ план     N  — МБ факт     R — Экономия ФБ
+ *   G  — Исполнение %            K  — Итого план   O  — Итого факт   S — Экономия КБ
+ *                                  P  — Откл. сумм  T  — Экономия МБ
+ *                                  Q  — Потрачено % U  — Экономия итого
  *
  * Все суммы в тыс. руб.
  */
@@ -551,7 +553,7 @@ const ROW_COLUMN_DEFS: Array<{
   { col: 'N', keySuffix: 'mb_fact',     labelSuffix: 'МБ факт',          overrides: {} },
   { col: 'O', keySuffix: 'total_fact',  labelSuffix: 'итого факт',       overrides: {} },
   { col: 'P', keySuffix: 'amount_dev',  labelSuffix: 'откл. сумм',       overrides: {} },
-  { col: 'Q', keySuffix: 'savings_pct', labelSuffix: 'экономия %',       overrides: { valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' } },
+  { col: 'Q', keySuffix: 'savings_pct', labelSuffix: 'потрачено %',      overrides: { valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' } },
   { col: 'R', keySuffix: 'economy_fb',  labelSuffix: 'экономия ФБ',      overrides: {} },
   { col: 'S', keySuffix: 'economy_kb',  labelSuffix: 'экономия КБ',      overrides: {} },
   { col: 'T', keySuffix: 'economy_mb',  labelSuffix: 'экономия МБ',      overrides: {} },
@@ -618,7 +620,7 @@ export const REPORT_MAP: ReportMapEntry[] = [
   entry('competitive.q1.mb_fact',     'КП Q1: МБ факт',             'N9',  { period: 'q1', subgroup: 'budget_fact' }),
   entry('competitive.q1.total_fact',  'КП Q1: итого факт',          'O9',  { period: 'q1', subgroup: 'budget_fact' }),
   entry('competitive.q1.amount_dev',  'КП Q1: откл. сумм',          'P9',  { period: 'q1', subgroup: 'deviation' }),
-  entry('competitive.q1.savings_pct', 'КП Q1: экономия %',          'Q9',  { period: 'q1', subgroup: 'economy', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
+  entry('competitive.q1.savings_pct', 'КП Q1: потрачено %',         'Q9',  { period: 'q1', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
   entry('competitive.q1.economy_fb',  'КП Q1: экономия ФБ',         'R9',  { period: 'q1', subgroup: 'economy' }),
   entry('competitive.q1.economy_kb',  'КП Q1: экономия КБ',         'S9',  { period: 'q1', subgroup: 'economy' }),
   entry('competitive.q1.economy_mb',  'КП Q1: экономия МБ',         'T9',  { period: 'q1', subgroup: 'economy' }),
@@ -638,7 +640,7 @@ export const REPORT_MAP: ReportMapEntry[] = [
   entry('competitive.year.mb_fact',     'КП год: МБ факт',           'N14', { subgroup: 'budget_fact' }),
   entry('competitive.year.total_fact',  'КП год: итого факт',        'O14', { subgroup: 'budget_fact' }),
   entry('competitive.year.amount_dev',  'КП год: откл. сумм',       'P14', { subgroup: 'deviation' }),
-  entry('competitive.year.savings_pct', 'КП год: экономия %',       'Q14', { subgroup: 'economy', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
+  entry('competitive.year.savings_pct', 'КП год: потрачено %',      'Q14', { subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
   entry('competitive.year.economy_fb',  'КП год: экономия ФБ',      'R14', { subgroup: 'economy' }),
   entry('competitive.year.economy_kb',  'КП год: экономия КБ',      'S14', { subgroup: 'economy' }),
   entry('competitive.year.economy_mb',  'КП год: экономия МБ',      'T14', { subgroup: 'economy' }),
@@ -662,7 +664,7 @@ export const REPORT_MAP: ReportMapEntry[] = [
   entry('sole.q1.mb_fact',     'ЕП Q1: МБ факт',             'N21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
   entry('sole.q1.total_fact',  'ЕП Q1: итого факт',          'O21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
   entry('sole.q1.amount_dev',  'ЕП Q1: откл. сумм',          'P21', { group: 'sole', period: 'q1', subgroup: 'deviation' }),
-  entry('sole.q1.savings_pct', 'ЕП Q1: экономия %',          'Q21', { group: 'sole', period: 'q1', subgroup: 'economy', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
+  entry('sole.q1.savings_pct', 'ЕП Q1: потрачено %',         'Q21', { group: 'sole', period: 'q1', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
   entry('sole.q1.economy_fb',  'ЕП Q1: экономия ФБ',         'R21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
   entry('sole.q1.economy_kb',  'ЕП Q1: экономия КБ',         'S21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
   entry('sole.q1.economy_mb',  'ЕП Q1: экономия МБ',         'T21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
@@ -682,7 +684,7 @@ export const REPORT_MAP: ReportMapEntry[] = [
   entry('sole.year.mb_fact',     'ЕП год: МБ факт',           'N26', { group: 'sole', subgroup: 'budget_fact' }),
   entry('sole.year.total_fact',  'ЕП год: итого факт',        'O26', { group: 'sole', subgroup: 'budget_fact' }),
   entry('sole.year.amount_dev',  'ЕП год: откл. сумм',        'P26', { group: 'sole', subgroup: 'deviation' }),
-  entry('sole.year.savings_pct', 'ЕП год: экономия %',        'Q26', { group: 'sole', subgroup: 'economy', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
+  entry('sole.year.savings_pct', 'ЕП год: потрачено %',       'Q26', { group: 'sole', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
   entry('sole.year.economy_fb',  'ЕП год: экономия ФБ',       'R26', { group: 'sole', subgroup: 'economy' }),
   entry('sole.year.economy_kb',  'ЕП год: экономия КБ',       'S26', { group: 'sole', subgroup: 'economy' }),
   entry('sole.year.economy_mb',  'ЕП год: экономия МБ',       'T26', { group: 'sole', subgroup: 'economy' }),

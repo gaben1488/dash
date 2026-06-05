@@ -37,6 +37,7 @@ import {
   IssueSeveritySchema,
   TrustGradeSchema,
   DashboardDataSchema,
+  DepartmentSummarySchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -177,9 +178,25 @@ describe('DashboardDataSchema structure (smoke)', () => {
     expect(keys).toContain('kpiCards');
     expect(keys).toContain('departmentSummaries');
     expect(keys).toContain('recentIssues');
+    expect(keys).toContain('summaryByPeriod');
+    expect(keys).toContain('signalCounts');
+    expect(keys).toContain('issueSummary');
     expect(keys).toContain('trust');
     expect(keys).toContain('lastRefreshed');
     expect(keys).toContain('snapshot');
+    expect(keys).toContain('year');
+  });
+
+  it('documents dashboard-only DepartmentSummary extensions used by web filters', () => {
+    const shape = (DepartmentSummarySchema as unknown as { _def: { shape: () => Record<string, unknown> } })
+      ._def.shape();
+    const keys = Object.keys(shape);
+
+    expect(keys).toContain('quarters');
+    expect(keys).toContain('signalCounts');
+    expect(keys).toContain('byActivity');
+    expect(keys).toContain('subordinates');
+    expect(keys).toContain('economyConflicts');
   });
 
   it('rejects obviously wrong shape (string instead of object)', () => {

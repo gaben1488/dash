@@ -519,16 +519,53 @@ export interface DataSnapshot {
 // 12. API response types (server routes)
 // ────────────────────────────────────────────────────────────
 
+export interface DashboardPeriodSummary {
+  kpCount: number | null;
+  kpFactCount: number | null;
+  kpPlan: number | null;
+  kpFact: number | null;
+  kpPercent: number | null;
+  epCount: number | null;
+  epFactCount: number | null;
+  epPlan: number | null;
+  epFact: number | null;
+  epPercent: number | null;
+  fbPlan: number | null;
+  kbPlan: number | null;
+  mbPlan: number | null;
+  fbFact: number | null;
+  kbFact: number | null;
+  mbFact: number | null;
+  epFbPlan?: number | null;
+  epKbPlan?: number | null;
+  epMbPlan?: number | null;
+  epFbFact?: number | null;
+  epKbFact?: number | null;
+  epMbFact?: number | null;
+  source: 'official' | 'calculated';
+}
+
+export interface DashboardIssueSummary {
+  total: number;
+  bySeverity: Record<string, number>;
+  byCategory: Record<string, number>;
+  byDepartment: Record<string, number>;
+  byOrigin: Record<string, number>;
+  signalCounts: Record<string, number>;
+}
+
 export interface DashboardData {
   snapshot: DataSnapshot;
   kpiCards: KPICard[];
   departmentSummaries: DepartmentSummary[];
-  summaryByPeriod?: Record<string, any>;
+  summaryByPeriod: Record<string, DashboardPeriodSummary>;
   recentIssues: Issue[];
+  signalCounts: Record<string, number>;
+  issueSummary: DashboardIssueSummary;
   trust: TrustScore;
   lastRefreshed: string;
   /** Year the data belongs to (from query param or current year) */
-  year?: number;
+  year: number;
 }
 
 export interface KPICard {
@@ -552,6 +589,7 @@ export interface KPICard {
 
 export interface DepartmentSummary {
   department: Department;
+  months?: Record<string, Record<string, unknown>>;
   planTotal: number | null;
   factTotal: number | null;
   executionPercent: number | null;
@@ -559,11 +597,18 @@ export interface DepartmentSummary {
   economyFB?: number | null;
   economyKB?: number | null;
   economyMB?: number | null;
+  competitiveCount?: number | null;
+  soleCount?: number | null;
   issueCount: number;
   criticalIssueCount: number;
   trustScore: number;
   trustComponents?: TrustComponent[];
   status: 'normal' | 'warning' | 'critical';
+  quarters?: Record<string, Record<string, unknown>>;
+  signalCounts?: Record<string, number>;
+  byActivity?: Record<string, unknown>;
+  subordinates?: unknown[];
+  economyConflicts?: number;
 }
 
 /** Generic API envelope */
