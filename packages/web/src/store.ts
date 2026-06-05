@@ -51,6 +51,34 @@ export function hasExplicitPeriodFilter(
   return Object.values(monthsByYear).some((months) => months.size > 0);
 }
 
+export interface ActiveFilterCountInput {
+  yearChanged: boolean;
+  moneyUnitChanged: boolean;
+  selectedMethods: Set<string>;
+  selectedActivities: Set<string>;
+  selectedBudgets: Set<string>;
+  selectedDepartments: Set<string>;
+  selectedSubordinates: Set<string>;
+  activeMonths: Set<number>;
+  monthsByYear: Record<number, Set<number>>;
+  periodMode: PeriodMode;
+  searchQuery: string;
+}
+
+export function getActiveFilterCount(input: ActiveFilterCountInput): number {
+  return (
+    (input.yearChanged ? 1 : 0) +
+    (input.moneyUnitChanged ? 1 : 0) +
+    (input.selectedMethods.size > 0 ? 1 : 0) +
+    (input.selectedActivities.size > 0 ? 1 : 0) +
+    (input.selectedBudgets.size > 0 ? 1 : 0) +
+    (input.selectedDepartments.size > 0 ? 1 : 0) +
+    (input.selectedSubordinates.size > 0 ? 1 : 0) +
+    (hasExplicitPeriodFilter(input.periodMode, input.activeMonths, input.monthsByYear) ? 1 : 0) +
+    (input.searchQuery ? 1 : 0)
+  );
+}
+
 /** Get month(s) from a week's Monday date.
  *  If week spans two months, returns both. */
 export function getMonthsForWeek(monday: Date): Set<number> {

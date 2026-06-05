@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { hasExplicitPeriodFilter, useStore } from '../store';
+import { getActiveFilterCount, useStore } from '../store';
 import type { MoneyUnit, BudgetType } from '../store';
 import { Search, X, ChevronDown, Calendar, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
@@ -139,19 +139,19 @@ export function FilterBar({ groups, compact, enabledFilters }: FilterBarProps) {
 
   const [monthsOpen, setMonthsOpen] = useState(false);
 
-  // Count active filters
-  const hasPeriodFilter = hasExplicitPeriodFilter(periodMode, activeMonths, monthsByYear);
-
-  const activeCount =
-    (year !== new Date().getFullYear() ? 1 : 0) +
-    (moneyUnit !== 'тыс' ? 1 : 0) +
-    (selectedMethods.size > 0 ? 1 : 0) +
-    (selectedActivities.size > 0 ? 1 : 0) +
-    (selectedBudgets.size > 0 ? 1 : 0) +
-    (selectedDepartments.size > 0 ? 1 : 0) +
-    (selectedSubordinates.size > 0 ? 1 : 0) +
-    (hasPeriodFilter ? 1 : 0) +
-    (searchQuery ? 1 : 0);
+  const activeCount = getActiveFilterCount({
+    yearChanged: year !== new Date().getFullYear(),
+    moneyUnitChanged: moneyUnit !== 'тыс',
+    selectedMethods,
+    selectedActivities,
+    selectedBudgets,
+    selectedDepartments,
+    selectedSubordinates,
+    activeMonths,
+    monthsByYear,
+    periodMode,
+    searchQuery,
+  });
 
   const procOptions: { value: string; label: string }[] = [
     { value: 'competitive', label: 'КП' },
