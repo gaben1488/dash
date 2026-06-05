@@ -16,7 +16,7 @@ export type FilterGroup =
 
 const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   dashboard:  ['period', 'currency', 'procurement', 'activity', 'budget'],
-  svod:       ['currency'],
+  svod:       ['currency', 'procurement', 'budget'],
   data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
   economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
   analytics:  ['period', 'currency', 'procurement', 'activity', 'budget'],

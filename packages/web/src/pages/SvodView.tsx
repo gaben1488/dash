@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store';
+import { api } from '../api';
 import {
   buildSvodView,
   hasSvodData,
@@ -10,7 +11,7 @@ import {
   type SvodPeriod,
 } from '@aemr/shared';
 import {
-  FileSpreadsheet, ExternalLink, Columns3, Table2, AlertTriangle, CheckCircle2,
+  FileSpreadsheet, ExternalLink, Columns3, Table2, AlertTriangle, CheckCircle2, Scale, ArrowRight,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -68,16 +69,27 @@ const SECTION_META: Record<SectionKind, { label: string; tagClass: string }> = {
 // ── Главный компонент ────────────────────────────────────────────────
 
 export function SvodView() {
-  const { dashboardData, moneyUnit, selectedDepartments, loading, isDemo } = useStore();
+  const { dashboardData, moneyUnit, selectedDepartments, selectedMethods, selectedBudgets, loading, isDemo } = useStore();
 
   const [period, setPeriod] = useState<SvodPeriod>('year');
   const [budgetFull, setBudgetFull] = useState(false);
 
-  const officialMetrics = dashboardData?.snapshot?.officialMetrics ?? null;
-  const view = useMemo(
-    () => (hasSvodData(officialMetrics) ? buildSvodView(officialMetrics) : null),
-    [officialMetrics],
-  );
+  // Фильтр по способу закупки (КП=competitive, ЕП=single) — какие разделы блока показывать.
+  const visibleKinds = useMemo<SectionKind[]>(() => {
+    if (selectedMethods.size === 0 || selectedMethods.size >= 2) return ['kp', 'ep', 'total'];
+    if (selectedMethods.has('competitive')) return ['kp'];
+    if (selectedMethods.has('single')) return ['ep'];
+    return ['kp', 'ep', 'total'];
+  }, [selectedMethods]);
+
+  // Бюджетный фильтр: выбор ФБ/КБ/МБ в шапке раскрывает разбивку по бюджетам.
+  const showBudgetBreakdown = budgetFull || selectedBudgets.size > 0;
+
+  const officialMetrics = dashboardData?.snapshot?.officialMetrics;
+  const view = useMemo(() => {
+    const metrics = officialMetrics ?? {};
+    return hasSvodData(metrics) ? buildSvodView(metrics) : null;
+  }, [officialMetrics]);
 
   const fmtMoney = useMemo(() => makeFmtMoney(moneyUnit), [moneyUnit]);
   const moneyLabel = MONEY_LABEL[moneyUnit] ?? 'тыс. руб.';
@@ -207,7 +219,7 @@ export function SvodView() {
       <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
-            <SvodTableHead budgetFull={budgetFull} moneyLabel={moneyLabel} />
+            <SvodTableHead budgetFull={showBudgetBreakdown} moneyLabel={moneyLabel} />
             <tbody>
               {/* Сводный блок */}
               <BlockGroup
@@ -215,8 +227,9 @@ export function SvodView() {
                 subtitle="агрегат по 8 управлениям"
                 block={view.summary}
                 period={period}
-                budgetFull={budgetFull}
+                budgetFull={showBudgetBreakdown}
                 fmtMoney={fmtMoney}
+                visibleKinds={visibleKinds}
                 emphasized
               />
               {/* По управлениям */}
@@ -227,8 +240,9 @@ export function SvodView() {
                   subtitle={d.name}
                   block={d.block}
                   period={period}
-                  budgetFull={budgetFull}
+                  budgetFull={showBudgetBreakdown}
                   fmtMoney={fmtMoney}
+                  visibleKinds={visibleKinds}
                   sheetCell={depJumpCell(d.id)}
                 />
               ))}
@@ -236,6 +250,9 @@ export function SvodView() {
           </table>
         </div>
       </div>
+
+      {/* ── Сверка с ШДЮ ── */}
+      <ShdyuReconSummary />
 
       <p className="text-[11px] text-zinc-400 dark:text-zinc-500 px-1">
         Источник — ваш лист «СВОД ТД-ПМ» (формулы COUNTIFS/SUMIFS), прочитанный через Google Sheets API.
@@ -316,7 +333,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
 }
 
 function BlockGroup({
-  title, subtitle, block, period, budgetFull, fmtMoney, emphasized, sheetCell,
+  title, subtitle, block, period, budgetFull, fmtMoney, emphasized, sheetCell, visibleKinds,
 }: {
   title: string;
   subtitle: string;
@@ -326,13 +343,15 @@ function BlockGroup({
   fmtMoney: (n: number | null) => string;
   emphasized?: boolean;
   sheetCell?: string;
+  visibleKinds: SectionKind[];
 }) {
   const colCount = 1 + 4 + (budgetFull ? 4 : 1) * 3;
-  const rows: Array<{ kind: SectionKind; row: SvodRow }> = [
+  const allRows: Array<{ kind: SectionKind; row: SvodRow }> = [
     { kind: 'kp', row: pickRow(block.kp, period) },
     { kind: 'ep', row: pickRow(block.ep, period) },
     { kind: 'total', row: pickRow(block.total, period) },
   ];
+  const rows = allRows.filter((r) => visibleKinds.includes(r.kind));
 
   return (
     <>
@@ -444,4 +463,99 @@ function SvodDataRow({
 function deviationColor(n: number | null): string {
   if (n === null || Math.abs(n) < 1e-9) return 'text-zinc-400 dark:text-zinc-500';
   return n < 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-600 dark:text-zinc-300';
+}
+
+// ── Секция: сверка с ШДЮ ──────────────────────────────────────────────
+
+interface ReconMonthlyResp {
+  counts?: { ok: number; warning: number; high: number; empty: number };
+  overallStatus?: string;
+  warning?: string | null;
+}
+
+/** Компактная сводка помесячной сверки «расчёт vs ШДЮ» прямо на странице Свод. */
+function ShdyuReconSummary() {
+  const navigateTo = useStore((s) => s.navigateTo);
+  const [data, setData] = useState<ReconMonthlyResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .getReconciliationMonthly()
+      .then((d: ReconMonthlyResp) => { if (alive) { setData(d); setLoading(false); } })
+      .catch(() => { if (alive) { setFailed(true); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
+
+  const counts = data?.counts;
+  const reconciled = counts ? counts.ok + counts.warning + counts.high : 0;
+
+  return (
+    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-950/40 flex items-center justify-center flex-shrink-0">
+            <Scale className="text-violet-600 dark:text-violet-400" size={20} />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">Сверка с ШДЮ</h2>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+              Помесячное расхождение «расчёт vs ШДЮ» · по всем управлениям
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => navigateTo('recon')}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+        >
+          Полная сверка
+          <ArrowRight size={13} />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
+          <div className="animate-spin w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full" />
+          Загрузка сверки…
+        </div>
+      ) : failed || !counts ? (
+        <div className="mt-4 flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-1.5">
+          <AlertTriangle size={12} />
+          {data?.warning ?? 'Сверка с ШДЮ недоступна. Нажмите «Обновить» в шапке.'}
+        </div>
+      ) : (
+        <>
+          <div className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+            Статус: <span className="font-medium text-zinc-700 dark:text-zinc-200">{data.overallStatus ?? '—'}</span>
+            {reconciled > 0 && (
+              <> · строк сверено: <span className="tabular-nums">{reconciled.toLocaleString('ru-RU')}</span></>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <ReconChip label="Совпало" value={counts.ok} tone="ok" />
+            <ReconChip label="Внимание" value={counts.warning} tone="warn" />
+            <ReconChip label="Расхождение" value={counts.high} tone="high" />
+            <ReconChip label="Нет данных" value={counts.empty} tone="muted" />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReconChip({ label, value, tone }: { label: string; value: number; tone: 'ok' | 'warn' | 'high' | 'muted' }) {
+  const toneClass = {
+    ok: 'text-emerald-600 dark:text-emerald-400',
+    warn: 'text-amber-600 dark:text-amber-400',
+    high: 'text-red-600 dark:text-red-400',
+    muted: 'text-zinc-400 dark:text-zinc-500',
+  }[tone];
+  return (
+    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-700/40 px-3 py-2">
+      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{label}</div>
+      <div className={clsx('text-lg font-semibold tabular-nums mt-0.5', toneClass)}>{value.toLocaleString('ru-RU')}</div>
+    </div>
+  );
 }

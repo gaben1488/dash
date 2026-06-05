@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, Fragment } from 'react';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
+import { ECONOMY_EMPTY_STATE_COPY } from '../lib/economy-copy';
 // HeroKPICard removed — Economy uses custom dense hero strip
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import {
@@ -630,9 +631,9 @@ export function EconomyPage() {
           <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center mx-auto">
             <Inbox className="text-emerald-500/60" size={24} />
           </div>
-          <p className="text-sm font-medium text-zinc-400">Нет данных по экономии</p>
+          <p className="text-sm font-medium text-zinc-400">{ECONOMY_EMPTY_STATE_COPY.title}</p>
           <p className="text-[11px] text-zinc-600 max-w-xs leading-relaxed">
-            Экономия = лимит программы - цена контракта. Данные появятся после загрузки из Google Sheets.
+            {ECONOMY_EMPTY_STATE_COPY.body}
           </p>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ALL_DEPT_IDS } from '@aemr/shared';
+import { ALL_DEPT_IDS, type DashboardData } from '@aemr/shared';
 import { api } from './api';
 
 /** СВОД — 6 страниц + legacy aliases */
@@ -215,7 +215,7 @@ export interface AppState {
   fetchSubordinates: () => Promise<void>;
 
   // Данные дашборда
-  dashboardData: any | null;
+  dashboardData: DashboardData | null;
   /** Год, за который загружены данные (из ответа API) */
   dataYear: number;
   loading: boolean;
@@ -237,8 +237,8 @@ export interface AppState {
 }
 
 /** Флаг: используются ли демо-данные сервера (не mock фронтенда) */
-function isDemoData(data: any): boolean {
-  return data?.snapshot?.id?.startsWith('demo-') || data?.snapshotId?.startsWith('demo-');
+function isDemoData(data: DashboardData): boolean {
+  return data.snapshot.id.startsWith('demo-');
 }
 
 export const useStore = create<AppState>((set, get) => ({

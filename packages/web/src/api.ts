@@ -1,3 +1,5 @@
+import type { DashboardData } from '@aemr/shared';
+
 const API_BASE = '/api';
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -29,7 +31,7 @@ export const api = {
     if (refresh) params.set('refresh', 'true');
     if (year !== undefined) params.set('year', String(year));
     const qs = params.toString();
-    return fetchJSON<any>(`/dashboard${qs ? `?${qs}` : ''}`);
+    return fetchJSON<DashboardData>(`/dashboard${qs ? `?${qs}` : ''}`);
   },
 
   refresh: (quick = false) =>

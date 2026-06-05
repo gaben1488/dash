@@ -1188,7 +1188,7 @@ export function ReconPage() {
       {/* Snapshot metadata */}
       {snapshot && (
         <div className="flex flex-wrap gap-6 text-xs text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
-          <span>Снапшот: <strong className="text-zinc-700 dark:text-zinc-200">{snapshot.snapshotId?.slice(0, 8) ?? '—'}</strong></span>
+          <span>Снапшот: <strong className="text-zinc-700 dark:text-zinc-200">{dashboardData?.snapshot?.id?.slice(0, 8) ?? '—'}</strong></span>
           <span>Ячеек: <strong className="text-zinc-700 dark:text-zinc-200">{snapshot.cellsRead ?? '—'}</strong></span>
           <span>Листов: <strong className="text-zinc-700 dark:text-zinc-200">{snapshot.sheetsRead ?? '—'}</strong></span>
           <span>Обработка: <strong className="text-zinc-700 dark:text-zinc-200">{snapshot.pipelineDurationMs ?? '—'} мс</strong></span>

@@ -508,7 +508,7 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
   }
 
   // 4. trust_binary
-  const trustScore = fd.trust?.overall ?? fd.trust?.score ?? null;
+  const trustScore = fd.trust?.overall ?? null;
   const trustOk = trustScore != null ? trustScore >= 75 : true;
   kpis.push({
     metricKey: 'trust_binary',
