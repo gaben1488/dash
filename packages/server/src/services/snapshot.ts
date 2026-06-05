@@ -1,5 +1,5 @@
 import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, CYRILLIC_TO_LATIN } from '@aemr/shared';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, CYRILLIC_TO_LATIN, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
 import type { DataSnapshot, NormalizedMetric, SvodReconRow } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
 import { fetchSHDYUSheet } from './google-sheets.js';
@@ -45,10 +45,6 @@ export function getDeptSheetValues(): Record<string, unknown[][]> {
   return result;
 }
 
-/**
- * Метаданные загрузки отдельных таблиц управлений.
- * Обновляется после fetchDepartmentSpreadsheets.
- */
 interface DeptLoadMeta {
   loadedAt: string;
   rowCount: number;
@@ -58,57 +54,43 @@ interface DeptLoadMeta {
 
 let deptLoadMeta: Record<string, DeptLoadMeta> = {};
 
-/** Обновить метаданные загрузки управлений */
 export function setDeptLoadMeta(meta: Record<string, DeptLoadMeta>): void {
   deptLoadMeta = { ...deptLoadMeta, ...meta };
 }
 
-/** Получить метаданные загрузки управлений */
 export function getDeptLoadMeta(): Record<string, DeptLoadMeta> {
   return deptLoadMeta;
 }
 
-/** Cached SHDYU (monthly dynamics) data */
+/** Cached monthly data from «СВОД с месяцами». */
 let cachedSHDYUData: Record<string, any> | null = null;
-/** Raw row count from ШДЮ sheet (before parsing into blocks) */
+/** Raw row count from «СВОД с месяцами» before parsing into blocks. */
 let cachedSHDYURawRowCount = 0;
-/** Последний исход загрузки ШДЮ: null = успех, иначе человекочитаемая причина (пусто / ошибка чтения). */
+/** Last monthly source load error; null means success. */
 let cachedSHDYULoadError: string | null = null;
 
-/** Get SHDYU data from cache */
+/** Get monthly data cache. */
 export function getSHDYUCache(): Record<string, any> | null {
   return cachedSHDYUData;
 }
 
-/** Get raw row count from ШДЮ sheet */
+/** Get raw row count from monthly source sheet. */
 export function getSHDYURawRowCount(): number {
   return cachedSHDYURawRowCount;
 }
 
-/** Причина отсутствия ШДЮ-данных (null, когда лист загружен успешно). */
+/** Get monthly source load error. */
 export function getSHDYULoadError(): string | null {
   return cachedSHDYULoadError;
 }
 
-/** Set SHDYU data cache */
+/** Set monthly data cache. */
 export function setSHDYUCache(data: Record<string, any>): void {
   cachedSHDYUData = data;
 }
 
 /**
  * Строит единую сетку СВОД из dept-строк и кладёт её + сверку в snapshot.
- *
- * `sheetRows` содержит лист СВОД ТД-ПМ + 8 dept-листов (+ кэш управлений). Лист
- * СВОД ТД-ПМ исключаем (иная раскладка колонок). Имя листа → grbsId тем же
- * отображением, что и orchestrator: `CYRILLIC_TO_LATIN[name] ?? name.toLowerCase()`,
- * так ключи сетки совпадают с recalcResults / `grbs.<id>`-метриками.
- *
- * Сверка (`reconcileUnified`) сравнивает срез ВСЕ (сумма по всем ГРБС) с ячейками
- * листа СВОД ТД-ПМ из `officialMetrics` (competitive/sole, Q1+Год). Экспортируется
- * для прямого юнит-теста формы без обращения к Google Sheets.
- *
- * @param targetYear если задан — строки с план-годом ≠ targetYear отсеиваются
- *   внутри computeUnifiedGrid (лист считает per-year COUNTIFS).
  */
 export function attachUnifiedGrid(
   snapshot: DataSnapshot,
@@ -124,19 +106,10 @@ export function attachUnifiedGrid(
 
   const grid = computeUnifiedGrid(deptRowsById, targetYear);
   snapshot.unifiedGrid = grid;
-  // reconcileUnified возвращает UnifiedReconRow[] — структурно = SvodReconRow[].
   snapshot.unifiedReconciliation = reconcileUnified(grid, snapshot.officialMetrics) as SvodReconRow[];
 }
 
-/**
- * Получает актуальный снимок данных (с кэшированием per year).
- * Ключ кэша — это явно нормализованный год (никогда не undefined),
- * чтобы запросы без year-фильтра и запросы текущего года попадали в одну запись.
- * @param force — пропустить кэш
- * @param targetYear — целевой год (если не указан, используется текущий)
- */
 export async function getSnapshot(force = false, targetYear?: number): Promise<DataSnapshot> {
-  // Validate targetYear: reject NaN / out-of-range silently → currentYear fallback.
   const currentYear = new Date().getFullYear();
   const year = Number.isInteger(targetYear) && (targetYear as number) >= 2020 && (targetYear as number) <= 2100
     ? (targetYear as number)
@@ -150,9 +123,6 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
   }
 
   const snapshot = await createSnapshot(year);
-  // НЕ кэшируем demo-fallback (транзиентный сбой Google Sheets): иначе фейковые
-  // demo-числа залипают на весь TTL даже после восстановления источника, и дашборд
-  // тихо показывает выдуманные данные. Не кэшируем → следующий вызов повторит реальный источник.
   if (!snapshot.id.startsWith('demo-')) {
     cachedSnapshots.set(year, { snapshot, timestamp: now });
   }
@@ -160,26 +130,20 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
   return snapshot;
 }
 
-/**
- * Создаёт новый снимок: читает данные из Google Sheets и прогоняет пайплайн
- */
 async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
   try {
-    // 1. Читаем официальные ячейки
     const cellAddresses = getAllCellAddresses();
     const [batchValues, batchFormulas] = await Promise.all([
       batchGetCells(cellAddresses),
       batchGetFormulas(cellAddresses),
     ]);
 
-    // Объединяем значения и формулы
     const batchGetData = batchValues.map((v, i) => ({
       range: v.range,
       values: v.values,
       formulas: batchFormulas[i]?.formulas,
     }));
 
-    // 2. Читаем листы для построчного анализа + ШДЮ параллельно
     const sheetRows: Record<string, unknown[][]> = {};
     const sheetReadPromises = ALL_SHEETS.map(async (sheetName: string) => {
       try {
@@ -190,31 +154,24 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
       }
     });
 
-    // Read ШДЮ sheet in parallel (from СВОД_для_Google spreadsheet)
-    // BUG-2 FIX: Now receives { values, formulas }
     const shdyuPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((result) => {
-      const shdyuSheetLabel = result.sheetName;
+      const sourceLabel = result.sheetName;
       if (result.values.length > 0) {
         const parsed = parseSHDYUSheet(result.values, result.formulas);
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
         cachedSHDYULoadError = null;
-        console.log(`📊 ${shdyuSheetLabel}: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
+        console.log(`📊 ${sourceLabel}: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
       } else {
-        // Лист прочитан, но пуст — помесячная динамика (ШДЮ) в источнике не заполнена за период.
-        cachedSHDYULoadError = `Лист «${shdyuSheetLabel}» прочитан, но пуст (0 строк): помесячная динамика в источнике не заполнена за выбранный период.`;
+        cachedSHDYULoadError = `Лист «${sourceLabel}» прочитан, но пуст (0 строк): помесячная динамика в источнике не заполнена за выбранный период.`;
       }
     }).catch((err: unknown) => {
-      // Реальная ошибка чтения: лист отсутствует / переименован / нет прав.
-      cachedSHDYULoadError = `Не удалось прочитать лист «ШДЮ»: ${err instanceof Error ? err.message : String(err)}`;
-      console.warn('Не удалось загрузить ШДЮ:', err);
+      cachedSHDYULoadError = `Не удалось прочитать лист «${SHDYU_MONTHLY_SHEET_NAME}»: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(`Не удалось загрузить ${SHDYU_MONTHLY_SHEET_NAME}:`, err);
     });
 
     await Promise.all([...sheetReadPromises, shdyuPromise]);
 
-    // 2b. Дополняем данными из отдельных таблиц управлений (если они закэшированы).
-    // BUG-2 FIX: cachedDeptSheetData теперь содержит { values, formulas, sheetName }.
-    // В sheetRows кладём values (для пересчёта), формулы доступны через getDeptSheetCache().
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
       if (!sheetRows[deptName] || sheetRows[deptName].length === 0) {
         if (deptResult.values.length > 0) {
@@ -224,10 +181,6 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
       }
     }
 
-    // 3. Запускаем пайплайн
-    // Target year from caller (defaults to current year).
-    // СВОД reports per-year totals via COUNTIFS with year condition.
-    // Department sheets contain multi-year data; we filter to match scope.
     const pipelineInput: PipelineInput = {
       batchGetData,
       sheetRows,
@@ -239,134 +192,63 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
 
     const snapshot = runPipeline(pipelineInput);
 
-    // 3b. Attach SHDYU monthly dynamics data if available
     if (cachedSHDYUData) {
       snapshot.shdyuData = cachedSHDYUData;
     }
 
-    // 3c. Единая сетка СВОД (Task 5): CalcEngine из атомов dept-строк.
-    // Собираем Record<grbsId, rows> из sheetRows тем же отображением, что и orchestrator
-    // (CYRILLIC_TO_LATIN[name] ?? name.toLowerCase()), исключая лист СВОД ТД-ПМ (иная
-    // раскладка колонок). Затем сверяем срез ВСЕ против ячеек СВОД ТД-ПМ.
     attachUnifiedGrid(snapshot, sheetRows, targetYear);
-
-    // 4. Сохраняем в БД
-    await saveSnapshot(snapshot);
 
     return snapshot;
   } catch (error) {
-    console.error('❌ Google Sheets unavailable, falling back to demo data:', error);
-    const demo = createDemoSnapshot();
-    // Mark as demo in the ID so consumers can detect fallback
-    demo.id = `demo-${demo.id}`;
-    return demo;
+    console.error('Failed to create snapshot:', error);
+    return createDemoSnapshot();
   }
 }
 
-/**
- * Сохраняет снимок в базу
- */
-async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
-  try {
-    db.insert(schema.snapshots).values({
-      id: snapshot.id,
-      spreadsheetId: snapshot.spreadsheetId,
-      createdAt: snapshot.createdAt,
-      trustOverall: snapshot.trust.overall,
-      trustGrade: snapshot.trust.grade,
-      issueCount: snapshot.issues.length,
-      criticalIssueCount: snapshot.issues.filter(i => i.severity === 'critical').length,
-      metricsCount: Object.keys(snapshot.officialMetrics).length,
-      rowCount: snapshot.rowCount,
-      readDurationMs: snapshot.metadata.readDurationMs,
-      pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
-      data: JSON.stringify(snapshot),
-    }).run();
-
-    // Сохраняем историю метрик
-    for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
-      db.insert(schema.metricHistory).values({
-        snapshotId: snapshot.id,
-        metricKey: key,
-        numericValue: metric.numericValue,
-        displayValue: metric.displayValue,
-        confidence: metric.confidence,
-        origin: metric.origin,
-        createdAt: snapshot.createdAt,
-      }).run();
-    }
-
-    // Сохраняем проблемы
-    for (const issue of snapshot.issues) {
-      db.insert(schema.issues).values({
-        ...issue,
-        snapshotId: snapshot.id,
-      }).run();
-    }
-  } catch (error) {
-    console.error('Ошибка сохранения снимка:', error);
-  }
-}
-
-/**
- * Получает историю снимков
- */
-export function getSnapshotHistory(limit = 50): Array<{
-  id: string;
-  createdAt: string;
-  trustOverall: number | null;
-  trustGrade: string | null;
-  issueCount: number | null;
-}> {
-  return db.select({
-    id: schema.snapshots.id,
-    createdAt: schema.snapshots.createdAt,
-    trustOverall: schema.snapshots.trustOverall,
-    trustGrade: schema.snapshots.trustGrade,
-    issueCount: schema.snapshots.issueCount,
-  })
+export async function getLatestSnapshot(): Promise<DataSnapshot | null> {
+  const [row] = await db
+    .select()
     .from(schema.snapshots)
     .orderBy(desc(schema.snapshots.createdAt))
-    .limit(limit)
-    .all();
+    .limit(1);
+
+  return row ? (row.data as DataSnapshot) : null;
 }
 
-/**
- * Получает историю конкретной метрики
- */
-export function getMetricTrend(metricKey: string, limit = 30): Array<{
-  numericValue: number | null;
-  createdAt: string;
-}> {
-  return db.select({
-    numericValue: schema.metricHistory.numericValue,
-    createdAt: schema.metricHistory.createdAt,
-  })
-    .from(schema.metricHistory)
-    .where(eq(schema.metricHistory.metricKey, metricKey))
-    .orderBy(desc(schema.metricHistory.createdAt))
-    .limit(limit)
-    .all();
+export async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
+  await db.insert(schema.snapshots).values({
+    id: snapshot.id,
+    data: snapshot as any,
+    createdAt: new Date(),
+  });
 }
 
-/**
- * Все метрики одного снимка → MetricRow[] (для snapshot-diff, слой 1 истории).
- * `at` = момент снимка (createdAt строки metric_history).
- */
-export function getSnapshotMetrics(snapshotId: string): MetricRow[] {
-  const rows = db
-    .select({
-      metricKey: schema.metricHistory.metricKey,
-      numericValue: schema.metricHistory.numericValue,
-      createdAt: schema.metricHistory.createdAt,
-    })
-    .from(schema.metricHistory)
-    .where(eq(schema.metricHistory.snapshotId, snapshotId))
-    .all();
-  return rows.map((r) => ({ metricKey: r.metricKey, numericValue: r.numericValue, at: r.createdAt }));
+export async function getSnapshotHistory(limit = 10): Promise<Array<{ id: string; createdAt: Date; totalRows: number; trustScore: number }>> {
+  const rows = await db
+    .select()
+    .from(schema.snapshots)
+    .orderBy(desc(schema.snapshots.createdAt))
+    .limit(limit);
+
+  return rows.map((row) => {
+    const data = row.data as DataSnapshot;
+    return {
+      id: row.id,
+      createdAt: row.createdAt,
+      totalRows: data.kpis.totalProcedures,
+      trustScore: data.trust.overall,
+    };
+  });
 }
 
-/** Инвалидировать кэш (все годы) */
-export function invalidateCache(): void {
-  cachedSnapshots.clear();
+export async function getMetricsBySnapshotId(snapshotId: string): Promise<NormalizedMetric[]> {
+  const [row] = await db
+    .select()
+    .from(schema.snapshots)
+    .where(eq(schema.snapshots.id, snapshotId))
+    .limit(1);
+
+  if (!row) return [];
+  const snapshot = row.data as DataSnapshot;
+  return Object.values(snapshot.officialMetrics);
 }
