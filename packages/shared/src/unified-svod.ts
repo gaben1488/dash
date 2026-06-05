@@ -67,6 +67,26 @@ export interface UnifiedGrid {
   scopes: ActivityScope[];
 }
 
+/** Статус сверки одной ячейки: ok <1% · warning <5% · high ≥5%. */
+export type SvodReconStatus = 'ok' | 'warning' | 'high';
+
+/**
+ * Строка сверки единой сетки (срез ВСЕ) против ячеек листа СВОД ТД-ПМ.
+ * Контракт между core (`reconcileUnified`, продюсер) и snapshot/API (потребитель).
+ * Структурно совпадает с `UnifiedReconRow` из @aemr/core.
+ */
+export interface SvodReconRow {
+  /** Ключ официальной метрики СВОД ТД-ПМ (напр. `competitive.q1.total_plan`). */
+  key: string;
+  /** Значение из CalcEngine-сетки (срез ВСЕ). */
+  calc: number;
+  /** Значение из ячейки листа СВОД ТД-ПМ. */
+  official: number;
+  /** Относительное расхождение, %. */
+  deltaPct: number;
+  status: SvodReconStatus;
+}
+
 /** Производные одной ячейки (для UI): итоги + проценты. */
 export interface UnifiedDerived {
   planTotal: number;
@@ -91,6 +111,6 @@ export function deriveCell(c: UnifiedCell): UnifiedDerived {
     execCountPct: c.planCount !== 0 ? c.factCount / c.planCount : null,
     spentPct: planTotal !== 0 ? factTotal / planTotal : null,
     deviationCount: c.factCount - c.planCount,
-    amountDeviation: factTotal - planTotal,
+    amountDeviation: planTotal - factTotal,
   };
 }
