@@ -20,6 +20,10 @@ SIGNAL_AUDIT_RESULTS.md
 SIGNAL_SYSTEM_AUDIT.md
 UX_RESEARCH_TEMPLATES.md
 
+# Извлечённые выгрузки источников (data-context-extractor): CSV/xlsx-профили/docx — локальный анализ, не исходники.
+# Их суть законсервирована в memory/PASSPORT_SYNTHESIS + vault, raw-данные в git не нужны.
+docs/data-audit/
+
 # Temp/analysis
 .tmp-zip/
 tmp-analysis/
