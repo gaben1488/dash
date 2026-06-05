@@ -14,6 +14,7 @@ import { mappingRoutes } from './routes/mapping.js';
 import { journalRoutes } from './routes/journal.js';
 import { settingsRoutes } from './routes/settings.js';
 import { analyticsRoutes } from './routes/analytics.js';
+import { historyRoutes } from './routes/history.js';
 import { getSnapshot, setDeptSheetCache, setDeptLoadMeta } from './services/snapshot.js';
 import { fetchDepartmentSpreadsheets } from './services/google-sheets.js';
 import { registerAuthHook } from './middleware/auth.js';
@@ -86,6 +87,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(journalRoutes);
   await app.register(settingsRoutes);
   await app.register(analyticsRoutes);
+  await app.register(historyRoutes);
 
   app.get('/api/health', async () => ({
     status: 'ok',

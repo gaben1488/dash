@@ -1,4 +1,4 @@
-import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput } from '@aemr/core';
+import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, CYRILLIC_TO_LATIN } from '@aemr/shared';
 import type { DataSnapshot, NormalizedMetric, SvodReconRow } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
@@ -347,6 +347,23 @@ export function getMetricTrend(metricKey: string, limit = 30): Array<{
     .orderBy(desc(schema.metricHistory.createdAt))
     .limit(limit)
     .all();
+}
+
+/**
+ * Все метрики одного снимка → MetricRow[] (для snapshot-diff, слой 1 истории).
+ * `at` = момент снимка (createdAt строки metric_history).
+ */
+export function getSnapshotMetrics(snapshotId: string): MetricRow[] {
+  const rows = db
+    .select({
+      metricKey: schema.metricHistory.metricKey,
+      numericValue: schema.metricHistory.numericValue,
+      createdAt: schema.metricHistory.createdAt,
+    })
+    .from(schema.metricHistory)
+    .where(eq(schema.metricHistory.snapshotId, snapshotId))
+    .all();
+  return rows.map((r) => ({ metricKey: r.metricKey, numericValue: r.numericValue, at: r.createdAt }));
 }
 
 /** Инвалидировать кэш (все годы) */
