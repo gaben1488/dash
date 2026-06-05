@@ -438,11 +438,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // ── Факт > план ──
   // Skip canceled rows — their data may be stale/incorrect.
-  // Threshold: factTotal > planTotal (any excess, not just >10%).
-  // Severity is tiered in CHECK_REGISTRY: >0% info, >5% warning, >10% significant.
-  // Signal should fire at >0% to catch ALL cases, severity handled by CHECK_REGISTRY.
+  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): допуск 0.5% против округлительного шума —
+  // план хранится в 2 знака, факт в 5, давало «Существенное» на превышении в 3.75 ₽ (УИО r24/25).
+  // GAS гасил это допуском *1.05; берём более строгие *1.005.
   let factExceedsPlan = false;
-  if (!isNaN(planTotal) && planTotal > 0 && factTotal > planTotal && !canceled) {
+  if (!isNaN(planTotal) && planTotal > 0 && factTotal > planTotal * 1.005 && !canceled) {
     factExceedsPlan = true;
   }
 
@@ -475,7 +475,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // For signed contracts, early fact date can still indicate a data entry error
   // (e.g., plan date was updated after the fact but the old plan date remained).
   let factDateBeforePlan = false;
-  if (factDateParsed && planDateParsed && !canceled) {
+  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): только конкурентные методы. Для ЕП (ст.93)
+  // нет извещения и 10-дневной паузы — досрочное заключение договора законно, не аномалия (~88% FP).
+  if (factDateParsed && planDateParsed && !canceled && !isEP) {
     const diff = daysDiff(planDateParsed, factDateParsed); // planDate - factDate
     // factDate < planDate means diff > 0. Only flag 1-30 day range (not caught by earlyClosure).
     if (diff > 0 && diff <= 30) {
@@ -488,8 +490,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // This catches rows that have a plan allocated but year is progressing and nothing happened.
   // Skip signed, canceled, planning, notDue rows — they have legitimate reasons.
   // Also skip rows already flagged as overdue (to avoid overlap).
+  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): контингентные закупки «при необходимости»
+  // (напр. резервный кредит УФБП на 32 млн) законно не имеют даты/исполнения — не «невыполненный план».
+  const isContingent = textIncludes(grbsComment, ['при необходимости', 'по мере', 'в случае возникновения', 'в случае необходимости']);
   let planWithoutExecution = false;
-  if (!isNaN(planTotal) && planTotal > 0 && !hasFact && !signed && !canceled && !planning && !notDue && !overdue) {
+  if (!isNaN(planTotal) && planTotal > 0 && !hasFact && !signed && !canceled && !planning && !notDue && !overdue && !isContingent) {
     // Gate: plan date must exist AND be in the past (>30 days ago to avoid noise on recent plans)
     // Without this gate, signal fires on 48% of rows including future-dated plans.
     if (planDateParsed) {

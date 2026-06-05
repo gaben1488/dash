@@ -401,9 +401,17 @@ describe('Financial signals', () => {
   });
 
   describe('factExceedsPlan', () => {
-    it('true: fact > plan (any excess)', () => {
+    // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): допуск 0.5% против округлительного шума.
+    it('false: excess below 0.5% tolerance (rounding noise, e.g. УИО r24/25)', () => {
       const s = detectSignals(makeCells({
-        K: 1_000_000, Y: 1_000_001,
+        K: 1_000_000, Y: 1_000_001, // +0.0001% — план в 2 знака vs факт в 5
+      }), REF_DATE);
+      expect(s.factExceedsPlan).toBe(false);
+    });
+
+    it('true: material excess (>0.5%)', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000_000, Y: 1_100_000, // +10%
       }), REF_DATE);
       expect(s.factExceedsPlan).toBe(true);
     });
@@ -421,6 +429,21 @@ describe('Financial signals', () => {
       }), REF_DATE);
       expect(s.factExceedsPlan).toBe(false);
     });
+  });
+});
+
+describe('FP-fixes 2026-06-05 (SIGNAL_VALIDATION §4)', () => {
+  it('factDateBeforePlan: NOT for ЕП (early sole-source conclusion is legal)', () => {
+    const s = detectSignals(makeCells({ L: 'ЕП', N: '01.05.2026', Q: '15.04.2026' }), REF_DATE);
+    expect(s.factDateBeforePlan).toBe(false);
+  });
+  it('factDateBeforePlan: YES for competitive method (ЭА)', () => {
+    const s = detectSignals(makeCells({ L: 'ЭА', N: '01.05.2026', Q: '15.04.2026' }), REF_DATE);
+    expect(s.factDateBeforePlan).toBe(true);
+  });
+  it('planWithoutExecution: NOT for contingent «при необходимости» purchase', () => {
+    const s = detectSignals(makeCells({ K: 32_000_000, N: null, Q: null, Y: 0, AE: 'будет проведена при необходимости' }), REF_DATE);
+    expect(s.planWithoutExecution).toBe(false);
   });
 });
 
