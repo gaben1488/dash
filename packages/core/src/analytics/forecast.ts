@@ -42,8 +42,10 @@ export function linearForecast(
   }
 
   const currentTotal = monthlyFacts.reduce((s, v) => s + v, 0);
-  const avgMonthly = currentTotal / nonZero.length;
-  const remainingMonths = 12 - nonZero.length;
+  // Делитель — ИСТЁКШИЕ месяцы (длина массива, сервер уже обрезал хвостовые нули),
+  // а не non-zero: иначе interior-zero месяцы завышают среднюю и проекцию.
+  const avgMonthly = currentTotal / monthlyFacts.length;
+  const remainingMonths = Math.max(0, 12 - monthlyFacts.length);
   const projectedTotal = currentTotal + avgMonthly * remainingMonths;
 
   const projection = [...monthlyFacts];
