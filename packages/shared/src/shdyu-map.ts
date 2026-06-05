@@ -29,44 +29,26 @@ export const SHDYU_SHEET_NAME_CANDIDATES = SVOD_MONTHLY_SHEET_CANDIDATES;
 export interface SvodMonthlyBlock {
   grbsId: string;
   grbsShort: string;
-  /** First data row of КП section (12 months, 1-based). */
   compStartRow: number;
-  /** Last data row of КП section. */
   compEndRow: number;
-  /** КП итого row. */
   compTotalRow: number;
-  /** First data row of ЕП section (12 months, 1-based). */
   epStartRow: number;
-  /** Last data row of ЕП section. */
   epEndRow: number;
-  /** ЕП итого row. */
   epTotalRow: number;
-  /** ИТОГО ЭА+ЕП row (combined total). */
   totalRow: number;
-  /** Доля ЭА row. */
   compShareRow: number;
-  /** Доля ЕП row. */
   epShareRow: number;
 }
 
 export type SHDYUBlock = SvodMonthlyBlock;
 
-/** Summary block «ВСЕ». */
 export const SVOD_MONTHLY_ALL_BLOCK: SvodMonthlyBlock = {
-  grbsId: 'all',
-  grbsShort: 'ВСЕ',
-  compStartRow: 5,
-  compEndRow: 16,
-  compTotalRow: 17,
-  epStartRow: 22,
-  epEndRow: 33,
-  epTotalRow: 34,
-  totalRow: 36,
-  compShareRow: 37,
-  epShareRow: 38,
+  grbsId: 'all', grbsShort: 'ВСЕ',
+  compStartRow: 5, compEndRow: 16, compTotalRow: 17,
+  epStartRow: 22, epEndRow: 33, epTotalRow: 34,
+  totalRow: 36, compShareRow: 37, epShareRow: 38,
 };
 
-/** Individual department blocks for the new «СВОД с месяцами» structure. */
 export const SVOD_MONTHLY_BLOCKS: SvodMonthlyBlock[] = [
   { grbsId: 'uer', grbsShort: 'УЭР', compStartRow: 45, compEndRow: 56, compTotalRow: 57, epStartRow: 62, epEndRow: 73, epTotalRow: 74, totalRow: 76, compShareRow: 77, epShareRow: 78 },
   { grbsId: 'uio', grbsShort: 'УИО', compStartRow: 85, compEndRow: 96, compTotalRow: 97, epStartRow: 102, epEndRow: 113, epTotalRow: 114, totalRow: 116, compShareRow: 117, epShareRow: 118 },
@@ -81,7 +63,6 @@ export const SVOD_MONTHLY_BLOCKS: SvodMonthlyBlock[] = [
 export const SHDYU_ALL_BLOCK = SVOD_MONTHLY_ALL_BLOCK;
 export const SHDYU_BLOCKS = SVOD_MONTHLY_BLOCKS;
 
-/** Column layout within the left monthly section (A:T, 0-based). */
 export const SVOD_MONTHLY_COLS = {
   GRBS_NAME: 0,
   MONTH_TEXT: 1,
@@ -107,7 +88,6 @@ export const SVOD_MONTHLY_COLS = {
 
 export const SHDYU_COLS = SVOD_MONTHLY_COLS;
 
-/** Column layout within the right quarterly section (U:AM, 0-based). */
 export const SVOD_MONTHLY_QUARTERLY_COLS = {
   QUARTER_LABEL: 20,
   PLAN_COUNT: 21,
@@ -132,19 +112,13 @@ export const SVOD_MONTHLY_QUARTERLY_COLS = {
 
 export const SHDYU_QUARTERLY_COLS = SVOD_MONTHLY_QUARTERLY_COLS;
 
-/** Filter controls: AN(39) = activity, AO(40) = year. */
 export const SVOD_MONTHLY_FILTER_COLS = { ACTIVITY_FILTER: 39, YEAR: 40 } as const;
 export const SHDYU_FILTER_COLS = SVOD_MONTHLY_FILTER_COLS;
 
-/**
- * Deprecated compile-time aliases for modules not yet renamed from SHDYU terms.
- * They deliberately point to the current «СВОД с месяцами» geometry.
- */
 export const SHDYU_LEGACY_ALL_BLOCK = SVOD_MONTHLY_ALL_BLOCK;
 export const SHDYU_LEGACY_BLOCKS = SVOD_MONTHLY_BLOCKS;
-export const SHDYU_LEGACY_COLS = SVOD_MONTHLY_COLS;
+export const SHDYU_LEGACY_COLS = { ...SVOD_MONTHLY_COLS, YEAR: 2 } as const;
 
-/** Month text → month number mapping (Russian). */
 export const MONTH_TEXT_MAP: Record<string, number> = {
   'Январь': 1, 'Февраль': 2, 'Март': 3,
   'Апрель': 4, 'Май': 5, 'Июнь': 6,
@@ -152,12 +126,10 @@ export const MONTH_TEXT_MAP: Record<string, number> = {
   'Октябрь': 10, 'Ноябрь': 11, 'Декабрь': 12,
 };
 
-/** Quarter → month ranges. */
 export const QUARTER_MONTHS: Record<string, [number, number, number]> = {
   Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12],
 };
 
-/** Per-block monthly metrics — 18 data columns from «СВОД с месяцами». */
 export interface SvodMonthlyBlockMetrics {
   planCount: number;
   factCount: number;
@@ -214,7 +186,6 @@ export interface SvodMonthlyEntry {
 
 export type SHDYUMonthlyEntry = SvodMonthlyEntry;
 
-/** Summary row data: ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП. */
 export interface SvodMonthlySummaryData {
   total: SvodMonthlyBlockMetrics;
   compSharePct: SvodMonthlyBlockMetrics;
