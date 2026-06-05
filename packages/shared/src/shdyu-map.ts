@@ -1,42 +1,58 @@
 /**
- * ШДЮ (Ежемесячная динамика) — Sheet within СВОД_для_Google spreadsheet.
- * Contains monthly execution data per ГРБС.
+ * СВОД с месяцами — канонический лист помесячной сверки в книге СВОД_для_Google.
  *
- * UPDATED 2026-04-13: New ШДЮ format (558 rows × 41 cols A-AO).
- * Key changes from old format:
- *   - Column C (year) removed → all indices shifted -1
- *   - Each block now: 4 hdr + 12 data + 1 итого (КП), 4 hdr + 12 data + 1 итого (ЕП),
- *     then 1 blank + ИТОГО ЭА+ЕП + Доля ЭА + Доля ЕП
- *   - NEW: Quarterly summary section (cols U-AM)
- *   - NEW: Filter controls (col AN = ТД/ПМ/*, col AO = year)
- *   - Month column B = text ("Январь"..."Декабрь"), NOT number
+ * Формат нового листа: 558 строк × 41 столбец (A:AO).
+ *
+ * Важные признаки структуры:
+ *   - год не хранится в отдельной колонке C;
+ *   - месяц находится в колонке B текстом: «Январь» ... «Декабрь»;
+ *   - левая секция A:T содержит помесячные КП и ЕП;
+ *   - правая секция U:AM содержит квартальную свёртку;
+ *   - AN — фильтр активности: "*" | "ТД" | "ПМ";
+ *   - AO — год.
+ *
+ * Старые листы «ШДЮ» и «ШДЮ старый» не являются источниками данных и не должны
+ * использоваться как fallback. Runtime читает только SVOD_MONTHLY_SHEET_NAME.
  */
 
-export interface SHDYUBlock {
+export const SVOD_MONTHLY_SHEET_NAME = 'СВОД с месяцами';
+export const SVOD_MONTHLY_SHEET_CANDIDATES = [SVOD_MONTHLY_SHEET_NAME] as const;
+
+/**
+ * Backward-compatible aliases. Оставлены только чтобы не ломать публичные импорты;
+ * значения указывают строго на новый лист и не включают legacy fallback.
+ */
+export const SHDYU_MONTHLY_SHEET_NAME = SVOD_MONTHLY_SHEET_NAME;
+export const SHDYU_SHEET_NAME = SVOD_MONTHLY_SHEET_NAME;
+export const SHDYU_SHEET_NAME_CANDIDATES = SVOD_MONTHLY_SHEET_CANDIDATES;
+
+export interface SvodMonthlyBlock {
   grbsId: string;
   grbsShort: string;
-  /** First data row of КП section (12 months, 1-based) */
+  /** First data row of КП section (12 months, 1-based). */
   compStartRow: number;
-  /** Last data row of КП section */
+  /** Last data row of КП section. */
   compEndRow: number;
-  /** КП итого row */
+  /** КП итого row. */
   compTotalRow: number;
-  /** First data row of ЕП section (12 months, 1-based) */
+  /** First data row of ЕП section (12 months, 1-based). */
   epStartRow: number;
-  /** Last data row of ЕП section */
+  /** Last data row of ЕП section. */
   epEndRow: number;
-  /** ЕП итого row */
+  /** ЕП итого row. */
   epTotalRow: number;
-  /** ИТОГО ЭА+ЕП row (combined total) */
+  /** ИТОГО ЭА+ЕП row (combined total). */
   totalRow: number;
-  /** Доля ЭА row */
+  /** Доля ЭА row. */
   compShareRow: number;
-  /** Доля ЕП row */
+  /** Доля ЕП row. */
   epShareRow: number;
 }
 
-/** "ALL" summary block — aggregates all 8 departments */
-export const SHDYU_ALL_BLOCK: SHDYUBlock = {
+export type SHDYUBlock = SvodMonthlyBlock;
+
+/** Summary block «ВСЕ». */
+export const SVOD_MONTHLY_ALL_BLOCK: SvodMonthlyBlock = {
   grbsId: 'all',
   grbsShort: 'ВСЕ',
   compStartRow: 5,
@@ -50,8 +66,8 @@ export const SHDYU_ALL_BLOCK: SHDYUBlock = {
   epShareRow: 38,
 };
 
-/** Individual department blocks (verified against XLSX 2026-04-13) */
-export const SHDYU_BLOCKS: SHDYUBlock[] = [
+/** Individual department blocks for the new «СВОД с месяцами» structure. */
+export const SVOD_MONTHLY_BLOCKS: SvodMonthlyBlock[] = [
   {
     grbsId: 'uer', grbsShort: 'УЭР',
     compStartRow: 45, compEndRow: 56, compTotalRow: 57,
@@ -102,136 +118,37 @@ export const SHDYU_BLOCKS: SHDYUBlock[] = [
   },
 ];
 
-/**
- * Column layout within ШДЮ LEFT section (monthly, cols A-T, 0-based):
- *
- * IMPORTANT: Column C (Year) from old format was REMOVED.
- * All data columns shifted LEFT by 1 compared to old format.
- *
- * A=0: ГРБС name (only in first row) or "Итого {ГРБС}" in total row
- * B=1: Month text ("Январь"..."Декабрь") or year ("2026") in total row
- * C=2: Plan count (план кол-во, ед)
- * D=3: Fact count (факт кол-во, ед)
- * E=4: Deviation count (откл, ед)
- * F=5: Execution % (выполн. %)
- * G=6: Plan FB (тыс руб)
- * H=7: Plan KB
- * I=8: Plan MB
- * J=9: Plan TOTAL (=G+H+I)
- * K=10: Fact FB
- * L=11: Fact KB
- * M=12: Fact MB
- * N=13: Fact TOTAL (=K+L+M)
- * O=14: Deviation amount (=N-J)
- * P=15: Spent % (=IF(J=0,"-",N/J))
- * Q=16: Economy FB
- * R=17: Economy KB
- * S=18: Economy MB
- * T=19: Economy TOTAL (=Q+R+S)
- */
-export const SHDYU_COLS = {
-  GRBS_NAME: 0,
-  MONTH_TEXT: 1,    // Was MONTH_NUM in old format; now TEXT ("Январь")
-  PLAN_COUNT: 2,    // Was 3, shifted -1
-  FACT_COUNT: 3,    // Was 4, shifted -1
-  DEVIATION: 4,     // Was 5, shifted -1
-  EXECUTION_PCT: 5, // Was 6, shifted -1
-  PLAN_FB: 6,       // Was 7, shifted -1
-  PLAN_KB: 7,       // Was 8, shifted -1
-  PLAN_MB: 8,       // Was 9, shifted -1
-  PLAN_TOTAL: 9,    // Was 10, shifted -1
-  FACT_FB: 10,      // Was 11, shifted -1
-  FACT_KB: 11,      // Was 12, shifted -1
-  FACT_MB: 12,      // Was 13, shifted -1
-  FACT_TOTAL: 13,   // Was 14, shifted -1
-  DEVIATION_AMOUNT: 14, // Was 15, shifted -1
-  SPENT_PCT: 15,    // Was 16, shifted -1
-  ECONOMY_FB: 16,   // Was 17, shifted -1
-  ECONOMY_KB: 17,   // Was 18, shifted -1
-  ECONOMY_MB: 18,   // Was 19, shifted -1
-  ECONOMY_TOTAL: 19, // Was 20, shifted -1
-} as const;
+export const SHDYU_ALL_BLOCK = SVOD_MONTHLY_ALL_BLOCK;
+export const SHDYU_BLOCKS = SVOD_MONTHLY_BLOCKS;
 
-/** Legacy production tab layout with an explicit Year column in C. */
-export const SHDYU_LEGACY_COLS = {
+/** Column layout within the left monthly section (A:T, 0-based). */
+export const SVOD_MONTHLY_COLS = {
   GRBS_NAME: 0,
   MONTH_TEXT: 1,
-  YEAR: 2,
-  PLAN_COUNT: 3,
-  FACT_COUNT: 4,
-  DEVIATION: 5,
-  EXECUTION_PCT: 6,
-  PLAN_FB: 7,
-  PLAN_KB: 8,
-  PLAN_MB: 9,
-  PLAN_TOTAL: 10,
-  FACT_FB: 11,
-  FACT_KB: 12,
-  FACT_MB: 13,
-  FACT_TOTAL: 14,
-  DEVIATION_AMOUNT: 15,
-  SPENT_PCT: 16,
-  ECONOMY_FB: 17,
-  ECONOMY_KB: 18,
-  ECONOMY_MB: 19,
-  ECONOMY_TOTAL: 20,
+  PLAN_COUNT: 2,
+  FACT_COUNT: 3,
+  DEVIATION: 4,
+  EXECUTION_PCT: 5,
+  PLAN_FB: 6,
+  PLAN_KB: 7,
+  PLAN_MB: 8,
+  PLAN_TOTAL: 9,
+  FACT_FB: 10,
+  FACT_KB: 11,
+  FACT_MB: 12,
+  FACT_TOTAL: 13,
+  DEVIATION_AMOUNT: 14,
+  SPENT_PCT: 15,
+  ECONOMY_FB: 16,
+  ECONOMY_KB: 17,
+  ECONOMY_MB: 18,
+  ECONOMY_TOTAL: 19,
 } as const;
 
-function legacyBlock(grbsId: string, grbsShort: string, compStartRow: number): SHDYUBlock {
-  return {
-    grbsId,
-    grbsShort,
-    compStartRow,
-    compEndRow: compStartRow + 11,
-    compTotalRow: compStartRow + 12,
-    epStartRow: compStartRow + 16,
-    epEndRow: compStartRow + 27,
-    epTotalRow: compStartRow + 28,
-    totalRow: 0,
-    compShareRow: 0,
-    epShareRow: 0,
-  };
-}
+export const SHDYU_COLS = SVOD_MONTHLY_COLS;
 
-/** Legacy 33-row block layout currently exposed by the production `ШДЮ старый` tab. */
-export const SHDYU_LEGACY_ALL_BLOCK: SHDYUBlock = legacyBlock('all', 'ВСЕ', 4);
-
-export const SHDYU_LEGACY_BLOCKS: SHDYUBlock[] = [
-  legacyBlock('uer', 'УЭР', 37),
-  legacyBlock('uio', 'УИО', 70),
-  legacyBlock('uagzo', 'УАГЗО', 103),
-  legacyBlock('ufbp', 'УФБП', 136),
-  legacyBlock('ud', 'УД', 169),
-  legacyBlock('udtx', 'УДТХ', 202),
-  legacyBlock('uksimp', 'УКСиМП', 235),
-  legacyBlock('uo', 'УО', 268),
-];
-
-/**
- * Column layout within ШДЮ RIGHT section (quarterly, cols U-AM, 0-based):
- * NEW in redesigned ШДЮ. 4 rows per block (Q1-Q4), aggregating 3 months each.
- *
- * U=20: Quarter label ("Q1"/"Q2"/"Q3"/"Q4")
- * V=21: Plan count (= SUM of 3 monthly plan counts)
- * W=22: Fact count
- * X=23: Deviation count
- * Y=24: Execution %
- * Z=25: Plan FB
- * AA=26: Plan KB
- * AB=27: Plan MB
- * AC=28: Plan TOTAL
- * AD=29: Fact FB
- * AE=30: Fact KB
- * AF=31: Fact MB
- * AG=32: Fact TOTAL
- * AH=33: Deviation amount (=AG-AC)
- * AI=34: Spent % (=IF(AC=0,"-",AG/AC))
- * AJ=35: Economy FB
- * AK=36: Economy KB
- * AL=37: Economy MB
- * AM=38: Economy TOTAL
- */
-export const SHDYU_QUARTERLY_COLS = {
+/** Column layout within the right quarterly section (U:AM, 0-based). */
+export const SVOD_MONTHLY_QUARTERLY_COLS = {
   QUARTER_LABEL: 20,
   PLAN_COUNT: 21,
   FACT_COUNT: 22,
@@ -253,17 +170,17 @@ export const SHDYU_QUARTERLY_COLS = {
   ECONOMY_TOTAL: 38,
 } as const;
 
-/**
- * Filter controls (cols AN-AO)
- * AN(39) = activity filter: "*" (all) | "ТД" | "ПМ"
- * AO(40) = year: 2026
- */
-export const SHDYU_FILTER_COLS = {
-  ACTIVITY_FILTER: 39,  // AN
-  YEAR: 40,             // AO
+export const SHDYU_QUARTERLY_COLS = SVOD_MONTHLY_QUARTERLY_COLS;
+
+/** Filter controls: AN(39) = activity, AO(40) = year. */
+export const SVOD_MONTHLY_FILTER_COLS = {
+  ACTIVITY_FILTER: 39,
+  YEAR: 40,
 } as const;
 
-/** Month text → month number mapping (Russian) */
+export const SHDYU_FILTER_COLS = SVOD_MONTHLY_FILTER_COLS;
+
+/** Month text → month number mapping (Russian). */
 export const MONTH_TEXT_MAP: Record<string, number> = {
   'Январь': 1, 'Февраль': 2, 'Март': 3,
   'Апрель': 4, 'Май': 5, 'Июнь': 6,
@@ -271,7 +188,7 @@ export const MONTH_TEXT_MAP: Record<string, number> = {
   'Октябрь': 10, 'Ноябрь': 11, 'Декабрь': 12,
 };
 
-/** Quarter → month ranges */
+/** Quarter → month ranges. */
 export const QUARTER_MONTHS: Record<string, [number, number, number]> = {
   Q1: [1, 2, 3],
   Q2: [4, 5, 6],
@@ -279,8 +196,8 @@ export const QUARTER_MONTHS: Record<string, [number, number, number]> = {
   Q4: [10, 11, 12],
 };
 
-/** Per-block (KP or EP) monthly metrics — 18 data columns from ШДЮ */
-export interface SHDYUBlockMetrics {
+/** Per-block monthly metrics — 18 data columns from «СВОД с месяцами». */
+export interface SvodMonthlyBlockMetrics {
   planCount: number;
   factCount: number;
   deviation: number;
@@ -301,15 +218,14 @@ export interface SHDYUBlockMetrics {
   economyTotal: number;
 }
 
-/** Quarterly aggregated metrics (same shape as BlockMetrics) */
-export type SHDYUQuarterlyMetrics = SHDYUBlockMetrics;
+export type SHDYUBlockMetrics = SvodMonthlyBlockMetrics;
+export type SvodMonthlyQuarterlyMetrics = SvodMonthlyBlockMetrics;
+export type SHDYUQuarterlyMetrics = SvodMonthlyQuarterlyMetrics;
 
-export interface SHDYUFormulaIssue {
+export interface SvodMonthlyFormulaIssue {
   type: 'sheet_reference_mismatch' | 'method_filter_inverted';
-  /** sheet_reference_mismatch: формула ссылается на чужой лист ГРБС */
   expectedSheet?: string;
   actualSheets?: string[];
-  /** method_filter_inverted: КП-ячейка фильтрует ЕП (или наоборот) */
   expectedFilter?: string;
   detectedFilter?: string;
   row: number;
@@ -318,11 +234,13 @@ export interface SHDYUFormulaIssue {
   evidence: string;
 }
 
-export interface SHDYUMonthlyEntry {
-  month: number;  // 1-12
-  comp: SHDYUBlockMetrics;
-  ep: SHDYUBlockMetrics;
-  // Legacy convenience accessors (comp + ep totals)
+export type SHDYUFormulaIssue = SvodMonthlyFormulaIssue;
+
+export interface SvodMonthlyEntry {
+  month: number;
+  comp: SvodMonthlyBlockMetrics;
+  ep: SvodMonthlyBlockMetrics;
+  // Convenience accessors for reconcileMonthly.
   compPlanCount: number;
   compFactCount: number;
   compPlanTotal: number;
@@ -331,56 +249,34 @@ export interface SHDYUMonthlyEntry {
   epFactCount: number;
   epPlanTotal: number;
   epFactTotal: number;
-  formulaIssues?: SHDYUFormulaIssue[];
+  formulaIssues?: SvodMonthlyFormulaIssue[];
 }
 
-/** Summary row data (ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП) */
-export interface SHDYUSummaryData {
-  /** ИТОГО ЭА+ЕП combined totals */
-  total: SHDYUBlockMetrics;
-  /** Доля ЭА (competitive share, 0-1) */
-  compSharePct: SHDYUBlockMetrics;
-  /** Доля ЕП (sole supplier share, 0-1) — KEY metric for 44-ФЗ */
-  epSharePct: SHDYUBlockMetrics;
+export type SHDYUMonthlyEntry = SvodMonthlyEntry;
+
+/** Summary row data: ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП. */
+export interface SvodMonthlySummaryData {
+  total: SvodMonthlyBlockMetrics;
+  compSharePct: SvodMonthlyBlockMetrics;
+  epSharePct: SvodMonthlyBlockMetrics;
 }
 
-/** Quarterly entry per quarter (Q1-Q4) */
-export interface SHDYUQuarterlyEntry {
-  quarter: string;  // "Q1"-"Q4"
-  metrics: SHDYUQuarterlyMetrics;
+export type SHDYUSummaryData = SvodMonthlySummaryData;
+
+export interface SvodMonthlyQuarterlyEntry {
+  quarter: string;
+  metrics: SvodMonthlyQuarterlyMetrics;
 }
 
-export interface SHDYUDeptData {
+export type SHDYUQuarterlyEntry = SvodMonthlyQuarterlyEntry;
+
+export interface SvodMonthlyDeptData {
   grbsId: string;
-  months: Record<number, SHDYUMonthlyEntry>;
-  /** Итого КП (yearly total for competitive) */
-  compTotal?: SHDYUBlockMetrics;
-  /** Итого ЕП (yearly total for sole supplier) */
-  epTotal?: SHDYUBlockMetrics;
-  /** Summary rows: ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП */
-  summary?: SHDYUSummaryData;
-  /** Quarterly aggregated data (NEW) */
-  quarterly?: Record<string, SHDYUQuarterlyEntry>;
+  months: Record<number, SvodMonthlyEntry>;
+  compTotal?: SvodMonthlyBlockMetrics;
+  epTotal?: SvodMonthlyBlockMetrics;
+  summary?: SvodMonthlySummaryData;
+  quarterly?: Record<string, SvodMonthlyQuarterlyEntry>;
 }
 
-export const SHDYU_SHEET_NAME = 'ШДЮ';
-
-/**
- * Канонический помесячный источник — лист «СВОД с месяцами» (558×41, новый формат
- * A–AO). Именно под него написаны SHDYU_BLOCKS/SHDYU_COLS (geometry verified
- * 2026-04-13), квартальная секция (U–AM) и фильтр активности (AN4). Поэтому он —
- * ПЕРВЫЙ кандидат; `detectSHDYUFormat` вернёт 'current'.
- *
- * «ШДЮ» / «ШДЮ старый» остаются fallback-кандидатами (legacy-формат, 25 колонок с
- * годом в C → detectSHDYUFormat='legacy'), пока книга не переименована.
- *
- * ВАЖНО (activity-scope.ts): данные листа «СВОД с месяцами» считаются Apps Script
- * статикой под текущий AN4. Для канонического среза «ТД-ПМ (все)» ячейка AN4 на
- * листе должна быть "*". Срезы ПМ/ТД считает CalcEngine из атомов (столбец F).
- */
-export const SHDYU_MONTHLY_SHEET_NAME = 'СВОД с месяцами';
-export const SHDYU_SHEET_NAME_CANDIDATES = [
-  SHDYU_MONTHLY_SHEET_NAME,
-  SHDYU_SHEET_NAME,
-  'ШДЮ старый',
-] as const;
+export type SHDYUDeptData = SvodMonthlyDeptData;
