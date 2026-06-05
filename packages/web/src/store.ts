@@ -602,7 +602,12 @@ export const useStore = create<AppState>((set, get) => ({
       mby[yr] = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     }
     const activeForYear = mby[yr] ?? new Set<number>();
-    set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear) });
+    if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
+      const monday = getMondayOfWeek(new Date());
+      set({ monthsByYear: mby, year: yr, activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+    } else {
+      set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
+    }
   },
 
   clearAllPeriods: () => {

@@ -61,4 +61,18 @@ describe('useStore navigation filters', () => {
       searchQuery: '',
     })).toBe(1);
   });
+
+  it('marks full-year time drum selection as an explicit period filter', () => {
+    useStore.getState().resetAllFilters();
+
+    const year = new Date().getFullYear();
+    expect(useStore.getState().periodMode).toBe('week');
+
+    useStore.getState().toggleYearFull(year);
+
+    const state = useStore.getState();
+    expect(state.periodMode).toBe('explicit');
+    expect(state.monthsByYear[year]?.size).toBe(12);
+    expect(hasExplicitPeriodFilter(state.periodMode, state.activeMonths, state.monthsByYear)).toBe(true);
+  });
 });
