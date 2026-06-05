@@ -445,6 +445,14 @@ describe('FP-fixes 2026-06-05 (SIGNAL_VALIDATION §4)', () => {
     const s = detectSignals(makeCells({ K: 32_000_000, N: null, Q: null, Y: 0, AE: 'будет проведена при необходимости' }), REF_DATE);
     expect(s.planWithoutExecution).toBe(false);
   });
+  it('factWithoutDate: NOT flagged when fact date is in AE comment (ae-parser)', () => {
+    const s = detectSignals(makeCells({ Y: 170_000, Q: 'Х', AE: '01.02.2026 заключен контракт №17' }), REF_DATE);
+    expect(s.factWithoutDate).toBe(false);
+  });
+  it('epJustificationMissing: NOT flagged when legal basis is in AE comment (ae-parser)', () => {
+    const s = detectSignals(makeCells({ L: 'ЕП', M: '', K: 20_000, AE: 'Не учитывается по п.4 ч.1 ст.93' }), REF_DATE);
+    expect(s.epJustificationMissing).toBe(false);
+  });
 });
 
 // ────────────────────────────────────────────────────────────

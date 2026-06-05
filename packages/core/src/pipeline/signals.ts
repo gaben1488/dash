@@ -16,6 +16,7 @@
  */
 
 import { LAW_44FZ_THRESHOLDS } from '@aemr/shared';
+import { parseAE } from './ae-parser.js';
 
 // ────────────────────────────────────────────────────────────
 // Типы
@@ -254,6 +255,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const aeText = cellText(cells, 'AE');
   const afText = cellText(cells, 'AF');
   const grbsComment = aeText + ' ' + afText;
+  // AE-parser: дата факта и правовое основание ЕП часто лежат в комментарии (AE), а не в Q/M
+  // (SIGNAL_VALIDATION §1, корень №3 «ответ в столбце AE»).
+  const aeParsed = parseAE(grbsComment);
   const methodText = cellText(cells, 'L');
   // Combined text for status detection: U + AE (both carry status signals)
   const statusAndComment = statusText + ' ' + aeText;
@@ -464,7 +468,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // ── Факты без дат / Даты без фактов ──
   // factWithoutDate: есть суммы факта, но нет даты — данные неполные
-  const factWithoutDate = hasFactAmounts && !hasFactDate && !canceled;
+  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не флажить, если дата факта есть в комментарии AE
+  // («01.02.2026 заключен контракт») — ≈73% «Факт суммы без даты» были ложными по этой причине.
+  const factWithoutDate = hasFactAmounts && !hasFactDate && !canceled && !aeParsed.hasContractDate;
   // dateWithoutFact: есть факт дата, но нет факт сумм — ввели дату, забыли суммы
   const dateWithoutFact = hasFactDate && !hasFactAmounts && !canceled;
 
@@ -515,7 +521,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // ЕП (sole source) requires justification in column M per 44-ФЗ.
   // Missing justification = compliance risk.
   // Skip canceled rows and rows with legitimate EP markers already detected.
-  const epJustificationMissing = isEP && !canceled && epJustification.length === 0 && !isNaN(planTotal) && planTotal > 0;
+  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не «нарушение», если основание ЕП есть в комментарии AE
+  // («Не учитывается по п.4 ч.1 ст.93») — УД r35 был ложным обвинением.
+  const epJustificationMissing =
+    isEP && !canceled && epJustification.length === 0 && !aeParsed.hasLegalBasis && !isNaN(planTotal) && planTotal > 0;
 
   // ── Факт без плана (budget underallocation) ──
   // Y > 0 but K = 0 (or NaN) — execution without budget allocation.
