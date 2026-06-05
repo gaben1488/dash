@@ -8,15 +8,21 @@
  *
  * Канон колонок dept-листа (0-based, сверено с xlsx — метки column-map.ts врут,
  * PROGRAM_NAME/DESCRIPTION перепутаны):
+ *   0  ID, 6 предмет (для отсева шапок/итогов)
  *   3  графа программы (X/Х/пусто = нет программы)
  *   5  активность (Программное мероприятие / Текущая деятельность)
  *   11 метод (начинается 'ЕП' → ep, иначе kp)
- *   13 план-дата (→ месяц), 14 план-квартал, 15 план-год
- *   16 факт-дата (Х/X/пусто = нет факта)
+ *   13 план-дата (→ месяц), 14 план-квартал (→ квартал+год-гейт), 15 план-год
+ *   16 факт-дата (Х/X/-/—/н/д/… = нет факта)
  *   7/8/9   план ФБ/КБ/МБ
  *   21/22/23 факт ФБ/КБ/МБ
  *   25/26/27 экономия ФБ/КБ/МБ
  *   29 гейт экономии ('да' = учитывать)
+ *
+ * Период (квартал/год) берётся из план-КВАРТАЛА (14), как canonical recalculate.ts
+ * (getQuarterKey(col O) — основа COUNTIFS листа СВОД ТД-ПМ), НЕ из месяца план-даты.
+ * Месяц — из план-даты (13); если она не парсится, месяц = первый месяц квартала,
+ * чтобы инвариант §7.2 (год = Σмес = Σкв) держался при недостающей дате.
  *
  * Spec: docs/UNIFIED_SVOD_DESIGN.md §3, §4, §5, §7.
  */
@@ -26,6 +32,8 @@ import {
   matchesActivityScope,
   unifiedKey,
   emptyCell,
+  normalizeMethod,
+  PROCUREMENT_METHODS,
   type ActivityScope,
   type SvodMethod,
   type SvodPeriodKey,
@@ -36,10 +44,14 @@ import { getMonthFromDate } from './recalculate.js';
 
 // ── Канон колонок атома (0-based) ─────────────────────────────────
 const COL = {
+  ID: 0,
   PROGRAM: 3,
   ACTIVITY: 5,
+  SUBJECT: 6,
   METHOD: 11,
   PLAN_DATE: 13,
+  PLAN_QUARTER: 14,
+  PLAN_YEAR: 15,
   FACT_DATE: 16,
   PLAN_FB: 7,
   PLAN_KB: 8,
@@ -53,8 +65,18 @@ const COL = {
   ECO_GATE: 29,
 } as const;
 
-/** Маркеры «нет факта» в столбце факт-даты (16). */
-const FACT_EMPTY = new Set(['х', 'x', '']);
+/**
+ * Маркеры «нет факта» в столбце факт-даты (16). Совпадает с recalculate.ts
+ * PLACEHOLDERS (строка ~569): кроме X/Х/пусто также прочерки и текст-плейсхолдеры,
+ * иначе factCount/факт-суммы завышаются и ложно открывается гейт экономии.
+ */
+const FACT_EMPTY = new Set(['х', 'x', '', '-', '—', '–', 'н/д', 'нет', 'не определена']);
+
+/** Префиксы шапок/итоговых строк по предмету (как recalculate.ts isSummaryRow). */
+const SUMMARY_PREFIXES = ['итого', 'всего', 'справочно'] as const;
+
+/** Известные методы закупки (для классификатора строк-данных). */
+const KNOWN_METHODS = new Set<string>(PROCUREMENT_METHODS);
 
 /** Безопасный парсер числа: пусто/'-'/нечисло → 0. */
 function num(v: unknown): number {
@@ -65,14 +87,60 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Непустая ячейка (как recalculate.ts cellPresent). */
+function cellPresent(v: unknown): boolean {
+  return v != null && String(v).trim() !== '';
+}
+
 /** Метод строки: столбец L начинается с 'ЕП' → ep, иначе kp. */
 function methodOf(raw: unknown): SvodMethod {
   return String(raw ?? '').trim().toUpperCase().startsWith('ЕП') ? 'ep' : 'kp';
 }
 
-/** Есть ли факт: столбец 16 не пустой и не Х/X. */
+/** Есть ли факт: столбец 16 не пустой и не плейсхолдер «нет факта». */
 function hasFact(raw: unknown): boolean {
   return !FACT_EMPTY.has(String(raw ?? '').trim().toLowerCase());
+}
+
+/**
+ * Квартал из столбца план-квартала (14): 1..4 → q1..q4, иначе null.
+ * Зеркало recalculate.ts getQuarterKey(col O) — основа COUNTIFS листа СВОД ТД-ПМ.
+ */
+function quarterOf(raw: unknown): { q: number; key: SvodPeriodKey } | null {
+  const q = num(raw);
+  if (q === 1 || q === 2 || q === 3 || q === 4) {
+    return { q, key: `q${q}` as SvodPeriodKey };
+  }
+  return null;
+}
+
+/** Строка-шапка/итог (отсев по предмету, столбец 6). */
+function isSummaryRow(row: unknown[]): boolean {
+  const subject = String(row[COL.SUBJECT] ?? '').trim().toLowerCase();
+  return SUMMARY_PREFIXES.some((p) => subject.startsWith(p));
+}
+
+/**
+ * Эвристика «это реальная строка-данные» (зеркало recalculate.ts classifyRow):
+ *   +3 известный метод (L) · +2 известный тип (F) · +2 план-суммы >0.009
+ *   +1 план-дата (N) · +1 ID(0) или предмет(6).  Порог: score ≥ 3.
+ * Защищает computeUnifiedGrid от сырых ИТОГО/мусорных строк (Task 5 ещё не реализован).
+ */
+function isDataRow(row: unknown[]): boolean {
+  const method = normalizeMethod(row[COL.METHOD]);
+  const hasMethod = method ? KNOWN_METHODS.has(method) : false;
+  const typeText = String(row[COL.ACTIVITY] ?? '').trim().toLowerCase();
+  const hasType = typeText.includes('текущая') || typeText.includes('программное мероприятие');
+  const planMoney = num(row[COL.PLAN_FB]) + num(row[COL.PLAN_KB]) + num(row[COL.PLAN_MB]);
+  const hasDate = cellPresent(row[COL.PLAN_DATE]);
+  const hasIdOrSubject = cellPresent(row[COL.ID]) || cellPresent(row[COL.SUBJECT]);
+  const score =
+    (hasMethod ? 3 : 0) +
+    (hasType ? 2 : 0) +
+    (planMoney > 0.009 ? 2 : 0) +
+    (hasDate ? 1 : 0) +
+    (hasIdOrSubject ? 1 : 0);
+  return score >= 3;
 }
 
 /** Учитывать ли экономию: гейт (столбец 29) == 'да'. */
@@ -82,7 +150,9 @@ function economyApproved(raw: unknown): boolean {
 
 /**
  * Аккумулирует вклад строки в ячейку сетки (создаёт пустую при первом доступе).
- * Факт-суммы добавляются всегда (освоенные суммы); экономия — только при gate=да.
+ * Гейты применяются ВЫШЕ (в computeUnifiedGrid): factCount/факт-суммы — только при
+ * наличии факт-даты; экономия — только при countEconomy (fact && gate='да').
+ * Здесь — чистое сложение готового contrib.
  */
 function addToCell(
   cells: Record<string, UnifiedCell>,
@@ -119,11 +189,22 @@ function addToCell(
 /**
  * Считает единую сетку СВОД из dept-строк всех ГРБС.
  *
+ * Период строки задаёт план-КВАРТАЛ (столбец 14) — он же гейт года (как
+ * recalculate.ts: год/квартал считаются только при валидном план-квартале,
+ * COUNTIFS-основа листа СВОД ТД-ПМ). Месяц берётся из план-даты (13); если она
+ * не парсится — месяц = первый месяц квартала, чтобы держался §7.2 (год = Σмес = Σкв).
+ * Строка без валидного план-квартала в периоды плана не входит.
+ *
  * @param deptRows карта `grbsId → строки атома (unknown[][])`.
  *   Каждая строка — плоский массив колонок dept-листа (0-based).
- *   Строка без распознанного месяца план-даты (столбец 13) пропускается.
+ * @param targetYear если задан — строки с план-годом (столбец 15) ≠ targetYear
+ *   пропускаются (лист считает per-year COUNTIFS; многолетний dept-лист иначе
+ *   сваливается в одни ячейки). 0/пусто в столбце 15 не отсекается.
  */
-export function computeUnifiedGrid(deptRows: Record<string, unknown[][]>): UnifiedGrid {
+export function computeUnifiedGrid(
+  deptRows: Record<string, unknown[][]>,
+  targetYear?: number,
+): UnifiedGrid {
   const cells: Record<string, UnifiedCell> = {};
   const grbsIds: string[] = [];
 
@@ -134,14 +215,26 @@ export function computeUnifiedGrid(deptRows: Record<string, unknown[][]>): Unifi
     for (const row of rows) {
       if (!row) continue;
 
-      // Период из план-даты — обязателен. Нет месяца → строка не попадает в сетку.
-      const m = getMonthFromDate(row[COL.PLAN_DATE]);
-      if (m == null) continue;
-      const q = Math.ceil(m / 3);
+      // Отсев шапок/итогов и не-данных (как recalculate.ts) — защита от сырых строк.
+      if (isSummaryRow(row)) continue;
+      if (!isDataRow(row)) continue;
+
+      // Фильтр по план-году (столбец 15) — для многолетних листов.
+      if (targetYear) {
+        const rowYear = num(row[COL.PLAN_YEAR]);
+        if (rowYear > 0 && rowYear !== targetYear) continue;
+      }
+
+      // Период = план-квартал (14). Нет валидного квартала → строка вне периодов плана.
+      const quarter = quarterOf(row[COL.PLAN_QUARTER]);
+      if (!quarter) continue;
+
+      // Месяц из план-даты (13); если не парсится — первый месяц квартала (§7.2).
+      const m = getMonthFromDate(row[COL.PLAN_DATE]) ?? (quarter.q - 1) * 3 + 1;
 
       const method = methodOf(row[COL.METHOD]);
       const fact = hasFact(row[COL.FACT_DATE]);
-      const countEconomy = economyApproved(row[COL.ECO_GATE]);
+      const countEconomy = fact && economyApproved(row[COL.ECO_GATE]);
 
       const contrib = {
         planCount: 1, // плановая строка реестра — всегда 1
@@ -149,10 +242,10 @@ export function computeUnifiedGrid(deptRows: Record<string, unknown[][]>): Unifi
         planFB: num(row[COL.PLAN_FB]),
         planKB: num(row[COL.PLAN_KB]),
         planMB: num(row[COL.PLAN_MB]),
-        // факт-суммы — освоенные деньги, добавляем всегда (gate не про факт)
-        factFB: num(row[COL.FACT_FB]),
-        factKB: num(row[COL.FACT_KB]),
-        factMB: num(row[COL.FACT_MB]),
+        // факт-суммы считаются только при наличии факт-даты; иначе это не исполнение.
+        factFB: fact ? num(row[COL.FACT_FB]) : 0,
+        factKB: fact ? num(row[COL.FACT_KB]) : 0,
+        factMB: fact ? num(row[COL.FACT_MB]) : 0,
         ecoFB: num(row[COL.ECO_FB]),
         ecoKB: num(row[COL.ECO_KB]),
         ecoMB: num(row[COL.ECO_MB]),
@@ -160,7 +253,7 @@ export function computeUnifiedGrid(deptRows: Record<string, unknown[][]>): Unifi
       };
 
       const monthKey = `m${m}` as SvodPeriodKey;
-      const quarterKey = `q${q}` as SvodPeriodKey;
+      const quarterKey = quarter.key;
 
       // Один проход по 4 срезам активности; каждый подходящий срез получает вклад
       // в три периода (месяц/квартал/год). td_pm ⊂ td — правило в matchesActivityScope.
@@ -219,6 +312,30 @@ const FIELD_TO_OFFICIAL_SUFFIX: Array<{ suffix: string; pick: (c: UnifiedCell) =
 /** Периоды, которые покрывает лист СВОД ТД-ПМ. */
 const OFFICIAL_PERIODS: SvodPeriodKey[] = ['q1', 'year'];
 
+function addCellInto(target: UnifiedCell, source: UnifiedCell): void {
+  target.planCount += source.planCount;
+  target.factCount += source.factCount;
+  target.planFB += source.planFB;
+  target.planKB += source.planKB;
+  target.planMB += source.planMB;
+  target.factFB += source.factFB;
+  target.factKB += source.factKB;
+  target.factMB += source.factMB;
+  target.economyFB += source.economyFB;
+  target.economyKB += source.economyKB;
+  target.economyMB += source.economyMB;
+}
+
+function pickReconCell(grid: UnifiedGrid, method: SvodMethod, period: SvodPeriodKey, grbsId?: string): UnifiedCell {
+  if (grbsId) return grid.cells[unifiedKey(grbsId, 'all', method, period)] ?? emptyCell();
+  const acc = emptyCell();
+  for (const id of grid.grbsIds) {
+    const cell = grid.cells[unifiedKey(id, 'all', method, period)];
+    if (cell) addCellInto(acc, cell);
+  }
+  return acc;
+}
+
 function reconStatus(deltaPct: number): UnifiedReconStatus {
   const abs = Math.abs(deltaPct);
   return abs < 1 ? 'ok' : abs < 5 ? 'warning' : 'high';
@@ -235,21 +352,20 @@ function reconStatus(deltaPct: number): UnifiedReconStatus {
  * @param grid результат computeUnifiedGrid
  * @param officialMetrics плоская карта `metricKey → {numericValue}` из snapshot
  *   (ячейки листа СВОД ТД-ПМ; ключи — как в svod-view.ts / buildSvodView).
- * @param grbsId блок ГРБС для сверки (по умолчанию сводный — 'all' срез по всем).
- *   Сводные ключи (competitive / sole) агрегируют все ГРБС, поэтому grbsId
- *   должен указывать на ту же агрегированную сетку (обычно ключ сводного ГРБС).
+ * @param grbsId optional блок ГРБС для точечной сверки. Если не передан,
+ *   сводные ключи (competitive / sole) сверяются с суммой всех ГРБС.
  */
 export function reconcileUnified(
   grid: UnifiedGrid,
   officialMetrics: Record<string, UnifiedOfficialMetric | undefined>,
-  grbsId: string = grid.grbsIds[0] ?? 'all',
+  grbsId?: string,
 ): UnifiedReconRow[] {
   const out: UnifiedReconRow[] = [];
 
   for (const method of ['kp', 'ep'] as const) {
     const prefix = METHOD_TO_OFFICIAL_PREFIX[method];
     for (const period of OFFICIAL_PERIODS) {
-      const cell = grid.cells[unifiedKey(grbsId, 'all', method, period)] ?? emptyCell();
+      const cell = pickReconCell(grid, method, period, grbsId);
       for (const { suffix, pick } of FIELD_TO_OFFICIAL_SUFFIX) {
         const key = `${prefix}.${period}.${suffix}`;
         const official = officialMetrics[key]?.numericValue;

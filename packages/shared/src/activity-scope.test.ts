@@ -44,6 +44,17 @@ describe('activity-scope', () => {
     expect(ACTIVITY_F_VALUE.td).toBe('Текущая деятельность');
   });
 
+  it('claim 1: длинные канонические формы F классифицируются по подстроке', () => {
+    // VALID_ACTIVITY_TYPES_RAW: длинные формы — реальные значения столбца F.
+    expect(matchesActivityScope('td', 'Текущая деятельность в рамках программного мероприятия')).toBe(true);
+    expect(matchesActivityScope('td', 'Текущая деятельность вне рамок программного мероприятия')).toBe(true);
+    // длинная ТД-форма содержит «программного мероприятия», но это НЕ ПМ (ПМ-проверка по подстроке «программное мероприятие»)
+    expect(matchesActivityScope('pm', 'Текущая деятельность в рамках программного мероприятия')).toBe(false);
+    // td_pm на длинной форме + графа программы (D≠X)
+    expect(matchesActivityScope('td_pm', 'Текущая деятельность в рамках программного мероприятия', 'Программа N')).toBe(true);
+    expect(matchesActivityScope('td_pm', 'Текущая деятельность вне рамок программного мероприятия', 'X')).toBe(false);
+  });
+
   it('parseActivityScope: AN4 / F / алиасы → ActivityScope', () => {
     expect(parseActivityScope('*')).toBe('all');
     expect(parseActivityScope('ТД-ПМ')).toBe('td_pm');

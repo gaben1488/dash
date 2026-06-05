@@ -46,6 +46,22 @@ export const ACTIVITY_LABEL: Record<ActivityScope, string> = {
 };
 
 /**
+ * Тип деятельности из столбца F — ТД / ПМ / прочее.
+ * Сравнение по подстроке (не строгим равенством), т.к. канонические значения F
+ * бывают в длинной форме: «Текущая деятельность в рамках программного мероприятия»,
+ * «Текущая деятельность вне рамок программного мероприятия» (см. dictionaries/
+ * activity-types.ts VALID_ACTIVITY_TYPES_RAW). Совпадает с recalculate.ts
+ * (typeText.includes('программное мероприятие') / .includes('текущая')).
+ * ПМ проверяется ПЕРВЫМ: длинная ТД-форма тоже содержит «программного мероприятия».
+ */
+function activityKind(fValue: unknown): 'pm' | 'td' | null {
+  const f = String(fValue ?? '').trim().toLowerCase();
+  if (f.includes('программное мероприятие')) return 'pm';
+  if (f.includes('текущая')) return 'td';
+  return null;
+}
+
+/**
  * Подходит ли строка под срез активности.
  * @param fValue столбец F (тип деятельности: ТД / ПМ)
  * @param programValue столбец D (графа программы) — нужен только для td_pm
@@ -53,11 +69,11 @@ export const ACTIVITY_LABEL: Record<ActivityScope, string> = {
  */
 export function matchesActivityScope(scope: ActivityScope, fValue: unknown, programValue?: unknown): boolean {
   if (scope === 'all') return true;
-  const f = String(fValue ?? '').trim().toLowerCase();
-  if (scope === 'pm') return f === ACTIVITY_F_VALUE.pm.toLowerCase();
-  if (scope === 'td') return f === ACTIVITY_F_VALUE.td.toLowerCase();
+  const kind = activityKind(fValue);
+  if (scope === 'pm') return kind === 'pm';
+  if (scope === 'td') return kind === 'td';
   // td_pm = ТД И в графе программы (D) есть программа (не X/Х/пусто)
-  if (f !== ACTIVITY_F_VALUE.td.toLowerCase()) return false;
+  if (kind !== 'td') return false;
   return !PROGRAM_EMPTY.has(String(programValue ?? '').trim().toLowerCase());
 }
 
