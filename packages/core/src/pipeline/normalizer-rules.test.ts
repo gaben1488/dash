@@ -15,40 +15,39 @@ import {
 // detectFieldType
 // ────────────────────────────────────────────────────────────
 
-describe('detectFieldType', () => {
-  it('returns money for money columns', () => {
-    for (const col of ['G', 'H', 'I', 'J', 'K', 'R', 'S']) {
+describe('detectFieldType (канон столбцов dept-листа)', () => {
+  it('money — суммы плана/факта/экономии (H/I/J/K/T/V/W/X/Y/Z/AA/AB/AC)', () => {
+    for (const col of ['H', 'I', 'J', 'K', 'T', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC']) {
       expect(detectFieldType(col)).toBe('money' as FieldType);
     }
   });
 
-  it('returns date for date columns', () => {
-    for (const col of ['O', 'P', 'Q']) {
-      expect(detectFieldType(col)).toBe('date' as FieldType);
+  it('date — только даты плана (N) и факта (Q), НЕ квартал/год O/P', () => {
+    expect(detectFieldType('N')).toBe('date');
+    expect(detectFieldType('Q')).toBe('date');
+  });
+
+  it('number — №, квартал/год плана и факта (A/O/P/R/S)', () => {
+    for (const col of ['A', 'O', 'P', 'R', 'S']) {
+      expect(detectFieldType(col)).toBe('number' as FieldType);
     }
   });
 
-  it('returns percent for AC', () => {
-    expect(detectFieldType('AC')).toBe('percent');
-  });
-
-  it('returns status for U', () => {
+  it('status для U', () => {
     expect(detectFieldType('U')).toBe('status');
   });
 
-  it('returns number for D and E', () => {
-    expect(detectFieldType('D')).toBe('number');
-    expect(detectFieldType('E')).toBe('number');
-  });
-
-  it('returns text for unknown columns', () => {
-    expect(detectFieldType('B')).toBe('text');
+  it('text — программа/подпрограмма/предмет (D/E/G), рег.№/подвед/тип/способ (B/C/F/L)', () => {
+    for (const col of ['B', 'C', 'D', 'E', 'F', 'G', 'L']) {
+      expect(detectFieldType(col)).toBe('text' as FieldType);
+    }
     expect(detectFieldType('ZZ')).toBe('text');
   });
 
   it('is case-insensitive', () => {
-    expect(detectFieldType('g')).toBe('money');
-    expect(detectFieldType('ac')).toBe('percent');
+    expect(detectFieldType('h')).toBe('money');
+    expect(detectFieldType('d')).toBe('text');
+    expect(detectFieldType('n')).toBe('date');
   });
 });
 
@@ -232,13 +231,13 @@ describe('normalizeNumber', () => {
 
 describe('normalizeCell', () => {
   it('delegates to normalizeMoney for money columns', () => {
-    const r = normalizeCell('G', '1 500');
+    const r = normalizeCell('H', '1 500');
     expect(r.fieldType).toBe('money');
     expect(r.normalized).toBe(1500);
   });
 
   it('delegates to normalizeDate for date columns', () => {
-    const r = normalizeCell('O', '15.03.2026');
+    const r = normalizeCell('N', '15.03.2026');
     expect(r.fieldType).toBe('date');
     expect(r.normalized).toBe('2026-03-15');
   });

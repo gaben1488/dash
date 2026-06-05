@@ -293,6 +293,16 @@ describe('forecast — linearForecast', () => {
     const result = linearForecast([100], 1000);
     expect(result.label).toBe('Базовый (линейный)');
   });
+
+  it('interior-zero месяцы не завышают прогноз (делитель = истёкшие месяцы, не non-zero)', () => {
+    // 3 истёкших месяца, месяц 2 = 0. Истина: avg=400/3, прогноз=400+avg·9 ≈ 1600.
+    // Баг (делитель nonZero=2): avg=200, прогноз=400+200·10=2400 — завышение.
+    const result = linearForecast([100, 0, 300], 1_000_000);
+    expect(result.yearEndFact).toBeCloseTo(1600, 0);
+    // внутренняя согласованность: сумма помесячной проекции == годовой прогноз
+    const projSum = result.monthlyProjection.reduce((s, v) => s + v, 0);
+    expect(projSum).toBeCloseTo(result.yearEndFact, 0);
+  });
 });
 
 describe('forecast — seasonalForecast', () => {

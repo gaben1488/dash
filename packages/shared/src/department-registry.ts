@@ -24,29 +24,9 @@ import type { DepartmentId } from './types.js';
  */
 export type LatinDeptId = 'uer' | 'uio' | 'uagzo' | 'ufbp' | 'ud' | 'udtx' | 'uksimp' | 'uo';
 
-/** Биекция: Latin → Cyrillic (DepartmentId) */
-export const LATIN_TO_CYRILLIC: Record<LatinDeptId, DepartmentId> = {
-  uer: 'УЭР',
-  uio: 'УИО',
-  uagzo: 'УАГЗО',
-  ufbp: 'УФБП',
-  ud: 'УД',
-  udtx: 'УДТХ',
-  uksimp: 'УКСиМП',
-  uo: 'УО',
-} as const;
-
-/** Биекция: Cyrillic → Latin */
-export const CYRILLIC_TO_LATIN: Record<DepartmentId, LatinDeptId> = {
-  'УЭР': 'uer',
-  'УИО': 'uio',
-  'УАГЗО': 'uagzo',
-  'УФБП': 'ufbp',
-  'УД': 'ud',
-  'УДТХ': 'udtx',
-  'УКСиМП': 'uksimp',
-  'УО': 'uo',
-} as const;
+// LATIN_TO_CYRILLIC и CYRILLIC_TO_LATIN — производные от DEPARTMENT_REGISTRY
+// (single source of truth). Объявлены ПОСЛЕ реестра (см. §3.1), чтобы биекция
+// не дублировала id/latinId записей и не могла с ними разойтись.
 
 // ────────────────────────────────────────────────────────────
 // 2. Unified department entry
@@ -179,6 +159,18 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
 // ─────────────────────────────────��──────────────────────────
 // 4. Lookup helpers
 // ────────────────────────────────────────────────────────────
+
+// ── 3.1. Производные биекции Latin ↔ Cyrillic (из реестра — single source) ──
+
+/** Биекция Latin → Cyrillic (DepartmentId), производная от DEPARTMENT_REGISTRY. */
+export const LATIN_TO_CYRILLIC: Record<LatinDeptId, DepartmentId> = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map((d) => [d.latinId, d.id]),
+) as Record<LatinDeptId, DepartmentId>;
+
+/** Биекция Cyrillic (DepartmentId) → Latin, производная от DEPARTMENT_REGISTRY. */
+export const CYRILLIC_TO_LATIN: Record<DepartmentId, LatinDeptId> = Object.fromEntries(
+  DEPARTMENT_REGISTRY.map((d) => [d.id, d.latinId]),
+) as Record<DepartmentId, LatinDeptId>;
 
 /** Map by cyrillic ID (primary) */
 const _byId = new Map<DepartmentId, DepartmentEntry>(

@@ -69,7 +69,7 @@ function deltaPct(delta: number, base: number): number {
   return base !== 0 ? (delta / base) * 100 : 0;
 }
 
-function diagnoseSource(
+export function diagnoseSource(
   planDelta: number,
   factDelta: number,
   planOff: number,
@@ -89,6 +89,14 @@ function diagnoseSource(
   }
   // Official > Calculated consistently → СВОД likely has extra/wrong data
   if (planOff > planCalc && planDelta < 0) {
+    return { source: 'svod_error', sourceLabel: 'Ошибка СВОД' };
+  }
+  // План совпал (planDelta≈0), но факт расходится → диагностируем по факт-стороне.
+  // factDelta = factCalc − factOff: >0 расчёт переоценивает факт, <0 СВОД больше.
+  if (planSign === 0 && factSign > 0) {
+    return { source: 'calc_error', sourceLabel: 'Ошибка расчёта' };
+  }
+  if (planSign === 0 && factSign < 0) {
     return { source: 'svod_error', sourceLabel: 'Ошибка СВОД' };
   }
   // Mixed signals or small differences → methodology difference
