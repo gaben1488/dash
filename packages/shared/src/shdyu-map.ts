@@ -68,54 +68,14 @@ export const SVOD_MONTHLY_ALL_BLOCK: SvodMonthlyBlock = {
 
 /** Individual department blocks for the new «СВОД с месяцами» structure. */
 export const SVOD_MONTHLY_BLOCKS: SvodMonthlyBlock[] = [
-  {
-    grbsId: 'uer', grbsShort: 'УЭР',
-    compStartRow: 45, compEndRow: 56, compTotalRow: 57,
-    epStartRow: 62, epEndRow: 73, epTotalRow: 74,
-    totalRow: 76, compShareRow: 77, epShareRow: 78,
-  },
-  {
-    grbsId: 'uio', grbsShort: 'УИО',
-    compStartRow: 85, compEndRow: 96, compTotalRow: 97,
-    epStartRow: 102, epEndRow: 113, epTotalRow: 114,
-    totalRow: 116, compShareRow: 117, epShareRow: 118,
-  },
-  {
-    grbsId: 'uagzo', grbsShort: 'УАГЗО',
-    compStartRow: 125, compEndRow: 136, compTotalRow: 137,
-    epStartRow: 142, epEndRow: 153, epTotalRow: 154,
-    totalRow: 156, compShareRow: 157, epShareRow: 158,
-  },
-  {
-    grbsId: 'ufbp', grbsShort: 'УФБП',
-    compStartRow: 165, compEndRow: 176, compTotalRow: 177,
-    epStartRow: 182, epEndRow: 193, epTotalRow: 194,
-    totalRow: 196, compShareRow: 197, epShareRow: 198,
-  },
-  {
-    grbsId: 'ud', grbsShort: 'УД',
-    compStartRow: 205, compEndRow: 216, compTotalRow: 217,
-    epStartRow: 222, epEndRow: 233, epTotalRow: 234,
-    totalRow: 236, compShareRow: 237, epShareRow: 238,
-  },
-  {
-    grbsId: 'udtx', grbsShort: 'УДТХ',
-    compStartRow: 245, compEndRow: 256, compTotalRow: 257,
-    epStartRow: 262, epEndRow: 273, epTotalRow: 274,
-    totalRow: 276, compShareRow: 277, epShareRow: 278,
-  },
-  {
-    grbsId: 'uksimp', grbsShort: 'УКСиМП',
-    compStartRow: 285, compEndRow: 296, compTotalRow: 297,
-    epStartRow: 302, epEndRow: 313, epTotalRow: 314,
-    totalRow: 316, compShareRow: 317, epShareRow: 318,
-  },
-  {
-    grbsId: 'uo', grbsShort: 'УО',
-    compStartRow: 325, compEndRow: 336, compTotalRow: 337,
-    epStartRow: 342, epEndRow: 353, epTotalRow: 354,
-    totalRow: 356, compShareRow: 357, epShareRow: 358,
-  },
+  { grbsId: 'uer', grbsShort: 'УЭР', compStartRow: 45, compEndRow: 56, compTotalRow: 57, epStartRow: 62, epEndRow: 73, epTotalRow: 74, totalRow: 76, compShareRow: 77, epShareRow: 78 },
+  { grbsId: 'uio', grbsShort: 'УИО', compStartRow: 85, compEndRow: 96, compTotalRow: 97, epStartRow: 102, epEndRow: 113, epTotalRow: 114, totalRow: 116, compShareRow: 117, epShareRow: 118 },
+  { grbsId: 'uagzo', grbsShort: 'УАГЗО', compStartRow: 125, compEndRow: 136, compTotalRow: 137, epStartRow: 142, epEndRow: 153, epTotalRow: 154, totalRow: 156, compShareRow: 157, epShareRow: 158 },
+  { grbsId: 'ufbp', grbsShort: 'УФБП', compStartRow: 165, compEndRow: 176, compTotalRow: 177, epStartRow: 182, epEndRow: 193, epTotalRow: 194, totalRow: 196, compShareRow: 197, epShareRow: 198 },
+  { grbsId: 'ud', grbsShort: 'УД', compStartRow: 205, compEndRow: 216, compTotalRow: 217, epStartRow: 222, epEndRow: 233, epTotalRow: 234, totalRow: 236, compShareRow: 237, epShareRow: 238 },
+  { grbsId: 'udtx', grbsShort: 'УДТХ', compStartRow: 245, compEndRow: 256, compTotalRow: 257, epStartRow: 262, epEndRow: 273, epTotalRow: 274, totalRow: 276, compShareRow: 277, epShareRow: 278 },
+  { grbsId: 'uksimp', grbsShort: 'УКСиМП', compStartRow: 285, compEndRow: 296, compTotalRow: 297, epStartRow: 302, epEndRow: 313, epTotalRow: 314, totalRow: 316, compShareRow: 317, epShareRow: 318 },
+  { grbsId: 'uo', grbsShort: 'УО', compStartRow: 325, compEndRow: 336, compTotalRow: 337, epStartRow: 342, epEndRow: 353, epTotalRow: 354, totalRow: 356, compShareRow: 357, epShareRow: 358 },
 ];
 
 export const SHDYU_ALL_BLOCK = SVOD_MONTHLY_ALL_BLOCK;
@@ -173,12 +133,16 @@ export const SVOD_MONTHLY_QUARTERLY_COLS = {
 export const SHDYU_QUARTERLY_COLS = SVOD_MONTHLY_QUARTERLY_COLS;
 
 /** Filter controls: AN(39) = activity, AO(40) = year. */
-export const SVOD_MONTHLY_FILTER_COLS = {
-  ACTIVITY_FILTER: 39,
-  YEAR: 40,
-} as const;
-
+export const SVOD_MONTHLY_FILTER_COLS = { ACTIVITY_FILTER: 39, YEAR: 40 } as const;
 export const SHDYU_FILTER_COLS = SVOD_MONTHLY_FILTER_COLS;
+
+/**
+ * Deprecated compile-time aliases for modules not yet renamed from SHDYU terms.
+ * They deliberately point to the current «СВОД с месяцами» geometry.
+ */
+export const SHDYU_LEGACY_ALL_BLOCK = SVOD_MONTHLY_ALL_BLOCK;
+export const SHDYU_LEGACY_BLOCKS = SVOD_MONTHLY_BLOCKS;
+export const SHDYU_LEGACY_COLS = SVOD_MONTHLY_COLS;
 
 /** Month text → month number mapping (Russian). */
 export const MONTH_TEXT_MAP: Record<string, number> = {
@@ -190,10 +154,7 @@ export const MONTH_TEXT_MAP: Record<string, number> = {
 
 /** Quarter → month ranges. */
 export const QUARTER_MONTHS: Record<string, [number, number, number]> = {
-  Q1: [1, 2, 3],
-  Q2: [4, 5, 6],
-  Q3: [7, 8, 9],
-  Q4: [10, 11, 12],
+  Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12],
 };
 
 /** Per-block monthly metrics — 18 data columns from «СВОД с месяцами». */
@@ -240,7 +201,6 @@ export interface SvodMonthlyEntry {
   month: number;
   comp: SvodMonthlyBlockMetrics;
   ep: SvodMonthlyBlockMetrics;
-  // Convenience accessors for reconcileMonthly.
   compPlanCount: number;
   compFactCount: number;
   compPlanTotal: number;
