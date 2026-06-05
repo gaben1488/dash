@@ -62,5 +62,4 @@ data/
 # Local agent/browser workspaces
 .analysis/
 .claude/
-.mulch/
 .playwright-cli/
