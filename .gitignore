@@ -24,6 +24,7 @@ UX_RESEARCH_TEMPLATES.md
 .tmp-zip/
 tmp-analysis/
 _analyze_*.py
+_changelog_*.py
 _tmp_*.py
 _tmp_*.js
 _convert*.ps1
