@@ -22,7 +22,7 @@ import {
   firstSignificantDigit,
   BENFORD_EXPECTED as BENFORD_EXPECTED_SHARED,
 } from '../utils/statistics.js';
-import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS } from '@aemr/shared';
+import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS, subordinateKey } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -1173,14 +1173,9 @@ function strFromRow(row: unknown[], colIndex: number): string {
   return v == null ? '' : String(v);
 }
 
-/** Placeholder regex: "Х"/"х"/"X"/"x"/"-"/"—"/"–" = org itself, not a real subordinate */
-const SUB_PLACEHOLDER_RE = /^[XxХх\-—–]$/u;
-
-/** Normalize subordinate value: treat placeholders as empty → '_org_itself' */
+/** Нормализует столбец C → сентинел «само управление» или имя подведа (канон @aemr/shared). */
 function normalizeSub(raw: string): string {
-  const s = raw.trim();
-  if (!s || SUB_PLACEHOLDER_RE.test(s)) return '_org_itself';
-  return s;
+  return subordinateKey(raw);
 }
 
 /**

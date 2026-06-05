@@ -12,7 +12,13 @@ import {
   buildSubjectAnalysis,
   findCentralizationOpportunities,
   GRBS_BASELINES,
+  EP_SHARE_BY_ROLE,
+  detectAntiCorruption,
+  gradeGRBS,
+  disciplineIndex,
   type ComplianceIssue,
+  type AntiCorruptionRow,
+  type AntiCorruptionResult,
 } from '@aemr/core';
 import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
 import { getDeptSheetValues } from '../services/snapshot.js';
@@ -115,6 +121,135 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       return result;
     } catch (err) {
       app.log.error({ err }, 'Analytics ep-reasons unavailable');
+      return reply.status(503).send({ error: 'Analytics unavailable - data source error' });
+    }
+  });
+
+  /** GET /api/analytics/anticorruption — антикор-индикаторы (Layer C decision-engine) per ГРБС */
+  app.get('/api/analytics/anticorruption', async (_request, reply) => {
+    try {
+      const snapshot = await getSnapshot();
+      const recalcResults = snapshot.recalcResults ?? {};
+      const deptCache = getDeptSheetValues();
+      const result: Record<string, AntiCorruptionResult> = {};
+      for (const dept of DEPARTMENTS) {
+        const rows = deptCache[dept.nameShort];
+        if (!rows || rows.length === 0) continue;
+        const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+          rowIndex: i + DEPT_HEADER_ROWS + 1,
+          method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
+          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          economy: Math.max(0,
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_FB] ?? 0)) || 0) +
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_KB] ?? 0)) || 0) +
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_MB] ?? 0)) || 0)
+          ),
+          subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+        }));
+        const recalc = recalcResults[dept.id] as any;
+        const baseline = GRBS_BASELINES.find(b => b.grbsId === dept.id);
+        const epShareLimit = baseline ? EP_SHARE_BY_ROLE[baseline.role] : 0.5;
+        result[dept.id] = detectAntiCorruption(dept.id, {
+          rows: rowData,
+          epTotal: recalc?.totalEP ?? 0,
+          totalPlan: recalc?.year?.planTotal ?? 0,
+          epShareLimit,
+        });
+      }
+      return result;
+    } catch (err) {
+      app.log.error({ err }, 'Anticorruption analysis unavailable');
+      return reply.status(503).send({ error: 'Analytics unavailable - data source error' });
+    }
+  });
+
+  /** GET /api/analytics/scorecard — единая карточка ГРБС: грейд A-B-C-D + дисциплина 0-100 + антикор (Layers A+B+C) */
+  app.get('/api/analytics/scorecard', async (_request, reply) => {
+    try {
+      const snapshot = await getSnapshot();
+      const recalcResults = snapshot.recalcResults ?? {};
+      const deptCache = getDeptSheetValues();
+      const profiles = buildGRBSProfiles(recalcResults);
+      const c01 = (v: number) => Math.min(1, Math.max(0, v));
+      const result: Record<string, unknown> = {};
+
+      for (const profile of profiles) {
+        const rows = deptCache[profile.grbsShort] ?? [];
+        const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+          rowIndex: i + DEPT_HEADER_ROWS + 1,
+          method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
+          planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+          factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
+          economy: Math.max(0,
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_FB] ?? 0)) || 0) +
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_KB] ?? 0)) || 0) +
+            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_MB] ?? 0)) || 0)),
+          subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+        }));
+
+        const recalc = recalcResults[profile.grbsId] as any;
+        const epShareLimit = EP_SHARE_BY_ROLE[profile.role];
+
+        // нарушения 44-ФЗ (для грейда + complianceScore)
+        const violations =
+          checkEPContractLimits(rowData.filter(r => r.method === 'ЕП'), profile.grbsId).length +
+          checkAntiDumping(rowData.filter(r => r.method !== 'ЕП'), profile.grbsId).length;
+
+        // аномалии (Бенфорд по суммам, p<0.05 = значимое отклонение)
+        const amounts = rowData.map(r => r.planTotal).filter(v => v > 0);
+        const benford = amounts.length >= 30 ? benfordAnalysis(amounts) : null;
+        const anomalyCount = benford && benford.pValue < 0.05 ? 1 : 0;
+
+        // Layer C — антикор
+        const anticorruption = detectAntiCorruption(profile.grbsId, {
+          rows: rowData,
+          epTotal: recalc?.totalEP ?? 0,
+          totalPlan: recalc?.year?.planTotal ?? 0,
+          epShareLimit,
+        });
+
+        // Layer A — грейд
+        const grade = gradeGRBS({
+          execPct: profile.actualExecQ1,
+          expectedExecPct: profile.expectedExecQ1,
+          anomalyCount,
+          epShare: profile.actualEpShare,
+          epShareLimit,
+          complianceViolations: violations,
+        });
+
+        // Layer B — индекс дисциплины (метрики → 0-1 scores)
+        const discipline = disciplineIndex({
+          execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
+          dynamicsScore: c01(0.6 + profile.execDeviation),
+          epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
+          dataScore: 0.8, // TODO: per-ГРБС trust score, когда появится
+          anomalyScore: c01(1 - anomalyCount * 0.3),
+          complianceScore: c01(1 - violations * 0.15),
+          anticorruptionPenalty: anticorruption.disciplinaryPenalty,
+        });
+
+        result[profile.grbsId] = {
+          grbsShort: profile.grbsShort,
+          role: profile.role,
+          grade: grade.grade,
+          gradeScore: grade.score,
+          gradeReasons: grade.reasons,
+          discipline: discipline.index,
+          mode: discipline.mode,
+          dominantFactor: discipline.dominantFactor,
+          narrative: discipline.narrative,
+          anticorruptionFlags: anticorruption.flags.length,
+          topFlags: anticorruption.flags.slice(0, 3),
+          execPct: profile.actualExecQ1,
+          epShare: profile.actualEpShare,
+          riskLevel: profile.riskLevel,
+        };
+      }
+      return result;
+    } catch (err) {
+      app.log.error({ err }, 'Scorecard unavailable');
       return reply.status(503).send({ error: 'Analytics unavailable - data source error' });
     }
   });

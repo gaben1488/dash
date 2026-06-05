@@ -1,6 +1,8 @@
 export { buildGRBSProfiles, GRBS_BASELINES, type GRBSProfile, type GRBSBaseline, type GRBSRole } from './grbs-profile.js';
 export { checkEPContractLimits, checkAntiDumping, checkEPShareLimits, analyzeEPReasons, classifyEPReason, LAW_44FZ, EP_SHARE_BY_ROLE, type ComplianceIssue, type EPReasonBreakdown, type EPReasonCode } from './compliance-44fz.js';
 export { detectAntiCorruption, detectSplitting, detectZeroCompetition, detectPriceInflation, detectEpOverLimit, detectAnnualEpShare, detectSupplierConcentration, penaltyForSeverity, type AntiCorruptionRow, type AntiCorruptionFlag, type AntiCorruptionResult, type AntiCorruptionInput, type AntiCorruptionIndicator, type FlagSeverity } from './anticorruption.js';
+export { gradeGRBS, phaseAdjustedTarget, type Grade, type GrbsGradeInput, type GrbsGradeResult } from './grbs-grade.js';
+export { disciplineIndex, DISCIPLINE_WEIGHTS, type DisciplineInput, type DisciplineResult, type NarrativeMode, type DominantFactor } from './discipline-index.js';
 export { benfordAnalysis, ewmaDetection, zScoreAnalysis, type BenfordResult, type EWMAResult, type ZScoreResult } from './anomaly.js';
 export { linearForecast, seasonalForecast, buildScenarios, type ForecastScenario, type ForecastResult } from './forecast.js';
 export { classifySubject, buildSubjectAnalysis, type SubjectCategory, type SubjectAnalysisReport } from './subject-classify.js';

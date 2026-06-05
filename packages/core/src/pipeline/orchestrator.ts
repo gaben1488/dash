@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN, subordinateKey } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -596,9 +596,8 @@ function detectSignalsToIssues(sheetName: string, rows: unknown[][], deptId: str
     }
 
     const subject = String(cells['G'] ?? cells['D'] ?? '').slice(0, 80);
-    // Column C = subordinate org; empty or placeholder (Х/x/-/—) = org itself
-    const subRaw = String(cells['C'] ?? '').trim();
-    const subordinateId = (!subRaw || /^[XxХх\-—–]$/u.test(subRaw)) ? '_org_itself' : subRaw;
+    // Column C = subordinate org; пусто/плейсхолдер = само управление (канон @aemr/shared)
+    const subordinateId = subordinateKey(cells['C']);
 
     for (const [signalKey, meta] of Object.entries(SIGNAL_ISSUE_MAP)) {
       if (signals[signalKey as keyof RowSignals] !== true) continue;

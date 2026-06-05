@@ -58,6 +58,9 @@ export * from './shdyu-map.js';
 // Re-export activity scope (ось ТД/ПМ/ТД-ПМ — фильтр AN4 листа ШДЮ)
 export * from './activity-scope.js';
 
+// Re-export канон «само управление» (ось C: аппарат ГРБС vs подвед — единый предикат)
+export * from './org-itself.js';
+
 // Re-export СВОД view builder (панель просмотра — точная копия листа из officialMetrics)
 export * from './svod-view.js';
 

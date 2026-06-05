@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
-import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK } from '@aemr/shared';
+import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey } from '@aemr/shared';
 
 /** Check if program name is meaningful (not empty/"X"/"x"/"Х"/"х") */
 function hasProgramName(val: unknown): boolean {
@@ -91,7 +91,7 @@ export function validateData(
           row: row.rowIndex,
           recommendation: check?.recommendation ?? rule.description,
           activityType: deriveActivityType(row.cells),
-          subordinateId: (() => { const s = String(row.cells['C'] ?? '').trim(); return (!s || /^[XxХх\-—–]$/u.test(s)) ? '_org_itself' : s; })(),
+          subordinateId: subordinateKey(row.cells['C']),
           status: 'open',
           detectedAt: now,
           detectedBy: `rule:${rule.id}`,
