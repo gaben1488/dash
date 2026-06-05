@@ -94,21 +94,21 @@ function PctBadge({ pct, compact }: { pct: number; compact?: boolean }) {
   );
 }
 
-// ── Economy progress bar: visual limit → fact → economy ──
+// ── Fact progress bar: visual limit → fact → remaining limit ──
 function EconomyProgress({ limit, fact, className }: { limit: number; fact: number; className?: string }) {
   if (limit <= 0) return null;
   const factPct = Math.min((fact / limit) * 100, 100);
-  const ecoPct = 100 - factPct;
+  const remainingPct = 100 - factPct;
   return (
-    <div className={clsx('relative h-1 rounded-full bg-zinc-800/40 overflow-hidden', className)} title={`Факт ${factPct.toFixed(1)}% / Экономия ${ecoPct.toFixed(1)}%`}>
+    <div className={clsx('relative h-1 rounded-full bg-zinc-800/40 overflow-hidden', className)} title={`Факт ${factPct.toFixed(1)}% / остаток лимита ${remainingPct.toFixed(1)}%`}>
       <div
         className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-700"
         style={{ width: `${factPct}%` }}
       />
-      {ecoPct > 2 && (
+      {remainingPct > 2 && (
         <div
           className="absolute inset-y-0 right-0 rounded-full bg-emerald-500/40 transition-all duration-700"
-          style={{ width: `${ecoPct}%` }}
+          style={{ width: `${remainingPct}%` }}
         />
       )}
     </div>

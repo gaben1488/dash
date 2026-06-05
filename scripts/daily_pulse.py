@@ -431,10 +431,9 @@ tags: [daily, pulse, сила-петли, meta]
 {_recommendations(strength, signals)}
 
 ## Навигация
-- [[CAPABILITY_MAP_2026_04_18]]
-- [[AEMR_TOOLKIT_REGISTRY]]
-- [[WORK_SYSTEM]]
-- [[ACTIVE_TASKS]]
+- [[Home]]
+- [[NOW]]
+- [[GOAL]]
 """
 
 

@@ -1,7 +1,7 @@
 # CODEMAP — AEMR Dash
 
-> Рабочий инженерный реестр проекта. Не README. Sprint 1 (read-only).
-> Ветка: `feature/svod-rebrand-ui` · база: `e2f0684` · собрано: 2026-06-04.
+> Рабочий инженерный реестр проекта. Не README. MLP Release Stabilization — Slice 0.
+> Ветка: `feature/svod-rebrand-ui` · актуализировано: 2026-06-05.
 > Все выводы — из фактического кода (цитаты `file:line`). Неподтверждённое помечено `UNCLEAR`.
 > Связанные канон-доки: `docs/METRICS_CONTRACT.md`, `docs/DATA_SOURCES.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/RUNBOOK.md`, `docs/REVIEW.md`.
 
@@ -32,12 +32,12 @@ Google Sheets (СВОД ТД-ПМ + 8 dept книг)
 ```
 
 **Самые рискованные зоны (детали — §12):**
-1. **P1 — фронт всё ещё имеет клиентскую реагрегацию мимо core**, но два прежних P0 уже закрыты в рабочем дереве: Economy не считает `plan−fact`, Trust filter считает weighted overall из компонент.
-2. **P0/P1 — ШДЮ rootCause неполон, но v1 стал продуктовым**: из 8 определённых причин auto-inferred 5 (`formula_scope_limited`, `department_alias_mismatch`, `economy_flag_gated`, `procurement_method_mismatch`, `formula_source_mismatch`); ещё 3 требуют row-level evidence.
-3. **P0 — нет разделения production/archive источников в коде** (только запрет «лишних ID» через тест).
-4. **P1 — дублирование логики/порогов в UI** (DEPT_SVOD_CELLS, >25%, цветовые бэнды, формулы trust) — ручная синхронизация с core/shared.
-5. **P1 — большой грязный diff Codex** (82 tracked modified + 26 untracked entries после Sprint 0) не разнесён по коммитам; `pnpm-lock.yaml` −1159.
-6. **Resolved in current working tree — `amount_dev` sign drift**: контракт `plan_total - fact_total` теперь закреплён regression-тестом (`exec-count-pct.test.ts`) и live orchestrator пишет `planSum - factSum`.
+1. **P0 — пользователь пока не видит “почему это число такое”**: KPI должны раскрываться до формулы, источника, фильтров, gate, numerator/denominator, row count, snapshot/source mode.
+2. **P1 — фронт всё ещё имеет клиентскую реагрегацию мимо core**, но прежний P0 по economy закрыт: Economy использует AD-gated `economyTotal/economyFB/KB/MB`, а plan/fact остаток показывается только как остаток лимита, не как экономия.
+3. **P0/P1 — ШДЮ/monthly source naming требует аккуратного follow-up**: новый лист помесячной динамики называется `СВОД с месяцами`; текущий кодовый logical name всё ещё `ШДЮ` с fallback `ШДЮ старый` (не меняется в Slice 0).
+4. **P0 — нет разделения production/archive источников в коде** (только запрет «лишних ID» через тест).
+5. **P1 — runtime source mutation**: `journal.ts` может перенацелить источник после auth; нужен governance flow, не в Slice 0.
+6. **P1 — большие будущие риски**: `useFilteredData.ts`, `services/pipeline.ts`, typed API/DTO boundaries.
 
 ---
 
@@ -45,18 +45,28 @@ Google Sheets (СВОД ТД-ПМ + 8 dept книг)
 
 | path | purpose | owner layer | status | notes |
 |---|---|---|---|---|
-| `package.json`, `pnpm-workspace.yaml` | monorepo root, скрипты gates | root | M | `typecheck` теперь идёт через `scripts/typecheck-workspaces.mjs`; lock −1159 (дрейф) |
-| `eslint.config.js` | Biome/eslint (ADR-0002) | root | M | 325 warnings (any) |
-| `.github/workflows/ci.yml` | CI gates | infra | M | — |
-| `scripts/` | python/cjs утилиты (drive digest, xlsx dump, db introspect, deploy) + root typecheck runner | infra | M + 6 ?? | НЕ production input |
-| `deploy/` | `docker-compose.yml` + README (прод-деплой) | infra | M | root `Dockerfile`/`docker-compose.yml` restored from `HEAD`, no longer deleted |
-| `docs/` | ARCHITECTURE/DATA_SOURCES/METRICS_CONTRACT/SECURITY/RUNBOOK/REVIEW + CODEMAP + deleted-backups | docs | 8 ?? + M mulch | большинство untracked (Codex); backup отделён от расчётных правок |
-| `packages/shared/src` | контракты, источники, словари | shared | M (10) | source of truth |
-| `packages/core/src` | пайплайн расчёта | core | M (24) | CalcEngine = канон расчёта |
-| `packages/server/src` | Fastify API | server | M (17) + app.ts ?? | app.ts/index.ts split (Codex) |
-| `packages/web/src` | React UI | web | M (33) | 4 unit-теста, тонко |
+| `package.json`, `pnpm-workspace.yaml` | monorepo root, скрипты gates | root | clean in Slice 0 scope | `typecheck` идёт через `scripts/typecheck-workspaces.mjs` |
+| `eslint.config.js` | ESLint config | root | clean in Slice 0 scope | lint warnings по `any` остаются known debt |
+| `.github/workflows/ci.yml` | CI gates | infra | clean in Slice 0 scope | — |
+| `scripts/` | python/cjs утилиты + root typecheck runner | infra/data-audit | mixed | XLSX helpers классифицированы ниже; НЕ production input |
+| `deploy/` | `docker-compose.yml` + README (прод-деплой) | infra | clean in Slice 0 scope | canonical prod stack в `deploy/` |
+| `docs/` | канон-доки + data-audit artifacts | docs | mixed | `docs/data-audit/` — forensic/spec corpus, не runtime input |
+| `packages/shared/src` | контракты, источники, словари | shared | clean in current dirty tree | source of truth; SHDYU naming follow-up documented only |
+| `packages/core/src` | пайплайн расчёта | core | clean in current dirty tree | CalcEngine = канон расчёта; не менять в Slice 0 |
+| `packages/server/src` | Fastify API | server | clean in Slice 0 scope | runtime source mutation remains risk |
+| `packages/web/src` | React UI | web | Slice 0 touches Economy copy only | 5 unit-тестов, покрытие тонкое |
 
-Удалённые (D): **0** после Sprint 0. Root `Dockerfile`, root `docker-compose.yml` и tracked `packages/*/tsconfig.tsbuildinfo` восстановлены из `HEAD`; `docs/mulch-cognitive-operations.md` восстановлен как merged-документ, а исходная версия лежит в `docs/deleted-backups/2026-06-04/`. Untracked (??) ключевые: `docs/{ARCHITECTURE,CODEMAP,DATA_SOURCES,METRICS_CONTRACT,REVIEW,RUNBOOK,SECURITY}.md`, `docs/deleted-backups/`, `packages/server/src/{app.ts,app-security.test.ts}`, `packages/server/vitest.config.ts`, `scripts/*`.
+Slice 0 hygiene status:
+
+- `packages/web/tsconfig.tsbuildinfo` exists locally, is not tracked by `git ls-files`, and is covered by `.gitignore` via `*.tsbuildinfo`; keep ignored/untracked, do not commit.
+- XLSX helper scripts are not runtime/product input. Current classification: `xlsx_full_extract.py`, `xlsx_formula_dump.py`, `xlsx_metadata_map.py`, `plan_reestr_summarize.py` = product data-quality/audit tools; `xlsx_style_extract.py`, `xlsx_to_html.py`, `xlsx_peek.py`, `xlsx_risk_scan.py` = one-off/local probes until promoted with docs/tests.
+- Existing dirty SHDYU/SvodView, source-inventory, docs/data-audit, and scripts changes are outside this Slice 0 and should not be mixed with KPI Explainability Drawer work.
+
+Slice 0 verification status (2026-06-05):
+
+- Requested selector `pnpm -F aemr/web ...` matches no workspace package; canonical package selector is `@aemr/web`.
+- Passed: `pnpm -F @aemr/web typecheck`, `pnpm -F @aemr/web test` (5 files / 15 tests), `pnpm typecheck`, `pnpm -r test` (shared 52, core 660, server 14, web 15 tests), `pnpm lint` (0 errors, 278 warnings), `pnpm build` (Vite main JS chunk warning remains), `pnpm audit --audit-level moderate`, `git diff --check` (CRLF warnings only).
+- Toxic economy wording search found no live legacy limit-minus-contract-price copy. Remaining plan/fact wording is scoped to `amount_deviation = plan_total - fact_total` and must not be reused as economy language.
 
 ---
 
@@ -66,7 +76,7 @@ Google Sheets (СВОД ТД-ПМ + 8 dept книг)
 |---|---|---|---|---|---|---|
 | СВОД_ДЛЯ_GOOGLE (главная книга) | Google Sheet | **PROD** | `1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg` — `shared/constants.ts:13` (`SVOD_SPREADSHEET_ID`) | snapshot.ts (official cells + dept-листы + ШДЮ) | env `GOOGLE_SHEETS_SPREADSHEET_ID` может переопределить (config.ts:100); journal route может перезаписать в рантайме (journal.ts:429) | `source-inventory.test.ts:6`; `DATA_SOURCES.md:13` |
 | лист `СВОД ТД-ПМ` | tab | **PROD** | `SVOD_SHEET_NAME` — `constants.ts:16` | report-map / official metrics | — | report-map.test.ts |
-| логический лист `ШДЮ` | tab (в той же книге) | **PROD** | `SHDYU_SHEET_NAME_CANDIDATES=['ШДЮ','ШДЮ старый']` — `shdyu-map.ts`; `SHDYU_SPREADSHEET_ID=SVOD_SPREADSHEET_ID` (config.ts:66) | reconcile (monthly) | metadata 2026-06-04: фактическая вкладка `ШДЮ старый`; чтение через explicit A1 `'<tab>'!A:ZZ` | source-inventory.test.ts; shdyu-ingest.test.ts; reconcile.test.ts |
+| логический лист monthly/`ШДЮ` | tab (в той же книге) | **PROD** | current code: `SHDYU_SHEET_NAME_CANDIDATES=['ШДЮ','ШДЮ старый']` — `shdyu-map.ts`; current product naming note: новый лист называется `СВОД с месяцами` | reconcile (monthly) | Slice 0 doc-only: code still resolves `ШДЮ`/`ШДЮ старый`; align to `СВОД с месяцами` in a dedicated SHDYU slice | source-inventory.test.ts; shdyu-ingest.test.ts; reconcile.test.ts |
 | лист(ы) `ВСЕ` / `Все` | tab | **PROD** | dept sheetName для УАГЗО/УД/УКСиМП/УО (`department-registry.ts`) | dept ingest | title-case вариативность → sheet-name-candidates | `google-sheets-sheet-candidates.test.ts`; `source-inventory.test.ts` |
 | УЭР | Google Sheet | **PROD** | `15NEAE1zK0qc5li4BCwT4Jq-MH6uuA_SFFMG22ZrM4t4` — `data-sources.ts:4` | fetchDepartmentSpreadsheets | — | source-inventory.test.ts |
 | УИО | Google Sheet | **PROD** | `1qCBY5EDSASxK6_ZPQbxzdF8cKIjcwcuykbnOc45Ukn8` — `data-sources.ts:5` | — | данные «грязные» (валидатор листа даёт ложные срабатывания, см. GAP L1.3) | source-inventory.test.ts |
@@ -159,7 +169,7 @@ Google Sheets (СВОД ТД-ПМ + 8 dept книг)
 | `lib/economy-metrics.ts` | `getFilteredEconomyTotal`/`selectedEconomy` | fd | экономия budget-aware, **предпочитает AD-gated economyTotal** | budget | — | через useMultiDimMetrics.test | «правильный» путь экономии |
 | `lib/metrics-registry.ts` | прокси над core `METRIC_KB` + цветовые пороги | — | — | — | — | нет | цветовые бэнды — вторая копия порогов (D, косметика) |
 | `pages/Dashboard.tsx` (802) | `dashboard` | dashboardData | `buildHeroKPIs`: amountPct, спарки, economy %, trust binary (:425-523); rating fbExecPct (:116) | dept, procurement, period | StatusLine, 4 HeroKPI, RatingTable, Plan/Fact chart, экзек-бар, BlindSpots | нет direct; `.feature` не запускаются | дублирует экзек/economy-арифметику core (D1/D2/D6/D8) |
-| `pages/Economy.tsx` (1234) | `economy` | fd.depts | `deptEconomy`: limit/price/economy/pct, economy from `economyTotal/economyFB/KB/MB`, never `plan−fact` | ВСЕ 6 | hero strip, charts, dept table (ст.37/22), subs | economy-metrics.test (helper) | пороги `>25%`/ст.37 хардкод |
+| `pages/Economy.tsx` | `economy` | fd.depts | `deptEconomy`: limit/fact/economy/pct, economy from `economyTotal/economyFB/KB/MB`, never `plan−fact` | ВСЕ 6 | hero strip, charts, dept table (ст.37/22), subs | economy-metrics.test + economy-copy.test | progress bar shows fact vs remaining limit; remaining limit is not labeled economy |
 | `pages/Quality.tsx` (57) | `quality` (хаб) | — | — | — | 5 sub-tab → Trust/Recon/Issues/Recs/Journal | store.test (default tab=recon) | — |
 | `pages/Recon.tsx` (1090) | sub-tab `recon` | `/api/reconciliation`, `/reconciliation/monthly`, export | `diagnoseDelta` эвристика; `deltaPct` fallback (:233-235) | dept, period; view-toggle | 4 вида: dept/metrics/monthly(ШДЮ)/subs; диагностика с СВОД-ячейками | core reconcile.test (бэк) | `DEPT_SVOD_CELLS` (:10-19) + dept→row map хардкод в UI (дубль REPORT_MAP) |
 | `pages/Trust.tsx` (604) | sub-tab `trust` | `dashboardData.trust` | под dept-фильтром использует `buildTrustViewModel`: component average + backend-style weighted overall | dept/sub | gauge+grade, 5 компонент, per-dept таблица | trust-metrics.test, core scorer.test | page всё ещё содержит много `any`, но weighted formula закреплена |
@@ -167,7 +177,7 @@ Google Sheets (СВОД ТД-ПМ + 8 dept книг)
 | `App.tsx` | роутер switch (:109-125) | — | — | — | рендер страниц + ErrorBoundary | — | legacy-алиасы recon/trust/issues/recs/journal → Quality |
 
 **§7 ключевое:**
-- **Что пересчитывается на фронте** (риск дрейфа с core) — см. §12 таблицу D1–D13. Самые опасные: **D3 (экономия `план−факт` мимо AD-gate, Economy.tsx)** и **D5 (trust невзвешенно, Trust.tsx)**.
+- **Что пересчитывается на фронте** (риск дрейфа с core) — см. §12 таблицу D1–D13. Прежние P0 по Economy/Trust закрыты; остаются дубли формул и фильтров в UI.
 - **Фильтры** ТД/ПМ/method/dept/period/budget: входят через `store.ts`, применяются в `useFilteredData.ts` (клиентская реагрегация, т.к. API отдаёт полнодатасетные summary).
 - **Контрольная зона:** `Quality` — хаб; `Recon`/`Trust` — его sub-tab’ы (не отдельные роуты). Порядок табов: recon, trust, issues, recs, journal; дефолт `recon` (store.ts:328).
 
@@ -186,7 +196,7 @@ Google Sheets (СВОД ТД-ПМ + 8 dept книг)
 | fact_total | V+W+X (или Y), [HAS_FACT] | CalcEngine sum | `…fact_total` | useFilteredData | — | — | — |
 | execution_pct | — | derived pct(fact_total, plan_total) | `…execution_pct` | Dashboard `buildHeroKPIs` (пересчёт D1) | HeroKPI (вторично) | — | по деньгам (≠ exec_count_pct) |
 | amount_deviation | — | **orchestrator** `planSum−factSum` (:96-117) | `…amount_dev` | — | Economy | exec-count-pct.test | НЕ в CalcEngine; НЕ называть экономией |
-| economy_total | Z+AA+AB, [HAS_FACT, AD=«да»] | derived sum gated | `…economy_total` | lib/economy-metrics (верно) / Economy.tsx (D3 неверно) | Economy | exec-count-pct (invariant) | **P0: фронт-fallback `план−факт` нарушает gate** |
+| economy_total | Z+AA+AB, [HAS_FACT, AD=«да»] | derived sum gated | `…economy_total` | lib/economy-metrics / Economy.tsx | Economy | exec-count-pct, economy-metrics.test, economy-copy.test | НЕ `plan−fact`; UI progress bar may show remaining limit, but must not call it economy |
 | competitive_count | L (метод) | count [methodGroup=competitive] | `…year.competitive_count` | useMultiDimMetrics | Dashboard | method-alias | `L<>"ЕП"` (пусто→КП) |
 | ep_count | L | count [methodGroup=ep] | `…year.ep_count` | useMultiDimMetrics | Dashboard | method-alias | — |
 | comp_fact_count | L + Q | count [HAS_FACT, comp] | (через comp_exec_count_pct) | — | — | exec-count-pct | G-столбец СВОД |
@@ -247,7 +257,7 @@ Gaps vs METRICS_CONTRACT.md: `amount_dev`/year-роллапы живут в orch
 | core/analytics/analytics.test.ts | core | Benford/EWMA/z/forecast/44-ФЗ/centralization | analytics/* | ✅ | — |
 | core/analytics/grbs-profile-registry-parity.test.ts | core | baselines↔dictionaries паритет | analytics, dictionaries | ✅ | — |
 | core/utils/statistics.test.ts | core | mean/stddev/z/benford | utils/statistics.ts | ✅ | — |
-| core/pipeline/exec-count-pct.test.ts | core | exec_count_pct count-based; **economy AD-gated** | calc-engine*, adapter | ✅ | **инвариант, который нарушает Economy.tsx D3** |
+| core/pipeline/exec-count-pct.test.ts | core | exec_count_pct count-based; **economy AD-gated** | calc-engine*, adapter | ✅ | protects economy from `plan−fact` drift |
 | core/pipeline/validate.test.ts | core | scope/header/rowFilter/severity | validate.ts | ✅ | — |
 | core/pipeline/signals.test.ts | core | сигналы/state/badges | signals.ts | ✅ | — |
 | core/pipeline/reconcile.test.ts | core | reconcile/monthly(ШДЮ)/quarterly/rootCause catalog | reconcile.ts | ✅ (46/46) | покрывает бэк Recon, не UI-эвристики |
@@ -266,7 +276,7 @@ Gaps vs METRICS_CONTRACT.md: `amount_dev`/year-роллапы живут в orch
 | server/google-sheets-sheet-candidates.test.ts | server | кандидаты имени листа | google-sheets.ts, sheet-name-candidates.ts | ✅ | — |
 | web/tests/features/*.feature (3) | web | 6-axis filter / exec-count KPI / ШДЮ | Dashboard, useFilteredData, Recon | ❌ **НЕ ЗАПУСКАЮТСЯ** (нет cucumber/раннера) | ключевое web-поведение без исполняемых тестов |
 
-Итого активных unit-файлов по свежему core/server/web/shared прогону: shared 3, core 18, server 3, web 4. Web покрытие **тонкое**; 3 `.feature` — документация без раннера. `packages/server/dist/*.test.js` — артефакты сборки в git (минорный hygiene-флаг, CLAUDE.md запрещает коммитить build-output).
+Итого активных unit-файлов по свежему core/server/web/shared прогону: shared 4 (52 tests), core 20 (660), server 3 (14), web 5 (15). Web покрытие **тонкое**; 3 `.feature` — документация без раннера. `packages/server/dist/*.test.js` — артефакты сборки в git (минорный hygiene-флаг, CLAUDE.md запрещает коммитить build-output).
 
 ---
 
@@ -283,21 +293,21 @@ Gaps vs METRICS_CONTRACT.md: `amount_dev`/year-роллапы живут в orch
   | D7 | recon deltaPct fallback | Recon.tsx:233-235 | округление/zero может отличаться от computeDeltas |
   | D9–D13 | клиентская реагрегация под фильтры | useFilteredData/useMultiDimMetrics | by-design, но реимплементируют core |
 - **ШДЮ rootCause неполон, но top-level high rows объясняются**: 5 из 8 причин auto-inferred; current runtime `/api/reconciliation/monthly` даёт 96 rows, counts `ok=771 warning=0 high=72 empty=1653`, 13 rootCause rows (`formula_source_mismatch=6`, `procurement_method_mismatch=7`), 0 top-level high rows without rootCause. Остальные 3 требуют row-level evidence.
-- **Resolved in current working tree: `amount_dev` sign drift** — fixed to `plan-fact` and covered by regression test.
+- **Resolved in current working tree: `amount_dev` sign drift** — fixed to `plan_total - fact_total` and covered by regression test.
 - **Source mapping risk**: нет production-vs-archive разделения в коде; `journal.ts:429` позволяет перенацелить главный источник в рантайме.
 - **СВОД vs расчёт**: СВОД-лист канон и не пересчитывается; расхождения только показываются (reconcile/delta), не исправляются.
-- **Untracked docs/tests**: `app.ts`, `app-security.test.ts`, 4 docs — untracked; риск потери при неаккуратном коммите.
+- **Current dirty tree discipline**: Slice 0 is only `docs/CODEMAP.md` + `packages/web/src/pages/Economy.tsx`; SHDYU/SvodView, source inventory, data-audit corpus/scripts, and product design docs stay outside this commit.
 
 ### P1 — поддерживаемость
 - **god-файлы**: `dashboard.ts` (route), `Economy.tsx` (1234), `Recon.tsx` (1090), `recalculate.ts` (908), `orchestrator.ts` (630).
 - **Два движка** (calc-engine live / recalculate legacy) — менять синхронно; legacy без прод-вызова → кандидат на удаление.
 - **Мёртвый `services/pipeline.ts`** (0 импортёров).
-- **`any` на границах DTO/API/UI** — 325 lint-warnings.
-- **Грязный diff** 82 tracked modified + 26 untracked entries; `pnpm-lock.yaml` −1159 (дрейф зависимостей).
+- **`any` на границах DTO/API/UI** — 278 lint warnings (0 errors).
+- **Dirty tree discipline**: не смешивать Slice 0 docs/UI wording с SHDYU/SvodView, source-inventory, data-audit, scripts, or design-doc changes; коммитить только после явного подтверждения.
 - **Дублирование в UI**: DEPT_SVOD_CELLS (Recon), >25%/ст.37 (Economy), цветовые бэнды (metrics-registry), формулы trust (Trust) — ручная синхронизация.
 
 ### P2 — polish/performance
-- Vite-бандл `index.js` 1356 кБ (>500 кБ) — нет route-level code splitting.
+- Vite-бандл `index.js` 1,374.14 кБ (>500 кБ) — нет route-level code splitting.
 - `dist/*.test.js` в git.
 - UI polish.
 
@@ -316,12 +326,12 @@ Gaps vs METRICS_CONTRACT.md: `amount_dev`/year-роллапы живут в orch
 | **G** cleanup | root `Dockerfile`/`docker-compose.yml` restoration decision, tsbuildinfo policy, `pnpm-lock.yaml`, `services/pipeline.ts` (мёртвый), `dist/*.test.js`, mulch backup/merge | гигиена | низкий-средний | full gates |
 | **H** gate stability | `package.json`, `scripts/typecheck-workspaces.mjs` | root `pnpm typecheck` без Node OOM на Windows | низкий | `pnpm typecheck` |
 
-Особое: коммит **B** содержит мой Sprint-0 фикс `reconcile.ts` + новый `svod-view.*`/`SvodView.tsx` (уже в `e2f0684`) — учесть, чтобы не пересеклось. Untracked docs/tests (F, A) **обязательно include**, иначе потеряются.
+Особое: текущий Slice 0 не включает SHDYU/SvodView, source inventory, data-audit corpus/scripts, or product design docs; эти изменения требуют отдельного split после Metric/Docs Hygiene.
 
 ---
 
-## 14. Next sprint recommendation (не начинать без разрешения)
+## 14. Next product slice (не начинать без разрешения)
 
-CODEMAP подтвердил гипотезу мастер-плана: **rootCause v1 теперь есть в core/API/UI, но не все причины auto-inferred** → следующий слой — row-level drilldown evidence для `activity_filter_hidden_rows`, `contract_split_rows`, `reserve_status_excluded`.
+Следующий продуктовый slice: **KPI Explainability Drawer v1**.
 
-Frontend↔Core metric parity уже закрывает два острых drift-дефекта: `amount_dev` sign, Economy AD-gated economy и Trust weighted overall. SHDYU v1 теперь отдаёт evidence/suggestedAction до UI; следующий приоритет — row-level evidence и typed API/UI границы.
+Причина: главная MLP-проблема сейчас не новая метрика, а доверие пользователя к числу. Drawer v1 должен показывать formula, source cells/columns, filters, gate, numerator/denominator, row count, snapshot id/source mode and last refresh. SHDYU/monthly source rename to `СВОД с месяцами` is documented here but intentionally not changed in Slice 0.
