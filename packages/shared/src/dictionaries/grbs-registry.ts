@@ -15,6 +15,8 @@
  * department-registry.ts содержит row-positions СВОД/ШДЮ и остаётся отдельным.
  */
 
+import type { DepartmentId } from '../types.js';
+
 // ────────────────────────────────────────────────────────────
 // 1. Канонические идентификаторы
 // ────────────────────────────────────────────────────────────
@@ -223,3 +225,50 @@ export const ALL_GRBS_IDS: readonly GrbsId[] = GRBS_REGISTRY.map(g => g.id);
 export const GRBS_WITH_SUBORDINATES: readonly GrbsId[] = GRBS_REGISTRY
   .filter(g => g.hasSubordinates)
   .map(g => g.id);
+
+// ────────────────────────────────────────────────────────────
+// 5. Мост DepartmentId (types.ts/данные) ↔ GrbsId (этот реестр)
+// ────────────────────────────────────────────────────────────
+
+/**
+ * `DepartmentId` (types.ts, форма данных/листов) использует «УАГЗО»,
+ * а канонический `GrbsId` здесь — «УАГиЗО» (реестр СВОД-25-26/ГРБС).
+ * Семь из восьми ID совпадают строкой; расходится только УАГЗО ↔ УАГиЗО.
+ * Эти две карты — единственная биекция между кириллическими формами;
+ * Record-тип гарантирует на этапе компиляции покрытие всех восьми.
+ */
+export const DEPARTMENT_ID_TO_GRBS_ID: Record<DepartmentId, GrbsId> = {
+  'УЭР': 'УЭР',
+  'УИО': 'УИО',
+  'УАГЗО': 'УАГиЗО',
+  'УФБП': 'УФБП',
+  'УД': 'УД',
+  'УДТХ': 'УДТХ',
+  'УКСиМП': 'УКСиМП',
+  'УО': 'УО',
+};
+
+/** Обратная биекция GrbsId → DepartmentId (форма данных/листов). */
+export const GRBS_ID_TO_DEPARTMENT_ID: Record<GrbsId, DepartmentId> = {
+  'УО': 'УО',
+  'УКСиМП': 'УКСиМП',
+  'УАГиЗО': 'УАГЗО',
+  'УИО': 'УИО',
+  'УФБП': 'УФБП',
+  'УД': 'УД',
+  'УЭР': 'УЭР',
+  'УДТХ': 'УДТХ',
+};
+
+/**
+ * Привести любую форму идентификатора ГРБС к каноническому GrbsId.
+ * Порядок: прямой GrbsId → мост DepartmentId («УАГЗО») → alias-карта
+ * (суффиксы «АЕМР», двойной пробел, опечатки). undefined — если форма
+ * не распознана (без нечёткого поиска: ложное срабатывание хуже пропуска).
+ */
+export function toGrbsId(raw: string): GrbsId | undefined {
+  if ((GRBS_CANONICAL as readonly string[]).includes(raw)) return raw as GrbsId;
+  const viaDept = (DEPARTMENT_ID_TO_GRBS_ID as Record<string, GrbsId>)[raw];
+  if (viaDept) return viaDept;
+  return resolveGrbsAlias(raw);
+}

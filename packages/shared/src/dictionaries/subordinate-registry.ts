@@ -19,7 +19,7 @@
  *       ИНН, КПП, ОКАТО — заполнить при получении реестра от АЕМР.
  */
 
-import type { GrbsId } from './grbs-registry.js';
+import { toGrbsId, type GrbsId } from './grbs-registry.js';
 
 // ────────────────────────────────────────────────────────────
 // 1. Интерфейс записи подведа
@@ -255,9 +255,16 @@ export function getSubordinate(id: string): SubordinateEntry | undefined {
   return _byId.get(id);
 }
 
-/** Получить все подведы одного ГРБС */
-export function getSubordinatesByGrbs(grbsId: GrbsId): SubordinateEntry[] {
-  return _byGrbs.get(grbsId) ?? [];
+/**
+ * Получить все подведы одного ГРБС.
+ * Принимает любую форму идентификатора (GrbsId «УАГиЗО», DepartmentId «УАГЗО»,
+ * alias) — нормализует через toGrbsId, поэтому форма данных/фильтра больше не
+ * промахивается мимо реестра, ключёванного канонической формой.
+ */
+export function getSubordinatesByGrbs(grbsId: GrbsId | string): SubordinateEntry[] {
+  const canonical = toGrbsId(grbsId);
+  if (!canonical) return [];
+  return _byGrbs.get(canonical) ?? [];
 }
 
 /**
