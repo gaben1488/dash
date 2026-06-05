@@ -327,7 +327,7 @@ function pct(part: number, total: number): number {
  * Extract month (1-12) from a date cell value.
  * Handles: Date objects, "DD.MM.YYYY" strings, ISO strings, Excel serial numbers.
  */
-function getMonthFromDate(v: unknown): number | null {
+export function getMonthFromDate(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (v instanceof Date) {
     const m = v.getMonth() + 1;
