@@ -1,6 +1,6 @@
-import { runPipeline, type PipelineInput } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS } from '@aemr/shared';
-import type { DataSnapshot, NormalizedMetric } from '@aemr/shared';
+import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput } from '@aemr/core';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, CYRILLIC_TO_LATIN } from '@aemr/shared';
+import type { DataSnapshot, NormalizedMetric, SvodReconRow } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
 import { fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
@@ -93,6 +93,39 @@ export function getSHDYULoadError(): string | null {
 /** Set SHDYU data cache */
 export function setSHDYUCache(data: Record<string, any>): void {
   cachedSHDYUData = data;
+}
+
+/**
+ * Строит единую сетку СВОД из dept-строк и кладёт её + сверку в snapshot.
+ *
+ * `sheetRows` содержит лист СВОД ТД-ПМ + 8 dept-листов (+ кэш управлений). Лист
+ * СВОД ТД-ПМ исключаем (иная раскладка колонок). Имя листа → grbsId тем же
+ * отображением, что и orchestrator: `CYRILLIC_TO_LATIN[name] ?? name.toLowerCase()`,
+ * так ключи сетки совпадают с recalcResults / `grbs.<id>`-метриками.
+ *
+ * Сверка (`reconcileUnified`) сравнивает срез ВСЕ (сумма по всем ГРБС) с ячейками
+ * листа СВОД ТД-ПМ из `officialMetrics` (competitive/sole, Q1+Год). Экспортируется
+ * для прямого юнит-теста формы без обращения к Google Sheets.
+ *
+ * @param targetYear если задан — строки с план-годом ≠ targetYear отсеиваются
+ *   внутри computeUnifiedGrid (лист считает per-year COUNTIFS).
+ */
+export function attachUnifiedGrid(
+  snapshot: DataSnapshot,
+  sheetRows: Record<string, unknown[][]>,
+  targetYear?: number,
+): void {
+  const deptRowsById: Record<string, unknown[][]> = {};
+  for (const [sheetName, rows] of Object.entries(sheetRows)) {
+    if (sheetName === SVOD_SHEET_NAME) continue;
+    const grbsId = (CYRILLIC_TO_LATIN as Record<string, string>)[sheetName] ?? sheetName.toLowerCase();
+    deptRowsById[grbsId] = rows;
+  }
+
+  const grid = computeUnifiedGrid(deptRowsById, targetYear);
+  snapshot.unifiedGrid = grid;
+  // reconcileUnified возвращает UnifiedReconRow[] — структурно = SvodReconRow[].
+  snapshot.unifiedReconciliation = reconcileUnified(grid, snapshot.officialMetrics) as SvodReconRow[];
 }
 
 /**
@@ -210,6 +243,12 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
     if (cachedSHDYUData) {
       snapshot.shdyuData = cachedSHDYUData;
     }
+
+    // 3c. Единая сетка СВОД (Task 5): CalcEngine из атомов dept-строк.
+    // Собираем Record<grbsId, rows> из sheetRows тем же отображением, что и orchestrator
+    // (CYRILLIC_TO_LATIN[name] ?? name.toLowerCase()), исключая лист СВОД ТД-ПМ (иная
+    // раскладка колонок). Затем сверяем срез ВСЕ против ячеек СВОД ТД-ПМ.
+    attachUnifiedGrid(snapshot, sheetRows, targetYear);
 
     // 4. Сохраняем в БД
     await saveSnapshot(snapshot);

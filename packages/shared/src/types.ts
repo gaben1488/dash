@@ -2,6 +2,8 @@
 // AEMR Platform — Core Type Definitions
 // ============================================================
 
+import type { UnifiedGrid, SvodReconRow } from './unified-svod.js';
+
 // ────────────────────────────────────────────────────────────
 // 1. Domain literal unions
 // ────────────────────────────────────────────────────────────
@@ -503,6 +505,10 @@ export interface DataSnapshot {
   recalcResults?: Record<string, any>;
   /** ШДЮ monthly dynamics data (keyed by grbsId) */
   shdyuData?: Record<string, any>;
+  /** Единая сетка СВОД (ГРБС × активность(4) × метод × период), CalcEngine из атомов. */
+  unifiedGrid?: UnifiedGrid;
+  /** Сверка среза ВСЕ единой сетки против ячеек листа СВОД ТД-ПМ. */
+  unifiedReconciliation?: SvodReconRow[];
   /** Dataset-level analysis per department: Benford, Z-score, composite score, noise map (keyed by deptId) */
   datasetAnalyses?: Record<string, any>;
   metadata: {

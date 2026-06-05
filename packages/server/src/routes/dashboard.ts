@@ -688,4 +688,40 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(crossVerifyQuarterly(shdyuData, recalcResults, deptNames));
   });
 
+  /**
+   * GET /api/svod/unified — единая сетка СВОД + сверка против листа СВОД ТД-ПМ.
+   * grid: ГРБС × активность(4: all/td/pm/td_pm) × метод(КП/ЕП) × период(мес/кв/год).
+   * reconciliation: срез ВСЕ vs ячейки СВОД ТД-ПМ (ok/warning/high по Δ%).
+   * Считается в snapshot (CalcEngine из атомов); ?year= уважается через getSnapshot.
+   */
+  app.get('/api/svod/unified', async (request, reply) => {
+    const yearParam = (request.query as Record<string, string>).year;
+    let targetYear: number | undefined;
+    if (yearParam && yearParam !== 'all') {
+      const parsed = parseInt(yearParam, 10);
+      if (Number.isInteger(parsed) && parsed >= 2020 && parsed <= 2100) {
+        targetYear = parsed;
+      }
+    }
+
+    let snapshot;
+    try {
+      snapshot = await getSnapshot(false, targetYear);
+    } catch (err) {
+      app.log.warn('Google Sheets unavailable for /api/svod/unified, serving demo data: %s', (err as Error).message);
+      snapshot = createDemoSnapshot();
+    }
+
+    const grid = snapshot.unifiedGrid ?? { cells: {}, grbsIds: [], scopes: [] };
+    const reconciliation = snapshot.unifiedReconciliation ?? [];
+
+    return reply.send({
+      grid,
+      reconciliation,
+      snapshotId: snapshot.id,
+      createdAt: snapshot.createdAt,
+      year: targetYear ?? new Date().getFullYear(),
+    });
+  });
+
 }
