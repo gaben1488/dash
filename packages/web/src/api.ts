@@ -98,6 +98,12 @@ export const api = {
   getReconciliationMonthly: (dept?: string) =>
     fetchJSON<any>(`/reconciliation/monthly${dept ? `?dept=${dept}` : ''}`),
 
+  /** Единая сетка СВОД (ГРБС × активность × метод × период) + сверка против листа СВОД ТД-ПМ. */
+  getSvodUnified: (year?: number | 'all') => {
+    const qs = year !== undefined ? `?year=${year}` : '';
+    return fetchJSON<any>(`/svod/unified${qs}`);
+  },
+
   // Journal
   getJournal: (filters?: Record<string, string>) => {
     const params = new URLSearchParams(filters);
