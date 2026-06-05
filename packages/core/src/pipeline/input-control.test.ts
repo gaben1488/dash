@@ -105,31 +105,31 @@ describe('validateInput', () => {
   });
 
   it('accepts valid money input and normalizes', () => {
-    const r = validateInput('G', '1 500', 5);
+    const r = validateInput('H', '1 500', 5);
     expect(r.valid).toBe(true);
     expect(r.normalizedValue).toBe(1500);
   });
 
   it('rejects money value exceeding max', () => {
-    const r = validateInput('G', '99 000 000 000', 5);
+    const r = validateInput('H', '99 000 000 000', 5);
     expect(r.valid).toBe(false);
     expect(r.reason).toContain('10 млрд');
   });
 
   it('rejects negative money value', () => {
-    const r = validateInput('G', '-500', 5);
+    const r = validateInput('H', '-500', 5);
     expect(r.valid).toBe(false);
   });
 
   it('flags normalization with requiresConfirmation', () => {
-    const r = validateInput('G', '1,5 млн', 5);
+    const r = validateInput('H', '1,5 млн', 5);
     expect(r.valid).toBe(true);
     expect(r.requiresConfirmation).toBe(true);
     expect(r.normalizedValue).toBe(1500000);
   });
 
   it('rejects unrecognizable money values', () => {
-    const r = validateInput('G', 'not a number', 5);
+    const r = validateInput('H', 'not a number', 5);
     expect(r.valid).toBe(false);
   });
 

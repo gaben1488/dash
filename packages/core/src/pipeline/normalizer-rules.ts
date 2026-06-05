@@ -60,27 +60,26 @@ const EMPTY_PATTERNS = ['', '-', '—', 'н/д', 'н.д.', 'нет данных'
 export function detectFieldType(column: string): FieldType {
   const col = column.toUpperCase();
 
-  // Формульные колонки с суммами
-  if (['G', 'H', 'I', 'J', 'K', 'R', 'S', 'T', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB'].includes(col)) {
+  // Канон столбцов dept-листа (column-map.ts DEPT_COLUMNS, сверено с листами):
+  // H/I/J=ФБ/КБ/МБ план, K=ИТОГО план, T=отклонение, V/W/X=факт ФБ/КБ/МБ,
+  // Y=ИТОГО факт, Z/AA/AB=экономия, AC=ИТОГО экономия — денежные.
+  if (['H', 'I', 'J', 'K', 'T', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC'].includes(col)) {
     return 'money';
   }
-  // Даты
-  if (['O', 'P', 'Q'].includes(col)) {
+  // Даты: N=дата плана, Q=дата факта (НЕ O/P — те квартал/год).
+  if (['N', 'Q'].includes(col)) {
     return 'date';
   }
-  // Проценты
-  if (col === 'AC') {
-    return 'percent';
+  // Числа: A=№, O=квартал плана, P=год плана, R=квартал факта, S=год факта.
+  if (['A', 'O', 'P', 'R', 'S'].includes(col)) {
+    return 'number';
   }
   // Статус
   if (col === 'U') {
     return 'status';
   }
-  // Числа (количество)
-  if (['D', 'E'].includes(col)) {
-    return 'number';
-  }
-  // Текст
+  // Текст: B рег.№, C подвед, D программа, E подпрограмма, F тип, G предмет,
+  // L способ, M, AD флаг, AE/AF комментарии — и всё неизвестное.
   return 'text';
 }
 
