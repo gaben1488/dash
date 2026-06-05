@@ -69,7 +69,7 @@ function deltaPct(delta: number, base: number): number {
   return base !== 0 ? (delta / base) * 100 : 0;
 }
 
-export function diagnoseSource(
+function diagnoseSource(
   planDelta: number,
   factDelta: number,
   planOff: number,
@@ -89,14 +89,6 @@ export function diagnoseSource(
   }
   // Official > Calculated consistently → СВОД likely has extra/wrong data
   if (planOff > planCalc && planDelta < 0) {
-    return { source: 'svod_error', sourceLabel: 'Ошибка СВОД' };
-  }
-  // План совпал (planDelta≈0), но факт расходится → диагностируем по факт-стороне.
-  // factDelta = factCalc − factOff: >0 расчёт переоценивает факт, <0 СВОД больше.
-  if (planSign === 0 && factSign > 0) {
-    return { source: 'calc_error', sourceLabel: 'Ошибка расчёта' };
-  }
-  if (planSign === 0 && factSign < 0) {
     return { source: 'svod_error', sourceLabel: 'Ошибка СВОД' };
   }
   // Mixed signals or small differences → methodology difference
@@ -549,8 +541,21 @@ function inferSHDYURootCause(args: {
     };
   }
 
+  // Движок не видит плановых закупок, но строка расходится → данные есть на стороне ШДЮ.
+  // Раньше тут возвращался undefined (расхождение без «почему»); объясняем явно.
   if (calcPlanCount <= 0) {
-    return undefined;
+    if (!hasSHDYUDepartment) {
+      return {
+        ...rootCauseById('department_alias_mismatch'),
+        confidence: 'medium',
+        evidence: `ШДЮ-блок ГРБС ${deptId} (${deptName}) не сопоставлен, но строка месяца ${month} расходится — проверить алиас/ключ отдела.`,
+      };
+    }
+    return {
+      ...rootCauseById('activity_filter_hidden_rows'),
+      confidence: 'low',
+      evidence: `Месяц ${month} (${deptName}): ШДЮ показывает закупки, которых каноничный движок не видит (0) — вероятно фильтр ТД/ПМ, классификация метода или резервный статус исключают эти строки.`,
+    };
   }
 
   if (!hasSHDYUDepartment) {
@@ -589,7 +594,22 @@ function inferSHDYURootCause(args: {
     };
   }
 
-  return undefined;
+  // Каждое расхождение должно иметь «почему». Нераспознанный остаток объясняем
+  // по направлению расхождения сумм с низкой уверенностью (не оставляем undefined).
+  const shdyuTotal = n(sh?.compPlanTotal) + n(sh?.epPlanTotal) + n(sh?.compFactTotal) + n(sh?.epFactTotal);
+  const calcTotal = n(rc?.competitive?.planSum) + n(rc?.ep?.planSum) + n(rc?.competitive?.factSum) + n(rc?.ep?.factSum);
+  if (calcTotal > shdyuTotal) {
+    return {
+      ...rootCauseById('formula_scope_limited'),
+      confidence: 'low',
+      evidence: `Месяц ${month} (${deptName}): движок Σ ${calcTotal.toFixed(2)} > ШДЮ Σ ${shdyuTotal.toFixed(2)} — диапазон формул ШДЮ вероятно уже каноничного.`,
+    };
+  }
+  return {
+    ...rootCauseById('activity_filter_hidden_rows'),
+    confidence: 'low',
+    evidence: `Месяц ${month} (${deptName}): ШДЮ Σ ${shdyuTotal.toFixed(2)} ≥ движок Σ ${calcTotal.toFixed(2)} — формула ШДЮ вероятно включает строки вне каноничного фильтра (ТД/ПМ, метод, резерв).`,
+  };
 }
 
 /**

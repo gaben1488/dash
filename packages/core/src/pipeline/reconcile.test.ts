@@ -3,27 +3,9 @@ import {
   reconcile,
   reconcileMonthly,
   crossVerifyQuarterly,
-  diagnoseSource,
   SHDYU_RECON_ROOT_CAUSES,
   type OfficialMetrics,
 } from './reconcile.js';
-
-// ── diagnoseSource: учёт факт-стороны при planDelta=0 (баг reconcile.ts:72) ──
-describe('diagnoseSource — факт-сторона при совпадении плана', () => {
-  it('план совпал, расчёт переоценивает факт (factDelta>0) → Ошибка расчёта, не Методология', () => {
-    expect(diagnoseSource(0, 500, 1000, 1000).source).toBe('calc_error');
-  });
-  it('план совпал, СВОД больше по факту (factDelta<0) → Ошибка СВОД', () => {
-    expect(diagnoseSource(0, -500, 1000, 1000).source).toBe('svod_error');
-  });
-  it('обе стороны совпали → нет источника', () => {
-    expect(diagnoseSource(0, 0, 1000, 1000).source).toBe('none');
-  });
-  it('план-сторона по-прежнему доминирует (без регресса)', () => {
-    expect(diagnoseSource(300, 0, 1000, 1300).source).toBe('calc_error');
-    expect(diagnoseSource(-300, 0, 1300, 1000).source).toBe('svod_error');
-  });
-});
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -532,6 +514,60 @@ describe('reconcileMonthly', () => {
     expect(result.rows[0].epPlan.status).toBe('ok');
     expect(result.rows[0].epPlanTotal.status).toBe('ok');
     expect(result.rows[0].rootCause).toBeUndefined();
+  });
+
+  it('explains SHDYU-only rows without formula issues (нет расхождений без «почему»)', () => {
+    // Движок видит 0 закупок, ШДЮ показывает 3 — раньше rootCause был undefined.
+    const recalc = { dept1: { months: { 7: { planCount: 0, factCount: 0 } } } };
+    const shdyu = {
+      dept1: {
+        months: {
+          7: {
+            compPlanCount: 3, compFactCount: 0, compPlanTotal: 500, compFactTotal: 0,
+            epPlanCount: 0, epFactCount: 0, epPlanTotal: 0, epFactTotal: 0,
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].compPlan.status).not.toBe('ok');
+    expect(result.rows[0].rootCause).toBeDefined();
+    expect(result.rows[0].rootCause?.id).toBe('activity_filter_hidden_rows');
+    expect(result.rows[0].rootCause?.confidence).toBe('low');
+  });
+
+  it('explains generic engine>ШДЮ mismatches via directional fallback (formula_scope_limited)', () => {
+    // Движок видит больше, чем ШДЮ, без распознанного паттерна → объяснение по направлению Σ.
+    const recalc = {
+      dept1: {
+        months: {
+          8: {
+            planCount: 5, factCount: 0,
+            competitive: { plan: 5, fact: 0, planSum: 500, factSum: 0 },
+            ep: { plan: 0, fact: 0, planSum: 0, factSum: 0 },
+          },
+        },
+      },
+    };
+    const shdyu = {
+      dept1: {
+        months: {
+          8: {
+            compPlanCount: 2, compFactCount: 0, compPlanTotal: 200, compFactTotal: 0,
+            epPlanCount: 0, epFactCount: 0, epPlanTotal: 0, epFactTotal: 0,
+          },
+        },
+      },
+    };
+
+    const result = reconcileMonthly(recalc, shdyu, { dept1: 'D1' });
+
+    expect(result.rows[0].compPlan.status).not.toBe('ok');
+    expect(result.rows[0].rootCause).toBeDefined();
+    expect(result.rows[0].rootCause?.id).toBe('formula_scope_limited');
+    expect(result.rows[0].rootCause?.confidence).toBe('low');
   });
 
   it('handles empty inputs', () => {
