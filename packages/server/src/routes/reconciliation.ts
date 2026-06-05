@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import {
   DEPARTMENTS,
   SHDYU_MONTHLY_SHEET_NAME,
-  SHDYU_SHEET_NAME,
   SHDYU_SHEET_NAME_CANDIDATES,
 } from '@aemr/shared';
 import type { DataSnapshot } from '@aemr/shared';
@@ -143,15 +142,6 @@ function cellAt(rows: unknown[][], rowIndex: number, colIndex: number): unknown 
   return rows[rowIndex]?.[colIndex] ?? null;
 }
 
-function detectMonthlySheetFormat(values: unknown[][]): 'current' | 'legacy' | 'unknown' {
-  const maxCols = Math.max(0, ...values.map((row) => row.length));
-  const legacyYear = cellAt(values, 3, 2);
-  const legacyYearNumber = typeof legacyYear === 'number' ? legacyYear : Number.parseInt(String(legacyYear ?? ''), 10);
-  if (Number.isInteger(legacyYearNumber) && legacyYearNumber >= 2000 && legacyYearNumber <= 2100) return 'legacy';
-  if (maxCols >= 39 || values.length >= 350) return 'current';
-  return 'unknown';
-}
-
 function compactDigest(sheetName: string, values: unknown[][], formulas: unknown[][]) {
   const maxCols = Math.max(0, ...values.map((row) => row.length), ...formulas.map((row) => row.length));
   let formulaCells = 0;
@@ -161,14 +151,13 @@ function compactDigest(sheetName: string, values: unknown[][], formulas: unknown
   return {
     sheetName,
     ok: true,
-    format: detectMonthlySheetFormat(values),
+    format: maxCols >= 39 || values.length >= 350 ? 'current' : 'unknown',
     rows: values.length,
     maxCols,
     formulaCells,
     landmarks: {
       A1: cellAt(values, 0, 0),
       B4: cellAt(values, 3, 1),
-      C4: cellAt(values, 3, 2),
       U5: cellAt(values, 4, 20),
       AM5: cellAt(values, 4, 38),
       AN4: cellAt(values, 3, 39),
@@ -211,7 +200,7 @@ export async function reconciliationRoutes(app: FastifyInstance): Promise<void> 
         officialSource: {
           spreadsheetId: SVOD_SPREADSHEET_ID,
           sheetName: SHDYU_MONTHLY_SHEET_NAME,
-          fallbackCandidates: SHDYU_SHEET_NAME_CANDIDATES,
+          sheetCandidates: SHDYU_SHEET_NAME_CANDIDATES,
           rawRowCount: getSHDYURawRowCount(),
         },
       });
@@ -225,27 +214,28 @@ export async function reconciliationRoutes(app: FastifyInstance): Promise<void> 
       officialSource: {
         spreadsheetId: SVOD_SPREADSHEET_ID,
         sheetName: SHDYU_MONTHLY_SHEET_NAME,
-        fallbackCandidates: SHDYU_SHEET_NAME_CANDIDATES,
+        sheetCandidates: SHDYU_SHEET_NAME_CANDIDATES,
         rawRowCount: getSHDYURawRowCount(),
       },
-      methodology: 'Официальный слой берётся из листа «СВОД с месяцами»; расчётный слой строится построчно по листам управлений через CalcEngine.',
+      methodology: 'Официальный слой берётся только из листа «СВОД с месяцами»; расчётный слой строится построчно по листам управлений через CalcEngine.',
     });
   });
 
   app.get('/api/reconciliation/monthly/diagnostics', async (_request, reply) => {
-    const sheets = await Promise.all([SHDYU_MONTHLY_SHEET_NAME, SHDYU_SHEET_NAME, 'ШДЮ старый'].map(async (sheetName) => {
-      try {
-        const { values, formulas } = await getSheetDataWithFormulas(SVOD_SPREADSHEET_ID, sheetName);
-        return compactDigest(sheetName, values, formulas);
-      } catch (error) {
-        return { sheetName, ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-    }));
-    return reply.send({
-      spreadsheetId: SVOD_SPREADSHEET_ID,
-      canonicalSheet: SHDYU_MONTHLY_SHEET_NAME,
-      sheets,
-    });
+    try {
+      const { values, formulas } = await getSheetDataWithFormulas(SVOD_SPREADSHEET_ID, SHDYU_MONTHLY_SHEET_NAME);
+      return reply.send({
+        spreadsheetId: SVOD_SPREADSHEET_ID,
+        canonicalSheet: SHDYU_MONTHLY_SHEET_NAME,
+        sheets: [compactDigest(SHDYU_MONTHLY_SHEET_NAME, values, formulas)],
+      });
+    } catch (error) {
+      return reply.send({
+        spreadsheetId: SVOD_SPREADSHEET_ID,
+        canonicalSheet: SHDYU_MONTHLY_SHEET_NAME,
+        sheets: [{ sheetName: SHDYU_MONTHLY_SHEET_NAME, ok: false, error: error instanceof Error ? error.message : String(error) }],
+      });
+    }
   });
 
   app.get('/api/export/reconciliation', async (request, reply) => {
