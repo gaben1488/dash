@@ -10,7 +10,7 @@ import { JournalPage } from './Journal';
 type QualityTab = 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
 
 const TABS: { id: QualityTab; label: string; icon: typeof ShieldCheck; description: string }[] = [
-  { id: 'recon', label: 'Сверка / ШДЮ', icon: GitCompare, description: 'СВОД, расчёт и помесячная сверка ШДЮ' },
+  { id: 'recon', label: 'Сверка / СВОД с месяцами', icon: GitCompare, description: 'СВОД, расчёт и помесячная сверка с листом «СВОД с месяцами»' },
   { id: 'trust', label: 'Доверие', icon: ShieldCheck, description: 'Индекс надёжности данных' },
   { id: 'issues', label: 'Замечания', icon: AlertTriangle, description: 'Выявленные проблемы' },
   { id: 'recs', label: 'Рекомендации', icon: Lightbulb, description: 'Действия и решения' },
