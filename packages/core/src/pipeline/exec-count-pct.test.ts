@@ -147,6 +147,7 @@ describe('exec_count_pct pipeline (A8)', () => {
       const adapted = adaptToRecalcMetrics(groupedEconomy, 'УЭР');
 
       expect(groupedEconomy.total.get('amount_deviation')?.value).toBe(550);
+      expect(groupedEconomy.total.get('savings_pct')?.value).toBeCloseTo(1150 / 1700, 6);
       expect(groupedEconomy.total.get('economy_total')?.value).toBe(35);
       expect(adapted.year.economyTotal).toBe(35);
       expect(adapted.year.economyTotal).not.toBe(adapted.year.planTotal - adapted.year.factTotal);
