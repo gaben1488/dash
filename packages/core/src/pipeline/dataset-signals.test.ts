@@ -683,11 +683,11 @@ describe('detectSeasonalAnomalies', () => {
 // ────────────────────────────────────────────────────────────
 
 describe('detectSuspiciousSplitting', () => {
-  // DEPT_COLUMNS: METHOD=11, TOTAL_PLAN=10, SUBJECT=6, DESCRIPTION=3, SUBORDINATE=2
+  // DEPT_COLUMNS: METHOD=11, TOTAL_PLAN=10, SUBJECT=6, PROGRAM_NAME=3, SUBORDINATE=2
   function makeSplitRow(subject: string, planTotal: number, subordinate = 'Школа №1'): unknown[] {
     const row = new Array(32).fill(null);
     row[2] = subordinate;       // C = subordinate
-    row[3] = subject;           // D = description (fallback)
+    row[3] = subject;           // D = графа программы (fallback для subject)
     row[6] = subject;           // G = subject
     row[10] = planTotal;        // K = plan total
     row[11] = 'ЕП';            // L = method

@@ -280,3 +280,29 @@ describe('exec_count_pct pipeline (A8)', () => {
     });
   });
 });
+
+// Регрессия канона: «графа программы» = столбец D (3 = PROGRAM_NAME), НЕ подпрограмма E (4).
+// Раньше calc-engine/recalculate читали E (4) → ТД-в-рамках-ПМ классифицировалась по
+// подпрограмме вместо программы. См. column-map.ts (PROGRAM_NAME=3, SUBPROGRAM=4).
+describe('activity classification keys off column D (program), not E (subprogram)', () => {
+  const engine = new CalcEngine();
+
+  it('ТД + программа в D (3) → current_program', () => {
+    const rows = buildSheet([
+      makeRow({ id: 'p1', type: 'Текущая деятельность', programName: 'Муниципальная программа «Развитие»', method: 'ЕП' }),
+    ]);
+    const result = adaptToRecalcMetrics(engine.compute(rows, standardRowFilter, 3, 2025), 'УЭР');
+    const act = result.byActivity['year'];
+    expect(act.current_program.planCount).toBe(1);
+    expect(act.current_non_program.planCount).toBe(0);
+  });
+
+  it('ТД + D="Х" (нет программы) → current_non_program, даже если подпрограмма E заполнена', () => {
+    const row = makeRow({ id: 'p2', type: 'Текущая деятельность', programName: 'Х', method: 'ЕП' });
+    row[DEPT_COLUMNS.SUBPROGRAM] = 'Подпрограмма 1.2'; // E=4 заполнено — не должно влиять на классификацию
+    const result = adaptToRecalcMetrics(engine.compute(buildSheet([row]), standardRowFilter, 3, 2025), 'УЭР');
+    const act = result.byActivity['year'];
+    expect(act.current_non_program.planCount).toBe(1);
+    expect(act.current_program.planCount).toBe(0);
+  });
+});

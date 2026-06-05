@@ -721,7 +721,7 @@ export function detectSystemicAnomalies(
       if (!row || row.length < 25) continue;
       const plan = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
       if (plan < 5_000_000) continue; // только дорогие закупки
-      const desc = String(row[DEPT_COLUMNS.DESCRIPTION] ?? '').trim();
+      const desc = String(row[DEPT_COLUMNS.PROGRAM_NAME] ?? '').trim(); // D=3 «графа программы»
       const subj = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
       const text = (desc + ' ' + subj).trim();
       // Расплывчатое описание: короткое (<50 символов) или только общие слова
@@ -965,7 +965,7 @@ export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
     const planTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
     if (planTotal <= 0 || planTotal >= EP_SPLITTING_THRESHOLD) continue;
 
-    const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? row[DEPT_COLUMNS.DESCRIPTION] ?? '').trim().toLowerCase();
+    const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? row[DEPT_COLUMNS.PROGRAM_NAME] ?? '').trim().toLowerCase();
     if (subject.length < 3) continue;
 
     const subordinate = normalizeSub(String(row[DEPT_COLUMNS.SUBORDINATE] ?? ''));
@@ -1206,8 +1206,8 @@ export function detectSeasonalAnomalies(
     if (!row || row.length < 21) continue;
 
     const subordinate = strFromRow(row, DEPT_COLUMNS.SUBORDINATE);
-    const description = strFromRow(row, DEPT_COLUMNS.DESCRIPTION);
-    const program = strFromRow(row, DEPT_COLUMNS.PROGRAM_NAME);
+    const description = strFromRow(row, DEPT_COLUMNS.PROGRAM_NAME); // D=3 «графа программы» (ист. имя description)
+    const subprogram = strFromRow(row, DEPT_COLUMNS.SUBPROGRAM);    // E=4 подпрограмма
     const status = strFromRow(row, DEPT_COLUMNS.STATUS);
     const factDate = parseDateFromCell(row[DEPT_COLUMNS.FACT_DATE]);
     const planDate = parseDateFromCell(row[DEPT_COLUMNS.PLAN_DATE]);
@@ -1219,8 +1219,8 @@ export function detectSeasonalAnomalies(
       if (month >= 9) q4FactRows++;
     }
 
-    const descOrProg = description + ' ' + program;
-    const contextAll = subordinate + ' ' + description + ' ' + program;
+    const descOrProg = description + ' ' + subprogram;
+    const contextAll = subordinate + ' ' + description + ' ' + subprogram;
 
     // 1. SCHOOL_REPAIR_OUTSIDE_HOLIDAYS — ремонт школ вне каникул
     if (

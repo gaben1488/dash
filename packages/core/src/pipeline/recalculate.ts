@@ -24,8 +24,8 @@ const COL = {
   A: DEPT_COLUMNS.ID,
   B: DEPT_COLUMNS.REG_NUMBER,
   C: DEPT_COLUMNS.SUBORDINATE,
-  D: DEPT_COLUMNS.DESCRIPTION,
-  E: DEPT_COLUMNS.PROGRAM_NAME,
+  D: DEPT_COLUMNS.PROGRAM_NAME,
+  E: DEPT_COLUMNS.SUBPROGRAM,
   F: DEPT_COLUMNS.TYPE,
   G: DEPT_COLUMNS.SUBJECT,
   H: DEPT_COLUMNS.FB_PLAN,
@@ -525,13 +525,14 @@ export function recalculateFromRows(
     if (isCompetitiveMethod) result.totalCompetitive++;
     if (isEP) result.totalEP++;
 
-    // ── Activity type (column F + column D/E program name) ──────────
+    // ── Activity type (column F + column D «графа программы») ──────────
     // F = "Программное мероприятие" → program
-    // F = "Текущая деятельность" + реальный текст ПМ в D/E → ТД в рамках ПМ
-    // F = "Текущая деятельность" + X/x/Х/х/пусто → ТД вне рамок ПМ
+    // F = "Текущая деятельность" + реальная программа в D (3) → ТД в рамках ПМ (current_program)
+    // F = "Текущая деятельность" + X/x/Х/х/пусто в D → ТД вне рамок ПМ (current_non_program)
+    // КАНОН: графа программы — столбец D (3), НЕ подпрограмма E (4). Раньше читали E — баг.
     const typeText = String(row[COL.F] ?? '').trim().toLowerCase();
-    const pmVal = String(row[COL.E] ?? '').trim();
-    const hasPM = pmVal.length > 0 && !/^[XxХх]$/u.test(pmVal);
+    const programVal = String(row[COL.D] ?? '').trim();
+    const hasPM = programVal.length > 0 && !/^[XxХх]$/u.test(programVal);
     const isProgram = typeText.includes('программное мероприятие');
     const isCurrentActivity = typeText.includes('текущая');
     const actKey: 'program' | 'current_program' | 'current_non_program' =
