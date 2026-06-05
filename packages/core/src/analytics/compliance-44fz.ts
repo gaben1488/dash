@@ -5,7 +5,7 @@
  */
 
 import type { GRBSRole } from './grbs-profile.js';
-import { LAW_44FZ_THRESHOLDS } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, normalizeMethod } from '@aemr/shared';
 
 export interface ComplianceIssue {
   grbsId: string;
@@ -83,7 +83,7 @@ interface RowData {
 export function checkEPContractLimits(rows: RowData[], grbsId: string): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
   for (const row of rows) {
-    if (row.method !== 'ЕП') continue;
+    if (normalizeMethod(row.method) !== 'ЕП') continue;
     if (row.planTotal > LAW_44FZ.epSingleContractLimit) {
       issues.push({
         grbsId,
@@ -108,7 +108,7 @@ export function checkEPContractLimits(rows: RowData[], grbsId: string): Complian
 export function checkAntiDumping(rows: RowData[], grbsId: string): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
   for (const row of rows) {
-    if (row.method === 'ЕП') continue; // anti-dumping only for competitive
+    if (normalizeMethod(row.method) === 'ЕП') continue; // anti-dumping only for competitive
     if (row.planTotal <= 0) continue;
     const economyPct = row.economy / row.planTotal;
     if (economyPct > LAW_44FZ.antiDumpingThreshold) {
@@ -210,7 +210,7 @@ export function analyzeEPReasons(rows: RowData[]): EPReasonBreakdown {
   }
 
   for (const row of rows) {
-    if (row.method !== 'ЕП') continue;
+    if (normalizeMethod(row.method) !== 'ЕП') continue;
     breakdown.total++;
     const reason = classifyEPReason(row.subject);
     breakdown.byReason[reason].count++;
