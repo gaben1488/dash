@@ -61,7 +61,9 @@ describe('isEditableColumn', () => {
 describe('getColumnDescription', () => {
   it('returns description for known columns', () => {
     expect(getColumnDescription('A')).toBe('№ п/п');
-    expect(getColumnDescription('B')).toBe('Управление (ГРБС)');
+    expect(getColumnDescription('B')).toBe('Реестровый номер');
+    expect(getColumnDescription('G')).toBe('Предмет закупки');
+    expect(getColumnDescription('V')).toBe('Федеральный бюджет (факт)');
     expect(getColumnDescription('U')).toBe('Статус');
   });
 
