@@ -117,7 +117,12 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
   }
 
   const snapshot = await createSnapshot(year);
-  cachedSnapshots.set(year, { snapshot, timestamp: now });
+  // НЕ кэшируем demo-fallback (транзиентный сбой Google Sheets): иначе фейковые
+  // demo-числа залипают на весь TTL даже после восстановления источника, и дашборд
+  // тихо показывает выдуманные данные. Не кэшируем → следующий вызов повторит реальный источник.
+  if (!snapshot.id.startsWith('demo-')) {
+    cachedSnapshots.set(year, { snapshot, timestamp: now });
+  }
 
   return snapshot;
 }

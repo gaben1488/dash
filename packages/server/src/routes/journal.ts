@@ -188,7 +188,9 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/journal/stats', async (request, reply) => {
     const query = request.query as Record<string, string>;
-    const days = parseInt(query.days || '30', 10);
+    const rawDays = parseInt(query.days || '30', 10);
+    // Guard: days=NaN/<=0 (?days=abc) иначе → new Date(NaN).toISOString() бросает RangeError → 500.
+    const days = Number.isFinite(rawDays) && rawDays > 0 ? rawDays : 30;
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
 
     let totalActions = 0;
