@@ -3,9 +3,27 @@ import {
   reconcile,
   reconcileMonthly,
   crossVerifyQuarterly,
+  diagnoseSource,
   SHDYU_RECON_ROOT_CAUSES,
   type OfficialMetrics,
 } from './reconcile.js';
+
+// ── diagnoseSource: учёт факт-стороны при planDelta=0 (баг reconcile.ts:72) ──
+describe('diagnoseSource — факт-сторона при совпадении плана', () => {
+  it('план совпал, расчёт переоценивает факт (factDelta>0) → Ошибка расчёта, не Методология', () => {
+    expect(diagnoseSource(0, 500, 1000, 1000).source).toBe('calc_error');
+  });
+  it('план совпал, СВОД больше по факту (factDelta<0) → Ошибка СВОД', () => {
+    expect(diagnoseSource(0, -500, 1000, 1000).source).toBe('svod_error');
+  });
+  it('обе стороны совпали → нет источника', () => {
+    expect(diagnoseSource(0, 0, 1000, 1000).source).toBe('none');
+  });
+  it('план-сторона по-прежнему доминирует (без регресса)', () => {
+    expect(diagnoseSource(300, 0, 1000, 1300).source).toBe('calc_error');
+    expect(diagnoseSource(-300, 0, 1300, 1000).source).toBe('svod_error');
+  });
+});
 
 // ── Helpers ──────────────────────────────────────────────────
 
