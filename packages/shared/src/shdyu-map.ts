@@ -305,9 +305,13 @@ export interface SHDYUBlockMetrics {
 export type SHDYUQuarterlyMetrics = SHDYUBlockMetrics;
 
 export interface SHDYUFormulaIssue {
-  type: 'sheet_reference_mismatch';
-  expectedSheet: string;
-  actualSheets: string[];
+  type: 'sheet_reference_mismatch' | 'method_filter_inverted';
+  /** sheet_reference_mismatch: формула ссылается на чужой лист ГРБС */
+  expectedSheet?: string;
+  actualSheets?: string[];
+  /** method_filter_inverted: КП-ячейка фильтрует ЕП (или наоборот) */
+  expectedFilter?: string;
+  detectedFilter?: string;
   row: number;
   month: number;
   block: 'comp' | 'ep';
@@ -361,7 +365,22 @@ export interface SHDYUDeptData {
 
 export const SHDYU_SHEET_NAME = 'ШДЮ';
 
-// 2026-06-04 production metadata exposes the same logical control sheet as
-// "ШДЮ старый". Keep the preferred name first so a renamed workbook starts
-// using it automatically, while current production continues to load.
-export const SHDYU_SHEET_NAME_CANDIDATES = [SHDYU_SHEET_NAME, 'ШДЮ старый'] as const;
+/**
+ * Канонический помесячный источник — лист «СВОД с месяцами» (558×41, новый формат
+ * A–AO). Именно под него написаны SHDYU_BLOCKS/SHDYU_COLS (geometry verified
+ * 2026-04-13), квартальная секция (U–AM) и фильтр активности (AN4). Поэтому он —
+ * ПЕРВЫЙ кандидат; `detectSHDYUFormat` вернёт 'current'.
+ *
+ * «ШДЮ» / «ШДЮ старый» остаются fallback-кандидатами (legacy-формат, 25 колонок с
+ * годом в C → detectSHDYUFormat='legacy'), пока книга не переименована.
+ *
+ * ВАЖНО (activity-scope.ts): данные листа «СВОД с месяцами» считаются Apps Script
+ * статикой под текущий AN4. Для канонического среза «ТД-ПМ (все)» ячейка AN4 на
+ * листе должна быть "*". Срезы ПМ/ТД считает CalcEngine из атомов (столбец F).
+ */
+export const SHDYU_MONTHLY_SHEET_NAME = 'СВОД с месяцами';
+export const SHDYU_SHEET_NAME_CANDIDATES = [
+  SHDYU_MONTHLY_SHEET_NAME,
+  SHDYU_SHEET_NAME,
+  'ШДЮ старый',
+] as const;

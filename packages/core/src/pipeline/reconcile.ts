@@ -390,6 +390,8 @@ interface MonthlySHDYUMonth {
     type?: string;
     expectedSheet?: string;
     actualSheets?: string[];
+    expectedFilter?: string;
+    detectedFilter?: string;
     row?: number;
     month?: number;
     block?: 'comp' | 'ep';
@@ -489,6 +491,12 @@ function formulaSourceMismatch(
   return sh?.formulaIssues?.find((issue) => issue.type === 'sheet_reference_mismatch');
 }
 
+function formulaMethodInverted(
+  sh: MonthlySHDYUMonth | undefined,
+): NonNullable<MonthlySHDYUMonth['formulaIssues']>[number] | undefined {
+  return sh?.formulaIssues?.find((issue) => issue.type === 'method_filter_inverted');
+}
+
 function inferSHDYURootCause(args: {
   deptId: string;
   deptName: string;
@@ -519,6 +527,17 @@ function inferSHDYURootCause(args: {
       confidence: 'high',
       evidence: formulaIssue.evidence
         ?? `ШДЮ ${deptName}, месяц ${month}: формула строки ${formulaIssue.row ?? '?'} ожидает ${formulaIssue.expectedSheet ?? deptName}, но ссылается на ${actualSheets}`,
+    };
+  }
+
+  const invertedFilter = formulaMethodInverted(sh);
+  if (invertedFilter) {
+    const definition = rootCauseById('procurement_method_mismatch');
+    return {
+      ...definition,
+      confidence: 'high',
+      evidence: invertedFilter.evidence
+        ?? `ШДЮ ${deptName}, месяц ${month}: инвертированный фильтр способа КП/ЕП в формуле строки ${invertedFilter.row ?? '?'}; CalcEngine каноничен`,
     };
   }
 

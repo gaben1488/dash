@@ -180,6 +180,29 @@ function extractFormulaSheetRefs(formulaRow: unknown[] | undefined): string[] {
   return [...refs];
 }
 
+/**
+ * Детект инвертированного фильтра способа в формуле строки.
+ * КП-блок (comp) ДОЛЖЕН фильтровать L<>"ЕП" (или ="ЭА"); если он фильтрует ="ЕП" — он
+ * тянет ЕП-данные в КП-ячейку (баг источника, как УО R279). Зеркально для ЕП-блока.
+ * Консервативно: срабатывает только когда присутствует ЧУЖОЙ предикат и отсутствует свой.
+ */
+function detectInvertedMethodFilter(
+  formulaRow: unknown[] | undefined,
+  side: 'comp' | 'ep',
+): { expected: string; detected: string } | undefined {
+  if (!formulaRow) return undefined;
+  let epEquality = false; // ="ЕП" / ,"ЕП"  — предикат ЕП
+  let nonEp = false;      // <>"ЕП" / ,"<>ЕП" / ="ЭА" / ,"ЭА" — предикат КП
+  for (const cell of formulaRow) {
+    if (typeof cell !== 'string') continue;
+    if (/=\s*"ЕП"/.test(cell) || /,\s*"ЕП"/.test(cell)) epEquality = true;
+    if (/<>\s*"ЕП"/.test(cell) || /,\s*"<>ЕП"/.test(cell) || /=\s*"ЭА"/.test(cell) || /,\s*"ЭА"/.test(cell)) nonEp = true;
+  }
+  if (side === 'comp' && epEquality && !nonEp) return { expected: '<>"ЕП"', detected: '="ЕП"' };
+  if (side === 'ep' && nonEp && !epEquality) return { expected: '="ЕП"', detected: '<>"ЕП"' };
+  return undefined;
+}
+
 function formulaIssuesForMonthlyBlock(
   formulaData: unknown[][] | undefined,
   block: SHDYUBlock,
@@ -189,23 +212,43 @@ function formulaIssuesForMonthlyBlock(
   const result: Record<number, SHDYUFormulaIssue[]> = {};
   if (!formulaData || block.grbsId === 'all') return result;
 
+  const sideLabel = side === 'comp' ? 'КП' : 'ЕП';
   for (let month = 1; month <= 12; month++) {
     const rowNum = startRow + (month - 1);
-    const rowIdx = rowNum - 1;
-    const actualSheets = extractFormulaSheetRefs(formulaData[rowIdx])
-      .filter((sheetName) => sheetName !== block.grbsShort);
-    const uniqueActualSheets = [...new Set(actualSheets)];
-    if (uniqueActualSheets.length === 0) continue;
+    const formulaRow = formulaData[rowNum - 1];
+    const issues: SHDYUFormulaIssue[] = [];
 
-    result[month] = [{
-      type: 'sheet_reference_mismatch',
-      expectedSheet: block.grbsShort,
-      actualSheets: uniqueActualSheets,
-      row: rowNum,
-      month,
-      block: side,
-      evidence: `ШДЮ row ${rowNum} ${block.grbsShort}/${month}/${side === 'comp' ? 'КП' : 'ЕП'} references ${uniqueActualSheets.join(', ')} instead of ${block.grbsShort}`,
-    }];
+    // (а) ссылка на чужой лист ГРБС
+    const actualSheets = [...new Set(
+      extractFormulaSheetRefs(formulaRow).filter((sheetName) => sheetName !== block.grbsShort),
+    )];
+    if (actualSheets.length > 0) {
+      issues.push({
+        type: 'sheet_reference_mismatch',
+        expectedSheet: block.grbsShort,
+        actualSheets,
+        row: rowNum,
+        month,
+        block: side,
+        evidence: `ШДЮ row ${rowNum} ${block.grbsShort}/${month}/${sideLabel} references ${actualSheets.join(', ')} instead of ${block.grbsShort}`,
+      });
+    }
+
+    // (б) инвертированный фильтр способа КП/ЕП
+    const inverted = detectInvertedMethodFilter(formulaRow, side);
+    if (inverted) {
+      issues.push({
+        type: 'method_filter_inverted',
+        expectedFilter: inverted.expected,
+        detectedFilter: inverted.detected,
+        row: rowNum,
+        month,
+        block: side,
+        evidence: `ШДЮ row ${rowNum} ${block.grbsShort}/${month}/${sideLabel}: фильтр способа ${inverted.detected} вместо ${inverted.expected} — ячейка тянет противоположную группу КП/ЕП; CalcEngine каноничен`,
+      });
+    }
+
+    if (issues.length > 0) result[month] = issues;
   }
 
   return result;

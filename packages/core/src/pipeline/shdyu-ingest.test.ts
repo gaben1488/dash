@@ -69,7 +69,47 @@ describe('parseSHDYUSheet', () => {
           month: 11,
           block: 'ep',
         }),
+        expect.objectContaining({
+          type: 'method_filter_inverted',
+          expectedFilter: '="ЕП"',
+          detectedFilter: '<>"ЕП"',
+          row: 129,
+          month: 11,
+          block: 'ep',
+        }),
       ],
     });
+  });
+
+  it('flags an inverted method filter when a КП cell filters L="ЕП" (УО R279 case)', () => {
+    const rows = rowsWithLength(300);
+    const formulas = rowsWithLength(300);
+
+    rows[3] = ['ВСЕ', 1, 2026, 0]; // triggers legacy-format detection (year in col C)
+    // УО legacy compStartRow=268 → month 12 = row 279 (rowIdx 278), КП-блок.
+    rows[278] = ['УО', 12, 2026, 1, 0, -1, 0, 0, 0, 997.5, 997.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    formulas[278] = [
+      '', '', '',
+      '=SUM(FILTER(\'УО\'!H$4:H;\'УО\'!L$4:L="ЕП";MONTH(\'УО\'!N$4:N)=12;\'УО\'!P$4:P=2026))',
+    ];
+
+    const parse = parseSHDYUSheet as (
+      sheetData: unknown[][],
+      formulaData?: unknown[][],
+    ) => ReturnType<typeof parseSHDYUSheet>;
+
+    const result = parse(rows, formulas);
+
+    // Своя ссылка ('УО') → нет sheet_reference_mismatch; только инвертированный фильтр.
+    expect(result.uo.months[12].formulaIssues).toEqual([
+      expect.objectContaining({
+        type: 'method_filter_inverted',
+        block: 'comp',
+        detectedFilter: '="ЕП"',
+        expectedFilter: '<>"ЕП"',
+        row: 279,
+        month: 12,
+      }),
+    ]);
   });
 });
