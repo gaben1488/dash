@@ -13,11 +13,9 @@
  *   AD=29 (flag), AE=30 (comment GRBS), AF=31 (comment UER)
  */
 
-import { DEPT_COLUMNS, normalizeMethod, isCompetitive, PROCUREMENT_METHODS, matchesActivityScope, type ActivityScope, type ProcurementMethodCode } from '@aemr/shared';
+import { DEPT_COLUMNS, subordinateKey, normalizeMethod, isCompetitive, PROCUREMENT_METHODS, matchesActivityScope, type ActivityScope, type ProcurementMethodCode } from '@aemr/shared';
 
-/** Placeholder values in column C that mean "org itself" (no subordinate).
- *  Must match calc-engine.ts PLACEHOLDERS for consistency. */
-const ORG_SELF_PLACEHOLDERS = new Set(['х', 'x', '-', '—', '–', 'н/д', 'нет', 'не определена']);
+// Канон org-itself (столбец C) — единый предикат в @aemr/shared/org-itself.ts (isOrgItself/subordinateKey).
 
 // Alias for brevity within this module
 const COL = {
@@ -541,11 +539,8 @@ export function recalculateFromRows(
         : 'current_program';
 
     // ── Subordinate org (column C) ───────────────────────────────
-    // Normalize self-reference patterns: empty, "X"/"Х"(Cyrillic), "-"/"—"/"–", "н/д", "нет"
-    const rawSubName = String(row[COL.C] ?? '').trim();
-    const subName = (!rawSubName || /^[XxХх\-—–]$/u.test(rawSubName) || ORG_SELF_PLACEHOLDERS.has(rawSubName.toLowerCase()))
-      ? ''
-      : rawSubName;
+    // Канон столбца C → сентинел «само управление» или имя подведа (@aemr/shared/org-itself).
+    const subName = subordinateKey(row[COL.C]);
 
     const hVal = num(row[COL.H]);
     const iVal = num(row[COL.I]);
@@ -784,8 +779,8 @@ export function recalculateFromRows(
     }
 
     // ── Subordinate accumulation ──────────────────────────────────
-    // Always track: empty col C → "_org_itself" (org's own rows), otherwise subordinate name
-    const subKey = subName || '_org_itself';
+    // subName уже канонический ключ: сентинел «само управление» или имя подведа.
+    const subKey = subName;
     {
       let sub = subMap.get(subKey);
       if (!sub) {

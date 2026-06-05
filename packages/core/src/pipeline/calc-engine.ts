@@ -13,6 +13,7 @@
 
 import {
   DEPT_COLUMNS,
+  subordinateKey,
   normalizeMethod,
   isCompetitive,
   PROCUREMENT_METHODS,
@@ -247,10 +248,8 @@ function defaultMethodExtractor(row: RawRow): MethodGroup | null {
 }
 
 function defaultSubordinateExtractor(row: RawRow): string {
-  const s = String(row[COL.SUBORDINATE] ?? '').trim();
-  // "Х"/"х"/"X"/"x"/"-"/"—" are placeholders meaning "org itself" (no subordinate)
-  if (!s || /^[XxХх\-—–]$/u.test(s) || PLACEHOLDERS.has(s.toLowerCase())) return '_org_itself';
-  return s;
+  // Канон столбца C → сентинел «само управление» или имя подведа (@aemr/shared/org-itself).
+  return subordinateKey(row[COL.SUBORDINATE]);
 }
 
 /** Check if program name value is meaningful (not empty, not "X"/"x"/"Х"/"х" placeholder) */
