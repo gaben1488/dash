@@ -268,7 +268,9 @@ function DeptRowComponent({
         : 'text-zinc-400';
 
   const rankStyle = RANK_STYLES[rank] ?? 'text-zinc-400 dark:text-zinc-500';
-  const hasSubs = dept.subordinates && dept.subordinates.length > 0;
+  // Аппарат (_org_itself) — отдельное слагаемое, не подвед: в счётчик и список подведов не входит.
+  const realSubs = dept.subordinates?.filter(s => s.name !== '_org_itself') ?? [];
+  const hasSubs = realSubs.length > 0;
 
   return (
     <>
@@ -426,7 +428,7 @@ function DeptRowComponent({
                       Подведомственные организации
                     </h4>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-bold">
-                      {dept.subordinates!.length}
+                      {realSubs.length}
                     </span>
                   </div>
 
@@ -439,7 +441,7 @@ function DeptRowComponent({
                   </div>
 
                   <div className="grid gap-0.5">
-                    {dept.subordinates!.map(sub => (
+                    {realSubs.map(sub => (
                       <div
                         key={sub.name}
                         className="flex items-center gap-4 px-3 py-2 rounded-xl hover:bg-white dark:hover:bg-zinc-800/60 transition-colors text-xs group/sub"
