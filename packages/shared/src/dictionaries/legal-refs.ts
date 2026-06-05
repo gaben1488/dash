@@ -258,7 +258,7 @@ export function parseLegalRef(raw: string): LegalRefId[] {
     }
   } else {
     // Краткая форма «пп. X, п. 1» без слова «Распоряжение» — тоже ссылка на № 112
-    const short = /\bпп\.?\s*(1|5|8|11)\s*,?\s*п\.?\s*1\b/i.exec(s);
+    const short = /пп\.?\s*(1|5|8|11)\s*,?\s*п\.?\s*1/i.exec(s); // FP-fix 2026-06-05: убран \b (не работает с кириллицей в JS)
     if (short) {
       results.push('AEMR_112');
       const id = `AEMR_112_${short[1]}` as LegalRefId;
@@ -267,7 +267,7 @@ export function parseLegalRef(raw: string): LegalRefId[] {
   }
 
   // 147-ФЗ
-  if (/147-?фз|\bестественн(?:ых|ые)\s+монопол/i.test(s)) {
+  if (/147-?фз|монопол/i.test(s)) { // FP-fix 2026-06-05: ловить и голое «монополист» (было \bестественн… — слишком узко)
     results.push('147_FZ');
   }
 

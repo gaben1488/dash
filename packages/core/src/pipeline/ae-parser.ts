@@ -10,13 +10,15 @@
  * (100% «ЕП без обоснования» — ст.93 в AE). Канон специфицировал этот парсер, но он не был построен.
  */
 
+import { parseLegalRef, type LegalRefId } from '@aemr/shared';
+
 export interface ParsedAE {
   /** Найденные даты в формате dd.mm.yyyy или dd.mm.yy. */
   dates: string[];
   /** Есть ли в комментарии дата (договора/выплаты). */
   hasContractDate: boolean;
-  /** Найденные правовые ссылки (ст.93, п.X ч.1, распоряжение №112, монополия и т.п.). */
-  legalRefs: string[];
+  /** Структурные правовые ссылки (из канонического словаря legal-refs). */
+  legalRefs: LegalRefId[];
   /** Есть ли законное основание ЕП в комментарии. */
   hasLegalBasis: boolean;
 }
@@ -25,16 +27,8 @@ export interface ParsedAE {
 // Кванторы ограничены (нет вложенного backtracking) — ReDoS-safe.
 const RX_DATE = /\b(\d{1,2})\.(\d{1,2})\.(20\d{2}|\d{2})\b/g;
 
-// Правовые основания ЕП (44-ФЗ ст.93 / Распоряжение АЕМР №112 / монополия / поручение Губернатора).
-const RX_LEGAL: readonly RegExp[] = [
-  /ст\.?\s?9[03]/i, // ст.93 / ст.90
-  /п\.?\s?\d+\s?ч\.?\s?1/i, // п.4 ч.1 (ст.93)
-  /ч\.?\s?1\s?ст\.?\s?9[03]/i,
-  /распоряжени\w*\s?№?\s?112/i, // Распоряжение АЕМР №112
-  /монопол/i, // естественная монополия
-  /губернатор|поручени/i, // поручение Губернатора
-  /единственн\w*\s+производител/i,
-];
+// Структурные правовые ссылки извлекает канонический словарь legal-refs (parseLegalRef) —
+// дедуп: ранее здесь дублировался инлайновый RX_LEGAL (DEADCODE_DISPOSITION §wire legal-refs).
 
 /**
  * Парсит текст комментария ГРБС (AE/AF). Принимает любое значение ячейки.
@@ -51,16 +45,20 @@ export function parseAE(raw: unknown): ParsedAE {
     if (dates.length >= 20) break; // защита от вырожденного ввода
   }
 
-  const legalRefs: string[] = [];
-  for (const rx of RX_LEGAL) {
-    const hit = text.match(rx);
-    if (hit) legalRefs.push(hit[0]);
-  }
+  // Структурные ссылки — из словаря (parseLegalRef сканирует свободный текст → LegalRefId[]).
+  const legalRefs = parseLegalRef(text);
+  // hasLegalBasis шире: parseLegalRef строг (требует «п.N ч.1 ст.93»), а для подавления
+  // epJustificationMissing достаточно любого упоминания основания — голое «ст.93», «монопол», «поручение».
+  const hasLegalBasis =
+    legalRefs.length > 0 ||
+    /ст\.?\s*9[03]/i.test(text) ||
+    /монопол/i.test(text) ||
+    /губернатор|поручени/i.test(text);
 
   return {
     dates,
     hasContractDate: dates.length > 0,
     legalRefs,
-    hasLegalBasis: legalRefs.length > 0,
+    hasLegalBasis,
   };
 }

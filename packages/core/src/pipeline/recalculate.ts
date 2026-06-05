@@ -13,7 +13,7 @@
  *   AD=29 (flag), AE=30 (comment GRBS), AF=31 (comment UER)
  */
 
-import { DEPT_COLUMNS, normalizeMethod, isCompetitive, PROCUREMENT_METHODS, type ProcurementMethodCode } from '@aemr/shared';
+import { DEPT_COLUMNS, normalizeMethod, isCompetitive, PROCUREMENT_METHODS, matchesActivityScope, type ActivityScope, type ProcurementMethodCode } from '@aemr/shared';
 
 /** Placeholder values in column C that mean "org itself" (no subordinate).
  *  Must match calc-engine.ts PLACEHOLDERS for consistency. */
@@ -420,6 +420,7 @@ export function recalculateFromRows(
   department: string,
   startRow: number = 3,
   targetYear?: number,
+  activityScope: ActivityScope = 'all',
 ): RecalculatedMetrics {
   const result: RecalculatedMetrics = {
     department,
@@ -502,6 +503,10 @@ export function recalculateFromRows(
 
     // Classification filter
     if (!classifyRow(row)) continue;
+
+    // Срез активности (ось ТД/ПМ/ТД-ПМ — как фильтр AN4 листа ШДЮ «СВОД с месяцами»).
+    // all = без ограничения; td/pm — по столбцу F. Бэк-совместимо: default 'all'.
+    if (activityScope !== 'all' && !matchesActivityScope(activityScope, row[COL.F])) continue;
 
     // Year filter: if targetYear is set, skip rows from other years.
     // Column P (index 15) holds the plan year (e.g. 2025, 2026).
