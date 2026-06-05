@@ -154,6 +154,33 @@ describe('Date signals', () => {
     expect(s.overdue).toBe(false);
   });
 
+  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): forward план-график.
+  it('NOT overdue when status is "планирование" (forward plan-graph)', () => {
+    const s = detectSignals(makeCells({
+      N: '01.01.2026', Q: null, Y: 0,
+      AE: 'планирование',
+    }), REF_DATE);
+    expect(s.planning).toBe(true);
+    expect(s.overdue).toBe(false);
+  });
+
+  it('NOT overdue when status is "срок не наступил"', () => {
+    const s = detectSignals(makeCells({
+      N: '01.01.2026', Q: null, Y: 0,
+      AE: 'срок не наступил',
+    }), REF_DATE);
+    expect(s.notDue).toBe(true);
+    expect(s.overdue).toBe(false);
+  });
+
+  it('NOT overdue when AE has "срок изменён на ..."', () => {
+    const s = detectSignals(makeCells({
+      N: '01.01.2026', Q: null, Y: 0,
+      AE: 'срок изменён на 01.06.2026',
+    }), REF_DATE);
+    expect(s.overdue).toBe(false);
+  });
+
   it('planSoon: plan date within 14 days', () => {
     // April 13 + 10 days = April 23
     const s = detectSignals(makeCells({

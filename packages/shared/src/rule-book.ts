@@ -446,12 +446,19 @@ const statusOnDataRows: ValidationRule = {
     const ecoMB = toNumber(ctx.cells['AB']) ?? 0;
     const ecoTotal = ecoFB + ecoKB + ecoMB;
 
-    // Only flag if economy values exist but AD is not set
-    if (ecoTotal !== 0 && !hasData(ad)) {
+    // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): Z/AA/AB — экономия в ТЫС ₽ с float-резидуалами
+    // («рваные дроби» 0.0003, «−0»). Без округления и порога значимости сигнал давал ~⅔ ложных
+    // (срабатывал на 0.00025 тыс и «−0 руб»). Округляем до 10 ₽ и флажим только при |экономии| ≥ 1 тыс ₽.
+    // Заодно чиним единицы: было «руб» при значении в тыс (УИО r12 «100 руб» = реально 100 тыс).
+    const ecoNorm = Math.round(ecoTotal * 100) / 100; // до 0.01 тыс = 10 ₽
+    const ECONOMY_FLAG_MIN_THOUSAND = 1; // порог значимости: 1 тыс ₽
+
+    // Only flag if a MATERIAL economy exists but AD is not set
+    if (Math.abs(ecoNorm) >= ECONOMY_FLAG_MIN_THOUSAND && !hasData(ad)) {
       return {
         passed: false,
         message:
-          `AD${ctx.rowIndex} пуст, но экономия ${ecoTotal.toLocaleString('ru')} руб. ` +
+          `AD${ctx.rowIndex} пуст, но экономия ${ecoNorm.toLocaleString('ru')} тыс ₽. ` +
           `Укажите "да" или "нет" для учёта экономии в СВОД.`,
         cell: `AD${ctx.rowIndex}`,
         actual: null,

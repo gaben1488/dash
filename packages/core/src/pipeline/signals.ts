@@ -296,14 +296,28 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const hasScheduleTransfer = textIncludes(grbsComment, [
     'переносится на', 'планируется на', 'планирование на',
     'перенос', 'перенесен', 'перенесён', 'отложен', 'переносится',
+    // Операторы пишут перенос срока ещё и так (SIGNAL_VALIDATION §4):
+    'срок изменён', 'срок изменен', 'изменён на', 'изменен на',
   ]);
 
   if (planDateParsed) {
     const daysUntilPlan = daysDiff(planDateParsed, now);
 
-    // Просрочено: плановая дата прошла, нет факта, не подписан, не отменён
-    // Also skip if AE indicates a known schedule transfer (переносится на...)
-    if (daysUntilPlan < 0 && !hasFact && !signed && !canceled && !hasScheduleTransfer) {
+    // Просрочено: плановая дата прошла, нет факта, не подписан, не отменён,
+    // НЕ в статусе «планирование»/«срок не наступил» (это forward план-график —
+    // запланированная позиция, чья дата только что прошла, ещё не просрочка),
+    // и нет известного переноса срока.
+    // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): без !planning/!notDue сигнал давал
+    // ~90% ложных Критических на сезонных план-графиках (УО 51/52).
+    if (
+      daysUntilPlan < 0 &&
+      !hasFact &&
+      !signed &&
+      !canceled &&
+      !hasScheduleTransfer &&
+      !planning &&
+      !notDue
+    ) {
       overdue = true;
     }
 
