@@ -111,8 +111,8 @@ export function deriveCell(c: UnifiedCell): UnifiedDerived {
     execCountPct: c.planCount !== 0 ? c.factCount / c.planCount : null,
     spentPct: planTotal !== 0 ? factTotal / planTotal : null,
     deviationCount: c.factCount - c.planCount,
-    // Канон листа СВОД: столбец P «Отклонение сумм» = K−O = план−факт.
-    // NB: deviationCount пока legacy факт−план; унифицировать отдельным metric-contract шагом.
-    amountDeviation: planTotal - factTotal,
+    // Канон листа СВОД: столбец P «Отклонение сумм» = O−K = факт−план (недоосвоение < 0).
+    // Согласовано с deviationCount (тоже факт−план) — единый знак отклонения.
+    amountDeviation: factTotal - planTotal,
   };
 }

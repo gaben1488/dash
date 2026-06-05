@@ -146,7 +146,7 @@ describe('exec_count_pct pipeline (A8)', () => {
       const groupedEconomy = engine.compute(economyRows, standardRowFilter, 0, 2025);
       const adapted = adaptToRecalcMetrics(groupedEconomy, 'УЭР');
 
-      expect(groupedEconomy.total.get('amount_deviation')?.value).toBe(550);
+      expect(groupedEconomy.total.get('amount_deviation')?.value).toBe(-550);
       expect(groupedEconomy.total.get('savings_pct')?.value).toBeCloseTo(1150 / 1700, 6);
       expect(groupedEconomy.total.get('economy_total')?.value).toBe(35);
       expect(adapted.year.economyTotal).toBe(35);
@@ -212,7 +212,7 @@ describe('exec_count_pct pipeline (A8)', () => {
   });
 
   describe('orchestrator amount_dev contract', () => {
-    it('exports amount_dev as plan_total minus fact_total for method and summary metrics', () => {
+    it('exports amount_dev as fact_total minus plan_total (как лист СВОД) for method and summary metrics', () => {
       const snapshot = runPipeline({
         batchGetData: [],
         sheetRows: {
@@ -243,12 +243,12 @@ describe('exec_count_pct pipeline (A8)', () => {
 
       const metrics = snapshot.calculatedMetrics as Record<string, { numericValue: number }>;
 
-      expect(metrics['grbs.uer.kp.q1.amount_dev'].numericValue).toBe(300);
-      expect(metrics['grbs.uer.ep.q1.amount_dev'].numericValue).toBe(50);
-      expect(metrics['grbs.uer.kp.year.amount_dev'].numericValue).toBe(300);
-      expect(metrics['grbs.uer.ep.year.amount_dev'].numericValue).toBe(50);
-      expect(metrics['competitive.q1.amount_dev'].numericValue).toBe(300);
-      expect(metrics['sole.q1.amount_dev'].numericValue).toBe(50);
+      expect(metrics['grbs.uer.kp.q1.amount_dev'].numericValue).toBe(-300);
+      expect(metrics['grbs.uer.ep.q1.amount_dev'].numericValue).toBe(-50);
+      expect(metrics['grbs.uer.kp.year.amount_dev'].numericValue).toBe(-300);
+      expect(metrics['grbs.uer.ep.year.amount_dev'].numericValue).toBe(-50);
+      expect(metrics['competitive.q1.amount_dev'].numericValue).toBe(-300);
+      expect(metrics['sole.q1.amount_dev'].numericValue).toBe(-50);
     });
   });
 

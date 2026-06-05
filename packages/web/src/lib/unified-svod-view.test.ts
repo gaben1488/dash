@@ -62,7 +62,7 @@ describe('sliceUnified', () => {
     const kp = all.view.departments.find((d) => d.id === 'uo')!.block.kp.q1;
     expect(kp.planTotal).toBe(1_000); // 700 + 300
     expect(kp.factTotal).toBe(600);   // 500 + 100
-    expect(kp.amountDeviation).toBe(400); // plan - fact
+    expect(kp.amountDeviation).toBe(-400); // fact - plan (как лист СВОД)
     expect(kp.economyTotal).toBe(50); // 30 + 20
   });
 
@@ -78,7 +78,7 @@ describe('sliceUnified', () => {
     const total = all.view.departments.find((d) => d.id === 'uo')!.block.total.q1;
     expect(total.planCount).toBe(14);          // 10 + 4
     expect(total.planTotal).toBe(1_100);       // 1000 + 100
-    expect(total.amountDeviation).toBe(410);   // (1000 + 100) - (600 + 90)
+    expect(total.amountDeviation).toBe(-410);   // факт − план: (600 + 90) - (1000 + 100)
     expect(total.executionPct).toBeCloseTo(10 / 14, 6); // факт 6+4 / план 10+4
   });
 

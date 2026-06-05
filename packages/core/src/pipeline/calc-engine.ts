@@ -341,8 +341,8 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   { key: 'deviation', label: 'Отклонение', unit: 'count', formula: { op: 'diff', a: 'plan_count', b: 'fact_count' } },
   // G: Execution % = fact_total / plan_total (decimal: 0.316 = 31.6%)
   { key: 'execution_pct', label: '% исполнения', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
-  // P: Amount deviation = plan_total - fact_total
-  { key: 'amount_deviation', label: 'Отклонение сумм', unit: 'currency', formula: { op: 'diff', a: 'plan_total', b: 'fact_total' } },
+  // P: Amount deviation = fact_total - plan_total (как лист СВОД, недоосвоение < 0)
+  { key: 'amount_deviation', label: 'Отклонение сумм', unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
   // Q: Amount deviation % = (plan_total - fact_total) / plan_total (decimal).
   // This is not approved economy; approved economy is economy_total.
   { key: 'savings_pct', label: 'Потрачено, %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },

@@ -400,7 +400,7 @@ function demoGenRow(planCount: number, execFrac: number, price: number, econRate
     executionPct: planCount > 0 ? factCount / planCount : 0,
     planFB, planKB, planMB: planTotal - planFB - planKB, planTotal,
     factFB, factKB, factMB: factTotal - factFB - factKB, factTotal,
-    amountDeviation: planTotal - factTotal,
+    amountDeviation: factTotal - planTotal,
     savingsPct: planTotal > 0 ? (planTotal - factTotal) / planTotal : 0,
     economyFB, economyKB, economyMB: economyTotal - economyFB - economyKB, economyTotal,
   };

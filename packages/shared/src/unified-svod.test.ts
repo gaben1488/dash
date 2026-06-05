@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { deriveCell, type UnifiedCell } from './unified-svod.js';
 
 describe('deriveCell', () => {
-  it('keeps amountDeviation as plan minus fact, while spentPct is fact over plan', () => {
+  it('keeps amountDeviation as fact minus plan (как лист СВОД), while spentPct is fact over plan', () => {
     const cell: UnifiedCell = {
       planCount: 10,
       factCount: 6,
@@ -20,7 +20,7 @@ describe('deriveCell', () => {
     expect(deriveCell(cell)).toMatchObject({
       planTotal: 1_000,
       factTotal: 600,
-      amountDeviation: 400,
+      amountDeviation: -400,
       spentPct: 0.6,
       economyTotal: 60,
     });

@@ -138,8 +138,8 @@ function sumRows(a: SvodRow, b: SvodRow): SvodRow {
     factKB: (a.factKB ?? 0) + (b.factKB ?? 0),
     factMB: (a.factMB ?? 0) + (b.factMB ?? 0),
     factTotal,
-    // P «Отклонение сумм» = план − факт (как deriveCell.amountDeviation и лист СВОД).
-    amountDeviation: planTotal - factTotal,
+    // P «Отклонение сумм» = факт − план (как deriveCell.amountDeviation и лист СВОД).
+    amountDeviation: factTotal - planTotal,
     savingsPct: planTotal !== 0 ? factTotal / planTotal : null,
     economyFB: (a.economyFB ?? 0) + (b.economyFB ?? 0),
     economyKB: (a.economyKB ?? 0) + (b.economyKB ?? 0),
