@@ -296,7 +296,7 @@ export function ReconPage() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setMonthlyError(err instanceof Error ? err.message : 'Не удалось загрузить помесячную сверку ШДЮ');
+          setMonthlyError(err instanceof Error ? err.message : 'Не удалось загрузить помесячную сверку (СВОД с месяцами)');
           setMonthlyLoading(false);
         }
       });
@@ -423,7 +423,7 @@ export function ReconPage() {
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700',
                 )}
               >
-                <Clock size={12} className="inline mr-1" />Помесячно (ШДЮ)
+                <Clock size={12} className="inline mr-1" />Помесячно (СВОД с месяцами)
               </button>
               <button
                 onClick={() => setView('subordinates')}
@@ -875,14 +875,14 @@ export function ReconPage() {
           {monthlyLoading && (
             <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-8 text-center">
               <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-3" />
-              <p className="text-xs text-zinc-500">Загрузка помесячных данных ШДЮ...</p>
+              <p className="text-xs text-zinc-500">Загрузка помесячных данных (СВОД с месяцами)...</p>
             </div>
           )}
           {monthlyError && !monthlyLoading && (
             <div className="bg-white dark:bg-zinc-800/60 rounded-xl border border-red-200 dark:border-red-800 p-5 text-center">
               <AlertTriangle className="mx-auto text-red-500 mb-2" size={28} />
               <p className="text-sm text-red-700 dark:text-red-400">{monthlyError}</p>
-              <p className="text-[11px] text-zinc-400 mt-1">Сбой запроса к API, а не отсутствие данных ШДЮ.</p>
+              <p className="text-[11px] text-zinc-400 mt-1">Сбой запроса к API, а не отсутствие данных СВОД с месяцами.</p>
             </div>
           )}
           {monthlyData?.warning && (
@@ -919,13 +919,13 @@ export function ReconPage() {
                       <tr className="bg-zinc-50/50 dark:bg-zinc-900/30 text-[10px] text-zinc-400 dark:text-zinc-500">
                         <th></th>
                         <th></th>
-                        <th className="px-2 py-1 text-right">ШДЮ</th>
+                        <th className="px-2 py-1 text-right">СВОД</th>
                         <th className="px-2 py-1 text-right">Расчёт</th>
-                        <th className="px-2 py-1 text-right">ШДЮ</th>
+                        <th className="px-2 py-1 text-right">СВОД</th>
                         <th className="px-2 py-1 text-right">Расчёт</th>
-                        <th className="px-2 py-1 text-right">ШДЮ</th>
+                        <th className="px-2 py-1 text-right">СВОД</th>
                         <th className="px-2 py-1 text-right">Расчёт</th>
-                        <th className="px-2 py-1 text-right">ШДЮ</th>
+                        <th className="px-2 py-1 text-right">СВОД</th>
                         <th className="px-2 py-1 text-right">Расчёт</th>
                       </tr>
                     </thead>
@@ -987,7 +987,7 @@ export function ReconPage() {
                                   <div className="space-y-2">
                                     <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                       <AlertTriangle size={13} className={rc ? (rc.severity === 'critical' ? 'text-red-500' : 'text-amber-500') : 'text-zinc-400'} />
-                                      Причина расхождения с ШДЮ
+                                      Причина расхождения с листом «СВОД с месяцами»
                                     </div>
                                     {rc ? (
                                       <div className={clsx('rounded-lg p-3 border',
@@ -1023,7 +1023,7 @@ export function ReconPage() {
 
                                   <div className="space-y-2">
                                     <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
-                                      <FileSpreadsheet size={13} className="text-blue-500" /> Суммы, тыс. ₽ — ШДЮ → Расчёт, Δ
+                                      <FileSpreadsheet size={13} className="text-blue-500" /> Суммы, тыс. ₽ — СВОД с месяцами → Расчёт, Δ
                                     </div>
                                     <div className="bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5">
                                       {moneyRow('КП план', r.compPlanTotal)}
@@ -1222,7 +1222,7 @@ export function ReconPage() {
             <ul className="list-disc pl-4 space-y-1.5">
               <li><strong>По управлениям</strong> — агрегированное сравнение итоговых планов/фактов по каждому ГРБС. Порог: Δ &lt; 1% = совпадает, 1-5% = несопоставимо, &gt; 5% = расхождение.</li>
               <li><strong>По метрикам</strong> — сравнение каждой конкретной ячейки СВОД (D14, E14, G14...) с пересчитанным значением. Порог по умолчанию 1%.</li>
-              <li><strong>Помесячно (ШДЮ)</strong> — сравнение динамики по месяцам из листа ШДЮ с row-by-row расчётом. Показывает КП/ЕП план/факт по каждому месяцу.</li>
+              <li><strong>Помесячно (СВОД с месяцами)</strong> — сравнение динамики по месяцам из листа «СВОД с месяцами» с row-by-row расчётом. Показывает КП/ЕП план/факт по каждому месяцу.</li>
             </ul>
 
             <p className="font-semibold text-zinc-700 dark:text-zinc-200 pt-1">Атрибуты метрик СВОД ТД-ПМ:</p>
