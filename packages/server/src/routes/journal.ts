@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { getSnapshot, getDeptLoadMeta, getSHDYURawRowCount } from '../services/snapshot.js';
 import { db, schema } from '../db/index.js';
 import { desc } from 'drizzle-orm';
-import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId } from '../config.js';
+import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
 import { getSpreadsheetMetadata, getSheetData } from '../google-sheets.js';
 import { detectSignals } from '@aemr/core';
 import { DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
@@ -417,25 +417,27 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
    */
   app.put('/api/sources/:name', async (request, reply) => {
     const { name } = request.params as { name: string };
-    const { spreadsheetId } = request.body as { spreadsheetId: string };
+    const { spreadsheetId } = request.body as { spreadsheetId: unknown };
 
-    if (!spreadsheetId || typeof spreadsheetId !== 'string') {
-      return reply.status(400).send({ error: 'spreadsheetId is required' });
+    const validation = validateSpreadsheetIdForSourceChange(spreadsheetId);
+    if (!validation.success) {
+      return reply.status(400).send({ error: validation.error });
     }
+    const nextSpreadsheetId = validation.spreadsheetId;
 
     // Validate: source must exist
     if (name === 'СВОД ТД-ПМ') {
       // Update main spreadsheet ID in config (runtime only; .env update is separate)
-      (config.google as any).spreadsheetId = spreadsheetId;
-      return reply.send({ success: true, name, spreadsheetId });
+      config.google.spreadsheetId = nextSpreadsheetId;
+      return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId });
     }
 
     if (!(name in DEPARTMENT_SPREADSHEETS)) {
       return reply.status(404).send({ error: `Источник "${name}" не найден` });
     }
 
-    updateSpreadsheetId(name, spreadsheetId);
-    return reply.send({ success: true, name, spreadsheetId });
+    updateSpreadsheetId(name, nextSpreadsheetId);
+    return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId });
   });
 
   /**

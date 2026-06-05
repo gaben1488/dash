@@ -4,7 +4,7 @@ import { createDemoSnapshot } from '../services/demo-data.js';
 import { fetchDepartmentSpreadsheets } from '../services/google-sheets.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema } from '@aemr/shared';
-import type { KPICard, DepartmentSummary, DashboardData, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
+import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, reconcile, reconcileMonthly, crossVerifyQuarterly } from '@aemr/core';
 
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
@@ -237,11 +237,11 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         byActivity: deptRecalc?.byActivity ?? {},
         subordinates: deptRecalc?.bySubordinate ?? [],
         economyConflicts: deptRecalc?.conflicts ?? 0,
-      } as DepartmentSummary;
+      };
     });
 
     // Summary-level aggregates by period (Q1 + Year from СВОД, Q2-Q4 from calculated)
-    const summaryByPeriod: Record<string, any> = {};
+    const summaryByPeriod: Record<string, DashboardPeriodSummary> = {};
 
     // Q1 + Year from official СВОД metrics
     for (const p of ['q1', 'year'] as const) {
@@ -386,7 +386,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       trust: snapshot.trust,
       lastRefreshed: snapshot.createdAt,
       year: dataYear,
-    } as any;
+    };
 
     // Runtime contract validation (ADR-0002, Phase 0 Hygiene): assure server↔web
     // boundary. In development: warn on drift (surface the bug in logs).

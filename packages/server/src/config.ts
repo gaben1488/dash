@@ -54,6 +54,38 @@ const env = parsedEnv.data;
 
 export const DEFAULT_DEPARTMENT_SPREADSHEETS = { ...DEPARTMENT_SPREADSHEET_IDS };
 
+const GOOGLE_SPREADSHEET_ID_RE = /^[A-Za-z0-9_-]{20,}$/;
+const DEMO_SPREADSHEET_ID_RE = /^demo-/i;
+
+export type SpreadsheetIdValidationResult =
+  | { success: true; spreadsheetId: string }
+  | { success: false; error: string };
+
+export function validateSpreadsheetIdForSourceChange(value: unknown): SpreadsheetIdValidationResult {
+  if (typeof value !== 'string') {
+    return { success: false, error: 'spreadsheetId must be a string' };
+  }
+
+  const spreadsheetId = value.trim();
+  if (!spreadsheetId) {
+    return { success: false, error: 'spreadsheetId is required' };
+  }
+
+  if (spreadsheetId.includes('/') || spreadsheetId.includes('.') || spreadsheetId.includes('\\')) {
+    return { success: false, error: 'spreadsheetId must be a raw Google Sheets ID, not a URL or file name' };
+  }
+
+  if (DEMO_SPREADSHEET_ID_RE.test(spreadsheetId)) {
+    return { success: false, error: 'demo spreadsheet IDs cannot be used as production sources' };
+  }
+
+  if (!GOOGLE_SPREADSHEET_ID_RE.test(spreadsheetId)) {
+    return { success: false, error: 'spreadsheetId has invalid Google Sheets ID format' };
+  }
+
+  return { success: true, spreadsheetId };
+}
+
 /**
  * СВОД_для_Google — единственная основная таблица.
  * Содержит листы: СВОД ТД-ПМ, ШДЮ, УЭР, УИО, УАГЗО, УФБП, УД, УДТХ, УКСиМП, УО.

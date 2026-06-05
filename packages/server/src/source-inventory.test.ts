@@ -7,6 +7,7 @@ import {
   SHDYU_SHEET_NAME_CANDIDATES,
   SVOD_SPREADSHEET_ID,
 } from '@aemr/shared';
+import { validateSpreadsheetIdForSourceChange } from './config.js';
 
 describe('production source inventory contract', () => {
   it('uses СВОД_ДЛЯ_GOOGLE as the only default main workbook', () => {
@@ -23,6 +24,28 @@ describe('production source inventory contract', () => {
 
     for (const dept of ALL_DEPT_IDS) {
       expect(DEPARTMENT_SPREADSHEET_IDS[dept], `${dept} spreadsheet id`).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+    }
+  });
+
+  it('validates runtime source-change spreadsheet IDs before persisting overrides', () => {
+    expect(validateSpreadsheetIdForSourceChange(SVOD_SPREADSHEET_ID)).toEqual({
+      success: true,
+      spreadsheetId: SVOD_SPREADSHEET_ID,
+    });
+
+    expect(validateSpreadsheetIdForSourceChange(` ${SVOD_SPREADSHEET_ID} `)).toEqual({
+      success: true,
+      spreadsheetId: SVOD_SPREADSHEET_ID,
+    });
+
+    for (const bad of [
+      '',
+      'demo-spreadsheet-no-credentials',
+      'https://docs.google.com/spreadsheets/d/1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg/edit',
+      'СВОД -25-26.xlsx',
+      'short-id',
+    ]) {
+      expect(validateSpreadsheetIdForSourceChange(bad).success, bad).toBe(false);
     }
   });
 
