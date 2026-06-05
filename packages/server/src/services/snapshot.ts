@@ -9,34 +9,21 @@ import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
 import { eq, desc } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
+import type { DeptSheetResult } from './google-sheets.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: DataSnapshot; timestamp: number }>();
 
-import type { DeptSheetResult } from './google-sheets.js';
-
-/**
- * Кэш данных из отдельных таблиц управлений.
- * Заполняется при вызове loadAllSources / fetchDepartmentSpreadsheets.
- * Ключи — русские короткие имена ('УЭР', 'УИО', …).
- * BUG-2 FIX: Теперь включает и формулы (values + formulas).
- */
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
-/** Обновить кэш данных управлений (вызывается из index.ts / dashboard route) */
 export function setDeptSheetCache(data: Record<string, DeptSheetResult>): void {
   cachedDeptSheetData = { ...cachedDeptSheetData, ...data };
 }
 
-/** Получить текущий кэш данных управлений (полный: values + formulas) */
 export function getDeptSheetCache(): Record<string, DeptSheetResult> {
   return cachedDeptSheetData;
 }
 
-/**
- * Получить только значения (без формул) из кэша управлений.
- * Обратная совместимость для потребителей, которым нужны raw rows.
- */
 export function getDeptSheetValues(): Record<string, unknown[][]> {
   const result: Record<string, unknown[][]> = {};
   for (const [key, val] of Object.entries(cachedDeptSheetData)) {
@@ -62,36 +49,27 @@ export function getDeptLoadMeta(): Record<string, DeptLoadMeta> {
   return deptLoadMeta;
 }
 
-/** Cached monthly data from «СВОД с месяцами». */
+/** Cached monthly data from «СВОД с месяцами». Kept under old variable names for API compatibility. */
 let cachedSHDYUData: Record<string, any> | null = null;
-/** Raw row count from «СВОД с месяцами» before parsing into blocks. */
 let cachedSHDYURawRowCount = 0;
-/** Last monthly source load error; null means success. */
 let cachedSHDYULoadError: string | null = null;
 
-/** Get monthly data cache. */
 export function getSHDYUCache(): Record<string, any> | null {
   return cachedSHDYUData;
 }
 
-/** Get raw row count from monthly source sheet. */
 export function getSHDYURawRowCount(): number {
   return cachedSHDYURawRowCount;
 }
 
-/** Get monthly source load error. */
 export function getSHDYULoadError(): string | null {
   return cachedSHDYULoadError;
 }
 
-/** Set monthly data cache. */
 export function setSHDYUCache(data: Record<string, any>): void {
   cachedSHDYUData = data;
 }
 
-/**
- * Строит единую сетку СВОД из dept-строк и кладёт её + сверку в snapshot.
- */
 export function attachUnifiedGrid(
   snapshot: DataSnapshot,
   sheetRows: Record<string, unknown[][]>,
@@ -154,7 +132,7 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
       }
     });
 
-    const shdyuPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((result) => {
+    const monthlyPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((result) => {
       const sourceLabel = result.sheetName;
       if (result.values.length > 0) {
         const parsed = parseSHDYUSheet(result.values, result.formulas);
@@ -170,7 +148,7 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
       console.warn(`Не удалось загрузить ${SHDYU_MONTHLY_SHEET_NAME}:`, err);
     });
 
-    await Promise.all([...sheetReadPromises, shdyuPromise]);
+    await Promise.all([...sheetReadPromises, monthlyPromise]);
 
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
       if (!sheetRows[deptName] || sheetRows[deptName].length === 0) {
@@ -197,58 +175,105 @@ async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
     }
 
     attachUnifiedGrid(snapshot, sheetRows, targetYear);
+    await saveSnapshot(snapshot);
 
     return snapshot;
   } catch (error) {
-    console.error('Failed to create snapshot:', error);
-    return createDemoSnapshot();
+    console.error('❌ Google Sheets unavailable, falling back to demo data:', error);
+    const demo = createDemoSnapshot();
+    demo.id = `demo-${demo.id}`;
+    return demo;
   }
 }
 
-export async function getLatestSnapshot(): Promise<DataSnapshot | null> {
-  const [row] = await db
-    .select()
+async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
+  try {
+    db.insert(schema.snapshots).values({
+      id: snapshot.id,
+      spreadsheetId: snapshot.spreadsheetId,
+      createdAt: snapshot.createdAt,
+      trustOverall: snapshot.trust.overall,
+      trustGrade: snapshot.trust.grade,
+      issueCount: snapshot.issues.length,
+      criticalIssueCount: snapshot.issues.filter(i => i.severity === 'critical').length,
+      metricsCount: Object.keys(snapshot.officialMetrics).length,
+      rowCount: snapshot.rowCount,
+      readDurationMs: snapshot.metadata.readDurationMs,
+      pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
+      data: JSON.stringify(snapshot),
+    }).run();
+
+    for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
+      db.insert(schema.metricHistory).values({
+        snapshotId: snapshot.id,
+        metricKey: key,
+        numericValue: metric.numericValue,
+        displayValue: metric.displayValue,
+        confidence: metric.confidence,
+        origin: metric.origin,
+        createdAt: snapshot.createdAt,
+      }).run();
+    }
+
+    for (const issue of snapshot.issues) {
+      db.insert(schema.issues).values({
+        ...issue,
+        snapshotId: snapshot.id,
+      }).run();
+    }
+  } catch (error) {
+    console.error('Ошибка сохранения снимка:', error);
+  }
+}
+
+export function getSnapshotHistory(limit = 50): Array<{
+  id: string;
+  createdAt: string;
+  trustOverall: number | null;
+  trustGrade: string | null;
+  issueCount: number | null;
+}> {
+  return db.select({
+    id: schema.snapshots.id,
+    createdAt: schema.snapshots.createdAt,
+    trustOverall: schema.snapshots.trustOverall,
+    trustGrade: schema.snapshots.trustGrade,
+    issueCount: schema.snapshots.issueCount,
+  })
     .from(schema.snapshots)
     .orderBy(desc(schema.snapshots.createdAt))
-    .limit(1);
-
-  return row ? (row.data as DataSnapshot) : null;
+    .limit(limit)
+    .all();
 }
 
-export async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
-  await db.insert(schema.snapshots).values({
-    id: snapshot.id,
-    data: snapshot as any,
-    createdAt: new Date(),
-  });
+export function getMetricTrend(metricKey: string, limit = 30): Array<{
+  numericValue: number | null;
+  createdAt: string;
+}> {
+  return db.select({
+    numericValue: schema.metricHistory.numericValue,
+    createdAt: schema.metricHistory.createdAt,
+  })
+    .from(schema.metricHistory)
+    .where(eq(schema.metricHistory.metricKey, metricKey))
+    .orderBy(desc(schema.metricHistory.createdAt))
+    .limit(limit)
+    .all();
 }
 
-export async function getSnapshotHistory(limit = 10): Promise<Array<{ id: string; createdAt: Date; totalRows: number; trustScore: number }>> {
-  const rows = await db
-    .select()
-    .from(schema.snapshots)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(limit);
-
-  return rows.map((row) => {
-    const data = row.data as DataSnapshot;
-    return {
-      id: row.id,
-      createdAt: row.createdAt,
-      totalRows: data.kpis.totalProcedures,
-      trustScore: data.trust.overall,
-    };
-  });
+export function getSnapshotMetrics(snapshotId: string): MetricRow[] {
+  const rows = db
+    .select({
+      metricKey: schema.metricHistory.metricKey,
+      numericValue: schema.metricHistory.numericValue,
+      createdAt: schema.metricHistory.createdAt,
+    })
+    .from(schema.metricHistory)
+    .where(eq(schema.metricHistory.snapshotId, snapshotId))
+    .all();
+  return rows.map((r) => ({ metricKey: r.metricKey, numericValue: r.numericValue, at: r.createdAt }));
 }
 
-export async function getMetricsBySnapshotId(snapshotId: string): Promise<NormalizedMetric[]> {
-  const [row] = await db
-    .select()
-    .from(schema.snapshots)
-    .where(eq(schema.snapshots.id, snapshotId))
-    .limit(1);
-
-  if (!row) return [];
-  const snapshot = row.data as DataSnapshot;
-  return Object.values(snapshot.officialMetrics);
+export function invalidateCache(): void {
+  cachedSnapshots.clear();
 }
