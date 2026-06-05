@@ -61,6 +61,9 @@ export * from './activity-scope.js';
 // Re-export СВОД view builder (панель просмотра — точная копия листа из officialMetrics)
 export * from './svod-view.js';
 
+// Re-export единая сетка СВОД (CalcEngine-истина: активность×метод×бюджет×период)
+export * from './unified-svod.js';
+
 // Re-export unified class system
 export * from './unified-class-system.js';
 

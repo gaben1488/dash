@@ -8,9 +8,23 @@ import {
 } from './activity-scope';
 
 describe('activity-scope', () => {
-  it('перечисляет три среза с AN4-маппингом таблицы', () => {
-    expect(ACTIVITY_SCOPES).toEqual(['all', 'td', 'pm']);
-    expect(ACTIVITY_AN4).toEqual({ all: '*', td: 'ТД', pm: 'ПМ' });
+  it('перечисляет четыре среза; td_pm не имеет AN4 листа (CalcEngine-only)', () => {
+    expect(ACTIVITY_SCOPES).toEqual(['all', 'td', 'pm', 'td_pm']);
+    expect(ACTIVITY_AN4).toEqual({ all: '*', td: 'ТД', pm: 'ПМ', td_pm: null });
+  });
+
+  it('td_pm: ТД И графа программы (D) ≠ X/Х/пусто', () => {
+    const TD = 'Текущая деятельность';
+    expect(matchesActivityScope('td_pm', TD, 'Муниципальная программа «Развитие…»')).toBe(true);
+    expect(matchesActivityScope('td_pm', TD, 'X')).toBe(false);
+    expect(matchesActivityScope('td_pm', TD, 'Х')).toBe(false);
+    expect(matchesActivityScope('td_pm', TD, '')).toBe(false);
+    expect(matchesActivityScope('td_pm', TD, null)).toBe(false);
+    // ПМ-строка не попадает в td_pm даже с программой
+    expect(matchesActivityScope('td_pm', 'Программное мероприятие', 'Программа N')).toBe(false);
+    // td (без под-разбивки) включает обе ТД-строки
+    expect(matchesActivityScope('td', TD, 'X')).toBe(true);
+    expect(matchesActivityScope('td', TD, 'Программа')).toBe(true);
   });
 
   it('matchesActivityScope: all — любая строка', () => {
@@ -32,7 +46,7 @@ describe('activity-scope', () => {
 
   it('parseActivityScope: AN4 / F / алиасы → ActivityScope', () => {
     expect(parseActivityScope('*')).toBe('all');
-    expect(parseActivityScope('ТД-ПМ')).toBe('all');
+    expect(parseActivityScope('ТД-ПМ')).toBe('td_pm');
     expect(parseActivityScope('ТД')).toBe('td');
     expect(parseActivityScope('Текущая деятельность')).toBe('td');
     expect(parseActivityScope('ПМ')).toBe('pm');
