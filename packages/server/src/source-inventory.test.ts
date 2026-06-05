@@ -14,9 +14,10 @@ describe('production source inventory contract', () => {
     expect(SVOD_SPREADSHEET_ID).toBe('1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg');
   });
 
-  it('keeps SHDYU in the main workbook and tolerates the current production tab name', () => {
+  it('prefers «СВОД с месяцами» as the monthly source, with legacy ШДЮ as fallback', () => {
     expect(SHDYU_SHEET_NAME).toBe('ШДЮ');
-    expect(SHDYU_SHEET_NAME_CANDIDATES).toEqual(['ШДЮ', 'ШДЮ старый']);
+    // Канонический помесячный лист первый; legacy-вкладки — fallback.
+    expect(SHDYU_SHEET_NAME_CANDIDATES).toEqual(['СВОД с месяцами', 'ШДЮ', 'ШДЮ старый']);
   });
 
   it('declares exactly the eight production department workbooks', () => {
