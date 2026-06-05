@@ -444,12 +444,18 @@ export async function writeCellValue(
 ): Promise<{ updatedRange: string; updatedCells: number }> {
   const api = await getWriteApi();
   const range = sheetValuesRange(sheetName, cell);
+  // SECURITY (H1): valueInputOption USER_ENTERED исполняет ведущий '=' как ЖИВУЮ формулу.
+  // Строковое значение, начинающееся с = + - @, — потенциальная формула-инъекция (=IMPORTXML→exfil
+  // данных 44-ФЗ таблицы на чужой домен). Префикс апострофа форсит текст в Sheets (отображается без
+  // апострофа). Числа/даты приходят как number или строки-с-цифры → не затрагиваются, type-coercion цел.
+  const safeValue =
+    typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
   const response = await api.spreadsheets.values.update({
     spreadsheetId,
     range,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [[value]],
+      values: [[safeValue]],
     },
   });
   return {
