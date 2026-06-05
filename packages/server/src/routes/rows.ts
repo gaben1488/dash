@@ -398,6 +398,18 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const DATE_COLUMNS = new Set(['N', 'Q']);
 
     const field = body.field.toUpperCase();
+
+    // SECURITY (C2/H3): field обязан быть РЕАЛЬНОЙ колонкой (COL_LETTER_INDEX), иначе range-injection:
+    // field="A5:Z5" пишет значение в ДИАПАЗОН, field="AG"/"ZZ" — в произвольную колонку прод-таблицы
+    // (writeCellValue USER_ENTERED → значение с "=" станет живой формулой). Только blacklist FORMULA_COLUMNS недостаточно.
+    if (COL_LETTER_INDEX[field] === undefined) {
+      return reply.status(400).send({ error: `Неизвестная колонка "${body.field}"` });
+    }
+    // idx обязан быть integer >= 2 (строка 1 — заголовок), иначе cellAddress "GNaN"/"G-1"/header.
+    if (!Number.isInteger(idx) || idx < 2) {
+      return reply.status(400).send({ error: `Некорректный номер строки "${rowIndex}"` });
+    }
+
     let normalizedValue: unknown = body.value;
 
     // Type validation and normalization
@@ -555,6 +567,15 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
+
+        // SECURITY (C2/H3): field обязан быть реальной колонкой + rowIndex integer>=2 — иначе range-injection.
+        if (COL_LETTER_INDEX[field] === undefined || !Number.isInteger(entry.rowIndex) || entry.rowIndex < 2) {
+          results.push({
+            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: `Неизвестная колонка "${rawField}" или некорректная строка ${entry.rowIndex}`,
+          });
+          continue;
+        }
 
         // Block formula columns
         if (FORMULA_COLUMNS.has(field)) {
