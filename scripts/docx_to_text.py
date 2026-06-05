@@ -7,7 +7,7 @@ docx_to_text.py — конвертирует .docx → .txt (параграфы 
 Usage:
   python scripts/docx_to_text.py <dir|file> --out-dir <dir> [--recursive]
 """
-import sys, os, glob
+import sys, os, glob, re
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -24,8 +24,10 @@ os.makedirs(out_dir, exist_ok=True)
 if os.path.isdir(target):
     pat = os.path.join(target, '**', '*.docx') if recursive else os.path.join(target, '*.docx')
     files = sorted(glob.glob(pat, recursive=recursive))
+    target_root = Path(target).resolve()
 else:
     files = [target]
+    target_root = None
 files = [f for f in files if not os.path.basename(f).startswith('~$')]
 print(f"[docx_to_text] {len(files)} файлов → {out_dir}")
 
@@ -42,9 +44,22 @@ def doc_text(path):
             out.append(' | '.join(cells))
     return '\n'.join(out)
 
+def output_name(path):
+    p = Path(path).resolve()
+    if recursive and target_root is not None:
+        rel = p.relative_to(target_root).with_suffix('')
+        raw = '__'.join(rel.parts)
+    else:
+        raw = p.stem
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '_', raw).strip(' ._')
+    return (safe or 'document')[:180]
+
+seen = {}
 for f in files:
-    base = os.path.splitext(os.path.basename(f))[0]
-    safe = base.replace('/', '_').replace('\\', '_')[:120]
+    safe = output_name(f)
+    seen[safe] = seen.get(safe, 0) + 1
+    if seen[safe] > 1:
+        safe = f"{safe}_{seen[safe]}"
     try:
         txt = doc_text(f)
     except Exception as e:
