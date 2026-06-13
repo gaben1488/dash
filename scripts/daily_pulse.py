@@ -256,6 +256,17 @@ def self_improvement_metrics(target_day: date) -> dict:
         # A1-Z9 style rule IDs OR numbered ### headings
         total = len(re.findall(r'(?:^|\n)###\s+\w', txt))
         total += len(re.findall(r'^\s*([A-Z]\d+)[:.]\s', txt, re.MULTILINE))
+    # SELF_IMPROVEMENT.md was archived; durable lessons now live as mulch FAILURE
+    # records (repoint per 2026-06-13 foundation-burst — no longer pinned at 0).
+    _md = PROJECT / '.mulch' / 'expertise'
+    if _md.exists():
+        for jf in _md.glob('*.jsonl'):
+            try:
+                for line in jf.read_text(encoding='utf-8', errors='replace').splitlines():
+                    if '"type": "failure"' in line or '"type":"failure"' in line:
+                        total += 1
+            except OSError:
+                pass
 
     # today's lessons = mulch records today + new/edited feedback_* files today
     today_iso = target_day.isoformat()
@@ -453,7 +464,7 @@ def _recommendations(strength: float, signals: list[tuple[str, str]]) -> str:
         elif name == 'orphans':
             recs.append("- 🔴 **orphans**: много несвязанных нод в графе — запустить `python scripts/link_orphans_by_date.py --apply`")
         elif name == 'lessons':
-            recs.append("- 🔴 **lessons**: нет уроков за день — обновить `SELF_IMPROVEMENT.md`")
+            recs.append("- 🔴 **lessons**: нет уроков за день — записать: `ml record <domain> --type failure ...`")
     if not recs:
         recs.append("Все сигналы ≥🟡 — петля работает. Поддерживать темп.")
     return '\n'.join(recs)
