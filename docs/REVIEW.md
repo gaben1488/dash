@@ -1,6 +1,6 @@
 # Code And Security Review
 
-Review date: 2026-06-05.
+Review date: 2026-06-14.
 
 ## Scope Reviewed
 
@@ -32,11 +32,11 @@ Review date: 2026-06-05.
 ## Verification Results
 
 ```text
-pnpm lint                         passed, 0 errors, 279 warnings remain for any/hook-deps
+pnpm lint                         passed, 0 errors, 274 warnings remain for any/hook-deps
 pnpm typecheck                    passed
-pnpm -r test                      passed: shared 48, core 636, server 14, web 15
+pnpm -r test                      passed: shared 72, core 720, server 18, web 25
 pnpm build                        passed
-pnpm audit --audit-level moderate passed, no known vulnerabilities
+pnpm audit --audit-level moderate passed; one Deno-only GHSA is ignored as documented below
 git diff --check                  passed, line-ending warnings only
 ```
 
@@ -47,6 +47,11 @@ git diff --check                  passed, line-ending warnings only
 - Auth is one shared API key stored in browser localStorage; this is acceptable only for internal MLP use.
 - No rate limiting or per-user authorization exists yet.
 - Biome remains advisory; ESLint is the primary gate.
+- `GHSA-gv7w-rqvm-qjhr` is ignored in `pnpm.auditConfig`: it affects esbuild's
+  Deno binary download path via attacker-controlled `NPM_CONFIG_REGISTRY`, while
+  AEMR builds and runs on Node 22. Forcing patched `esbuild@0.28.1` breaks the
+  current Vite 6 production transform. Remove the exception when upgrading the
+  Vite/tsx toolchain to versions compatible with esbuild 0.28.1 or newer.
 
 ## Recommended Next Hardening Pass
 
