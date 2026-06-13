@@ -73,6 +73,9 @@ export * from './unified-class-system.js';
 // Re-export department registry (canonical source of truth)
 export * from './department-registry.js';
 
+// Re-export sheet classifier (SSOT: имя листа → смысл; см. classifySheet)
+export * from './sheet-classifier.js';
+
 // Re-export all dictionaries (canonical methods, ГРБС aliases, EP reasons, legal refs, etc.)
 // See packages/shared/src/dictionaries/index.ts for full barrel.
 // Integration plan: AEMR_DICTIONARIES_PLAN.md §2.
