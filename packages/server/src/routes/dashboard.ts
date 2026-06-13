@@ -3,7 +3,7 @@ import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta, getSH
 import { createDemoSnapshot } from '../services/demo-data.js';
 import { fetchDepartmentSpreadsheets } from '../services/google-sheets.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema } from '@aemr/shared';
+import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, reconcile, reconcileMonthly, crossVerifyQuarterly } from '@aemr/core';
 
@@ -488,7 +488,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot(true);
       sources.push({
-        name: 'СВОД ТД-ПМ',
+        name: SVOD_SHEET_NAME,
         type: 'svod',
         loaded: true,
         rowCount: Object.keys(snapshot.officialMetrics ?? {}).length,
@@ -497,7 +497,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const msg = err instanceof Error ? err.message : String(err);
       app.log.warn('SVOD unavailable: %s', msg);
       snapshot = createDemoSnapshot();
-      sources.push({ name: 'СВОД ТД-ПМ', type: 'svod', loaded: false, error: msg });
+      sources.push({ name: SVOD_SHEET_NAME, type: 'svod', loaded: false, error: msg });
     }
 
     const deltaCount = snapshot.deltas?.length ?? 0;

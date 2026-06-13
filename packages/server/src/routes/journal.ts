@@ -5,7 +5,7 @@ import { desc } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
 import { getSpreadsheetMetadata, getSheetData } from '../google-sheets.js';
 import { detectSignals } from '@aemr/core';
-import { DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, buildCellDict, isMetaRow, SVOD_SHEET_NAME } from '@aemr/shared';
 
 /**
  * Маршруты журнала (аудит-лог).
@@ -283,12 +283,12 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       rowCount: number | null;
     }> = [
       {
-        name: 'СВОД ТД-ПМ',
+        name: SVOD_SHEET_NAME,
         type: 'summary',
         spreadsheetId: config.google.spreadsheetId,
-        status: isDemo ? 'warning' : (sheetsRead.includes('СВОД ТД-ПМ') ? 'ok' : 'error'),
+        status: isDemo ? 'warning' : (sheetsRead.includes(SVOD_SHEET_NAME) ? 'ok' : 'error'),
         lastSuccess: isDemo ? null : lastSuccess,
-        rowCount: snapshot?.metadata?.perSheetRowCount?.['СВОД ТД-ПМ'] ?? null,
+        rowCount: snapshot?.metadata?.perSheetRowCount?.[SVOD_SHEET_NAME] ?? null,
       },
     ];
 
@@ -379,7 +379,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
 
     // Find spreadsheetId by source name
     let spreadsheetId: string | null = null;
-    if (name === 'СВОД ТД-ПМ') {
+    if (name === SVOD_SHEET_NAME) {
       spreadsheetId = config.google.spreadsheetId;
     } else if (name === 'ШДЮ') {
       const { SHDYU_SPREADSHEET_ID } = await import('../config.js');
@@ -428,7 +428,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     const nextSpreadsheetId = validation.spreadsheetId;
 
     // Validate: source must exist
-    if (name === 'СВОД ТД-ПМ') {
+    if (name === SVOD_SHEET_NAME) {
       // Update main spreadsheet ID in config (runtime only; .env update is separate)
       config.google.spreadsheetId = nextSpreadsheetId;
       return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId });
@@ -452,7 +452,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
 
     // Find spreadsheet for this source
     let spreadsheetId: string | null;
-    if (name === 'СВОД ТД-ПМ') {
+    if (name === SVOD_SHEET_NAME) {
       spreadsheetId = config.google.spreadsheetId;
     } else if (name === 'ШДЮ') {
       const { SHDYU_SPREADSHEET_ID: sid } = await import('../config.js');
