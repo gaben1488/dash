@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
-import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey } from '@aemr/shared';
+import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifySheet } from '@aemr/shared';
 
 /** Check if program name is meaningful (not empty/"X"/"x"/"Х"/"х") */
 function hasProgramName(val: unknown): boolean {
@@ -38,15 +38,20 @@ export function validateData(
   const now = new Date().toISOString();
 
   // Determine sheet type from first row (all rows in one call are from the same sheet)
+  // SSOT: classifySheet решает scope. ШДЮ «СВОД с месяцами» = shdyu_monthly (иная
+  // раскладка) → НЕ department, НЕ svod → generic-правила его не трогают (фикс
+  // ложных падений валидации ШДЮ; УКСиМП/УАГЗО корректно идут как department).
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
-  const isSvod = sheetName === 'СВОД ТД-ПМ';
+  const sheetClass = classifySheet(sheetName);
 
   for (const rule of rules) {
     if (rule.enabled === false) continue;
 
-    // Scope filtering: prevent SVOD-specific rules from running on dept sheets and vice versa
-    if (rule.scope === 'svod' && !isSvod) continue;
-    if (rule.scope === 'department' && isSvod) continue;
+    // Scope filtering через classifySheet (SSOT): svod-правила только на свод;
+    // department-правила только на листах ГРБС (department/subordinates_agg).
+    // shdyu_monthly и unknown не получают ни svod-, ни department-правил.
+    if (rule.scope === 'svod' && sheetClass.kind !== 'svod') continue;
+    if (rule.scope === 'department' && sheetClass.kind !== 'department' && sheetClass.kind !== 'subordinates_agg') continue;
 
     // Run the rule's check() against each applicable row
     for (const row of rows) {

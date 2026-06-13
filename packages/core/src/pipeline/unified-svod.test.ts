@@ -306,3 +306,31 @@ describe('reconcileUnified — cross-check vs СВОД ТД-ПМ', () => {
     expect(year?.status).toBe('ok');
   });
 });
+
+// ────────────────────────────────────────────────────────────
+// req 4: базовый вид = сумма за все годы (targetYear undefined → без year-фильтра)
+// ────────────────────────────────────────────────────────────
+
+describe('computeUnifiedGrid — база = сумма всех лет (req 4)', () => {
+  const rows: Record<string, unknown[][]> = {
+    uo: [
+      // 2025: ТД(X)/КП, Q1, план ФБ=40, факт=40
+      row({ 3: 'X', 5: 'Текущая деятельность', 11: 'ЭА', 13: '2025-02-01', 14: 1, 15: 2025, 16: '2025-02-10', 7: 40, 21: 40, 29: 'нет' }),
+      // 2026: ТД(X)/КП, Q1, план ФБ=60, факт=60
+      row({ 3: 'X', 5: 'Текущая деятельность', 11: 'ЭА', 13: '2026-02-01', 14: 1, 15: 2026, 16: '2026-02-10', 7: 60, 21: 60, 29: 'нет' }),
+    ],
+  };
+  const key = (p: SvodPeriodKey) => unifiedKey('uo', 'all', 'kp', p);
+
+  it('без targetYear → суммирует ОБА года (2025 + 2026)', () => {
+    const grid = computeUnifiedGrid(rows); // undefined = все годы (базовый вид)
+    expect(grid.cells[key('q1')]?.planCount).toBe(2);
+    expect(grid.cells[key('q1')]?.planFB).toBe(100); // 40 + 60
+  });
+
+  it('targetYear=2026 → только 2026 (фильтр активен)', () => {
+    const grid = computeUnifiedGrid(rows, 2026);
+    expect(grid.cells[key('q1')]?.planCount).toBe(1);
+    expect(grid.cells[key('q1')]?.planFB).toBe(60);
+  });
+});
