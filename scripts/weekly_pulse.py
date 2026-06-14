@@ -138,7 +138,9 @@ def s_mulch_synced():
 
 def s_tooling_backed():
     st = run(["git", "status", "--porcelain", "scripts/"]).splitlines()
-    unt = [x for x in st if x.startswith("??") and x.strip().endswith(".py")]
+    # one-off scripts use a leading underscore (e.g. _extract_*.py) — not durable tooling, ignore.
+    unt = [x for x in st if x.startswith("??") and x.strip().endswith(".py")
+           and not Path(x.strip().split(maxsplit=1)[-1]).name.startswith("_")]
     ok = len(unt) == 0
     return ("tooling_backup", ok,
             "тулинг в git" if ok else f"{len(unt)} untracked-скриптов в scripts/ (потеряшки, только локально)",
@@ -146,7 +148,8 @@ def s_tooling_backed():
 
 
 def s_open_p0():
-    reg = MEM / "CODEX_REVIEW_2026-06-14.md"
+    reviews = sorted(MEM.glob("CODEX_REVIEW_*.md"))
+    reg = reviews[-1] if reviews else MEM / "CODEX_REVIEW_2026-06-14.md"
     titles = []
     if reg.exists():
         t = reg.read_text(encoding="utf-8", errors="replace")
