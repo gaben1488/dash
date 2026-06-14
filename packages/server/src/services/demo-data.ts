@@ -1,4 +1,4 @@
-import { REPORT_MAP } from '@aemr/shared';
+import { REPORT_MAP, SVOD_SHEET_NAME } from '@aemr/shared';
 import type {
   DataSnapshot,
   NormalizedMetric,
@@ -175,7 +175,7 @@ function buildIssues(): Issue[] {
       title: 'Существенное расхождение факта УИО',
       description:
         'Значение факта по УИО из сводного листа расходится с построчным пересчётом на 3,4%. Возможна ошибка в формуле ячейки E72.',
-      sheet: 'СВОД ТД-ПМ',
+      sheet: SVOD_SHEET_NAME,
       cell: 'E72',
       metricKey: 'grbs.uio.fact',
       departmentId: 'uio',
@@ -208,7 +208,7 @@ function buildIssues(): Issue[] {
       title: 'Низкий процент исполнения УДТХ (62,3%)',
       description:
         'Процент исполнения плана закупок УДТХ за 1 квартал составляет 62,3%, что ниже порога 70%. Рекомендуется усилить контроль за размещением процедур.',
-      sheet: 'СВОД ТД-ПМ',
+      sheet: SVOD_SHEET_NAME,
       cell: 'G195',
       metricKey: 'grbs.udtx.q1.percent',
       departmentId: 'udtx',
@@ -225,7 +225,7 @@ function buildIssues(): Issue[] {
       title: 'Низкий процент исполнения УИО (68,7%)',
       description:
         'Процент исполнения плана закупок УИО за 1 квартал составляет 68,7%, что ниже порога 70%.',
-      sheet: 'СВОД ТД-ПМ',
+      sheet: SVOD_SHEET_NAME,
       cell: 'G72',
       metricKey: 'grbs.uio.q1.percent',
       departmentId: 'uio',
@@ -242,7 +242,7 @@ function buildIssues(): Issue[] {
       title: 'Пустое значение экономии МБ для УИО',
       description:
         'Ячейка U77 (экономия МБ по УИО) содержит пустое значение. В маппинге метрика grbs.uio.economy_mb ожидает числовое значение.',
-      sheet: 'СВОД ТД-ПМ',
+      sheet: SVOD_SHEET_NAME,
       cell: 'U77',
       departmentId: 'uio',
       recommendation: 'Проверить, заполнена ли ячейка U77 или экономия МБ по УИО действительно нулевая.',
@@ -258,7 +258,7 @@ function buildIssues(): Issue[] {
       title: 'Общее отклонение Q1 отрицательное',
       description:
         'Отклонение исполнения за 1 квартал составляет -48 320 тыс. руб. Это означает недовыполнение общего плана закупок.',
-      sheet: 'СВОД ТД-ПМ',
+      sheet: SVOD_SHEET_NAME,
       cell: 'F9',
       metricKey: 'execution.q1.deviation',
       recommendation: 'Информационное. Мониторить динамику отклонения во 2 квартале.',
@@ -274,7 +274,7 @@ function buildIssues(): Issue[] {
       title: 'Высокий процент УАГЗО (89,4%)',
       description:
         'УАГЗО показывает наилучший процент исполнения Q1 — 89,4%. Можно использовать как эталон.',
-      sheet: 'СВОД ТД-ПМ',
+      sheet: SVOD_SHEET_NAME,
       cell: 'G102',
       metricKey: 'grbs.uagzo.q1.percent',
       departmentId: 'uagzo',
@@ -441,7 +441,7 @@ function demoEmitRow(out: Record<string, NormalizedMetric>, prefix: string, row:
       displayValue: kind === 'percent' ? `${(v * 100).toFixed(1)}%` : v.toLocaleString('ru-RU'),
       origin: 'official', period,
       unit: kind === 'percent' ? 'percent' : kind === 'count' ? 'count' : 'thousand_rubles',
-      sourceSheet: 'СВОД ТД-ПМ', sourceCell: '', formula: null,
+      sourceSheet: SVOD_SHEET_NAME, sourceCell: '', formula: null,
       confidence: 0.95, readAt: now, warnings: [],
     };
     out[key] = metric;
@@ -507,7 +507,7 @@ export function createDemoSnapshot(): DataSnapshot {
     trust,
     rowCount: 284,
     metadata: {
-      sheetsRead: ['СВОД ТД-ПМ', 'УЭР', 'УИО', 'УАГЗО', 'УФБП', 'УД', 'УДТХ', 'УКСиМП', 'УО'],
+      sheetsRead: [SVOD_SHEET_NAME, 'УЭР', 'УИО', 'УАГЗО', 'УФБП', 'УД', 'УДТХ', 'УКСиМП', 'УО'],
       cellsRead: 27,
       readDurationMs: 0,
       pipelineDurationMs: 0,

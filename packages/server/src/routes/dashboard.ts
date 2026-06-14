@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta, getSHDYULoadError } from '../services/snapshot.js';
+import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta } from '../services/snapshot.js';
 import { createDemoSnapshot } from '../services/demo-data.js';
 import { fetchDepartmentSpreadsheets } from '../services/google-sheets.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema } from '@aemr/shared';
+import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
-import { computeTrustScore, reconcile, reconcileMonthly, crossVerifyQuarterly } from '@aemr/core';
+import { computeTrustScore, crossVerifyQuarterly } from '@aemr/core';
 
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
@@ -488,7 +488,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot(true);
       sources.push({
-        name: 'СВОД ТД-ПМ',
+        name: SVOD_SHEET_NAME,
         type: 'svod',
         loaded: true,
         rowCount: Object.keys(snapshot.officialMetrics ?? {}).length,
@@ -497,7 +497,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const msg = err instanceof Error ? err.message : String(err);
       app.log.warn('SVOD unavailable: %s', msg);
       snapshot = createDemoSnapshot();
-      sources.push({ name: 'СВОД ТД-ПМ', type: 'svod', loaded: false, error: msg });
+      sources.push({ name: SVOD_SHEET_NAME, type: 'svod', loaded: false, error: msg });
     }
 
     const deltaCount = snapshot.deltas?.length ?? 0;
@@ -525,142 +525,15 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     reply.status(result.statusCode).send(result.json());
   });
 
-  /** GET /api/reconciliation — сверка СВОД vs пересчёт по управлениям */
-  app.get('/api/reconciliation', async (_request, reply) => {
-    let snapshot;
-    try {
-      snapshot = await getSnapshot();
-    } catch {
-      snapshot = createDemoSnapshot();
-    }
+  // GET /api/reconciliation — перенесён в routes/reconciliation.ts (единый владелец роута,
+  // расширенная сверка). Старый per-dept обработчик удалён: дублирующая регистрация GET
+  // ломала старт Fastify ("Method 'GET' already declared for route '/api/reconciliation'").
 
-    const calc = snapshot.calculatedMetrics ?? {};
+  // GET /api/export/reconciliation — перенесён в routes/reconciliation.ts (единый владелец).
+  // Дублирующая регистрация ломала старт Fastify.
 
-    // Build per-department official and calculated aggregates
-    type ReconMetrics = { planTotal: number; factTotal: number; economyTotal: number };
-    const officialMap = new Map<string, ReconMetrics>();
-    const calculatedMap = new Map<string, ReconMetrics>();
-
-    for (const dept of DEPARTMENTS) {
-      const prefix = `grbs.${dept.id}`;
-      const oGet = (key: string) => snapshot.officialMetrics[key]?.numericValue ?? 0;
-      const cGet = (key: string) => calc[key]?.numericValue ?? 0;
-
-      // Official: КП + ЕП from СВОД cells (both methods combined)
-      const offPlan = oGet(`${prefix}.kp.year.total_plan`) + oGet(`${prefix}.ep.year.total_plan`);
-      const offFact = oGet(`${prefix}.kp.year.total_fact`) + oGet(`${prefix}.ep.year.total_fact`);
-      const offEco = oGet(`${prefix}.economy.kp`) + oGet(`${prefix}.economy.ep`);
-      officialMap.set(dept.nameShort, {
-        planTotal: offPlan,
-        factTotal: offFact,
-        economyTotal: offEco,
-      });
-
-      // Calculated: year totals (КП + ЕП combined)
-      const calcPlan = cGet(`${prefix}.year.plan_total`);
-      const calcFact = cGet(`${prefix}.year.fact_total`);
-      const calcEco = cGet(`${prefix}.year.economy_total`);
-      calculatedMap.set(dept.nameShort, {
-        planTotal: calcPlan,
-        factTotal: calcFact,
-        economyTotal: calcEco,
-      });
-    }
-
-    const reconSummary = reconcile(officialMap, calculatedMap);
-
-    return reply.send({
-      reconciliation: reconSummary,
-      snapshotId: snapshot.id,
-      createdAt: snapshot.createdAt,
-      deltaCount: snapshot.deltas?.length ?? 0,
-      calculatedMetricCount: Object.keys(calc).length,
-    });
-  });
-
-  /**
-   * GET /api/export/reconciliation
-   * Экспорт сверки в CSV (UTF-8 с BOM для Excel).
-   */
-  app.get('/api/export/reconciliation', async (_request, reply) => {
-    let snapshot;
-    try {
-      snapshot = await getSnapshot();
-    } catch (err) {
-      app.log.warn({ err }, 'export/recon: failed to get snapshot');
-      return reply.status(503).send({ error: 'Snapshot unavailable' });
-    }
-
-    const deltas = snapshot.deltas ?? [];
-
-    const headers = ['Метрика', 'Официальное', 'Расчётное', 'Δ', 'Δ%', 'В допуске', 'Пояснение'];
-    const rows = deltas.map((d: any) => [
-      d.metricKey ?? d.label ?? '',
-      d.officialValue != null ? String(d.officialValue) : '',
-      d.calculatedValue != null ? String(d.calculatedValue) : '',
-      d.delta != null ? String(d.delta) : '',
-      d.deltaPercent != null ? d.deltaPercent.toFixed(1) + '%' : '',
-      d.withinTolerance ? 'Да' : 'Нет',
-      d.explanation ?? '',
-    ]);
-
-    const escapeCsv = (val: string) => {
-      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-        return '"' + val.replace(/"/g, '""') + '"';
-      }
-      return val;
-    };
-
-    const csvContent = [
-      headers.map(escapeCsv).join(','),
-      ...rows.map((row: string[]) => row.map(escapeCsv).join(',')),
-    ].join('\r\n');
-
-    const BOM = '\uFEFF';
-    reply.header('Content-Type', 'text/csv; charset=utf-8');
-    reply.header('Content-Disposition', `attachment; filename="reconciliation_${new Date().toISOString().slice(0, 10)}.csv"`);
-    return reply.send(BOM + csvContent);
-  });
-
-  /** GET /api/reconciliation/monthly — помесячная сверка расчёта vs ШДЮ */
-  app.get('/api/reconciliation/monthly', async (request, reply) => {
-    const { dept: filterDept } = request.query as Record<string, string>;
-
-    let snapshot;
-    try {
-      snapshot = await getSnapshot();
-    } catch {
-      snapshot = createDemoSnapshot();
-    }
-
-    const recalcResults = snapshot.recalcResults ?? {};
-    const shdyuData = snapshot.shdyuData ?? {};
-
-    if (Object.keys(shdyuData).length === 0) {
-      // Сообщаем КОНКРЕТНУЮ причину (пусто vs ошибка чтения), а не общий текст.
-      const cause = getSHDYULoadError();
-      return reply.send({
-        error: null,
-        warning: cause ?? 'ШДЮ данные не загружены. Нажмите «Обновить» для загрузки.',
-        cause,
-        rows: [],
-        counts: { ok: 0, warning: 0, high: 0, empty: 0 },
-        overallStatus: 'Нет данных ШДЮ',
-      });
-    }
-
-    const deptNames: Record<string, string> = {};
-    for (const d of DEPARTMENTS) deptNames[d.id] = d.nameShort;
-
-    const result = reconcileMonthly(recalcResults, shdyuData, deptNames);
-
-    // Optional dept filter
-    if (filterDept) {
-      result.rows = result.rows.filter(r => r.deptId === filterDept);
-    }
-
-    return reply.send(result);
-  });
+  // GET /api/reconciliation/monthly — перенесён в routes/reconciliation.ts (единый владелец,
+  // мигрирован на «СВОД с месяцами»). Дублирующая регистрация ломала старт Fastify.
 
   /** GET /api/reconciliation/quarterly — перекрёстная сверка ШДЮ(Σ3мес) vs СВОД(квартал) */
   app.get('/api/reconciliation/quarterly', async (request, reply) => {

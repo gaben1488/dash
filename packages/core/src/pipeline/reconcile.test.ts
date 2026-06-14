@@ -915,6 +915,65 @@ describe('crossVerifyQuarterly', () => {
 });
 
 // ────────────────────────────────────────────────────────────
+// 3b. Key normalization: latin SHDYU (uer) ↔ cyrillic recalc (УЭР)
+//     Регресс на корень ложных 200%: SHDYU_BLOCKS ключуют латиницей,
+//     recalcResults — кириллицей; без нормализации ключи не пересекались.
+// ────────────────────────────────────────────────────────────
+
+describe('reconcile key normalization (latin ↔ cyrillic grbsId)', () => {
+  it('crossVerifyQuarterly: латиница uer + кириллица УЭР с совпадающими данными → ok, не high', () => {
+    const shdyu = {
+      uer: {
+        months: {
+          1: { compPlanCount: 5, compFactCount: 5, epPlanCount: 2, epFactCount: 2 },
+          2: { compPlanCount: 0, compFactCount: 0, epPlanCount: 0, epFactCount: 0 },
+          3: { compPlanCount: 0, compFactCount: 0, epPlanCount: 0, epFactCount: 0 },
+        },
+      },
+    };
+    const recalc = {
+      'УЭР': { quarters: { q1: { competitive: { plan: 5, fact: 5 }, ep: { plan: 2, fact: 2 } } } },
+    };
+    const result = crossVerifyQuarterly(shdyu, recalc, {});
+    const q1 = result.rows.filter((r) => r.quarter === 1);
+    // uer и УЭР схлопнулись в один ключ → одна строка, не две
+    expect(q1).toHaveLength(1);
+    expect(q1[0].compPlan.status).toBe('ok');
+    expect(q1[0].epFact.status).toBe('ok');
+    expect(result.counts.high).toBe(0);
+  });
+
+  it('reconcileMonthly: латиница uer + кириллица УЭР с совпадающими данными → ok', () => {
+    const recalc = {
+      'УЭР': {
+        months: {
+          1: {
+            planCount: 10, factCount: 5,
+            competitive: { plan: 10, fact: 5, planSum: 1000, factSum: 500 },
+            ep: { plan: 3, fact: 2, planSum: 300, factSum: 200 },
+          },
+        },
+      },
+    };
+    const shdyu = {
+      uer: {
+        months: {
+          1: {
+            compPlanCount: 10, compFactCount: 5, compPlanTotal: 1000, compFactTotal: 500,
+            epPlanCount: 3, epFactCount: 2, epPlanTotal: 300, epFactTotal: 200,
+          },
+        },
+      },
+    };
+    const result = reconcileMonthly(recalc as never, shdyu as never, {});
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].month).toBe(1);
+    expect(result.rows[0].compPlan.status).toBe('ok');
+    expect(result.rows[0].compFact.status).toBe('ok');
+  });
+});
+
+// ────────────────────────────────────────────────────────────
 // 4. Edge cases and integration
 // ────────────────────────────────────────────────────────────
 

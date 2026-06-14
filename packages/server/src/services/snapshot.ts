@@ -88,27 +88,33 @@ export function attachUnifiedGrid(
 }
 
 export async function getSnapshot(force = false, targetYear?: number): Promise<DataSnapshot> {
-  const currentYear = new Date().getFullYear();
+  // Год: валидный → этот год; иначе undefined = ВСЕ ГОДЫ (базовый вид = сумма за все
+  // годы, req 4). НЕ коэрсим в currentYear — запрос без года агрегирует все годы.
   const year = Number.isInteger(targetYear) && (targetYear as number) >= 2020 && (targetYear as number) <= 2100
     ? (targetYear as number)
-    : currentYear;
+    : undefined;
+  // Ключ кэша: год или 0 («все годы»-бакет; 0 — не валидный год, поэтому не коллизит).
+  const cacheKey = year ?? 0;
   const now = Date.now();
   const ttl = config.cache.ttlSeconds * 1000;
 
-  const cached = cachedSnapshots.get(year);
+  const cached = cachedSnapshots.get(cacheKey);
   if (!force && cached && (now - cached.timestamp) < ttl) {
     return cached.snapshot;
   }
 
   const snapshot = await createSnapshot(year);
   if (!snapshot.id.startsWith('demo-')) {
-    cachedSnapshots.set(year, { snapshot, timestamp: now });
+    cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
   }
 
   return snapshot;
 }
 
-async function createSnapshot(targetYear: number): Promise<DataSnapshot> {
+/**
+ * Создаёт новый снимок: читает данные из Google Sheets и прогоняет пайплайн
+ */
+async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
   try {
     const cellAddresses = getAllCellAddresses();
     const [batchValues, batchFormulas] = await Promise.all([

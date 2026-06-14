@@ -94,7 +94,7 @@ describe('validateData — basic', () => {
 describe('validateData — scope filtering', () => {
   it('runs svod-scoped rules only on СВОД sheet', () => {
     const svodRow = makeRow({ sheet: 'СВОД ТД-ПМ' });
-    const deptRow = makeRow({ sheet: 'Лист1' });
+    const deptRow = makeRow({ sheet: 'УО' });
 
     const svodRule = makeFailingRule({ id: 'svod_only', scope: 'svod' });
 
@@ -107,7 +107,7 @@ describe('validateData — scope filtering', () => {
 
   it('runs department-scoped rules only on non-СВОД sheets', () => {
     const svodRow = makeRow({ sheet: 'СВОД ТД-ПМ' });
-    const deptRow = makeRow({ sheet: 'Лист1' });
+    const deptRow = makeRow({ sheet: 'УО' });
 
     const deptRule = makeFailingRule({ id: 'dept_only', scope: 'department' });
 
@@ -118,9 +118,17 @@ describe('validateData — scope filtering', () => {
     expect(deptIssues).toHaveLength(1);
   });
 
+  it('НЕ прогоняет ни svod-, ни department-правила на ШДЮ «СВОД с месяцами» (фикс ложных падений ШДЮ)', () => {
+    const shdyuRow = makeRow({ sheet: 'СВОД с месяцами' });
+    const svodRule = makeFailingRule({ id: 'svod_only', scope: 'svod' });
+    const deptRule = makeFailingRule({ id: 'dept_only', scope: 'department' });
+    expect(validateData(EMPTY_METRICS, [shdyuRow], [svodRule], EMPTY_REPORT_MAP)).toHaveLength(0);
+    expect(validateData(EMPTY_METRICS, [shdyuRow], [deptRule], EMPTY_REPORT_MAP)).toHaveLength(0);
+  });
+
   it('runs "both"-scoped rules on all sheets', () => {
     const svodRow = makeRow({ sheet: 'СВОД ТД-ПМ' });
-    const deptRow = makeRow({ sheet: 'Лист1' });
+    const deptRow = makeRow({ sheet: 'УО' });
 
     const bothRule = makeFailingRule({ id: 'both_scope', scope: 'both' });
 

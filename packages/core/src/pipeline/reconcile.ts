@@ -9,6 +9,27 @@
  *   >= 5 % — Есть расхождение   (high)     — likely mapping error
  */
 
+import { findDept } from '@aemr/shared';
+
+/**
+ * Канонический ключ ГРБС: латиница ('uer') и кириллица ('УЭР') → единый
+ * кириллический dept.id через реестр. SHDYU_BLOCKS ключуют латиницей,
+ * recalcResults — кириллицей; без нормализации crossVerifyQuarterly /
+ * reconcileMonthly объединяли непересекающиеся ключи → каждая сторона
+ * сравнивалась с 0 → ложные расхождения. 'all' и прочее без записи в
+ * реестре остаются как есть.
+ */
+function canonGrbsKey(key: string): string {
+  return findDept(key)?.id ?? key;
+}
+
+/** Пере-ключевание Record на канонический ГРБС-id (при коллизии выигрывает последний). */
+function rekeyByGrbs<T>(rec: Record<string, T>): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const [k, v] of Object.entries(rec)) out[canonGrbsKey(k)] = v;
+  return out;
+}
+
 // ── Interfaces ────────────────────────────────────────────────────
 
 export interface OfficialMetrics {
@@ -638,15 +659,18 @@ export function reconcileMonthly(
   deptNames: Record<string, string>,
 ): MonthlyReconSummary {
   const rows: MonthlyReconRow[] = [];
+  // Нормализуем ключи к каноническому кириллическому grbsId (SHDYU=латиница, recalc=кириллица)
+  const recalcByGrbs = rekeyByGrbs(recalcResults);
+  const shdyuByGrbs = rekeyByGrbs(shdyuData);
   // Exclude 'all' (SHDYU_ALL_BLOCK) — it's for cross-validation, not per-dept reconciliation
   const deptIds = new Set([
-    ...Object.keys(recalcResults),
-    ...Object.keys(shdyuData).filter(k => k !== 'all'),
+    ...Object.keys(recalcByGrbs),
+    ...Object.keys(shdyuByGrbs).filter(k => k !== 'all'),
   ]);
 
   for (const deptId of deptIds) {
-    const recalc = recalcResults[deptId];
-    const shdyu = shdyuData[deptId];
+    const recalc = recalcByGrbs[deptId];
+    const shdyu = shdyuByGrbs[deptId];
     const deptName = deptNames[deptId] ?? deptId;
 
     for (let m = 1; m <= 12; m++) {
@@ -817,11 +841,14 @@ export function crossVerifyQuarterly(
   deptNames: Record<string, string>,
 ): QuarterCrossSummary {
   const rows: QuarterCrossRow[] = [];
-  const deptIds = new Set([...Object.keys(shdyuData), ...Object.keys(recalcResults)]);
+  // Нормализуем ключи к каноническому кириллическому grbsId (SHDYU=латиница, recalc=кириллица)
+  const shdyuByGrbs = rekeyByGrbs(shdyuData);
+  const recalcByGrbs = rekeyByGrbs(recalcResults);
+  const deptIds = new Set([...Object.keys(shdyuByGrbs), ...Object.keys(recalcByGrbs)]);
 
   for (const deptId of deptIds) {
-    const shdyu = shdyuData[deptId];
-    const recalc = recalcResults[deptId];
+    const shdyu = shdyuByGrbs[deptId];
+    const recalc = recalcByGrbs[deptId];
     const deptName = deptNames[deptId] ?? deptId;
 
     for (let q = 1; q <= 4; q++) {

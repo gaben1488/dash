@@ -4,7 +4,7 @@ BI-платформа мониторинга закупочной деятель
 
 Проект читает Google Sheets, нормализует закупочные строки, считает KPI, сигналы, сверки и индекс доверия к данным, затем отдаёт Fastify API и React/Vite интерфейс.
 
-Last verified: 2026-06-05.
+Last verified: 2026-06-14.
 
 ## Состав
 
@@ -75,13 +75,14 @@ pnpm build                        # server + web production build
 pnpm audit --audit-level moderate # dependency security audit
 ```
 
-Текущий локальный результат проверки 2026-06-05:
+Текущий локальный результат проверки 2026-06-14:
 
 - `pnpm lint` проходит; остаются предупреждения по `any`, не ошибки.
 - `pnpm typecheck` проходит.
-- `pnpm -r test` проходит: shared 48, core 636, server 14, web 15.
+- `pnpm -r test` проходит: shared 72, core 720, server 18, web 25.
 - `pnpm build` проходит; Vite предупреждает о web chunk около 1.36 MB.
-- `pnpm audit --audit-level moderate` не находит известных уязвимостей.
+- `pnpm audit --audit-level moderate` проходит; Deno-only advisory для esbuild
+  исключён с обоснованием в [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Production
 

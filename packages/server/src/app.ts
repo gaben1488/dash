@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { config, DEPARTMENT_SPREADSHEETS } from './config.js';
+import { SVOD_SHEET_NAME } from '@aemr/shared';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { auditRoutes } from './routes/audit.js';
@@ -101,7 +102,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     app.get('/api/debug/sheets', async () => {
       try {
         const { batchGetCells } = await import('./google-sheets.js');
-        const result = await batchGetCells(["'СВОД ТД-ПМ'!A1"]);
+        const result = await batchGetCells([`'${SVOD_SHEET_NAME}'!A1`]);
         return { success: true, data: result };
       } catch (err) {
         return { success: false, error: String(err), message: (err as Error).message };
