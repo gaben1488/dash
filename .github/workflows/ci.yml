@@ -73,3 +73,34 @@ jobs:
 
       - name: Biome check
         run: pnpm biome:check || true
+
+  deploy:
+    name: Deploy to VPS
+    needs: verify                       # выкатываем только если lint/tsc/test/build/audit зелёные
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:                        # не допускаем параллельные деплои (последний побеждает)
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH (git reset --hard origin/main + docker compose up --build + health)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 18m
+          script_stop: true             # упасть на первой же ошибке шага
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
+            git log --oneline -1
+            cd /home/aemr/dash/deploy
+            docker compose --env-file .env.production up -d --build
+            sleep 8
+            curl -fsS -m 15 http://127.0.0.1/api/health && echo " — deploy OK"
