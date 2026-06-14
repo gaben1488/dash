@@ -4,6 +4,18 @@
 
 set -e
 
+# Skip the TS gate when no TypeScript is staged (e.g. .py tooling, .mulch, docs, .sh).
+# Rationale: the tsc/test gate exists to catch TS regressions; a non-TS commit cannot
+# introduce them. Running it on a .py-only / .mulch-only commit is pure waste — and on
+# this machine server-tsc OOMs under memory pressure, which silently blocked `ml sync`
+# (lessons never reached the shared channel) and tooling backups. This keeps the gate
+# strict for real code while unblocking data/tooling commits WITHOUT --no-verify.
+STAGED_TS="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx)$' || true)"
+if [ -z "$STAGED_TS" ]; then
+  echo "[husky/pre-commit] no .ts/.tsx staged — skipping tsc/test gate"
+  exit 0
+fi
+
 echo "[husky/pre-commit] typecheck all 4 packages..."
 (cd packages/shared && npx tsc --noEmit) || { echo "shared tsc failed"; exit 1; }
 (cd packages/core && npx tsc --noEmit) || { echo "core tsc failed"; exit 1; }
