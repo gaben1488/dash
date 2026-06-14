@@ -67,3 +67,11 @@ data/
 .analysis/
 .claude/
 .playwright-cli/
+
+# Local SQLite DBs (parallel agents must not commit these)
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
