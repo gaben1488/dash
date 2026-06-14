@@ -188,7 +188,7 @@ function assess(
  * for every department present in either dataset.
  *
  * @param officialMetrics    Map<departmentName, metrics> from summary cells.
- * @param calculatedMetrics  Map<departmentName, metrics> from recalculateFromRows().
+ * @param calculatedMetrics  Map<departmentName, metrics> from CalcEngine (via calc-engine-adapter).
  */
 export function reconcile(
   officialMetrics: Map<string, OfficialMetrics>,

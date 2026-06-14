@@ -15,7 +15,6 @@
 import { describe, it, expect } from 'vitest';
 import { DEPT_COLUMNS, normalizeMethod, isCompetitive, PROCUREMENT_METHODS } from '@aemr/shared';
 import { CalcEngine } from './calc-engine.js';
-import { recalculateFromRows } from './recalculate.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -167,23 +166,4 @@ describe('method alias integration — dictionaries → calc-engine', () => {
     });
   });
 
-  describe('legacy recalculateFromRows method counts via aliases', () => {
-    it('normalizes EP and competitive aliases before counting method totals', () => {
-      const rows = buildSheet([
-        makeRow('Ед. поставщик', { [COL.FACT_DATE]: '20.02.2025', [COL.TOTAL_FACT]: 90 }),
-        makeRow('ЭА (МЭП)', { [COL.FACT_DATE]: '21.02.2025', [COL.TOTAL_FACT]: 95 }),
-        makeRow('еп'),
-        makeRow('эа'),
-        makeRow('ГАРБАЖ'),
-      ]);
-
-      const result = recalculateFromRows(rows, 'УЭР', 3, 2025);
-
-      expect(result.totalEP).toBe(2);
-      expect(result.totalCompetitive).toBe(2);
-      expect(result.year.epExecCountPct).toBeCloseTo(0.5, 3);
-      expect(result.year.compExecCountPct).toBeCloseTo(0.5, 3);
-      expect(result.epSharePct).toBeCloseTo(0.5, 3);
-    });
-  });
 });

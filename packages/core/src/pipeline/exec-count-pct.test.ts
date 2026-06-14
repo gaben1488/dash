@@ -12,7 +12,6 @@ import { describe, it, expect } from 'vitest';
 import { DEPT_COLUMNS } from '@aemr/shared';
 import { CalcEngine, standardRowFilter } from './calc-engine.js';
 import { adaptToRecalcMetrics } from './calc-engine-adapter.js';
-import { recalculateFromRows } from './recalculate.js';
 import { runPipeline } from './orchestrator.js';
 
 const COL = DEPT_COLUMNS;
@@ -187,27 +186,6 @@ describe('exec_count_pct pipeline (A8)', () => {
       expect(orgItself.byActivity).toBeDefined();
       // All 3 org-itself rows are "Текущая деятельность" with no program → current_non_program
       expect(orgItself.byActivity.current_non_program.planCount).toBe(3);
-    });
-  });
-
-  describe('Legacy recalculateFromRows parity', () => {
-    const legacy = recalculateFromRows(testRows, 'УЭР', 3, 2025);
-
-    it('legacy also has _org_itself in bySubordinate', () => {
-      const orgItself = legacy.bySubordinate.find(s => s.name === '_org_itself');
-      expect(orgItself).toBeDefined();
-      expect(orgItself!.rowCount).toBe(3);
-    });
-
-    it('legacy year-level exec_count_pct matches', () => {
-      expect(legacy.year.execCountPct).toBeCloseTo(0.6, 3);
-      expect(legacy.year.compExecCountPct).toBeCloseTo(2 / 3, 3);
-      expect(legacy.year.epExecCountPct).toBeCloseTo(0.5, 3);
-    });
-
-    it('legacy quarter exec_count_pct', () => {
-      expect(legacy.quarters.q1.execCountPct).toBeCloseTo(1.0, 3);
-      expect(legacy.quarters.q2.execCountPct).toBeCloseTo(0, 3);
     });
   });
 
