@@ -44,9 +44,6 @@ export const DEPARTMENT_SHORT_NAMES = Object.fromEntries(
 // 2. Название листа
 // ────────────────────────────────────────────────────────────────
 
-/** @deprecated Use SVOD_SHEET_NAME from constants.ts */
-export const SVOD_SHEET = SVOD_SHEET_NAME;
-
 // ────────────────────────────────────────────────────────────────
 // 3. Маппинг столбцов → 0-based индекс
 // ────────────────────────────────────────────────────────────────
@@ -574,7 +571,7 @@ function entry(
     valueType: 'currency',
     sourceUnit: 'thousand_rubles',
     displayUnit: 'thousand_rubles',
-    sourceSheet: SVOD_SHEET,
+    sourceSheet: SVOD_SHEET_NAME,
     sourceCell,
     group: 'competitive',
     fallbackPolicy: 'null',
