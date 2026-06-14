@@ -80,6 +80,26 @@ ATOMS: list[tuple[str, str]] = [
      "Browser: claude-in-chrome MCP (DOM, предпочтительно); browser-harness (CDP self-improving); Playwright (тесты)."),
 ]
 
+# Domain-skill AUTO-ACTIVATION: when a topic appears, ACTIVATE the matching skill
+# (the user cannot remember which skill fits which work — the router fires it for me).
+# Imperative on purpose: "ACTIVATE", not "suggest". Plan/map: memory/SKILL_ACTIVATION_PLAN_2026-06-15.md
+SKILLS = [
+    (r"reconcil|сверк|\brecon\b|reconcile\.ts|reconcileunified|recon\.tsx",
+     "ACTIVATE finance:reconciliation — методика сверки расчёт↔официал (план/факт/экономия vs СВОД), категоризация reconciling-items, aging."),
+    (r"эконом|отклонени|amount_dev|amount.?deviation|\bvariance\b|перерасч",
+     "ACTIVATE finance:variance-analysis — декомпозиция отклонений (price/volume, rate/mix), пороги материальности, нарратив, waterfall."),
+    (r"поставщик|supplier|\bvendor\b|концентрац|подвед|grbs-profile|master ?er",
+     "ACTIVATE operations:vendor-review — концентрация/риск поставщиков (supplier_concentration). Ref OCDS: mtender aggregate_by_supplier / flag_single_bid_awards."),
+    (r"сигнал|\bsignal|аномали|коррупц|дроблен|fraud|red.?flag|картел|collusion|integrity",
+     "ACTIVATE operations:risk-assessment + data:statistical-analysis — построчный риск + аномалии (Benford/EWMA/z в anomaly.ts). Ref: auditcopilot (split-PO=дробление, round-dollar, dup-invoice), Tender-shield (cover-bids/gap-uniformity)."),
+    (r"порог|threshold|антидемпинг|комплаенс|compliance|ст\.?\s?93|ст\.?\s?37|дроблени",
+     "ACTIVATE operations:compliance-tracking — 44-ФЗ пороги/антидемпинг/дробление vs canon (44fz-domain.md, columns-canon legal-refs §13)."),
+    (r"\bpg\b|postgres|миграц\w* бд|\bschema\b|drizzle|финмодел|data ?model",
+     "ACTIVATE ag-data-analytics-database-architect + postgres-best-practices + sql-pro — модель/индексы/миграция."),
+    (r"профил\w* данн|качество данн|data ?quality|\bqa\b|валидац\w* данн|explore.?data",
+     "ACTIVATE data:explore-data + data:validate-data — профилирование + QA до показа."),
+]
+
 # slash command -> ("text", None) literal, or ("script", [cmd], tail) to execute on demand only.
 RITUALS = {
     "close": "Close ritual: ml learn -> pnpm -r tsc --noEmit && pnpm -r test -> git commit логическими группами -> ml sync -> mark_chapter (если phase-граница) -> python scripts/daily_pulse.py -> обновить AEMR/10-Index/NOW.md.",
@@ -124,6 +144,11 @@ def main() -> None:
 
     # Direction / suggestion atoms: only when the topic keyword appears.
     for rx, txt in ATOMS:
+        if re.search(rx, low):
+            out.append(txt)
+
+    # Domain-skill auto-activation (finance/procurement/data/ops).
+    for rx, txt in SKILLS:
         if re.search(rx, low):
             out.append(txt)
 
