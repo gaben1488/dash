@@ -98,6 +98,8 @@ SKILLS = [
      "ACTIVATE ag-data-analytics-database-architect + postgres-best-practices + sql-pro — модель/индексы/миграция."),
     (r"профил\w* данн|качество данн|data ?quality|\bqa\b|валидац\w* данн|explore.?data",
      "ACTIVATE data:explore-data + data:validate-data — профилирование + QA до показа."),
+    (r"найди скилл|найти скилл|есть ли скилл|find skill|поставь скилл|установи скилл|нет ли инструмент|какой инструмент",
+     "ACTIVATE find-skills (~/.claude/skills/find-skills) — поиск по открытой экосистеме: leaderboard skills.sh -> `npx skills find <query>`. Гейты качества: 1K+ installs, официальные источники (vercel-labs/anthropics), <100 звёзд = скепсис. Установка `npx skills add <owner/repo@skill> -g -y` только после проверки."),
 ]
 
 # slash command -> ("text", None) literal, or ("script", [cmd], tail) to execute on demand only.
