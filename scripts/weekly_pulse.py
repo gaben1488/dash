@@ -172,8 +172,23 @@ def s_tests():
             "тесты исчезли — восстановить покрытие")
 
 
+def s_memory_index():
+    """MEMORY.md §1 map vs disk: every **FILE.md** row must exist (index drift catcher)."""
+    idx = MEM / "MEMORY.md"
+    if not idx.exists():
+        return ("memory_index", False, "MEMORY.md отсутствует", "восстановить индекс memory/")
+    t = idx.read_text(encoding="utf-8", errors="replace")
+    named = set(re.findall(r"\*\*([A-Z0-9_][A-Za-z0-9_.-]*\.md)\*\*", t))
+    missing = sorted(n for n in named if not (MEM / n).exists())
+    ok = not missing
+    return ("memory_index", ok,
+            f"индекс↔диск сходится ({len(named)} файлов)" if ok
+            else f"индекс врёт: {len(missing)} файла(ов) нет на диске: " + ", ".join(missing[:3]),
+            "поправить MEMORY.md §1 (убрать/переименовать строки) — индекс не должен врать")
+
+
 SIGNALS = [s_open_p0, s_prod_health, s_ci_main, s_ssot, s_mulch_synced,
-           s_tooling_backed, s_now_fresh, s_drift, s_tests]
+           s_tooling_backed, s_now_fresh, s_drift, s_tests, s_memory_index]
 
 
 def old_pulse_today() -> str:

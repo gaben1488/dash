@@ -4,6 +4,10 @@
 
 set -e
 
+# server/web tsc need >4GB heap on this machine (small pagefile + parallel agents);
+# without the bump the gate dies with V8 "heap out of memory" and blocks every commit.
+export NODE_OPTIONS="--max-old-space-size=7168"
+
 # Skip the TS gate when no TypeScript is staged (e.g. .py tooling, .mulch, docs, .sh).
 # Rationale: the tsc/test gate exists to catch TS regressions; a non-TS commit cannot
 # introduce them. Running it on a .py-only / .mulch-only commit is pure waste — and on
