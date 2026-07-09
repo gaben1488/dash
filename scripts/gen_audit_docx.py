@@ -257,7 +257,7 @@ for item in items_fact:
 doc.add_paragraph('Для ЕП аналогично, но L="ЕП" вместо L<>"ЕП".')
 
 doc.add_heading('3.2. Как считает код АЕМР', level=2)
-doc.add_paragraph('Файл: packages/core/src/pipeline/recalculate.ts, функция recalculateFromRows()')
+doc.add_paragraph('Файл: packages/core/src/pipeline/calc-engine.ts, класс CalcEngine (единственный движок; легаси recalculateFromRows удалён 2026-06-15 после доказанной эквивалентности)')
 doc.add_paragraph('Алгоритм построчной обработки:')
 
 steps = [

@@ -111,14 +111,14 @@ Slice 0 verification status (2026-06-05):
 
 ## 5. Core layer map
 
-**Канон расчёта = `CalcEngine`. `recalculateFromRows` — легаси-оракул (только для regression-теста, прод-вызовов нет).**
+**Канон расчёта = `CalcEngine` — единственный движок. Легаси-движок `recalculateFromRows` удалён (2026-06-15, chunk A): эквивалентность была доказана calc-engine-regression 8/8, после чего движок и parity-тест retired. В `recalculate.ts` остались только result-shape типы + `getMonthFromDate`.**
 
 | file | key functions | input | output | metrics/signals | tests | risks |
 |---|---|---|---|---|---|---|
 | `pipeline/orchestrator.ts` | `runPipeline` (:428), `mergeRecalcIntoMetrics` (:44), `mergeSummaryMetrics` (:291), `detectSignalsToIssues` (:573) | `PipelineInput` | `DataSnapshot` | пишет все metricKey; emit `signal:*` | `exec-count-pct.test.ts` covers `amount_dev` contract; нет прямого full e2e (`UNCLEAR`) | **`amount_dev` и year-роллапы КП/ЕП считаются ЗДЕСЬ, не в CalcEngine** (:96-117,:183-202); sign теперь `planSum-factSum`, как в METRICS_CONTRACT |
-| `pipeline/calc-engine.ts` | `CalcEngine.compute`, `STANDARD_METRICS`/`STANDARD_DERIVED`, `classifyMethodGroup` (:199-206), gates | raw rows | `GroupedResults` (14 разрезов) | plan/fact count, суммы, экономия, derived % | calc-engine-regression, exec-count-pct, method-alias | single-pass, config-driven (golden) |
+| `pipeline/calc-engine.ts` | `CalcEngine.compute`, `STANDARD_METRICS`/`STANDARD_DERIVED`, `classifyMethodGroup` (:199-206), gates | raw rows | `GroupedResults` (14 разрезов) | plan/fact count, суммы, экономия, derived % | exec-count-pct, method-alias | single-pass, config-driven (golden) |
 | `pipeline/calc-engine-adapter.ts` | `adaptToRecalcMetrics` | `GroupedResults` | `RecalculatedMetrics` (legacy shape) | year/quarter/month/sub/activity | exec-count-pct | **год-итоги: plan=Σкварталов, fact=Σкварталов + `_orphan`** → возможен exec>100% по штукам; `UNCLEAR`/требует сверки со СВОД-семантикой (Sprint расчётов) |
-| `pipeline/recalculate.ts` | `recalculateFromRows` (:418) | raw rows | `RecalculatedMetrics` | те же | calc-engine-regression (оракул) | **ЛЕГАСИ, нет прод-вызова**; дублирует колонную модель и гейты calc-engine — менять надо оба синхронно |
+| `pipeline/recalculate.ts` | только типы (`RecalculatedMetrics` и суб-типы) + `getMonthFromDate` (:193) | — | типы result-shape | — | через exec-count-pct (adapter) | движок retired (chunk A, 2026-06-15); файл — tombstone типов, потребители: adapter, orchestrator, grbs-profile, unified-svod (getMonthFromDate) |
 | `pipeline/ingest.ts` | `ingestBatchGetResponse` (:287), `ingestSheetRows` (:359) | Sheets batchGet | cell-map `Sheet!A1` | — | `UNCLEAR` (нет ingest.test) | пустые/null ячейки отбрасываются (:196) |
 | `pipeline/signals.ts` | `detectSignals` (:245), `classifyRowState` (:563), `getSignalBadges` (:609) | `{col:value}` | 26-флаговый `RowSignals` | `signal:*` | signals.test | статус читается из U+AE эвристикой; `budgetMismatch` всегда false (deprecated, :449) |
 | `pipeline/validate.ts` | `validateData` (:31) | rows + RULE_BOOK | `Issue[]` | 12 правил | validate.test | severity берётся из CHECK_REGISTRY, переопределяя правило |
@@ -129,12 +129,12 @@ Slice 0 verification status (2026-06-05):
 | `analytics/*` | Benford, EWMA, z-score, forecast, compliance-44fz, centralization, grbs-profile | snapshot/rows | аналитика | dataset-signals | analytics.test, dataset-signals.test | baselines статичны (GAP L3.3) |
 
 **Ответы на ключевые вопросы §5:**
-- **CalcEngine vs recalculateFromRows:** CalcEngine — live (orchestrator.ts:444,:463); recalculate — легаси-оракул, регрессионно сверяется (`calc-engine-regression.test.ts`). Колонная модель и 3 гейта (факт-дата notEmpty, AD=«да», methodGroup) продублированы — менять синхронно.
+- **CalcEngine vs recalculateFromRows:** вопрос закрыт — recalculateFromRows удалён (chunk A). CalcEngine — единственный движок (orchestrator.ts:444,:463); 3 гейта (факт-дата notEmpty, AD=«да», methodGroup) живут только в нём и запинены standalone-тестами exec-count-pct.test.ts.
 - **economy_total:** `sum(economy_fb/kb/mb)`, гейт `[HAS_FACT, AD='да']` (calc-engine.ts:326-351). НЕ «план−факт».
 - **amount_deviation:** `planSum − factSum`, в **orchestrator** (:96-97 и др.), не в CalcEngine; контракт закреплён `exec-count-pct.test.ts`.
 - **ЕП/КП:** `classifyMethodGroup` (calc-engine.ts:199-206): `normalizeMethod`; `ЕП→ep`; пусто→competitive (семантика `L<>"ЕП"`); неизвестно→null. Гейты `op:'methodGroup'`.
 - **SHDYU rootCause:** `inferSHDYURootCause` (reconcile.ts) — auto-infers 5 causes; 3 остаются catalog-only до row-level evidence. `formula_source_mismatch` строится из формул ШДЮ, а не из догадки по нулям CalcEngine.
-- **Тесты-защита:** calc-engine-regression (parity), exec-count-pct (count-based + economy AD-gated invariant), method-alias, reconcile, validate, signals, dataset-signals, trust/scorer.
+- **Тесты-защита:** exec-count-pct (count-based + economy AD-gated + amount_dev sign), method-alias, reconcile, validate, signals, dataset-signals, trust/scorer. (calc-engine-regression retired вместе с легаси-движком — parity доказана до удаления.)
 
 ---
 
