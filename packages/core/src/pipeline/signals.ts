@@ -118,8 +118,8 @@ export interface SignalBadge {
 /** Порог ЕП-риска в рублях: лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ. */
 const EP_RISK_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit;
 
-/** Антидемпинговый порог экономии (44-ФЗ ст.37) */
-const ANTI_DUMPING_PERCENT = 25;
+/** Антидемпинговый порог экономии (44-ФЗ ст.37): канон LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare (доля 0.25) → ×100, т.к. economyPct ниже считается в процентах. */
+const ANTI_DUMPING_PERCENT = LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare * 100;
 
 /** Порог формальной конкуренции */
 const LOW_COMPETITION_PERCENT = 2;
