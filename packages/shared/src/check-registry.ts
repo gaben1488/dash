@@ -1,0 +1,510 @@
+/**
+ * check-registry.ts — реестр проверок AEMR (данные, вынесено из unified-class-system.ts, чанк G).
+ *
+ * Только данные + их тип. Никакой логики. Типы-зависимости приходят из unified-class-system
+ * через `import type` (стираются компилятором — рантайм-цикла нет).
+ */
+import type {
+  IssueGroup,
+  UnifiedSeverity,
+  CheckOrigin,
+  TrustComponentId,
+} from './unified-class-system.js';
+import type { RuleScope } from './types.js';
+
+export interface CheckRegistryEntry {
+  id: string;
+  group: IssueGroup;
+  name: string;
+  description: string;
+  severity: UnifiedSeverity;
+  origin: CheckOrigin;
+  scope: RuleScope;
+  article44fz?: string;
+  kbHint: string;
+  recommendation: string;
+  trustComponent: TrustComponentId;
+  /** Предыдущий ID (для миграции) */
+  legacyId?: string;
+  /** Тип источника: rule = из RULE_BOOK, signal = из signals.ts, new = новая */
+  sourceType: 'rule' | 'signal' | 'new';
+}
+
+export const CHECK_REGISTRY: CheckRegistryEntry[] = [
+  // ================================================================
+  // ГРУППА: data_integrity — Целостность данных
+  // ================================================================
+  {
+    id: 'budget_sum_plan',
+    group: 'data_integrity',
+    name: 'Консистентность плановых сумм бюджета',
+    description: 'K (итого план) = H + I + J (ФБ + КБ + МБ). Допуск: 1 руб.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'both',
+    kbHint: 'Итого плановой суммы должно точно совпадать с суммой компонент по бюджетам. Расхождение указывает на ошибку формулы или ручной ввод.',
+    recommendation: 'Проверить формулу K = H + I + J, исправить расхождение',
+    trustComponent: 'data_quality',
+    legacyId: 'budget_sum_plan',
+    sourceType: 'rule',
+  },
+  {
+    id: 'budget_sum_fact',
+    group: 'data_integrity',
+    name: 'Консистентность фактических сумм бюджета (СВОД)',
+    description: 'O (итого факт) = L + M + N (ФБ + КБ + МБ факт). Только СВОД.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'svod',
+    kbHint: 'На листе СВОД ТД-ПМ столбцы L/M/N/O содержат фактические суммы по бюджетам.',
+    recommendation: 'Проверить формулу O = L + M + N на листе СВОД',
+    trustComponent: 'data_quality',
+    legacyId: 'budget_sum_fact',
+    sourceType: 'rule',
+  },
+  {
+    id: 'dept_fact_sum',
+    group: 'data_integrity',
+    name: 'Консистентность фактических сумм (подразделения)',
+    description: 'Y (итого факт) = V + W + X. Допуск: 1 руб.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'department',
+    kbHint: 'На листах подразделений Y = итого факт, V/W/X = компоненты по бюджетам.',
+    recommendation: 'Проверить формулу Y = V + W + X',
+    trustComponent: 'data_quality',
+    legacyId: 'dept_fact_sum',
+    sourceType: 'rule',
+  },
+  {
+    id: 'dept_economy_sum',
+    group: 'data_integrity',
+    name: 'Консистентность сумм экономии (подразделения)',
+    description: 'AC (итого экономия) = Z + AA + AB. Допуск: 1 руб.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'department',
+    kbHint: 'Итого экономии должно совпадать с суммой ФБ + КБ + МБ экономии.',
+    recommendation: 'Проверить формулу AC = Z + AA + AB',
+    trustComponent: 'data_quality',
+    legacyId: 'dept_economy_sum',
+    sourceType: 'rule',
+  },
+  {
+    id: 'formula_broken',
+    group: 'data_integrity',
+    name: 'Формула возвращает ошибку',
+    description: 'Ячейка содержит #REF, #VALUE, #N/A, #NAME, #DIV/0 и т.д.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'both',
+    kbHint: 'Формульная ошибка означает, что ячейка не может рассчитать значение. Часто — из-за удалённой строки/столбца или некорректной ссылки.',
+    recommendation: 'Исправить формулу в указанной ячейке Google Sheets',
+    trustComponent: 'data_quality',
+    legacyId: 'formulaBroken',
+    sourceType: 'signal',
+  },
+  // УДАЛЁН: budgetMismatch (signal) — дубль budget_sum_plan
+
+  // ================================================================
+  // ГРУППА: formula_consistency — Формульная согласованность
+  // ================================================================
+  {
+    id: 'execution_percentage',
+    group: 'formula_consistency',
+    name: 'Расчёт процента исполнения (СВОД)',
+    description: 'G (% исполнения) = E / D * 100 при D > 0.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'svod',
+    kbHint: 'Процент исполнения — ключевой KPI. Ошибка в формуле искажает отчётность перед руководством.',
+    recommendation: 'Проверить формулу G = E/D*100 на указанной строке',
+    trustComponent: 'formula_integrity',
+    legacyId: 'execution_percentage',
+    sourceType: 'rule',
+  },
+  {
+    id: 'deviation_calc',
+    group: 'formula_consistency',
+    name: 'Расчёт отклонения количества (СВОД)',
+    description: 'F (отклонение) = E - D (факт минус план).',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'svod',
+    kbHint: 'Отклонение показывает разницу между фактическим и плановым количеством процедур. Положительное = перевыполнение.',
+    recommendation: 'Проверить формулу F = E - D (факт − план)',
+    trustComponent: 'formula_integrity',
+    legacyId: 'deviation_calc',
+    sourceType: 'rule',
+  },
+  {
+    id: 'q1_leq_year',
+    group: 'formula_consistency',
+    name: 'Q1 не превышает Год',
+    description: 'Квартальные значения D и K не должны превышать годовые.',
+    severity: 'significant',
+    origin: 'spreadsheet_rule',
+    scope: 'svod',
+    kbHint: 'Квартал — часть года. Превышение квартального значения над годовым логически невозможно.',
+    recommendation: 'Проверить корректность данных в строках Q1 и Год',
+    trustComponent: 'formula_integrity',
+    legacyId: 'q1_leq_year',
+    sourceType: 'rule',
+  },
+  // formula_continuity УДАЛЁН — дублирует budget_sum_plan (#1a) + dept_fact_sum (#10)
+
+  // ================================================================
+  // ГРУППА: field_validation — Валидация полей
+  // ================================================================
+  {
+    id: 'method_validation',
+    group: 'field_validation',
+    name: 'Валидация метода закупки',
+    description: 'Столбец L должен содержать ЭА, ЕП, ЭК или ЭЗК.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'department',
+    kbHint: 'Метод закупки определяет правовой режим процедуры. Некорректное значение нарушает классификацию.',
+    recommendation: 'Исправить значение L на одно из допустимых: ЭА, ЕП, ЭК, ЭЗК',
+    trustComponent: 'rule_compliance',
+    legacyId: 'method_validation',
+    sourceType: 'rule',
+  },
+  {
+    id: 'type_validation',
+    group: 'field_validation',
+    name: 'Валидация типа закупки',
+    description: 'Столбец F должен содержать допустимый вид деятельности.',
+    severity: 'error',
+    origin: 'spreadsheet_rule',
+    scope: 'department',
+    kbHint: 'Тип закупки (текущая/программная) влияет на бюджетную классификацию.',
+    recommendation: 'Исправить значение F на допустимое значение',
+    trustComponent: 'rule_compliance',
+    legacyId: 'type_validation',
+    sourceType: 'rule',
+  },
+  {
+    id: 'data_quality',
+    group: 'completeness',
+    name: 'Пустые обязательные поля',
+    description: 'На строке закупки с фактом отсутствуют обязательные поля (D, K, L).',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Обязательные поля: предмет (D), плановая сумма (K), метод (L). Без них строка не поддаётся анализу.',
+    recommendation: 'Заполнить недостающие данные в обязательных столбцах',
+    trustComponent: 'data_quality',
+    legacyId: 'dataQuality',
+    sourceType: 'signal',
+  },
+
+  // ================================================================
+  // ГРУППА: temporal — Временные аномалии
+  // ================================================================
+  {
+    id: 'overdue',
+    group: 'temporal',
+    name: 'Просрочка закупки',
+    description: 'Плановая дата прошла, факта нет, контракт не подписан, не отменён.',
+    severity: 'critical',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Просрочка — ключевой индикатор для руководства. Требует немедленного анализа причин.',
+    recommendation: 'Провести анализ причин просрочки и принять корректирующие меры',
+    trustComponent: 'operational_risk',
+    legacyId: 'overdue',
+    sourceType: 'signal',
+  },
+  {
+    id: 'stalled_contract',
+    group: 'temporal',
+    name: 'Подвисший контракт',
+    description: 'Контракт подписан, но нет факт даты и план дата просрочена > 60 дней.',
+    severity: 'critical',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Подвисший контракт = подписан, но не исполняется. Возможны проблемы с подрядчиком.',
+    recommendation: 'Проверить статус исполнения контракта, связаться с подрядчиком',
+    trustComponent: 'operational_risk',
+    legacyId: 'stalledContract',
+    sourceType: 'signal',
+  },
+  {
+    id: 'early_closure',
+    group: 'temporal',
+    name: 'Раннее закрытие',
+    description: 'Факт дата раньше плановой на > 30 дней.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Раннее закрытие может означать ошибку в дате или необычную ситуацию.',
+    recommendation: 'Проверить фактическую дату завершения, возможна ошибка данных',
+    trustComponent: 'operational_risk',
+    legacyId: 'earlyClosure',
+    sourceType: 'signal',
+  },
+  {
+    id: 'finance_delay',
+    group: 'temporal',
+    name: 'Задержка финансирования',
+    description: 'В комментариях ГРБС/УЭР обнаружено упоминание задержки финансирования.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Упоминание "финансирование" или "отсутствие финансирования" в AE/AF — индикатор задержки оплаты.',
+    recommendation: 'Проверить статус финансирования, связаться с финансовым подразделением',
+    trustComponent: 'operational_risk',
+    legacyId: 'financeDelay',
+    sourceType: 'signal',
+  },
+  {
+    id: 'fact_date_before_plan',
+    group: 'temporal',
+    name: 'Факт дата раньше плана',
+    description: 'Факт дата на 1-30 дней раньше плановой — возможная ошибка данных.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Контракт не может быть заключён до плановой даты публикации извещения.',
+    recommendation: 'Проверить корректность дат: факт дата не может быть раньше плановой',
+    trustComponent: 'operational_risk',
+    legacyId: 'factDateBeforePlan',
+    sourceType: 'signal',
+  },
+
+  // ================================================================
+  // ГРУППА: financial — Финансовые аномалии
+  // ================================================================
+  {
+    id: 'fact_vs_plan',
+    group: 'financial',
+    name: 'Факт превышает план',
+    description: 'Фактическая сумма/количество превышает плановую на > 10%.',
+    severity: 'significant',
+    origin: 'bi_heuristic',
+    scope: 'both',
+    kbHint: 'Превышение факта над планом может означать дополнительные закупки или ошибку данных. Пороги: info >0%, warning >5%, significant >10%.',
+    recommendation: 'Проверить обоснование превышения, провести бюджетную корректировку',
+    trustComponent: 'operational_risk',
+    // ОБЪЕДИНЯЕТ: Rule 5 (fact_leq_plan), Rule 12 (dept_fact_leq_plan), Signal (factExceedsPlan)
+    legacyId: 'factExceedsPlan',
+    sourceType: 'signal',
+  },
+  {
+    id: 'anti_dumping',
+    group: 'financial',
+    name: 'Антидемпинговый сигнал (> 25%)',
+    description: 'Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт. Антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных.',
+    severity: 'significant',
+    origin: 'compliance_44fz',
+    scope: 'department',
+    article44fz: 'ст. 37',
+    kbHint: 'При снижении цены > 25% от НМЦК заказчик обязан применить антидемпинговые меры (44-ФЗ ст.37).',
+    recommendation: 'Запросить обоснование антидемпинговых мер по ст.37 44-ФЗ',
+    trustComponent: 'operational_risk',
+    legacyId: 'highEconomy',
+    sourceType: 'signal',
+  },
+  {
+    id: 'ep_risk',
+    group: 'financial',
+    name: 'ЕП-риск (> 600 тыс.)',
+    description: 'Закупка у единственного поставщика с суммой > 600 000 руб. (п.4 ст.93 44-ФЗ).',
+    severity: 'info',
+    origin: 'compliance_44fz',
+    scope: 'department',
+    article44fz: 'п.4 ст.93',
+    kbHint: 'По п.4 ст.93 44-ФЗ закупка у ЕП до 600 тыс. руб. не требует обоснования. Выше — требует.',
+    recommendation: 'Проверить обоснование закупки у единственного поставщика по п.4 ст.93 44-ФЗ',
+    trustComponent: 'operational_risk',
+    legacyId: 'epRisk',
+    sourceType: 'signal',
+  },
+  {
+    id: 'low_competition',
+    group: 'financial',
+    name: 'Низкая конкуренция (< 2%)',
+    description: 'Экономия менее 2% — возможен предопределённый победитель.',
+    severity: 'info',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Экономия < 2% при конкурентной процедуре — индикатор формальной конкуренции.',
+    recommendation: 'Проверить условия обеспечения конкуренции',
+    trustComponent: 'operational_risk',
+    legacyId: 'lowCompetition',
+    sourceType: 'signal',
+  },
+  {
+    id: 'economy_sign_check',
+    group: 'financial',
+    name: 'Отрицательная экономия (СВОД)',
+    description: 'U (экономия) < 0 — возможен перерасход.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'svod',
+    kbHint: 'Отрицательная экономия означает, что фактическая стоимость превысила плановую.',
+    recommendation: 'Проверить причину перерасхода',
+    trustComponent: 'operational_risk',
+    legacyId: 'economy_sign_check',
+    sourceType: 'rule',
+  },
+
+  // ================================================================
+  // ГРУППА: economy_control — Контроль экономии
+  // ================================================================
+  {
+    id: 'economy_conflict',
+    group: 'economy_control',
+    name: 'Конфликт флага экономии',
+    description: 'Два случая: (а) AD="экономия", но факт ≥ план — некорректный флаг; (б) экономия >15%, но финансовый орган не определил флаг экономии в столбце AD.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Случай А: AD="экономия" но факт ≥ план (некорректный флаг). Случай Б: экономия >15% но финансовый орган не определил флаг экономии (AD пуст).',
+    recommendation: 'Случай А: убрать флаг экономии (факт ≥ план). Случай Б: финансовому органу необходимо установить флаг экономии в столбце AD.',
+    trustComponent: 'operational_risk',
+    legacyId: 'economyConflict',
+    sourceType: 'signal',
+  },
+  {
+    id: 'status_on_data_rows',
+    group: 'economy_control',
+    name: 'Статус (AD) на строках данных',
+    description: 'Столбец AD должен быть заполнен на строках закупок с фактом.',
+    severity: 'info',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'AD (флаг) заполняется после фактического исполнения для контроля экономии.',
+    recommendation: 'Заполнить статус в столбце AD',
+    trustComponent: 'rule_compliance',
+    legacyId: 'status_on_data_rows',
+    sourceType: 'rule',
+  },
+  {
+    id: 'economy_hidden',
+    group: 'economy_control',
+    name: 'Скрытая экономия (> 15% без AD)',
+    description: 'Экономия > 15% без флага AD и без комментария — потенциально скрытые средства.',
+    severity: 'info',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Существенная экономия без флага и комментария может указывать на неучтённые средства.',
+    recommendation: 'Проверить причину экономии, при необходимости установить флаг AD',
+    trustComponent: 'rule_compliance',
+    sourceType: 'new',
+  },
+
+  // ================================================================
+  // ГРУППА: completeness — Полнота данных
+  // ================================================================
+  {
+    id: 'fact_without_date',
+    group: 'completeness',
+    name: 'Факт суммы без даты',
+    description: 'Есть фактические суммы (V/W/X/Y > 0), но нет факт даты (Q).',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Без даты факта невозможно корректно отнести исполнение к периоду.',
+    recommendation: 'Заполнить дату факта (столбец Q) для корректного учёта',
+    trustComponent: 'data_quality',
+    legacyId: 'factWithoutDate',
+    sourceType: 'signal',
+  },
+  {
+    id: 'date_without_fact',
+    group: 'completeness',
+    name: 'Факт дата без сумм',
+    description: 'Есть факт дата (Q), но нет факт сумм — неполные данные.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Дата факта указана, но суммы не заполнены — возможно, данные введены частично.',
+    recommendation: 'Заполнить фактические суммы (V/W/X) или удалить некорректную дату',
+    trustComponent: 'data_quality',
+    legacyId: 'dateWithoutFact',
+    sourceType: 'signal',
+  },
+  {
+    id: 'single_participant',
+    group: 'financial',
+    name: 'Единственный участник',
+    description: 'Конкурентная процедура с одним участником — формальная конкуренция.',
+    severity: 'info',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Единственный участник — индикатор проблемы с формированием ТЗ или ограничением конкуренции.',
+    recommendation: 'Проверить условия обеспечения конкуренции',
+    trustComponent: 'operational_risk',
+    legacyId: 'singleParticipant',
+    sourceType: 'signal',
+  },
+
+  // ================================================================
+  // P1: НОВЫЕ СИГНАЛЫ (из аудита 2026-04-13)
+  // ================================================================
+  {
+    id: 'plan_without_execution',
+    group: 'temporal',
+    name: 'План без исполнения',
+    description: 'План существует (K > 0), но нет факта, хотя год уже идёт (апрель+).',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Закупка запланирована и бюджет выделен, но исполнение не начато. При прогрессировании года это требует внимания.',
+    recommendation: 'Уточнить статус закупки: планируется ли размещение, требуется ли корректировка плана',
+    trustComponent: 'operational_risk',
+    legacyId: 'planWithoutExecution',
+    sourceType: 'signal',
+  },
+  {
+    id: 'ep_justification_missing',
+    group: 'completeness',
+    name: 'ЕП без обоснования',
+    description: 'Метод закупки — ЕП (единственный поставщик), но столбец M (обоснование) пуст.',
+    severity: 'significant',
+    origin: 'compliance_44fz',
+    scope: 'department',
+    article44fz: 'ст.93',
+    kbHint: 'По 44-ФЗ (ст.93) закупка у единственного поставщика требует обоснования. Отсутствие обоснования — нарушение.',
+    recommendation: 'Заполнить обоснование ЕП в столбце M с указанием пункта ст.93 44-ФЗ',
+    trustComponent: 'rule_compliance',
+    legacyId: 'epJustificationMissing',
+    sourceType: 'signal',
+  },
+  {
+    id: 'budget_source_missing',
+    group: 'data_integrity',
+    name: 'Источники бюджета не указаны',
+    description: 'K (план итого) > 0, но H/I/J (ФБ/КБ/МБ план) все пусты или нули.',
+    severity: 'warning',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Плановая сумма заполнена, но разбивка по уровням бюджета (федеральный/краевой/муниципальный) отсутствует. Это затрудняет анализ источников финансирования.',
+    recommendation: 'Заполнить столбцы H/I/J (ФБ/КБ/МБ план) для корректной бюджетной разбивки',
+    trustComponent: 'data_quality',
+    legacyId: 'budgetSourceMissing',
+    sourceType: 'signal',
+  },
+  {
+    id: 'budget_underallocation',
+    group: 'data_integrity',
+    name: 'Факт без планового бюджета',
+    description: 'Фактические суммы (Y > 0) при отсутствии планового бюджета (K = 0).',
+    severity: 'significant',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint: 'Исполнение без планового бюджета — аномалия данных. Либо план не внесён, либо закупка внеплановая.',
+    recommendation: 'Проверить: внести плановые суммы или обосновать внеплановую закупку',
+    trustComponent: 'data_quality',
+    legacyId: 'budgetUnderallocation',
+    sourceType: 'signal',
+  },
+];
+
+// ────────────────────────────────────────────────────────────
+// 9. АГРЕГАЦИЯ — модели для dashboard
+// ────────────────────────────────────────────────────────────
+
+/** Агрегат замечаний по группе */
