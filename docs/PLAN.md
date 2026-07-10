@@ -113,15 +113,18 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 - [ ] **G-4** (опционально) остаток `dataset-signals` (660): вынести `benfordTest`+
       `detectOutliers` в `benford-outliers.ts`; ядро оставить оркестратором
       (`analyzeDataset`, composite, noise-map). Ниже 600 — уже не god-file.
-- [ ] **E** fact-empty → shared `FACT_DATE_PLACEHOLDERS` (обязан включать `''`), семантически
-      ОТДЕЛЬНО от `ORG_ITSELF_PLACEHOLDERS`. Сначала RED `GATE_HAS_FACT`-тест.
-- [ ] **F** method KP/EP 2→1: unified-svod `methodOf` unknown→'kp' против канона CalcEngine
-      unknown→null. Числа в SvodView видимо изменятся — задокументировать в коммите, обновить
-      unified-svod.test.
-- [ ] **D** RowSignal: три определения (signals.ts:29 / types.ts:199 / schemas.ts:142) → один
-      `z.infer` от zod-схемы.
+- [x] E fact-empty → shared `fact-date.ts` (`FACT_DATE_PLACEHOLDERS`+`hasFactDate`),
+      семантически отдельно от `ORG_ITSELF_PLACEHOLDERS`. RED-тест первым (92fa0b8).
+- [x] F method KP/EP: `unified-svod methodOf` слеп к алиасам ЕП (`ЭЕП`/`Ед. поставщик`) →
+      канон `normalizeMethod()`. Замер на 64 реальных файлах: 0 impact сегодня (только
+      `ЕП`/`ЭА` в данных), баг латентный для будущих ГРБС/лет (38edb24).
+- [x] D — **план был неточен**: аудит показал не 3 живых определения, а 1 живое
+      (`RowSignals` signals.ts) + 2 мёртвых недостижимых (`RowSignal` types.ts — 0
+      импортёров, не экспортирован; `RowSignalSchema` — 0 `.parse()`-вызовов). Оба
+      удалены вместо z.infer-слияния (864f0ee).
 - [ ] **C-narrow** DEPARTMENT_ROWS: 32 row-anchor вывести из DEPARTMENT_REGISTRY[].svod
       (byte-identical, проверено). Полная унификация реестров ЗАБЛОКИРОВАНА (не эквивалентны).
+      **Последний пункт дорожки A.**
 
 ### Дорожка B — подтверждённые баги (CONFIRMED, вне файлов дорожки A)
 
