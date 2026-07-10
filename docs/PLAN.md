@@ -106,11 +106,13 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 
 - [x] G-1 `CHECK_REGISTRY` → `check-registry.ts` (f4a56b0)
 - [x] G-2 legacy-конвертация → `issue-conversion.ts` (8c95f24)
-- [ ] **G-3** `dataset-signals.ts` (1380) → разрез по детекторам: `benford/outliers` ·
-      `ep-risk/execution` · `anomalies (data/behavioral/systemic)` · `seasonal+splitting` ·
-      `composite/noise/analyzeDataset`. Файл остаётся шимом `export *` — иначе
-      `detectSeasonalAnomalies`/`detectSuspiciousSplitting` умрут молча (страховка:
-      `god-file-surface.test.ts`, держать зелёным на каждом шаге).
+- [x] G-3 `dataset-signals.ts` 1380 → 660 (−52%): `seasonal.ts` · `splitting.ts` ·
+      `anomalies.ts` + общий `utils/row-cells.ts`. Обе barrel-ловушки живы и
+      переэкспортированы. Побочно удалён `normalizeSub` — пустая обёртка вокруг
+      `subordinateKey` (f027048, a6f4dcc, 2333571)
+- [ ] **G-4** (опционально) остаток `dataset-signals` (660): вынести `benfordTest`+
+      `detectOutliers` в `benford-outliers.ts`; ядро оставить оркестратором
+      (`analyzeDataset`, composite, noise-map). Ниже 600 — уже не god-file.
 - [ ] **E** fact-empty → shared `FACT_DATE_PLACEHOLDERS` (обязан включать `''`), семантически
       ОТДЕЛЬНО от `ORG_ITSELF_PLACEHOLDERS`. Сначала RED `GATE_HAS_FACT`-тест.
 - [ ] **F** method KP/EP 2→1: unified-svod `methodOf` unknown→'kp' против канона CalcEngine
