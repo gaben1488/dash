@@ -146,8 +146,9 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 - [x] B-7 `demo-data.ts:429` — знак amount_dev в demo-агрегатах выправлен на fact−plan (d53d6cd).
 - [ ] **B-8** `calc-engine.ts:415` — счётчик молча дропнутых строк + сигнал при >0;
       `validate.ts:53` — unknown-лист = ошибка, не тихий скип. (Один коммит: «нет тихих потерь».)
-- [ ] **B-9** `snapshot.ts:101` TOCTOU in-flight dedup; `:19` merge-вместо-replace маскирует
-      упавший dept свежестью старых данных.
+- [x] B-9 `snapshot.ts:101` `inFlightLoads` дедупит конкурентные force-refresh (без него —
+      2× полная перечитка всех листов); `:19` `setDeptSheetCache(data, failedDeptNames)` —
+      упавший в цикле dept удаляется из кэша, не остаётся молча как «свежий» (a52a23b).
 - [ ] **B-10** `calc-engine.ts:348` — `savings_pct` определён идентично `execution_pct`
       (мислейбл). Решение: реальная формула ИЛИ удалить ключ (ponytail: удалить).
 - [ ] **B-11** web-мелочи одним заходом: экспорт сверки игнорит фильтры (`api.ts:176`),
