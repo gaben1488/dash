@@ -39,15 +39,6 @@ function makeRow(method: string, overrides: Partial<Record<number, unknown>> = {
   return row;
 }
 
-function buildSheet(dataRows: unknown[][]): unknown[][] {
-  return [
-    new Array(32).fill('Header1'),
-    new Array(32).fill('Header2'),
-    new Array(32).fill('Header3'),
-    ...dataRows,
-  ];
-}
-
 describe('method alias integration — dictionaries → calc-engine', () => {
   describe('normalizeMethod() helper (pure dictionary)', () => {
     it('canonicalizes exact codes unchanged', () => {
