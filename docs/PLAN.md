@@ -134,10 +134,10 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 - [x] B-1 AD-gate `analytics.ts` ×3 сайта (5485fce)
 - [x] B-2 границы записи `rows.ts` PUT+batch (de88199)
 - [x] B-3 regex `EP_NOT_WORTHWHILE` (95d4c21)
-- [ ] **B-4** `issues.ts:175` — `success:true` при провале обоих INSERT (FK-каскад глотается).
-      RED: инжект-тест с FK-нарушением → ждать 500. Плюс `:41` — статус не переживает refresh
-      (список читает snapshot, статус пишется в таблицу, которую список не читает) — починить
-      чтением статуса из БД при сборке списка.
+- [x] B-4 `issues.ts:175` — оба INSERT в одной транзакции, `snapshotId:null` вместо
+      несуществующего `'manual'`, ошибки не глотаются (500/success:false вместо лжи).
+      `overlayPersistedStatus()` подмешивает статус из БД в GET-list/detail/export (все три
+      читали только пересчитанный snapshot) (a163e7e).
 - [x] B-5 `store.ts:306` — `setYear` синкает `activeMonths` из `monthsByYear[target]`
       как `toggleMonthInYear`/`toggleQuarterInYear`/`toggleYearFull` (4864935).
 - [ ] **B-6** `google-sheets.ts:276,286` — bare `catch{}` глотает 429/403 как «лист не найден»;
