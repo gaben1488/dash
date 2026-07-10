@@ -157,7 +157,7 @@ export function preloadData(app: FastifyInstance): void {
     try {
       app.log.info('Loading department spreadsheets...');
       const { data, errors } = await fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS);
-      setDeptSheetCache(data);
+      setDeptSheetCache(data, Object.keys(errors));
       const now = new Date().toISOString();
       const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
       for (const [name, result] of Object.entries(data)) {

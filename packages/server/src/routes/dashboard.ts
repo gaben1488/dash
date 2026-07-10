@@ -459,7 +459,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     if (!quick) {
       try {
         const { data, errors } = await fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS);
-        setDeptSheetCache(data);
+        setDeptSheetCache(data, Object.keys(errors));
 
         const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
         const now = new Date().toISOString();

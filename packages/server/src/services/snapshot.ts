@@ -14,10 +14,31 @@ import type { DeptSheetResult } from './google-sheets.js';
 /** Per-year snapshot cache: key is targetYear (number) */
 const cachedSnapshots = new Map<number, { snapshot: DataSnapshot; timestamp: number }>();
 
+/**
+ * In-flight load memo per cache key (targetYear/0). Без него параллельные
+ * force-refresh или expired-cache вызовы getSnapshot() независимо гоняют
+ * createSnapshot() — TOCTOU-гонка, дублирующая полную перечитку всех 8
+ * листов ГРБС + СВОД (B-9).
+ */
+const inFlightLoads = new Map<number, Promise<DataSnapshot>>();
+
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
-export function setDeptSheetCache(data: Record<string, DeptSheetResult>): void {
-  cachedDeptSheetData = { ...cachedDeptSheetData, ...data };
+/**
+ * Обновляет кэш деп-листов. `data` — успешно загруженные в этом цикле депы,
+ * применяются как replace по ключу. `failedDeptNames` — депы, упавшие в этом
+ * цикле: их запись УДАЛЯЕТСЯ из кэша, а не остаётся молча от предыдущей
+ * успешной загрузки под видом свежих данных (маскировка отказа, B-9).
+ */
+export function setDeptSheetCache(
+  data: Record<string, DeptSheetResult>,
+  failedDeptNames: readonly string[] = [],
+): void {
+  const next = { ...cachedDeptSheetData, ...data };
+  for (const name of failedDeptNames) {
+    Reflect.deleteProperty(next, name);
+  }
+  cachedDeptSheetData = next;
 }
 
 export function getDeptSheetCache(): Record<string, DeptSheetResult> {
@@ -103,12 +124,28 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
     return cached.snapshot;
   }
 
-  const snapshot = await createSnapshot(year);
-  if (!snapshot.id.startsWith('demo-')) {
-    cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
+  // Дедуп конкурентных загрузок: если для этого cacheKey уже идёт createSnapshot(),
+  // все параллельные caller'ы дожидаются ОДНОГО общего промиса вместо запуска своего
+  // (иначе — TOCTOU-гонка, дублирующая полную перечитку всех листов, B-9).
+  const inFlight = inFlightLoads.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
   }
 
-  return snapshot;
+  const loadPromise = (async () => {
+    try {
+      const snapshot = await createSnapshot(year);
+      if (!snapshot.id.startsWith('demo-')) {
+        cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
+      }
+      return snapshot;
+    } finally {
+      inFlightLoads.delete(cacheKey);
+    }
+  })();
+
+  inFlightLoads.set(cacheKey, loadPromise);
+  return loadPromise;
 }
 
 /**
