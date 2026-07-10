@@ -60,6 +60,9 @@ export * from './activity-scope.js';
 // Re-export канон «само управление» (ось C: аппарат ГРБС vs подвед — единый предикат)
 export * from './org-itself.js';
 
+// Re-export канон «пустая дата факта» (ось Q) — семантически отдельно от org-itself
+export * from './fact-date.js';
+
 // Re-export СВОД view builder (панель просмотра — точная копия листа из officialMetrics)
 export * from './svod-view.js';
 

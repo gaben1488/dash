@@ -17,6 +17,7 @@ import {
   normalizeMethod,
   isCompetitive,
   PROCUREMENT_METHODS,
+  hasFactDate,
   type ProcurementMethodCode,
 } from '@aemr/shared';
 
@@ -167,15 +168,13 @@ export interface GroupedResults {
 
 // ── Gate Evaluation ──────────────────────────────────────────────────
 
-const PLACEHOLDERS = new Set(['х', 'x', '-', '—', '–', 'н/д', 'нет', 'не определена']);
-
 function evaluateGate(row: RawRow, gate: GateCondition): boolean {
   const raw = row[gate.column];
   switch (gate.op) {
-    case 'notEmpty': {
-      const s = String(raw ?? '').trim();
-      return s !== '' && !PLACEHOLDERS.has(s.toLowerCase());
-    }
+    // 'notEmpty' используется только для GATE_HAS_FACT (COL.FACT_DATE) — канон
+    // hasFactDate() из @aemr/shared, единый с unified-svod.ts (чанк E).
+    case 'notEmpty':
+      return hasFactDate(raw);
     case 'eq':
       return String(raw ?? '').trim().toLowerCase() === String(gate.value).toLowerCase();
     case 'neq':

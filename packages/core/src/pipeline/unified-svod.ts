@@ -34,6 +34,7 @@ import {
   emptyCell,
   normalizeMethod,
   PROCUREMENT_METHODS,
+  hasFactDate,
   type ActivityScope,
   type SvodMethod,
   type SvodPeriodKey,
@@ -65,13 +66,6 @@ const COL = {
   ECO_GATE: 29,
 } as const;
 
-/**
- * Маркеры «нет факта» в столбце факт-даты (16). Совпадает с recalculate.ts
- * PLACEHOLDERS (строка ~569): кроме X/Х/пусто также прочерки и текст-плейсхолдеры,
- * иначе factCount/факт-суммы завышаются и ложно открывается гейт экономии.
- */
-const FACT_EMPTY = new Set(['х', 'x', '', '-', '—', '–', 'н/д', 'нет', 'не определена']);
-
 /** Префиксы шапок/итоговых строк по предмету (как recalculate.ts isSummaryRow). */
 const SUMMARY_PREFIXES = ['итого', 'всего', 'справочно'] as const;
 
@@ -97,10 +91,6 @@ function methodOf(raw: unknown): SvodMethod {
   return String(raw ?? '').trim().toUpperCase().startsWith('ЕП') ? 'ep' : 'kp';
 }
 
-/** Есть ли факт: столбец 16 не пустой и не плейсхолдер «нет факта». */
-function hasFact(raw: unknown): boolean {
-  return !FACT_EMPTY.has(String(raw ?? '').trim().toLowerCase());
-}
 
 /**
  * Квартал из столбца план-квартала (14): 1..4 → q1..q4, иначе null.
@@ -233,7 +223,7 @@ export function computeUnifiedGrid(
       const m = getMonthFromDate(row[COL.PLAN_DATE]) ?? (quarter.q - 1) * 3 + 1;
 
       const method = methodOf(row[COL.METHOD]);
-      const fact = hasFact(row[COL.FACT_DATE]);
+      const fact = hasFactDate(row[COL.FACT_DATE]);
       const countEconomy = fact && economyApproved(row[COL.ECO_GATE]);
 
       const contrib = {
