@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getActiveFilterCount, hasExplicitPeriodFilter, useStore } from './store';
+import { AVAILABLE_YEARS, getActiveFilterCount, hasExplicitPeriodFilter, useStore } from './store';
 
 describe('useStore navigation filters', () => {
   it('opens the quality workspace on reconciliation by default', () => {
@@ -74,6 +74,29 @@ describe('useStore navigation filters', () => {
     expect(state.periodMode).toBe('explicit');
     expect(state.monthsByYear[year]?.size).toBe(12);
     expect(hasExplicitPeriodFilter(state.periodMode, state.activeMonths, state.monthsByYear)).toBe(true);
+  });
+});
+
+describe('useStore setYear (B-5: activeMonths must track the newly selected year)', () => {
+  it('syncs activeMonths from monthsByYear[target] like toggleMonthInYear/toggleQuarterInYear/toggleYearFull, instead of leaving stale months from the previously selected year', () => {
+    useStore.getState().resetAllFilters();
+    const [yearA, yearB] = AVAILABLE_YEARS;
+
+    // User explicitly selects March in yearA (e.g. clicking a month in TimeDrum).
+    useStore.getState().toggleMonthInYear(yearA, 3);
+    expect(useStore.getState().year).toBe(yearA);
+    expect(useStore.getState().activeMonths).toEqual(new Set([3]));
+
+    // User scrolls the TimeDrum year wheel to yearB (Header.tsx's only setYear call site).
+    // yearB has no explicit month selection of its own.
+    useStore.getState().setYear(yearB);
+
+    const state = useStore.getState();
+    expect(state.year).toBe(yearB);
+    // activeMonths must reflect yearB's own selection (empty), not stay stuck on yearA's March —
+    // otherwise useFilteredData keeps filtering yearB's data down to month 3 while the TimeDrum
+    // UI (which reads monthsByYear[yr] per year) shows no month highlighted for yearB.
+    expect(state.activeMonths).toEqual(state.monthsByYear[yearB] ?? new Set());
   });
 });
 

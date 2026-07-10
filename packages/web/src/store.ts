@@ -303,7 +303,18 @@ export const useStore = create<AppState>((set, get) => ({
   year: (AVAILABLE_YEARS.includes(new Date().getFullYear())
     ? new Date().getFullYear()
     : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]) as YearFilter,
-  setYear: (year) => set({ year }),
+  setYear: (year) => {
+    // Mirror toggleMonthInYear/toggleQuarterInYear/toggleYearFull: when the user is in
+    // explicit period-selection mode, switching the year (TimeDrum wheel scroll) must
+    // re-sync activeMonths to the *new* year's own selection instead of leaving it stuck
+    // on whatever months were active for the previously selected year.
+    const { periodMode, monthsByYear } = get();
+    if (periodMode === 'explicit' && typeof year === 'number') {
+      set({ year, activeMonths: new Set(monthsByYear[year] ?? []) });
+    } else {
+      set({ year });
+    }
+  },
   period: 'year',
   setPeriod: (period) => set({ period, periodMode: 'explicit' as PeriodMode }),
   periodMode: 'week' as PeriodMode,
