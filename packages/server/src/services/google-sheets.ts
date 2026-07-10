@@ -273,32 +273,49 @@ export async function fetchDepartmentSpreadsheets(
     entries.map(async ([deptName, ssId]) => {
       const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
       const candidates = departmentSheetNameCandidates(sheetName, deptName);
+      let lastError: unknown;
       for (const candidate of candidates) {
         try {
           const result = await getSheetDataWithFormulas(ssId, candidate);
           if (result.values.length > 0) {
             return { deptName, ...result, sheetName: candidate };
           }
-        } catch {
-          // Try next candidate.
+        } catch (err) {
+          lastError = err;
+          if (isNonRecoverableSheetError(err)) {
+            // 429 (rate-limit), 403 (permission) and 5xx look identical to a
+            // missing sheet if swallowed here — surface them immediately
+            // instead of masking them as "no candidate matched".
+            throw err;
+          }
+          // Otherwise this candidate name genuinely doesn't exist — try the next one.
         }
       }
-      throw new Error(`No readable sheet found in spreadsheet for ${deptName}; tried: ${candidates.join(', ')}`);
+      const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
+      throw new Error(
+        `No readable sheet found in spreadsheet for ${deptName}; tried: ${candidates.join(', ')}${cause}`,
+      );
     }),
   );
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
     if (result.status === 'fulfilled') {
       const { deptName, values, formulas, sheetName } = result.value;
       data[deptName] = { values, formulas, sheetName };
     } else {
-      const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      const match = msg.match(/for (.+)$/);
-      if (match) errors[match[1]] = msg;
+      const deptName = entries[i][0];
+      errors[deptName] = result.reason instanceof Error ? result.reason.message : String(result.reason);
     }
   }
 
   return { data, errors };
+}
+
+function isNonRecoverableSheetError(err: unknown): boolean {
+  const status = (err as { status?: unknown; code?: unknown })?.status
+    ?? (err as { status?: unknown; code?: unknown })?.code;
+  return status === 429 || status === 403 || (typeof status === 'number' && status >= 500);
 }
 
 export async function fetchSHDYUSheet(
