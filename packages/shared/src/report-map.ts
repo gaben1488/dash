@@ -17,8 +17,15 @@ import { SVOD_SHEET_NAME } from './constants.js';
 import {
   DEPARTMENT_REGISTRY,
   ALL_LATIN_IDS,
+  getDeptByLatin,
   type LatinDeptId,
 } from './department-registry.js';
+
+/** Четыре row-anchor из канона DEPARTMENT_REGISTRY[].svod (chunk C-narrow, SSOT). */
+function svodAnchors(id: LatinDeptId): Pick<ReturnType<typeof getDeptByLatin>['svod'], 'kpQ1' | 'kpYear' | 'epQ1' | 'epYear'> {
+  const { kpQ1, kpYear, epQ1, epYear } = getDeptByLatin(id).svod;
+  return { kpQ1, kpYear, epQ1, epYear };
+}
 
 // ────────────────────────────────────────────────────────────────
 // 1. Идентификаторы департаментов (ГРБС)
@@ -136,8 +143,7 @@ export interface DepartmentRowConfig {
 export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   uer: {
     id: 'uer',
-    kpQ1: 42,   kpYear: 47,
-    epQ1: 53,   epYear: 58,
+    ...svodAnchors('uer'),
     epTotalCell: 'D58',   epPercentCell: 'G64',
     economyKpCell: 'U47', economyEpCell: 'U58',
     economyKpFbCell: 'R47', economyKpKbCell: 'S47', economyKpMbCell: 'T47',
@@ -145,8 +151,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   uio: {
     id: 'uio',
-    kpQ1: 72,   kpYear: 77,
-    epQ1: 83,   epYear: 88,
+    ...svodAnchors('uio'),
     epTotalCell: 'D88',   epPercentCell: 'G94',
     economyKpCell: 'U77', economyEpCell: 'U88',
     economyKpFbCell: 'R77', economyKpKbCell: 'S77', economyKpMbCell: 'T77',
@@ -154,8 +159,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   uagzo: {
     id: 'uagzo',
-    kpQ1: 102,  kpYear: 107,
-    epQ1: 113,  epYear: 118,
+    ...svodAnchors('uagzo'),
     epTotalCell: 'D118',  epPercentCell: 'G124',
     economyKpCell: 'U107', economyEpCell: 'U118',
     economyKpFbCell: 'R107', economyKpKbCell: 'S107', economyKpMbCell: 'T107',
@@ -163,8 +167,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   ufbp: {
     id: 'ufbp',
-    kpQ1: 132,  kpYear: 137,
-    epQ1: 143,  epYear: 148,
+    ...svodAnchors('ufbp'),
     epTotalCell: 'D148',  epPercentCell: 'G154',
     economyKpCell: 'U137', economyEpCell: 'U148',
     economyKpFbCell: 'R137', economyKpKbCell: 'S137', economyKpMbCell: 'T137',
@@ -172,8 +175,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   ud: {
     id: 'ud',
-    kpQ1: 163,  kpYear: 168,
-    epQ1: 175,  epYear: 180,
+    ...svodAnchors('ud'),
     epTotalCell: 'D180',  epPercentCell: 'G186',
     economyKpCell: 'U168', economyEpCell: 'U180',
     economyKpFbCell: 'R168', economyKpKbCell: 'S168', economyKpMbCell: 'T168',
@@ -181,8 +183,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   udtx: {
     id: 'udtx',
-    kpQ1: 195,  kpYear: 200,
-    epQ1: 206,  epYear: 211,
+    ...svodAnchors('udtx'),
     epTotalCell: 'D211',  epPercentCell: 'G217',
     economyKpCell: 'U200', economyEpCell: 'U211',
     economyKpFbCell: 'R200', economyKpKbCell: 'S200', economyKpMbCell: 'T200',
@@ -190,8 +191,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   uksimp: {
     id: 'uksimp',
-    kpQ1: 225,  kpYear: 230,
-    epQ1: 236,  epYear: 241,
+    ...svodAnchors('uksimp'),
     epTotalCell: 'D241',  epPercentCell: 'G247',
     economyKpCell: 'U230', economyEpCell: 'U241',
     economyKpFbCell: 'R230', economyKpKbCell: 'S230', economyKpMbCell: 'T230',
@@ -199,8 +199,7 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
   },
   uo: {
     id: 'uo',
-    kpQ1: 255,  kpYear: 260,
-    epQ1: 266,  epYear: 271,
+    ...svodAnchors('uo'),
     epTotalCell: 'D271',  epPercentCell: 'G277',
     economyKpCell: 'U260', economyEpCell: 'U271',
     economyKpFbCell: 'R260', economyKpKbCell: 'S260', economyKpMbCell: 'T260',
