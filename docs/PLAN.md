@@ -140,8 +140,9 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
       читали только пересчитанный snapshot) (a163e7e).
 - [x] B-5 `store.ts:306` — `setYear` синкает `activeMonths` из `monthsByYear[target]`
       как `toggleMonthInYear`/`toggleQuarterInYear`/`toggleYearFull` (4864935).
-- [ ] **B-6** `google-sheets.ts:276,286` — bare `catch{}` глотает 429/403 как «лист не найден»;
-      `errors[]` ключуется покорёженной строкой. Сохранять последнюю ошибку, ключевать deptName.
+- [x] B-6 `google-sheets.ts:276,286` — `isNonRecoverableSheetError()` (429/403/5xx) больше не
+      маскируется под «не найдено»; `errors[]` ключуется чистым deptName через zip по индексу
+      вместо regex по тексту ошибки (b3ab012).
 - [x] B-7 `demo-data.ts:429` — знак amount_dev в demo-агрегатах выправлен на fact−plan (d53d6cd).
 - [ ] **B-8** `calc-engine.ts:415` — счётчик молча дропнутых строк + сигнал при >0;
       `validate.ts:53` — unknown-лист = ошибка, не тихий скип. (Один коммит: «нет тихих потерь».)
