@@ -44,6 +44,25 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const sheetClass = classifySheet(sheetName);
 
+  // Тихие провалы запрещены (AGENTS.md carve-out): нераспознанный лист молча
+  // теряет ВСЕ svod- и department-scoped правила ниже (scope='both' по-прежнему
+  // выполняется) — раньше это было полностью бесшумно. Один сигнал на лист.
+  if (sheetClass.kind === 'unknown' && rows.length > 0) {
+    issues.push({
+      id: nanoid(),
+      severity: 'warning',
+      origin: 'runtime_error',
+      category: 'unclassified_sheet',
+      title: `Лист не распознан: ${sheetName || '(без имени)'}`,
+      description: 'classifySheet() вернул unknown — svod- и department-scoped правила пропущены для всех строк этого листа (правила scope="both" по-прежнему выполняются).',
+      sheet: sheetName,
+      recommendation: 'Проверить имя листа: опечатка, новый ГРБС ещё не добавлен в department-registry, либо лист действительно не относится к данным закупок.',
+      status: 'open',
+      detectedAt: now,
+      detectedBy: 'pipeline:validate',
+    });
+  }
+
   for (const rule of rules) {
     if (rule.enabled === false) continue;
 

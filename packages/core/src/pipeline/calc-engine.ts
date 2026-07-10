@@ -164,6 +164,13 @@ export interface GroupedResults {
   conflicts: number;
   /** Mathematical economy total (ungated by AD, Math.max(0, eco)), only hasFact gate. */
   economyTotalMath: number;
+  /**
+   * Rows silently excluded BEFORE metric accumulation: empty row slots or rows
+   * that failed the row-classification filter (e.g. standardRowFilter score < 3).
+   * Does NOT include rows skipped by the year filter (targetYear) — that is
+   * intentional scoping, not a parsing/classification problem. (B-8)
+   */
+  droppedRows: number;
 }
 
 // ── Gate Evaluation ──────────────────────────────────────────────────
@@ -415,6 +422,7 @@ export class CalcEngine {
       rowCount: 0,
       conflicts: 0,
       economyTotalMath: 0,
+      droppedRows: 0,
     };
 
     // Initialize total accumulators
@@ -424,8 +432,8 @@ export class CalcEngine {
 
     for (let i = startRow; i < rows.length; i++) {
       const row = rows[i];
-      if (!row) continue;
-      if (!filter(row)) continue;
+      if (!row) { result.droppedRows++; continue; }
+      if (!filter(row)) { result.droppedRows++; continue; }
 
       // Year filter
       if (targetYear) {
