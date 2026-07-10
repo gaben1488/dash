@@ -22,13 +22,19 @@ import {
   firstSignificantDigit,
   BENFORD_EXPECTED as BENFORD_EXPECTED_SHARED,
 } from '../utils/statistics.js';
-import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS, subordinateKey } from '@aemr/shared';
+import { DEPT_COLUMNS, subordinateKey } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 import { detectSeasonalAnomalies } from './seasonal.js';
+import { detectSuspiciousSplitting } from './splitting.js';
+import type { SplittingGroup } from './splitting.js';
 import type { SeasonalAnomaly } from './seasonal.js';
 
 // Сезонные аномалии вынесены в ./seasonal.ts (чанк G-3)
 export { detectSeasonalAnomalies };
+
+// Дробление закупок вынесено в ./splitting.ts (чанк G-3, шаг 2)
+export { detectSuspiciousSplitting };
+export type { SplittingGroup } from './splitting.js';
 export type { SeasonalAnomaly, SeasonalAnomalyType } from './seasonal.js';
 
 // ────────────────────────────────────────────────────────────
@@ -181,20 +187,6 @@ export interface DatasetAnalysis {
   suspiciousSplitting: SplittingGroup[];
 }
 
-/** Result of suspicious splitting detection (44-ФЗ anti-splitting) */
-export interface SplittingGroup {
-  /** Department / subordinate grouping key */
-  groupKey: string;
-  /** Row indices of suspected split rows */
-  rowIndices: number[];
-  /** Common subject substring */
-  commonSubject: string;
-  /** Total amount across all rows in group */
-  totalAmount: number;
-  /** Number of rows in the group */
-  count: number;
-}
-
 // ────────────────────────────────────────────────────────────
 // Constants
 // ────────────────────────────────────────────────────────────
@@ -256,10 +248,8 @@ const ANOMALY_SCORES: Record<AnomalySeverity, number> = {
 const EXACT_MATCH_THRESHOLD = 0.0001;
 
 /** EP splitting threshold: п.4 ч.1 ст.93 44-ФЗ single-contract limit for sole-source */
-const EP_SPLITTING_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit;
 
 /** Minimum number of similar EP rows to flag as suspicious splitting */
-const SPLITTING_MIN_GROUP_SIZE = 3;
 
 // ────────────────────────────────────────────────────────────
 // 1. Benford Test
@@ -671,7 +661,7 @@ export function detectSystemicAnomalies(
       const plan = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
       if (plan <= 0) continue;
       grandTotal += plan;
-      const sub = normalizeSub(String(row[DEPT_COLUMNS.SUBORDINATE] ?? ''));
+      const sub = subordinateKey(String(row[DEPT_COLUMNS.SUBORDINATE] ?? ''));
       const entry = subTotals.get(sub) ?? { plan: 0, rows: [] };
       entry.plan += plan;
       entry.rows.push(i);
@@ -924,111 +914,6 @@ export interface DatasetAnalysisInput {
  * @param rows - raw row arrays from department sheet
  * @returns array of splitting groups
  */
-export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
-  interface EpCandidate {
-    rowIndex: number;
-    subject: string;
-    subordinate: string;
-    planTotal: number;
-  }
-
-  const candidates: EpCandidate[] = [];
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || row.length < 25) continue;
-
-    const method = String(row[DEPT_COLUMNS.METHOD] ?? '').trim().toLowerCase();
-    if (!method.includes('еп') && !method.includes('единствен')) continue;
-
-    const planTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
-    if (planTotal <= 0 || planTotal >= EP_SPLITTING_THRESHOLD) continue;
-
-    const subject = String(row[DEPT_COLUMNS.SUBJECT] ?? row[DEPT_COLUMNS.PROGRAM_NAME] ?? '').trim().toLowerCase();
-    if (subject.length < 3) continue;
-
-    const subordinate = normalizeSub(String(row[DEPT_COLUMNS.SUBORDINATE] ?? ''));
-
-    candidates.push({ rowIndex: i, subject, subordinate, planTotal });
-  }
-
-  if (candidates.length < SPLITTING_MIN_GROUP_SIZE) return [];
-
-  // Group by subordinate (or '_org' if empty)
-  const bySubordinate = new Map<string, EpCandidate[]>();
-  for (const c of candidates) {
-    const key = c.subordinate || '_org';
-    if (!bySubordinate.has(key)) bySubordinate.set(key, []);
-    bySubordinate.get(key)!.push(c);
-  }
-
-  const results: SplittingGroup[] = [];
-
-  for (const [groupKey, group] of bySubordinate) {
-    if (group.length < SPLITTING_MIN_GROUP_SIZE) continue;
-
-    const visited = new Set<number>();
-
-    for (let i = 0; i < group.length; i++) {
-      if (visited.has(i)) continue;
-
-      const cluster: EpCandidate[] = [group[i]];
-      visited.add(i);
-
-      for (let j = i + 1; j < group.length; j++) {
-        if (visited.has(j)) continue;
-
-        if (subjectsAreSimilar(group[i].subject, group[j].subject)) {
-          cluster.push(group[j]);
-          visited.add(j);
-        }
-      }
-
-      if (cluster.length >= SPLITTING_MIN_GROUP_SIZE) {
-        const totalAmount = cluster.reduce((sum, c) => sum + c.planTotal, 0);
-        if (totalAmount >= EP_SPLITTING_THRESHOLD) {
-          results.push({
-            groupKey,
-            rowIndices: cluster.map(c => c.rowIndex),
-            commonSubject: cluster[0].subject.slice(0, 80),
-            totalAmount,
-            count: cluster.length,
-          });
-        }
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Check if two subject strings are similar enough to suspect splitting.
- * Uses longest common substring: if LCS >= 8 chars, they're similar.
- */
-function subjectsAreSimilar(a: string, b: string): boolean {
-  if (a === b) return true;
-  const minLen = Math.min(a.length, b.length);
-  if (minLen < 8) return false;
-
-  let maxLen = 0;
-  for (let i = 0; i < a.length && maxLen < minLen; i++) {
-    for (let j = 0; j < b.length; j++) {
-      let k = 0;
-      while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) {
-        k++;
-      }
-      if (k > maxLen) maxLen = k;
-    }
-  }
-
-  return maxLen >= 8;
-}
-
-/**
- * Runs full dataset-level analysis: Benford, Z-score, 3-level anomaly, composite score, noise map.
- * This is the main entry point — call after CalcEngine and row-level detectSignals().
- */
 export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
   const { rows, previousRows, rowSignals, execCountPct, epSharePct } = input;
 
@@ -1118,10 +1003,6 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
 /** Get string value from a row cell */
 
 /** Нормализует столбец C → сентинел «само управление» или имя подведа (канон @aemr/shared). */
-function normalizeSub(raw: string): string {
-  return subordinateKey(raw);
-}
-
 /**
  * Detect seasonal / calendar-based anomalies in a department dataset.
  *
