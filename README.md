@@ -99,6 +99,8 @@ docker compose --env-file .env.production up -d --build
 
 ## Документация
 
+- [AGENTS.md](AGENTS.md) — правила для агентов: лестница ponytail + инварианты AEMR.
+- [docs/PLAN.md](docs/PLAN.md) — цель, контрольный список покрытия отчёта, порядок работ, уход от таблиц.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — слои, данные, API, runtime flow.
 - [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — боевые Google Sheets, архивы, копии и запреты для production ingest.
 - [docs/METRICS_CONTRACT.md](docs/METRICS_CONTRACT.md) — трассировка KPI от колонок Google Sheets до DTO и UI.
