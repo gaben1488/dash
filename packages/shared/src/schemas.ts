@@ -132,45 +132,6 @@ export const ProcurementRowSchema = z.object({
 });
 
 // ────────────────────────────────────────────────────────────
-// 6. Row signals
-// ────────────────────────────────────────────────────────────
-
-/**
- * Row signal schema — MUST stay in sync with RowSignals in core/pipeline/signals.ts
- * and RowSignal in types.ts. All fields are boolean.
- */
-export const RowSignalSchema = z.object({
-  signed: z.boolean(),
-  planning: z.boolean(),
-  notDue: z.boolean(),
-  financeDelay: z.boolean(),
-  canceled: z.boolean(),
-  overdue: z.boolean(),
-  hasFact: z.boolean(),
-  planPast: z.boolean(),
-  planSoon: z.boolean(),
-  inconsistentSigned: z.boolean(),
-  economyFlag: z.boolean(),
-  economyConflict: z.boolean(),
-  epRisk: z.boolean(),
-  dataQuality: z.boolean(),
-  formulaBroken: z.boolean(),
-  singleParticipant: z.boolean(),
-  highEconomy: z.boolean(),
-  lowCompetition: z.boolean(),
-  earlyClosure: z.boolean(),
-  factExceedsPlan: z.boolean(),
-  stalledContract: z.boolean(),
-  budgetMismatch: z.boolean(),
-  factWithoutDate: z.boolean(),
-  dateWithoutFact: z.boolean(),
-  factDateBeforePlan: z.boolean(),
-  planWithoutExecution: z.boolean(),
-  epJustificationMissing: z.boolean(),
-  budgetUnderallocation: z.boolean(),
-});
-
-// ────────────────────────────────────────────────────────────
 // 7. Control layer
 // ────────────────────────────────────────────────────────────
 
