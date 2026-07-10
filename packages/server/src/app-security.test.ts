@@ -142,7 +142,9 @@ describe('server security routes in production', () => {
     expect(batch.statusCode).toBe(200);
     expect(batch.json<{ results: Array<{ success: boolean; error?: string }> }>().results).toEqual([
       expect.objectContaining({ success: false, error: expect.stringContaining('Неизвестная колонка') }),
-      expect.objectContaining({ success: false, error: expect.stringContaining('некорректная строка 1') }),
+      // Строка 1 — заголовок. Отклоняется тем же guard'ом границ (rowWriteError), что и запись
+      // за пределами листа; сообщение теперь точное, а не слитное «колонка ... или строка ...».
+      expect.objectContaining({ success: false, error: expect.stringContaining('Некорректный номер строки') }),
     ]);
   });
 });

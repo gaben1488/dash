@@ -17,6 +17,23 @@ function getDeptSheetName(deptShortName: string): string {
 }
 
 /**
+ * Единственная проверка адресуемости строки перед записью в живую таблицу.
+ * Возвращает текст ошибки или null, если писать можно.
+ *
+ * Нижняя граница: строка 1 — заголовок. Верхняя: строка обязана существовать в листе
+ * (иначе writeCellValue создаст ячейку за пределами данных и побьёт итоговые формулы,
+ * а кэш этого не заметит — values[idx-1] просто undefined).
+ * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
+ */
+function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
+  if (!Number.isInteger(idx) || idx < 2) return `Некорректный номер строки "${display}"`;
+  const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
+  if (rowCount === 0) return `Лист "${deptShortName}" не загружен — обновите данные перед правкой`;
+  if (idx > rowCount) return `Строка ${idx} за пределами листа (строк: ${rowCount})`;
+  return null;
+}
+
+/**
  * Маршруты для работы со строковыми данными закупок.
  *
  * Обеспечивает:
@@ -406,9 +423,11 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     if (COL_LETTER_INDEX[field] === undefined) {
       return reply.status(400).send({ error: `Неизвестная колонка "${body.field}"` });
     }
-    // idx обязан быть integer >= 2 (строка 1 — заголовок), иначе cellAddress "GNaN"/"G-1"/header.
-    if (!Number.isInteger(idx) || idx < 2) {
-      return reply.status(400).send({ error: `Некорректный номер строки "${rowIndex}"` });
+    // idx обязан быть integer >= 2 (строка 1 — заголовок) И существовать в листе,
+    // иначе cellAddress "GNaN"/"G-1"/header либо запись за пределами данных.
+    const boundsError = rowWriteError(idx, dept.nameShort, rowIndex);
+    if (boundsError) {
+      return reply.status(400).send({ error: boundsError });
     }
 
     let normalizedValue: unknown = body.value;
@@ -569,11 +588,21 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
 
-        // SECURITY (C2/H3): field обязан быть реальной колонкой + rowIndex integer>=2 — иначе range-injection.
-        if (COL_LETTER_INDEX[field] === undefined || !Number.isInteger(entry.rowIndex) || entry.rowIndex < 2) {
+        // SECURITY (C2/H3): field обязан быть реальной колонкой — иначе range-injection.
+        if (COL_LETTER_INDEX[field] === undefined) {
           results.push({
             deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: `Неизвестная колонка "${rawField}" или некорректная строка ${entry.rowIndex}`,
+            success: false, error: `Неизвестная колонка "${rawField}"`,
+          });
+          continue;
+        }
+
+        // Та же граница строки, что и в PUT: строка обязана существовать в листе.
+        const boundsError = rowWriteError(entry.rowIndex, dept.nameShort);
+        if (boundsError) {
+          results.push({
+            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: boundsError,
           });
           continue;
         }
