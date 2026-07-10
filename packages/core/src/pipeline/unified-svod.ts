@@ -86,9 +86,17 @@ function cellPresent(v: unknown): boolean {
   return v != null && String(v).trim() !== '';
 }
 
-/** Метод строки: столбец L начинается с 'ЕП' → ep, иначе kp. */
+/**
+ * Метод строки: канон normalizeMethod() (алиасы «ЭЕП»/«Ед. поставщик»/«ЕП (ст.93)»
+ * → ЕП), а не startsWith('ЕП') — тот пропускал алиасы, не начинающиеся с этих
+ * букв (чанк F, latent-баг, 0 в реальных данных на 2026-07-11, но словарь
+ * METHOD_ALIAS_MAP документирует их как реально встречающиеся на других листах).
+ *
+ * SvodMethod бинарный ('kp'|'ep', без «неизвестно») — пусто/нераспознанный метод
+ * попадает в 'kp' в обеих версиях (не новое поведение, ограничение типа грида).
+ */
 function methodOf(raw: unknown): SvodMethod {
-  return String(raw ?? '').trim().toUpperCase().startsWith('ЕП') ? 'ep' : 'kp';
+  return normalizeMethod(raw) === 'ЕП' ? 'ep' : 'kp';
 }
 
 
