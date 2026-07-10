@@ -122,9 +122,12 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
       (`RowSignals` signals.ts) + 2 мёртвых недостижимых (`RowSignal` types.ts — 0
       импортёров, не экспортирован; `RowSignalSchema` — 0 `.parse()`-вызовов). Оба
       удалены вместо z.infer-слияния (864f0ee).
-- [ ] **C-narrow** DEPARTMENT_ROWS: 32 row-anchor вывести из DEPARTMENT_REGISTRY[].svod
-      (byte-identical, проверено). Полная унификация реестров ЗАБЛОКИРОВАНА (не эквивалентны).
-      **Последний пункт дорожки A.**
+- [x] C-narrow DEPARTMENT_ROWS: 32 row-anchor выведены из DEPARTMENT_REGISTRY[].svod
+      через существующий `getDeptByLatin()` (abc94fd). Полная унификация реестров
+      остаётся ЗАБЛОКИРОВАНА (не эквивалентны, см. аудит w8j5qi2aa).
+
+**Дорожка A ЗАКРЫТА** (2026-07-11): G→E→F→D→C-narrow, все 6 пунктов. CI зелёный
+на всей серии (6/6). Дальше — дорожка B.
 
 ### Дорожка B — подтверждённые баги (CONFIRMED, вне файлов дорожки A)
 
