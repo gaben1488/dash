@@ -151,14 +151,15 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
       упавший в цикле dept удаляется из кэша, не остаётся молча как «свежий» (a52a23b).
 - [ ] **B-10** `calc-engine.ts:348` — `savings_pct` определён идентично `execution_pct`
       (мислейбл). Решение: реальная формула ИЛИ удалить ключ (ponytail: удалить).
-- [ ] **B-11** web-мелочи одним заходом: экспорт сверки игнорит фильтры (`api.ts:176`),
-      `Recon.tsx:247` useEffect без deps на год, `Header.tsx:17` PAGE_FILTERS битые ключи
-      legacy-страниц.
+- [x] B-11 год теперь доходит до всех трёх reconciliation-эндпойнтов (`api.ts` +
+      `Recon.tsx:247`, оба useEffect deps включают `year`) — сервер уже поддерживал `?year=`,
+      UI просто не слал. `Header.tsx` PAGE_FILTERS проверен против App.tsx — не баг, фикс не
+      нужен (5016ad4).
 - [x] B-12 `vite.config.ts` — `allowedHosts` вынесен в `resolveAllowedHosts(env)`, дефолт
       Vite localhost-only, `AEMR_VITE_ALLOW_PUBLIC_HOSTS=true` включает permissive-режим
       (115fcae). `host:true` не тронут — отдельный класс риска (network bind, не Host-header).
-- [ ] **B-13** `fetchJSON` (`api.ts`) — merge headers через `new Headers(init?.headers)`,
-      дефолты не затираются вызывающим.
+- [x] B-13 `fetchJSON` (`api.ts`) — `new Headers(init?.headers)`, Content-Type/Authorization
+      ставятся только если вызывающий их не задал (5016ad4).
 - [x] B-14 zod выровнен: shared `^3.24.0` → `^3.25.76` (как server) (6560b3a).
 
 ### Дорожка C — покрытие отчёта (контрольный список §1)
