@@ -24,6 +24,25 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   'false_positive': ['open'],           // переоткрытие
 };
 
+/**
+ * Overlays the DB-persisted status on top of issues that are freshly rebuilt
+ * from the snapshot on every call (the pipeline always assigns status:'open' —
+ * see packages/core/src/pipeline/orchestrator.ts:479,621 — and so does the
+ * demo generator). Without this merge, PUT /api/issues/:id/status never
+ * changes what any GET/export caller sees. The DB is the source of truth for
+ * status; every other field still comes from the snapshot as before.
+ */
+function overlayPersistedStatus(issues: Issue[]): Issue[] {
+  if (issues.length === 0) return issues;
+  const rows = db.select({ id: schema.issues.id, status: schema.issues.status }).from(schema.issues).all();
+  if (rows.length === 0) return issues;
+  const statusById = new Map(rows.map((r) => [r.id, r.status]));
+  return issues.map((issue) => {
+    const persisted = statusById.get(issue.id);
+    return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
+  });
+}
+
 export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
   /**
@@ -51,7 +70,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       snapshot = createDemoSnapshot();
     }
 
-    let issues: Issue[] = snapshot.issues ?? [];
+    const allIssues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
+    let issues: Issue[] = allIssues;
 
     // Apply filters
     if (query.severity) issues = issues.filter(i => i.severity === query.severity);
@@ -63,7 +83,6 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const totalPages = Math.ceil(total / limit);
     const paged = issues.slice((page - 1) * limit, page * limit);
 
-    const allIssues = snapshot.issues ?? [];
     return reply.send({
       issues: paged,
       pagination: { page, limit, total, totalPages },
@@ -102,7 +121,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       snapshot = createDemoSnapshot();
     }
 
-    const issue = (snapshot.issues ?? []).find((i: Issue) => i.id === id);
+    const issue = overlayPersistedStatus(snapshot.issues ?? []).find((i: Issue) => i.id === id);
     if (!issue) {
       return reply.status(404).send({ error: `Замечание "${id}" не найдено` });
     }
@@ -171,39 +190,56 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
     const now = new Date().toISOString();
 
-    // Upsert issue status in DB
-    if (dbIssue) {
-      db.update(schema.issues).set({ status: body.status, comment: body.comment ?? null, resolvedAt: body.status === 'resolved' ? now : null }).where(eq(schema.issues.id, id)).run();
-    } else {
-      // Insert minimal issue record for tracking
-      try {
-        db.insert(schema.issues).values({
-          id,
-          snapshotId: 'manual',
-          severity: 'info',
-          origin: 'user',
-          category: 'status_change',
-          title: `Issue ${id}`,
-          status: body.status,
-          detectedAt: now,
-        }).run();
-      } catch (err) { app.log.warn({ err }, 'issues/status: insert conflict'); }
-    }
-
-    // Create issueHistory record
+    // Both writes are now atomic. Previously the INSERT and the issueHistory
+    // insert were each wrapped in a try/catch that only logged a warning and
+    // never changed the response: on failure (e.g. the FK on snapshot_id had
+    // nothing to point at) the server still answered success:true even though
+    // nothing landed in the DB. Errors are no longer swallowed — roll back and
+    // answer honestly.
     try {
-      db.insert(schema.issueHistory).values({
-        issueId: id,
-        fromStatus: currentStatus,
-        toStatus: body.status,
-        comment: body.comment ?? null,
-        reason: body.reason ?? null,
-        justification: body.justification ?? null,
-        responsible: body.responsible ?? null,
-        deadline: body.deadline ?? null,
-        timestamp: now,
-      }).run();
-    } catch (err) { app.log.warn({ err }, 'issues/status: failed to write issue_history'); }
+      db.transaction((tx) => {
+        // Upsert issue status in DB
+        if (dbIssue) {
+          tx.update(schema.issues).set({ status: body.status, comment: body.comment ?? null, resolvedAt: body.status === 'resolved' ? now : null }).where(eq(schema.issues.id, id)).run();
+        } else {
+          // Insert minimal issue record for tracking. snapshotId: null, not the
+          // literal 'manual' — no such row ever exists in snapshots, and with
+          // foreign_keys=ON (db/index.ts:18) the INSERT was guaranteed to fail
+          // its FK constraint. The snapshot_id column is not NOT NULL, so null
+          // passes.
+          tx.insert(schema.issues).values({
+            id,
+            snapshotId: null,
+            severity: 'info',
+            origin: 'user',
+            category: 'status_change',
+            title: `Issue ${id}`,
+            status: body.status,
+            detectedAt: now,
+          }).run();
+        }
+
+        // Create issueHistory record — same transaction: if the issue insert
+        // above didn't happen (or fails), the history row rolls back with it.
+        tx.insert(schema.issueHistory).values({
+          issueId: id,
+          fromStatus: currentStatus,
+          toStatus: body.status,
+          comment: body.comment ?? null,
+          reason: body.reason ?? null,
+          justification: body.justification ?? null,
+          responsible: body.responsible ?? null,
+          deadline: body.deadline ?? null,
+          timestamp: now,
+        }).run();
+      });
+    } catch (err) {
+      app.log.error({ err, issueId: id }, 'issues/status: failed to persist status change');
+      return reply.status(500).send({
+        success: false,
+        error: 'Не удалось сохранить смену статуса',
+      });
+    }
 
     return reply.send({
       success: true,
@@ -289,7 +325,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       snapshot = createDemoSnapshot();
     }
 
-    let issues: Issue[] = snapshot.issues ?? [];
+    let issues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
 
     if (query.severity) issues = issues.filter(i => i.severity === query.severity);
     if (query.status) issues = issues.filter(i => i.status === query.status);
