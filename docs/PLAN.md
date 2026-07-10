@@ -138,12 +138,11 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
       RED: инжект-тест с FK-нарушением → ждать 500. Плюс `:41` — статус не переживает refresh
       (список читает snapshot, статус пишется в таблицу, которую список не читает) — починить
       чтением статуса из БД при сборке списка.
-- [ ] **B-5** `store.ts:306` — `setYear` не синкает `monthsByYear/activeMonths` → тихий
-      кросс-год рассинхрон (данные март-2026, TimeDrum «весь год»). RED-тест стора; синк как
-      в `toggleMonthInYear:560`. Рядом `useFilteredData.ts:11` — читает только activeMonths.
+- [x] B-5 `store.ts:306` — `setYear` синкает `activeMonths` из `monthsByYear[target]`
+      как `toggleMonthInYear`/`toggleQuarterInYear`/`toggleYearFull` (4864935).
 - [ ] **B-6** `google-sheets.ts:276,286` — bare `catch{}` глотает 429/403 как «лист не найден»;
       `errors[]` ключуется покорёженной строкой. Сохранять последнюю ошибку, ключевать deptName.
-- [ ] **B-7** `demo-data.ts:429` — знак amount_dev в demo-агрегатах инвертирован (fact−plan канон).
+- [x] B-7 `demo-data.ts:429` — знак amount_dev в demo-агрегатах выправлен на fact−plan (d53d6cd).
 - [ ] **B-8** `calc-engine.ts:415` — счётчик молча дропнутых строк + сигнал при >0;
       `validate.ts:53` — unknown-лист = ошибка, не тихий скип. (Один коммит: «нет тихих потерь».)
 - [ ] **B-9** `snapshot.ts:101` TOCTOU in-flight dedup; `:19` merge-вместо-replace маскирует
@@ -153,12 +152,12 @@ wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже з�
 - [ ] **B-11** web-мелочи одним заходом: экспорт сверки игнорит фильтры (`api.ts:176`),
       `Recon.tsx:247` useEffect без deps на год, `Header.tsx:17` PAGE_FILTERS битые ключи
       legacy-страниц.
-- [ ] **B-12** `vite.config.ts` — `allowedHosts:true` за env-флаг `AEMR_VITE_ALLOW_PUBLIC_HOSTS`
-      (дефолт localhost). Из Codex-харнесса; его Task-2-тест НЕ брать как есть (инвертирован:
-      зелёный до фикса, красный после) — заменить на assert через `new Headers()`.
+- [x] B-12 `vite.config.ts` — `allowedHosts` вынесен в `resolveAllowedHosts(env)`, дефолт
+      Vite localhost-only, `AEMR_VITE_ALLOW_PUBLIC_HOSTS=true` включает permissive-режим
+      (115fcae). `host:true` не тронут — отдельный класс риска (network bind, не Host-header).
 - [ ] **B-13** `fetchJSON` (`api.ts`) — merge headers через `new Headers(init?.headers)`,
       дефолты не затираются вызывающим.
-- [ ] **B-14** zod выровнять: shared `^3.24.0` → `^3.25.76` (как server), `pnpm install`, гейт.
+- [x] B-14 zod выровнен: shared `^3.24.0` → `^3.25.76` (как server) (6560b3a).
 
 ### Дорожка C — покрытие отчёта (контрольный список §1)
 
