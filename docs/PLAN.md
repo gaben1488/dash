@@ -95,6 +95,87 @@
 
 ---
 
+## 2.1 Очередь исполнения (руки берут отсюда; протокол — AGENTS.md)
+
+Правила очереди: одна задача = один коммит с зелёным гейтом. TDD на поведение,
+characterization на move-only. Дорожки A/B/C независимы по файлам — можно параллельно
+в worktree; внутри дорожки строго по порядку. Источник вердиктов — bug-hunt
+wf_2da4b60c-e6f (43 CONFIRMED адверсариально; «✅» = уже закрыто).
+
+### Дорожка A — рефакторы (продолжение чанка G, затем E/F/D/C-narrow)
+
+- [x] G-1 `CHECK_REGISTRY` → `check-registry.ts` (f4a56b0)
+- [x] G-2 legacy-конвертация → `issue-conversion.ts` (8c95f24)
+- [ ] **G-3** `dataset-signals.ts` (1380) → разрез по детекторам: `benford/outliers` ·
+      `ep-risk/execution` · `anomalies (data/behavioral/systemic)` · `seasonal+splitting` ·
+      `composite/noise/analyzeDataset`. Файл остаётся шимом `export *` — иначе
+      `detectSeasonalAnomalies`/`detectSuspiciousSplitting` умрут молча (страховка:
+      `god-file-surface.test.ts`, держать зелёным на каждом шаге).
+- [ ] **E** fact-empty → shared `FACT_DATE_PLACEHOLDERS` (обязан включать `''`), семантически
+      ОТДЕЛЬНО от `ORG_ITSELF_PLACEHOLDERS`. Сначала RED `GATE_HAS_FACT`-тест.
+- [ ] **F** method KP/EP 2→1: unified-svod `methodOf` unknown→'kp' против канона CalcEngine
+      unknown→null. Числа в SvodView видимо изменятся — задокументировать в коммите, обновить
+      unified-svod.test.
+- [ ] **D** RowSignal: три определения (signals.ts:29 / types.ts:199 / schemas.ts:142) → один
+      `z.infer` от zod-схемы.
+- [ ] **C-narrow** DEPARTMENT_ROWS: 32 row-anchor вывести из DEPARTMENT_REGISTRY[].svod
+      (byte-identical, проверено). Полная унификация реестров ЗАБЛОКИРОВАНА (не эквивалентны).
+
+### Дорожка B — подтверждённые баги (CONFIRMED, вне файлов дорожки A)
+
+- [x] B-1 AD-gate `analytics.ts` ×3 сайта (5485fce)
+- [x] B-2 границы записи `rows.ts` PUT+batch (de88199)
+- [x] B-3 regex `EP_NOT_WORTHWHILE` (95d4c21)
+- [ ] **B-4** `issues.ts:175` — `success:true` при провале обоих INSERT (FK-каскад глотается).
+      RED: инжект-тест с FK-нарушением → ждать 500. Плюс `:41` — статус не переживает refresh
+      (список читает snapshot, статус пишется в таблицу, которую список не читает) — починить
+      чтением статуса из БД при сборке списка.
+- [ ] **B-5** `store.ts:306` — `setYear` не синкает `monthsByYear/activeMonths` → тихий
+      кросс-год рассинхрон (данные март-2026, TimeDrum «весь год»). RED-тест стора; синк как
+      в `toggleMonthInYear:560`. Рядом `useFilteredData.ts:11` — читает только activeMonths.
+- [ ] **B-6** `google-sheets.ts:276,286` — bare `catch{}` глотает 429/403 как «лист не найден»;
+      `errors[]` ключуется покорёженной строкой. Сохранять последнюю ошибку, ключевать deptName.
+- [ ] **B-7** `demo-data.ts:429` — знак amount_dev в demo-агрегатах инвертирован (fact−plan канон).
+- [ ] **B-8** `calc-engine.ts:415` — счётчик молча дропнутых строк + сигнал при >0;
+      `validate.ts:53` — unknown-лист = ошибка, не тихий скип. (Один коммит: «нет тихих потерь».)
+- [ ] **B-9** `snapshot.ts:101` TOCTOU in-flight dedup; `:19` merge-вместо-replace маскирует
+      упавший dept свежестью старых данных.
+- [ ] **B-10** `calc-engine.ts:348` — `savings_pct` определён идентично `execution_pct`
+      (мислейбл). Решение: реальная формула ИЛИ удалить ключ (ponytail: удалить).
+- [ ] **B-11** web-мелочи одним заходом: экспорт сверки игнорит фильтры (`api.ts:176`),
+      `Recon.tsx:247` useEffect без deps на год, `Header.tsx:17` PAGE_FILTERS битые ключи
+      legacy-страниц.
+- [ ] **B-12** `vite.config.ts` — `allowedHosts:true` за env-флаг `AEMR_VITE_ALLOW_PUBLIC_HOSTS`
+      (дефолт localhost). Из Codex-харнесса; его Task-2-тест НЕ брать как есть (инвертирован:
+      зелёный до фикса, красный после) — заменить на assert через `new Headers()`.
+- [ ] **B-13** `fetchJSON` (`api.ts`) — merge headers через `new Headers(init?.headers)`,
+      дефолты не затираются вызывающим.
+- [ ] **B-14** zod выровнять: shared `^3.24.0` → `^3.25.76` (как server), `pnpm install`, гейт.
+
+### Дорожка C — покрытие отчёта (контрольный список §1)
+
+- [ ] **C-1 показать AE** (строка 19/21, данные заполнены на 91%): DataBrowser — колонка
+      «Комментарий ГРБС» с показом по клику; страница Issues — комментарий строки рядом с
+      замечанием. Дизайн: `impeccable-shape` ДО кода (бриф: пользователь = УЭР, вопрос —
+      «что ГРБС ответил по этой строке»), потом `impeccable-audit`.
+- [ ] **C-2 wire recommendations.ts** (строка 18): экспорт из core/index → route
+      `GET /api/recommendations` → секция на Recs.tsx «Рекомендации по правилам» рядом с
+      issue-derived. 13 правил уже написаны и оттестированы паритетно с отчётом.
+- [ ] **C-3 сборка «ЕП-причины по ГРБС»** (строка 11): % от фактической суммы + разбивка
+      по 15 кластерам + доля UNMAPPED как метрика качества словаря.
+- [ ] **C-4 «осталось отыграть»** (строки 7/15): вью списка по сигналу `planWithoutExecution`
+      с суммой и сроком.
+
+### Отложено (блокер — не мы)
+
+- VPS не оплачен: TLS, Caddy-инъекция ключа (auth фактически выключен снаружи!), rollback-теги,
+  мониторинг прода. При оплате — первым делом Caddyfile.
+- RBAC/логин — предпосылка миграции (§4), отдельная волна после дорожек A-B.
+- husky skip-гейт для не-TS коммитов — осознанный компромисс (иначе OOM блокировал ml sync);
+  компенсация: CI на PR гоняет полный гейт всегда.
+
+---
+
 ## 3. Инварианты (не режутся никогда)
 
 Полный список — в корневом `AGENTS.md` (ponytail + carve-outs AEMR). Кратко: AD-gate экономии,
