@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
 import {
+  approvedEconomy,
   buildGRBSProfiles,
   checkEPContractLimits,
   checkAntiDumping,
@@ -59,11 +60,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
           factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
-          economy: Math.max(0,
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_FB] ?? 0)) || 0) +
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_KB] ?? 0)) || 0) +
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_MB] ?? 0)) || 0)
-          ),
+          economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         })).filter((r: any) => r.method === 'ЕП' || r.method === 'ЭА' || r.method === 'ЭК' || r.method === 'ЭЗК');
 
@@ -140,11 +137,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
           factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
-          economy: Math.max(0,
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_FB] ?? 0)) || 0) +
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_KB] ?? 0)) || 0) +
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_MB] ?? 0)) || 0)
-          ),
+          economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         }));
         const recalc = recalcResults[dept.id] as any;
@@ -181,10 +174,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
           factTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_FACT] ?? 0)) || 0,
-          economy: Math.max(0,
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_FB] ?? 0)) || 0) +
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_KB] ?? 0)) || 0) +
-            (parseFloat(String(row?.[DEPT_COLUMNS.ECONOMY_MB] ?? 0)) || 0)),
+          economy: approvedEconomy(row),
           subject: String(row?.[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
         }));
 

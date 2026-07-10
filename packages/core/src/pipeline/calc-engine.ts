@@ -296,6 +296,17 @@ const GATE_METHOD_COMPETITIVE: GateCondition = { column: COL.METHOD, op: 'method
 const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'ep' };
 
 /**
+ * Утверждённая экономия строки: Z+AA+AB под теми же гейтами, что и метрики
+ * economy_* (AD='да' + дата факта). Единственный источник построчной экономии
+ * для потребителей вне CalcEngine (комплаенс, антидемпинг, отчёты).
+ * Сырую сумму Z+AA+AB показывать/проверять нельзя — она порождает ложные вердикты.
+ */
+export function approvedEconomy(row: RawRow): number {
+  if (!evaluateGate(row, GATE_HAS_FACT) || !evaluateGate(row, GATE_ECONOMY_APPROVED)) return 0;
+  return Math.max(0, num(row[COL.ECONOMY_FB]) + num(row[COL.ECONOMY_KB]) + num(row[COL.ECONOMY_MB]));
+}
+
+/**
  * Standard metric definitions matching СВОД ТД-ПМ columns D-U.
  * These are the base metrics — derived metrics (execution %, savings %) are computed after.
  */
