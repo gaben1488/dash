@@ -426,7 +426,7 @@ function demoAccumulate(acc: DemoRow, r: DemoRow): void {
 function demoFinalize(acc: DemoRow): DemoRow {
   acc.deviationCount = acc.factCount - acc.planCount;
   acc.executionPct = acc.planCount > 0 ? acc.factCount / acc.planCount : 0;
-  acc.amountDeviation = acc.planTotal - acc.factTotal;
+  acc.amountDeviation = acc.factTotal - acc.planTotal;
   acc.savingsPct = acc.planTotal > 0 ? (acc.planTotal - acc.factTotal) / acc.planTotal : 0;
   return acc;
 }
