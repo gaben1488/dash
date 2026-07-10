@@ -2,20 +2,20 @@ import type { DashboardData } from '@aemr/shared';
 
 const API_BASE = '/api';
 
-async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {};
-  // Only set Content-Type for requests with a body
-  if (init?.body) {
-    headers['Content-Type'] = 'application/json';
+export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  // Only set Content-Type for requests with a body, and only if the caller hasn't set one
+  if (init?.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
   }
-  // Attach Bearer token if configured (for auth middleware)
+  // Attach Bearer token if configured (for auth middleware), unless the caller already set one
   const apiKey = typeof localStorage !== 'undefined' ? localStorage.getItem('aemr_api_key') : null;
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
+  if (apiKey && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${apiKey}`);
   }
   const res = await fetch(`${API_BASE}${url}`, {
-    headers,
     ...init,
+    headers,
   });
   if (!res.ok) {
     const body = await res.text();
@@ -92,11 +92,18 @@ export const api = {
     }),
 
   // Reconciliation
-  getReconciliation: () =>
-    fetchJSON<any>('/reconciliation'),
+  getReconciliation: (year?: number | 'all') => {
+    const qs = year !== undefined ? `?year=${year}` : '';
+    return fetchJSON<any>(`/reconciliation${qs}`);
+  },
 
-  getReconciliationMonthly: (dept?: string) =>
-    fetchJSON<any>(`/reconciliation/monthly${dept ? `?dept=${dept}` : ''}`),
+  getReconciliationMonthly: (dept?: string, year?: number | 'all') => {
+    const params = new URLSearchParams();
+    if (dept) params.set('dept', dept);
+    if (year !== undefined) params.set('year', String(year));
+    const qs = params.toString();
+    return fetchJSON<any>(`/reconciliation/monthly${qs ? `?${qs}` : ''}`);
+  },
 
   /** Единая сетка СВОД (ГРБС × активность × метод × период) + сверка против листа СВОД ТД-ПМ. */
   getSvodUnified: (year?: number | 'all') => {
@@ -173,8 +180,10 @@ export const api = {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return `${API_BASE}/export/issues${qs}`;
   },
-  exportReconciliationUrl: () =>
-    `${API_BASE}/export/reconciliation`,
+  exportReconciliationUrl: (year?: number | 'all') => {
+    const qs = year !== undefined ? `?year=${year}` : '';
+    return `${API_BASE}/export/reconciliation${qs}`;
+  },
 
   // Analytics
   getAnalyticsProfiles: () =>

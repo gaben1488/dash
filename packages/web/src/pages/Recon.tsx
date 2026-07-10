@@ -244,7 +244,7 @@ function isZero(n: number): boolean {
 // ── Main Component ─────────────────────────────────────────────
 
 export function ReconPage() {
-  const { formatMoney, period, dashboardData, selectedDepartments, navigateTo } = useStore();
+  const { formatMoney, period, year, dashboardData, selectedDepartments, navigateTo } = useStore();
   const fd = useFilteredData();
   const [reconData, setReconData] = useState<ReconSummaryData | null>(null);
   const [reconLoading, setReconLoading] = useState(false);
@@ -263,7 +263,7 @@ export function ReconPage() {
     let cancelled = false;
     setReconLoading(true);
     setReconError(null);
-    api.getReconciliation()
+    api.getReconciliation(year)
       .then((res) => {
         if (!cancelled) {
           setReconData(res.reconciliation ?? null);
@@ -278,7 +278,7 @@ export function ReconPage() {
         }
       });
     return () => { cancelled = true; };
-  }, [dashboardData]);
+  }, [dashboardData, year]);
 
   // Fetch monthly SHDYU reconciliation data
   useEffect(() => {
@@ -286,7 +286,7 @@ export function ReconPage() {
     let cancelled = false;
     setMonthlyLoading(true);
     setMonthlyError(null);
-    api.getReconciliationMonthly()
+    api.getReconciliationMonthly(undefined, year)
       .then((res) => {
         if (!cancelled) {
           setMonthlyData(res);
@@ -301,7 +301,7 @@ export function ReconPage() {
         }
       });
     return () => { cancelled = true; };
-  }, [dashboardData, view]);
+  }, [dashboardData, view, year]);
 
   // Metric-level deltas
   const deltas = period !== 'year'
@@ -383,7 +383,7 @@ export function ReconPage() {
           </div>
           <div className="flex items-center gap-3">
             <a
-              href={api.exportReconciliationUrl()}
+              href={api.exportReconciliationUrl(year)}
               download
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-600 transition"
             >
