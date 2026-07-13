@@ -10,6 +10,12 @@ describe('classifyOrg (1.2): тип организации по ОПФ, не п�
     expect(classifyOrg('МБДОУ ДС № 24 «Журавлик»').type).toBe('byudzhetnoe');
     expect(classifyOrg('МБОУ «Елизовская средняя школа №9 им. Р.В.Федины»').type).toBe('byudzhetnoe');
   });
+  it('казённое общеобразовательное (МКОУ/МКДОУ) → ПБС, не бюджетное', () => {
+    // МКОУ = муниципальное КАЗЁННОЕ общеобразовательное учреждение (ст.6 БК → ПБС).
+    expect(classifyOrg('МКОУ «Сельская средняя школа»').type).toBe('kazennoe');
+    expect(classifyOrg('МКОУ «Сельская средняя школа»').isPBS).toBe(true);
+    expect(classifyOrg('МКДОУ «Детский сад»').type).toBe('kazennoe');
+  });
   it('автономное (МАДОУ) → не ПБС', () => {
     expect(classifyOrg('МАДОУ ДС № 1 «Ласточка»').type).toBe('avtonomnoe');
   });
