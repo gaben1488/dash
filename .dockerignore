@@ -1,0 +1,15 @@
+# Не тащить хостовые артефакты в build-контекст (детерминированная сборка).
+# node_modules пересобирается в образе (нативный better-sqlite3 под alpine).
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.mulch
+graphify-out
+docs
+memory
+.superpowers
+packages/server/data
+*.log
+.env
+.env.*

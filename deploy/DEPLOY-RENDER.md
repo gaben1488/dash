@@ -66,3 +66,16 @@ Free-tier Render не даёт встроенную защиту паролем.
 (password protection), Cloudflare Access перед сервисом, либо полноценный RBAC (фаза 7
 мастер-плана — роли УЭР/ЦЭР/ГРБС-вьюер). Пока — публичный просмотр (данные 44-ФЗ и так
 публичны на zakupki.gov.ru).
+
+## Рантайм-заметка (важно для сборки)
+
+`@aemr/shared` и `@aemr/core` — исходные TS-пакеты (`main` = `src/index.ts`, в dist не
+собираются). Поэтому сервер запускается **через tsx из исходников** (`packages/server` уже
+держит `tsx` в зависимостях + скрипт `start:prod`), а НЕ `node dist/index.js` — последнее не
+резолвит workspace-алиасы в рантайме (tsc их не переписывает). Dockerfile это учитывает:
+hoisted node_modules + исходники воркспейса + `CMD tsx packages/server/src/index.ts`.
+Собирается только web (SPA → `public/`), сервер/shared/core — из исходников.
+
+Если сборка на Render упадёт — прислать логи стадии build/deploy; вероятные точки:
+`pnpm --filter @aemr/web build` (нехватка памяти на free — тогда поднять план на время сборки)
+или нативный `better-sqlite3` (собирается в build-стадии под alpine, обычно ок).
