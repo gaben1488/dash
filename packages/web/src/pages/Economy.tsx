@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, Fragment } from 'react';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
-import { ECONOMY_EMPTY_STATE_COPY } from '../lib/economy-copy';
+import { ECONOMY_EMPTY_STATE_COPY, buildEconomyInsight, economyBannerStatus } from '../lib/economy-copy';
 // HeroKPICard removed — Economy uses custom dense hero strip
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import {
@@ -671,7 +671,6 @@ export function EconomyPage() {
     <div className="space-y-2.5">
       {/* Assertion banner — anti-slop: insight drives the page */}
       {(() => {
-        const highEconomyCount = deptEconomy.filter(d => d.highEconomy).length;
         const budgetTag = isBudgetFiltered
           ? ` [${[bFB && 'ФБ', bKB && 'КБ', bMB && 'МБ'].filter(Boolean).join('+')}]`
           : '';
@@ -682,16 +681,14 @@ export function EconomyPage() {
           ? ` • только упр.: ${[...deptOnlyMode].join(', ')}`
           : '';
         const suffix = `${budgetTag}${methodTag}${deptOnlyTag}`;
-        if (highEconomyCount > 0) {
-          return (
-            <div className="px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 text-xs text-amber-700 dark:text-amber-300 font-medium">
-              {formatMoney(totalEconomy)} экономии{suffix} • {highEconomyCount} {highEconomyCount === 1 ? 'строка' : 'строк'} &gt;25% — требуют проверки по ст.37 44-ФЗ
-            </div>
-          );
-        }
+        // «В норме» — только при нуле отклонений >25% И нуле конфликтов флага.
+        const status = economyBannerStatus({ conflicts: totalConflicts, over25: totalHighEconomy });
+        const cls = status.ok
+          ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300'
+          : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/40 text-amber-700 dark:text-amber-300';
         return (
-          <div className="px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/40 text-xs text-emerald-700 dark:text-emerald-300 font-medium">
-            {formatMoney(totalEconomy)} экономии{suffix} • Все показатели в норме
+          <div className={clsx('px-3 py-2 rounded-lg border text-xs font-medium', cls)}>
+            {formatMoney(totalEconomy)} экономии{suffix} • {status.label}
           </div>
         );
       })()}
@@ -817,17 +814,16 @@ export function EconomyPage() {
       <div className="flex items-center gap-2 px-1 animate-[fadeIn_500ms_ease-out_200ms_both]">
         <Activity size={10} className="text-emerald-500/60 shrink-0" />
         <p className="text-[10px] text-zinc-500 leading-relaxed">
-          {(() => {
-            const topDept = sortedDeptEconomy[0];
-            const parts: string[] = [];
-            parts.push(`Экономия ${formatMoney(totalEconomy)} (${(totalPlan > 0 ? (totalEconomy / totalPlan) * 100 : 0).toFixed(1)}% от лимита).`);
-            if (topDept) parts.push(`Лидер — ${topDept.dept} (${formatMoney(topDept.economy)}).`);
-            const mbShare = totalEconomy > 0 ? ((totalMbEco / totalEconomy) * 100).toFixed(0) : '0';
-            parts.push(`МБ = ${mbShare}% экономии.`);
-            if (totalHighEconomy > 0) parts.push(`${totalHighEconomy} ГРБС с экономией >25% — проверить ст.37 44-ФЗ.`);
-            if (totalConflicts > 0) parts.push(`${totalConflicts} расхождений УФБП/ГРБС.`);
-            return parts.join(' ');
-          })()}
+          {buildEconomyInsight({
+            // Только отфильтрованный набор — лидер/расхождения не могут назвать чужой ГРБС.
+            depts: sortedDeptEconomy.map(d => ({ dept: d.dept, economy: d.economy })),
+            totalEconomy,
+            totalPlan,
+            mbEconomy: totalMbEco,
+            highEconomyCount: totalHighEconomy,
+            conflicts: totalConflicts,
+            formatMoney,
+          })}
         </p>
       </div>
 
