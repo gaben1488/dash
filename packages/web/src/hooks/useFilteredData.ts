@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useStore, QUARTER_MONTHS, type PeriodScope } from '../store';
 import { getFilteredEconomyTotal } from '../lib/economy-metrics';
+import { aggregateSignalCounts } from '../lib/signal-counts';
 
 /**
  * Centralized data filtering hook.
@@ -830,8 +831,8 @@ export function useFilteredData() {
     const criticalIssues = issues.filter((i: any) => i.severity === 'critical' || i.severity === 'error');
     const warningIssues = issues.filter((i: any) => i.severity === 'warning' || i.severity === 'significant');
 
-    // Signal counts from API (full dataset, not truncated recentIssues)
-    const signalCounts: Record<string, number> = dashboardData?.signalCounts ?? {};
+    // Signal counts: суммируем по ОТФИЛЬТРОВАННЫМ депам (depts), фолбэк на серверный полный.
+    const signalCounts = aggregateSignalCounts(depts, dashboardData?.signalCounts ?? {});
 
     return {
       // Raw filtered collections
