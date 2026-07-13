@@ -1,0 +1,33 @@
+# Render Blueprint — публичный read-only деплой dash (бесплатный tier).
+# Один web-сервис: сервер отдаёт и API, и собранный SPA (fastifyStatic → public/).
+# Docker-сборка по корневому Dockerfile (server dist + web dist → public).
+#
+# Как использовать: см. deploy/DEPLOY-RENDER.md (пошагово).
+services:
+  - type: web
+    name: aemr-dash
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free            # бесплатный tier: засыпает через 15 мин простоя, эфемерный диск
+    healthCheckPath: /api/health
+    autoDeploy: false     # деплой по кнопке, не на каждый push (ветка активной разработки)
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Публичный режим только для чтения: чтения открыты без ключа,
+      # запись (PUT/POST/DELETE на /api/*) заблокирована 403. Защищает
+      # исходные Google-таблицы от анонимной записи при публичном URL.
+      - key: AEMR_PUBLIC_READONLY
+        value: "true"
+      # PORT Render проставляет сам; сервер читает env.PORT (config.ts:30).
+      # HOST по умолчанию 0.0.0.0 (config.ts:31) — Render-совместимо.
+      #
+      # Google Sheets (реальные данные). БЕЗ них сервер отдаёт ДЕМО-данные
+      # (createDemoSnapshot fallback). Для реальных цифр задать в Render UI
+      # (sync:false = вводится вручную, НЕ в git — сервис-аккаунт JSON секретен):
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false
+      - key: GOOGLE_SHEETS_SPREADSHEET_ID
+        sync: false

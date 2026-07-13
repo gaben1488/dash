@@ -19,6 +19,26 @@ const PUBLIC_PATHS = new Set(['/api/health']);
  * - /api/health is always public.
  */
 export function registerAuthHook(app: FastifyInstance): void {
+  // Публичный read-only деплой (напр. бесплатное демо на Render для начальства):
+  // ключ не требуется, ВСЕ чтения (GET/HEAD/OPTIONS) открыты, но любая мутация
+  // (POST/PUT/PATCH/DELETE) на /api/* отклоняется 403 — защищает исходные
+  // Google-таблицы и БД от анонимной записи, когда URL публичен. Ветка раньше
+  // key-логики и раньше fail-closed на отсутствие ключа в production.
+  if (process.env.AEMR_PUBLIC_READONLY === 'true') {
+    app.log.warn('AEMR_PUBLIC_READONLY=true — публичный режим только для чтения: чтения открыты, запись заблокирована, API-ключ не требуется');
+    app.addHook('onRequest', async (request, reply) => {
+      const url = request.url.split('?')[0];
+      if (!url.startsWith('/api/')) return;
+      const method = request.method.toUpperCase();
+      if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Демо-версия только для просмотра: изменение данных отключено',
+      });
+    });
+    return;
+  }
+
   const apiKey = config.auth.apiKey;
 
   if (!apiKey) {
