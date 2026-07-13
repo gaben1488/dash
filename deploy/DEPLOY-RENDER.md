@@ -12,8 +12,8 @@ Vercel — статика + короткоживущие функции; наш 
 
 ## Что уже готово в репозитории
 
-- `Dockerfile` (корень) — многостадийная сборка: `server dist` + `web dist` → `public/`,
-  сервер отдаёт SPA сам (`fastifyStatic`), `CMD node dist/index.js`.
+- `Dockerfile` (корень) — сборка web (SPA → `public/`); сервер+shared+core запускаются из
+  исходников через `tsx` (см. «Рантайм-заметка» ниже), SPA отдаётся `fastifyStatic`.
 - `render.yaml` (корень) — Blueprint: free web-сервис, Docker, healthcheck `/api/health`.
 - `AEMR_PUBLIC_READONLY=true` — публичный режим только для чтения
   (`packages/server/src/middleware/auth.ts`): ключ не нужен, GET открыты, запись → 403.
