@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useStore, QUARTER_MONTHS, type PeriodScope } from '../store';
 import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 import { aggregateSignalCounts } from '../lib/signal-counts';
+import { shouldShowYearMismatch } from '../lib/year-mismatch';
 
 /**
  * Centralized data filtering hook.
@@ -24,6 +25,7 @@ export function useFilteredData() {
     year,
     dataYear,
     deptOnlyMode,
+    loading,
   } = useStore();
 
   return useMemo(() => {
@@ -884,8 +886,8 @@ export function useFilteredData() {
       // Year filter awareness
       year,
       dataYear,
-      /** true when selected year doesn't match the loaded data year */
-      yearMismatch: year !== 'all' && year !== dataYear,
+      /** true when selected year doesn't match the loaded data year (and not loading) */
+      yearMismatch: shouldShowYearMismatch(year, dataYear, loading),
     };
   }, [
     dashboardData,
@@ -902,5 +904,6 @@ export function useFilteredData() {
     searchQuery,
     year,
     dataYear,
+    loading,
   ]);
 }
