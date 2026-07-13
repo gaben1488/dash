@@ -5,6 +5,7 @@ import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2,
 import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
 import { TableEditor, type ColumnConfig, type RowData } from '../components/TableEditor';
+import { filterRowsByBudgets } from '../lib/rows-filter';
 
 type ViewMode = 'browse' | 'editor';
 
@@ -76,7 +77,7 @@ const SIGNAL_LABELS: Record<string, string> = {
 };
 
 export function DataBrowserPage() {
-  const { formatMoney, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year } = useStore();
+  const { formatMoney, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets } = useStore();
   const [viewMode, setViewMode] = useState<ViewMode>('browse');
   const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -299,7 +300,7 @@ export function DataBrowserPage() {
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Reset page on filter changes
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter]);
+  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, selectedBudgets]);
 
   // Close signal dropdown on click outside
   useEffect(() => {
@@ -361,6 +362,8 @@ export function DataBrowserPage() {
         return signalFilter.some(s => sigs.includes(s));
       });
     }
+    // Budget filter (ФБ/КБ/МБ) — строка проходит, если имеет план ИЛИ факт в выбранном бюджете
+    data = filterRowsByBudgets(data, selectedBudgets);
     data.sort((a, b) => {
       const av = a[sortKey], bv = b[sortKey];
       if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
@@ -368,7 +371,7 @@ export function DataBrowserPage() {
       return sortDir === 'asc' ? as.localeCompare(bs, 'ru') : bs.localeCompare(as, 'ru');
     });
     return data;
-  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter]);
+  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, selectedBudgets]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paged = filtered.slice((pageNum - 1) * pageSize, pageNum * pageSize);
