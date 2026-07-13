@@ -25,15 +25,25 @@ export function registerAuthHook(app: FastifyInstance): void {
   // Google-таблицы и БД от анонимной записи, когда URL публичен. Ветка раньше
   // key-логики и раньше fail-closed на отсутствие ключа в production.
   if (process.env.AEMR_PUBLIC_READONLY === 'true') {
-    app.log.warn('AEMR_PUBLIC_READONLY=true — публичный режим только для чтения: чтения открыты, запись заблокирована, API-ключ не требуется');
+    app.log.warn('AEMR_PUBLIC_READONLY=true — публичный режим только для чтения: чтения открыты, запись в источник заблокирована, API-ключ не требуется');
+    // Безопасные не-GET (перечитка/проверка, НЕ пишут в Google-таблицы/конфиг) — разрешены,
+    // чтобы публичный просмотр мог обновлять данные. Всё остальное, что МУТИРУЕТ источник
+    // (правка ячеек, батч-сохранение, смена источника, .env, маппинг, статусы) — 403.
+    const READONLY_ALLOWED_NON_GET = [
+      /^\/api\/refresh$/,                       // перечитка снапшота из Google (в таблицы не пишет)
+      /^\/api\/sources\/[^/]+\/test$/,          // тест-чтение источника
+      /^\/api\/sources\/[^/]+\/validate$/,      // валидация источника (чтение)
+      /^\/api\/mapping\/validate$/,             // проверка маппинга (чтение)
+    ];
     app.addHook('onRequest', async (request, reply) => {
       const url = request.url.split('?')[0];
       if (!url.startsWith('/api/')) return;
       const method = request.method.toUpperCase();
       if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+      if (READONLY_ALLOWED_NON_GET.some((re) => re.test(url))) return;
       return reply.status(403).send({
         error: 'Forbidden',
-        message: 'Демо-версия только для просмотра: изменение данных отключено',
+        message: 'Публичный просмотр: изменение данных отключено',
       });
     });
     return;
