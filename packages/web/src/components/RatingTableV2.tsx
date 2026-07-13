@@ -37,7 +37,7 @@ export interface DeptRowV2 {
   issueCount: number;
   criticalIssueCount: number;
   sparkData?: number[];
-  deltaWeek?: number | null;
+  deltaQuarter?: number | null;
   subordinates?: SubRow[];
 }
 
@@ -173,9 +173,9 @@ export function RatingTableV2({
             <SortHeader label="Доверие" field="trustScore" metricKey="dept_trust" />
             <SortHeader label="Замеч." field="issueCount" metricKey="dept_issues" />
             <th scope="col" className="px-2 py-3 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase">
-              <KBTooltip metric="dept_delta_week" side="bottom">
+              <KBTooltip metric="dept_delta_quarter" side="bottom">
                 <button type="button" className="font-semibold text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded whitespace-nowrap">
-                  Δ нед.
+                  Δ кв.
                 </button>
               </KBTooltip>
             </th>
@@ -259,11 +259,11 @@ function DeptRowComponent({
   const sparkColor = sparkTrend === 'down' ? '#f87171' : sparkTrend === 'up' ? '#34d399' : '#94a3b8';
 
   // Delta display
-  const deltaColor = dept.deltaWeek == null
+  const deltaColor = dept.deltaQuarter == null
     ? 'text-zinc-300 dark:text-zinc-600'
-    : dept.deltaWeek > 0
+    : dept.deltaQuarter > 0
       ? 'text-emerald-600 dark:text-emerald-400'
-      : dept.deltaWeek < 0
+      : dept.deltaQuarter < 0
         ? 'text-red-600 dark:text-red-400'
         : 'text-zinc-400';
 
@@ -383,17 +383,17 @@ function DeptRowComponent({
 
         {/* Delta */}
         <td className={cn('px-2 py-3 text-center tabular-nums text-xs font-medium', deltaColor)}>
-          {dept.deltaWeek != null ? (
+          {dept.deltaQuarter != null ? (
             <span className="flex items-center justify-center gap-0.5">
-              {dept.deltaWeek > 0 ? (
+              {dept.deltaQuarter > 0 ? (
                 <TrendingUp size={10} />
-              ) : dept.deltaWeek < 0 ? (
+              ) : dept.deltaQuarter < 0 ? (
                 <TrendingDown size={10} />
               ) : (
                 <Minus size={10} />
               )}
-              {dept.deltaWeek > 0 ? '+' : ''}
-              {dept.deltaWeek.toFixed(1)}%
+              {dept.deltaQuarter > 0 ? '+' : ''}
+              {dept.deltaQuarter.toFixed(1)}%
             </span>
           ) : (
             '—'

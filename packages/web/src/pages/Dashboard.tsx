@@ -150,7 +150,7 @@ export function Dashboard() {
         issueCount: d.issueCount ?? 0,
         criticalIssueCount: d.criticalIssueCount ?? 0,
         sparkData: spark.some(v => v > 0) ? spark : undefined,
-        deltaWeek: dm.delta ? +dm.delta.execPctChange.toFixed(1) : null,
+        deltaQuarter: dm.delta ? +dm.delta.execPctChange.toFixed(1) : null,
         subordinates: subs.length > 0 ? subs : undefined,
       };
     });
