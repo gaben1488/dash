@@ -73,6 +73,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const filterState = query.state ?? '';   // RowState or empty
     const filterSubordinate = (query.subordinate ?? '').trim().toLowerCase();
     const filterActivity = (query.activity ?? '').trim().toLowerCase();
+    const yearRaw = query.year;
+    const yearFilter = yearRaw && yearRaw !== 'all'
+      ? (() => { const n = parseInt(yearRaw, 10); return Number.isInteger(n) && n >= 2020 && n <= 2100 ? n : undefined; })()
+      : undefined;
     const sortCol = query.sort ?? '';
     const sortOrder = query.order === 'desc' ? 'desc' : 'asc';
 
@@ -162,6 +166,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         planQuarter: cells.O ?? '',
         factDate: cells.Q ?? '',
         factQuarter: cells.R ?? '',
+        planYear: parseInt(String(cells.P ?? ''), 10) || 0,
         factFB: parseFloat(String(cells.V ?? 0)) || 0,
         factKB: parseFloat(String(cells.W ?? 0)) || 0,
         factMB: parseFloat(String(cells.X ?? 0)) || 0,
@@ -251,6 +256,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Apply state filter
     if (filterState) {
       filtered = filtered.filter(r => r.state === filterState);
+    }
+
+    // Apply year filter (column P = PLAN_YEAR). Rows without a year (planYear=0)
+    // stay visible — consistent with calc-engine.ts:440.
+    if (yearFilter) {
+      filtered = filtered.filter(r => r.planYear === 0 || r.planYear === yearFilter);
     }
 
     // Compute signal summary (before pagination, after filters)

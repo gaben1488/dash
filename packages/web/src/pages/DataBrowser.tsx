@@ -76,7 +76,7 @@ const SIGNAL_LABELS: Record<string, string> = {
 };
 
 export function DataBrowserPage() {
-  const { formatMoney, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap } = useStore();
+  const { formatMoney, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year } = useStore();
   const [viewMode, setViewMode] = useState<ViewMode>('browse');
   const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -268,6 +268,9 @@ export function DataBrowserPage() {
     if (procurementFilter !== 'all') {
       params.type = procurementFilter === 'competitive' ? 'КП' : 'ЕП';
     }
+    if (typeof year === 'number') {
+      params.year = String(year);
+    }
 
     // Load data from all selected departments (or all if none selected)
     Promise.all(
@@ -293,7 +296,7 @@ export function DataBrowserPage() {
     });
 
     return () => { cancelled = true; };
-  }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter]);
+  }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Reset page on filter changes
   useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter]);
