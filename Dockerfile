@@ -36,6 +36,10 @@ COPY --from=build /app/.npmrc ./.npmrc
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+# tsconfig.runtime.json нужен tsx: @aemr/shared|core резолвятся через его `paths`
+# (baseUrl=/app), НЕ через pnpm-симлинки node_modules (их нет в этом образе).
+# Отдельный от базового — чтобы `paths` не конфликтовали с per-package rootDir в typecheck.
+COPY --from=build /app/tsconfig.runtime.json ./tsconfig.runtime.json
 COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build /app/packages/shared/src ./packages/shared/src
 COPY --from=build /app/packages/core/package.json ./packages/core/package.json
@@ -45,5 +49,6 @@ COPY --from=build /app/packages/server/src ./packages/server/src
 # SPA в /app/public — сервер отдаёт его через fastifyStatic (cwd = /app).
 COPY --from=build /app/packages/web/dist ./public
 EXPOSE 3000
-# tsx из исходников (см. комментарий вверху). cwd = /app → public/ и data/ рядом.
-CMD ["./node_modules/.bin/tsx", "packages/server/src/index.ts"]
+# tsx из исходников; --tsconfig tsconfig.runtime.json (paths @aemr/shared|core →
+# packages/*/src). cwd = /app → public/ и data/ рядом.
+CMD ["./node_modules/.bin/tsx", "--tsconfig", "tsconfig.runtime.json", "packages/server/src/index.ts"]

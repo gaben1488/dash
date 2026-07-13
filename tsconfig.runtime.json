@@ -1,0 +1,17 @@
+{
+  "// РОЛЬ": "Только для запуска через tsx в production-образе (Docker/Render).",
+  "// ЗАЧЕМ": "@aemr/shared|core резолвятся по tsconfig `paths`, а не по pnpm-симлинкам node_modules (которых нет в production-образе). НЕ используется локальным typecheck — там резолв через симлинки, а `paths` конфликтовали бы с per-package rootDir.",
+  "// КАК": "CMD: tsx --tsconfig tsconfig.runtime.json packages/server/src/index.ts (cwd=/app). baseUrl=. → /app.",
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@aemr/shared": ["packages/shared/src/index.ts"],
+      "@aemr/core": ["packages/core/src/index.ts"]
+    }
+  }
+}
