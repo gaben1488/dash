@@ -1,0 +1,94 @@
+/**
+ * quarterExecution — каноническая метрика «исполнение квартального плана».
+ *
+ * Формула G = E / D:
+ *   D («план на квартал»)  — кол-во процедур, запланированных на квартал;
+ *   E («исполнено»)        — кол-во фактически заключённых к дате среза
+ *                            договоров/контрактов ИЗ ПЛАНА этого квартала.
+ *
+ * Источник семантики — формулы листа СВОД ТД-ПМ (COUNTIFS, см.
+ * scripts/gen_audit_docx.py) + реальный отчёт на 20.03.2026 (Q1: УЭР 6/15 =
+ * 40.00%, УКСиМП 4/30 = 13.33%, УД 35/60 = 58.33% и т.д., подтверждено
+ * пользователем):
+ *   D = COUNTIFS(O = квартал; P = год)
+ *   E = COUNTIFS(O = квартал; P = год; Q<>""; Q<>"Х"; Q<>"X")
+ *
+ * Ключевые свойства канона:
+ *   - ОБА счётчика атрибуцируются по ПЛАН-кварталу (столбец O = PLAN_QUARTER);
+ *     столбец R (FACT_QUARTER) в формуле НЕ участвует;
+ *   - гейт факта — наличие даты заключения (столбец Q = FACT_DATE, канон
+ *     hasFactDate: заглушки Х/X/-/н.д. — не факт); дата факта с плановой НЕ
+ *     сравнивается — накопительно на дату среза (поздний контракт всё равно
+ *     «исполнено» для квартала своего плана);
+ *   - год-гейт по столбцу P (PLAN_YEAR): пустой/нулевой год не отсекается;
+ *   - метрика метод-агностична (КП + ЕП вместе), как колонка G сводного отчёта.
+ *
+ * Реализация переиспользует канонический движок CalcEngine (byQuarter →
+ * plan_count / fact_count) — ту же квартальную группировку, которую
+ * crossVerifyQuarterly сверяет со СВОД/ШДЮ (сходимость 528/528). Собственной
+ * семантики чтения квартальных колонок здесь нет.
+ */
+
+import { CalcEngine, standardRowFilter, type RawRow } from '../pipeline/calc-engine.js';
+
+export interface QuarterExecutionOptions {
+  /** Квартал плана (1..4) — атрибуция по столбцу O (PLAN_QUARTER). */
+  quarter: 1 | 2 | 3 | 4;
+  /**
+   * План-год (столбец P, PLAN_YEAR). Если задан — строки с непустым годом ≠ year
+   * не считаются; пустой/нулевой год проходит (канон CalcEngine: rowYear > 0).
+   * Если не задан — считаются все годы.
+   */
+  year?: number;
+}
+
+export interface QuarterExecutionResult {
+  /** D — план на квартал (кол-во процедур). */
+  planCount: number;
+  /** E — исполнено: заключено договоров/контрактов из плана этого квартала. */
+  doneCount: number;
+  /**
+   * G = E/D в процентах (40.0 = 40%). Не капится сверху (>100 допустимо для
+   * счётчиков из внешних источников). null — честное «нет плана» (D = 0),
+   * НЕ 0 и НЕ 100.
+   */
+  pct: number | null;
+}
+
+/** Stateless-движок: compute() не хранит состояние между вызовами. */
+const ENGINE = new CalcEngine();
+
+/**
+ * Чистая формула G = E/D по готовым счётчикам (например, из ячеек листа СВОД —
+ * двухисточниковость D1). Не капит перевыполнение (>100%); D = 0 → pct = null.
+ */
+export function quarterExecutionFromCounts(
+  planCount: number,
+  doneCount: number,
+): QuarterExecutionResult {
+  return {
+    planCount,
+    doneCount,
+    pct: planCount > 0 ? (doneCount / planCount) * 100 : null,
+  };
+}
+
+/**
+ * Считает исполнение квартального плана по строкам ГРБС-листа (атомам,
+ * 0-based колонки DEPT_COLUMNS, без шапки). Строки-итоги/мусор отсеивает
+ * канонический standardRowFilter.
+ *
+ * D = plan_count, E = fact_count квартальной группы CalcEngine (byQuarter) —
+ * то же место, откуда crossVerifyQuarterly берёт квартальные план/факт.
+ */
+export function quarterExecution(
+  rows: RawRow[],
+  opts: QuarterExecutionOptions,
+): QuarterExecutionResult {
+  const grouped = ENGINE.compute(rows, standardRowFilter, 0, opts.year);
+  const q = grouped.byQuarter.get(`q${opts.quarter}`);
+  return quarterExecutionFromCounts(
+    q?.get('plan_count')?.value ?? 0,
+    q?.get('fact_count')?.value ?? 0,
+  );
+}

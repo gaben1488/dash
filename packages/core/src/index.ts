@@ -24,6 +24,10 @@ export * from './analytics/index.js';
 export { METRIC_KB, getMetricKB, getMetricTooltip, getMetricsByCategory, ALL_METRIC_KEYS } from './metrics/index.js';
 export type { KBEntryData, MetricCategory, MetricUnit } from './metrics/index.js';
 
+// Каноническая метрика «исполнение квартального плана» (G = E/D, канон СВОД + отчёт 20.03.2026)
+export { quarterExecution, quarterExecutionFromCounts } from './metrics/quarter-execution.js';
+export type { QuarterExecutionOptions, QuarterExecutionResult } from './metrics/quarter-execution.js';
+
 // History — snapshot-diff (слой 1 фичи «История изменений»)
 export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';
 export type { Direction, Sentiment, MetricRow, MetricDelta } from './history/snapshot-diff.js';
