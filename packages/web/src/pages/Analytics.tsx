@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
@@ -986,8 +987,8 @@ export function Analytics() {
               <BarChart data={issuesByDept} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis type="number" fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
-                <YAxis type="category" dataKey="dept" width={65} fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
-                <Tooltip contentStyle={tooltipStyle} cursor={cursorStyle} />
+                <YAxis type="category" dataKey="dept" width={65} fontSize={11} tick={{ fill: getAxisColor(isDark) }} tickFormatter={(v: string) => productLabel(String(v))} />
+                <Tooltip contentStyle={tooltipStyle} cursor={cursorStyle} labelFormatter={(label: unknown) => productLabel(String(label))} />
                 <Bar dataKey="critical" name="Критические" stackId="a" fill={getSeverityColor('critical', isDark)} cursor="pointer"
                   onClick={(data: any) => { if (data?.dept) navigateTo('quality', { qualityTab: 'issues', department: data.dept }); }}
                 />

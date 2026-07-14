@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { api } from '../api';
 import { BookOpen, Search, Filter, Inbox, Database, FileEdit, AlertTriangle, Settings, RefreshCw, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
@@ -176,7 +177,7 @@ export function JournalPage() {
                         </td>
                         <td className="px-4 py-3 text-xs text-zinc-700 dark:text-zinc-200 font-medium">
                           {entry.action}
-                          {entry.dept && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400">{entry.dept}</span>}
+                          {entry.dept && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400">{productLabel(entry.dept)}</span>}
                         </td>
                         <td className="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 max-w-xs truncate">{entry.details}</td>
                       </tr>

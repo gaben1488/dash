@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { api } from '../api';
 import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, XCircle, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Filter, X, Edit3, Eye } from 'lucide-react';
@@ -390,7 +391,7 @@ export function DataBrowserPage() {
       r.factSum ?? '',
       r.economy ?? '',
       r.status ?? '',
-      `"${(r.signals ?? []).map((s: string) => SIGNAL_LABELS[s] ?? s).join(', ')}"`,
+      `"${(r.signals ?? []).map((s: string) => SIGNAL_LABELS[s] ?? productLabel(s)).join(', ')}"`,
     ].join(';'));
     const bom = '\uFEFF';
     const csv = bom + headers.join(';') + '\n' + csvRows.join('\n');
@@ -657,7 +658,7 @@ export function DataBrowserPage() {
                             SIGNAL_COLORS[sig]?.text ?? 'text-zinc-600',
                           )}
                         >
-                          {SIGNAL_LABELS[sig] ?? sig}
+                          {SIGNAL_LABELS[sig] ?? productLabel(sig)}
                         </span>
                       ))}
                     </div>

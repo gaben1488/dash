@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from 'react';
+import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
@@ -213,7 +214,7 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
                     {sig === 'epRisk' && <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />}
                     {sig === 'overdue' && <Clock size={11} className="inline mr-1 -mt-0.5" />}
                     {sig === 'factExceedsPlan' && <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />}
-                    {SIGNAL_LABELS[sig] ?? sig}
+                    {SIGNAL_LABELS[sig] ?? productLabel(sig)}
                   </span>
                 ))}
               </div>

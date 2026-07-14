@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Info } from 'lucide-react';
 import clsx from 'clsx';
-import { TRUST_COMPONENT_CONFIG } from '@aemr/shared';
+import { TRUST_COMPONENT_CONFIG, productLabel } from '@aemr/shared';
 import type { TrustComponentId, TrustComponent } from '@aemr/shared';
 import { buildTrustViewModel } from '../lib/trust-metrics';
 
@@ -366,7 +366,7 @@ export function TrustPage() {
                                     <p className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">{group.label}</p>
                                     {groupRules.map(id => (
                                       <div key={id} className="flex items-center justify-between text-xs py-0.5 px-2 rounded hover:bg-zinc-50 dark:hover:bg-zinc-700/20">
-                                        <span className="text-zinc-600 dark:text-zinc-300 font-mono text-[11px]">{id}</span>
+                                        <span className="text-zinc-600 dark:text-zinc-300 font-mono text-[11px]">{productLabel(id)}</span>
                                         <span className={clsx('text-[11px] font-semibold', byCat[id] > 10 ? 'text-red-500' : byCat[id] > 0 ? 'text-amber-500' : 'text-emerald-500')}>
                                           {byCat[id]}
                                         </span>
@@ -380,7 +380,7 @@ export function TrustPage() {
                                 .filter(([id]) => !RULE_GROUPS.some(g => g.ruleIds.includes(id)))
                                 .map(([id, count]) => (
                                   <div key={id} className="flex items-center justify-between text-xs py-0.5 px-2">
-                                    <span className="text-zinc-600 dark:text-zinc-300 font-mono text-[11px]">{id}</span>
+                                    <span className="text-zinc-600 dark:text-zinc-300 font-mono text-[11px]">{productLabel(id)}</span>
                                     <span className="text-[11px] font-semibold text-amber-500">{count}</span>
                                   </div>
                                 ))}
@@ -548,7 +548,7 @@ export function TrustPage() {
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">{f.ref}</span>
                     {f.departmentId && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-500">{f.departmentId}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-500">{productLabel(f.departmentId)}</span>
                     )}
                   </div>
                 </div>

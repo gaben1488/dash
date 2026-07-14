@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api } from '../api';
@@ -380,7 +381,7 @@ export function IssuesPage() {
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition"
                       onClick={(e) => { e.stopPropagation(); if (iss.dept !== '—') navigateTo('data', { department: iss.dept }); }}
-                    >{iss.dept}</span>
+                    >{productLabel(iss.dept)}</span>
                   </div>
                   <h4 className="text-sm font-medium text-zinc-800 dark:text-white truncate">{iss.title}</h4>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-1">{iss.description}</p>
@@ -402,7 +403,7 @@ export function IssuesPage() {
                         <p className="text-xs text-blue-600 dark:text-blue-400 mb-2">Рекомендация: {iss.recommendation}</p>
                       )}
                       <div className="flex flex-wrap gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
-                        {iss.cell && <span>Ячейка: <strong className="text-zinc-700 dark:text-zinc-200 font-mono">{iss.dept}!{iss.cell}</strong></span>}
+                        {iss.cell && <span>Ячейка: <strong className="text-zinc-700 dark:text-zinc-200 font-mono">{productLabel(iss.dept)}!{iss.cell}</strong></span>}
                         {iss.row && <span>Строка: <strong className="text-zinc-700 dark:text-zinc-200">{iss.row}</strong></span>}
                         {iss.detectedAt && <span>Обнаружено: <strong className="text-zinc-700 dark:text-zinc-200">{iss.detectedAt}</strong></span>}
                       </div>

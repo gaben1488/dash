@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
+import { productLabel } from '@aemr/shared';
 import { useFilteredData } from '../hooks/useFilteredData';
+import { ORIGIN_LABELS } from '../components/IssueList';
 import { api } from '../api';
 import { Lightbulb, ChevronDown, ChevronUp, AlertTriangle, Info, Zap, HelpCircle, Inbox, Search } from 'lucide-react';
 import clsx from 'clsx';
@@ -38,7 +40,8 @@ function severityToRecType(severity: string): RecType {
 function generateRecommendation(issue: any): string {
   const cat = issue.category ?? issue.ruleId ?? '';
   const cell = issue.cell ? `ячейке ${issue.cell}` : 'соответствующей ячейке';
-  const sheet = issue.sheet ?? issue.departmentId ?? 'листе';
+  const sheetRaw = issue.sheet ?? issue.departmentId;
+  const sheet = sheetRaw ? productLabel(String(sheetRaw)) : 'листе';
   const row = issue.row ? ` (строка ${issue.row})` : '';
 
   const map: Record<string, string> = {
@@ -75,7 +78,7 @@ export function RecsPage() {
       dept: issue.departmentId || issue.sheet || 'Разные',
       title: issue.title || issue.message || 'Замечание',
       description: issue.description || '',
-      source: issue.origin || 'Проверка данных',
+      source: issue.origin ? (ORIGIN_LABELS[issue.origin] ?? productLabel(issue.origin)) : 'Проверка данных',
       action: issue.recommendation || generateRecommendation(issue),
     }));
   }, [fd.issues]);
@@ -157,6 +160,7 @@ export function RecsPage() {
         {Array.from(deptGroups.entries()).map(([dept, groupRecs]) => {
           const open = effectiveOpen.has(dept);
           const hasCritical = groupRecs.some(r => r.type === 'critical');
+          const deptLabel = productLabel(dept);
           return (
             <div key={dept} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden', hasCritical ? 'border-red-200 dark:border-red-500/30' : 'border-zinc-100 dark:border-zinc-700/50')}>
               <button
@@ -168,9 +172,9 @@ export function RecsPage() {
                     'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
                     hasCritical ? 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400'
                   )}>
-                    {dept.slice(0, 2)}
+                    {deptLabel.slice(0, 2)}
                   </span>
-                  <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{dept}</span>
+                  <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{deptLabel}</span>
                   <span className="text-xs text-zinc-400 dark:text-zinc-500">{groupRecs.length} рекомендаций</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -323,7 +327,7 @@ function NormalizationSection() {
                         <div className="flex gap-1 flex-wrap">
                           {s.departments.map(d => (
                             <span key={d} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400">
-                              {d}
+                              {productLabel(d)}
                             </span>
                           ))}
                         </div>
@@ -350,7 +354,7 @@ function NormalizationSection() {
                       <div className="flex gap-1 flex-wrap">
                         {s.departments.map(d => (
                           <span key={d} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400">
-                            {d}
+                            {productLabel(d)}
                           </span>
                         ))}
                       </div>

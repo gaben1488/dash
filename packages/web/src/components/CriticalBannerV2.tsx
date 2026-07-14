@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { productLabel } from '@aemr/shared';
 import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
@@ -50,6 +51,15 @@ function severityVariant(severity: string): 'critical' | 'error' | 'warning' | '
   if (severity === 'significant') return 'significant';
   return 'warning';
 }
+
+/** Русские подписи серьёзности — сырые ключи (critical/warning…) в UI недопустимы (D15). */
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: 'Критическое',
+  error: 'Ошибка',
+  significant: 'Существенное',
+  warning: 'Предупреждение',
+  info: 'Информация',
+};
 
 export function CriticalBannerV2({
   criticalCount,
@@ -228,7 +238,7 @@ export function CriticalBannerV2({
                   ref={(el) => { groupRefs.current[gi] = el; }}
                   tabIndex={0}
                   role="group"
-                  aria-label={`${group.dept}: ${group.items.length} замечаний`}
+                  aria-label={`${productLabel(group.dept)}: ${group.items.length} замечаний`}
                   className={cn(
                     'outline-none rounded-lg px-1 -mx-1 transition-colors',
                     activeGroupIdx === gi && 'ring-1 ring-blue-300/40 bg-blue-50/30 dark:bg-blue-500/5',
@@ -237,7 +247,7 @@ export function CriticalBannerV2({
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <h4 className="text-xs font-bold text-zinc-700 dark:text-zinc-200">
-                      {group.dept}
+                      {productLabel(group.dept)}
                     </h4>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-bold">
                       {group.items.length}
@@ -253,7 +263,7 @@ export function CriticalBannerV2({
                           variant={severityVariant(issue.severity)}
                           className="text-[9px] px-1.5 py-0 shrink-0 mt-0.5"
                         >
-                          {issue.severity}
+                          {SEVERITY_LABELS[issue.severity] ?? productLabel(issue.severity)}
                         </Badge>
                         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                           <span className="leading-relaxed">
@@ -261,7 +271,7 @@ export function CriticalBannerV2({
                           </span>
                           {issue.signal && (
                             <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-mono">
-                              {issue.signal}
+                              {productLabel(issue.signal)}
                             </span>
                           )}
                         </div>

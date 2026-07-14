@@ -4,7 +4,7 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { api } from '../api';
 import { GitCompare, ChevronDown, ChevronUp, Info, AlertTriangle, CheckCircle2, Clock, FileSpreadsheet, Building2, ArrowRight, ExternalLink, Download, Users } from 'lucide-react';
 import clsx from 'clsx';
-import { SVOD_SPREADSHEET_ID, LATIN_TO_CYRILLIC, DEPARTMENT_IDS, DEPARTMENT_ROWS } from '@aemr/shared';
+import { SVOD_SPREADSHEET_ID, LATIN_TO_CYRILLIC, DEPARTMENT_IDS, DEPARTMENT_ROWS, productLabel } from '@aemr/shared';
 
 // ── Локальные view-model типы для данных сверки. Исходные массивы приходят из
 //    useFilteredData как any[]; эти интерфейсы аннотируют использование внутри Recon,
@@ -322,7 +322,7 @@ export function ReconPage() {
         : (official !== 0 ? Math.abs(((official - calculated) / official) * 100) : 0);
       return {
         metric: d.metricKey,
-        metricLabel: d.label ?? d.metricKey,
+        metricLabel: d.label ?? productLabel(d.metricKey),
         official,
         calculated,
         deltaAbs,
@@ -753,7 +753,6 @@ export function ReconPage() {
                               <div className="font-medium text-zinc-700 dark:text-zinc-200">{row.metricLabel}</div>
                               {isExpanded ? <ChevronUp size={12} className="text-zinc-400" /> : <ChevronDown size={12} className="text-zinc-400" />}
                             </div>
-                            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">{row.metric}</div>
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
                             <span className="inline-flex items-center gap-1">
@@ -805,7 +804,7 @@ export function ReconPage() {
                                   </div>
                                   <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
                                     <div className="text-blue-800 dark:text-blue-300 font-mono text-[11px] flex items-center gap-1.5">
-                                      {delta?.sourceCell ?? row.metric}
+                                      {delta?.sourceCell ?? '—'}
                                       {delta?.sourceCell && (
                                         <button
                                           title="Открыть в Google Sheets"

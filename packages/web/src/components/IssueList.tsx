@@ -23,7 +23,7 @@ const SEVERITY_CONFIG = {
   info: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'Информация' },
 } as const;
 
-const ORIGIN_LABELS: Record<string, string> = {
+export const ORIGIN_LABELS: Record<string, string> = {
   spreadsheet_rule: 'Правило таблицы',
   bi_heuristic: 'Аналитика',
   delta_mismatch: 'Расхождение',
