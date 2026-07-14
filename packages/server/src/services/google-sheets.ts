@@ -258,43 +258,58 @@ export interface DeptSheetResult {
   sheetName: string;
 }
 
+/**
+ * ЕДИНСТВЕННЫЙ путь чтения листа ГРБС из отдельной книги: перебор кандидатов
+ * имени («ВСЕ» → «Все» → имя ГРБС) с честной классификацией ошибок (429/403/5xx
+ * не маскируются под «лист не найден» — B-6). Используется И загрузчиком
+ * (fetchDepartmentSpreadsheets), И валидацией источника (/api/sources/:name/validate)
+ * — раньше валидация читала лист, буквально названный именем управления
+ * ('УАГЗО'!A:ZZ), и падала там, где загрузка работала (два пути = класс болезни D1).
+ */
+export async function readDeptSheet(
+  deptName: string,
+  ssId: string,
+): Promise<{ values: unknown[][]; formulas: unknown[][]; sheetName: string }> {
+  const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
+    DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
+  );
+  const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
+  const candidates = departmentSheetNameCandidates(sheetName, deptName);
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      const result = await getSheetDataWithFormulas(ssId, candidate);
+      if (result.values.length > 0) {
+        return { ...result, sheetName: candidate };
+      }
+    } catch (err) {
+      lastError = err;
+      if (isNonRecoverableSheetError(err)) {
+        // 429 (rate-limit), 403 (permission) and 5xx look identical to a
+        // missing sheet if swallowed here — surface them immediately
+        // instead of masking them as "no candidate matched".
+        throw err;
+      }
+      // Otherwise this candidate name genuinely doesn't exist — try the next one.
+    }
+  }
+  const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
+  throw new Error(
+    `No readable sheet found in spreadsheet for ${deptName}; tried: ${candidates.join(', ')}${cause}`,
+  );
+}
+
 export async function fetchDepartmentSpreadsheets(
   deptSpreadsheets: Record<string, string>,
 ): Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }> {
   const data: Record<string, DeptSheetResult> = {};
   const errors: Record<string, string> = {};
 
-  const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
-    DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
-  );
-
   const entries = Object.entries(deptSpreadsheets);
   const results = await Promise.allSettled(
     entries.map(async ([deptName, ssId]) => {
-      const sheetName = DEPT_SHEET_NAME[deptName] ?? deptName;
-      const candidates = departmentSheetNameCandidates(sheetName, deptName);
-      let lastError: unknown;
-      for (const candidate of candidates) {
-        try {
-          const result = await getSheetDataWithFormulas(ssId, candidate);
-          if (result.values.length > 0) {
-            return { deptName, ...result, sheetName: candidate };
-          }
-        } catch (err) {
-          lastError = err;
-          if (isNonRecoverableSheetError(err)) {
-            // 429 (rate-limit), 403 (permission) and 5xx look identical to a
-            // missing sheet if swallowed here — surface them immediately
-            // instead of masking them as "no candidate matched".
-            throw err;
-          }
-          // Otherwise this candidate name genuinely doesn't exist — try the next one.
-        }
-      }
-      const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
-      throw new Error(
-        `No readable sheet found in spreadsheet for ${deptName}; tried: ${candidates.join(', ')}${cause}`,
-      );
+      const result = await readDeptSheet(deptName, ssId);
+      return { deptName, ...result };
     }),
   );
 

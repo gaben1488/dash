@@ -136,6 +136,10 @@ export const api = {
   validateSource: (name: string) =>
     fetchJSON<any>(`/sources/${encodeURIComponent(name)}/validate`, { method: 'POST' }),
 
+  /** Валидация всех источников разом (СВОД + 8 ГРБС + «СВОД с месяцами»). */
+  validateAllSources: () =>
+    fetchJSON<any>('/sources/validate-all', { method: 'POST' }),
+
   getSubordinates: () =>
     fetchJSON<Record<string, string[]>>('/rows/subordinates'),
 

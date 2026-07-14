@@ -33,6 +33,7 @@ export function registerAuthHook(app: FastifyInstance): void {
       /^\/api\/refresh$/,                       // перечитка снапшота из Google (в таблицы не пишет)
       /^\/api\/sources\/[^/]+\/test$/,          // тест-чтение источника
       /^\/api\/sources\/[^/]+\/validate$/,      // валидация источника (чтение)
+      /^\/api\/sources\/validate-all$/,         // валидация всех источников (чтение)
       /^\/api\/mapping\/validate$/,             // проверка маппинга (чтение)
     ];
     app.addHook('onRequest', async (request, reply) => {

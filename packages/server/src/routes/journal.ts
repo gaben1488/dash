@@ -3,9 +3,9 @@ import { getSnapshot, getDeptLoadMeta, getSHDYURawRowCount } from '../services/s
 import { db, schema } from '../db/index.js';
 import { desc } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
-import { getSpreadsheetMetadata, getSheetData } from '../google-sheets.js';
-import { detectSignals } from '@aemr/core';
-import { DEPT_HEADER_ROWS, buildCellDict, isMetaRow, SVOD_SHEET_NAME } from '@aemr/shared';
+import { getSpreadsheetMetadata } from '../google-sheets.js';
+import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
+import { validateSource, validateAllSources } from '../services/source-validation.js';
 
 /**
  * Маршруты журнала (аудит-лог).
@@ -350,7 +350,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       shdyuTimestamp = (snap?.metadata as any)?.timestamp ?? new Date().toISOString();
     } catch { /* snapshot not ready yet */ }
     sourceList.push({
-      name: 'ШДЮ',
+      // Легаси-имя «ШДЮ» ушло: источник — лист «СВОД с месяцами» (та же книга, что СВОД).
+      name: SHDYU_MONTHLY_SHEET_NAME,
       type: 'sheet',
       spreadsheetId: SHDYU_SPREADSHEET_ID,
       status: shdyuRows > 0 ? 'ok' : 'warning',
@@ -381,7 +382,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     let spreadsheetId: string | null = null;
     if (name === SVOD_SHEET_NAME) {
       spreadsheetId = config.google.spreadsheetId;
-    } else if (name === 'ШДЮ') {
+    } else if (name === SHDYU_MONTHLY_SHEET_NAME || name === 'ШДЮ' /* легаси-имя */) {
       const { SHDYU_SPREADSHEET_ID } = await import('../config.js');
       spreadsheetId = SHDYU_SPREADSHEET_ID;
     } else if (DEPARTMENT_SPREADSHEETS[name]) {
@@ -442,114 +443,31 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId });
   });
 
+
   /**
    * POST /api/sources/:name/validate
-   * Валидация отдельного листа управления.
-   * Читает лист через Google Sheets API и прогоняет сигналы + проверки.
+   * Валидация источника КАНОНИЧЕСКИМ путём (services/source-validation):
+   * тот же резолвер листа, что у загрузчика; канонические сигналы; человеческие тексты.
    */
   app.post('/api/sources/:name/validate', async (request, reply) => {
     const { name } = request.params as { name: string };
-
-    // Find spreadsheet for this source
-    let spreadsheetId: string | null;
-    if (name === SVOD_SHEET_NAME) {
-      spreadsheetId = config.google.spreadsheetId;
-    } else if (name === 'ШДЮ') {
-      const { SHDYU_SPREADSHEET_ID: sid } = await import('../config.js');
-      spreadsheetId = sid;
-    } else {
-      spreadsheetId = DEPARTMENT_SPREADSHEETS[name] ?? null;
+    const result = await validateSource(name);
+    if (!result.success && result.error?.includes('не найден')) {
+      return reply.status(404).send(result);
     }
+    return reply.status(result.success ? 200 : 503).send(result);
+  });
 
-    if (!spreadsheetId) {
-      return reply.status(404).send({ error: `Источник "${name}" не найден` });
-    }
-
-    try {
-      const rawRows = await getSheetData(name, spreadsheetId);
-      if (!rawRows || rawRows.length <= 1) {
-        return reply.send({
-          success: true,
-          name,
-          rowCount: 0,
-          issues: [],
-          summary: { total: 0, dataErrors: 0, formulaIssues: 0, emptyRequired: 0 },
-        });
-      }
-
-      const issues: Array<{
-        row: number;
-        type: string;
-        severity: string;
-        message: string;
-        field?: string;
-      }> = [];
-
-      let dataErrors = 0;
-      const formulaIssues = 0;
-      let emptyRequired = 0;
-
-      for (let i = DEPT_HEADER_ROWS; i < rawRows.length; i++) {
-        const row = rawRows[i];
-        if (!row) continue;
-
-        const cells = buildCellDict(row as unknown[]);
-
-        const subject = String(cells.D ?? cells.G ?? '').trim().toLowerCase();
-        if (!subject || isMetaRow(subject)) continue;
-
-        // Run signal detection
-        const signals = detectSignals(cells);
-        // Check for data type errors
-        const planTotal = cells.K;
-        if (planTotal !== null && planTotal !== '' && isNaN(Number(planTotal))) {
-          issues.push({ row: i + 1, type: 'data_type', severity: 'warning', message: `Колонка K (План Итого): ожидается число, получено "${planTotal}"`, field: 'K' });
-          dataErrors++;
-        }
-
-        // Check for negative values
-        const numericCols = ['K', 'R', 'T', 'V', 'W', 'X'];
-        for (const col of numericCols) {
-          const val = Number(cells[col]);
-          if (!isNaN(val) && val < 0) {
-            issues.push({ row: i + 1, type: 'negative_value', severity: 'warning', message: `Колонка ${col}: отрицательное значение ${val}`, field: col });
-            dataErrors++;
-          }
-        }
-
-        // Check for missing required fields
-        if (!cells.D && !cells.G) {
-          issues.push({ row: i + 1, type: 'empty_required', severity: 'info', message: 'Отсутствует предмет закупки', field: 'D/G' });
-          emptyRequired++;
-        }
-
-        // Signal-based issues
-        if (signals.factExceedsPlan) {
-          issues.push({ row: i + 1, type: 'signal', severity: 'warning', message: 'Факт превышает план', field: 'T>K' });
-        }
-        if (signals.overdue) {
-          issues.push({ row: i + 1, type: 'signal', severity: 'critical', message: 'Просрочка выполнения', field: 'dates' });
-        }
-      }
-
-      return reply.send({
-        success: true,
-        name,
-        rowCount: rawRows.length - 1,
-        issues: issues.slice(0, 200), // limit to 200 issues
-        summary: {
-          total: issues.length,
-          dataErrors,
-          formulaIssues,
-          emptyRequired,
-        },
-      });
-    } catch (err) {
-      return reply.status(503).send({
-        success: false,
-        name,
-        error: (err as Error).message,
-      });
-    }
+  /**
+   * POST /api/sources/validate-all
+   * Все источники разом (СВОД + 8 ГРБС + «СВОД с месяцами»), последовательно.
+   */
+  app.post('/api/sources/validate-all', async (_request, reply) => {
+    const results = await validateAllSources();
+    return reply.send({
+      results,
+      totalIssues: results.reduce((s, r) => s + r.summary.total, 0),
+      failedSources: results.filter(r => !r.success).map(r => r.name),
+    });
   });
 }

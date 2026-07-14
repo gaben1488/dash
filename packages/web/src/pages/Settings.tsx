@@ -87,6 +87,7 @@ export function SettingsPage() {
   // Test results per source
   const [testResults, setTestResults] = useState<Record<string, { loading: boolean; result?: any }>>({});
   const [validationResults, setValidationResults] = useState<Record<string, { loading: boolean; result?: any }>>({});
+  const [validatingAll, setValidatingAll] = useState(false);
   const [editingSource, setEditingSource] = useState<string | null>(null);
   const [editSourceValue, setEditSourceValue] = useState('');
   const [mappingSearch, setMappingSearch] = useState('');
@@ -282,6 +283,34 @@ export function SettingsPage() {
       }
     } catch (err) {
       setValidationResults(prev => ({ ...prev, [name]: { loading: false, result: { error: String(err) } } }));
+    }
+  };
+
+  // Валидация всех источников одной кнопкой (СВОД + 8 ГРБС + «СВОД с месяцами»)
+  const handleValidateAll = async () => {
+    setValidatingAll(true);
+    setValidationResults(prev => {
+      const next = { ...prev };
+      for (const s of sources) next[s.name] = { loading: true };
+      return next;
+    });
+    try {
+      const { results } = await api.validateAllSources();
+      setValidationResults(() => {
+        const next: Record<string, { loading: boolean; result?: any }> = {};
+        for (const r of results ?? []) next[r.name] = { loading: false, result: r.success ? r : { error: r.error } };
+        return next;
+      });
+      const total = (results ?? []).reduce((s: number, r: any) => s + (r.summary?.total ?? 0), 0);
+      setGlobalValidation(prev => ({ ...prev, totalIssues: total, lastChecked: new Date().toISOString() }));
+    } catch (err) {
+      setValidationResults(prev => {
+        const next = { ...prev };
+        for (const s of sources) next[s.name] = { loading: false, result: { error: String(err) } };
+        return next;
+      });
+    } finally {
+      setValidatingAll(false);
     }
   };
 
@@ -596,6 +625,14 @@ SQLITE_PATH=./data/aemr.db
                   <span>С ошибками: <strong className="text-red-600 dark:text-red-400">{sources.filter(s => s.status === 'error').length}</strong></span>
                 )}
                 <span>Всего строк: <strong className="text-zinc-700 dark:text-zinc-200">{aggregatedData.toLocaleString('ru-RU')}</strong></span>
+                <button
+                  onClick={handleValidateAll}
+                  disabled={validatingAll}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/30 transition disabled:opacity-50 disabled:cursor-wait"
+                >
+                  {validatingAll ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+                  Проверить все
+                </button>
                 {lastRefreshed && (
                   <span className="ml-auto">Синхронизация: {timeAgo(lastRefreshed)}</span>
                 )}
@@ -708,21 +745,40 @@ SQLITE_PATH=./data/aemr.db
                           : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
                       )}>
                         {(validationResults[src.name].result.summary?.total ?? 0) === 0 ? (
-                          <div className="flex items-center gap-1"><CheckCircle2 size={10} /> Проблем не обнаружено</div>
+                          <div className="flex items-center gap-1">
+                            <CheckCircle2 size={10} /> Проблем не обнаружено
+                            {validationResults[src.name].result.rowsChecked > 0 && (
+                              <span className="text-zinc-400">· строк: {validationResults[src.name].result.rowsChecked}</span>
+                            )}
+                          </div>
                         ) : (
                           <>
-                            <div className="font-medium">Найдено проблем: {validationResults[src.name].result.summary.total}</div>
-                            <div className="flex gap-3">
-                              {validationResults[src.name].result.summary.dataErrors > 0 && (
-                                <span>Данные: {validationResults[src.name].result.summary.dataErrors}</span>
-                              )}
-                              {validationResults[src.name].result.summary.formulaIssues > 0 && (
-                                <span>Формулы: {validationResults[src.name].result.summary.formulaIssues}</span>
-                              )}
-                              {validationResults[src.name].result.summary.emptyRequired > 0 && (
-                                <span>Пустые: {validationResults[src.name].result.summary.emptyRequired}</span>
+                            <div className="font-medium">
+                              Найдено проблем: {validationResults[src.name].result.summary.total}
+                              {validationResults[src.name].result.resolvedSheetName && (
+                                <span className="font-normal text-zinc-400"> · лист «{validationResults[src.name].result.resolvedSheetName}» · строк: {validationResults[src.name].result.rowsChecked}</span>
                               )}
                             </div>
+                            <div className="flex gap-3">
+                              {validationResults[src.name].result.summary.critical > 0 && (
+                                <span className="text-red-600 dark:text-red-400">Критичных: {validationResults[src.name].result.summary.critical}</span>
+                              )}
+                              {validationResults[src.name].result.summary.warning > 0 && (
+                                <span>Предупреждений: {validationResults[src.name].result.summary.warning}</span>
+                              )}
+                              {validationResults[src.name].result.summary.info > 0 && (
+                                <span className="text-zinc-400">Справочных: {validationResults[src.name].result.summary.info}</span>
+                              )}
+                            </div>
+                            {/* Первые проблемы построчно — прозрачность вместо голого счётчика */}
+                            <ul className="mt-1 space-y-0.5 text-zinc-500 dark:text-zinc-400">
+                              {(validationResults[src.name].result.issues ?? []).slice(0, 6).map((iss: any, k: number) => (
+                                <li key={k}>стр. {iss.row}: {iss.message}</li>
+                              ))}
+                              {(validationResults[src.name].result.issues?.length ?? 0) > 6 && (
+                                <li className="italic">… и ещё {(validationResults[src.name].result.issues.length - 6)}</li>
+                              )}
+                            </ul>
                           </>
                         )}
                       </div>
