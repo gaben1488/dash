@@ -98,6 +98,20 @@ describe('Date signals', () => {
     expect(s.overdue).toBe(true);
   });
 
+  it('overdue: план-дата как Google-serial (46023 = 01.01.2026), НЕ год 46023', () => {
+    // 6 из 8 ГРБС-листов хранят даты как serial-число (столбцы N/Q). До фикса
+    // parseDate('46023') уходил в new Date('46023') = год 46023 (далёкое будущее)
+    // → overdue=false, вся датная семья сигналов молча мертва на этих листах.
+    const s = detectSignals(makeCells({ N: '46023', Q: null, Y: 0, U: '' }), REF_DATE);
+    expect(s.overdue).toBe(true);
+  });
+
+  it('factDateBeforePlan: обе даты как serial', () => {
+    // Q (факт) раньше N (план): 46000 < 46023 — сигнал должен сработать на serial.
+    const s = detectSignals(makeCells({ N: '46023', Q: '46000', Y: 100, U: 'Подписан' }), REF_DATE);
+    expect(s.factDateBeforePlan).toBe(true);
+  });
+
   it('NOT overdue when signed', () => {
     const s = detectSignals(makeCells({
       N: '01.01.2026', Q: null, Y: 0,
