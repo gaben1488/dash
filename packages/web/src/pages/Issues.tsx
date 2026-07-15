@@ -266,6 +266,36 @@ export function IssuesPage() {
     return true;
   });
 
+  // Экспорт = РОВНО отфильтрованный список (глобальные фильтры ГРБС/подвед/вид
+  // деятельности уже применены в fd.issues, локальные — в filtered). Раньше
+  // серверная ссылка передавала только ПЕРВУЮ severity и игнорировала остальное —
+  // выгрузка не соответствовала экрану (потерянная просьба, Phase 4.9).
+  const downloadCSV = useCallback(() => {
+    const esc = (v: unknown): string => {
+      const s = v == null ? '' : String(v);
+      return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = ['Управление', 'Серьёзность', 'Заголовок', 'Описание', 'Рекомендация', 'Статус', 'Строка', 'Ячейка'];
+    const rows = filtered.map(i => [
+      esc(productLabel(i.dept)),
+      esc(SEV_CONFIG[i.severity]?.label ?? i.severity),
+      esc(i.title),
+      esc(i.description),
+      esc(i.recommendation ?? ''),
+      esc(STATUS_CONFIG[i.status]?.label ?? i.status),
+      esc(i.row ?? ''),
+      esc(i.cell ?? ''),
+    ].join(';'));
+    const csv = '﻿' + headers.join(';') + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `issues_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered]);
+
   const counts = {
     open: issues.filter(i => i.status === 'open').length,
     acknowledged: issues.filter(i => i.status === 'acknowledged').length,
@@ -343,16 +373,14 @@ export function IssuesPage() {
               );
             })}
           </div>
-          <a
-            href={api.exportIssuesUrl(
-              sevFilter.size > 0 ? { severity: [...sevFilter][0] } : undefined
-            )}
-            download
+          <button
+            onClick={downloadCSV}
+            title="Выгружает ровно то, что сейчас отфильтровано на экране (все поля)"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-600 transition"
           >
             <Download size={13} />
-            Экспорт CSV
-          </a>
+            Экспорт CSV ({filtered.length})
+          </button>
         </div>
       </div>
 
