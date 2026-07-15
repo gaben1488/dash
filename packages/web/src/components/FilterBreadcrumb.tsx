@@ -1,5 +1,6 @@
 import { hasExplicitPeriodFilter, useStore, MONTHS } from '../store';
 import { X, Filter } from 'lucide-react';
+import { subordinateLabel } from '../lib/subordinate-label';
 import clsx from 'clsx';
 
 /**
@@ -90,7 +91,7 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
       {hasSub && (
         <Chip
           label={selectedSubordinates.size <= 2
-            ? [...selectedSubordinates].join(', ')
+            ? [...selectedSubordinates].map(subordinateLabel).join(', ')
             : `${selectedSubordinates.size} подведов`
           }
           onRemove={() => clearSubordinates()}

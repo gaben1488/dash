@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, Fragment } from 'react';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ECONOMY_EMPTY_STATE_COPY, buildEconomyInsight, economyBannerStatus } from '../lib/economy-copy';
+import { subordinateLabel } from '../lib/subordinate-label';
 // HeroKPICard removed — Economy uses custom dense hero strip
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import {
@@ -577,7 +578,7 @@ export function EconomyPage() {
         d.highEconomy ? 'Да' : 'Нет', d.conflicts, d.realSubCount,
       ].join(';');
       const subRows = d.subordinates.map(s =>
-        [`  ${s.name}`, s.planTotal.toFixed(2), s.factTotal.toFixed(2), s.economy.toFixed(2),
+        [`  ${subordinateLabel(s.name)}`, s.planTotal.toFixed(2), s.factTotal.toFixed(2), s.economy.toFixed(2),
          '', s.pct.toFixed(1), '', '', '', '', '', '', '', '', '', '', '', ''].join(';')
       );
       return [main, ...subRows];

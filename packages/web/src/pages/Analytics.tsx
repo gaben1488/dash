@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
+import { subordinateLabel } from '../lib/subordinate-label';
 import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -627,7 +628,7 @@ export function Analytics() {
                                 <span
                                   className="hover:text-blue-500 cursor-pointer transition"
                                   onClick={() => navigateTo('data', { department: dept.id ?? '', subordinate: s })}
-                                >{s}</span>
+                                >{subordinateLabel(s)}</span>
                               </div>
                             ))}
                           </div>
@@ -816,7 +817,7 @@ export function Analytics() {
                       }}
                     >
                       <td className="py-1.5 text-[10px] text-zinc-400">{idx + 1}</td>
-                      <td className="py-1.5 text-xs text-zinc-700 dark:text-zinc-200 max-w-[180px] truncate" title={sub.name}>{sub.name}</td>
+                      <td className="py-1.5 text-xs text-zinc-700 dark:text-zinc-200 max-w-[180px] truncate" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
                       <td className="py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">{sub.dept}</td>
                       <td className="py-1.5 text-right text-[10px] text-zinc-600 dark:text-zinc-300 tabular-nums">{formatMoney(sub.planTotal)}</td>
                       <td className="py-1.5 text-right text-[10px] text-zinc-600 dark:text-zinc-300 tabular-nums">{formatMoney(sub.factTotal)}</td>

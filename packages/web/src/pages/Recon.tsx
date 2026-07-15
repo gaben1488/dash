@@ -5,6 +5,7 @@ import { api } from '../api';
 import { GitCompare, ChevronDown, ChevronUp, Info, AlertTriangle, CheckCircle2, Clock, FileSpreadsheet, Building2, ArrowRight, ExternalLink, Download, Users } from 'lucide-react';
 import clsx from 'clsx';
 import { SVOD_SPREADSHEET_ID, LATIN_TO_CYRILLIC, DEPARTMENT_IDS, DEPARTMENT_ROWS, productLabel } from '@aemr/shared';
+import { subordinateLabel } from '../lib/subordinate-label';
 
 // ── Локальные view-model типы для данных сверки. Исходные массивы приходят из
 //    useFilteredData как any[]; эти интерфейсы аннотируют использование внутри Recon,
@@ -1132,7 +1133,7 @@ export function ReconPage() {
                               <td className="px-4 py-2.5">
                                 <div className="flex items-center gap-2">
                                   <Users size={12} className="text-zinc-400" />
-                                  <span className="text-zinc-700 dark:text-zinc-200 text-xs">{sub.name}</span>
+                                  <span className="text-zinc-700 dark:text-zinc-200 text-xs">{subordinateLabel(sub.name)}</span>
                                 </div>
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300">{fmtNum(sub.rowCount ?? 0)}</td>
