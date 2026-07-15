@@ -34,12 +34,15 @@ import {
   classifySheet,
   CHECK_REGISTRY,
   LEGACY_SIGNAL_TO_CHECK,
+  parseSheetDate,
   type RuleCheckContext,
 } from '../packages/shared/src/index.js';
 import { getSheetData } from '../packages/server/src/services/google-sheets.js';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.resolve(SCRIPT_DIR, 'signal_audit_output.md');
+/** Instance-дамп для триажа: до 15 ПРЕДСТАВИТЕЛЬНЫХ строк на сигнал (спред по листам). */
+const ROWS_OUT_PATH = path.resolve(SCRIPT_DIR, 'signal_audit_rows_2026-07-15.md');
 
 /** Сигналы-состояния (не проблемы) — считаем отдельно как денominator-контекст. */
 const STATE_SIGNALS = new Set<keyof RowSignals>([
@@ -68,6 +71,56 @@ function short(v: unknown, max = 60): string {
   return String(v).replace(/\s+/g, ' ').replace(/\|/g, '/').trim().slice(0, max);
 }
 
+/** Serial-дата Google Sheets → дд.мм.гггг (для читабельного дампа). */
+function humanDate(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '·';
+  if (typeof v === 'number' && v > 40000 && v < 60000) {
+    const d = new Date((v - 25569) * 86400000);
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    return `${dd}.${mm}.${d.getUTCFullYear()}`;
+  }
+  return short(v, 20);
+}
+
+/** Профильные колонки правила per сигнал — в instance-дамп идут только они. */
+const SIGNAL_COLS: Record<string, string[]> = {
+  planWithoutExecution: ['K', 'L', 'N', 'Q', 'U', 'AE', 'AF'],
+  lowCompetition: ['L', 'K', 'Y', 'AC', 'AD', 'U'],
+  unmappedReasonEP: ['L', 'M'],
+  methodReasonMismatch: ['L', 'M'],
+  epJustificationMissing: ['L', 'M', 'K', 'AE'],
+  financeDelay: ['K', 'N', 'Q', 'U', 'AE', 'AF'],
+  factDateBeforePlan: ['L', 'N', 'Q', 'U', 'AF'],
+  economyConflict: ['L', 'K', 'Y', 'AC', 'AD', 'AE', 'AF'],
+  highEconomy: ['L', 'K', 'Y', 'AC', 'AD', 'U'],
+  earlyClosure: ['L', 'N', 'Q', 'U', 'AF'],
+  factWithoutDate: ['N', 'Q', 'V', 'W', 'X', 'Y', 'M', 'AF'],
+  dateWithoutFact: ['N', 'Q', 'Y', 'U', 'AF'],
+  singleParticipant: ['L', 'K', 'Y', 'U'],
+  factExceedsPlan: ['K', 'Y', 'AC', 'AD', 'N', 'Q', 'AF'],
+  overdue: ['K', 'N', 'Q', 'U', 'AE', 'AF'],
+  stalledContract: ['N', 'Q', 'U', 'AE', 'AF'],
+  dataQuality: ['D', 'K', 'L', 'N', 'Q'],
+  budgetUnderallocation: ['H', 'I', 'J', 'K', 'Y'],
+  budgetSourceMissing: ['H', 'I', 'J', 'K'],
+};
+
+/** Колонки-даты: в дампе рендерим serial → дд.мм.гггг. */
+const DATE_COLS = new Set(['N', 'Q']);
+/** Колонки-нарративы: длинный кэп, чтобы триаж видел причину целиком. */
+const LONG_COLS = new Set(['M', 'U', 'AE', 'AF']);
+
+function renderSignalCols(key: string, cells: Record<string, unknown>): string {
+  const cols = SIGNAL_COLS[key] ?? [...SAMPLE_COLS];
+  return cols
+    .map(col => {
+      if (DATE_COLS.has(col)) return `${col}=${humanDate(cells[col])}`;
+      return `${col}=${short(cells[col], LONG_COLS.has(col) ? 160 : 40)}`;
+    })
+    .join(' | ');
+}
+
 function lat(sheet: string): string {
   return (CYRILLIC_TO_LATIN as Record<string, string>)[sheet] ?? sheet;
 }
@@ -78,6 +131,8 @@ interface Sample {
   subject: string;
   cols: string;
   extra?: string;
+  /** Сырые ячейки строки — для профильного instance-дампа. */
+  cells?: Record<string, unknown>;
 }
 
 interface Counter {
@@ -94,7 +149,35 @@ function bump(map: Map<string, Counter>, key: string, sheet: string, sample?: Sa
   }
   c.total++;
   c.bySheet[sheet] = (c.bySheet[sheet] ?? 0) + 1;
-  if (sample && c.samples.length < SAMPLE_CAP) c.samples.push(sample);
+  // Храним ВСЕ сэмплы (счёт срабатываний мал), представительные 15 отбираем при записи.
+  if (sample) c.samples.push(sample);
+}
+
+/**
+ * Представительный отбор: round-robin по листам, чтобы 15 сэмплов не были
+ * «первые 15 строк УЭР», а покрывали все ГРБС, где сигнал сработал.
+ */
+function representative(samples: Sample[], cap = SAMPLE_CAP): Sample[] {
+  const bySheet = new Map<string, Sample[]>();
+  for (const s of samples) {
+    const list = bySheet.get(s.sheet);
+    if (list) list.push(s);
+    else bySheet.set(s.sheet, [s]);
+  }
+  const lists = [...bySheet.values()];
+  const out: Sample[] = [];
+  for (let i = 0; out.length < cap; i++) {
+    let added = false;
+    for (const list of lists) {
+      if (i < list.length) {
+        out.push(list[i]);
+        added = true;
+        if (out.length >= cap) break;
+      }
+    }
+    if (!added) break;
+  }
+  return out;
 }
 
 function sampleFromCells(sheet: string, row1based: number, cells: Record<string, unknown>, extra?: string): Sample {
@@ -102,7 +185,7 @@ function sampleFromCells(sheet: string, row1based: number, cells: Record<string,
   const cols = SAMPLE_COLS
     .map(col => `${col}=${short(cells[col], col === 'AE' || col === 'M' ? 90 : 40)}`)
     .join(' ');
-  return { sheet, row: row1based, subject, cols, extra };
+  return { sheet, row: row1based, subject, cols, extra, cells };
 }
 
 async function main(): Promise<void> {
@@ -170,6 +253,23 @@ async function main(): Promise<void> {
   /** Диагностика формата дат N/Q per лист: serial-числа ломают parseDate (год 46091). */
   const dateDiag: Record<string, Record<'N' | 'Q', Record<string, number>>> = {};
 
+  /** Триаж-разбивки: количественно отделяют шум/техбаг от реальных случаев. */
+  const triage = {
+    /** economyConflict: что реально лежит в AD (гипотеза техбага: economyFlag ищет «эконом», а в AD — «да/нет»). */
+    economyConflictAD: {} as Record<string, number>,
+    /** financeDelay: класс совпадения — «нет/отсутствие финансирования» vs «софинансир*» (вероятный FP) vs прочее. */
+    financeDelayKind: {} as Record<string, number>,
+    /** lowCompetition: факт == план копейка-в-копейку (план, скорее всего, подогнан под контракт) vs 0<эк<2%. */
+    lowCompetitionExactEq: 0,
+    lowCompetitionTotal: 0,
+    /** planWithoutExecution: есть ли плановая дата; что в комментариях. */
+    pwe: { total: 0, hasPlanDate: 0, noPlanDate: 0, afPlanning: 0, afFinance: 0 },
+    /** unmappedReasonEP: частотка значений M — кандидаты на новые кластеры словаря. */
+    unmappedM: new Map<string, number>(),
+    /** factDateBeforePlan: распределение опережения в днях. */
+    fdbpDays: { d1_7: 0, d8_14: 0, d15_30: 0 },
+  };
+
   for (const sheetName of loadedSheets) {
     if (sheetName === SVOD_SHEET_NAME) continue;
     const rows = sheetRows[sheetName];
@@ -212,6 +312,49 @@ async function main(): Promise<void> {
         const target = STATE_SIGNALS.has(key as keyof RowSignals) ? stateCounts : signalCounts;
         const sample = target === signalCounts ? sampleFromCells(sheetName, r + 1, cells) : undefined;
         bump(target, key, sheetName, sample);
+      }
+
+      // ── Триаж-разбивки по сработавшим сигналам ──
+      const yNum = typeof cells['Y'] === 'number' ? cells['Y'] as number : parseFloat(String(cells['Y'] ?? '').replace(/\s/g, '').replace(',', '.'));
+      const comment = `${String(cells['AE'] ?? '')} ${String(cells['AF'] ?? '')}`.toLowerCase();
+
+      if (signals.economyConflict) {
+        const adRaw = String(cells['AD'] ?? '').trim().toLowerCase();
+        const adKey = adRaw === '' || /^[xхXХ·\-–—]+$/.test(adRaw) ? 'пусто' : adRaw.slice(0, 20);
+        triage.economyConflictAD[adKey] = (triage.economyConflictAD[adKey] ?? 0) + 1;
+      }
+      if (signals.financeDelay) {
+        let kind: string;
+        if (comment.includes('софинансир')) kind = 'софинансир* (вероятный FP)';
+        else if (/(?:нет|отсутств[а-я]*)\s+финансир/.test(comment)) kind = 'нет/отсутствие финансирования';
+        else kind = 'прочее упоминание «финансир»';
+        triage.financeDelayKind[kind] = (triage.financeDelayKind[kind] ?? 0) + 1;
+      }
+      if (signals.lowCompetition) {
+        triage.lowCompetitionTotal++;
+        if (!isNaN(kNum) && !isNaN(yNum) && kNum === yNum) triage.lowCompetitionExactEq++;
+      }
+      if (signals.planWithoutExecution) {
+        triage.pwe.total++;
+        const nKind = dateKind(cells['N']);
+        if (nKind === 'serial' || nKind === 'ruString') triage.pwe.hasPlanDate++;
+        else triage.pwe.noPlanDate++;
+        if (comment.includes('планир')) triage.pwe.afPlanning++;
+        if (comment.includes('финансир')) triage.pwe.afFinance++;
+      }
+      if (signals.unmappedReasonEP) {
+        const mNorm = String(cells['M'] ?? '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 70);
+        triage.unmappedM.set(mNorm, (triage.unmappedM.get(mNorm) ?? 0) + 1);
+      }
+      if (signals.factDateBeforePlan) {
+        const nD = parseSheetDate(cells['N']);
+        const qD = parseSheetDate(cells['Q']);
+        if (nD && qD) {
+          const diff = Math.round((nD.getTime() - qD.getTime()) / 86400000);
+          if (diff <= 7) triage.fdbpDays.d1_7++;
+          else if (diff <= 14) triage.fdbpDays.d8_14++;
+          else triage.fdbpDays.d15_30++;
+        }
       }
     }
     rowStats[sheetName] = { raw: rows.length, scanned, dataRows };
@@ -356,9 +499,10 @@ async function main(): Promise<void> {
   for (const key of orderedKeys) {
     const c = signalCounts.get(key);
     if (!c || c.total === 0) continue;
-    lines.push(`### ${key} — всего ${c.total}, сэмплов ${c.samples.length}`);
+    const reps = representative(c.samples);
+    lines.push(`### ${key} — всего ${c.total}, представительных сэмплов ${reps.length}`);
     lines.push('');
-    for (const s of c.samples) {
+    for (const s of reps) {
       lines.push(`- **[${s.sheet} стр.${s.row}]** «${s.subject}»`);
       lines.push(`  ${s.cols}`);
     }
@@ -369,9 +513,10 @@ async function main(): Promise<void> {
   lines.push('');
   for (const [key, c] of [...ruleCounts.entries()].sort((a, b) => b[1].total - a[1].total)) {
     if (c.total === 0) continue;
-    lines.push(`### ${key} — всего ${c.total}, сэмплов ${c.samples.length}`);
+    const reps = representative(c.samples);
+    lines.push(`### ${key} — всего ${c.total}, представительных сэмплов ${reps.length}`);
     lines.push('');
-    for (const s of c.samples) {
+    for (const s of reps) {
       lines.push(`- **[${s.sheet} стр.${s.row}]** «${s.subject}» → ${s.extra ?? ''}`);
       lines.push(`  ${s.cols}`);
     }
@@ -382,11 +527,88 @@ async function main(): Promise<void> {
   lines.push(`Прогон завершён: ${new Date().toISOString()}. Длительность: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}с.`);
   writeFileSync(OUT_PATH, lines.join('\n'), 'utf-8');
 
+  // ── 5. Instance-дамп для триажа: представительные строки + разбивки ──
+  const rl: string[] = [];
+  rl.push(`# Instance-дамп сигналов для триажа — ${startedAt.toISOString()}`);
+  rl.push('');
+  rl.push('До 15 представительных строк на сигнал (round-robin по листам). Даты N/Q приведены к дд.мм.гггг.');
+  rl.push('Показаны только колонки соответствующего правила. Номер строки = номер строки в Google-листе.');
+  rl.push('');
+
+  rl.push('## Триаж-разбивки (количественные срезы)');
+  rl.push('');
+  rl.push('### economyConflict: что лежит в столбце AD у сработавших строк');
+  rl.push('');
+  rl.push('| Значение AD | Строк |');
+  rl.push('|---|---:|');
+  for (const [k, v] of Object.entries(triage.economyConflictAD).sort((a, b) => b[1] - a[1])) {
+    rl.push(`| ${k} | ${v} |`);
+  }
+  rl.push('');
+  rl.push('### financeDelay: класс совпадения по подстроке «финансир»');
+  rl.push('');
+  rl.push('| Класс | Строк |');
+  rl.push('|---|---:|');
+  for (const [k, v] of Object.entries(triage.financeDelayKind).sort((a, b) => b[1] - a[1])) {
+    rl.push(`| ${k} | ${v} |`);
+  }
+  rl.push('');
+  rl.push(`### lowCompetition: факт == план копейка-в-копейку — ${triage.lowCompetitionExactEq} из ${triage.lowCompetitionTotal}`);
+  rl.push('');
+  rl.push('(точное равенство K=Y означает: «план» в таблице подогнан под сумму контракта, экономия 0% — не мера конкуренции)');
+  rl.push('');
+  rl.push(`### planWithoutExecution: всего ${triage.pwe.total} — план-дата есть: ${triage.pwe.hasPlanDate}, план-даты нет: ${triage.pwe.noPlanDate}; в комментарии «планир*»: ${triage.pwe.afPlanning}, «финансир*»: ${triage.pwe.afFinance}`);
+  rl.push('');
+  rl.push(`### factDateBeforePlan: опережение 1-7 дн: ${triage.fdbpDays.d1_7}, 8-14 дн: ${triage.fdbpDays.d8_14}, 15-30 дн: ${triage.fdbpDays.d15_30}`);
+  rl.push('');
+  rl.push('### unmappedReasonEP: частотка значений M (кандидаты в новые кластеры словаря)');
+  rl.push('');
+  rl.push('| Значение M (нормализовано, 70 симв.) | Строк |');
+  rl.push('|---|---:|');
+  for (const [k, v] of [...triage.unmappedM.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30)) {
+    rl.push(`| ${k.replace(/\|/g, '/')} | ${v} |`);
+  }
+  rl.push('');
+
+  rl.push('## Представительные строки по сигналам');
+  rl.push('');
+  for (const key of orderedKeys) {
+    const c = signalCounts.get(key);
+    if (!c || c.total === 0) continue;
+    const reps = representative(c.samples);
+    rl.push(`### ${key} — всего ${c.total}, показано ${reps.length}`);
+    rl.push('');
+    for (const s of reps) {
+      rl.push(`- **[${s.sheet} стр.${s.row}]** «${s.subject}»`);
+      rl.push(`  ${s.cells ? renderSignalCols(key, s.cells) : s.cols}`);
+    }
+    rl.push('');
+  }
+
+  rl.push('## Представительные строки по правилам RULE_BOOK');
+  rl.push('');
+  for (const [key, c] of [...ruleCounts.entries()].sort((a, b) => b[1].total - a[1].total)) {
+    if (c.total === 0) continue;
+    const reps = representative(c.samples);
+    rl.push(`### ${key} — всего ${c.total}, показано ${reps.length}`);
+    rl.push('');
+    for (const s of reps) {
+      rl.push(`- **[${s.sheet} стр.${s.row}]** «${s.subject}» → ${s.extra ?? ''}`);
+      rl.push(`  ${s.cols}`);
+    }
+    rl.push('');
+  }
+
+  rl.push('---');
+  rl.push(`Прогон завершён: ${new Date().toISOString()}.`);
+  writeFileSync(ROWS_OUT_PATH, rl.join('\n'), 'utf-8');
+
   // ASCII-only summary в консоль
   const problemTotal = [...signalCounts.values()].reduce((s, c) => s + c.total, 0);
   const ruleTotal = [...ruleCounts.values()].reduce((s, c) => s + c.total, 0);
   console.log(`done: sheets=${loadedSheets.length} scannedRows=${totalScanned} signalFirings=${problemTotal} ruleFirings=${ruleTotal}`);
   console.log(`output: ${OUT_PATH}`);
+  console.log(`rows dump: ${ROWS_OUT_PATH}`);
 }
 
 main().catch(err => {
