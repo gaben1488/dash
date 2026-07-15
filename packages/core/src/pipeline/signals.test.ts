@@ -112,6 +112,22 @@ describe('Date signals', () => {
     expect(s.factDateBeforePlan).toBe(true);
   });
 
+  // FP-fix signal_audit 2026-07-14 §3.7: «дедлайн сегодня» — ещё не просрочка
+  it('NOT overdue в день дедлайна: N=15.07.2026, прогон 15.07.2026 23:41 (off-by-one из-за времени суток)', () => {
+    // 4 из 8 срабатываний 15.07 были строками с N=15.07.2026 (УО стр.2365/2377/2396/2397)
+    const s = detectSignals(makeCells({
+      N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·',
+    }), new Date(2026, 6, 15, 23, 41));
+    expect(s.overdue).toBe(false);
+  });
+
+  it('overdue строго со следующего дня после дедлайна: N=15.07.2026, прогон 16.07.2026 00:10', () => {
+    const s = detectSignals(makeCells({
+      N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·',
+    }), new Date(2026, 6, 16, 0, 10));
+    expect(s.overdue).toBe(true);
+  });
+
   it('NOT overdue when signed', () => {
     const s = detectSignals(makeCells({
       N: '01.01.2026', Q: null, Y: 0,
@@ -257,15 +273,25 @@ describe('hasFact signal', () => {
 // ────────────────────────────────────────────────────────────
 
 describe('Financial signals', () => {
-  describe('economyFlag', () => {
-    it('true when AD contains "экономия"', () => {
-      const s = detectSignals(makeCells({ AD: 'экономия' }), REF_DATE);
+  describe('economyFlag (канон AD = «да»/«нет», signal_audit 2026-07-14 §3.1)', () => {
+    it('true when AD="да" (канон, как в calc-engine GATE_ECONOMY_APPROVED)', () => {
+      const s = detectSignals(makeCells({ AD: 'да' }), REF_DATE);
       expect(s.economyFlag).toBe(true);
     });
 
-    it('true when AD contains "эконом" (partial)', () => {
-      const s = detectSignals(makeCells({ AD: 'Экономические средства' }), REF_DATE);
+    it('true when AD=" Да " (регистр и пробелы нормализуются)', () => {
+      const s = detectSignals(makeCells({ AD: ' Да ' }), REF_DATE);
       expect(s.economyFlag).toBe(true);
+    });
+
+    it('false when AD="нет" (флаг определён, но экономия не подтверждена)', () => {
+      const s = detectSignals(makeCells({ AD: 'нет' }), REF_DATE);
+      expect(s.economyFlag).toBe(false);
+    });
+
+    it('false when AD="экономия" — подстроки «эконом» в каноне AD не бывает', () => {
+      const s = detectSignals(makeCells({ AD: 'экономия' }), REF_DATE);
+      expect(s.economyFlag).toBe(false);
     });
 
     it('false when AD empty', () => {
@@ -275,9 +301,30 @@ describe('Financial signals', () => {
   });
 
   describe('economyConflict', () => {
-    it('conflict: AD="экономия" but fact >= plan', () => {
+    it('conflict (случай а, оживает): AD="да" but fact >= plan', () => {
       const s = detectSignals(makeCells({
-        K: 1_000_000, Y: 1_000_000, AD: 'экономия',
+        K: 1_000_000, Y: 1_000_000, AD: 'да',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(true);
+    });
+
+    it('NO conflict: AD="да" + экономия 30% — флаг честно проставлен (УЭР стр.6: K=445, Y=312.79)', () => {
+      const s = detectSignals(makeCells({
+        K: 445, Y: 312.79, AD: 'да', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(false);
+    });
+
+    it('NO conflict: AD="нет" + экономия 84% — «нет» это решение органа, не пробел (УАГЗО стр.6: K=63.03332, Y=9.81406)', () => {
+      const s = detectSignals(makeCells({
+        K: 63.03332, Y: 9.81406, AD: 'нет', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(false);
+    });
+
+    it('conflict (случай б): AD="·" (плейсхолдер = не определён) + экономия 43% (УД стр.10: K=333.8024, Y=188.56238)', () => {
+      const s = detectSignals(makeCells({
+        K: 333.8024, Y: 188.56238, AD: '·', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(true);
     });
@@ -389,7 +436,7 @@ describe('Financial signals', () => {
     });
   });
 
-  describe('lowCompetition', () => {
+  describe('lowCompetition (FP-fix signal_audit 2026-07-14 §3.2)', () => {
     it('true: economy < 2% on competitive method', () => {
       const s = detectSignals(makeCells({
         L: 'ЭА', K: 1_000_000, Y: 990_000,
@@ -411,6 +458,29 @@ describe('Financial signals', () => {
         L: 'ЕП', K: 1_000_000, Y: 990_000,
       }), REF_DATE);
       expect(s.lowCompetition).toBe(false);
+    });
+
+    it('false: план == факт копейка-в-копейку — артефакт заполнения, не конкуренция (УДТХ стр.4: K=Y=1210.59135)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЭА', K: 1210.59135, Y: 1210.59135,
+      }), REF_DATE);
+      expect(s.lowCompetition).toBe(false);
+    });
+
+    it('false: дубль singleParticipant — УИО-квартира (стр.20: K=5812.91, Y=5812.90875, аукцион не состоялся)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЭА', K: 5812.91, Y: 5812.90875,
+        U: 'Аукцион не состоялся, заключен контракт с ед.подавшим заявку на участие, контракт исполнен',
+      }), REF_DATE);
+      expect(s.singleParticipant).toBe(true);
+      expect(s.lowCompetition).toBe(false);
+    });
+
+    it('true: честная малая экономия ~1% без единственного участника (УЭР стр.11: K=123.46, Y=122.23)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЭА', K: 123.46, Y: 122.23,
+      }), REF_DATE);
+      expect(s.lowCompetition).toBe(true);
     });
   });
 
@@ -588,6 +658,34 @@ describe('Data quality signals', () => {
       }), REF_DATE);
       expect(s.factWithoutDate).toBe(false);
     });
+
+    // FP-fix signal_audit 2026-07-14 §3.6: периодические закупки «в течение года»
+    it('false: периодическая закупка «в течение года по мере необходимости» (УДТХ стр.55)', () => {
+      const s = detectSignals(makeCells({
+        N: '31.12.2026', Q: 'х', X: 179.843, Y: 179.843,
+        M: 'пп. 1, п.1 Распоряжения Администрации ЕМР от 03.09.2025 № 112', L: 'ЕП',
+        AF: 'приобретение канц. и хоз. товаров осуществляется в течение года по мере необходимости',
+      }), REF_DATE);
+      expect(s.factWithoutDate).toBe(false);
+    });
+
+    it('false: периодическая с опечаткой «в течении года» (УКСиМП стр.552)', () => {
+      const s = detectSignals(makeCells({
+        N: '31.12.2026', Q: 'Х', X: 12.8, Y: 12.8, L: 'ЕП',
+        M: 'нецелесообразность проведения аукциона',
+        AF: 'Выдача денежных средств по ведомости в течении года',
+      }), REF_DATE);
+      expect(s.factWithoutDate).toBe(false);
+    });
+
+    it('false: «по мере возникновения фактической потребности» (УФБП стр.14)', () => {
+      const s = detectSignals(makeCells({
+        N: '30.12.2026', Q: 'Х', X: 94.5, Y: 94.5, L: 'ЕП',
+        M: 'Небольшие суммы контракта и узкая специализация по обучению',
+        AF: 'Данная закупка будет проводится в течение года, по мере возникновения фактической потребности в обучении специалистов',
+      }), REF_DATE);
+      expect(s.factWithoutDate).toBe(false);
+    });
   });
 
   describe('dateWithoutFact', () => {
@@ -621,13 +719,14 @@ describe('Data quality signals', () => {
       expect(s.factDateBeforePlan).toBe(true);
     });
 
-    it('false: fact date > 30 days before plan (earlyClosure territory, plan in past)', () => {
+    it('false: fact date > 30 days before plan (не 1-30-дневный диапазон)', () => {
       const s = detectSignals(makeCells({
         N: '01.03.2026', Q: '15.01.2026', // 45 days diff, plan in past
       }), REF_DATE);
-      // diff > 30 -> earlyClosure, not factDateBeforePlan
+      // diff > 30 → вне диапазона factDateBeforePlan; earlyClosure тоже молчит
+      // (45 дней в одном году — нормальное раннее исполнение, signal_audit §3.5)
       expect(s.factDateBeforePlan).toBe(false);
-      expect(s.earlyClosure).toBe(true);
+      expect(s.earlyClosure).toBe(false);
     });
 
     it('false: fact date > 30 days before plan but plan in future (no earlyClosure)', () => {
@@ -761,27 +860,47 @@ describe('Behavioral signals', () => {
     });
   });
 
-  describe('earlyClosure', () => {
-    it('true: fact date > 30 days before plan date, plan date in past', () => {
-      // Plan date 01.03.2026 is in past (REF_DATE=13.04.2026), fact 15.01.2026 = 45 days diff
+  describe('earlyClosure (сигнал = кандидат на опечатку даты, signal_audit 2026-07-14 §3.5)', () => {
+    it('true: смена календарного года — вероятная опечатка (УД стр.101: факт 15.04.2025 при плане 30.04.2026)', () => {
       const s = detectSignals(makeCells({
-        N: '01.03.2026', Q: '15.01.2026',
-      }), REF_DATE);
+        N: '30.04.2026', Q: '15.04.2025',
+      }), new Date(2026, 6, 15)); // 15.07.2026, план в прошлом
       expect(s.earlyClosure).toBe(true);
     });
 
-    it('false: plan date in future (retroactive date entry filter)', () => {
-      // Plan date 30.06.2026 is in future — likely retroactive data entry, not real early closure
+    it('true: разрыв > 180 дней в одном году, план в прошлом', () => {
       const s = detectSignals(makeCells({
-        N: '30.06.2026', Q: '15.03.2026', // planDate - factDate = 107 days > 30
+        N: '30.12.2026', Q: '15.06.2026', // 198 дней
+      }), new Date(2026, 11, 31)); // 31.12.2026 — план уже в прошлом
+      expect(s.earlyClosure).toBe(true);
+    });
+
+    it('false: 45 дней опережения в одном году — нормальное раннее исполнение против квартального дедлайна', () => {
+      // До фикса это давало 73 из 74 ложных срабатываний (порог был 30 дней)
+      const s = detectSignals(makeCells({
+        N: '01.03.2026', Q: '15.01.2026',
       }), REF_DATE);
       expect(s.earlyClosure).toBe(false);
     });
 
-    it('false: fact date only 20 days before plan', () => {
+    it('false: 36 дней опережения (УАГЗО стр.31: N=30.06.2026, Q=25.05.2026)', () => {
       const s = detectSignals(makeCells({
-        N: '15.03.2026', Q: '25.02.2026', // 18 days diff, plan in past
+        N: '30.06.2026', Q: '25.05.2026',
+      }), new Date(2026, 6, 15));
+      expect(s.earlyClosure).toBe(false);
+    });
+
+    it('false: смена года при опережении <= 30 дней (декабрь → январь — норма)', () => {
+      const s = detectSignals(makeCells({
+        N: '15.01.2026', Q: '20.12.2025', // 26 дней, год сменился
       }), REF_DATE);
+      expect(s.earlyClosure).toBe(false);
+    });
+
+    it('false: разрыв > 180 дней, но план в будущем (ретроспективный ввод)', () => {
+      const s = detectSignals(makeCells({
+        N: '30.12.2026', Q: '15.06.2026', // 198 дней, но план ещё не наступил
+      }), new Date(2026, 6, 15));
       expect(s.earlyClosure).toBe(false);
     });
 
@@ -792,10 +911,10 @@ describe('Behavioral signals', () => {
       expect(s.earlyClosure).toBe(false);
     });
 
-    it('false: canceled', () => {
+    it('false: canceled (даже при смене года)', () => {
       const s = detectSignals(makeCells({
-        N: '01.03.2026', Q: '15.01.2026', U: 'Отменена',
-      }), REF_DATE);
+        N: '30.04.2026', Q: '15.04.2025', U: 'Отменена',
+      }), new Date(2026, 6, 15));
       expect(s.earlyClosure).toBe(false);
     });
   });
@@ -942,6 +1061,42 @@ describe('Behavioral signals', () => {
     it('false: no finance-related text', () => {
       const s = detectSignals(makeCells({ AE: 'все в порядке' }), REF_DATE);
       expect(s.financeDelay).toBe(false);
+    });
+
+    // FP-fix signal_audit 2026-07-14 §3.8: ложные классы подстроки «финансир»
+    it('false: софинансирование — доведение, не задержка (УД стр.35)', () => {
+      const s = detectSignals(makeCells({
+        AF: 'уточнение в связи с доведением софинансирования из бюджета КК, в настоящее время подготовлена техническая документация',
+      }), REF_DATE);
+      expect(s.financeDelay).toBe(false);
+    });
+
+    it('false: «добавлением финансирования» — сумму увеличили (УО стр.1052)', () => {
+      const s = detectSignals(makeCells({
+        AF: 'договор заключен, изменение суммы в связи с добавлением финансирования',
+      }), REF_DATE);
+      expect(s.financeDelay).toBe(false);
+    });
+
+    it('false: «финансирования дефицита» — слово в предмете закупки-кредита (УФБП стр.4)', () => {
+      const s = detectSignals(makeCells({
+        AF: 'Данная закупка будет проведена при необходимости в привлечении коммерческого кредита для финансирования дефицита бюджета ЕМР',
+      }), REF_DATE);
+      expect(s.financeDelay).toBe(false);
+    });
+
+    it('true: ядро «после доведения финансирования» остаётся (УО стр.336)', () => {
+      const s = detectSignals(makeCells({
+        AE: 'страховка на автобус действует до 08.06.26. Договор будет заключен после доведения финансирования',
+      }), REF_DATE);
+      expect(s.financeDelay).toBe(true);
+    });
+
+    it('true: исключение + ядро в одном комментарии — ядро побеждает', () => {
+      const s = detectSignals(makeCells({
+        AF: 'доведение софинансирования задержано, отсутствие финансирования из МБ',
+      }), REF_DATE);
+      expect(s.financeDelay).toBe(true);
     });
   });
 });
@@ -1175,6 +1330,14 @@ describe('getSignalBadges', () => {
 
     const noConflict = getSignalBadges(makeSignals({ economyFlag: true, economyConflict: false }));
     expect(noConflict.some(b => b.label === 'Экономия')).toBe(true);
+  });
+
+  it('e2e §3.1: бейдж «Экономия» оживает на реальной строке AD="да" + экономия (до фикса не показывался никогда)', () => {
+    // УЭР стр.6: K=445, Y=312.79, AD=да — честная экономия с проставленным флагом
+    const s = detectSignals(makeCells({ K: 445, Y: 312.79, AD: 'да', L: 'ЭА' }), REF_DATE);
+    const badges = getSignalBadges(s);
+    expect(badges.some(b => b.label === 'Экономия' && b.color === 'green')).toBe(true);
+    expect(badges.some(b => b.label === 'Флаг экономии')).toBe(false);
   });
 
   it('hasFact shows green badge only when NOT signed', () => {

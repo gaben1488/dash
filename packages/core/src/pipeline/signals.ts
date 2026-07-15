@@ -43,9 +43,9 @@ export interface RowSignals {
   planSoon: boolean;
   /** Задержка финансирования (AE/AF: "финансир", "перенос") */
   financeDelay: boolean;
-  /** Флаг экономии от уполномоченного органа (колонка AD) */
+  /** Флаг экономии от уполномоченного органа: AD = «да» (канон столбца — «да»/«нет») */
   economyFlag: boolean;
-  /** Конфликт флага экономии: (а) AD="экономия" но факт ≥ план; (б) экономия >15% но финансовый орган не определил флаг */
+  /** Конфликт флага экономии: (а) AD="да" но факт ≥ план; (б) экономия >15% но финансовый орган не определил флаг (AD не «да» и не «нет») */
   economyConflict: boolean;
   /** ЕП (колонка L) с суммой > 600 000 руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
   epRisk: boolean;
@@ -57,9 +57,9 @@ export interface RowSignals {
   singleParticipant: boolean;
   /** Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт. Антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных */
   highEconomy: boolean;
-  /** Экономия < 2% — предопределённый победитель */
+  /** Экономия 0-2% (без точного равенства план==факт и без дубля singleParticipant) — формальная конкуренция */
   lowCompetition: boolean;
-  /** Раннее закрытие: факт дата раньше плановой на >30 дней */
+  /** Раннее закрытие — кандидат на опечатку даты: факт в предыдущем календарном году (при опережении >30 дн) либо опережение >180 дней */
   earlyClosure: boolean;
   /** Факт > план на >10% */
   factExceedsPlan: boolean;
@@ -235,6 +235,11 @@ function isDataRow(cells: Record<string, unknown>): boolean {
  */
 export function detectSignals(cells: Record<string, unknown>, today?: Date): RowSignals {
   const now = today ?? new Date();
+  // Календарный «сегодня» без времени суток. FP-fix 2026-07-16 (signal_audit §3.7):
+  // сравнение дат с now, несущим часы/минуты, давало off-by-one — строка с дедлайном
+  // «сегодня» (N=15.07 при прогоне 15.07 вечером) округлялась в daysDiff до −1 и
+  // помечалась просроченной. Просрочка — строго со следующего дня после плановой даты.
+  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   // ── Текстовые поля ──
   // Column U = «Причина отклонения» — mostly "Х" (placeholder), sometimes deviation reasons.
@@ -295,7 +300,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   ]);
 
   if (planDateParsed) {
-    const daysUntilPlan = daysDiff(planDateParsed, now);
+    const daysUntilPlan = daysDiff(planDateParsed, nowDay);
 
     // Просрочено: плановая дата прошла, нет факта, не подписан, не отменён,
     // НЕ в статусе «планирование»/«срок не наступил» (это forward план-график —
@@ -323,9 +328,17 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // ── Финансирование (AE/AF) ──
   // "перенос" alone is too broad — it catches schedule changes, not just finance delays.
-  // Require "финансир" context or specific "отсутствие финансирования" patterns.
-  const financeDelay = grbsComment.includes('финансир') ||
-    textIncludes(grbsComment, ['нет финансирования', 'отсутствие финансирования', 'отсутствием финансирования']);
+  // FP-fix 2026-07-16 (signal_audit §3.8): ложные классы подстроки «финансир» вырезаются
+  // из текста ДО поиска — «софинансир*» (доведение софинансирования — не задержка),
+  // «добавлени* финансирования» (сумму увеличили), «финансировани[ея] дефицита» (слово
+  // в предмете закупки-кредита). Ядро («нет/отсутствие/после доведения финансирования»)
+  // остаётся: если рядом с исключённой фразой есть честное «финансир» — сигнал живёт.
+  // \w в JS не матчит кириллицу — только явный класс [а-яё].
+  const financeText = grbsComment
+    .replace(/софинансир[а-яё]*/g, '')
+    .replace(/добавлени[а-яё]*\s+финансировани[а-яё]*/g, '')
+    .replace(/финансировани[ея]\s+дефицита/g, '');
+  const financeDelay = financeText.includes('финансир');
 
   // ── ЕП detection (used by multiple signals below) ──
   const isEP = methodText.includes('еп') || methodText.includes('единствен');
@@ -340,22 +353,30 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   ]) || textIncludes(aeText, ['монополист']);
 
   // ── Экономия (AD) ──
-  const economyFlag = adText.includes('эконом');
+  // Канон столбца AD — «да»/«нет» (правило status_on_data_rows + calc-engine
+  // GATE_ECONOMY_APPROVED: adFlag === 'да' || 'yes'). Техбаг-fix 2026-07-16
+  // (signal_audit §3.1): старый поиск подстроки «эконом» никогда не матчил канон —
+  // economyFlag был вечно false, случай (а) конфликта мёртв, зелёный бейдж «Экономия»
+  // не показывался, а случай (б) давал 77 ложных срабатываний на строках с AD=да/нет.
+  const economyFlag = adText === 'да' || adText === 'yes';
+  // Флаг определён = орган принял решение («да» ИЛИ «нет»). Пусто/Х/· — не определён.
+  const economyFlagDetermined = economyFlag || adText === 'нет' || adText === 'no';
 
   // Конфликт флага экономии:
-  // (а) AD помечен как «экономия», но факт >= план — некорректный флаг;
-  // (б) AD не помечен, но есть существенная экономия >15% — финансовый орган не определил флаг.
+  // (а) AD="да", но факт >= план — некорректный флаг;
+  // (б) существенная экономия >15%, но финансовый орган НЕ определил флаг (AD пуст/Х/·).
+  //     AD="нет" — это решение органа («экономией не является»), не пробел данных.
   //     EXCEPT for ЕП: economy on ЕП is just underspend vs allocation (лимит), not competitive savings.
   //     Missing AD flag on ЕП is normal and NOT an error.
   // Skip if factTotal === 0 — row hasn't been executed yet, no meaningful conflict possible.
   let economyConflict = false;
   if (!isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
-    const hasEconomyByNumbers = factTotal > 0 && factTotal < planTotal;
-    if (economyFlag && factTotal > 0 && factTotal >= planTotal) {
-      // Помечена экономия, но факт >= план
+    const hasEconomyByNumbers = factTotal < planTotal;
+    if (economyFlag && factTotal >= planTotal) {
+      // Помечена экономия (AD=да), но факт >= план
       economyConflict = true;
-    } else if (!economyFlag && hasEconomyByNumbers && !isEP) {
-      // Есть числовая экономия, но AD не помечен.
+    } else if (!economyFlagDetermined && hasEconomyByNumbers && !isEP) {
+      // Есть числовая экономия, но орган не определил флаг.
       // Skip ЕП: economy on sole-source is just budget underspend, AD flag not required.
       // Порог 15%: мелкая экономия (5-15%) часто не требует флага AD,
       // а >15% без флага — реальный конфликт данных.
@@ -375,7 +396,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // incomplete data (no method, no amounts yet).
   // Skip canceled rows and rows marked for deletion ("подлежит удалению").
   let dataQuality = false;
-  const planDateInPast = planDateParsed !== null && daysDiff(planDateParsed, now) < 0;
+  const planDateInPast = planDateParsed !== null && daysDiff(planDateParsed, nowDay) < 0;
   if (isDataRow(cells) && (hasFactDate || planDateInPast) && !planning && !notDue && !canceled) {
     dataQuality = REQUIRED_COLUMNS.some(col => {
       const val = cells[col];
@@ -409,23 +430,34 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     if (economyPct > ANTI_DUMPING_PERCENT) {
       highEconomy = true;
     }
-    if (economyPct >= 0 && economyPct < LOW_COMPETITION_PERCENT) {
+    // FP-fix 2026-07-16 (signal_audit §3.2): 242 из 274 срабатываний были «план == факт
+    // копейка-в-копейку» — операторы вписывают в план сумму заключённого контракта,
+    // экономия 0% — арифметический артефакт заполнения, не мера конкуренции. Точное
+    // равенство гасим. Ещё 12 дублировали singleParticipant (несостоявшиеся аукционы) —
+    // дубль тоже гасим, сигнал «1 участник» информативнее.
+    if (economyPct >= 0 && economyPct < LOW_COMPETITION_PERCENT
+      && factTotal !== planTotal && !singleParticipant) {
       lowCompetition = true;
     }
   }
 
-  // ── Раннее закрытие: факт дата раньше плановой на >30 дней ──
-  // In procurement, early completion is common (efficient process, early budget execution).
-  // Threshold increased from 14→30 days to reduce false positives on normal early completions.
-  // Only flag if NOT canceled and difference is substantial enough to be suspicious.
+  // ── Раннее закрытие: кандидат на опечатку в дате ──
+  // FP-fix 2026-07-16 (signal_audit §3.5): порог «>30 дней» шумел — 73 из 74 срабатываний
+  // были нормальным ранним исполнением против квартальных план-дат (30.03/30.06/…).
+  // Полезный сигнал прячется в экстремумах: смена календарного года (УД стр.101:
+  // факт 15.04.2025 при плане 30.04.2026 — вероятна опечатка года) или разрыв > 180 дней.
   let earlyClosure = false;
   if (factDateParsed && planDateParsed && !canceled) {
     const diff = daysDiff(planDateParsed, factDateParsed); // planDate - factDate
+    // Смена года: факт в предыдущем календарном году относительно плана. Гард diff > 30
+    // отсекает нормальное заключение декабрь→январь через Новый год.
+    const yearJump = factDateParsed.getFullYear() < planDateParsed.getFullYear();
     // Retroactive date entry filter: if planDate is in the future, the dates may have been
     // entered retroactively (common in СВОД — operators fill in dates after the fact).
-    // Only flag if planDate is already past (real deadline, not a future placeholder).
-    const planInPast = daysDiff(now, planDateParsed) > 0; // now > planDate
-    if (diff > 30 && planInPast) {
+    const planInPast = daysDiff(nowDay, planDateParsed) > 0; // now > planDate
+    if (yearJump && diff > 30) {
+      earlyClosure = true;
+    } else if (diff > 180 && planInPast) {
       earlyClosure = true;
     }
   }
@@ -445,7 +477,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Skip canceled rows.
   let stalledContract = false;
   if (signed && !hasFactDate && planDateParsed && !canceled) {
-    const daysOverdue = daysDiff(now, planDateParsed); // now - planDate
+    const daysOverdue = daysDiff(nowDay, planDateParsed); // now - planDate
     if (daysOverdue > 30) {
       stalledContract = true;
     }
@@ -460,7 +492,15 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // factWithoutDate: есть суммы факта, но нет даты — данные неполные
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не флажить, если дата факта есть в комментарии AE
   // («01.02.2026 заключен контракт») — ≈73% «Факт суммы без даты» были ложными по этой причине.
-  const factWithoutDate = hasFactAmounts && !hasFactDate && !canceled && !aeParsed.hasContractDate;
+  // FP-fix 2026-07-16 (signal_audit §3.6): периодические закупки «в течение года по мере
+  // необходимости» (план-дата 30/31.12) по практике заполнения не имеют канонической
+  // единственной даты факта — все 14 срабатываний прогона 15.07 были этим классом.
+  // Проверяем комментарии (AE/AF) и обоснование (M); «в течении» — реальная опечатка операторов.
+  const isPeriodicPurchase = textIncludes(grbsComment + ' ' + epJustification, [
+    'в течение года', 'в течении года', 'по мере необходимости', 'по мере возникновения',
+  ]);
+  const factWithoutDate = hasFactAmounts && !hasFactDate && !canceled
+    && !aeParsed.hasContractDate && !isPeriodicPurchase;
   // dateWithoutFact: есть факт дата, но нет факт сумм — ввели дату, забыли суммы
   const dateWithoutFact = hasFactDate && !hasFactAmounts && !canceled;
 
@@ -494,7 +534,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     // Gate: plan date must exist AND be in the past (>30 days ago to avoid noise on recent plans)
     // Without this gate, signal fires on 48% of rows including future-dated plans.
     if (planDateParsed) {
-      const daysSincePlan = daysDiff(now, planDateParsed); // now - planDate
+      const daysSincePlan = daysDiff(nowDay, planDateParsed); // now - planDate
       if (daysSincePlan > 30) {
         planWithoutExecution = true;
       }
