@@ -48,6 +48,17 @@ export interface OrgClassification {
 const APPARATUS_FUNCTIONS = new Set(['опека', 'администрирование']);
 
 /**
+ * Точечные алиасы-сокращения УЧРЕЖДЕНИЙ в колонке C, не распознаваемые ОПФ-префиксом.
+ * «ЦДТ» = Центр детского творчества, Елизово (подтверждено пользователем 2026-07-15) —
+ * учреждение допобразования УО (42 строки данных), НЕ функция аппарата. ОПФ принята
+ * бюджетной (МБУ ДО — стандартная форма муниципальных центров допобразования);
+ * если окажется казённым (МКУ ДО) — поправить type/isPBS здесь.
+ */
+const KNOWN_ORG_ALIASES: Record<string, OrgClassification> = {
+  'цдт': { type: 'byudzhetnoe', isPBS: false, label: 'МБУ ДО «Центр детского творчества» (Елизово)' },
+};
+
+/**
  * Классифицировать значение колонки C по ОПФ.
  * @param raw — сырое значение колонки C (строка/любое; нормализуется через String+trim).
  */
@@ -63,6 +74,10 @@ export function classifyOrg(raw: unknown): OrgClassification {
   if (/^совместн/i.test(name)) {
     return { type: 'joint_procurement', isPBS: false, label: 'Совместные закупки' };
   }
+
+  // Известные сокращения учреждений (ЦДТ и т.п.) — до ОПФ-префиксов.
+  const alias = KNOWN_ORG_ALIASES[name.toLowerCase()];
+  if (alias) return alias;
 
   const upper = name.toUpperCase();
 

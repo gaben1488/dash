@@ -34,6 +34,13 @@ describe('classifyOrg (1.2): тип организации по ОПФ, не п�
     expect(classifyOrg('МКУ "ЦЭР"').isPBS).toBe(true);
     expect(classifyOrg('МБДОУ ДС № 24 «Журавлик»').isPBS).toBe(false);
   });
+  it('ЦДТ — учреждение (Центр детского творчества, Елизово), не unknown и не аппарат', () => {
+    const r = classifyOrg('ЦДТ');
+    expect(r.type).toBe('byudzhetnoe');
+    expect(r.isPBS).toBe(false);
+    expect(r.label).toContain('Центр детского творчества');
+  });
+
   it('нераспознанный префикс → unknown + не бросает', () => {
     const r = classifyOrg('ООО «Ромашка»');
     expect(r.type).toBe('unknown');
