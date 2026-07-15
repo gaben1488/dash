@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
-import { getSheetData, getSheetDataFromSpreadsheet, writeCellValue } from '../services/google-sheets.js';
+import { getSheetData, getSheetDataFromSpreadsheet, writeCellValue, readDeptSheet } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
@@ -101,10 +101,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
         if (ssId) {
           try {
-            rawRows = await getSheetDataFromSpreadsheet(ssId, getDeptSheetName(dept.nameShort));
-            if (!rawRows || rawRows.length === 0) {
-              rawRows = await getSheetDataFromSpreadsheet(ssId, dept.nameShort);
-            }
+            // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
+            rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
           } catch (err) {
             app.log.error(`Ошибка чтения таблицы управления "${dept.nameShort}": ${err}`);
             return reply.status(503).send({ error: 'Google Sheets unavailable' });
@@ -342,10 +340,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
         if (ssId) {
           try {
-            rawRows = await getSheetDataFromSpreadsheet(ssId, getDeptSheetName(dept.nameShort));
-            if (!rawRows || rawRows.length === 0) {
-              rawRows = await getSheetDataFromSpreadsheet(ssId, dept.nameShort);
-            }
+            // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
+            rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
           } catch (err) {
             app.log.error(`Ошибка чтения таблицы управления "${dept.nameShort}": ${err}`);
             return reply.status(503).send({ error: 'Google Sheets unavailable' });
@@ -854,10 +850,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
           if (ssId) {
             try {
-              rawRows = await getSheetDataFromSpreadsheet(ssId, getDeptSheetName(dept.nameShort));
-              if (!rawRows || rawRows.length === 0) {
-                rawRows = await getSheetDataFromSpreadsheet(ssId, dept.nameShort);
-              }
+              // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
+              rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
             } catch (err) {
               app.log.warn({ err }, `subordinates: failed to read spreadsheet for ${dept.nameShort}`);
               continue;
@@ -919,10 +913,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
           if (ssId) {
             try {
-              rawRows = await getSheetDataFromSpreadsheet(ssId, getDeptSheetName(dept.nameShort));
-              if (!rawRows || rawRows.length === 0) {
-                rawRows = await getSheetDataFromSpreadsheet(ssId, dept.nameShort);
-              }
+              // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
+              rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
             } catch (err) {
               app.log.warn({ err }, `subjects: failed to read spreadsheet for ${dept.nameShort}`);
               continue;
@@ -1060,10 +1052,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
           if (ssId) {
             try {
-              rawRows = await getSheetDataFromSpreadsheet(ssId, getDeptSheetName(dept.nameShort));
-              if (!rawRows || rawRows.length === 0) {
-                rawRows = await getSheetDataFromSpreadsheet(ssId, dept.nameShort);
-              }
+              // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
+              rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
             } catch (err) {
               app.log.warn({ err }, `scatter: failed to read spreadsheet for ${dept.nameShort}`);
               continue;
