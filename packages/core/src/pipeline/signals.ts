@@ -15,7 +15,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, isProceduralMismatch } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
 import { parseAE } from './ae-parser.js';
 
 // ────────────────────────────────────────────────────────────
@@ -177,33 +177,8 @@ function toNumber(val: unknown): number {
  *   - Date объект
  */
 function parseDate(val: unknown): Date | null {
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-  if (val === null || val === undefined || val === '') return null;
-
-  const s = String(val).trim();
-
-  // dd.mm.yyyy
-  const ruMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (ruMatch) {
-    const [, dd, mm, yyyy] = ruMatch;
-    const d = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // Google/Excel serial (число дней от 1899-12-30). 6 из 8 ГРБС-листов хранят
-  // даты N/Q так (46023 = 01.01.2026). Канон конверсии совпадает с
-  // calc-engine.ts / recalculate.ts. ДО этой ветки serial уходил в new Date(s)
-  // = год 46023 → все датные сигналы (overdue/factDateBeforePlan/...) были
-  // молча мертвы на этих листах. Диапазон 40000..60000 ≈ 2009..2064.
-  const serial = Number(s);
-  if (!isNaN(serial) && serial > 40000 && serial < 60000) {
-    const d = new Date((serial - 25569) * 86400000);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // ISO yyyy-mm-dd или полная ISO строка
-  const iso = new Date(s);
-  return isNaN(iso.getTime()) ? null : iso;
+  // Делегирует единому канону @aemr/shared/parseSheetDate (serial+дд.мм.гггг+ISO).
+  return parseSheetDate(val);
 }
 
 /**

@@ -7,7 +7,7 @@
  * Зависимости: DEPT_COLUMNS + общий аксессор ячейки (utils/row-cells).
  * Обратной зависимости на dataset-signals нет — цикл невозможен.
  */
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, parseSheetDate } from '@aemr/shared';
 import { strFromRow } from '../utils/row-cells.js';
 
 // ────────────────────────────────────────────────────────────
@@ -30,16 +30,9 @@ const SEASONAL_RE = {
  * Returns null for invalid / missing values.
  */
 function parseDateFromCell(val: unknown): Date | null {
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-  if (val == null || val === '') return null;
-  const s = String(val).trim();
-  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (m) {
-    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-    return isNaN(d.getTime()) ? null : d;
-  }
-  const iso = new Date(s);
-  return isNaN(iso.getTime()) ? null : iso;
+  // Делегирует единому канону @aemr/shared/parseSheetDate. Раньше своя копия НЕ
+  // понимала Google-serial → 7 сезонных детекторов были мертвы на 6/8 листов.
+  return parseSheetDate(val);
 }
 
 /** Seasonal anomaly type identifiers */

@@ -62,6 +62,7 @@ export * from './org-itself.js';
 
 // Re-export орг-классификатор по ОПФ (ось C: аппарат/ПБС/бюджетное/автономное/…; см. classifyOrg)
 export * from './org-classify.js';
+export * from './parse-sheet-date.js';
 
 // Re-export канон «пустая дата факта» (ось Q) — семантически отдельно от org-itself
 export * from './fact-date.js';
