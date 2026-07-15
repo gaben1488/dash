@@ -1,5 +1,5 @@
 import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, CYRILLIC_TO_LATIN, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
 import type { DataSnapshot, NormalizedMetric, SvodReconRow } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
 import { fetchSHDYUSheet } from './google-sheets.js';
@@ -99,8 +99,12 @@ export function attachUnifiedGrid(
   const deptRowsById: Record<string, unknown[][]> = {};
   for (const [sheetName, rows] of Object.entries(sheetRows)) {
     if (sheetName === SVOD_SHEET_NAME) continue;
-    const grbsId = (CYRILLIC_TO_LATIN as Record<string, string>)[sheetName] ?? sheetName.toLowerCase();
-    deptRowsById[grbsId] = rows;
+    // Канон резолва ГРБС: findDept (принимает id ИЛИ латиницу) → latinId. Не-ГРБС
+    // лист (ШДЮ, служебный) findDept не знает → пропускаем, а НЕ кладём мусорный
+    // lowercase-ключ (свеп консолидации: иначе downstream не сматчит → тихий дроп блока).
+    const dept = findDept(sheetName);
+    if (!dept) continue;
+    deptRowsById[dept.latinId] = rows;
   }
 
   const grid = computeUnifiedGrid(deptRowsById, targetYear);
