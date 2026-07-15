@@ -48,7 +48,11 @@ artifacts/
 
 # Claude Code local artifacts (plugins are user-installed)
 .claude/plugins/
-docs/superpowers/
+# docs/superpowers: планы/QA-реестры — ЧАСТЬ ПРОЕКТА (ретро 15.07: полный ignore
+# делал реестры невидимыми для git = фабрика потеряшек). Игнорим только тяжёлые
+# скрин-артефакты и brainstorm-макеты.
+docs/superpowers/screenshots/
+docs/superpowers/brainstorm/
 migrate_memory.py
 
 # Credentials
