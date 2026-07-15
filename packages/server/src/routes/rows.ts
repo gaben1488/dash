@@ -1,20 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
-import { getSheetData, writeCellValue, readDeptSheet } from '../services/google-sheets.js';
+import { getSheetData, writeCellValue, readDeptSheet, resolveDeptSheetName } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
-
-/**
- * Returns the canonical sheet tab name for a department.
- * E.g. УО → "ВСЕ", УИО → "УИО".
- * Uses DEPARTMENTS[].sheetName from report-map (single source of truth).
- */
-function getDeptSheetName(deptShortName: string): string {
-  const dept = DEPARTMENTS.find(d => d.nameShort === deptShortName);
-  return dept?.sheetName ?? deptShortName;
-}
 
 /**
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
@@ -473,8 +463,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send({ error: `Нет spreadsheetId для "${dept.nameShort}"` });
     }
 
-    // Use canonical sheet name from DEPARTMENTS (e.g. "ВСЕ" for УО, "УИО" for УИО)
-    const sheetName = getDeptSheetName(dept.nameShort);
+    // РЕАЛЬНОЕ имя вкладки книги (кандидаты «ВСЕ»/«Все»/имя по метаданным) —
+    // статичное имя из реестра могло не существовать → запись в никуда.
+    const sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
 
     const cellAddress = `${field}${idx}`;
     const now = new Date().toISOString();
@@ -590,7 +581,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
 
-      const sheetName = getDeptSheetName(dept.nameShort);
+      // Ленивый резолв РЕАЛЬНОГО имени вкладки: только когда есть что писать
+      // (после всех валидаций) — невалидные запросы отклоняются без сетевого вызова.
+      let sheetName: string | null = null;
 
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
@@ -661,6 +654,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         const cellAddress = `${field}${entry.rowIndex}`;
 
         try {
+          sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
           const writeResult = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
           // Update cache in-place

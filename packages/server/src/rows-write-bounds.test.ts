@@ -22,6 +22,8 @@ vi.mock('./services/google-sheets.js', () => ({
   writeCellValue,
   getSheetData: vi.fn(async () => []),
   getSheetDataFromSpreadsheet: vi.fn(async () => []),
+  readDeptSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'ВСЕ' })),
+  resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
 }));
 
 /** Лист: 3 строки заголовка + N строк данных. Валидные для записи sheet-строки: 2..(3+N). */

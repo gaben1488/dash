@@ -266,6 +266,44 @@ export interface DeptSheetResult {
  * — раньше валидация читала лист, буквально названный именем управления
  * ('УАГЗО'!A:ZZ), и падала там, где загрузка работала (два пути = класс болезни D1).
  */
+/**
+ * Резолв РЕАЛЬНОГО имени вкладки ГРБС-книги для ЗАПИСИ (writeCellValue):
+ * дешёвый metadata-вызов (без выкачивания данных) + перебор тех же кандидатов,
+ * что у readDeptSheet («ВСЕ»/«Все»/имя). Раньше write-пути писали в статичное
+ * имя из реестра — если реальная вкладка называется иначе, запись летела в
+ * несуществующий лист. Кэш на процесс: имя вкладки в книге меняется редко,
+ * инвалидация — рестарт/refresh.
+ */
+const resolvedSheetNameCache = new Map<string, string>();
+
+export async function resolveDeptSheetName(deptName: string, ssId: string): Promise<string> {
+  const cacheKey = `${ssId}:${deptName}`;
+  const cached = resolvedSheetNameCache.get(cacheKey);
+  if (cached) return cached;
+
+  const registryName = DEPARTMENT_REGISTRY.find(d => d.shortName === deptName)?.sheetName ?? deptName;
+  const candidates = departmentSheetNameCandidates(registryName, deptName);
+
+  try {
+    const api = await getSheetsApi();
+    const meta = await api.spreadsheets.get({
+      spreadsheetId: ssId,
+      fields: 'sheets.properties.title',
+    });
+    const existing = new Set(
+      (meta.data.sheets ?? []).map(s => s.properties?.title).filter((t): t is string => !!t),
+    );
+    const resolved = candidates.find(c => existing.has(c)) ?? registryName;
+    resolvedSheetNameCache.set(cacheKey, resolved);
+    return resolved;
+  } catch {
+    // Метаданные недоступны (rate-limit/сеть/мок в тестах) — деградация к
+    // реестровому имени (поведение до фикса), НЕ валим запись. Не кэшируем,
+    // чтобы следующий вызов снова попробовал резолв.
+    return registryName;
+  }
+}
+
 export async function readDeptSheet(
   deptName: string,
   ssId: string,

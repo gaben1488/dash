@@ -49,7 +49,10 @@ describe('getSnapshot — дедупликация конкурентных за
     // batchGetCells вызывается ровно 1 раз за один createSnapshot(). Без дедупа два
     // конкурентных force-refresh независимо гоняют createSnapshot() → 2 вызова.
     expect(batchGetCells).toHaveBeenCalledTimes(1);
-  });
+    // Таймаут 15s: тест гоняет ПОЛНЫЙ createSnapshot-пайплайн (демо-данные +
+    // unifiedGrid + SQLite :memory:) — на нагруженной машине упирается в
+    // дефолтные 5s. Ассерт — счёт вызовов, к латентности нечувствителен.
+  }, 15000);
 });
 
 describe('setDeptSheetCache — replace-per-dept-key при отвалившемся департаменте (B-9)', () => {
