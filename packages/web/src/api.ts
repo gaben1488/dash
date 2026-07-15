@@ -140,6 +140,11 @@ export const api = {
   validateAllSources: () =>
     fetchJSON<any>('/sources/validate-all', { method: 'POST' }),
 
+  // Settings / подключение Google (через fetchJSON — с Bearer; голый fetch давал 401 в проде)
+  settingsStatus: () => fetchJSON<any>('/settings/status'),
+  saveEnv: (form: Record<string, string>) =>
+    fetchJSON<any>('/settings/env', { method: 'POST', body: JSON.stringify(form) }),
+
   getSubordinates: () =>
     fetchJSON<Record<string, string[]>>('/rows/subordinates'),
 

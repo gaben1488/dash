@@ -173,29 +173,27 @@ export function SettingsPage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('/api/settings/status');
-        if (res.ok) {
-          const data = await res.json();
-          setServerStatus({
-            online: true,
-            configured: data.configured,
-            email: data.serviceAccountEmail,
-            lastSync: lastRefreshed,
-          });
-          if (data.serviceAccountEmail) setConnForm(f => ({ ...f, serviceAccountEmail: data.serviceAccountEmail }));
-          if (data.spreadsheetId) setConnForm(f => ({ ...f, spreadsheetId: data.spreadsheetId }));
-          if (data.hasPrivateKey) setConnForm(f => {
-            // Only set placeholder if user hasn't typed a real key
-            if (!f.privateKey || f.privateKey.startsWith('•')) {
-              return { ...f, privateKey: '••••••• (загружен из .env)' };
-            }
-            return f;
-          });
-        } else {
-          setServerStatus({ online: true, configured: false });
-        }
-      } catch {
-        setServerStatus({ online: false, configured: false });
+        // api.settingsStatus — с Bearer-токеном (голый fetch давал 401 в проде)
+        const data = await api.settingsStatus();
+        setServerStatus({
+          online: true,
+          configured: data.configured,
+          email: data.serviceAccountEmail,
+          lastSync: lastRefreshed,
+        });
+        if (data.serviceAccountEmail) setConnForm(f => ({ ...f, serviceAccountEmail: data.serviceAccountEmail }));
+        if (data.spreadsheetId) setConnForm(f => ({ ...f, spreadsheetId: data.spreadsheetId }));
+        if (data.hasPrivateKey) setConnForm(f => {
+          // Only set placeholder if user hasn't typed a real key
+          if (!f.privateKey || f.privateKey.startsWith('•')) {
+            return { ...f, privateKey: '••••••• (загружен из .env)' };
+          }
+          return f;
+        });
+      } catch (e) {
+        // «API error …» = сервер ответил не-ok (жив, не настроен); иначе — сеть/оффлайн
+        if (String(e).includes('API error')) setServerStatus({ online: true, configured: false });
+        else setServerStatus({ online: false, configured: false });
       }
     };
 
@@ -422,20 +420,14 @@ SQLITE_PATH=./data/aemr.db
     setSaveEnvFeedback({ state: 'loading', message: 'Сохранение...' });
     const envContent = buildEnvContent();
     try {
-      const res = await fetch('/api/settings/env', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(connForm),
-      });
-      if (res.ok) {
-        setSaveEnvFeedback({ state: 'success', message: 'Файл .env перезаписан на сервере. Перезапустите бэкенд для применения.' });
-        setServerStatus(s => s ? { ...s, configured: true, email: connForm.serviceAccountEmail } : s);
-        setConnStatus('success');
-        setConnError('Файл .env перезаписан на сервере. Перезапустите бэкенд для применения.');
-        setTimeout(() => setSaveEnvFeedback({ state: 'idle' }), 8000);
-        return;
-      }
-      throw new Error('Server returned non-OK');
+      // api.saveEnv — с Bearer-токеном (голый fetch давал 401 в проде)
+      await api.saveEnv(connForm as unknown as Record<string, string>);
+      setSaveEnvFeedback({ state: 'success', message: 'Файл .env перезаписан на сервере. Перезапустите бэкенд для применения.' });
+      setServerStatus(s => s ? { ...s, configured: true, email: connForm.serviceAccountEmail } : s);
+      setConnStatus('success');
+      setConnError('Файл .env перезаписан на сервере. Перезапустите бэкенд для применения.');
+      setTimeout(() => setSaveEnvFeedback({ state: 'idle' }), 8000);
+      return;
     } catch {
       // Fallback: download as file + copy to clipboard
       try {
