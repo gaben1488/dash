@@ -16,6 +16,25 @@ const PERIOD_LABELS: Record<string, string> = {
   year: 'Год', q1: '1 кв.', q2: '2 кв.', q3: '3 кв.', q4: '4 кв.',
 };
 
+/** Возможность централизации: одна категория закупок у нескольких ГРБС. */
+interface CentralizationOpportunityDTO {
+  category: string;
+  departments: string[];
+  totalAmount: number;
+  contractCount: number;
+  potentialSavings: number;
+  recommendation: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+const PRIORITY_BADGE: Record<string, { label: string; cls: string }> = {
+  high: { label: 'Высокий', cls: 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' },
+  medium: { label: 'Средний', cls: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' },
+  low: { label: 'Низкий', cls: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' },
+};
+
+const fmtTys = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} тыс. ₽`;
+
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex items-center justify-center py-10 text-center">
@@ -1016,6 +1035,81 @@ export function Analytics() {
           <EmptyState message="Замечания не обнаружены" />
         )}
       </AnalyticsCard>
+
+      {/* Централизация закупок — кросс-ГРБС объединение похожих закупок (ядро:
+          core/analytics/centralization; было построено и не выведено на экран — трек F) */}
+      <CentralizationCard />
     </div>
+  );
+}
+
+function CentralizationCard() {
+  const [data, setData] = useState<{
+    opportunities: CentralizationOpportunityDTO[];
+    totalOpportunities: number;
+    totalPotentialSavings: number;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getAnalyticsCentralization()
+      .then(setData)
+      .catch((e: unknown) => setError(String(e)));
+  }, []);
+
+  return (
+    <AnalyticsCard title="Централизация закупок: что можно объединить между управлениями" icon={Building2} source="calculated">
+      {error ? (
+        <EmptyState message="Раздел временно недоступен (данные не загружены)" />
+      ) : !data ? (
+        <div className="py-8 text-center text-xs text-zinc-400">Загрузка…</div>
+      ) : data.opportunities.length === 0 ? (
+        <EmptyState message="Пересечений категорий закупок между управлениями не найдено" />
+      ) : (
+        <div>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
+            Одинаковые категории закупают несколько управлений по отдельности. Совместная
+            закупка (ст. 25 44-ФЗ) обычно даёт экономию 5–15% объёма. Найдено
+            возможностей: <strong className="text-zinc-700 dark:text-zinc-200">{data.totalOpportunities}</strong>,
+            потенциальная экономия: <strong className="text-emerald-600 dark:text-emerald-400">{fmtTys(data.totalPotentialSavings)}</strong>.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                  <th className="py-1.5 pr-3">Категория</th>
+                  <th className="py-1.5 pr-3">Управления</th>
+                  <th className="py-1.5 pr-3 text-right">Закупок</th>
+                  <th className="py-1.5 pr-3 text-right">Объём</th>
+                  <th className="py-1.5 pr-3 text-right">Экономия (оценка)</th>
+                  <th className="py-1.5">Приоритет</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.opportunities.map((o, i) => (
+                  <tr key={i} className="border-b border-zinc-50 dark:border-zinc-800/50 align-top">
+                    <td className="py-2 pr-3 font-medium text-zinc-700 dark:text-zinc-200">
+                      {o.category}
+                      <div className="font-normal text-[10px] text-zinc-400 mt-0.5 max-w-[360px]">{o.recommendation}</div>
+                    </td>
+                    <td className="py-2 pr-3 text-zinc-600 dark:text-zinc-300">
+                      {o.departments.map(d => productLabel(d)).join(', ')}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{o.contractCount}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{fmtTys(o.totalAmount)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{fmtTys(o.potentialSavings)}</td>
+                    <td className="py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_BADGE[o.priority]?.cls ?? PRIORITY_BADGE.low.cls}`}>
+                        {PRIORITY_BADGE[o.priority]?.label ?? o.priority}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </AnalyticsCard>
   );
 }

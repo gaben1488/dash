@@ -19,6 +19,7 @@ export interface CentralizationOpportunity {
 interface DeptRow {
   grbsId: string;
   subject: string;
+  /** План итого в ТЫСЯЧАХ ₽ (канон колонки K). Была ошибка единиц: пороги в рублях → всё отсеивалось. */
   planTotal: number;
   method: string;
 }
@@ -62,16 +63,16 @@ export function findCentralizationOpportunities(
       contractCount += data.count;
     }
 
-    if (totalAmount < 3_000_000) continue; // Minimum threshold
+    if (totalAmount < 3_000) continue; // Минимум 3 млн ₽ (суммы в тыс. ₽ — канон колонки K)
 
     // Savings estimate: 5-15% depending on volume
-    const savingsRate = totalAmount > 50_000_000 ? 0.15 :
-                        totalAmount > 10_000_000 ? 0.10 : 0.05;
+    const savingsRate = totalAmount > 50_000 ? 0.15 :
+                        totalAmount > 10_000 ? 0.10 : 0.05; // пороги в тыс. ₽
     const potentialSavings = totalAmount * savingsRate;
 
     let priority: 'high' | 'medium' | 'low' = 'low';
-    if (totalAmount > 20_000_000 && deptMap.size >= 5) priority = 'high';
-    else if (totalAmount > 5_000_000 && deptMap.size >= 3) priority = 'medium';
+    if (totalAmount > 20_000 && deptMap.size >= 5) priority = 'high';
+    else if (totalAmount > 5_000 && deptMap.size >= 3) priority = 'medium';
 
     opportunities.push({
       category,
@@ -80,8 +81,8 @@ export function findCentralizationOpportunities(
       contractCount,
       potentialSavings,
       recommendation: `Централизация закупок "${category}" для ${deptMap.size} управлений. ` +
-        `Объём: ${(totalAmount / 1_000_000).toFixed(1)} млн ₽, ` +
-        `потенциальная экономия: ${(potentialSavings / 1_000_000).toFixed(1)} млн ₽`,
+        `Объём: ${(totalAmount / 1_000).toFixed(1)} млн ₽, ` +
+        `потенциальная экономия: ${(potentialSavings / 1_000).toFixed(1)} млн ₽`,
       priority,
     });
   }

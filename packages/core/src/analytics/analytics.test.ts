@@ -496,18 +496,18 @@ describe('compliance — analyzeEPReasons', () => {
 describe('centralization — findCentralizationOpportunities', () => {
   it('returns empty for < 3 departments in same category', () => {
     const rows = [
-      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 2_000_000, method: 'ЭА' },
-      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 2_000_000, method: 'ЭА' },
+      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 500, method: 'ЭА' },
+      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 500, method: 'ЭА' },
     ];
     const opps = findCentralizationOpportunities(rows);
     expect(opps).toHaveLength(0);
   });
 
-  it('finds opportunity when 3+ depts procure same category above 3M', () => {
+  it('finds opportunity when 3+ depts procure same category above 3 млн ₽ (в тыс.)', () => {
     const rows = [
-      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 1_500_000, method: 'ЭА' },
-      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 1_500_000, method: 'ЭА' },
-      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 1_500_000, method: 'ЭА' },
+      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 1_500, method: 'ЭА' },
+      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 1_500, method: 'ЭА' },
+      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 1_500, method: 'ЭА' },
     ];
     const opps = findCentralizationOpportunities(rows);
     expect(opps.length).toBeGreaterThanOrEqual(1);
@@ -517,9 +517,9 @@ describe('centralization — findCentralizationOpportunities', () => {
 
   it('ignores EP rows (only competitive can be centralized)', () => {
     const rows = [
-      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 2_000_000, method: 'ЕП' },
-      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 2_000_000, method: 'ЕП' },
-      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 2_000_000, method: 'ЕП' },
+      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 500, method: 'ЕП' },
+      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 500, method: 'ЕП' },
+      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 500, method: 'ЕП' },
     ];
     expect(findCentralizationOpportunities(rows)).toHaveLength(0);
   });
@@ -528,19 +528,19 @@ describe('centralization — findCentralizationOpportunities', () => {
     const rows: Array<{ grbsId: string; subject: string; planTotal: number; method: string }> = [];
     // 5 departments, each contributing 15M => total = 75M => 15% savings
     for (const id of ['A', 'B', 'C', 'D', 'E']) {
-      rows.push({ grbsId: id, subject: 'Мебель столы', planTotal: 15_000_000, method: 'ЭА' });
+      rows.push({ grbsId: id, subject: 'Мебель столы', planTotal: 15_000, method: 'ЭА' });
     }
     const opps = findCentralizationOpportunities(rows);
     expect(opps).toHaveLength(1);
-    expect(opps[0].potentialSavings).toBe(75_000_000 * 0.15);
+    expect(opps[0].potentialSavings).toBe(75_000 * 0.15); // тыс. ₽
     expect(opps[0].priority).toBe('high');
   });
 
   it('skips "Другое" category', () => {
     const rows = [
-      { grbsId: 'A', subject: 'Something unknown xyz', planTotal: 5_000_000, method: 'ЭА' },
-      { grbsId: 'B', subject: 'Another unknown abc', planTotal: 5_000_000, method: 'ЭА' },
-      { grbsId: 'C', subject: 'Third unknown def', planTotal: 5_000_000, method: 'ЭА' },
+      { grbsId: 'A', subject: 'Something unknown xyz', planTotal: 5_000, method: 'ЭА' },
+      { grbsId: 'B', subject: 'Another unknown abc', planTotal: 5_000, method: 'ЭА' },
+      { grbsId: 'C', subject: 'Third unknown def', planTotal: 5_000, method: 'ЭА' },
     ];
     expect(findCentralizationOpportunities(rows)).toHaveLength(0);
   });
