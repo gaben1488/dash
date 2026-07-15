@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
-import { getSheetData, getSheetDataFromSpreadsheet, writeCellValue, readDeptSheet } from '../services/google-sheets.js';
+import { getSheetData, writeCellValue, readDeptSheet } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
