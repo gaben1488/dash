@@ -403,6 +403,16 @@ export class CalcEngine {
     filter: RowFilter,
     startRow: number = 0,
     targetYear?: number,
+    opts?: {
+      /**
+       * Строгий год-срез: строка входит ТОЛЬКО при явном P === targetYear.
+       * По умолчанию (false) пустой год ПРОХОДИТ — канон дашборда (строки без
+       * года не теряются из базового вида). strict нужен СВЕРКЕ: официал
+       * года нельзя сравнивать с расчётом из строк-без-года (981 псевдо-high
+       * за 2025 на живых данных, задача #5 от 16.07).
+       */
+      strictYear?: boolean;
+    },
   ): GroupedResults {
     const result: GroupedResults = {
       total: new Map(),
@@ -438,7 +448,7 @@ export class CalcEngine {
       // Year filter
       if (targetYear) {
         const rowYear = num(row[COL.PLAN_YEAR]);
-        if (rowYear > 0 && rowYear !== targetYear) continue;
+        if (opts?.strictYear ? rowYear !== targetYear : (rowYear > 0 && rowYear !== targetYear)) continue;
       }
 
       result.rowCount++;
