@@ -120,6 +120,7 @@ function recomputeMonthlyCounts(rows: MonthlyReconRow[]): MonthlyReconSummary['c
     warning: cells.filter((cell) => cell.status === 'warning').length,
     high: cells.filter((cell) => cell.status === 'high').length,
     empty: cells.filter((cell) => cell.status === 'empty').length,
+    noCalc: cells.filter((cell) => cell.status === 'no_calc').length,
   };
 }
 
@@ -206,11 +207,23 @@ export async function reconciliationRoutes(app: FastifyInstance): Promise<void> 
       });
     }
 
-    const summary = reconcileMonthly(snapshot.recalcResults ?? {}, shdyuData as any, deptNamesByLatinId());
+    // 5.4-A: расчётный слой за срез отсутствует (в книгах управлений нет строк
+    // этого план-года — у всех ГРБС годовые план И факт нулевые). Официал
+    // сравнивать не с чем: ячейки идут как no_calc, не сотни ложных «high».
+    const recalc = snapshot.recalcResults ?? {};
+    const calcLayerAbsent = Object.keys(recalc).length > 0 && Object.values(recalc).every((rc) => {
+      const y = (rc as { year?: { planTotal?: number; factTotal?: number } }).year;
+      return ((y?.planTotal ?? 0) === 0) && ((y?.factTotal ?? 0) === 0);
+    });
+
+    const summary = reconcileMonthly(recalc, shdyuData as any, deptNamesByLatinId(), { calcLayerAbsent });
     const filtered = filterMonthlySummary(summary, query.dept);
+    const noCalcWarning = calcLayerAbsent
+      ? `Расчёт за ${parseTargetYear(query) ?? 'этот'} год не построен: книги управлений содержат только текущий план-год. Сравнение с официальным слоем неприменимо.`
+      : null;
     return reply.send({
       ...filtered,
-      ...(loadError ? { warning: loadError } : {}),
+      ...(loadError ? { warning: loadError } : noCalcWarning ? { warning: noCalcWarning } : {}),
       officialSource: {
         spreadsheetId: SVOD_SPREADSHEET_ID,
         sheetName: SHDYU_MONTHLY_SHEET_NAME,

@@ -268,7 +268,8 @@ export interface MonthlyReconCell {
   calc: number;
   delta: number;
   deltaPct: number;
-  status: 'ok' | 'warning' | 'high' | 'empty';
+  /** no_calc — расчётный слой за срез не построен (5.4-A): сравнение неприменимо, не «расхождение». */
+  status: 'ok' | 'warning' | 'high' | 'empty' | 'no_calc';
 }
 
 /** Per-budget reconciliation for a single block (KP or EP) */
@@ -444,13 +445,18 @@ export interface MonthlyReconRow {
 
 export interface MonthlyReconSummary {
   rows: MonthlyReconRow[];
-  counts: { ok: number; warning: number; high: number; empty: number };
+  counts: { ok: number; warning: number; high: number; empty: number; noCalc?: number };
   overallStatus: string;
 }
 
-function makeCell(shdyu: number, calc: number): MonthlyReconCell {
+function makeCell(shdyu: number, calc: number, noCalcLayer = false): MonthlyReconCell {
   if (shdyu === 0 && calc === 0) {
     return { shdyu: 0, calc: 0, delta: 0, deltaPct: 0, status: 'empty' };
+  }
+  // 5.4-A: расчётный слой за срез не построен (в книгах управлений нет строк
+  // этого план-года) — сравнение официала с нулём НЕприменимо, это не «high».
+  if (noCalcLayer) {
+    return { shdyu, calc, delta: 0, deltaPct: 0, status: 'no_calc' };
   }
   const delta = calc - shdyu;
   const base = Math.max(Math.abs(shdyu), 1);
@@ -653,15 +659,29 @@ function cellNeedsAttention(cell: MonthlyReconCell): boolean {
   return cell.status === 'warning' || cell.status === 'high';
 }
 
+export interface MonthlyReconOptions {
+  /**
+   * 5.4-A: расчётный слой за запрошенный срез НЕ ПОСТРОЕН (в книгах управлений
+   * нет строк этого план-года). Определяет ВЫЗЫВАЮЩИЙ (роут знает год и годовые
+   * суммы снапшота) — внутренняя эвристика неотличима от «всё по нулям».
+   */
+  calcLayerAbsent?: boolean;
+}
+
 export function reconcileMonthly(
   recalcResults: Record<string, MonthlyRecalcDepartment>,
   shdyuData: Record<string, MonthlySHDYUDepartment>,
   deptNames: Record<string, string>,
+  opts?: MonthlyReconOptions,
 ): MonthlyReconSummary {
   const rows: MonthlyReconRow[] = [];
   // Нормализуем ключи к каноническому кириллическому grbsId (SHDYU=латиница, recalc=кириллица)
   const recalcByGrbs = rekeyByGrbs(recalcResults);
   const shdyuByGrbs = rekeyByGrbs(shdyuData);
+
+  const calcLayerAbsent = opts?.calcLayerAbsent === true;
+  const cell = (official: number, calc: number): MonthlyReconCell => makeCell(official, calc, calcLayerAbsent);
+
   // Exclude 'all' (SHDYU_ALL_BLOCK) — it's for cross-validation, not per-dept reconciliation
   const deptIds = new Set([
     ...Object.keys(recalcByGrbs),
@@ -680,39 +700,39 @@ export function reconcileMonthly(
       // Skip months with no data on either side
       if (!sh && (!rc || (rc.planCount === 0 && rc.factCount === 0))) continue;
 
-      const compPlan = makeCell(sh?.compPlanCount ?? 0, rc?.competitive?.plan ?? 0);
-      const compFact = makeCell(sh?.compFactCount ?? 0, rc?.competitive?.fact ?? 0);
-      const compPlanTotal = makeCell(sh?.compPlanTotal ?? 0, rc?.competitive?.planSum ?? 0);
-      const compFactTotal = makeCell(sh?.compFactTotal ?? 0, rc?.competitive?.factSum ?? 0);
-      const epPlan = makeCell(sh?.epPlanCount ?? 0, rc?.ep?.plan ?? 0);
-      const epFact = makeCell(sh?.epFactCount ?? 0, rc?.ep?.fact ?? 0);
-      const epPlanTotal = makeCell(sh?.epPlanTotal ?? 0, rc?.ep?.planSum ?? 0);
-      const epFactTotal = makeCell(sh?.epFactTotal ?? 0, rc?.ep?.factSum ?? 0);
+      const compPlan = cell(sh?.compPlanCount ?? 0, rc?.competitive?.plan ?? 0);
+      const compFact = cell(sh?.compFactCount ?? 0, rc?.competitive?.fact ?? 0);
+      const compPlanTotal = cell(sh?.compPlanTotal ?? 0, rc?.competitive?.planSum ?? 0);
+      const compFactTotal = cell(sh?.compFactTotal ?? 0, rc?.competitive?.factSum ?? 0);
+      const epPlan = cell(sh?.epPlanCount ?? 0, rc?.ep?.plan ?? 0);
+      const epFact = cell(sh?.epFactCount ?? 0, rc?.ep?.fact ?? 0);
+      const epPlanTotal = cell(sh?.epPlanTotal ?? 0, rc?.ep?.planSum ?? 0);
+      const epFactTotal = cell(sh?.epFactTotal ?? 0, rc?.ep?.factSum ?? 0);
 
       // Per-budget reconciliation (ФБ/КБ/МБ) using full SHDYU data
       const shComp = sh?.comp;
       const shEp = sh?.ep;
       const compBudget: BudgetReconCells | undefined = shComp ? {
-        planFB: makeCell(n(shComp.planFB), rc?.competitive?.planFB ?? 0),
-        planKB: makeCell(n(shComp.planKB), rc?.competitive?.planKB ?? 0),
-        planMB: makeCell(n(shComp.planMB), rc?.competitive?.planMB ?? 0),
-        factFB: makeCell(n(shComp.factFB), rc?.competitive?.factFB ?? 0),
-        factKB: makeCell(n(shComp.factKB), rc?.competitive?.factKB ?? 0),
-        factMB: makeCell(n(shComp.factMB), rc?.competitive?.factMB ?? 0),
-        economyFB: makeCell(n(shComp.economyFB), rc?.competitive?.economyFB ?? 0),
-        economyKB: makeCell(n(shComp.economyKB), rc?.competitive?.economyKB ?? 0),
-        economyMB: makeCell(n(shComp.economyMB), rc?.competitive?.economyMB ?? 0),
+        planFB: cell(n(shComp.planFB), rc?.competitive?.planFB ?? 0),
+        planKB: cell(n(shComp.planKB), rc?.competitive?.planKB ?? 0),
+        planMB: cell(n(shComp.planMB), rc?.competitive?.planMB ?? 0),
+        factFB: cell(n(shComp.factFB), rc?.competitive?.factFB ?? 0),
+        factKB: cell(n(shComp.factKB), rc?.competitive?.factKB ?? 0),
+        factMB: cell(n(shComp.factMB), rc?.competitive?.factMB ?? 0),
+        economyFB: cell(n(shComp.economyFB), rc?.competitive?.economyFB ?? 0),
+        economyKB: cell(n(shComp.economyKB), rc?.competitive?.economyKB ?? 0),
+        economyMB: cell(n(shComp.economyMB), rc?.competitive?.economyMB ?? 0),
       } : undefined;
       const epBudget: BudgetReconCells | undefined = shEp ? {
-        planFB: makeCell(n(shEp.planFB), rc?.ep?.planFB ?? 0),
-        planKB: makeCell(n(shEp.planKB), rc?.ep?.planKB ?? 0),
-        planMB: makeCell(n(shEp.planMB), rc?.ep?.planMB ?? 0),
-        factFB: makeCell(n(shEp.factFB), rc?.ep?.factFB ?? 0),
-        factKB: makeCell(n(shEp.factKB), rc?.ep?.factKB ?? 0),
-        factMB: makeCell(n(shEp.factMB), rc?.ep?.factMB ?? 0),
-        economyFB: makeCell(n(shEp.economyFB), rc?.ep?.economyFB ?? 0),
-        economyKB: makeCell(n(shEp.economyKB), rc?.ep?.economyKB ?? 0),
-        economyMB: makeCell(n(shEp.economyMB), rc?.ep?.economyMB ?? 0),
+        planFB: cell(n(shEp.planFB), rc?.ep?.planFB ?? 0),
+        planKB: cell(n(shEp.planKB), rc?.ep?.planKB ?? 0),
+        planMB: cell(n(shEp.planMB), rc?.ep?.planMB ?? 0),
+        factFB: cell(n(shEp.factFB), rc?.ep?.factFB ?? 0),
+        factKB: cell(n(shEp.factKB), rc?.ep?.factKB ?? 0),
+        factMB: cell(n(shEp.factMB), rc?.ep?.factMB ?? 0),
+        economyFB: cell(n(shEp.economyFB), rc?.ep?.economyFB ?? 0),
+        economyKB: cell(n(shEp.economyKB), rc?.ep?.economyKB ?? 0),
+        economyMB: cell(n(shEp.economyMB), rc?.ep?.economyMB ?? 0),
       } : undefined;
 
       // Detect missing SHDYU data: calculated > 0 but SHDYU = 0
@@ -777,9 +797,12 @@ export function reconcileMonthly(
     warning: allCells.filter(c => c.status === 'warning').length,
     high: allCells.filter(c => c.status === 'high').length,
     empty: allCells.filter(c => c.status === 'empty').length,
+    noCalc: allCells.filter(c => c.status === 'no_calc').length,
   };
 
-  const overallStatus = counts.high > 0
+  const overallStatus = calcLayerAbsent && counts.noCalc > 0
+    ? 'Расчёт за этот срез не построен — сравнение неприменимо'
+    : counts.high > 0
     ? 'Есть расхождения'
     : counts.warning > 0
     ? 'Требует проверки'
