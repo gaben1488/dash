@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type DashboardData } from '@aemr/shared';
 import { api } from './api';
+import { toCanonicalDeptId } from './lib/dept-key';
 
 /** СВОД — 6 страниц + legacy aliases */
 export type Page =
@@ -415,9 +416,31 @@ export const useStore = create<AppState>((set, get) => ({
       'page' | 'period' | 'procurementFilter' | 'activityFilter' |
       'selectedMethods' | 'selectedActivities' |
       'selectedDepartments' | 'selectedSubordinates' | 'year' |
-      'searchQuery' | 'activeMonths' | 'qualityTab'
+      'searchQuery' | 'activeMonths' | 'qualityTab' |
+      'periodMode' | 'monthsByYear'
     >> = { page };
-    if (filters?.period) updates.period = filters.period;
+    // Период — АТОМАРНО (фильтр-спека 16.07, Б1-Б3): период/месяцы/режим меняются
+    // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
+    // перебивают новый квартал.
+    const rawTargetYear = filters?.year ?? get().year;
+    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : new Date().getFullYear();
+    if (filters?.months) {
+      updates.activeMonths = new Set(filters.months);
+      updates.monthsByYear = { ...get().monthsByYear, [targetYear]: new Set(filters.months) };
+      updates.period = 'year';
+      updates.periodMode = 'explicit' as PeriodMode;
+    } else if (filters?.period && filters.period !== 'year') {
+      const months = QUARTER_MONTHS[filters.period] ?? [];
+      updates.period = filters.period;
+      updates.activeMonths = new Set(months);
+      updates.monthsByYear = { ...get().monthsByYear, [targetYear]: new Set(months) };
+      updates.periodMode = 'explicit' as PeriodMode;
+    } else if (filters?.period === 'year') {
+      updates.period = 'year';
+      updates.activeMonths = new Set<number>();
+      updates.monthsByYear = omitYearSelection(get().monthsByYear, targetYear);
+      updates.periodMode = 'explicit' as PeriodMode;
+    }
     if (filters?.procurement) {
       updates.procurementFilter = filters.procurement;
       updates.selectedMethods = filters.procurement === 'all'
@@ -433,7 +456,8 @@ export const useStore = create<AppState>((set, get) => ({
         : new Set([filters.activity]);
     }
     if (filters?.department) {
-      updates.selectedDepartments = new Set([filters.department]);
+      // Канон ключа ГРБС — кириллица (Б5: латиница со страниц ломала issues/deltas-фильтры)
+      updates.selectedDepartments = new Set([toCanonicalDeptId(filters.department)]);
     }
     if (filters?.subordinate) {
       updates.selectedSubordinates = new Set([filters.subordinate]);
@@ -443,9 +467,6 @@ export const useStore = create<AppState>((set, get) => ({
     }
     if (filters?.search !== undefined) {
       updates.searchQuery = filters.search;
-    }
-    if (filters?.months) {
-      updates.activeMonths = new Set(filters.months);
     }
     // Quality tab: explicit qualityTab > legacy page IDs > category implies issues
     if (filters?.qualityTab) {
@@ -467,7 +488,9 @@ export const useStore = create<AppState>((set, get) => ({
     set(updates);
   },
   selectedDepartments: new Set<string>(),
-  toggleDepartment: (deptId) => {
+  toggleDepartment: (rawDeptId) => {
+    // Канон ключа — кириллица (Б5): все писатели проходят одну точку.
+    const deptId = toCanonicalDeptId(rawDeptId);
     const current = new Set(get().selectedDepartments);
     const deptOnly = new Set(get().deptOnlyMode);
     // Always clear dept-only when toggling via dept header (dept header = dept+subs)

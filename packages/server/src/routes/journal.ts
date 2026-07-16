@@ -4,7 +4,7 @@ import { db, schema } from '../db/index.js';
 import { desc } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
 import { getSpreadsheetMetadata } from '../google-sheets.js';
-import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
+import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept } from '@aemr/shared';
 import { validateSource, validateAllSources } from '../services/source-validation.js';
 
 /**
@@ -149,7 +149,17 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
 
     // Apply filters
     if (query.action) entries = entries.filter(e => e.type === query.action);
-    if (query.deptId) entries = entries.filter(e => e.departmentId === query.deptId);
+    if (query.deptId) {
+      // CSV + обе формы ключа ГРБС (кириллица/латиница) — Б6: точное равенство
+      // по одной форме делало фильтр no-op для половины писателей.
+      const wanted = new Set<string>();
+      for (const k of query.deptId.split(',').map(s => s.trim()).filter(Boolean)) {
+        wanted.add(k);
+        const dept = findDept(k);
+        if (dept) { wanted.add(dept.id); wanted.add(dept.latinId); }
+      }
+      entries = entries.filter(e => e.departmentId != null && wanted.has(e.departmentId));
+    }
     if (query.from) entries = entries.filter(e => (e.timestamp ?? '') >= query.from);
     if (query.to) entries = entries.filter(e => (e.timestamp ?? '') <= query.to);
     if (query.search) {

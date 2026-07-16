@@ -50,7 +50,8 @@ export function JournalPage() {
     };
     if (search) params.search = search;
     if (typeFilter.size > 0) params.action = [...typeFilter][0]; // API supports single action filter
-    if (selectedDepartments.size > 0) params.dept = [...selectedDepartments].join(',');
+    // Б6: сервер понимает deptId (раньше слали неизвестный ему `dept` — фильтр был no-op)
+    if (selectedDepartments.size > 0) params.deptId = [...selectedDepartments].join(',');
 
     api.getJournal(params).then((data: any) => {
       if (cancelled) return;

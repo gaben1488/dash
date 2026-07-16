@@ -211,12 +211,18 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Apply subordinate filter (column C = SUBORDINATE)
-    // Supports comma-separated list of subordinates
+    // Supports comma-separated list of subordinates.
+    // `_org_itself` — валидный фильтр «Аппарат управления» (фильтр-спека 16.07 Б4):
+    // матчит строки, где C пуст или самоссылка (Х/X) — закупки самого управления.
     if (filterSubordinate) {
       const subs = filterSubordinate.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      const wantsOrgItself = subs.includes('_org_itself');
+      const nameSubs = subs.filter(s => s !== '_org_itself');
       filtered = filtered.filter(r => {
-        const sub = String(r.subordinate).toLowerCase();
-        return subs.some(s => sub.includes(s));
+        const raw = String(r.subordinate ?? '').trim();
+        const sub = raw.toLowerCase();
+        if (wantsOrgItself && (raw === '' || /^[xх]$/i.test(raw))) return true;
+        return nameSubs.some(s => sub.includes(s));
       });
     }
 

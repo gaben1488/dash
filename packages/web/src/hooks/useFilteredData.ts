@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useStore, QUARTER_MONTHS, type PeriodScope } from '../store';
 import { getFilteredEconomyTotal } from '../lib/economy-metrics';
+import { bothDeptKeyForms } from '../lib/dept-key';
 import { aggregateSignalCounts } from '../lib/signal-counts';
 import { shouldShowYearMismatch } from '../lib/year-mismatch';
 
@@ -60,6 +61,12 @@ export function useFilteredData() {
         if (subs.some((s: string) => selectedSubordinates.has(s))) {
           deptIdsWithSubs.add(deptId);
         }
+      }
+      // «Аппарат управления» (_org_itself) не обязан присутствовать в
+      // subordinatesMap (Б4): он валиден для ЛЮБОГО выбранного управления —
+      // не сужаем депты по нему, если выбраны и управления.
+      if (selectedSubordinates.has('_org_itself') && deptIdsWithSubs.size === 0) {
+        for (const deptId of Object.keys(subordinatesMap)) deptIdsWithSubs.add(deptId);
       }
       // Bug fix: subordinatesMap keys are Russian short names (e.g. 'УЭР') while
       // d.department?.id is the English slug (e.g. 'uer'). Check both fields.
@@ -194,10 +201,13 @@ export function useFilteredData() {
     }
 
     // ── 4. Issues filter (dept + subordinate + search) ──
+    // Обе формы ключа ГРБС (кириллица+латиница): данные разного происхождения
+    // несут разные формы, сравнение по одной форме молча пропускало фильтр (Б5).
+    const selectedDeptBothForms = bothDeptKeyForms(selectedDepartments);
     let issues = hasDeptFilter
       ? allIssues.filter((i: any) => {
           if (!i.departmentId) return true;
-          return selectedDepartments.has(i.departmentId) || selectedDepartments.has(i.department);
+          return selectedDeptBothForms.has(i.departmentId) || selectedDeptBothForms.has(i.department);
         })
       : allIssues;
 
@@ -231,10 +241,10 @@ export function useFilteredData() {
     const deltas = hasDeptFilter
       ? allDeltas.filter((d: any) => {
           if (!d.metricKey) return true;
-          // metricKey has format grbs.uer.kp.q1.count — dept id (uer) is at position 1
+          // metricKey has format grbs.uer.kp.q1.count — dept id (uer) is at position 1;
+          // сверка по обеим формам ключа (Б5: кириллица в selected ломала матч латиницы)
           const keyDeptId = d.metricKey.split('.')[1] ?? '';
-          return selectedDepartments.has(keyDeptId) ||
-            [...selectedDepartments].some(sd => d.metricKey.includes(sd.toLowerCase()));
+          return selectedDeptBothForms.has(keyDeptId);
         })
       : allDeltas;
 
