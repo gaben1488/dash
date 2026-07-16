@@ -18,6 +18,7 @@ import {
   getSHDYUCache,
   getSHDYULoadError,
   getSHDYURawRowCount,
+  getSHDYUOfficialYear,
 } from '../services/snapshot.js';
 import { getSheetDataWithFormulas } from '../services/google-sheets.js';
 import { SVOD_SPREADSHEET_ID } from '../config.js';
@@ -203,6 +204,30 @@ export async function reconciliationRoutes(app: FastifyInstance): Promise<void> 
           sheetName: SHDYU_MONTHLY_SHEET_NAME,
           sheetCandidates: SHDYU_SHEET_NAME_CANDIDATES,
           rawRowCount: getSHDYURawRowCount(),
+        },
+      });
+    }
+
+    // Год-гейт официального слоя (перепись 16.07, рекомендация A+C): лист
+    // «СВОД с месяцами» существует ТОЛЬКО для года AO4 (все 2112 месячных
+    // формул фильтруют P=$AO$4). Запрошен другой год → помесячного официала
+    // за него НЕ СУЩЕСТВУЕТ; сравнение с официалом-другого-года давало 970
+    // псевдо-«high» (860 OFFICIAL_ONLY). Честный ответ — пустая сверка с
+    // объяснением, не мусорное сравнение.
+    const requestedYear = parseTargetYear(query);
+    const officialYear = getSHDYUOfficialYear();
+    if (requestedYear && officialYear && requestedYear !== officialYear) {
+      return reply.send({
+        rows: [],
+        counts: { ok: 0, warning: 0, high: 0, empty: 0, noOfficial: 0 },
+        overallStatus: `Помесячная сверка существует только для ${officialYear} года`,
+        warning: `Лист «${SHDYU_MONTHLY_SHEET_NAME}» содержит помесячные данные только за ${officialYear} год (параметр-ячейка AO4): официального помесячного слоя за ${requestedYear} не существует, сравнение неприменимо. Квартальные официалы ${requestedYear} года есть в СВОД ТД-ПМ.`,
+        officialSource: {
+          spreadsheetId: SVOD_SPREADSHEET_ID,
+          sheetName: SHDYU_MONTHLY_SHEET_NAME,
+          sheetCandidates: SHDYU_SHEET_NAME_CANDIDATES,
+          rawRowCount: getSHDYURawRowCount(),
+          officialYear,
         },
       });
     }

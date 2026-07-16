@@ -74,6 +74,7 @@ export function getDeptLoadMeta(): Record<string, DeptLoadMeta> {
 let cachedSHDYUData: Record<string, any> | null = null;
 let cachedSHDYURawRowCount = 0;
 let cachedSHDYULoadError: string | null = null;
+let cachedSHDYUOfficialYear: number | null = null;
 
 export function getSHDYUCache(): Record<string, any> | null {
   return cachedSHDYUData;
@@ -81,6 +82,16 @@ export function getSHDYUCache(): Record<string, any> | null {
 
 export function getSHDYURawRowCount(): number {
   return cachedSHDYURawRowCount;
+}
+
+/**
+ * Год официального помесячного слоя — параметр-ячейка AO4 листа «СВОД с месяцами».
+ * Перепись 16.07: лист год-метится ГЛОБАЛЬНО одной ячейкой (18/19 год-ячеек =
+ * формула =$AO$4; все 2112 месячных формул фильтруют 'ГРБС'!P=$AO$4). Помесячного
+ * официала за другой год НЕ СУЩЕСТВУЕТ — сверка ?year≠AO4 обязана гейтиться.
+ */
+export function getSHDYUOfficialYear(): number | null {
+  return cachedSHDYUOfficialYear;
 }
 
 export function getSHDYULoadError(): string | null {
@@ -185,6 +196,9 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
         const parsed = parseSHDYUSheet(result.values, result.formulas);
         cachedSHDYUData = parsed;
         cachedSHDYURawRowCount = result.values.length;
+        // AO4 (строка 4, колонка AO=41-я) — глобальный год листа (см. getSHDYUOfficialYear).
+        const ao4 = Number(result.values[3]?.[40]);
+        cachedSHDYUOfficialYear = Number.isInteger(ao4) && ao4 >= 2020 && ao4 <= 2100 ? ao4 : null;
         cachedSHDYULoadError = null;
         console.log(`📊 ${sourceLabel}: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
       } else {
