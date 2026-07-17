@@ -5,7 +5,9 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
 import { subordinateLabel } from '../lib/subordinate-label';
-import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon } from 'lucide-react';
+import { selectDatasetAudit, BENFORD_LABELS } from '../lib/dataset-analyses';
+import { bothDeptKeyForms } from '../lib/dept-key';
+import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon, Microscope } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, Cell, AreaChart, Area,
@@ -1040,7 +1042,138 @@ export function Analytics() {
       {/* Централизация закупок — кросс-ГРБС объединение похожих закупок (ядро:
           core/analytics/centralization; было построено и не выведено на экран — трек F) */}
       <CentralizationCard />
+
+      {/* Аномалии данных по управлениям — datasetAnalyses уже приезжает в
+          snapshot /api/dashboard, серверного кода ноль (E4 волна-1, W1-A) */}
+      <DatasetAuditCard />
     </div>
+  );
+}
+
+/** Бейдж композит-грейда: шкала GS-порта, МЕНЬШЕ = лучше (A — чисто, F — худшее). */
+const COMPOSITE_GRADE_BADGE: Record<string, string> = {
+  A: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400',
+  B: 'bg-lime-50 text-lime-600 dark:bg-lime-900/30 dark:text-lime-400',
+  C: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
+  D: 'bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400',
+  F: 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+};
+
+const EP_RISK_BADGE: Record<string, string> = {
+  'НИЗКИЙ': 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+  'УМЕРЕННЫЙ': 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400',
+  'ПОВЫШЕННЫЙ': 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
+  'ВЫСОКИЙ': 'bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400',
+  'КРИТИЧЕСКИЙ': 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+};
+
+const BENFORD_TONE_CLS: Record<'ok' | 'warn' | 'bad', string> = {
+  ok: 'text-emerald-600 dark:text-emerald-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  bad: 'text-red-600 dark:text-red-400',
+};
+
+/** Аудит качества данных по ГРБС: Бенфорд, композит, выбросы, сезонность, ЕП-риск. */
+function DatasetAuditCard() {
+  const { dashboardData, navigateTo, selectedDepartments } = useStore();
+
+  const rows = useMemo(
+    () => selectDatasetAudit(dashboardData?.snapshot?.datasetAnalyses),
+    [dashboardData],
+  );
+
+  // Глобальный фильтр ГРБС: selectedDepartments — кириллический канон,
+  // ключи datasetAnalyses — латиница; сравниваем через обе формы.
+  const visibleRows = useMemo(() => {
+    if (selectedDepartments.size === 0) return rows;
+    const keys = bothDeptKeyForms(selectedDepartments);
+    return rows.filter(r => keys.has(r.deptId));
+  }, [rows, selectedDepartments]);
+
+  const nonconforming = visibleRows.filter(r => r.benfordConformity === 'nonconforming').length;
+
+  return (
+    <AnalyticsCard title="Аномалии данных по управлениям" icon={Microscope} source="calculated">
+      {visibleRows.length === 0 ? (
+        <EmptyState message={rows.length === 0
+          ? 'Анализ качества данных ещё не построен — в снапшоте нет datasetAnalyses'
+          : 'Для выбранных управлений анализ качества данных не построен'} />
+      ) : (
+        <div>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
+            Аудиторский вердикт по каждому ГРБС: закон Бенфорда не проходят суммы
+            у <strong className="text-zinc-700 dark:text-zinc-200">{nonconforming} из {visibleRows.length}</strong> управлений.
+            Композит-скор 0–100 по шкале аудита: <strong>меньше = лучше</strong> (A — чисто, F — худшее).
+            Клик по строке — к данным управления.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                  <th className="py-1.5 pr-3">ГРБС</th>
+                  <th className="py-1.5 pr-3">Композит</th>
+                  <th className="py-1.5 pr-3">Закон Бенфорда</th>
+                  <th className="py-1.5 pr-3 text-right">Сезонные аномалии</th>
+                  <th className="py-1.5 pr-3 text-right">Выбросы</th>
+                  <th className="py-1.5">ЕП-риск</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map(r => {
+                  const benford = r.benfordConformity ? BENFORD_LABELS[r.benfordConformity] : null;
+                  return (
+                    <tr
+                      key={r.deptId}
+                      className="border-b border-zinc-50 dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-700/20 transition-colors"
+                      onClick={() => navigateTo('data', { department: r.deptId })}
+                    >
+                      <td className="py-2 pr-3 font-medium text-zinc-700 dark:text-zinc-200">{productLabel(r.deptId)}</td>
+                      <td className="py-2 pr-3">
+                        {r.compositeGrade !== null && r.compositeScore !== null ? (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums ${COMPOSITE_GRADE_BADGE[r.compositeGrade] ?? COMPOSITE_GRADE_BADGE.C}`}>
+                            {r.compositeGrade} · {r.compositeScore.toFixed(1)}
+                          </span>
+                        ) : <span className="text-zinc-400">—</span>}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {benford ? (
+                          <span className={`font-medium ${BENFORD_TONE_CLS[benford.tone]}`} title={benford.hint}>
+                            {benford.label}
+                            <span className="font-normal text-[10px] text-zinc-400 ml-1.5">
+                              MAD {r.benfordMad?.toFixed(4)}, n={r.benfordSampleSize}
+                            </span>
+                          </span>
+                        ) : <span className="text-zinc-400">—</span>}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {r.seasonalCount > 0
+                          ? <span className="text-amber-600 dark:text-amber-400 font-medium">{r.seasonalCount}</span>
+                          : <span className="text-zinc-400">0</span>}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {r.outlierCount > 0
+                          ? <span className="text-zinc-700 dark:text-zinc-200 font-medium">{r.outlierCount}</span>
+                          : <span className="text-zinc-400">0</span>}
+                      </td>
+                      <td className="py-2">
+                        {r.epRiskLevel ? (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${EP_RISK_BADGE[r.epRiskLevel] ?? EP_RISK_BADGE['НИЗКИЙ']}`}
+                            title={r.epSharePct !== null ? `Доля ЕП: ${r.epSharePct.toFixed(1)}%` : undefined}
+                          >
+                            {r.epRiskLevel}
+                          </span>
+                        ) : <span className="text-zinc-400">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </AnalyticsCard>
   );
 }
 
