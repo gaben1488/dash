@@ -151,8 +151,10 @@ export interface DatasetAnalysis {
   epRisk: EpRiskClassification;
   /** Execution level based on exec_count_pct */
   executionLevel: ExecutionLevel;
-  /** Row-level data anomalies (EXACT_MATCH, NEGATIVE_PLAN, etc.) */
-  dataAnomalyFlags: Map<number, DataAnomaly[]>;
+  /** Row-level data anomalies (EXACT_MATCH, NEGATIVE_PLAN, etc.).
+   *  Record, не Map: снапшот сериализуется в JSON для DTO — Map уезжал бы {}
+   *  (fidelity-аудит §2; внутри пайплайна производители работают с Map). */
+  dataAnomalyFlags: Record<number, DataAnomaly[]>;
   /** Seasonal / calendar-based anomalies */
   seasonalAnomalies: SeasonalAnomaly[];
   /** Suspicious splitting groups: multiple EP rows < 600K with similar subjects */
@@ -619,7 +621,7 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
     noiseMap,
     epRisk,
     executionLevel,
-    dataAnomalyFlags,
+    dataAnomalyFlags: Object.fromEntries(dataAnomalyFlags),
     seasonalAnomalies,
     suspiciousSplitting,
   };

@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
 import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN, subordinateKey } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
@@ -467,10 +468,11 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     }
   }
 
-  // Добавляем ошибки ингеста
+  // Добавляем ошибки ингеста (стабильный id: ячейка + порядковый номер дубля)
+  const ingestOcc = new Map<string, number>();
   for (const err of ingestResult.errors) {
     allIssues.push({
-      id: nanoid(),
+      id: issueIdentity(['ingest', err.cell, nextOccurrence(ingestOcc, String(err.cell))]),
       severity: 'significant',
       origin: 'runtime_error',
       category: 'ingest_error',
@@ -571,6 +573,7 @@ const SIGNAL_ISSUE_MAP: Record<string, {
 })();
 
 function detectSignalsToIssues(sheetName: string, rows: unknown[][], deptId: string): Issue[] {
+  const signalOcc = new Map<string, number>();
   const issues: Issue[] = [];
   const now = new Date().toISOString();
 
@@ -602,8 +605,10 @@ function detectSignalsToIssues(sheetName: string, rows: unknown[][], deptId: str
     for (const [signalKey, meta] of Object.entries(SIGNAL_ISSUE_MAP)) {
       if (signals[signalKey as keyof RowSignals] !== true) continue;
 
+      // Стабильный id: содержимое строки-якоря (A/B/G/K + подвед C), не её номер.
+      const idBase = ['signal', meta.checkId, sheetName, String(cells['C'] ?? ''), String(cells['A'] ?? ''), String(cells['B'] ?? ''), String(cells['G'] ?? ''), String(cells['K'] ?? '')] as const;
       issues.push({
-        id: nanoid(),
+        id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
         severity: meta.severity,
         origin: 'bi_heuristic',
         category: `signal:${signalKey}`,

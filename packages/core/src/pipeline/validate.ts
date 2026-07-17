@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid';
+import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
 import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifySheet } from '@aemr/shared';
 
@@ -42,6 +42,7 @@ export function validateData(
   // раскладка) → НЕ department, НЕ svod → generic-правила его не трогают (фикс
   // ложных падений валидации ШДЮ; УКСиМП/УАГЗО корректно идут как department).
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
+  const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
 
   // Тихие провалы запрещены (AGENTS.md carve-out): нераспознанный лист молча
@@ -49,7 +50,7 @@ export function validateData(
   // выполняется) — раньше это было полностью бесшумно. Один сигнал на лист.
   if (sheetClass.kind === 'unknown' && rows.length > 0) {
     issues.push({
-      id: nanoid(),
+      id: issueIdentity(['sheet', sheetName]),
       severity: 'warning',
       origin: 'runtime_error',
       category: 'unclassified_sheet',
@@ -94,6 +95,9 @@ export function validateData(
       if (!result.passed) {
         // Enrich with unified class system metadata
         const checkId = LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id;
+        // Стабильный id (issue-identity.ts): содержимое-якорь, не номер строки.
+        const idBase = ['rule', checkId, row.sheet, result.cell ?? '', String(row.cells['A'] ?? ''), String(row.cells['B'] ?? ''), String(row.cells['G'] ?? '')] as const;
+        const occ = nextOccurrence(idOccurrence, idBase.join(SEP));
         const check = CHECK_REGISTRY.find(c => c.id === checkId);
 
         // Use CHECK_REGISTRY severity (5-level: critical/error/significant/warning/info)
@@ -101,7 +105,7 @@ export function validateData(
         const effectiveSeverity = check?.severity ?? rule.severity;
 
         issues.push({
-          id: nanoid(),
+          id: issueIdentity([...idBase, occ]),
           severity: effectiveSeverity,
           origin: rule.origin,
           category: rule.id,
