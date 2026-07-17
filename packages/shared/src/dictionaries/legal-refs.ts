@@ -24,6 +24,7 @@ export type LegalRefId =
   | '44_FZ_93_1_4'
   | '44_FZ_93_1_6'
   | '44_FZ_93_1_8'
+  | '44_FZ_93_1_14'
   | '44_FZ_93_1_23'
   | '44_FZ_93_1_29'
   // 147-ФЗ «О естественных монополиях»
@@ -125,6 +126,17 @@ export const LEGAL_REFS: Record<LegalRefId, LegalReference> = {
     title_ru: 'ЕП в сфере деятельности субъектов естественных монополий',
     issuer: 'Федеральное собрание РФ',
     linked: ['147_FZ'],
+    official_url: 'http://pravo.gov.ru/proxy/ips/?docbody=&nd=102168247',
+  },
+
+  '44_FZ_93_1_14': {
+    id: '44_FZ_93_1_14',
+    law_type: 'federal',
+    law_short: '44-ФЗ',
+    article: '93', part: 1, item: 14,
+    date_adopted: '2013-04-05',
+    title_ru: 'ЕП на печатные/электронные издания у обладателя исключительных прав (издатель)',
+    issuer: 'Федеральное собрание РФ',
     official_url: 'http://pravo.gov.ru/proxy/ips/?docbody=&nd=102168247',
   },
 
