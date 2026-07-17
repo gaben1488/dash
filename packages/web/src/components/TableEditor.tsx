@@ -5,6 +5,7 @@ import {
   AlertCircle, Check, Loader2,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { formatDateCell } from '../lib/sheet-date';
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -61,18 +62,9 @@ function formatCurrency(value: unknown): string {
   return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20BD';
 }
 
-function formatDate(value: unknown): string {
-  if (!value) return '';
-  const s = String(value);
-  // Already DD.MM.YYYY
-  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(s)) return s;
-  // ISO → DD.MM.YYYY
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) {
-    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
-  }
-  return s;
-}
+// Дата: DTO отдаёт ISO «YYYY-MM-DD» | null; локализация в дд.мм.гггг — здесь.
+// formatDateCell дополнительно понимает legacy-серийники (46034 ≠ «01.01.46034»).
+const formatDate = formatDateCell;
 
 function displayValue(value: unknown, type: CellType): string {
   if (value === null || value === undefined || value === '') return '—';

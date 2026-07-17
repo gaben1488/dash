@@ -7,6 +7,7 @@ import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
 import { TableEditor, type ColumnConfig, type RowData } from '../components/TableEditor';
 import { filterRowsByBudgets } from '../lib/rows-filter';
+import { monthOfDateValue } from '../lib/sheet-date';
 
 type ViewMode = 'browse' | 'editor';
 
@@ -332,9 +333,11 @@ export function DataBrowserPage() {
       const months = qMonths[period];
       if (months) {
         data = data.filter(r => {
-          const d = r.planDate ?? r.factDate ?? r.date;
-          if (!d) return true;
-          const m = new Date(d).getMonth() + 1;
+          // Месяц — из ISO-канона DTO (monthOfDateValue понимает и дд.мм.гггг,
+          // и legacy-серийники). Раньше new Date(46034) = январь-1970 → фильтр
+          // квартала классифицировал все serial-строки ложно (fidelity §2.2).
+          const m = monthOfDateValue(r.planDate ?? r.factDate ?? r.date);
+          if (m === null) return true; // не дата — строку не прячем
           return months.includes(m);
         });
       }
@@ -342,9 +345,8 @@ export function DataBrowserPage() {
     // Active months filter (fine-grained)
     if (activeMonths.size > 0) {
       data = data.filter(r => {
-        const d = r.planDate ?? r.factDate ?? r.date;
-        if (!d) return true;
-        const m = new Date(d).getMonth() + 1;
+        const m = monthOfDateValue(r.planDate ?? r.factDate ?? r.date);
+        if (m === null) return true;
         return activeMonths.has(m);
       });
     }

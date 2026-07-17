@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
+import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, parseSheetDate } from '@aemr/shared';
 import { getSheetData, writeCellValue, readDeptSheet, resolveDeptSheetName } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
@@ -15,6 +15,24 @@ import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalizatio
  * а кэш этого не заметит — values[idx-1] просто undefined).
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
+/**
+ * Дата-канон DTO (fidelity-аудит 2026-07-16 §2.2). Ячейки N/Q приходят из листов
+ * в трёх видах: serial-число (46034; 6 из 8 книг), строка «дд.мм.гггг», реже ISO.
+ * Наружу API отдаёт ЕДИНЫЙ формат — ISO «YYYY-MM-DD» либо null (локализация
+ * дд.мм.гггг — на рендере web). Сырое значение листа сохраняется рядом в поле
+ * *Raw: пути ЗАПИСИ (PUT /field, POST /api/data/rows) работают с пользовательским
+ * вводом/сырьём и НЕ читают конвертированное поле — формат листа не меняется.
+ */
+function sheetDateToIso(val: unknown): string | null {
+  // «дд.мм.гггг» — строковыми операциями, без Date: локальная полночь через
+  // toISOString() сдвинула бы день в часовых поясах западнее Гринвича.
+  const ru = String(val ?? '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (ru) return `${ru[3]}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}`;
+  // Serial и ISO parseSheetDate даёт как UTC-полночь → срез ISO-строки безопасен.
+  const d = parseSheetDate(val);
+  return d ? d.toISOString().slice(0, 10) : null;
+}
+
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
   if (!Number.isInteger(idx) || idx < 2) return `Некорректный номер строки "${display}"`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
@@ -150,9 +168,13 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         planMB: parseFloat(String(cells.J ?? 0)) || 0,
         planSum: planMoney,
         method: String(cells.L ?? ''),
-        planDate: cells.N ?? '',
+        // Даты — ISO «YYYY-MM-DD» | null (канон DTO, см. sheetDateToIso);
+        // *Raw — исходное значение ячейки листа (serial/строка) для записи-обратно.
+        planDate: sheetDateToIso(cells.N),
+        planDateRaw: cells.N ?? '',
         planQuarter: cells.O ?? '',
-        factDate: cells.Q ?? '',
+        factDate: sheetDateToIso(cells.Q),
+        factDateRaw: cells.Q ?? '',
         factQuarter: cells.R ?? '',
         planYear: parseInt(String(cells.P ?? ''), 10) || 0,
         factFB: parseFloat(String(cells.V ?? 0)) || 0,
