@@ -415,3 +415,105 @@ export const SettingsUpdateSchema = z.object({
   cacheTtl: z.number().min(30).max(3600).optional(),
   enabledChecks: z.array(z.string()).optional(),
 });
+
+// ────────────────────────────────────────────────────────────
+// 14. API route response contracts (для web fetchParsed)
+// .passthrough(): лишние поля ответа не считаются ошибкой —
+// страницы могут опираться на незадекларированные поля.
+// ────────────────────────────────────────────────────────────
+
+export const HealthResponseSchema = z.object({
+  status: z.string(),
+  timestamp: z.string(),
+  service: z.string(),
+}).passthrough();
+
+export const PageInfoSchema = z.object({
+  page: z.number(),
+  limit: z.number(),
+  total: z.number(),
+  totalPages: z.number(),
+});
+
+/** GET /api/issues — status лениво (в БД встречается легаси 'closed') */
+export const IssuesListResponseSchema = z.object({
+  issues: z.array(IssueSchema.extend({ status: z.string() }).passthrough()),
+  pagination: PageInfoSchema,
+  counts: z.object({
+    total: z.number(),
+    byStatus: z.record(z.string(), z.number()),
+    bySeverity: z.record(z.string(), z.number()),
+  }).passthrough(),
+}).passthrough();
+
+/** GET /api/issues/:id/history */
+export const IssueHistoryResponseSchema = z.object({
+  issueId: z.string(),
+  history: z.array(z.object({}).passthrough()),
+}).passthrough();
+
+/** GET /api/journal */
+export const JournalEntrySchema = z.object({
+  type: z.string(),
+  timestamp: z.string().nullable().optional(),
+  actor: z.string().nullable().optional(),
+  action: z.string(),
+  details: z.string().nullable().optional(),
+}).passthrough();
+
+export const JournalListResponseSchema = z.object({
+  entries: z.array(JournalEntrySchema),
+  pagination: PageInfoSchema,
+  counts: z.object({
+    total: z.number(),
+    byAction: z.record(z.string(), z.number()),
+  }).passthrough(),
+}).passthrough();
+
+/** GET /api/journal/stats */
+export const JournalStatsResponseSchema = z.object({
+  period: z.string(),
+  totalActions: z.number(),
+  uniqueUsers: z.number(),
+  snapshotCount: z.number(),
+  editCount: z.number(),
+  errorCount: z.number(),
+  issueCreated: z.number(),
+  issueResolved: z.number(),
+}).passthrough();
+
+/** GET /api/sources */
+export const SourceStatusSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  spreadsheetId: z.string().nullable().optional(),
+  status: z.string(),
+  statusLabel: z.string(),
+  lastSuccess: z.string().nullable(),
+  rowCount: z.number().nullable(),
+}).passthrough();
+
+export const SourcesResponseSchema = z.object({
+  sources: z.array(SourceStatusSchema),
+  totalSources: z.number(),
+  onlineCount: z.number(),
+  errorCount: z.number(),
+}).passthrough();
+
+/** GET /api/history — таймлайн снимков */
+export const SnapshotHistoryEntrySchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  trustOverall: z.number().nullable(),
+  trustGrade: z.string().nullable(),
+  issueCount: z.number().nullable(),
+}).passthrough();
+
+export const SnapshotHistoryResponseSchema = z.array(SnapshotHistoryEntrySchema);
+
+/** GET /api/metrics — official/calculated + deltas текущего снимка */
+export const MetricsResponseSchema = z.object({
+  official: z.record(z.string(), NormalizedMetricSchema.passthrough()),
+  calculated: z.record(z.string(), NormalizedMetricSchema.passthrough()),
+  deltas: z.array(DeltaResultSchema.passthrough()),
+}).passthrough();

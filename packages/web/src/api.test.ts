@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { api, fetchJSON } from './api';
+import { api, fetchJSON, fetchParsed } from './api';
+import { HealthResponseSchema } from '@aemr/shared';
 
 function fakeResponse(body: unknown = {}) {
   return {
@@ -59,5 +60,31 @@ describe('reconciliation endpoints thread the year filter (B-11)', () => {
     await api.getReconciliationMonthly('УЖКХ', 2025);
     expect(calls[0]).toContain('year=2025');
     expect(calls[0]).toContain('dept=');
+  });
+});
+
+describe('fetchParsed (контракт-валидация ответов по zod-схемам)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', { getItem: () => null });
+  });
+
+  it('валидный json проходит схему и возвращается как есть (лишние поля не срезаются)', async () => {
+    const body = { status: 'ok', timestamp: '2026-07-17T00:00:00Z', service: 'aemr-server', extra: 42 };
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(body)));
+    const result = await fetchParsed('/health', HealthResponseSchema);
+    expect(result.status).toBe('ok');
+    // Совместимость: страницы могут опираться на незадекларированные поля
+    expect((result as Record<string, unknown>).extra).toBe(42);
+  });
+
+  it('невалидный json бросает ошибку с url и кратким описанием несоответствия', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({ status: 123 })));
+    await expect(fetchParsed('/health', HealthResponseSchema)).rejects.toThrow(/\/health/);
+    await expect(fetchParsed('/health', HealthResponseSchema)).rejects.toThrow(/status/);
+  });
+
+  it('api.health() валидирует ответ через схему', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({ nope: true })));
+    await expect(api.health()).rejects.toThrow(/contract/i);
   });
 });

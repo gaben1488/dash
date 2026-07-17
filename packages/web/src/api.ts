@@ -1,6 +1,27 @@
 import type { DashboardData } from '@aemr/shared';
+import {
+  HealthResponseSchema,
+  IssuesListResponseSchema,
+  IssueHistoryResponseSchema,
+  JournalListResponseSchema,
+  JournalStatsResponseSchema,
+  SourcesResponseSchema,
+  SnapshotHistoryResponseSchema,
+  MetricsResponseSchema,
+  TrustScoreSchema,
+} from '@aemr/shared';
 
 const API_BASE = '/api';
+
+/**
+ * Структурный контракт zod-схемы (zod не в deps web; схемы приходят из @aemr/shared).
+ * Тип результата выводится из success-ветки safeParse — эквивалент z.infer.
+ */
+interface ParseSchema<T> {
+  safeParse(data: unknown):
+    | { success: true; data: T }
+    | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } };
+}
 
 export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -24,6 +45,26 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
   return res.json() as Promise<T>;
 }
 
+/**
+ * fetchJSON + runtime-валидация ответа по zod-схеме.
+ * При несоответствии контракту бросает Error с url и кратким списком расхождений
+ * (страницы ловят её так же, как сетевые ошибки fetchJSON).
+ */
+export async function fetchParsed<T>(url: string, schema: ParseSchema<T>, init?: RequestInit): Promise<T> {
+  const json = await fetchJSON<unknown>(url, init);
+  const result = schema.safeParse(json);
+  if (!result.success) {
+    const brief = result.error.issues
+      .slice(0, 5)
+      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ');
+    throw new Error(`API contract violation at ${url}: ${brief}`);
+  }
+  // Возвращаем исходный json, а не result.data: strip-режим zod вырезал бы
+  // незадекларированные поля, на которые ещё опираются страницы.
+  return json as T;
+}
+
 export const api = {
   // Dashboard
   getDashboard: (refresh = false, year?: number | 'all') => {
@@ -39,7 +80,7 @@ export const api = {
 
   // Metrics
   getMetrics: () =>
-    fetchJSON<any>('/metrics'),
+    fetchParsed('/metrics', MetricsResponseSchema),
 
   getMetric: (key: string) =>
     fetchJSON<any>(`/metrics/${encodeURIComponent(key)}`),
@@ -47,7 +88,7 @@ export const api = {
   // Issues
   getIssues: (filters?: Record<string, string>) => {
     const params = new URLSearchParams(filters);
-    return fetchJSON<any>(`/issues?${params}`);
+    return fetchParsed(`/issues?${params}`, IssuesListResponseSchema);
   },
 
   updateIssueStatus: (id: string, status: string, reason?: string) =>
@@ -62,12 +103,14 @@ export const api = {
       body: JSON.stringify({ comment }),
     }),
 
-  getIssueHistory: (id: string) =>
-    fetchJSON<any>(`/issues/${id}/history`),
+  // Валидация контрактом + широкий тип: страница держит свой локальный HistoryEntry
+  // (passthrough-схема не сужается до него — сузим при типизации DTO).
+  getIssueHistory: (id: string): Promise<any> =>
+    fetchParsed(`/issues/${id}/history`, IssueHistoryResponseSchema),
 
   // Trust
   getTrust: () =>
-    fetchJSON<any>('/trust'),
+    fetchParsed('/trust', TrustScoreSchema),
 
   getTrustDetail: (deptId: string) =>
     fetchJSON<any>(`/trust/${encodeURIComponent(deptId)}`),
@@ -91,7 +134,7 @@ export const api = {
       body: JSON.stringify({ rows }),
     }),
 
-  // Reconciliation
+  // Reconciliation — сложные DTO без готовых схем; мигрируют при типизации DTO
   getReconciliation: (year?: number | 'all') => {
     const qs = year !== undefined ? `?year=${year}` : '';
     return fetchJSON<any>(`/reconciliation${qs}`);
@@ -114,15 +157,15 @@ export const api = {
   // Journal
   getJournal: (filters?: Record<string, string>) => {
     const params = new URLSearchParams(filters);
-    return fetchJSON<any>(`/journal?${params}`);
+    return fetchParsed(`/journal?${params}`, JournalListResponseSchema);
   },
 
   getJournalStats: () =>
-    fetchJSON<any>('/journal/stats'),
+    fetchParsed('/journal/stats', JournalStatsResponseSchema),
 
   // Sources
   getSources: () =>
-    fetchJSON<any>('/sources'),
+    fetchParsed('/sources', SourcesResponseSchema),
 
   testSource: (name: string) =>
     fetchJSON<any>(`/sources/${encodeURIComponent(name)}/test`, { method: 'POST' }),
@@ -180,7 +223,7 @@ export const api = {
 
   // History (audit log)
   getHistory: (limit = 50) =>
-    fetchJSON<any>(`/history?limit=${limit}`),
+    fetchParsed(`/history?limit=${limit}`, SnapshotHistoryResponseSchema),
 
   // Export
   exportAudit: () =>
@@ -223,5 +266,5 @@ export const api = {
 
   // Health
   health: () =>
-    fetchJSON<any>('/health'),
+    fetchParsed('/health', HealthResponseSchema),
 };
