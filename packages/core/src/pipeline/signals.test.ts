@@ -128,6 +128,27 @@ describe('Date signals', () => {
     expect(s.overdue).toBe(true);
   });
 
+  // TZ-fix 2026-07-20 (mulch-диагноз триажа 15.07): serial даёт UTC-полночь,
+  // «дд.мм.гггг» — локальную → daysDiff по Date-объектам расходился на ±1 на
+  // дальних поясах. Serial и строка ОДНОГО дня обязаны давать одинаковый вердикт.
+  it('TZ-инвариантность: N=сегодня как serial → overdue=false (паритет со строкой)', () => {
+    const serialToday = Date.UTC(2026, 6, 15) / 86400000 + 25569; // = 15.07.2026
+    const runAt = new Date(2026, 6, 15, 23, 41);
+    const sSerial = detectSignals(makeCells({ N: String(serialToday), Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
+    const sString = detectSignals(makeCells({ N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
+    expect(sSerial.overdue).toBe(false);
+    expect(sSerial.overdue).toBe(sString.overdue);
+  });
+
+  it('TZ-инвариантность: N=вчера как serial → overdue=true (паритет со строкой)', () => {
+    const serialYesterday = Date.UTC(2026, 6, 15) / 86400000 + 25569; // = 15.07.2026
+    const runAt = new Date(2026, 6, 16, 0, 10);
+    const sSerial = detectSignals(makeCells({ N: String(serialYesterday), Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
+    const sString = detectSignals(makeCells({ N: '15.07.2026', Q: null, Y: 0, U: 'Х', AF: '·' }), runAt);
+    expect(sSerial.overdue).toBe(true);
+    expect(sSerial.overdue).toBe(sString.overdue);
+  });
+
   it('NOT overdue when signed', () => {
     const s = detectSignals(makeCells({
       N: '01.01.2026', Q: null, Y: 0,

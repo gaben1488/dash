@@ -912,6 +912,39 @@ describe('crossVerifyQuarterly', () => {
     // epPlan: shdyu=0, svod=0 → empty
     expect(result.rows[0].epPlan.status).toBe('empty');
   });
+
+  // P0-4 (bug-hunt 2026-07-10): агрегатный блок ШДЮ 'all' (SHDYU_ALL_BLOCK) — сумма
+  // по всем ГРБС для кросс-валидации. В recalcResults ключа 'all' нет, поэтому попадание
+  // 'all' в per-dept сверку сравнивает агрегат с нулём → гарантированное ложное 'high'.
+  // reconcileMonthly уже исключает 'all'; crossVerifyQuarterly обязан так же.
+  it('исключает агрегатный блок ШДЮ "all" из per-dept сверки (P0-4)', () => {
+    const shdyu = {
+      dept1: {
+        months: {
+          1: { compPlanCount: 10, compFactCount: 5, epPlanCount: 3, epFactCount: 2 },
+        },
+      },
+      all: {
+        months: {
+          1: { compPlanCount: 10, compFactCount: 5, epPlanCount: 3, epFactCount: 2 },
+        },
+      },
+    };
+    const recalc = {
+      dept1: {
+        quarters: {
+          q1: { competitive: { plan: 10, fact: 5 }, ep: { plan: 3, fact: 2 } },
+        },
+      },
+    };
+    const result = crossVerifyQuarterly(shdyu, recalc, { dept1: 'D1' });
+
+    // 'all' — кросс-валидационный агрегат, не ГРБС: строк по нему быть не должно
+    expect(result.rows.filter((r) => r.deptId === 'all')).toHaveLength(0);
+    // и он не должен портить вердикт ложным расхождением против отсутствующего recalc['all']
+    expect(result.counts.high).toBe(0);
+    expect(result.overallStatus).toBe('Данные согласованы');
+  });
 });
 
 // ────────────────────────────────────────────────────────────

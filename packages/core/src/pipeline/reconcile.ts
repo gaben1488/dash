@@ -867,7 +867,13 @@ export function crossVerifyQuarterly(
   // Нормализуем ключи к каноническому кириллическому grbsId (SHDYU=латиница, recalc=кириллица)
   const shdyuByGrbs = rekeyByGrbs(shdyuData);
   const recalcByGrbs = rekeyByGrbs(recalcResults);
-  const deptIds = new Set([...Object.keys(shdyuByGrbs), ...Object.keys(recalcByGrbs)]);
+  // Exclude 'all' (SHDYU_ALL_BLOCK) — it's for cross-validation, not per-dept
+  // reconciliation (P0-4: recalc не имеет ключа 'all' → агрегат сравнивался с нулём
+  // и давал гарантированное ложное 'high'; reconcileMonthly исключает так же).
+  const deptIds = new Set([
+    ...Object.keys(shdyuByGrbs).filter(k => k !== 'all'),
+    ...Object.keys(recalcByGrbs),
+  ]);
 
   for (const deptId of deptIds) {
     const shdyu = shdyuByGrbs[deptId];

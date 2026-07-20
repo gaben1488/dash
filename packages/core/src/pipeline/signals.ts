@@ -15,7 +15,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
 import { parseAE } from './ae-parser.js';
 
 // ────────────────────────────────────────────────────────────
@@ -170,23 +170,27 @@ function toNumber(val: unknown): number {
 }
 
 /**
- * Парсит дату из строки.
- * Поддерживает:
- *   - dd.mm.yyyy (русский формат)
- *   - yyyy-mm-dd (ISO)
- *   - Date объект
+ * Номер календарных суток ячейки — основа ВСЕЙ датной арифметики этого модуля.
+ *
+ * TZ-fix 2026-07-20 (триаж 15.07): разница Date-объектов (бывший daysDiff) давала
+ * ±1 на дальних поясах, потому что parseSheetDate возвращает serial как UTC-полночь,
+ * а «дд.мм.гггг» — как ЛОКАЛЬНУЮ полночь; смешанные формы записи в одном сравнении
+ * рассинхронизировались, и «дедлайн сегодня» светился просрочкой. dayNumberOf
+ * (@aemr/shared) выводит целый номер суток из КОМПОНЕНТОВ записи — форма и пояс
+ * машины не влияют. Fallback через parseSheetDate покрывает экзотические строки,
+ * которые понимает только new Date(s): их локальные компоненты воспроизводят
+ * календарный день, задуманный оператором.
  */
-function parseDate(val: unknown): Date | null {
-  // Делегирует единому канону @aemr/shared/parseSheetDate (serial+дд.мм.гггг+ISO).
-  return parseSheetDate(val);
+function toDayNumber(val: unknown): number | null {
+  const day = dayNumberOf(val);
+  if (day !== null) return day;
+  const parsed = parseSheetDate(val);
+  return parsed ? dayNumberOf(parsed) : null;
 }
 
-/**
- * Возвращает разницу в днях (a - b), используя Math.round для устойчивости к DST.
- * Math.floor может потерять 1 день при переходе на зимнее время (23 часа вместо 24).
- */
-function daysDiff(a: Date, b: Date): number {
-  return Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+/** UTC-год по номеру суток (earlyClosure: сравнение календарных лет план/факт). */
+function utcYearOfDay(day: number): number {
+  return new Date(day * 86400000).getUTCFullYear();
 }
 
 /**
@@ -235,11 +239,12 @@ function isDataRow(cells: Record<string, unknown>): boolean {
  */
 export function detectSignals(cells: Record<string, unknown>, today?: Date): RowSignals {
   const now = today ?? new Date();
-  // Календарный «сегодня» без времени суток. FP-fix 2026-07-16 (signal_audit §3.7):
-  // сравнение дат с now, несущим часы/минуты, давало off-by-one — строка с дедлайном
-  // «сегодня» (N=15.07 при прогоне 15.07 вечером) округлялась в daysDiff до −1 и
-  // помечалась просроченной. Просрочка — строго со следующего дня после плановой даты.
-  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Календарный «сегодня» как номер суток — по ЛОКАЛЬНЫМ компонентам now
+  // (календарный день пользователя). FP-fix 2026-07-16 (signal_audit §3.7): время
+  // суток внутри now давало off-by-one — дедлайн «сегодня» (N=15.07 при прогоне
+  // 15.07 вечером) помечался просроченным; просрочка — строго со следующего дня.
+  // TZ-fix 2026-07-20: арифметика ниже — на целых номерах суток (toDayNumber).
+  const todayDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
 
   // ── Текстовые поля ──
   // Column U = «Причина отклонения» — mostly "Х" (placeholder), sometimes deviation reasons.
@@ -269,12 +274,12 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // ── Даты ──
   // N = plan date, Q = fact date (verified against recalculate.ts column mapping)
-  const planDateParsed = parseDate(cells['N']);
-  const factDateParsed = parseDate(cells['Q']);
+  const planDay = toDayNumber(cells['N']);
+  const factDay = toDayNumber(cells['Q']);
 
   // Факт суммы > 0 ИЛИ есть факт дата
   const hasFactAmounts = factTotal > 0;
-  const hasFactDate = factDateParsed !== null;
+  const hasFactDate = factDay !== null;
   const hasFact = hasFactAmounts || hasFactDate;
 
   // ── Статусные сигналы (столбцы U + AE) ──
@@ -299,8 +304,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     'срок изменён', 'срок изменен', 'изменён на', 'изменен на',
   ]);
 
-  if (planDateParsed) {
-    const daysUntilPlan = daysDiff(planDateParsed, nowDay);
+  if (planDay !== null) {
+    const daysUntilPlan = planDay - todayDay;
 
     // Просрочено: плановая дата прошла, нет факта, не подписан, не отменён,
     // НЕ в статусе «планирование»/«срок не наступил» (это forward план-график —
@@ -396,7 +401,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // incomplete data (no method, no amounts yet).
   // Skip canceled rows and rows marked for deletion ("подлежит удалению").
   let dataQuality = false;
-  const planDateInPast = planDateParsed !== null && daysDiff(planDateParsed, nowDay) < 0;
+  const planDateInPast = planDay !== null && planDay < todayDay;
   if (isDataRow(cells) && (hasFactDate || planDateInPast) && !planning && !notDue && !canceled) {
     dataQuality = REQUIRED_COLUMNS.some(col => {
       const val = cells[col];
@@ -447,14 +452,14 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Полезный сигнал прячется в экстремумах: смена календарного года (УД стр.101:
   // факт 15.04.2025 при плане 30.04.2026 — вероятна опечатка года) или разрыв > 180 дней.
   let earlyClosure = false;
-  if (factDateParsed && planDateParsed && !canceled) {
-    const diff = daysDiff(planDateParsed, factDateParsed); // planDate - factDate
+  if (factDay !== null && planDay !== null && !canceled) {
+    const diff = planDay - factDay; // planDate - factDate, в сутках
     // Смена года: факт в предыдущем календарном году относительно плана. Гард diff > 30
     // отсекает нормальное заключение декабрь→январь через Новый год.
-    const yearJump = factDateParsed.getFullYear() < planDateParsed.getFullYear();
+    const yearJump = utcYearOfDay(factDay) < utcYearOfDay(planDay);
     // Retroactive date entry filter: if planDate is in the future, the dates may have been
     // entered retroactively (common in СВОД — operators fill in dates after the fact).
-    const planInPast = daysDiff(nowDay, planDateParsed) > 0; // now > planDate
+    const planInPast = todayDay > planDay; // now > planDate
     if (yearJump && diff > 30) {
       earlyClosure = true;
     } else if (diff > 180 && planInPast) {
@@ -476,8 +481,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Порог снижен с 60→30 дней — 60 было слишком консервативно, пропускало реальные случаи.
   // Skip canceled rows.
   let stalledContract = false;
-  if (signed && !hasFactDate && planDateParsed && !canceled) {
-    const daysOverdue = daysDiff(nowDay, planDateParsed); // now - planDate
+  if (signed && !hasFactDate && planDay !== null && !canceled) {
+    const daysOverdue = todayDay - planDay; // now - planDate
     if (daysOverdue > 30) {
       stalledContract = true;
     }
@@ -513,8 +518,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let factDateBeforePlan = false;
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): только конкурентные методы. Для ЕП (ст.93)
   // нет извещения и 10-дневной паузы — досрочное заключение договора законно, не аномалия (~88% FP).
-  if (factDateParsed && planDateParsed && !canceled && !isEP) {
-    const diff = daysDiff(planDateParsed, factDateParsed); // planDate - factDate
+  if (factDay !== null && planDay !== null && !canceled && !isEP) {
+    const diff = planDay - factDay; // planDate - factDate, в сутках
     // factDate < planDate means diff > 0. Only flag 1-30 day range (not caught by earlyClosure).
     if (diff > 0 && diff <= 30) {
       factDateBeforePlan = true;
@@ -533,8 +538,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   if (!isNaN(planTotal) && planTotal > 0 && !hasFact && !signed && !canceled && !planning && !notDue && !overdue && !isContingent) {
     // Gate: plan date must exist AND be in the past (>30 days ago to avoid noise on recent plans)
     // Without this gate, signal fires on 48% of rows including future-dated plans.
-    if (planDateParsed) {
-      const daysSincePlan = daysDiff(nowDay, planDateParsed); // now - planDate
+    if (planDay !== null) {
+      const daysSincePlan = todayDay - planDay; // now - planDate
       if (daysSincePlan > 30) {
         planWithoutExecution = true;
       }
