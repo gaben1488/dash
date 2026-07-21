@@ -27,6 +27,19 @@ export function sheetDateToIso(val: unknown): string | null {
 }
 
 // Маппинг англ. состояния → русская подпись статуса (как в исходном роуте).
+/**
+ * Число из ячейки листа: пробелы-разделители тысяч и запятая-десятичная —
+ * реальный формат операторов («1 234,56»). parseFloat рвался на пробеле.
+ * Канон совпадает с core/pipeline/signals.toNumber (локальная копия: toNumber
+ * из core не экспортирован, тащить весь core ради хелпера — раздувание).
+ */
+function toNumber(val: unknown): number {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  if (val === null || val === undefined || val === '') return 0;
+  const parsed = parseFloat(String(val).replace(/\s/g, '').replace(/,/g, '.'));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 const STATUS_MAP: Record<string, string> = {
   'signed': 'Подписан', 'overdue': 'Просрочен', 'planning': 'Планирование',
   'canceled': 'Отменён', 'has-fact': 'Исполнение', 'open': 'Открыт',
@@ -62,11 +75,11 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
   // N=PLAN_DATE, O=PLAN_QUARTER, Q=FACT_DATE, R=FACT_QUARTER,
   // V=FB_FACT, W=KB_FACT, X=MB_FACT, Y=TOTAL_FACT,
   // Z=ECONOMY_FB, AA=ECONOMY_KB, AB=ECONOMY_MB, AD=FLAG
-  const planMoney = parseFloat(String(cells.K ?? 0)) || 0;
-  const factMoney = parseFloat(String(cells.Y ?? 0)) || 0;
-  const ecoFB = parseFloat(String(cells.Z ?? 0)) || 0;
-  const ecoKB = parseFloat(String(cells.AA ?? 0)) || 0;
-  const ecoMB = parseFloat(String(cells.AB ?? 0)) || 0;
+  const planMoney = toNumber(cells.K);
+  const factMoney = toNumber(cells.Y);
+  const ecoFB = toNumber(cells.Z);
+  const ecoKB = toNumber(cells.AA);
+  const ecoMB = toNumber(cells.AB);
   const ecoTotal = ecoFB + ecoKB + ecoMB;
 
   return {
