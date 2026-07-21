@@ -1,10 +1,23 @@
 import type { FastifyInstance } from 'fastify';
-import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, parseSheetDate } from '@aemr/shared';
-import { getSheetData, writeCellValue, readDeptSheet, resolveDeptSheetName } from '../services/google-sheets.js';
+import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
+import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
+import { readDeptRows } from '../services/rows-read.js';
+import { buildRowDto, isDataRow } from '../services/rows-dto.js';
+import {
+  parseYearFilter,
+  applySearchFilter,
+  applyTypeFilter,
+  applySubordinateFilter,
+  applyActivityFilter,
+  applyStateFilter,
+  applyYearFilter,
+  sortRows,
+  paginateRows,
+} from '../services/rows-filters.js';
 
 /**
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
@@ -15,24 +28,6 @@ import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalizatio
  * а кэш этого не заметит — values[idx-1] просто undefined).
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
-/**
- * Дата-канон DTO (fidelity-аудит 2026-07-16 §2.2). Ячейки N/Q приходят из листов
- * в трёх видах: serial-число (46034; 6 из 8 книг), строка «дд.мм.гггг», реже ISO.
- * Наружу API отдаёт ЕДИНЫЙ формат — ISO «YYYY-MM-DD» либо null (локализация
- * дд.мм.гггг — на рендере web). Сырое значение листа сохраняется рядом в поле
- * *Raw: пути ЗАПИСИ (PUT /field, POST /api/data/rows) работают с пользовательским
- * вводом/сырьём и НЕ читают конвертированное поле — формат листа не меняется.
- */
-function sheetDateToIso(val: unknown): string | null {
-  // «дд.мм.гггг» — строковыми операциями, без Date: локальная полночь через
-  // toISOString() сдвинула бы день в часовых поясах западнее Гринвича.
-  const ru = String(val ?? '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (ru) return `${ru[3]}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}`;
-  // Serial и ISO parseSheetDate даёт как UTC-полночь → срез ISO-строки безопасен.
-  const d = parseSheetDate(val);
-  return d ? d.toISOString().slice(0, 10) : null;
-}
-
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
   if (!Number.isInteger(idx) || idx < 2) return `Некорректный номер строки "${display}"`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
@@ -81,206 +76,36 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const filterState = query.state ?? '';   // RowState or empty
     const filterSubordinate = (query.subordinate ?? '').trim().toLowerCase();
     const filterActivity = (query.activity ?? '').trim().toLowerCase();
-    const yearRaw = query.year;
-    const yearFilter = yearRaw && yearRaw !== 'all'
-      ? (() => { const n = parseInt(yearRaw, 10); return Number.isInteger(n) && n >= 2020 && n <= 2100 ? n : undefined; })()
-      : undefined;
+    const yearFilter = parseYearFilter(query.year);
     const sortCol = query.sort ?? '';
-    const sortOrder = query.order === 'desc' ? 'desc' : 'asc';
+    const sortOrder: 'asc' | 'desc' = query.order === 'desc' ? 'desc' : 'asc';
 
-    // Read sheet data — cache-first strategy:
-    // 1. Department cache (populated by fetchDepartmentSpreadsheets on startup)
-    // 2. SVOD spreadsheet sheet (legacy fallback)
-    // 3. Department's own spreadsheet (last resort, live API call)
-    const sheetName = dept.sheetName;
-    let rawRows: unknown[][];
-    const cached = getDeptSheetValues()[dept.nameShort];
-    if (cached && cached.length > 0) {
-      rawRows = cached;
-    } else {
-      let loaded = false;
-      try {
-        rawRows = await getSheetData(sheetName);
-        loaded = rawRows.length > 0;
-      } catch {
-        rawRows = [];
+    // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
+    const read = await readDeptRows(dept);
+    if (!read.ok) {
+      if (read.reason === 'read-error') {
+        app.log.error(`Ошибка чтения таблицы управления "${dept.nameShort}": ${read.error}`);
+      } else {
+        app.log.error(`Нет данных для отдела "${dept.nameShort}" и нет spreadsheetId`);
       }
-      if (!loaded) {
-        const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-        if (ssId) {
-          try {
-            // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-            rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
-          } catch (err) {
-            app.log.error(`Ошибка чтения таблицы управления "${dept.nameShort}": ${err}`);
-            return reply.status(503).send({ error: 'Google Sheets unavailable' });
-          }
-        } else {
-          app.log.error(`Нет данных для отдела "${dept.nameShort}" и нет spreadsheetId`);
-          return reply.status(503).send({ error: 'Google Sheets unavailable' });
-        }
-      }
+      return reply.status(503).send({ error: 'Google Sheets unavailable' });
     }
 
-    // Convert raw rows to cell dictionaries, skip header rows (шапка)
-    const processedRows = rawRows.slice(DEPT_HEADER_ROWS).map((row, idx) => {
-      const cells = buildCellDict(row as unknown[]);
+    // Строки листа (без шапки) → DTO с сигналами, отсев не-данных — rows-dto
+    const processedRows = read.values
+      .slice(DEPT_HEADER_ROWS)
+      .map((row, idx) => buildRowDto(row as unknown[], idx, { deptId: dept.id }))
+      .filter(isDataRow);
 
-      const signalsObj = detectSignals(cells);
-      const state = classifyRowState(signalsObj);
-      const badges = getSignalBadges(signalsObj);
-      // Convert RowSignals boolean object → array of active signal keys for frontend
-      const signals = Object.entries(signalsObj)
-        .filter(([, v]) => v === true)
-        .map(([k]) => k);
+    // Query-фильтры — rows-filters (пустой параметр = всё проходит)
+    let filtered = applySearchFilter(processedRows, searchTerm);
+    filtered = applyTypeFilter(filtered, filterType);
+    filtered = applySubordinateFilter(filtered, filterSubordinate);
+    filtered = applyActivityFilter(filtered, filterActivity);
+    filtered = applyStateFilter(filtered, filterState);
+    filtered = applyYearFilter(filtered, yearFilter);
 
-      // Map status from English state to Russian label
-      const STATUS_MAP: Record<string, string> = {
-        'signed': 'Подписан', 'overdue': 'Просрочен', 'planning': 'Планирование',
-        'canceled': 'Отменён', 'has-fact': 'Исполнение', 'open': 'Открыт',
-        'error': 'Ошибка', 'near-plan': 'Скоро срок', 'not-due': 'Срок не наступил',
-        'finance-delay': 'Задержка финансирования',
-      };
-
-      // Column mapping per DEPT_COLUMNS:
-      // A=ID, B=REG_NUMBER, C=SUBORDINATE, F=TYPE, G=SUBJECT,
-      // H=FB_PLAN, I=KB_PLAN, J=MB_PLAN, K=TOTAL_PLAN, L=METHOD,
-      // N=PLAN_DATE, O=PLAN_QUARTER, Q=FACT_DATE, R=FACT_QUARTER,
-      // V=FB_FACT, W=KB_FACT, X=MB_FACT, Y=TOTAL_FACT,
-      // Z=ECONOMY_FB, AA=ECONOMY_KB, AB=ECONOMY_MB, AD=FLAG
-      const planMoney = parseFloat(String(cells.K ?? 0)) || 0;
-      const factMoney = parseFloat(String(cells.Y ?? 0)) || 0;
-      const ecoFB = parseFloat(String(cells.Z ?? 0)) || 0;
-      const ecoKB = parseFloat(String(cells.AA ?? 0)) || 0;
-      const ecoMB = parseFloat(String(cells.AB ?? 0)) || 0;
-      const ecoTotal = ecoFB + ecoKB + ecoMB;
-
-      return {
-        rowIndex: idx + 4, // 1-based: slice(3) skips 3 header rows, so idx=0 → row 4
-        id: cells.A,
-        regNumber: cells.B ?? '',
-        subordinate: cells.C ?? '',
-        programName: cells.D ?? '',
-        type: cells.F ?? '',
-        subject: cells.G ?? '',
-        planFB: parseFloat(String(cells.H ?? 0)) || 0,
-        planKB: parseFloat(String(cells.I ?? 0)) || 0,
-        planMB: parseFloat(String(cells.J ?? 0)) || 0,
-        planSum: planMoney,
-        method: String(cells.L ?? ''),
-        // Даты — ISO «YYYY-MM-DD» | null (канон DTO, см. sheetDateToIso);
-        // *Raw — исходное значение ячейки листа (serial/строка) для записи-обратно.
-        planDate: sheetDateToIso(cells.N),
-        planDateRaw: cells.N ?? '',
-        planQuarter: cells.O ?? '',
-        factDate: sheetDateToIso(cells.Q),
-        factDateRaw: cells.Q ?? '',
-        factQuarter: cells.R ?? '',
-        planYear: parseInt(String(cells.P ?? ''), 10) || 0,
-        factFB: parseFloat(String(cells.V ?? 0)) || 0,
-        factKB: parseFloat(String(cells.W ?? 0)) || 0,
-        factMB: parseFloat(String(cells.X ?? 0)) || 0,
-        factSum: factMoney,
-        economy: ecoTotal,
-        economyFB: ecoFB,
-        economyKB: ecoKB,
-        economyMB: ecoMB,
-        flag: cells.AD ?? '',
-        commentGRBS: cells.AE ?? '',
-        commentExtra: cells.AF ?? '',
-        status: STATUS_MAP[state] ?? state,
-        dept: dept.id,
-        signals,
-        state,
-        badges,
-      };
-    }).filter(r => {
-      // Filter out non-data rows
-      const subj = String(r.subject).trim().toLowerCase();
-      const idStr = String(r.id ?? '').trim().toLowerCase();
-      // Skip rows with no subject AND no plan money
-      if (!subj && !r.planSum) return false;
-      // Skip aggregate/header rows
-      if (isMetaRow(subj)) return false;
-      // Skip header-like rows (id contains non-numeric text like "№ п/п")
-      if (idStr && isNaN(Number(idStr)) && !idStr.match(/^\d/)) return false;
-      // Skip rows where method is clearly a header label (not ЭА/ЭК/ЭЗК/ЕП)
-      const m = r.method.trim().toUpperCase();
-      if (m.length > 5 && !['ЭА', 'ЭК', 'ЭЗК', 'ЕП'].includes(m)) return false;
-      return true;
-    });
-
-    // Apply search filter
-    let filtered = processedRows;
-    if (searchTerm) {
-      filtered = filtered.filter(r =>
-        String(r.subject).toLowerCase().includes(searchTerm) ||
-        String(r.method).toLowerCase().includes(searchTerm) ||
-        String(r.status).toLowerCase().includes(searchTerm) ||
-        String(r.regNumber).toLowerCase().includes(searchTerm) ||
-        String(r.subordinate).toLowerCase().includes(searchTerm),
-      );
-    }
-
-    // Apply type filter (column L = METHOD: ЭА, ЭК, ЭЗК = КП; ЕП = ЕП)
-    if (filterType === 'competitive' || filterType === 'КП') {
-      filtered = filtered.filter(r => {
-        const m = r.method.toUpperCase();
-        return m === 'ЭА' || m === 'ЭК' || m === 'ЭЗК';
-      });
-    } else if (filterType === 'single' || filterType === 'ЕП') {
-      filtered = filtered.filter(r => r.method.toUpperCase() === 'ЕП');
-    }
-
-    // Apply subordinate filter (column C = SUBORDINATE)
-    // Supports comma-separated list of subordinates.
-    // `_org_itself` — валидный фильтр «Аппарат управления» (фильтр-спека 16.07 Б4):
-    // матчит строки, где C пуст или самоссылка (Х/X) — закупки самого управления.
-    if (filterSubordinate) {
-      const subs = filterSubordinate.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-      const wantsOrgItself = subs.includes('_org_itself');
-      const nameSubs = subs.filter(s => s !== '_org_itself');
-      filtered = filtered.filter(r => {
-        const raw = String(r.subordinate ?? '').trim();
-        const sub = raw.toLowerCase();
-        if (wantsOrgItself && (raw === '' || /^[xх]$/i.test(raw))) return true;
-        return nameSubs.some(s => sub.includes(s));
-      });
-    }
-
-    // Apply activity filter (column F = TYPE + column D program name)
-    // F = "Текущая деятельность" / "Программное мероприятие"
-    // ТД sub-classification: наличие реального текста ПМ в D → в рамках ПМ, иначе (X/x/Х/х/пусто) → вне ПМ
-    if (filterActivity) {
-      filtered = filtered.filter(r => {
-        const at = String(r.type).toLowerCase();
-        const pmVal = String(r.programName ?? '').trim();
-        const hasPM = pmVal.length > 0 && !/^[XxХх]$/u.test(pmVal);
-        switch (filterActivity) {
-          case 'program':
-            return at.includes('программное мероприятие');
-          case 'current_program':
-            return at.includes('текущая') && hasPM;
-          case 'current_non_program':
-            return at.includes('текущая') && !hasPM;
-          default:
-            return at.includes(filterActivity);
-        }
-      });
-    }
-
-    // Apply state filter
-    if (filterState) {
-      filtered = filtered.filter(r => r.state === filterState);
-    }
-
-    // Apply year filter (column P = PLAN_YEAR). Rows without a year (planYear=0)
-    // stay visible — consistent with calc-engine.ts:440.
-    if (yearFilter) {
-      filtered = filtered.filter(r => r.planYear === 0 || r.planYear === yearFilter);
-    }
-
-    // Compute signal summary (before pagination, after filters)
+    // Сводка по сигналам (до пагинации, после фильтров)
     const signalSummary = {
       signed: filtered.filter(r => r.state === 'signed').length,
       overdue: filtered.filter(r => r.state === 'overdue').length,
@@ -290,33 +115,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       total: filtered.length,
     };
 
-    // Sort
-    if (sortCol) {
-      filtered.sort((a, b) => {
-        const aVal = (a as Record<string, unknown>)[sortCol];
-        const bVal = (b as Record<string, unknown>)[sortCol];
-        const aNum = typeof aVal === 'number' ? aVal : NaN;
-        const bNum = typeof bVal === 'number' ? bVal : NaN;
-
-        let cmp: number;
-        if (!isNaN(aNum) && !isNaN(bNum)) {
-          cmp = aNum - bNum;
-        } else {
-          cmp = String(aVal ?? '').localeCompare(String(bVal ?? ''), 'ru');
-        }
-        return sortOrder === 'desc' ? -cmp : cmp;
-      });
-    }
-
-    // Paginate
-    const total = filtered.length;
-    const totalPages = Math.ceil(total / limit);
-    const start = (page - 1) * limit;
-    const paginatedRows = filtered.slice(start, start + limit);
+    const sorted = sortRows(filtered, sortCol, sortOrder);
+    const { pageRows, total, totalPages } = paginateRows(sorted, page, limit);
 
     return reply.send({
       department: dept,
-      rows: paginatedRows,
+      rows: pageRows,
       pagination: {
         page,
         limit,
@@ -340,36 +144,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(404).send({ error: `Отдел "${deptId}" не найден` });
     }
 
-    // Read sheet data — cache-first, then SVOD fallback, then live API
-    const sheetName = dept.sheetName;
-    let rawRows: unknown[][];
-    const cached = getDeptSheetValues()[dept.nameShort];
-    if (cached && cached.length > 0) {
-      rawRows = cached;
-    } else {
-      let loaded = false;
-      try {
-        rawRows = await getSheetData(sheetName);
-        loaded = rawRows.length > 0;
-      } catch {
-        rawRows = [];
+    // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
+    const read = await readDeptRows(dept);
+    if (!read.ok) {
+      if (read.reason === 'read-error') {
+        app.log.error(`Ошибка чтения таблицы управления "${dept.nameShort}": ${read.error}`);
+      } else {
+        app.log.error(`Нет данных для отдела "${dept.nameShort}" и нет spreadsheetId`);
       }
-      if (!loaded) {
-        const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-        if (ssId) {
-          try {
-            // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-            rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
-          } catch (err) {
-            app.log.error(`Ошибка чтения таблицы управления "${dept.nameShort}": ${err}`);
-            return reply.status(503).send({ error: 'Google Sheets unavailable' });
-          }
-        } else {
-          app.log.error(`Нет данных для отдела "${dept.nameShort}" и нет spreadsheetId`);
-          return reply.status(503).send({ error: 'Google Sheets unavailable' });
-        }
-      }
+      return reply.status(503).send({ error: 'Google Sheets unavailable' });
     }
+    const rawRows = read.values;
 
     // Validate row index (idx is 1-based sheet row; row 1 = header, data starts at row 2)
     // rawRows[0] = header, rawRows[idx - 1] = requested row
@@ -411,6 +196,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    * Формульные колонки (K, O, P, R, S, T, Y, Z, AA, AB, AC) — ЗАБЛОКИРОВАНЫ.
    * Итоговые строки — ЗАБЛОКИРОВАНЫ.
    */
+  // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
     const body = request.body as { field?: string; value?: unknown };
@@ -569,6 +355,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    *
    * Body: { rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }> }
    */
+  // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.post('/api/data/rows', async (request, reply) => {
     const body = request.body as {
       rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>;
@@ -762,6 +549,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    * 2. «План расчёт» — реплика тех же COUNTIFS/SUMIFS по строкам листа ВСЕ
    * 3. Дельта ≠ 0 → проблема в формулах или данных
    */
+  // DEPRECATED (целевая модель): orphan-роут M2 (target-architecture 2026-07-15 §2) —
+  // web его не вызывает; судьба решается в E4 (провести до экрана или снести). Не извлекать в сервисы.
   app.get('/api/reconcile', async (_request, reply) => {
     let snapshot;
     try {
@@ -820,6 +609,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    * GET /api/reconcile/:deptId
    * Детальная сверка по одному отделу.
    */
+  // DEPRECATED (целевая модель): orphan-роут M2 (target-architecture 2026-07-15 §2) — см. /api/reconcile выше.
   app.get('/api/reconcile/:deptId', async (request, reply) => {
     const { deptId } = request.params as { deptId: string };
 
@@ -856,34 +646,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const result: Record<string, string[]> = {};
 
     for (const dept of DEPARTMENTS) {
-      let rawRows: unknown[][];
-      const cachedSub = getDeptSheetValues()[dept.nameShort];
-      if (cachedSub && cachedSub.length > 0) {
-        rawRows = cachedSub;
-      } else {
-        let loaded = false;
-        try {
-          rawRows = await getSheetData(dept.sheetName);
-          loaded = rawRows.length > 0;
-        } catch {
-          rawRows = [];
+      // Каскад чтения — rows-read; недоступный отдел пропускается (в отличие от 503 основных роутов)
+      const read = await readDeptRows(dept);
+      if (!read.ok) {
+        if (read.reason === 'read-error') {
+          app.log.warn({ err: read.error }, `subordinates: failed to read spreadsheet for ${dept.nameShort}`);
+        } else {
+          app.log.warn(`subordinates: no data source for ${dept.nameShort}`);
         }
-        if (!loaded) {
-          const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-          if (ssId) {
-            try {
-              // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-              rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
-            } catch (err) {
-              app.log.warn({ err }, `subordinates: failed to read spreadsheet for ${dept.nameShort}`);
-              continue;
-            }
-          } else {
-            app.log.warn(`subordinates: no data source for ${dept.nameShort}`);
-            continue;
-          }
-        }
+        continue;
       }
+      const rawRows = read.values;
 
       const subs = new Set<string>();
       for (let i = DEPT_HEADER_ROWS; i < rawRows.length; i++) {
@@ -919,34 +692,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const subjectMap = new Map<string, { text: string; count: number; departments: Set<string> }>();
 
     for (const dept of DEPARTMENTS) {
-      let rawRows: unknown[][];
-      const cachedSubj = getDeptSheetValues()[dept.nameShort];
-      if (cachedSubj && cachedSubj.length > 0) {
-        rawRows = cachedSubj;
-      } else {
-        let loaded = false;
-        try {
-          rawRows = await getSheetData(dept.sheetName);
-          loaded = rawRows.length > 0;
-        } catch {
-          rawRows = [];
+      // Каскад чтения — rows-read; недоступный отдел пропускается
+      const read = await readDeptRows(dept);
+      if (!read.ok) {
+        if (read.reason === 'read-error') {
+          app.log.warn({ err: read.error }, `subjects: failed to read spreadsheet for ${dept.nameShort}`);
+        } else {
+          app.log.warn(`subjects: no data source for ${dept.nameShort}`);
         }
-        if (!loaded) {
-          const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-          if (ssId) {
-            try {
-              // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-              rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
-            } catch (err) {
-              app.log.warn({ err }, `subjects: failed to read spreadsheet for ${dept.nameShort}`);
-              continue;
-            }
-          } else {
-            app.log.warn(`subjects: no data source for ${dept.nameShort}`);
-            continue;
-          }
-        }
+        continue;
       }
+      const rawRows = read.values;
 
       for (let i = DEPT_HEADER_ROWS; i < rawRows.length; i++) {
         const row = rawRows[i];
@@ -1058,34 +814,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     }> = [];
 
     for (const dept of departments) {
-      let rawRows: unknown[][];
-      const cachedScatter = getDeptSheetValues()[dept.nameShort];
-      if (cachedScatter && cachedScatter.length > 0) {
-        rawRows = cachedScatter;
-      } else {
-        let loaded = false;
-        try {
-          rawRows = await getSheetData(dept.sheetName);
-          loaded = rawRows.length > 0;
-        } catch {
-          rawRows = [];
+      // Каскад чтения — rows-read; недоступный отдел пропускается
+      const read = await readDeptRows(dept);
+      if (!read.ok) {
+        if (read.reason === 'read-error') {
+          app.log.warn({ err: read.error }, `scatter: failed to read spreadsheet for ${dept.nameShort}`);
+        } else {
+          app.log.warn(`scatter: no data source for ${dept.nameShort}`);
         }
-        if (!loaded) {
-          const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-          if (ssId) {
-            try {
-              // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-              rawRows = (await readDeptSheet(dept.nameShort, ssId)).values;
-            } catch (err) {
-              app.log.warn({ err }, `scatter: failed to read spreadsheet for ${dept.nameShort}`);
-              continue;
-            }
-          } else {
-            app.log.warn(`scatter: no data source for ${dept.nameShort}`);
-            continue;
-          }
-        }
+        continue;
       }
+      const rawRows = read.values;
 
       for (let i = DEPT_HEADER_ROWS; i < rawRows.length && allPoints.length < 2500; i++) {
         const row = rawRows[i];
