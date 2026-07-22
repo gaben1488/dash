@@ -37,6 +37,10 @@ export function buildMetricRows(deltas: ReconMetricDelta[]): MetricReconRow[] {
     });
 }
 
+/** Латинский id ГРБС из ключа метрики → кириллическое имя (канон @aemr/shared).
+ *  Ключ из regex-матча — произвольная строка, поэтому расширяем тип индекса. */
+const DEPT_ID_TO_RU: Readonly<Record<string, string>> = LATIN_TO_CYRILLIC;
+
 /**
  * Активные строки метрик:
  * 1) обе величины 0 → пустая метрика, отбрасывается всегда;
@@ -44,7 +48,6 @@ export function buildMetricRows(deltas: ReconMetricDelta[]): MetricReconRow[] {
  *    выбор = всё проходит; метрики без ГРБС-паттерна проходят всегда.
  */
 export function filterActiveMetricRows(rows: MetricReconRow[], selectedDepartments: ReadonlySet<string>): MetricReconRow[] {
-  const DEPT_ID_TO_RU: Record<string, string> = { ...LATIN_TO_CYRILLIC };
   return rows.filter(r => {
     if (r.official === 0 && r.calculated === 0) return false;
     if (selectedDepartments.size === 0) return true;
@@ -56,10 +59,8 @@ export function filterActiveMetricRows(rows: MetricReconRow[], selectedDepartmen
 }
 
 /** Счёт строк метрик по оценкам (для бейджей-саммари) */
-export function countMetricAssessments(rows: MetricReconRow[]): { ok: number; warning: number; critical: number } {
-  return {
-    ok: rows.filter(r => r.assessment === 'ok').length,
-    warning: rows.filter(r => r.assessment === 'warning').length,
-    critical: rows.filter(r => r.assessment === 'critical').length,
-  };
+export function countMetricAssessments(rows: MetricReconRow[]): Record<MetricAssessment, number> {
+  const counts: Record<MetricAssessment, number> = { ok: 0, warning: 0, critical: 0 };
+  for (const r of rows) counts[r.assessment]++;
+  return counts;
 }

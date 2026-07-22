@@ -9,7 +9,7 @@
 //    и подпись «расчёт не построен».
 
 import clsx from 'clsx';
-import type { ReconBudget, ReconCell } from './types';
+import type { ReconBudget, ReconCell, ReconMonthlyRootCause } from './types';
 
 /** Короткие имена месяцев, индекс = номер месяца (1-12); [0] — заглушка */
 export const MONTH_NAMES_SHORT = ['', 'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
@@ -48,9 +48,16 @@ export function monthlyDeltaClass(cell: ReconCell | undefined): string {
 }
 
 /** Русская подпись достоверности root-cause */
-export function confidenceLabel(confidence: 'low' | 'medium' | 'high'): string {
+export function confidenceLabel(confidence: ReconMonthlyRootCause['confidence']): string {
   return confidence === 'high' ? 'высокая' : confidence === 'medium' ? 'средняя' : 'низкая';
 }
+
+/** Метки бюджетных ячеек: ключ DTO (BudgetReconCells ядра) → подпись в UI */
+const BUDGET_CELL_LABELS: ReadonlyArray<[label: string, key: keyof ReconBudget]> = [
+  ['план ФБ', 'planFB'], ['план КБ', 'planKB'], ['план МБ', 'planMB'],
+  ['факт ФБ', 'factFB'], ['факт КБ', 'factKB'], ['факт МБ', 'factMB'],
+  ['эконом. ФБ', 'economyFB'], ['эконом. КБ', 'economyKB'], ['эконом. МБ', 'economyMB'],
+];
 
 /**
  * Сбор проблемных ячеек бюджетной разбивки (ФБ/КБ/МБ) КП+ЕП:
@@ -64,13 +71,8 @@ export function collectBudgetDiscrepancies(
   const budgetRows: Array<[string, ReconCell]> = [];
   const collect = (tag: string, b: ReconBudget | undefined) => {
     if (!b) return;
-    const defs: Array<[string, string]> = [
-      ['план ФБ', 'planFB'], ['план КБ', 'planKB'], ['план МБ', 'planMB'],
-      ['факт ФБ', 'factFB'], ['факт КБ', 'factKB'], ['факт МБ', 'factMB'],
-      ['эконом. ФБ', 'economyFB'], ['эконом. КБ', 'economyKB'], ['эконом. МБ', 'economyMB'],
-    ];
-    for (const [lab, fk] of defs) {
-      const c = b[fk];
+    for (const [lab, key] of BUDGET_CELL_LABELS) {
+      const c = b[key];
       if (c && (c.status === 'warning' || c.status === 'high')) budgetRows.push([`${tag} ${lab}`, c]);
     }
   };

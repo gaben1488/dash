@@ -5,10 +5,10 @@ import type { ReconSubordinate } from './types';
 
 /** % исполнения подведа: приоритет — готовое поле API, иначе (КП+ЕП)/план-строки */
 export function subordinateExecutionPct(sub: ReconSubordinate): number {
-  return sub.executionPct
-    ?? ((sub.rowCount ?? 0) > 0
-      ? (((sub.competitiveCount ?? 0) + (sub.epCount ?? 0)) / (sub.rowCount ?? 1)) * 100
-      : 0);
+  if (sub.executionPct != null) return sub.executionPct;
+  const planCount = sub.rowCount ?? 0;
+  if (planCount <= 0) return 0;
+  return (((sub.competitiveCount ?? 0) + (sub.epCount ?? 0)) / planCount) * 100;
 }
 
 export interface DeptSubordinateTotals {
@@ -22,11 +22,14 @@ export interface DeptSubordinateTotals {
 
 /** Итоги по управлению = сумма его подведов (строка «Итого» под группой) */
 export function aggregateDeptSubordinates(subs: ReconSubordinate[]): DeptSubordinateTotals {
-  const planCount = subs.reduce((s, sub) => s + (sub.rowCount ?? 0), 0);
-  const factCount = subs.reduce((s, sub) => s + (sub.competitiveCount ?? 0) + (sub.epCount ?? 0), 0);
-  const planTotal = subs.reduce((s, sub) => s + (sub.planTotal ?? 0), 0);
-  const factTotal = subs.reduce((s, sub) => s + (sub.factTotal ?? 0), 0);
-  const economy = subs.reduce((s, sub) => s + (sub.economyTotal ?? 0), 0);
-  const execPct = planCount > 0 ? (factCount / planCount) * 100 : 0;
-  return { planCount, factCount, planTotal, factTotal, economy, execPct };
+  const t: DeptSubordinateTotals = { planCount: 0, factCount: 0, planTotal: 0, factTotal: 0, economy: 0, execPct: 0 };
+  for (const sub of subs) {
+    t.planCount += sub.rowCount ?? 0;
+    t.factCount += (sub.competitiveCount ?? 0) + (sub.epCount ?? 0);
+    t.planTotal += sub.planTotal ?? 0;
+    t.factTotal += sub.factTotal ?? 0;
+    t.economy += sub.economyTotal ?? 0;
+  }
+  t.execPct = t.planCount > 0 ? (t.factCount / t.planCount) * 100 : 0;
+  return t;
 }
