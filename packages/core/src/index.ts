@@ -28,6 +28,14 @@ export type { KBEntryData, MetricCategory, MetricUnit } from './metrics/index.js
 export { quarterExecution, quarterExecutionFromCounts } from './metrics/quarter-execution.js';
 export type { QuarterExecutionOptions, QuarterExecutionResult } from './metrics/quarter-execution.js';
 
+// buildReport-проекция — сердце страницы «Отчёт» (фаза 1.4-1.5, дуга-3)
+export { buildReport } from './report/build-report.js';
+export type { BuildReportInput, BuildReportOptions } from './report/build-report.js';
+export type {
+  Report, ReportPeriod, ReportOrigin, IntegralSummary, GrbsReportBlock,
+  GrbsQuarterSlice, GrbsYearSlice, MethodSplit, PlanFactCounts, BudgetMoney, ReportSignal,
+} from './report/types.js';
+
 // History — snapshot-diff (слой 1 фичи «История изменений»)
 export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';
 export type { Direction, Sentiment, MetricRow, MetricDelta } from './history/snapshot-diff.js';
