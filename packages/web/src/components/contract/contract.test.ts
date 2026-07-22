@@ -1,0 +1,58 @@
+/**
+ * Юниты контракта элементов страницы: чистые хелперы + tsc-контракт пропсов.
+ * Рендер-тестов в харнесе нет (node env) — компоненты проверяются типами.
+ */
+import { describe, it, expect } from 'vitest';
+import { SOURCE_META, type ElementSource, type PageElementProps } from './types';
+import { kpiTileLabel, type KpiTileProps } from './KpiTile';
+import { EMPTY_FILTER_CONTEXT } from '../../lib/filter-context';
+
+describe('SOURCE_META — словарь бейджа происхождения', () => {
+  it('подписи совпадают с существующим бейджем AnalyticsCard', () => {
+    expect(SOURCE_META.calc.label).toBe('Расчёт');
+    expect(SOURCE_META.svod.label).toBe('СВОД');
+    expect(SOURCE_META.mixed.label).toBe('Комби');
+  });
+
+  it('каждый источник несёт непустой стиль (light+dark)', () => {
+    for (const source of Object.keys(SOURCE_META) as ElementSource[]) {
+      const meta = SOURCE_META[source];
+      expect(meta.className).toMatch(/bg-/);
+      expect(meta.className).toMatch(/dark:/);
+    }
+  });
+});
+
+describe('kpiTileLabel — подпись строго из канон-словаря', () => {
+  it('известный ключ метрики → русская подпись productLabel', () => {
+    expect(kpiTileLabel('plan_count')).toBe('План (кол-во)');
+    expect(kpiTileLabel('ep_count')).toBe('ЕП (кол-во)');
+  });
+
+  it('неизвестный ключ — фолбэк на сам ключ (сигнал дополнить словарь), не бросает', () => {
+    expect(kpiTileLabel('__nonexistent__')).toBe('__nonexistent__');
+  });
+});
+
+describe('tsc-контракт PageElementProps', () => {
+  it('элемент обязан принимать filterCtx и source; KpiTile — полный набор пропсов', () => {
+    // Компилируемость этих объектов и есть проверка контракта.
+    const base: PageElementProps = { filterCtx: EMPTY_FILTER_CONTEXT, source: 'calc' };
+    const tile: KpiTileProps = {
+      ...base,
+      metricKey: 'plan_count',
+      value: '1 234',
+      unit: 'тыс ₽',
+      periodBadge: 'Q1 · официал',
+    };
+    expect(tile.filterCtx).toBe(EMPTY_FILTER_CONTEXT);
+
+    // @ts-expect-error — source обязателен по типу
+    const missingSource: PageElementProps = { filterCtx: EMPTY_FILTER_CONTEXT };
+    // @ts-expect-error — filterCtx обязателен по типу
+    const missingCtx: PageElementProps = { source: 'svod' };
+    // @ts-expect-error — periodBadge (честный скоуп) обязателен у KPI-плитки
+    const noBadge: KpiTileProps = { ...base, metricKey: 'plan_count', value: '1', unit: '' };
+    expect([missingSource, missingCtx, noBadge].length).toBe(3);
+  });
+});
