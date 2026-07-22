@@ -1,9 +1,16 @@
 /**
- * Query-фильтры списка строк /api/rows/:deptId (E11-2).
- * Извлечено move-only из routes/rows.ts (GET /api/rows/:deptId, ~стр. 77–315).
+ * Query-фильтры списка строк /api/rows/:deptId (E11-2, rethink 2026-07-22).
  * Чистые функции от (rows, параметры запроса) — никакого чтения store/глобалей.
- * Инвариант каждого фильтра: пустой параметр = всё проходит (массив возвращается как есть).
+ * Инвариант каждого фильтра: пустой параметр = всё проходит (массив как есть).
+ * Осевые каноны — из @aemr/shared: способы (METHOD_FAMILY_MAP), «само управление»
+ * (isOrgItself), активность ТД/ПМ (matchesActivityScope).
  */
+import {
+  METHOD_FAMILY_MAP,
+  ORG_ITSELF_SENTINEL,
+  isOrgItself,
+  matchesActivityScope,
+} from '@aemr/shared';
 
 /** Минимальная форма строки, которую режут фильтры (RowDto ей удовлетворяет). */
 export interface FilterableRow {
@@ -25,71 +32,73 @@ export function parseYearFilter(yearRaw: string | undefined): number | undefined
   return Number.isInteger(n) && n >= 2020 && n <= 2100 ? n : undefined;
 }
 
+/** Поля, по которым ищет applySearchFilter (единый список вместо цепочки ||). */
+const SEARCH_FIELDS: readonly (keyof FilterableRow)[] =
+  ['subject', 'method', 'status', 'regNumber', 'subordinate'];
+
 /** Поиск по предмету/способу/статусу/реестровому номеру/подведу (searchTerm уже lower-case). */
 export function applySearchFilter<T extends FilterableRow>(rows: T[], searchTerm: string): T[] {
   if (!searchTerm) return rows;
   return rows.filter(r =>
-    String(r.subject).toLowerCase().includes(searchTerm) ||
-    String(r.method).toLowerCase().includes(searchTerm) ||
-    String(r.status).toLowerCase().includes(searchTerm) ||
-    String(r.regNumber).toLowerCase().includes(searchTerm) ||
-    String(r.subordinate).toLowerCase().includes(searchTerm),
+    SEARCH_FIELDS.some(f => String(r[f]).toLowerCase().includes(searchTerm)),
   );
 }
 
+/** Значение query.type → семейство кодов колонки L (словарь method-families). */
+const METHODS_BY_TYPE_FILTER: Record<string, readonly string[]> = {
+  competitive: METHOD_FAMILY_MAP.COMPETITIVE,
+  'КП': METHOD_FAMILY_MAP.COMPETITIVE,
+  single: METHOD_FAMILY_MAP.EP,
+  'ЕП': METHOD_FAMILY_MAP.EP,
+};
+
 /** Тип закупки по колонке L = METHOD: ЭА/ЭК/ЭЗК = КП (competitive); ЕП = single. */
 export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: string): T[] {
-  if (filterType === 'competitive' || filterType === 'КП') {
-    return rows.filter(r => {
-      const m = r.method.toUpperCase();
-      return m === 'ЭА' || m === 'ЭК' || m === 'ЭЗК';
-    });
-  }
-  if (filterType === 'single' || filterType === 'ЕП') {
-    return rows.filter(r => r.method.toUpperCase() === 'ЕП');
-  }
-  return rows;
+  const codes = METHODS_BY_TYPE_FILTER[filterType];
+  if (!codes) return rows; // пусто или нераспознанное значение — всё проходит
+  return rows.filter(r => codes.includes(r.method.toUpperCase()));
 }
 
 /**
  * Фильтр по подведу (колонка C = SUBORDINATE), список через запятую.
  * `_org_itself` — валидный фильтр «Аппарат управления» (фильтр-спека 16.07 Б4):
- * матчит строки, где C пуст или самоссылка (Х/X) — закупки самого управления.
+ * матчит строки-закупки самого управления по канон-предикату isOrgItself
+ * (пусто / самоссылка X/Х/тире / плейсхолдеры «н/д», «нет» — единый канон оси C).
  * filterSubordinate уже trim + lower-case (как в исходном роуте).
  */
 export function applySubordinateFilter<T extends FilterableRow>(rows: T[], filterSubordinate: string): T[] {
   if (!filterSubordinate) return rows;
   const subs = filterSubordinate.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  const wantsOrgItself = subs.includes('_org_itself');
-  const nameSubs = subs.filter(s => s !== '_org_itself');
+  const wantsOrgItself = subs.includes(ORG_ITSELF_SENTINEL);
+  const nameSubs = subs.filter(s => s !== ORG_ITSELF_SENTINEL);
   return rows.filter(r => {
-    const raw = String(r.subordinate ?? '').trim();
-    const sub = raw.toLowerCase();
-    if (wantsOrgItself && (raw === '' || /^[xх]$/i.test(raw))) return true;
+    if (wantsOrgItself && isOrgItself(r.subordinate)) return true;
+    const sub = String(r.subordinate ?? '').trim().toLowerCase();
     return nameSubs.some(s => sub.includes(s));
   });
 }
 
 /**
- * Фильтр по виду деятельности (колонка F = TYPE + колонка D program name).
- * F = "Текущая деятельность" / "Программное мероприятие".
- * ТД sub-classification: наличие реального текста ПМ в D → в рамках ПМ, иначе (X/x/Х/х/пусто) → вне ПМ.
+ * Фильтр по виду деятельности — осевой канон matchesActivityScope
+ * (F = TYPE: ТД/ПМ; D = PROGRAM_NAME: реальный текст = «в рамках ПМ»).
+ *   program             → ПМ
+ *   current_program     → ТД в рамках ПМ (срез td_pm)
+ *   current_non_program → ТД вне ПМ
+ *   иначе               → substring по F (легаси-значения фильтра)
  */
 export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterActivity: string): T[] {
   if (!filterActivity) return rows;
   return rows.filter(r => {
-    const at = String(r.type).toLowerCase();
-    const pmVal = String(r.programName ?? '').trim();
-    const hasPM = pmVal.length > 0 && !/^[XxХх]$/u.test(pmVal);
     switch (filterActivity) {
       case 'program':
-        return at.includes('программное мероприятие');
+        return matchesActivityScope('pm', r.type);
       case 'current_program':
-        return at.includes('текущая') && hasPM;
+        return matchesActivityScope('td_pm', r.type, r.programName);
       case 'current_non_program':
-        return at.includes('текущая') && !hasPM;
+        return matchesActivityScope('td', r.type)
+          && !matchesActivityScope('td_pm', r.type, r.programName);
       default:
-        return at.includes(filterActivity);
+        return String(r.type).toLowerCase().includes(filterActivity);
     }
   });
 }
@@ -115,15 +124,12 @@ export function sortRows<T>(rows: T[], sortCol: string, sortOrder: 'asc' | 'desc
   return [...rows].sort((a, b) => {
     const aVal = (a as Record<string, unknown>)[sortCol];
     const bVal = (b as Record<string, unknown>)[sortCol];
-    const aNum = typeof aVal === 'number' ? aVal : NaN;
-    const bNum = typeof bVal === 'number' ? bVal : NaN;
-
-    let cmp: number;
-    if (!isNaN(aNum) && !isNaN(bNum)) {
-      cmp = aNum - bNum;
-    } else {
-      cmp = String(aVal ?? '').localeCompare(String(bVal ?? ''), 'ru');
-    }
+    // NaN-значения уводим в строковое сравнение — компаратор не должен вернуть NaN
+    const bothNumbers = typeof aVal === 'number' && typeof bVal === 'number'
+      && !Number.isNaN(aVal) && !Number.isNaN(bVal);
+    const cmp = bothNumbers
+      ? aVal - bVal
+      : String(aVal ?? '').localeCompare(String(bVal ?? ''), 'ru');
     return sortOrder === 'desc' ? -cmp : cmp;
   });
 }

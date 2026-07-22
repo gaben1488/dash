@@ -1,16 +1,16 @@
 /**
- * Чтение сырых строк отдела для /api/rows/* (E11-2).
- * Извлечено move-only из routes/rows.ts (каскад чтения, ~стр. 91–123 и дубли
- * в /rows/:deptId/:rowIndex, /rows/subordinates, /rows/subjects, /rows/scatter).
+ * Чтение сырых строк отдела для /api/rows/* (E11-2, rethink 2026-07-22).
+ * Используется GET /api/rows/:deptId, /rows/:deptId/:rowIndex, /rows/subordinates,
+ * /rows/subjects, /rows/scatter.
  *
- * Каскад cache-first:
- * 1. Кэш отдела (deptSheetCache, наполняется fetchDepartmentSpreadsheets на старте)
- * 2. Лист сводной книги СВОД (legacy fallback, getSheetData)
- * 3. Собственная книга управления (последний рубеж, живой API-вызов readDeptSheet)
+ * Каскад cache-first — три именованные ступени, каждая с ранним выходом:
+ *   1. Кэш отдела (deptSheetCache, наполняется fetchDepartmentSpreadsheets на старте)
+ *   2. Зеркальный лист сводной книги СВОД (DEPRECATED, D1 — legacy-фолбэк)
+ *   3. Собственная книга управления (последний рубеж, живой API-вызов readDeptSheet)
  *
  * Ошибки не логируются и не превращаются в HTTP-ответ здесь — роут сам решает
  * (503 для основных роутов, skip-отдела для сводных), поэтому наружу отдаётся
- * дискриминированный результат.
+ * дискриминированный результат с честной причиной отказа.
  */
 import { getSheetData, readDeptSheet } from './google-sheets.js';
 import { getDeptSheetValues } from './snapshot.js';
@@ -25,26 +25,25 @@ export type DeptRowsResult =
 
 /** Отделу достаточно nameShort (ключ кэша/реестра книг) и sheetName (лист СВОД). */
 export async function readDeptRows(dept: { nameShort: string; sheetName: string }): Promise<DeptRowsResult> {
+  // Ступень 1 — кэш отдела.
   const cached = getDeptSheetValues()[dept.nameShort];
-  if (cached && cached.length > 0) {
-    return { ok: true, values: cached };
-  }
+  if (cached && cached.length > 0) return { ok: true, values: cached };
 
-  let rawRows: unknown[][];
-  let loaded = false;
+  // Ступень 2 — зеркальный лист СВОД (DEPRECATED, D1). Пустой лист или ошибка
+  // чтения — не приговор: молча падаем на ступень 3.
   try {
-    rawRows = await getSheetData(dept.sheetName);
-    loaded = rawRows.length > 0;
+    const mirror = await getSheetData(dept.sheetName);
+    if (mirror.length > 0) return { ok: true, values: mirror };
   } catch {
-    rawRows = [];
+    // зеркало недоступно — пробуем собственную книгу управления
   }
-  if (loaded) return { ok: true, values: rawRows };
 
-  const ssId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
-  if (!ssId) return { ok: false, reason: 'no-source' };
+  // Ступень 3 — собственная книга управления (живое чтение).
+  const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
+  if (!spreadsheetId) return { ok: false, reason: 'no-source' };
   try {
     // Канон: readDeptSheet (кандидаты «ВСЕ»/«Все»/имя + честные 429/403), не наивные 2 кандидата.
-    return { ok: true, values: (await readDeptSheet(dept.nameShort, ssId)).values };
+    return { ok: true, values: (await readDeptSheet(dept.nameShort, spreadsheetId)).values };
   } catch (err) {
     return { ok: false, reason: 'read-error', error: err };
   }

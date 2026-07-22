@@ -1,10 +1,21 @@
 /**
- * Билдер DTO строки закупки для /api/rows/* (E11-2).
- * Извлечено move-only из routes/rows.ts (GET /api/rows/:deptId, ~стр. 126–211).
+ * Билдер DTO строки закупки для /api/rows/* (E11-2, rethink 2026-07-22).
  * Чистые функции: явные аргументы, никакого чтения кэшей/глобалей.
+ * Страховочная сетка контракта — rows-dto.test.ts (характеризация DTO).
  */
-import { buildCellDict, isMetaRow, parseSheetDate } from '@aemr/shared';
-import { detectSignals, classifyRowState, getSignalBadges } from '@aemr/core';
+import {
+  buildCellDict,
+  isMetaRow,
+  parseSheetDate,
+  DEPT_COLUMNS,
+  DEPT_HEADER_ROWS,
+  METHOD_FAMILY_MAP,
+  SIGNAL_LABELS,
+} from '@aemr/shared';
+import { detectSignals, classifyRowState, getSignalBadges, type RowState } from '@aemr/core';
+
+/** Бейдж сигнала (core не экспортирует тип SignalBadge из барреля — деривим). */
+type SignalBadge = ReturnType<typeof getSignalBadges>[number];
 
 /**
  * Дата-канон DTO (fidelity-аудит 2026-07-16 §2.2). Ячейки N/Q приходят из листов
@@ -13,8 +24,6 @@ import { detectSignals, classifyRowState, getSignalBadges } from '@aemr/core';
  * дд.мм.гггг — на рендере web). Сырое значение листа сохраняется рядом в поле
  * *Raw: пути ЗАПИСИ (PUT /field, POST /api/data/rows) работают с пользовательским
  * вводом/сырьём и НЕ читают конвертированное поле — формат листа не меняется.
- *
- * Извлечено из routes/rows.ts (sheetDateToIso).
  */
 export function sheetDateToIso(val: unknown): string | null {
   // «дд.мм.гггг» — строковыми операциями, без Date: локальная полночь через
@@ -26,7 +35,6 @@ export function sheetDateToIso(val: unknown): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
 }
 
-// Маппинг англ. состояния → русская подпись статуса (как в исходном роуте).
 /**
  * Число из ячейки листа: пробелы-разделители тысяч и запятая-десятичная —
  * реальный формат операторов («1 234,56»). parseFloat рвался на пробеле.
@@ -40,25 +48,103 @@ function toNumber(val: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-const STATUS_MAP: Record<string, string> = {
-  'signed': 'Подписан', 'overdue': 'Просрочен', 'planning': 'Планирование',
-  'canceled': 'Отменён', 'has-fact': 'Исполнение', 'open': 'Открыт',
-  'error': 'Ошибка', 'near-plan': 'Скоро срок', 'not-due': 'Срок не наступил',
-  'finance-delay': 'Задержка финансирования',
+/**
+ * RowState → русская подпись статуса DTO. Канона «RowState → лейбл» в
+ * product-dictionary нет (SIGNAL_LABELS ключуется именами сигналов) — поэтому
+ * совпадающие подписи берём из словаря, чтобы не разъезжаться с основным UI,
+ * а три состояния без сигнального аналога задаём локально.
+ * Record исчерпывающий: новое состояние в RowState не пройдёт мимо typecheck.
+ */
+const STATE_STATUS_RU: Record<RowState, string> = {
+  'signed': SIGNAL_LABELS.signed,               // Подписан
+  'overdue': SIGNAL_LABELS.overdue,             // Просрочен
+  'planning': SIGNAL_LABELS.planning,           // Планирование
+  'canceled': SIGNAL_LABELS.canceled,           // Отменён
+  'not-due': SIGNAL_LABELS.notDue,              // Срок не наступил
+  'finance-delay': SIGNAL_LABELS.financeDelay,  // Задержка финансирования
+  'near-plan': SIGNAL_LABELS.planSoon,          // Скоро срок
+  'has-fact': 'Исполнение',
+  'open': 'Открыт',
+  'error': 'Ошибка',
+  // classifyRowState это состояние не возвращает (не-данные отсекает isDataRow);
+  // ключ нужен только для исчерпывающести Record.
+  'non-data': 'Служебная строка',
 };
 
-/** DTO строки реестра — внешний контракт GET /api/rows/:deptId (не менять форму). */
-export type RowDto = ReturnType<typeof buildRowDto>;
+/**
+ * DTO строки реестра — ВНЕШНИЙ контракт GET /api/rows/:deptId (форму не менять).
+ * Поля-«сырьё» (id, кварталы, флаг, комментарии, *Raw) типизированы unknown
+ * честно: они отдаются как лежат в листе (string | number | null после
+ * buildCellDict) и возвращаются в лист путями записи без конверсии.
+ */
+export interface RowDto {
+  /** 1-based номер строки листа: idx=0 после среза шапки → строка 4. */
+  rowIndex: number;
+  /** A — порядковый номер (сырьё листа). */
+  id: unknown;
+  /** B — реестровый номер (пустая ячейка → ''). */
+  regNumber: unknown;
+  /** C — наименование подведа (пустая ячейка → ''). */
+  subordinate: unknown;
+  /** D — наименование программы (X/Х/пусто = «вне ПМ»). */
+  programName: unknown;
+  /** F — вид деятельности (ТД / ПМ). */
+  type: unknown;
+  /** G — предмет закупки. */
+  subject: unknown;
+  planFB: number;
+  planKB: number;
+  planMB: number;
+  /** K — итого план. */
+  planSum: number;
+  /** L — способ закупки (ЭА/ЕП/ЭК/ЭЗК либо мусор оператора). */
+  method: string;
+  /** Дата плана — ISO «YYYY-MM-DD» | null (канон DTO, см. sheetDateToIso). */
+  planDate: string | null;
+  /** Исходное значение ячейки N (serial/строка) для записи-обратно. */
+  planDateRaw: unknown;
+  planQuarter: unknown;
+  /** Дата факта — ISO «YYYY-MM-DD» | null. */
+  factDate: string | null;
+  /** Исходное значение ячейки Q для записи-обратно. */
+  factDateRaw: unknown;
+  factQuarter: unknown;
+  /** P — год плана (не распознан → 0). */
+  planYear: number;
+  factFB: number;
+  factKB: number;
+  factMB: number;
+  /** Y — итого факт. */
+  factSum: number;
+  /** Сумма экономий Z+AA+AB. */
+  economy: number;
+  economyFB: number;
+  economyKB: number;
+  economyMB: number;
+  /** AD — признак экономии. */
+  flag: unknown;
+  /** AE — комментарий ГРБС. */
+  commentGRBS: unknown;
+  /** AF — комментарий УЭР. */
+  commentExtra: unknown;
+  /** Русская подпись состояния (STATE_STATUS_RU). */
+  status: string;
+  /** Латинский id управления (из opts.deptId). */
+  dept: string;
+  /** Активные ключи сигналов (RowSignals с true). */
+  signals: string[];
+  state: RowState;
+  badges: SignalBadge[];
+}
 
 /**
  * Строка листа (уже без шапки) → DTO с сигналами/статусом/датами-ISO.
- * Извлечено move-only из routes/rows.ts (маппинг внутри GET /api/rows/:deptId).
  *
  * @param row  сырая строка листа (массив ячеек A..)
  * @param idx  индекс в массиве ПОСЛЕ slice(DEPT_HEADER_ROWS): idx=0 → строка листа 4
- * @param opts deptId — id отдела для поля dept
+ * @param opts deptId — id управления для поля dept
  */
-export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string }) {
+export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string }): RowDto {
   const cells = buildCellDict(row);
 
   const signalsObj = detectSignals(cells);
@@ -69,53 +155,45 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
     .filter(([, v]) => v === true)
     .map(([k]) => k);
 
-  // Column mapping per DEPT_COLUMNS:
-  // A=ID, B=REG_NUMBER, C=SUBORDINATE, F=TYPE, G=SUBJECT,
-  // H=FB_PLAN, I=KB_PLAN, J=MB_PLAN, K=TOTAL_PLAN, L=METHOD,
-  // N=PLAN_DATE, O=PLAN_QUARTER, Q=FACT_DATE, R=FACT_QUARTER,
-  // V=FB_FACT, W=KB_FACT, X=MB_FACT, Y=TOTAL_FACT,
-  // Z=ECONOMY_FB, AA=ECONOMY_KB, AB=ECONOMY_MB, AD=FLAG
-  const planMoney = toNumber(cells.K);
-  const factMoney = toNumber(cells.Y);
-  const ecoFB = toNumber(cells.Z);
-  const ecoKB = toNumber(cells.AA);
-  const ecoMB = toNumber(cells.AB);
-  const ecoTotal = ecoFB + ecoKB + ecoMB;
+  /** Ячейка по канон-имени колонки DEPT_COLUMNS (за краем строки → null, как buildCellDict). */
+  const col = (name: keyof typeof DEPT_COLUMNS): unknown => row[DEPT_COLUMNS[name]] ?? null;
+
+  const ecoFB = toNumber(col('ECONOMY_FB'));
+  const ecoKB = toNumber(col('ECONOMY_KB'));
+  const ecoMB = toNumber(col('ECONOMY_MB'));
 
   return {
-    rowIndex: idx + 4, // 1-based: slice(3) skips 3 header rows, so idx=0 → row 4
-    id: cells.A,
-    regNumber: cells.B ?? '',
-    subordinate: cells.C ?? '',
-    programName: cells.D ?? '',
-    type: cells.F ?? '',
-    subject: cells.G ?? '',
-    planFB: parseFloat(String(cells.H ?? 0)) || 0,
-    planKB: parseFloat(String(cells.I ?? 0)) || 0,
-    planMB: parseFloat(String(cells.J ?? 0)) || 0,
-    planSum: planMoney,
-    method: String(cells.L ?? ''),
-    // Даты — ISO «YYYY-MM-DD» | null (канон DTO, см. sheetDateToIso);
-    // *Raw — исходное значение ячейки листа (serial/строка) для записи-обратно.
-    planDate: sheetDateToIso(cells.N),
-    planDateRaw: cells.N ?? '',
-    planQuarter: cells.O ?? '',
-    factDate: sheetDateToIso(cells.Q),
-    factDateRaw: cells.Q ?? '',
-    factQuarter: cells.R ?? '',
-    planYear: parseInt(String(cells.P ?? ''), 10) || 0,
-    factFB: parseFloat(String(cells.V ?? 0)) || 0,
-    factKB: parseFloat(String(cells.W ?? 0)) || 0,
-    factMB: parseFloat(String(cells.X ?? 0)) || 0,
-    factSum: factMoney,
-    economy: ecoTotal,
+    rowIndex: idx + DEPT_HEADER_ROWS + 1, // 1-based: срез шапки в 3 строки → idx=0 = строка 4
+    id: col('ID'),
+    regNumber: col('REG_NUMBER') ?? '',
+    subordinate: col('SUBORDINATE') ?? '',
+    programName: col('PROGRAM_NAME') ?? '',
+    type: col('TYPE') ?? '',
+    subject: col('SUBJECT') ?? '',
+    planFB: toNumber(col('FB_PLAN')),
+    planKB: toNumber(col('KB_PLAN')),
+    planMB: toNumber(col('MB_PLAN')),
+    planSum: toNumber(col('TOTAL_PLAN')),
+    method: String(col('METHOD') ?? ''),
+    planDate: sheetDateToIso(col('PLAN_DATE')),
+    planDateRaw: col('PLAN_DATE') ?? '',
+    planQuarter: col('PLAN_QUARTER') ?? '',
+    factDate: sheetDateToIso(col('FACT_DATE')),
+    factDateRaw: col('FACT_DATE') ?? '',
+    factQuarter: col('FACT_QUARTER') ?? '',
+    planYear: parseInt(String(col('PLAN_YEAR') ?? ''), 10) || 0,
+    factFB: toNumber(col('FB_FACT')),
+    factKB: toNumber(col('KB_FACT')),
+    factMB: toNumber(col('MB_FACT')),
+    factSum: toNumber(col('TOTAL_FACT')),
+    economy: ecoFB + ecoKB + ecoMB,
     economyFB: ecoFB,
     economyKB: ecoKB,
     economyMB: ecoMB,
-    flag: cells.AD ?? '',
-    commentGRBS: cells.AE ?? '',
-    commentExtra: cells.AF ?? '',
-    status: STATUS_MAP[state] ?? state,
+    flag: col('FLAG') ?? '',
+    commentGRBS: col('COMMENT_GRBS') ?? '',
+    commentExtra: col('COMMENT_UER') ?? '',
+    status: STATE_STATUS_RU[state],
     dept: opts.deptId,
     signals,
     state,
@@ -123,21 +201,23 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
   };
 }
 
+/** Канонические коды способа закупки (колонка L) — из словаря семейств. */
+const KNOWN_METHODS: readonly string[] = METHOD_FAMILY_MAP.ALL;
+
 /**
  * Отсев не-данных: пустые, итоговые/шапочные и строки с method-заголовком.
- * Извлечено move-only из routes/rows.ts (.filter после маппинга DTO).
  */
 export function isDataRow(r: Pick<RowDto, 'subject' | 'id' | 'planSum' | 'method'>): boolean {
   const subj = String(r.subject).trim().toLowerCase();
   const idStr = String(r.id ?? '').trim().toLowerCase();
-  // Skip rows with no subject AND no plan money
+  // Пустой предмет И нулевой план — заведомо не закупка
   if (!subj && !r.planSum) return false;
-  // Skip aggregate/header rows
+  // Итоговые/шапочные строки («итого», «всего», «раздел»…)
   if (isMetaRow(subj)) return false;
-  // Skip header-like rows (id contains non-numeric text like "№ п/п")
+  // id — текст шапки («№ п/п»), не число и не начинается с цифры
   if (idStr && isNaN(Number(idStr)) && !idStr.match(/^\d/)) return false;
-  // Skip rows where method is clearly a header label (not ЭА/ЭК/ЭЗК/ЕП)
+  // L — заголовочный текст (длиннее кода и не из канона ЭА/ЕП/ЭК/ЭЗК)
   const m = r.method.trim().toUpperCase();
-  if (m.length > 5 && !['ЭА', 'ЭК', 'ЭЗК', 'ЕП'].includes(m)) return false;
+  if (m.length > 5 && !KNOWN_METHODS.includes(m)) return false;
   return true;
 }
