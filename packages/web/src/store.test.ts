@@ -99,19 +99,3 @@ describe('useStore setYear (B-5: activeMonths must track the newly selected year
     expect(state.activeMonths).toEqual(state.monthsByYear[yearB] ?? new Set());
   });
 });
-
-describe('useStore changeWindow (история изменений)', () => {
-  it('по умолчанию выключено, дата в формате YYYY-MM-DD', () => {
-    const cw = useStore.getState().changeWindow;
-    expect(cw.enabled).toBe(false);
-    expect(cw.sinceISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-
-  it('setChangeWindow мержит частично', () => {
-    useStore.getState().setChangeWindow({ enabled: true });
-    expect(useStore.getState().changeWindow.enabled).toBe(true);
-    expect(useStore.getState().changeWindow.sinceISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    useStore.getState().setChangeWindow({ sinceISO: '2026-05-29' });
-    expect(useStore.getState().changeWindow).toEqual({ enabled: true, sinceISO: '2026-05-29' });
-  });
-});

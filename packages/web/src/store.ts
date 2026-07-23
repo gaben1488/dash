@@ -182,9 +182,6 @@ export interface AppState {
   toggleMonth: (month: number) => void;
   moneyUnit: MoneyUnit;
   setMoneyUnit: (unit: MoneyUnit) => void;
-  /** Окно «изменения с [дата]» — слой 1 истории изменений. enabled → показывать Δ-бейджи. */
-  changeWindow: { enabled: boolean; sinceISO: string };
-  setChangeWindow: (patch: Partial<{ enabled: boolean; sinceISO: string }>) => void;
   /** Multi-select: выбранные способы закупки (empty = all) */
   selectedMethods: Set<string>;
   toggleMethod: (method: string) => void;
@@ -333,8 +330,6 @@ export const useStore = create<AppState>((set, get) => ({
   },
   moneyUnit: 'тыс',
   setMoneyUnit: (moneyUnit) => set({ moneyUnit }),
-  changeWindow: { enabled: false, sinceISO: new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10) },
-  setChangeWindow: (patch) => set((s) => ({ changeWindow: { ...s.changeWindow, ...patch } })),
   // Multi-select filters (empty Set = identity = "Все")
   // When all options are selected individually → collapse to empty Set (= identity)
   selectedMethods: new Set<string>(),
@@ -669,7 +664,10 @@ export const useStore = create<AppState>((set, get) => ({
   focusedWeekStart: getMondayOfWeek(new Date()),
   shiftFocusedWeek: (delta) => {
     const current = get().focusedWeekStart;
-    const newDate = new Date(current.getTime() + delta * 7 * 24 * 60 * 60 * 1000);
+    // Шаг — календарными сутками (setDate), не миллисекундами: DST-переход
+    // при мс-арифметике сдвигал бы понедельник 00:xx в воскресенье 23:xx.
+    const newDate = new Date(current);
+    newDate.setDate(newDate.getDate() + delta * 7);
     const minYear = AVAILABLE_YEARS[0];
     const maxYear = AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
     if (newDate.getFullYear() < minYear || newDate.getFullYear() > maxYear) return;
