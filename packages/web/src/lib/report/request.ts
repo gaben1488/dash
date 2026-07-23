@@ -8,7 +8,7 @@
  * четвергу ≤ сегодня (та же арифметика, что floorToThursday роута:
  * день 0 эпохи 1970-01-01 — четверг).
  */
-import { dayNumberOf } from '@aemr/shared';
+import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
 import { AVAILABLE_YEARS } from '../../store';
 import type { FilterContext } from '../filter-context';
 
@@ -16,19 +16,6 @@ export interface ReportRequest {
   year: number;
   quarter?: 1 | 2 | 3 | 4;
   asOf?: string;
-}
-
-const DAYS_PER_WEEK = 7;
-
-/** Последний четверг ≤ d (день 0 эпохи — четверг ⇒ достаточно d − d % 7). */
-const floorToThursday = (day: number): number => day - (day % DAYS_PER_WEEK);
-
-/** Номер суток → ISO через UTC-компоненты: номер суток TZ-инвариантен. */
-function isoOfDayNumber(day: number): string {
-  const d = new Date(day * 86400000);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${mm}-${dd}`;
 }
 
 export function reportRequestParams(
@@ -52,6 +39,9 @@ export function reportRequestParams(
   if (ctx.weekStart !== null) {
     const monday = dayNumberOf(ctx.weekStart);
     if (monday !== null) {
+      // Клампится только asOf; quarter (из авто-месяцев week-режима) — нет:
+      // прокрутка в будущий квартал честно показывает его пустым под датой
+      // последнего четверга (осознанно, ponytail-ревью R1 #10).
       request.asOf = isoOfDayNumber(Math.min(monday + 3, floorToThursday(todayDay)));
     }
   }

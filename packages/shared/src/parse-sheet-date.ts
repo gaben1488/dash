@@ -96,3 +96,25 @@ export function dayNumberOf(val: unknown): number | null {
 
   return null;
 }
+
+// ── Недельная арифметика над номерами суток ──────────────────────────
+// Канон еженедельной системы: срез отчёта — ЧЕТВЕРГ. Все три функции
+// опираются на один факт: день 0 эпохи (1970-01-01) — четверг.
+// Единственный дом этой арифметики (ponytail-ревью R1 #7): копии в
+// web/server запрещены — импортировать отсюда.
+
+const DAYS_PER_WEEK = 7;
+
+/** Последний четверг ≤ d (день 0 эпохи — четверг ⇒ достаточно d − d % 7). */
+export const floorToThursday = (day: number): number => day - (day % DAYS_PER_WEEK);
+
+/** Понедельник недели дня d: d − ((d+3) % 7). */
+export const mondayOfDay = (day: number): number => day - ((day + 3) % DAYS_PER_WEEK);
+
+/** Номер суток → ISO «YYYY-MM-DD» через UTC-компоненты (номер суток TZ-инвариантен). */
+export function isoOfDayNumber(day: number): string {
+  const d = new Date(day * MS_PER_DAY);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${mm}-${dd}`;
+}

@@ -17,7 +17,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
       ],
       THURSDAY,
     );
-    expect(pair).toEqual({ fromId: 'prev', toId: 'cur' });
+    expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'cur']);
   });
 
   it('нет слепков вообще → null', () => {
@@ -38,7 +38,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
       ],
       THURSDAY,
     );
-    expect(pair).toEqual({ fromId: 'prev', toId: 'cur' });
+    expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'cur']);
   });
 
   it('только будущие слепки → null', () => {
@@ -59,7 +59,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
       ],
       THURSDAY,
     );
-    expect(pair).toEqual({ fromId: 'prev', toId: 'thu-late' });
+    expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'thu-late']);
   });
 
   it('граница: слепок ровно в прошлый четверг входит в from', () => {
@@ -70,7 +70,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
       ],
       THURSDAY,
     );
-    expect(pair).toEqual({ fromId: 'prev-thu', toId: 'cur' });
+    expect([pair?.from.id, pair?.to.id]).toEqual(['prev-thu', 'cur']);
   });
 
   it('единственный старый слепок попадает в оба окна → null (дифф с самим собой — не пара)', () => {
@@ -87,7 +87,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
       ],
       THURSDAY,
     );
-    expect(pair).toEqual({ fromId: 'prev', toId: 'thu-late' });
+    expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'thu-late']);
   });
 
   it('порядок входного массива не важен', () => {
@@ -99,6 +99,6 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
       ],
       THURSDAY,
     );
-    expect(pair).toEqual({ fromId: 'prev', toId: 'cur' });
+    expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'cur']);
   });
 });

@@ -14,9 +14,12 @@ export interface SnapshotRef {
   createdAt: string;
 }
 
+/** Пара — сами слепки, не id: потребителю нужны и id (diff), и createdAt
+ *  (подпись дат) — повторный поиск по массиву был бы мёртвой веткой с
+ *  фолбэком «чужой датой» (ponytail-ревью R1 #9). */
 export interface WeekSnapshotPair {
-  fromId: string;
-  toId: string;
+  from: SnapshotRef;
+  to: SnapshotRef;
 }
 
 const DAYS_PER_WEEK = 7;
@@ -51,5 +54,5 @@ export function pickWeekSnapshots(
   const to = lastAtOrBefore(snapshots, asOfDay);
   const from = lastAtOrBefore(snapshots, asOfDay - DAYS_PER_WEEK);
   if (to === null || from === null || to.id === from.id) return null;
-  return { fromId: from.id, toId: to.id };
+  return { from, to };
 }

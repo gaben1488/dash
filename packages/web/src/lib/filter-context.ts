@@ -16,6 +16,8 @@ import {
   ALL_DEPT_IDS,
   ORG_ITSELF_SENTINEL,
   dayNumberOf,
+  isoOfDayNumber,
+  mondayOfDay,
   type BudgetLevel,
   type DepartmentId,
 } from '@aemr/shared';
@@ -134,20 +136,7 @@ function canonAxis<T extends string>(raw: Iterable<string>, dictionary: readonly
   return dictionary.filter((k) => picked.has(k));
 }
 
-// ── Неделя: номер суток ↔ ISO ───────────────────────────────
-
-const DAYS_PER_WEEK = 7;
-
-/** День 0 эпохи (1970-01-01) — четверг ⇒ понедельник недели дня d = d − ((d+3) % 7). */
-const mondayOfDay = (day: number): number => day - ((day + 3) % DAYS_PER_WEEK);
-
-/** Номер суток → ISO через UTC-компоненты: номер суток TZ-инвариантен. */
-function isoOfDayNumber(day: number): string {
-  const d = new Date(day * 86400000);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${mm}-${dd}`;
-}
+// ── Неделя: номер суток ↔ ISO (арифметика — @aemr/shared) ───
 
 /**
  * focusedWeekStart → ISO понедельника ЕГО недели. Date читается локальными

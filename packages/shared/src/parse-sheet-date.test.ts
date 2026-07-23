@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayNumberOf, parseSheetDate } from './parse-sheet-date';
+import { dayNumberOf, floorToThursday, isoOfDayNumber, mondayOfDay, parseSheetDate } from './parse-sheet-date';
 
 describe('parseSheetDate — единый парсер даты из ячейки листа', () => {
   it('Google-serial 46023 → 2026-01-01 (НЕ год 46023)', () => {
@@ -88,5 +88,28 @@ describe('dayNumberOf — TZ-инвариантный номер календа�
 
   it('паритет с parseSheetDate: serial 46023 = 01.01.2026', () => {
     expect(dayNumberOf('46023')).toBe(dayNumberOf('01.01.2026'));
+  });
+});
+
+describe('недельная арифметика (день 0 эпохи — четверг)', () => {
+  it('floorToThursday: четверг неподвижен, будни флорятся к прошедшему четвергу', () => {
+    const thu = dayNumberOf('23.07.2026')!; // четверг
+    expect(thu % 7).toBe(0);
+    expect(floorToThursday(thu)).toBe(thu);
+    expect(floorToThursday(dayNumberOf('24.07.2026')!)).toBe(thu); // пятница
+    expect(floorToThursday(dayNumberOf('29.07.2026')!)).toBe(thu); // среда следующей недели
+  });
+
+  it('mondayOfDay: любой день недели пн..вс -> её понедельник; понедельник неподвижен', () => {
+    const mon = dayNumberOf('20.07.2026')!; // понедельник
+    expect(mondayOfDay(mon)).toBe(mon);
+    expect(mondayOfDay(dayNumberOf('23.07.2026')!)).toBe(mon); // четверг
+    expect(mondayOfDay(dayNumberOf('26.07.2026')!)).toBe(mon); // воскресенье
+    expect(mondayOfDay(dayNumberOf('27.07.2026')!)).toBe(mon + 7); // следующий понедельник
+  });
+
+  it('isoOfDayNumber: обратен dayNumberOf для ISO-дат', () => {
+    expect(isoOfDayNumber(dayNumberOf('2026-07-23')!)).toBe('2026-07-23');
+    expect(isoOfDayNumber(0)).toBe('1970-01-01');
   });
 });

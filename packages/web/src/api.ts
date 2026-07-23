@@ -231,9 +231,8 @@ export const api = {
   getReportMap: () =>
     fetchJSON<any>('/report-map'),
 
-  // History (audit log)
-  getHistory: (limit = 50) =>
-    fetchParsed(`/history?limit=${limit}`, SnapshotHistoryResponseSchema),
+  // getHistory (/api/history) удалён: 0 потребителей, байт-в-байт дубль
+  // getHistorySnapshots (ponytail-ревью R1 #5); судьба дубль-роута — задача сервера.
 
   // Таймлайн слепков и дрейф метрик между двумя слепками — блок
   // «Что изменилось за неделю» страницы «Отчёт» (роуты routes/history.ts)

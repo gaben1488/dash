@@ -32,6 +32,7 @@ import { generateReportText } from '../lib/report/text';
 import { reportRequestParams } from '../lib/report/request';
 import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
+import { fmtVal } from '../lib/delta-format';
 
 type Quarter = 1 | 2 | 3 | 4;
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
@@ -148,8 +149,15 @@ function weekMetricLabel(key: string): string {
   return getMetricByKey(key)?.label ?? productLabel(key);
 }
 
-function fmtDeltaValue(v: number | null | undefined): string {
-  return v === null || v === undefined ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+/**
+ * Ранжирование дрейфа для топа: appeared/disappeared всегда наверху, дальше —
+ * по |deltaPct|, не |deltaAbs|: единицы метрик разнородны, и абсолютная
+ * сортировка diffMetrics всегда выталкивала бы деньги (тыс. руб.) поверх
+ * долей в п.п. (ponytail-ревью R1 #3).
+ */
+function weekDeltaRank(d: MetricDelta): number {
+  if (d.direction === 'appeared' || d.direction === 'disappeared') return Infinity;
+  return d.deltaPct !== null ? Math.abs(d.deltaPct) : 0;
 }
 
 type WeekDeltaState =
@@ -188,25 +196,37 @@ function WeekDeltaSection({ asOfDay, ctx }: { asOfDay: number; ctx: FilterContex
           if (!cancelled) setState({ kind: 'no-pair' });
           return;
         }
-        const deltas = await api.getHistoryDiff(pair.fromId, pair.toId);
+        const deltas = await api.getHistoryDiff(pair.from.id, pair.to.id);
         if (cancelled) return;
-        const dayOf = (id: string) =>
-          dayNumberOf(snaps.find((s) => s.id === id)?.createdAt) ?? asOfDay;
-        setState({ kind: 'ready', deltas, fromDay: dayOf(pair.fromId), toDay: dayOf(pair.toId) });
+        setState({
+          kind: 'ready',
+          deltas,
+          fromDay: dayNumberOf(pair.from.createdAt) ?? asOfDay - 7,
+          toDay: dayNumberOf(pair.to.createdAt) ?? asOfDay,
+        });
       })
       .catch(() => { if (!cancelled) setState({ kind: 'error' }); });
     return () => { cancelled = true; };
   }, [asOfDay]);
 
+  // ГРБС-фильтр контекста уважается и здесь: метрики дрейфа несут
+  // departmentId в REPORT_MAP; без выбора ГРБС показываем всё.
+  const grbsFilter = (d: MetricDelta): boolean => {
+    if (ctx.grbs.length === 0) return true;
+    const dept = getMetricByKey(d.metricKey)?.departmentId;
+    return dept !== undefined && (ctx.grbs as readonly string[]).includes(dept);
+  };
+
   if (state.kind === 'loading') return null;
-  if (state.kind === 'no-pair') return <WeekDeltaNote text="Слепков для сравнения ещё нет." />;
+  if (state.kind === 'no-pair') return <WeekDeltaNote text="Нет доступных слепков для этой недели." />;
   if (state.kind === 'error') {
     return <WeekDeltaNote text="История слепков недоступна — сравнение недели пропущено." />;
   }
 
-  // diffMetrics уже отсортирован по |дельте|: берём верхушку, не простыню
   const significant = state.deltas
     .filter((d) => d.direction !== 'flat')
+    .filter(grbsFilter)
+    .sort((a, b) => weekDeltaRank(b) - weekDeltaRank(a))
     .slice(0, MAX_WEEK_DELTA_ROWS);
 
   // metric_history хранит только officialMetrics (ячейки СВОД) — origin честно svod
@@ -228,7 +248,7 @@ function WeekDeltaSection({ asOfDay, ctx }: { asOfDay: number; ctx: FilterContex
                   {weekMetricLabel(d.metricKey)}
                 </span>
                 <span className="tabular-nums whitespace-nowrap text-zinc-500 dark:text-zinc-400">
-                  {fmtDeltaValue(d.from?.value)} → {fmtDeltaValue(d.to?.value)}
+                  {fmtVal(d.from?.value ?? null)} → {fmtVal(d.to?.value ?? null)}
                 </span>
                 <DeltaBadge delta={d} />
               </li>

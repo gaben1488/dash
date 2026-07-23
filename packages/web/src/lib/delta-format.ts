@@ -19,7 +19,7 @@ export interface DeltaView {
 
 const NF = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 
-function fmtVal(v: number | null): string {
+export function fmtVal(v: number | null): string {
   return v === null ? '—' : NF.format(v);
 }
 
