@@ -23,10 +23,12 @@ export interface ComplianceIssue {
 export const LAW_44FZ = {
   /** п.4 ч.1 ст.93 — single EP contract limit */
   epSingleContractLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit,
-  /** п.5 ч.1 ст.93 — education services EP limit */
+  /** п.5 ч.1 ст.93 — education/culture EP single contract limit (600 тыс.) */
   epEducationLimit: LAW_44FZ_THRESHOLDS.epEducationSingleContractLimit,
-  /** п.5 ч.1 ст.93 — education EP annual share limit */
+  /** п.5 ч.1 ст.93 — education EP annual: 5 млн ИЛИ 50% СГОЗ, потолок 30 млн */
+  epEducationAnnualFixedLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualFixedLimit,
   epEducationShareLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualShareLimit,
+  epEducationAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualAbsoluteLimit,
   /** Electronic shop (магазин) purchase limit */
   eShopLimit: LAW_44FZ_THRESHOLDS.eShopPurchaseLimit,
   /** Request for quotations (запрос котировок) limit */
@@ -41,7 +43,13 @@ export const LAW_44FZ = {
   epAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimit,
 } as const;
 
-/** EP share thresholds by ГРБС role */
+/**
+ * Доли ЕП по роли ГРБС — НЕ закон, а внутренний ориентир из легаси-генератора
+ * предыдущей команды (procurement_report.gs, EP_SHARE_THRESHOLDS_); происхождение
+ * значений не документировано (подтверждено пользователю 24.07.2026). В UI
+ * подписывается «внутренняя норма района (настраивается)»; целевое место —
+ * редактируемый справочник настроек аналитика (дизайн-док §5.1-3/4), не константа.
+ */
 export const EP_SHARE_BY_ROLE: Record<GRBSRole, number> = {
   'ОПЕРАЦИОННЫЙ': 0.50,
   'ИНВЕСТИЦИОННЫЙ': 0.30,

@@ -65,10 +65,16 @@ export const LAW_44FZ_THRESHOLDS = {
   epSmallPurchaseAnnualShareLimit: 0.10,
   /** 44-FZ art. 93 part 1 p.4: annual absolute cap for the SGOZ-share alternative. */
   epSmallPurchaseAnnualAbsoluteLimit: 50_000_000,
-  /** 44-FZ art. 93 part 1 p.5: one education/culture/sport EP contract limit. */
-  epEducationSingleContractLimit: 5_000_000,
+  /** 44-FZ art. 93 part 1 p.5: one education/culture EP contract limit.
+   *  Сверено с текстом закона 24.07.2026: разовый — 600 тыс. (было ошибочно
+   *  5 млн — это годовой фикс-вариант, не разовый лимит). */
+  epEducationSingleContractLimit: 600_000,
+  /** 44-FZ art. 93 part 1 p.5: fixed annual alternative (5 млн ИЛИ 50% СГОЗ ≤ 30 млн). */
+  epEducationAnnualFixedLimit: 5_000_000,
   /** 44-FZ art. 93 part 1 p.5: annual share cap for education/culture/sport EP. */
   epEducationAnnualShareLimit: 0.50,
+  /** 44-FZ art. 93 part 1 p.5: annual absolute cap for the share alternative. */
+  epEducationAnnualAbsoluteLimit: 30_000_000,
   /** Electronic-shop purchase limit used by source spreadsheets. */
   eShopPurchaseLimit: 5_000_000,
   /** Request-for-quotations limit. */
