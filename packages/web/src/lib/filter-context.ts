@@ -15,10 +15,11 @@
 import {
   ALL_DEPT_IDS,
   ORG_ITSELF_SENTINEL,
+  dayNumberOf,
   type BudgetLevel,
   type DepartmentId,
 } from '@aemr/shared';
-import type { PeriodScope, YearFilter } from '../store';
+import type { PeriodMode, PeriodScope, YearFilter } from '../store';
 import { toCanonicalDeptId } from './dept-key';
 import { resolvePeriodSelection } from './selectors/period-resolution';
 
@@ -62,6 +63,11 @@ export interface FilterContext {
   readonly budgets: readonly BudgetLevel[];
   /** Текстовый поиск (trimmed); '' = нет */
   readonly search: string;
+  /**
+   * ISO «YYYY-MM-DD» ПОНЕДЕЛЬНИКА выбранной недели (единая ось периодичности:
+   * колесо недель → отчёт-на-четверг); null — store не в week-режиме.
+   */
+  readonly weekStart: string | null;
 }
 
 /** Нейтральный контекст: ни одного активного фильтра, все годы. */
@@ -75,6 +81,7 @@ export const EMPTY_FILTER_CONTEXT: FilterContext = {
   methods: [],
   budgets: [],
   search: '',
+  weekStart: null,
 };
 
 /** Срез zustand-store, из которого собирается контекст (только читаемые поля). */
@@ -88,6 +95,8 @@ export interface FilterStoreSlice {
   selectedMethods: Set<string>;
   selectedBudgets: Set<string>;
   searchQuery: string;
+  periodMode: PeriodMode;
+  focusedWeekStart: Date;
 }
 
 // ── Сборка из store ─────────────────────────────────────────
@@ -125,6 +134,33 @@ function canonAxis<T extends string>(raw: Iterable<string>, dictionary: readonly
   return dictionary.filter((k) => picked.has(k));
 }
 
+// ── Неделя: номер суток ↔ ISO ───────────────────────────────
+
+const DAYS_PER_WEEK = 7;
+
+/** День 0 эпохи (1970-01-01) — четверг ⇒ понедельник недели дня d = d − ((d+3) % 7). */
+const mondayOfDay = (day: number): number => day - ((day + 3) % DAYS_PER_WEEK);
+
+/** Номер суток → ISO через UTC-компоненты: номер суток TZ-инвариантен. */
+function isoOfDayNumber(day: number): string {
+  const d = new Date(day * 86400000);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * focusedWeekStart → ISO понедельника ЕГО недели. Date читается локальными
+ * компонентами (dayNumberOf: store создаёт локальный Date; toISOString на
+ * восточных поясах сдвинул бы день на −1) и нормализуется к понедельнику:
+ * store обещает понедельник, но DST-переход при миллисекундной арифметике
+ * колеса мог сдать дату в воскресенье 23:xx — контракт поля чинится здесь.
+ */
+function isoOfWeekMonday(focusedWeekStart: Date): string | null {
+  const day = dayNumberOf(focusedWeekStart);
+  return day === null ? null : isoOfDayNumber(mondayOfDay(day));
+}
+
 /** Способы: store-ключи (competitive/single/kp/ep/КП/ЕП) → семейства, канонический порядок. */
 function canonMethods(raw: Iterable<string>): MethodFamily[] {
   const families = new Set<MethodFamily>();
@@ -153,11 +189,12 @@ export function buildFilterContext(slice: FilterStoreSlice): FilterContext {
     methods: canonMethods(slice.selectedMethods),
     budgets: canonAxis(slice.selectedBudgets, BUDGET_KEYS),
     search: slice.searchQuery.trim(),
+    weekStart: slice.periodMode === 'week' ? isoOfWeekMonday(slice.focusedWeekStart) : null,
   };
 }
 
 // ── URL-схема (спека §3.3) ──────────────────────────────────
-// Пример: ?y=2026&p=q1&m=7,8&grbs=УЭР,УО&unit=_org_itself&mtd=kp&act=pm,tdpm&bud=fb,kb&q=шкаф
+// Пример: ?y=2026&p=q1&m=7,8&grbs=УЭР,УО&unit=_org_itself&mtd=kp&act=pm,tdpm&bud=fb,kb&q=шкаф&w=2026-07-20
 // Латиница живёт только в URL-кодах (mtd/act); в контексте — канон продукта.
 
 const ACTIVITY_TO_URL: Readonly<Record<ActivityKey, string>> = {
@@ -187,6 +224,7 @@ export function serializeToUrl(ctx: FilterContext): string {
   if (ctx.activities.length > 0) params.set('act', ctx.activities.map((a) => ACTIVITY_TO_URL[a]).join(','));
   if (ctx.budgets.length > 0) params.set('bud', ctx.budgets.join(','));
   if (ctx.search) params.set('q', ctx.search);
+  if (ctx.weekStart !== null) params.set('w', ctx.weekStart);
   return params.toString();
 }
 
@@ -213,6 +251,18 @@ export function parseFromUrl(qs: string): FilterContext {
     ? (rawPeriod as PeriodScope)
     : 'year';
 
+  // Неделя: валидная дата нормализуется к понедельнику ЕЁ недели (roundtrip:
+  // канонический weekStart — всегда понедельник, понедельник неподвижен).
+  // Обратная сверка ISO ловит календарный rollover (2026-02-30 → мусор).
+  const rawWeek = params.get('w');
+  let weekStart: string | null = null;
+  if (rawWeek !== null && /^\d{4}-\d{2}-\d{2}$/.test(rawWeek)) {
+    const day = dayNumberOf(rawWeek);
+    if (day !== null && isoOfDayNumber(day) === rawWeek) {
+      weekStart = isoOfDayNumber(mondayOfDay(day));
+    }
+  }
+
   return {
     year,
     period,
@@ -226,5 +276,6 @@ export function parseFromUrl(qs: string): FilterContext {
     methods: canonMethods(splitCsv(params.get('mtd'))),
     budgets: canonAxis(splitCsv(params.get('bud')), BUDGET_KEYS),
     search: (params.get('q') ?? '').trim(),
+    weekStart,
   };
 }

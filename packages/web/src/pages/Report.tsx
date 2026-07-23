@@ -10,11 +10,11 @@
  * плоский текст generateReportText для вставки в письмо.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, ClipboardCopy, ClipboardCheck } from 'lucide-react';
-import { SEVERITY_COLORS, productLabel } from '@aemr/shared';
-import type { Report } from '@aemr/core';
+import { Building2, ClipboardCopy, ClipboardCheck, History } from 'lucide-react';
+import { SEVERITY_COLORS, dayNumberOf, getMetricByKey, productLabel } from '@aemr/shared';
+import type { MetricDelta, Report } from '@aemr/core';
 import { api } from '../api';
-import { AVAILABLE_YEARS, useStore } from '../store';
+import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { KpiTile } from '../components/contract/KpiTile';
@@ -29,6 +29,9 @@ import {
   type GrbsSectionVM,
 } from '../lib/report/mappers';
 import { generateReportText } from '../lib/report/text';
+import { reportRequestParams } from '../lib/report/request';
+import { pickWeekSnapshots } from '../lib/report/week-delta';
+import { DeltaBadge } from '../components/DeltaBadge';
 
 type Quarter = 1 | 2 | 3 | 4;
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
@@ -136,6 +139,107 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
   );
 }
 
+// ── «Что изменилось за неделю»: дельта слепков вокруг четверга среза ──
+
+const MAX_WEEK_DELTA_ROWS = 8;
+
+/** Подпись метрики дрейфа: канон REPORT_MAP (dotted-ключи officialMetrics). */
+function weekMetricLabel(key: string): string {
+  return getMetricByKey(key)?.label ?? productLabel(key);
+}
+
+function fmtDeltaValue(v: number | null | undefined): string {
+  return v === null || v === undefined ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+}
+
+type WeekDeltaState =
+  | { kind: 'loading' }
+  | { kind: 'error' }
+  | { kind: 'no-pair' }
+  | { kind: 'ready'; deltas: MetricDelta[]; fromDay: number; toDay: number };
+
+/** Плашка-заглушка блока — стиль «Примечаний» страницы. */
+function WeekDeltaNote({ text }: { text: string }) {
+  return (
+    <div className="analytics-chart-card px-5 py-3">
+      <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500 mb-1">
+        Что изменилось за неделю
+      </div>
+      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">— {text}</div>
+    </div>
+  );
+}
+
+/**
+ * Дельта метрик между слепком четверга среза и слепком неделей раньше
+ * (/api/history/snapshots + /api/history/diff). Любой сбой истории —
+ * деградация в плашку: страница отчёта от этого блока не зависит.
+ */
+function WeekDeltaSection({ asOfDay, ctx }: { asOfDay: number; ctx: FilterContext }) {
+  const [state, setState] = useState<WeekDeltaState>({ kind: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: 'loading' });
+    api.getHistorySnapshots()
+      .then(async (snaps) => {
+        const pair = pickWeekSnapshots(snaps, asOfDay);
+        if (pair === null) {
+          if (!cancelled) setState({ kind: 'no-pair' });
+          return;
+        }
+        const deltas = await api.getHistoryDiff(pair.fromId, pair.toId);
+        if (cancelled) return;
+        const dayOf = (id: string) =>
+          dayNumberOf(snaps.find((s) => s.id === id)?.createdAt) ?? asOfDay;
+        setState({ kind: 'ready', deltas, fromDay: dayOf(pair.fromId), toDay: dayOf(pair.toId) });
+      })
+      .catch(() => { if (!cancelled) setState({ kind: 'error' }); });
+    return () => { cancelled = true; };
+  }, [asOfDay]);
+
+  if (state.kind === 'loading') return null;
+  if (state.kind === 'no-pair') return <WeekDeltaNote text="Слепков для сравнения ещё нет." />;
+  if (state.kind === 'error') {
+    return <WeekDeltaNote text="История слепков недоступна — сравнение недели пропущено." />;
+  }
+
+  // diffMetrics уже отсортирован по |дельте|: берём верхушку, не простыню
+  const significant = state.deltas
+    .filter((d) => d.direction !== 'flat')
+    .slice(0, MAX_WEEK_DELTA_ROWS);
+
+  // metric_history хранит только officialMetrics (ячейки СВОД) — origin честно svod
+  return (
+    <SectionCard filterCtx={ctx} source="svod" title="Что изменилось за неделю" icon={History}>
+      <div className="space-y-2">
+        <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
+          слепок {fmtAsOfDate(state.fromDay)} → {fmtAsOfDate(state.toDay)}
+        </div>
+        {significant.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+            Значимых изменений метрик за неделю нет.
+          </div>
+        ) : (
+          <ul className="space-y-1">
+            {significant.map((d) => (
+              <li key={d.metricKey} className="flex items-center gap-2 text-[11px]">
+                <span className="flex-1 min-w-0 truncate text-zinc-600 dark:text-zinc-300">
+                  {weekMetricLabel(d.metricKey)}
+                </span>
+                <span className="tabular-nums whitespace-nowrap text-zinc-500 dark:text-zinc-400">
+                  {fmtDeltaValue(d.from?.value)} → {fmtDeltaValue(d.to?.value)}
+                </span>
+                <DeltaBadge delta={d} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
 export function ReportPage() {
   // FilterContext из store — единый объект для всех контрактных элементов
   const year = useStore((s) => s.year);
@@ -147,23 +251,27 @@ export function ReportPage() {
   const selectedMethods = useStore((s) => s.selectedMethods);
   const selectedBudgets = useStore((s) => s.selectedBudgets);
   const searchQuery = useStore((s) => s.searchQuery);
+  const periodMode = useStore((s) => s.periodMode);
+  const focusedWeekStart = useStore((s) => s.focusedWeekStart);
   const ctx = useMemo(
     () => buildFilterContext({
       year, period, activeMonths, selectedDepartments, selectedSubordinates,
       selectedActivities, selectedMethods, selectedBudgets, searchQuery,
+      periodMode, focusedWeekStart,
     }),
     [year, period, activeMonths, selectedDepartments, selectedSubordinates,
-      selectedActivities, selectedMethods, selectedBudgets, searchQuery],
+      selectedActivities, selectedMethods, selectedBudgets, searchQuery,
+      periodMode, focusedWeekStart],
   );
 
-  // Год — из контекста ('all' → последний доступный); квартал — локальный
-  // селектор поверх ctx.period (если там qN — он и берётся по умолчанию)
-  const reportYear = typeof ctx.year === 'number' ? ctx.year : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
-  const ctxQuarter: Quarter | null = ctx.period.startsWith('q')
-    ? (Number(ctx.period.slice(1)) as Quarter)
-    : null;
+  // Параметры запроса — чистым хелпером: год из контекста ('all' → последний
+  // доступный), квартал — кнопки страницы поверх ctx.period, asOf — четверг
+  // выбранной недели колеса (кламп к последнему четвергу — внутри хелпера)
   const [localQuarter, setLocalQuarter] = useState<Quarter | null>(null);
-  const requestQuarter = localQuarter ?? ctxQuarter ?? undefined;
+  const request = useMemo(
+    () => reportRequestParams(ctx, dayNumberOf(new Date())!, localQuarter ?? undefined),
+    [ctx, localQuarter],
+  );
 
   // Загрузка по образцу CentralizationCard: useEffect + useState, без TanStack
   const [report, setReport] = useState<Report | null>(null);
@@ -172,11 +280,11 @@ export function ReportPage() {
     let cancelled = false;
     setReport(null);
     setError(null);
-    api.getReport(reportYear, requestQuarter)
+    api.getReport(request.year, request.quarter, request.asOf)
       .then((r) => { if (!cancelled) setReport(r); })
       .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
-  }, [reportYear, requestQuarter]);
+  }, [request.year, request.quarter, request.asOf]);
 
   const [copied, setCopied] = useState(false);
   // Дата среза — из ответа сервера (period.asOfDay, дефолт — последний
@@ -202,7 +310,7 @@ export function ReportPage() {
   const tiles = report ? integralKpiRow(report) : [];
   const heroTiles = tiles.filter((t) => t.tier === 'hero');
   const restTiles = tiles.filter((t) => t.tier !== 'hero');
-  const activeQuarter: Quarter | null = report ? report.period.quarter : requestQuarter ?? null;
+  const activeQuarter: Quarter | null = report ? report.period.quarter : request.quarter ?? null;
 
   return (
     <div className="space-y-4">
@@ -212,7 +320,7 @@ export function ReportPage() {
           {asOfDate ? `Отчёт по закупкам на ${asOfDate}` : 'Отчёт по закупкам'}
         </h2>
         <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {reportYear} год
+          {request.year} год
         </span>
         {activeQuarter && (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
@@ -225,7 +333,7 @@ export function ReportPage() {
               key={q}
               onClick={() => setLocalQuarter(q)}
               className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-                (localQuarter ?? ctxQuarter) === q
+                request.quarter === q
                   ? 'bg-amber-500 text-white'
                   : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
               }`}
@@ -252,6 +360,9 @@ export function ReportPage() {
         <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-400">Загрузка…</div>
       ) : (
         <>
+          {/* Что изменилось за неделю: дельта слепков вокруг четверга среза */}
+          <WeekDeltaSection asOfDay={report.period.asOfDay} ctx={ctx} />
+
           {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin */}
           <SectionCard
             filterCtx={ctx}

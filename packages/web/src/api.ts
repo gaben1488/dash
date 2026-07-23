@@ -1,5 +1,5 @@
 import type { DashboardData } from '@aemr/shared';
-import type { Report } from '@aemr/core';
+import type { MetricDelta, Report } from '@aemr/core';
 import {
   HealthResponseSchema,
   IssuesListResponseSchema,
@@ -218,10 +218,12 @@ export const api = {
     return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
   },
 
-  // Отчёт — проекция buildReport (@aemr/core); квартал опционален (дефолт выбирает сервер)
-  getReport: (year: number, quarter?: 1 | 2 | 3 | 4) => {
+  // Отчёт — проекция buildReport (@aemr/core); квартал и дата среза опциональны
+  // (без asOf сервер берёт последний четверг — еженедельный канон)
+  getReport: (year: number, quarter?: 1 | 2 | 3 | 4, asOf?: string) => {
     const params = new URLSearchParams({ year: String(year) });
     if (quarter) params.set('quarter', String(quarter));
+    if (asOf) params.set('asOf', asOf);
     return fetchJSON<Report>(`/report?${params.toString()}`);
   },
 
@@ -232,6 +234,16 @@ export const api = {
   // History (audit log)
   getHistory: (limit = 50) =>
     fetchParsed(`/history?limit=${limit}`, SnapshotHistoryResponseSchema),
+
+  // Таймлайн слепков и дрейф метрик между двумя слепками — блок
+  // «Что изменилось за неделю» страницы «Отчёт» (роуты routes/history.ts)
+  getHistorySnapshots: () =>
+    fetchParsed('/history/snapshots', SnapshotHistoryResponseSchema),
+
+  getHistoryDiff: (from: string, to: string) => {
+    const params = new URLSearchParams({ from, to });
+    return fetchJSON<MetricDelta[]>(`/history/diff?${params.toString()}`);
+  },
 
   // Export
   exportAudit: () =>

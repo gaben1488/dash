@@ -8,7 +8,9 @@ import {
   type FilterStoreSlice,
 } from './filter-context';
 
-/** Базовый store-срез без активных фильтров (год фиксирован для детерминизма). */
+/** Базовый store-срез без активных фильтров (год фиксирован для детерминизма).
+ *  periodMode здесь 'explicit', чтобы нейтральный срез давал weekStart=null;
+ *  week-режим включается точечно в тестах недели. */
 function makeSlice(patch: Partial<FilterStoreSlice> = {}): FilterStoreSlice {
   return {
     year: 2026,
@@ -20,6 +22,8 @@ function makeSlice(patch: Partial<FilterStoreSlice> = {}): FilterStoreSlice {
     selectedMethods: new Set<string>(),
     selectedBudgets: new Set<string>(),
     searchQuery: '',
+    periodMode: 'explicit',
+    focusedWeekStart: new Date(2026, 6, 20), // локальная полночь понедельника
     ...patch,
   };
 }
@@ -87,6 +91,40 @@ describe('buildFilterContext — чистая сборка из store-среза
     expect(ctx.budgets).toEqual(['fb', 'mb']);
     expect(ctx.search).toBe('шкаф');
   });
+
+  it('week-режим: weekStart = ISO понедельника из ЛОКАЛЬНЫХ компонентов даты', () => {
+    const ctx = buildFilterContext(makeSlice({
+      periodMode: 'week',
+      focusedWeekStart: new Date(2026, 6, 20), // локальная полночь: UTC-конверсия сдвинула бы день
+    }));
+    expect(ctx.weekStart).toBe('2026-07-20');
+  });
+
+  it('explicit-режим: недели нет — weekStart = null', () => {
+    const ctx = buildFilterContext(makeSlice({
+      periodMode: 'explicit',
+      focusedWeekStart: new Date(2026, 6, 20),
+    }));
+    expect(ctx.weekStart).toBeNull();
+  });
+
+  it('week-режим: не-понедельник нормализуется к понедельнику его недели (DST-дрейф колеса)', () => {
+    // Воскресенье 23:59 — так выглядел focusedWeekStart после мс-шага колеса
+    // через перевод часов; контракт поля — всегда ISO понедельника.
+    const ctx = buildFilterContext(makeSlice({
+      periodMode: 'week',
+      focusedWeekStart: new Date(2026, 6, 26, 23, 59), // вс 26.07.2026
+    }));
+    expect(ctx.weekStart).toBe('2026-07-20');
+  });
+
+  it('week-режим: невалидная дата колеса — weekStart = null, не исключение', () => {
+    const ctx = buildFilterContext(makeSlice({
+      periodMode: 'week',
+      focusedWeekStart: new Date(NaN),
+    }));
+    expect(ctx.weekStart).toBeNull();
+  });
 });
 
 describe('serializeToUrl / parseFromUrl — компактная URL-схема (спека §3.3)', () => {
@@ -100,6 +138,7 @@ describe('serializeToUrl / parseFromUrl — компактная URL-схема 
     methods: ['КП'],
     budgets: ['fb', 'kb'],
     search: 'шкаф',
+    weekStart: '2026-07-20',
   };
 
   it('сериализация полного контекста — ожидаемые ключи и компактные коды', () => {
@@ -115,6 +154,12 @@ describe('serializeToUrl / parseFromUrl — компактная URL-схема 
     expect(p.get('mtd')).toBe('kp');
     expect(p.get('bud')).toBe('fb,kb');
     expect(p.get('q')).toBe('шкаф');
+    expect(p.get('w')).toBe('2026-07-20');
+  });
+
+  it('weekStart=null не сериализуется в w=', () => {
+    const p = new URLSearchParams(serializeToUrl({ ...EMPTY_FILTER_CONTEXT, year: 2026 }));
+    expect(p.has('w')).toBe(false);
   });
 
   it('пустой контекст сериализуется в один параметр года', () => {
@@ -132,10 +177,25 @@ describe('serializeToUrl / parseFromUrl — компактная URL-схема 
       EMPTY_FILTER_CONTEXT,
       { ...EMPTY_FILTER_CONTEXT, year: 2025, months: [7, 8], methods: ['ЕП'] },
       { ...EMPTY_FILTER_CONTEXT, year: 2026, grbs: ['УДТХ'], search: 'ремонт дорог' },
+      { ...EMPTY_FILTER_CONTEXT, year: 2026, weekStart: '2026-07-20' },
     ];
     for (const ctx of cases) {
       expect(parseFromUrl(serializeToUrl(ctx))).toEqual(ctx);
     }
+  });
+
+  it('w=: не-понедельник нормализуется к понедельнику ЕГО недели', () => {
+    // 2026-07-23 — четверг; 2026-07-26 — воскресенье той же ISO-недели
+    expect(parseFromUrl('y=2026&w=2026-07-23').weekStart).toBe('2026-07-20');
+    expect(parseFromUrl('y=2026&w=2026-07-26').weekStart).toBe('2026-07-20');
+    expect(parseFromUrl('y=2026&w=2026-07-20').weekStart).toBe('2026-07-20');
+  });
+
+  it('w=: мусор → null', () => {
+    expect(parseFromUrl('y=2026&w=банан').weekStart).toBeNull();
+    expect(parseFromUrl('y=2026&w=2026-7-3').weekStart).toBeNull();   // не zero-padded
+    expect(parseFromUrl('y=2026&w=2026-02-30').weekStart).toBeNull(); // несуществующая дата
+    expect(parseFromUrl('y=2026').weekStart).toBeNull();
   });
 
   it('parse принимает строку с ведущим "?"', () => {
