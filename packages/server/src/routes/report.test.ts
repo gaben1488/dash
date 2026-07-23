@@ -108,14 +108,27 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     expect(body.notes.some((n) => n.includes('СВОД'))).toBe(true);
   }, 30_000);
 
-  it('без quarter/year: дефолты из текущей даты сервера, asOfDay = сегодня', async () => {
+  it('без asOf: дефолт среза — ПОСЛЕДНИЙ ЧЕТВЕРГ (еженедельный канон), период из него', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/report' });
     expect(res.statusCode).toBe(200);
     const body = res.json<ReportResponse>();
-    const now = new Date();
-    expect(body.period.year).toBe(now.getFullYear());
-    expect(body.period.quarter).toBe(Math.floor(now.getMonth() / 3) + 1);
-    expect(body.period.asOfDay).toBe(dayNumberOf(now));
+    const today = dayNumberOf(new Date())!;
+    // День 0 эпохи (1970-01-01) — четверг → четверги имеют day % 7 === 0.
+    const lastThursday = today - (today % 7);
+    expect(body.period.asOfDay).toBe(lastThursday);
+    expect(lastThursday % 7).toBe(0);
+    expect(lastThursday).toBeLessThanOrEqual(today);
+    // Год/квартал — из даты СРЕЗА (четверга), не из «сегодня».
+    const slice = new Date(lastThursday * 86400000);
+    expect(body.period.year).toBe(slice.getUTCFullYear());
+    expect(body.period.quarter).toBe(Math.floor(slice.getUTCMonth() / 3) + 1);
+  }, 30_000);
+
+  it('явный asOf НЕ флорится к четвергу (уважается как задан)', async () => {
+    // 2026-02-10 — вторник; срез должен остаться вторником.
+    const res = await app.inject({ method: 'GET', url: '/api/report?asOf=2026-02-10' });
+    expect(res.json<ReportResponse>().period.asOfDay).toBe(dayNumberOf('2026-02-10'));
+    expect(dayNumberOf('2026-02-10')! % 7).not.toBe(0);
   }, 30_000);
 
   it('asOf=YYYY-MM-DD задаёт срез: квартал и год из даты', async () => {

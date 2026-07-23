@@ -13,7 +13,8 @@
  * Параметры (все опциональны):
  *   year     план-год среза (2020..2100); дефолт — год даты среза;
  *   quarter  отчётный квартал 1..4; дефолт — календарный квартал даты среза;
- *   asOf     дата среза YYYY-MM-DD; дефолт — текущая дата сервера.
+ *   asOf     дата среза YYYY-MM-DD; дефолт — ПОСЛЕДНИЙ ЧЕТВЕРГ (еженедельный
+ *            канон: срез отчёта — четверг; явный asOf уважается как задан).
  * Дефолты документированы и в METHODOLOGY ответа.
  */
 import type { FastifyInstance } from 'fastify';
@@ -37,8 +38,8 @@ const METHODOLOGY =
   'Числа origin=calc пересчитаны из строк-атомов книг ГРБС каноническим движком; ' +
   'origin=svod — ячейки официального листа СВОД ТД-ПМ без пересчёта (двухисточниковость: ' +
   'расхождение видно, подмены нет). Экономия — только утверждённая (флаг AD=«да» + дата факта). ' +
-  'Деньги — тыс. руб., трёхсрез ФБ/КБ/МБ. Дефолты периода: квартал и год — из даты среза (asOf, ' +
-  'по умолчанию текущая дата сервера).';
+  'Деньги — тыс. руб., трёхсрез ФБ/КБ/МБ. Срез отчёта — еженедельный, ЧЕТВЕРГ: без явного asOf ' +
+  'берётся последний четверг (квартал и год — из этой даты среза).';
 
 interface ReportQuery {
   year?: string;
@@ -54,10 +55,20 @@ type PeriodParse =
 /**
  * Период из query: asOf → компоненты даты среза (без TZ-сдвигов — разбор
  * строки, не Date-парс), year/quarter поверх — явные значения побеждают дефолт.
+ *
+ * ДЕФОЛТ БЕЗ asOf — ПОСЛЕДНИЙ ЧЕТВЕРГ (канон пользователя 23.07: отчёты
+ * еженедельные, срез — четверг). Арифметика: день 0 эпохи (1970-01-01) —
+ * четверг, поэтому floorToThursday(d) = d − (d % 7). Год/квартал-дефолты
+ * выводятся из ЭТОЙ даты среза (в пятницу 01.10 отчёт по умолчанию — на
+ * четверг 30.09, т.е. ещё Q3). Явный asOf уважается как задан, без флора.
  */
+const DAYS_PER_WEEK = 7;
+const floorToThursday = (day: number): number => day - (day % DAYS_PER_WEEK);
+
 function parsePeriod(query: ReportQuery): PeriodParse {
   let sliceYear: number;
   let sliceMonth: number; // 0-based, для квартала
+  let asOfDay: number;
   if (query.asOf !== undefined) {
     const m = query.asOf.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     const day = dayNumberOf(query.asOf);
@@ -66,13 +77,13 @@ function parsePeriod(query: ReportQuery): PeriodParse {
     }
     sliceYear = parseInt(m[1], 10);
     sliceMonth = parseInt(m[2], 10) - 1;
+    asOfDay = day;
   } else {
-    const now = new Date();
-    sliceYear = now.getFullYear();
-    sliceMonth = now.getMonth();
+    asOfDay = floorToThursday(dayNumberOf(new Date())!);
+    const sliceDate = new Date(asOfDay * 86400000);
+    sliceYear = sliceDate.getUTCFullYear();
+    sliceMonth = sliceDate.getUTCMonth();
   }
-  // asOf уже проверен dayNumberOf выше; ветка Date всегда даёт число.
-  const asOfDay = query.asOf !== undefined ? dayNumberOf(query.asOf)! : dayNumberOf(new Date())!;
 
   let year = sliceYear;
   if (query.year !== undefined) {
