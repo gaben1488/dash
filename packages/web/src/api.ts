@@ -1,4 +1,5 @@
 import type { DashboardData } from '@aemr/shared';
+import type { Report } from '@aemr/core';
 import {
   HealthResponseSchema,
   IssuesListResponseSchema,
@@ -215,6 +216,13 @@ export const api = {
   getScatterData: (params?: Record<string, string>) => {
     const search = params ? new URLSearchParams(params).toString() : '';
     return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
+  },
+
+  // Отчёт — проекция buildReport (@aemr/core); квартал опционален (дефолт выбирает сервер)
+  getReport: (year: number, quarter?: 1 | 2 | 3 | 4) => {
+    const params = new URLSearchParams({ year: String(year) });
+    if (quarter) params.set('quarter', String(quarter));
+    return fetchJSON<Report>(`/report?${params.toString()}`);
   },
 
   // Report map

@@ -2,7 +2,7 @@ import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount
 import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
-  Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet,
+  Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -16,6 +16,7 @@ export type FilterGroup =
 
 const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   dashboard:  ['period', 'currency', 'procurement', 'activity', 'budget'],
+  report:     ['period'],
   svod:       ['currency', 'procurement', 'budget'],
   data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
   economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
@@ -36,6 +37,7 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[] = [
   { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#3b82f6' },  // Electric Blue
+  { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b' },  // Amber — еженедельный отчёт
   { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2' },  // Cyan — источник истины
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
   { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald

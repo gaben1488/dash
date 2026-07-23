@@ -6,6 +6,7 @@ import { toCanonicalDeptId } from './lib/dept-key';
 /** СВОД — 6 страниц + legacy aliases */
 export type Page =
   | 'dashboard'     // Пульт (сводная панель)
+  | 'report'        // Отчёт (еженедельный отчёт по закупкам — проекция buildReport)
   | 'svod'          // СВОД ТД-ПМ (панель просмотра — точная копия листа)
   | 'data'          // Реестр (построчные данные)
   | 'economy'       // Экономия

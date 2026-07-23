@@ -5,6 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import { SOURCE_META, type ElementSource, type PageElementProps } from './types';
 import { kpiTileLabel, type KpiTileProps } from './KpiTile';
+import { diffView, type DiffTextProps } from './DiffText';
+import type { ReportTableProps } from './ReportTable';
 import { EMPTY_FILTER_CONTEXT } from '../../lib/filter-context';
 
 describe('SOURCE_META — словарь бейджа происхождения', () => {
@@ -34,6 +36,17 @@ describe('kpiTileLabel — подпись строго из канон-слов�
   });
 });
 
+describe('diffView — направление расхождения (DiffText)', () => {
+  it('совпадение — тихое, без дельты', () => {
+    expect(diffView(5, 5)).toEqual({ matches: true, deltaText: '' });
+  });
+
+  it('СВОД больше расчёта → «+N», меньше → «−N» (минус типографский)', () => {
+    expect(diffView(5, 4)).toEqual({ matches: false, deltaText: '+1' });
+    expect(diffView(2, 5)).toEqual({ matches: false, deltaText: '−3' });
+  });
+});
+
 describe('tsc-контракт PageElementProps', () => {
   it('элемент обязан принимать filterCtx и source; KpiTile — полный набор пропсов', () => {
     // Компилируемость этих объектов и есть проверка контракта.
@@ -54,5 +67,28 @@ describe('tsc-контракт PageElementProps', () => {
     // @ts-expect-error — periodBadge (честный скоуп) обязателен у KPI-плитки
     const noBadge: KpiTileProps = { ...base, metricKey: 'plan_count', value: '1', unit: '' };
     expect([missingSource, missingCtx, noBadge].length).toBe(3);
+  });
+
+  it('ReportTable и DiffText — контрактные: source и filterCtx обязательны по типу', () => {
+    const table: ReportTableProps = {
+      filterCtx: EMPTY_FILTER_CONTEXT,
+      source: 'calc',
+      columns: [{ key: 'method', label: 'Способ' }, { key: 'plan', label: 'План', align: 'right' }],
+      rows: [{ method: 'КП', plan: '10' }],
+    };
+    const diff: DiffTextProps = {
+      filterCtx: EMPTY_FILTER_CONTEXT,
+      source: 'svod',
+      value: 5,
+      reference: 4,
+    };
+    expect(table.source).toBe('calc');
+    expect(diff.reference).toBe(4);
+
+    // @ts-expect-error — таблица без source не компилируется
+    const tableNoSource: ReportTableProps = { filterCtx: EMPTY_FILTER_CONTEXT, columns: [], rows: [] };
+    // @ts-expect-error — DiffText без опорного числа не компилируется
+    const diffNoRef: DiffTextProps = { filterCtx: EMPTY_FILTER_CONTEXT, source: 'svod', value: 5 };
+    expect([tableNoSource, diffNoRef].length).toBe(2);
   });
 });

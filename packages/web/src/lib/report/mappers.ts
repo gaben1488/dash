@@ -1,0 +1,222 @@
+/**
+ * Мапперы Report → view-модели страницы «Отчёт» (дуга-3, волна 2B).
+ *
+ * Чистый слой без React: форматирование чисел по правилам продукта
+ * (процент с одним знаком и запятой, «нет плана» вместо нуля при D = 0 —
+ * канон quarterExecution) и сборка секций ГРБС для контрактных элементов.
+ * Подписи метрик страница берёт через productLabel по metricKey из этих
+ * view-моделей — свободного текста подписей здесь нет.
+ */
+import type { GrbsReportBlock, Report, ReportSignal } from '@aemr/core';
+
+/** Происхождение view-модели — структурно совместим с ElementSource контракта. */
+export type ViewSource = 'calc' | 'svod' | 'mixed';
+
+// ── Форматтеры (канон продукта) ─────────────────────────────
+
+/** Целое со стандартной ru-RU группировкой разрядов. */
+export function fmtCount(n: number): string {
+  return Math.round(n).toLocaleString('ru-RU');
+}
+
+/**
+ * Процент: один знак после запятой, запятая-разделитель, «нет плана» при null
+ * (канон quarterExecution: D = 0 → pct = null, не 0 и не 100).
+ */
+export function fmtPct(pct: number | null): string {
+  if (pct === null) return 'нет плана';
+  return `${(Math.round(pct * 10) / 10).toFixed(1).replace('.', ',')}%`;
+}
+
+/** Сумма в тыс. руб. (значения листов уже в тысячах — не переводим). */
+export function fmtThousands(n: number): string {
+  return Math.round(n).toLocaleString('ru-RU');
+}
+
+// ── Интегральная сводка → ряд KPI-плиток ────────────────────
+
+export interface KpiVM {
+  /** Ключ канон-словаря (METRIC_LABELS) — подпись рендерит KpiTile через productLabel */
+  metricKey: string;
+  value: string;
+  unit: string;
+  /** Честный скоуп числа: «2026 · год», «Q1», … */
+  periodBadge: string;
+  source: ViewSource;
+  tier: 'hero' | 'compact';
+}
+
+interface ScopeCounts {
+  kp: Report['integralSummary']['year']['kp'];
+  ep: Report['integralSummary']['year']['ep'];
+  total: Report['integralSummary']['year']['total'];
+}
+
+/** Пять плиток одного скоупа: план/факт/исполнение + КП/ЕП раздельно. */
+function scopeTiles(scope: ScopeCounts, badge: string): KpiVM[] {
+  return [
+    {
+      metricKey: 'plan_count',
+      value: fmtCount(scope.total.planCount),
+      unit: '',
+      periodBadge: badge,
+      source: scope.total.origin,
+      tier: 'compact',
+    },
+    {
+      metricKey: 'fact_count',
+      value: fmtCount(scope.total.doneCount),
+      unit: '',
+      periodBadge: badge,
+      source: scope.total.origin,
+      tier: 'compact',
+    },
+    {
+      metricKey: 'exec_count_pct',
+      value: fmtPct(scope.total.pct),
+      unit: '',
+      periodBadge: badge,
+      source: scope.total.origin,
+      tier: 'hero',
+    },
+    {
+      metricKey: 'comp_exec_count_pct',
+      value: fmtPct(scope.kp.pct),
+      unit: '',
+      periodBadge: `${badge} · ${fmtCount(scope.kp.doneCount)} из ${fmtCount(scope.kp.planCount)}`,
+      source: scope.kp.origin,
+      tier: 'compact',
+    },
+    {
+      metricKey: 'ep_exec_count_pct',
+      value: fmtPct(scope.ep.pct),
+      unit: '',
+      periodBadge: `${badge} · ${fmtCount(scope.ep.doneCount)} из ${fmtCount(scope.ep.planCount)}`,
+      source: scope.ep.origin,
+      tier: 'compact',
+    },
+  ];
+}
+
+/**
+ * Интегральная сводка → плитки: год (план/факт/% + КП/ЕП), квартал (то же),
+ * деньги года (лимит/факт/экономия ИТОГО). Source каждой плитки — из
+ * origin-поля соответствующего числа.
+ */
+export function integralKpiRow(report: Report): KpiVM[] {
+  const { period, integralSummary } = report;
+  const yearBadge = `${period.year} · год`;
+  const quarterBadge = `Q${period.quarter}`;
+  const money = integralSummary.money;
+  const moneyTiles: KpiVM[] = [
+    {
+      metricKey: 'plan_total',
+      value: fmtThousands(money.plan.total),
+      unit: 'тыс. ₽',
+      periodBadge: yearBadge,
+      source: money.plan.origin,
+      tier: 'compact',
+    },
+    {
+      metricKey: 'fact_total',
+      value: fmtThousands(money.fact.total),
+      unit: 'тыс. ₽',
+      periodBadge: yearBadge,
+      source: money.fact.origin,
+      tier: 'compact',
+    },
+    {
+      metricKey: 'economy_total',
+      value: fmtThousands(money.economy.total),
+      unit: 'тыс. ₽',
+      periodBadge: yearBadge,
+      source: money.economy.origin,
+      tier: 'compact',
+    },
+  ];
+  return [
+    ...scopeTiles(integralSummary.year, yearBadge),
+    ...scopeTiles(integralSummary.quarter, quarterBadge),
+    ...moneyTiles,
+  ];
+}
+
+// ── Блок ГРБС → view-модель секции ──────────────────────────
+
+export interface MethodRowVM {
+  /** Семейство способа — канон продукта (кириллические коды) */
+  methodKey: 'КП' | 'ЕП';
+  plan: number;
+  fact: number;
+  pctText: string;
+}
+
+/** Пара «расчёт против СВОД» для DiffText; подпись — productLabel(metricKey). */
+export interface SvodPairVM {
+  metricKey: string;
+  calc: number;
+  svod: number;
+}
+
+export interface GrbsSectionVM {
+  dept: string;
+  deptLabel: string;
+  /** 'mixed' когда в квартале есть официальные счётчики СВОД, иначе 'calc' */
+  source: ViewSource;
+  /** «40,0%» либо «нет плана» */
+  executionPct: string;
+  /** Формула-подпись: «заключено 6 из 15» */
+  executionCaption: string;
+  pendingCount: number;
+  /** «Не заключено: 9» / «Все плановые процедуры квартала заключены» / «—» */
+  pendingLabel: string;
+  methodRows: MethodRowVM[];
+  yearLine: string;
+  moneyLine: string;
+  /** null — экономии нет (total = 0), строка не рисуется */
+  economyLine: string | null;
+  signals: ReportSignal[];
+  /** null — лист СВОД по кварталу не передан, сверки нет */
+  svodPairs: SvodPairVM[] | null;
+}
+
+function pendingLabelOf(execution: { planCount: number }, pendingCount: number): string {
+  if (pendingCount > 0) return `Не заключено: ${fmtCount(pendingCount)}`;
+  if (execution.planCount === 0) return 'План на квартал отсутствует';
+  return 'Все плановые процедуры квартала заключены';
+}
+
+/** Блок ГРБС из Report → плоская view-модель секции страницы. */
+export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
+  const q = block.quarter;
+  const y = block.year;
+  const svodPairs: SvodPairVM[] | null = q.svod
+    ? [
+        { metricKey: 'competitive_count', calc: q.methods.kp.planCount, svod: q.svod.kp.planCount },
+        { metricKey: 'comp_fact_count', calc: q.methods.kp.doneCount, svod: q.svod.kp.doneCount },
+        { metricKey: 'ep_count', calc: q.methods.ep.planCount, svod: q.svod.ep.planCount },
+        { metricKey: 'ep_fact_count', calc: q.methods.ep.doneCount, svod: q.svod.ep.doneCount },
+      ]
+    : null;
+  return {
+    dept: block.dept,
+    deptLabel: block.deptLabel,
+    source: q.svod ? 'mixed' : 'calc',
+    executionPct: fmtPct(q.execution.pct),
+    executionCaption: `заключено ${fmtCount(q.execution.doneCount)} из ${fmtCount(q.execution.planCount)}`,
+    pendingCount: q.pendingCount,
+    pendingLabel: pendingLabelOf(q.execution, q.pendingCount),
+    methodRows: [
+      { methodKey: 'КП', plan: q.methods.kp.planCount, fact: q.methods.kp.doneCount, pctText: fmtPct(q.methods.kp.pct) },
+      { methodKey: 'ЕП', plan: q.methods.ep.planCount, fact: q.methods.ep.doneCount, pctText: fmtPct(q.methods.ep.pct) },
+    ],
+    yearLine: `За год: заключено ${fmtCount(y.counts.doneCount)} из ${fmtCount(y.counts.planCount)} (${fmtPct(y.counts.pct)})` +
+      (y.pendingCount > 0 ? `, не заключено ${fmtCount(y.pendingCount)}` : ''),
+    moneyLine: `Лимит ${fmtThousands(block.money.plan.total)} тыс. руб., факт ${fmtThousands(block.money.fact.total)} тыс. руб.`,
+    economyLine: block.economy.total > 0
+      ? `Экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
+      : null,
+    signals: block.topSignals,
+    svodPairs,
+  };
+}
