@@ -50,3 +50,43 @@ describe('formatDelta', () => {
     expect(v.text.replace(/\D/g, '')).toBe('19278');
   });
 });
+
+describe('fmtMetricValue / percent-метрики (ревью R1-хвоста #3)', () => {
+  it('percent-метрика: текст дельты — процентные пункты, не относительный сдвиг', () => {
+    const d: MetricDelta = {
+      metricKey: 'competitive.year.percent',
+      from: { value: 40, at: '2026-07-16T00:00:00Z' },
+      to: { value: 45, at: '2026-07-23T00:00:00Z' },
+      deltaAbs: 5,
+      deltaPct: 0.125,
+      direction: 'up',
+      sentiment: 'good',
+    };
+    const view = formatDelta(d);
+    expect(view.text).toBe('5 п.п.');
+    expect(view.title).toContain('40%');
+    expect(view.title).toContain('45%');
+  });
+
+  it('слепок хранит G долей 0-1 — тултип нормализует к процентам (канон rule-book)', () => {
+    const d: MetricDelta = {
+      metricKey: 'competitive.year.percent',
+      from: { value: 0.4, at: '2026-07-16T00:00:00Z' },
+      to: { value: 0.45, at: '2026-07-23T00:00:00Z' },
+      deltaAbs: 0.05,
+      deltaPct: 0.125,
+      direction: 'up',
+      sentiment: 'good',
+    };
+    const view = formatDelta(d);
+    expect(view.text).toBe('5 п.п.');
+    expect(view.title).toContain('40%');
+    expect(view.title).toContain('45%');
+  });
+
+  it('не-percent метрика: поведение прежнее (относительный % и сырые значения)', () => {
+    const view = formatDelta(base);
+    expect(view.text).toBe('7.3%');
+    expect(view.title).toContain('0,5');
+  });
+});

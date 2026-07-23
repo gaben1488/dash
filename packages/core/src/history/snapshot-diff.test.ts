@@ -39,3 +39,16 @@ describe('diffMetrics', () => {
     expect(abs).toEqual([...abs].sort((a, b) => b - a));
   });
 });
+
+describe('sentimentFor — G-исполнение (*.percent) окрашивается по смыслу', () => {
+  it('рост исполнения — good, падение — bad (все 4 официальных аналога KPI-плиток)', () => {
+    for (const key of ['competitive.year.percent', 'sole.year.percent', 'competitive.q1.percent', 'sole.q1.percent']) {
+      expect(sentimentFor(key, 'up')).toBe('good');
+      expect(sentimentFor(key, 'down')).toBe('bad');
+    }
+  });
+
+  it('«доля» побеждает первым правилом: рост ep-share остаётся bad', () => {
+    expect(sentimentFor('sole.year.share', 'up')).toBe('bad');
+  });
+});

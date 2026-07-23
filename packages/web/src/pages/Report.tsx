@@ -36,7 +36,7 @@ import { reportRequestParams } from '../lib/report/request';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
-import { fmtVal } from '../lib/delta-format';
+import { fmtMetricValue } from '../lib/delta-format';
 
 type Quarter = 1 | 2 | 3 | 4;
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
@@ -229,7 +229,7 @@ function WeekDeltaSection({ state, ctx }: { state: WeekDeltaState; ctx: FilterCo
                   {weekMetricLabel(d.metricKey)}
                 </span>
                 <span className="tabular-nums whitespace-nowrap text-zinc-500 dark:text-zinc-400">
-                  {fmtVal(d.from?.value ?? null)} → {fmtVal(d.to?.value ?? null)}
+                  {fmtMetricValue(d.metricKey, d.from?.value ?? null)} → {fmtMetricValue(d.metricKey, d.to?.value ?? null)}
                 </span>
                 <DeltaBadge delta={d} />
               </li>

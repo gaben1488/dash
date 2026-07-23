@@ -29,8 +29,10 @@ export interface MetricDelta {
 
 // «рост = плохо» (внимание): доля ЕП, аномалии, просрочки, нарушения.
 const UP_IS_BAD = [/доля.*еп|ep.*share|sole.*share|просроч|overdue|наруш|аномал/i];
-// «рост = хорошо»: экономия, исполнение, потрачено.
-const UP_IS_GOOD = [/эконом|econom|savings|исполн|exec|потрач|spent/i];
+// «рост = хорошо»: экономия, исполнение, потрачено. Ключи REPORT_MAP «*.percent» —
+// все G-исполнение (share-ключей в карте нет; будущая «доля» перехватывается
+// UP_IS_BAD первым). Без этого дельты флагманских G-метрик были вечно серыми.
+const UP_IS_GOOD = [/эконом|econom|savings|исполн|exec|потрач|spent/i, /\.percent$/];
 
 export function sentimentFor(metricKey: string, dir: Direction): Sentiment {
   if (dir === 'flat') return 'neutral';
