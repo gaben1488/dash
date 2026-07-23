@@ -108,7 +108,7 @@ function svodBlock(
   };
 }
 
-const OPTS = { year: 2026, quarter: 1 as const };
+const OPTS = { year: 2026, quarter: 1 as const, asOfDay: 20623 };
 
 describe('buildReport — блок ГРБС (калибровка эталоном 20.03.2026)', () => {
   it('УЭР: Q1 план 15, факт 6 → 40.00%, незаключённых 9', () => {

@@ -62,8 +62,9 @@ export interface BuildReportOptions {
   year: number;
   /** Отчётный квартал (столбец O). */
   quarter: 1 | 2 | 3 | 4;
-  /** Номер суток среза (dayNumberOf-совместимый) — вместо Date.now. */
-  asOfDay?: number;
+  /** Номер суток среза (dayNumberOf-совместимый) — вместо Date.now.
+   *  Обязателен: срез — ось еженедельной системы (канон: четверг). */
+  asOfDay: number;
 }
 
 // ── Внутренние помощники ─────────────────────────────────────────────
@@ -218,7 +219,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
   }
 
   return {
-    period: { year, quarter, ...(opts.asOfDay !== undefined ? { asOfDay: opts.asOfDay } : {}) },
+    period: { year, quarter, asOfDay: opts.asOfDay },
     integralSummary: integralOf(blocks, input.svodGrid, quarter, year),
     grbsBlocks: blocks,
     notes,

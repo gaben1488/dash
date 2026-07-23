@@ -24,6 +24,7 @@ import { DiffText } from '../components/contract/DiffText';
 import {
   buildGrbsSection,
   integralKpiRow,
+  fmtAsOfDate,
   fmtCount,
   type GrbsSectionVM,
 } from '../lib/report/mappers';
@@ -178,9 +179,11 @@ export function ReportPage() {
   }, [reportYear, requestQuarter]);
 
   const [copied, setCopied] = useState(false);
-  const asOfDate = new Date().toLocaleDateString('ru-RU');
+  // Дата среза — из ответа сервера (period.asOfDay, дефолт — последний
+  // четверг), не new Date(): «сегодня» врало бы в любой день, кроме четверга.
+  const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   const onCopy = () => {
-    if (!report) return;
+    if (!report || asOfDate === null) return;
     void navigator.clipboard.writeText(generateReportText(report, asOfDate)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -206,7 +209,7 @@ export function ReportPage() {
       {/* Шапка: заголовок, периодные бейджи, селектор квартала, копирование */}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-          Отчёт по закупкам на {asOfDate}
+          {asOfDate ? `Отчёт по закупкам на ${asOfDate}` : 'Отчёт по закупкам'}
         </h2>
         <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           {reportYear} год

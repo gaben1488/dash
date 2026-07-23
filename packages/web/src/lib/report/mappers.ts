@@ -33,6 +33,18 @@ export function fmtThousands(n: number): string {
   return Math.round(n).toLocaleString('ru-RU');
 }
 
+/**
+ * Дата среза «дд.мм.гггг» из period.asOfDay (номер суток dayNumberOf).
+ * UTC-компоненты, не toLocaleDateString: локальное форматирование западнее
+ * Гринвича сдвинуло бы срез-четверг на среду.
+ */
+export function fmtAsOfDate(asOfDay: number): string {
+  const d = new Date(asOfDay * 86400000);
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${d.getUTCFullYear()}`;
+}
+
 // ── Интегральная сводка → ряд KPI-плиток ────────────────────
 
 export interface KpiVM {

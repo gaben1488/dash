@@ -103,8 +103,9 @@ export interface IntegralSummary {
 export interface ReportPeriod {
   year: number;
   quarter: 1 | 2 | 3 | 4;
-  /** Номер суток среза (dayNumberOf-совместимый), если задан вызывающим. */
-  asOfDay?: number;
+  /** Номер суток среза (dayNumberOf-совместимый). Срез — ось еженедельной
+   *  системы отчётов (канон: четверг), поэтому обязателен, не опционален. */
+  asOfDay: number;
 }
 
 /** Результат buildReport — упорядоченная проекция для страницы «Отчёт». */
