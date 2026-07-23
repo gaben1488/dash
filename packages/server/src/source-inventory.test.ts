@@ -54,7 +54,9 @@ describe('production source inventory contract', () => {
     const sheetByDept = Object.fromEntries(DEPARTMENT_REGISTRY.map(d => [d.id, d.sheetName]));
 
     expect(sheetByDept).toMatchObject({
-      'УЭР': 'УЭР',
+      // УЭР → «ВСЕ»: периметр официального СВОДа включает МКУ «ЦЭР»
+      // (следствие 2026-07-23: 7/6 vs 11/8 плана Q3 — шесть строк подведа)
+      'УЭР': 'ВСЕ',
       'УИО': 'УИО',
       'УАГЗО': 'ВСЕ',
       'УФБП': 'УФБП',

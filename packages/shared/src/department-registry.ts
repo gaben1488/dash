@@ -94,7 +94,10 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     id: 'УЭР', latinId: 'uer',
     fullName: 'Управление экономического развития',
     shortName: 'УЭР',
-    sheetName: 'УЭР', hasSubordinates: false,
+    // «ВСЕ» = управление + подвед МКУ «ЦЭР» — тот же периметр, что официальный
+    // СВОД (IMPORTRANGE книги УЭР тянет именно «ВСЕ»). Вкладка «УЭР» (только
+    // управление) остаётся fallback-кандидатом. Следствие 2026-07-23.
+    sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 42, kpYear: 47, epQ1: 53, epYear: 58, totalCombined: 60, totalCurrent: 61, compShareRow: 63, epShareRow: 64 },
     shdyu: { compStartRow: 45, compEndRow: 56, compTotalRow: 57, epStartRow: 62, epEndRow: 73, epTotalRow: 74, totalRow: 76, compShareRow: 77, epShareRow: 78 },
   },
