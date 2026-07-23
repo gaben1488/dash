@@ -73,6 +73,26 @@ describe('integralKpiRow — интегральная сводка в плитк
     expect(norm(plan.value)).toBe('4 500');
     expect(plan.periodBadge).toBe('2026 · год');
   });
+
+  it('officialKey: аналог слепков — только у исполнения КП/ЕП (год и Q1)', () => {
+    expect(tiles[3].officialKey).toBe('competitive.year.percent');
+    expect(tiles[4].officialKey).toBe('sole.year.percent');
+    expect(tiles[8].officialKey).toBe('competitive.q1.percent');
+    expect(tiles[9].officialKey).toBe('sole.q1.percent');
+    // Итоги КП+ЕП и деньги: единой официальной ячейки нет — без аналога
+    for (const i of [0, 1, 2, 5, 6, 7, 10, 11, 12]) {
+      expect(tiles[i].officialKey).toBeUndefined();
+    }
+  });
+
+  it('officialKey: в Q3 квартальные КП/ЕП без аналога (в СВОДе только Q1 и год)', () => {
+    const base = makeReportFixture();
+    const q3 = integralKpiRow({ ...base, period: { ...base.period, quarter: 3 as const } });
+    expect(q3[8].officialKey).toBeUndefined();
+    expect(q3[9].officialKey).toBeUndefined();
+    // Годовые аналоги от квартала не зависят
+    expect(q3[3].officialKey).toBe('competitive.year.percent');
+  });
 });
 
 describe('buildGrbsSection — view-модель секции ГРБС', () => {

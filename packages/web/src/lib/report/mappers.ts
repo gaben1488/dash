@@ -8,6 +8,7 @@
  * view-моделей — свободного текста подписей здесь нет.
  */
 import type { GrbsReportBlock, Report, ReportSignal } from '@aemr/core';
+import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
 /** Происхождение view-модели — структурно совместим с ElementSource контракта. */
 export type ViewSource = 'calc' | 'svod' | 'mixed';
@@ -56,6 +57,12 @@ export interface KpiVM {
   periodBadge: string;
   source: ViewSource;
   tier: 'hero' | 'compact';
+  /**
+   * Официальный аналог плитки в слое слепков (dotted-ключ REPORT_MAP) —
+   * дверь для дельта-бейджа «к прошлому слепку». Однозначного аналога той же
+   * семантики в СВОДе нет → поля нет, плитка честно живёт без дельты.
+   */
+  officialKey?: string;
 }
 
 interface ScopeCounts {
@@ -111,6 +118,18 @@ function scopeTiles(scope: ScopeCounts, badge: string): KpiVM[] {
 }
 
 /**
+ * Плиткам скоупа проставляется официальный аналог из слоя слепков — там,
+ * где он однозначен (исполнение КП/ЕП; см. officialAnalogKey). Остальные
+ * плитки остаются как есть: без аналога нет и дельты.
+ */
+function stampOfficialKeys(tiles: KpiVM[], scope: KpiScope): KpiVM[] {
+  return tiles.map((t) => {
+    const officialKey = officialAnalogKey(t.metricKey, scope);
+    return officialKey === undefined ? t : { ...t, officialKey };
+  });
+}
+
+/**
  * Интегральная сводка → плитки: год (план/факт/% + КП/ЕП), квартал (то же),
  * деньги года (лимит/факт/экономия ИТОГО). Source каждой плитки — из
  * origin-поля соответствующего числа.
@@ -147,8 +166,9 @@ export function integralKpiRow(report: Report): KpiVM[] {
     },
   ];
   return [
-    ...scopeTiles(integralSummary.year, yearBadge),
-    ...scopeTiles(integralSummary.quarter, quarterBadge),
+    ...stampOfficialKeys(scopeTiles(integralSummary.year, yearBadge), 'year'),
+    ...stampOfficialKeys(scopeTiles(integralSummary.quarter, quarterBadge), period.quarter),
+    // Деньги «итого» = КП+ЕП: единой официальной ячейки нет — без аналога
     ...moneyTiles,
   ];
 }

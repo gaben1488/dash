@@ -48,8 +48,8 @@ function planRows(prefix: string, n: number, withFact: number, q: number, method
   );
 }
 
-/** Тело ответа: Report + методология. */
-type ReportResponse = Report & { methodology: string };
+/** Тело ответа: Report + методология + ссылка «СВОД онлайн». */
+type ReportResponse = Report & { methodology: string; svodOnlineUrl?: string };
 
 describe('GET /api/report — проекция отчёта (эталон 20.03.2026)', () => {
   let app: FastifyInstance;
@@ -108,6 +108,20 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     expect(body.notes.some((n) => n.includes('СВОД'))).toBe(true);
   }, 30_000);
 
+  it('svodOnlineUrl: ссылка на официальную сводную книгу Google Sheets', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/report?year=2026&quarter=1' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<ReportResponse>();
+    // Ссылка ведёт на книгу СВОД целиком (без gid — вкладку читатель выберет сам)
+    // и несёт ИМЕННО текущий config-id (не любой): смена источника в рантайме
+    // должна менять и ссылку (URL считается на запрос, не на import).
+    const { config } = await import('../config.js');
+    expect(typeof body.svodOnlineUrl).toBe('string');
+    expect(body.svodOnlineUrl!.startsWith('https://docs.google.com/spreadsheets/d/')).toBe(true);
+    expect(body.svodOnlineUrl).toContain(config.google.spreadsheetId);
+    expect(body.svodOnlineUrl).not.toContain('gid=');
+  }, 30_000);
+
   it('без asOf: дефолт среза — ПОСЛЕДНИЙ ЧЕТВЕРГ (еженедельный канон), период из него', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/report' });
     expect(res.statusCode).toBe(200);
@@ -144,6 +158,49 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     expect((await app.inject({ method: 'GET', url: '/api/report?quarter=5' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/report?year=1999' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/report?asOf=garbage' })).statusCode).toBe(400);
+  }, 30_000);
+});
+
+describe('GET /api/report — id сводной книги не настроен', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    // Пустая строка в env НЕ перекрывается дефолтом (?? пропускает только null/undefined)
+    // — это и есть «конфига нет» для ссылки «СВОД онлайн».
+    process.env = {
+      ...ORIGINAL_ENV,
+      NODE_ENV: 'test',
+      AEMR_API_KEY: '',
+      SQLITE_PATH: ':memory:',
+      LOG_LEVEL: 'silent',
+      GOOGLE_SHEETS_SPREADSHEET_ID: '',
+    };
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
+    setDeptSheetCache({
+      УЭР: {
+        values: [...headers, ...planRows('uer-kp', 10, 4, 1, 'ЭА')],
+        formulas: [],
+        sheetName: 'УЭР',
+      },
+    });
+    const { createApp } = await import('../app.js');
+    app = await createApp({ logger: false });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    process.env = { ...ORIGINAL_ENV };
+    vi.resetModules();
+  });
+
+  it('поля svodOnlineUrl в ответе нет (не пустая строка)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/report?year=2026&quarter=1' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<ReportResponse>();
+    expect(body.svodOnlineUrl).toBeUndefined();
+    expect('svodOnlineUrl' in body).toBe(false);
   }, 30_000);
 });
 

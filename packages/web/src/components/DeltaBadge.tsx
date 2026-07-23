@@ -11,14 +11,18 @@ const TONE: Record<DeltaTone, string> = {
 /**
  * Тихий инлайн-бейдж дрейфа метрики (слой 1 истории изменений).
  * Цвет — по смыслу (сентимент), не по знаку. Клик → поповер «было→стало» (фаза позже).
+ *
+ * context — человеческая фраза перед механикой в тултипе («К прошлому слепку
+ * (СВОД): было … → стало …»): читатель сперва узнаёт, С ЧЕМ сравнили, и лишь
+ * потом видит числа. Без context тултип прежний — только «было → стало».
  */
-export function DeltaBadge({ delta, onClick }: { delta: MetricDelta; onClick?: () => void }) {
+export function DeltaBadge({ delta, onClick, context }: { delta: MetricDelta; onClick?: () => void; context?: string }) {
   const v = formatDelta(delta);
   return (
     <span
       role={onClick ? 'button' : undefined}
       onClick={onClick}
-      title={v.title}
+      title={context ? `${context}: ${v.title}` : v.title}
       className={clsx(
         'inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums leading-none select-none',
         TONE[v.tone],

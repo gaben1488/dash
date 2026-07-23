@@ -8,6 +8,8 @@
  * Стиль — классы analytics-kpi (index.css), как у плиток Аналитики.
  */
 import { productLabel } from '@aemr/shared';
+import type { MetricDelta } from '@aemr/core';
+import { DeltaBadge } from '../DeltaBadge';
 import { SourceBadge } from './SourceBadge';
 import type { PageElementProps } from './types';
 
@@ -24,6 +26,13 @@ export interface KpiTileProps extends PageElementProps {
   /** Честный скоуп числа: «Q1 · официал», «год», «июль» */
   periodBadge: string;
   tier?: KpiTier;
+  /**
+   * Сдвиг числа к прошлому слепку недели (официальные метрики СВОДа) —
+   * тихий DeltaBadge в углу плитки. Проп опционален и вешается только на
+   * плитки с однозначным официальным аналогом (см. lib/report/kpi-delta):
+   * нет аналога — нет дельты, плитка не врёт чужим сравнением.
+   */
+  delta?: MetricDelta;
   onClick?: () => void;
 }
 
@@ -32,7 +41,7 @@ export function kpiTileLabel(metricKey: string): string {
   return productLabel(metricKey);
 }
 
-export function KpiTile({ metricKey, value, unit, periodBadge, source, tier = 'compact', onClick }: KpiTileProps) {
+export function KpiTile({ metricKey, value, unit, periodBadge, source, tier = 'compact', delta, onClick }: KpiTileProps) {
   return (
     <div
       className={`analytics-kpi analytics-kpi-${tier}${onClick ? ' cursor-pointer' : ''}`}
@@ -42,7 +51,10 @@ export function KpiTile({ metricKey, value, unit, periodBadge, source, tier = 'c
         <span className={`analytics-kpi-label ${tier === 'hero' ? 'text-[11px]' : 'text-[10px]'}`}>
           {kpiTileLabel(metricKey)}
         </span>
-        <SourceBadge source={source} />
+        <span className="flex items-center gap-1.5 shrink-0">
+          {delta && <DeltaBadge delta={delta} context="К прошлому слепку (СВОД)" />}
+          <SourceBadge source={source} />
+        </span>
       </div>
       <div className={`analytics-kpi-value ${tier === 'hero' ? 'text-2xl' : tier === 'med' ? 'text-lg' : 'text-base'}`}>
         {value}

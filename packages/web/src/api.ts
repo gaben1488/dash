@@ -15,6 +15,15 @@ import {
 const API_BASE = '/api';
 
 /**
+ * Ответ GET /api/report: проекция Report плюс серверная обвязка страницы —
+ * methodology («как посчитано» — текст для подвала) и svodOnlineUrl («где
+ * сверить» — официальная книга СВОД в Google Sheets; id книги на сервере не
+ * настроен → поля в ответе нет). Обвязка живёт рядом с core-типом, а не
+ * внутри него: это свойства ответа сервера, не расчётной проекции.
+ */
+export type ReportResponse = Report & { methodology?: string; svodOnlineUrl?: string };
+
+/**
  * Структурный контракт zod-схемы (zod не в deps web; схемы приходят из @aemr/shared).
  * Тип результата выводится из success-ветки safeParse — эквивалент z.infer.
  */
@@ -224,7 +233,7 @@ export const api = {
     const params = new URLSearchParams({ year: String(year) });
     if (quarter) params.set('quarter', String(quarter));
     if (asOf) params.set('asOf', asOf);
-    return fetchJSON<Report>(`/report?${params.toString()}`);
+    return fetchJSON<ReportResponse>(`/report?${params.toString()}`);
   },
 
   // Report map

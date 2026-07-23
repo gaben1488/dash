@@ -3,6 +3,7 @@
  * Рендер-тестов в харнесе нет (node env) — компоненты проверяются типами.
  */
 import { describe, it, expect } from 'vitest';
+import type { MetricDelta } from '@aemr/core';
 import { SOURCE_META, type ElementSource, type PageElementProps } from './types';
 import { kpiTileLabel, type KpiTileProps } from './KpiTile';
 import { diffView, type DiffTextProps } from './DiffText';
@@ -67,6 +68,27 @@ describe('tsc-контракт PageElementProps', () => {
     // @ts-expect-error — periodBadge (честный скоуп) обязателен у KPI-плитки
     const noBadge: KpiTileProps = { ...base, metricKey: 'plan_count', value: '1', unit: '' };
     expect([missingSource, missingCtx, noBadge].length).toBe(3);
+  });
+
+  it('KpiTile: дельта к прошлому слепку опциональна — плитка живёт и с ней, и без', () => {
+    const base: PageElementProps = { filterCtx: EMPTY_FILTER_CONTEXT, source: 'calc' };
+    const shift: MetricDelta = {
+      metricKey: 'competitive.q1.percent',
+      from: { value: 40, at: '2026-07-16T04:00:00.000Z' },
+      to: { value: 42, at: '2026-07-23T04:00:00.000Z' },
+      deltaAbs: 2,
+      deltaPct: 0.05,
+      direction: 'up',
+      sentiment: 'good',
+    };
+    const withDelta: KpiTileProps = {
+      ...base, metricKey: 'comp_exec_count_pct', value: '42,0%', unit: '', periodBadge: 'Q1', delta: shift,
+    };
+    const withoutDelta: KpiTileProps = {
+      ...base, metricKey: 'exec_count_pct', value: '40,0%', unit: '', periodBadge: 'Q1',
+    };
+    expect(withDelta.delta?.metricKey).toBe('competitive.q1.percent');
+    expect(withoutDelta.delta).toBeUndefined();
   });
 
   it('ReportTable и DiffText — контрактные: source и filterCtx обязательны по типу', () => {

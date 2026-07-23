@@ -5,15 +5,18 @@
  * элементов components/contract/* (KpiTile, SectionCard, ReportTable,
  * DiffText, SourceBadge внутри них); каждый элемент получает FilterContext
  * (buildFilterContext) и source-бейдж. Данные — GET /api/report (проекция
- * buildReport из @aemr/core); загрузка по образцу CentralizationCard
- * (useEffect + useState, без TanStack). Кнопка «Копировать текстом» отдаёт
- * плоский текст generateReportText для вставки в письмо.
+ * buildReport из @aemr/core плюс обвязка ответа: methodology — подвал
+ * «Методология», svodOnlineUrl — ссылка «СВОД онлайн» в шапке); загрузка по
+ * образцу CentralizationCard (useEffect + useState, без TanStack). История
+ * слепков грузится один раз на срез (asOfDay) и питает секцию «Что изменилось за
+ * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
+ * отдаёт плоский текст generateReportText для вставки в письмо.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, ClipboardCopy, ClipboardCheck, History } from 'lucide-react';
+import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, History } from 'lucide-react';
 import { SEVERITY_COLORS, dayNumberOf, getMetricByKey, productLabel } from '@aemr/shared';
-import type { MetricDelta, Report } from '@aemr/core';
-import { api } from '../api';
+import type { MetricDelta } from '@aemr/core';
+import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
 import { toCanonicalDeptId } from '../lib/dept-key';
@@ -30,6 +33,7 @@ import {
 } from '../lib/report/mappers';
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams } from '../lib/report/request';
+import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
 import { fmtVal } from '../lib/delta-format';
@@ -179,36 +183,13 @@ function WeekDeltaNote({ text }: { text: string }) {
 }
 
 /**
- * Дельта метрик между слепком четверга среза и слепком неделей раньше
- * (/api/history/snapshots + /api/history/diff). Любой сбой истории —
- * деградация в плашку: страница отчёта от этого блока не зависит.
+ * Дельта метрик между слепком четверга среза и слепком неделей раньше.
+ * Данные приходят пропом со страницы: один fetch истории питает и эту
+ * секцию, и дельта-бейджи KPI-плиток (запрос не дублируется). Все
+ * деградации сохранены: любой сбой истории — плашка, страница отчёта
+ * от этого блока не зависит.
  */
-function WeekDeltaSection({ asOfDay, ctx }: { asOfDay: number; ctx: FilterContext }) {
-  const [state, setState] = useState<WeekDeltaState>({ kind: 'loading' });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: 'loading' });
-    api.getHistorySnapshots()
-      .then(async (snaps) => {
-        const pair = pickWeekSnapshots(snaps, asOfDay);
-        if (pair === null) {
-          if (!cancelled) setState({ kind: 'no-pair' });
-          return;
-        }
-        const deltas = await api.getHistoryDiff(pair.from.id, pair.to.id);
-        if (cancelled) return;
-        setState({
-          kind: 'ready',
-          deltas,
-          fromDay: dayNumberOf(pair.from.createdAt) ?? asOfDay - 7,
-          toDay: dayNumberOf(pair.to.createdAt) ?? asOfDay,
-        });
-      })
-      .catch(() => { if (!cancelled) setState({ kind: 'error' }); });
-    return () => { cancelled = true; };
-  }, [asOfDay]);
-
+function WeekDeltaSection({ state, ctx }: { state: WeekDeltaState; ctx: FilterContext }) {
   // ГРБС-фильтр контекста уважается и здесь: метрики дрейфа несут
   // departmentId в REPORT_MAP; без выбора ГРБС показываем всё.
   const grbsFilter = (d: MetricDelta): boolean => {
@@ -294,7 +275,7 @@ export function ReportPage() {
   );
 
   // Загрузка по образцу CentralizationCard: useEffect + useState, без TanStack
-  const [report, setReport] = useState<Report | null>(null);
+  const [report, setReport] = useState<ReportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -305,6 +286,36 @@ export function ReportPage() {
       .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
   }, [request.year, request.quarter, request.asOf]);
+
+  // История слепков вокруг четверга среза — ОДИН запрос на страницу:
+  // питает и секцию «Что изменилось за неделю», и дельта-бейджи KPI-плиток
+  // (/api/history/snapshots + /api/history/diff; сбой — честная плашка секции).
+  const asOfDay = report?.period.asOfDay;
+  const [weekDelta, setWeekDelta] = useState<WeekDeltaState>({ kind: 'loading' });
+  useEffect(() => {
+    setWeekDelta({ kind: 'loading' });
+    if (asOfDay === undefined) return;
+    let cancelled = false;
+    api.getHistorySnapshots()
+      .then(async (snaps) => {
+        const pair = pickWeekSnapshots(snaps, asOfDay);
+        if (pair === null) {
+          if (!cancelled) setWeekDelta({ kind: 'no-pair' });
+          return;
+        }
+        const deltas = await api.getHistoryDiff(pair.from.id, pair.to.id);
+        if (cancelled) return;
+        setWeekDelta({
+          kind: 'ready',
+          deltas,
+          fromDay: dayNumberOf(pair.from.createdAt) ?? asOfDay - 7,
+          toDay: dayNumberOf(pair.to.createdAt) ?? asOfDay,
+        });
+      })
+      .catch(() => { if (!cancelled) setWeekDelta({ kind: 'error' }); });
+    return () => { cancelled = true; };
+  }, [asOfDay]);
+  const weekDeltas = weekDelta.kind === 'ready' ? weekDelta.deltas : [];
 
   const [copied, setCopied] = useState(false);
   // Дата среза — из ответа сервера (period.asOfDay, дефолт — последний
@@ -347,6 +358,19 @@ export function ReportPage() {
             Q{activeQuarter}
           </span>
         )}
+        {/* Ссылка на официальную книгу СВОД; каноническая оговорка серии — тултипом */}
+        {report?.svodOnlineUrl && (
+          <a
+            href={report.svodOnlineUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Показатели отчёта — на дату среза; СВОД онлайн живёт и может незначительно отличаться."
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40 transition-colors"
+          >
+            <ExternalLink size={11} />
+            СВОД онлайн
+          </a>
+        )}
         <div className="flex items-center gap-1 ml-auto">
           {QUARTERS.map((q) => (
             <button
@@ -381,9 +405,11 @@ export function ReportPage() {
       ) : (
         <>
           {/* Что изменилось за неделю: дельта слепков вокруг четверга среза */}
-          <WeekDeltaSection asOfDay={report.period.asOfDay} ctx={ctx} />
+          <WeekDeltaSection state={weekDelta} ctx={ctx} />
 
-          {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin */}
+          {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin;
+              дельта «к прошлому слепку» — только у плиток с официальным
+              аналогом в слепках (kpiDeltaFor, честность источников) */}
           <SectionCard
             filterCtx={ctx}
             source={report.integralSummary.svodQuarter ? 'mixed' : 'calc'}
@@ -393,12 +419,12 @@ export function ReportPage() {
             <div className="analytics-kpi-grid">
               <div className="analytics-kpi-hero-row">
                 {heroTiles.map((t) => (
-                  <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} />
+                  <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} delta={kpiDeltaFor(t, weekDeltas)} />
                 ))}
               </div>
               <div className="analytics-kpi-secondary-row">
                 {restTiles.map((t) => (
-                  <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} />
+                  <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} delta={kpiDeltaFor(t, weekDeltas)} />
                 ))}
               </div>
             </div>
@@ -429,6 +455,19 @@ export function ReportPage() {
                 ))}
               </ul>
             </div>
+          )}
+
+          {/* Подвал доверия: методология счёта — текст сервера, свёрнут по умолчанию */}
+          {report.methodology && (
+            <SectionCard filterCtx={ctx} source="calc" title="Методология" icon={BookOpen} defaultOpen={false}>
+              <div className="space-y-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+                <p>
+                  Каждое число отчёта либо пересчитано системой из строк книг ГРБС,
+                  либо взято из официального СВОДа как есть. Ниже — точные правила счёта.
+                </p>
+                <p className="text-zinc-500 dark:text-zinc-400">{report.methodology}</p>
+              </div>
+            </SectionCard>
           )}
         </>
       )}

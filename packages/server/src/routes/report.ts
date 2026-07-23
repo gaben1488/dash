@@ -16,13 +16,19 @@
  *   asOf     дата среза YYYY-MM-DD; дефолт — ПОСЛЕДНИЙ ЧЕТВЕРГ (еженедельный
  *            канон: срез отчёта — четверг; явный asOf уважается как задан).
  * Дефолты документированы и в METHODOLOGY ответа.
+ *
+ * Рядом с полями Report ответ несёт methodology (строка METHODOLOGY — как
+ * посчитано) и svodOnlineUrl (ссылка «СВОД онлайн» — где сверить: официальная
+ * сводная книга Google Sheets; id книги не настроен — поля нет).
  */
 import type { FastifyInstance } from 'fastify';
 import { buildReport, type BuildReportInput } from '@aemr/core';
 import {
   DEPT_HEADER_ROWS,
   SVOD_SHEET_NAME,
+  buildSheetUrl,
   dayNumberOf,
+  floorToThursday,
   findDept,
   parseSvodGrid,
   type Issue,
@@ -30,6 +36,7 @@ import {
 } from '@aemr/shared';
 import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
+import { config } from '../config.js';
 
 /** Методология отчёта — та же строка уходит читателю страницы. */
 const METHODOLOGY =
@@ -40,6 +47,19 @@ const METHODOLOGY =
   'расхождение видно, подмены нет). Экономия — только утверждённая (флаг AD=«да» + дата факта). ' +
   'Деньги — тыс. руб., трёхсрез ФБ/КБ/МБ. Срез отчёта — еженедельный, ЧЕТВЕРГ: без явного asOf ' +
   'берётся последний четверг (квартал и год — из этой даты среза).';
+
+/**
+ * Ссылка «СВОД онлайн» — открыть официальную сводную книгу Google Sheets,
+ * ту самую, из которой роут читает лист СВОД ТД-ПМ. Ведёт на книгу целиком,
+ * без привязки к вкладке (gid не указываем — лист читатель выберет сам).
+ * Считается НА КАЖДЫЙ запрос, не на import: config.google.spreadsheetId
+ * мутируется в рантайме (PUT /api/sources — смена источника), и замороженная
+ * константа вела бы в старую книгу (ponytail-ревью R1-хвоста #1).
+ * Id не настроен → undefined: JSON.stringify выбрасывает ключ из ответа.
+ */
+function svodOnlineUrl(): string | undefined {
+  return config.google.spreadsheetId ? buildSheetUrl(config.google.spreadsheetId) : undefined;
+}
 
 interface ReportQuery {
   year?: string;
@@ -62,9 +82,6 @@ type PeriodParse =
  * выводятся из ЭТОЙ даты среза (в пятницу 01.10 отчёт по умолчанию — на
  * четверг 30.09, т.е. ещё Q3). Явный asOf уважается как задан, без флора.
  */
-const DAYS_PER_WEEK = 7;
-const floorToThursday = (day: number): number => day - (day % DAYS_PER_WEEK);
-
 function parsePeriod(query: ReportQuery): PeriodParse {
   let sliceYear: number;
   let sliceMonth: number; // 0-based, для квартала
@@ -165,6 +182,6 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       asOfDay: period.asOfDay,
     });
 
-    return { ...report, methodology: METHODOLOGY };
+    return { ...report, methodology: METHODOLOGY, svodOnlineUrl: svodOnlineUrl() };
   });
 }
