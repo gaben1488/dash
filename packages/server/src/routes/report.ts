@@ -3,9 +3,16 @@
  * спека docs/superpowers/specs/2026-07-13-report-2-0-product-design.md §5).
  *
  * Роут — тонкий адаптер над чистым buildReport из @aemr/core: собирает вход
- * из живых источников и не добавляет собственной счётной семантики.
+ * и не добавляет собственной счётной семантики. Правило источника строк —
+ * одна ось недели (дизайн-док 2026-07-23 §4 R2): срез текущей недели (от
+ * последнего четверга) читается из ЖИВЫХ источников, срез прошлых недель —
+ * из СЛЕПКА той недели (snapshots.data: rowsByDept + svodGrid + issues),
+ * чтобы история не переписывалась сегодняшними правками книг. Снимка со
+ * строками нет — живые данные с честной плашкой, без тихой подмены.
+ *
+ * Живые источники:
  *   - строки-атомы: кэш книг ГРБС (deptSheetCache, ключи — кириллические
- *     короткие имена), шапка в DEPT_HEADER_ROWS строки срезается здесь;
+ *     короткие имена), шапка срезается canonical-хелпером collectRowsByDept;
  *   - официал: лист СВОД ТД-ПМ через parseSvodGrid; лист недоступен —
  *     отчёт отдаётся без официальной колонки, buildReport ставит плашку;
  *   - сигналы: issues снапшота того же года (демо-снапшот — не источник).
@@ -24,19 +31,29 @@
 import type { FastifyInstance } from 'fastify';
 import { buildReport, type BuildReportInput } from '@aemr/core';
 import {
-  DEPT_HEADER_ROWS,
   SVOD_SHEET_NAME,
   buildSheetUrl,
+  collectRowsByDept,
   dayNumberOf,
   floorToThursday,
-  findDept,
+  isoOfDayNumber,
   parseSvodGrid,
   type Issue,
   type SvodGridBlock,
 } from '@aemr/shared';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { getDeptSheetValues, getSnapshot, getSnapshotAtOrBefore } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
+import { productCalendarDay } from '../services/product-calendar.js';
 import { config } from '../config.js';
+
+/**
+ * Последний четверг «сегодня» — по календарю ПРОДУКТА (фиксированное смещение
+ * config.weeklySnapshot.utcOffsetHours, Камчатка +12), а не по календарю машины:
+ * прод-сервер живёт в UTC, и окно среда 12:00 — четверг 00:00 UTC иначе отдавало
+ * бы живые данные без плашки за уже закрытую неделю (ревью R2a №3).
+ */
+const currentProductThursday = (): number =>
+  floorToThursday(productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours));
 
 /** Методология отчёта — та же строка уходит читателю страницы. */
 const METHODOLOGY =
@@ -96,7 +113,7 @@ function parsePeriod(query: ReportQuery): PeriodParse {
     sliceMonth = parseInt(m[2], 10) - 1;
     asOfDay = day;
   } else {
-    asOfDay = floorToThursday(dayNumberOf(new Date())!);
+    asOfDay = currentProductThursday();
     const sliceDate = new Date(asOfDay * 86400000);
     sliceYear = sliceDate.getUTCFullYear();
     sliceMonth = sliceDate.getUTCMonth();
@@ -123,16 +140,8 @@ function parsePeriod(query: ReportQuery): PeriodParse {
   return { ok: true, year, quarter, asOfDay };
 }
 
-/** Кэш книг ГРБС → строки-атомы без шапки; не-ГРБС листы кэша отсеиваются. */
-function collectRowsByDept(): Record<string, unknown[][]> {
-  const rowsByDept: Record<string, unknown[][]> = {};
-  for (const [name, values] of Object.entries(getDeptSheetValues())) {
-    if (!findDept(name)) continue;
-    if (values.length <= DEPT_HEADER_ROWS) continue;
-    rowsByDept[name] = values.slice(DEPT_HEADER_ROWS);
-  }
-  return rowsByDept;
-}
+/** Номер суток → «дд.мм.гггг» — формат дат в плашках читателю. */
+const ruDateOfDay = (day: number): string => isoOfDayNumber(day).split('-').reverse().join('.');
 
 /** Официальный лист СВОД ТД-ПМ; недоступен/пуст → undefined (плашка в notes). */
 async function readSvodGrid(): Promise<SvodGridBlock[] | undefined> {
@@ -162,25 +171,65 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: 'BadRequest', message: period.message, statusCode: 400 });
     }
 
-    const rowsByDept = collectRowsByDept();
-    if (Object.keys(rowsByDept).length === 0) {
-      return reply.status(503).send({
-        error: 'ServiceUnavailable',
-        message:
-          'Кэш книг ГРБС пуст — данные ещё не загружены (стартовый preload не выполнен ' +
-          'или Google Sheets недоступен). Повторите запрос позже.',
-        statusCode: 503,
-      });
+    // Правило источника строк («одна ось недели»): срез текущей недели — живой
+    // кэш; срез прошлых недель — снимок той недели, чтобы отчёт за прошлое не
+    // пересчитывался по сегодняшнему состоянию книг.
+    const currentThursday = currentProductThursday();
+    const sourceNotes: string[] = [];
+    let input: BuildReportInput | undefined;
+
+    if (period.asOfDay < currentThursday) {
+      const snapshot = getSnapshotAtOrBefore(period.asOfDay);
+      if (snapshot?.rowsByDept) {
+        // Всё из снимка: строки, официальная сетка, сигналы — единый момент времени.
+        // Сигналы снимка годонезависимы ОСОЗНАННО: у Issue (@aemr/shared) нет
+        // поля года — фильтровать нечем; живой путь получает год-скоуп не
+        // фильтром списка, а тем, что весь пайплайн собирался под этот год.
+        input = {
+          rowsByDept: snapshot.rowsByDept,
+          ...(snapshot.svodGrid && snapshot.svodGrid.length > 0 ? { svodGrid: snapshot.svodGrid } : {}),
+          issues: snapshot.issues,
+        };
+        // День снимка в плашке — по календарю ПРОДУКТА: createdAt — UTC-инстант,
+        // и его UTC-срез назвал бы камчатский четверг 04:00 «средой» (ревью №7).
+        const createdMs = Date.parse(snapshot.createdAt);
+        const snapshotDay = Number.isNaN(createdMs)
+          ? null
+          : productCalendarDay(new Date(createdMs), config.weeklySnapshot.utcOffsetHours);
+        sourceNotes.push(
+          `Отчёт построен из снимка ${snapshotDay !== null ? ruDateOfDay(snapshotDay) : snapshot.createdAt}.`,
+        );
+      } else {
+        // Честная плашка вместо тихой подмены: снимка той недели нет, читатель
+        // видит сегодняшние строки под прошлой датой среза — и знает об этом.
+        sourceNotes.push(
+          `Снимка на ${ruDateOfDay(period.asOfDay)} нет — показаны текущие данные под датой среза.`,
+        );
+      }
     }
 
-    const [svodGrid, issues] = await Promise.all([readSvodGrid(), readIssues(period.year)]);
+    if (!input) {
+      const rowsByDept = collectRowsByDept(getDeptSheetValues());
+      if (Object.keys(rowsByDept).length === 0) {
+        return reply.status(503).send({
+          error: 'ServiceUnavailable',
+          message:
+            'Кэш книг ГРБС пуст — данные ещё не загружены (стартовый preload не выполнен ' +
+            'или Google Sheets недоступен). Повторите запрос позже.',
+          statusCode: 503,
+        });
+      }
+      const [svodGrid, issues] = await Promise.all([readSvodGrid(), readIssues(period.year)]);
+      input = { rowsByDept, ...(svodGrid ? { svodGrid } : {}), issues };
+    }
 
-    const input: BuildReportInput = { rowsByDept, ...(svodGrid ? { svodGrid } : {}), issues };
     const report = buildReport(input, {
       year: period.year,
       quarter: period.quarter,
       asOfDay: period.asOfDay,
     });
+    // Плашка об источнике — первой: читатель сперва узнаёт, откуда числа.
+    report.notes.unshift(...sourceNotes);
 
     return { ...report, methodology: METHODOLOGY, svodOnlineUrl: svodOnlineUrl() };
   });

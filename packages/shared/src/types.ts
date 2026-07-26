@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { UnifiedGrid, SvodReconRow } from './unified-svod.js';
+import type { SvodGridBlock } from './svod-grid.js';
 
 // ────────────────────────────────────────────────────────────
 // 1. Domain literal unions
@@ -441,6 +442,20 @@ export interface DataSnapshot {
   unifiedReconciliation?: SvodReconRow[];
   /** Dataset-level analysis per department: Benford, Z-score, composite score, noise map (keyed by deptId) */
   datasetAnalyses?: Record<string, any>;
+  /**
+   * Строки-атомы книг ГРБС на момент снимка — БЕЗ шапки (DEPT_HEADER_ROWS
+   * срезаны), ключ — кириллическое короткое имя («УЭР»…). Фундамент честной
+   * истории: отчёт прошлой недели пересчитывается из ЭТИХ строк, а не из
+   * живого кэша под датой среза. Поле опционально честно: снимки, сохранённые
+   * до 2026-07-24, строк не несут — для них история недоступна.
+   */
+  rowsByDept?: Record<string, unknown[][]>;
+  /**
+   * Разобранный лист СВОД ТД-ПМ (parseSvodGrid) на момент снимка — официальная
+   * сетка для сверки-колонки исторического отчёта. Компактнее и стабильнее
+   * сырых values листа. Той же опциональности, что rowsByDept.
+   */
+  svodGrid?: SvodGridBlock[];
   metadata: {
     sheetsRead: string[];
     cellsRead: number;
@@ -589,5 +604,16 @@ export interface AppConfig {
   auth: {
     /** API key for Bearer token auth. If empty, auth is disabled (dev mode). */
     apiKey?: string;
+  };
+  /** Четверг-cron еженедельного снимка (server/services/weekly-snapshot-cron). */
+  weeklySnapshot: {
+    /** Ежечасный тик включён; в NODE_ENV=test планировщик не стартует. */
+    enabled: boolean;
+    /**
+     * Календарь продукта: фиксированное смещение от UTC в часах. Дефолт —
+     * Камчатка (UTC+12, DST нет): «четверг Камчатки» на UTC-сервере
+     * начинается в среду 12:00 UTC.
+     */
+    utcOffsetHours: number;
   };
 }

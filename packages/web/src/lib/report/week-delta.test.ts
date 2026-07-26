@@ -7,7 +7,7 @@ const THURSDAY = dayNumberOf('2026-07-23')!;
 
 const snap = (id: string, createdAt: string): SnapshotRef => ({ id, createdAt });
 
-describe('pickWeekSnapshots — пара слепков для «Что изменилось за неделю»', () => {
+describe('pickWeekSnapshots — пара снимков для «Что изменилось за неделю»', () => {
   it('обычная пара: to — последний ≤ четверга, from — последний ≤ прошлого четверга', () => {
     const pair = pickWeekSnapshots(
       [
@@ -20,16 +20,16 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
     expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'cur']);
   });
 
-  it('нет слепков вообще → null', () => {
+  it('нет снимков вообще → null', () => {
     expect(pickWeekSnapshots([], THURSDAY)).toBeNull();
   });
 
-  it('один слепок: второй точки для сравнения нет → null', () => {
+  it('один снимок: второй точки для сравнения нет → null', () => {
     const only = [snap('cur', '2026-07-22T10:00:00.000Z')];
     expect(pickWeekSnapshots(only, THURSDAY)).toBeNull();
   });
 
-  it('слепки будущего отсеяны: пятница после среза не годится в to', () => {
+  it('снимки будущего отсеяны: пятница после среза не годится в to', () => {
     const pair = pickWeekSnapshots(
       [
         snap('future', '2026-07-24T05:00:00.000Z'),
@@ -41,7 +41,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
     expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'cur']);
   });
 
-  it('только будущие слепки → null', () => {
+  it('только будущие снимки → null', () => {
     const future = [
       snap('f1', '2026-07-24T05:00:00.000Z'),
       snap('f2', '2026-07-30T05:00:00.000Z'),
@@ -49,7 +49,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
     expect(pickWeekSnapshots(future, THURSDAY)).toBeNull();
   });
 
-  it('граница: слепок позднего вечера четверга (UTC) входит в to — конец суток среза', () => {
+  it('граница: снимок позднего вечера четверга (UTC) входит в to — конец суток среза', () => {
     // Машина в поясе восточнее Гринвича увидела бы локально уже пятницу —
     // сравнение обязано идти по UTC-компонентам строки createdAt
     const pair = pickWeekSnapshots(
@@ -62,7 +62,7 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
     expect([pair?.from.id, pair?.to.id]).toEqual(['prev', 'thu-late']);
   });
 
-  it('граница: слепок ровно в прошлый четверг входит в from', () => {
+  it('граница: снимок ровно в прошлый четверг входит в from', () => {
     const pair = pickWeekSnapshots(
       [
         snap('prev-thu', '2026-07-16T23:00:00.000Z'),
@@ -73,12 +73,12 @@ describe('pickWeekSnapshots — пара слепков для «Что изме
     expect([pair?.from.id, pair?.to.id]).toEqual(['prev-thu', 'cur']);
   });
 
-  it('единственный старый слепок попадает в оба окна → null (дифф с самим собой — не пара)', () => {
+  it('единственный старый снимок попадает в оба окна → null (дифф с самим собой — не пара)', () => {
     const stale = [snap('stale', '2026-07-01T10:00:00.000Z')];
     expect(pickWeekSnapshots(stale, THURSDAY)).toBeNull();
   });
 
-  it('несколько слепков в один день: последний по createdAt', () => {
+  it('несколько снимков в один день: последний по createdAt', () => {
     const pair = pickWeekSnapshots(
       [
         snap('prev', '2026-07-15T10:00:00.000Z'),

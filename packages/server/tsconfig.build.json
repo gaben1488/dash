@@ -1,0 +1,9 @@
+{
+  "// РОЛЬ": "Эмиссия dist для прод-запуска (pnpm build): только src, rootDir=src → dist/index.js. Typecheck-периметр шире (tsconfig.json, включает scripts) — эмитить скрипты не нужно, они запускаются через tsx.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"]
+}

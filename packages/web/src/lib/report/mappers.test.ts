@@ -74,7 +74,7 @@ describe('integralKpiRow — интегральная сводка в плитк
     expect(plan.periodBadge).toBe('2026 · год');
   });
 
-  it('officialKey: аналог слепков — только у исполнения КП/ЕП (год и Q1)', () => {
+  it('officialKey: аналог снимков — только у исполнения КП/ЕП (год и Q1)', () => {
     expect(tiles[3].officialKey).toBe('competitive.year.percent');
     expect(tiles[4].officialKey).toBe('sole.year.percent');
     expect(tiles[8].officialKey).toBe('competitive.q1.percent');

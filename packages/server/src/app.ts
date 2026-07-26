@@ -19,6 +19,7 @@ import { historyRoutes } from './routes/history.js';
 import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
 import { getSnapshot, setDeptSheetCache, setDeptLoadMeta } from './services/snapshot.js';
+import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { fetchDepartmentSpreadsheets } from './services/google-sheets.js';
 import { registerAuthHook } from './middleware/auth.js';
 
@@ -109,6 +110,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       } catch (err) {
         return { success: false, error: String(err), message: (err as Error).message };
       }
+    });
+  }
+
+  // Четверг-cron еженедельного снимка: в тестах выключен (config-флаг),
+  // onClose останавливает таймер — Fastify закрывается без хвостов.
+  if (config.weeklySnapshot.enabled) {
+    const stopWeeklySnapshotCron = startWeeklySnapshotCron(app.log);
+    app.addHook('onClose', async () => {
+      stopWeeklySnapshotCron();
     });
   }
 

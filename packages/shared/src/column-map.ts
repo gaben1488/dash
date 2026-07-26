@@ -1,3 +1,5 @@
+import { findDept } from './department-registry.js';
+
 /**
  * Centralized column mapping for department sheets.
  * Single source of truth for all column indices (0-based).
@@ -51,6 +53,28 @@ export const DEPT_COLUMNS = {
 
 /** Number of header rows in department sheets (шапка: 3 строки) */
 export const DEPT_HEADER_ROWS = 3;
+
+/**
+ * Значения листов → строки-атомы книг ГРБС без шапки. Ключи входа — имена
+ * листов; остаются только книги ГРБС (findDept знает имя), не-ГРБС листы
+ * (СВОД, служебные) отсеиваются, шапка в DEPT_HEADER_ROWS строк срезается.
+ * Ключи результата — те же кириллические короткие имена, что во входе.
+ *
+ * Единственный дом этой сборки: роут /api/report кормит сюда живой кэш,
+ * пайплайн — прочитанные листы для снимка. Копии запрещены — при расхождении
+ * отчёт «сегодня» и отчёт «из снимка» считались бы по разным строкам.
+ */
+export function collectRowsByDept(
+  sheetValues: Record<string, unknown[][]>,
+): Record<string, unknown[][]> {
+  const rowsByDept: Record<string, unknown[][]> = {};
+  for (const [name, values] of Object.entries(sheetValues)) {
+    if (!findDept(name)) continue;
+    if (values.length <= DEPT_HEADER_ROWS) continue;
+    rowsByDept[name] = values.slice(DEPT_HEADER_ROWS);
+  }
+  return rowsByDept;
+}
 
 /** Column letter → 0-based index mapping (A=0..AF=31). */
 export const COL_LETTER_INDEX: Readonly<Record<string, number>> = {

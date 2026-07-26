@@ -1,8 +1,8 @@
 {
+  "// РОЛЬ": "Периметр typecheck сервера: src И scripts (ревью R2a №8 — скрипты не должны жить вне tsc). Эмиссия — в tsconfig.build.json (rootDir=src, scripts в прод-бандл не попадают).",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src"
+    "noEmit": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "scripts/**/*"]
 }

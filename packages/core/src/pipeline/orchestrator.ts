@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, isMetaRow, CYRILLIC_TO_LATIN, subordinateKey } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, subordinateKey } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -522,6 +522,13 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
   // 6. Trust
   const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId);
 
+  // 7. Атомы для честной истории: снимок несёт строки книг ГРБС без шапки и
+  // распарсенную официальную сетку СВОД — из УЖЕ прочитанных input.sheetRows,
+  // без второго чтения. Отчёт прошлой недели строится из этих полей снимка.
+  // Пусто (листы не читались) → поля честно отсутствуют, а не лежат пустышками.
+  const rowsByDept = collectRowsByDept(input.sheetRows);
+  const svodGrid = parseSvodGrid(input.sheetRows[SVOD_SHEET_NAME] ?? []);
+
   return {
     id: snapshotId,
     spreadsheetId: input.spreadsheetId,
@@ -534,6 +541,8 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     rowCount: totalRows,
     recalcResults,
     datasetAnalyses,
+    ...(Object.keys(rowsByDept).length > 0 ? { rowsByDept } : {}),
+    ...(svodGrid.length > 0 ? { svodGrid } : {}),
     metadata: {
       sheetsRead: ingestResult.sheets,
       cellsRead: ingestResult.cells.size,

@@ -70,7 +70,7 @@ describe('tsc-контракт PageElementProps', () => {
     expect([missingSource, missingCtx, noBadge].length).toBe(3);
   });
 
-  it('KpiTile: дельта к прошлому слепку опциональна — плитка живёт и с ней, и без', () => {
+  it('KpiTile: дельта к прошлому снимку опциональна — плитка живёт и с ней, и без', () => {
     const base: PageElementProps = { filterCtx: EMPTY_FILTER_CONTEXT, source: 'calc' };
     const shift: MetricDelta = {
       metricKey: 'competitive.q1.percent',

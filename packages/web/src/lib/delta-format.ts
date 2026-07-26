@@ -62,7 +62,7 @@ export function formatDelta(d: MetricDelta): DeltaView {
     // Процент-метрика: дельта в ПРОЦЕНТНЫХ ПУНКТАХ, не относительный сдвиг —
     // «▲ 5,0%» рядом с «42,0%» читался бы как п.п., являясь при этом
     // отношением (ponytail-ревью R1-хвоста #3). Нормализация по-точечная:
-    // слепки разных недель могли хранить G и долей, и числом.
+    // снимки разных недель могли хранить G и долей, и числом.
     text = `${NF.format(Math.abs(normPct(d.to.value) - normPct(d.from.value)))} п.п.`;
   }
   else if (d.deltaPct !== null && Number.isFinite(d.deltaPct)) text = `${(Math.abs(d.deltaPct) * 100).toFixed(1)}%`;

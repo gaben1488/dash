@@ -8,7 +8,7 @@
  * buildReport из @aemr/core плюс обвязка ответа: methodology — подвал
  * «Методология», svodOnlineUrl — ссылка «СВОД онлайн» в шапке); загрузка по
  * образцу CentralizationCard (useEffect + useState, без TanStack). История
- * слепков грузится один раз на срез (asOfDay) и питает секцию «Что изменилось за
+ * снимков грузится один раз на срез (asOfDay) и питает секцию «Что изменилось за
  * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
@@ -144,7 +144,7 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
   );
 }
 
-// ── «Что изменилось за неделю»: дельта слепков вокруг четверга среза ──
+// ── «Что изменилось за неделю»: дельта снимков вокруг четверга среза ──
 
 const MAX_WEEK_DELTA_ROWS = 8;
 
@@ -183,7 +183,7 @@ function WeekDeltaNote({ text }: { text: string }) {
 }
 
 /**
- * Дельта метрик между слепком четверга среза и слепком неделей раньше.
+ * Дельта метрик между снимком четверга среза и снимком неделей раньше.
  * Данные приходят пропом со страницы: один fetch истории питает и эту
  * секцию, и дельта-бейджи KPI-плиток (запрос не дублируется). Все
  * деградации сохранены: любой сбой истории — плашка, страница отчёта
@@ -199,9 +199,9 @@ function WeekDeltaSection({ state, ctx }: { state: WeekDeltaState; ctx: FilterCo
   };
 
   if (state.kind === 'loading') return null;
-  if (state.kind === 'no-pair') return <WeekDeltaNote text="Нет доступных слепков для этой недели." />;
+  if (state.kind === 'no-pair') return <WeekDeltaNote text="Нет доступных снимков для этой недели." />;
   if (state.kind === 'error') {
-    return <WeekDeltaNote text="История слепков недоступна — сравнение недели пропущено." />;
+    return <WeekDeltaNote text="История снимков недоступна — сравнение недели пропущено." />;
   }
 
   const significant = state.deltas
@@ -215,7 +215,7 @@ function WeekDeltaSection({ state, ctx }: { state: WeekDeltaState; ctx: FilterCo
     <SectionCard filterCtx={ctx} source="svod" title="Что изменилось за неделю" icon={History}>
       <div className="space-y-2">
         <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
-          слепок {fmtAsOfDate(state.fromDay)} → {fmtAsOfDate(state.toDay)}
+          снимок {fmtAsOfDate(state.fromDay)} → {fmtAsOfDate(state.toDay)}
         </div>
         {significant.length === 0 ? (
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -287,7 +287,7 @@ export function ReportPage() {
     return () => { cancelled = true; };
   }, [request.year, request.quarter, request.asOf]);
 
-  // История слепков вокруг четверга среза — ОДИН запрос на страницу:
+  // История снимков вокруг четверга среза — ОДИН запрос на страницу:
   // питает и секцию «Что изменилось за неделю», и дельта-бейджи KPI-плиток
   // (/api/history/snapshots + /api/history/diff; сбой — честная плашка секции).
   const asOfDay = report?.period.asOfDay;
@@ -404,12 +404,12 @@ export function ReportPage() {
         <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-400">Загрузка…</div>
       ) : (
         <>
-          {/* Что изменилось за неделю: дельта слепков вокруг четверга среза */}
+          {/* Что изменилось за неделю: дельта снимков вокруг четверга среза */}
           <WeekDeltaSection state={weekDelta} ctx={ctx} />
 
           {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin;
-              дельта «к прошлому слепку» — только у плиток с официальным
-              аналогом в слепках (kpiDeltaFor, честность источников) */}
+              дельта «к прошлому снимку» — только у плиток с официальным
+              аналогом в снимках (kpiDeltaFor, честность источников) */}
           <SectionCard
             filterCtx={ctx}
             source={report.integralSummary.svodQuarter ? 'mixed' : 'calc'}

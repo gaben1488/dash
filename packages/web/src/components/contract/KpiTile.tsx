@@ -27,7 +27,7 @@ export interface KpiTileProps extends PageElementProps {
   periodBadge: string;
   tier?: KpiTier;
   /**
-   * Сдвиг числа к прошлому слепку недели (официальные метрики СВОДа) —
+   * Сдвиг числа к прошлому снимку недели (официальные метрики СВОДа) —
    * тихий DeltaBadge в углу плитки. Проп опционален и вешается только на
    * плитки с однозначным официальным аналогом (см. lib/report/kpi-delta):
    * нет аналога — нет дельты, плитка не врёт чужим сравнением.
@@ -52,7 +52,7 @@ export function KpiTile({ metricKey, value, unit, periodBadge, source, tier = 'c
           {kpiTileLabel(metricKey)}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
-          {delta && <DeltaBadge delta={delta} context="К прошлому слепку (СВОД)" />}
+          {delta && <DeltaBadge delta={delta} context="К прошлому снимку (СВОД)" />}
           <SourceBadge source={source} />
         </span>
       </div>

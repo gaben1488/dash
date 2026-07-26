@@ -1,9 +1,9 @@
 /**
- * Выбор пары слепков для блока «Что изменилось за неделю» (волна R1).
+ * Выбор пары снимков для блока «Что изменилось за неделю» (волна R1).
  *
- * Дата слепка — номер календарных суток из UTC-компонентов createdAt
+ * Дата снимка — номер календарных суток из UTC-компонентов createdAt
  * (dayNumberOf читает компоненты ISO-строки напрямую, без Date-объекта):
- * слепок позднего вечера четверга по UTC остаётся слепком четверга на любом
+ * снимок позднего вечера четверга по UTC остаётся снимком четверга на любом
  * поясе клиента — локальная полночь сдвинула бы границу суток.
  */
 import { dayNumberOf } from '@aemr/shared';
@@ -14,7 +14,7 @@ export interface SnapshotRef {
   createdAt: string;
 }
 
-/** Пара — сами слепки, не id: потребителю нужны и id (diff), и createdAt
+/** Пара — сами снимки, не id: потребителю нужны и id (diff), и createdAt
  *  (подпись дат) — повторный поиск по массиву был бы мёртвой веткой с
  *  фолбэком «чужой датой» (ponytail-ревью R1 #9). */
 export interface WeekSnapshotPair {
@@ -24,7 +24,7 @@ export interface WeekSnapshotPair {
 
 const DAYS_PER_WEEK = 7;
 
-/** Последний слепок с датой ≤ maxDay; внутри одних суток — поздний по createdAt. */
+/** Последний снимок с датой ≤ maxDay; внутри одних суток — поздний по createdAt. */
 function lastAtOrBefore(snapshots: readonly SnapshotRef[], maxDay: number): SnapshotRef | null {
   let best: SnapshotRef | null = null;
   let bestDay = -Infinity;
@@ -41,10 +41,10 @@ function lastAtOrBefore(snapshots: readonly SnapshotRef[], maxDay: number): Snap
 }
 
 /**
- * to — последний слепок ≤ конца четверга среза (asOfDay), from — последний
+ * to — последний снимок ≤ конца четверга среза (asOfDay), from — последний
  * ≤ прошлого четверга (asOfDay − 7); любой из двух отсутствует → null.
- * Совпадение from и to (за неделю слепков не прибавилось) — тоже null:
- * дифф слепка с самим собой показал бы «без изменений» там, где данные
+ * Совпадение from и to (за неделю снимков не прибавилось) — тоже null:
+ * дифф снимка с самим собой показал бы «без изменений» там, где данные
  * попросту не собирались.
  */
 export function pickWeekSnapshots(

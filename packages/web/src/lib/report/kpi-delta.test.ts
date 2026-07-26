@@ -1,8 +1,8 @@
 /**
- * Юниты маршрутизации «дельта слепков → KPI-плитка» (R1-хвост, ярус 1).
+ * Юниты маршрутизации «дельта снимков → KPI-плитка» (R1-хвост, ярус 1).
  *
  * Честность источников: плитки отчёта считаются из строк-атомов (calc),
- * а дельта недели — по слепкам metric_history, где живут только официальные
+ * а дельта недели — по снимкам metric_history, где живут только официальные
  * ячейки СВОДа. Бейдж разрешён лишь плитке, у которой есть однозначный
  * официальный аналог той же семантики; нет аналога — нет и бейджа.
  */
@@ -11,7 +11,7 @@ import { getMetricByKey } from '@aemr/shared';
 import type { MetricDelta } from '@aemr/core';
 import { kpiDeltaFor, officialAnalogKey } from './kpi-delta';
 
-/** Минимальная дельта слепков с нужным ключом. */
+/** Минимальная дельта снимков с нужным ключом. */
 function delta(metricKey: string): MetricDelta {
   return {
     metricKey,
@@ -24,7 +24,7 @@ function delta(metricKey: string): MetricDelta {
   };
 }
 
-describe('officialAnalogKey — официальный аналог плитки в слое слепков', () => {
+describe('officialAnalogKey — официальный аналог плитки в слое снимков', () => {
   it('исполнение КП/ЕП: аналог — колонка G районных строк СВОДа (год и Q1)', () => {
     expect(officialAnalogKey('comp_exec_count_pct', 'year')).toBe('competitive.year.percent');
     expect(officialAnalogKey('ep_exec_count_pct', 'year')).toBe('sole.year.percent');
@@ -60,7 +60,7 @@ describe('officialAnalogKey — официальный аналог плитки
   });
 });
 
-describe('kpiDeltaFor — выбор дельты для плитки из diff слепков', () => {
+describe('kpiDeltaFor — выбор дельты для плитки из diff снимков', () => {
   const deltas = [delta('competitive.year.percent'), delta('sole.q1.percent'), delta('grbs.uer.kp.q1.count')];
 
   it('точное соответствие: у плитки есть аналог, и он есть в diff', () => {

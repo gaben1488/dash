@@ -41,6 +41,11 @@ const envSchema = z.object({
 
   // Auth
   AEMR_API_KEY: z.string().optional(),
+
+  // Четверг-cron еженедельного снимка
+  NODE_ENV: z.string().optional(),
+  /** Календарь продукта: смещение от UTC в часах (Камчатка = +12, DST нет). */
+  PRODUCT_TZ_OFFSET_HOURS: z.coerce.number().int().min(-12).max(14).default(12),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -149,5 +154,10 @@ export const config: AppConfig = {
   },
   auth: {
     apiKey: env.AEMR_API_KEY,
+  },
+  weeklySnapshot: {
+    // В тестах планировщик не стартует: тик дёргает полный пайплайн и БД.
+    enabled: env.NODE_ENV !== 'test',
+    utcOffsetHours: env.PRODUCT_TZ_OFFSET_HOURS,
   },
 };

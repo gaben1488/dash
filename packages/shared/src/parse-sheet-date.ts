@@ -103,7 +103,8 @@ export function dayNumberOf(val: unknown): number | null {
 // Единственный дом этой арифметики (ponytail-ревью R1 #7): копии в
 // web/server запрещены — импортировать отсюда.
 
-const DAYS_PER_WEEK = 7;
+/** Дней в неделе — единый дом константы недельной арифметики (копии запрещены). */
+export const DAYS_PER_WEEK = 7;
 
 /** Последний четверг ≤ d (день 0 эпохи — четверг ⇒ достаточно d − d % 7). */
 export const floorToThursday = (day: number): number => day - (day % DAYS_PER_WEEK);

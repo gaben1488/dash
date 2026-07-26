@@ -1,0 +1,8 @@
+{
+  "// РОЛЬ": "Запуск server-скриптов через tsx ИЗ packages/server (например scripts/backfill-weekly-snapshots.ts): npx tsx --tsconfig tsconfig.runtime.json scripts/<имя>.ts.",
+  "// КАК": "Наследует корневой tsconfig.runtime.json (paths @aemr/shared|core → исходники); baseUrl переопределён на корень репозитория, чтобы те же относительные paths резолвились из этого файла.",
+  "extends": "../../tsconfig.runtime.json",
+  "compilerOptions": {
+    "baseUrl": "../.."
+  }
+}

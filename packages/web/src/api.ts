@@ -243,7 +243,7 @@ export const api = {
   // getHistory (/api/history) удалён: 0 потребителей, байт-в-байт дубль
   // getHistorySnapshots (ponytail-ревью R1 #5); судьба дубль-роута — задача сервера.
 
-  // Таймлайн слепков и дрейф метрик между двумя слепками — блок
+  // Таймлайн снимков и дрейф метрик между двумя снимками — блок
   // «Что изменилось за неделю» страницы «Отчёт» (роуты routes/history.ts)
   getHistorySnapshots: () =>
     fetchParsed('/history/snapshots', SnapshotHistoryResponseSchema),

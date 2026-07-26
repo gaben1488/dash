@@ -9,6 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEPT_COLUMNS, dayNumberOf } from '@aemr/shared';
+import type { DataSnapshot } from '@aemr/shared';
 import type { Report } from '@aemr/core';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -50,6 +51,30 @@ function planRows(prefix: string, n: number, withFact: number, q: number, method
 
 /** Тело ответа: Report + методология + ссылка «СВОД онлайн». */
 type ReportResponse = Report & { methodology: string; svodOnlineUrl?: string };
+
+/**
+ * Минимальный DataSnapshot со строками-атомами — та форма, в которой пайплайн
+ * сохраняет снимок в snapshots.data (rowsByDept — уже без шапки).
+ */
+function makeSnapshot(
+  id: string,
+  createdAt: string,
+  rowsByDept: Record<string, unknown[][]>,
+): DataSnapshot {
+  return {
+    id,
+    spreadsheetId: 'test-spreadsheet',
+    createdAt,
+    officialMetrics: {},
+    calculatedMetrics: {},
+    deltas: [],
+    issues: [],
+    trust: { overall: 100, components: [], grade: 'A', computedAt: createdAt, basedOnSnapshot: id },
+    rowCount: Object.values(rowsByDept).reduce((n, rows) => n + rows.length, 0),
+    rowsByDept,
+    metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
+  };
+}
 
 describe('GET /api/report — проекция отчёта (эталон 20.03.2026)', () => {
   let app: FastifyInstance;
@@ -122,11 +147,16 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     expect(body.svodOnlineUrl).not.toContain('gid=');
   }, 30_000);
 
-  it('без asOf: дефолт среза — ПОСЛЕДНИЙ ЧЕТВЕРГ (еженедельный канон), период из него', async () => {
+  it('без asOf: дефолт среза — последний четверг календаря ПРОДУКТА, период из него', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/report' });
     expect(res.statusCode).toBe(200);
     const body = res.json<ReportResponse>();
-    const today = dayNumberOf(new Date())!;
+    // «Сегодня» — по календарю ПРОДУКТА (фиксированное смещение из конфига,
+    // в тестовой env — дефолтные +12), а не по TZ машины CI: та же формула,
+    // что в роуте, — тест не зависит от пояса, где он гоняется.
+    const { productCalendarDay } = await import('../services/product-calendar.js');
+    const { config } = await import('../config.js');
+    const today = productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours);
     // День 0 эпохи (1970-01-01) — четверг → четверги имеют day % 7 === 0.
     const lastThursday = today - (today % 7);
     expect(body.period.asOfDay).toBe(lastThursday);
@@ -201,6 +231,98 @@ describe('GET /api/report — id сводной книги не настроен
     const body = res.json<ReportResponse>();
     expect(body.svodOnlineUrl).toBeUndefined();
     expect('svodOnlineUrl' in body).toBe(false);
+  }, 30_000);
+});
+
+describe('GET /api/report — прошлая неделя строится из снимка', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
+    const { setDeptSheetCache, saveSnapshot } = await import('../services/snapshot.js');
+    const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
+    // Живой кэш НАРОЧНО с другими числами (15 план / 6 факт): возьми роут живые
+    // данные вместо снимка — числа выдадут подмену и тест её поймает.
+    setDeptSheetCache({
+      УЭР: {
+        values: [...headers, ...planRows('live-kp', 10, 4, 1, 'ЭА'), ...planRows('live-ep', 5, 2, 1, 'ЕП')],
+        formulas: [],
+        sheetName: 'УЭР',
+      },
+    });
+    // Снимок прошлой недели (четверг 19.03.2026): 10 план / 3 факт → 30.00%.
+    await saveSnapshot(
+      makeSnapshot('snap-past-week', '2026-03-19T08:00:00.000Z', {
+        УЭР: planRows('snap-kp', 10, 3, 1, 'ЭА'),
+      }),
+    );
+    const { createApp } = await import('../app.js');
+    app = await createApp({ logger: false });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    process.env = { ...ORIGINAL_ENV };
+    vi.resetModules();
+  });
+
+  it('asOf прошлой недели: числа из снимка (не из живого кэша) + плашка про снимок', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/report?asOf=2026-03-19&year=2026&quarter=1' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<ReportResponse>();
+
+    const uer = body.grbsBlocks.find((b) => b.dept === 'УЭР');
+    expect(uer).toBeDefined();
+    // Числа снимка (10/3), а не живого кэша (15/6) — история не переписана.
+    expect(uer!.quarter.execution.planCount).toBe(10);
+    expect(uer!.quarter.execution.doneCount).toBe(3);
+    expect(uer!.quarter.execution.pct).toBeCloseTo(30.0, 2);
+
+    // Плашка об источнике — с датой снимка в человеческом формате.
+    expect(body.notes.some((n) => n.includes('снимка 19.03.2026'))).toBe(true);
+  }, 30_000);
+});
+
+describe('GET /api/report — прошлая неделя без снимка: живой кэш + честная плашка', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
+    setDeptSheetCache({
+      УЭР: {
+        values: [...headers, ...planRows('uer-kp', 10, 4, 1, 'ЭА'), ...planRows('uer-ep', 5, 2, 1, 'ЕП')],
+        formulas: [],
+        sheetName: 'УЭР',
+      },
+    });
+    // Снимков в БД нет — прошлое запрошено, а истории не существует.
+    const { createApp } = await import('../app.js');
+    app = await createApp({ logger: false });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    process.env = { ...ORIGINAL_ENV };
+    vi.resetModules();
+  });
+
+  it('asOf прошлой недели без снимка: текущие данные + плашка «снимка нет»', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/report?asOf=2026-03-19&year=2026&quarter=1' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<ReportResponse>();
+
+    // Фолбэк на живой кэш: числа текущих данных, не пустота и не 5xx.
+    const uer = body.grbsBlocks.find((b) => b.dept === 'УЭР');
+    expect(uer!.quarter.execution.planCount).toBe(15);
+    expect(uer!.quarter.execution.doneCount).toBe(6);
+
+    // Честная плашка: читатель знает, что видит текущие данные под датой среза.
+    expect(body.notes.some((n) => n.includes('Снимка на 19.03.2026 нет'))).toBe(true);
+    expect(body.notes.some((n) => n.includes('текущие данные'))).toBe(true);
   }, 30_000);
 });
 

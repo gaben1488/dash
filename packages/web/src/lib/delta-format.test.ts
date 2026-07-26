@@ -68,7 +68,7 @@ describe('fmtMetricValue / percent-метрики (ревью R1-хвоста #3
     expect(view.title).toContain('45%');
   });
 
-  it('слепок хранит G долей 0-1 — тултип нормализует к процентам (канон rule-book)', () => {
+  it('снимок хранит G долей 0-1 — тултип нормализует к процентам (канон rule-book)', () => {
     const d: MetricDelta = {
       metricKey: 'competitive.year.percent',
       from: { value: 0.4, at: '2026-07-16T00:00:00Z' },

@@ -7,8 +7,9 @@ import { parseSHDYUSheet } from '@aemr/core';
 import { SHDYU_SPREADSHEET_ID } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc, lt, sql } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
+import { pruneSnapshotsByRetention } from './snapshot-retention.js';
 import type { DeptSheetResult } from './google-sheets.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
@@ -247,8 +248,28 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
   }
 }
 
-async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
+/**
+ * Сохраняет снимок в БД. Возвращает true, если снимок ЗАПИСАН, и false при
+ * сбое: ошибка логируется, но не бросается (сохранение — побочный путь
+ * createSnapshot и не должен ронять отдачу данных). Вызыватели, которым важен
+ * факт записи (бэкфилл-скрипт: честный счётчик «сохранено N»), обязаны
+ * проверять результат; остальные могут игнорировать — поведение additive.
+ */
+export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   try {
+    const dataJson = JSON.stringify(snapshot);
+    // Замер прироста от атомов истории (строки книг + сетка СВОД): поля добавлены
+    // 2026-07-24, снимок потяжелел — держим цифру на виду, а не узнаём по раздутой БД.
+    const mb = (n: number): string => (n / 1048576).toFixed(2);
+    const atomsBytes = Buffer.byteLength(
+      JSON.stringify({ rowsByDept: snapshot.rowsByDept, svodGrid: snapshot.svodGrid }),
+      'utf8',
+    );
+    console.log(
+      `💾 Снимок ${snapshot.id}: data-JSON ${mb(Buffer.byteLength(dataJson, 'utf8'))} МБ` +
+      ` (строки-атомы и сетка СВОД: ${mb(atomsBytes)} МБ)`,
+    );
+
     db.insert(schema.snapshots).values({
       id: snapshot.id,
       spreadsheetId: snapshot.spreadsheetId,
@@ -261,7 +282,7 @@ async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
       rowCount: snapshot.rowCount,
       readDurationMs: snapshot.metadata.readDurationMs,
       pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
-      data: JSON.stringify(snapshot),
+      data: dataJson,
     }).run();
 
     for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
@@ -282,9 +303,74 @@ async function saveSnapshot(snapshot: DataSnapshot): Promise<void> {
         snapshotId: snapshot.id,
       }).run();
     }
+
+    // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
+    // неделя, еженедельные четверг-срезы — вся история; лишнее удаляется здесь
+    // же, а не ручной чисткой раздутой БД.
+    pruneSnapshotsByRetention();
+    return true;
   } catch (error) {
     console.error('Ошибка сохранения снимка:', error);
+    return false;
   }
+}
+
+/**
+ * Сколько последних снимков просматриваем в поиске строк-атомов. Снимки без
+ * rowsByDept (сохранённые до 2026-07-24) пропускаются — лимит не даёт разбору
+ * многомегабайтных JSON уйти вглубь истории без шанса на успех.
+ */
+const SNAPSHOT_LOOKBACK_LIMIT = 50;
+
+const MS_PER_DAY = 86_400_000;
+const MS_PER_HOUR = 3_600_000;
+
+/**
+ * Конец календарного дня `day` ПРОДУКТА как UTC-инстант (ISO-строка): полночь
+ * дня day+1 в поясе продукта = (day+1)·сутки − offset·час по UTC. createdAt
+ * хранится toISOString — лексикографическое сравнение со строкой границы
+ * и есть хронологическое.
+ */
+const productDayEndIso = (day: number, utcOffsetHours: number): string =>
+  new Date((day + 1) * MS_PER_DAY - utcOffsetHours * MS_PER_HOUR).toISOString();
+
+/**
+ * Последний снимок, созданный не позже календарного дня `day` (номер суток
+ * dayNumberOf) И несущий строки-атомы rowsByDept — источник честного отчёта
+ * прошлой недели. Нет подходящего — null: вызывающий код обязан честно сказать
+ * об этом читателю, а не подменять.
+ *
+ * Граница «≤ день» считается в оси календаря ПРОДУКТА (смещение из конфига,
+ * Камчатка +12): снимок пятницы продукта 00:30 (= четверг 12:30 UTC) в срез
+ * «≤ четверг» НЕ входит — иначе он затенял бы настоящий снимок среза (ревью
+ * R2a №4). Строконосность префильтруется в SQL маркером instr — до
+ * SNAPSHOT_LOOKBACK_LIMIT многомегабайтных JSON не разбираются зря (№10);
+ * разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
+ * пустого объекта).
+ */
+export function getSnapshotAtOrBefore(day: number): DataSnapshot | null {
+  const rows = db.select({ data: schema.snapshots.data })
+    .from(schema.snapshots)
+    .where(and(
+      lt(schema.snapshots.createdAt, productDayEndIso(day, config.weeklySnapshot.utcOffsetHours)),
+      sql`instr(${schema.snapshots.data}, '"rowsByDept"') > 0`,
+    ))
+    .orderBy(desc(schema.snapshots.createdAt))
+    .limit(SNAPSHOT_LOOKBACK_LIMIT)
+    .all();
+
+  for (const row of rows) {
+    if (!row.data) continue;
+    try {
+      const snapshot = JSON.parse(row.data) as DataSnapshot;
+      if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
+        return snapshot;
+      }
+    } catch {
+      // Повреждённый data-JSON — снимок непригоден, ищем старше.
+    }
+  }
+  return null;
 }
 
 export function getSnapshotHistory(limit = 50): Array<{
