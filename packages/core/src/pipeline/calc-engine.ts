@@ -17,7 +17,7 @@ import {
   normalizeMethod,
   isCompetitive,
   PROCUREMENT_METHODS,
-  hasFactDate,
+  factCountsOn,
   type ProcurementMethodCode,
 } from '@aemr/shared';
 
@@ -175,13 +175,14 @@ export interface GroupedResults {
 
 // ── Gate Evaluation ──────────────────────────────────────────────────
 
-function evaluateGate(row: RawRow, gate: GateCondition): boolean {
+function evaluateGate(row: RawRow, gate: GateCondition, asOfDay?: number): boolean {
   const raw = row[gate.column];
   switch (gate.op) {
     // 'notEmpty' используется только для GATE_HAS_FACT (COL.FACT_DATE) — канон
-    // hasFactDate() из @aemr/shared, единый с unified-svod.ts (чанк E).
+    // factCountsOn() из @aemr/shared: есть дата факта И она не позже среза
+    // (asOfDay не задан — весь факт, как было до среза-канона).
     case 'notEmpty':
-      return hasFactDate(raw);
+      return factCountsOn(raw, asOfDay);
     case 'eq':
       return String(raw ?? '').trim().toLowerCase() === String(gate.value).toLowerCase();
     case 'neq':
@@ -197,8 +198,8 @@ function evaluateGate(row: RawRow, gate: GateCondition): boolean {
   }
 }
 
-function evaluateAllGates(row: RawRow, gates: GateCondition[]): boolean {
-  return gates.every(g => evaluateGate(row, g));
+function evaluateAllGates(row: RawRow, gates: GateCondition[], asOfDay?: number): boolean {
+  return gates.every(g => evaluateGate(row, g, asOfDay));
 }
 
 // ── Default Dimension Extractors ─────────────────────────────────────
@@ -307,8 +308,8 @@ const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'methodGroup', m
  * для потребителей вне CalcEngine (комплаенс, антидемпинг, отчёты).
  * Сырую сумму Z+AA+AB показывать/проверять нельзя — она порождает ложные вердикты.
  */
-export function approvedEconomy(row: RawRow): number {
-  if (!evaluateGate(row, GATE_HAS_FACT) || !evaluateGate(row, GATE_ECONOMY_APPROVED)) return 0;
+export function approvedEconomy(row: RawRow, asOfDay?: number): number {
+  if (!evaluateGate(row, GATE_HAS_FACT, asOfDay) || !evaluateGate(row, GATE_ECONOMY_APPROVED)) return 0;
   return Math.max(0, num(row[COL.ECONOMY_FB]) + num(row[COL.ECONOMY_KB]) + num(row[COL.ECONOMY_MB]));
 }
 
@@ -412,6 +413,13 @@ export class CalcEngine {
        * за 2025 на живых данных, задача #5 от 16.07).
        */
       strictYear?: boolean;
+      /**
+       * Номер суток среза (dayNumberOf). Задан — факт засчитывается только
+       * если дата заключения не позже среза: отчёт «на четверг» перестаёт
+       * мутировать от пятничных строк. Не задан — весь факт как есть
+       * (Пульт, Реестр и прочие «живые» виды).
+       */
+      asOfDay?: number;
     },
   ): GroupedResults {
     const result: GroupedResults = {
@@ -463,7 +471,7 @@ export class CalcEngine {
 
       // Accumulate each metric
       for (const m of this.metrics) {
-        if (!evaluateAllGates(row, m.gates)) continue;
+        if (!evaluateAllGates(row, m.gates, opts?.asOfDay)) continue;
 
         const val = this.extractValue(row, m.source);
 

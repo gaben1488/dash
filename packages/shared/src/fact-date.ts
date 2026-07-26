@@ -8,6 +8,8 @@
  * дрейф одного не должен молча тянуть другой.
  */
 
+import { dayNumberOf } from './parse-sheet-date.js';
+
 /** Плейсхолдеры «нет даты факта» (нижний регистр), включая пустую строку. */
 export const FACT_DATE_PLACEHOLDERS: ReadonlySet<string> = new Set([
   '', 'х', 'x', '-', '—', '–', 'н/д', 'нет', 'не определена',
@@ -16,4 +18,22 @@ export const FACT_DATE_PLACEHOLDERS: ReadonlySet<string> = new Set([
 /** true, если в столбце Q есть дата факта (не пусто и не плейсхолдер). */
 export function hasFactDate(raw: unknown): boolean {
   return !FACT_DATE_PLACEHOLDERS.has(String(raw ?? '').trim().toLowerCase());
+}
+
+/**
+ * Засчитывается ли факт НА ДАТУ СРЕЗА: дата факта есть и она не позже среза.
+ * Отчёт обещает «накопительно на дату среза» — без этого гейта числа «на
+ * четверг», прочитанные в пятницу, включали бы пятничные заключения и
+ * менялись бы всю неделю под одной датой.
+ *
+ * asOfDay не задан → поведение прежнее (весь факт как есть).
+ * Дата не распознана (мусор оператора вроде «см. примечание») → факт
+ * ЗАСЧИТЫВАЕТСЯ: заявленное заключение важнее нераспознанного формата,
+ * а на грязь укажут сигналы качества данных.
+ */
+export function factCountsOn(raw: unknown, asOfDay?: number): boolean {
+  if (!hasFactDate(raw)) return false;
+  if (asOfDay === undefined) return true;
+  const day = dayNumberOf(raw);
+  return day === null || day <= asOfDay;
 }

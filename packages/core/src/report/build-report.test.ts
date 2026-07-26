@@ -305,3 +305,41 @@ describe('buildReport — период, порядок, сигналы', () => {
     expect(uksimp.topSignals.map((s) => s.id)).toEqual(['i5']);
   });
 });
+
+describe('срез отчёта: факт после даты среза не засчитывается', () => {
+  // Канон методологии — «накопительно НА ДАТУ СРЕЗА»: отчёт «на четверг»
+  // не должен включать заключения пятницы и мутировать всю неделю.
+  const THURSDAY = 20657; // 2026-07-23, четверг эпохи
+
+  function rowsWithLateFact() {
+    return {
+      УЭР: [
+        makeRow({ id: 'до среза', planQuarter: 3, factDate: '22.07.2026' }),
+        makeRow({ id: 'в день среза', planQuarter: 3, factDate: '23.07.2026' }),
+        makeRow({ id: 'после среза', planQuarter: 3, factDate: '24.07.2026' }),
+      ],
+    };
+  }
+
+  it('план считает все три строки, факт — только две (день среза включительно)', () => {
+    const report = buildReport({ rowsByDept: rowsWithLateFact() }, { year: 2026, quarter: 3, asOfDay: THURSDAY });
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.quarter.execution.planCount).toBe(3);
+    expect(uer.quarter.execution.doneCount).toBe(2);
+    expect(uer.quarter.pendingCount).toBe(1);
+  });
+
+  it('срез недели спустя (следующий четверг) — пятничная строка уже в факте', () => {
+    const report = buildReport({ rowsByDept: rowsWithLateFact() }, { year: 2026, quarter: 3, asOfDay: THURSDAY + 7 });
+    expect(report.grbsBlocks[0].quarter.execution.doneCount).toBe(3);
+  });
+
+  it('деньги и экономия уважают срез так же, как счётчики', () => {
+    const rows = {
+      УЭР: [makeRow({ id: 'поздняя', planQuarter: 3, factDate: '24.07.2026', ecoKB: 10 })],
+    };
+    const report = buildReport({ rowsByDept: rows }, { year: 2026, quarter: 3, asOfDay: THURSDAY });
+    expect(report.integralSummary.money.fact.total).toBe(0);
+    expect(report.integralSummary.money.economy.total).toBe(0);
+  });
+});

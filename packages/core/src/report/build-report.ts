@@ -166,10 +166,10 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     const rows = input.rowsByDept[dept] ?? [];
     const entry = resolveDept(dept);
     // Канонический путь квартального исполнения — переиспользуем метрику 1.3.
-    const execution = quarterExecution(rows, { quarter, year });
+    const execution = quarterExecution(rows, { quarter, year, asOfDay: opts.asOfDay });
     // Тот же движок для разрезов (КП/ЕП, деньги, экономия) — год-срез не строгий
     // (канон дашборда: строки без года не теряются).
-    const g = ENGINE.compute(rows, standardRowFilter, 0, year);
+    const g = ENGINE.compute(rows, standardRowFilter, 0, year, { asOfDay: opts.asOfDay });
 
     // Незаключённые = план − факт (D − E): канон — колонка F листа СВОД
     // («отклонение»). Прямое правило вместо построчного detectSignals: сигнальная

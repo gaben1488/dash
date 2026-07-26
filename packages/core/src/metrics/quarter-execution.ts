@@ -40,6 +40,12 @@ export interface QuarterExecutionOptions {
    * Если не задан — считаются все годы.
    */
   year?: number;
+  /**
+   * Номер суток среза: факт засчитывается только если дата заключения не
+   * позже среза («накопительно на дату среза» — обещание методологии).
+   * Не задан — весь факт как есть.
+   */
+  asOfDay?: number;
 }
 
 export interface QuarterExecutionResult {
@@ -85,7 +91,7 @@ export function quarterExecution(
   rows: RawRow[],
   opts: QuarterExecutionOptions,
 ): QuarterExecutionResult {
-  const grouped = ENGINE.compute(rows, standardRowFilter, 0, opts.year);
+  const grouped = ENGINE.compute(rows, standardRowFilter, 0, opts.year, { asOfDay: opts.asOfDay });
   const q = grouped.byQuarter.get(`q${opts.quarter}`);
   return quarterExecutionFromCounts(
     q?.get('plan_count')?.value ?? 0,
