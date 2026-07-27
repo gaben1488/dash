@@ -112,17 +112,22 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
 
         {/* Сверка со СВОД: расчёт рядом с официалом, расхождение — DiffText */}
         {vm.svodPairs && (
-          <ReportTable
-            filterCtx={ctx}
-            source="mixed"
-            caption="Сверка со СВОД"
-            columns={SVOD_COLUMNS}
-            rows={vm.svodPairs.map((p) => ({
-              metric: productLabel(p.metricKey),
-              calc: fmtCount(p.calc),
-              svod: <DiffText filterCtx={ctx} source="svod" value={p.svod} reference={p.calc} />,
-            }))}
-          />
+          <div className="space-y-1">
+            <ReportTable
+              filterCtx={ctx}
+              source="mixed"
+              caption="Сверка со СВОД · на текущий момент"
+              columns={SVOD_COLUMNS}
+              rows={vm.svodPairs.map((p) => ({
+                metric: productLabel(p.metricKey),
+                calc: fmtCount(p.calc),
+                svod: <DiffText filterCtx={ctx} source="svod" value={p.svod} reference={p.calc} />,
+              }))}
+            />
+            {vm.svodNote && (
+              <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{vm.svodNote}</div>
+            )}
+          </div>
         )}
 
         {/* Топ-сигналы человеческими словами */}

@@ -60,6 +60,9 @@ export function generateReportText(report: Report, asOfDate: string): string {
               .map((p) => `${productLabel(p.metricKey)}: расчёт ${fmtCount(p.calc)}, СВОД ${fmtCount(p.svod)}`)
               .join('; ') + '.',
       );
+      // Разрыв между отчётными числами (на срез) и сверкой (на сейчас) —
+      // не расхождение, а разные моменты; письмо обязано это сказать.
+      if (vm.svodNote) lines.push(vm.svodNote);
     }
     if (vm.signals.length > 0) {
       lines.push(`Сигналы: ${vm.signals.map((s) => s.title).join('; ')}.`);

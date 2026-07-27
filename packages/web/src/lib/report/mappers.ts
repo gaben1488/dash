@@ -210,6 +210,8 @@ export interface GrbsSectionVM {
   signals: ReportSignal[];
   /** null — лист СВОД по кварталу не передан, сверки нет */
   svodPairs: SvodPairVM[] | null;
+  /** Подпись под сверкой: почему её числа расходятся с отчётными (null — не расходятся). */
+  svodNote: string | null;
 }
 
 function pendingLabelOf(execution: { planCount: number }, pendingCount: number): string {
@@ -222,14 +224,21 @@ function pendingLabelOf(execution: { planCount: number }, pendingCount: number):
 export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
   const q = block.quarter;
   const y = block.year;
+  // Сверка идёт по q.live — расчёту БЕЗ гейта среза: формулы СВОДа дату факта
+  // не сравнивают ни с чем и всегда считают «на сейчас». Сравнение отчётных
+  // чисел (на срез) с живым официалом давало мнимые расхождения (УО +12, УЭР +1).
   const svodPairs: SvodPairVM[] | null = q.svod
     ? [
-        { metricKey: 'competitive_count', calc: q.methods.kp.planCount, svod: q.svod.kp.planCount },
-        { metricKey: 'comp_fact_count', calc: q.methods.kp.doneCount, svod: q.svod.kp.doneCount },
-        { metricKey: 'ep_count', calc: q.methods.ep.planCount, svod: q.svod.ep.planCount },
-        { metricKey: 'ep_fact_count', calc: q.methods.ep.doneCount, svod: q.svod.ep.doneCount },
+        { metricKey: 'competitive_count', calc: q.live.kp.planCount, svod: q.svod.kp.planCount },
+        { metricKey: 'comp_fact_count', calc: q.live.kp.doneCount, svod: q.svod.kp.doneCount },
+        { metricKey: 'ep_count', calc: q.live.ep.planCount, svod: q.svod.ep.planCount },
+        { metricKey: 'ep_fact_count', calc: q.live.ep.doneCount, svod: q.svod.ep.doneCount },
       ]
     : null;
+  // Сколько заключено после среза — этим объясняется разрыв между отчётными
+  // числами секции и колонкой сверки.
+  const afterSlice =
+    (q.live.kp.doneCount - q.methods.kp.doneCount) + (q.live.ep.doneCount - q.methods.ep.doneCount);
   return {
     dept: block.dept,
     deptLabel: block.deptLabel,
@@ -250,5 +259,9 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
       : null,
     signals: block.topSignals,
     svodPairs,
+    svodNote: afterSlice > 0
+      ? `Сверка — на текущий момент, как считает СВОД. После даты среза заключено ${fmtCount(afterSlice)} — ` +
+        'в отчётные числа выше они не входят.'
+      : null,
   };
 }

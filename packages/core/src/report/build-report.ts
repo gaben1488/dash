@@ -174,18 +174,22 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     // Незаключённые = план − факт (D − E): канон — колонка F листа СВОД
     // («отклонение»). Прямое правило вместо построчного detectSignals: сигнальная
     // семантика notConcluded построчная и здесь избыточна — счётчики уже есть.
-    const quarterMethods: MethodSplit = {
+    const methodsOf = (grouped: ReturnType<typeof ENGINE.compute>): MethodSplit => ({
       kp: planFact(
-        getValue(g, 'competitive_count', `${qGroup}.competitive`),
-        getValue(g, 'comp_fact_count', `${qGroup}.competitive`),
+        getValue(grouped, 'competitive_count', `${qGroup}.competitive`),
+        getValue(grouped, 'comp_fact_count', `${qGroup}.competitive`),
         'calc',
       ),
       ep: planFact(
-        getValue(g, 'ep_count', `${qGroup}.ep`),
-        getValue(g, 'ep_fact_count', `${qGroup}.ep`),
+        getValue(grouped, 'ep_count', `${qGroup}.ep`),
+        getValue(grouped, 'ep_fact_count', `${qGroup}.ep`),
         'calc',
       ),
-    };
+    });
+    const quarterMethods = methodsOf(g);
+    // Второй проход без гейта среза — «как в СВОДе, на сейчас»: только так
+    // сверка сравнивает сравнимое (см. GrbsQuarterSlice.live).
+    const quarterLive = methodsOf(ENGINE.compute(rows, standardRowFilter, 0, year));
     const yearCounts = countsOf(g);
 
     return {
@@ -195,6 +199,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         execution,
         methods: quarterMethods,
         pendingCount: execution.planCount - execution.doneCount,
+        live: quarterLive,
         svod: input.svodGrid
           ? svodSplit(input.svodGrid, entry?.shortName ?? dept, quarter, year)
           : undefined,
@@ -216,6 +221,22 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
   if (!input.svodGrid) {
     // Честная плашка вместо пустоты (спека §4.1): чего нет и почему.
     notes.push('Лист СВОД не передан — официальная сверка-колонка недоступна.');
+  }
+
+  // Заключённое ПОСЛЕ среза объясняет расхождение с официалом: формулы СВОДа
+  // дату факта не сравнивают ни с чем и всегда считают «на сейчас».
+  const afterSlice = blocks.reduce(
+    (sum, b) =>
+      sum +
+      (b.quarter.live.kp.doneCount - b.quarter.methods.kp.doneCount) +
+      (b.quarter.live.ep.doneCount - b.quarter.methods.ep.doneCount),
+    0,
+  );
+  if (afterSlice > 0) {
+    notes.push(
+      `После даты среза заключено процедур: ${afterSlice}. В отчётные числа они не входят, ` +
+      'но видны в СВОДе — он всегда считает на текущий момент.',
+    );
   }
 
   return {

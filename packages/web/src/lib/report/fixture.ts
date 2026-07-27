@@ -23,6 +23,10 @@ function uerBlock(): GrbsReportBlock {
       execution: { planCount: 15, doneCount: 6, pct: 40 },
       methods: { kp: counts(10, 4), ep: counts(5, 2) },
       pendingCount: 9,
+      // Живой счёт (без гейта среза) на одну КП-процедуру больше отчётного —
+      // так выглядит договор, заключённый уже после четверга: сверка со СВОДом
+      // сходится, а разрыв объясняется подписью.
+      live: { kp: counts(10, 5), ep: counts(5, 2) },
       svod: { kp: counts(10, 5, 'svod'), ep: counts(5, 2, 'svod') },
     },
     year: {
@@ -48,6 +52,7 @@ function uoBlock(): GrbsReportBlock {
       execution: { planCount: 0, doneCount: 0, pct: null },
       methods: { kp: counts(0, 0), ep: counts(0, 0) },
       pendingCount: 0,
+      live: { kp: counts(0, 0), ep: counts(0, 0) },
     },
     year: {
       counts: counts(30, 34),

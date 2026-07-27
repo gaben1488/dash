@@ -117,12 +117,21 @@ describe('buildGrbsSection — view-модель секции ГРБС', () => {
     ]);
   });
 
-  it('УЭР: СВОД-сверка — пары calc/svod, расхождение видно (факт КП 4 против 5)', () => {
+  it('УЭР: сверка идёт по живому счёту — сравнимо со СВОДом, который среза не знает', () => {
     expect(uer.source).toBe('mixed');
     expect(uer.svodPairs).not.toBeNull();
     const kpFact = uer.svodPairs!.find((p) => p.metricKey === 'comp_fact_count')!;
-    expect(kpFact.calc).toBe(4);
+    // Отчётное число секции — 4 (на срез), живое — 5: сверка берёт живое и сходится.
+    expect(kpFact.calc).toBe(5);
     expect(kpFact.svod).toBe(5);
+  });
+
+  it('УЭР: разрыв между отчётным и живым счётом объясняется подписью', () => {
+    expect(uer.svodNote).toContain('После даты среза заключено 1');
+  });
+
+  it('УО: заключений после среза нет — подписи тоже нет', () => {
+    expect(uo.svodNote).toBeNull();
   });
 
   it('УЭР: деньги и экономия словами продукта', () => {
