@@ -50,7 +50,11 @@ function planRows(prefix: string, n: number, withFact: number, q: number, method
 }
 
 /** Тело ответа: Report + методология + ссылка «СВОД онлайн». */
-type ReportResponse = Report & { methodology: string; svodOnlineUrl?: string };
+type ReportResponse = Omit<Report, 'period'> & {
+  period: Report['period'] & { asOfDay: number; live: boolean };
+  methodology: string;
+  svodOnlineUrl?: string;
+};
 
 /**
  * Минимальный DataSnapshot со строками-атомами — та форма, в которой пайплайн
@@ -147,7 +151,7 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     expect(body.svodOnlineUrl).not.toContain('gid=');
   }, 30_000);
 
-  it('без asOf: дефолт среза — последний четверг календаря ПРОДУКТА, период из него', async () => {
+  it('без asOf: ПРЯМОЙ ЭФИР — сегодня по календарю продукта, флора к четвергу нет', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/report' });
     expect(res.statusCode).toBe(200);
     const body = res.json<ReportResponse>();
@@ -157,15 +161,29 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     const { productCalendarDay } = await import('../services/product-calendar.js');
     const { config } = await import('../config.js');
     const today = productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours);
-    // День 0 эпохи (1970-01-01) — четверг → четверги имеют day % 7 === 0.
-    const lastThursday = today - (today % 7);
-    expect(body.period.asOfDay).toBe(lastThursday);
-    expect(lastThursday % 7).toBe(0);
-    expect(lastThursday).toBeLessThanOrEqual(today);
-    // Год/квартал — из даты СРЕЗА (четверга), не из «сегодня».
-    const slice = new Date(lastThursday * 86400000);
-    expect(body.period.year).toBe(slice.getUTCFullYear());
-    expect(body.period.quarter).toBe(Math.floor(slice.getUTCMonth() / 3) + 1);
+    expect(body.period.live).toBe(true);
+    expect(body.period.asOfDay).toBe(today);
+    // Год/квартал — из СЕГОДНЯШНЕЙ даты: эфир показывает текущее положение дел.
+    const now = new Date(today * 86400000);
+    expect(body.period.year).toBe(now.getUTCFullYear());
+    expect(body.period.quarter).toBe(Math.floor(now.getUTCMonth() / 3) + 1);
+  }, 30_000);
+
+  it('эфир не режет факт: сверка со СВОДом сравнивает одинаковые моменты', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/api/report' })).json<ReportResponse>();
+    // В эфире отчётные числа и живой счёт — одно и то же, поэтому примечания
+    // не содержат оговорки про заключённое после среза.
+    expect(body.notes.some((n) => n.includes('После даты среза'))).toBe(false);
+    for (const b of body.grbsBlocks) {
+      expect(b.quarter.live.kp.doneCount).toBe(b.quarter.methods.kp.doneCount);
+      expect(b.quarter.live.ep.doneCount).toBe(b.quarter.methods.ep.doneCount);
+    }
+  }, 30_000);
+
+  it('явный asOf = архив: режим не эфирный, гейт факта включён', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/api/report?asOf=2026-02-10' }))
+      .json<ReportResponse>();
+    expect(body.period.live).toBe(false);
   }, 30_000);
 
   it('явный asOf НЕ флорится к четвергу (уважается как задан)', async () => {

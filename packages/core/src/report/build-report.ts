@@ -62,9 +62,15 @@ export interface BuildReportOptions {
   year: number;
   /** Отчётный квартал (столбец O). */
   quarter: 1 | 2 | 3 | 4;
-  /** Номер суток среза (dayNumberOf-совместимый) — вместо Date.now.
-   *  Обязателен: срез — ось еженедельной системы (канон: четверг). */
-  asOfDay: number;
+  /**
+   * Номер суток среза (dayNumberOf-совместимый) — вместо Date.now.
+   *
+   * НЕ ЗАДАН = ПРЯМОЙ ЭФИР, факт как есть «на сейчас» (канон пользователя
+   * 27.07: отчётные даты — про хранение данных, живую ситуацию видим в
+   * эфире). Задан = архивный срез недели: факт, заключённый позже, не
+   * считается — снимок обязан оставаться неизменным.
+   */
+  asOfDay?: number;
 }
 
 // ── Внутренние помощники ─────────────────────────────────────────────
@@ -240,7 +246,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
   }
 
   return {
-    period: { year, quarter, asOfDay: opts.asOfDay },
+    period: { year, quarter, ...(opts.asOfDay === undefined ? {} : { asOfDay: opts.asOfDay }) },
     integralSummary: integralOf(blocks, input.svodGrid, quarter, year),
     grbsBlocks: blocks,
     notes,

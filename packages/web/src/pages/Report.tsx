@@ -323,9 +323,11 @@ export function ReportPage() {
   const weekDeltas = weekDelta.kind === 'ready' ? weekDelta.deltas : [];
 
   const [copied, setCopied] = useState(false);
-  // Дата среза — из ответа сервера (period.asOfDay, дефолт — последний
-  // четверг), не new Date(): «сегодня» врало бы в любой день, кроме четверга.
+  // Дата — из ответа сервера (period.asOfDay), не new Date(): у продукта свой
+  // календарь (+12), браузер читателя может быть в другом поясе.
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
+  // Режим просмотра: эфир — числа на сейчас; архив — снимок недели.
+  const isLive = report?.period.live ?? false;
   const onCopy = () => {
     if (!report || asOfDate === null) return;
     void navigator.clipboard.writeText(generateReportText(report, asOfDate)).then(() => {
@@ -353,8 +355,30 @@ export function ReportPage() {
       {/* Шапка: заголовок, периодные бейджи, селектор квартала, копирование */}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-          {asOfDate ? `Отчёт по закупкам на ${asOfDate}` : 'Отчёт по закупкам'}
+          {asOfDate
+            ? isLive
+              ? `Отчёт по закупкам · ${asOfDate}`
+              : `Отчёт по закупкам на ${asOfDate}`
+            : 'Отчёт по закупкам'}
         </h2>
+        {report && (
+          isLive ? (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+              title="Числа на текущий момент — как в официальном листе. Дата среза нужна снимкам недели, а не живому просмотру."
+            >
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              В прямом эфире
+            </span>
+          ) : (
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+              title="Снимок недели: факт, заключённый после этой даты, в числа не входит."
+            >
+              Архив недели
+            </span>
+          )
+        )}
         <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           {request.year} год
         </span>

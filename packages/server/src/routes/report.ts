@@ -62,8 +62,9 @@ const METHODOLOGY =
   'Числа origin=calc пересчитаны из строк-атомов книг ГРБС каноническим движком; ' +
   'origin=svod — ячейки официального листа СВОД ТД-ПМ без пересчёта (двухисточниковость: ' +
   'расхождение видно, подмены нет). Экономия — только утверждённая (флаг AD=«да» + дата факта). ' +
-  'Деньги — тыс. руб., трёхсрез ФБ/КБ/МБ. Срез отчёта — еженедельный, ЧЕТВЕРГ: без явного asOf ' +
-  'берётся последний четверг (квартал и год — из этой даты среза).';
+  'Деньги — тыс. руб., трёхсрез ФБ/КБ/МБ. Режим по умолчанию — ПРЯМОЙ ЭФИР: числа на текущий ' +
+  'момент, как считает официальный лист. Дата среза адресует архив: параметр asOf открывает ' +
+  'снимок той недели, и только тогда факт режется по дате (заключённое позже в снимок не входит).';
 
 /**
  * Ссылка «СВОД онлайн» — открыть официальную сводную книгу Google Sheets,
@@ -86,23 +87,28 @@ interface ReportQuery {
 
 /** Разобранный период среза или честная ошибка валидации (текст для 400). */
 type PeriodParse =
-  | { ok: true; year: number; quarter: 1 | 2 | 3 | 4; asOfDay: number }
+  | { ok: true; year: number; quarter: 1 | 2 | 3 | 4; asOfDay: number; live: boolean }
   | { ok: false; message: string };
 
 /**
  * Период из query: asOf → компоненты даты среза (без TZ-сдвигов — разбор
  * строки, не Date-парс), year/quarter поверх — явные значения побеждают дефолт.
  *
- * ДЕФОЛТ БЕЗ asOf — ПОСЛЕДНИЙ ЧЕТВЕРГ (канон пользователя 23.07: отчёты
- * еженедельные, срез — четверг). Арифметика: день 0 эпохи (1970-01-01) —
- * четверг, поэтому floorToThursday(d) = d − (d % 7). Год/квартал-дефолты
- * выводятся из ЭТОЙ даты среза (в пятницу 01.10 отчёт по умолчанию — на
- * четверг 30.09, т.е. ещё Q3). Явный asOf уважается как задан, без флора.
+ * ДЕФОЛТ БЕЗ asOf — ПРЯМОЙ ЭФИР, «на сейчас» (канон пользователя 27.07:
+ * «отчётные даты — это про ХРАНЕНИЕ данных, а видеть ситуацию мы должны в
+ * прямом эфире»). Дата среза остаётся, но её роль — адресовать СНИМОК недели
+ * (архив), а не резать живой просмотр. В живом режиме гейт факта не
+ * применяется: числа сходятся с официальным листом, который тоже считает на
+ * текущий момент.
+ *
+ * Явный asOf = обращение к архиву: уважается как задан (без флора к четвергу),
+ * гейт факта включается, строки берутся из снимка той недели.
  */
 function parsePeriod(query: ReportQuery): PeriodParse {
   let sliceYear: number;
   let sliceMonth: number; // 0-based, для квартала
   let asOfDay: number;
+  const live = query.asOf === undefined;
   if (query.asOf !== undefined) {
     const m = query.asOf.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     const day = dayNumberOf(query.asOf);
@@ -113,7 +119,9 @@ function parsePeriod(query: ReportQuery): PeriodParse {
     sliceMonth = parseInt(m[2], 10) - 1;
     asOfDay = day;
   } else {
-    asOfDay = currentProductThursday();
+    // Сегодня по календарю ПРОДУКТА (не UTC): камчатский четверг 04:00 —
+    // это уже четверг. Флора к четвергу нет: эфир — на сейчас.
+    asOfDay = productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours);
     const sliceDate = new Date(asOfDay * 86400000);
     sliceYear = sliceDate.getUTCFullYear();
     sliceMonth = sliceDate.getUTCMonth();
@@ -137,7 +145,7 @@ function parsePeriod(query: ReportQuery): PeriodParse {
     quarter = parsed;
   }
 
-  return { ok: true, year, quarter, asOfDay };
+  return { ok: true, year, quarter, asOfDay, live };
 }
 
 /** Номер суток → «дд.мм.гггг» — формат дат в плашках читателю. */
@@ -178,7 +186,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
     const sourceNotes: string[] = [];
     let input: BuildReportInput | undefined;
 
-    if (period.asOfDay < currentThursday) {
+    if (!period.live && period.asOfDay < currentThursday) {
       const snapshot = getSnapshotAtOrBefore(period.asOfDay);
       if (snapshot?.rowsByDept) {
         // Всё из снимка: строки, официальная сетка, сигналы — единый момент времени.
@@ -223,14 +231,24 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       input = { rowsByDept, ...(svodGrid ? { svodGrid } : {}), issues };
     }
 
+    // Гейт факта — только у архивного среза. В эфире его нет: иначе отчёт
+    // молча прятал бы сегодняшние заключения, которые официальный лист уже
+    // показывает (канон «эфир по умолчанию», 27.07).
     const report = buildReport(input, {
       year: period.year,
       quarter: period.quarter,
-      asOfDay: period.asOfDay,
+      ...(period.live ? {} : { asOfDay: period.asOfDay }),
     });
     // Плашка об источнике — первой: читатель сперва узнаёт, откуда числа.
     report.notes.unshift(...sourceNotes);
 
-    return { ...report, methodology: METHODOLOGY, svodOnlineUrl: svodOnlineUrl() };
+    return {
+      ...report,
+      // asOfDay в ответе есть ВСЕГДА (веб адресует им снимки недели), а режим
+      // называет флаг live: эфир — числа на сейчас, архив — на дату среза.
+      period: { ...report.period, asOfDay: period.asOfDay, live: period.live },
+      methodology: METHODOLOGY,
+      svodOnlineUrl: svodOnlineUrl(),
+    };
   });
 }

@@ -21,7 +21,16 @@ const API_BASE = '/api';
  * настроен → поля в ответе нет). Обвязка живёт рядом с core-типом, а не
  * внутри него: это свойства ответа сервера, не расчётной проекции.
  */
-export type ReportResponse = Report & { methodology?: string; svodOnlineUrl?: string };
+export type ReportResponse = Omit<Report, 'period'> & {
+  /**
+   * Период ответа: сервер всегда называет день (эфир — сегодня, архив — дата
+   * среза) и режим. live=true — числа на текущий момент, гейт факта не
+   * применялся; live=false — архивный снимок недели.
+   */
+  period: Report['period'] & { asOfDay: number; live: boolean };
+  methodology?: string;
+  svodOnlineUrl?: string;
+};
 
 /**
  * Структурный контракт zod-схемы (zod не в deps web; схемы приходят из @aemr/shared).
@@ -227,8 +236,8 @@ export const api = {
     return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
   },
 
-  // Отчёт — проекция buildReport (@aemr/core); квартал и дата среза опциональны
-  // (без asOf сервер берёт последний четверг — еженедельный канон)
+  // Отчёт — проекция buildReport (@aemr/core); квартал и дата среза опциональны.
+  // Без asOf — прямой эфир (числа на сейчас); asOf открывает снимок той недели.
   getReport: (year: number, quarter?: 1 | 2 | 3 | 4, asOf?: string) => {
     const params = new URLSearchParams({ year: String(year) });
     if (quarter) params.set('quarter', String(quarter));
