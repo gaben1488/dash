@@ -16,6 +16,7 @@
 import {
   DEPARTMENT_REGISTRY,
   type DepartmentEntry,
+  svodCellRef,
   type Issue,
   type IssueSeverity,
   type SvodGridBlock,
@@ -33,6 +34,7 @@ import {
 } from '../metrics/quarter-execution.js';
 import type {
   BudgetMoney,
+  GrbsQuarterSlice,
   GrbsReportBlock,
   IntegralSummary,
   MethodSplit,
@@ -137,6 +139,26 @@ function svodSplit(
   return { kp: kp ?? planFact(0, 0, 'svod'), ep: ep ?? planFact(0, 0, 'svod') };
 }
 
+/** Адреса ячеек листа, из которых взят официальный срез — провенанс числа. */
+function svodCellRefs(
+  grid: SvodGridBlock[],
+  scope: string,
+  quarter: number,
+  year: number,
+): GrbsQuarterSlice['svodCells'] {
+  const rowOf = (method: 'КП' | 'ЕП'): number | undefined =>
+    grid
+      .find((b) => b.scope === scope && b.method === method)
+      ?.periods.find((p) => p.quarter === quarter && p.year === year)?.row;
+  const kpRow = rowOf('КП');
+  const epRow = rowOf('ЕП');
+  if (kpRow === undefined || epRow === undefined) return undefined;
+  return {
+    kp: { plan: svodCellRef(kpRow, 'planCount'), fact: svodCellRef(kpRow, 'factCount') },
+    ep: { plan: svodCellRef(epRow, 'planCount'), fact: svodCellRef(epRow, 'factCount') },
+  };
+}
+
 /** Топ-сигналы ГРБС: только свои, по критичности, не больше лимита. */
 function topSignalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: string): ReportSignal[] {
   const own = new Set([key, entry?.id, entry?.latinId].filter((v): v is string => Boolean(v)));
@@ -208,6 +230,9 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         live: quarterLive,
         svod: input.svodGrid
           ? svodSplit(input.svodGrid, entry?.shortName ?? dept, quarter, year)
+          : undefined,
+        svodCells: input.svodGrid
+          ? svodCellRefs(input.svodGrid, entry?.shortName ?? dept, quarter, year)
           : undefined,
       },
       year: {

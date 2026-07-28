@@ -188,6 +188,8 @@ export interface SvodPairVM {
   metricKey: string;
   calc: number;
   svod: number;
+  /** Адрес ячейки листа СВОД («E268») — откуда взято официальное число. */
+  svodCell?: string;
 }
 
 export interface GrbsSectionVM {
@@ -227,12 +229,13 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
   // Сверка идёт по q.live — расчёту БЕЗ гейта среза: формулы СВОДа дату факта
   // не сравнивают ни с чем и всегда считают «на сейчас». Сравнение отчётных
   // чисел (на срез) с живым официалом давало мнимые расхождения (УО +12, УЭР +1).
+  const cells = q.svodCells;
   const svodPairs: SvodPairVM[] | null = q.svod
     ? [
-        { metricKey: 'competitive_count', calc: q.live.kp.planCount, svod: q.svod.kp.planCount },
-        { metricKey: 'comp_fact_count', calc: q.live.kp.doneCount, svod: q.svod.kp.doneCount },
-        { metricKey: 'ep_count', calc: q.live.ep.planCount, svod: q.svod.ep.planCount },
-        { metricKey: 'ep_fact_count', calc: q.live.ep.doneCount, svod: q.svod.ep.doneCount },
+        { metricKey: 'competitive_count', calc: q.live.kp.planCount, svod: q.svod.kp.planCount, ...(cells ? { svodCell: cells.kp.plan } : {}) },
+        { metricKey: 'comp_fact_count', calc: q.live.kp.doneCount, svod: q.svod.kp.doneCount, ...(cells ? { svodCell: cells.kp.fact } : {}) },
+        { metricKey: 'ep_count', calc: q.live.ep.planCount, svod: q.svod.ep.planCount, ...(cells ? { svodCell: cells.ep.plan } : {}) },
+        { metricKey: 'ep_fact_count', calc: q.live.ep.doneCount, svod: q.svod.ep.doneCount, ...(cells ? { svodCell: cells.ep.fact } : {}) },
       ]
     : null;
   // Сколько заключено после среза — этим объясняется разрыв между отчётными

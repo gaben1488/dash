@@ -91,13 +91,15 @@ function svodBlock(
   method: 'КП' | 'ЕП',
   planCount: number,
   factCount: number,
+  /** Строка листа — провенанс: адрес ячейки собирается из неё («D257»/«E257»). */
+  row = 257,
 ): SvodGridBlock {
   return {
     scope,
     method,
-    startRow: 1,
+    startRow: row,
     periods: [{
-      quarter: 1, year: 2026,
+      quarter: 1, year: 2026, row,
       planCount, factCount, devCount: planCount - factCount,
       execPct: planCount > 0 ? factCount / planCount : 0,
       planFB: 0, planKB: 0, planMB: 0, planTotal: 0,
@@ -221,6 +223,35 @@ describe('buildReport — интегральная сводка и кросс-ф
     const uer = report.grbsBlocks[0]!;
     expect(uer.quarter.execution.pct).toBeNull();
     expect(report.integralSummary.quarter.total.pct).toBeNull();
+  });
+
+  it('провенанс: официальное число несёт адрес своей ячейки листа', () => {
+    const report = buildReport(
+      {
+        rowsByDept: fixtureRows(),
+        svodGrid: [svodBlock('УЭР', 'КП', 40, 10, 257), svodBlock('УЭР', 'ЕП', 5, 2, 268)],
+      },
+      OPTS,
+    );
+    const cells = report.grbsBlocks.find((b) => b.dept === 'УЭР')!.quarter.svodCells!;
+    // D — план, E — факт (шапка листа СВОД); строка — та, из которой прочитан период.
+    expect(cells.kp).toEqual({ plan: 'D257', fact: 'E257' });
+    expect(cells.ep).toEqual({ plan: 'D268', fact: 'E268' });
+  });
+
+  it('провенанс берёт строку периода, а не старт блока (блоки разной высоты)', () => {
+    const block = svodBlock('УЭР', 'КП', 40, 10, 257);
+    // Блок начинается выше своего первого периода — так бывает, когда у ГРБС
+    // нет ранних кварталов: арифметика «старт + индекс» дала бы чужую ячейку.
+    block.startRow = 250;
+    const report = buildReport({ rowsByDept: fixtureRows(), svodGrid: [block] }, OPTS);
+    expect(report.grbsBlocks.find((b) => b.dept === 'УЭР')!.quarter.svodCells).toBeUndefined();
+    // ЕП-блока нет → адресов нет вовсе: провенанс либо полный, либо его нет.
+  });
+
+  it('без листа СВОД провенанса нет — и это не молчаливый ноль', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    expect(report.grbsBlocks[0]!.quarter.svodCells).toBeUndefined();
   });
 });
 

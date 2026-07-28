@@ -14,7 +14,15 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, History } from 'lucide-react';
-import { SEVERITY_COLORS, dayNumberOf, getMetricByKey, productLabel } from '@aemr/shared';
+import {
+  SEVERITY_COLORS,
+  SVOD_SHEET_NAME,
+  SVOD_SPREADSHEET_ID,
+  dayNumberOf,
+  getMetricByKey,
+  productLabel,
+} from '@aemr/shared';
+import { buildSheetUrl } from '../lib/recon/sheet-links';
 import type { MetricDelta } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
@@ -52,6 +60,8 @@ const SVOD_COLUMNS: readonly ReportTableColumn[] = [
   { key: 'metric', label: 'Показатель' },
   { key: 'calc', label: 'Расчёт', align: 'right' },
   { key: 'svod', label: 'СВОД', align: 'right' },
+  // Провенанс: адрес ячейки официального листа — куда смотреть в живой книге.
+  { key: 'cell', label: 'Ячейка', align: 'right' },
 ];
 
 /** Честная расшифровка ошибки загрузки (503 = снапшота ещё нет). */
@@ -122,6 +132,21 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
                 metric: productLabel(p.metricKey),
                 calc: fmtCount(p.calc),
                 svod: <DiffText filterCtx={ctx} source="svod" value={p.svod} reference={p.calc} />,
+                // Ссылка ведёт в ту самую ячейку живой книги — число проверяемо
+                // за один клик, без пересказа «где-то в СВОДе».
+                cell: p.svodCell
+                  ? (
+                    <a
+                      href={buildSheetUrl(SVOD_SPREADSHEET_ID, p.svodCell)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-[10px] text-zinc-500 hover:text-blue-600 hover:underline dark:text-zinc-400 dark:hover:text-blue-400"
+                      title={`Открыть ${SVOD_SHEET_NAME}!${p.svodCell} в Google Sheets`}
+                    >
+                      {p.svodCell}
+                    </a>
+                  )
+                  : '—',
               }))}
             />
             {vm.svodNote && (

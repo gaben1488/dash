@@ -50,6 +50,13 @@ export const SVOD_GRID_COLS = {
 export interface SvodGridPeriod {
   quarter: 1 | 2 | 3 | 4;
   year: number;
+  /**
+   * Строка листа (1-based), из которой прочитан период — провенанс числа.
+   * Хранится, а не вычисляется от startRow: блоки разной высоты, и любая
+   * арифметика «старт + индекс» соврёт на первом же пропущенном квартале.
+   * Адрес ячейки собирается с колонкой: `svodCellRef(row, 'factCount')`.
+   */
+  row: number;
   planCount: number;
   factCount: number;
   devCount: number;
@@ -61,8 +68,8 @@ export interface SvodGridPeriod {
   economyFB: number; economyKB: number; economyMB: number; economyTotal: number;
 }
 
-/** Итог блока (без quarter/year — строка «Итого …»). */
-export type SvodGridTotal = Omit<SvodGridPeriod, 'quarter' | 'year'>;
+/** Итог блока (без quarter/year/row — строка «Итого …»). */
+export type SvodGridTotal = Omit<SvodGridPeriod, 'quarter' | 'year' | 'row'>;
 
 export interface SvodGridBlock {
   /** «ВСЕ» или короткое имя ГРБС («УЭР»…). */
@@ -86,6 +93,16 @@ const num = (v: unknown): number => {
 };
 
 const C = SVOD_GRID_COLS;
+
+/**
+ * Адрес ячейки листа СВОД в нотации A1 — провенанс официального числа.
+ * Читателю он говорит, куда смотреть в живой книге, а нам — что число
+ * не выдумано: `svodCellRef(268, 'factCount')` → «E268».
+ * Колонки листа не заходят за Z, поэтому одной буквы достаточно.
+ */
+export function svodCellRef(row: number, col: keyof typeof SVOD_GRID_COLS): string {
+  return `${String.fromCharCode(65 + SVOD_GRID_COLS[col])}${row}`;
+}
 
 function readMetrics(row: unknown[]): SvodGridTotal {
   return {
@@ -140,7 +157,7 @@ export function parseSvodGrid(values: unknown[][]): SvodGridBlock[] {
     }
 
     if (block && isPeriodRow) {
-      block.periods.push({ quarter: quarter as 1 | 2 | 3 | 4, year, ...readMetrics(row) });
+      block.periods.push({ quarter: quarter as 1 | 2 | 3 | 4, year, row: i + 1, ...readMetrics(row) });
       continue;
     }
 

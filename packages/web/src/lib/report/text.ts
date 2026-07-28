@@ -57,7 +57,9 @@ export function generateReportText(report: Report, asOfDate: string): string {
           ? `Сверка со СВОД (${q} квартал): расхождений нет.`
           : `Сверка со СВОД (${q} квартал): расходится — ` +
             mismatches
-              .map((p) => `${productLabel(p.metricKey)}: расчёт ${fmtCount(p.calc)}, СВОД ${fmtCount(p.svod)}`)
+              .map((p) =>
+                `${productLabel(p.metricKey)}: расчёт ${fmtCount(p.calc)}, ` +
+                `СВОД ${fmtCount(p.svod)}${p.svodCell ? ` (${p.svodCell})` : ''}`)
               .join('; ') + '.',
       );
       // Разрыв между отчётными числами (на срез) и сверкой (на сейчас) —
