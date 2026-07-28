@@ -7,6 +7,7 @@ import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
 import { TableEditor, type ColumnConfig, type RowData } from '../components/TableEditor';
 import { filterRowsByBudgets } from '../lib/rows-filter';
+import { collectAllPages } from '../lib/rows/collect-pages';
 import { monthOfDateValue } from '../lib/sheet-date';
 
 type ViewMode = 'browse' | 'editor';
@@ -79,6 +80,24 @@ const SIGNAL_LABELS: Record<string, string> = {
   // Серые
   canceled:          'Отменён',
 };
+
+/** Строк на один запрос к серверу — его же потолок (rows.ts: min(1000, limit)). */
+const ROWS_PER_REQUEST = 1000;
+
+/** Все строки ГРБС, а не первая тысяча (см. lib/rows/collect-pages). */
+async function fetchAllDeptRows(
+  dept: string,
+  params: Record<string, string>,
+): Promise<Record<string, unknown>[]> {
+  const rows = await collectAllPages<any>((page) =>
+    api.getRows(dept, {
+      limit: String(ROWS_PER_REQUEST),
+      ...(page > 1 ? { page: String(page) } : {}),
+      ...params,
+    }),
+  );
+  return rows.map((r: any) => ({ ...r, dept: r.dept || dept }));
+}
 
 export function DataBrowserPage() {
   const { formatMoney, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets } = useStore();
@@ -279,14 +298,7 @@ export function DataBrowserPage() {
 
     // Load data from all selected departments (or all if none selected)
     Promise.all(
-      deptsToLoad.map(dept =>
-        api.getRows(dept, { limit: '1000', ...params })
-          .then((data: any) => {
-            const deptRows = Array.isArray(data) ? data : data?.rows ?? [];
-            return deptRows.map((r: any) => ({ ...r, dept: r.dept || dept }));
-          })
-          .catch(() => [] as Record<string, unknown>[])
-      )
+      deptsToLoad.map(dept => fetchAllDeptRows(dept, params))
     ).then(results => {
       if (!cancelled) {
         setRows(results.flat());
@@ -462,6 +474,9 @@ export function DataBrowserPage() {
             <option value={25}>25 строк</option>
             <option value={50}>50 строк</option>
             <option value={100}>100 строк</option>
+            <option value={500}>500 строк</option>
+            {/* «Все» — по просьбе пользователей: реестр целиком, без листания */}
+            <option value={1000000}>Все строки</option>
           </select>
           {/* Signal filter dropdown */}
           <div className="relative" ref={signalDropdownRef}>
@@ -703,7 +718,12 @@ export function DataBrowserPage() {
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
         <div className="flex items-center gap-4">
-          <span>Показано {paged.length} из {filtered.length} строк</span>
+          {/* Честный счёт в три числа: на экране — в выборке — всего загружено.
+              Без последнего читатель не понимает, режет ли фильтр или таблица. */}
+          <span>
+            Показано {paged.length} из {filtered.length} строк
+            {filtered.length !== rows.length && ` (фильтры отсеяли ${rows.length - filtered.length} из ${rows.length})`}
+          </span>
           {errorCount > 0 && (
             <span className="flex items-center gap-1 text-red-500">
               <AlertCircle size={13} /> {errorCount} с ошибками
