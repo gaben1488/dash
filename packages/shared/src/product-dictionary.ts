@@ -84,6 +84,7 @@ export const SIGNAL_LABELS: Readonly<Record<string, string>> = {
   singleParticipant: 'Единственный участник',
   dataQuality: 'Пустые обязательные поля',
   factDateBeforePlan: 'Факт раньше плановой даты',
+  futureFactDate: 'Дата факта в будущем',
   planWithoutExecution: 'План без исполнения',
   epJustificationMissing: 'ЕП без обоснования',
   methodReasonMismatch: 'Метод не соответствует обоснованию ЕП',

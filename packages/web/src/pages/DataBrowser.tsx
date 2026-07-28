@@ -30,6 +30,7 @@ const SIGNAL_COLORS: Record<string, { bg: string; text: string }> = {
   economyConflict:  { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   factExceedsPlan:  { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   formulaBroken:    { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
+  futureFactDate:   { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   budgetMismatch:   { bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400' },
   // Жёлтые/оранжевые (предупреждения)
   stalledContract:  { bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400' },
@@ -62,6 +63,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   economyConflict:   'Флаг экономии',
   factExceedsPlan:   'Факт > план',
   formulaBroken:     'Ошибка формулы',
+  futureFactDate:    'Дата факта в будущем',
   budgetMismatch:    'Расхождение бюджета',
   // Предупреждения
   stalledContract:   'Подвисший контракт',

@@ -73,6 +73,14 @@ export interface RowSignals {
   dateWithoutFact: boolean;
   /** Факт дата раньше плановой даты — логическая ошибка в данных */
   factDateBeforePlan: boolean;
+  /**
+   * Дата факта в БУДУЩЕМ — договор «уже заключён» позже сегодняшнего дня.
+   * Физически невозможно: почти всегда опечатка оператора в годе. Найдено
+   * расследованием 27.07.2026: строка УО (МБДОУ ДС № 37 «Белочка», томаты и
+   * огурцы) с датой факта 15.07.2027 завышала официальный счёт ЕП на единицу
+   * и не подсвечивалась ничем — правило будущей даты было только у плановой.
+   */
+  futureFactDate: boolean;
   /** План есть (K > 0, N задана), факта нет, год идёт — невыполненный план */
   planWithoutExecution: boolean;
   /** ЕП без обоснования: метод ЕП, но столбец M (обоснование) пуст */
@@ -467,6 +475,12 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     }
   }
 
+  // ── Дата факта в будущем: опечатка в годе ──
+  // Гейт «сегодня» тот же, что у остальных дат-правил (todayDay), поэтому
+  // сигнал не зависит от режима просмотра: он про качество данных, а не про
+  // срез. Отменённые строки не трогаем — их даты могут быть мусорными.
+  const futureFactDate = factDay !== null && !canceled && factDay > todayDay;
+
   // ── Факт > план ──
   // Skip canceled rows — their data may be stale/incorrect.
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): допуск 0.5% против округлительного шума —
@@ -612,6 +626,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factWithoutDate,
     dateWithoutFact,
     factDateBeforePlan,
+    futureFactDate,
     planWithoutExecution,
     epJustificationMissing,
     methodReasonMismatch,
@@ -710,6 +725,9 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   // budgetMismatch УДАЛЁН — дублирует правило budget_sum_plan (отображается через Issues)
   if (signals.earlyClosure) {
     badges.push({ label: 'Раннее закрытие', color: 'yellow', icon: 'fast-forward' });
+  }
+  if (signals.futureFactDate) {
+    badges.push({ label: 'Дата факта в будущем', color: 'red', icon: 'calendar-x' });
   }
 
   // ── Жёлтые (предупреждения) ──

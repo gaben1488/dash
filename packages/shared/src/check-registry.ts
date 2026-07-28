@@ -272,6 +272,22 @@ export const CHECK_REGISTRY: CheckRegistryEntry[] = [
     legacyId: 'factDateBeforePlan',
     sourceType: 'signal',
   },
+  {
+    id: 'future_fact_date',
+    group: 'temporal',
+    name: 'Дата факта в будущем',
+    description: 'Договор помечен заключённым позже сегодняшнего дня — физически невозможно.',
+    severity: 'significant',
+    origin: 'bi_heuristic',
+    scope: 'department',
+    kbHint:
+      'Почти всегда опечатка в годе. Такая строка завышает официальный счёт заключённых: ' +
+      'формулы листа СВОД дату факта ни с чем не сравнивают и считают её фактом.',
+    recommendation: 'Сверить дату с контрактом и исправить год в столбце Q',
+    trustComponent: 'data_quality',
+    legacyId: 'futureFactDate',
+    sourceType: 'signal',
+  },
 
   // ================================================================
   // ГРУППА: financial — Финансовые аномалии

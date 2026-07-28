@@ -30,6 +30,7 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   dataQuality: 'data_quality',
   // singleParticipant УДАЛЁН из Issue-генерации — ненадёжная текстовая детекция, только badge
   factDateBeforePlan: 'fact_date_before_plan',
+  futureFactDate: 'future_fact_date',
   financeDelay: 'finance_delay',
   // Дополнительные сигналы (без Issue, только badge)
   // lowCompetition УДАЛЁН из Issue-генерации — <2% экономия не является надёжным индикатором

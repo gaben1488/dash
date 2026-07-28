@@ -881,6 +881,33 @@ describe('Behavioral signals', () => {
     });
   });
 
+  describe('futureFactDate (опечатка в годе, расследование 27.07.2026)', () => {
+    it('true: договор «заключён» в следующем году — УО, «Белочка», факт 15.07.2027', () => {
+      const s = detectSignals(makeCells({ N: '30.06.2026', Q: '15.07.2027' }), REF_DATE);
+      expect(s.futureFactDate).toBe(true);
+    });
+
+    it('false: дата факта сегодня — граница не срабатывает', () => {
+      const s = detectSignals(makeCells({ N: '01.03.2026', Q: REF_DATE }), REF_DATE);
+      expect(s.futureFactDate).toBe(false);
+    });
+
+    it('false: дата факта в прошлом — обычное заключение', () => {
+      const s = detectSignals(makeCells({ N: '01.03.2026', Q: '10.03.2026' }), REF_DATE);
+      expect(s.futureFactDate).toBe(false);
+    });
+
+    it('false: отменённая строка — её даты не считаем данными', () => {
+      const s = detectSignals(makeCells({ N: '30.06.2026', Q: '15.07.2027', U: 'Отменена' }), REF_DATE);
+      expect(s.futureFactDate).toBe(false);
+    });
+
+    it('false: даты факта нет вовсе', () => {
+      const s = detectSignals(makeCells({ N: '30.06.2026', Q: null }), REF_DATE);
+      expect(s.futureFactDate).toBe(false);
+    });
+  });
+
   describe('earlyClosure (сигнал = кандидат на опечатку даты, signal_audit 2026-07-14 §3.5)', () => {
     it('true: смена календарного года — вероятная опечатка (УД стр.101: факт 15.04.2025 при плане 30.04.2026)', () => {
       const s = detectSignals(makeCells({
@@ -1223,6 +1250,7 @@ describe('classifyRowState', () => {
       highEconomy: false, lowCompetition: false, earlyClosure: false,
       factExceedsPlan: false, stalledContract: false, budgetMismatch: false,
       factWithoutDate: false, dateWithoutFact: false, factDateBeforePlan: false,
+      futureFactDate: false,
       planWithoutExecution: false, epJustificationMissing: false,
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
@@ -1298,6 +1326,7 @@ describe('getSignalBadges', () => {
       highEconomy: false, lowCompetition: false, earlyClosure: false,
       factExceedsPlan: false, stalledContract: false, budgetMismatch: false,
       factWithoutDate: false, dateWithoutFact: false, factDateBeforePlan: false,
+      futureFactDate: false,
       planWithoutExecution: false, epJustificationMissing: false,
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,

@@ -15,6 +15,7 @@ const SIGNAL_COLORS: Record<string, { bg: string; text: string }> = {
   canceled: { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-500 dark:text-zinc-400' },
   earlyClosure: { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400' },
   factExceedsPlan: { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
+  futureFactDate: { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   stalledContract: { bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400' },
   budgetMismatch: { bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400' },
 };
@@ -30,6 +31,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   canceled: 'Отменён',
   earlyClosure: 'Раннее закрытие',
   factExceedsPlan: 'Факт > план',
+  futureFactDate: 'Дата факта в будущем',
   stalledContract: 'Подвисший',
   budgetMismatch: 'Расхождение бюджета',
 };
