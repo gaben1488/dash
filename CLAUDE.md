@@ -32,6 +32,20 @@ pnpm audit --audit-level moderate
 - Prefer `@aemr/shared` constants and `@aemr/core` calculations over duplicating legal/procurement thresholds in UI or server code.
 - Keep `docs/REVIEW.md` updated when security posture or verification commands change.
 
+## Tooling Routing (триггер → скилл)
+
+| Триггер в задаче | Скилл |
+|---|---|
+| `packages/server/src/**` — роуты, плагины, hooks, JSON-schema, pino, WebSocket, `inject`-тесты | `fastify-best-practices` |
+| `any`, generics, type guards, ошибки `tsc --noEmit`, брендированные типы | `typescript-magician` |
+| docs/API любой библиотеки (drizzle, better-sqlite3, googleapis, React 19, Vite) | Context7 MCP — не по памяти |
+| UI: править/оценивать/полировать экран, дашборд, таблицу | `impeccable-shape` → `impeccable-craft` → `impeccable-audit` |
+| React-перф, ре-рендеры, бандл | `vercel-react-best-practices` |
+| Баг, падающий тест, необъяснимое поведение | `systematic-debugging` → `test-driven-development` |
+| Разрез god-файла (>600 LOC) | `test-driven-development` (характеризационные тесты) → `simplify` |
+| Перед «готово» | `verification-before-completion` + Canonical Commands |
+| `.xlsx` / `.docx` / `.pdf` | `anthropic-skills:xlsx` / `:docx` / `:pdf` — до своего кода |
+
 ## Known Residual Work
 
 - Reduce `any` usage after current lint error-gate is stable.
