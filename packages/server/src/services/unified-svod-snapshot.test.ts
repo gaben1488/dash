@@ -9,7 +9,7 @@ import { attachUnifiedGrid } from './snapshot.js';
  * Проверяем именно server-склейку (не ядро):
  *  - имя dept-листа маппится в grbsId (Cyrillic 'УО' → 'uo' через CYRILLIC_TO_LATIN);
  *  - лист СВОД ТД-ПМ исключается из атомов сетки;
- *  - сверка (срез ВСЕ) сравнивается с ячейками officialMetrics (competitive/sole, Q1/Год).
+ *  - сверка (срез ВСЕ) сравнивается с ячейками officialMetrics (competitive/sole, 1 кв/Год).
  */
 
 // Атом dept-листа: плоский массив колонок (0-based по канону).
@@ -38,7 +38,7 @@ function baseSnapshot(officialMetrics: Record<string, NormalizedMetric>): DataSn
 }
 
 describe('attachUnifiedGrid (server Task 5 wiring)', () => {
-  // Два КП-атома Q1/2026 в листе 'УО': ПМ (план ФБ 100) + ТД (план ФБ 30).
+  // Два КП-атома 1 кв/2026 в листе 'УО': ПМ (план ФБ 100) + ТД (план ФБ 30).
   const sheetRows: Record<string, unknown[][]> = {
     'УО': [
       row({ 0: '1', 3: 'Программа A', 5: 'Программное мероприятие', 6: 'Закупка X', 11: 'ЭА', 13: '2026-02-01', 14: 1, 15: 2026, 16: '2026-03-01', 7: 100, 21: 90, 25: 10, 29: 'да' }),
@@ -48,7 +48,7 @@ describe('attachUnifiedGrid (server Task 5 wiring)', () => {
     'СВОД ТД-ПМ': [row({ 0: 'IGNORED', 5: 'Программное мероприятие', 11: 'ЭА', 14: 1, 7: 999999 })],
   };
 
-  it('кладёт unifiedGrid с ключами unifiedKey и держит ВСЕ = ПМ + ТД (Q1, кол-во)', () => {
+  it('кладёт unifiedGrid с ключами unifiedKey и держит ВСЕ = ПМ + ТД (1 кв, кол-во)', () => {
     const snap = baseSnapshot({});
     attachUnifiedGrid(snap, sheetRows, 2026);
 

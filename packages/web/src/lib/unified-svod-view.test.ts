@@ -4,7 +4,7 @@ import { sliceUnified } from './unified-svod-view.js';
 
 /**
  * Тест среза единой сетки под фильтры. Строим минимальную сетку на ГРБС 'uo':
- *  • scope 'all', метод КП, период Q1: план ФБ=700, КБ=300, факт ФБ=500, экономия ФБ=30, КБ=20;
+ *  • scope 'all', метод КП, период 1 кв: план ФБ=700, КБ=300, факт ФБ=500, экономия ФБ=30, КБ=20;
  *  • scope 'pm' — поднабор (план ФБ=400) — проверяем что срез берёт ИМЕННО выбранный scope.
  * Проверяем: (1) бюджет-фильтр складывает суммы только по выбранным бюджетам, количества
  * не делятся; (2) переключение scope меняет числа; (3) summary суммирует все ГРБС.
@@ -73,7 +73,7 @@ describe('sliceUnified', () => {
     expect(kp.planCount).toBe(3);
   });
 
-  it('ИТОГО = КП + ЕП (scope all, период Q1)', () => {
+  it('ИТОГО = КП + ЕП (scope all, период 1 кв)', () => {
     const all = sliceUnified(grid, { scope: 'all', period: 'q1' });
     const total = all.view.departments.find((d) => d.id === 'uo')!.block.total.q1;
     expect(total.planCount).toBe(14);          // 10 + 4

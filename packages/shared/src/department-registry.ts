@@ -50,11 +50,11 @@ export interface DepartmentEntry {
 
   // ── СВОД ТД-ПМ row positions (1-based) ──
   svod: {
-    /** КП Q1 data row */
+    /** КП 1 кв data row */
     kpQ1: number;
     /** КП Year total row */
     kpYear: number;
-    /** ЕП Q1 data row */
+    /** ЕП 1 кв data row */
     epQ1: number;
     /** ЕП Year total row */
     epYear: number;

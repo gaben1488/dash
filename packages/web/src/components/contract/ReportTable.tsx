@@ -20,7 +20,7 @@ export interface ReportTableProps extends PageElementProps {
   columns: readonly ReportTableColumn[];
   /** Строки: ключ колонки → готовая ячейка (текст или контрактный элемент) */
   rows: ReadonlyArray<Readonly<Record<string, ReactNode>>>;
-  /** Подпись-скоуп над таблицей («Способы · Q1», «Сверка со СВОД») */
+  /** Подпись-скоуп над таблицей («Способы · 1 кв», «Сверка со СВОД») */
   caption?: string;
 }
 

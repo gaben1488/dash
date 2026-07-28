@@ -113,7 +113,7 @@ const RECON_FIELD_LABEL: Record<string, string> = {
 
 /**
  * Сводит строки reconciliation в бейджи по методу (КП/ЕП) для выбранного периода.
- * Лист СВОД ТД-ПМ покрывает только Q1 и Год — для прочих периодов бейдж 'none'.
+ * Лист СВОД ТД-ПМ покрывает только 1 кв и Год — для прочих периодов бейдж 'none'.
  * Статус строки = худший статус его метрик (high > warning > ok).
  */
 function reconBadges(
@@ -122,7 +122,7 @@ function reconBadges(
 ): { kp: ReconBadge; ep: ReconBadge } {
   const init = (): ReconBadge => ({ status: 'none', worstDeltaPct: 0, checked: 0 });
   const out = { kp: init(), ep: init() };
-  // Эталон есть только для Q1/Год.
+  // Эталон есть только для 1 кв/Год.
   if (period !== 'q1' && period !== 'year') return out;
 
   for (const m of ['kp', 'ep'] as const) {
@@ -464,7 +464,7 @@ export function SvodView() {
 
         <p className="px-4 py-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 border-t border-zinc-100 dark:border-zinc-700/50">
           Источник — единая сетка ядра (CalcEngine из строк реестра, 33 колонки). «Сверено» —
-          сравнение среза ВСЕ с ячейками листа СВОД ТД-ПМ (Q1 и Год). «ИТОГО» = КП + ЕП.
+          сравнение среза ВСЕ с ячейками листа СВОД ТД-ПМ (1 кв и Год). «ИТОГО» = КП + ЕП.
         </p>
       </div>
     </div>

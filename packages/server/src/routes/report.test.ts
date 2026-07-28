@@ -2,7 +2,7 @@
  * GET /api/report — роут-тесты (волна 2A, TDD).
  *
  * Калибровка эталоном ручного отчёта «Отчёт по закупкам на 20.03.2026»
- * (та же фикстура, что build-report.test.ts в core): УЭР Q1 план 15 /
+ * (та же фикстура, что build-report.test.ts в core): УЭР 1 кв план 15 /
  * факт 6 → 40.00%. Сеть замокана «в отказ»: лист СВОД недоступен →
  * отчёт обязан отдаться без официальной колонки, с честной плашкой.
  */
@@ -88,7 +88,7 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
     const { setDeptSheetCache } = await import('../services/snapshot.js');
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
-    // УЭР: Q1 план 15 (10 ЭА + 5 ЕП), факт 6 (4 + 2) → 40.00% — эталон отчёта.
+    // УЭР: 1 кв план 15 (10 ЭА + 5 ЕП), факт 6 (4 + 2) → 40.00% — эталон отчёта.
     setDeptSheetCache({
       УЭР: {
         values: [...headers, ...planRows('uer-kp', 10, 4, 1, 'ЭА'), ...planRows('uer-ep', 5, 2, 1, 'ЕП')],

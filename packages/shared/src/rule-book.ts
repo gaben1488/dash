@@ -239,7 +239,7 @@ const deviationCalc: ValidationRule = {
 };
 
 // ============================================================
-// ПРАВИЛО 4: Q1 <= Год (cross-row)
+// ПРАВИЛО 4: 1 кв <= Год (cross-row)
 // Квартальные значения не должны превышать годовые.
 // Это правило работает с allRows — проверяется отдельно.
 // ============================================================
@@ -248,7 +248,7 @@ const deviationCalc: ValidationRule = {
  * Each pair maps a Q1 summary row to its corresponding Year summary row.
  */
 const Q1_YEAR_PAIRS: Array<{ q1Row: number; yearRow: number; label: string }> = [
-  // Summary level: row 9 = КП Q1, row 14 = КП Year; row 21 = ЕП Q1, row 26 = ЕП Year
+  // Summary level: row 9 = КП 1 кв, row 14 = КП Year; row 21 = ЕП 1 кв, row 26 = ЕП Year
   { q1Row: 9, yearRow: 14, label: 'КП (СВОД)' },
   { q1Row: 21, yearRow: 26, label: 'ЕП (СВОД)' },
   // Per-department pairs from DEPARTMENT_REGISTRY (canonical source)
@@ -260,9 +260,9 @@ const Q1_YEAR_PAIRS: Array<{ q1Row: number; yearRow: number; label: string }> = 
 
 const q1LeqYear: ValidationRule = {
   id: 'q1_leq_year',
-  name: 'Q1 <= Год: квартал не превышает год',
+  name: '1 кв <= Год: квартал не превышает год',
   description:
-    'Плановое количество (D) и плановая сумма (K) за Q1 не должны превышать ' +
+    'Плановое количество (D) и плановая сумма (K) за 1 кв не должны превышать ' +
     'соответствующие годовые значения. Проверяется по известным парам строк из DEPARTMENT_ROWS.',
   severity: 'error',
   origin: 'spreadsheet_rule',
@@ -288,7 +288,7 @@ const q1LeqYear: ValidationRule = {
         return {
           passed: false,
           message:
-            `${col}${ctx.rowIndex} (Q1 ${pair.label}) = ${q1Val} превышает ` +
+            `${col}${ctx.rowIndex} (1 кв ${pair.label}) = ${q1Val} превышает ` +
             `${col}${pair.yearRow} (Год) = ${yearVal}`,
           cell: `${col}${ctx.rowIndex}`,
           actual: q1Val,

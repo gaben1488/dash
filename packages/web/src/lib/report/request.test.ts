@@ -12,39 +12,45 @@ function ctxWith(patch: Partial<FilterContext>): FilterContext {
 }
 
 describe('reportRequestParams — параметры GET /api/report из FilterContext', () => {
-  it('без weekStart asOf не задаётся — дефолт среза выбирает сервер', () => {
-    const p = reportRequestParams(ctxWith({}), FRIDAY);
-    expect(p.asOf).toBeUndefined();
-    expect(p.year).toBe(2026);
+  it('дефолт — ЭФИР: asOf не задаётся даже при выбранной неделе', () => {
+    // Канон 27.07: отчётные даты адресуют хранение, ситуацию видим на сейчас.
+    expect(reportRequestParams(ctxWith({}), FRIDAY).asOf).toBeUndefined();
+    expect(reportRequestParams(ctxWith({ weekStart: '2026-07-13' }), FRIDAY).asOf)
+      .toBeUndefined();
   });
 
-  it('понедельник недели + 3 = четверг среза', () => {
-    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-13' }), FRIDAY);
+  it('архив без выбранной недели — последний прошедший четверг', () => {
+    const p = reportRequestParams(ctxWith({}), FRIDAY, undefined, 'archive');
+    expect(p.asOf).toBe('2026-07-23');
+  });
+
+  it('архив: понедельник недели + 3 = четверг среза', () => {
+    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-13' }), FRIDAY, undefined, 'archive');
     expect(p.asOf).toBe('2026-07-16');
   });
 
-  it('смена недели в колесе меняет asOf', () => {
-    const w1 = reportRequestParams(ctxWith({ weekStart: '2026-07-06' }), FRIDAY);
-    const w2 = reportRequestParams(ctxWith({ weekStart: '2026-07-13' }), FRIDAY);
+  it('архив: смена недели в колесе меняет asOf', () => {
+    const w1 = reportRequestParams(ctxWith({ weekStart: '2026-07-06' }), FRIDAY, undefined, 'archive');
+    const w2 = reportRequestParams(ctxWith({ weekStart: '2026-07-13' }), FRIDAY, undefined, 'archive');
     expect(w1.asOf).toBe('2026-07-09');
     expect(w2.asOf).toBe('2026-07-16');
   });
 
-  it('будущая неделя клампится к последнему четвергу ≤ сегодня', () => {
-    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-27' }), FRIDAY);
+  it('архив: будущая неделя клампится к последнему четвергу ≤ сегодня', () => {
+    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-27' }), FRIDAY, undefined, 'archive');
     expect(p.asOf).toBe('2026-07-23');
   });
 
-  it('текущая неделя до её четверга — тоже кламп: будущий срез не запрашиваем', () => {
+  it('архив: текущая неделя до её четверга — тоже кламп', () => {
     // Сегодня понедельник 20.07 — четверг этой недели (23.07) ещё впереди
     const monday = dayNumberOf('2026-07-20')!;
-    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-20' }), monday);
+    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-20' }), monday, undefined, 'archive');
     expect(p.asOf).toBe('2026-07-16');
   });
 
-  it('четверг сегодняшнего дня не клампится (сегодня и есть срез)', () => {
+  it('архив: четверг сегодняшнего дня не клампится (сегодня и есть срез)', () => {
     const thursday = dayNumberOf('2026-07-23')!;
-    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-20' }), thursday);
+    const p = reportRequestParams(ctxWith({ weekStart: '2026-07-20' }), thursday, undefined, 'archive');
     expect(p.asOf).toBe('2026-07-23');
   });
 

@@ -57,7 +57,7 @@ describe('tsc-контракт PageElementProps', () => {
       metricKey: 'plan_count',
       value: '1 234',
       unit: 'тыс ₽',
-      periodBadge: 'Q1 · официал',
+      periodBadge: '1 кв · официал',
     };
     expect(tile.filterCtx).toBe(EMPTY_FILTER_CONTEXT);
 

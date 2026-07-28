@@ -77,9 +77,9 @@ export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
                 <tr className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
                   <th className="px-2 py-1.5 text-left font-medium">Управление</th>
                   <th className="px-2 py-1.5 text-left font-medium">Лист</th>
-                  <th className="px-2 py-1.5 text-center font-medium">КП Q1</th>
+                  <th className="px-2 py-1.5 text-center font-medium">КП 1 кв</th>
                   <th className="px-2 py-1.5 text-center font-medium">КП Год</th>
-                  <th className="px-2 py-1.5 text-center font-medium">ЕП Q1</th>
+                  <th className="px-2 py-1.5 text-center font-medium">ЕП 1 кв</th>
                   <th className="px-2 py-1.5 text-center font-medium">ЕП Год</th>
                   <th className="px-2 py-1.5 text-center font-medium">Экон. КП</th>
                   <th className="px-2 py-1.5 text-center font-medium">Экон. ЕП</th>
@@ -112,7 +112,7 @@ export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
           </div>
 
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 pt-1">
-            Расхождение означает что формулы СВОД считают не то же что строковые данные — это сигнал проблемы данных или сломанной формулы. Сводные строки: КП Q1=стр.9, КП Год=стр.14, ЕП Q1=стр.21, ЕП Год=стр.26.
+            Расхождение означает что формулы СВОД считают не то же что строковые данные — это сигнал проблемы данных или сломанной формулы. Сводные строки: КП 1 кв=стр.9, КП Год=стр.14, ЕП 1 кв=стр.21, ЕП Год=стр.26.
           </p>
         </div>
       )}

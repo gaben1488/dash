@@ -2,7 +2,7 @@
  * seasonal.ts — сезонные аномалии закупок (вынесено из dataset-signals.ts, чанк G-3).
  *
  * Ответственность: детектор сезонных нарушений (ремонт школ вне каникул, зимние
- * дорожные работы, декабрьский рывок, всплеск Q4) + его типы.
+ * дорожные работы, декабрьский рывок, всплеск 4 кв) + его типы.
  *
  * Зависимости: DEPT_COLUMNS + общий аксессор ячейки (utils/row-cells).
  * Обратной зависимости на dataset-signals нет — цикл невозможен.
@@ -212,7 +212,7 @@ export function detectSeasonalAnomalies(
     }
   }
 
-  // 6. Q4_SPENDING_SPIKE — аномальная концентрация в Q4
+  // 6. Q4_SPENDING_SPIKE — аномальная концентрация в 4 кв
   if (totalFactRows > 0) {
     const q4Share = q4FactRows / totalFactRows;
     if (q4Share > 0.40) {

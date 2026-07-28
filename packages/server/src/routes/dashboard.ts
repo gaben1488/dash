@@ -240,10 +240,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       };
     });
 
-    // Summary-level aggregates by period (Q1 + Year from СВОД, Q2-Q4 from calculated)
+    // Summary-level aggregates by period (1 кв + Year from СВОД, 2 кв-4 кв from calculated)
     const summaryByPeriod: Record<string, DashboardPeriodSummary> = {};
 
-    // Q1 + Year from official СВОД metrics
+    // 1 кв + Year from official СВОД metrics
     for (const p of ['q1', 'year'] as const) {
       const kpCount = snapshot.officialMetrics[`competitive.${p}.count`]?.numericValue ?? null;
       const kpFactCount = snapshot.officialMetrics[`competitive.${p}.fact_count`]?.numericValue ?? null;

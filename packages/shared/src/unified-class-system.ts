@@ -64,7 +64,7 @@ export const ISSUE_GROUP_META: Record<IssueGroup, IssueGroupMeta> = {
   formula_consistency: {
     id: 'formula_consistency',
     label: 'Формульная согласованность',
-    description: 'Проверки формул СВОД: проценты исполнения, отклонения, Q1 <= Год',
+    description: 'Проверки формул СВОД: проценты исполнения, отклонения, 1 кв <= Год',
     icon: 'calculator',
     color: 'orange',
     trustComponent: 'formula_integrity',

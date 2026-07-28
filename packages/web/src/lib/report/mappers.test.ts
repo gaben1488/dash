@@ -1,7 +1,7 @@
 /**
  * Юниты мапперов страницы «Отчёт»: форматтеры канона (процент с запятой,
  * «нет плана» при D = 0), интегральный KPI-ряд, view-модель секции ГРБС.
- * Калибровка — эталон отчёта 20.03.2026: УЭР Q1 = 6/15 = 40,0%.
+ * Калибровка — эталон отчёта 20.03.2026: УЭР 1 кв = 6/15 = 40,0%.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -52,18 +52,18 @@ describe('integralKpiRow — интегральная сводка в плитк
     expect(keys.slice(10)).toEqual(['plan_total', 'fact_total', 'economy_total']);
   });
 
-  it('квартальная плитка исполнения: 6/15 → 40,0%, hero, честный бейдж Q1', () => {
+  it('квартальная плитка исполнения: 6/15 → 40,0%, hero, честный бейдж 1 кв', () => {
     const exec = tiles[7];
     expect(exec.metricKey).toBe('exec_count_pct');
     expect(exec.value).toBe('40,0%');
-    expect(exec.periodBadge).toBe('Q1');
+    expect(exec.periodBadge).toBe('1 кв');
     expect(exec.tier).toBe('hero');
   });
 
   it('КП/ЕП-плитки несут формулу в бейдже и source из origin', () => {
     const kpQuarter = tiles[8];
     expect(kpQuarter.metricKey).toBe('comp_exec_count_pct');
-    expect(norm(kpQuarter.periodBadge)).toBe('Q1 · 4 из 10');
+    expect(norm(kpQuarter.periodBadge)).toBe('1 кв · 4 из 10');
     expect(kpQuarter.source).toBe('calc');
   });
 
@@ -74,7 +74,7 @@ describe('integralKpiRow — интегральная сводка в плитк
     expect(plan.periodBadge).toBe('2026 · год');
   });
 
-  it('officialKey: аналог снимков — только у исполнения КП/ЕП (год и Q1)', () => {
+  it('officialKey: аналог снимков — только у исполнения КП/ЕП (год и 1 кв)', () => {
     expect(tiles[3].officialKey).toBe('competitive.year.percent');
     expect(tiles[4].officialKey).toBe('sole.year.percent');
     expect(tiles[8].officialKey).toBe('competitive.q1.percent');
@@ -85,7 +85,7 @@ describe('integralKpiRow — интегральная сводка в плитк
     }
   });
 
-  it('officialKey: в Q3 квартальные КП/ЕП без аналога (в СВОДе только Q1 и год)', () => {
+  it('officialKey: в 3 кв квартальные КП/ЕП без аналога (в СВОДе только 1 кв и год)', () => {
     const base = makeReportFixture();
     const q3 = integralKpiRow({ ...base, period: { ...base.period, quarter: 3 as const } });
     expect(q3[8].officialKey).toBeUndefined();

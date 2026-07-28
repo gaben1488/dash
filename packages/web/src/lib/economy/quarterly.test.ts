@@ -20,11 +20,11 @@ const q = (planTotal: number, economyTotal: number, extras: Record<string, numbe
   ({ planTotal, economyTotal, ...extras });
 
 describe('buildQuarterlyTrend', () => {
-  it('всегда четыре точки Q1..Q4; отсутствующие кварталы — нули', () => {
+  it('всегда четыре точки 1 кв..4 кв; отсутствующие кварталы — нули', () => {
     const trend = buildQuarterlyTrend([dept('УЭР', { q1: q(1000, 100, { economyFB: 60, economyKB: 30, economyMB: 10 }) })], noFilter);
-    expect(trend.map(t => t.name)).toEqual(['Q1', 'Q2', 'Q3', 'Q4']);
-    expect(trend[0]).toEqual({ name: 'Q1', economy: 100, pct: 10, fb: 60, kb: 30, mb: 10 });
-    expect(trend[3]).toEqual({ name: 'Q4', economy: 0, pct: 0, fb: 0, kb: 0, mb: 0 });
+    expect(trend.map(t => t.name)).toEqual(['1 кв', '2 кв', '3 кв', '4 кв']);
+    expect(trend[0]).toEqual({ name: '1 кв', economy: 100, pct: 10, fb: 60, kb: 30, mb: 10 });
+    expect(trend[3]).toEqual({ name: '4 кв', economy: 0, pct: 0, fb: 0, kb: 0, mb: 0 });
   });
 
   it('суммирует по всем ГРБС набора', () => {
@@ -101,10 +101,10 @@ describe('buildDeptSparks', () => {
 describe('quarterDeltas', () => {
   it('последний ненулевой квартал против предыдущего', () => {
     const d = quarterDeltas([10, 25, 40, 0], [1, 2.5, 4, 0]);
-    expect(d).toEqual({ economy: 15, pct: 1.5, label: 'Q3 vs Q2' });
+    expect(d).toEqual({ economy: 15, pct: 1.5, label: '3 кв к 2 кв' });
   });
 
-  it('нет данных или только Q1 — нулевые дельты без подписи', () => {
+  it('нет данных или только 1 кв — нулевые дельты без подписи', () => {
     expect(quarterDeltas([0, 0, 0, 0], [0, 0, 0, 0])).toEqual({ economy: 0, pct: 0, label: '' });
     expect(quarterDeltas([10, 0, 0, 0], [1, 0, 0, 0])).toEqual({ economy: 0, pct: 0, label: '' });
   });

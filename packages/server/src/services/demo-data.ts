@@ -255,7 +255,7 @@ function buildIssues(): Issue[] {
       severity: 'info',
       origin: 'bi_heuristic',
       category: 'Аналитическое наблюдение',
-      title: 'Общее отклонение Q1 отрицательное',
+      title: 'Общее отклонение 1 кв отрицательное',
       description:
         'Отклонение исполнения за 1 квартал составляет -48 320 тыс. руб. Это означает недовыполнение общего плана закупок.',
       sheet: SVOD_SHEET_NAME,
@@ -273,7 +273,7 @@ function buildIssues(): Issue[] {
       category: 'Аналитическое наблюдение',
       title: 'Высокий процент УАГЗО (89,4%)',
       description:
-        'УАГЗО показывает наилучший процент исполнения Q1 — 89,4%. Можно использовать как эталон.',
+        'УАГЗО показывает наилучший процент исполнения 1 кв — 89,4%. Можно использовать как эталон.',
       sheet: SVOD_SHEET_NAME,
       cell: 'G102',
       metricKey: 'grbs.uagzo.q1.percent',
@@ -456,7 +456,7 @@ function demoEmitRow(out: Record<string, NormalizedMetric>, prefix: string, row:
   put('economy_fb', row.economyFB, 'currency'); put('economy_kb', row.economyKB, 'currency'); put('economy_mb', row.economyMB, 'currency'); put('economy_total', row.economyTotal, 'currency');
 }
 
-/** Полная демо-сетка СВОД ТД-ПМ по ключам REPORT_MAP (сводный + 8 ГРБС × КП/ЕП × Q1/Год). */
+/** Полная демо-сетка СВОД ТД-ПМ по ключам REPORT_MAP (сводный + 8 ГРБС × КП/ЕП × 1 кв/Год). */
 function buildSvodDemoCells(): Record<string, NormalizedMetric> {
   const out: Record<string, NormalizedMetric> = {};
   const sumKpY = demoBlankRow(), sumEpY = demoBlankRow();

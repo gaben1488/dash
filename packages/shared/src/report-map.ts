@@ -95,8 +95,8 @@ export const RULE_COLUMNS = {
  * Блок строк для одного ГРБС в листе СВОД ТД-ПМ.
  *
  * Каждый блок содержит:
- * - КП (конкурентные процедуры): Q1 и Year
- * - ЕП (единственный поставщик): Q1 и Year
+ * - КП (конкурентные процедуры): 1 кв и Year
+ * - ЕП (единственный поставщик): 1 кв и Year
  * - Итоговая строка ЕП (ЕП Total)
  * - Процент ЕП (%ЕП)
  * - Ячейки экономии (КП и ЕП), если есть
@@ -213,11 +213,11 @@ export const DEPARTMENT_ROWS: Record<DepartmentId, DepartmentRowConfig> = {
 
 /** Строки общего свода (агрегация по всем ГРБС) */
 export const SUMMARY_ROWS = {
-  /** КП — 1 квартал (конкурентные, Q1) */
+  /** КП — 1 квартал (конкурентные, 1 кв) */
   kpQ1: 9,
   /** КП — Год (конкурентные, Year) */
   kpYear: 14,
-  /** ЕП — 1 квартал (единственный поставщик, Q1) */
+  /** ЕП — 1 квартал (единственный поставщик, 1 кв) */
   epQ1: 21,
   /** ЕП — Год (единственный поставщик, Year) */
   epYear: 26,
@@ -390,11 +390,11 @@ export interface DepartmentMetrics {
   id: DepartmentId;
   name: string;
   shortName: string;
-  /** КП Q1 (конкурентные, 1 квартал) */
+  /** КП 1 кв (конкурентные, 1 квартал) */
   kpQ1: RowMetrics;
   /** КП Year (конкурентные, год) */
   kpYear: RowMetrics;
-  /** ЕП Q1 (единственный поставщик, 1 квартал) */
+  /** ЕП 1 кв (единственный поставщик, 1 квартал) */
   epQ1: RowMetrics;
   /** ЕП Year (единственный поставщик, год) */
   epYear: RowMetrics;
@@ -491,11 +491,11 @@ export function buildDepartmentMetrics(
 
 /** Метрики сводного блока */
 export interface SummaryMetrics {
-  /** КП Q1 (конкурентные, 1 квартал) — строка 9 */
+  /** КП 1 кв (конкурентные, 1 квартал) — строка 9 */
   kpQ1: RowMetrics;
   /** КП Year (конкурентные, год) — строка 14 */
   kpYear: RowMetrics;
-  /** ЕП Q1 (единственный поставщик, 1 квартал) — строка 21 */
+  /** ЕП 1 кв (единственный поставщик, 1 квартал) — строка 21 */
   epQ1: RowMetrics;
   /** ЕП Year (единственный поставщик, год) — строка 26 */
   epYear: RowMetrics;
@@ -602,25 +602,25 @@ export const REPORT_MAP: ReportMapEntry[] = [
   // Общий свод: КП (конкурентные)
   // ═══════════════════════════════════════════════════════
 
-  // --- КП Q1 (строка 9) ---
-  entry('competitive.q1.count',       'КП Q1: план (кол-во)',       'D9',  { valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'plan' }),
-  entry('competitive.q1.fact_count',  'КП Q1: факт (кол-во)',       'E9',  { valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'fact' }),
-  entry('competitive.q1.deviation',   'КП Q1: отклонение',          'F9',  { period: 'q1', subgroup: 'deviation' }),
-  entry('competitive.q1.percent',     'КП Q1: исполнение %',        'G9',  { valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent', period: 'q1', subgroup: 'execution', tolerance: 0.01 }),
-  entry('competitive.q1.fb_plan',     'КП Q1: ФБ план',             'H9',  { period: 'q1', subgroup: 'budget' }),
-  entry('competitive.q1.kb_plan',     'КП Q1: КБ план',             'I9',  { period: 'q1', subgroup: 'budget' }),
-  entry('competitive.q1.mb_plan',     'КП Q1: МБ план',             'J9',  { period: 'q1', subgroup: 'budget' }),
-  entry('competitive.q1.total_plan',  'КП Q1: итого план',          'K9',  { period: 'q1', subgroup: 'budget' }),
-  entry('competitive.q1.fb_fact',     'КП Q1: ФБ факт',             'L9',  { period: 'q1', subgroup: 'budget_fact' }),
-  entry('competitive.q1.kb_fact',     'КП Q1: КБ факт',             'M9',  { period: 'q1', subgroup: 'budget_fact' }),
-  entry('competitive.q1.mb_fact',     'КП Q1: МБ факт',             'N9',  { period: 'q1', subgroup: 'budget_fact' }),
-  entry('competitive.q1.total_fact',  'КП Q1: итого факт',          'O9',  { period: 'q1', subgroup: 'budget_fact' }),
-  entry('competitive.q1.amount_dev',  'КП Q1: откл. сумм',          'P9',  { period: 'q1', subgroup: 'deviation' }),
-  entry('competitive.q1.savings_pct', 'КП Q1: потрачено %',         'Q9',  { period: 'q1', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
-  entry('competitive.q1.economy_fb',  'КП Q1: экономия ФБ',         'R9',  { period: 'q1', subgroup: 'economy' }),
-  entry('competitive.q1.economy_kb',  'КП Q1: экономия КБ',         'S9',  { period: 'q1', subgroup: 'economy' }),
-  entry('competitive.q1.economy_mb',  'КП Q1: экономия МБ',         'T9',  { period: 'q1', subgroup: 'economy' }),
-  entry('competitive.q1.economy_total','КП Q1: экономия ИТОГО',     'U9',  { period: 'q1', subgroup: 'economy' }),
+  // --- КП 1 кв (строка 9) ---
+  entry('competitive.q1.count',       'КП 1 кв: план (кол-во)',       'D9',  { valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'plan' }),
+  entry('competitive.q1.fact_count',  'КП 1 кв: факт (кол-во)',       'E9',  { valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'fact' }),
+  entry('competitive.q1.deviation',   'КП 1 кв: отклонение',          'F9',  { period: 'q1', subgroup: 'deviation' }),
+  entry('competitive.q1.percent',     'КП 1 кв: исполнение %',        'G9',  { valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent', period: 'q1', subgroup: 'execution', tolerance: 0.01 }),
+  entry('competitive.q1.fb_plan',     'КП 1 кв: ФБ план',             'H9',  { period: 'q1', subgroup: 'budget' }),
+  entry('competitive.q1.kb_plan',     'КП 1 кв: КБ план',             'I9',  { period: 'q1', subgroup: 'budget' }),
+  entry('competitive.q1.mb_plan',     'КП 1 кв: МБ план',             'J9',  { period: 'q1', subgroup: 'budget' }),
+  entry('competitive.q1.total_plan',  'КП 1 кв: итого план',          'K9',  { period: 'q1', subgroup: 'budget' }),
+  entry('competitive.q1.fb_fact',     'КП 1 кв: ФБ факт',             'L9',  { period: 'q1', subgroup: 'budget_fact' }),
+  entry('competitive.q1.kb_fact',     'КП 1 кв: КБ факт',             'M9',  { period: 'q1', subgroup: 'budget_fact' }),
+  entry('competitive.q1.mb_fact',     'КП 1 кв: МБ факт',             'N9',  { period: 'q1', subgroup: 'budget_fact' }),
+  entry('competitive.q1.total_fact',  'КП 1 кв: итого факт',          'O9',  { period: 'q1', subgroup: 'budget_fact' }),
+  entry('competitive.q1.amount_dev',  'КП 1 кв: откл. сумм',          'P9',  { period: 'q1', subgroup: 'deviation' }),
+  entry('competitive.q1.savings_pct', 'КП 1 кв: потрачено %',         'Q9',  { period: 'q1', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
+  entry('competitive.q1.economy_fb',  'КП 1 кв: экономия ФБ',         'R9',  { period: 'q1', subgroup: 'economy' }),
+  entry('competitive.q1.economy_kb',  'КП 1 кв: экономия КБ',         'S9',  { period: 'q1', subgroup: 'economy' }),
+  entry('competitive.q1.economy_mb',  'КП 1 кв: экономия МБ',         'T9',  { period: 'q1', subgroup: 'economy' }),
+  entry('competitive.q1.economy_total','КП 1 кв: экономия ИТОГО',     'U9',  { period: 'q1', subgroup: 'economy' }),
 
   // --- КП Year (строка 14) ---
   entry('competitive.year.count',       'КП год: план (кол-во)',     'D14', { valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', subgroup: 'plan' }),
@@ -646,25 +646,25 @@ export const REPORT_MAP: ReportMapEntry[] = [
   // Общий свод: ЕП (единственный поставщик)
   // ═══════════════════════════════════════════════════════
 
-  // --- ЕП Q1 (строка 21) ---
-  entry('sole.q1.count',       'ЕП Q1: план (кол-во)',       'D21', { group: 'sole', valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'plan' }),
-  entry('sole.q1.fact_count',  'ЕП Q1: факт (кол-во)',       'E21', { group: 'sole', valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'fact' }),
-  entry('sole.q1.deviation',   'ЕП Q1: отклонение',          'F21', { group: 'sole', period: 'q1', subgroup: 'deviation' }),
-  entry('sole.q1.percent',     'ЕП Q1: исполнение %',        'G21', { group: 'sole', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent', period: 'q1', subgroup: 'execution', tolerance: 0.01 }),
-  entry('sole.q1.fb_plan',     'ЕП Q1: ФБ план',             'H21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
-  entry('sole.q1.kb_plan',     'ЕП Q1: КБ план',             'I21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
-  entry('sole.q1.mb_plan',     'ЕП Q1: МБ план',             'J21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
-  entry('sole.q1.total_plan',  'ЕП Q1: итого план',          'K21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
-  entry('sole.q1.fb_fact',     'ЕП Q1: ФБ факт',             'L21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
-  entry('sole.q1.kb_fact',     'ЕП Q1: КБ факт',             'M21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
-  entry('sole.q1.mb_fact',     'ЕП Q1: МБ факт',             'N21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
-  entry('sole.q1.total_fact',  'ЕП Q1: итого факт',          'O21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
-  entry('sole.q1.amount_dev',  'ЕП Q1: откл. сумм',          'P21', { group: 'sole', period: 'q1', subgroup: 'deviation' }),
-  entry('sole.q1.savings_pct', 'ЕП Q1: потрачено %',         'Q21', { group: 'sole', period: 'q1', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
-  entry('sole.q1.economy_fb',  'ЕП Q1: экономия ФБ',         'R21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
-  entry('sole.q1.economy_kb',  'ЕП Q1: экономия КБ',         'S21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
-  entry('sole.q1.economy_mb',  'ЕП Q1: экономия МБ',         'T21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
-  entry('sole.q1.economy_total','ЕП Q1: экономия ИТОГО',     'U21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
+  // --- ЕП 1 кв (строка 21) ---
+  entry('sole.q1.count',       'ЕП 1 кв: план (кол-во)',       'D21', { group: 'sole', valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'plan' }),
+  entry('sole.q1.fact_count',  'ЕП 1 кв: факт (кол-во)',       'E21', { group: 'sole', valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', period: 'q1', subgroup: 'fact' }),
+  entry('sole.q1.deviation',   'ЕП 1 кв: отклонение',          'F21', { group: 'sole', period: 'q1', subgroup: 'deviation' }),
+  entry('sole.q1.percent',     'ЕП 1 кв: исполнение %',        'G21', { group: 'sole', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent', period: 'q1', subgroup: 'execution', tolerance: 0.01 }),
+  entry('sole.q1.fb_plan',     'ЕП 1 кв: ФБ план',             'H21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
+  entry('sole.q1.kb_plan',     'ЕП 1 кв: КБ план',             'I21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
+  entry('sole.q1.mb_plan',     'ЕП 1 кв: МБ план',             'J21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
+  entry('sole.q1.total_plan',  'ЕП 1 кв: итого план',          'K21', { group: 'sole', period: 'q1', subgroup: 'budget' }),
+  entry('sole.q1.fb_fact',     'ЕП 1 кв: ФБ факт',             'L21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
+  entry('sole.q1.kb_fact',     'ЕП 1 кв: КБ факт',             'M21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
+  entry('sole.q1.mb_fact',     'ЕП 1 кв: МБ факт',             'N21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
+  entry('sole.q1.total_fact',  'ЕП 1 кв: итого факт',          'O21', { group: 'sole', period: 'q1', subgroup: 'budget_fact' }),
+  entry('sole.q1.amount_dev',  'ЕП 1 кв: откл. сумм',          'P21', { group: 'sole', period: 'q1', subgroup: 'deviation' }),
+  entry('sole.q1.savings_pct', 'ЕП 1 кв: потрачено %',         'Q21', { group: 'sole', period: 'q1', subgroup: 'execution', valueType: 'percent', sourceUnit: 'percent', displayUnit: 'percent' }),
+  entry('sole.q1.economy_fb',  'ЕП 1 кв: экономия ФБ',         'R21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
+  entry('sole.q1.economy_kb',  'ЕП 1 кв: экономия КБ',         'S21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
+  entry('sole.q1.economy_mb',  'ЕП 1 кв: экономия МБ',         'T21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
+  entry('sole.q1.economy_total','ЕП 1 кв: экономия ИТОГО',     'U21', { group: 'sole', period: 'q1', subgroup: 'economy' }),
 
   // --- ЕП Year (строка 26) ---
   entry('sole.year.count',       'ЕП год: план (кол-во)',     'D26', { group: 'sole', valueType: 'integer', sourceUnit: 'count', displayUnit: 'count', subgroup: 'plan' }),
@@ -695,7 +695,7 @@ export const REPORT_MAP: ReportMapEntry[] = [
 /**
  * Генерирует REPORT_MAP записи для всех 8 ГРБС.
  * Для каждого департамента создаёт записи для всех 18 столбцов (D-U)
- * по 4 строкам (КП Q1, КП Year, ЕП Q1, ЕП Year),
+ * по 4 строкам (КП 1 кв, КП Year, ЕП 1 кв, ЕП Year),
  * а также ЕП итого, %ЕП и побюджетные экономии.
  */
 function buildDepartmentReportEntries(): ReportMapEntry[] {
@@ -707,14 +707,14 @@ function buildDepartmentReportEntries(): ReportMapEntry[] {
     const prefix = `grbs.${deptId}`;
     const base: Partial<ReportMapEntry> = { group: 'grbs', subgroup: deptId, departmentId: deptId };
 
-    // КП Q1 — все 18 столбцов
-    entries.push(...buildRowEntries(`${prefix}.kp.q1`, `${short}: КП Q1`, cfg.kpQ1, { ...base, period: 'q1' }));
+    // КП 1 кв — все 18 столбцов
+    entries.push(...buildRowEntries(`${prefix}.kp.q1`, `${short}: КП 1 кв`, cfg.kpQ1, { ...base, period: 'q1' }));
 
     // КП Year — все 18 столбцов
     entries.push(...buildRowEntries(`${prefix}.kp.year`, `${short}: КП год`, cfg.kpYear, base));
 
-    // ЕП Q1 — все 18 столбцов
-    entries.push(...buildRowEntries(`${prefix}.ep.q1`, `${short}: ЕП Q1`, cfg.epQ1, { ...base, period: 'q1' }));
+    // ЕП 1 кв — все 18 столбцов
+    entries.push(...buildRowEntries(`${prefix}.ep.q1`, `${short}: ЕП 1 кв`, cfg.epQ1, { ...base, period: 'q1' }));
 
     // ЕП Year — все 18 столбцов
     entries.push(...buildRowEntries(`${prefix}.ep.year`, `${short}: ЕП год`, cfg.epYear, base));

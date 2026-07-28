@@ -18,10 +18,20 @@ export interface ReportRequest {
   asOf?: string;
 }
 
+/** Режим просмотра отчёта: числа на сейчас либо снимок недели. */
+export type ReportMode = 'live' | 'archive';
+
 export function reportRequestParams(
   ctx: FilterContext,
   todayDay: number,
   explicitQuarter?: 1 | 2 | 3 | 4,
+  /**
+   * Режим просмотра. 'live' (канон 27.07: «отчётные даты — про хранение,
+   * ситуацию видим в прямом эфире») подавляет asOf, даже когда в фильтрах
+   * выбрана неделя: читатель явно попросил числа на текущий момент.
+   * 'archive' открывает снимок недели — выбранной или последней прошедшей.
+   */
+  mode: ReportMode = 'live',
 ): ReportRequest {
   // Год: 'all' роут отчёта не принимает — берём последний доступный
   const year = typeof ctx.year === 'number'
@@ -36,14 +46,17 @@ export function reportRequestParams(
   const request: ReportRequest = { year };
   if (quarter !== undefined) request.quarter = quarter;
 
-  if (ctx.weekStart !== null) {
-    const monday = dayNumberOf(ctx.weekStart);
-    if (monday !== null) {
-      // Клампится только asOf; quarter (из авто-месяцев week-режима) — нет:
-      // прокрутка в будущий квартал честно показывает его пустым под датой
-      // последнего четверга (осознанно, ponytail-ревью R1 #10).
-      request.asOf = isoOfDayNumber(Math.min(monday + 3, floorToThursday(todayDay)));
-    }
-  }
+  // Эфир — числа на сейчас: asOf не ставим, даже если неделя выбрана.
+  if (mode === 'live') return request;
+
+  // Архив: срез — четверг выбранной недели, а без выбора — последний
+  // прошедший четверг. Клампится только asOf; quarter (из авто-месяцев
+  // week-режима) — нет: прокрутка в будущий квартал честно показывает его
+  // пустым под датой последнего четверга (осознанно, ponytail-ревью R1 #10).
+  const lastThursday = floorToThursday(todayDay);
+  const monday = ctx.weekStart !== null ? dayNumberOf(ctx.weekStart) : null;
+  request.asOf = isoOfDayNumber(
+    monday !== null ? Math.min(monday + 3, lastThursday) : lastThursday,
+  );
   return request;
 }

@@ -46,7 +46,7 @@ interface TrustFactor {
 const COMPONENT_DESCRIPTIONS: Record<string, string> = {
   data_quality: 'Полнота и корректность значений в ячейках СВОД. Штрафы за пустые метрики, низкую уверенность распознавания, предупреждения типов данных.',
   formula_integrity: 'Непрерывность формул в столбцах. Обнаружение обрывов формульных цепочек, несовпадений сумм.',
-  rule_compliance: 'Выполнение 12 правил проверки данных. Правила разделены по области: СВОД ТД-ПМ (6 правил: суммы бюджета O=L+M+N, % исполнения G=E/D*100, отклонение F=E-D, Q1≤Год, факт≤план, знак экономии), листы подразделений (5 правил: метод закупки L, тип F, статус AD, суммы Y=V+W+X и AC=Z+AA+AB, факт≤план Y≤K) и 1 общее (K=H+I+J). Каждое правило основано на реальной формуле таблиц, не на эвристике.',
+  rule_compliance: 'Выполнение 12 правил проверки данных. Правила разделены по области: СВОД ТД-ПМ (6 правил: суммы бюджета O=L+M+N, % исполнения G=E/D*100, отклонение F=E-D, 1 кв ≤ Год, факт≤план, знак экономии), листы подразделений (5 правил: метод закупки L, тип F, статус AD, суммы Y=V+W+X и AC=Z+AA+AB, факт≤план Y≤K) и 1 общее (K=H+I+J). Каждое правило основано на реальной формуле таблиц, не на эвристике.',
   mapping_consistency: 'Совпадение официальных ячеек СВОД с построчным пересчётом. Допуск 1%. Чем ниже — тем больше метрик расходятся с расчётными значениями.',
   operational_risk: 'Просрочки, подвисшие контракты, нарушения логики экономии.',
 };
@@ -76,7 +76,7 @@ const METHODOLOGY_SECTIONS: { title: string; abbr: string; weight: number; body:
     weight: 25,
     body: [
       'Проверяет формульные связи: budgetMismatch (H+I+J\u2260K), обрывы формул (#REF, #VALUE), ',
-      'несовпадения сумм (budget_sum_plan, budget_sum_fact), % исполнения, отклонения, Q1\u2264Год.',
+      'несовпадения сумм (budget_sum_plan, budget_sum_fact), % исполнения, отклонения, 1 кв\u2264Год.',
       '',
       'Формула (логарифмический штраф):',
       '  score = 100',
@@ -96,7 +96,7 @@ const METHODOLOGY_SECTIONS: { title: string; abbr: string; weight: number; body:
       '12 правил из rule-book, разделённых по области:',
       '',
       'СВОД ТД-ПМ (6): budget_sum_fact (O=L+M+N), execution_percentage (G=E/D\u00d7100),',
-      '  deviation_calc (F=E\u2212D), q1_leq_year (Q1\u2264Год), fact_leq_plan, economy_sign_check.',
+      '  deviation_calc (F=E\u2212D), q1_leq_year (1 кв\u2264Год), fact_leq_plan, economy_sign_check.',
       'Подразделения (5): method_validation (L), type_validation (F), dept_fact_sum (Y=V+W+X),',
       '  dept_economy_sum (AC=Z+AA+AB), dept_fact_leq_plan (Y\u2264K).',
       'Все листы (1): budget_sum_plan (K=H+I+J).',

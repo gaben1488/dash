@@ -25,14 +25,14 @@ function delta(metricKey: string): MetricDelta {
 }
 
 describe('officialAnalogKey — официальный аналог плитки в слое снимков', () => {
-  it('исполнение КП/ЕП: аналог — колонка G районных строк СВОДа (год и Q1)', () => {
+  it('исполнение КП/ЕП: аналог — колонка G районных строк СВОДа (год и 1 кв)', () => {
     expect(officialAnalogKey('comp_exec_count_pct', 'year')).toBe('competitive.year.percent');
     expect(officialAnalogKey('ep_exec_count_pct', 'year')).toBe('sole.year.percent');
     expect(officialAnalogKey('comp_exec_count_pct', 1)).toBe('competitive.q1.percent');
     expect(officialAnalogKey('ep_exec_count_pct', 1)).toBe('sole.q1.percent');
   });
 
-  it('кварталы Q2–Q4: районных строк в СВОДе нет — аналога нет', () => {
+  it('кварталы 2 кв–4 кв: районных строк в СВОДе нет — аналога нет', () => {
     expect(officialAnalogKey('comp_exec_count_pct', 2)).toBeUndefined();
     expect(officialAnalogKey('ep_exec_count_pct', 3)).toBeUndefined();
     expect(officialAnalogKey('comp_exec_count_pct', 4)).toBeUndefined();

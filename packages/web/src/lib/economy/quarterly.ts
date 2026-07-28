@@ -2,7 +2,7 @@
 //    оверлей по ГРБС и дельты «последний ненулевой квартал vs предыдущий».
 //    Все ряды учитывают бюджет-фильтр (BudgetSelection).
 
-import type { DepartmentSummary } from '@aemr/shared';
+import { quarterLabel, type DepartmentSummary } from '@aemr/shared';
 import { deptKeyOf } from './dept-economy';
 import { selectTotal } from './budget';
 import type { BudgetSelection } from './budget';
@@ -26,7 +26,7 @@ function quarterEconomy(q: Record<string, unknown> | undefined, budgets: BudgetS
 
 /** Точка квартального тренда: суммы по всем ГРБС набора. */
 export interface QuarterTrendPoint {
-  /** 'Q1'…'Q4'. */
+  /** Подпись квартала для оси: «1 кв»…«4 кв» (канон quarterLabel). */
   name: string;
   /** Экономия (бюджет-фильтр применён). */
   economy: number;
@@ -51,7 +51,13 @@ export function buildQuarterlyTrend(
       economy += quarterEconomy(q, budgets);
       plan += selectTotal(budgets, num(q.planFB), num(q.planKB), num(q.planMB), num(q.planTotal));
     }
-    return { name: qk.toUpperCase(), economy, pct: plan > 0 ? (economy / plan) * 100 : 0, fb, kb, mb };
+    // Подпись оси графика — на языке района: «1 кв», не «Q1» (ключ qk остаётся 'q1').
+    return {
+      name: quarterLabel(Number(qk.slice(1))),
+      economy,
+      pct: plan > 0 ? (economy / plan) * 100 : 0,
+      fb, kb, mb,
+    };
   });
 }
 
@@ -127,7 +133,7 @@ export function buildDeptSparks(
 export interface QuarterDeltas {
   economy: number;
   pct: number;
-  /** 'Q2 vs Q1'; пусто, когда предыдущего квартала нет. */
+  /** '2 кв vs 1 кв'; пусто, когда предыдущего квартала нет. */
   label: string;
 }
 
@@ -138,6 +144,6 @@ export function quarterDeltas(economyByQ: number[], pctByQ: number[]): QuarterDe
   return {
     economy: economyByQ[lastQ] - economyByQ[prevQ],
     pct: pctByQ[lastQ] - pctByQ[prevQ],
-    label: `Q${lastQ + 1} vs Q${prevQ + 1}`,
+    label: `${quarterLabel(lastQ + 1)} к ${quarterLabel(prevQ + 1)}`,
   };
 }

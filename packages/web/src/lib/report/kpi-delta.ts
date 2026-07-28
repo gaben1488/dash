@@ -26,7 +26,7 @@ const OFFICIAL_FAMILY: Readonly<Record<string, string>> = {
  * (та самая ячейка листа СВОД ТД-ПМ, которую хранит metric_history).
  *
  * Аналог есть только у исполнения КП/ЕП: «год» → строка года (G14/G26),
- * Q1 → строка первого квартала (G9/G21). Районных строк Q2–Q4 в СВОДе нет,
+ * 1 кв → строка первого квартала (G9/G21). Районных строк 2 кв–4 кв в СВОДе нет,
  * как нет и единой ячейки «КП+ЕП вместе» — для них честный ответ undefined.
  */
 export function officialAnalogKey(metricKey: string, scope: KpiScope): string | undefined {

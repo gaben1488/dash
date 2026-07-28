@@ -18,9 +18,9 @@ import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 //
 // Context: 44-ФЗ weekly report — every metric answers one of 5 questions:
 //   Q1: Plan execution (count + amount)
-//   Q2: Budget decomposition (ФБ/КБ/МБ)
+//   2 кв: Budget decomposition (ФБ/КБ/МБ)
 //   Q3: Economy / AD flag
-//   Q4: ЕП vs КП share
+//   4 кв: ЕП vs КП share
 //   Q5: Recommendations
 // ────────────────────────────────────────────────────────────────
 

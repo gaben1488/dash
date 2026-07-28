@@ -209,7 +209,7 @@ export const SHDYU_LEGACY_BLOCKS: SHDYUBlock[] = [
 
 /**
  * Column layout within ШДЮ RIGHT section (quarterly, cols U-AM, 0-based):
- * NEW in redesigned ШДЮ. 4 rows per block (Q1-Q4), aggregating 3 months each.
+ * NEW in redesigned ШДЮ. 4 rows per block (1 кв-4 кв), aggregating 3 months each.
  *
  * U=20: Quarter label ("Q1"/"Q2"/"Q3"/"Q4")
  * V=21: Plan count (= SUM of 3 monthly plan counts)

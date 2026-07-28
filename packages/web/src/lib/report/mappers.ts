@@ -8,6 +8,7 @@
  * view-моделей — свободного текста подписей здесь нет.
  */
 import type { GrbsReportBlock, Report, ReportSignal } from '@aemr/core';
+import { quarterLabel } from '@aemr/shared';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
 /** Происхождение view-модели — структурно совместим с ElementSource контракта. */
@@ -53,7 +54,7 @@ export interface KpiVM {
   metricKey: string;
   value: string;
   unit: string;
-  /** Честный скоуп числа: «2026 · год», «Q1», … */
+  /** Честный скоуп числа: «2026 · год», «1 кв», … */
   periodBadge: string;
   source: ViewSource;
   tier: 'hero' | 'compact';
@@ -137,7 +138,7 @@ function stampOfficialKeys(tiles: KpiVM[], scope: KpiScope): KpiVM[] {
 export function integralKpiRow(report: Report): KpiVM[] {
   const { period, integralSummary } = report;
   const yearBadge = `${period.year} · год`;
-  const quarterBadge = `Q${period.quarter}`;
+  const quarterBadge = quarterLabel(period.quarter);
   const money = integralSummary.money;
   const moneyTiles: KpiVM[] = [
     {

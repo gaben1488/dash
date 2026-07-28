@@ -12,8 +12,9 @@
  * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, History } from 'lucide-react';
+import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
   SVOD_SHEET_NAME,
@@ -21,6 +22,7 @@ import {
   dayNumberOf,
   getMetricByKey,
   productLabel,
+  quarterLabel,
 } from '@aemr/shared';
 import { buildSheetUrl } from '../lib/recon/sheet-links';
 import type { MetricDelta } from '@aemr/core';
@@ -40,7 +42,7 @@ import {
   type GrbsSectionVM,
 } from '../lib/report/mappers';
 import { generateReportText } from '../lib/report/text';
-import { reportRequestParams } from '../lib/report/request';
+import { reportRequestParams, type ReportMode } from '../lib/report/request';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
@@ -99,7 +101,7 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
         <ReportTable
           filterCtx={ctx}
           source="calc"
-          caption={`Способы · Q${quarter}`}
+          caption={`Способы · ${quarterLabel(quarter)}`}
           columns={METHOD_COLUMNS}
           rows={vm.methodRows.map((r) => ({
             method: productLabel(r.methodKey === 'КП' ? 'kp' : 'ep'),
@@ -299,9 +301,23 @@ export function ReportPage() {
   // доступный), квартал — кнопки страницы поверх ctx.period, asOf — четверг
   // выбранной недели колеса (кламп к последнему четвергу — внутри хелпера)
   const [localQuarter, setLocalQuarter] = useState<Quarter | null>(null);
+  // Режим просмотра: эфир по умолчанию (канон 27.07). Переключатель в шапке —
+  // единственный способ уйти в архив недели, поэтому состояние живёт здесь,
+  // а не выводится из наличия недели в фильтрах (это и путало читателя).
+  const [mode, setMode] = useState<ReportMode>('live');
+  // Колесо недель и переключатель — одно управление, а не два несвязанных.
+  // Крутанул неделю — это явное намерение смотреть архив, поэтому режим
+  // переключается сам. Без этого колесо в эфире молча ни на что не влияло.
+  const prevWeek = useRef<string | null>(ctx.weekStart);
+  useEffect(() => {
+    if (ctx.weekStart !== prevWeek.current) {
+      prevWeek.current = ctx.weekStart;
+      if (ctx.weekStart !== null) setMode('archive');
+    }
+  }, [ctx.weekStart]);
   const request = useMemo(
-    () => reportRequestParams(ctx, dayNumberOf(new Date())!, localQuarter ?? undefined),
-    [ctx, localQuarter],
+    () => reportRequestParams(ctx, dayNumberOf(new Date())!, localQuarter ?? undefined, mode),
+    [ctx, localQuarter, mode],
   );
 
   // Загрузка по образцу CentralizationCard: useEffect + useState, без TanStack
@@ -386,30 +402,61 @@ export function ReportPage() {
               : `Отчёт по закупкам на ${asOfDate}`
             : 'Отчёт по закупкам'}
         </h2>
-        {report && (
-          isLive ? (
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-              title="Числа на текущий момент — как в официальном листе. Дата среза нужна снимкам недели, а не живому просмотру."
-            >
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              В прямом эфире
-            </span>
-          ) : (
-            <span
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-              title="Снимок недели: факт, заключённый после этой даты, в числа не входит."
-            >
-              Архив недели
-            </span>
-          )
+        {/* Переключатель режима — управление, а не подпись: читателю нужно
+            уметь ВЕРНУТЬСЯ в эфир, а не только видеть, где он находится. */}
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+          <button
+            onClick={() => setMode('live')}
+            title="Числа на текущий момент — как считает официальный лист СВОД."
+            className={clsx(
+              'inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition',
+              mode === 'live'
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-700/40',
+            )}
+          >
+            <span className={clsx(
+              'inline-block w-1.5 h-1.5 rounded-full',
+              mode === 'live' ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600',
+            )} />
+            В прямом эфире
+          </button>
+          <button
+            onClick={() => setMode('archive')}
+            title="Снимок недели: заключённое после даты среза в числа не входит."
+            className={clsx(
+              'px-2 py-0.5 text-[10px] font-medium border-l border-zinc-200 dark:border-zinc-700 transition',
+              mode === 'archive'
+                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-700/40',
+            )}
+          >
+            Архив недели
+          </button>
+        </div>
+        {/* Подтверждение от сервера: режим ответа мог разойтись с кнопкой
+            (запрос в полёте, устаревший ответ) — тогда честнее показать факт. */}
+        {report && isLive !== (mode === 'live') && (
+          <span className="text-[10px] text-amber-600 dark:text-amber-400">
+            показан режим «{isLive ? 'в прямом эфире' : 'архив недели'}»
+          </span>
+        )}
+        {/* В эфире выбранная неделя не участвует — говорим об этом прямо,
+            иначе колесо выглядит работающим, а числа его игнорируют. */}
+        {mode === 'live' && ctx.weekStart !== null && (
+          <span
+            className="text-[10px] text-zinc-500 dark:text-zinc-400"
+            title="Переключитесь в «Архив недели», чтобы увидеть снимок выбранной недели."
+          >
+            неделя из фильтра не применена
+          </span>
         )}
         <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           {request.year} год
         </span>
         {activeQuarter && (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-            Q{activeQuarter}
+            {quarterLabel(activeQuarter)}
           </span>
         )}
         {/* Ссылка на официальную книгу СВОД; каноническая оговорка серии — тултипом */}
