@@ -13,7 +13,7 @@
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, History } from 'lucide-react';
+import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
 import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
@@ -369,6 +369,34 @@ export function ReportPage() {
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   // Режим просмотра: эфир — числа на сейчас; архив — снимок недели.
   const isLive = report?.period.live ?? false;
+  // Выгрузка в Word: какая из двух кнопок сейчас готовит файл (null — обе свободны).
+  const [saving, setSaving] = useState<'main' | 'extra' | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const onDownloadDocx = async (kind: 'main' | 'extra') => {
+    if (!report || asOfDate === null) return;
+    setSaving(kind);
+    setDownloadError(null);
+    try {
+      // Библиотека грузится по требованию: 400 КБ не должны висеть на каждом
+      // открытии страницы ради кнопки, которую жмут раз в неделю.
+      const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, analyticalReportBlocks }] =
+        await Promise.all([
+          import('../lib/report/docx/build-docx'),
+          import('../lib/report/docx/text-blocks'),
+        ]);
+      const isMain = kind === 'main';
+      const blocks = isMain
+        ? mainReportBlocks(report, asOfDate)
+        : analyticalReportBlocks(report, asOfDate);
+      const title = isMain ? 'Отчёт по закупкам' : 'Аналитический отчёт по закупкам';
+      await downloadDocx(buildDocument(blocks, title), reportFilename(title, asOfDate));
+    } catch (e: unknown) {
+      setDownloadError(`Не удалось собрать документ: ${String(e)}`);
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const onCopy = () => {
     if (!report || asOfDate === null) return;
     void navigator.clipboard.writeText(generateReportText(report, asOfDate)).then(() => {
@@ -494,8 +522,32 @@ export function ReportPage() {
             {copied ? <ClipboardCheck size={12} /> : <ClipboardCopy size={12} />}
             {copied ? 'Скопировано' : 'Копировать текстом'}
           </button>
+          {/* Локальная выгрузка: документ собирается в браузере и падает в
+              «Загрузки» — без роута и без записи на сервер, поэтому работает
+              и на публичном стенде только для чтения. */}
+          <button
+            onClick={() => void onDownloadDocx('main')}
+            disabled={!report || saving !== null}
+            title="Основной отчёт в формате Word — вёрстка ручного отчёта по закупкам"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+          >
+            <FileDown size={12} />
+            {saving === 'main' ? 'Готовится…' : 'Отчёт в Word'}
+          </button>
+          <button
+            onClick={() => void onDownloadDocx('extra')}
+            disabled={!report || saving !== null}
+            title="Дополнительный (аналитический) отчёт в формате Word"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+          >
+            <FileDown size={12} />
+            {saving === 'extra' ? 'Готовится…' : 'Допотчёт в Word'}
+          </button>
         </div>
       </div>
+      {downloadError && (
+        <div className="text-[11px] text-red-600 dark:text-red-400">{downloadError}</div>
+      )}
 
       {error ? (
         <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-500 dark:text-zinc-400">
