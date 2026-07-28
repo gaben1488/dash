@@ -50,7 +50,7 @@ export interface GateCondition {
   /** Column index in the row. */
   column: number;
   /** Comparison operator. */
-  op: 'eq' | 'neq' | 'notEmpty' | 'gt' | 'gte' | 'inSet' | 'methodGroup';
+  op: 'eq' | 'neq' | 'notEmpty' | 'isEmpty' | 'gt' | 'gte' | 'inSet' | 'methodGroup';
   /** Value to compare against (for eq/neq/gt/gte). */
   value?: string | number;
   /** Set of values (for inSet). */
@@ -183,6 +183,11 @@ function evaluateGate(row: RawRow, gate: GateCondition, asOfDay?: number): boole
     // (asOfDay не задан — весь факт, как было до среза-канона).
     case 'notEmpty':
       return factCountsOn(raw, asOfDay);
+    // Зеркало notEmpty: процедура ещё НЕ заключена на дату среза. Именно
+    // отрицание factCountsOn, а не «пустая ячейка»: заглушки Х/X и дата
+    // позже среза — тоже «не заключено», и остаток обязан их считать.
+    case 'isEmpty':
+      return !factCountsOn(raw, asOfDay);
     case 'eq':
       return String(raw ?? '').trim().toLowerCase() === String(gate.value).toLowerCase();
     case 'neq':
@@ -298,6 +303,8 @@ export const DEFAULT_EXTRACTORS: DimensionExtractors = {
 
 /** Standard gates used across metrics. */
 const GATE_HAS_FACT: GateCondition = { column: COL.FACT_DATE, op: 'notEmpty' };
+/** Зеркало GATE_HAS_FACT: процедура ещё не заключена на дату среза. */
+const GATE_NO_FACT: GateCondition = { column: COL.FACT_DATE, op: 'isEmpty' };
 const GATE_ECONOMY_APPROVED: GateCondition = { column: COL.FLAG, op: 'eq', value: 'да' };
 const GATE_METHOD_COMPETITIVE: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'competitive' };
 const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'methodGroup', methodGroup: 'ep' };
@@ -332,6 +339,17 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   { key: 'plan_kb', label: 'Лимит КБ', unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [] },
   { key: 'plan_mb', label: 'Лимит МБ', unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [] },
   { key: 'plan_total', label: 'Лимит ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [] },
+
+  // Остаток: плановые деньги ЕЩЁ НЕ заключённых процедур. Прямой запрос
+  // ГРБС-специалиста (27.07): «сколько в плановых деньгах по оставшимся
+  // процедурам с разбивкой по бюджетам». Считается по ПЛАНОВЫМ столбцам с
+  // обратным гейтом факта — это не «план минус факт»: факт есть цена
+  // контракта, она ниже плана, и разность дала бы экономию, а не остаток.
+  { key: 'pending_count', label: 'Осталось заключить (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_fb', label: 'Остаток ФБ', unit: 'currency', source: { column: COL.FB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_kb', label: 'Остаток КБ', unit: 'currency', source: { column: COL.KB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_mb', label: 'Остаток МБ', unit: 'currency', source: { column: COL.MB_PLAN, aggregation: 'sum' }, gates: [GATE_NO_FACT] },
+  { key: 'pending_total', label: 'Остаток ИТОГО', unit: 'currency', source: { column: COL.TOTAL_PLAN, aggregation: 'sum', fallbackColumns: [COL.FB_PLAN, COL.KB_PLAN, COL.MB_PLAN] }, gates: [GATE_NO_FACT] },
 
   // L-O: Fact sums (цены контрактов) — gated on fact date, Y with fallback to V+W+X
   { key: 'fact_fb', label: 'Факт ФБ', unit: 'currency', source: { column: COL.FB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
