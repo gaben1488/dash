@@ -123,6 +123,148 @@ function knownScopes(): Set<string> {
   return new Set(['ВСЕ', ...DEPARTMENT_REGISTRY.map(d => d.shortName)]);
 }
 
+// ── Итоговый ярус листа: то, что лист считает САМ, помимо блоков ──────
+//
+// Найдено 29.07.2026 прямым чтением листа: parseSvodGrid читает только
+// строки-периоды и «Итого <метод>», а лист держит ещё три яруса чисел,
+// которые до сих пор не попадали в продукт ни разу:
+//   • строка 2 — «Остаток к заключ.» с разбивкой ФБ/КБ/МБ/ИТОГО;
+//   • «ИТОГО 2025+2026:» / «ИТОГО 2026:» по каждому скоупу — ЗАГЛАВНЫМИ,
+//     поэтому проверка startsWith('Итого') их не ловила (18 строк);
+//   • «Доля ЭА…» / «Доля ЕП:» и рядом «Расч. экономия» ФБ/КБ/МБ/ИТОГО —
+//     та самая расчётная экономия остатка из ручного отчёта.
+
+/** Колонки итогового яруса (0-based), отличные от периодных. */
+const EXTRA_COLS = {
+  /** Доля метода: G — за два года, H — за 2026. */
+  shareBothYears: 6,
+  shareY2026: 7,
+  /** «Расч. экономия»: M — ИТОГО, N — ФБ, O — КБ, P — МБ. */
+  calcEconomyTotal: 12,
+  calcEconomyFB: 13,
+  calcEconomyKB: 14,
+  calcEconomyMB: 15,
+  /** «Остаток к заключ.» (строка 2): L/M/N — ФБ/КБ/МБ, O — ИТОГО. */
+  remainderFB: 11,
+  remainderKB: 12,
+  remainderMB: 13,
+  remainderTotal: 14,
+} as const;
+
+/** Деньги в трёхсрезе с адресом строки — для провенанса до ячейки. */
+export interface SvodMoneyRow {
+  fb: number;
+  kb: number;
+  mb: number;
+  total: number;
+  /** Строка листа (1-based), откуда прочитано. */
+  row: number;
+}
+
+/** Итоги и доли одного скоупа (район или ГРБС) — ярус ниже блоков. */
+export interface SvodScopeSummary {
+  scope: string;
+  /** «ИТОГО 2025+2026:» — оба года, КП и ЕП вместе. */
+  totalBothYears?: SvodGridTotal & { row: number };
+  /** «ИТОГО 2026:» — текущий план-год, КП и ЕП вместе. */
+  totalY2026?: SvodGridTotal & { row: number };
+  /** Доля конкурентных: за два года и за 2026 (доли 0..1). */
+  shareCompetitive?: { bothYears: number; y2026: number; row: number };
+  /** Доля единственного поставщика — там же. */
+  shareEp?: { bothYears: number; y2026: number; row: number };
+  /** «Расч. экономия» — та, что печатается в ручном отчёте по остатку. */
+  calcEconomy?: SvodMoneyRow;
+}
+
+/** Ярус листа поверх блоков: остаток к заключению и сводки по скоупам. */
+export interface SvodSheetExtras {
+  /** «Остаток к заключ.» из шапки листа (строка 2). */
+  remainderToConclude?: SvodMoneyRow;
+  /** Сводки по каждому скоупу в порядке появления на листе. */
+  scopes: SvodScopeSummary[];
+}
+
+/**
+ * Прочитать итоговый ярус листа. Отдельная функция, а не расширение
+ * parseSvodGrid: у блоков и у этого яруса разная геометрия (ярус живёт
+ * МЕЖДУ блоками и после них), и смешивать их разбор — плодить ветвления
+ * в цикле, который и так самый хрупкий в файле.
+ */
+export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
+  const scopes = knownScopes();
+  const out: SvodSheetExtras = { scopes: [] };
+
+  // Строка 2: «Остаток к заключ.» — подпись в K, числа правее.
+  for (let i = 0; i < Math.min(6, values.length); i++) {
+    const row = values[i] ?? [];
+    const label = String(row[SVOD_GRID_COLS.planTotal] ?? '').trim().toLowerCase();
+    if (label.startsWith('остаток')) {
+      out.remainderToConclude = {
+        fb: num(row[EXTRA_COLS.remainderFB]),
+        kb: num(row[EXTRA_COLS.remainderKB]),
+        mb: num(row[EXTRA_COLS.remainderMB]),
+        total: num(row[EXTRA_COLS.remainderTotal]),
+        row: i + 1,
+      };
+      break;
+    }
+  }
+
+  /** Скоуп, к которому относится ярус: последний встреченный выше по листу. */
+  let current: SvodScopeSummary | null = null;
+  const ensure = (scope: string): SvodScopeSummary => {
+    if (current?.scope !== scope) {
+      current = { scope };
+      out.scopes.push(current);
+    }
+    return current;
+  };
+  let lastScope = '';
+
+  for (let i = 0; i < values.length; i++) {
+    const row = values[i] ?? [];
+    const a = String(row[C.scope] ?? '').trim();
+    if (a && scopes.has(a)) lastScope = a;
+
+    // «ИТОГО 2025+2026:» / «ИТОГО 2026:» — заглавными, с двоеточием.
+    const upper = a.toUpperCase();
+    if (lastScope && upper.startsWith('ИТОГО')) {
+      const s = ensure(lastScope);
+      const metrics = { ...readMetrics(row), row: i + 1 };
+      if (a.includes('2025+2026')) s.totalBothYears = metrics;
+      else s.totalY2026 = metrics;
+      continue;
+    }
+
+    // «Доля ЭА…» / «Доля ЕП:» — подпись в D, доли в G/H; у района рядом
+    // в M/N/O/P стоит «Расч. экономия».
+    const d = String(row[C.planCount] ?? '').trim();
+    if (lastScope && d.toLowerCase().startsWith('доля')) {
+      const s = ensure(lastScope);
+      const share = {
+        bothYears: num(row[EXTRA_COLS.shareBothYears]),
+        y2026: num(row[EXTRA_COLS.shareY2026]),
+        row: i + 1,
+      };
+      if (/ЕП/i.test(d)) s.shareEp = share;
+      else s.shareCompetitive = share;
+
+      const ecoTotal = num(row[EXTRA_COLS.calcEconomyTotal]);
+      if (ecoTotal !== 0) {
+        s.calcEconomy = {
+          total: ecoTotal,
+          fb: num(row[EXTRA_COLS.calcEconomyFB]),
+          kb: num(row[EXTRA_COLS.calcEconomyKB]),
+          mb: num(row[EXTRA_COLS.calcEconomyMB]),
+          row: i + 1,
+        };
+      }
+    }
+  }
+
+  return out;
+}
+
 /**
  * Разобрать значения листа СВОД ТД-ПМ в структурную модель блоков.
  * Значения — как отдаёт Sheets API (UNFORMATTED_VALUE), 0-based массив строк.
