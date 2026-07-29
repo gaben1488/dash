@@ -9,7 +9,7 @@
  *   агрегация: Σ по блокам ГРБС = интегральная сводка.
  */
 import { describe, it, expect } from 'vitest';
-import { DEPT_COLUMNS, type Issue, type SvodGridBlock } from '@aemr/shared';
+import { DEPT_COLUMNS, type Issue, type SvodGridBlock, type SvodSheetExtras } from '@aemr/shared';
 import { buildReport } from './build-report.js';
 
 const COL = DEPT_COLUMNS;
@@ -295,6 +295,87 @@ describe('buildReport — двухисточниковость (origin calc | sv
   });
 });
 
+describe('buildReport — остаток в плановых деньгах (правила счёта §4)', () => {
+  // Строка фикстуры: план ФБ 100 + КБ 200 + МБ 0 = ИТОГО 300.
+  const PLAN_PER_ROW = 300;
+
+  it('квартал: 9 незаключённых УЭР — это плановые деньги строк без факта', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.quarter.pending).toEqual({
+      count: 9, fb: 900, kb: 1800, mb: 0, total: 9 * PLAN_PER_ROW,
+    });
+    // Не «план − факт»: разность денег дала бы экономию, а не объём работ.
+    expect(uer.quarter.pending.total).not.toBe(uer.money.plan.total - uer.money.fact.total);
+  });
+
+  it('разрез КП/ЕП сходится с итогом квартала (6 + 3 = 9)', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    const { pending, pendingByMethod } = report.grbsBlocks.find((b) => b.dept === 'УЭР')!.quarter;
+    expect(pendingByMethod.kp.count).toBe(6);
+    expect(pendingByMethod.ep.count).toBe(3);
+    expect(pendingByMethod.kp.count + pendingByMethod.ep.count).toBe(pending.count);
+    expect(pendingByMethod.kp.total + pendingByMethod.ep.total).toBeCloseTo(pending.total, 6);
+    expect(pendingByMethod.kp.fb + pendingByMethod.ep.fb).toBeCloseTo(pending.fb, 6);
+  });
+
+  it('годовой остаток ≥ квартального: следующие кварталы тоже не заключены', () => {
+    const rows = fixtureRows();
+    rows['УЭР'].push(...planRows('uer-q2', 4, 0, 2, 'ЭА'));
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.year.pending.count).toBe(uer.quarter.pending.count + 4);
+    for (const b of report.grbsBlocks) {
+      expect(b.year.pending.count).toBeGreaterThanOrEqual(b.quarter.pending.count);
+      expect(b.year.pending.total).toBeGreaterThanOrEqual(b.quarter.pending.total);
+    }
+  });
+
+  it('интеграл остатка = сумма блоков (УЭР 9 + УКСиМП 26 = 35)', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    const p = report.integralSummary.pending;
+    expect(p.quarter.count).toBe(35);
+    expect(p.quarter.total).toBe(35 * PLAN_PER_ROW);
+    expect(p.year.count).toBe(
+      report.grbsBlocks.reduce((s, b) => s + b.year.pending.count, 0),
+    );
+  });
+});
+
+describe('buildReport — official: числа, которые лист считает сам', () => {
+  const extras = (): SvodSheetExtras => ({
+    remainderToConclude: { fb: 86965.19, kb: 117518.12, mb: 90963.95, total: 295447.27, row: 2 },
+    scopes: [
+      { scope: 'ВСЕ', calcEconomy: { total: 23635.78, fb: 6957.22, kb: 9401.45, mb: 7277.12, row: 12 } },
+      // У управления расч. экономии лист не считает; кладём чужое число, чтобы
+      // проверить, что берётся именно районный скоуп, а не первый попавшийся.
+      { scope: 'УЭР', calcEconomy: { total: 1, fb: 1, kb: 0, mb: 0, row: 99 } },
+    ],
+  });
+
+  it('официальные числа проносятся как есть, с адресами строк листа', () => {
+    const report = buildReport({ rowsByDept: fixtureRows(), svodExtras: extras() }, OPTS);
+    expect(report.official!.remainderToConclude).toEqual({
+      fb: 86965.19, kb: 117518.12, mb: 90963.95, total: 295447.27, row: 2,
+    });
+    expect(report.official!.calcEconomy).toEqual({
+      total: 23635.78, fb: 6957.22, kb: 9401.45, mb: 7277.12, row: 12,
+    });
+  });
+
+  it('свой расчёт официалом не подменяется — обе стороны видны', () => {
+    const report = buildReport({ rowsByDept: fixtureRows(), svodExtras: extras() }, OPTS);
+    // Лист говорит про район 295 447,27; наш пересчёт синтетики — 10 500.
+    expect(report.integralSummary.pending.quarter.total).toBe(10500);
+    expect(report.official!.remainderToConclude!.total).toBe(295447.27);
+  });
+
+  it('ярус не передан — поля нет вовсе (честная пустота, не ноль)', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    expect(report.official).toBeUndefined();
+  });
+});
+
 describe('buildReport — период, порядок, сигналы', () => {
   it('asOfDay пробрасывается в period; Date.now не участвует', () => {
     const report = buildReport({ rowsByDept: fixtureRows() }, { ...OPTS, asOfDay: 20623 });
@@ -358,6 +439,8 @@ describe('срез отчёта: факт после даты среза не з
     expect(uer.quarter.execution.planCount).toBe(3);
     expect(uer.quarter.execution.doneCount).toBe(2);
     expect(uer.quarter.pendingCount).toBe(1);
+    // Остаток уважает срез так же: пятничная строка ещё не заключена.
+    expect(uer.quarter.pending).toMatchObject({ count: 1, fb: 100, kb: 200, total: 300 });
   });
 
   it('срез недели спустя (следующий четверг) — пятничная строка уже в факте', () => {

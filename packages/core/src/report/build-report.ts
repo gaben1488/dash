@@ -20,6 +20,7 @@ import {
   type Issue,
   type IssueSeverity,
   type SvodGridBlock,
+  type SvodSheetExtras,
 } from '@aemr/shared';
 import {
   CalcEngine,
@@ -38,6 +39,7 @@ import type {
   GrbsReportBlock,
   IntegralSummary,
   MethodSplit,
+  PendingRemainder,
   PlanFactCounts,
   Report,
   ReportOrigin,
@@ -55,6 +57,8 @@ export interface BuildReportInput {
   rowsByDept: Record<string, RawRow[]>;
   /** Разобранный лист СВОД ТД-ПМ (parseSvodGrid) — официал для сверки-колонки. */
   svodGrid?: SvodGridBlock[];
+  /** Итоговый ярус того же листа (parseSvodExtras) — остаток и расч. экономия. */
+  svodExtras?: SvodSheetExtras;
   /** Замечания снапшота — источник топ-сигналов блоков ГРБС. */
   issues?: Issue[];
 }
@@ -111,6 +115,21 @@ function moneyOf(g: GroupedResults, prefix: 'plan' | 'fact' | 'economy'): Budget
   // канонические prefix_total у plan/fact включают K/Y-fallback и могут
   // расходиться с тройкой при кривых итогах листа — отчёт показывает сходящееся.
   return { fb, kb, mb, total: fb + kb + mb, origin: 'calc' };
+}
+
+/**
+ * Остаток группы: незаключённое в ПЛАНОВЫХ деньгах (правила счёта §4).
+ * Метрики движка pending_* уже несут гейт GATE_NO_FACT — своего чтения
+ * колонок здесь нет, иначе завелась бы вторая семантика остатка.
+ */
+function pendingOf(g: GroupedResults, group?: string): PendingRemainder {
+  return {
+    count: getValue(g, 'pending_count', group),
+    fb: getValue(g, 'pending_fb', group),
+    kb: getValue(g, 'pending_kb', group),
+    mb: getValue(g, 'pending_mb', group),
+    total: getValue(g, 'pending_total', group),
+  };
 }
 
 /** Ключ ГРБС входа → запись реестра (короткое имя, latinId или имя листа). */
@@ -227,6 +246,11 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         execution,
         methods: quarterMethods,
         pendingCount: execution.planCount - execution.doneCount,
+        pending: pendingOf(g, qGroup),
+        pendingByMethod: {
+          kp: pendingOf(g, `${qGroup}.competitive`),
+          ep: pendingOf(g, `${qGroup}.ep`),
+        },
         live: quarterLive,
         svod: input.svodGrid
           ? svodSplit(input.svodGrid, entry?.shortName ?? dept, quarter, year)
@@ -242,6 +266,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
           ep: planFact(getValue(g, 'ep_count'), getValue(g, 'ep_fact_count'), 'calc'),
         },
         pendingCount: yearCounts.planCount - yearCounts.doneCount,
+        pending: pendingOf(g),
       },
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
@@ -274,7 +299,21 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     period: { year, quarter, ...(opts.asOfDay === undefined ? {} : { asOfDay: opts.asOfDay }) },
     integralSummary: integralOf(blocks, input.svodGrid, quarter, year),
     grbsBlocks: blocks,
+    ...(input.svodExtras ? { official: officialOf(input.svodExtras) } : {}),
     notes,
+  };
+}
+
+/**
+ * Официальный ярус листа — как есть. Расч. экономию лист считает только
+ * району (у управлений её нет вовсе, см. parseSvodExtras), поэтому берём
+ * скоуп «ВСЕ» и ничего не досчитываем за лист.
+ */
+function officialOf(extras: SvodSheetExtras): Report['official'] {
+  const district = extras.scopes.find((s) => s.scope === 'ВСЕ');
+  return {
+    ...(extras.remainderToConclude ? { remainderToConclude: extras.remainderToConclude } : {}),
+    ...(district?.calcEconomy ? { calcEconomy: district.calcEconomy } : {}),
   };
 }
 
@@ -287,6 +326,18 @@ function sumCounts(parts: PlanFactCounts[]): PlanFactCounts {
     parts.reduce((s, p) => s + p.doneCount, 0),
     'calc',
   );
+}
+
+function sumPending(parts: PendingRemainder[]): PendingRemainder {
+  const add = (pick: (p: PendingRemainder) => number): number =>
+    parts.reduce((s, p) => s + pick(p), 0);
+  return {
+    count: add((p) => p.count),
+    fb: add((p) => p.fb),
+    kb: add((p) => p.kb),
+    mb: add((p) => p.mb),
+    total: add((p) => p.total),
+  };
 }
 
 function sumMoney(parts: BudgetMoney[]): BudgetMoney {
@@ -323,6 +374,10 @@ function integralOf(
       plan: sumMoney(blocks.map((b) => b.money.plan)),
       fact: sumMoney(blocks.map((b) => b.money.fact)),
       economy: sumMoney(blocks.map((b) => b.economy)),
+    },
+    pending: {
+      quarter: sumPending(blocks.map((b) => b.quarter.pending)),
+      year: sumPending(blocks.map((b) => b.year.pending)),
     },
     // Официальный интеграл — блоки scope «ВСЕ» листа СВОД.
     svodQuarter: svodGrid ? svodSplit(svodGrid, 'ВСЕ', quarter, year) : undefined,
