@@ -79,10 +79,10 @@ export interface SvodGridBlock {
   /** Строка листа (1-based), с которой начинается блок — для трассировки. */
   startRow: number;
   periods: SvodGridPeriod[];
-  /** «Итого … 2025+2026» — двухлетний итог блока. */
-  totalBothYears?: SvodGridTotal;
-  /** «Итого … 2026» — итог текущего план-года. */
-  totalY2026?: SvodGridTotal;
+  /** «Итого … 2025+2026» — двухлетний итог блока; row — строка листа. */
+  totalBothYears?: SvodGridTotal & { row: number };
+  /** «Итого … 2026» — итог текущего план-года; row — строка листа. */
+  totalY2026?: SvodGridTotal & { row: number };
 }
 
 const num = (v: unknown): number => {
@@ -305,8 +305,9 @@ export function parseSvodGrid(values: unknown[][]): SvodGridBlock[] {
 
     // Итоги блока: «Итого ЭА 2025+2026» / «Итого ЕП 2026» / …
     if (block && a.startsWith('Итого')) {
-      if (a.includes('2025+2026')) block.totalBothYears = readMetrics(row);
-      else block.totalY2026 = readMetrics(row);
+      const metrics = { ...readMetrics(row), row: i + 1 };
+      if (a.includes('2025+2026')) block.totalBothYears = metrics;
+      else block.totalY2026 = metrics;
       continue;
     }
 
