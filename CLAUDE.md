@@ -28,6 +28,10 @@ pnpm audit --audit-level moderate
 
 - Do not commit generated build info: `*.tsbuildinfo`.
 - Do not put secrets, service account JSON, SQLite DB files, reports, graph outputs, or local agent artifacts into git.
+  - Единственное исключение, разрешённое владельцем 29.07.2026: выжимки недель
+    `packages/core/src/report/__fixtures__/week-*.json` для регресса «расчёт против ручного
+    отчёта». Проверены: плановые строки закупок, без ключей и персональных данных. Новые
+    фикстуры того же вида добавлять можно; любые другие отчёты в git по-прежнему нельзя.
 - Keep documentation factual. If a command, route, script, deploy path, or table is not present in the repo, do not document it as implemented.
 - Prefer `@aemr/shared` constants and `@aemr/core` calculations over duplicating legal/procurement thresholds in UI or server code.
 - Keep `docs/REVIEW.md` updated when security posture or verification commands change.

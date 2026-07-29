@@ -48,14 +48,14 @@ describe('buildRowDto — маппинг строки листа в DTO', () => 
     G: 'Поставка бумаги', H: '100', I: '200', J: '0', K: '300', L: 'ЭА',
     N: '15.03.2026', O: 'I', P: '2026', Q: 46023, R: 'I', U: 'Подписан',
     V: '90', W: '180', X: '0', Y: '270', Z: '10', AA: '20', AB: '0',
-    AD: 'Да', AE: 'коммент ГРБС', AF: 'коммент УЭР',
+    AD: 'Да', AE: 'обоснование', AF: 'коммент ГРБС', AG: 'коммент УЭР',
   });
 
   it('идентификация и rowIndex (idx=0 → строка листа 4)', () => {
     const dto = buildRowDto(signedRow, 0, { deptId: 'uo' });
     expect(dto.rowIndex).toBe(4);
     expect(dto.id).toBe('5');
-    expect(dto.regNumber).toBe('РН-001');
+    expect(dto.managementName).toBe('РН-001');
     expect(dto.subordinate).toBe('МКУ Тест');
     expect(dto.programName).toBe('Программа X');
     expect(dto.type).toBe('Текущая деятельность');

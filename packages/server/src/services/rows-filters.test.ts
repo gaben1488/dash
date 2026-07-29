@@ -18,7 +18,7 @@ import {
 
 function row(partial: Partial<FilterableRow>): FilterableRow {
   return {
-    subject: '', method: '', status: '', regNumber: '', subordinate: '',
+    subject: '', method: '', status: '', managementName: '', subordinate: '',
     type: '', programName: '', state: 'open', planYear: 0,
     ...partial,
   };
@@ -45,7 +45,7 @@ describe('parseYearFilter', () => {
 describe('applySearchFilter', () => {
   const rows = [
     row({ subject: 'Поставка Бумаги' }),
-    row({ method: 'ЭА', regNumber: 'РН-777' }),
+    row({ method: 'ЭА', managementName: 'РН-777' }),
     row({ status: 'Подписан' }),
     row({ subordinate: 'МКУ Спорт' }),
   ];

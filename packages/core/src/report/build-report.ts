@@ -101,9 +101,27 @@ function planFact(planCount: number, doneCount: number, origin: ReportOrigin): P
   return { planCount, doneCount, pct: quarterExecutionFromCounts(planCount, doneCount).pct, origin };
 }
 
-/** План/факт по счётчикам CalcEngine (plan_count / fact_count) для группы. */
-function countsOf(g: GroupedResults, group?: string): PlanFactCounts {
-  return planFact(getValue(g, 'plan_count', group), getValue(g, 'fact_count', group), 'calc');
+/** Плановые кварталы: год считается ТОЛЬКО по ним (правила счёта §2). */
+const QUARTERS = [1, 2, 3, 4] as const;
+
+/**
+ * Метрика за год = сумма четырёх плановых кварталов.
+ *
+ * Канон правил счёта §2: строка входит в план года, только если у неё задан
+ * плановый квартал O ∈ 1..4, — ручной отчёт печатает год именно так
+ * (140+125+107+24 = 396 конкурентных на 26.06.2026). Негруппированный итог
+ * движка (`getValue(g, key)` без группы) сюда не годится: он тянет и строки
+ * без квартала — на 26.06.2026 это 430 лишних строк, годовой план 475 вместо
+ * 396, и вслед за завышенным знаменателем врало «исполнение годового плана».
+ */
+function sumOverQuarters(g: GroupedResults, metric: string, method?: 'competitive' | 'ep'): number {
+  const suffix = method ? `.${method}` : '';
+  return QUARTERS.reduce((s, q) => s + getValue(g, metric, `q${q}${suffix}`), 0);
+}
+
+/** План/факт года по счётчикам движка — тем же правилом, что и кварталы. */
+function yearCountsOf(g: GroupedResults): PlanFactCounts {
+  return planFact(sumOverQuarters(g, 'plan_count'), sumOverQuarters(g, 'fact_count'), 'calc');
 }
 
 /** Денежная тройка ФБ/КБ/МБ из метрик prefix_fb/kb/mb (+ total по сумме). */
@@ -237,7 +255,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     // Второй проход без гейта среза — «как в СВОДе, на сейчас»: только так
     // сверка сравнивает сравнимое (см. GrbsQuarterSlice.live).
     const quarterLive = methodsOf(ENGINE.compute(rows, standardRowFilter, 0, year));
-    const yearCounts = countsOf(g);
+    const yearCounts = yearCountsOf(g);
 
     return {
       dept,
@@ -261,12 +279,22 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       },
       year: {
         counts: yearCounts,
+        // Годовой ярус — по тому же правилу, что и кварталы (§2): сумма
+        // четырёх кварталов, а не негруппированный итог движка.
         methods: {
-          kp: planFact(getValue(g, 'competitive_count'), getValue(g, 'comp_fact_count'), 'calc'),
-          ep: planFact(getValue(g, 'ep_count'), getValue(g, 'ep_fact_count'), 'calc'),
+          kp: planFact(
+            sumOverQuarters(g, 'competitive_count', 'competitive'),
+            sumOverQuarters(g, 'comp_fact_count', 'competitive'),
+            'calc',
+          ),
+          ep: planFact(
+            sumOverQuarters(g, 'ep_count', 'ep'),
+            sumOverQuarters(g, 'ep_fact_count', 'ep'),
+            'calc',
+          ),
         },
         pendingCount: yearCounts.planCount - yearCounts.doneCount,
-        pending: pendingOf(g),
+        pending: sumPending(QUARTERS.map((q) => pendingOf(g, `q${q}`))),
       },
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),

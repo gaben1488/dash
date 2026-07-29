@@ -83,7 +83,7 @@ export interface RowDto {
   /** A — порядковый номер (сырьё листа). */
   id: unknown;
   /** B — реестровый номер (пустая ячейка → ''). */
-  regNumber: unknown;
+  managementName: unknown;
   /** C — наименование подведа (пустая ячейка → ''). */
   subordinate: unknown;
   /** D — наименование программы (X/Х/пусто = «вне ПМ»). */
@@ -165,7 +165,9 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
   return {
     rowIndex: idx + DEPT_HEADER_ROWS + 1, // 1-based: срез шапки в 3 строки → idx=0 = строка 4
     id: col('ID'),
-    regNumber: col('REG_NUMBER') ?? '',
+    // B — наименование управления, а не реестровый номер: канон
+    // column-map.ts исправлен по 3 852 живым строкам (номера там нет).
+    managementName: col('MANAGEMENT_NAME') ?? '',
     subordinate: col('SUBORDINATE') ?? '',
     programName: col('PROGRAM_NAME') ?? '',
     type: col('TYPE') ?? '',

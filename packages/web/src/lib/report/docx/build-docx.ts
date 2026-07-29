@@ -17,7 +17,16 @@ const FONT = 'Times New Roman';
 const SIZE_HALF_POINTS = 24; // 12 пт
 
 function toParagraph(block: ReportBlock): Paragraph {
-  const run = new TextRun({ text: block.text, bold: true, font: FONT, size: SIZE_HALF_POINTS });
+  // Оговорки шапки в оригинале набраны курсивом и без полужирного — это
+  // единственное место, где начертание несёт смысл: «читай как примечание».
+  const isNote = block.kind === 'note';
+  const run = new TextRun({
+    text: block.text,
+    bold: !isNote,
+    italics: isNote,
+    font: FONT,
+    size: SIZE_HALF_POINTS,
+  });
   if (block.kind === 'heading') {
     return new Paragraph({
       children: [run],

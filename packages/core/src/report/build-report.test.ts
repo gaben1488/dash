@@ -147,6 +147,42 @@ describe('buildReport — блок ГРБС (калибровка эталоно
     expect(uer.year.pendingCount).toBe(9);
   });
 
+  it('строка без планового квартала не входит в годовой ярус (правила счёта §2)', () => {
+    // Год = сумма четырёх кварталов: у строки без квартала O нет места ни в
+    // одном из них, значит нет и в году. До починки годовой ярус брал
+    // негруппированный итог движка и тянул такие строки: на живых книгах
+    // 26.06.2026 это давало +430 строк к плану года.
+    const rows = fixtureRows();
+    rows['УЭР'].push(makeRow({ id: 'no-q', planQuarter: '' }));
+    // Вторая такая же, но уже заключённая, — чтобы факт года тоже проверился.
+    rows['УЭР'].push(makeRow({ id: 'no-q-fact', planQuarter: '', factDate: '20.02.2026' }));
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.year.counts.planCount).toBe(15);
+    expect(uer.year.counts.doneCount).toBe(6);
+    expect(uer.year.methods.kp.planCount).toBe(10);
+    expect(uer.year.methods.kp.doneCount).toBe(4);
+    expect(uer.year.pending.count).toBe(9);
+    expect(uer.year.pendingCount).toBe(9);
+    // Интеграл наследует то же правило — иначе шапка отчёта разойдётся с блоками.
+    expect(report.integralSummary.year.total.planCount).toBe(45);
+    expect(report.integralSummary.year.kp.planCount).toBe(40);
+    expect(report.integralSummary.pending.year.count).toBe(35);
+  });
+
+  it('год = сумма кварталов: строки следующих кварталов входят все', () => {
+    // Зеркало предыдущего теста: правило «только с кварталом» не должно
+    // превратиться в «только отчётный квартал» — год шире квартала.
+    const rows = fixtureRows();
+    rows['УЭР'].push(...planRows('uer-q3', 7, 2, 3, 'ЭА'));
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.year.counts.planCount).toBe(22);
+    expect(uer.year.methods.kp.planCount).toBe(17);
+    expect(uer.year.counts.doneCount).toBe(8);
+    expect(uer.year.pending.count).toBe(14);
+  });
+
   it('строки чужого план-года не входят (канон: явный год ≠ целевому — вне среза)', () => {
     const rows = fixtureRows();
     rows['УЭР'].push(makeRow({ id: 'y2025', planYear: 2025, factDate: '10.02.2025' }));

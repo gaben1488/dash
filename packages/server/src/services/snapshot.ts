@@ -1,6 +1,6 @@
 import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
-import type { DataSnapshot, NormalizedMetric, SvodReconRow } from '@aemr/shared';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS } from '@aemr/shared';
+import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow } from '@aemr/shared';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
 import { fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
@@ -44,6 +44,35 @@ export function setDeptSheetCache(
 
 export function getDeptSheetCache(): Record<string, DeptSheetResult> {
   return cachedDeptSheetData;
+}
+
+/**
+ * Ошибки формул Google Sheets в ЗНАЧЕНИИ ячейки. Упавший IMPORTRANGE отдаёт
+ * именно их: «#REF!», «#REF! (The source sheet for this IMPORTRANGE...)».
+ */
+const FORMULA_ERROR_RE = /^#(REF|N\/A|VALUE|NAME|NUM|DIV\/0|NULL|ERROR|GETTING_DATA)\b/i;
+
+/**
+ * Ответ листа не несёт НИ ОДНОЙ содержательной строки. Два случая, и оба
+ * означают «источник сломан», а не «данных нет»:
+ *   • строк не больше, чем шапка (DEPT_HEADER_ROWS) — collectRowsByDept такой
+ *     лист выбрасывает ЦЕЛИКОМ, и ГРБС молча исчезает из продукта;
+ *   • все непустые ячейки — ошибки формул (#REF! от упавшего IMPORTRANGE:
+ *     зеркало ГРБС в сводной книге отдаёт одну строку-ошибку).
+ *
+ * Проверка по значениям, а не по длине: зеркало УКСиМП отдавало length === 1,
+ * а старое условие подстановки кэша ждало length === 0 — 673 настоящие строки
+ * отбрасывались, 661 закупка и 155 152 тыс. руб. плана считались нулём.
+ */
+export function hasNoMeaningfulRows(values: unknown[][]): boolean {
+  if (values.length <= DEPT_HEADER_ROWS) return true;
+  for (const row of values) {
+    for (const cell of row ?? []) {
+      const s = String(cell ?? '').trim();
+      if (s !== '' && !FORMULA_ERROR_RE.test(s)) return false;
+    }
+  }
+  return true;
 }
 
 export function getDeptSheetValues(): Record<string, unknown[][]> {
@@ -212,13 +241,24 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
 
     await Promise.all([...sheetReadPromises, monthlyPromise]);
 
+    // Подстановка кэша собственной книги ГРБС вместо мёртвого зеркала в сводной.
+    // Сломанные зеркала запоминаем: такой случай обязан оставить след в снимке,
+    // иначе «источник сломан» неотличим от «данных нет» (см. hasNoMeaningfulRows).
+    const brokenMirrors: Array<{ dept: string; got: number; used: number }> = [];
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
-      if (!sheetRows[deptName] || sheetRows[deptName].length === 0) {
-        if (deptResult.values.length > 0) {
-          sheetRows[deptName] = deptResult.values;
-          console.log(`📋 Лист "${deptName}": ${deptResult.values.length} строк из кэша (формулы: ${deptResult.formulas.length} строк)`);
-        }
+      const mirror = sheetRows[deptName];
+      if (deptResult.values.length === 0) continue;
+      if (mirror && !hasNoMeaningfulRows(mirror)) continue;
+      if (mirror && mirror.length > 0) {
+        brokenMirrors.push({ dept: deptName, got: mirror.length, used: deptResult.values.length });
+        console.warn(
+          `⚠️ Лист "${deptName}" в сводной книге отдал ${mirror.length} строк без данных` +
+          ` (ошибка формул/зеркала) — подставлен кэш собственной книги: ${deptResult.values.length} строк`,
+        );
+      } else {
+        console.log(`📋 Лист "${deptName}": ${deptResult.values.length} строк из кэша (формулы: ${deptResult.formulas.length} строк)`);
       }
+      sheetRows[deptName] = deptResult.values;
     }
 
     const pipelineInput: PipelineInput = {
@@ -231,6 +271,30 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
     };
 
     const snapshot = runPipeline(pipelineInput);
+
+    // След сломанного зеркала — в самом снимке, а не только в консоли: замечание
+    // сохраняется вместе со снимком и видно в продукте. Без него подстановка
+    // кэша тиха, и «источник сломан» снова выглядел бы как «данных нет».
+    for (const m of brokenMirrors) {
+      const issue: Issue = {
+        id: `mirror-broken-${m.dept}-${snapshot.id}`,
+        severity: 'error',
+        origin: 'runtime_error',
+        category: 'source_integrity',
+        title: `Лист «${m.dept}» в сводной книге не отдал данных`,
+        description:
+          `Зеркало вернуло ${m.got} строк без содержательных данных (ошибка формул, ` +
+          `обычно упавший IMPORTRANGE). Снимок посчитан по кэшу собственной книги ГРБС: ` +
+          `${m.used} строк. Числа ГРБС в отчёте живы, но зеркало в сводной книге чинить надо.`,
+        sheet: m.dept,
+        departmentId: findDept(m.dept)?.latinId,
+        recommendation: 'Проверить формулу IMPORTRANGE листа в сводной книге и доступ к книге-источнику.',
+        status: 'open',
+        detectedAt: snapshot.createdAt,
+        detectedBy: 'snapshot.createSnapshot',
+      };
+      snapshot.issues.push(issue);
+    }
 
     if (cachedSHDYUData) {
       snapshot.shdyuData = cachedSHDYUData;

@@ -17,7 +17,7 @@ export interface FilterableRow {
   subject: unknown;
   method: string;
   status: unknown;
-  regNumber: unknown;
+  managementName: unknown;
   subordinate: unknown;
   type: unknown;
   programName: unknown;
@@ -34,7 +34,7 @@ export function parseYearFilter(yearRaw: string | undefined): number | undefined
 
 /** Поля, по которым ищет applySearchFilter (единый список вместо цепочки ||). */
 const SEARCH_FIELDS: readonly (keyof FilterableRow)[] =
-  ['subject', 'method', 'status', 'regNumber', 'subordinate'];
+  ['subject', 'method', 'status', 'managementName', 'subordinate'];
 
 /** Поиск по предмету/способу/статусу/реестровому номеру/подведу (searchTerm уже lower-case). */
 export function applySearchFilter<T extends FilterableRow>(rows: T[], searchTerm: string): T[] {

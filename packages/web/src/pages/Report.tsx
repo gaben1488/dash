@@ -379,16 +379,23 @@ export function ReportPage() {
     try {
       // Библиотека грузится по требованию: 400 КБ не должны висеть на каждом
       // открытии страницы ради кнопки, которую жмут раз в неделю.
-      const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, analyticalReportBlocks }] =
+      const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, additionalReportBlocks }] =
         await Promise.all([
           import('../lib/report/docx/build-docx'),
           import('../lib/report/docx/text-blocks'),
         ]);
+      // Ручной отчёт печатает ВСЕ четыре квартала («Всего на 1…4 квартал»), а
+      // проекция знает ровно один. Берём тот же срез четырьмя запросами —
+      // иначе три четверти шапки пришлось бы выдумать или обнулить.
+      const [q1, q2, q3, q4] = await Promise.all(
+        QUARTERS.map((q) => api.getReport(request.year, q, request.asOf)),
+      );
+      const quarters = { 1: q1, 2: q2, 3: q3, 4: q4 };
       const isMain = kind === 'main';
       const blocks = isMain
-        ? mainReportBlocks(report, asOfDate)
-        : analyticalReportBlocks(report, asOfDate);
-      const title = isMain ? 'Отчёт по закупкам' : 'Аналитический отчёт по закупкам';
+        ? mainReportBlocks(report, quarters, asOfDate)
+        : additionalReportBlocks(report, quarters, asOfDate);
+      const title = isMain ? 'Отчёт по закупкам' : 'Дополнительно к отчету по закупкам';
       await downloadDocx(buildDocument(blocks, title), reportFilename(title, asOfDate));
     } catch (e: unknown) {
       setDownloadError(`Не удалось собрать документ: ${String(e)}`);
@@ -537,7 +544,7 @@ export function ReportPage() {
           <button
             onClick={() => void onDownloadDocx('extra')}
             disabled={!report || saving !== null}
-            title="Дополнительный (аналитический) отчёт в формате Word"
+            title="Дополнительно к отчету по закупкам — записка руководителю в формате Word"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
