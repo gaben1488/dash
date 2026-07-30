@@ -241,22 +241,26 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
 
     await Promise.all([...sheetReadPromises, monthlyPromise]);
 
-    // Подстановка кэша собственной книги ГРБС вместо мёртвого зеркала в сводной.
-    // Сломанные зеркала запоминаем: такой случай обязан оставить след в снимке,
-    // иначе «источник сломан» неотличим от «данных нет» (см. hasNoMeaningfulRows).
+    // ОДИН ПЕРИМЕТР СТРОК (аудит 30.07 №14). Первоисточник — собственные
+    // книги ГРБС: зеркала в сводной — производные IMPORTRANGE, они отстают
+    // и ломаются («#REF!» у УКСиМП). Прежний порядок был обратным: снимок
+    // предпочитал зеркала, а /api/report — книги, и один ряд недель опирался
+    // на две популяции строк (УАГЗО +60 млн плана между источниками).
+    // Теперь кэш книги побеждает всегда; зеркало — только когда книги нет.
+    // Сломанные зеркала по-прежнему оставляют след: «источник сломан»
+    // не должен быть неотличим от «данных нет» (см. hasNoMeaningfulRows).
     const brokenMirrors: Array<{ dept: string; got: number; used: number }> = [];
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
       const mirror = sheetRows[deptName];
       if (deptResult.values.length === 0) continue;
-      if (mirror && !hasNoMeaningfulRows(mirror)) continue;
-      if (mirror && mirror.length > 0) {
+      if (mirror && mirror.length > 0 && hasNoMeaningfulRows(mirror)) {
         brokenMirrors.push({ dept: deptName, got: mirror.length, used: deptResult.values.length });
         console.warn(
           `⚠️ Лист "${deptName}" в сводной книге отдал ${mirror.length} строк без данных` +
-          ` (ошибка формул/зеркала) — подставлен кэш собственной книги: ${deptResult.values.length} строк`,
+          ` (ошибка формул/зеркала) — использован кэш собственной книги: ${deptResult.values.length} строк`,
         );
       } else {
-        console.log(`📋 Лист "${deptName}": ${deptResult.values.length} строк из кэша (формулы: ${deptResult.formulas.length} строк)`);
+        console.log(`📋 Лист "${deptName}": ${deptResult.values.length} строк из кэша собственной книги (канонический периметр)`);
       }
       sheetRows[deptName] = deptResult.values;
     }
