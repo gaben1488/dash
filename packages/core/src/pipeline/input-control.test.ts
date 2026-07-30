@@ -61,10 +61,10 @@ describe('isEditableColumn', () => {
 describe('getColumnDescription', () => {
   it('returns description for known columns', () => {
     expect(getColumnDescription('A')).toBe('№ п/п');
-    expect(getColumnDescription('B')).toBe('Реестровый номер');
+    expect(getColumnDescription('B')).toBe('Наименование управления (ГРБС)');
     expect(getColumnDescription('G')).toBe('Предмет закупки');
     expect(getColumnDescription('V')).toBe('Федеральный бюджет (факт)');
-    expect(getColumnDescription('U')).toBe('Статус');
+    expect(getColumnDescription('U')).toBe('Причина отклонения');
   });
 
   it('returns fallback for unknown columns', () => {
@@ -73,7 +73,7 @@ describe('getColumnDescription', () => {
 
   it('is case-insensitive', () => {
     expect(getColumnDescription('a')).toBe('№ п/п');
-    expect(getColumnDescription('u')).toBe('Статус');
+    expect(getColumnDescription('u')).toBe('Причина отклонения');
   });
 });
 

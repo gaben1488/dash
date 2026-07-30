@@ -359,8 +359,16 @@ export interface SHDYUDeptData {
   epTotal?: SHDYUBlockMetrics;
   /** Summary rows: ИТОГО ЭА+ЕП, Доля ЭА, Доля ЕП */
   summary?: SHDYUSummaryData;
-  /** Quarterly aggregated data (NEW) */
-  quarterly?: Record<string, SHDYUQuarterlyEntry>;
+  /**
+   * Квартальный ярус листа, РАЗДЕЛЬНО по способам. Метки Q1–Q4 стоят в
+   * колонке U и в КП-секции, и в ЕП-секции блока; прежний плоский словарь
+   * `Record<label, entry>` затирал КП-кварталы ЕП-кварталами — район
+   * показывал 381 736 тыс. руб. вместо 1 173 035 (32,5 % правды).
+   */
+  quarterly?: {
+    comp: Record<string, SHDYUQuarterlyEntry>;
+    ep: Record<string, SHDYUQuarterlyEntry>;
+  };
 }
 
 export const SHDYU_SHEET_NAME = 'ШДЮ';

@@ -201,7 +201,10 @@ export function DataBrowserPage() {
       planFB: 'H', planKB: 'I', planMB: 'J',
       factFB: 'V', factKB: 'W', factMB: 'X',
       planDate: 'N', factDate: 'Q',
-      flag: 'AD', commentGRBS: 'AE',
+      // AF, не AE: по живой шапке книг AE — «Обоснование необходимости»,
+      // комментарий ГРБСа лежит в AF. Запись в AE затирала обоснование
+      // в прод-книге (аудит 30.07: AE заполнено в 409 строках, AF — в 3 523).
+      flag: 'AD', commentGRBS: 'AF',
     };
 
     const changes: Record<string, unknown> = {};

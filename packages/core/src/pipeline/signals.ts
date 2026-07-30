@@ -255,20 +255,24 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const todayDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
 
   // ── Текстовые поля ──
-  // Column U = «Причина отклонения» — mostly "Х" (placeholder), sometimes deviation reasons.
-  // Column AE = «Комментарий ГРБС» — contains actual status info ("договор заключен", "планирование").
-  // We must check BOTH columns for status detection (U + AE/AF).
+  // Колонки по живой шапке книг (аудит 30.07, 3 828 строк): U — «Причина
+  // отклонения», AE — «Обоснование необходимости», AF — «Комментарий ГРБСа».
+  // Статусные фразы («договор заключен», «планирование») живут в AF: до
+  // исправления статус искали в U + AE, и продукт видел признак «подписан»
+  // в 208 строках из 2 464 — 2 256 подписанных закупок показывались как
+  // «Исполнение», 66 % строк несли чужое состояние.
   const statusText = cellText(cells, 'U');
   const adText = cellText(cells, 'AD');
   const aeText = cellText(cells, 'AE');
   const afText = cellText(cells, 'AF');
   const grbsComment = aeText + ' ' + afText;
-  // AE-parser: дата факта и правовое основание ЕП часто лежат в комментарии (AE), а не в Q/M
-  // (SIGNAL_VALIDATION §1, корень №3 «ответ в столбце AE»).
+  // AE-parser: дата факта и правовое основание ЕП часто лежат в обосновании
+  // и комментарии (SIGNAL_VALIDATION §1, корень №3) — разбираем оба.
   const aeParsed = parseAE(grbsComment);
   const methodText = cellText(cells, 'L');
-  // Combined text for status detection: U + AE (both carry status signals)
-  const statusAndComment = statusText + ' ' + aeText;
+  // Статус ищем во всех трёх текстах: U (причина), AE (обоснование —
+  // операторы и туда пишут статусные фразы), AF (комментарий ГРБСа).
+  const statusAndComment = statusText + ' ' + grbsComment;
 
   // ── Суммы ──
   const planTotal = toNumber(cells['K']);    // K = total plan

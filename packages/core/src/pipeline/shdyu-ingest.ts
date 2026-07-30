@@ -289,15 +289,16 @@ function parseGRBSBlock(
     epSharePct: parseSingleRow(sheetData, block.epShareRow, cols),
   };
 
-  // Quarterly data (from right section, cols U-AM)
-  // Quarterly rows occupy the same data rows as monthly — scan from compStartRow to epEndRow
+  // Квартальный ярус (колонки U–AM) — ДВУМЯ диапазонами, по способу.
+  // Метки Q1–Q4 стоят и в КП-секции, и в ЕП-секции; один сплошной проход
+  // compStartRow..epEndRow складывал всё в общий словарь по метке, и ЕП
+  // затирал КП (аудит 30.07: район отдавал итог ЕП вместо КП+ЕП).
   const quarterly = includeQuarterly
-    ? parseQuarterlyData(
-      sheetData,
-      block.compStartRow,
-      block.epEndRow,
-    )
-    : {};
+    ? {
+      comp: parseQuarterlyData(sheetData, block.compStartRow, block.compEndRow),
+      ep: parseQuarterlyData(sheetData, block.epStartRow, block.epEndRow),
+    }
+    : undefined;
 
   return {
     grbsId: block.grbsId,
