@@ -60,11 +60,13 @@ export interface SvodGridPeriod {
   planCount: number;
   factCount: number;
   devCount: number;
-  execPct: number;
+  /** null — «нет базы»: на листе стоит '-' либо ошибка деления, не 0 %. */
+  execPct: number | null;
   planFB: number; planKB: number; planMB: number; planTotal: number;
   factFB: number; factKB: number; factMB: number; factTotal: number;
   devMoney: number;
-  spentPct: number;
+  /** null — «нет базы» (см. execPct). */
+  spentPct: number | null;
   economyFB: number; economyKB: number; economyMB: number; economyTotal: number;
 }
 
@@ -84,6 +86,19 @@ export interface SvodGridBlock {
   /** «Итого … 2026» — итог текущего план-года; row — строка листа. */
   totalY2026?: SvodGridTotal & { row: number };
 }
+
+/**
+ * Процент/доля с честной пустотой: '-' и ошибки формул ('#DIV/0!', '#N/A',
+ * '#REF!') означают «нет базы для расчёта», а не «0 %». Ноль здесь врал в
+ * обе стороны: «Доля ЕП 0 %» читалась как образцовое соответствие закону,
+ * «Выполнено 0 %» — как провал, тогда как правда — «считать не от чего»
+ * (аудит 30.07 №18: 52 ячейки '-' и 4 '#DIV/0!' на живом листе).
+ */
+const pctOrNull = (v: unknown): number | null => {
+  const s = String(v ?? '').trim();
+  if (s === '' || s === '-' || s.startsWith('#')) return null;
+  return num(v);
+};
 
 const num = (v: unknown): number => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
@@ -109,11 +124,11 @@ function readMetrics(row: unknown[]): SvodGridTotal {
     planCount: num(row[C.planCount]),
     factCount: num(row[C.factCount]),
     devCount: num(row[C.devCount]),
-    execPct: num(row[C.execPct]),
+    execPct: pctOrNull(row[C.execPct]),
     planFB: num(row[C.planFB]), planKB: num(row[C.planKB]), planMB: num(row[C.planMB]), planTotal: num(row[C.planTotal]),
     factFB: num(row[C.factFB]), factKB: num(row[C.factKB]), factMB: num(row[C.factMB]), factTotal: num(row[C.factTotal]),
     devMoney: num(row[C.devMoney]),
-    spentPct: num(row[C.spentPct]),
+    spentPct: pctOrNull(row[C.spentPct]),
     economyFB: num(row[C.economyFB]), economyKB: num(row[C.economyKB]), economyMB: num(row[C.economyMB]), economyTotal: num(row[C.economyTotal]),
   };
 }
@@ -173,10 +188,11 @@ export interface SvodScopeSummary {
   totalBothYears?: SvodGridTotal & { row: number };
   /** «ИТОГО 2026:» — текущий план-год, КП и ЕП вместе. */
   totalY2026?: SvodGridTotal & { row: number };
-  /** Доля конкурентных: по факту и по плану 2026 (доли 0..1, шапка листа G/H). */
-  shareCompetitive?: { fact: number; plan: number; row: number };
+  /** Доля конкурентных: по факту и по плану 2026 (доли 0..1, шапка листа G/H).
+   *  null внутри — «нет базы»: у скоупа без закупок лист держит '#DIV/0!'. */
+  shareCompetitive?: { fact: number | null; plan: number | null; row: number };
   /** Доля единственного поставщика — там же. */
-  shareEp?: { fact: number; plan: number; row: number };
+  shareEp?: { fact: number | null; plan: number | null; row: number };
   /** «Расч. экономия» — та, что печатается в ручном отчёте по остатку. */
   calcEconomy?: SvodMoneyRow;
 }
@@ -264,8 +280,8 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
     if (lastScope && d.toLowerCase().startsWith('доля')) {
       const s = ensure(lastScope);
       const share = {
-        fact: num(row[EXTRA_COLS.shareFact]),
-        plan: num(row[EXTRA_COLS.sharePlan]),
+        fact: pctOrNull(row[EXTRA_COLS.shareFact]),
+        plan: pctOrNull(row[EXTRA_COLS.sharePlan]),
         row: i + 1,
       };
       if (/ЕП/i.test(d)) s.shareEp = share;

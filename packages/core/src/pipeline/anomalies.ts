@@ -360,7 +360,7 @@ export function detectSystemicAnomalies(
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length < 25) continue;
-      const status = String(row[DEPT_COLUMNS.STATUS] ?? '').toLowerCase();
+      const status = String(row[DEPT_COLUMNS.DEVIATION_REASON] ?? '').toLowerCase();
       const comment = String(row[DEPT_COLUMNS.COMMENT_GRBS] ?? '').toLowerCase();
       if (!cancelPatterns.test(status) && !cancelPatterns.test(comment)) continue;
       const factTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_FACT);

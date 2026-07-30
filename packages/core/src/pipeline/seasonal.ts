@@ -77,7 +77,7 @@ export function detectSeasonalAnomalies(
     const subordinate = strFromRow(row, DEPT_COLUMNS.SUBORDINATE);
     const description = strFromRow(row, DEPT_COLUMNS.PROGRAM_NAME); // D=3 «графа программы» (ист. имя description)
     const subprogram = strFromRow(row, DEPT_COLUMNS.SUBPROGRAM);    // E=4 подпрограмма
-    const status = strFromRow(row, DEPT_COLUMNS.STATUS);
+    const status = strFromRow(row, DEPT_COLUMNS.DEVIATION_REASON);
     const factDate = parseDateFromCell(row[DEPT_COLUMNS.FACT_DATE]);
     const planDate = parseDateFromCell(row[DEPT_COLUMNS.PLAN_DATE]);
 
