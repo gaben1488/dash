@@ -48,7 +48,8 @@ describe('buildRowDto — маппинг строки листа в DTO', () => 
     G: 'Поставка бумаги', H: '100', I: '200', J: '0', K: '300', L: 'ЭА',
     N: '15.03.2026', O: 'I', P: '2026', Q: 46023, R: 'I', U: 'Подписан',
     V: '90', W: '180', X: '0', Y: '270', Z: '10', AA: '20', AB: '0',
-    AD: 'Да', AE: 'обоснование', AF: 'коммент ГРБС', AG: 'коммент УЭР',
+    M: 'МОНОПОЛИСТ', T: '4',
+    AD: 'Да', AE: 'обоснование', AF: 'коммент ГРБС', AG: 'коммент УЭР', AH: 'коммент УФБП',
   });
 
   it('идентификация и rowIndex (idx=0 → строка листа 4)', () => {
@@ -112,6 +113,13 @@ describe('buildRowDto — маппинг строки листа в DTO', () => 
     expect(dto.flag).toBe('Да');
     expect(dto.commentGRBS).toBe('коммент ГРБС');
     expect(dto.commentExtra).toBe('коммент УЭР');
+    expect(dto.commentUFBP).toBe('коммент УФБП');
+  });
+
+  it('колонки M и T доходят до ответа: основание ЕП и официальная просрочка', () => {
+    const dto = buildRowDto(signedRow, 0, { deptId: 'uo' });
+    expect(dto.epReason).toBe('МОНОПОЛИСТ');
+    expect(dto.deviationDays).toBe(4);
   });
 });
 

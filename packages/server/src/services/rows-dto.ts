@@ -121,12 +121,18 @@ export interface RowDto {
   economyFB: number;
   economyKB: number;
   economyMB: number;
+  /** M — правовое основание выбора ЕП (сырой текст оператора). */
+  epReason: string;
+  /** T — официальное отклонение в днях, считает сама книга. */
+  deviationDays: number;
   /** AD — признак экономии. */
   flag: unknown;
-  /** AE — комментарий ГРБС. */
+  /** AF — комментарий ГРБСа (подписи колонок — по живой шапке, аудит 30.07). */
   commentGRBS: unknown;
-  /** AF — комментарий УЭР. */
+  /** AG — комментарий УЭР АЕМР. */
   commentExtra: unknown;
+  /** AH — комментарий УФБП АЕМР (контролёр экономии). */
+  commentUFBP: unknown;
   /** Русская подпись состояния (STATE_STATUS_RU). */
   status: string;
   /** Латинский id управления (из opts.deptId). */
@@ -177,6 +183,10 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
     planMB: toNumber(col('MB_PLAN')),
     planSum: toNumber(col('TOTAL_PLAN')),
     method: String(col('METHOD') ?? ''),
+    // M — правовое основание выбора ЕП: заполнено в 3 213 из 3 227 ЕП-строк
+    // (аудит 30.07), а продукт его не показывал — «риск ЕП» считался без
+    // взгляда на основание. Сырой текст; кластеризация — этап сигналов.
+    epReason: String(col('EP_REASON') ?? ''),
     planDate: sheetDateToIso(col('PLAN_DATE')),
     planDateRaw: col('PLAN_DATE') ?? '',
     planQuarter: col('PLAN_QUARTER') ?? '',
@@ -192,9 +202,14 @@ export function buildRowDto(row: unknown[], idx: number, opts: { deptId: string 
     economyFB: ecoFB,
     economyKB: ecoKB,
     economyMB: ecoMB,
+    // T — официальное отклонение в днях, его считает сама книга; наш
+    // пересчёт просрочки из дат N/Q — отдельная логика, оба числа видны.
+    deviationDays: toNumber(col('DEVIATION_DAYS')),
     flag: col('FLAG') ?? '',
     commentGRBS: col('COMMENT_GRBS') ?? '',
     commentExtra: col('COMMENT_UER') ?? '',
+    // AH — комментарий УФБП (контролёр экономии); в карте не существовал.
+    commentUFBP: col('COMMENT_UFBP') ?? '',
     status: STATE_STATUS_RU[state],
     dept: opts.deptId,
     signals,
