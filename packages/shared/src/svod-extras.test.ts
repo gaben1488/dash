@@ -70,6 +70,11 @@ function sheet(): unknown[][] {
   const r15 = empty();
   cell(r15, 3, 'Доля ЕП:'); cell(r15, 6, 0.198); cell(r15, 7, 0.2415);
   rows.push(r15);
+  // строки 16–18: переключатель периметра в колонке X (индекс 23),
+  // как на живом листе X36:X38 — подпись, значение, расшифровка.
+  rows.push(cell(empty(), 23, '↓↓↓ ПЕРЕКЛЮЧАТЕЛЬ ↓↓↓'));
+  rows.push(cell(empty(), 23, '*'));
+  rows.push(cell(empty(), 23, '* = ТД + ПМ'));
   return rows;
 }
 
@@ -91,10 +96,10 @@ describe('parseSvodExtras — ярус, который лист считает �
     expect(all.totalY2026?.row).toBe(9);
   });
 
-  it('доли КП и ЕП разбираются раздельно, с адресом строки', () => {
+  it('доли КП и ЕП: подписи по шапке листа — факт и план, не «за два года»', () => {
     const all = x.scopes.find((s) => s.scope === 'ВСЕ')!;
-    expect(all.shareCompetitive).toEqual({ bothYears: 0.537, y2026: 0.6194, row: 11 });
-    expect(all.shareEp).toEqual({ bothYears: 0.463, y2026: 0.3806, row: 12 });
+    expect(all.shareCompetitive).toEqual({ fact: 0.537, plan: 0.6194, row: 11 });
+    expect(all.shareEp).toEqual({ fact: 0.463, plan: 0.3806, row: 12 });
   });
 
   it('расчётная экономия района — та самая строка ручного отчёта', () => {
@@ -112,12 +117,16 @@ describe('parseSvodExtras — ярус, который лист считает �
   it('ярус управления читается отдельно от районного', () => {
     const uer = x.scopes.find((s) => s.scope === 'УЭР')!;
     expect(uer.totalY2026?.planCount).toBe(72);
-    expect(uer.shareEp?.y2026).toBe(0.2415);
+    expect(uer.shareEp?.plan).toBe(0.2415);
     // Расч. экономии у управлений лист не считает — честно undefined, не ноль.
     expect(uer.calcEconomy).toBeUndefined();
   });
 
   it('скоупы идут в порядке листа: район, затем управления', () => {
     expect(x.scopes.map((s) => s.scope)).toEqual(['ВСЕ', 'УЭР']);
+  });
+
+  it('переключатель периметра X37 читается: снимок знает свой срез (№13)', () => {
+    expect(x.perimeterSwitch).toEqual({ value: '*', row: 17 });
   });
 });

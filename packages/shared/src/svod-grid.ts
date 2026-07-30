@@ -136,9 +136,14 @@ function knownScopes(): Set<string> {
 
 /** Колонки итогового яруса (0-based), отличные от периодных. */
 const EXTRA_COLS = {
-  /** Доля метода: G — за два года, H — за 2026. */
-  shareBothYears: 6,
-  shareY2026: 7,
+  /**
+   * Доля метода. Подписи — по живому заголовку листа (строка 30 и её
+   * повторы у каждого скоупа): G — «факт», H — «план». Прежние имена
+   * «за два года»/«за 2026» были выдумкой: доли за два года на листе
+   * не существует вовсе (проверено на всех девяти скоупах, аудит 30.07).
+   */
+  shareFact: 6,
+  sharePlan: 7,
   /** «Расч. экономия»: M — ИТОГО, N — ФБ, O — КБ, P — МБ. */
   calcEconomyTotal: 12,
   calcEconomyFB: 13,
@@ -168,10 +173,10 @@ export interface SvodScopeSummary {
   totalBothYears?: SvodGridTotal & { row: number };
   /** «ИТОГО 2026:» — текущий план-год, КП и ЕП вместе. */
   totalY2026?: SvodGridTotal & { row: number };
-  /** Доля конкурентных: за два года и за 2026 (доли 0..1). */
-  shareCompetitive?: { bothYears: number; y2026: number; row: number };
+  /** Доля конкурентных: по факту и по плану 2026 (доли 0..1, шапка листа G/H). */
+  shareCompetitive?: { fact: number; plan: number; row: number };
   /** Доля единственного поставщика — там же. */
-  shareEp?: { bothYears: number; y2026: number; row: number };
+  shareEp?: { fact: number; plan: number; row: number };
   /** «Расч. экономия» — та, что печатается в ручном отчёте по остатку. */
   calcEconomy?: SvodMoneyRow;
 }
@@ -182,6 +187,13 @@ export interface SvodSheetExtras {
   remainderToConclude?: SvodMoneyRow;
   /** Сводки по каждому скоупу в порядке появления на листе. */
   scopes: SvodScopeSummary[];
+  /**
+   * Переключатель периметра X37: «*» = ТД + ПМ (канонический срез),
+   * «ТД»/«ПМ» — узкий срез, при котором ВСЕ числа листа другие. Продукт
+   * обязан знать положение на момент чтения: без этого исторический ряд
+   * снимков молча смешивает срезы (аудит 30.07, №13).
+   */
+  perimeterSwitch?: { value: string; row: number };
 }
 
 /**
@@ -206,6 +218,16 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
         total: num(row[EXTRA_COLS.remainderTotal]),
         row: i + 1,
       };
+      break;
+    }
+  }
+
+  // Переключатель периметра: подпись «ПЕРЕКЛЮЧАТЕЛЬ» стоит соседней строкой,
+  // само значение — в X37; ищем по подписи, а не по номеру строки.
+  for (let i = 0; i < values.length; i++) {
+    const x = String((values[i] ?? [])[23] ?? '').trim();
+    if (x !== '' && !x.includes('ПЕРЕКЛЮЧАТЕЛЬ') && !x.startsWith('* =')) {
+      out.perimeterSwitch = { value: x, row: i + 1 };
       break;
     }
   }
@@ -242,8 +264,8 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
     if (lastScope && d.toLowerCase().startsWith('доля')) {
       const s = ensure(lastScope);
       const share = {
-        bothYears: num(row[EXTRA_COLS.shareBothYears]),
-        y2026: num(row[EXTRA_COLS.shareY2026]),
+        fact: num(row[EXTRA_COLS.shareFact]),
+        plan: num(row[EXTRA_COLS.sharePlan]),
         row: i + 1,
       };
       if (/ЕП/i.test(d)) s.shareEp = share;
