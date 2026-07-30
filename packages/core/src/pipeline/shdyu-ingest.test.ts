@@ -127,4 +127,20 @@ describe('parseSHDYUSheet', () => {
     expect(q.comp['Q1'].metrics.planCount).toBe(127);
     expect(q.ep['Q1'].metrics.planCount).toBe(976);
   });
+
+  it('расч. экономия района вынута из строки долей, КБ честно null (аудит 30.07 №8)', () => {
+    // rows[3] пуст — формат «current» (legacy распознаётся по году в строке 4,
+    // а в современном листе там шапка); строки долей есть только в current.
+    const rows = rowsWithLength(70);
+    rows[4] = ['ВСЕ', 1, 2026, 1];
+    // Строка 38 листа (индекс 37): «Доля ЕП» + наложенная мини-таблица
+    // «Расч. экономия»: L=итого, M=ФБ, N=формула доли (не КБ!), O=МБ.
+    const r = new Array(21).fill('');
+    r[3] = 'Доля ЕП:'; r[11] = 23405.28; r[12] = 6952.82; r[13] = 0.8527; r[14] = 7051.05;
+    rows[37] = r;
+    const result = parseSHDYUSheet(rows);
+    expect(result.all.summary?.calcEconomy).toEqual({
+      total: 23405.28, fb: 6952.82, kb: null, mb: 7051.05, row: 38,
+    });
+  });
 });

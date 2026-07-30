@@ -289,6 +289,23 @@ function parseGRBSBlock(
     epSharePct: parseSingleRow(sheetData, block.epShareRow, cols),
   };
 
+  // «Расч. экономия» района — мини-таблица поверх строки «Доля ЕП»:
+  // L — итого, M — ФБ, O — МБ; ячейку КБ (N) занимает формула доли, лист
+  // теряет краевой бюджет — kb честно null, а не ноль (см. тип).
+  if (block.grbsId === 'all') {
+    const epShareRowRaw = sheetData[block.epShareRow - 1] ?? [];
+    const total = num(epShareRowRaw[11]); // L
+    if (total !== 0) {
+      summary.calcEconomy = {
+        total,
+        fb: num(epShareRowRaw[12]),  // M
+        kb: null,
+        mb: num(epShareRowRaw[14]),  // O
+        row: block.epShareRow,
+      };
+    }
+  }
+
   // Квартальный ярус (колонки U–AM) — ДВУМЯ диапазонами, по способу.
   // Метки Q1–Q4 стоят и в КП-секции, и в ЕП-секции; один сплошной проход
   // compStartRow..epEndRow складывал всё в общий словарь по метке, и ЕП
