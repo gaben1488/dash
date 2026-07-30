@@ -56,18 +56,6 @@ const NOT_COUNTED = 'не рассчитано';
 /** Плашка вместо текста, который пишет человек, а не продукт. */
 const NOT_FILLED = 'не заполнено';
 
-/**
- * Единственная оговорка про деньги — вместо плашки в каждой строке квартала.
- *
- * Проекция считает деньги по всем способам сразу (`money.plan/fact`), а
- * ручной отчёт даёт их отдельно по конкурентным и отдельно по ЕП. Подставить
- * общерайонную сумму в раздел «ПО КОНКУРЕНТНЫМ» было бы враньём, поэтому
- * суммы в этих строках не печатаются вовсе, а причина названа один раз.
- */
-const METHOD_MONEY_NOTE =
-  'Плановые и фактические суммы в разрезе способа закупки (ФБ/КБ/МБ отдельно ' +
-  'по конкурентным процедурам и отдельно по единственному поставщику) продукт ' +
-  'пока не считает — в строках плана и факта они не заполнены.';
 
 // ── Форматирование чисел ─────────────────────────────────────────────
 
@@ -157,6 +145,29 @@ function plannedCompetitive(n: number): string {
   if (isOne(n)) return `запланирована ${num(n)} конкурентная процедура`;
   if (isFew(n)) return `запланировано ${num(n)} конкурентные процедуры`;
   return `запланировано ${num(n)} конкурентных процедур`;
+}
+
+
+/** Деньги года по способу = Σ четырёх кварталов (то же правило §2, что счётчики). */
+function yearMethodMoney(
+  quarters: QuarterReports,
+  method: 'kp' | 'ep',
+  kind: 'plan' | 'fact',
+): { fb: number; kb: number; mb: number; total: number } {
+  const acc = { fb: 0, kb: 0, mb: 0, total: 0 };
+  for (const q of QUARTERS) {
+    const m = quarters[q].integralSummary.moneyByMethod[method][kind];
+    acc.fb += m.fb;
+    acc.kb += m.kb;
+    acc.mb += m.mb;
+    acc.total += m.total;
+  }
+  return acc;
+}
+
+/** «на общую сумму X тыс. руб. (ФБ – …, КБ – …, МБ – …)» — денежный хвост эталона. */
+function moneyTail(m: { fb: number; kb: number; mb: number; total: number }): string {
+  return ` на общую сумму ${money(m.total)} тыс. руб. ${budget(m)}`;
 }
 
 // ── Выборки по кварталам ─────────────────────────────────────────────
@@ -343,20 +354,26 @@ export function mainReportBlocks(
     '(показатели в отчете и в своде могут незначительно отличаться в виду ' +
     'актуальности свода на дату открытия, а отчета на отчетную дату)',
   ));
-  out.push(note(METHOD_MONEY_NOTE));
 
   out.push(line('ВСЕ ГРБС'));
 
   // ── Конкурентные процедуры по району ──
   out.push(heading('ПО КОНКУРЕНТНЫМ ПРОЦЕДУРАМ:'));
-  out.push(line(`Всего на год ${plannedProcedures(yearKp.planCount)}.`));
+  out.push(line(
+    `Всего на год ${plannedProcedures(yearKp.planCount)}` +
+    `${moneyTail(yearMethodMoney(quarters, 'kp', 'plan')).replace(' на общую сумму', ' на сумму')}.`,
+  ));
   for (const q of QUARTERS) {
     const kp = quarters[q].integralSummary.quarter.kp;
-    out.push(line(`Всего на ${qNom(q)} ${period.year} года ${plannedCompetitive(kp.planCount)}.`));
+    const kpMoney = quarters[q].integralSummary.moneyByMethod.kp.plan;
+    out.push(line(
+      `Всего на ${qNom(q)} ${period.year} года ${plannedCompetitive(kp.planCount)}` +
+      `${moneyTail(kpMoney)}.`,
+    ));
   }
   out.push(line(
     `Фактически обязательства заключены по ${num(yearKp.doneCount)} конкурентным ` +
-    `${proceduresDative(yearKp.doneCount)}.`,
+    `${proceduresDative(yearKp.doneCount)}${moneyTail(yearMethodMoney(quarters, 'kp', 'fact'))}.`,
   ));
 
   out.push(...districtExecutionLines(quarters, rq));
@@ -392,16 +409,21 @@ export function mainReportBlocks(
 
   // ── Единственный поставщик по району ──
   out.push(heading('ЕДИНСТВЕННЫЙ ПОСТАВЩИК:'));
-  out.push(line(`Всего на год ${plannedProcedures(yearEp.planCount)}.`));
+  out.push(line(
+    `Всего на год ${plannedProcedures(yearEp.planCount)}` +
+    `${moneyTail(yearMethodMoney(quarters, 'ep', 'plan')).replace(' на общую сумму', ' на сумму')}.`,
+  ));
   for (const q of QUARTERS) {
     const ep = quarters[q].integralSummary.quarter.ep;
+    const epMoney = quarters[q].integralSummary.moneyByMethod.ep.plan;
     out.push(line(
       `Всего на ${qNom(q)} ${period.year} года запланировано заключить договоров/контрактов ` +
-      `по ${num(ep.planCount)} наименованиям.`,
+      `по ${num(ep.planCount)} наименованиям${moneyTail(epMoney)}.`,
     ));
   }
   out.push(line(
-    `Заключено ${num(yearEp.doneCount)} ${contracts(yearEp.doneCount)}.`,
+    `Заключено ${num(yearEp.doneCount)} ${contracts(yearEp.doneCount)}` +
+    `${moneyTail(yearMethodMoney(quarters, 'ep', 'fact')).replace(' на общую сумму', ' на сумму')}.`,
   ));
 
   // Абзац эталона про адресные рекомендации коллегам: это работа аналитика,
@@ -425,8 +447,14 @@ export function mainReportBlocks(
       // Квартала без плана и без факта в ручном отчёте нет вовсе: печатать
       // «запланировано 0 … исполнение – —» значит выдавать пустоту за строку.
       if (kp.planCount === 0 && kp.doneCount === 0) continue;
-      out.push(line(`Всего на ${qNom(q)} ${period.year} года ${plannedCompetitive(kp.planCount)}.`));
-      out.push(line(`Проведено ${num(kp.doneCount)} ${auctions(kp.doneCount)}.`));
+      out.push(line(
+        `Всего на ${qNom(q)} ${period.year} года ${plannedCompetitive(kp.planCount)}` +
+        `${moneyTail(qb.quarter.moneyByMethod.kp.plan)}.`,
+      ));
+      out.push(line(
+        `Проведено ${num(kp.doneCount)} ${auctions(kp.doneCount)}` +
+        `${moneyTail(qb.quarter.moneyByMethod.kp.fact)}.`,
+      ));
       out.push(...quarterRemainderLines(qb.quarter.pendingByMethod.kp, q, 'отыграть', auctions));
       out.push(line(`Исполнение плана ${qGen(q)} – ${pct(kp.pct)}`));
     }
@@ -442,9 +470,12 @@ export function mainReportBlocks(
       if (ep.planCount === 0 && ep.doneCount === 0) continue;
       out.push(line(
         `Всего на ${qNom(q)} ${period.year} года запланировано заключить договоров/контрактов ` +
-        `по ${num(ep.planCount)} наименованиям.`,
+        `по ${num(ep.planCount)} наименованиям${moneyTail(qb.quarter.moneyByMethod.ep.plan)}.`,
       ));
-      out.push(line(`Заключено ${num(ep.doneCount)} ${contracts(ep.doneCount)}.`));
+      out.push(line(
+        `Заключено ${num(ep.doneCount)} ${contracts(ep.doneCount)}` +
+        `${moneyTail(qb.quarter.moneyByMethod.ep.fact).replace(' на общую сумму', ' на сумму')}.`,
+      ));
       out.push(...quarterRemainderLines(qb.quarter.pendingByMethod.ep, q, 'заключить', contracts));
       out.push(line(`Исполнение плана ${qGen(q)} – ${pct(ep.pct)}`));
     }
@@ -474,16 +505,18 @@ export function additionalReportBlocks(
 
   out.push(heading('ДОПОЛНИТЕЛЬНО К ОТЧЕТУ ПО ЗАКУПКАМ'));
   out.push(line(`срез на ${asOfDate}`));
-  out.push(note(METHOD_MONEY_NOTE));
   out.push(line(
     'Уважаемые коллеги, буду краток, исключительно по основным показателям и проблематике',
   ));
 
   out.push(heading('ПО КОНКУРЕНТНЫМ ПРОЦЕДУРАМ:'));
-  out.push(line(`Всего на год ${plannedProcedures(yearKp.planCount)}.`));
+  out.push(line(
+    `Всего на год ${plannedProcedures(yearKp.planCount)}` +
+    `${moneyTail(yearMethodMoney(quarters, 'kp', 'plan')).replace(' на общую сумму', ' на сумму')}.`,
+  ));
   out.push(line(
     `Фактически обязательства заключены по ${num(yearKp.doneCount)} конкурентным ` +
-    `${proceduresDative(yearKp.doneCount)}.`,
+    `${proceduresDative(yearKp.doneCount)}${moneyTail(yearMethodMoney(quarters, 'kp', 'fact'))}.`,
   ));
 
   out.push(...districtExecutionLines(quarters, rq));

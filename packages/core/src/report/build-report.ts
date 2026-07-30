@@ -125,14 +125,38 @@ function yearCountsOf(g: GroupedResults): PlanFactCounts {
 }
 
 /** Денежная тройка ФБ/КБ/МБ из метрик prefix_fb/kb/mb (+ total по сумме). */
-function moneyOf(g: GroupedResults, prefix: 'plan' | 'fact' | 'economy'): BudgetMoney {
-  const fb = getValue(g, `${prefix}_fb`);
-  const kb = getValue(g, `${prefix}_kb`);
-  const mb = getValue(g, `${prefix}_mb`);
+function moneyOf(
+  g: GroupedResults,
+  prefix: 'plan' | 'fact' | 'economy',
+  group?: string,
+): BudgetMoney {
+  const fb = getValue(g, `${prefix}_fb`, group);
+  const kb = getValue(g, `${prefix}_kb`, group);
+  const mb = getValue(g, `${prefix}_mb`, group);
   // total как сумма тройки — инвариант бюджета (§5.1) выполняется по построению;
   // канонические prefix_total у plan/fact включают K/Y-fallback и могут
   // расходиться с тройкой при кривых итогах листа — отчёт показывает сходящееся.
   return { fb, kb, mb, total: fb + kb + mb, origin: 'calc' };
+}
+
+/**
+ * Деньги квартала в разрезе способа — те самые тройки ручного отчёта
+ * («…на общую сумму X тыс. руб. (ФБ — …, КБ — …, МБ — …)» отдельно по
+ * конкурентным и по ЕП). Движок раскладывает все метрики в группы
+ * `qN.competitive`/`qN.ep` — выгрузка печатала плашку «продукт пока не
+ * считает» ровно там, где числа уже считались.
+ */
+function methodMoneyOf(g: GroupedResults, qGroup: string): GrbsQuarterSlice['moneyByMethod'] {
+  return {
+    kp: {
+      plan: moneyOf(g, 'plan', `${qGroup}.competitive`),
+      fact: moneyOf(g, 'fact', `${qGroup}.competitive`),
+    },
+    ep: {
+      plan: moneyOf(g, 'plan', `${qGroup}.ep`),
+      fact: moneyOf(g, 'fact', `${qGroup}.ep`),
+    },
+  };
 }
 
 /**
@@ -269,6 +293,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
           kp: pendingOf(g, `${qGroup}.competitive`),
           ep: pendingOf(g, `${qGroup}.ep`),
         },
+        moneyByMethod: methodMoneyOf(g, qGroup),
         live: quarterLive,
         svod: input.svodGrid
           ? svodSplit(input.svodGrid, entry?.shortName ?? dept, quarter, year)
@@ -406,6 +431,18 @@ function integralOf(
     pending: {
       quarter: sumPending(blocks.map((b) => b.quarter.pending)),
       year: sumPending(blocks.map((b) => b.year.pending)),
+    },
+    // Районные деньги квартала по способам = сумма блоков — то же правило
+    // агрегации, что у остальных полей сводки (Σ блоков = интеграл, §5.1).
+    moneyByMethod: {
+      kp: {
+        plan: sumMoney(blocks.map((b) => b.quarter.moneyByMethod.kp.plan)),
+        fact: sumMoney(blocks.map((b) => b.quarter.moneyByMethod.kp.fact)),
+      },
+      ep: {
+        plan: sumMoney(blocks.map((b) => b.quarter.moneyByMethod.ep.plan)),
+        fact: sumMoney(blocks.map((b) => b.quarter.moneyByMethod.ep.fact)),
+      },
     },
     // Официальный интеграл — блоки scope «ВСЕ» листа СВОД.
     svodQuarter: svodGrid ? svodSplit(svodGrid, 'ВСЕ', quarter, year) : undefined,

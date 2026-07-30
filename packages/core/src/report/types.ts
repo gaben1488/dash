@@ -82,6 +82,16 @@ export interface GrbsQuarterSlice {
   pending: PendingRemainder;
   /** Тот же остаток по способу — сумма КП и ЕП сходится с pending. */
   pendingByMethod: { kp: PendingRemainder; ep: PendingRemainder };
+  /**
+   * Деньги квартала в разрезе способа: тройки ФБ/КБ/МБ плана и факта отдельно
+   * по конкурентным и по ЕП — формат строк ручного отчёта («…на общую сумму X
+   * тыс. руб. (ФБ — …, КБ — …, МБ — …)»). До проброса выгрузка печатала здесь
+   * плашку «продукт пока не считает», хотя движок эти числа уже считал.
+   */
+  moneyByMethod: {
+    kp: { plan: BudgetMoney; fact: BudgetMoney };
+    ep: { plan: BudgetMoney; fact: BudgetMoney };
+  };
   /** Официальные счётчики того же квартала из листа СВОД (если лист передан). */
   svod?: MethodSplit;
   /**
@@ -150,6 +160,11 @@ export interface IntegralSummary {
    * («140 процедур на 465 181,88 тыс. руб.» на 26.06).
    */
   pending: { quarter: PendingRemainder; year: PendingRemainder };
+  /** Районные деньги квартала по способам — Σ блоков (формат ручного отчёта). */
+  moneyByMethod: {
+    kp: { plan: BudgetMoney; fact: BudgetMoney };
+    ep: { plan: BudgetMoney; fact: BudgetMoney };
+  };
   /** Официальный интеграл квартала — блоки scope «ВСЕ» листа СВОД (если передан). */
   svodQuarter?: MethodSplit;
 }
