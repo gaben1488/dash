@@ -22,7 +22,8 @@ import { api, type ReportResponse } from '../../api';
 import { useStore } from '../../store';
 import { buildFilterContext } from '../../lib/filter-context';
 import { reportRequestParams, type ReportMode } from '../../lib/report/request';
-import { fmtAsOfDate } from '../../lib/report/mappers';
+import { fmtAsOfDate, integralKpiRow } from '../../lib/report/mappers';
+import { KpiTile } from '../../components/contract/KpiTile';
 import { TableOfContents, type TocSection } from './TableOfContents';
 import { DocumentBody } from './DocumentBody';
 import type { QuarterReports, ReportForExport } from '../../lib/report/docx/text-blocks';
@@ -126,6 +127,9 @@ export function ReportDocumentPage() {
       setSaving(null);
     }
   };
+
+  // Плитки интегральной сводки: происхождение и скоуп у каждого числа.
+  const tiles = useMemo(() => (report ? integralKpiRow(report) : []), [report]);
 
   // Пункты оглавления = секции документа; ГРБС — с якорями #grbs-<dept>.
   const sections = useMemo<TocSection[]>(() => {
@@ -277,6 +281,15 @@ export function ReportDocumentPage() {
               (показатели в отчете и в своде могут незначительно отличаться в виду
               актуальности свода на дату открытия, а отчета на отчетную дату)
             </p>
+          </div>
+
+          {/* Интегральная сводка — «++» над бумагой: плитки с происхождением
+              числа и честным скоупом. Бумажный отчёт такого ряда не имеет,
+              состав утверждений ниже от этого не меняется. */}
+          <div className="mt-6 flex flex-wrap gap-2">
+            {tiles.map((t) => (
+              <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} />
+            ))}
           </div>
         </section>
 
