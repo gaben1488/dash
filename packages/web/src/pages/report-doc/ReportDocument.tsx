@@ -25,6 +25,8 @@ import { reportRequestParams, type ReportMode } from '../../lib/report/request';
 import { fmtAsOfDate } from '../../lib/report/mappers';
 import { TableOfContents, type TocSection } from './TableOfContents';
 import { ClaimLine } from './ClaimLine';
+import { DocumentBody } from './DocumentBody';
+import type { QuarterReports, ReportForExport } from '../../lib/report/docx/text-blocks';
 
 /** Честная расшифровка ошибки загрузки (503 = снапшота ещё нет) — как в Report.tsx. */
 function errorMessage(error: string): string {
@@ -117,6 +119,9 @@ export function ReportDocumentPage() {
   );
 
   // Загрузка по образцу Report.tsx: useEffect + useState, без TanStack.
+  // Четыре квартала того же среза: ручной отчёт печатает все кварталы,
+  // одиночная проекция знает только отчётный (канон text-blocks).
+  const [quarters, setQuarters] = useState<QuarterReports | null>(null);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -128,6 +133,20 @@ export function ReportDocumentPage() {
       .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
   }, [request.year, request.quarter, request.asOf]);
+
+  // Кварталы грузятся после основного отчёта тем же годом/срезом.
+  useEffect(() => {
+    if (!report) return;
+    let cancelled = false;
+    setQuarters(null);
+    Promise.all(([1, 2, 3, 4] as const).map((q) =>
+      api.getReport(request.year, q, request.asOf),
+    )).then(([q1, q2, q3, q4]) => {
+      if (!cancelled) setQuarters({ 1: q1, 2: q2, 3: q3, 4: q4 } as QuarterReports);
+    }).catch(() => { if (!cancelled) setQuarters(null); });
+    return () => { cancelled = true; };
+  }, [report, request.year, request.asOf]);
+
 
   // Дата среза — из ответа сервера (у продукта свой календарь), не new Date().
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
@@ -264,44 +283,21 @@ export function ReportDocumentPage() {
           </div>
         </section>
 
-        {/* ── Блок района: конкурентные (шаг 3 брифа — CompetitiveBlock) ── */}
-        <DocSection id="competitive" title="ПО КОНКУРЕНТНЫМ ПРОЦЕДУРАМ:">
-          <ClaimLine
-            parts={[
-              `План ${report.period.quarter} квартала ${report.period.year} года — `,
-              { kind: 'count', value: kp.planCount },
-              ' конкурентных процедур на общую сумму ',
-              { kind: 'thousands', value: kpPlanMoney.total },
-              ' тыс. руб., обязательства заключены по ',
-              { kind: 'count', value: kp.doneCount },
-              ' (исполнение — ',
-              { kind: 'pct', value: kp.pct },
-              ').',
-            ]}
+        {/* Тело документа: состав 1:1 с .docx-выгрузкой — из единственного
+            дома mainReportBlocks. Пока четыре квартала не загрузились,
+            показывается честная плашка, а не пустые секции. */}
+        {quarters ? (
+          <DocumentBody
+            report={report as unknown as ReportForExport}
+            quarters={quarters}
+            asOfDate={asOfDate ?? ''}
           />
-          <TodoNote text="шаг 3 брифа: полный блок района (CompetitiveBlock.tsx) — год + четыре квартала с деньгами, исполнение по ГРБС, остаток, расчётная экономия." />
-        </DocSection>
+        ) : (
+          <p className="text-[13px] text-zinc-400 dark:text-zinc-500">
+            Кварталы года загружаются — полный состав отчёта появится через секунду.
+          </p>
+        )}
 
-        {/* ── Блок района: единственный поставщик (шаг 4 — EpBlock) ── */}
-        <DocSection id="single-supplier" title="ЕДИНСТВЕННЫЙ ПОСТАВЩИК:">
-          <ClaimLine
-            parts={[
-              `План ${report.period.quarter} квартала ${report.period.year} года — `,
-              { kind: 'count', value: ep.planCount },
-              ' наименований, заключено — ',
-              { kind: 'count', value: ep.doneCount },
-              ' (исполнение — ',
-              { kind: 'pct', value: ep.pct },
-              ').',
-            ]}
-          />
-          <TodoNote text="шаг 4 брифа: полный блок района по единственному поставщику (EpBlock.tsx)." />
-        </DocSection>
-
-        {/* ── Секции ГРБС: по одной на управление, якоря #grbs-<dept> ── */}
-        {report.grbsBlocks.map((b) => (
-          <GrbsStub key={b.dept} block={b} />
-        ))}
       </article>
     </div>
   );
