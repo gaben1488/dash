@@ -10,6 +10,7 @@
 import { productLabel } from '@aemr/shared';
 import type { MetricDelta } from '@aemr/core';
 import { DeltaBadge } from '../DeltaBadge';
+import { KbHover } from './KbHover';
 import { SourceBadge } from './SourceBadge';
 import type { PageElementProps } from './types';
 
@@ -48,9 +49,13 @@ export function KpiTile({ metricKey, value, unit, periodBadge, source, tier = 'c
       onClick={onClick}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className={`analytics-kpi-label ${tier === 'hero' ? 'text-[11px]' : 'text-[10px]'}`}>
-          {kpiTileLabel(metricKey)}
-        </span>
+        {/* БЗ по наведению на подписи: одна дверь для всех плиток всех
+            страниц; kbFor гасит неполные записи — пустых попапов не бывает */}
+        <KbHover metricKey={metricKey}>
+          <span className={`analytics-kpi-label ${tier === 'hero' ? 'text-[11px]' : 'text-[10px]'}`}>
+            {kpiTileLabel(metricKey)}
+          </span>
+        </KbHover>
         <span className="flex items-center gap-1.5 shrink-0">
           {delta && <DeltaBadge delta={delta} context="К прошлому снимку (СВОД)" />}
           <SourceBadge source={source} />
