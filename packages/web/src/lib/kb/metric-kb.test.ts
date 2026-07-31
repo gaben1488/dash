@@ -29,8 +29,20 @@ describe('kbFor — null вместо пустого попапа', () => {
     expect(kbFor('__nonexistent__')).toBeNull();
   });
 
-  it('legacy-запись без человекочитаемых блоков (plan_count) → null', () => {
-    expect(kbFor('plan_count')).toBeNull();
+  it('legacy-запись без человекочитаемых блоков (amount_deviation) → null', () => {
+    expect(kbFor('amount_deviation')).toBeNull();
+  });
+
+  it('метрики плиток отчёта покрыты полной БЗ — попап обязан жить', () => {
+    const tileKeys = [
+      'plan_count', 'fact_count', 'exec_count_pct', 'comp_exec_count_pct',
+      'ep_exec_count_pct', 'plan_total', 'fact_total', 'economy_total',
+      'competitive_count', 'comp_fact_count', 'ep_count', 'ep_fact_count',
+      'pending_count', 'pending_total',
+    ];
+    for (const key of tileKeys) {
+      expect(kbFor(key), key).not.toBeNull();
+    }
   });
 });
 

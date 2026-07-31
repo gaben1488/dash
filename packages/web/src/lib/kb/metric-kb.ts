@@ -23,11 +23,18 @@ export function kbFor(metricKey: string): MetricKbCard | null {
   const entry = METRIC_KB[metricKey];
   // Комплект what/how/source обязателен целиком: у legacy-записей
   // (formula/source без whatIs) человекочитаемых блоков просто нет.
-  if (!entry?.whatIs || !entry.engine || !entry.dataSource) return null;
+  if (!entry?.whatIs || !entry.dataSource) return null;
+  // «Как считается» — человеческий howCalc; engine-путь — это провенанс,
+  // ему место в «Откуда», а не в объяснении для читателя без подготовки.
+  const how = entry.howCalc ?? entry.engine;
+  if (!how) return null;
+  const source = entry.engine
+    ? `${entry.dataSource}\nПуть в движке: ${entry.engine}`
+    : entry.dataSource;
   return {
     what: entry.whatIs,
-    how: entry.example ? `${entry.engine}\n${entry.example}` : entry.engine,
-    source: entry.dataSource,
+    how: entry.example ? `${how}\n${entry.example}` : how,
+    source,
     ...(entry.pitfalls ? { pitfalls: entry.pitfalls } : {}),
   };
 }
