@@ -51,7 +51,7 @@ export function DocumentBody(props: {
             <h2
               key={i}
               id={id}
-              className="scroll-mt-4 pt-8 first:pt-0 text-[15px] font-semibold text-zinc-800 dark:text-zinc-100"
+              className="scroll-mt-6 mt-10 border-t border-zinc-100 pt-8 text-[17px] font-semibold tracking-tight text-zinc-900 first:mt-0 first:border-t-0 first:pt-0 dark:border-zinc-800 dark:text-zinc-50"
             >
               {b.text}
             </h2>

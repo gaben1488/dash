@@ -16,14 +16,14 @@
  * межсекционные отступы крупнее внутрисекционных.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { dayNumberOf } from '@aemr/shared';
+import { dayNumberOf, productLabel } from '@aemr/shared';
 import clsx from 'clsx';
 import { api, type ReportResponse } from '../../api';
 import { useStore } from '../../store';
 import { buildFilterContext } from '../../lib/filter-context';
 import { reportRequestParams, type ReportMode } from '../../lib/report/request';
 import { fmtAsOfDate, integralKpiRow } from '../../lib/report/mappers';
-import { KpiTile } from '../../components/contract/KpiTile';
+import { KbHover } from '../../components/contract/KbHover';
 import { TableOfContents, type TocSection } from './TableOfContents';
 import { DocumentBody } from './DocumentBody';
 import type { QuarterReports, ReportForExport } from '../../lib/report/docx/text-blocks';
@@ -178,67 +178,79 @@ export function ReportDocumentPage() {
 
       {/* Документ: секции разделяются заголовками и крупными отступами */}
       <article className="space-y-14 pb-16">
-        {/* ── Шапка: тексты ровно как в text-blocks.ts выгрузки ── */}
+        {/* ── Титульная зона: заголовок и действия одной строкой, метаданные
+               под ними — как титул делового документа, не набор абзацев ── */}
         <section id="header" aria-labelledby="header-heading" className="scroll-mt-6">
-          <h1
-            id="header-heading"
-            className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100"
-          >
-            ОТЧЕТ ПО ЗАКУПКАМ
-          </h1>
-          <div className="mt-3 max-w-[72ch] space-y-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            <p>срез на {asOfDate}</p>
-
-            {/* Режим — управление и факт сервера одной строкой */}
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span
-                role="group"
-                aria-label="Режим просмотра"
-                className="inline-flex items-baseline gap-2 text-sm"
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+            <div>
+              <h1
+                id="header-heading"
+                className="text-[22px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-100"
               >
-                <button
-                  type="button"
-                  onClick={() => setMode('live')}
-                  aria-pressed={mode === 'live'}
-                  title="Числа на текущий момент — как считает официальный лист СВОД."
-                  className={clsx(
-                    mode === 'live'
-                      ? 'font-medium text-zinc-900 dark:text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300',
-                  )}
-                >
-                  В прямом эфире
-                </button>
+                Отчёт по закупкам
+              </h1>
+              {/* Метаданные документа: срез · режим · официальная книга */}
+              <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-[13px] text-zinc-500 dark:text-zinc-400">
+                <span className="tabular-nums">срез на {asOfDate}</span>
                 <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-600">·</span>
-                <button
-                  type="button"
-                  onClick={() => setMode('archive')}
-                  aria-pressed={mode === 'archive'}
-                  title="Снимок недели: заключённое после даты среза в числа не входит."
-                  className={clsx(
-                    mode === 'archive'
-                      ? 'font-medium text-zinc-900 dark:text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300',
-                  )}
-                >
-                  Архив недели
-                </button>
-              </span>
+                <span role="group" aria-label="Режим просмотра" className="inline-flex items-baseline gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setMode('live')}
+                    aria-pressed={mode === 'live'}
+                    title="Числа на текущий момент — как считает официальный лист СВОД."
+                    className={clsx(
+                      'transition-colors',
+                      mode === 'live'
+                        ? 'font-medium text-emerald-700 dark:text-emerald-400'
+                        : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300',
+                    )}
+                  >
+                    {mode === 'live' && (
+                      <span aria-hidden="true" className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
+                    )}
+                    в прямом эфире
+                  </button>
+                  <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-600">/</span>
+                  <button
+                    type="button"
+                    onClick={() => setMode('archive')}
+                    aria-pressed={mode === 'archive'}
+                    title="Снимок недели: заключённое после даты среза в числа не входит."
+                    className={clsx(
+                      'transition-colors',
+                      mode === 'archive'
+                        ? 'font-medium text-zinc-900 dark:text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300',
+                    )}
+                  >
+                    архив недели
+                  </button>
+                </span>
+                {report.svodOnlineUrl && (
+                  <>
+                    <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-600">·</span>
+                    <a
+                      href={report.svodOnlineUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 hover:underline dark:text-brand-400"
+                    >
+                      СВОД онлайн ↗
+                    </a>
+                  </>
+                )}
+              </p>
             </div>
-            <p>
-              {isLive
-                ? 'Отчёт построен в режиме прямого эфира: числа на текущий момент, как считает официальный лист.'
-                : `Отчёт построен по снимку недели на ${asOfDate}: заключённое после этой даты в числа не входит.`}
-            </p>
 
-            {/* Выгрузки: страница и файл собираются из одного источника состава */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+            {/* Действия документа — справа, как в любом рабочем инструменте */}
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => void onDownloadDocx('main')}
                 disabled={!quarters || saving !== null}
                 title="Основной отчёт в формате Word — тот же состав, что на этой странице"
-                className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 {saving === 'main' ? 'Готовится…' : 'Отчёт в Word'}
               </button>
@@ -247,50 +259,53 @@ export function ReportDocumentPage() {
                 onClick={() => void onDownloadDocx('extra')}
                 disabled={!quarters || saving !== null}
                 title="Дополнительный (аналитический) отчёт в формате Word"
-                className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 {saving === 'extra' ? 'Готовится…' : 'Допотчёт в Word'}
               </button>
-              {!quarters && <span className="text-xs text-zinc-400">кварталы загружаются…</span>}
-              {downloadError && (
-                <span className="text-xs text-red-600 dark:text-red-400">{downloadError}</span>
-              )}
             </div>
-
-            {/* Ссылка на СВОД онлайн — либо честная плашка text-blocks */}
-            <p>
-              {report.svodOnlineUrl ? (
-                <>
-                  Ссылка на СВОД онлайн:{' '}
-                  <a
-                    href={report.svodOnlineUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-600 underline decoration-zinc-300 underline-offset-2 hover:decoration-current dark:text-brand-400"
-                  >
-                    {report.svodOnlineUrl}
-                  </a>
-                </>
-              ) : (
-                'Ссылка на СВОД онлайн — не заполнено: книга СВОД на сервере не настроена.'
-              )}
-            </p>
-
-            {/* Оговорка эталона — курсивом, слово в слово */}
-            <p className="italic text-zinc-500 dark:text-zinc-400">
-              (показатели в отчете и в своде могут незначительно отличаться в виду
-              актуальности свода на дату открытия, а отчета на отчетную дату)
-            </p>
           </div>
+          {downloadError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{downloadError}</p>
+          )}
 
-          {/* Интегральная сводка — «++» над бумагой: плитки с происхождением
-              числа и честным скоупом. Бумажный отчёт такого ряда не имеет,
-              состав утверждений ниже от этого не меняется. */}
-          <div className="mt-6 flex flex-wrap gap-2">
-            {tiles.map((t) => (
-              <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} />
+          {/* Интегральная сводка — «++» над бумагой. Не сетка одинаковых
+              карточек: три главных числа набраны крупно, остальное — лента
+              фактов. Происхождение указано один раз: весь ряд — пересчёт. */}
+          <div className="mt-8 flex flex-wrap gap-x-10 gap-y-4">
+            {tiles.filter((t) => t.tier === 'hero').map((t) => (
+              <KbHover key={`${t.metricKey}-${t.periodBadge}`} metricKey={t.metricKey}>
+                <div>
+                  <div className="text-[28px] font-semibold leading-none tracking-tight tabular-nums text-zinc-900 dark:text-zinc-50">
+                    {t.value}
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {productLabel(t.metricKey)} · {t.periodBadge}
+                  </div>
+                </div>
+              </KbHover>
             ))}
           </div>
+          <p className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[12px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+            {tiles.filter((t) => t.tier !== 'hero').map((t, i, arr) => (
+              <span key={`${t.metricKey}-${t.periodBadge}`} className="whitespace-nowrap">
+                <span className="text-zinc-400 dark:text-zinc-500">{productLabel(t.metricKey)}</span>{' '}
+                <span className="font-medium tabular-nums text-zinc-800 dark:text-zinc-200">{t.value}</span>
+                {t.unit && <span className="text-zinc-400"> {t.unit}</span>}
+                <span className="text-zinc-400 dark:text-zinc-500"> · {t.periodBadge}</span>
+                {i < arr.length - 1 && <span aria-hidden="true" className="ml-3 text-zinc-200 dark:text-zinc-700">|</span>}
+              </span>
+            ))}
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+            все числа ряда — пересчёт из строк книг ГРБС
+          </p>
+
+          {/* Оговорка эталона — примечанием, слово в слово */}
+          <p className="mt-5 max-w-[72ch] text-[12px] italic leading-relaxed text-zinc-400 dark:text-zinc-500">
+            (показатели в отчете и в своде могут незначительно отличаться в виду
+            актуальности свода на дату открытия, а отчета на отчетную дату)
+          </p>
         </section>
 
         {/* Тело документа: состав 1:1 с .docx-выгрузкой — из единственного
