@@ -238,6 +238,20 @@ export const api = {
 
   // Отчёт — проекция buildReport (@aemr/core); квартал и дата среза опциональны.
   // Без asOf — прямой эфир (числа на сейчас); asOf открывает снимок той недели.
+
+  /** Правки книг ГРБС с даты среза — журналы _ChangeLog (провенанс коллеги). */
+  getChanges: (since?: string) => {
+    const qs = since ? `?since=${since}` : '';
+    return fetchJSON<{
+      since: string;
+      total: number;
+      records: Array<{
+        dept: string; sheet: string; cell: string; attribute: string;
+        oldValue: string; newValue: string; atMs: number; author: string;
+      }>;
+    }>(`/changes${qs}`);
+  },
+
   getReport: (year: number, quarter?: 1 | 2 | 3 | 4, asOf?: string) => {
     const params = new URLSearchParams({ year: String(year) });
     if (quarter) params.set('quarter', String(quarter));

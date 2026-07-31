@@ -46,6 +46,7 @@ import { reportRequestParams, type ReportMode } from '../lib/report/request';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
+import { ChangesSection } from '../components/report/ChangesSection';
 import { fmtMetricValue } from '../lib/delta-format';
 
 type Quarter = 1 | 2 | 3 | 4;
@@ -566,6 +567,12 @@ export function ReportPage() {
         <>
           {/* Что изменилось за неделю: дельта снимков вокруг четверга среза */}
           <WeekDeltaSection state={weekDelta} ctx={ctx} />
+
+          {/* Провенанс правок: просьба коллеги — «кто что поменял с даты
+              последнего среза», человеческий адрес до атрибута. */}
+          <SectionCard filterCtx={ctx} source="calc" title="Кто что менял с последнего среза" icon={History}>
+            <ChangesSection />
+          </SectionCard>
 
           {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin;
               дельта «к прошлому снимку» — только у плиток с официальным
