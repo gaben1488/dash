@@ -22,6 +22,12 @@ import type { PendingRemainder, Report } from '@aemr/core';
 export interface ReportBlock {
   kind: 'heading' | 'text' | 'note';
   text: string;
+  /**
+   * Ключ метрики для БЗ по наведению (KbHover на странице-документе).
+   * Выгрузка .docx поле игнорирует. Неполные записи БЗ kbFor гасит сам,
+   * поэтому ключ можно ставить впрок — попап оживёт с наполнением METRIC_KB.
+   */
+  kb?: string;
 }
 
 /**
@@ -47,7 +53,8 @@ type Quarter = 1 | 2 | 3 | 4;
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
 
 const heading = (text: string): ReportBlock => ({ kind: 'heading', text });
-const line = (text: string): ReportBlock => ({ kind: 'text', text });
+const line = (text: string, kb?: string): ReportBlock =>
+  ({ kind: 'text', text, ...(kb ? { kb } : {}) });
 const note = (text: string): ReportBlock => ({ kind: 'note', text });
 
 /** Плашка вместо числа, которого продукт пока не считает (канон честной пустоты). */
@@ -374,6 +381,7 @@ export function mainReportBlocks(
   out.push(line(
     `Фактически обязательства заключены по ${num(yearKp.doneCount)} конкурентным ` +
     `${proceduresDative(yearKp.doneCount)}${moneyTail(yearMethodMoney(quarters, 'kp', 'fact'))}.`,
+    'comp_fact_count',
   ));
 
   out.push(...districtExecutionLines(quarters, rq));
@@ -405,6 +413,7 @@ export function mainReportBlocks(
         `из них – ${money(economy.mb)} тыс. руб. – местный бюджет ${budget(economy)}.`
       : `Расчетная экономия по оставшимся незаключенным ${num(yearLeft.count)} конкурентным ` +
         `${proceduresDative(yearLeft.count)} — ${NOT_COUNTED}: ярус «Расч. экономия» листа СВОД не передан.`,
+    'economy_total',
   ));
 
   // ── Единственный поставщик по району ──

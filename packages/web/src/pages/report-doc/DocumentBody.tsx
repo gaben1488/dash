@@ -8,6 +8,7 @@
  * наращивается без смены источника чисел.
  */
 import { useMemo } from 'react';
+import { KbHover } from '../../components/contract/KbHover';
 import {
   mainReportBlocks,
   type QuarterReports,
@@ -21,7 +22,7 @@ function anchorOf(headingText: string): string | undefined {
   const m = headingText.match(/^([А-ЯЁ][А-ЯЁа-яё]{1,6}) — /);
   if (m) return `grbs-${m[1]}`;
   if (headingText.startsWith('ПО КОНКУРЕНТНЫМ')) return 'competitive';
-  if (headingText.startsWith('ЕДИНСТВЕННЫЙ')) return 'ep';
+  if (headingText.startsWith('ЕДИНСТВЕННЫЙ')) return 'single-supplier';
   return undefined;
 }
 
@@ -63,11 +64,18 @@ export function DocumentBody(props: {
             </p>
           );
         }
-        return (
+        const paragraph = (
           <p key={i} className="text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-300 tabular-nums">
             {b.text}
           </p>
         );
+        // БЗ по наведению: абзац с ключом метрики оборачивается в попап
+        // «Что это / Как считается / Откуда». Неполные записи kbFor гасит сам.
+        return b.kb ? (
+          <KbHover key={i} metricKey={b.kb}>
+            {paragraph}
+          </KbHover>
+        ) : paragraph;
       })}
     </div>
   );
