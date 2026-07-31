@@ -10,6 +10,7 @@ import {
   fmtPct,
   fmtThousands,
   integralKpiRow,
+  pendingBreakdownLine,
 } from './mappers';
 import { makeReportFixture } from './fixture';
 
@@ -40,8 +41,8 @@ describe('форматтеры канона', () => {
 describe('integralKpiRow — интегральная сводка в плитки', () => {
   const tiles = integralKpiRow(makeReportFixture());
 
-  it('13 плиток: 5 год + 5 квартал + 3 денежные', () => {
-    expect(tiles).toHaveLength(13);
+  it('15 плиток: 5 год + 5 квартал + 3 денежные + 2 остатка', () => {
+    expect(tiles).toHaveLength(15);
   });
 
   it('подписи только через metricKey канон-словаря', () => {
@@ -49,7 +50,23 @@ describe('integralKpiRow — интегральная сводка в плитк
     expect(keys.slice(0, 5)).toEqual([
       'plan_count', 'fact_count', 'exec_count_pct', 'comp_exec_count_pct', 'ep_exec_count_pct',
     ]);
-    expect(keys.slice(10)).toEqual(['plan_total', 'fact_total', 'economy_total']);
+    expect(keys.slice(10)).toEqual([
+      'plan_total', 'fact_total', 'economy_total', 'pending_count', 'pending_total',
+    ]);
+  });
+
+  it('разбивка остатка: итог, ФБ/КБ/МБ и скоуп года в одной строке', () => {
+    const line = pendingBreakdownLine(makeReportFixture());
+    expect(line).not.toBeNull();
+    expect(norm(line!)).toBe(
+      'Остаток к заключению (2026 · год): 30 процедур на 3 000 тыс. руб. — ФБ 500 · КБ 1 000 · МБ 1 500',
+    );
+  });
+
+  it('разбивка остатка: нулевой остаток → null, строка не рисуется', () => {
+    const report = makeReportFixture();
+    report.integralSummary.pending.year = { count: 0, fb: 0, kb: 0, mb: 0, total: 0 };
+    expect(pendingBreakdownLine(report)).toBeNull();
   });
 
   it('квартальная плитка исполнения: 6/15 → 40,0%, hero, честный бейдж 1 кв', () => {

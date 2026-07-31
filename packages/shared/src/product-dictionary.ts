@@ -174,6 +174,8 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   exec_count_pct: '% исполнения (кол-во)',
   comp_exec_count_pct: '% исполнения КП (кол-во)',
   ep_exec_count_pct: '% исполнения ЕП (кол-во)',
+  pending_count: 'Осталось процедур',
+  pending_total: 'Осталось в плановых деньгах',
 };
 
 // ────────────────────────────────────────────────────────────

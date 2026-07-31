@@ -165,6 +165,25 @@ export function integralKpiRow(report: Report): KpiVM[] {
       source: money.economy.origin,
       tier: 'compact',
     },
+    // Остаток к заключению — прямой запрос коллег: «сколько в плановых
+    // деньгах по оставшимся процедурам». origin не нужен: pending_* всегда
+    // наш пересчёт (см. PendingRemainder в core).
+    {
+      metricKey: 'pending_count',
+      value: fmtCount(integralSummary.pending.year.count),
+      unit: '',
+      periodBadge: yearBadge,
+      source: 'calc',
+      tier: 'compact',
+    },
+    {
+      metricKey: 'pending_total',
+      value: fmtThousands(integralSummary.pending.year.total),
+      unit: 'тыс. ₽',
+      periodBadge: yearBadge,
+      source: 'calc',
+      tier: 'compact',
+    },
   ];
   return [
     ...stampOfficialKeys(scopeTiles(integralSummary.year, yearBadge), 'year'),
@@ -172,6 +191,21 @@ export function integralKpiRow(report: Report): KpiVM[] {
     // Деньги «итого» = КП+ЕП: единой официальной ячейки нет — без аналога
     ...moneyTiles,
   ];
+}
+
+/**
+ * Разбивка остатка по бюджетам — вторая половина запроса коллег
+ * («…с разбивкой по бюджетам»). Плитка несёт итог, строка — состав;
+ * null, когда остатка нет: строка «ФБ 0 · КБ 0 · МБ 0» — шум.
+ */
+export function pendingBreakdownLine(report: Report): string | null {
+  const p = report.integralSummary.pending.year;
+  if (p.count === 0) return null;
+  return (
+    `Остаток к заключению (${report.period.year} · год): ` +
+    `${fmtCount(p.count)} процедур на ${fmtThousands(p.total)} тыс. руб. — ` +
+    `ФБ ${fmtThousands(p.fb)} · КБ ${fmtThousands(p.kb)} · МБ ${fmtThousands(p.mb)}`
+  );
 }
 
 // ── Блок ГРБС → view-модель секции ──────────────────────────

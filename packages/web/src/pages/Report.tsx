@@ -39,8 +39,10 @@ import {
   integralKpiRow,
   fmtAsOfDate,
   fmtCount,
+  pendingBreakdownLine,
   type GrbsSectionVM,
 } from '../lib/report/mappers';
+import { KbHover } from '../components/contract/KbHover';
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams, type ReportMode } from '../lib/report/request';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
@@ -595,6 +597,15 @@ export function ReportPage() {
                 ))}
               </div>
             </div>
+            {/* Разбивка остатка по бюджетам — «…с разбивкой по бюджетам»
+                из запроса коллег; плитка выше несёт итог, строка — состав */}
+            {report && pendingBreakdownLine(report) && (
+              <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                <KbHover metricKey="pending_total">
+                  <span>{pendingBreakdownLine(report)}</span>
+                </KbHover>
+              </p>
+            )}
           </SectionCard>
 
           {/* Блоки по ГРБС */}
