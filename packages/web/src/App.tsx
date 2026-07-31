@@ -8,7 +8,7 @@ import { Dashboard } from './pages/Dashboard';
 // Отчёт++ (бриф 2026-08-01): страница-документ, собранная из того же
 // mainReportBlocks, что и .docx-выгрузка, — состав совпадает по построению.
 // Старая вёрстка (pages/Report.tsx) сносится после аудита (шаг 7 брифа).
-import { ReportDocumentPage } from './pages/report-doc/ReportDocument';
+import { ReportPage } from './pages/Report';
 import { SvodView } from './pages/SvodView';
 import { DataBrowserPage } from './pages/DataBrowser';
 import { EconomyPage } from './pages/Economy';
@@ -113,7 +113,9 @@ export function App() {
   const renderPage = () => {
     switch (page) {
       case 'dashboard': return <Dashboard />;
-      case 'report': return <ReportDocumentPage />;
+      // v4: документ-калька признана регрессией — основа снова старая
+      // страница, улучшаемая до идеала (бриф Отчёт++, поворот v4).
+      case 'report': return <ReportPage />;
       case 'svod': return <SvodView />;
       case 'data': return <DataBrowserPage />;
       case 'economy': return <EconomyPage />;
