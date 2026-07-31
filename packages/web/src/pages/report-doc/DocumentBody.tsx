@@ -16,7 +16,9 @@ import {
 
 /** Якорь секции по её заголовку: ГРБС-заголовки уже несут «КОД — название». */
 function anchorOf(headingText: string): string | undefined {
-  const m = headingText.match(/^([А-ЯЁ]{2,7}) — /);
+  // Строчные буквы обязательны: «УКСиМП» иначе остаётся без якоря,
+  // и пункт оглавления ведёт в никуда.
+  const m = headingText.match(/^([А-ЯЁ][А-ЯЁа-яё]{1,6}) — /);
   if (m) return `grbs-${m[1]}`;
   if (headingText.startsWith('ПО КОНКУРЕНТНЫМ')) return 'competitive';
   if (headingText.startsWith('ЕДИНСТВЕННЫЙ')) return 'ep';
@@ -28,10 +30,16 @@ export function DocumentBody(props: {
   quarters: QuarterReports;
   asOfDate: string;
 }) {
-  const blocks = useMemo(
-    () => mainReportBlocks(props.report, props.quarters, props.asOfDate),
-    [props.report, props.quarters, props.asOfDate],
-  );
+  const blocks = useMemo(() => {
+    const all = mainReportBlocks(props.report, props.quarters, props.asOfDate);
+    // Шапку документа («ОТЧЕТ ПО ЗАКУПКАМ», срез, ссылка, оговорка) рендерит
+    // страница своей интерактивной версией (режим, кнопки Word) — из потока
+    // блоков её выкидываем, иначе она печатается дважды. Тело начинается с
+    // «ВСЕ ГРБС»; если строки нет (изменился состав) — показываем всё:
+    // дубль шапки заметнее и честнее, чем молча отрезанное тело.
+    const start = all.findIndex((b) => b.text === 'ВСЕ ГРБС');
+    return start > 0 ? all.slice(start) : all;
+  }, [props.report, props.quarters, props.asOfDate]);
 
   return (
     <div className="space-y-3 max-w-[72ch]">

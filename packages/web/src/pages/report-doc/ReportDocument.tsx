@@ -24,7 +24,6 @@ import { buildFilterContext } from '../../lib/filter-context';
 import { reportRequestParams, type ReportMode } from '../../lib/report/request';
 import { fmtAsOfDate } from '../../lib/report/mappers';
 import { TableOfContents, type TocSection } from './TableOfContents';
-import { ClaimLine } from './ClaimLine';
 import { DocumentBody } from './DocumentBody';
 import type { QuarterReports, ReportForExport } from '../../lib/report/docx/text-blocks';
 
@@ -33,58 +32,6 @@ function errorMessage(error: string): string {
   return error.includes('503')
     ? 'Данные не загружены: сервер ещё не получил снапшот книг. Обновите данные на Пульте и вернитесь.'
     : `Отчёт временно недоступен. ${error}`;
-}
-
-/**
- * Секция документа: заголовок-разделитель + тело ≤72ch.
- * Секции разделяются заголовками, не рамками (DESIGN.md, канон документа).
- */
-function DocSection({ id, title, children }: {
-  id: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-6">
-      <h2
-        id={`${id}-heading`}
-        className="text-lg font-semibold text-zinc-900 dark:text-zinc-100"
-      >
-        {title}
-      </h2>
-      <div className="mt-3 max-w-[72ch] space-y-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-/** Плашка-заглушка «здесь будет блок» — честный TODO следующего шага брифа. */
-function TodoNote({ text }: { text: string }) {
-  return (
-    <p className="text-[13px] text-zinc-400 dark:text-zinc-500">TODO — {text}</p>
-  );
-}
-
-/** Заглушка секции одного ГРБС (шаг 5 брифа: GrbsSection.tsx). */
-function GrbsStub({ block }: { block: ReportResponse['grbsBlocks'][number] }) {
-  const kp = block.quarter.methods.kp;
-  return (
-    <DocSection id={`grbs-${block.dept}`} title={`${block.dept} — ${block.deptLabel}`}>
-      <ClaimLine
-        parts={[
-          'Конкурентные процедуры квартала: план — ',
-          { kind: 'count', value: kp.planCount },
-          ', проведено — ',
-          { kind: 'count', value: kp.doneCount },
-          ' (исполнение — ',
-          { kind: 'pct', value: kp.pct },
-          ').',
-        ]}
-      />
-      <TodoNote text="шаг 5 брифа: секция управления целиком (кварталы, деньги, остаток, сигналы, оговорки)." />
-    </DocSection>
-  );
 }
 
 export function ReportDocumentPage() {
@@ -152,6 +99,34 @@ export function ReportDocumentPage() {
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   const isLive = report?.period.live ?? false;
 
+  // Выгрузка в Word: страница и документ собираются из ОДНОГО mainReportBlocks,
+  // поэтому «что видишь — то и скачиваешь» выполняется по построению.
+  const [saving, setSaving] = useState<'main' | 'extra' | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const onDownloadDocx = async (kind: 'main' | 'extra') => {
+    if (!report || !quarters || asOfDate === null) return;
+    setSaving(kind);
+    setDownloadError(null);
+    try {
+      // Библиотека docx грузится по требованию: 400 КБ не должны висеть на
+      // каждом открытии страницы ради кнопки, которую жмут раз в неделю.
+      const [{ buildDocument, downloadDocx, reportFilename }, blocksMod] = await Promise.all([
+        import('../../lib/report/docx/build-docx'),
+        import('../../lib/report/docx/text-blocks'),
+      ]);
+      const isMain = kind === 'main';
+      const blocks = isMain
+        ? blocksMod.mainReportBlocks(report, quarters, asOfDate)
+        : blocksMod.additionalReportBlocks(report, quarters, asOfDate);
+      const title = isMain ? 'Отчёт по закупкам' : 'Дополнительно к отчету по закупкам';
+      await downloadDocx(buildDocument(blocks, title), reportFilename(title, asOfDate));
+    } catch (e: unknown) {
+      setDownloadError(`Не удалось собрать документ: ${String(e)}`);
+    } finally {
+      setSaving(null);
+    }
+  };
+
   // Пункты оглавления = секции документа; ГРБС — с якорями #grbs-<dept>.
   const sections = useMemo<TocSection[]>(() => {
     if (!report) return [];
@@ -177,10 +152,6 @@ export function ReportDocumentPage() {
       </div>
     );
   }
-
-  const kp = report.integralSummary.quarter.kp;
-  const ep = report.integralSummary.quarter.ep;
-  const kpPlanMoney = report.integralSummary.moneyByMethod.kp.plan;
 
   return (
     <div className="lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:items-start lg:gap-10">
@@ -255,6 +226,32 @@ export function ReportDocumentPage() {
                 ? 'Отчёт построен в режиме прямого эфира: числа на текущий момент, как считает официальный лист.'
                 : `Отчёт построен по снимку недели на ${asOfDate}: заключённое после этой даты в числа не входит.`}
             </p>
+
+            {/* Выгрузки: страница и файл собираются из одного источника состава */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => void onDownloadDocx('main')}
+                disabled={!quarters || saving !== null}
+                title="Основной отчёт в формате Word — тот же состав, что на этой странице"
+                className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                {saving === 'main' ? 'Готовится…' : 'Отчёт в Word'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void onDownloadDocx('extra')}
+                disabled={!quarters || saving !== null}
+                title="Дополнительный (аналитический) отчёт в формате Word"
+                className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                {saving === 'extra' ? 'Готовится…' : 'Допотчёт в Word'}
+              </button>
+              {!quarters && <span className="text-xs text-zinc-400">кварталы загружаются…</span>}
+              {downloadError && (
+                <span className="text-xs text-red-600 dark:text-red-400">{downloadError}</span>
+              )}
+            </div>
 
             {/* Ссылка на СВОД онлайн — либо честная плашка text-blocks */}
             <p>

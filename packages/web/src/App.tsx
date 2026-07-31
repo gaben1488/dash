@@ -5,7 +5,10 @@ import { useUrlSync } from './hooks/useUrlSync';
 import { Header } from './components/Header';
 import { OrgStrip } from './components/OrgStrip';
 import { Dashboard } from './pages/Dashboard';
-import { ReportPage } from './pages/Report';
+// Отчёт++ (бриф 2026-08-01): страница-документ, собранная из того же
+// mainReportBlocks, что и .docx-выгрузка, — состав совпадает по построению.
+// Старая вёрстка (pages/Report.tsx) сносится после аудита (шаг 7 брифа).
+import { ReportDocumentPage } from './pages/report-doc/ReportDocument';
 import { SvodView } from './pages/SvodView';
 import { DataBrowserPage } from './pages/DataBrowser';
 import { EconomyPage } from './pages/Economy';
@@ -110,7 +113,7 @@ export function App() {
   const renderPage = () => {
     switch (page) {
       case 'dashboard': return <Dashboard />;
-      case 'report': return <ReportPage />;
+      case 'report': return <ReportDocumentPage />;
       case 'svod': return <SvodView />;
       case 'data': return <DataBrowserPage />;
       case 'economy': return <EconomyPage />;
