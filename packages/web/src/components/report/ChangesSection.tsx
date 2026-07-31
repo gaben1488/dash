@@ -5,13 +5,15 @@
  * поставщика и плановых дат по каждому управлению. Источник — журналы
  * _ChangeLog книг (GET /api/changes, 37 294 записи, найдены аудитом №15).
  *
- * Подача хуманизированная: не «ячейка L178», а полный адрес с именем
- * атрибута — «лист ВСЕ · L178 · Способ определения поставщика», старое и
- * новое значение стрелкой, автор и время. Смена способа выделена: это
- * главный сигнал для коллеги. Топ свёрнут, полная выборка с поиском —
- * на месте (контракт ExpandableRows, канон «топ-N раскрывается»).
+ * Подача — повествовательное предложение, а не колонки тех-лога:
+ * «Сотрудник … изменил(а) <атрибут> в книге …, лист …, ячейка …: было → стало».
+ * Атрибут называется на языке продукта (HUMAN_ATTR), не шапкой оператора
+ * («КБ 2»). Смена способа выделена: это главный сигнал для коллеги.
+ * Топ свёрнут, полная выборка с поиском — на месте (контракт
+ * ExpandableRows, канон «топ-N раскрывается»).
  */
 import { useEffect, useMemo, useState } from 'react';
+import { COL_LETTER_INDEX, DEPT_COLUMNS } from '@aemr/shared';
 import { api } from '../../api';
 import { ExpandableRows } from '../contract/ExpandableRows';
 
@@ -39,29 +41,76 @@ function fmtAt(ms: number): string {
 /** Значение в журнале бывает пустым — читателю честнее слово, чем дыра. */
 const val = (s: string): string => (s.trim() === '' ? 'пусто' : s);
 
+/**
+ * Человеческие имена атрибутов. Дословная шапка книги («КБ 2») — тех-жаргон
+ * оператора; читателю отчёта нужно название на языке продукта. Ключи — канон
+ * DEPT_COLUMNS; чего нет в карте — показываем шапку в кавычках, не выдумываем.
+ */
+const HUMAN_ATTR: Partial<Record<keyof typeof DEPT_COLUMNS, string>> = {
+  SUBJECT: 'предмет закупки',
+  METHOD: 'способ определения поставщика',
+  EP_REASON: 'основание выбора ЕП',
+  PLAN_DATE: 'плановую дату заключения',
+  PLAN_QUARTER: 'плановый квартал',
+  PLAN_YEAR: 'плановый год',
+  FACT_DATE: 'дату заключения (факт)',
+  FACT_QUARTER: 'квартал факта',
+  FACT_YEAR: 'год факта',
+  DEVIATION_DAYS: 'отклонение в днях',
+  FB_PLAN: 'план по федеральному бюджету',
+  KB_PLAN: 'план по краевому бюджету',
+  MB_PLAN: 'план по местному бюджету',
+  TOTAL_PLAN: 'плановую сумму (итого)',
+  FB_FACT: 'факт по федеральному бюджету',
+  KB_FACT: 'факт по краевому бюджету',
+  MB_FACT: 'факт по местному бюджету',
+  TOTAL_FACT: 'сумму контракта (итого)',
+  ECONOMY_FB: 'экономию по федеральному бюджету',
+  ECONOMY_KB: 'экономию по краевому бюджету',
+  ECONOMY_MB: 'экономию по местному бюджету',
+  ECONOMY_TOTAL: 'экономию (итого)',
+  FLAG: 'признак учёта экономии',
+  JUSTIFICATION: 'обоснование необходимости',
+  COMMENT_GRBS: 'комментарий ГРБСа',
+  COMMENT_UER: 'комментарий УЭР',
+  COMMENT_UFBP: 'комментарий УФБП',
+  DEVIATION_REASON: 'причину отклонения',
+};
+
+/** Ячейка «W59» → человеческое имя атрибута («факт по краевому бюджету»). */
+function humanAttribute(cell: string, rawAttr: string): string {
+  const letter = cell.match(/^([A-Z]{1,2})\d+$/)?.[1];
+  const idx = letter !== undefined ? COL_LETTER_INDEX[letter] : undefined;
+  const key = idx === undefined
+    ? undefined
+    : (Object.keys(DEPT_COLUMNS) as Array<keyof typeof DEPT_COLUMNS>)
+        .find((k) => DEPT_COLUMNS[k] === idx);
+  if (key && HUMAN_ATTR[key]) return HUMAN_ATTR[key]!;
+  return rawAttr ? `«${rawAttr}»` : 'колонку вне канона';
+}
+
 function ChangeRow({ r }: { r: ChangeRecord }) {
+  const attr = humanAttribute(r.cell, r.attribute);
   // Смена способа определения поставщика — то, ради чего секция существует.
-  const isMethod = r.attribute.startsWith('Способ определения');
+  const isMethod = attr === HUMAN_ATTR.METHOD;
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] leading-relaxed">
-      <span className="w-24 shrink-0 tabular-nums text-zinc-400 dark:text-zinc-500">{fmtAt(r.atMs)}</span>
-      <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-        {r.sheet}!{r.cell}
-      </span>
-      <span className={isMethod
-        ? 'font-medium text-violet-700 dark:text-violet-400'
-        : 'text-zinc-700 dark:text-zinc-300'}
-      >
-        {r.attribute || 'колонка вне канона'}
-      </span>
-      <span className="text-zinc-500 dark:text-zinc-400">
-        {val(r.oldValue)} <span aria-hidden="true">→</span>{' '}
-        <span className="font-medium text-zinc-800 dark:text-zinc-200">{val(r.newValue)}</span>
-      </span>
-      {r.author && (
-        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{r.author}</span>
-      )}
-    </div>
+    // Предложение, а не колонки тех-лога: «Сотрудник … изменил(а) …: было → стало».
+    <p className="text-[12px] leading-relaxed text-zinc-700 dark:text-zinc-300">
+      Сотрудник{' '}
+      <span className="font-medium text-zinc-800 dark:text-zinc-200">
+        {r.author || 'без подписи'}
+      </span>{' '}
+      изменил(а){' '}
+      <span className={isMethod ? 'font-medium text-violet-700 dark:text-violet-400' : undefined}>
+        {attr}
+      </span>{' '}
+      в книге {r.dept}, лист «{r.sheet}», ячейка{' '}
+      <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{r.cell}</span>:{' '}
+      <span className="text-zinc-500 dark:text-zinc-400">{val(r.oldValue)}</span>{' '}
+      <span aria-hidden="true">→</span>{' '}
+      <span className="font-medium text-zinc-800 dark:text-zinc-200">{val(r.newValue)}</span>
+      <span className="text-zinc-400 dark:text-zinc-500"> — {fmtAt(r.atMs)}</span>
+    </p>
   );
 }
 
@@ -119,7 +168,8 @@ export function ChangesSection() {
               rows={records}
               top={5}
               noun="правок"
-              searchText={(r) => `${r.cell} ${r.attribute} ${r.oldValue} ${r.newValue} ${r.author}`}
+              searchText={(r) =>
+                `${r.cell} ${r.attribute} ${humanAttribute(r.cell, r.attribute)} ${r.oldValue} ${r.newValue} ${r.author}`}
             >
               {(r) => <ChangeRow key={`${r.cell}-${r.atMs}`} r={r} />}
             </ExpandableRows>
