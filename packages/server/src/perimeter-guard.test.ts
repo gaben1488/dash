@@ -38,6 +38,7 @@ const ALLOWED: Record<string, string> = {
   'services/google-sheets.ts': 'дом резолвера: readDeptSheet сам перебирает кандидаты «ВСЕ»/«Все»/имя',
   'services/rows-read.ts': 'ступень 2 каскада — DEPRECATED-зеркало листа управления внутри книги СВОД',
   'services/snapshot.ts': 'вкладки книги СВОД по ALL_SHEETS; книги ГРБС грузит fetchDepartmentSpreadsheets',
+  'routes/changes.ts': 'журнал правок _ChangeLog — служебная вкладка, не строки управления; периметр строк не задет',
 };
 
 const CALL = /\bgetSheetData(FromSpreadsheet|WithFormulas)?\s*\(([^)]*)\)/g;

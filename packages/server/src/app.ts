@@ -18,6 +18,7 @@ import { analyticsRoutes } from './routes/analytics.js';
 import { historyRoutes } from './routes/history.js';
 import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
+import { changesRoutes } from './routes/changes.js';
 import { getSnapshot, setDeptSheetCache, setDeptLoadMeta } from './services/snapshot.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { fetchDepartmentSpreadsheets } from './services/google-sheets.js';
@@ -86,6 +87,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(metricsRoutes);
   await app.register(auditRoutes);
   await app.register(rowsRoutes);
+  await app.register(changesRoutes);
   await app.register(issuesRoutes);
   await app.register(mappingRoutes);
   await app.register(journalRoutes);
