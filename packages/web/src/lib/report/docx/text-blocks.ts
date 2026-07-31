@@ -149,7 +149,7 @@ function plannedCompetitive(n: number): string {
 
 
 /** Деньги года по способу = Σ четырёх кварталов (то же правило §2, что счётчики). */
-export function yearMethodMoney(
+function yearMethodMoney(
   quarters: QuarterReports,
   method: 'kp' | 'ep',
   kind: 'plan' | 'fact',
@@ -202,7 +202,7 @@ interface YearCounts {
  *
  * `dept` не задан — район целиком, задан — одно управление.
  */
-export function yearOf(quarters: QuarterReports, method: 'kp' | 'ep', dept?: string): YearCounts {
+function yearOf(quarters: QuarterReports, method: 'kp' | 'ep', dept?: string): YearCounts {
   let planCount = 0;
   let doneCount = 0;
   for (const q of QUARTERS) {
