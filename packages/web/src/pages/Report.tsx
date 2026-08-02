@@ -651,6 +651,29 @@ export function ReportPage() {
             )}
           </SectionCard>
 
+          {/* Шапка ГРБС отчёта: оглавление из управлений с исполнением
+              квартала (состав шапки ручного отчёта); клик — к секции */}
+          {visibleBlocks.length > 1 && (
+            <nav
+              aria-label="ГРБС отчёта"
+              className="flex flex-wrap gap-1.5"
+            >
+              {visibleBlocks.map((vm) => (
+                <button
+                  key={vm.dept}
+                  type="button"
+                  onClick={() => document.getElementById(`grbs-${vm.dept}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
+                >
+                  {vm.dept}
+                  <span className="ml-1.5 tabular-nums font-medium text-zinc-800 dark:text-zinc-100">
+                    {vm.executionPct}
+                  </span>
+                </button>
+              ))}
+            </nav>
+          )}
+
           {/* Блоки по ГРБС */}
           {visibleBlocks.length === 0 ? (
             <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-500 dark:text-zinc-400">
@@ -660,7 +683,9 @@ export function ReportPage() {
             </div>
           ) : (
             visibleBlocks.map((vm) => (
-              <GrbsSection key={vm.dept} vm={vm} quarter={report.period.quarter} ctx={ctx} />
+              <div key={vm.dept} id={`grbs-${vm.dept}`} className="scroll-mt-4">
+                <GrbsSection vm={vm} quarter={report.period.quarter} ctx={ctx} />
+              </div>
             ))
           )}
 
