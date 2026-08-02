@@ -25,7 +25,7 @@ import {
   quarterLabel,
 } from '@aemr/shared';
 import { buildSheetUrl } from '../lib/recon/sheet-links';
-import type { MetricDelta } from '@aemr/core';
+import type { MetricDelta, ReportSignal } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
@@ -42,6 +42,7 @@ import {
   pendingBreakdownLine,
   type GrbsSectionVM,
 } from '../lib/report/mappers';
+import { ExpandableRows } from '../components/contract/ExpandableRows';
 import { KbHover } from '../components/contract/KbHover';
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams, type ReportMode } from '../lib/report/request';
@@ -74,6 +75,50 @@ function errorMessage(error: string): string {
   return error.includes('503')
     ? 'Данные не загружены: сервер ещё не получил снапшот книг. Обновите данные на Пульте и вернитесь.'
     : `Отчёт временно недоступен. ${error}`;
+}
+
+/** Слово критичности — текстовый дубль цветной точки (канон DESIGN.md). */
+const SEVERITY_RU: Record<string, string> = {
+  critical: 'критично',
+  error: 'ошибка',
+  significant: 'существенно',
+  warning: 'внимание',
+  info: 'справочно',
+};
+
+/**
+ * Строка сигнала: полный текст (обрезка запрещена — закон «сигналы целиком»),
+ * слово критичности рядом с точкой, описание и адрес первички
+ * (лист · ячейка) — путь к таблице от каждого пункта.
+ */
+function SignalRow({ s }: { s: ReportSignal }) {
+  return (
+    <div className="text-[11px] leading-relaxed">
+      <div className="flex items-baseline gap-2">
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full shrink-0 self-center"
+          style={{ backgroundColor: SEVERITY_COLORS[s.severity].text }}
+        />
+        <span className="shrink-0 text-[10px] uppercase tracking-wide" style={{ color: SEVERITY_COLORS[s.severity].text }}>
+          {SEVERITY_RU[s.severity] ?? s.severity}
+        </span>
+        <span className="text-zinc-700 dark:text-zinc-200">{s.title}</span>
+      </div>
+      {(s.description || s.sheet || s.cell) && (
+        <div className="ml-3.5 text-zinc-500 dark:text-zinc-400">
+          {s.description}
+          {(s.sheet || s.cell) && (
+            <span className="ml-1 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+              {' — '}{s.sheet ? `лист «${s.sheet}»` : ''}{s.sheet && s.cell ? ' · ' : ''}{s.cell ? `ячейка ${s.cell}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+      {s.recommendation && (
+        <div className="ml-3.5 text-zinc-500 dark:text-zinc-400">Рекомендация: {s.recommendation}</div>
+      )}
+    </div>
+  );
 }
 
 /** Секция одного ГРБС — целиком из контрактных элементов. */
@@ -160,19 +205,17 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
           </div>
         )}
 
-        {/* Топ-сигналы человеческими словами */}
+        {/* Сигналы: полный текст без обрезаний, слово критичности (текстовый
+            дубль цвета), адрес первички; свёрнут топ-3, раскрывается всё */}
         {vm.signals.length > 0 && (
-          <ul className="space-y-1">
-            {vm.signals.map((s) => (
-              <li key={s.id} className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-300">
-                <span
-                  className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: SEVERITY_COLORS[s.severity].text }}
-                />
-                {s.title}
-              </li>
-            ))}
-          </ul>
+          <ExpandableRows
+            rows={vm.signals}
+            top={3}
+            noun="сигналов"
+            searchText={(s) => `${s.title} ${s.description} ${s.sheet ?? ''} ${s.cell ?? ''}`}
+          >
+            {(s) => <SignalRow key={s.id} s={s} />}
+          </ExpandableRows>
         )}
       </div>
     </SectionCard>

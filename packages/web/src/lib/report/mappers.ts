@@ -295,7 +295,7 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     economyLine: block.economy.total > 0
       ? `Экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
       : null,
-    signals: block.topSignals,
+    signals: block.signals,
     svodPairs,
     svodNote: afterSlice > 0
       ? `Сверка — на текущий момент, как считает СВОД. После даты среза заключено ${fmtCount(afterSlice)} — ` +

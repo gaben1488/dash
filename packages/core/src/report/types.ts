@@ -126,11 +126,22 @@ export interface GrbsYearSlice {
   pending: PendingRemainder;
 }
 
-/** Топ-сигнал блока ГРБС — свёртка Issue снапшота для шапки секции. */
+/**
+ * Сигнал блока ГРБС — свёртка Issue снапшота. Несёт полный текст и адрес
+ * первички (лист/ячейка/строка): закон продукта «от каждого пункта — путь
+ * к таблице». Обрезку до топ-N делает UI (ExpandableRows), не проекция.
+ */
 export interface ReportSignal {
   id: string;
   severity: IssueSeverity;
   title: string;
+  /** Полное описание проблемы — текст целиком, обрезать запрещено. */
+  description: string;
+  sheet?: string;
+  cell?: string;
+  row?: number;
+  /** Рекомендация исполнителю, если проверка её несёт. */
+  recommendation?: string;
 }
 
 /** Блок отчёта по одному ГРБС (секция страницы «Отчёт»). */
@@ -146,7 +157,7 @@ export interface GrbsReportBlock {
   /** Утверждённая экономия года (гейт AD='да' + дата факта — канон approvedEconomy). */
   economy: BudgetMoney;
   /** Топ-сигналы ГРБС по критичности (свёрнуто из issues снапшота). */
-  topSignals: ReportSignal[];
+  signals: ReportSignal[];
 }
 
 /** Интегральная сводка (шапка отчёта): КП+ЕП план/факт год и квартал. */

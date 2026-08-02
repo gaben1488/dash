@@ -432,7 +432,7 @@ describe('buildReport — период, порядок, сигналы', () => {
     expect(uer.deptLabel).toBe('Управление экономического развития');
   });
 
-  it('topSignals: только свой ГРБС, по критичности, не больше трёх', () => {
+  it('signals: только свой ГРБС, по критичности, ЦЕЛИКОМ — топ-N режет UI', () => {
     const mkIssue = (id: string, departmentId: string, severity: Issue['severity']): Issue => ({
       id, severity, origin: 'bi_heuristic', category: 'signal',
       title: `Сигнал ${id}`, description: '', departmentId,
@@ -447,10 +447,12 @@ describe('buildReport — период, порядок, сигналы', () => {
     ];
     const report = buildReport({ rowsByDept: fixtureRows(), issues }, OPTS);
     const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
-    // 4 сигнала УЭР → топ-3 по критичности; чужой (uksimp) не попадает.
-    expect(uer.topSignals.map((s) => s.id)).toEqual(['i2', 'i4', 'i3']);
+    // Все 4 сигнала УЭР, по критичности; чужой (uksimp) не попадает.
+    expect(uer.signals.map((s) => s.id)).toEqual(['i2', 'i4', 'i3', 'i1']);
     const uksimp = report.grbsBlocks.find((b) => b.dept === 'УКСиМП')!;
-    expect(uksimp.topSignals.map((s) => s.id)).toEqual(['i5']);
+    expect(uksimp.signals.map((s) => s.id)).toEqual(['i5']);
+    // Полный текст и адрес первички доезжают до проекции.
+    expect(uer.signals[0].description).toBe('');
   });
 });
 

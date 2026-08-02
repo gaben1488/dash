@@ -57,7 +57,14 @@ function uerBlock(): GrbsReportBlock {
       fact: { fb: 800, kb: 1500, mb: 200, total: 2500, origin: 'calc' },
     },
     economy: { fb: 50, kb: 100, mb: 0, total: 150, origin: 'calc' },
-    topSignals: [{ id: 'sig-1', severity: 'warning', title: 'Просрочен план размещения по 3 процедурам' }],
+    signals: [{
+      id: 'sig-1',
+      severity: 'warning',
+      title: 'Просрочен план размещения по 3 процедурам',
+      description: 'Плановая дата размещения прошла, дата заключения не проставлена по трём строкам листа.',
+      sheet: 'ВСЕ',
+      cell: 'S12',
+    }],
   };
 }
 
@@ -89,7 +96,7 @@ function uoBlock(): GrbsReportBlock {
       fact: { fb: 0, kb: 850, mb: 100, total: 950, origin: 'calc' },
     },
     economy: { fb: 0, kb: 0, mb: 0, total: 0, origin: 'calc' },
-    topSignals: [],
+    signals: [],
   };
 }
 

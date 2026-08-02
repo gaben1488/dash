@@ -85,7 +85,6 @@ export interface BuildReportOptions {
 const ENGINE = new CalcEngine();
 
 /** Сколько топ-сигналов показывает шапка секции ГРБС. */
-const TOP_SIGNALS_LIMIT = 3;
 
 /** Порядок критичности для отбора топ-сигналов (меньше = важнее). */
 const SEVERITY_RANK: Record<IssueSeverity, number> = {
@@ -220,14 +219,26 @@ function svodCellRefs(
   };
 }
 
-/** Топ-сигналы ГРБС: только свои, по критичности, не больше лимита. */
-function topSignalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: string): ReportSignal[] {
+/**
+ * Сигналы ГРБС: только свои, по критичности, ЦЕЛИКОМ — обрезку до топ-N
+ * делает UI (закон «топ-N раскрывается»), проекция выборку не режет.
+ * Каждый сигнал несёт полный текст и адрес первички.
+ */
+function signalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: string): ReportSignal[] {
   const own = new Set([key, entry?.id, entry?.latinId].filter((v): v is string => Boolean(v)));
   return issues
     .filter((i) => i.departmentId !== undefined && own.has(i.departmentId))
     .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
-    .slice(0, TOP_SIGNALS_LIMIT)
-    .map((i) => ({ id: i.id, severity: i.severity, title: i.title }));
+    .map((i) => ({
+      id: i.id,
+      severity: i.severity,
+      title: i.title,
+      description: i.description,
+      ...(i.sheet !== undefined ? { sheet: i.sheet } : {}),
+      ...(i.cell !== undefined ? { cell: i.cell } : {}),
+      ...(i.row !== undefined ? { row: i.row } : {}),
+      ...(i.recommendation !== undefined ? { recommendation: i.recommendation } : {}),
+    }));
 }
 
 /** Порядок блоков: канонический порядок реестра, незнакомые ключи — в конец. */
@@ -323,7 +334,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       },
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
-      topSignals: topSignalsFor(issues, entry, dept),
+      signals: signalsFor(issues, entry, dept),
     };
   });
 
