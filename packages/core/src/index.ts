@@ -33,7 +33,7 @@ export { buildReport } from './report/build-report.js';
 export type { BuildReportInput, BuildReportOptions } from './report/build-report.js';
 export type {
   Report, ReportPeriod, ReportOrigin, IntegralSummary, GrbsReportBlock,
-  GrbsQuarterSlice, GrbsYearSlice, MethodSplit, PlanFactCounts, BudgetMoney, ReportSignal,
+  GrbsQuarterSlice, GrbsYearSlice, MethodSplit, PlanFactCounts, BudgetMoney, ReportSignal, PendingPosition,
   PendingRemainder,
 } from './report/types.js';
 

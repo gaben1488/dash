@@ -7,7 +7,7 @@
  * Подписи метрик страница берёт через productLabel по metricKey из этих
  * view-моделей — свободного текста подписей здесь нет.
  */
-import type { GrbsReportBlock, Report, ReportSignal } from '@aemr/core';
+import type { GrbsReportBlock, PendingPosition, Report, ReportSignal } from '@aemr/core';
 import { quarterLabel } from '@aemr/shared';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
@@ -239,6 +239,8 @@ export interface GrbsSectionVM {
   pendingCount: number;
   /** «Не заключено: 9» / «Все плановые процедуры квартала заключены» / «—» */
   pendingLabel: string;
+  /** Незаключённые позиции квартала с пояснениями из листа (ядро, канон эфира). */
+  pendingPositions: PendingPosition[];
   methodRows: MethodRowVM[];
   yearLine: string;
   moneyLine: string;
@@ -295,6 +297,7 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     economyLine: block.economy.total > 0
       ? `Экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
       : null,
+    pendingPositions: block.quarter.pendingPositions,
     signals: block.signals,
     svodPairs,
     svodNote: afterSlice > 0

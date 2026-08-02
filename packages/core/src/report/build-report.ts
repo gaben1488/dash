@@ -15,6 +15,8 @@
 
 import {
   DEPARTMENT_REGISTRY,
+  DEPT_COLUMNS,
+  DEPT_HEADER_ROWS,
   type DepartmentEntry,
   svodCellRef,
   type Issue,
@@ -39,6 +41,7 @@ import type {
   GrbsReportBlock,
   IntegralSummary,
   MethodSplit,
+  PendingPosition,
   PendingRemainder,
   PlanFactCounts,
   Report,
@@ -241,6 +244,54 @@ function signalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: st
     }));
 }
 
+
+/** Пояснительные колонки листа с человеческими подписями (порядок показа). */
+const EXPLANATION_COLS: ReadonlyArray<{ col: number; label: string }> = [
+  { col: DEPT_COLUMNS.DEVIATION_REASON, label: 'Причина отклонения' },
+  { col: DEPT_COLUMNS.JUSTIFICATION, label: 'Обоснование необходимости' },
+  { col: DEPT_COLUMNS.EP_REASON, label: 'Основание выбора ЕП' },
+  { col: DEPT_COLUMNS.COMMENT_GRBS, label: 'Комментарий ГРБСа' },
+  { col: DEPT_COLUMNS.COMMENT_UER, label: 'Комментарий УЭР' },
+  { col: DEPT_COLUMNS.COMMENT_UFBP, label: 'Комментарий УФБП' },
+];
+
+const cellNum = (v: unknown): number => {
+  const n = Number(String(v ?? '').replace(/\s| /g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Незаключённые позиции квартала с пояснениями из листа. Гейты — каноны
+ * движка: строка проходит standardRowFilter, плановый квартал = отчётный,
+ * год нестрогий (строки без года не теряются), дата факта пуста (эфир).
+ * Номер строки листа = индекс атома + шапка (DEPT_HEADER_ROWS) + 1.
+ */
+function pendingPositionsFor(rows: RawRow[], quarter: number, year: number): PendingPosition[] {
+  const out: PendingPosition[] = [];
+  rows.forEach((row, i) => {
+    if (!standardRowFilter(row)) return;
+    if (cellNum(row[DEPT_COLUMNS.PLAN_QUARTER]) !== quarter) return;
+    const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
+    if (rowYear !== 0 && rowYear !== year) return;
+    if (String(row[DEPT_COLUMNS.FACT_DATE] ?? '').trim() !== '') return;
+    const planTotal = cellNum(row[DEPT_COLUMNS.TOTAL_PLAN])
+      || cellNum(row[DEPT_COLUMNS.FB_PLAN]) + cellNum(row[DEPT_COLUMNS.KB_PLAN]) + cellNum(row[DEPT_COLUMNS.MB_PLAN]);
+    const explanations = EXPLANATION_COLS
+      .map(({ col, label }) => ({ label, text: String(row[col] ?? '').trim() }))
+      .filter((e) => e.text !== '');
+    out.push({
+      sheetRow: i + DEPT_HEADER_ROWS + 1,
+      subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+      method: String(row[DEPT_COLUMNS.METHOD] ?? '').trim(),
+      planDate: String(row[DEPT_COLUMNS.PLAN_DATE] ?? '').trim(),
+      planTotal,
+      explanations,
+    });
+  });
+  // Дороже — выше: внимание читателя ведут деньги.
+  return out.sort((a, b) => b.planTotal - a.planTotal);
+}
+
 /** Порядок блоков: канонический порядок реестра, незнакомые ключи — в конец. */
 function deptOrder(keys: string[]): string[] {
   const rank = (key: string): number => {
@@ -300,6 +351,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         methods: quarterMethods,
         pendingCount: execution.planCount - execution.doneCount,
         pending: pendingOf(g, qGroup),
+        pendingPositions: pendingPositionsFor(rows, quarter, year),
         pendingByMethod: {
           kp: pendingOf(g, `${qGroup}.competitive`),
           ep: pendingOf(g, `${qGroup}.ep`),

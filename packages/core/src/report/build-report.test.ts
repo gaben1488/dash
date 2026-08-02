@@ -432,6 +432,29 @@ describe('buildReport — период, порядок, сигналы', () => {
     expect(uer.deptLabel).toBe('Управление экономического развития');
   });
 
+  it('pendingPositions: незаключённые квартала с пояснениями и адресом строки', () => {
+    const rows = fixtureRows();
+    // Десятая строка УЭР (uer-kp-10, без факта) получает пояснения в листе.
+    const bare = rows['УЭР'][9];
+    bare[COL.COMMENT_GRBS] = 'Ожидаем доведения лимитов.';
+    bare[COL.DEVIATION_REASON] = 'Перенос срока поставки.';
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    const positions = uer.quarter.pendingPositions;
+    // 15 плановых, 6 с фактом → 9 незаключённых.
+    expect(positions).toHaveLength(9);
+    // Адрес первички: атом 9 (0-based) → строка листа 9 + 3 шапки + 1 = 13.
+    const withNotes = positions.find((pp) => pp.sheetRow === 13)!;
+    expect(withNotes.explanations).toEqual([
+      { label: 'Причина отклонения', text: 'Перенос срока поставки.' },
+      { label: 'Комментарий ГРБСа', text: 'Ожидаем доведения лимитов.' },
+    ]);
+    expect(withNotes.planTotal).toBe(300);
+    expect(withNotes.subject).toBe('Закупка');
+    // Позиции без пояснений — тоже видны (качество заполнения — информация).
+    expect(positions.filter((pp) => pp.explanations.length === 0)).toHaveLength(8);
+  });
+
   it('signals: только свой ГРБС, по критичности, ЦЕЛИКОМ — топ-N режет UI', () => {
     const mkIssue = (id: string, departmentId: string, severity: Issue['severity']): Issue => ({
       id, severity, origin: 'bi_heuristic', category: 'signal',

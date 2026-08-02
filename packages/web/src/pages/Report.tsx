@@ -25,7 +25,7 @@ import {
   quarterLabel,
 } from '@aemr/shared';
 import { buildSheetUrl } from '../lib/recon/sheet-links';
-import type { MetricDelta, ReportSignal } from '@aemr/core';
+import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
@@ -121,6 +121,39 @@ function SignalRow({ s }: { s: ReportSignal }) {
   );
 }
 
+/**
+ * Незаключённая позиция: предмет целиком (обрезка запрещена), способ,
+ * плановые дата и деньги, адрес строки листа и пояснения исполнителя с
+ * подписями источника. Отсутствие пояснений — честная строка: качество
+ * заполнения листа — тоже информация для читателя.
+ */
+function PendingPositionRow({ p }: { p: PendingPosition }) {
+  return (
+    <div className="text-[11px] leading-relaxed">
+      <div className="text-zinc-700 dark:text-zinc-200">
+        {p.subject || 'Без наименования'}
+        <span className="text-zinc-400 dark:text-zinc-500">
+          {' — '}{p.method || 'способ не указан'}
+          {p.planDate && ` · план ${p.planDate}`}
+          {p.planTotal > 0 && ` · ${fmtCount(p.planTotal)} тыс. руб.`}
+          <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
+        </span>
+      </div>
+      {p.explanations.length > 0 ? (
+        p.explanations.map((e) => (
+          <div key={e.label} className="ml-3 text-zinc-500 dark:text-zinc-400">
+            {e.label}: {e.text}
+          </div>
+        ))
+      ) : (
+        <div className="ml-3 text-[10px] text-amber-600 dark:text-amber-400">
+          пояснений в листе нет
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Секция одного ГРБС — целиком из контрактных элементов. */
 function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter; ctx: FilterContext }) {
   return (
@@ -144,6 +177,24 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
             {vm.pendingLabel}
           </span>
         </div>
+
+        {/* Незаключённые позиции квартала с пояснениями из листа —
+            «по ним же ещё и объяснения должны быть» (запрос коллеги) */}
+        {vm.pendingPositions.length > 0 && (
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              Не заключено в {quarterLabel(quarter)} · с пояснениями из листа
+            </div>
+            <ExpandableRows
+              rows={vm.pendingPositions}
+              top={3}
+              noun="позиций"
+              searchText={(p) => `${p.subject} ${p.method} ${p.planDate} ${p.explanations.map((e) => e.text).join(' ')}`}
+            >
+              {(p) => <PendingPositionRow key={p.sheetRow} p={p} />}
+            </ExpandableRows>
+          </div>
+        )}
 
         {/* КП/ЕП квартала */}
         <ReportTable

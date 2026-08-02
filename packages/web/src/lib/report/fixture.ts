@@ -36,6 +36,14 @@ function uerBlock(): GrbsReportBlock {
       pendingCount: 9,
       pending: pending(9, 110, 220, 330),
       pendingByMethod: { kp: pending(6, 100, 200, 300), ep: pending(3, 10, 20, 30) },
+      pendingPositions: [{
+        sheetRow: 12,
+        subject: 'Поставка учебной мебели',
+        method: 'ЭА',
+        planDate: '15.03.2026',
+        planTotal: 610,
+        explanations: [{ label: 'Комментарий ГРБСа', text: 'Ожидаем доведения лимитов.' }],
+      }],
       // Живой счёт (без гейта среза) на одну КП-процедуру больше отчётного —
       // так выглядит договор, заключённый уже после четверга: сверка со СВОДом
       // сходится, а разрыв объясняется подписью.
@@ -79,6 +87,7 @@ function uoBlock(): GrbsReportBlock {
       pendingCount: 0,
       pending: pending(0, 0, 0, 0),
       pendingByMethod: { kp: pending(0, 0, 0, 0), ep: pending(0, 0, 0, 0) },
+      pendingPositions: [],
       moneyByMethod: {
         kp: { plan: bm(0, 0, 0), fact: bm(0, 0, 0) },
         ep: { plan: bm(0, 0, 0), fact: bm(0, 0, 0) },
