@@ -205,26 +205,15 @@ type WeekDeltaState =
   | { kind: 'no-pair' }
   | { kind: 'ready'; deltas: MetricDelta[]; fromDay: number; toDay: number };
 
-/** Плашка-заглушка блока — стиль «Примечаний» страницы. */
-function WeekDeltaNote({ text }: { text: string }) {
-  return (
-    <div className="analytics-chart-card px-5 py-3">
-      <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500 mb-1">
-        Что изменилось за неделю
-      </div>
-      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">— {text}</div>
-    </div>
-  );
-}
-
 /**
- * Дельта метрик между снимком четверга среза и снимком неделей раньше.
- * Данные приходят пропом со страницы: один fetch истории питает и эту
- * секцию, и дельта-бейджи KPI-плиток (запрос не дублируется). Все
- * деградации сохранены: любой сбой истории — плашка, страница отчёта
- * от этого блока не зависит.
+ * Итоги недели в цифрах — верхний ярус единой ленты «Что изменилось»:
+ * дельты официальных метрик между снимком среза и снимком неделей раньше.
+ * Рендерится ВНУТРИ общей секции (единый провенанс, бритва Оккама):
+ * читателю не важно, что цифры из снимков, а правки из журналов —
+ * это одна система «что изменилось». Все деградации — тихие строки,
+ * секция от снимков не зависит.
  */
-function WeekDeltaSection({ state, ctx }: { state: WeekDeltaState; ctx: FilterContext }) {
+function WeekDeltaBody({ state, ctx }: { state: WeekDeltaState; ctx: FilterContext }) {
   // ГРБС-фильтр контекста уважается и здесь: метрики дрейфа несут
   // departmentId в REPORT_MAP; без выбора ГРБС показываем всё.
   const grbsFilter = (d: MetricDelta): boolean => {
@@ -234,45 +223,54 @@ function WeekDeltaSection({ state, ctx }: { state: WeekDeltaState; ctx: FilterCo
   };
 
   if (state.kind === 'loading') return null;
-  if (state.kind === 'no-pair') return <WeekDeltaNote text="Нет доступных снимков для этой недели." />;
-  if (state.kind === 'error') {
-    return <WeekDeltaNote text="История снимков недоступна — сравнение недели пропущено." />;
-  }
 
-  const significant = state.deltas
-    .filter((d) => d.direction !== 'flat')
-    .filter(grbsFilter)
-    .sort((a, b) => weekDeltaRank(b) - weekDeltaRank(a))
-    .slice(0, MAX_WEEK_DELTA_ROWS);
+  const note = state.kind === 'no-pair'
+    ? 'Пары снимков для сравнения недели нет — итоги в цифрах появятся со следующим срезом.'
+    : state.kind === 'error'
+      ? 'История снимков недоступна — итоги недели в цифрах пропущены.'
+      : null;
 
-  // metric_history хранит только officialMetrics (ячейки СВОД) — origin честно svod
   return (
-    <SectionCard filterCtx={ctx} source="svod" title="Что изменилось за неделю" icon={History}>
-      <div className="space-y-2">
-        <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
-          снимок {fmtAsOfDate(state.fromDay)} → {fmtAsOfDate(state.toDay)}
-        </div>
-        {significant.length === 0 ? (
-          <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-            Значимых изменений метрик за неделю нет.
-          </div>
-        ) : (
-          <ul className="space-y-1">
-            {significant.map((d) => (
-              <li key={d.metricKey} className="flex items-center gap-2 text-[11px]">
-                <span className="flex-1 min-w-0 truncate text-zinc-600 dark:text-zinc-300">
-                  {weekMetricLabel(d.metricKey)}
-                </span>
-                <span className="tabular-nums whitespace-nowrap text-zinc-500 dark:text-zinc-400">
-                  {fmtMetricValue(d.metricKey, d.from?.value ?? null)} → {fmtMetricValue(d.metricKey, d.to?.value ?? null)}
-                </span>
-                <DeltaBadge delta={d} />
-              </li>
-            ))}
-          </ul>
-        )}
+    <div className="space-y-2">
+      <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        Итоги недели в цифрах · официальные метрики СВОДа
       </div>
-    </SectionCard>
+      {note !== null ? (
+        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">— {note}</div>
+      ) : state.kind === 'ready' && (() => {
+        const significant = state.deltas
+          .filter((d) => d.direction !== 'flat')
+          .filter(grbsFilter)
+          .sort((a, b) => weekDeltaRank(b) - weekDeltaRank(a))
+          .slice(0, MAX_WEEK_DELTA_ROWS);
+        return (
+          <>
+            <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
+              снимок {fmtAsOfDate(state.fromDay)} → {fmtAsOfDate(state.toDay)}
+            </div>
+            {significant.length === 0 ? (
+              <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                Значимых изменений метрик за неделю нет.
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {significant.map((d) => (
+                  <li key={d.metricKey} className="flex items-center gap-2 text-[11px]">
+                    <span className="flex-1 min-w-0 truncate text-zinc-600 dark:text-zinc-300">
+                      {weekMetricLabel(d.metricKey)}
+                    </span>
+                    <span className="tabular-nums whitespace-nowrap text-zinc-500 dark:text-zinc-400">
+                      {fmtMetricValue(d.metricKey, d.from?.value ?? null)} → {fmtMetricValue(d.metricKey, d.to?.value ?? null)}
+                    </span>
+                    <DeltaBadge delta={d} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        );
+      })()}
+    </div>
   );
 }
 
@@ -567,13 +565,15 @@ export function ReportPage() {
         <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-400">Загрузка…</div>
       ) : (
         <>
-          {/* Что изменилось за неделю: дельта снимков вокруг четверга среза */}
-          <WeekDeltaSection state={weekDelta} ctx={ctx} />
-
-          {/* Провенанс правок: просьба коллеги — «кто что поменял с даты
-              последнего среза», человеческий адрес до атрибута. */}
-          <SectionCard filterCtx={ctx} source="calc" title="Кто что менял с последнего среза" icon={History}>
-            <ChangesSection />
+          {/* Единый провенанс (бритва Оккама): одна лента «Что изменилось» —
+              итоги недели в цифрах (снимки СВОДа) + правки книг с авторами
+              (журналы _ChangeLog). Для читателя это одна система; источник —
+              деталь реализации. Смена способа поставщика — наверху ленты. */}
+          <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History}>
+            <div className="space-y-5">
+              <WeekDeltaBody state={weekDelta} ctx={ctx} />
+              <ChangesSection />
+            </div>
           </SectionCard>
 
           {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin;

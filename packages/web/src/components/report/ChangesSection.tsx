@@ -148,11 +148,33 @@ export function ChangesSection() {
   }
 
   const sinceRu = data.since.split('-').reverse().join('.');
+  // Смена способа — в самый верх ленты (прямой запрос коллеги): срез по всем
+  // книгам сразу. В группах ниже эти же правки остаются — там полная лента.
+  const methodChanges = data.records.filter(
+    (r) => humanAttribute(r.cell, r.attribute) === HUMAN_ATTR.METHOD,
+  );
   return (
     <div className="space-y-4">
-      <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
-        журнал правок книг с {sinceRu} · всего: {data.records.length}
+      <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        Правки в книгах · журнал с {sinceRu} · всего: {data.records.length}
       </div>
+
+      {methodChanges.length > 0 && (
+        <div>
+          <div className="mb-1 text-[12px] font-medium text-violet-700 dark:text-violet-400">
+            Смена способа определения поставщика{' '}
+            <span className="font-normal text-zinc-400">· {methodChanges.length}</span>
+          </div>
+          <ExpandableRows
+            rows={methodChanges}
+            top={5}
+            noun="правок"
+            searchText={(r) => `${r.dept} ${r.cell} ${r.oldValue} ${r.newValue} ${r.author}`}
+          >
+            {(r) => <ChangeRow key={`m-${r.dept}-${r.cell}-${r.atMs}`} r={r} />}
+          </ExpandableRows>
+        </div>
+      )}
 
       {data.records.length === 0 ? (
         <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
