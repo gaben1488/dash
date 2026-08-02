@@ -161,9 +161,11 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
       <div className="space-y-3">
         {/* Исполнение квартала: жирный %, формула-подпись */}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="text-2xl font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
-            {vm.executionPct}
-          </span>
+          <KbHover metricKey="exec_count_pct">
+            <span className="text-2xl font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
+              {vm.executionPct}
+            </span>
+          </KbHover>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
             {vm.executionCaption} — исполнение {quarter} квартала
           </span>
@@ -174,7 +176,7 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
                 : 'text-[11px] text-zinc-400 dark:text-zinc-500'
             }
           >
-            {vm.pendingLabel}
+            <KbHover metricKey="pending_count">{vm.pendingLabel}</KbHover>
           </span>
         </div>
 
@@ -212,11 +214,13 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
 
         {/* Год, деньги, экономия */}
         <div className="text-[11px] text-zinc-600 dark:text-zinc-300 space-y-0.5">
-          <div>{vm.yearLine}</div>
+          <div><KbHover metricKey="exec_count_pct">{vm.yearLine}</KbHover></div>
           <div>
-            {vm.moneyLine}
+            <KbHover metricKey="plan_total">{vm.moneyLine}</KbHover>
             {vm.economyLine && (
-              <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-medium">{vm.economyLine}</span>
+              <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                <KbHover metricKey="economy_total">{vm.economyLine}</KbHover>
+              </span>
             )}
           </div>
         </div>
@@ -308,14 +312,6 @@ type WeekDeltaState =
  * секция от снимков не зависит.
  */
 function WeekDeltaBody({ state, ctx }: { state: WeekDeltaState; ctx: FilterContext }) {
-  // ГРБС-фильтр контекста уважается и здесь: метрики дрейфа несут
-  // departmentId в REPORT_MAP; без выбора ГРБС показываем всё.
-  const grbsFilter = (d: MetricDelta): boolean => {
-    if (ctx.grbs.length === 0) return true;
-    const dept = getMetricByKey(d.metricKey)?.departmentId;
-    return dept !== undefined && (ctx.grbs as readonly string[]).includes(dept);
-  };
-
   if (state.kind === 'loading') return null;
 
   const note = state.kind === 'no-pair'
@@ -334,7 +330,6 @@ function WeekDeltaBody({ state, ctx }: { state: WeekDeltaState; ctx: FilterConte
       ) : state.kind === 'ready' && (() => {
         const significant = state.deltas
           .filter((d) => d.direction !== 'flat')
-          .filter(grbsFilter)
           .sort((a, b) => weekDeltaRank(b) - weekDeltaRank(a))
           .slice(0, MAX_WEEK_DELTA_ROWS);
         return (
@@ -507,14 +502,12 @@ export function ReportPage() {
     });
   };
 
-  // ГРБС-фильтр контекста уважается: блоки режутся по ctx.grbs
-  const visibleBlocks = useMemo(() => {
-    if (!report) return [];
-    const blocks = ctx.grbs.length > 0
-      ? report.grbsBlocks.filter((b) => (ctx.grbs as readonly string[]).includes(toCanonicalDeptId(b.dept)))
-      : report.grbsBlocks;
-    return blocks.map(buildGrbsSection);
-  }, [report, ctx.grbs]);
+  // Отчёт — полный документ, как бумага: ГРБС-фильтр сайдбара секции НЕ
+  // режет (решение 03.08 «вместо фильтра — шапка»); навигация — шапкой ГРБС.
+  const visibleBlocks = useMemo(
+    () => (report ? report.grbsBlocks.map(buildGrbsSection) : []),
+    [report],
+  );
 
   const tiles = report ? integralKpiRow(report) : [];
   const heroTiles = tiles.filter((t) => t.tier === 'hero');
@@ -523,8 +516,10 @@ export function ReportPage() {
 
   return (
     <div className="space-y-4">
-      {/* Шапка: заголовок, периодные бейджи, селектор квартала, копирование */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Панель управления отчётом: ярус 1 — что это и режим + действия;
+          ярус 2 — период и служебные оговорки. Карточка, не россыпь. */}
+      <div className="analytics-chart-card px-4 py-3 space-y-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
           {asOfDate
             ? isLive
@@ -564,62 +559,11 @@ export function ReportPage() {
             Архив недели
           </button>
         </div>
-        {/* Подтверждение от сервера: режим ответа мог разойтись с кнопкой
-            (запрос в полёте, устаревший ответ) — тогда честнее показать факт. */}
-        {report && isLive !== (mode === 'live') && (
-          <span className="text-[10px] text-amber-600 dark:text-amber-400">
-            показан режим «{isLive ? 'в прямом эфире' : 'архив недели'}»
-          </span>
-        )}
-        {/* В эфире выбранная неделя не участвует — говорим об этом прямо,
-            иначе колесо выглядит работающим, а числа его игнорируют. */}
-        {mode === 'live' && ctx.weekStart !== null && (
-          <span
-            className="text-[10px] text-zinc-500 dark:text-zinc-400"
-            title="Переключитесь в «Архив недели», чтобы увидеть снимок выбранной недели."
-          >
-            неделя из фильтра не применена
-          </span>
-        )}
-        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {request.year} год
-        </span>
-        {activeQuarter && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-            {quarterLabel(activeQuarter)}
-          </span>
-        )}
-        {/* Ссылка на официальную книгу СВОД; каноническая оговорка серии — тултипом */}
-        {report?.svodOnlineUrl && (
-          <a
-            href={report.svodOnlineUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Показатели отчёта — на дату среза; СВОД онлайн живёт и может незначительно отличаться."
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40 transition-colors"
-          >
-            <ExternalLink size={11} />
-            СВОД онлайн
-          </a>
-        )}
         <div className="flex items-center gap-1 ml-auto">
-          {QUARTERS.map((q) => (
-            <button
-              key={q}
-              onClick={() => setLocalQuarter(q)}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-                request.quarter === q
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
-              }`}
-            >
-              {q} кв
-            </button>
-          ))}
           <button
             onClick={onCopy}
             disabled={!report}
-            className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             {copied ? <ClipboardCheck size={12} /> : <ClipboardCopy size={12} />}
             {copied ? 'Скопировано' : 'Копировать текстом'}
@@ -646,6 +590,60 @@ export function ReportPage() {
             {saving === 'extra' ? 'Готовится…' : 'Допотчёт в Word'}
           </button>
         </div>
+      </div>
+
+      {/* Ярус 2: период и служебные оговорки */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+          {QUARTERS.map((q) => (
+            <button
+              key={q}
+              onClick={() => setLocalQuarter(q)}
+              className={clsx(
+                'px-2.5 py-0.5 text-[10px] font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 first:border-l-0',
+                request.quarter === q
+                  ? 'bg-amber-500 text-white border-amber-500'
+                  : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-700/40',
+              )}
+            >
+              {q} кв
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
+          {request.year} год{activeQuarter ? ` · ${quarterLabel(activeQuarter)}` : ''}
+        </span>
+        {/* Ссылка на официальную книгу СВОД; каноническая оговорка серии — тултипом */}
+        {report?.svodOnlineUrl && (
+          <a
+            href={report.svodOnlineUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Показатели отчёта — на дату среза; СВОД онлайн живёт и может незначительно отличаться."
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40 transition-colors"
+          >
+            <ExternalLink size={11} />
+            СВОД онлайн
+          </a>
+        )}
+        {/* Подтверждение от сервера: режим ответа мог разойтись с кнопкой
+            (запрос в полёте, устаревший ответ) — тогда честнее показать факт. */}
+        {report && isLive !== (mode === 'live') && (
+          <span className="text-[10px] text-amber-600 dark:text-amber-400">
+            показан режим «{isLive ? 'в прямом эфире' : 'архив недели'}»
+          </span>
+        )}
+        {/* В эфире выбранная неделя не участвует — говорим об этом прямо,
+            иначе колесо выглядит работающим, а числа его игнорируют. */}
+        {mode === 'live' && ctx.weekStart !== null && (
+          <span
+            className="text-[10px] text-zinc-500 dark:text-zinc-400"
+            title="Переключитесь в «Архив недели», чтобы увидеть снимок выбранной недели."
+          >
+            неделя из фильтра не применена
+          </span>
+        )}
+      </div>
       </div>
       {downloadError && (
         <div className="text-[11px] text-red-600 dark:text-red-400">{downloadError}</div>
@@ -728,9 +726,7 @@ export function ReportPage() {
           {/* Блоки по ГРБС */}
           {visibleBlocks.length === 0 ? (
             <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-500 dark:text-zinc-400">
-              {ctx.grbs.length > 0
-                ? 'По выбранным ГРБС блоков в отчёте нет — снимите фильтр управлений.'
-                : 'В снапшоте нет данных по управлениям за выбранный период.'}
+              В снапшоте нет данных по управлениям за выбранный период.
             </div>
           ) : (
             visibleBlocks.map((vm) => (
