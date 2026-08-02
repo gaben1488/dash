@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type DashboardData } from '@aemr/shared';
 import { api } from './api';
+import { mergeSubordinates } from './lib/subordinates';
 import { toCanonicalDeptId } from './lib/dept-key';
 
 /** СВОД — 6 страниц + legacy aliases */
@@ -692,8 +693,10 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const data = await api.getSubordinates();
       if (data && Object.keys(data).length > 0) {
-        // Merge: keep fallback depts that API didn't return, overlay API data on top
-        const merged = { ...SUBORDINATES_FALLBACK, ...data };
+        // Объединение канона с живыми именами, НЕ замена: частично
+        // прочитанная книга не должна вытеснять организации из фильтра
+        // (баг «пропала часть организаций», см. lib/subordinates.ts).
+        const merged = mergeSubordinates(SUBORDINATES_FALLBACK, data);
         set({ subordinatesMap: merged, subordinatesLoading: false });
       } else {
         set({ subordinatesLoading: false });
