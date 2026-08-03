@@ -38,8 +38,10 @@ import {
   floorToThursday,
   isoOfDayNumber,
   parseSvodGrid,
+  parseSvodExtras,
   type Issue,
   type SvodGridBlock,
+  type SvodSheetExtras,
 } from '@aemr/shared';
 import { getDeptSheetValues, getSnapshot, getSnapshotAtOrBefore, getDeptLoadMeta, getSvodGridCache, setSvodGridCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
@@ -158,7 +160,7 @@ const ruDateOfDay = (day: number): string => isoOfDayNumber(day).split('-').reve
  * формулы СВОДа видят правку сотрудника мгновенно, кэш книг — после
  * обновления. Прямое чтение — только фолбэк холодного старта.
  */
-async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; loadedAt: string | null } | undefined> {
+async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; extras: SvodSheetExtras; loadedAt: string | null } | undefined> {
   try {
     const cached = getSvodGridCache();
     let values = cached?.values;
@@ -167,7 +169,10 @@ async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; loadedAt: string
       setSvodGridCache(values);
     }
     const grid = parseSvodGrid(values);
-    return grid.length > 0 ? { grid, loadedAt: cached?.loadedAt ?? null } : undefined;
+    // Итоговый ярус того же листа: остаток к заключению и «Расч. экономия»
+    // (M31/M32) — официальные числа, которые ручной отчёт печатает дословно.
+    const extras = parseSvodExtras(values);
+    return grid.length > 0 ? { grid, extras, loadedAt: cached?.loadedAt ?? null } : undefined;
   } catch {
     return undefined;
   }
@@ -239,7 +244,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
         });
       }
       const [svodRead, issues] = await Promise.all([readSvodGrid(), readIssues(period.year)]);
-      input = { rowsByDept, ...(svodRead ? { svodGrid: svodRead.grid } : {}), issues };
+      input = { rowsByDept, ...(svodRead ? { svodGrid: svodRead.grid, svodExtras: svodRead.extras } : {}), issues };
 
       // Моменты чтения двух половин сверки. Расходятся сильнее трёх минут —
       // говорим прямо: возможны кратковременные расхождения на 1–2 строки,

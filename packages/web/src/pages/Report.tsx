@@ -811,6 +811,22 @@ export function ReportPage() {
                 />
               </p>
             )}
+            {/* Официальный ярус листа СВОД — числа ручного отчёта без
+                пересчёта, с адресом строки (провенанс до первички) */}
+            {report?.official?.calcEconomy && (
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                <span>
+                  Расч. экономия по остатку (лист СВОД, строка {report.official.calcEconomy.row}):{' '}
+                  {fmtCount(report.official.calcEconomy.total)} тыс. руб.
+                </span>
+                <BudgetTriple
+                  fb={report.official.calcEconomy.fb}
+                  kb={report.official.calcEconomy.kb}
+                  mb={report.official.calcEconomy.mb}
+                  metricPrefix="economy"
+                />
+              </p>
+            )}
           </SectionCard>
 
           {/* Блоки по ГРБС */}
