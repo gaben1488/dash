@@ -10,7 +10,6 @@ import {
   fmtPct,
   fmtThousands,
   integralKpiRow,
-  pendingBreakdownLine,
 } from './mappers';
 import { makeReportFixture } from './fixture';
 
@@ -53,20 +52,6 @@ describe('integralKpiRow — интегральная сводка в плитк
     expect(keys.slice(10)).toEqual([
       'plan_total', 'fact_total', 'economy_total', 'pending_count', 'pending_total',
     ]);
-  });
-
-  it('разбивка остатка: итог, ФБ/КБ/МБ и скоуп года в одной строке', () => {
-    const line = pendingBreakdownLine(makeReportFixture());
-    expect(line).not.toBeNull();
-    expect(norm(line!)).toBe(
-      'Остаток к заключению (2026 · год): 30 процедур на 3 000 тыс. руб. — ФБ 500 · КБ 1 000 · МБ 1 500',
-    );
-  });
-
-  it('разбивка остатка: нулевой остаток → null, строка не рисуется', () => {
-    const report = makeReportFixture();
-    report.integralSummary.pending.year = { count: 0, fb: 0, kb: 0, mb: 0, total: 0 };
-    expect(pendingBreakdownLine(report)).toBeNull();
   });
 
   it('квартальная плитка исполнения: 6/15 → 40,0%, hero, честный бейдж 1 кв', () => {
@@ -127,10 +112,10 @@ describe('buildGrbsSection — view-модель секции ГРБС', () => {
     expect(uer.pendingLabel).toBe('Не заключено: 9');
   });
 
-  it('УЭР: КП/ЕП-строки квартала', () => {
+  it('УЭР: КП/ЕП-строки квартала (pct числом — для бара с текстовым дублем)', () => {
     expect(uer.methodRows).toEqual([
-      { methodKey: 'КП', plan: 10, fact: 4, pctText: '40,0%' },
-      { methodKey: 'ЕП', plan: 5, fact: 2, pctText: '40,0%' },
+      { methodKey: 'КП', plan: 10, fact: 4, pct: 40, pctText: '40,0%' },
+      { methodKey: 'ЕП', plan: 5, fact: 2, pct: 40, pctText: '40,0%' },
     ]);
   });
 

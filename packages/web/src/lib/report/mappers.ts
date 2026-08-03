@@ -7,7 +7,7 @@
  * Подписи метрик страница берёт через productLabel по metricKey из этих
  * view-моделей — свободного текста подписей здесь нет.
  */
-import type { GrbsReportBlock, PendingPosition, RecommendationPair, Report, ReportSignal } from '@aemr/core';
+import type { BudgetMoney, GrbsReportBlock, PendingPosition, RecommendationPair, Report, ReportSignal } from '@aemr/core';
 import { quarterLabel } from '@aemr/shared';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
@@ -193,21 +193,6 @@ export function integralKpiRow(report: Report): KpiVM[] {
   ];
 }
 
-/**
- * Разбивка остатка по бюджетам — вторая половина запроса коллег
- * («…с разбивкой по бюджетам»). Плитка несёт итог, строка — состав;
- * null, когда остатка нет: строка «ФБ 0 · КБ 0 · МБ 0» — шум.
- */
-export function pendingBreakdownLine(report: Report): string | null {
-  const p = report.integralSummary.pending.year;
-  if (p.count === 0) return null;
-  return (
-    `Остаток к заключению (${report.period.year} · год): ` +
-    `${fmtCount(p.count)} процедур на ${fmtThousands(p.total)} тыс. руб. — ` +
-    `ФБ ${fmtThousands(p.fb)} · КБ ${fmtThousands(p.kb)} · МБ ${fmtThousands(p.mb)}`
-  );
-}
-
 // ── Блок ГРБС → view-модель секции ──────────────────────────
 
 export interface MethodRowVM {
@@ -215,6 +200,8 @@ export interface MethodRowVM {
   methodKey: 'КП' | 'ЕП';
   plan: number;
   fact: number;
+  /** Числовой процент для бара (null = «нет плана», бар не рисуется). */
+  pct: number | null;
   pctText: string;
 }
 
@@ -245,7 +232,10 @@ export interface GrbsSectionVM {
   recommendations: RecommendationPair[];
   methodRows: MethodRowVM[];
   yearLine: string;
+  /** Плоская строка денег — для «Копировать текстом»; UI рендерит тройки из money. */
   moneyLine: string;
+  /** Сырые тройки года — цветная разметка ФБ/КБ/МБ на странице (BudgetTriple). */
+  money: { plan: BudgetMoney; fact: BudgetMoney };
   /** null — экономии нет (total = 0), строка не рисуется */
   economyLine: string | null;
   signals: ReportSignal[];
@@ -290,12 +280,13 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     pendingCount: q.pendingCount,
     pendingLabel: pendingLabelOf(q.execution, q.pendingCount),
     methodRows: [
-      { methodKey: 'КП', plan: q.methods.kp.planCount, fact: q.methods.kp.doneCount, pctText: fmtPct(q.methods.kp.pct) },
-      { methodKey: 'ЕП', plan: q.methods.ep.planCount, fact: q.methods.ep.doneCount, pctText: fmtPct(q.methods.ep.pct) },
+      { methodKey: 'КП', plan: q.methods.kp.planCount, fact: q.methods.kp.doneCount, pct: q.methods.kp.pct, pctText: fmtPct(q.methods.kp.pct) },
+      { methodKey: 'ЕП', plan: q.methods.ep.planCount, fact: q.methods.ep.doneCount, pct: q.methods.ep.pct, pctText: fmtPct(q.methods.ep.pct) },
     ],
     yearLine: `За год: заключено ${fmtCount(y.counts.doneCount)} из ${fmtCount(y.counts.planCount)} (${fmtPct(y.counts.pct)})` +
       (y.pendingCount > 0 ? `, не заключено ${fmtCount(y.pendingCount)}` : ''),
     moneyLine: `Лимит ${fmtThousands(block.money.plan.total)} тыс. руб., факт ${fmtThousands(block.money.fact.total)} тыс. руб.`,
+    money: block.money,
     economyLine: block.economy.total > 0
       ? `Экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
       : null,

@@ -39,10 +39,10 @@ import {
   integralKpiRow,
   fmtAsOfDate,
   fmtCount,
-  pendingBreakdownLine,
   type GrbsSectionVM,
 } from '../lib/report/mappers';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
+import { BudgetTriple } from '../components/contract/BudgetTriple';
 import { KbHover } from '../components/contract/KbHover';
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams, type ReportMode } from '../lib/report/request';
@@ -256,17 +256,42 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
             ),
             plan: fmtCount(r.plan),
             fact: fmtCount(r.fact),
-            pct: r.pctText,
+            // Бар — всегда с числом (закон «текстовый дубль визуального»)
+            pct: (
+              <span className="inline-flex items-center justify-end gap-1.5">
+                {r.pct !== null && (
+                  <span
+                    aria-hidden="true"
+                    className="h-1 w-12 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden"
+                  >
+                    <span
+                      className="block h-full rounded-full bg-blue-500/80"
+                      style={{ width: `${Math.min(100, Math.max(0, r.pct))}%` }}
+                    />
+                  </span>
+                )}
+                <span className="tabular-nums">{r.pctText}</span>
+              </span>
+            ),
           }))}
         />
 
-        {/* Год, деньги, экономия */}
+        {/* Год, деньги (тройки ФБ/КБ/МБ — канон цвет+подпись), экономия */}
         <div className="text-[11px] text-zinc-600 dark:text-zinc-300 space-y-0.5">
           <div><KbHover metricKey="exec_count_pct">{vm.yearLine}</KbHover></div>
-          <div>
-            <KbHover metricKey="plan_total">{vm.moneyLine}</KbHover>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <KbHover metricKey="plan_total">
+              <span>Лимит {fmtCount(vm.money.plan.total)} тыс. руб.</span>
+            </KbHover>
+            <BudgetTriple fb={vm.money.plan.fb} kb={vm.money.plan.kb} mb={vm.money.plan.mb} metricPrefix="plan" />
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <KbHover metricKey="fact_total">
+              <span>Факт {fmtCount(vm.money.fact.total)} тыс. руб.</span>
+            </KbHover>
+            <BudgetTriple fb={vm.money.fact.fb} kb={vm.money.fact.kb} mb={vm.money.fact.mb} metricPrefix="fact" />
             {vm.economyLine && (
-              <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-medium">
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                 <KbHover metricKey="economy_total">{vm.economyLine}</KbHover>
               </span>
             )}
@@ -767,12 +792,23 @@ export function ReportPage() {
               </div>
             </div>
             {/* Разбивка остатка по бюджетам — «…с разбивкой по бюджетам»
-                из запроса коллег; плитка выше несёт итог, строка — состав */}
-            {report && pendingBreakdownLine(report) && (
-              <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                из запроса коллег; плитка выше несёт итог, строка — состав
+                цветной тройкой (канон цвет+подпись) */}
+            {report && report.integralSummary.pending.year.count > 0 && (
+              <p className="mt-2 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
                 <KbHover metricKey="pending_total">
-                  <span>{pendingBreakdownLine(report)}</span>
+                  <span>
+                    Остаток к заключению ({report.period.year} · год):{' '}
+                    {fmtCount(report.integralSummary.pending.year.count)} процедур на{' '}
+                    {fmtCount(report.integralSummary.pending.year.total)} тыс. руб.
+                  </span>
                 </KbHover>
+                <BudgetTriple
+                  fb={report.integralSummary.pending.year.fb}
+                  kb={report.integralSummary.pending.year.kb}
+                  mb={report.integralSummary.pending.year.mb}
+                  metricPrefix="pending"
+                />
               </p>
             )}
           </SectionCard>
