@@ -318,7 +318,12 @@ export const useStore = create<AppState>((set, get) => ({
   period: 'year',
   setPeriod: (period) => set({ period, periodMode: 'explicit' as PeriodMode }),
   periodMode: 'week' as PeriodMode,
-  activeMonths: getMonthsForWeek(getMondayOfWeek(new Date())),
+  // Дефолт — год (комментарий выше, store.ts:302). activeMonths ПУСТ при старте:
+  // непустой activeMonths перекрывает period в resolvePeriodSelection (period-resolution.ts:55-57),
+  // так что заполнение текущей неделей здесь молча узило дефолт до квартала (баг Б1,
+  // docs/superpowers/specs/filter-system-target-2026-07-16.md §1,§2). focusedWeekStart
+  // (ниже) остаётся текущей неделей — это только позиция WeekRoller, не фильтр.
+  activeMonths: new Set<number>(),
   toggleMonth: (month) => {
     const current = new Set(get().activeMonths);
     if (current.has(month)) {
@@ -402,7 +407,7 @@ export const useStore = create<AppState>((set, get) => ({
       selectedDepartments: new Set<string>(),
       selectedSubordinates: new Set<string>(),
       deptOnlyMode: new Set<string>(),
-      activeMonths: getMonthsForWeek(monday),
+      activeMonths: new Set<number>(), // см. комментарий у дефолт-инициализации выше
       focusedWeekStart: monday,
       monthsByYear: {},
       searchQuery: '',

@@ -123,8 +123,8 @@ export function Dashboard() {
       if (dm.orgSelf) {
         subs.push({
           name: `${dm.dept} (само)`,
-          execAmountPct: dm.orgSelf.metrics.executionPct || null,
-          execCountPct: dm.orgSelf.metrics.execCountPct || null,
+          execAmountPct: dm.orgSelf.metrics.executionPct ?? null,
+          execCountPct: dm.orgSelf.metrics.execCountPct ?? null,
           issueCount: 0,
         });
       }
@@ -133,18 +133,26 @@ export function Dashboard() {
       for (const s of dm.realSubs) {
         subs.push({
           name: s.displayName,
-          execAmountPct: s.metrics.executionPct || null,
-          execCountPct: s.metrics.execCountPct || null,
+          execAmountPct: s.metrics.executionPct ?? null,
+          execCountPct: s.metrics.execCountPct ?? null,
           issueCount: 0,
         });
       }
+
+      // Кол-во%/Сумма% — «нечего исполнять» (план=0 за период) — не то же самое,
+      // что «исполнение=0%» (план был, факт нулевой). Различаем по тому же q,
+      // что и fbExecPct выше, иначе оба схлопываются в один и тот же 0/null
+      // и в рейтинге неразличимы (см. обсуждение мешает: банер-счётчик,
+      // сортировка, цвет ячейки, Δ кв. — все читают итоговое число вслепую).
+      const hasAmountPlan = (q?.planTotal ?? 0) > 0;
+      const hasCountPlan = (q?.planCount ?? 0) > 0;
 
       return {
         id: dm.deptId,
         name: dm.deptName,
         nameShort: dm.dept,
-        execAmountPct: dm.total.executionPct || null,
-        execCountPct: dm.total.execCountPct || null,
+        execAmountPct: hasAmountPlan ? dm.total.executionPct : null,
+        execCountPct: hasCountPlan ? dm.total.execCountPct : null,
         fbExecPct,
         trustScore: d.trustScore ?? null,
         issueCount: d.issueCount ?? 0,
@@ -256,7 +264,9 @@ export function Dashboard() {
           </div>
           {/* Assertion header — anti-slop: insight, not description */}
           {(() => {
-            const lagging = ratingDepts.filter((d) => (d.execCountPct ?? 0) < 50);
+            // execCountPct === null значит «нечего исполнять за период» (план=0), не 0%.
+            // Не считаем такие управления отстающими — им не с чем не справляться.
+            const lagging = ratingDepts.filter((d) => d.execCountPct != null && d.execCountPct < 50);
             if (lagging.length > 0) {
               return (
                 <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-2">
