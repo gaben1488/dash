@@ -247,7 +247,13 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
           caption={`Способы · ${quarterLabel(quarter)}`}
           columns={METHOD_COLUMNS}
           rows={vm.methodRows.map((r) => ({
-            method: productLabel(r.methodKey === 'КП' ? 'kp' : 'ep'),
+            // БЗ на строке группы: ключ % исполнения группы объясняет и
+            // состав (что такое КП/ЕП), и счёт строки
+            method: (
+              <KbHover metricKey={r.methodKey === 'КП' ? 'comp_exec_count_pct' : 'ep_exec_count_pct'}>
+                <span>{productLabel(r.methodKey === 'КП' ? 'kp' : 'ep')}</span>
+              </KbHover>
+            ),
             plan: fmtCount(r.plan),
             fact: fmtCount(r.fact),
             pct: r.pctText,
@@ -276,7 +282,11 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
               caption="Сверка со СВОД · на текущий момент"
               columns={SVOD_COLUMNS}
               rows={vm.svodPairs.map((p) => ({
-                metric: productLabel(p.metricKey),
+                metric: (
+                  <KbHover metricKey={p.metricKey}>
+                    <span>{productLabel(p.metricKey)}</span>
+                  </KbHover>
+                ),
                 calc: fmtCount(p.calc),
                 svod: <DiffText filterCtx={ctx} source="svod" value={p.svod} reference={p.calc} />,
                 // Ссылка ведёт в ту самую ячейку живой книги — число проверяемо
