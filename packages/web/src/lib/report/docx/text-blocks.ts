@@ -16,7 +16,9 @@
  * Числа, которых у продукта нет, печатаются честной плашкой, а не нулём:
  * выдуманный ноль в отчёте начальству дороже пропуска.
  */
-import { classifyMethodGroup, type PendingPosition, type PendingRemainder, type Report } from '@aemr/core';
+import { classifyMethodGroup, quarterExecutionFromCounts, sumPending, type PendingPosition, type PendingRemainder, type Report } from '@aemr/core';
+import { pluralRu } from '../../economy-copy';
+import { fmtCount } from '../mappers';
 
 /** Строка отчёта: заголовок раздела, обычный абзац либо курсивная оговорка. */
 export interface ReportBlock {
@@ -59,10 +61,8 @@ const NOT_FILLED = 'не заполнено';
 
 // ── Форматирование чисел ─────────────────────────────────────────────
 
-/** Количество: ru-RU-группировка, неразрывные пробелы как в оригинале. */
-function num(n: number): string {
-  return Math.round(n).toLocaleString('ru-RU');
-}
+/** Количество — канон fmtCount модуля (алиас, не вторая копия). */
+const num = fmtCount;
 
 /** Деньги: два знака после запятой — формат ручного отчёта («861 007,37»). */
 function money(n: number): string {
@@ -91,20 +91,13 @@ const qGen = (q: Quarter): string => `${q} квартала`;
 /** Предложный с верным предлогом: «Во 2 квартале», но «В 3 квартале». */
 const inQuarter = (q: Quarter): string => `${q === 2 ? 'Во' : 'В'} ${q} квартале`;
 
-/** Единственное число по последней цифре (11–14 — исключение). */
-function isOne(n: number): boolean {
-  return n % 10 === 1 && !(n % 100 >= 11 && n % 100 <= 14);
-}
+/** Формы числа для согласования — через канон pluralRu (11–14 учтены им). */
+const isOne = (n: number): boolean => pluralRu(n, '1', 'x', 'x') === '1';
+const isFew = (n: number): boolean => pluralRu(n, 'x', '2', 'x') === '2';
 
-function isFew(n: number): boolean {
-  return n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 11 && n % 100 <= 14);
-}
-
-/** Склонение слова «процедура» по числу. */
+/** Склонение слова «процедура» по числу — канон pluralRu. */
 function procedures(n: number): string {
-  if (isOne(n)) return 'процедура';
-  if (isFew(n)) return 'процедуры';
-  return 'процедур';
+  return pluralRu(n, 'процедура', 'процедуры', 'процедур');
 }
 
 /**
@@ -118,16 +111,12 @@ function proceduresDative(n: number): string {
 
 /** Склонение «договор/контракт» для ЕП-блоков. */
 function contracts(n: number): string {
-  if (isOne(n)) return 'договор/контракт';
-  if (isFew(n)) return 'договора/контракта';
-  return 'договоров/контрактов';
+  return pluralRu(n, 'договор/контракт', 'договора/контракта', 'договоров/контрактов');
 }
 
 /** «Проведено 15 аукционов» / «2 аукциона» / «1 аукцион». */
 function auctions(n: number): string {
-  if (isOne(n)) return 'аукцион';
-  if (isFew(n)) return 'аукциона';
-  return 'аукционов';
+  return pluralRu(n, 'аукцион', 'аукциона', 'аукционов');
 }
 
 /** Дательный: «по 2 аукционам», «по 1 аукциону». */
@@ -166,8 +155,11 @@ function yearMethodMoney(
 }
 
 /** «на общую сумму X тыс. руб. (ФБ – …, КБ – …, МБ – …)» — денежный хвост эталона. */
-function moneyTail(m: { fb: number; kb: number; mb: number; total: number }): string {
-  return ` на общую сумму ${money(m.total)} тыс. руб. ${budget(m)}`;
+function moneyTail(
+  m: { fb: number; kb: number; mb: number; total: number },
+  phrase: 'на общую сумму' | 'на сумму' = 'на общую сумму',
+): string {
+  return ` ${phrase} ${money(m.total)} тыс. руб. ${budget(m)}`;
 }
 
 // ── Выборки по кварталам ─────────────────────────────────────────────
@@ -213,8 +205,8 @@ function yearOf(quarters: QuarterReports, method: 'kp' | 'ep', dept?: string): Y
     planCount += m.planCount;
     doneCount += m.doneCount;
   }
-  // Тот же канон G = E/D, что и в quarterExecutionFromCounts: D = 0 → «нет плана».
-  return { planCount, doneCount, pct: planCount > 0 ? (doneCount / planCount) * 100 : null };
+  // Канон G = E/D — сама функция, не переписанная формула.
+  return quarterExecutionFromCounts(planCount, doneCount);
 }
 
 /**
@@ -231,15 +223,7 @@ function byExecution(blocks: ReportForExport['grbsBlocks']) {
 
 /** Сумма остатков КП по всем ГРБС отчёта (район за один квартал). */
 function districtPendingKp(r: ReportForExport): PendingRemainder {
-  const add = (pick: (p: PendingRemainder) => number): number =>
-    r.grbsBlocks.reduce((s, b) => s + pick(b.quarter.pendingByMethod.kp), 0);
-  return {
-    count: add((p) => p.count),
-    fb: add((p) => p.fb),
-    kb: add((p) => p.kb),
-    mb: add((p) => p.mb),
-    total: add((p) => p.total),
-  };
+  return sumPending(r.grbsBlocks.map((b) => b.quarter.pendingByMethod.kp));
 }
 
 /**
@@ -251,16 +235,7 @@ function districtPendingKp(r: ReportForExport): PendingRemainder {
  * собрать, не выдумывая своей семантики остатка.
  */
 function yearPendingKp(quarters: QuarterReports): PendingRemainder {
-  const parts = QUARTERS.map((q) => districtPendingKp(quarters[q]));
-  const add = (pick: (p: PendingRemainder) => number): number =>
-    parts.reduce((s, p) => s + pick(p), 0);
-  return {
-    count: add((p) => p.count),
-    fb: add((p) => p.fb),
-    kb: add((p) => p.kb),
-    mb: add((p) => p.mb),
-    total: add((p) => p.total),
-  };
+  return sumPending(QUARTERS.map((q) => districtPendingKp(quarters[q])));
 }
 
 /** Строки «исполнение плана N квартала» по району — общие для обеих выгрузок. */
@@ -361,7 +336,7 @@ export function mainReportBlocks(
   out.push(heading('ПО КОНКУРЕНТНЫМ ПРОЦЕДУРАМ:'));
   out.push(line(
     `Всего на год ${plannedProcedures(yearKp.planCount)}` +
-    `${moneyTail(yearMethodMoney(quarters, 'kp', 'plan')).replace(' на общую сумму', ' на сумму')}.`,
+    `${moneyTail(yearMethodMoney(quarters, 'kp', 'plan'), 'на сумму')}.`,
   ));
   for (const q of QUARTERS) {
     const kp = quarters[q].integralSummary.quarter.kp;
@@ -411,7 +386,7 @@ export function mainReportBlocks(
   out.push(heading('ЕДИНСТВЕННЫЙ ПОСТАВЩИК:'));
   out.push(line(
     `Всего на год ${plannedProcedures(yearEp.planCount)}` +
-    `${moneyTail(yearMethodMoney(quarters, 'ep', 'plan')).replace(' на общую сумму', ' на сумму')}.`,
+    `${moneyTail(yearMethodMoney(quarters, 'ep', 'plan'), 'на сумму')}.`,
   ));
   for (const q of QUARTERS) {
     const ep = quarters[q].integralSummary.quarter.ep;
@@ -423,7 +398,7 @@ export function mainReportBlocks(
   }
   out.push(line(
     `Заключено ${num(yearEp.doneCount)} ${contracts(yearEp.doneCount)}` +
-    `${moneyTail(yearMethodMoney(quarters, 'ep', 'fact')).replace(' на общую сумму', ' на сумму')}.`,
+    `${moneyTail(yearMethodMoney(quarters, 'ep', 'fact'), 'на сумму')}.`,
   ));
 
   // Абзац эталона про адресные рекомендации коллегам: это работа аналитика,
@@ -474,7 +449,7 @@ export function mainReportBlocks(
       ));
       out.push(line(
         `Заключено ${num(ep.doneCount)} ${contracts(ep.doneCount)}` +
-        `${moneyTail(qb.quarter.moneyByMethod.ep.fact).replace(' на общую сумму', ' на сумму')}.`,
+        `${moneyTail(qb.quarter.moneyByMethod.ep.fact, 'на сумму')}.`,
       ));
       out.push(...quarterRemainderLines(qb.quarter.pendingByMethod.ep, q, 'заключить', contracts));
       out.push(line(`Исполнение плана ${qGen(q)} – ${pct(ep.pct)}`));
@@ -531,7 +506,7 @@ export function additionalReportBlocks(
   out.push(heading('ПО КОНКУРЕНТНЫМ ПРОЦЕДУРАМ:'));
   out.push(line(
     `Всего на год ${plannedProcedures(yearKp.planCount)}` +
-    `${moneyTail(yearMethodMoney(quarters, 'kp', 'plan')).replace(' на общую сумму', ' на сумму')}.`,
+    `${moneyTail(yearMethodMoney(quarters, 'kp', 'plan'), 'на сумму')}.`,
   ));
   out.push(line(
     `Фактически обязательства заключены по ${num(yearKp.doneCount)} конкурентным ` +

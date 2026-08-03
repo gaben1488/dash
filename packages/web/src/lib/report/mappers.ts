@@ -8,7 +8,8 @@
  * view-моделей — свободного текста подписей здесь нет.
  */
 import type { BudgetMoney, GrbsReportBlock, PendingPosition, RecommendationPair, Report, ReportSignal } from '@aemr/core';
-import { quarterLabel } from '@aemr/shared';
+import { isoOfDayNumber, quarterLabel } from '@aemr/shared';
+import { formatDateCell } from '../sheet-date';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
 /** Происхождение view-модели — структурно совместим с ElementSource контракта. */
@@ -30,10 +31,8 @@ export function fmtPct(pct: number | null): string {
   return `${(Math.round(pct * 10) / 10).toFixed(1).replace('.', ',')}%`;
 }
 
-/** Сумма в тыс. руб. (значения листов уже в тысячах — не переводим). */
-export function fmtThousands(n: number): string {
-  return Math.round(n).toLocaleString('ru-RU');
-}
+/** Сумма в тыс. руб. — то же целочисленное ru-RU (алиас, не вторая копия). */
+export const fmtThousands = fmtCount;
 
 /**
  * Дата среза «дд.мм.гггг» из period.asOfDay (номер суток dayNumberOf).
@@ -41,10 +40,8 @@ export function fmtThousands(n: number): string {
  * Гринвича сдвинуло бы срез-четверг на среду.
  */
 export function fmtAsOfDate(asOfDay: number): string {
-  const d = new Date(asOfDay * 86400000);
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}.${d.getUTCFullYear()}`;
+  // Каноны вместо ручных UTC-геттеров: номер суток → ISO → «дд.мм.гггг».
+  return formatDateCell(isoOfDayNumber(asOfDay));
 }
 
 // ── Интегральная сводка → ряд KPI-плиток ────────────────────

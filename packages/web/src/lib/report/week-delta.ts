@@ -6,7 +6,7 @@
  * снимок позднего вечера четверга по UTC остаётся снимком четверга на любом
  * поясе клиента — локальная полночь сдвинула бы границу суток.
  */
-import { dayNumberOf } from '@aemr/shared';
+import { DAYS_PER_WEEK, dayNumberOf } from '@aemr/shared';
 
 /** Минимум таймлайна /api/history/snapshots, нужный для выбора пары. */
 export interface SnapshotRef {
@@ -22,7 +22,7 @@ export interface WeekSnapshotPair {
   to: SnapshotRef;
 }
 
-const DAYS_PER_WEEK = 7;
+// DAYS_PER_WEEK — из @aemr/shared (единственный дом, копии запрещены)
 
 /** Последний снимок с датой ≤ maxDay; внутри одних суток — поздний по createdAt. */
 function lastAtOrBefore(snapshots: readonly SnapshotRef[], maxDay: number): SnapshotRef | null {

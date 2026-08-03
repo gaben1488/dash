@@ -3,8 +3,8 @@ export const ECONOMY_EMPTY_STATE_COPY = {
   body: 'Экономия считается только по утвержденным строкам: факт-дата заполнена, AD="да", сумма Z+AA+AB. Данные появятся после загрузки из Google Sheets.',
 } as const;
 
-/** Russian plural: pluralRu(1,'строка','строки','строк') → 'строка' */
-function pluralRu(n: number, one: string, few: string, many: string): string {
+/** Russian plural: pluralRu(1,'строка','строки','строк') → 'строка'. Экспорт: единственный дом склонения. */
+export function pluralRu(n: number, one: string, few: string, many: string): string {
   const abs = Math.abs(n) % 100;
   const d = abs % 10;
   if (abs > 10 && abs < 20) return many;

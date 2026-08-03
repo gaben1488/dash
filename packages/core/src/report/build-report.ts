@@ -19,7 +19,9 @@ import {
   DEPT_HEADER_ROWS,
   type DepartmentEntry,
   factCountsOn,
+  findDept,
   svodCellRef,
+  toNumber,
   type Issue,
   type IssueSeverity,
   type SvodGridBlock,
@@ -32,10 +34,7 @@ import {
   type GroupedResults,
   type RawRow,
 } from '../pipeline/calc-engine.js';
-import {
-  quarterExecution,
-  quarterExecutionFromCounts,
-} from '../metrics/quarter-execution.js';
+import { quarterExecutionFromCounts } from '../metrics/quarter-execution.js';
 import type {
   BudgetMoney,
   GrbsQuarterSlice,
@@ -88,8 +87,6 @@ export interface BuildReportOptions {
 
 /** Stateless-движок (как в quarter-execution.ts): compute() без состояния. */
 const ENGINE = new CalcEngine();
-
-/** Сколько топ-сигналов показывает шапка секции ГРБС. */
 
 /** Порядок критичности для отбора топ-сигналов (меньше = важнее). */
 const SEVERITY_RANK: Record<IssueSeverity, number> = {
@@ -180,9 +177,8 @@ function pendingOf(g: GroupedResults, group?: string): PendingRemainder {
 
 /** Ключ ГРБС входа → запись реестра (короткое имя, latinId или имя листа). */
 function resolveDept(key: string): DepartmentEntry | undefined {
-  return DEPARTMENT_REGISTRY.find(
-    (d) => d.id === key || d.latinId === key || d.sheetName === key,
-  );
+  // findDept — канонический lookup id/latinId; sheetName добираем сканом.
+  return findDept(key) ?? DEPARTMENT_REGISTRY.find((d) => d.sheetName === key);
 }
 
 /** Официальный КП/ЕП-срез квартала из блоков СВОД для данного scope. */
@@ -257,10 +253,13 @@ const EXPLANATION_COLS: ReadonlyArray<{ col: number; label: string }> = [
   { col: DEPT_COLUMNS.COMMENT_UFBP, label: 'Комментарий УФБП' },
 ];
 
-const cellNum = (v: unknown): number => {
-  const n = Number(String(v ?? '').replace(/\s| /g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
-};
+/** Число листа по канону shared (toNumber), пусто/мусор — 0. */
+const cellNum = (v: unknown): number => toNumber(v) ?? 0;
+
+/** Плановая сумма строки: ИТОГО, либо ФБ+КБ+МБ при пустом итоге. */
+const rowPlanTotal = (row: RawRow): number =>
+  cellNum(row[DEPT_COLUMNS.TOTAL_PLAN])
+  || cellNum(row[DEPT_COLUMNS.FB_PLAN]) + cellNum(row[DEPT_COLUMNS.KB_PLAN]) + cellNum(row[DEPT_COLUMNS.MB_PLAN]);
 
 /**
  * Незаключённые позиции квартала с пояснениями из листа. Гейты — каноны
@@ -280,8 +279,7 @@ function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOf
     // и дата позже среза — тоже «не заключено». Свой гейт здесь молча
     // отсеивал ВСЕ незаключённые строки (второй дом канона, урок 03.08).
     if (factCountsOn(row[DEPT_COLUMNS.FACT_DATE], asOfDay)) return;
-    const planTotal = cellNum(row[DEPT_COLUMNS.TOTAL_PLAN])
-      || cellNum(row[DEPT_COLUMNS.FB_PLAN]) + cellNum(row[DEPT_COLUMNS.KB_PLAN]) + cellNum(row[DEPT_COLUMNS.MB_PLAN]);
+    const planTotal = rowPlanTotal(row);
     const explanations = EXPLANATION_COLS
       .map(({ col, label }) => ({ label, text: String(row[col] ?? '').trim() }))
       .filter((e) => e.text !== '');
@@ -312,8 +310,7 @@ function recommendationsFor(rows: RawRow[], year: number): RecommendationPair[] 
     if (rowYear !== 0 && rowYear !== year) return;
     const recommendation = String(row[DEPT_COLUMNS.COMMENT_UER] ?? '').trim();
     if (recommendation === '') return;
-    const planTotal = cellNum(row[DEPT_COLUMNS.TOTAL_PLAN])
-      || cellNum(row[DEPT_COLUMNS.FB_PLAN]) + cellNum(row[DEPT_COLUMNS.KB_PLAN]) + cellNum(row[DEPT_COLUMNS.MB_PLAN]);
+    const planTotal = rowPlanTotal(row);
     out.push({
       sheetRow: i + DEPT_HEADER_ROWS + 1,
       subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
@@ -349,11 +346,14 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
   const blocks: GrbsReportBlock[] = deptOrder(Object.keys(input.rowsByDept)).map((dept) => {
     const rows = input.rowsByDept[dept] ?? [];
     const entry = resolveDept(dept);
-    // Канонический путь квартального исполнения — переиспользуем метрику 1.3.
-    const execution = quarterExecution(rows, { quarter, year, asOfDay: opts.asOfDay });
-    // Тот же движок для разрезов (КП/ЕП, деньги, экономия) — год-срез не строгий
-    // (канон дашборда: строки без года не теряются).
+    // Один проход движка на блок: разрезы (КП/ЕП, деньги, экономия) и
+    // исполнение квартала — из одного g (quarterExecution гонял бы второй
+    // идентичный compute; горячий путь /api/report, simplify 03.08).
     const g = ENGINE.compute(rows, standardRowFilter, 0, year, { asOfDay: opts.asOfDay });
+    const execution = quarterExecutionFromCounts(
+      getValue(g, 'plan_count', qGroup),
+      getValue(g, 'fact_count', qGroup),
+    );
 
     // Незаключённые = план − факт (D − E): канон — колонка F листа СВОД
     // («отклонение»). Прямое правило вместо построчного detectSignals: сигнальная
@@ -371,9 +371,12 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       ),
     });
     const quarterMethods = methodsOf(g);
-    // Второй проход без гейта среза — «как в СВОДе, на сейчас»: только так
-    // сверка сравнивает сравнимое (см. GrbsQuarterSlice.live).
-    const quarterLive = methodsOf(ENGINE.compute(rows, standardRowFilter, 0, year));
+    // «Как в СВОДе, на сейчас» — сверка сравнивает сравнимое (см.
+    // GrbsQuarterSlice.live). В эфире g уже без гейта среза — второй
+    // проход движка нужен только архивному срезу.
+    const quarterLive = opts.asOfDay === undefined
+      ? quarterMethods
+      : methodsOf(ENGINE.compute(rows, standardRowFilter, 0, year));
     const yearCounts = yearCountsOf(g);
 
     return {
@@ -478,7 +481,8 @@ function sumCounts(parts: PlanFactCounts[]): PlanFactCounts {
   );
 }
 
-function sumPending(parts: PendingRemainder[]): PendingRemainder {
+/** Сумма остатков по частям — экспорт: web-выгрузка звала свои копии. */
+export function sumPending(parts: PendingRemainder[]): PendingRemainder {
   const add = (pick: (p: PendingRemainder) => number): number =>
     parts.reduce((s, p) => s + pick(p), 0);
   return {

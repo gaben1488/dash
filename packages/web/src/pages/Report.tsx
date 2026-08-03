@@ -12,24 +12,24 @@
  * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
 import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
+  SEVERITY_LABELS,
   SVOD_SHEET_NAME,
+  buildSheetUrl,
   SVOD_SPREADSHEET_ID,
   dayNumberOf,
   getMetricByKey,
   productLabel,
   quarterLabel,
 } from '@aemr/shared';
-import { buildSheetUrl } from '../lib/recon/sheet-links';
 import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
-import { toCanonicalDeptId } from '../lib/dept-key';
 import { KpiTile } from '../components/contract/KpiTile';
 import { SectionCard } from '../components/contract/SectionCard';
 import { ReportTable, type ReportTableColumn } from '../components/contract/ReportTable';
@@ -77,15 +77,6 @@ function errorMessage(error: string): string {
     : `Отчёт временно недоступен. ${error}`;
 }
 
-/** Слово критичности — текстовый дубль цветной точки (канон DESIGN.md). */
-const SEVERITY_RU: Record<string, string> = {
-  critical: 'критично',
-  error: 'ошибка',
-  significant: 'существенно',
-  warning: 'внимание',
-  info: 'справочно',
-};
-
 /**
  * Строка сигнала: полный текст (обрезка запрещена — закон «сигналы целиком»),
  * слово критичности рядом с точкой, описание и адрес первички
@@ -100,7 +91,7 @@ function SignalRow({ s }: { s: ReportSignal }) {
           style={{ backgroundColor: SEVERITY_COLORS[s.severity].text }}
         />
         <span className="shrink-0 text-[10px] uppercase tracking-wide" style={{ color: SEVERITY_COLORS[s.severity].text }}>
-          {SEVERITY_RU[s.severity] ?? s.severity}
+          {SEVERITY_LABELS[s.severity]?.label ?? s.severity}
         </span>
         <span className="text-zinc-700 dark:text-zinc-200">{s.title}</span>
       </div>
@@ -178,8 +169,9 @@ function RecommendationRow({ r }: { r: import('@aemr/core').RecommendationPair }
   );
 }
 
-/** Секция одного ГРБС — целиком из контрактных элементов. */
-function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter; ctx: FilterContext }) {
+/** Секция одного ГРБС — контрактные элементы; memo: тики локального
+    состояния страницы не перерисовывают 8 тяжёлых секций. */
+const GrbsSection = memo(function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter; ctx: FilterContext }) {
   return (
     <SectionCard filterCtx={ctx} source={vm.source} title={vm.deptLabel} icon={Building2}>
       <div className="space-y-3">
@@ -352,7 +344,7 @@ function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter
       </div>
     </SectionCard>
   );
-}
+});
 
 // ── «Что изменилось за неделю»: дельта снимков вокруг четверга среза ──
 
@@ -388,7 +380,7 @@ type WeekDeltaState =
  * это одна система «что изменилось». Все деградации — тихие строки,
  * секция от снимков не зависит.
  */
-function WeekDeltaBody({ state, ctx }: { state: WeekDeltaState; ctx: FilterContext }) {
+function WeekDeltaBody({ state }: { state: WeekDeltaState }) {
   if (state.kind === 'loading') return null;
 
   const note = state.kind === 'no-pair'
@@ -504,12 +496,16 @@ export function ReportPage() {
   // питает и секцию «Что изменилось за неделю», и дельта-бейджи KPI-плиток
   // (/api/history/snapshots + /api/history/diff; сбой — честная плашка секции).
   const asOfDay = report?.period.asOfDay;
+  // Список снимков не зависит от отчёта — грузим один раз, не ждём asOfDay
+  // (иначе два round-trip выстраивались в очередь).
+  const snapshotsOnce = useRef<ReturnType<typeof api.getHistorySnapshots> | null>(null);
   const [weekDelta, setWeekDelta] = useState<WeekDeltaState>({ kind: 'loading' });
   useEffect(() => {
     setWeekDelta({ kind: 'loading' });
     if (asOfDay === undefined) return;
     let cancelled = false;
-    api.getHistorySnapshots()
+    snapshotsOnce.current ??= api.getHistorySnapshots();
+    snapshotsOnce.current
       .then(async (snaps) => {
         const pair = pickWeekSnapshots(snaps, asOfDay);
         if (pair === null) {
@@ -546,17 +542,17 @@ export function ReportPage() {
     try {
       // Библиотека грузится по требованию: 400 КБ не должны висеть на каждом
       // открытии страницы ради кнопки, которую жмут раз в неделю.
-      const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, additionalReportBlocks }] =
+      // Ручной отчёт печатает ВСЕ четыре квартала («Всего на 1…4 квартал»), а
+      // проекция знает ровно один. Недостающие три берём запросами; текущий
+      // уже загружен страницей. Импорты и запросы независимы — один Promise.all.
+      const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, additionalReportBlocks }, q1, q2, q3, q4] =
         await Promise.all([
           import('../lib/report/docx/build-docx'),
           import('../lib/report/docx/text-blocks'),
-        ]);
-      // Ручной отчёт печатает ВСЕ четыре квартала («Всего на 1…4 квартал»), а
-      // проекция знает ровно один. Берём тот же срез четырьмя запросами —
-      // иначе три четверти шапки пришлось бы выдумать или обнулить.
-      const [q1, q2, q3, q4] = await Promise.all(
-        QUARTERS.map((q) => api.getReport(request.year, q, request.asOf)),
-      );
+          ...QUARTERS.map((q) =>
+            q === report.period.quarter ? Promise.resolve(report) : api.getReport(request.year, q, request.asOf),
+          ),
+        ] as const);
       const quarters = { 1: q1, 2: q2, 3: q3, 4: q4 };
       const isMain = kind === 'main';
       const blocks = isMain
@@ -586,7 +582,7 @@ export function ReportPage() {
     [report],
   );
 
-  const tiles = report ? integralKpiRow(report) : [];
+  const tiles = useMemo(() => (report ? integralKpiRow(report) : []), [report]);
   const heroTiles = tiles.filter((t) => t.tier === 'hero');
   const restTiles = tiles.filter((t) => t.tier !== 'hero');
   const activeQuarter: Quarter | null = report ? report.period.quarter : request.quarter ?? null;
@@ -765,7 +761,7 @@ export function ReportPage() {
               деталь реализации. Смена способа поставщика — наверху ленты. */}
           <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History}>
             <div className="space-y-5">
-              <WeekDeltaBody state={weekDelta} ctx={ctx} />
+              <WeekDeltaBody state={weekDelta} />
               <ChangesSection />
             </div>
           </SectionCard>
@@ -813,6 +809,21 @@ export function ReportPage() {
             )}
             {/* Официальный ярус листа СВОД — числа ручного отчёта без
                 пересчёта, с адресом строки (провенанс до первички) */}
+            {report?.official?.remainderToConclude && (
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                <span>
+                  Остаток к заключению по официальному листу (СВОД, строка{' '}
+                  {report.official.remainderToConclude.row}):{' '}
+                  {fmtCount(report.official.remainderToConclude.total)} тыс. руб.
+                </span>
+                <BudgetTriple
+                  fb={report.official.remainderToConclude.fb}
+                  kb={report.official.remainderToConclude.kb}
+                  mb={report.official.remainderToConclude.mb}
+                  metricPrefix="pending"
+                />
+              </p>
+            )}
             {report?.official?.calcEconomy && (
               <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
                 <span>

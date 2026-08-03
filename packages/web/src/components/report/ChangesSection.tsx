@@ -14,6 +14,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { COL_LETTER_INDEX, DEPT_COLUMNS } from '@aemr/shared';
+import { formatDateCell } from '../../lib/sheet-date';
 import { api } from '../../api';
 import { ExpandableRows } from '../contract/ExpandableRows';
 
@@ -77,14 +78,22 @@ const HUMAN_ATTR: Partial<Record<keyof typeof DEPT_COLUMNS, string>> = {
   DEVIATION_REASON: 'причину отклонения',
 };
 
-/** Ячейка «W59» → человеческое имя атрибута («факт по краевому бюджету»). */
-function humanAttribute(cell: string, rawAttr: string): string {
+/** Обратная карта «индекс колонки → ключ канона» — один раз на модуль. */
+const KEY_BY_INDEX = new Map<number, keyof typeof DEPT_COLUMNS>(
+  (Object.keys(DEPT_COLUMNS) as Array<keyof typeof DEPT_COLUMNS>)
+    .map((k) => [DEPT_COLUMNS[k], k]),
+);
+
+/** Ячейка «W59» → ключ колонки канона (undefined — вне канона). */
+function attrKeyOf(cell: string): keyof typeof DEPT_COLUMNS | undefined {
   const letter = cell.match(/^([A-Z]{1,2})\d+$/)?.[1];
   const idx = letter !== undefined ? COL_LETTER_INDEX[letter] : undefined;
-  const key = idx === undefined
-    ? undefined
-    : (Object.keys(DEPT_COLUMNS) as Array<keyof typeof DEPT_COLUMNS>)
-        .find((k) => DEPT_COLUMNS[k] === idx);
+  return idx === undefined ? undefined : KEY_BY_INDEX.get(idx);
+}
+
+/** Ячейка «W59» → человеческое имя атрибута («факт по краевому бюджету»). */
+function humanAttribute(cell: string, rawAttr: string): string {
+  const key = attrKeyOf(cell);
   if (key && HUMAN_ATTR[key]) return HUMAN_ATTR[key]!;
   return rawAttr ? `«${rawAttr}»` : 'колонку вне канона';
 }
@@ -92,7 +101,7 @@ function humanAttribute(cell: string, rawAttr: string): string {
 function ChangeRow({ r }: { r: ChangeRecord }) {
   const attr = humanAttribute(r.cell, r.attribute);
   // Смена способа определения поставщика — то, ради чего секция существует.
-  const isMethod = attr === HUMAN_ATTR.METHOD;
+  const isMethod = attrKeyOf(r.cell) === 'METHOD';
   return (
     // Предложение, а не колонки тех-лога: «Сотрудник … изменил(а) …: было → стало».
     <p className="text-[12px] leading-relaxed text-zinc-700 dark:text-zinc-300">
@@ -136,6 +145,13 @@ export function ChangesSection() {
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
   }, [data]);
 
+  // Смена способа — в самый верх ленты (прямой запрос коллеги). Фильтр
+  // 37 тыс. записей — по ключу колонки и не на каждый рендер.
+  const methodChanges = useMemo(
+    () => (data?.records ?? []).filter((r) => attrKeyOf(r.cell) === 'METHOD'),
+    [data],
+  );
+
   if (error) {
     return (
       <p className="text-[12px] text-zinc-400 dark:text-zinc-500">
@@ -147,12 +163,7 @@ export function ChangesSection() {
     return <p className="text-[12px] text-zinc-400 dark:text-zinc-500">Журнал правок загружается…</p>;
   }
 
-  const sinceRu = data.since.split('-').reverse().join('.');
-  // Смена способа — в самый верх ленты (прямой запрос коллеги): срез по всем
-  // книгам сразу. В группах ниже эти же правки остаются — там полная лента.
-  const methodChanges = data.records.filter(
-    (r) => humanAttribute(r.cell, r.attribute) === HUMAN_ATTR.METHOD,
-  );
+  const sinceRu = formatDateCell(data.since);
   return (
     <div className="space-y-4">
       <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">

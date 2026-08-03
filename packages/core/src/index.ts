@@ -29,7 +29,7 @@ export { quarterExecution, quarterExecutionFromCounts } from './metrics/quarter-
 export type { QuarterExecutionOptions, QuarterExecutionResult } from './metrics/quarter-execution.js';
 
 // buildReport-проекция — сердце страницы «Отчёт» (фаза 1.4-1.5, дуга-3)
-export { buildReport } from './report/build-report.js';
+export { buildReport, sumPending } from './report/build-report.js';
 export type { BuildReportInput, BuildReportOptions } from './report/build-report.js';
 export type {
   Report, ReportPeriod, ReportOrigin, IntegralSummary, GrbsReportBlock,

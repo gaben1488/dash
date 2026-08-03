@@ -27,12 +27,22 @@ export function ExpandableRows<T>(props: {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
 
+  // Поисковые строки — один раз на rows: пересчитывать searchText для всех
+  // строк на каждое нажатие клавиши дорого (лента правок — сотни строк с
+  // недешёвым предикатом). searchText потребители передают инлайн-стрелкой,
+  // поэтому в зависимостях его нет намеренно — меняется вместе с rows.
+  const lowered = useMemo(
+    () => props.rows.map((r) => props.searchText(r).toLowerCase()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.rows],
+  );
+
   const visible = useMemo(() => {
     if (!expanded) return props.rows.slice(0, props.top);
     const q = query.trim().toLowerCase();
     if (!q) return props.rows;
-    return props.rows.filter((r) => props.searchText(r).toLowerCase().includes(q));
-  }, [expanded, query, props.rows, props.top, props.searchText]);
+    return props.rows.filter((_, i) => lowered[i].includes(q));
+  }, [expanded, query, props.rows, props.top, lowered]);
 
   const hidden = props.rows.length - props.top;
 

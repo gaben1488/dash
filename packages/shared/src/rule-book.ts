@@ -10,7 +10,12 @@ import { DEPARTMENT_REGISTRY } from './department-registry.js';
 
 // --- Helpers ---
 
-function toNumber(val: unknown): number | null {
+/**
+ * Канон разбора «число листа» (пробелы-разряды, запятая-десятичная).
+ * Экспортирован: копии этого разбора расползлись по репо (simplify 03.08) —
+ * новые места обязаны звать его, не переизобретать.
+ */
+export function toNumber(val: unknown): number | null {
   if (val === null || val === undefined || val === '') return null;
   if (typeof val === 'number' && !isNaN(val)) return val;
   if (typeof val === 'string') {
