@@ -44,6 +44,7 @@ import type {
   MethodSplit,
   PendingPosition,
   PendingRemainder,
+  RecommendationPair,
   PlanFactCounts,
   Report,
   ReportOrigin,
@@ -297,6 +298,33 @@ function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOf
   return out.sort((a, b) => b.planTotal - a.planTotal);
 }
 
+/**
+ * Пары «рекомендация УЭР → ответ ГРБСа» по строкам года. Рекомендация —
+ * непустой «Комментарий УЭР АЕМР»; ответ — «Комментарий ГРБСа» той же
+ * строки (пустой ответ — тоже информация: обратной связи в листе нет).
+ * Год нестрогий, как всюду в отчёте: строки без года не теряются.
+ */
+function recommendationsFor(rows: RawRow[], year: number): RecommendationPair[] {
+  const out: RecommendationPair[] = [];
+  rows.forEach((row, i) => {
+    if (!standardRowFilter(row)) return;
+    const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
+    if (rowYear !== 0 && rowYear !== year) return;
+    const recommendation = String(row[DEPT_COLUMNS.COMMENT_UER] ?? '').trim();
+    if (recommendation === '') return;
+    const planTotal = cellNum(row[DEPT_COLUMNS.TOTAL_PLAN])
+      || cellNum(row[DEPT_COLUMNS.FB_PLAN]) + cellNum(row[DEPT_COLUMNS.KB_PLAN]) + cellNum(row[DEPT_COLUMNS.MB_PLAN]);
+    out.push({
+      sheetRow: i + DEPT_HEADER_ROWS + 1,
+      subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+      planTotal,
+      recommendation,
+      reply: String(row[DEPT_COLUMNS.COMMENT_GRBS] ?? '').trim(),
+    });
+  });
+  return out.sort((a, b) => b.planTotal - a.planTotal);
+}
+
 /** Порядок блоков: канонический порядок реестра, незнакомые ключи — в конец. */
 function deptOrder(keys: string[]): string[] {
   const rank = (key: string): number => {
@@ -389,6 +417,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         pendingCount: yearCounts.planCount - yearCounts.doneCount,
         pending: sumPending(QUARTERS.map((q) => pendingOf(g, `q${q}`))),
       },
+      recommendations: recommendationsFor(rows, year),
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       signals: signalsFor(issues, entry, dept),

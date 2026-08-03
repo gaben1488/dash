@@ -172,6 +172,25 @@ export interface ReportSignal {
 }
 
 /** Блок отчёта по одному ГРБС (секция страницы «Отчёт»). */
+/**
+ * Пара «рекомендация УЭР → ответ ГРБСа» одной строки листа. Сырьё ручного
+ * блока «в ходе анализа рекомендовано… позиция принята/не принята» (реверс
+ * эталона 26.06): рекомендацию пишет УЭР в свою колонку, ответ ГРБС —
+ * в свою. Тексты — как в листе, без пересказа; сводные счётчики за
+ * историю (144/65) ведёт специалист и продукт их не выдумывает.
+ */
+export interface RecommendationPair {
+  /** Номер строки листа книги (1-based, шапка учтена) — адрес первички. */
+  sheetRow: number;
+  subject: string;
+  /** Плановая сумма ИТОГО, тыс. руб. */
+  planTotal: number;
+  /** Колонка «Комментарий УЭР АЕМР» — сама рекомендация. */
+  recommendation: string;
+  /** Колонка «Комментарий ГРБСа» — ответ; пусто = обратной связи в листе нет. */
+  reply: string;
+}
+
 export interface GrbsReportBlock {
   /** Ключ входа rowsByDept (короткое имя или latinId из DEPARTMENT_REGISTRY). */
   dept: string;
@@ -179,6 +198,8 @@ export interface GrbsReportBlock {
   deptLabel: string;
   quarter: GrbsQuarterSlice;
   year: GrbsYearSlice;
+  /** Пары «рекомендация УЭР → ответ ГРБСа» по строкам года (дороже — выше). */
+  recommendations: RecommendationPair[];
   /** Деньги года: лимиты (H..K) и факт (V..Y) в бюджетном трёхсрезе. */
   money: { plan: BudgetMoney; fact: BudgetMoney };
   /** Утверждённая экономия года (гейт AD='да' + дата факта — канон approvedEconomy). */

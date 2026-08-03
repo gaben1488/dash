@@ -34,7 +34,7 @@ export type { BuildReportInput, BuildReportOptions } from './report/build-report
 export type {
   Report, ReportPeriod, ReportOrigin, IntegralSummary, GrbsReportBlock,
   GrbsQuarterSlice, GrbsYearSlice, MethodSplit, PlanFactCounts, BudgetMoney, ReportSignal, PendingPosition,
-  PendingRemainder,
+  PendingRemainder, RecommendationPair,
 } from './report/types.js';
 
 // History — snapshot-diff (слой 1 фичи «История изменений»)
