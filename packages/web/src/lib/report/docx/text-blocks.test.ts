@@ -23,8 +23,8 @@ const AS_OF = '20.03.2026';
 const fixture: ReportForExport = {
   ...makeReportFixture(),
   official: {
-    remainderToConclude: { fb: 100, kb: 200, mb: 300, total: 600, row: 2 },
-    calcEconomy: { fb: 10, kb: 20, mb: 30, total: 60, row: 32 },
+    remainderToConclude: { fb: 100, kb: 200, mb: 300, total: 600, row: 2, cell: 'O2' },
+    calcEconomy: { fb: 10, kb: 20, mb: 30, total: 60, row: 32, cell: 'M32' },
   },
   svodOnlineUrl: 'https://docs.google.com/spreadsheets/d/svod',
 };

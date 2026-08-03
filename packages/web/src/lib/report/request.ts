@@ -33,10 +33,16 @@ export function reportRequestParams(
    */
   mode: ReportMode = 'live',
 ): ReportRequest {
-  // Год: 'all' роут отчёта не принимает — берём последний доступный
+  // Год: 'all' роут отчёта не принимает — берём ТЕКУЩИЙ (тот же канон, что
+  // у дефолта store). Прежний «последний доступный» брал будущий год:
+  // AVAILABLE_YEARS идёт до текущего+1 ради планирования вперёд, и отчёт
+  // открывался за пустой 2027 (code-review 03.08).
+  const currentYear = new Date().getFullYear();
   const year = typeof ctx.year === 'number'
     ? ctx.year
-    : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
+    : (AVAILABLE_YEARS.includes(currentYear)
+      ? currentYear
+      : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]);
 
   const ctxQuarter = ctx.period.startsWith('q')
     ? (Number(ctx.period.slice(1)) as 1 | 2 | 3 | 4)

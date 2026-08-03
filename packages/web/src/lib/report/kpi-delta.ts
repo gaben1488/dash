@@ -29,7 +29,18 @@ const OFFICIAL_FAMILY: Readonly<Record<string, string>> = {
  * 1 кв → строка первого квартала (G9/G21). Районных строк 2 кв–4 кв в СВОДе нет,
  * как нет и единой ячейки «КП+ЕП вместе» — для них честный ответ undefined.
  */
-export function officialAnalogKey(metricKey: string, scope: KpiScope): string | undefined {
+export function officialAnalogKey(
+  metricKey: string,
+  scope: KpiScope,
+  /**
+   * Год отчёта. История снимков хранит ячейки ЖИВОГО листа СВОД — а он
+   * ведёт один план-год. Для другого года аналога нет: бейдж «к прошлому
+   * снимку» показывал бы сдвиг чужого числа (code-review 03.08). Не задан —
+   * поведение прежнее (аналог по скоупу).
+   */
+  reportYear?: number,
+): string | undefined {
+  if (reportYear !== undefined && reportYear !== new Date().getFullYear()) return undefined;
   const family = OFFICIAL_FAMILY[metricKey];
   if (family === undefined) return undefined;
   if (scope === 'year') return `${family}.year.percent`;

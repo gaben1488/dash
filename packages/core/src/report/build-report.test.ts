@@ -380,22 +380,22 @@ describe('buildReport — остаток в плановых деньгах (п�
 
 describe('buildReport — official: числа, которые лист считает сам', () => {
   const extras = (): SvodSheetExtras => ({
-    remainderToConclude: { fb: 86965.19, kb: 117518.12, mb: 90963.95, total: 295447.27, row: 2 },
+    remainderToConclude: { fb: 86965.19, kb: 117518.12, mb: 90963.95, total: 295447.27, row: 2, cell: 'O2' },
     scopes: [
-      { scope: 'ВСЕ', calcEconomy: { total: 23635.78, fb: 6957.22, kb: 9401.45, mb: 7277.12, row: 12 } },
+      { scope: 'ВСЕ', calcEconomy: { total: 23635.78, fb: 6957.22, kb: 9401.45, mb: 7277.12, row: 12, cell: 'M12' } },
       // У управления расч. экономии лист не считает; кладём чужое число, чтобы
       // проверить, что берётся именно районный скоуп, а не первый попавшийся.
-      { scope: 'УЭР', calcEconomy: { total: 1, fb: 1, kb: 0, mb: 0, row: 99 } },
+      { scope: 'УЭР', calcEconomy: { total: 1, fb: 1, kb: 0, mb: 0, row: 99, cell: 'M99' } },
     ],
   });
 
   it('официальные числа проносятся как есть, с адресами строк листа', () => {
     const report = buildReport({ rowsByDept: fixtureRows(), svodExtras: extras() }, OPTS);
     expect(report.official!.remainderToConclude).toEqual({
-      fb: 86965.19, kb: 117518.12, mb: 90963.95, total: 295447.27, row: 2,
+      fb: 86965.19, kb: 117518.12, mb: 90963.95, total: 295447.27, row: 2, cell: 'O2',
     });
     expect(report.official!.calcEconomy).toEqual({
-      total: 23635.78, fb: 6957.22, kb: 9401.45, mb: 7277.12, row: 12,
+      total: 23635.78, fb: 6957.22, kb: 9401.45, mb: 7277.12, row: 12, cell: 'M12',
     });
   });
 

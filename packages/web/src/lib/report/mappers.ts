@@ -120,9 +120,9 @@ function scopeTiles(scope: ScopeCounts, badge: string): KpiVM[] {
  * где он однозначен (исполнение КП/ЕП; см. officialAnalogKey). Остальные
  * плитки остаются как есть: без аналога нет и дельты.
  */
-function stampOfficialKeys(tiles: KpiVM[], scope: KpiScope): KpiVM[] {
+function stampOfficialKeys(tiles: KpiVM[], scope: KpiScope, reportYear: number): KpiVM[] {
   return tiles.map((t) => {
-    const officialKey = officialAnalogKey(t.metricKey, scope);
+    const officialKey = officialAnalogKey(t.metricKey, scope, reportYear);
     return officialKey === undefined ? t : { ...t, officialKey };
   });
 }
@@ -183,8 +183,8 @@ export function integralKpiRow(report: Report): KpiVM[] {
     },
   ];
   return [
-    ...stampOfficialKeys(scopeTiles(integralSummary.year, yearBadge), 'year'),
-    ...stampOfficialKeys(scopeTiles(integralSummary.quarter, quarterBadge), period.quarter),
+    ...stampOfficialKeys(scopeTiles(integralSummary.year, yearBadge), 'year', period.year),
+    ...stampOfficialKeys(scopeTiles(integralSummary.quarter, quarterBadge), period.quarter, period.year),
     // Деньги «итого» = КП+ЕП: единой официальной ячейки нет — без аналога
     ...moneyTiles,
   ];

@@ -123,16 +123,18 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
   );
 }
 
-export function ChangesSection() {
+export function ChangesSection({ since }: { since?: string }) {
   const [data, setData] = useState<{ since: string; records: ChangeRecord[] } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    api.getChanges()
+    // Архивный срез задаёт момент и ленте правок: без этого верхний ярус
+    // секции показывал дельты той недели, а нижний — правки текущей.
+    api.getChanges(since)
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [since]);
 
   // Группировка по управлениям: коллега спрашивает «по каждому ГРБС».
   const byDept = useMemo(() => {
@@ -182,7 +184,7 @@ export function ChangesSection() {
             noun="правок"
             searchText={(r) => `${r.dept} ${r.cell} ${r.oldValue} ${r.newValue} ${r.author}`}
           >
-            {(r) => <ChangeRow key={`m-${r.dept}-${r.cell}-${r.atMs}`} r={r} />}
+            {(r, i) => <ChangeRow key={`m-${r.dept}-${r.sheet}-${r.cell}-${r.atMs}-${i}`} r={r} />}
           </ExpandableRows>
         </div>
       )}
@@ -204,7 +206,7 @@ export function ChangesSection() {
               searchText={(r) =>
                 `${r.cell} ${r.attribute} ${humanAttribute(r.cell, r.attribute)} ${r.oldValue} ${r.newValue} ${r.author}`}
             >
-              {(r) => <ChangeRow key={`${r.cell}-${r.atMs}`} r={r} />}
+              {(r, i) => <ChangeRow key={`${r.sheet}-${r.cell}-${r.atMs}-${i}`} r={r} />}
             </ExpandableRows>
           </div>
         ))

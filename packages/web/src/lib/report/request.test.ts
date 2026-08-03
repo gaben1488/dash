@@ -64,9 +64,13 @@ describe('reportRequestParams — параметры GET /api/report из Filter
     expect(reportRequestParams(ctxWith({}), FRIDAY).quarter).toBeUndefined();
   });
 
-  it('год: число контекста → оно; all → последний из AVAILABLE_YEARS', () => {
+  it('год: число контекста → оно; all → ТЕКУЩИЙ год, не будущий', () => {
     expect(reportRequestParams(ctxWith({ year: 2025 }), FRIDAY).year).toBe(2025);
+    // AVAILABLE_YEARS доходит до текущего+1 (планирование вперёд): «последний
+    // доступный» открывал отчёт за пустой будущий год (code-review 03.08).
+    const currentYear = new Date().getFullYear();
+    expect(reportRequestParams(ctxWith({ year: 'all' }), FRIDAY).year).toBe(currentYear);
     expect(reportRequestParams(ctxWith({ year: 'all' }), FRIDAY).year)
-      .toBe(AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]);
+      .not.toBe(AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]);
   });
 });

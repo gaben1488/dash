@@ -114,7 +114,9 @@ function parsePeriod(query: ReportQuery): PeriodParse {
   if (query.asOf !== undefined) {
     const m = query.asOf.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     const day = dayNumberOf(query.asOf);
-    if (!m || day === null) {
+    // Round-trip против переката Date.UTC: «2026-06-31» иначе принимался
+    // как 1 июля — квартал считался по июню, гейт факта пускал лишний день.
+    if (!m || day === null || isoOfDayNumber(day) !== query.asOf) {
       return { ok: false, message: `Параметр asOf «${query.asOf}» не является датой формата YYYY-MM-DD.` };
     }
     sliceYear = parseInt(m[1], 10);
@@ -162,17 +164,20 @@ const ruDateOfDay = (day: number): string => isoOfDayNumber(day).split('-').reve
  */
 async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; extras: SvodSheetExtras; loadedAt: string | null } | undefined> {
   try {
-    const cached = getSvodGridCache();
-    let values = cached?.values;
-    if (values === undefined) {
-      values = await getSheetData(SVOD_SHEET_NAME);
-      setSvodGridCache(values);
+    let entry = getSvodGridCache();
+    if (entry === null) {
+      // Холодный старт: читаем сами и кладём в кэш — момент чтения берём
+      // из кэша ПОСЛЕ записи, иначе loadedAt оставался null и плашка
+      // расходящихся моментов молчала ровно в своём сценарии.
+      setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
+      entry = getSvodGridCache();
     }
+    const values = entry?.values ?? [];
     const grid = parseSvodGrid(values);
     // Итоговый ярус того же листа: остаток к заключению и «Расч. экономия»
     // (M31/M32) — официальные числа, которые ручной отчёт печатает дословно.
     const extras = parseSvodExtras(values);
-    return grid.length > 0 ? { grid, extras, loadedAt: cached?.loadedAt ?? null } : undefined;
+    return grid.length > 0 ? { grid, extras, loadedAt: entry?.loadedAt ?? null } : undefined;
   } catch {
     return undefined;
   }
@@ -234,6 +239,10 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
 
     if (!input) {
       const rowsByDept = collectRowsByDept(getDeptSheetValues());
+      // Мета снимается ЗДЕСЬ же: между чтением строк и плашкой ниже стоит
+      // await, за который конкурентный /api/refresh успевает обновить кэш —
+      // плашка описывала бы не ту пару (code-review 03.08).
+      const deptMetaAtRead = getDeptLoadMeta();
       if (Object.keys(rowsByDept).length === 0) {
         return reply.status(503).send({
           error: 'ServiceUnavailable',
@@ -249,7 +258,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       // Моменты чтения двух половин сверки. Расходятся сильнее трёх минут —
       // говорим прямо: возможны кратковременные расхождения на 1–2 строки,
       // которые обновление данных сравняет само.
-      const deptTimes = Object.values(getDeptLoadMeta())
+      const deptTimes = Object.values(deptMetaAtRead)
         .map((m) => Date.parse(m.loadedAt))
         .filter(Number.isFinite);
       const svodTime = svodRead?.loadedAt ? Date.parse(svodRead.loadedAt) : NaN;

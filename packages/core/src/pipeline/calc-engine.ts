@@ -18,6 +18,7 @@ import {
   isCompetitive,
   PROCUREMENT_METHODS,
   factCountsOn,
+  toNumber,
   type ProcurementMethodCode,
 } from '@aemr/shared';
 
@@ -25,11 +26,13 @@ import {
 
 const COL = DEPT_COLUMNS;
 
-/** Safe numeric coercion (0 for non-numeric). */
+/**
+ * Число листа — канон @aemr/shared (toNumber): пробелы-разряды и запятая
+ * десятичная. Прежний parseFloat обрывался на пробеле («1 234,56» → 1) и
+ * расходился с чтением тех же ячеек в build-report (code-review 03.08).
+ */
 function num(v: unknown): number {
-  if (v == null) return 0;
-  const n = parseFloat(String(v));
-  return Number.isNaN(n) ? 0 : n;
+  return toNumber(v) ?? 0;
 }
 
 function cellPresent(v: unknown): boolean {
@@ -490,7 +493,9 @@ export class CalcEngine {
       const method = this.extractors.method(row);
       const subordinate = this.extractors.subordinate(row);
       const activity = this.extractors.activity(row);
-      const hasFact = evaluateGate(row, GATE_HAS_FACT);
+      // Гейт со срезом — тот же, что у метрик: без asOfDay архивный срез
+    // рапортовал конфликты по строкам, заключённым ПОСЛЕ даты снимка.
+    const hasFact = evaluateGate(row, GATE_HAS_FACT, opts?.asOfDay);
 
       // Accumulate each metric
       for (const m of this.metrics) {
@@ -570,7 +575,11 @@ export class CalcEngine {
         const ecoMB = num(row[COL.ECONOMY_MB]);
         const ecoTotal = ecoFB + ecoKB + ecoMB;
         const adFlag = String(row[COL.FLAG] ?? '').trim().toLowerCase();
-        const isApproved = adFlag === 'да' || adFlag === 'yes';
+        // Канон флага — ровно тот, что у гейта метрик (GATE_ECONOMY_APPROVED,
+        // eq 'да'). Раньше детектор дополнительно принимал 'yes': такая строка
+        // не попадала ни в экономию (гейт её не пускал), ни в конфликты
+        // (детектор считал её утверждённой) — деньги исчезали молча.
+        const isApproved = adFlag === 'да';
 
         // economyTotalMath: ungated economy with Math.max(0, ...)
         result.economyTotalMath += Math.max(0, ecoTotal);

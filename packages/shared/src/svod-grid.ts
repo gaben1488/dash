@@ -179,7 +179,16 @@ export interface SvodMoneyRow {
   total: number;
   /** Строка листа (1-based), откуда прочитано. */
   row: number;
+  /**
+   * Адрес ИТОГО в нотации A1 («O2», «M32») — провенанс до ячейки.
+   * Собирается там же, где читается число: потребителю нечего вычислять
+   * (иначе буквы колонок расползлись бы по web и серверу).
+   */
+  cell: string;
 }
+
+/** Индекс колонки (0-based) → буква A1: 12 → «M». */
+const colLetter = (index: number): string => String.fromCharCode(65 + index);
 
 /** Итоги и доли одного скоупа (район или ГРБС) — ярус ниже блоков. */
 export interface SvodScopeSummary {
@@ -233,6 +242,7 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
         mb: num(row[EXTRA_COLS.remainderMB]),
         total: num(row[EXTRA_COLS.remainderTotal]),
         row: i + 1,
+        cell: `${colLetter(EXTRA_COLS.remainderTotal)}${i + 1}`,
       };
       break;
     }
@@ -295,6 +305,7 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
           kb: num(row[EXTRA_COLS.calcEconomyKB]),
           mb: num(row[EXTRA_COLS.calcEconomyMB]),
           row: i + 1,
+          cell: `${colLetter(EXTRA_COLS.calcEconomyTotal)}${i + 1}`,
         };
       }
     }

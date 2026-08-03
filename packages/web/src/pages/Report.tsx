@@ -521,7 +521,12 @@ export function ReportPage() {
           toDay: dayNumberOf(pair.to.createdAt) ?? asOfDay,
         });
       })
-      .catch(() => { if (!cancelled) setWeekDelta({ kind: 'error' }); });
+      .catch(() => {
+        // Сбой снимков не должен запирать секцию до перезагрузки страницы:
+        // кэш промиса чистим, следующий прогон эффекта попробует снова.
+        snapshotsOnce.current = null;
+        if (!cancelled) setWeekDelta({ kind: 'error' });
+      });
     return () => { cancelled = true; };
   }, [asOfDay]);
   const weekDeltas = weekDelta.kind === 'ready' ? weekDelta.deltas : [];
@@ -549,8 +554,14 @@ export function ReportPage() {
         await Promise.all([
           import('../lib/report/docx/build-docx'),
           import('../lib/report/docx/text-blocks'),
+          // В архиве срез пришпилен asOf — текущий квартал можно взять из
+          // загруженного отчёта. В ЭФИРЕ пиновки нет: между открытием
+          // страницы и кликом сервер мог перечитать книги, и документ
+          // склеился бы из разных моментов (тот же класс, что фикс 67c131c).
           ...QUARTERS.map((q) =>
-            q === report.period.quarter ? Promise.resolve(report) : api.getReport(request.year, q, request.asOf),
+            q === report.period.quarter && request.asOf !== undefined
+              ? Promise.resolve(report)
+              : api.getReport(request.year, q, request.asOf),
           ),
         ] as const);
       const quarters = { 1: q1, 2: q2, 3: q3, 4: q4 };
@@ -762,7 +773,7 @@ export function ReportPage() {
           <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History}>
             <div className="space-y-5">
               <WeekDeltaBody state={weekDelta} />
-              <ChangesSection />
+              <ChangesSection since={request.asOf} />
             </div>
           </SectionCard>
 
