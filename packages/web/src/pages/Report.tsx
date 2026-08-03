@@ -515,7 +515,32 @@ export function ReportPage() {
   const activeQuarter: Quarter | null = report ? report.period.quarter : request.quarter ?? null;
 
   return (
-    <div className="space-y-4">
+    <div className="flex items-start gap-4">
+      {/* Навигация ГРБС — липкая левая колонка (решение 03.08 «вместо
+          фильтра — шапка», перенесена из инлайн-строки 06.08: строка
+          прокручивалась вместе со страницей, после клика нужно было
+          листать обратно наверх, чтобы кликнуть следующий пункт). */}
+      {visibleBlocks.length > 1 && (
+        <nav
+          aria-label="ГРБС отчёта"
+          className="sticky top-2 flex w-28 shrink-0 flex-col gap-1"
+        >
+          {visibleBlocks.map((vm) => (
+            <button
+              key={vm.dept}
+              type="button"
+              onClick={() => document.getElementById(`grbs-${vm.dept}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              className="flex items-center justify-between rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
+            >
+              <span>{vm.dept}</span>
+              <span className="tabular-nums font-medium text-zinc-800 dark:text-zinc-100">
+                {vm.executionPct}
+              </span>
+            </button>
+          ))}
+        </nav>
+      )}
+      <div className="min-w-0 flex-1 space-y-4">
       {/* Панель управления отчётом: ярус 1 — что это и режим + действия;
           ярус 2 — период и служебные оговорки. Карточка, не россыпь. */}
       <div className="analytics-chart-card px-4 py-3 space-y-2.5">
@@ -700,29 +725,6 @@ export function ReportPage() {
             )}
           </SectionCard>
 
-          {/* Шапка ГРБС отчёта: оглавление из управлений с исполнением
-              квартала (состав шапки ручного отчёта); клик — к секции */}
-          {visibleBlocks.length > 1 && (
-            <nav
-              aria-label="ГРБС отчёта"
-              className="flex flex-wrap gap-1.5"
-            >
-              {visibleBlocks.map((vm) => (
-                <button
-                  key={vm.dept}
-                  type="button"
-                  onClick={() => document.getElementById(`grbs-${vm.dept}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                  className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
-                >
-                  {vm.dept}
-                  <span className="ml-1.5 tabular-nums font-medium text-zinc-800 dark:text-zinc-100">
-                    {vm.executionPct}
-                  </span>
-                </button>
-              ))}
-            </nav>
-          )}
-
           {/* Блоки по ГРБС */}
           {visibleBlocks.length === 0 ? (
             <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-500 dark:text-zinc-400">
@@ -764,6 +766,7 @@ export function ReportPage() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

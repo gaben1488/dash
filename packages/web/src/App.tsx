@@ -136,9 +136,11 @@ export function App() {
       <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
         {/* Horizontal bar — FULL WIDTH, always on top */}
         <Header />
-        {/* Below header: OrgStrip + main content side by side */}
+        {/* Below header: OrgStrip + main content side by side.
+            report — фикс-документ 1:1 с .docx, орг-фильтр там не режет контент;
+            навигация по ГРБС — шапка-оглавление внутри страницы (Report.tsx:703). */}
         <div className="flex flex-1 overflow-hidden">
-          <OrgStrip />
+          {page !== 'report' && <OrgStrip />}
           <main className="flex-1 overflow-y-auto">
             <div className="max-w-[1400px] mx-auto p-6">
               <ErrorBoundary resetKey={page}>
