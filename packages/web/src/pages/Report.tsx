@@ -36,11 +36,13 @@ import { ReportTable, type ReportTableColumn } from '../components/contract/Repo
 import { DiffText } from '../components/contract/DiffText';
 import {
   buildGrbsSection,
-  integralKpiRow,
+  buildIntegralSummary,
   fmtAsOfDate,
   fmtCount,
   type GrbsSectionVM,
+  type KpiVM,
 } from '../lib/report/mappers';
+import { RemainderLedger } from '../components/report/RemainderLedger';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
 import { BudgetTriple } from '../components/contract/BudgetTriple';
 import { KbHover } from '../components/contract/KbHover';
@@ -69,6 +71,25 @@ const SVOD_COLUMNS: readonly ReportTableColumn[] = [
   // Провенанс: адрес ячейки официального листа — куда смотреть в живой книге.
   { key: 'cell', label: 'Ячейка', align: 'right' },
 ];
+
+/**
+ * Состав денежной плитки: полоса долей ФБ/КБ/МБ и те же числа текстом
+ * (канон «текстовый дубль визуального»). Тройки нет — плитка без подвала.
+ */
+function moneyFooter(tile: KpiVM) {
+  if (!tile.budget) return undefined;
+  return (
+    <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+      <BudgetTriple
+        fb={tile.budget.fb}
+        kb={tile.budget.kb}
+        mb={tile.budget.mb}
+        metricPrefix={tile.metricKey === 'economy_total' ? 'economy' : tile.metricKey === 'fact_total' ? 'fact' : 'plan'}
+        bar
+      />
+    </div>
+  );
+}
 
 /** Честная расшифровка ошибки загрузки (503 = снапшота ещё нет). */
 function errorMessage(error: string): string {
@@ -593,9 +614,7 @@ export function ReportPage() {
     [report],
   );
 
-  const tiles = useMemo(() => (report ? integralKpiRow(report) : []), [report]);
-  const heroTiles = tiles.filter((t) => t.tier === 'hero');
-  const restTiles = tiles.filter((t) => t.tier !== 'hero');
+  const summary = useMemo(() => (report ? buildIntegralSummary(report) : null), [report]);
   const activeQuarter: Quarter | null = report ? report.period.quarter : request.quarter ?? null;
 
   return (
@@ -777,79 +796,45 @@ export function ReportPage() {
             </div>
           </SectionCard>
 
-          {/* Интегральная сводка: KpiTile-ряд с source-бейджами из origin;
-              дельта «к прошлому снимку» — только у плиток с официальным
-              аналогом в снимках (kpiDeltaFor, честность источников) */}
-          <SectionCard
-            filterCtx={ctx}
-            source={report.integralSummary.svodQuarter ? 'mixed' : 'calc'}
-            title="Интегральная сводка"
-            collapsible={false}
-          >
-            <div className="analytics-kpi-grid">
-              <div className="analytics-kpi-hero-row">
-                {heroTiles.map((t) => (
-                  <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} delta={kpiDeltaFor(t, weekDeltas)} />
+          {/* Интегральная сводка — четыре яруса (переплавка 03.08): главные
+              проценты крупно, способы рядом, деньги с составом бюджетов,
+              остаток — сверкой нашего пересчёта с ярусом официального листа.
+              Дельта «к прошлому снимку» — только у плиток с однозначным
+              официальным аналогом (kpiDeltaFor, честность источников). */}
+          {summary && (
+            <SectionCard
+              filterCtx={ctx}
+              source={report.integralSummary.svodQuarter ? 'mixed' : 'calc'}
+              title="Интегральная сводка"
+              collapsible={false}
+            >
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {summary.hero.map((tile) => (
+                  <KpiTile key={`${tile.metricKey}-${tile.periodBadge}`} filterCtx={ctx} {...tile} delta={kpiDeltaFor(tile, weekDeltas)} />
                 ))}
               </div>
-              <div className="analytics-kpi-secondary-row">
-                {restTiles.map((t) => (
-                  <KpiTile key={`${t.metricKey}-${t.periodBadge}`} filterCtx={ctx} {...t} delta={kpiDeltaFor(t, weekDeltas)} />
+
+              <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                {summary.methods.map((tile) => (
+                  <KpiTile key={`${tile.metricKey}-${tile.periodBadge}`} filterCtx={ctx} {...tile} delta={kpiDeltaFor(tile, weekDeltas)} />
                 ))}
               </div>
-            </div>
-            {/* Разбивка остатка по бюджетам — «…с разбивкой по бюджетам»
-                из запроса коллег; плитка выше несёт итог, строка — состав
-                цветной тройкой (канон цвет+подпись) */}
-            {report && report.integralSummary.pending.year.count > 0 && (
-              <p className="mt-2 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                <KbHover metricKey="pending_total">
-                  <span>
-                    Остаток к заключению ({report.period.year} · год):{' '}
-                    {fmtCount(report.integralSummary.pending.year.count)} процедур на{' '}
-                    {fmtCount(report.integralSummary.pending.year.total)} тыс. руб.
-                  </span>
-                </KbHover>
-                <BudgetTriple
-                  fb={report.integralSummary.pending.year.fb}
-                  kb={report.integralSummary.pending.year.kb}
-                  mb={report.integralSummary.pending.year.mb}
-                  metricPrefix="pending"
-                />
-              </p>
-            )}
-            {/* Официальный ярус листа СВОД — числа ручного отчёта без
-                пересчёта, с адресом строки (провенанс до первички) */}
-            {report?.official?.remainderToConclude && (
-              <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                <span>
-                  Остаток к заключению по официальному листу (СВОД, строка{' '}
-                  {report.official.remainderToConclude.row}):{' '}
-                  {fmtCount(report.official.remainderToConclude.total)} тыс. руб.
-                </span>
-                <BudgetTriple
-                  fb={report.official.remainderToConclude.fb}
-                  kb={report.official.remainderToConclude.kb}
-                  mb={report.official.remainderToConclude.mb}
-                  metricPrefix="pending"
-                />
-              </p>
-            )}
-            {report?.official?.calcEconomy && (
-              <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                <span>
-                  Расч. экономия по остатку (лист СВОД, строка {report.official.calcEconomy.row}):{' '}
-                  {fmtCount(report.official.calcEconomy.total)} тыс. руб.
-                </span>
-                <BudgetTriple
-                  fb={report.official.calcEconomy.fb}
-                  kb={report.official.calcEconomy.kb}
-                  mb={report.official.calcEconomy.mb}
-                  metricPrefix="economy"
-                />
-              </p>
-            )}
-          </SectionCard>
+
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {summary.money.map((tile) => (
+                  <KpiTile
+                    key={`${tile.metricKey}-${tile.periodBadge}`}
+                    filterCtx={ctx}
+                    {...tile}
+                    delta={kpiDeltaFor(tile, weekDeltas)}
+                    footer={moneyFooter(tile)}
+                  />
+                ))}
+              </div>
+
+              <RemainderLedger rows={summary.remainder} diff={summary.remainderDiff} />
+            </SectionCard>
+          )}
 
           {/* Блоки по ГРБС */}
           {visibleBlocks.length === 0 ? (

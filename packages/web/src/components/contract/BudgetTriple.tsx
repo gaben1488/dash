@@ -6,6 +6,10 @@
  * текстовой подписью (закон «текстовый дубль визуального»): печать
  * чёрно-белая и дальтонизм не теряют смысла. Каждая часть — с БЗ по
  * наведению (ключи <prefix>_fb/kb/mb; kbFor гасит неполные записи).
+ *
+ * `bar` добавляет полосу состава над числами: доли трёх бюджетов в сумме —
+ * то, чего ряд чисел не показывает с одного взгляда. Полоса декоративна
+ * (aria-hidden): весь её смысл продублирован числами под ней.
  */
 import { fmtThousands } from '../../lib/report/mappers';
 import { KbHover } from './KbHover';
@@ -17,6 +21,8 @@ export interface BudgetTripleProps {
   mb: number;
   /** Префикс ключей БЗ: 'plan' | 'fact' | 'economy' | 'pending'. */
   metricPrefix: 'plan' | 'fact' | 'economy' | 'pending';
+  /** Полоса долей над числами (для денежных плиток). */
+  bar?: boolean;
 }
 
 const PARTS = [
@@ -25,9 +31,10 @@ const PARTS = [
   { key: 'mb', label: 'МБ', cssVar: 'var(--budget-mb)' },
 ] as const;
 
-export function BudgetTriple({ fb, kb, mb, metricPrefix }: BudgetTripleProps) {
+export function BudgetTriple({ fb, kb, mb, metricPrefix, bar = false }: BudgetTripleProps) {
   const values = { fb, kb, mb };
-  return (
+  const sum = fb + kb + mb;
+  const labels = (
     <span className="inline-flex flex-wrap items-baseline gap-x-2 tabular-nums">
       {PARTS.map((p) => (
         <KbHover key={p.key} metricKey={`${metricPrefix}_${p.key}`}>
@@ -37,6 +44,28 @@ export function BudgetTriple({ fb, kb, mb, metricPrefix }: BudgetTripleProps) {
           </span>
         </KbHover>
       ))}
+    </span>
+  );
+
+  // Полоса без базы (все три нуля) не рисуется: пустой прямоугольник
+  // читался бы как «состав есть, но нулевой» — а его просто нет.
+  if (!bar || sum <= 0) return labels;
+
+  return (
+    <span className="block">
+      <span
+        className="mb-1 flex h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
+        aria-hidden="true"
+      >
+        {PARTS.map((p) => (
+          <span
+            key={p.key}
+            className="block h-full"
+            style={{ width: `${(values[p.key] / sum) * 100}%`, background: p.cssVar }}
+          />
+        ))}
+      </span>
+      {labels}
     </span>
   );
 }

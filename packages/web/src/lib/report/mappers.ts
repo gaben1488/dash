@@ -56,11 +56,31 @@ export interface KpiVM {
   source: ViewSource;
   tier: 'hero' | 'compact';
   /**
+   * Из чего сложилось число — по частям: «заключено », 2 440, « из », 2 819.
+   * Часть с metricKey несёт СВОЮ базу знаний по наведению. Так переплавка
+   * не съела метрики, которые до неё стояли отдельными плитками
+   * (plan_count/fact_count, счётчики КП и ЕП): плиток нет — ключи живы.
+   */
+  formula?: FormulaPart[];
+  /** Процент для бара плитки (null — нет базы, бар не рисуется). */
+  meter?: number | null;
+  /** Смысловой акцент: способ закупки, тревога, экономия. */
+  accent?: 'neutral' | 'brand' | 'violet' | 'amber' | 'emerald';
+  /** Состав денежной плитки — тройка ФБ/КБ/МБ (страница рисует BudgetTriple). */
+  budget?: { fb: number; kb: number; mb: number };
+  /**
    * Официальный аналог плитки в слое снимков (dotted-ключ REPORT_MAP) —
    * дверь для дельта-бейджа «к прошлому снимку». Однозначного аналога той же
    * семантики в СВОДе нет → поля нет, плитка честно живёт без дельты.
    */
   officialKey?: string;
+}
+
+/** Кусок формулы: текст-связка либо число со своим ключом метрики. */
+export interface FormulaPart {
+  text: string;
+  /** Задан — часть кликабельна для БЗ (KbHover). */
+  metricKey?: string;
 }
 
 interface ScopeCounts {
@@ -69,48 +89,64 @@ interface ScopeCounts {
   total: Report['integralSummary']['year']['total'];
 }
 
-/** Пять плиток одного скоупа: план/факт/исполнение + КП/ЕП раздельно. */
-function scopeTiles(scope: ScopeCounts, badge: string): KpiVM[] {
+/**
+ * Герой скоупа: главный процент исполнения крупно, с формулой и баром.
+ * Отставание (<70 %) подсвечивается янтарём — цвет говорит раньше, чем
+ * читатель сравнит числа; слово «заключено N из M» дублирует и то, и другое.
+ */
+function heroTile(scope: ScopeCounts, badge: string): KpiVM {
+  const pct = scope.total.pct;
+  return {
+    metricKey: 'exec_count_pct',
+    value: fmtPct(pct),
+    unit: '',
+    periodBadge: badge,
+    source: scope.total.origin,
+    tier: 'hero',
+    formula: [
+      { text: 'заключено ' },
+      { text: fmtCount(scope.total.doneCount), metricKey: 'fact_count' },
+      { text: ' из ' },
+      { text: fmtCount(scope.total.planCount), metricKey: 'plan_count' },
+      { text: ' позиций' },
+    ],
+    meter: pct,
+    accent: pct !== null && pct < 70 ? 'amber' : 'brand',
+  };
+}
+
+/** Две плитки способов одного скоупа: конкурентные и единственный поставщик. */
+function methodTiles(scope: ScopeCounts, badge: string): KpiVM[] {
   return [
-    {
-      metricKey: 'plan_count',
-      value: fmtCount(scope.total.planCount),
-      unit: '',
-      periodBadge: badge,
-      source: scope.total.origin,
-      tier: 'compact',
-    },
-    {
-      metricKey: 'fact_count',
-      value: fmtCount(scope.total.doneCount),
-      unit: '',
-      periodBadge: badge,
-      source: scope.total.origin,
-      tier: 'compact',
-    },
-    {
-      metricKey: 'exec_count_pct',
-      value: fmtPct(scope.total.pct),
-      unit: '',
-      periodBadge: badge,
-      source: scope.total.origin,
-      tier: 'hero',
-    },
     {
       metricKey: 'comp_exec_count_pct',
       value: fmtPct(scope.kp.pct),
       unit: '',
-      periodBadge: `${badge} · ${fmtCount(scope.kp.doneCount)} из ${fmtCount(scope.kp.planCount)}`,
+      periodBadge: badge,
       source: scope.kp.origin,
       tier: 'compact',
+      formula: [
+        { text: fmtCount(scope.kp.doneCount), metricKey: 'comp_fact_count' },
+        { text: ' из ' },
+        { text: fmtCount(scope.kp.planCount), metricKey: 'competitive_count' },
+      ],
+      meter: scope.kp.pct,
+      accent: 'brand',
     },
     {
       metricKey: 'ep_exec_count_pct',
       value: fmtPct(scope.ep.pct),
       unit: '',
-      periodBadge: `${badge} · ${fmtCount(scope.ep.doneCount)} из ${fmtCount(scope.ep.planCount)}`,
+      periodBadge: badge,
       source: scope.ep.origin,
       tier: 'compact',
+      formula: [
+        { text: fmtCount(scope.ep.doneCount), metricKey: 'ep_fact_count' },
+        { text: ' из ' },
+        { text: fmtCount(scope.ep.planCount), metricKey: 'ep_count' },
+      ],
+      meter: scope.ep.pct,
+      accent: 'violet',
     },
   ];
 }
@@ -127,67 +163,138 @@ function stampOfficialKeys(tiles: KpiVM[], scope: KpiScope, reportYear: number):
   });
 }
 
-/**
- * Интегральная сводка → плитки: год (план/факт/% + КП/ЕП), квартал (то же),
- * деньги года (лимит/факт/экономия ИТОГО). Source каждой плитки — из
- * origin-поля соответствующего числа.
- */
-export function integralKpiRow(report: Report): KpiVM[] {
-  const { period, integralSummary } = report;
+/** Строка сверки остатка: наш пересчёт против яруса официального листа. */
+export interface RemainderRowVM {
+  /** Ключ БЗ показателя строки. */
+  metricKey: string;
+  label: string;
+  /** Уточнение под подписью по частям — счётчик несёт свой ключ БЗ. */
+  hint: FormulaPart[];
+  value: string;
+  budget: { fb: number; kb: number; mb: number };
+  /** Префикс ключей БЗ бюджетной тройки. */
+  budgetPrefix: 'pending' | 'economy';
+  source: ViewSource;
+  /** Адрес ИТОГО на листе СВОД («O2») — ссылка к первичке; null у расчёта. */
+  cell: string | null;
+  accent?: 'neutral' | 'emerald';
+}
+
+/** Интегральная сводка целиком: четыре яруса вместо ряда равных плиток. */
+export interface IntegralSummaryVM {
+  /** Год и отчётный квартал — главные проценты. */
+  hero: KpiVM[];
+  /** Способы: КП/ЕП года и квартала. */
+  methods: KpiVM[];
+  /** Деньги года: лимит, факт, утверждённая экономия — с составом бюджетов. */
+  money: KpiVM[];
+  /** Остаток к заключению: наш расчёт и обе официальные строки листа. */
+  remainder: RemainderRowVM[];
+  /**
+   * Подпись расхождения нашего остатка с официальным ярусом (null — листа
+   * нет или расхождение нулевое). Обе стороны показаны как есть: продукт
+   * не подгоняет свой пересчёт под лист и не молчит о разнице.
+   */
+  remainderDiff: string | null;
+}
+
+export function buildIntegralSummary(report: Report): IntegralSummaryVM {
+  const { period, integralSummary, official } = report;
   const yearBadge = `${period.year} · год`;
   const quarterBadge = quarterLabel(period.quarter);
   const money = integralSummary.money;
-  const moneyTiles: KpiVM[] = [
-    {
-      metricKey: 'plan_total',
-      value: fmtThousands(money.plan.total),
-      unit: 'тыс. ₽',
-      periodBadge: yearBadge,
-      source: money.plan.origin,
-      tier: 'compact',
-    },
-    {
-      metricKey: 'fact_total',
-      value: fmtThousands(money.fact.total),
-      unit: 'тыс. ₽',
-      periodBadge: yearBadge,
-      source: money.fact.origin,
-      tier: 'compact',
-    },
-    {
-      metricKey: 'economy_total',
-      value: fmtThousands(money.economy.total),
-      unit: 'тыс. ₽',
-      periodBadge: yearBadge,
-      source: money.economy.origin,
-      tier: 'compact',
-    },
-    // Остаток к заключению — прямой запрос коллег: «сколько в плановых
-    // деньгах по оставшимся процедурам». origin не нужен: pending_* всегда
-    // наш пересчёт (см. PendingRemainder в core).
-    {
-      metricKey: 'pending_count',
-      value: fmtCount(integralSummary.pending.year.count),
-      unit: '',
-      periodBadge: yearBadge,
-      source: 'calc',
-      tier: 'compact',
-    },
-    {
+  const pending = integralSummary.pending.year;
+
+  const moneyTile = (
+    metricKey: string,
+    m: { fb: number; kb: number; mb: number; total: number; origin: ViewSource },
+    accent: KpiVM['accent'],
+  ): KpiVM => ({
+    metricKey,
+    value: fmtThousands(m.total),
+    unit: 'тыс. ₽',
+    periodBadge: yearBadge,
+    source: m.origin,
+    tier: 'compact',
+    accent,
+    budget: { fb: m.fb, kb: m.kb, mb: m.mb },
+  });
+
+  const remainder: RemainderRowVM[] = [];
+  if (pending.count > 0 || pending.total > 0) {
+    remainder.push({
       metricKey: 'pending_total',
-      value: fmtThousands(integralSummary.pending.year.total),
-      unit: 'тыс. ₽',
-      periodBadge: yearBadge,
+      label: 'Наш пересчёт строк книг',
+      hint: [
+        { text: fmtCount(pending.count), metricKey: 'pending_count' },
+        { text: ' позиций без даты заключения' },
+      ],
+      value: fmtThousands(pending.total),
+      budget: { fb: pending.fb, kb: pending.kb, mb: pending.mb },
+      budgetPrefix: 'pending',
       source: 'calc',
-      tier: 'compact',
-    },
-  ];
-  return [
-    ...stampOfficialKeys(scopeTiles(integralSummary.year, yearBadge), 'year', period.year),
-    ...stampOfficialKeys(scopeTiles(integralSummary.quarter, quarterBadge), period.quarter, period.year),
-    // Деньги «итого» = КП+ЕП: единой официальной ячейки нет — без аналога
-    ...moneyTiles,
-  ];
+      cell: null,
+    });
+  }
+  if (official?.remainderToConclude) {
+    const r = official.remainderToConclude;
+    remainder.push({
+      metricKey: 'pending_total',
+      label: 'Официальный лист СВОД',
+      hint: [{ text: 'ярус «Остаток к заключ.» шапки листа' }],
+      value: fmtThousands(r.total),
+      budget: { fb: r.fb, kb: r.kb, mb: r.mb },
+      budgetPrefix: 'pending',
+      source: 'svod',
+      cell: r.cell,
+    });
+  }
+  if (official?.calcEconomy) {
+    const e = official.calcEconomy;
+    remainder.push({
+      metricKey: 'economy_total',
+      label: 'Расчётная экономия по остатку',
+      hint: [{ text: 'та самая строка ручного отчёта' }],
+      value: fmtThousands(e.total),
+      budget: { fb: e.fb, kb: e.kb, mb: e.mb },
+      budgetPrefix: 'economy',
+      source: 'svod',
+      cell: e.cell,
+      accent: 'emerald',
+    });
+  }
+
+  const officialTotal = official?.remainderToConclude?.total ?? 0;
+  const delta = official?.remainderToConclude ? pending.total - officialTotal : null;
+  const remainderDiff = delta !== null && officialTotal > 0 && Math.abs(delta) >= 1
+    ? `Расхождение с официальным листом: ${delta > 0 ? '+' : '−'}${fmtThousands(Math.abs(delta))} тыс. руб. ` +
+      `(${fmtPct((Math.abs(delta) / officialTotal) * 100)}). Обе стороны показаны как есть: наш пересчёт идёт ` +
+      'по строкам книг, лист считает свой ярус — периметры могут отличаться.'
+    : null;
+
+  return {
+    hero: [
+      { ...heroTile(integralSummary.year, yearBadge), ...officialStamp('exec_count_pct', 'year', period.year) },
+      { ...heroTile(integralSummary.quarter, quarterBadge), ...officialStamp('exec_count_pct', period.quarter, period.year) },
+    ],
+    methods: [
+      ...stampOfficialKeys(methodTiles(integralSummary.year, yearBadge), 'year', period.year),
+      ...stampOfficialKeys(methodTiles(integralSummary.quarter, quarterBadge), period.quarter, period.year),
+    ],
+    money: [
+      moneyTile('plan_total', money.plan, 'neutral'),
+      moneyTile('fact_total', money.fact, 'neutral'),
+      moneyTile('economy_total', money.economy, 'emerald'),
+    ],
+    remainder,
+    remainderDiff,
+  };
+}
+
+/** Официальный аналог одной плитки — как объект-накладка (spread). */
+function officialStamp(metricKey: string, scope: KpiScope, year: number): { officialKey?: string } {
+  const officialKey = officialAnalogKey(metricKey, scope, year);
+  return officialKey === undefined ? {} : { officialKey };
 }
 
 // ── Блок ГРБС → view-модель секции ──────────────────────────
