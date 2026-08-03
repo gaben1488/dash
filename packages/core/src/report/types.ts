@@ -191,6 +191,32 @@ export interface RecommendationPair {
   reply: string;
 }
 
+/**
+ * Одна доля этапности: сколько строк и на какие плановые деньги.
+ * Ключ — канон-словарь продукта (productLabel), не свободный текст.
+ */
+export interface LifecycleBucket {
+  metricKey: string;
+  count: number;
+  /** Плановые деньги доли, тыс. руб. */
+  planTotal: number;
+}
+
+/**
+ * Этапность закупок ГРБС за год — то, что лист знает, а продукт не
+ * показывал (вводная 04.08). Две независимые разрезки одних и тех же строк:
+ *   • byType  — вид деятельности (колонка F): текущая или программное
+ *     мероприятие; строка без вида — отдельная честная доля;
+ *   • byStage — где закупка в жизненном цикле: заключена (есть дата факта),
+ *     в работе (плана срок ещё не прошёл), просрочена (плановая дата
+ *     прошла, факта нет), без плановых денег (план есть, сумма 0).
+ * Суммы долей внутри каждой разрезки равны общему числу строк года.
+ */
+export interface LifecycleBreakdown {
+  byType: LifecycleBucket[];
+  byStage: LifecycleBucket[];
+}
+
 export interface GrbsReportBlock {
   /** Ключ входа rowsByDept (короткое имя или latinId из DEPARTMENT_REGISTRY). */
   dept: string;
@@ -200,6 +226,8 @@ export interface GrbsReportBlock {
   year: GrbsYearSlice;
   /** Пары «рекомендация УЭР → ответ ГРБСа» по строкам года (дороже — выше). */
   recommendations: RecommendationPair[];
+  /** Этапность года: вид деятельности и стадия жизненного цикла. */
+  lifecycle: LifecycleBreakdown;
   /** Деньги года: лимиты (H..K) и факт (V..Y) в бюджетном трёхсрезе. */
   money: { plan: BudgetMoney; fact: BudgetMoney };
   /** Утверждённая экономия года (гейт AD='да' + дата факта — канон approvedEconomy). */

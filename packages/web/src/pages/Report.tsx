@@ -43,6 +43,7 @@ import {
   type KpiVM,
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
+import { LifecycleStrip } from '../components/report/LifecycleStrip';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
 import { BudgetTriple } from '../components/contract/BudgetTriple';
 import { KbHover } from '../components/contract/KbHover';
@@ -192,7 +193,7 @@ function RecommendationRow({ r }: { r: import('@aemr/core').RecommendationPair }
 
 /** Секция одного ГРБС — контрактные элементы; memo: тики локального
     состояния страницы не перерисовывают 8 тяжёлых секций. */
-const GrbsSection = memo(function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSectionVM; quarter: Quarter; ctx: FilterContext }) {
+const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: GrbsSectionVM; quarter: Quarter; year: number; ctx: FilterContext }) {
   return (
     <SectionCard filterCtx={ctx} source={vm.source} title={vm.deptLabel} icon={Building2}>
       <div className="space-y-3">
@@ -234,6 +235,10 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, ctx }: { vm: GrbsSe
             </ExpandableRows>
           </div>
         )}
+
+        {/* Этапность: вид деятельности и стадия жизненного цикла — вводная
+            04.08 «этапность в таблице есть, но не показывается» */}
+        <LifecycleStrip byType={vm.lifecycle.byType} byStage={vm.lifecycle.byStage} year={year} />
 
         {/* Пары «рекомендация УЭР → ответ ГРБСа» из колонок листа — сырьё
             блока «в ходе анализа рекомендовано» ручного отчёта */}
@@ -844,7 +849,7 @@ export function ReportPage() {
           ) : (
             visibleBlocks.map((vm) => (
               <div key={vm.dept} id={`grbs-${vm.dept}`} className="scroll-mt-4">
-                <GrbsSection vm={vm} quarter={report.period.quarter} ctx={ctx} />
+                <GrbsSection vm={vm} quarter={report.period.quarter} year={report.period.year} ctx={ctx} />
               </div>
             ))
           )}

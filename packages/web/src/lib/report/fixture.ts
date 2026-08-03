@@ -60,6 +60,17 @@ function uerBlock(): GrbsReportBlock {
       pendingCount: 30,
       pending: pending(30, 500, 1000, 1500),
     },
+    lifecycle: {
+      byType: [
+        { metricKey: 'lifecycle_type_current', count: 30, planTotal: 2000 },
+        { metricKey: 'lifecycle_type_program', count: 20, planTotal: 2500 },
+      ],
+      byStage: [
+        { metricKey: 'lifecycle_stage_concluded', count: 20, planTotal: 1500 },
+        { metricKey: 'lifecycle_stage_in_work', count: 25, planTotal: 2200 },
+        { metricKey: 'lifecycle_stage_overdue', count: 5, planTotal: 800 },
+      ],
+    },
     recommendations: [
       {
         sheetRow: 21,
@@ -116,6 +127,7 @@ function uoBlock(): GrbsReportBlock {
       pendingCount: 0,
       pending: pending(0, 0, 0, 0),
     },
+    lifecycle: { byType: [], byStage: [] },
     recommendations: [],
     money: {
       plan: { fb: 0, kb: 900, mb: 100, total: 1000, origin: 'calc' },

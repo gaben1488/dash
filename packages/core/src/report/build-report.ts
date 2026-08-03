@@ -18,6 +18,7 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   type DepartmentEntry,
+  dayNumberOf,
   factCountsOn,
   findDept,
   svodCellRef,
@@ -44,6 +45,8 @@ import type {
   PendingPosition,
   PendingRemainder,
   RecommendationPair,
+  LifecycleBreakdown,
+  LifecycleBucket,
   PlanFactCounts,
   Report,
   ReportOrigin,
@@ -322,6 +325,70 @@ function recommendationsFor(rows: RawRow[], year: number): RecommendationPair[] 
   return out.sort((a, b) => b.planTotal - a.planTotal);
 }
 
+/** Строка листа → вид деятельности (колонка F, живые значения книг). */
+function activityKeyOf(row: RawRow): string {
+  const raw = String(row[DEPT_COLUMNS.TYPE] ?? '').trim().toLowerCase();
+  if (raw === '') return 'lifecycle_type_unknown';
+  if (raw.startsWith('программ')) return 'lifecycle_type_program';
+  if (raw.startsWith('текущ')) return 'lifecycle_type_current';
+  return 'lifecycle_type_other';
+}
+
+/**
+ * Строка листа → стадия жизненного цикла.
+ *
+ * Гейт факта — канон движка (factCountsOn): заглушка «Х» и дата позже среза
+ * значат «ещё не заключено». Просрочка считается только когда плановая дата
+ * читается: пустая дата — не повод объявлять срыв.
+ */
+function stageKeyOf(row: RawRow, asOfDay: number | undefined): string {
+  if (factCountsOn(row[DEPT_COLUMNS.FACT_DATE], asOfDay)) return 'lifecycle_stage_concluded';
+  if (rowPlanTotal(row) <= 0) return 'lifecycle_stage_unfunded';
+  const planDay = dayNumberOf(String(row[DEPT_COLUMNS.PLAN_DATE] ?? '').trim());
+  const today = asOfDay ?? dayNumberOf(new Date());
+  if (planDay !== null && today !== null && planDay < today) return 'lifecycle_stage_overdue';
+  return 'lifecycle_stage_in_work';
+}
+
+/** Раскладка строк по ключу с деньгами; порядок долей задан списком keys. */
+function bucketize(rows: RawRow[], keyOf: (r: RawRow) => string, keys: string[]): LifecycleBucket[] {
+  const acc = new Map<string, LifecycleBucket>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const b = acc.get(key) ?? { metricKey: key, count: 0, planTotal: 0 };
+    b.count += 1;
+    b.planTotal += rowPlanTotal(row);
+    acc.set(key, b);
+  }
+  // Порядок — канонический; доли, которых нет, не рисуются (пустая доля —
+  // это ноль, которого никто не считал).
+  const ordered = keys.map((k) => acc.get(k)).filter((b): b is LifecycleBucket => b !== undefined);
+  const rest = [...acc.values()].filter((b) => !keys.includes(b.metricKey));
+  return [...ordered, ...rest];
+}
+
+/**
+ * Этапность года ГРБС. Периметр — строки плана этого года (standardRowFilter
+ * плюс нестрогий год, как всюду в отчёте): именно они и есть «вся закупочная
+ * деятельность управления», о которой спрашивает читатель.
+ */
+function lifecycleOf(rows: RawRow[], year: number, asOfDay: number | undefined): LifecycleBreakdown {
+  const inYear = rows.filter((row) => {
+    if (!standardRowFilter(row)) return false;
+    const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
+    return rowYear === 0 || rowYear === year;
+  });
+  return {
+    byType: bucketize(inYear, activityKeyOf, [
+      'lifecycle_type_current', 'lifecycle_type_program', 'lifecycle_type_other', 'lifecycle_type_unknown',
+    ]),
+    byStage: bucketize(inYear, (r) => stageKeyOf(r, asOfDay), [
+      'lifecycle_stage_concluded', 'lifecycle_stage_in_work',
+      'lifecycle_stage_overdue', 'lifecycle_stage_unfunded',
+    ]),
+  };
+}
+
 /** Порядок блоков: канонический порядок реестра, незнакомые ключи — в конец. */
 function deptOrder(keys: string[]): string[] {
   const rank = (key: string): number => {
@@ -421,6 +488,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         pending: sumPending(QUARTERS.map((q) => pendingOf(g, `q${q}`))),
       },
       recommendations: recommendationsFor(rows, year),
+      lifecycle: lifecycleOf(rows, year, opts.asOfDay),
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       signals: signalsFor(issues, entry, dept),

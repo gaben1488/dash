@@ -176,6 +176,15 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   ep_exec_count_pct: '% исполнения ЕП (кол-во)',
   pending_count: 'Осталось процедур',
   pending_total: 'Осталось в плановых деньгах',
+  // Этапность закупки (вид деятельности и стадия жизненного цикла)
+  lifecycle_type_current: 'Текущая деятельность',
+  lifecycle_type_program: 'Программные мероприятия',
+  lifecycle_type_other: 'Иной вид деятельности',
+  lifecycle_type_unknown: 'Вид деятельности не указан',
+  lifecycle_stage_concluded: 'Контракт заключён',
+  lifecycle_stage_in_work: 'В работе, срок не наступил',
+  lifecycle_stage_overdue: 'Плановая дата прошла',
+  lifecycle_stage_unfunded: 'Без плановых денег',
 };
 
 // ────────────────────────────────────────────────────────────
