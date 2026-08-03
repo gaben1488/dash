@@ -19,9 +19,9 @@ import { historyRoutes } from './routes/history.js';
 import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
 import { changesRoutes } from './routes/changes.js';
-import { getSnapshot, setDeptSheetCache, setDeptLoadMeta } from './services/snapshot.js';
+import { getSnapshot, setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from './services/snapshot.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
-import { fetchDepartmentSpreadsheets } from './services/google-sheets.js';
+import { fetchDepartmentSpreadsheets, getSheetData } from './services/google-sheets.js';
 import { registerAuthHook } from './middleware/auth.js';
 
 export interface CreateAppOptions {
@@ -172,6 +172,12 @@ export function preloadData(app: FastifyInstance): void {
       app.log.info('Loading department spreadsheets...');
       const { data, errors } = await fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS);
       setDeptSheetCache(data, Object.keys(errors));
+      // СВОД — тем же циклом, что книги: сверка сравнивает один момент времени
+      try {
+        setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
+      } catch (err) {
+        app.log.warn('SVOD grid preload failed: %s', (err as Error).message);
+      }
       const now = new Date().toISOString();
       const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
       for (const [name, result] of Object.entries(data)) {

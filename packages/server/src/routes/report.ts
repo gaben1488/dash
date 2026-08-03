@@ -41,7 +41,7 @@ import {
   type Issue,
   type SvodGridBlock,
 } from '@aemr/shared';
-import { getDeptSheetValues, getSnapshot, getSnapshotAtOrBefore } from '../services/snapshot.js';
+import { getDeptSheetValues, getSnapshot, getSnapshotAtOrBefore, getDeptLoadMeta, getSvodGridCache, setSvodGridCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
 import { productCalendarDay } from '../services/product-calendar.js';
 import { config } from '../config.js';
@@ -151,12 +151,23 @@ function parsePeriod(query: ReportQuery): PeriodParse {
 /** Номер суток → «дд.мм.гггг» — формат дат в плашках читателю. */
 const ruDateOfDay = (day: number): string => isoOfDayNumber(day).split('-').reverse().join('.');
 
-/** Официальный лист СВОД ТД-ПМ; недоступен/пуст → undefined (плашка в notes). */
-async function readSvodGrid(): Promise<SvodGridBlock[] | undefined> {
+/**
+ * Официальный лист СВОД ТД-ПМ; недоступен/пуст → undefined (плашка в notes).
+ * Читается из кэша ТОГО ЖЕ цикла, что и книги ГРБС: свежий запрос рядом с
+ * кэшем книг давал ложные расхождения сверки на 1–2 строки (УО 31≠32) —
+ * формулы СВОДа видят правку сотрудника мгновенно, кэш книг — после
+ * обновления. Прямое чтение — только фолбэк холодного старта.
+ */
+async function readSvodGrid(): Promise<{ grid: SvodGridBlock[]; loadedAt: string | null } | undefined> {
   try {
-    const values = await getSheetData(SVOD_SHEET_NAME);
+    const cached = getSvodGridCache();
+    let values = cached?.values;
+    if (values === undefined) {
+      values = await getSheetData(SVOD_SHEET_NAME);
+      setSvodGridCache(values);
+    }
     const grid = parseSvodGrid(values);
-    return grid.length > 0 ? grid : undefined;
+    return grid.length > 0 ? { grid, loadedAt: cached?.loadedAt ?? null } : undefined;
   } catch {
     return undefined;
   }
@@ -227,8 +238,26 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
           statusCode: 503,
         });
       }
-      const [svodGrid, issues] = await Promise.all([readSvodGrid(), readIssues(period.year)]);
-      input = { rowsByDept, ...(svodGrid ? { svodGrid } : {}), issues };
+      const [svodRead, issues] = await Promise.all([readSvodGrid(), readIssues(period.year)]);
+      input = { rowsByDept, ...(svodRead ? { svodGrid: svodRead.grid } : {}), issues };
+
+      // Моменты чтения двух половин сверки. Расходятся сильнее трёх минут —
+      // говорим прямо: возможны кратковременные расхождения на 1–2 строки,
+      // которые обновление данных сравняет само.
+      const deptTimes = Object.values(getDeptLoadMeta())
+        .map((m) => Date.parse(m.loadedAt))
+        .filter(Number.isFinite);
+      const svodTime = svodRead?.loadedAt ? Date.parse(svodRead.loadedAt) : NaN;
+      if (deptTimes.length > 0 && Number.isFinite(svodTime)) {
+        const deptAt = Math.max(...deptTimes);
+        if (Math.abs(deptAt - svodTime) > 3 * 60 * 1000) {
+          const hhmm = (ms: number) => new Date(ms).toISOString().slice(11, 16);
+          sourceNotes.push(
+            `Книги ГРБС прочитаны в ${hhmm(deptAt)}, СВОД — в ${hhmm(svodTime)} (UTC): ` +
+            'сверка может кратковременно расходиться на 1–2 строки до следующего обновления данных.',
+          );
+        }
+      }
     }
 
     // Гейт факта — только у архивного среза. В эфире его нет: иначе отчёт

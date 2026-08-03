@@ -47,6 +47,23 @@ export function getDeptSheetCache(): Record<string, DeptSheetResult> {
 }
 
 /**
+ * Сырые значения листа СВОД ТД-ПМ, прочитанные В ТОМ ЖЕ цикле, что и книги
+ * ГРБС. Сверка «расчёт ↔ официал» обязана сравнивать один момент времени:
+ * свежий запрос СВОДа рядом с пятиминутным кэшем книг давал ложные
+ * расхождения на 1–2 строки (УО: КП 31≠32, ЕП 322≠323 — сотрудник добавил
+ * строки, формулы СВОДа увидели их сразу, кэш книг — после обновления).
+ */
+let cachedSvodGrid: { values: unknown[][]; loadedAt: string } | null = null;
+
+export function setSvodGridCache(values: unknown[][]): void {
+  cachedSvodGrid = { values, loadedAt: new Date().toISOString() };
+}
+
+export function getSvodGridCache(): { values: unknown[][]; loadedAt: string } | null {
+  return cachedSvodGrid;
+}
+
+/**
  * Ошибки формул Google Sheets в ЗНАЧЕНИИ ячейки. Упавший IMPORTRANGE отдаёт
  * именно их: «#REF!», «#REF! (The source sheet for this IMPORTRANGE...)».
  */

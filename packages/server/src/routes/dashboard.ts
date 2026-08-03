@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta } from '../services/snapshot.js';
+import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from '../services/snapshot.js';
 import { createDemoSnapshot } from '../services/demo-data.js';
-import { fetchDepartmentSpreadsheets } from '../services/google-sheets.js';
+import { fetchDepartmentSpreadsheets, getSheetData } from '../services/google-sheets.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
@@ -484,6 +484,13 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     // Load SVOD snapshot (pipeline uses cached dept data for recalculation + deltas)
     invalidateCache();
+    // Сырой СВОД-грид — тем же refresh-циклом (full: вместе с книгами;
+    // quick: явная просьба «обнови СВОД») — сверка отчёта видит один момент.
+    try {
+      setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
+    } catch (err) {
+      app.log.warn('SVOD grid refresh failed: %s', (err as Error).message);
+    }
     let snapshot;
     try {
       snapshot = await getSnapshot(true);
