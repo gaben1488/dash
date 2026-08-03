@@ -16,7 +16,7 @@
  * Числа, которых у продукта нет, печатаются честной плашкой, а не нулём:
  * выдуманный ноль в отчёте начальству дороже пропуска.
  */
-import type { PendingRemainder, Report } from '@aemr/core';
+import { classifyMethodGroup, type PendingPosition, type PendingRemainder, type Report } from '@aemr/core';
 
 /** Строка отчёта: заголовок раздела, обычный абзац либо курсивная оговорка. */
 export interface ReportBlock {
@@ -493,6 +493,25 @@ export function mainReportBlocks(
  * Пояснения по каждой незаключённой позиции и адресные рекомендации пишет
  * человек — продукт их не сочиняет и честно оставляет плашку.
  */
+/**
+ * Пояснение пункта остатка — в скобках, как пишет эталон. Приоритет —
+ * живой «Комментарий ГРБСа» (именно его сотрудница переносит в отчёт),
+ * дальше УЭР/УФБП и причина отклонения; пусто — честная пометка: качество
+ * заполнения листа — тоже информация для читателя.
+ */
+const PENDING_NOTE_PRIORITY = [
+  'Комментарий ГРБСа', 'Комментарий УЭР', 'Комментарий УФБП',
+  'Причина отклонения', 'Обоснование необходимости', 'Основание выбора ЕП',
+] as const;
+
+function pendingNote(p: PendingPosition): string {
+  for (const label of PENDING_NOTE_PRIORITY) {
+    const e = p.explanations.find((x) => x.label === label);
+    if (e) return ` (${e.text})`;
+  }
+  return ' (пояснение в листе не заполнено)';
+}
+
 export function additionalReportBlocks(
   report: ReportForExport,
   quarters: QuarterReports,
@@ -546,9 +565,17 @@ export function additionalReportBlocks(
       `${inQuarter(rq)} осталось заключиться по ${num(left.count)} ${auctionsDative(left.count)} ` +
       `на общую сумму ${money(left.total)} тыс. руб. ${budget(left)}, в том числе:`,
     ));
-    out.push(line(
-      `- ${NOT_FILLED}: пояснение по каждой незаключённой позиции пишет специалист.`,
-    ));
+    // Перечень позиций остатка — как в ручном отчёте: предмет, сумма и
+    // пояснение исполнителя из колонок листа (реверс эталона 26.06:
+    // сотрудница переписывает «Комментарий ГРБСа» в скобки пункта).
+    const positions = (b.quarter.pendingPositions ?? [])
+      .filter((p) => classifyMethodGroup(p.method) === 'competitive');
+    if (positions.length === 0) {
+      out.push(line(`- позиции остатка в листе не найдены (строки квартала без даты факта отсутствуют).`));
+    }
+    for (const p of positions) {
+      out.push(line(`- ${p.subject || 'без наименования'} на сумму ${money(p.planTotal)} тыс. руб.${pendingNote(p)};`));
+    }
   }
 
   out.push(line(`Из критичной проблематики — ${NOT_FILLED}.`));

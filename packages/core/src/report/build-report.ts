@@ -18,6 +18,7 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   type DepartmentEntry,
+  factCountsOn,
   svodCellRef,
   type Issue,
   type IssueSeverity,
@@ -266,14 +267,18 @@ const cellNum = (v: unknown): number => {
  * год нестрогий (строки без года не теряются), дата факта пуста (эфир).
  * Номер строки листа = индекс атома + шапка (DEPT_HEADER_ROWS) + 1.
  */
-function pendingPositionsFor(rows: RawRow[], quarter: number, year: number): PendingPosition[] {
+function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOfDay?: number): PendingPosition[] {
   const out: PendingPosition[] = [];
   rows.forEach((row, i) => {
     if (!standardRowFilter(row)) return;
     if (cellNum(row[DEPT_COLUMNS.PLAN_QUARTER]) !== quarter) return;
     const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
     if (rowYear !== 0 && rowYear !== year) return;
-    if (String(row[DEPT_COLUMNS.FACT_DATE] ?? '').trim() !== '') return;
+    // Гейт факта — КАНОН ДВИЖКА (factCountsOn), не «пустая ячейка»: при
+    // отсутствии даты лист держит заглушку «Х» (так велит сама шапка),
+    // и дата позже среза — тоже «не заключено». Свой гейт здесь молча
+    // отсеивал ВСЕ незаключённые строки (второй дом канона, урок 03.08).
+    if (factCountsOn(row[DEPT_COLUMNS.FACT_DATE], asOfDay)) return;
     const planTotal = cellNum(row[DEPT_COLUMNS.TOTAL_PLAN])
       || cellNum(row[DEPT_COLUMNS.FB_PLAN]) + cellNum(row[DEPT_COLUMNS.KB_PLAN]) + cellNum(row[DEPT_COLUMNS.MB_PLAN]);
     const explanations = EXPLANATION_COLS
@@ -351,7 +356,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         methods: quarterMethods,
         pendingCount: execution.planCount - execution.doneCount,
         pending: pendingOf(g, qGroup),
-        pendingPositions: pendingPositionsFor(rows, quarter, year),
+        pendingPositions: pendingPositionsFor(rows, quarter, year, opts.asOfDay),
         pendingByMethod: {
           kp: pendingOf(g, `${qGroup}.competitive`),
           ep: pendingOf(g, `${qGroup}.ep`),

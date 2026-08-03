@@ -209,7 +209,12 @@ function evaluateAllGates(row: RawRow, gates: GateCondition[], asOfDay?: number)
 
 // ── Default Dimension Extractors ─────────────────────────────────────
 
-function classifyMethodGroup(raw: unknown): MethodGroup | null {
+/**
+ * Канон группировки способа (легаси СВОДа: КП = отрицание «ЕП», пустой способ
+ * остаётся конкурентным, неизвестный непустой — дефект данных, ничья группа).
+ * Экспортирован как единственная дверь: выгрузки и UI не изобретают свой ЕП.
+ */
+export function classifyMethodGroup(raw: unknown): MethodGroup | null {
   const canonical: ProcurementMethodCode | undefined = normalizeMethod(raw);
   if (canonical === 'ЕП') return 'ep';
   if (canonical && isCompetitive(canonical)) return 'competitive';
