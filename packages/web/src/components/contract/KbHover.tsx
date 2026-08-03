@@ -2,10 +2,16 @@
  * KbHover — системная «БЗ по наведению» (Отчёт++, решение 2).
  *
  * Оборачивает любой показатель: наведение мыши и клавиатурный фокус
- * открывают попап с четырьмя подписанными абзацами базы знаний.
- * Radix Tooltip выбран из-за встроенного открытия по фокусу —
- * доступность без самодельных обработчиков. Если у метрики нет полной
- * записи в БЗ, дети рендерятся как есть: пустой попап запрещён.
+ * открывают попап с подписанными абзацами базы знаний. Radix Tooltip
+ * выбран из-за встроенного открытия по фокусу — доступность без
+ * самодельных обработчиков.
+ *
+ * Блок «Сейчас» (проп live) — подстановка ЖИВЫХ чисел в формулу того
+ * самого показателя, на который навели: «86,6 % = 2 440 ÷ 2 819 × 100»
+ * и адрес первички. Общая запись БЗ объясняет метрику вообще, этот блок —
+ * конкретное число на экране. Он показывается даже там, где полной записи
+ * в METRIC_KB ещё нет: живая формула ценнее пустоты. Пустой попап
+ * по-прежнему запрещён — нет ни записи, ни подстановки, обёртки нет вовсе.
  */
 import type { ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
@@ -14,27 +20,35 @@ import { kbFor } from '../../lib/kb/metric-kb';
 
 export interface KbHoverProps {
   metricKey: string;
+  /** Подстановка живых чисел в формулу этого показателя (блок «Сейчас»). */
+  live?: string;
   children: ReactNode;
 }
 
-function KbParagraph({ label, text }: { label: string; text: string }) {
+function KbParagraph({ label, text, mono = false }: { label: string; text: string; mono?: boolean }) {
   return (
     <div>
       <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-0.5">
         {label}
       </div>
       {/* пример идёт вторым абзацем через \n — перенос обязан выжить */}
-      <p className="text-[12px] leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-line">
+      <p
+        className={`text-[12px] leading-relaxed whitespace-pre-line ${
+          mono
+            ? 'font-mono text-[11px] text-zinc-700 dark:text-zinc-200'
+            : 'text-zinc-600 dark:text-zinc-300'
+        }`}
+      >
         {text}
       </p>
     </div>
   );
 }
 
-export function KbHover({ metricKey, children }: KbHoverProps) {
+export function KbHover({ metricKey, live, children }: KbHoverProps) {
   const kb = kbFor(metricKey);
-  // Нет полной БЗ — ведём себя как будто обёртки не было вовсе.
-  if (!kb) return <>{children}</>;
+  // Ни записи, ни подстановки — ведём себя так, будто обёртки не было.
+  if (!kb && !live) return <>{children}</>;
 
   return (
     <Tooltip.Provider delayDuration={250}>
@@ -61,10 +75,12 @@ export function KbHover({ metricKey, children }: KbHoverProps) {
             <div className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">
               {productLabel(metricKey)}
             </div>
-            <KbParagraph label="Что это" text={kb.what} />
-            <KbParagraph label="Как считается" text={kb.how} />
-            <KbParagraph label="Откуда" text={kb.source} />
-            {kb.pitfalls && <KbParagraph label="Подводные камни" text={kb.pitfalls} />}
+            {/* «Сейчас» идёт первым: читатель навёл на КОНКРЕТНОЕ число */}
+            {live && <KbParagraph label="Сейчас на экране" text={live} mono />}
+            {kb && <KbParagraph label="Что это" text={kb.what} />}
+            {kb && <KbParagraph label="Как считается" text={kb.how} />}
+            {kb && <KbParagraph label="Откуда" text={kb.source} />}
+            {kb?.pitfalls && <KbParagraph label="Подводные камни" text={kb.pitfalls} />}
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>

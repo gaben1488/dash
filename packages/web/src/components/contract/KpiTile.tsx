@@ -76,6 +76,8 @@ export interface KpiTileProps extends PageElementProps {
   meter?: number | null;
   /** Смысловой акцент значения и бара. */
   accent?: KpiAccent;
+  /** Подстановка живых чисел в формулу — блок «Сейчас» в попапе БЗ. */
+  live?: string;
   /** Состав числа под ним: тройка бюджетов, полоса, что нужно вызывающему. */
   footer?: ReactNode;
   onClick?: () => void;
@@ -88,7 +90,7 @@ export function kpiTileLabel(metricKey: string): string {
 
 export function KpiTile({
   metricKey, value, unit, periodBadge, source, tier = 'compact',
-  delta, formula, meter, accent = 'neutral', footer, onClick,
+  delta, formula, meter, accent = 'neutral', live, footer, onClick,
 }: KpiTileProps) {
   return (
     <div
@@ -98,7 +100,7 @@ export function KpiTile({
       <div className="flex items-start justify-between gap-1">
         {/* БЗ по наведению на подписи: одна дверь для всех плиток всех
             страниц; kbFor гасит неполные записи — пустых попапов не бывает */}
-        <KbHover metricKey={metricKey}>
+        <KbHover metricKey={metricKey} live={live}>
           <span className={`analytics-kpi-label ${tier === 'hero' ? 'text-[11px]' : 'text-[10px]'}`}>
             {kpiTileLabel(metricKey)}
           </span>
@@ -121,7 +123,7 @@ export function KpiTile({
           {formula.map((part, i) => (
             part.metricKey
               ? (
-                <KbHover key={i} metricKey={part.metricKey}>
+                <KbHover key={i} metricKey={part.metricKey} live={part.live}>
                   <span className="font-medium text-zinc-600 dark:text-zinc-300">{part.text}</span>
                 </KbHover>
               )

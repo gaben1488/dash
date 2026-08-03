@@ -8,7 +8,7 @@
  * view-моделей — свободного текста подписей здесь нет.
  */
 import type { BudgetMoney, GrbsReportBlock, PendingPosition, RecommendationPair, Report, ReportSignal } from '@aemr/core';
-import { isoOfDayNumber, quarterLabel } from '@aemr/shared';
+import { DEPT_COLUMNS, isoOfDayNumber, quarterLabel } from '@aemr/shared';
 import { formatDateCell } from '../sheet-date';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
 
@@ -68,6 +68,8 @@ export interface KpiVM {
   accent?: 'neutral' | 'brand' | 'violet' | 'amber' | 'emerald';
   /** Состав денежной плитки — тройка ФБ/КБ/МБ (страница рисует BudgetTriple). */
   budget?: { fb: number; kb: number; mb: number };
+  /** Подстановка живых чисел в формулу этого показателя (блок «Сейчас»). */
+  live?: string;
   /**
    * Официальный аналог плитки в слое снимков (dotted-ключ REPORT_MAP) —
    * дверь для дельта-бейджа «к прошлому снимку». Однозначного аналога той же
@@ -81,6 +83,41 @@ export interface FormulaPart {
   text: string;
   /** Задан — часть кликабельна для БЗ (KbHover). */
   metricKey?: string;
+  /** Подстановка живых чисел именно для этой части («2 440 строк с датой…»). */
+  live?: string;
+}
+
+/**
+ * Колонки листов ГРБС, из которых берётся показатель, — в буквах A1.
+ * Держатся здесь, а не в тексте: подстановка «Сейчас» обязана называть
+ * адрес первички, а канон адресов — DEPT_COLUMNS.
+ */
+const COL = {
+  planQuarter: colLetter(DEPT_COLUMNS.PLAN_QUARTER),
+  planYear: colLetter(DEPT_COLUMNS.PLAN_YEAR),
+  factDate: colLetter(DEPT_COLUMNS.FACT_DATE),
+  method: colLetter(DEPT_COLUMNS.METHOD),
+  planTotal: colLetter(DEPT_COLUMNS.TOTAL_PLAN),
+  factTotal: colLetter(DEPT_COLUMNS.TOTAL_FACT),
+} as const;
+
+/** Индекс колонки (0-based) → буква A1. */
+function colLetter(index: number): string {
+  return index < 26
+    ? String.fromCharCode(65 + index)
+    : String.fromCharCode(64 + Math.floor(index / 26)) + String.fromCharCode(65 + (index % 26));
+}
+
+/** «86,6 % = 2 440 ÷ 2 819 × 100» — процент с подставленными числами. */
+function livePct(pct: number | null, done: number, plan: number, tail: string): string {
+  if (pct === null) return `Плана нет (0 строк) — процент не считается.\n${tail}`;
+  return `${fmtPct(pct)} = ${fmtCount(done)} ÷ ${fmtCount(plan)} × 100\n${tail}`;
+}
+
+/** «1 629 247 = ФБ 183 344 + КБ 361 414 + МБ 1 084 489» — сумма тройки. */
+function liveMoney(m: { fb: number; kb: number; mb: number; total: number }, tail: string): string {
+  return `${fmtThousands(m.total)} = ФБ ${fmtThousands(m.fb)} + КБ ${fmtThousands(m.kb)} ` +
+    `+ МБ ${fmtThousands(m.mb)} тыс. руб.\n${tail}`;
 }
 
 interface ScopeCounts {
@@ -103,11 +140,26 @@ function heroTile(scope: ScopeCounts, badge: string): KpiVM {
     periodBadge: badge,
     source: scope.total.origin,
     tier: 'hero',
+    live: livePct(
+      pct, scope.total.doneCount, scope.total.planCount,
+      `Строки книг ГРБС: план — колонка ${COL.planQuarter} (квартал) и ${COL.planYear} (год); ` +
+      `факт — заполненная ${COL.factDate} (дата заключения).`,
+    ),
     formula: [
       { text: 'заключено ' },
-      { text: fmtCount(scope.total.doneCount), metricKey: 'fact_count' },
+      {
+        text: fmtCount(scope.total.doneCount),
+        metricKey: 'fact_count',
+        live: `${fmtCount(scope.total.doneCount)} строк с заполненной датой заключения ` +
+          `(колонка ${COL.factDate} листов ГРБС) в этом периоде.`,
+      },
       { text: ' из ' },
-      { text: fmtCount(scope.total.planCount), metricKey: 'plan_count' },
+      {
+        text: fmtCount(scope.total.planCount),
+        metricKey: 'plan_count',
+        live: `${fmtCount(scope.total.planCount)} строк плана периода ` +
+          `(колонки ${COL.planQuarter}/${COL.planYear} листов ГРБС).`,
+      },
       { text: ' позиций' },
     ],
     meter: pct,
@@ -125,10 +177,23 @@ function methodTiles(scope: ScopeCounts, badge: string): KpiVM[] {
       periodBadge: badge,
       source: scope.kp.origin,
       tier: 'compact',
+      live: livePct(
+        scope.kp.pct, scope.kp.doneCount, scope.kp.planCount,
+        `Конкурентные — строки, где способ (колонка ${COL.method}) НЕ «ЕП»; ` +
+        `заключённые — с датой в ${COL.factDate}.`,
+      ),
       formula: [
-        { text: fmtCount(scope.kp.doneCount), metricKey: 'comp_fact_count' },
+        {
+          text: fmtCount(scope.kp.doneCount),
+          metricKey: 'comp_fact_count',
+          live: `${fmtCount(scope.kp.doneCount)} конкурентных строк с датой заключения (${COL.factDate}).`,
+        },
         { text: ' из ' },
-        { text: fmtCount(scope.kp.planCount), metricKey: 'competitive_count' },
+        {
+          text: fmtCount(scope.kp.planCount),
+          metricKey: 'competitive_count',
+          live: `${fmtCount(scope.kp.planCount)} строк плана со способом ≠ «ЕП» (колонка ${COL.method}).`,
+        },
       ],
       meter: scope.kp.pct,
       accent: 'brand',
@@ -140,10 +205,22 @@ function methodTiles(scope: ScopeCounts, badge: string): KpiVM[] {
       periodBadge: badge,
       source: scope.ep.origin,
       tier: 'compact',
+      live: livePct(
+        scope.ep.pct, scope.ep.doneCount, scope.ep.planCount,
+        `ЕП — строки со способом «ЕП» (колонка ${COL.method}); заключённые — с датой в ${COL.factDate}.`,
+      ),
       formula: [
-        { text: fmtCount(scope.ep.doneCount), metricKey: 'ep_fact_count' },
+        {
+          text: fmtCount(scope.ep.doneCount),
+          metricKey: 'ep_fact_count',
+          live: `${fmtCount(scope.ep.doneCount)} строк ЕП с датой заключения (${COL.factDate}).`,
+        },
         { text: ' из ' },
-        { text: fmtCount(scope.ep.planCount), metricKey: 'ep_count' },
+        {
+          text: fmtCount(scope.ep.planCount),
+          metricKey: 'ep_count',
+          live: `${fmtCount(scope.ep.planCount)} строк плана со способом «ЕП» (колонка ${COL.method}).`,
+        },
       ],
       meter: scope.ep.pct,
       accent: 'violet',
@@ -170,6 +247,8 @@ export interface RemainderRowVM {
   label: string;
   /** Уточнение под подписью по частям — счётчик несёт свой ключ БЗ. */
   hint: FormulaPart[];
+  /** Подстановка живых чисел для попапа строки. */
+  live: string;
   value: string;
   budget: { fb: number; kb: number; mb: number };
   /** Префикс ключей БЗ бюджетной тройки. */
@@ -218,6 +297,14 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
     tier: 'compact',
     accent,
     budget: { fb: m.fb, kb: m.kb, mb: m.mb },
+    live: liveMoney(
+      m,
+      metricKey === 'plan_total'
+        ? `Сумма плановых колонок листов ГРБС (итог — ${COL.planTotal}) по строкам плана года.`
+        : metricKey === 'fact_total'
+          ? `Сумма фактических колонок (итог — ${COL.factTotal}) по строкам с датой заключения.`
+          : 'Сумма экономии по строкам с датой факта и флагом «учитывать» = «да».',
+    ),
   });
 
   const remainder: RemainderRowVM[] = [];
@@ -234,6 +321,11 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
       budgetPrefix: 'pending',
       source: 'calc',
       cell: null,
+      live: liveMoney(
+        pending,
+        `${fmtCount(pending.count)} строк плана года без даты заключения (пустая или «Х» в ${COL.factDate}); ` +
+        `суммы — плановые колонки (итог ${COL.planTotal}).`,
+      ),
     });
   }
   if (official?.remainderToConclude) {
@@ -247,6 +339,7 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
       budgetPrefix: 'pending',
       source: 'svod',
       cell: r.cell,
+      live: liveMoney(r, `Ячейка ${r.cell} листа СВОД ТД-ПМ (строка ${r.row}) — как есть, без пересчёта.`),
     });
   }
   if (official?.calcEconomy) {
@@ -261,6 +354,7 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
       source: 'svod',
       cell: e.cell,
       accent: 'emerald',
+      live: liveMoney(e, `Ячейка ${e.cell} листа СВОД ТД-ПМ (строка ${e.row}) — как есть, без пересчёта.`),
     });
   }
 

@@ -39,14 +39,14 @@ export function RemainderLedger({ rows, diff }: RemainderLedgerProps) {
           className="grid grid-cols-1 items-center gap-x-3 gap-y-1 border-t border-zinc-100 px-3 py-2.5 first:border-t-0 dark:border-zinc-800 sm:grid-cols-[minmax(180px,1.2fr)_120px_1fr_auto]"
         >
           <div>
-            <KbHover metricKey={r.metricKey}>
+            <KbHover metricKey={r.metricKey} live={r.live}>
               <span className="text-[12px] text-zinc-700 dark:text-zinc-200">{r.label}</span>
             </KbHover>
             <div className="text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
               {r.hint.map((part, i) => (
                 part.metricKey
                   ? (
-                    <KbHover key={i} metricKey={part.metricKey}>
+                    <KbHover key={i} metricKey={part.metricKey} live={part.live}>
                       <span className="text-zinc-500 dark:text-zinc-400">{part.text}</span>
                     </KbHover>
                   )
