@@ -24,8 +24,10 @@ export type LegalRefId =
   | '44_FZ_93_1_4'
   | '44_FZ_93_1_6'
   | '44_FZ_93_1_8'
+  | '44_FZ_93_1_9'
   | '44_FZ_93_1_14'
   | '44_FZ_93_1_23'
+  | '44_FZ_93_1_25'
   | '44_FZ_93_1_29'
   // 147-ФЗ «О естественных монополиях»
   | '147_FZ'
@@ -126,6 +128,28 @@ export const LEGAL_REFS: Record<LegalRefId, LegalReference> = {
     title_ru: 'ЕП в сфере деятельности субъектов естественных монополий',
     issuer: 'Федеральное собрание РФ',
     linked: ['147_FZ'],
+    official_url: 'http://pravo.gov.ru/proxy/ips/?docbody=&nd=102168247',
+  },
+
+  '44_FZ_93_1_9': {
+    id: '44_FZ_93_1_9',
+    law_type: 'federal',
+    law_short: '44-ФЗ',
+    article: '93', part: 1, item: 9,
+    date_adopted: '2013-04-05',
+    title_ru: 'Закупка у единственного поставщика — п. 9 (авария, чрезвычайная ситуация, неотложная помощь)',
+    issuer: 'Федеральное собрание РФ',
+    official_url: 'http://pravo.gov.ru/proxy/ips/?docbody=&nd=102168247',
+  },
+
+  '44_FZ_93_1_25': {
+    id: '44_FZ_93_1_25',
+    law_type: 'federal',
+    law_short: '44-ФЗ',
+    article: '93', part: 1, item: 25,
+    date_adopted: '2013-04-05',
+    title_ru: 'Закупка у единственного поставщика — п. 25 (конкурентная процедура признана несостоявшейся)',
+    issuer: 'Федеральное собрание РФ',
     official_url: 'http://pravo.gov.ru/proxy/ips/?docbody=&nd=102168247',
   },
 

@@ -20,6 +20,7 @@ export * from './budget-sources.js';
 // ── Правовые и аналитические ─────────────────────────────────
 export * from './legal-refs.js';
 export * from './ep-reason-clusters.js';
+export * from './deviation-reason-clusters.js';
 
 // ── Роли пользователей ────────────────────────────────────────
 export * from './user-roles.js';
