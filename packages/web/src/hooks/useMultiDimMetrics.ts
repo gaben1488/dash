@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useFilteredData } from './useFilteredData';
 import { getFilteredEconomyTotal } from '../lib/economy-metrics';
+import { aggregateNodeTotals } from '../lib/selectors/totals-aggregation';
 
 // ────────────────────────────────────────────────────────────────
 // useMultiDimMetrics — Universal 6-axis data layer
@@ -124,46 +125,45 @@ function safePct(num: number, den: number): number {
   return den > 0 ? +((num / den) * 100).toFixed(1) : 0;
 }
 
-function buildBudget(src: any): BudgetBreakdown {
+/** Год целиком и оба способа — когда период не передан (частичные фикстуры). */
+const WHOLE_YEAR = {
+  periodKey: 'year' as const,
+  coveredQuarters: [] as string[],
+  fullQuarters: [] as string[],
+  partialMonths: [] as number[],
+  useMonthLevel: false,
+  hasActiveMonths: false,
+};
+const BOTH_METHODS = { showKP: true, showEP: true, activeMonths: new Set<number>(), hasMonthData: false };
+
+/** Метрики узла за ВЫБРАННЫЙ период (одно правило с итогами страницы). */
+function buildExecMetricsForPeriod(node: any, fd: FilteredDataResult): ExecutionMetrics {
+  const n = aggregateNodeTotals(node, fd.periodResolution ?? WHOLE_YEAR, fd.nodeAggregateOpts ?? BOTH_METHODS);
+  const totalProc = n.kp + n.ep;
   return {
-    planFB: src?.planFB ?? 0, planKB: src?.planKB ?? 0, planMB: src?.planMB ?? 0,
-    factFB: src?.factFB ?? 0, factKB: src?.factKB ?? 0, factMB: src?.factMB ?? 0,
-    economyFB: src?.economyFB ?? 0, economyKB: src?.economyKB ?? 0, economyMB: src?.economyMB ?? 0,
+    planTotal: n.planTotal,
+    factTotal: n.factTotal,
+    executionPct: safePct(n.factTotal, n.planTotal),
+    planCount: n.planCount,
+    factCount: n.factCount,
+    execCountPct: safePct(n.factCount, n.planCount),
+    economyTotal: n.economyTotal,
+    economyPct: safePct(n.economyTotal, n.planTotal),
+    competitiveCount: n.kp,
+    epCount: n.ep,
+    epSharePct: safePct(n.ep, totalProc),
+    budget: n.budget,
   };
 }
 
-function buildExecMetrics(src: any): ExecutionMetrics {
-  const planTotal = src?.planTotal ?? 0;
-  const factTotal = src?.factTotal ?? 0;
-  const planCount = src?.planCount ?? src?.rowCount ?? 0;
-  const factCount = src?.factCount ?? 0;
-  const economyTotal = src?.economyTotal ?? 0;
-  const competitiveCount = src?.competitiveCount ?? 0;
-  const epCount = src?.epCount ?? 0;
-  const totalProc = competitiveCount + epCount;
-
-  return {
-    planTotal,
-    factTotal,
-    executionPct: safePct(factTotal, planTotal),
-    planCount,
-    factCount,
-    execCountPct: safePct(factCount, planCount),
-    economyTotal,
-    economyPct: safePct(economyTotal, planTotal),
-    competitiveCount,
-    epCount,
-    epSharePct: safePct(epCount, totalProc),
-    budget: buildBudget(src),
-  };
-}
-
-function buildSubEntry(sub: any, displayName: string): SubordinateEntry {
+function buildSubEntry(sub: any, displayName: string, fd: FilteredDataResult): SubordinateEntry {
   return {
     name: sub.name,
     displayName,
     rowCount: sub.rowCount ?? 0,
-    metrics: buildExecMetrics(sub),
+    // Подвед считается за выбранный период. Раньше здесь брались годовые поля,
+    // из-за чего сумма подведов не сходилась с управлением при выборе квартала.
+    metrics: buildExecMetricsForPeriod(sub, fd),
   };
 }
 
@@ -189,42 +189,33 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
       const realSubsRaw = allSubs.filter((s: any) => s.name !== '_org_itself');
 
       const orgSelf = orgSelfRaw
-        ? buildSubEntry(orgSelfRaw, deptShort) // Named as dept, NOT "_org_itself"
+        ? buildSubEntry(orgSelfRaw, deptShort, fd) // Named as dept, NOT "_org_itself"
         : null;
 
       const realSubs = realSubsRaw
-        .map((s: any) => buildSubEntry(s, s.name))
+        .map((s: any) => buildSubEntry(s, s.name, fd))
         .sort((a, b) => b.metrics.planTotal - a.metrics.planTotal);
 
-      // ── Dept-level total metrics ──
-      // Use dept-level data (already aggregated by useFilteredData with sub filter, activity filter etc.)
+      // ── Метрики управления за ВЫБРАННЫЙ период ──
+      // Было: брались годовые поля d.planTotal / d.factTotal / competitiveCount /
+      // soleCount, а бюджет суммировался по q1..q4 независимо от выбора. Итог
+      // страницы при этом считался за период — целое и части расходились.
+      // Стало: то же ядро, что и у итогов (aggregateNodeTotals).
+      const periodTotals = buildExecMetricsForPeriod(d, fd);
+
+      // Оверрайд активен при фильтре по подведомственным или виду деятельности:
+      // useFilteredData уже сузил суммы управления, и это сужение главнее.
       const deptOverride = fd.deptCardOverrides[deptId];
-      const totalPlan = deptOverride?.planTotal ?? d.planTotal ?? 0;
-      const totalFact = deptOverride?.factTotal ?? d.factTotal ?? 0;
-      const totalExecPct = deptOverride?.executionPercent ?? d.executionPercent ?? safePct(totalFact, totalPlan);
+      const totalPlan = deptOverride?.planTotal ?? periodTotals.planTotal;
+      const totalFact = deptOverride?.factTotal ?? periodTotals.factTotal;
+      const totalExecPct = deptOverride?.executionPercent ?? safePct(totalFact, totalPlan);
 
-      const competitiveCount = d.competitiveCount ?? 0;
-      const epCount = d.soleCount ?? 0;
-      const totalProc = competitiveCount + epCount;
-      const economyTotal = d.economyTotal ?? 0;
-
-      // Budget from dept quarters (sum q1-q4)
-      let deptBudget: BudgetBreakdown = { ...EMPTY_BUDGET };
-      for (const qk of ['q1', 'q2', 'q3', 'q4']) {
-        const q = d.quarters?.[qk];
-        if (q) deptBudget = sumBudgets(deptBudget, buildBudget(q));
-      }
-
-      // Count-based execution from barData
-      const barEntry = fd.barData.find((b: any) => b.id === deptId);
-      const execCountPct = barEntry?.execCountPct ?? (fd.execCountPctByDeptId[deptId] ?? 0);
-
-      // Plancount/factcount from quarters
-      let planCount = 0, factCount = 0;
-      for (const qk of ['q1', 'q2', 'q3', 'q4']) {
-        const q = d.quarters?.[qk];
-        if (q) { planCount += q.planCount ?? 0; factCount += q.factCount ?? 0; }
-      }
+      const competitiveCount = periodTotals.competitiveCount;
+      const epCount = periodTotals.epCount;
+      const economyTotal = periodTotals.economyTotal;
+      const deptBudget: BudgetBreakdown = periodTotals.budget;
+      const planCount = periodTotals.planCount;
+      const factCount = periodTotals.factCount;
 
       const total: ExecutionMetrics = {
         planTotal: totalPlan,
@@ -232,12 +223,12 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
         executionPct: typeof totalExecPct === 'number' ? totalExecPct : safePct(totalFact, totalPlan),
         planCount,
         factCount,
-        execCountPct: typeof execCountPct === 'number' ? execCountPct : safePct(factCount, planCount),
+        execCountPct: periodTotals.execCountPct,
         economyTotal,
         economyPct: safePct(economyTotal, totalPlan),
         competitiveCount,
         epCount,
-        epSharePct: safePct(epCount, totalProc),
+        epSharePct: periodTotals.epSharePct,
         budget: deptBudget,
       };
 

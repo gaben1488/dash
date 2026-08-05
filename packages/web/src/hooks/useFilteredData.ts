@@ -223,6 +223,12 @@ export function useFilteredData() {
       useMonthLevel,
       hasMonthData,
 
+      // Период и способ одним пакетом — чтобы разрезы (управление, подвед,
+      // укрупнённая сводка) считались ТЕМ ЖЕ правилом, что и итоги, а не
+      // читали годовые поля объекта. См. aggregateNodeTotals.
+      periodResolution: resolution,
+      nodeAggregateOpts: { showKP, showEP, activeMonths, hasMonthData },
+
       // Activity-aware overrides for department cards
       deptCardOverrides,
       isActivityFiltered,
