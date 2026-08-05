@@ -327,27 +327,30 @@ export function Dashboard() {
                 formatter={showStacked ? undefined : (v: number, name: string) => [formatMoney(v), name]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              {showStacked ? (
-                <>
-                  <Bar dataKey="kpPlan" name="КП план" stackId="plan" fill={isDark ? '#60a5fa' : '#3b82f6'} barSize={32} radius={[0, 0, 0, 0]} cursor="pointer"
-                    onClick={(data: any) => { const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' }; const q = qMap[data?.name]; if (q) navigateTo('analytics', { period: q }); }}
-                  />
-                  <Bar dataKey="epPlan" name="ЕП план" stackId="plan" fill={isDark ? '#818cf8' : '#6366f1'} barSize={32} radius={[4, 4, 0, 0]} cursor="pointer"
-                    onClick={(data: any) => { const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' }; const q = qMap[data?.name]; if (q) navigateTo('analytics', { period: q, procurement: 'single' }); }}
-                  />
-                </>
-              ) : (
-                <Bar
-                  dataKey="plan" name="План"
-                  fill={isDark ? '#60a5fa' : '#3b82f6'}
-                  radius={[4, 4, 0, 0]} barSize={32} cursor="pointer"
-                  onClick={(data: any) => {
-                    const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' };
-                    const q = qMap[data?.name];
-                    if (q) navigateTo('analytics', { period: q });
-                  }}
-                />
-              )}
+              {/* Столбцы плана НЕ оборачивать во фрагмент: recharts 2.x обходит
+                  собственных детей графика и React.Fragment не разворачивает —
+                  бары молча не рисовались, на экране оставалась одна линия факта,
+                  хотя тултип план показывал. Условие живёт в `hide`. */}
+              <Bar dataKey="kpPlan" name="КП план" stackId="plan" hide={!showStacked}
+                legendType={showStacked ? 'rect' : 'none'}
+                fill={isDark ? '#60a5fa' : '#3b82f6'} barSize={32} radius={[0, 0, 0, 0]} cursor="pointer"
+                onClick={(data: any) => { const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' }; const q = qMap[data?.name]; if (q) navigateTo('analytics', { period: q }); }}
+              />
+              <Bar dataKey="epPlan" name="ЕП план" stackId="plan" hide={!showStacked}
+                legendType={showStacked ? 'rect' : 'none'}
+                fill={isDark ? '#818cf8' : '#6366f1'} barSize={32} radius={[4, 4, 0, 0]} cursor="pointer"
+                onClick={(data: any) => { const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' }; const q = qMap[data?.name]; if (q) navigateTo('analytics', { period: q, procurement: 'single' }); }}
+              />
+              <Bar dataKey="plan" name="План" hide={showStacked}
+                legendType={showStacked ? 'none' : 'rect'}
+                fill={isDark ? '#60a5fa' : '#3b82f6'} radius={[4, 4, 0, 0]} barSize={32} cursor="pointer"
+                onClick={(data: any) => {
+                  const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' };
+                  const q = qMap[data?.name];
+                  if (q) navigateTo('analytics', { period: q });
+                }}
+              />
+
               <Line type="monotone" dataKey="fact" name="Факт" stroke={isDark ? '#34d399' : '#10b981'} strokeWidth={2.5} dot={{ r: 4, fill: isDark ? '#34d399' : '#10b981' }} />
             </ComposedChart>
           </ResponsiveContainer>

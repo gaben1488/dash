@@ -167,21 +167,33 @@ export function DrillPieChart({
   const period = useStore(s => s.period);
   const focusedWeekStart = useStore(s => s.focusedWeekStart);
 
+  // Подпись обязана называть период ДАННЫХ, а не выбор в шапке.
+  // Было: при недельном режиме бейдж писал «Нед. 3–9 авг», хотя расчёт неделю
+  // не сужает — periodMode и focusedWeekStart не читает ни один агрегат
+  // (resolvePeriodSelection принимает только квартал и месяцы). На экране
+  // стояло годовое число под недельной подписью, и это читалось как неверные
+  // данные. Пока недельный срез не реализован в расчёте, называем реальный
+  // период, а про недельный выбор говорим отдельно и прямо.
+  const weekLabel = useMemo(() => {
+    const d = new Date(focusedWeekStart);
+    const end = new Date(d); end.setDate(d.getDate() + 6);
+    const sameMonth = d.getMonth() === end.getMonth();
+    const fmt = (x: Date) => `${x.getDate()} ${MONTH_ABBR[x.getMonth()]}`;
+    return sameMonth ? `${d.getDate()}–${end.getDate()} ${MONTH_ABBR[d.getMonth()]}` : `${fmt(d)}–${fmt(end)}`;
+  }, [focusedWeekStart]);
+
   const periodLabel = useMemo(() => {
-    if (periodMode === 'week') {
-      const d = new Date(focusedWeekStart);
-      const end = new Date(d); end.setDate(d.getDate() + 6);
-      const sameMonth = d.getMonth() === end.getMonth();
-      const fmt = (x: Date) => `${x.getDate()} ${MONTH_ABBR[x.getMonth()]}`;
-      return sameMonth ? `Нед. ${d.getDate()}–${end.getDate()} ${MONTH_ABBR[d.getMonth()]}` : `Нед. ${fmt(d)}–${fmt(end)}`;
-    }
-    if (activeMonths.size === 0) return `${year}`;
-    if (activeMonths.size === 12) return `${year} • весь год`;
     if (activeMonths.size === 1) return `${MONTH_ABBR[[...activeMonths][0]]} ${year}`;
+    if (activeMonths.size > 0 && activeMonths.size < 12) {
+      if (period && period !== 'year') return `${period.toUpperCase()} ${year}`;
+      return `${activeMonths.size} мес. ${year}`;
+    }
     if (period && period !== 'year') return `${period.toUpperCase()} ${year}`;
-    const sorted = [...activeMonths].sort((a,b)=>a-b);
-    return `${sorted.length} мес. ${year}`;
-  }, [periodMode, focusedWeekStart, activeMonths, year, period]);
+    return `${year} • весь год`;
+  }, [activeMonths, year, period]);
+
+  /** Недельный выбор сделан, но на числа не влияет — предупреждаем, а не молчим. */
+  const weekNotApplied = periodMode === 'week';
 
   // Stable dept color map
   const deptColorMap = useMemo(() => {
@@ -504,10 +516,20 @@ export function DrillPieChart({
             </h3>
           </KBTooltip>
         </div>
-        {/* Period badge — period-reactive indicator */}
-        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
-          <Calendar size={10} />
-          <span className="tabular-nums">{periodLabel}</span>
+        {/* Период ДАННЫХ + честная оговорка про недельный выбор */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300">
+            <Calendar size={10} />
+            <span className="tabular-nums">{periodLabel}</span>
+          </div>
+          {weekNotApplied && (
+            <span
+              className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[13rem]"
+              title="Недельный выбор пока не сужает расчёт: агрегаты считаются по кварталам и месяцам. Числа выше — за указанный период, не за неделю."
+            >
+              неделя {weekLabel} выбрана, но числа за {periodLabel.toLowerCase()}
+            </span>
+          )}
         </div>
       </div>
 
