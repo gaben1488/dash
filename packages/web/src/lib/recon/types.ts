@@ -66,7 +66,17 @@ export type ReconSubordinate = Pick<SubordinateMetrics, 'name'> &
   Partial<
     Pick<
       SubordinateMetrics,
-      'rowCount' | 'competitiveCount' | 'epCount' | 'planTotal' | 'factTotal' | 'economyTotal' | 'executionPct'
+      | 'rowCount'
+      | 'competitiveCount'
+      | 'epCount'
+      | 'planTotal'
+      | 'factTotal'
+      | 'economyTotal'
+      | 'executionPct'
+      // Канон исполнения по количеству и квартальная база под него: без них
+      // факт приходилось выдумывать из способов (см. subordinates.ts).
+      | 'execCountPct'
+      | 'quarters'
     >
   >;
 

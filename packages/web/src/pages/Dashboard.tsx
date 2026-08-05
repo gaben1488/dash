@@ -578,9 +578,13 @@ function KPIExpandPanel({
     } else if (kpi.metricKey === 'critical_issues') {
       value = d.criticalIssueCount ?? 0;
     } else if (kpi.metricKey === 'economy_rate') {
+      // Экономия — только признанная (колонки Z–AC при флаге AD «да»), как на
+      // плитке (getFilteredEconomyTotal). Прежде здесь стояла своя формула
+      // (план − факт) / план: она считает недоисполнение, а не экономию, из-за
+      // чего плитка и её собственный разворот показывали разные числа.
       const pt = q?.planTotal ?? d.planTotal ?? 0;
-      const ft = q?.factTotal ?? d.factTotal ?? 0;
-      value = pt > 0 ? +(((pt - ft) / pt) * 100).toFixed(1) : 0;
+      const economy = q?.economyTotal ?? d.economyTotal ?? 0;
+      value = pt > 0 ? +((economy / pt) * 100).toFixed(1) : 0;
     } else {
       value = d.trustScore ?? 0;
       colorClass = getThresholdColor('dept_trust', value);
