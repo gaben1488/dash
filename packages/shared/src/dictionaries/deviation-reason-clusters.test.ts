@@ -3,7 +3,7 @@
  * Каждый пример — дословная строка листа, не выдуманная.
  */
 import { describe, expect, it } from 'vitest';
-import { canonicalizeDeviation, DEVIATION_DICT } from './deviation-reason-clusters.js';
+import { canonicalizeDeviation, extractForecastDate, DEVIATION_DICT } from './deviation-reason-clusters.js';
 
 const c = (s: string) => canonicalizeDeviation(s).cluster;
 
@@ -43,6 +43,25 @@ describe('canonicalizeDeviation — живые формулировки', () => 
 
   it('авторский текст без названной причины не притягивается за уши', () => {
     expect(c('Подали заявку в Николаевский карьер, ждут пробу песка')).toBe('UNMAPPED');
+  });
+
+  it('реестр доп. информации: пишут состояние процедуры, а не причину', () => {
+    // Живые строки файла «общий реестр доп инфы» (05.08.2026).
+    expect(c('ЭА размещен 23.07.2026, подача заявок до 04.08.2026')).toBe('DEV_STAGE_INFO');
+    expect(c('После подведения итогов ЭА была подана жалоба в УФАС Камчатского края')).toBe('DEV_COMPLAINT');
+    expect(c('Индивидуальный предприниматель признается уклонившейся от заключения контракта')).toBe('DEV_WINNER_EVADED');
+    expect(c('на сегодняшний день не найден подрядчик, который согласен выполнить эти работы')).toBe('DEV_NO_CONTRACTOR');
+    expect(c('ответственный сотрудник контрагента находися на больничном')).toBe('DEV_STAFF_ABSENT');
+    expect(c('увеличился срок составления технического задания и обоснования НМЦК')).toBe('DEV_NMCK_WORK');
+  });
+
+  it('ожидаемая дата вынимается из текста, прошлое прогнозом не считается', () => {
+    expect(extractForecastDate('Контракт будет подписан до 31.07.2026')).toBe('31.07.2026');
+    // Из нескольких дат берётся самая поздняя — она и есть ожидание.
+    expect(extractForecastDate('ЭА размещен 23.07.2026, заключение 20.08.2026')).toBe('20.08.2026');
+    // Дата раньше среза — не прогноз, а факт прошлого.
+    expect(extractForecastDate('Протокол 16.07.2026', 20670)).toBeNull();
+    expect(extractForecastDate('без дат')).toBeNull();
   });
 
   it('каждый кластер несёт ответственного и признак действия', () => {

@@ -18,7 +18,12 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   type DepartmentEntry,
+  canonicalizeDeviation,
+  canonicalizeReasonEp,
+  extractForecastDate,
   dayNumberOf,
+  DEVIATION_DICT,
+  EP_REASON_DICT,
   factCountsOn,
   findDept,
   svodCellRef,
@@ -30,6 +35,7 @@ import {
 } from '@aemr/shared';
 import {
   CalcEngine,
+  classifyMethodGroup,
   getValue,
   standardRowFilter,
   type GroupedResults,
@@ -47,6 +53,8 @@ import type {
   RecommendationPair,
   LifecycleBreakdown,
   LifecycleBucket,
+  ReasonBreakdown,
+  ReasonBucket,
   PlanFactCounts,
   Report,
   ReportOrigin,
@@ -293,6 +301,11 @@ function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOf
       planDate: String(row[DEPT_COLUMNS.PLAN_DATE] ?? '').trim(),
       planTotal,
       explanations,
+      // Ожидаемая дата ищется по всем пояснениям строки: исполнитель может
+      // написать её в любой из колонок комментариев.
+      forecastDate: explanations
+        .map((e) => extractForecastDate(e.text, asOfDay))
+        .find((d): d is string => d !== null) ?? null,
     });
   });
   // Дороже — выше: внимание читателя ведут деньги.
@@ -386,6 +399,69 @@ function lifecycleOf(rows: RawRow[], year: number, asOfDay: number | undefined):
       'lifecycle_stage_concluded', 'lifecycle_stage_in_work',
       'lifecycle_stage_overdue', 'lifecycle_stage_unfunded',
     ]),
+  };
+}
+
+/**
+ * Свод формулировок одной колонки: строка → кластер словаря → доля.
+ *
+ * Нераспознанное НЕ прячется: словарь честно говорит «формулировка не
+ * распознана», и читатель видит, сколько текста осталось за пределами
+ * нормализации — это и есть мера пригодности свободного ввода.
+ */
+function reasonBuckets(
+  rows: RawRow[],
+  column: number,
+  classify: (raw: unknown) => { cluster: string },
+  labelOf: (cluster: string) => { label: string; owner?: string; actionable?: boolean; legitimate?: boolean } | null,
+): ReasonBucket[] {
+  const acc = new Map<string, { count: number; texts: Map<string, number> }>();
+  for (const row of rows) {
+    const raw = String(row[column] ?? '').trim();
+    const { cluster } = classify(raw);
+    if (cluster === 'EMPTY') continue;
+    const b = acc.get(cluster) ?? { count: 0, texts: new Map<string, number>() };
+    b.count += 1;
+    b.texts.set(raw, (b.texts.get(raw) ?? 0) + 1);
+    acc.set(cluster, b);
+  }
+  const out: ReasonBucket[] = [];
+  for (const [cluster, b] of acc) {
+    const meta = labelOf(cluster);
+    // Самая частая живая формулировка кластера — образец для читателя.
+    const sample = [...b.texts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? '';
+    out.push({
+      cluster,
+      label: meta?.label ?? 'Формулировка не распознана',
+      count: b.count,
+      sample,
+      ...(meta?.owner !== undefined ? { owner: meta.owner } : {}),
+      ...(meta?.actionable !== undefined ? { actionable: meta.actionable } : {}),
+      ...(meta?.legitimate !== undefined ? { legitimate: meta.legitimate } : {}),
+    });
+  }
+  return out.sort((a, b) => b.count - a.count);
+}
+
+/** Своды объяснений ГРБС за год: основания ЕП и причины просрочек. */
+function reasonsOf(rows: RawRow[], year: number): ReasonBreakdown {
+  const inYear = rows.filter((row) => {
+    if (!standardRowFilter(row)) return false;
+    const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
+    return rowYear === 0 || rowYear === year;
+  });
+  // Основания ЕП спрашиваются только у ЕП-строк: у конкурентных процедур
+  // колонка либо пуста, либо несёт чужой текст.
+  const epRows = inYear.filter((row) => classifyMethodGroup(row[DEPT_COLUMNS.METHOD]) === 'ep');
+  return {
+    epReasons: reasonBuckets(epRows, DEPT_COLUMNS.EP_REASON, canonicalizeReasonEp, (c) => {
+      const e = EP_REASON_DICT[c as keyof typeof EP_REASON_DICT];
+      return e ? { label: e.label_ru, legitimate: e.is_legitimate } : null;
+    }),
+    deviations: reasonBuckets(inYear, DEPT_COLUMNS.DEVIATION_REASON, canonicalizeDeviation, (c) => {
+      const e = DEVIATION_DICT[c as keyof typeof DEVIATION_DICT];
+      return e ? { label: e.label_ru, owner: e.owner, actionable: e.actionable } : null;
+    }),
   };
 }
 
@@ -489,6 +565,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       },
       recommendations: recommendationsFor(rows, year),
       lifecycle: lifecycleOf(rows, year, opts.asOfDay),
+      reasons: reasonsOf(rows, year),
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       signals: signalsFor(issues, entry, dept),

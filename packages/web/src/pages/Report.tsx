@@ -44,6 +44,7 @@ import {
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
 import { LifecycleStrip } from '../components/report/LifecycleStrip';
+import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
 import { BudgetTriple } from '../components/contract/BudgetTriple';
 import { KbHover } from '../components/contract/KbHover';
@@ -151,6 +152,13 @@ function PendingPositionRow({ p }: { p: PendingPosition }) {
           {p.planTotal > 0 && ` · ${fmtCount(p.planTotal)} тыс. руб.`}
           <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
         </span>
+        {/* Ожидаемая дата, вынутая из текста исполнителя: отвечает на вопрос
+            «когда ждать», которого нет ни в одной колонке листа */}
+        {p.forecastDate && (
+          <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
+            ожидается {p.forecastDate}
+          </span>
+        )}
       </div>
       {p.explanations.length > 0 ? (
         p.explanations.map((e) => (
@@ -239,6 +247,10 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
         {/* Этапность: вид деятельности и стадия жизненного цикла — вводная
             04.08 «этапность в таблице есть, но не показывается» */}
         <LifecycleStrip byType={vm.lifecycle.byType} byStage={vm.lifecycle.byStage} year={year} />
+
+        {/* Своды объяснений исполнителя: свободный текст листа, сведённый
+            справочниками — считаем по кластеру, проверяем по живому образцу */}
+        <ReasonsPanel epReasons={vm.reasons.epReasons} deviations={vm.reasons.deviations} />
 
         {/* Пары «рекомендация УЭР → ответ ГРБСа» из колонок листа — сырьё
             блока «в ходе анализа рекомендовано» ручного отчёта */}

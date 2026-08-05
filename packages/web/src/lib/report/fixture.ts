@@ -42,7 +42,8 @@ function uerBlock(): GrbsReportBlock {
         method: 'ЭА',
         planDate: '15.03.2026',
         planTotal: 610,
-        explanations: [{ label: 'Комментарий ГРБСа', text: 'Ожидаем доведения лимитов.' }],
+        explanations: [{ label: 'Комментарий ГРБСа', text: 'Ожидаем доведения лимитов, контракт будет подписан до 30.09.2026.' }],
+        forecastDate: '30.09.2026',
       }],
       // Живой счёт (без гейта среза) на одну КП-процедуру больше отчётного —
       // так выглядит договор, заключённый уже после четверга: сверка со СВОДом
@@ -59,6 +60,18 @@ function uerBlock(): GrbsReportBlock {
       methods: { kp: counts(30, 12), ep: counts(20, 8) },
       pendingCount: 30,
       pending: pending(30, 500, 1000, 1500),
+    },
+    reasons: {
+      epReasons: [
+        { cluster: 'EP_LOWEST_PRICE', label: 'Закупка с ЕП по наименьшей цене', count: 12,
+          sample: 'Закупка с ЕП предусматривает заключение по наименьшей цене', legitimate: true },
+        { cluster: 'UNMAPPED', label: 'Формулировка не распознана', count: 2, sample: 'АО Кам Инжиниринг' },
+      ],
+      deviations: [
+        { cluster: 'DEV_NO_FUNDING', label: 'Нет финансирования: лимиты не доведены', count: 8,
+          sample: 'в связи отсутствием финансирования закупка переносится на 30.09.2026',
+          owner: 'финансовый орган', actionable: true },
+      ],
     },
     lifecycle: {
       byType: [
@@ -128,6 +141,7 @@ function uoBlock(): GrbsReportBlock {
       pending: pending(0, 0, 0, 0),
     },
     lifecycle: { byType: [], byStage: [] },
+    reasons: { epReasons: [], deviations: [] },
     recommendations: [],
     money: {
       plan: { fb: 0, kb: 900, mb: 100, total: 1000, origin: 'calc' },
