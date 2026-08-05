@@ -6,6 +6,7 @@ import { KBTooltip } from '../ui/kb-tooltip';
 import { useTheme } from '../ThemeProvider';
 import { getChartColors, getTooltipStyle } from '@/lib/chart-colors';
 import { useStore } from '../../store';
+import { periodDataLabel } from '../../lib/period-label';
 import type { MultiDimResult } from '../../hooks/useMultiDimMetrics';
 
 // ────────────────────────────────────────────────────────────────
@@ -182,15 +183,13 @@ export function DrillPieChart({
     return sameMonth ? `${d.getDate()}–${end.getDate()} ${MONTH_ABBR[d.getMonth()]}` : `${fmt(d)}–${fmt(end)}`;
   }, [focusedWeekStart]);
 
-  const periodLabel = useMemo(() => {
-    if (activeMonths.size === 1) return `${MONTH_ABBR[[...activeMonths][0]]} ${year}`;
-    if (activeMonths.size > 0 && activeMonths.size < 12) {
-      if (period && period !== 'year') return `${period.toUpperCase()} ${year}`;
-      return `${activeMonths.size} мес. ${year}`;
-    }
-    if (period && period !== 'year') return `${period.toUpperCase()} ${year}`;
-    return `${year} • весь год`;
-  }, [activeMonths, year, period]);
+  // Один дом подписи периода (lib/period-label). Прежняя локальная копия несла
+  // сдвиг на месяц: MONTH_ABBR[id] при 1-базных id месяцев — выбранный май
+  // подписывался «июн» (Д19 реестра дефектов).
+  const periodLabel = useMemo(
+    () => periodDataLabel({ year, period, activeMonths }),
+    [activeMonths, year, period],
+  );
 
   /** Недельный выбор сделан, но на числа не влияет — предупреждаем, а не молчим. */
   const weekNotApplied = periodMode === 'week';

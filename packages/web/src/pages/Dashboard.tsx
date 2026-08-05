@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useStore, type Page, type PeriodScope } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
+import { FilterBreadcrumb } from '../components/FilterBreadcrumb';
+import { periodDataLabel } from '../lib/period-label';
 import { useMultiDimMetrics } from '../hooks/useMultiDimMetrics';
 import { HeroKPICard, DeptBreakdown, BudgetBreakdown, TrustComponents } from '../components/HeroKPICard';
 import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
@@ -37,29 +39,48 @@ import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 // Principle: Click = Expand inline. "Подробнее →" for navigation.
 // ────────────────────────────────────────────────────────────────
 
-function StatusLine({ data }: { data: any }) {
+/**
+ * Паспорт данных (Д9 реестра дефектов): за какой период числа, откуда они,
+ * какой это срез и когда прочитан источник. Раньше строка показывала только
+ * время обновления, номер снимка и число ячеек — период и источник
+ * приходилось угадывать.
+ */
+function StatusLine({ data, fd }: { data: any; fd: ReturnType<typeof useFilteredData> }) {
   const ts = data?.lastRefreshed
     ? new Date(data.lastRefreshed).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : '—';
-  const snapshotId = (data?.snapshot?.id ?? data?.snapshotId ?? '—').toString().slice(0, 8);
   const cellsRead = (data?.snapshot?.metadata?.cellsRead ?? data?.rowCount)?.toLocaleString('ru-RU') ?? '—';
+  const deptCount = fd.allDepts?.length ?? fd.depts.length;
+  const periodLabel = periodDataLabel({
+    year: fd.dataYear,
+    period: (useStore.getState().period ?? 'year') as PeriodScope,
+    activeMonths: useStore.getState().activeMonths,
+  });
 
   return (
-    <div className="flex items-center gap-3 text-xs bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/60 dark:border-zinc-800/60">
-      {/* Live pulse indicator */}
-      <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+    <div className="flex items-center gap-3 text-xs bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/60 dark:border-zinc-800/60 flex-wrap">
+      {/* Живой срез: пульс + слово (закон 6 — текстовый дубль визуального) */}
+      <span className="flex items-center gap-1.5" title="Эфир: числа считаются по текущему состоянию книг, а не по архивному срезу недели">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        <span className="font-semibold text-emerald-600 dark:text-emerald-400">Эфир</span>
       </span>
-      <span className="text-zinc-500 dark:text-zinc-400">
-        Обновлено: <strong className="text-zinc-700 dark:text-zinc-200 font-semibold">{ts}</strong>
+      <span className="w-px h-3.5 bg-zinc-200 dark:bg-zinc-700" />
+      <span className="text-zinc-500 dark:text-zinc-400" title="Период, за который посчитаны все числа на странице">
+        Период: <strong className="text-zinc-700 dark:text-zinc-200 font-semibold">{periodLabel}</strong>
+      </span>
+      <span className="w-px h-3.5 bg-zinc-200 dark:bg-zinc-700" />
+      <span className="text-zinc-500 dark:text-zinc-400" title="Источник: книги управлений в Google Sheets, прочитанные сервером">
+        Источник: <strong className="text-zinc-700 dark:text-zinc-200 font-semibold">{deptCount} книг ГРБС</strong>
       </span>
       <span className="w-px h-3.5 bg-zinc-200 dark:bg-zinc-700" />
       <span className="text-zinc-500 dark:text-zinc-400">
-        <span className="font-mono text-zinc-400 dark:text-zinc-500 text-[10px]">#{snapshotId}</span>
+        Прочитано: <strong className="text-zinc-700 dark:text-zinc-200 font-semibold">{ts}</strong>
       </span>
       <span className="w-px h-3.5 bg-zinc-200 dark:bg-zinc-700" />
-      <span className="text-zinc-500 dark:text-zinc-400">
+      <span className="text-zinc-500 dark:text-zinc-400" title="Сколько ячеек листов прочитано в этом снимке">
         <strong className="text-zinc-600 dark:text-zinc-300 font-semibold tabular-nums">{cellsRead}</strong> ячеек
       </span>
     </div>
@@ -199,10 +220,13 @@ export function Dashboard() {
 
   return (
     <div className="space-y-5">
-      {/* 1. StatusLine + FilterBreadcrumb row */}
+      {/* 1. Паспорт данных + активные фильтры (Д9, Д10 реестра дефектов) */}
       <div className="flex items-center gap-3 flex-wrap">
-        <StatusLine data={dashboardData} />
+        <StatusLine data={dashboardData} fd={fd} />
       </div>
+      {/* Активные фильтры: раньше компонент существовал, но не был отрисован —
+          выбранные управления/способ/период молча резали все числа страницы. */}
+      <FilterBreadcrumb />
 
       {/* 3. CriticalBanner — expandable with dept grouping */}
       <CriticalBannerV2
