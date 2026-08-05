@@ -20,6 +20,9 @@ services:
       # ключ читается из --env-file .env.production; Caddyfile инжектит его
       # в Authorization для /api/* (сервер fail-closed требует этот ключ)
       - AEMR_API_KEY=${AEMR_API_KEY:-}
+      # вход по паролю на периметре: логин и bcrypt-хэш из .env.production
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-aemr}
+      - BASIC_AUTH_HASH=${BASIC_AUTH_HASH:-}
     depends_on:
       web:
         condition: service_started

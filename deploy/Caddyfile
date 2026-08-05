@@ -8,6 +8,14 @@
 {$DOMAIN} {
     encode gzip
 
+    # Вход по паролю на весь стенд, кроме публичного /api/health
+    # (health нужен docker-healthcheck и внешнему мониторингу).
+    # Хэш пароля живёт в deploy/.env.production (BASIC_AUTH_HASH), в git его нет.
+    @protected not path /api/health
+    basic_auth @protected {
+        {$BASIC_AUTH_USER:aemr} {$BASIC_AUTH_HASH}
+    }
+
     # все /api/* → Fastify сервер.
     # Edge инжектит Bearer-токен: сервер fail-closed (требует AEMR_API_KEY),
     # браузер ключа не знает — токен живёт только на сервере (env caddy).
