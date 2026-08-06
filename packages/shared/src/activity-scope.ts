@@ -72,6 +72,30 @@ export function matchesActivityScope(scope: ActivityScope, fValue: unknown, prog
   return kind === 'td' && hasProgramMarker(programValue);
 }
 
+/**
+ * Категория строки для разрезов по виду деятельности (ключи движка/Issues).
+ *
+ * ЕДИНСТВЕННЫЙ дом классификации строки: до 06.08 у движка и валидатора
+ * были свои копии с расходящимися дефектами — extractor молча зачислял
+ * строки без F в 'program' (Д16), а валидатор читал подпрограмму (E)
+ * вместо графы программы (D): 91 живая ТД-строка носила неверный
+ * activityType. Логика — та же, что у matchesActivityScope (activityKind +
+ * hasProgramMarker), поэтому разрез и срез не могут разойтись.
+ *
+ * null = вид деятельности не распознан (F пуст или мусор) — честная
+ * пустота; вызывающий сам решает, как её показать («unknown»-группа,
+ * отсутствие поля), но НЕ зачисляет строку в программные.
+ */
+export function classifyActivity(
+  fValue: unknown,
+  programValue?: unknown,
+): 'program' | 'current_program' | 'current_non_program' | null {
+  const kind = activityKind(fValue);
+  if (kind === 'pm') return 'program';
+  if (kind === 'td') return hasProgramMarker(programValue) ? 'current_program' : 'current_non_program';
+  return null;
+}
+
 /** Нормализовать произвольную метку (AN4 / F / алиас) в ActivityScope; null если не распознано. */
 export function parseActivityScope(raw: unknown): ActivityScope | null {
   const v = String(raw ?? '').trim().toLowerCase();

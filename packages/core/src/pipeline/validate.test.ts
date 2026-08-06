@@ -285,13 +285,15 @@ describe('validateData — issue metadata', () => {
   });
 
   it('derives activityType for "текущая" with program name', () => {
-    const row = makeRow({ cells: { F: 'Текущая деятельность', E: 'Реальная программа', C: '' } });
+    // Графа программы — D (канон classifyActivity); прежний тест кормил E
+    // (подпрограмму) и закреплял чтение не той колонки (Д16).
+    const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'Реальная программа', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_program');
   });
 
   it('derives activityType for "текущая" without program name', () => {
-    const row = makeRow({ cells: { F: 'Текущая деятельность', E: 'X', C: '' } });
+    const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'X', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_non_program');
   });
@@ -409,25 +411,25 @@ describe('validateData — rule context', () => {
 
 describe('validateData — hasProgramName via activityType', () => {
   it('treats Cyrillic "Х" as no program name', () => {
-    const row = makeRow({ cells: { F: 'Текущая деятельность', E: 'Х', C: '' } });
+    const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'Х', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_non_program');
   });
 
   it('treats lowercase Cyrillic "х" as no program name', () => {
-    const row = makeRow({ cells: { F: 'Текущая деятельность', E: 'х', C: '' } });
+    const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'х', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_non_program');
   });
 
   it('treats empty string as no program name', () => {
-    const row = makeRow({ cells: { F: 'Текущая деятельность', E: '  ', C: '' } });
+    const row = makeRow({ cells: { F: 'Текущая деятельность', D: '  ', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_non_program');
   });
 
   it('treats real program name as current_program', () => {
-    const row = makeRow({ cells: { F: 'Текущая деятельность', E: 'Нацпроект', C: '' } });
+    const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'Нацпроект', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
     expect(issue.activityType).toBe('current_program');
   });

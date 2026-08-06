@@ -3,6 +3,7 @@ import {
   ACTIVITY_AN4,
   ACTIVITY_F_VALUE,
   ACTIVITY_SCOPES,
+  classifyActivity,
   matchesActivityScope,
   parseActivityScope,
 } from './activity-scope';
@@ -66,6 +67,37 @@ describe('activity-scope', () => {
     expect(parseActivityScope('Программное мероприятие')).toBe('pm');
     expect(parseActivityScope('')).toBeNull();
     expect(parseActivityScope('чушь')).toBeNull();
+  });
+});
+
+describe('classifyActivity — единый дом категории строки (Д16)', () => {
+  it('ПМ → program; ТД → по графе программы D', () => {
+    expect(classifyActivity('Программное мероприятие', 'Программа N')).toBe('program');
+    expect(classifyActivity('Текущая деятельность', 'МП «Развитие»')).toBe('current_program');
+    expect(classifyActivity('Текущая деятельность', 'X')).toBe('current_non_program');
+    expect(classifyActivity('Текущая деятельность', '')).toBe('current_non_program');
+  });
+
+  it('длинная ТД-форма с фрагментом «программного мероприятия» остаётся ТД', () => {
+    expect(classifyActivity('Текущая деятельность в рамках программного мероприятия', 'Программа'))
+      .toBe('current_program');
+  });
+
+  it('F пуст или мусор → null: НЕ молчаливое зачисление в program (корень Д16)', () => {
+    expect(classifyActivity('', 'Программа N')).toBeNull();
+    expect(classifyActivity(null, '')).toBeNull();
+    expect(classifyActivity('чушь', 'X')).toBeNull();
+  });
+
+  it('согласован со срезами: td_pm ⇔ current_program, td_clean ⇔ current_non_program', () => {
+    const cases: Array<[unknown, unknown]> = [
+      ['Текущая деятельность', 'Программа'], ['Текущая деятельность', 'Х'],
+      ['Программное мероприятие', 'П'], ['', ''],
+    ];
+    for (const [f, d] of cases) {
+      expect(classifyActivity(f, d) === 'current_program').toBe(matchesActivityScope('td_pm', f, d));
+      expect(classifyActivity(f, d) === 'current_non_program').toBe(matchesActivityScope('td_clean', f, d));
+    }
   });
 });
 

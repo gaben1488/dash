@@ -17,6 +17,7 @@ import {
   normalizeMethod,
   isCompetitive,
   PROCUREMENT_METHODS,
+  classifyActivity,
   factCountsOn,
   toNumber,
   type ProcurementMethodCode,
@@ -272,31 +273,15 @@ function defaultSubordinateExtractor(row: RawRow): string {
   return subordinateKey(row[COL.SUBORDINATE]);
 }
 
-/** Check if program name value is meaningful (not empty, not "X"/"x"/"Х"/"х" placeholder) */
-function hasProgramName(val: unknown): boolean {
-  const s = String(val ?? '').trim();
-  if (!s) return false;
-  // "X", "x", "Х" (cyrillic), "х" (cyrillic) = placeholder = no program
-  if (/^[XxХх]$/u.test(s)) return false;
-  return true;
-}
-
+/**
+ * Разрез по виду деятельности — канон classifyActivity (@aemr/shared,
+ * та же логика, что у срезов matchesActivityScope). Нераспознанный вид
+ * (F пуст/мусор) — группа 'unknown', а НЕ молчаливое зачисление в
+ * 'program', как делала прежняя локальная копия (Д16): фиксированная
+ * тройка разрезов такие строки честно не показывает.
+ */
 function defaultActivityExtractor(row: RawRow): string {
-  const typeText = String(row[COL.TYPE] ?? '').trim().toLowerCase();
-
-  // F column (TYPE) is the primary classifier
-  if (typeText.includes('программное мероприятие')) return 'program';
-
-  // F = "Текущая деятельность": sub-classify by presence of program name in D
-  // — реальный текст названия ПМ → ТД в рамках программного мероприятия
-  // — "X"/"x"/"Х"/"х" или пусто → ТД вне рамок программного мероприятия
-  if (typeText.includes('текущая')) {
-    return hasProgramName(row[COL.PROGRAM_NAME]) ? 'current_program' : 'current_non_program';
-  }
-
-  // Fallback: if PROGRAM_NAME column has real text, treat as program activity
-  if (hasProgramName(row[COL.PROGRAM_NAME])) return 'program';
-  return 'program';
+  return classifyActivity(row[COL.TYPE], row[COL.PROGRAM_NAME]) ?? 'unknown';
 }
 
 export const DEFAULT_EXTRACTORS: DimensionExtractors = {

@@ -1,25 +1,16 @@
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
-import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifySheet } from '@aemr/shared';
+import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet } from '@aemr/shared';
 
-/** Check if program name is meaningful (not empty/"X"/"x"/"Х"/"х") */
-function hasProgramName(val: unknown): boolean {
-  const s = String(val ?? '').trim();
-  if (!s) return false;
-  if (/^[XxХх]$/u.test(s)) return false;
-  return true;
-}
-
-/** Derive activity type from column F (TYPE) + column D/E (program name) */
+/**
+ * Вид деятельности строки — канон classifyActivity (@aemr/shared): F +
+ * графа программы D. Прежняя локальная копия читала ПОДПРОГРАММУ (E)
+ * вместо D — 91 живая ТД-строка носила неверный activityType, — а мусор
+ * в F произвольно зачисляла в current_program; теперь нераспознанный
+ * вид — честное отсутствие поля.
+ */
 function deriveActivityType(cells: Record<string, unknown>): Issue['activityType'] {
-  const typeText = String(cells?.F ?? '').trim().toLowerCase();
-  if (!typeText) return undefined;
-  if (typeText.includes('программное мероприятие')) return 'program';
-  if (typeText.includes('текущая')) {
-    // ТД в рамках ПМ = реальный текст ПМ, ТД вне ПМ = X/x/Х/х/пусто
-    return hasProgramName(cells?.E) ? 'current_program' : 'current_non_program';
-  }
-  return 'current_program';
+  return classifyActivity(cells?.F, cells?.D) ?? undefined;
 }
 
 /**
