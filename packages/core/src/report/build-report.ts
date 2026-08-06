@@ -50,7 +50,6 @@ import type {
   MethodSplit,
   PendingPosition,
   PendingRemainder,
-  RecommendationPair,
   LifecycleBreakdown,
   LifecycleBucket,
   ReasonBreakdown,
@@ -310,13 +309,19 @@ function signalsFor(issues: Issue[], entry: DepartmentEntry | undefined, key: st
 }
 
 
-/** Пояснительные колонки листа с человеческими подписями (порядок показа). */
+/**
+ * Пояснительные колонки листа с человеческими подписями (порядок показа).
+ *
+ * «Комментарий УЭР» (AG) здесь НЕТ намеренно: решение пользователя
+ * 07.08.2026 — колонка переведена под идентификатор закупки («ЭА136-26»,
+ * «ЭЗК 283»), это не пояснение исполнителя. Блок «Рекомендации УЭР и
+ * ответы» удалён из продукта тем же решением.
+ */
 const EXPLANATION_COLS: ReadonlyArray<{ col: number; label: string }> = [
   { col: DEPT_COLUMNS.DEVIATION_REASON, label: 'Причина отклонения' },
   { col: DEPT_COLUMNS.JUSTIFICATION, label: 'Обоснование необходимости' },
   { col: DEPT_COLUMNS.EP_REASON, label: 'Основание выбора ЕП' },
   { col: DEPT_COLUMNS.COMMENT_GRBS, label: 'Комментарий ГРБСа' },
-  { col: DEPT_COLUMNS.COMMENT_UER, label: 'Комментарий УЭР' },
   { col: DEPT_COLUMNS.COMMENT_UFBP, label: 'Комментарий УФБП' },
 ];
 
@@ -365,32 +370,6 @@ function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOf
     });
   });
   // Дороже — выше: внимание читателя ведут деньги.
-  return out.sort((a, b) => b.planTotal - a.planTotal);
-}
-
-/**
- * Пары «рекомендация УЭР → ответ ГРБСа» по строкам года. Рекомендация —
- * непустой «Комментарий УЭР АЕМР»; ответ — «Комментарий ГРБСа» той же
- * строки (пустой ответ — тоже информация: обратной связи в листе нет).
- * Год нестрогий, как всюду в отчёте: строки без года не теряются.
- */
-function recommendationsFor(rows: RawRow[], year: number): RecommendationPair[] {
-  const out: RecommendationPair[] = [];
-  rows.forEach((row, i) => {
-    if (!standardRowFilter(row)) return;
-    const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
-    if (rowYear !== 0 && rowYear !== year) return;
-    const recommendation = String(row[DEPT_COLUMNS.COMMENT_UER] ?? '').trim();
-    if (recommendation === '') return;
-    const planTotal = rowPlanTotal(row);
-    out.push({
-      sheetRow: i + DEPT_HEADER_ROWS + 1,
-      subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
-      planTotal,
-      recommendation,
-      reply: String(row[DEPT_COLUMNS.COMMENT_GRBS] ?? '').trim(),
-    });
-  });
   return out.sort((a, b) => b.planTotal - a.planTotal);
 }
 
@@ -619,7 +598,6 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         pendingCount: yearCounts.planCount - yearCounts.doneCount,
         pending: sumPending(QUARTERS.map((q) => pendingOf(g, `q${q}`))),
       },
-      recommendations: recommendationsFor(rows, year),
       lifecycle: lifecycleOf(rows, year, opts.asOfDay),
       reasons: reasonsOf(rows, year),
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },

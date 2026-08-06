@@ -553,19 +553,9 @@ export function additionalReportBlocks(
     }
   }
 
-  // ── Рекомендации УЭР и ответы ГРБС — пары колонок комментариев листа ──
-  const withRecs = report.grbsBlocks.filter((b) => b.recommendations.length > 0);
-  if (withRecs.length > 0) {
-    out.push(line('В ходе анализа рекомендовано (по строкам листов, с ответами ГРБС):'));
-    for (const b of withRecs) {
-      out.push(line(`${b.dept}:`));
-      for (const r of b.recommendations) {
-        const sum = r.planTotal > 0 ? ` на сумму ${money(r.planTotal)} тыс. руб.` : '';
-        const reply = r.reply ? ` Ответ ГРБСа: ${r.reply}` : ' Ответа ГРБСа в листе нет.';
-        out.push(line(`- ${r.subject || 'без наименования'}${sum} — ${r.recommendation}${reply}`));
-      }
-    }
-  }
+  // Блок «В ходе анализа рекомендовано» УДАЛЁН (решение пользователя
+  // 07.08.2026): колонка «Комментарий УЭР» (AG) переведена под
+  // идентификатор закупки («ЭА136-26») — рекомендаций в ней больше нет.
 
   out.push(line(`Из критичной проблематики — ${NOT_FILLED}.`));
   out.push(line(

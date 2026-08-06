@@ -84,22 +84,6 @@ function uerBlock(): GrbsReportBlock {
         { metricKey: 'lifecycle_stage_overdue', count: 5, planTotal: 800 },
       ],
     },
-    recommendations: [
-      {
-        sheetRow: 21,
-        subject: 'Оказание услуг по обустройству ярмарочных домиков',
-        planTotal: 215.67,
-        recommendation: 'Изменить способ определения поставщика с ЕП на ЭА (прогнозная экономия – 17,25 тыс. руб.).',
-        reply: 'Позиция принята УЭР.',
-      },
-      {
-        sheetRow: 34,
-        subject: 'Поставка бумаги',
-        planTotal: 120,
-        recommendation: 'Объединить с закупкой канцелярских товаров в единый аукцион.',
-        reply: '',
-      },
-    ],
     money: {
       plan: { fb: 1000, kb: 2000, mb: 500, total: 3500, origin: 'calc' },
       fact: { fb: 800, kb: 1500, mb: 200, total: 2500, origin: 'calc' },
@@ -142,7 +126,6 @@ function uoBlock(): GrbsReportBlock {
     },
     lifecycle: { byType: [], byStage: [] },
     reasons: { epReasons: [], deviations: [] },
-    recommendations: [],
     money: {
       plan: { fb: 0, kb: 900, mb: 100, total: 1000, origin: 'calc' },
       fact: { fb: 0, kb: 850, mb: 100, total: 950, origin: 'calc' },

@@ -7,7 +7,7 @@
  * Подписи метрик страница берёт через productLabel по metricKey из этих
  * view-моделей — свободного текста подписей здесь нет.
  */
-import type { BudgetMoney, GrbsReportBlock, LifecycleBreakdown, PendingPosition, ReasonBreakdown, RecommendationPair, Report, ReportSignal } from '@aemr/core';
+import type { BudgetMoney, GrbsReportBlock, LifecycleBreakdown, PendingPosition, ReasonBreakdown, Report, ReportSignal } from '@aemr/core';
 import { DEPT_COLUMNS, isoOfDayNumber, quarterLabel } from '@aemr/shared';
 import { formatDateCell } from '../sheet-date';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
@@ -432,8 +432,6 @@ export interface GrbsSectionVM {
   totalRow: { plan: number; fact: number; pct: number | null; pctText: string };
   /** Незаключённые позиции квартала с пояснениями из листа (ядро, канон эфира). */
   pendingPositions: PendingPosition[];
-  /** Пары «рекомендация УЭР → ответ ГРБСа» по строкам года (ядро). */
-  recommendations: RecommendationPair[];
   /** Этапность года: вид деятельности и стадия жизненного цикла (ядро). */
   lifecycle: LifecycleBreakdown;
   /** Своды объяснений: основания ЕП и причины просрочек (ядро). */
@@ -540,7 +538,6 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
       ? `Экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
       : null,
     pendingPositions: block.quarter.pendingPositions,
-    recommendations: block.recommendations,
     lifecycle: block.lifecycle,
     reasons: block.reasons,
     signals: block.signals,

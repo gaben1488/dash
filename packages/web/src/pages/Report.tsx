@@ -177,30 +177,6 @@ function PendingPositionRow({ p }: { p: PendingPosition }) {
 }
 
 /**
- * Пара «рекомендация УЭР → ответ ГРБСа» строки листа: диалог как он есть,
- * с адресом первички. Пустой ответ — честная строка: обратной связи нет.
- */
-function RecommendationRow({ r }: { r: import('@aemr/core').RecommendationPair }) {
-  return (
-    <div className="text-[11px] leading-relaxed">
-      <div className="text-zinc-700 dark:text-zinc-200">
-        {r.subject || 'Без наименования'}
-        <span className="text-zinc-400 dark:text-zinc-500">
-          {r.planTotal > 0 && ` · ${fmtCount(r.planTotal)} тыс. руб.`}
-          <span className="ml-1 font-mono text-[10px]">строка {r.sheetRow}</span>
-        </span>
-      </div>
-      <div className="ml-3 text-violet-700 dark:text-violet-400">УЭР: {r.recommendation}</div>
-      {r.reply ? (
-        <div className="ml-3 text-zinc-600 dark:text-zinc-300">Ответ ГРБСа: {r.reply}</div>
-      ) : (
-        <div className="ml-3 text-[10px] text-amber-600 dark:text-amber-400">ответа ГРБСа в листе нет</div>
-      )}
-    </div>
-  );
-}
-
-/**
  * Процент строки таблицы способов: бар + число (закон «текстовый дубль
  * визуального»); null — «нет плана», бар не рисуется.
  */
@@ -309,24 +285,6 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
         {/* Своды объяснений исполнителя: свободный текст листа, сведённый
             справочниками — считаем по кластеру, проверяем по живому образцу */}
         <ReasonsPanel epReasons={vm.reasons.epReasons} deviations={vm.reasons.deviations} />
-
-        {/* Пары «рекомендация УЭР → ответ ГРБСа» из колонок листа — сырьё
-            блока «в ходе анализа рекомендовано» ручного отчёта */}
-        {vm.recommendations.length > 0 && (
-          <div>
-            <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-              Рекомендации УЭР и ответы · из колонок комментариев листа
-            </div>
-            <ExpandableRows
-              rows={vm.recommendations}
-              top={3}
-              noun="рекомендаций"
-              searchText={(r) => `${r.subject} ${r.recommendation} ${r.reply}`}
-            >
-              {(r) => <RecommendationRow key={r.sheetRow} r={r} />}
-            </ExpandableRows>
-          </div>
-        )}
 
         {/* Год, деньги (тройки ФБ/КБ/МБ — канон цвет+подпись), экономия */}
         <div className="text-[11px] text-zinc-600 dark:text-zinc-300 space-y-0.5">
