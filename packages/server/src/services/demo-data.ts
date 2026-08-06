@@ -368,7 +368,7 @@ interface DemoRow {
   planCount: number; factCount: number; deviationCount: number; executionPct: number;
   planFB: number; planKB: number; planMB: number; planTotal: number;
   factFB: number; factKB: number; factMB: number; factTotal: number;
-  amountDeviation: number; savingsPct: number;
+  amountDeviation: number; spentPct: number;
   economyFB: number; economyKB: number; economyMB: number; economyTotal: number;
 }
 
@@ -401,7 +401,7 @@ function demoGenRow(planCount: number, execFrac: number, price: number, econRate
     planFB, planKB, planMB: planTotal - planFB - planKB, planTotal,
     factFB, factKB, factMB: factTotal - factFB - factKB, factTotal,
     amountDeviation: factTotal - planTotal,
-    savingsPct: planTotal > 0 ? (planTotal - factTotal) / planTotal : 0,
+    spentPct: planTotal > 0 ? (planTotal - factTotal) / planTotal : 0,
     economyFB, economyKB, economyMB: economyTotal - economyFB - economyKB, economyTotal,
   };
 }
@@ -411,7 +411,7 @@ function demoBlankRow(): DemoRow {
     planCount: 0, factCount: 0, deviationCount: 0, executionPct: 0,
     planFB: 0, planKB: 0, planMB: 0, planTotal: 0,
     factFB: 0, factKB: 0, factMB: 0, factTotal: 0,
-    amountDeviation: 0, savingsPct: 0,
+    amountDeviation: 0, spentPct: 0,
     economyFB: 0, economyKB: 0, economyMB: 0, economyTotal: 0,
   };
 }
@@ -427,7 +427,7 @@ function demoFinalize(acc: DemoRow): DemoRow {
   acc.deviationCount = acc.factCount - acc.planCount;
   acc.executionPct = acc.planCount > 0 ? acc.factCount / acc.planCount : 0;
   acc.amountDeviation = acc.factTotal - acc.planTotal;
-  acc.savingsPct = acc.planTotal > 0 ? (acc.planTotal - acc.factTotal) / acc.planTotal : 0;
+  acc.spentPct = acc.planTotal > 0 ? (acc.planTotal - acc.factTotal) / acc.planTotal : 0;
   return acc;
 }
 
@@ -452,7 +452,7 @@ function demoEmitRow(out: Record<string, NormalizedMetric>, prefix: string, row:
   put('percent', row.executionPct, 'percent');
   put('fb_plan', row.planFB, 'currency'); put('kb_plan', row.planKB, 'currency'); put('mb_plan', row.planMB, 'currency'); put('total_plan', row.planTotal, 'currency');
   put('fb_fact', row.factFB, 'currency'); put('kb_fact', row.factKB, 'currency'); put('mb_fact', row.factMB, 'currency'); put('total_fact', row.factTotal, 'currency');
-  put('amount_dev', row.amountDeviation, 'currency'); put('savings_pct', row.savingsPct, 'percent');
+  put('amount_dev', row.amountDeviation, 'currency'); put('savings_pct', row.spentPct, 'percent');
   put('economy_fb', row.economyFB, 'currency'); put('economy_kb', row.economyKB, 'currency'); put('economy_mb', row.economyMB, 'currency'); put('economy_total', row.economyTotal, 'currency');
 }
 

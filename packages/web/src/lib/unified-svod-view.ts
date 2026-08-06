@@ -121,7 +121,7 @@ function toSvodRow(cell: UnifiedCell, budgets?: Set<BudgetKey>): SvodRow {
     factTotal: d.factTotal,
     amountDeviation: d.amountDeviation,
     // Q «Потрачено, %» = факт/план (как лист СВОД и svod-view.sumRows).
-    savingsPct: d.spentPct,
+    spentPct: d.spentPct,
     economyFB, economyKB, economyMB,
     economyTotal: d.economyTotal,
   };
@@ -148,7 +148,7 @@ function sumRows(a: SvodRow, b: SvodRow): SvodRow {
     factTotal,
     // P «Отклонение сумм» = факт − план (как deriveCell.amountDeviation и лист СВОД).
     amountDeviation: factTotal - planTotal,
-    savingsPct: planTotal !== 0 ? factTotal / planTotal : null,
+    spentPct: planTotal !== 0 ? factTotal / planTotal : null,
     economyFB: (a.economyFB ?? 0) + (b.economyFB ?? 0),
     economyKB: (a.economyKB ?? 0) + (b.economyKB ?? 0),
     economyMB: (a.economyMB ?? 0) + (b.economyMB ?? 0),

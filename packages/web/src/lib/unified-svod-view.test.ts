@@ -54,7 +54,7 @@ describe('sliceUnified', () => {
     expect(kp.planCount).toBe(10);
     expect(kp.factCount).toBe(6);
     // «Потрачено %» = факт/план по выбранному бюджету.
-    expect(kp.savingsPct).toBeCloseTo(500 / 700, 6);
+    expect(kp.spentPct).toBeCloseTo(500 / 700, 6);
   });
 
   it('без бюджет-фильтра суммируются все бюджеты (ФБ+КБ+МБ)', () => {

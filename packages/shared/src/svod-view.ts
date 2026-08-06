@@ -51,8 +51,9 @@ export interface SvodRow {
   factTotal: number | null;
   /** P — Отклонение сумм */
   amountDeviation: number | null;
-  /** Q — Потрачено, % (расход = O/K; шапка листа «Потрачено, %»; доля 0..1). Ключ исторически savingsPct — переименовать в spentPct отдельным шагом. */
-  savingsPct: number | null;
+  /** Q — Потрачено, % (расход = O/K; шапка листа «Потрачено, %»; доля 0..1).
+   *  Снапшотный ключ остаётся savings_pct — это персистентный формат снимков. */
+  spentPct: number | null;
   /** R — Экономия ФБ */
   economyFB: number | null;
   /** S — Экономия КБ */
@@ -129,7 +130,7 @@ function readRow(m: SvodMetricsMap, prefix: string): SvodRow {
     factMB: val(m, `${prefix}.mb_fact`),
     factTotal: val(m, `${prefix}.total_fact`),
     amountDeviation: val(m, `${prefix}.amount_dev`),
-    savingsPct: val(m, `${prefix}.savings_pct`),
+    spentPct: val(m, `${prefix}.savings_pct`),
     economyFB: val(m, `${prefix}.economy_fb`),
     economyKB: val(m, `${prefix}.economy_kb`),
     economyMB: val(m, `${prefix}.economy_mb`),
@@ -179,7 +180,7 @@ function sumRows(a: SvodRow, b: SvodRow): SvodRow {
     // Q = «Потрачено, %» (шапка листа СВОД) = O/K = факт/план, как держат ячейки КП/ЕП
     // (orchestrator.ts: savings_pct = factSum/planSum). ИТОГО обязан быть той же семантики,
     // что суммируемые строки — НЕ (K−O)/K (это было бы «недоосвоено», обратный смысл).
-    savingsPct: ratio(factTotal, planTotal),
+    spentPct: ratio(factTotal, planTotal),
     economyFB: add(a.economyFB, b.economyFB),
     economyKB: add(a.economyKB, b.economyKB),
     economyMB: add(a.economyMB, b.economyMB),
