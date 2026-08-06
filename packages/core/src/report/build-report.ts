@@ -211,6 +211,56 @@ function svodSplit(
   return { kp: kp ?? planFact(0, 0, 'svod'), ep: ep ?? planFact(0, 0, 'svod') };
 }
 
+/**
+ * Официальные деньги плана-года скоупа: строка «ИТОГО 2026:» яруса листа
+ * (parseSvodExtras). Итог у листа один на скоуп — КП и ЕП вместе, ровно то,
+ * что печатает ручной отчёт как «Лимит средств, всего». Ячейки — колонки
+ * ИТОГО той же строки: провенанс до ячейки, число проверяемо одним кликом.
+ */
+function svodYearMoneyOf(
+  extras: SvodSheetExtras | undefined,
+  scope: string,
+): GrbsReportBlock['svodYearMoney'] {
+  const t = extras?.scopes.find((s) => s.scope === scope)?.totalY2026;
+  if (!t) return undefined;
+  const money = (fb: number, kb: number, mb: number, total: number): BudgetMoney =>
+    ({ fb, kb, mb, total, origin: 'svod' });
+  return {
+    plan: money(t.planFB, t.planKB, t.planMB, t.planTotal),
+    fact: money(t.factFB, t.factKB, t.factMB, t.factTotal),
+    economy: money(t.economyFB, t.economyKB, t.economyMB, t.economyTotal),
+    cells: {
+      plan: svodCellRef(t.row, 'planTotal'),
+      fact: svodCellRef(t.row, 'factTotal'),
+      economy: svodCellRef(t.row, 'economyTotal'),
+    },
+  };
+}
+
+/**
+ * Счётные строки без года плана (P пусто, включая заглушки «Х»/«-»):
+ * гейт тот же, что у сигнала planYearMissing — способ есть, плановые
+ * деньги есть. Наш движок относит такие строки к отчётному году, формулы
+ * СВОДа — нет; их сумма и есть расхождение лимита расчёт/лист.
+ */
+function noYearRowsOf(rows: RawRow[]): GrbsReportBlock['noYearRows'] {
+  let count = 0;
+  let total = 0;
+  for (const row of rows) {
+    if (!standardRowFilter(row)) continue;
+    const yearText = String(row[DEPT_COLUMNS.PLAN_YEAR] ?? '').trim().toLowerCase();
+    if (yearText !== '' && yearText !== 'х' && yearText !== 'x' && yearText !== '-') continue;
+    const planTotal = rowPlanTotal(row);
+    if (planTotal <= 0) continue;
+    // Гейта по способу нет НАРОЧНО: и движок, и формулы листа считают
+    // строки с пустым L (лист — в блоке КП через L<>"ЕП"), поэтому для
+    // объяснения расхождения лимита важен только год.
+    count += 1;
+    total += planTotal;
+  }
+  return count > 0 ? { count, total } : undefined;
+}
+
 /** Адреса ячеек листа, из которых взят официальный срез — провенанс числа. */
 function svodCellRefs(
   grid: SvodGridBlock[],
@@ -568,6 +618,14 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       reasons: reasonsOf(rows, year),
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
+      ...(() => {
+        const svodYearMoney = svodYearMoneyOf(input.svodExtras, entry?.shortName ?? dept);
+        return svodYearMoney ? { svodYearMoney } : {};
+      })(),
+      ...(() => {
+        const noYearRows = noYearRowsOf(rows);
+        return noYearRows ? { noYearRows } : {};
+      })(),
       signals: signalsFor(issues, entry, dept),
     };
   });

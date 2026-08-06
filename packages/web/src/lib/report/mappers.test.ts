@@ -182,4 +182,53 @@ describe('buildGrbsSection — view-модель секции ГРБС', () => {
   it('УО: нулевая экономия не рисуется (строка null)', () => {
     expect(uo.economyLine).toBeNull();
   });
+
+  it('строка «Всего» — те же канонические счётчики, что и крупный процент', () => {
+    expect(uer.totalRow).toEqual({ plan: 15, fact: 6, pct: 40, pctText: '40,0%' });
+  });
+});
+
+describe('buildGrbsSection — деньги года в сверке (кейс УЭР 06.08: 13 921 против 13 331)', () => {
+  const withMoney = () => {
+    const block = makeReportFixture().grbsBlocks[0];
+    return {
+      ...block,
+      svodYearMoney: {
+        plan: { fb: 0, kb: 0, mb: 3000, total: 3000, origin: 'svod' as const },
+        fact: { fb: 0, kb: 0, mb: 2500, total: 2500, origin: 'svod' as const },
+        economy: { fb: 0, kb: 0, mb: 150, total: 150, origin: 'svod' as const },
+        cells: { plan: 'K44', fact: 'O44', economy: 'U44' },
+      },
+      noYearRows: { count: 5, total: 500 },
+    };
+  };
+
+  it('три денежные строки сверки: подпись, формат money, ячейка ИТОГО', () => {
+    const vm = buildGrbsSection(withMoney());
+    const money = vm.svodPairs!.filter((p) => p.fmt === 'money');
+    expect(money.map((p) => p.metricKey)).toEqual(['plan_total', 'fact_total', 'economy_total']);
+    // Лимит: наш расчёт 3 500 против листа 3 000 — обе стороны видны.
+    expect(money[0]).toMatchObject({ label: 'Лимит 2026, тыс. руб.', calc: 3500, svod: 3000, svodCell: 'K44' });
+    expect(money[1]).toMatchObject({ calc: 2500, svod: 2500, svodCell: 'O44' });
+    expect(money[2]).toMatchObject({ calc: 150, svod: 150, svodCell: 'U44' });
+  });
+
+  it('расхождение лимита объясняется строками без года — до корня', () => {
+    const vm = buildGrbsSection(withMoney());
+    expect(vm.svodNote).toContain('5 счётных строк');
+    expect(norm(vm.svodNote!)).toContain('500 тыс. руб. без года плана');
+    expect(vm.svodNote).toContain('Проставьте год');
+  });
+
+  it('лимиты сходятся — причина про год не пишется', () => {
+    const block = withMoney();
+    block.svodYearMoney!.plan = { fb: 1000, kb: 2000, mb: 500, total: 3500, origin: 'svod' };
+    const vm = buildGrbsSection(block);
+    expect(vm.svodNote ?? '').not.toContain('без года плана');
+  });
+
+  it('официальных денег нет — денежных строк в сверке нет', () => {
+    const vm = buildGrbsSection(makeReportFixture().grbsBlocks[0]);
+    expect(vm.svodPairs!.every((p) => p.fmt !== 'money')).toBe(true);
+  });
 });

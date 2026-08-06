@@ -766,6 +766,19 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
         thresholdsFull: '🟡 есть строки — разобрать с исполнителями\n🟢 0 — категории разведены чисто',
       },
     },
+    // Вводная 06.08: сверка лимита УЭР — строки без года невидимы для SUMIFS СВОДа.
+    {
+      label: 'Нет года плана',
+      signal: 'planYearMissing',
+      search: 'без года плана',
+      color: 'orange',
+      icon: '📅',
+      kbFallback: {
+        whatIs: 'Счётные строки (способ и плановые деньги есть), у которых пуст год плана (колонка P). Наш расчёт относит их к отчётному году, а формулы листа СВОД считают год строго и такие строки не видят — официальный лимит занижен ровно на их сумму.',
+        howCalc: 'Способ (L) заполнен И план (K) > 0 И год плана (P) пуст/«Х»/«-» И строка не отменена.',
+        thresholdsFull: '🟡 есть строки — проставить год в P\n🟢 0 — лимит листа СВОД и расчёт сходятся',
+      },
+    },
     { label: 'Подвисшие', signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue', icon: '⏸' },
     { label: 'Факт > план', signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo', icon: '📈' },
     { label: 'Факт < план дата', signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal', icon: '📉' },

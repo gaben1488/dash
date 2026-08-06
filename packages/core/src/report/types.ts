@@ -275,6 +275,25 @@ export interface GrbsReportBlock {
   money: { plan: BudgetMoney; fact: BudgetMoney };
   /** Утверждённая экономия года (гейт AD='да' + дата факта — канон approvedEconomy). */
   economy: BudgetMoney;
+  /**
+   * Официальные деньги плана-года скоупа — строка «ИТОГО 2026:» листа СВОД
+   * (parseSvodExtras), origin 'svod', с адресами ячеек. Есть ровно тогда,
+   * когда ярус передан и скоуп на листе найден. Сверка деньгами: расчёт
+   * может расходиться с листом (например, из-за счётных строк без года
+   * плана — SUMIFS листа их не видят), и читатель обязан видеть обе стороны.
+   */
+  svodYearMoney?: {
+    plan: BudgetMoney;
+    fact: BudgetMoney;
+    economy: BudgetMoney;
+    cells: { plan: string; fact: string; economy: string };
+  };
+  /**
+   * Счётные строки книги без года плана (P пусто): наш расчёт относит их к
+   * отчётному году (нестрогий год), формулы листа СВОД — нет. Ровно на их
+   * сумму официальный лимит меньше расчётного; count = 0 — поле опущено.
+   */
+  noYearRows?: { count: number; total: number };
   /** Топ-сигналы ГРБС по критичности (свёрнуто из issues снапшота). */
   signals: ReportSignal[];
 }

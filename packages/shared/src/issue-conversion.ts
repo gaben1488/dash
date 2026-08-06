@@ -42,6 +42,8 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   budgetSourceMissing: 'budget_source_missing',
   // 06.08: ТД с заполненной графой программы — возможная ошибка заполнения (вводная пользователя)
   tdWithProgram: 'td_with_program',
+  // 06.08: счётная строка без года плана — невидима для SUMIFS листа СВОД (сверка лимита УЭР)
+  planYearMissing: 'plan_year_missing',
 };
 
 /**

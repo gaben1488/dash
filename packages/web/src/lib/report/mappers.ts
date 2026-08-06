@@ -410,6 +410,10 @@ export interface SvodPairVM {
   svod: number;
   /** Адрес ячейки листа СВОД («E268») — откуда взято официальное число. */
   svodCell?: string;
+  /** Подпись строки, если productLabel(metricKey) не годится (деньги года). */
+  label?: string;
+  /** 'money' — форматировать fmtThousands (тыс. руб.), иначе целые счётчики. */
+  fmt?: 'money';
 }
 
 export interface GrbsSectionVM {
@@ -424,6 +428,8 @@ export interface GrbsSectionVM {
   pendingCount: number;
   /** «Не заключено: 9» / «Все плановые процедуры квартала заключены» / «—» */
   pendingLabel: string;
+  /** Итог квартала для строки «Всего» таблицы способов (канон G = E/D). */
+  totalRow: { plan: number; fact: number; pct: number | null; pctText: string };
   /** Незаключённые позиции квартала с пояснениями из листа (ядро, канон эфира). */
   pendingPositions: PendingPosition[];
   /** Пары «рекомендация УЭР → ответ ГРБСа» по строкам года (ядро). */
@@ -461,18 +467,48 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
   // не сравнивают ни с чем и всегда считают «на сейчас». Сравнение отчётных
   // чисел (на срез) с живым официалом давало мнимые расхождения (УО +12, УЭР +1).
   const cells = q.svodCells;
-  const svodPairs: SvodPairVM[] | null = q.svod
+  const countPairs: SvodPairVM[] = q.svod
     ? [
         { metricKey: 'competitive_count', calc: q.live.kp.planCount, svod: q.svod.kp.planCount, ...(cells ? { svodCell: cells.kp.plan } : {}) },
         { metricKey: 'comp_fact_count', calc: q.live.kp.doneCount, svod: q.svod.kp.doneCount, ...(cells ? { svodCell: cells.kp.fact } : {}) },
         { metricKey: 'ep_count', calc: q.live.ep.planCount, svod: q.svod.ep.planCount, ...(cells ? { svodCell: cells.ep.plan } : {}) },
         { metricKey: 'ep_fact_count', calc: q.live.ep.doneCount, svod: q.svod.ep.doneCount, ...(cells ? { svodCell: cells.ep.fact } : {}) },
       ]
-    : null;
+    : [];
+  // Деньги плана-года: расчёт против строки «ИТОГО 2026:» листа. Именно здесь
+  // всплыло расхождение УЭР 13 921/13 331 (счётные строки без года плана —
+  // SUMIFS листа их не видят); прятать его — врать, показываем обе стороны.
+  const sv = block.svodYearMoney;
+  const moneyPairs: SvodPairVM[] = sv
+    ? [
+        { metricKey: 'plan_total', label: 'Лимит 2026, тыс. руб.', fmt: 'money', calc: block.money.plan.total, svod: sv.plan.total, svodCell: sv.cells.plan },
+        { metricKey: 'fact_total', label: 'Факт, тыс. руб.', fmt: 'money', calc: block.money.fact.total, svod: sv.fact.total, svodCell: sv.cells.fact },
+        { metricKey: 'economy_total', label: 'Экономия, тыс. руб.', fmt: 'money', calc: block.economy.total, svod: sv.economy.total, svodCell: sv.cells.economy },
+      ]
+    : [];
+  const svodPairs: SvodPairVM[] | null =
+    countPairs.length + moneyPairs.length > 0 ? [...countPairs, ...moneyPairs] : null;
   // Сколько заключено после среза — этим объясняется разрыв между отчётными
   // числами секции и колонкой сверки.
   const afterSlice =
     (q.live.kp.doneCount - q.methods.kp.doneCount) + (q.live.ep.doneCount - q.methods.ep.doneCount);
+  // Подпись под сверкой — по одной честной причине на каждое известное
+  // расхождение; ни одной причины нет — подписи нет.
+  const noteParts: string[] = [];
+  if (afterSlice > 0) {
+    noteParts.push(
+      `Сверка — на текущий момент, как считает СВОД. После даты среза заключено ${fmtCount(afterSlice)} — ` +
+      'в отчётные числа выше они не входят.',
+    );
+  }
+  if (block.noYearRows && sv && Math.abs(block.money.plan.total - sv.plan.total) > 0.5) {
+    noteParts.push(
+      `Лимит расходится из-за ${fmtCount(block.noYearRows.count)} счётных строк книги на ` +
+      `${fmtThousands(block.noYearRows.total)} тыс. руб. без года плана (колонка P): расчёт относит их ` +
+      'к отчётному году, формулы листа СВОД считают год строго и эти строки не видят. ' +
+      'Проставьте год — числа сойдутся.',
+    );
+  }
   return {
     dept: block.dept,
     deptLabel: block.deptLabel,
@@ -481,6 +517,15 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     executionCaption: `заключено ${fmtCount(q.execution.doneCount)} из ${fmtCount(q.execution.planCount)}`,
     pendingCount: q.pendingCount,
     pendingLabel: pendingLabelOf(q.execution, q.pendingCount),
+    // Итог квартала — те же канонические счётчики G = E/D, что и крупный
+    // процент шапки: строка «Всего» таблицы способов не вторая семантика,
+    // а тот же расчёт рядом с разбивкой.
+    totalRow: {
+      plan: q.execution.planCount,
+      fact: q.execution.doneCount,
+      pct: q.execution.pct,
+      pctText: fmtPct(q.execution.pct),
+    },
     methodRows: [
       { methodKey: 'КП', plan: q.methods.kp.planCount, fact: q.methods.kp.doneCount, pct: q.methods.kp.pct, pctText: fmtPct(q.methods.kp.pct) },
       { methodKey: 'ЕП', plan: q.methods.ep.planCount, fact: q.methods.ep.doneCount, pct: q.methods.ep.pct, pctText: fmtPct(q.methods.ep.pct) },
@@ -498,9 +543,6 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     reasons: block.reasons,
     signals: block.signals,
     svodPairs,
-    svodNote: afterSlice > 0
-      ? `Сверка — на текущий момент, как считает СВОД. После даты среза заключено ${fmtCount(afterSlice)} — ` +
-        'в отчётные числа выше они не входят.'
-      : null,
+    svodNote: noteParts.length > 0 ? noteParts.join(' ') : null,
   };
 }

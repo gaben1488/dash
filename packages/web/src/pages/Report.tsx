@@ -39,6 +39,7 @@ import {
   buildIntegralSummary,
   fmtAsOfDate,
   fmtCount,
+  fmtThousands,
   type GrbsSectionVM,
   type KpiVM,
 } from '../lib/report/mappers';
@@ -199,13 +200,38 @@ function RecommendationRow({ r }: { r: import('@aemr/core').RecommendationPair }
   );
 }
 
+/**
+ * Процент строки таблицы способов: бар + число (закон «текстовый дубль
+ * визуального»); null — «нет плана», бар не рисуется.
+ */
+function MethodPct({ pct, pctText, bold }: { pct: number | null; pctText: string; bold?: boolean }) {
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5">
+      {pct !== null && (
+        <span
+          aria-hidden="true"
+          className="h-1 w-12 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden"
+        >
+          <span
+            className="block h-full rounded-full bg-blue-500/80"
+            style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+          />
+        </span>
+      )}
+      <span className={bold ? 'tabular-nums font-semibold' : 'tabular-nums'}>{pctText}</span>
+    </span>
+  );
+}
+
 /** Секция одного ГРБС — контрактные элементы; memo: тики локального
     состояния страницы не перерисовывают 8 тяжёлых секций. */
 const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: GrbsSectionVM; quarter: Quarter; year: number; ctx: FilterContext }) {
   return (
     <SectionCard filterCtx={ctx} source={vm.source} title={vm.deptLabel} icon={Building2}>
       <div className="space-y-3">
-        {/* Исполнение квартала: жирный %, формула-подпись */}
+        {/* Шапка секции: жирный % и сразу разбивка по способам со строкой
+            «Всего» — детальность сверху, без текстового дубля (вводная 06.08:
+            прежняя подпись «заключено 4 из 20» повторяла таблицу снизу). */}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <KbHover metricKey="exec_count_pct">
             <span className="text-2xl font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
@@ -213,7 +239,7 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
             </span>
           </KbHover>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-            {vm.executionCaption} — исполнение {quarter} квартала
+            исполнение {quarter} квартала
           </span>
           <span
             className={
@@ -225,6 +251,38 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
             <KbHover metricKey="pending_count">{vm.pendingLabel}</KbHover>
           </span>
         </div>
+
+        {/* КП/ЕП + «Всего» — единственный дом квартальных счётчиков секции */}
+        <ReportTable
+          filterCtx={ctx}
+          source="calc"
+          caption={`Способы · ${quarterLabel(quarter)}`}
+          columns={METHOD_COLUMNS}
+          rows={[
+            ...vm.methodRows.map((r) => ({
+              // БЗ на строке группы: ключ % исполнения группы объясняет и
+              // состав (что такое КП/ЕП), и счёт строки
+              method: (
+                <KbHover metricKey={r.methodKey === 'КП' ? 'comp_exec_count_pct' : 'ep_exec_count_pct'}>
+                  <span>{productLabel(r.methodKey === 'КП' ? 'kp' : 'ep')}</span>
+                </KbHover>
+              ),
+              plan: fmtCount(r.plan),
+              fact: fmtCount(r.fact),
+              pct: <MethodPct pct={r.pct} pctText={r.pctText} />,
+            })),
+            {
+              method: (
+                <KbHover metricKey="exec_count_pct">
+                  <span className="font-semibold">Всего</span>
+                </KbHover>
+              ),
+              plan: <span className="font-semibold">{fmtCount(vm.totalRow.plan)}</span>,
+              fact: <span className="font-semibold">{fmtCount(vm.totalRow.fact)}</span>,
+              pct: <MethodPct pct={vm.totalRow.pct} pctText={vm.totalRow.pctText} bold />,
+            },
+          ]}
+        />
 
         {/* Незаключённые позиции квартала с пояснениями из листа —
             «по ним же ещё и объяснения должны быть» (запрос коллеги) */}
@@ -270,42 +328,6 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
           </div>
         )}
 
-        {/* КП/ЕП квартала */}
-        <ReportTable
-          filterCtx={ctx}
-          source="calc"
-          caption={`Способы · ${quarterLabel(quarter)}`}
-          columns={METHOD_COLUMNS}
-          rows={vm.methodRows.map((r) => ({
-            // БЗ на строке группы: ключ % исполнения группы объясняет и
-            // состав (что такое КП/ЕП), и счёт строки
-            method: (
-              <KbHover metricKey={r.methodKey === 'КП' ? 'comp_exec_count_pct' : 'ep_exec_count_pct'}>
-                <span>{productLabel(r.methodKey === 'КП' ? 'kp' : 'ep')}</span>
-              </KbHover>
-            ),
-            plan: fmtCount(r.plan),
-            fact: fmtCount(r.fact),
-            // Бар — всегда с числом (закон «текстовый дубль визуального»)
-            pct: (
-              <span className="inline-flex items-center justify-end gap-1.5">
-                {r.pct !== null && (
-                  <span
-                    aria-hidden="true"
-                    className="h-1 w-12 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden"
-                  >
-                    <span
-                      className="block h-full rounded-full bg-blue-500/80"
-                      style={{ width: `${Math.min(100, Math.max(0, r.pct))}%` }}
-                    />
-                  </span>
-                )}
-                <span className="tabular-nums">{r.pctText}</span>
-              </span>
-            ),
-          }))}
-        />
-
         {/* Год, деньги (тройки ФБ/КБ/МБ — канон цвет+подпись), экономия */}
         <div className="text-[11px] text-zinc-600 dark:text-zinc-300 space-y-0.5">
           <div><KbHover metricKey="exec_count_pct">{vm.yearLine}</KbHover></div>
@@ -339,11 +361,19 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
               rows={vm.svodPairs.map((p) => ({
                 metric: (
                   <KbHover metricKey={p.metricKey}>
-                    <span>{productLabel(p.metricKey)}</span>
+                    <span>{p.label ?? productLabel(p.metricKey)}</span>
                   </KbHover>
                 ),
-                calc: fmtCount(p.calc),
-                svod: <DiffText filterCtx={ctx} source="svod" value={p.svod} reference={p.calc} />,
+                calc: p.fmt === 'money' ? fmtThousands(p.calc) : fmtCount(p.calc),
+                svod: (
+                  <DiffText
+                    filterCtx={ctx}
+                    source="svod"
+                    value={p.svod}
+                    reference={p.calc}
+                    {...(p.fmt === 'money' ? { format: fmtThousands } : {})}
+                  />
+                ),
                 // Ссылка ведёт в ту самую ячейку живой книги — число проверяемо
                 // за один клик, без пересказа «где-то в СВОДе».
                 cell: p.svodCell

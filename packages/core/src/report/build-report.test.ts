@@ -412,6 +412,58 @@ describe('buildReport — official: числа, которые лист счит
   });
 });
 
+describe('buildReport — деньги года: официал СВОД и строки без года (сверка УЭР 06.08)', () => {
+  const totalY2026 = {
+    row: 44,
+    planCount: 72, factCount: 46, devCount: 26, execPct: 0.639,
+    planFB: 0, planKB: 0, planMB: 13331.23, planTotal: 13331.23,
+    factFB: 0, factKB: 0, factMB: 7900.23, factTotal: 7900.23,
+    devMoney: 0, spentPct: 0.59,
+    economyFB: 0, economyKB: 0, economyMB: 2643.16, economyTotal: 2643.16,
+  };
+  const extras = (): SvodSheetExtras => ({
+    scopes: [{ scope: 'УЭР', totalY2026 }],
+  });
+
+  it('официальные деньги года — из строки «ИТОГО 2026:» скоупа, origin svod, с ячейками', () => {
+    const report = buildReport({ rowsByDept: fixtureRows(), svodExtras: extras() }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.svodYearMoney).toBeDefined();
+    expect(uer.svodYearMoney!.plan.total).toBe(13331.23);
+    expect(uer.svodYearMoney!.plan.origin).toBe('svod');
+    expect(uer.svodYearMoney!.fact.total).toBe(7900.23);
+    expect(uer.svodYearMoney!.economy.total).toBe(2643.16);
+    // Адреса ИТОГО-колонок той же строки листа — провенанс до ячейки.
+    expect(uer.svodYearMoney!.cells.plan).toBe('K44');
+    expect(uer.svodYearMoney!.cells.fact).toBe('O44');
+    expect(uer.svodYearMoney!.cells.economy).toBe('U44');
+  });
+
+  it('скоупа на листе нет — svodYearMoney отсутствует (честная пустота)', () => {
+    const report = buildReport({ rowsByDept: fixtureRows(), svodExtras: extras() }, OPTS);
+    const uksimp = report.grbsBlocks.find((b) => b.dept === 'УКСиМП')!;
+    expect(uksimp.svodYearMoney).toBeUndefined();
+  });
+
+  it('счётные строки без года плана считаются в noYearRows (пусто/Х/«-»)', () => {
+    const rows = fixtureRows();
+    rows['УЭР'].push(
+      makeRow({ id: 'no-year-1', planYear: '' }),
+      makeRow({ id: 'no-year-2', planYear: 'Х' }),
+      makeRow({ id: 'no-year-3', planYear: '-' }),
+    );
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.noYearRows).toEqual({ count: 3, total: 900 });
+  });
+
+  it('все годы проставлены — noYearRows отсутствует', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.noYearRows).toBeUndefined();
+  });
+});
+
 describe('buildReport — период, порядок, сигналы', () => {
   it('asOfDay пробрасывается в period; Date.now не участвует', () => {
     const report = buildReport({ rowsByDept: fixtureRows() }, { ...OPTS, asOfDay: 20623 });

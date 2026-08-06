@@ -14,13 +14,25 @@ export interface DiffView {
   deltaText: string;
 }
 
-/** Чистое направление расхождения value против reference (юнит-тестируемо). */
-export function diffView(value: number, reference: number): DiffView {
+/**
+ * Чистое направление расхождения value против reference (юнит-тестируемо).
+ *
+ * Сравнение и дельта — в ТОЧНОСТИ ПОКАЗА (format): расхождение мельче
+ * показываемого разряда для читателя не существует. Без этого денежная
+ * сверка врала в обе стороны: факт 7 900,228 против 7 900,227 листа
+ * рисовал «+0» (фантом float-хвоста), а лимит показывал дельту
+ * «−589,935» с тремя знаками при целочисленном показе сумм.
+ */
+export function diffView(
+  value: number,
+  reference: number,
+  format: (n: number) => string = (n) => Math.round(n).toLocaleString('ru-RU'),
+): DiffView {
+  if (format(value) === format(reference)) return { matches: true, deltaText: '' };
   const delta = value - reference;
-  if (delta === 0) return { matches: true, deltaText: '' };
   return {
     matches: false,
-    deltaText: `${delta > 0 ? '+' : '−'}${Math.abs(delta).toLocaleString('ru-RU')}`,
+    deltaText: `${delta > 0 ? '+' : '−'}${format(Math.abs(delta))}`,
   };
 }
 
@@ -34,7 +46,7 @@ export interface DiffTextProps extends PageElementProps {
 }
 
 export function DiffText({ value, reference, format = (n) => Math.round(n).toLocaleString('ru-RU') }: DiffTextProps) {
-  const view = diffView(value, reference);
+  const view = diffView(value, reference, format);
   return (
     <span className="tabular-nums">
       {format(value)}

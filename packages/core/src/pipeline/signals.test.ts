@@ -1254,7 +1254,7 @@ describe('classifyRowState', () => {
       planWithoutExecution: false, epJustificationMissing: false,
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
-      budgetSourceMissing: false, tdWithProgram: false,
+      budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
       ...overrides,
     };
   }
@@ -1330,7 +1330,7 @@ describe('getSignalBadges', () => {
       planWithoutExecution: false, epJustificationMissing: false,
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
-      budgetSourceMissing: false, tdWithProgram: false,
+      budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
       ...overrides,
     };
   }
@@ -1416,5 +1416,36 @@ describe('tdWithProgram', () => {
 
   it('программное мероприятие с программой — не горит (это норма)', () => {
     expect(detectSignals({ F: 'Программное мероприятие', D: 'МП «Развитие культуры»', K: 100 }).tdWithProgram).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// planYearMissing — счётная строка без года плана (вводная 06.08,
+// сверка лимита УЭР: 5 строк на 589,93 тыс. невидимы для SUMIFS СВОДа)
+// ────────────────────────────────────────────────────────────
+
+describe('planYearMissing', () => {
+  it('способ и деньги есть, P пусто — сигнал горит', () => {
+    const s = detectSignals({ L: 'ЭА', K: 190, H: 0, I: 0, J: 190, P: '' });
+    expect(s.planYearMissing).toBe(true);
+  });
+
+  it('заглушки Х и «-» в P — та же пустота, горит', () => {
+    expect(detectSignals({ L: 'ЕП', K: 85.53, P: 'Х' }).planYearMissing).toBe(true);
+    expect(detectSignals({ L: 'ЕП', K: 85.53, P: '-' }).planYearMissing).toBe(true);
+  });
+
+  it('год проставлен — не горит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 190, P: 2026 }).planYearMissing).toBe(false);
+    expect(detectSignals({ L: 'ЕП', K: 243.28, P: '2025' }).planYearMissing).toBe(false);
+  });
+
+  it('нет способа или нет денег — строка не счётная, не горит', () => {
+    expect(detectSignals({ L: '', K: 190, P: '' }).planYearMissing).toBe(false);
+    expect(detectSignals({ L: 'ЭА', K: 0, P: '' }).planYearMissing).toBe(false);
+  });
+
+  it('отменённая строка — не горит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 190, P: '', U: 'отменена' }).planYearMissing).toBe(false);
   });
 });

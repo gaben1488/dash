@@ -46,6 +46,15 @@ describe('diffView — направление расхождения (DiffText)'
     expect(diffView(5, 4)).toEqual({ matches: false, deltaText: '+1' });
     expect(diffView(2, 5)).toEqual({ matches: false, deltaText: '−3' });
   });
+
+  it('сравнение в точности показа: float-хвост мельче разряда — совпадение, не «+0»', () => {
+    // Кейс сверки УЭР 06.08: факт 7 900,228 против 7 900,2268 листа.
+    expect(diffView(7900.228, 7900.2268)).toEqual({ matches: true, deltaText: '' });
+  });
+
+  it('дельта — тем же форматом, что значения (деньги не «−589,935»)', () => {
+    expect(diffView(13331.22766, 13921.16266).deltaText).toBe('−590');
+  });
 });
 
 describe('tsc-контракт PageElementProps', () => {

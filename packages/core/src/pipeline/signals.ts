@@ -100,6 +100,14 @@ export interface RowSignals {
    * D заполнена ошибочно. Канон среза — matchesActivityScope('td_pm', F, D).
    */
   tdWithProgram: boolean;
+  /**
+   * Счётная строка без года плана (P пусто). Наш движок относит её к
+   * отчётному году (нестрогий год), а SUMIFS листа СВОД считают год строго
+   * и строку НЕ видят — официальный лимит занижен ровно на её сумму.
+   * Найдено 06.08.2026 сверкой лимита УЭР: 5 строк на 589,93 тыс. руб.
+   * давали расхождение 13 921 против 13 331 листа.
+   */
+  planYearMissing: boolean;
 }
 
 /**
@@ -521,6 +529,15 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // ── ТД с заполненной графой программы (ТД-ПМ) — возможная ошибка заполнения ──
   const tdWithProgram = matchesActivityScope('td_pm', cells['F'], cells['D']);
 
+  // ── Счётная строка без года плана (P) — невидима для формул СВОДа ──
+  // Гейт «счётная»: есть способ закупки и плановые деньги — ровно такие
+  // строки движок учитывает в отчётном году по нестрогому правилу, а лист
+  // СВОД (строгий SUMIFS по году) молча теряет. «Х»/«-» — та же пустота:
+  // операторы ставят заглушку вместо года.
+  const planYearText = cellText(cells, 'P');
+  const planYearEmpty = planYearText === '' || planYearText === 'х' || planYearText === 'x' || planYearText === '-';
+  const planYearMissing = planYearEmpty && methodText !== '' && !isNaN(planTotal) && planTotal > 0 && !canceled;
+
   // ── Факты без дат / Даты без фактов ──
   // factWithoutDate: есть суммы факта, но нет даты — данные неполные
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не флажить, если дата факта есть в комментарии AE
@@ -639,6 +656,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     budgetMismatch,
     factWithoutDate,
     tdWithProgram,
+    planYearMissing,
     dateWithoutFact,
     factDateBeforePlan,
     futureFactDate,
@@ -766,6 +784,9 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   }
   if (signals.tdWithProgram) {
     badges.push({ label: 'ТД с программой', color: 'yellow', icon: 'git-branch' });
+  }
+  if (signals.planYearMissing) {
+    badges.push({ label: 'Нет года плана', color: 'yellow', icon: 'calendar-x' });
   }
   if (signals.planWithoutExecution) {
     badges.push({ label: 'План без исполнения', color: 'yellow', icon: 'calendar-off' });
