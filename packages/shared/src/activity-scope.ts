@@ -9,15 +9,20 @@
  * значения AN4 для этого среза, поэтому он считается только по атомарным строкам.
  */
 
-export type ActivityScope = 'all' | 'td' | 'pm' | 'td_pm';
+export type ActivityScope = 'all' | 'td' | 'pm' | 'td_pm' | 'td_clean';
 
-export const ACTIVITY_SCOPES: readonly ActivityScope[] = ['all', 'td', 'pm', 'td_pm'] as const;
+/**
+ * Порядок — порядок кнопок в UI: сначала целые срезы (ВСЕ/ПМ/ТД),
+ * затем состав ТД (чистая / с программой). td = td_clean + td_pm по построению.
+ */
+export const ACTIVITY_SCOPES: readonly ActivityScope[] = ['all', 'pm', 'td', 'td_clean', 'td_pm'] as const;
 
 export const ACTIVITY_AN4: Record<ActivityScope, string | null> = {
   all: '*',
   td: 'ТД',
   pm: 'ПМ',
   td_pm: null,
+  td_clean: null,
 };
 
 export const ACTIVITY_F_VALUE = {
@@ -29,9 +34,10 @@ const PROGRAM_EMPTY = new Set(['x', 'х', '']);
 
 export const ACTIVITY_LABEL: Record<ActivityScope, string> = {
   all: 'ВСЕ',
-  td: 'ТД',
+  td: 'ТД (вся)',
   pm: 'ПМ',
   td_pm: 'ТД-ПМ',
+  td_clean: 'ТД чистая',
 };
 
 function hasProgramMarker(programValue: unknown): boolean {
@@ -62,6 +68,7 @@ export function matchesActivityScope(scope: ActivityScope, fValue: unknown, prog
   const kind = activityKind(fValue);
   if (scope === 'pm') return kind === 'pm';
   if (scope === 'td') return kind === 'td';
+  if (scope === 'td_clean') return kind === 'td' && !hasProgramMarker(programValue);
   return kind === 'td' && hasProgramMarker(programValue);
 }
 
@@ -70,6 +77,7 @@ export function parseActivityScope(raw: unknown): ActivityScope | null {
   const v = String(raw ?? '').trim().toLowerCase();
   if (v === '') return null;
   if (v === 'тд-пм' || v === 'тд_пм' || v === 'td_pm' || v === 'current_program') return 'td_pm';
+  if (v === 'тд чистая' || v === 'td_clean' || v === 'тд без программы') return 'td_clean';
   if (v === '*' || v === 'все' || v === 'all' || v === 'тд+пм') return 'all';
   if (v === 'тд' || v === 'td' || v === 'current' || v.startsWith('текущ')) return 'td';
   if (v === 'пм' || v === 'pm' || v === 'program' || v.startsWith('программ')) return 'pm';

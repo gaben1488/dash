@@ -223,7 +223,7 @@ describe('computeUnifiedGrid — инварианты §7', () => {
 
   it('grbsIds и scopes заполнены (порядок = ACTIVITY_SCOPES)', () => {
     expect(grid.grbsIds).toContain('uo');
-    expect([...grid.scopes].sort()).toEqual(['all', 'pm', 'td', 'td_pm']);
+    expect([...grid.scopes].sort()).toEqual(['all', 'pm', 'td', 'td_clean', 'td_pm']) // 06.08: + td_clean (чистая ТД);
     expect(grid.scopes).toContain('td_pm');
   });
 });

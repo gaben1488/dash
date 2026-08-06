@@ -3,7 +3,6 @@ import { useStore } from '../store';
 import { api } from '../api';
 import {
   SVOD_SPREADSHEET_ID,
-  ACTIVITY_SCOPES,
   ACTIVITY_LABEL,
   SVOD_QUARTER_KEYS,
   type ActivityScope,
@@ -168,8 +167,24 @@ const GROUP_CELL = {
 export function SvodView() {
   const { moneyUnit, selectedDepartments, selectedMethods, selectedBudgets, year } = useStore();
 
-  // Активность (ВСЕ/ПМ/ТД/ТД-ПМ) и период (мес/кв/год).
-  const [scope, setScope] = useState<ActivityScope>('all');
+  // Активность — мультивыбор атомарных категорий (вводная 06.08:
+  // «и по отдельности, и вместе»). Пустой набор = ВСЕ. Категории не
+  // пересекаются: ПМ ∪ ТД-чистая ∪ ТД-ПМ = все строки.
+  type ActivityCat = 'pm' | 'td_clean' | 'td_pm';
+  const [scopeSet, setScopeSet] = useState<Set<ActivityCat>>(new Set());
+  const toggleCat = (c: ActivityCat) => setScopeSet((prev) => {
+    const next = new Set(prev);
+    if (next.has(c)) next.delete(c); else next.add(c);
+    return next;
+  });
+  // Эквивалентный одиночный срез (для сверки и подписи): пусто/все три = ВСЕ.
+  const scope: ActivityScope = scopeSet.size === 0 || scopeSet.size === 3
+    ? 'all'
+    : scopeSet.size === 1
+      ? [...scopeSet][0]
+      : (scopeSet.has('td_clean') && scopeSet.has('td_pm') ? 'td' : 'all');
+  // «Составной» срез, не сводимый к одному ключу сетки (например ПМ + ТД-ПМ).
+  const isComposite = scopeSet.size === 2 && !(scopeSet.has('td_clean') && scopeSet.has('td_pm'));
   const [periodMode, setPeriodMode] = useState<PeriodMode>('year');
   const [monthSel, setMonthSel] = useState(1);
   const [quarterSel, setQuarterSel] = useState(1);
@@ -229,17 +244,18 @@ export function SvodView() {
     if (!grid) return null;
     return sliceUnified(grid, {
       scope,
+      scopes: scopeSet,
       period: periodKey,
       budgets: budgetSet,
       depts: selectedDepartments,
     }).view;
-  }, [grid, scope, periodKey, budgetSet, selectedDepartments]);
+  }, [grid, scope, scopeSet, periodKey, budgetSet, selectedDepartments]);
 
   // Сверка из API считалась для среза ВСЕ (сумма по всем ГРБС) против листа СВОД ТД-ПМ.
   // Поэтому индикатор сверки валиден только при scope=ВСЕ и без ГРБС-фильтра — иначе
   // сравнивать срез-подмножество с полным эталоном листа некорректно.
   const deptFilterActive = selectedDepartments.size > 0;
-  const reconApplies = scope === 'all' && !deptFilterActive;
+  const reconApplies = scope === 'all' && !isComposite && !deptFilterActive;
 
   // Бейджи сверки (КП/ЕП) для сводного блока за выбранный период.
   const badges = useMemo(
@@ -329,28 +345,68 @@ export function SvodView() {
 
         {/* ── Тумблеры: активность + период ── */}
         <div className="mt-4 flex flex-col gap-3">
-          {/* Активность (4 среза) */}
+          {/* Активность — мультивыбор: категории включаются и по отдельности,
+              и в любых сочетаниях (вводная 06.08). Пусто = ВСЕ. Сценарий
+              пользователя: ПМ + ТД-ПМ, если ТД-ПМ — ошибка заполнения и это
+              на деле программные деньги. */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 w-20">Активность</span>
             <div className="flex items-center bg-zinc-100 dark:bg-zinc-700/50 rounded-lg p-0.5">
-              {ACTIVITY_SCOPES.map((s) => (
+              <button
+                onClick={() => setScopeSet(new Set())}
+                className={clsx(
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition',
+                  scopeSet.size === 0
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200',
+                )}
+                title="Все строки: ПМ + ТД чистая + ТД-ПМ"
+              >
+                ВСЕ
+              </button>
+            </div>
+            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-700/50 rounded-lg p-0.5">
+              {(['pm', 'td_clean', 'td_pm'] as const).map((s) => (
                 <button
                   key={s}
-                  onClick={() => setScope(s)}
+                  onClick={() => toggleCat(s)}
+                  aria-pressed={scopeSet.has(s)}
                   className={clsx(
-                    'px-3 py-1.5 rounded-md text-xs font-medium transition',
-                    scope === s
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition inline-flex items-center gap-1.5',
+                    scopeSet.has(s)
                       ? 'bg-cyan-600 text-white shadow-sm'
                       : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200',
                   )}
                   title={SCOPE_HINT[s]}
                 >
+                  <span
+                    className={clsx(
+                      'w-3 h-3 rounded-[4px] border inline-flex items-center justify-center text-[8px] leading-none',
+                      scopeSet.has(s)
+                        ? 'bg-white/90 border-white/90 text-cyan-700'
+                        : 'border-zinc-400 dark:border-zinc-500 text-transparent',
+                    )}
+                  >
+                    ✓
+                  </span>
                   {ACTIVITY_LABEL[s]}
                 </button>
               ))}
             </div>
+            <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              {scopeSet.size === 0 || scopeSet.size === 3
+                ? 'показаны все строки'
+                : `показано: ${[...scopeSet].map((s) => ACTIVITY_LABEL[s]).join(' + ')}`}
+            </span>
           </div>
-
+          {scopeSet.has('td_pm') && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug pl-[5.5rem]">
+              ТД-ПМ — строки текущей деятельности с заполненной графой программы.
+              Возможно, это ошибка заполнения, а не отдельная категория: включите
+              ПМ + ТД-ПМ, чтобы посмотреть «как если бы это были программные деньги»,
+              или ТД чистая + ТД-ПМ — это вся текущая деятельность целиком.
+            </p>
+          )}
           {/* Период (мес / кв / год) */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 w-20">Период</span>
@@ -434,7 +490,7 @@ export function SvodView() {
             <tbody>
               {/* Сводный блок — с бейджами сверки */}
               <BlockGroup
-                title={`СВОД · ${deptFilterActive ? 'выбранные ГРБС' : 'все ГРБС'} · ${ACTIVITY_LABEL[scope]} · ${periodLabel(periodKey)}`}
+                title={`СВОД · ${deptFilterActive ? 'выбранные ГРБС' : 'все ГРБС'} · ${scopeSet.size === 0 || scopeSet.size === 3 ? 'ВСЕ' : [...scopeSet].map((s) => ACTIVITY_LABEL[s]).join(' + ')} · ${periodLabel(periodKey)}`}
                 subtitle={`агрегат по ${sliced.departments.length} ${deptFilterActive ? 'выбранным' : ''} управлениям`.replace('  ', ' ')}
                 block={sliced.summary}
                 budgetFull={showBudgetBreakdown}
@@ -476,8 +532,9 @@ export function SvodView() {
 const SCOPE_HINT: Record<ActivityScope, string> = {
   all: 'ВСЕ — ТД + ПМ (любая строка)',
   pm: 'ПМ — программные мероприятия',
-  td: 'ТД — текущая деятельность',
-  td_pm: 'ТД-ПМ — текущая деятельность с программой (графа D ≠ X/Х/пусто)',
+  td: 'ТД (вся) — текущая деятельность целиком: чистая + ТД-ПМ',
+  td_clean: 'ТД чистая — текущая деятельность без графы программы',
+  td_pm: 'ТД-ПМ — текущая деятельность с заполненной графой программы (возможна ошибка заполнения)',
 };
 
 function SummaryChip({

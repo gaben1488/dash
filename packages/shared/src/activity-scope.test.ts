@@ -8,9 +8,11 @@ import {
 } from './activity-scope';
 
 describe('activity-scope', () => {
-  it('перечисляет четыре среза; td_pm не имеет AN4 листа (CalcEngine-only)', () => {
-    expect(ACTIVITY_SCOPES).toEqual(['all', 'td', 'pm', 'td_pm']);
-    expect(ACTIVITY_AN4).toEqual({ all: '*', td: 'ТД', pm: 'ПМ', td_pm: null });
+  it('перечисляет пять срезов; td_pm и td_clean не имеют AN4 листа (CalcEngine-only)', () => {
+    // 06.08: добавлен td_clean (мультивыбор «по отдельности и вместе»);
+    // порядок = порядок кнопок UI: целые срезы, затем состав ТД.
+    expect(ACTIVITY_SCOPES).toEqual(['all', 'pm', 'td', 'td_clean', 'td_pm']);
+    expect(ACTIVITY_AN4).toEqual({ all: '*', td: 'ТД', pm: 'ПМ', td_pm: null, td_clean: null });
   });
 
   it('td_pm: ТД И графа программы (D) ≠ X/Х/пусто', () => {
@@ -64,5 +66,34 @@ describe('activity-scope', () => {
     expect(parseActivityScope('Программное мероприятие')).toBe('pm');
     expect(parseActivityScope('')).toBeNull();
     expect(parseActivityScope('чушь')).toBeNull();
+  });
+});
+
+describe('td_clean — чистая текущая деятельность (мультивыбор 06.08)', () => {
+  it('ТД без программы попадает, ТД с программой нет', () => {
+    expect(matchesActivityScope('td_clean', 'Текущая деятельность', 'X')).toBe(true);
+    expect(matchesActivityScope('td_clean', 'Текущая деятельность', '')).toBe(true);
+    expect(matchesActivityScope('td_clean', 'Текущая деятельность', 'МП «Развитие образования»')).toBe(false);
+    expect(matchesActivityScope('td_clean', 'Программное мероприятие', 'X')).toBe(false);
+  });
+
+  it('категории не пересекаются и в сумме дают ТД: td = td_clean + td_pm', () => {
+    const rows: Array<[string, string]> = [
+      ['Текущая деятельность', 'X'],
+      ['Текущая деятельность', 'МП «Культура»'],
+      ['Программное мероприятие', 'МП «Культура»'],
+    ];
+    for (const [f, d] of rows) {
+      const inClean = matchesActivityScope('td_clean', f, d);
+      const inTdPm = matchesActivityScope('td_pm', f, d);
+      const inTd = matchesActivityScope('td', f, d);
+      expect(inClean && inTdPm).toBe(false);        // не пересекаются
+      expect(inClean || inTdPm).toBe(inTd);          // вместе = вся ТД
+    }
+  });
+
+  it('parseActivityScope узнаёт новую категорию', () => {
+    expect(parseActivityScope('ТД чистая')).toBe('td_clean');
+    expect(parseActivityScope('td_clean')).toBe('td_clean');
   });
 });

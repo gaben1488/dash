@@ -41,6 +41,14 @@ export type BudgetKey = 'fb' | 'kb' | 'mb';
 export interface SliceOptions {
   /** Срез активности. */
   scope: ActivityScope;
+  /**
+   * Мультивыбор атомарных категорий деятельности (вводная 06.08: «и по
+   * отдельности, и вместе»). Непустой набор ГЛАВНЕЕ `scope`: строится
+   * объединение выбранных категорий (например ПМ + ТД-ПМ, если ТД-ПМ —
+   * ошибка заполнения и это на деле программные деньги).
+   * Категории не пересекаются: pm ∪ td_clean ∪ td_pm = all.
+   */
+  scopes?: ReadonlySet<'pm' | 'td_clean' | 'td_pm'>;
   /** Период (месяц m1..m12 / квартал q1..q4 / год). */
   period: SvodPeriodKey;
   /** Метод-фильтр (КП/ЕП). Пусто/обе → показывать обе секции. */
@@ -192,6 +200,42 @@ function deptSelected(
 export function sliceUnified(grid: UnifiedGrid, opts: SliceOptions): UnifiedSliceResult {
   const { scope, period, budgets, depts } = opts;
 
+  // Объединение атомарных категорий: суммируем ячейки выбранных срезов.
+  // td_clean на старых снимках отсутствует — выводится разностью td − td_pm
+  // (все поля ячейки аддитивны, проценты пересчитывает deriveCell).
+  const scopeSet = opts.scopes && opts.scopes.size > 0 && opts.scopes.size < 3
+    ? [...opts.scopes]
+    : null; // пусто или все три = ВСЕ (обычный scope-путь)
+
+  const subCell = (a: UnifiedCell, b: UnifiedCell): UnifiedCell => ({
+    planCount: a.planCount - b.planCount,
+    factCount: a.factCount - b.factCount,
+    planFB: a.planFB - b.planFB, planKB: a.planKB - b.planKB, planMB: a.planMB - b.planMB,
+    factFB: a.factFB - b.factFB, factKB: a.factKB - b.factKB, factMB: a.factMB - b.factMB,
+    economyFB: a.economyFB - b.economyFB, economyKB: a.economyKB - b.economyKB, economyMB: a.economyMB - b.economyMB,
+  });
+
+  // Все три категории выбраны = ВСЕ (одна ячейка сетки точнее суммы трёх).
+  const effectiveScope: ActivityScope = opts.scopes && opts.scopes.size >= 3 ? 'all' : scope;
+
+  const cellForScopes = (grbsId: string, method: SvodMethod): UnifiedCell => {
+    if (!scopeSet) return cellFor(grid, grbsId, effectiveScope, method, period);
+    const acc = emptyCell();
+    for (const s of scopeSet) {
+      let c: UnifiedCell;
+      if (s === 'td_clean' && !(grid.scopes as string[] | undefined)?.includes('td_clean')) {
+        c = subCell(
+          cellFor(grid, grbsId, 'td', method, period),
+          cellFor(grid, grbsId, 'td_pm', method, period),
+        );
+      } else {
+        c = cellFor(grid, grbsId, s, method, period);
+      }
+      addCellInto(acc, c);
+    }
+    return acc;
+  };
+
   // Сводный блок «ВСЕ ГРБС» аккумулирует ИМЕННО видимые управления — при ГРБС-фильтре
   // он показывает итог по выбранному подмножеству (один проход с построчными блоками).
   const sumKp = emptyCell();
@@ -201,8 +245,8 @@ export function sliceUnified(grid: UnifiedGrid, opts: SliceOptions): UnifiedSlic
     deptSelected(depts, d.latinId, d.shortName),
   ).map((d) => {
     const grbsId = d.latinId;
-    const kpCell = cellFor(grid, grbsId, scope, 'kp', period);
-    const epCell = cellFor(grid, grbsId, scope, 'ep', period);
+    const kpCell = cellForScopes(grbsId, 'kp');
+    const epCell = cellForScopes(grbsId, 'ep');
     addCellInto(sumKp, kpCell);
     addCellInto(sumEp, epCell);
     return {
