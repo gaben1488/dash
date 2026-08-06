@@ -15,7 +15,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isProceduralMismatch, matchesActivityScope, parseSheetDate } from '@aemr/shared';
 import { parseAE } from './ae-parser.js';
 
 // ────────────────────────────────────────────────────────────
@@ -93,6 +93,13 @@ export interface RowSignals {
   budgetUnderallocation: boolean;
   /** Источники бюджета не указаны: H/I/J все пусты/нули, но K > 0 */
   budgetSourceMissing: boolean;
+  /**
+   * ТД с заполненной графой программы (ТД-ПМ). Вводная пользователя 06.08:
+   * возможно, это ошибка заполнения, а не отдельная категория — строка либо
+   * на деле программная (исправить вид деятельности F), либо графа программы
+   * D заполнена ошибочно. Канон среза — matchesActivityScope('td_pm', F, D).
+   */
+  tdWithProgram: boolean;
 }
 
 /**
@@ -511,6 +518,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Сигнал оставлен как false для обратной совместимости интерфейса RowSignals.
   const budgetMismatch = false;
 
+  // ── ТД с заполненной графой программы (ТД-ПМ) — возможная ошибка заполнения ──
+  const tdWithProgram = matchesActivityScope('td_pm', cells['F'], cells['D']);
+
   // ── Факты без дат / Даты без фактов ──
   // factWithoutDate: есть суммы факта, но нет даты — данные неполные
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не флажить, если дата факта есть в комментарии AE
@@ -628,6 +638,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     stalledContract,
     budgetMismatch,
     factWithoutDate,
+    tdWithProgram,
     dateWithoutFact,
     factDateBeforePlan,
     futureFactDate,
@@ -752,6 +763,9 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   }
   if (signals.factDateBeforePlan) {
     badges.push({ label: 'Факт дата < план', color: 'yellow', icon: 'calendar-x' });
+  }
+  if (signals.tdWithProgram) {
+    badges.push({ label: 'ТД с программой', color: 'yellow', icon: 'git-branch' });
   }
   if (signals.planWithoutExecution) {
     badges.push({ label: 'План без исполнения', color: 'yellow', icon: 'calendar-off' });

@@ -40,6 +40,8 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   epJustificationMissing: 'ep_justification_missing',
   budgetUnderallocation: 'budget_underallocation',
   budgetSourceMissing: 'budget_source_missing',
+  // 06.08: ТД с заполненной графой программы — возможная ошибка заполнения (вводная пользователя)
+  tdWithProgram: 'td_with_program',
 };
 
 /**

@@ -753,6 +753,19 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       },
     },
     { label: 'Дата без сумм', signal: 'dateWithoutFact', search: 'факт дата без сумм', metricKey: 'signal_fact_date_before_plan', color: 'cyan', icon: '💰' },
+    // Вводная 06.08: ТД-ПМ как рабочая проблема — возможная ошибка заполнения.
+    {
+      label: 'ТД с программой',
+      signal: 'tdWithProgram',
+      search: 'ТД с программой',
+      color: 'amber',
+      icon: '⚭',
+      kbFallback: {
+        whatIs: 'Строки, где вид деятельности — текущая, но графа программы заполнена (срез ТД-ПМ). Возможно, это ошибка заполнения: либо строка на деле программная, либо графа программы указана ошибочно.',
+        howCalc: 'Вид деятельности (F) = «текущая» И графа программы (D) не пустая и не «Х». Канон среза ТД-ПМ.',
+        thresholdsFull: '🟡 есть строки — разобрать с исполнителями\n🟢 0 — категории разведены чисто',
+      },
+    },
     { label: 'Подвисшие', signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue', icon: '⏸' },
     { label: 'Факт > план', signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo', icon: '📈' },
     { label: 'Факт < план дата', signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal', icon: '📉' },

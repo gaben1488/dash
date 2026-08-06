@@ -1254,7 +1254,7 @@ describe('classifyRowState', () => {
       planWithoutExecution: false, epJustificationMissing: false,
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
-      budgetSourceMissing: false,
+      budgetSourceMissing: false, tdWithProgram: false,
       ...overrides,
     };
   }
@@ -1330,7 +1330,7 @@ describe('getSignalBadges', () => {
       planWithoutExecution: false, epJustificationMissing: false,
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
-      budgetSourceMissing: false,
+      budgetSourceMissing: false, tdWithProgram: false,
       ...overrides,
     };
   }
@@ -1396,5 +1396,25 @@ describe('getSignalBadges', () => {
 
     const noSigned = getSignalBadges(makeSignals({ hasFact: true, signed: false }));
     expect(noSigned.some(b => b.label === 'Есть факт')).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// tdWithProgram — ТД с заполненной графой программы (вводная 06.08)
+// ────────────────────────────────────────────────────────────
+
+describe('tdWithProgram', () => {
+  it('ТД с реальной программой в D — сигнал горит', () => {
+    const s = detectSignals({ F: 'Текущая деятельность', D: 'МП «Развитие культуры»', K: 100 });
+    expect(s.tdWithProgram).toBe(true);
+  });
+
+  it('ТД с пустой/Х графой программы — не горит', () => {
+    expect(detectSignals({ F: 'Текущая деятельность', D: 'Х', K: 100 }).tdWithProgram).toBe(false);
+    expect(detectSignals({ F: 'Текущая деятельность', D: '', K: 100 }).tdWithProgram).toBe(false);
+  });
+
+  it('программное мероприятие с программой — не горит (это норма)', () => {
+    expect(detectSignals({ F: 'Программное мероприятие', D: 'МП «Развитие культуры»', K: 100 }).tdWithProgram).toBe(false);
   });
 });
