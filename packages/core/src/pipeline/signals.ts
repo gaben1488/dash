@@ -786,7 +786,7 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
     badges.push({ label: 'ТД с программой', color: 'yellow', icon: 'git-branch' });
   }
   if (signals.planYearMissing) {
-    badges.push({ label: 'Нет года плана', color: 'yellow', icon: 'calendar-x' });
+    badges.push({ label: 'Без финансирования', color: 'yellow', icon: 'calendar-x' });
   }
   if (signals.planWithoutExecution) {
     badges.push({ label: 'План без исполнения', color: 'yellow', icon: 'calendar-off' });

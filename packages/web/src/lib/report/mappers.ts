@@ -307,6 +307,42 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
     ),
   });
 
+  /**
+   * Денежная плитка года из ОФИЦИАЛЬНОЙ строки «ИТОГО 2026:» листа СВОД
+   * (решение пользователя 07.08: лимиты продукта — как на листе). Наш
+   * пересчёт не прячется: живая подсказка называет обе стороны и величину
+   * расхождения; при расхождении лимита причина — счётные строки без года
+   * плана, их разбор — в сверках секций и сигнале «Без подтверждённого
+   * финансирования».
+   */
+  const officialMoneyTile = (
+    metricKey: string,
+    row: { fb: number; kb: number; mb: number; total: number; row: number; cell: string },
+    calc: { total: number },
+    accent: KpiVM['accent'],
+  ): KpiVM => {
+    const delta = calc.total - row.total;
+    const deltaNote = Math.abs(delta) > 0.5
+      ? `Наш пересчёт из строк книг: ${fmtThousands(calc.total)} тыс. руб. ` +
+        `(${delta > 0 ? '+' : '−'}${fmtThousands(Math.abs(delta))} к листу${
+          metricKey === 'plan_total' ? ' — счётные строки без года плана, лист их не видит' : ''}).`
+      : `Наш пересчёт из строк книг сходится: ${fmtThousands(calc.total)} тыс. руб.`;
+    return {
+      metricKey,
+      value: fmtThousands(row.total),
+      unit: 'тыс. ₽',
+      periodBadge: yearBadge,
+      source: 'svod',
+      tier: 'compact',
+      accent,
+      budget: { fb: row.fb, kb: row.kb, mb: row.mb },
+      live: liveMoney(
+        row,
+        `Строка «ИТОГО 2026:» листа СВОД ТД-ПМ, ячейка ${row.cell} (строка ${row.row}) — как есть, без пересчёта.\n${deltaNote}`,
+      ),
+    };
+  };
+
   const remainder: RemainderRowVM[] = [];
   if (pending.count > 0 || pending.total > 0) {
     remainder.push({
@@ -375,11 +411,19 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
       ...stampOfficialKeys(methodTiles(integralSummary.year, yearBadge), 'year', period.year),
       ...stampOfficialKeys(methodTiles(integralSummary.quarter, quarterBadge), period.quarter, period.year),
     ],
-    money: [
-      moneyTile('plan_total', money.plan, 'neutral'),
-      moneyTile('fact_total', money.fact, 'neutral'),
-      moneyTile('economy_total', money.economy, 'emerald'),
-    ],
+    // Лимиты — официальные (лист СВОД, строка «ИТОГО 2026:»), решение 07.08;
+    // ярус листа не передан — честный фолбэк на наш пересчёт (origin calc).
+    money: official?.yearMoney
+      ? [
+          officialMoneyTile('plan_total', official.yearMoney.plan, money.plan, 'neutral'),
+          officialMoneyTile('fact_total', official.yearMoney.fact, money.fact, 'neutral'),
+          officialMoneyTile('economy_total', official.yearMoney.economy, money.economy, 'emerald'),
+        ]
+      : [
+          moneyTile('plan_total', money.plan, 'neutral'),
+          moneyTile('fact_total', money.fact, 'neutral'),
+          moneyTile('economy_total', money.economy, 'emerald'),
+        ],
     remainder,
     remainderDiff,
   };

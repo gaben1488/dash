@@ -854,6 +854,66 @@ export function ReportPage() {
             ))
           )}
 
+          {/* Закупки без подтверждённого финансирования — решение 07.08:
+              строки без сроков видны отдельно, внизу, с разбивкой по ГРБС.
+              Эти же строки — причина расхождения лимита с листом СВОД. */}
+          {report.unfunded && (
+            <SectionCard
+              filterCtx={ctx}
+              source="calc"
+              title="Закупки без подтверждённого финансирования"
+              icon={Building2}
+              defaultOpen={false}
+            >
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <KbHover metricKey="plan_total">
+                    <span className="text-2xl font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
+                      {fmtThousands(report.unfunded.total)}
+                    </span>
+                  </KbHover>
+                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    тыс. руб. в {fmtCount(report.unfunded.count)} позициях без сроков (год плана не проставлен)
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Способ и плановые деньги у строк есть, а сроков нет — финансирование не
+                  подтверждено. Формулы листа СВОД такие строки не видят, поэтому официальный
+                  лимит меньше нашего расчёта ровно на эту сумму. По каждой строке нужно решение:
+                  подтвердить финансирование и проставить сроки — либо вынести из плана.
+                </p>
+                {report.unfunded.byDept.map((d) => (
+                  <div key={d.dept}>
+                    <div className="mb-1 flex items-baseline gap-2 text-[11px]">
+                      <span className="font-semibold text-zinc-700 dark:text-zinc-200">{d.deptLabel}</span>
+                      <span className="text-zinc-400 dark:text-zinc-500">
+                        {fmtCount(d.count)} поз. · {fmtThousands(d.total)} тыс. руб.
+                      </span>
+                    </div>
+                    <ExpandableRows
+                      rows={d.positions}
+                      top={3}
+                      noun="позиций"
+                      searchText={(p) => `${p.subject} ${p.subordinate} ${p.method}`}
+                    >
+                      {(p) => (
+                        <div key={p.sheetRow} className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
+                          {p.subject || 'Без наименования'}
+                          <span className="text-zinc-400 dark:text-zinc-500">
+                            {p.subordinate && ` — ${p.subordinate}`}
+                            {p.method && ` · ${p.method}`}
+                            {` · ${fmtThousands(p.planTotal)} тыс. руб.`}
+                            <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
+                          </span>
+                        </div>
+                      )}
+                    </ExpandableRows>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+
           {/* Честные плашки: чего в отчёте нет и почему */}
           {report.notes.length > 0 && (
             <div className="analytics-chart-card px-5 py-3">

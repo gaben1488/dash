@@ -326,7 +326,38 @@ export interface Report {
     remainderToConclude?: SvodMoneyRow;
     /** «Расч. экономия» района (скоуп «ВСЕ») — строка ручного отчёта. */
     calcEconomy?: SvodMoneyRow;
+    /**
+     * Деньги плана-года района — строка «ИТОГО 2026:» скоупа «ВСЕ» листа,
+     * с ячейкой каждой суммы. Решение пользователя 07.08: лимиты продукта —
+     * официальные, как на листе СВОД; наш пересчёт остаётся стороной сверки.
+     */
+    yearMoney?: { plan: SvodMoneyRow; fact: SvodMoneyRow; economy: SvodMoneyRow };
   };
   /** Честные плашки (русские фразы): чего в отчёте нет и почему. */
   notes: string[];
+  /**
+   * Закупки без подтверждённого финансирования (решение пользователя
+   * 07.08): счётные строки без года плана (P) — способ и плановые деньги
+   * есть, сроков нет. Формулы СВОДа их не видят, лимит листа занижен
+   * ровно на их сумму. Разбивка по ГРБС — секция внизу страницы «Отчёт».
+   * Поля нет — таких строк нет.
+   */
+  unfunded?: {
+    count: number;
+    total: number;
+    byDept: Array<{
+      dept: string;
+      deptLabel: string;
+      count: number;
+      total: number;
+      positions: Array<{
+        sheetRow: number;
+        subject: string;
+        /** Подвед (колонка C); пусто = само управление. */
+        subordinate: string;
+        method: string;
+        planTotal: number;
+      }>;
+    }>;
+  };
 }

@@ -71,12 +71,35 @@ describe('buildIntegralSummary — четыре яруса сводки', () => 
       .toEqual(['ep_fact_count', 'ep_count']);
   });
 
-  it('деньги года: три плитки с составом бюджетов', () => {
+  it('деньги года: три плитки с составом бюджетов (без яруса листа — наш пересчёт)', () => {
     expect(s.money.map((m) => m.metricKey)).toEqual(['plan_total', 'fact_total', 'economy_total']);
     expect(s.money[0].unit).toBe('тыс. ₽');
     expect(norm(s.money[0].value)).toBe('4 500');
     expect(s.money[0].budget).toEqual({ fb: 1000, kb: 2900, mb: 600 });
     expect(s.money[2].accent).toBe('emerald');
+  });
+
+  it('лимиты — официальные (строка «ИТОГО 2026:» листа), пересчёт назван в подсказке (07.08)', () => {
+    const base = makeReportFixture();
+    const withMoney = buildIntegralSummary({
+      ...base,
+      official: {
+        yearMoney: {
+          plan: { fb: 0, kb: 0, mb: 4000, total: 4000, row: 30, cell: 'K30' },
+          fact: { fb: 0, kb: 0, mb: 3450, total: 3450, row: 30, cell: 'O30' },
+          economy: { fb: 0, kb: 0, mb: 150, total: 150, row: 30, cell: 'U30' },
+        },
+      },
+    });
+    // Главное число — лист (4 000), не наш пересчёт (4 500); источник svod.
+    expect(norm(withMoney.money[0].value)).toBe('4 000');
+    expect(withMoney.money[0].source).toBe('svod');
+    // Пересчёт не спрятан: подсказка называет обе стороны и причину.
+    expect(norm(withMoney.money[0].live!)).toContain('K30');
+    expect(norm(withMoney.money[0].live!)).toContain('4 500');
+    expect(withMoney.money[0].live!).toContain('без года плана');
+    // Факт сходится — подсказка говорит «сходится», без ложной тревоги.
+    expect(withMoney.money[1].live!).toContain('сходится');
   });
 
   it('officialKey: аналог снимков — только у способов года и 1 кв', () => {

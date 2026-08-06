@@ -246,18 +246,41 @@ function noYearRowsOf(rows: RawRow[]): GrbsReportBlock['noYearRows'] {
   let count = 0;
   let total = 0;
   for (const row of rows) {
-    if (!standardRowFilter(row)) continue;
-    const yearText = String(row[DEPT_COLUMNS.PLAN_YEAR] ?? '').trim().toLowerCase();
-    if (yearText !== '' && yearText !== 'х' && yearText !== 'x' && yearText !== '-') continue;
-    const planTotal = rowPlanTotal(row);
-    if (planTotal <= 0) continue;
-    // Гейта по способу нет НАРОЧНО: и движок, и формулы листа считают
-    // строки с пустым L (лист — в блоке КП через L<>"ЕП"), поэтому для
-    // объяснения расхождения лимита важен только год.
+    if (!isUnfundedRow(row)) continue;
     count += 1;
-    total += planTotal;
+    total += rowPlanTotal(row);
   }
   return count > 0 ? { count, total } : undefined;
+}
+
+/**
+ * Строка «без подтверждённого финансирования» (решение пользователя 07.08):
+ * счётная (standardRowFilter), плановые деньги есть, а года плана нет
+ * (P пуст либо заглушка «Х»/«-»). Гейта по способу нет НАРОЧНО: и движок,
+ * и формулы листа считают строки с пустым L (лист — в блоке КП через
+ * L<>"ЕП"), поэтому для расхождения лимита важен только год.
+ */
+function isUnfundedRow(row: RawRow): boolean {
+  if (!standardRowFilter(row)) return false;
+  const yearText = String(row[DEPT_COLUMNS.PLAN_YEAR] ?? '').trim().toLowerCase();
+  if (yearText !== '' && yearText !== 'х' && yearText !== 'x' && yearText !== '-') return false;
+  return rowPlanTotal(row) > 0;
+}
+
+/** Позиции без подтверждённого финансирования одного ГРБС — дороже выше. */
+function unfundedPositionsOf(rows: RawRow[]): NonNullable<Report['unfunded']>['byDept'][number]['positions'] {
+  const out: NonNullable<Report['unfunded']>['byDept'][number]['positions'] = [];
+  rows.forEach((row, i) => {
+    if (!isUnfundedRow(row)) return;
+    out.push({
+      sheetRow: i + DEPT_HEADER_ROWS + 1,
+      subject: String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim(),
+      subordinate: String(row[DEPT_COLUMNS.SUBORDINATE] ?? '').trim().replace(/^[XxХх]$/u, ''),
+      method: String(row[DEPT_COLUMNS.METHOD] ?? '').trim(),
+      planTotal: rowPlanTotal(row),
+    });
+  });
+  return out.sort((a, b) => b.planTotal - a.planTotal);
 }
 
 /**
@@ -635,12 +658,35 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     );
   }
 
+  // Закупки без подтверждённого финансирования — разбивка по ГРБС для
+  // секции внизу страницы (решение 07.08). Порядок — канонический deptOrder.
+  const unfundedByDept = blocks
+    .map((b) => {
+      const positions = unfundedPositionsOf(input.rowsByDept[b.dept] ?? []);
+      return {
+        dept: b.dept,
+        deptLabel: b.deptLabel,
+        count: positions.length,
+        total: positions.reduce((s, p) => s + p.planTotal, 0),
+        positions,
+      };
+    })
+    .filter((d) => d.count > 0);
+  const unfunded = unfundedByDept.length > 0
+    ? {
+        count: unfundedByDept.reduce((s, d) => s + d.count, 0),
+        total: unfundedByDept.reduce((s, d) => s + d.total, 0),
+        byDept: unfundedByDept,
+      }
+    : undefined;
+
   return {
     period: { year, quarter, ...(opts.asOfDay === undefined ? {} : { asOfDay: opts.asOfDay }) },
     integralSummary: integralOf(blocks, input.svodGrid, quarter, year),
     grbsBlocks: blocks,
     ...(input.svodExtras ? { official: officialOf(input.svodExtras) } : {}),
     notes,
+    ...(unfunded ? { unfunded } : {}),
   };
 }
 
@@ -651,9 +697,24 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
  */
 function officialOf(extras: SvodSheetExtras): Report['official'] {
   const district = extras.scopes.find((s) => s.scope === 'ВСЕ');
+  const t = district?.totalY2026;
+  // Деньги плана-года района — строка «ИТОГО 2026:» скоупа «ВСЕ», с
+  // адресом ИТОГО-колонки каждой суммы (решение пользователя 07.08:
+  // лимиты продукта — как на листе СВОД; наш пересчёт остаётся сверкой).
+  const rowOf = (fb: number, kb: number, mb: number, total: number, col: Parameters<typeof svodCellRef>[1]) =>
+    ({ fb, kb, mb, total, row: t!.row, cell: svodCellRef(t!.row, col) });
   return {
     ...(extras.remainderToConclude ? { remainderToConclude: extras.remainderToConclude } : {}),
     ...(district?.calcEconomy ? { calcEconomy: district.calcEconomy } : {}),
+    ...(t
+      ? {
+          yearMoney: {
+            plan: rowOf(t.planFB, t.planKB, t.planMB, t.planTotal, 'planTotal'),
+            fact: rowOf(t.factFB, t.factKB, t.factMB, t.factTotal, 'factTotal'),
+            economy: rowOf(t.economyFB, t.economyKB, t.economyMB, t.economyTotal, 'economyTotal'),
+          },
+        }
+      : {}),
   };
 }
 

@@ -423,6 +423,28 @@ describe('buildReport — official: числа, которые лист счит
     const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
     expect(report.official).toBeUndefined();
   });
+
+  it('yearMoney района — строка «ИТОГО 2026:» скоупа ВСЕ, с ячейками K/O/U (решение 07.08)', () => {
+    const withTotals: SvodSheetExtras = {
+      scopes: [{
+        scope: 'ВСЕ',
+        totalY2026: {
+          row: 30,
+          planCount: 100, factCount: 60, devCount: 40, execPct: 0.6,
+          planFB: 10, planKB: 20, planMB: 70, planTotal: 100,
+          factFB: 5, factKB: 15, factMB: 40, factTotal: 60,
+          devMoney: 0, spentPct: 0.6,
+          economyFB: 1, economyKB: 2, economyMB: 3, economyTotal: 6,
+        },
+      }],
+    };
+    const report = buildReport({ rowsByDept: fixtureRows(), svodExtras: withTotals }, OPTS);
+    expect(report.official!.yearMoney).toEqual({
+      plan: { fb: 10, kb: 20, mb: 70, total: 100, row: 30, cell: 'K30' },
+      fact: { fb: 5, kb: 15, mb: 40, total: 60, row: 30, cell: 'O30' },
+      economy: { fb: 1, kb: 2, mb: 3, total: 6, row: 30, cell: 'U30' },
+    });
+  });
 });
 
 describe('buildReport — деньги года: официал СВОД и строки без года (сверка УЭР 06.08)', () => {
@@ -474,6 +496,27 @@ describe('buildReport — деньги года: официал СВОД и ст
     const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
     const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
     expect(uer.noYearRows).toBeUndefined();
+  });
+
+  it('unfunded: разбивка по ГРБС, позиции дороже-выше, итог = Σ ГРБС (решение 07.08)', () => {
+    const rows = fixtureRows();
+    rows['УЭР'].push(makeRow({ id: 'uf-1', planYear: '' }));
+    const big = makeRow({ id: 'uf-2', planYear: 'Х' });
+    big[COL.FB_PLAN] = 0; big[COL.KB_PLAN] = 0; big[COL.MB_PLAN] = 32000; big[COL.TOTAL_PLAN] = 32000;
+    rows['УКСиМП'].push(big);
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    expect(report.unfunded).toBeDefined();
+    expect(report.unfunded!.count).toBe(2);
+    expect(report.unfunded!.total).toBe(300 + 32000);
+    const uer = report.unfunded!.byDept.find((d) => d.dept === 'УЭР')!;
+    expect(uer.positions).toHaveLength(1);
+    expect(uer.positions[0].planTotal).toBe(300);
+    expect(uer.positions[0].sheetRow).toBeGreaterThan(3);
+  });
+
+  it('unfunded: все сроки проставлены — поля нет вовсе', () => {
+    const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    expect(report.unfunded).toBeUndefined();
   });
 });
 
