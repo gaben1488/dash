@@ -1,27 +1,38 @@
 import type { Config } from 'tailwindcss';
 import tailwindAnimate from 'tailwindcss-animate';
 
+// Графитовая шкала «инк» — хром интерфейса (решение босса 07.08.2026:
+// дэш чёрный, не синий). Данные-цвета (budget.*, статусы, серии графиков)
+// остаются цветными — это семантика данных, не хром.
+const ink = {
+  50: '#f7f7f8',
+  100: '#ececee',
+  200: '#d9d9de',
+  300: '#b8b8c0',
+  400: '#8e8e98',
+  500: '#62626c',
+  600: '#45454e',
+  700: '#303036',
+  800: '#1e1e23',
+  900: '#121215',
+  950: '#09090a',
+};
+
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
-        },
+        brand: ink,
+        // Переопределение стандартных «синих» палитр Tailwind: все
+        // blue-* / sky-* / indigo-* классы по всему коду рендерятся графитом.
+        blue: ink,
+        sky: ink,
+        indigo: ink,
         // Budget semantic colors
         budget: {
-          fb: '#3b82f6',   // ФБ — blue
+          fb: '#3b82f6',   // ФБ — blue (семантика данных, не хром)
           kb: '#10b981',   // КБ — emerald
           mb: '#f59e0b',   // МБ — amber
         },
@@ -31,7 +42,7 @@ export default {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
       boxShadow: {
-        'glow-blue': '0 0 20px rgba(59, 130, 246, 0.15)',
+        'glow-blue': '0 0 20px rgba(212, 212, 216, 0.12)',
         'glow-emerald': '0 0 20px rgba(16, 185, 129, 0.15)',
         'glow-red': '0 0 20px rgba(239, 68, 68, 0.15)',
         'card': '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)',
