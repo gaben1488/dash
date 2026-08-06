@@ -261,7 +261,14 @@ function noYearRowsOf(rows: RawRow[]): GrbsReportBlock['noYearRows'] {
   return count > 0 ? { count, total } : undefined;
 }
 
-/** Адреса ячеек листа, из которых взят официальный срез — провенанс числа. */
+/**
+ * Адреса ячеек листа, из которых взят официальный срез — провенанс числа.
+ *
+ * Д15: блоки способов независимы — у скоупа на листе может быть только КП
+ * (или только ЕП). Прежнее правило «нет обоих — нет ничего» стирало
+ * провенанс и существующей половины; теперь каждая половина несёт свои
+ * ячейки сама, отсутствующая — честно пуста.
+ */
 function svodCellRefs(
   grid: SvodGridBlock[],
   scope: string,
@@ -272,13 +279,12 @@ function svodCellRefs(
     grid
       .find((b) => b.scope === scope && b.method === method)
       ?.periods.find((p) => p.quarter === quarter && p.year === year)?.row;
-  const kpRow = rowOf('КП');
-  const epRow = rowOf('ЕП');
-  if (kpRow === undefined || epRow === undefined) return undefined;
-  return {
-    kp: { plan: svodCellRef(kpRow, 'planCount'), fact: svodCellRef(kpRow, 'factCount') },
-    ep: { plan: svodCellRef(epRow, 'planCount'), fact: svodCellRef(epRow, 'factCount') },
-  };
+  const cellsOf = (row: number | undefined) =>
+    row === undefined ? undefined : { plan: svodCellRef(row, 'planCount'), fact: svodCellRef(row, 'factCount') };
+  const kp = cellsOf(rowOf('КП'));
+  const ep = cellsOf(rowOf('ЕП'));
+  if (!kp && !ep) return undefined;
+  return { ...(kp ? { kp } : {}), ...(ep ? { ep } : {}) };
 }
 
 /**

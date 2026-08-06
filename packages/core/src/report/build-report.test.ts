@@ -281,8 +281,10 @@ describe('buildReport — интегральная сводка и кросс-ф
     // нет ранних кварталов: арифметика «старт + индекс» дала бы чужую ячейку.
     block.startRow = 250;
     const report = buildReport({ rowsByDept: fixtureRows(), svodGrid: [block] }, OPTS);
-    expect(report.grbsBlocks.find((b) => b.dept === 'УЭР')!.quarter.svodCells).toBeUndefined();
-    // ЕП-блока нет → адресов нет вовсе: провенанс либо полный, либо его нет.
+    // Ячейки — из строки периода (257), не из startRow (250). ЕП-блока на
+    // листе нет — его половина честно отсутствует, КП свою не теряет (Д15).
+    expect(report.grbsBlocks.find((b) => b.dept === 'УЭР')!.quarter.svodCells)
+      .toEqual({ kp: { plan: 'D257', fact: 'E257' } });
   });
 
   it('без листа СВОД провенанса нет — и это не молчаливый ноль', () => {
@@ -320,6 +322,17 @@ describe('buildReport — двухисточниковость (origin calc | sv
     // Интегральный официал — scope «ВСЕ».
     expect(report.integralSummary.svodQuarter!.kp.planCount).toBe(41);
     expect(report.integralSummary.svodQuarter!.kp.origin).toBe('svod');
+  });
+
+  it('Д15: односторонний блок листа — провенанс существующей половины не стирается', () => {
+    // На листе у УЭР только КП-блок (ЕП-блока нет вовсе).
+    const report = buildReport({ rowsByDept: fixtureRows(), svodGrid: [svodBlock('УЭР', 'КП', 11, 4, 257)] }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    // Счётчики: КП из листа, ЕП — честные нули.
+    expect(uer.quarter.svod!.kp.planCount).toBe(11);
+    expect(uer.quarter.svod!.ep.planCount).toBe(0);
+    // Ячейки: КП с адресами той самой строки, ЕП отсутствует (не выдуман).
+    expect(uer.quarter.svodCells).toEqual({ kp: { plan: 'D257', fact: 'E257' } });
   });
 
   it('без svodGrid: svod-срезы отсутствуют, в notes — честная плашка', () => {

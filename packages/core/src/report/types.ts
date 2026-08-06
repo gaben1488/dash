@@ -135,8 +135,9 @@ export interface GrbsQuarterSlice {
    * самую ячейку в живой книге. Есть ровно тогда, когда есть svod.
    */
   svodCells?: {
-    kp: { plan: string; fact: string };
-    ep: { plan: string; fact: string };
+    /** Половина способа отсутствует, если её блока нет на листе (Д15). */
+    kp?: { plan: string; fact: string };
+    ep?: { plan: string; fact: string };
   };
   /**
    * ТОТ ЖЕ расчёт без гейта среза — «как в СВОДе, на сейчас».

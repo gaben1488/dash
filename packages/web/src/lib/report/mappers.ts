@@ -466,13 +466,15 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
   // Сверка идёт по q.live — расчёту БЕЗ гейта среза: формулы СВОДа дату факта
   // не сравнивают ни с чем и всегда считают «на сейчас». Сравнение отчётных
   // чисел (на срез) с живым официалом давало мнимые расхождения (УО +12, УЭР +1).
+  // Ячейки способа опциональны (Д15): у скоупа на листе может быть один блок —
+  // существующая половина сверки сохраняет провенанс, отсутствующая без ячейки.
   const cells = q.svodCells;
   const countPairs: SvodPairVM[] = q.svod
     ? [
-        { metricKey: 'competitive_count', calc: q.live.kp.planCount, svod: q.svod.kp.planCount, ...(cells ? { svodCell: cells.kp.plan } : {}) },
-        { metricKey: 'comp_fact_count', calc: q.live.kp.doneCount, svod: q.svod.kp.doneCount, ...(cells ? { svodCell: cells.kp.fact } : {}) },
-        { metricKey: 'ep_count', calc: q.live.ep.planCount, svod: q.svod.ep.planCount, ...(cells ? { svodCell: cells.ep.plan } : {}) },
-        { metricKey: 'ep_fact_count', calc: q.live.ep.doneCount, svod: q.svod.ep.doneCount, ...(cells ? { svodCell: cells.ep.fact } : {}) },
+        { metricKey: 'competitive_count', calc: q.live.kp.planCount, svod: q.svod.kp.planCount, ...(cells?.kp ? { svodCell: cells.kp.plan } : {}) },
+        { metricKey: 'comp_fact_count', calc: q.live.kp.doneCount, svod: q.svod.kp.doneCount, ...(cells?.kp ? { svodCell: cells.kp.fact } : {}) },
+        { metricKey: 'ep_count', calc: q.live.ep.planCount, svod: q.svod.ep.planCount, ...(cells?.ep ? { svodCell: cells.ep.plan } : {}) },
+        { metricKey: 'ep_fact_count', calc: q.live.ep.doneCount, svod: q.svod.ep.doneCount, ...(cells?.ep ? { svodCell: cells.ep.fact } : {}) },
       ]
     : [];
   // Деньги плана-года: расчёт против строки «ИТОГО 2026:» листа. Именно здесь
