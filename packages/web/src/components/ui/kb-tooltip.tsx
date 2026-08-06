@@ -4,8 +4,10 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { cn } from '@/lib/utils';
 import {
   Info, ChevronDown, BookOpen, Scale, Lightbulb, AlertTriangle,
-  ArrowRight, Link2, Cpu, Database, BarChart3,
+  ArrowRight, Link2, Cpu, Database, BarChart3, ExternalLink,
 } from 'lucide-react';
+import { officialProvenanceFor, type ProvenanceSource } from '../../lib/provenance-registry';
+import { useStore } from '../../store';
 
 // ────────────────────────────────────────────────────────────────
 // KBTooltip — 10-блочный KB на литературном русском
@@ -266,6 +268,54 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
   );
 }
 
+// ── Живой провенанс: официальные строки СВОДа за текущий период (Д11) ──
+function ProvenanceBlock({ sources }: { sources: ProvenanceSource[] }) {
+  const readAt = sources.find((s) => s.readAt)?.readAt;
+  const readLabel = readAt
+    ? new Date(readAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null;
+  return (
+    <div className="mt-2 pt-2 border-t border-white/[0.06]">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Database size={8} className="text-emerald-400/80 shrink-0" />
+        <span className="text-[9px] font-semibold text-emerald-300/90 uppercase tracking-wider">
+          Первичка сейчас
+        </span>
+        {readLabel && (
+          <span className="text-[8px] text-zinc-500 ml-auto" title="Когда сервер прочитал эти ячейки">
+            прочитано {readLabel}
+          </span>
+        )}
+      </div>
+      <div className="space-y-1">
+        {sources.map((s) => (
+          <div key={`${s.sheet}!${s.cell}-${s.label}`} className="flex items-start gap-1.5 text-[10px] leading-snug">
+            <span className="text-zinc-400 shrink-0">{s.label}:</span>
+            {s.url ? (
+              <a
+                href={s.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="font-mono text-blue-300 hover:text-blue-200 underline underline-offset-2 decoration-blue-400/40 inline-flex items-center gap-0.5"
+                title={s.formula ? `Формула листа: ${s.formula}` : 'Открыть ячейку в книге'}
+              >
+                {s.sheet}!{s.cell}
+                <ExternalLink size={7} className="shrink-0 opacity-60" />
+              </a>
+            ) : (
+              <span className="font-mono text-zinc-200" title={s.formula ? `Формула листа: ${s.formula}` : undefined}>
+                {s.sheet}!{s.cell}
+              </span>
+            )}
+            {s.display != null && <span className="text-zinc-300 tabular-nums">= {s.display}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════
 // Main: uses Radix Tooltip (hover-based, auto-closes on mouse leave)
 // ════════════════════════════════════════════════════════════════
@@ -278,6 +328,9 @@ export function KBTooltip({
   children, side = 'top', showIcon = false, className,
 }: KBTooltipProps) {
   const registryEntry = getKB(metric);
+  // Живой провенанс за выбранный период — официальные ячейки СВОДа (Д11).
+  const period = useStore((s) => s.period);
+  const provenance = metric ? officialProvenanceFor(metric, period) : [];
   const entry: KBEntry = {
     formula: formula ?? registryEntry?.formula,
     source: source ?? registryEntry?.source,
@@ -297,7 +350,8 @@ export function KBTooltip({
     related: related ?? registryEntry?.related,
   };
 
-  const hasContent = Object.values(entry).some(v => Array.isArray(v) ? v.length > 0 : Boolean(v));
+  const hasContent = Object.values(entry).some(v => Array.isArray(v) ? v.length > 0 : Boolean(v))
+    || provenance.length > 0;
   if (!hasContent) return <>{children}</>;
 
   return (
@@ -334,6 +388,7 @@ export function KBTooltip({
             </div>
           )}
           <FullKBContent entry={entry} />
+          {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
           <TooltipPrimitive.Arrow className="fill-zinc-900/95" />
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>

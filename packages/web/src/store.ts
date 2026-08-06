@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type DashboardData } from '@aemr/shared';
 import { api } from './api';
 import { mergeSubordinates } from './lib/subordinates';
+import { setOfficialProvenance } from './lib/provenance-registry';
 import { toCanonicalDeptId } from './lib/dept-key';
 
 /** СВОД — 6 страниц + legacy aliases */
@@ -725,6 +726,12 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const year = get().year;
       const data = await api.getDashboard(force, year);
+      // Живой провенанс официальных метрик — попапам БЗ (Д11): лист, ячейка,
+      // формула, время чтения каждой официальной строки СВОДа.
+      setOfficialProvenance(
+        (data as any).snapshot?.officialMetrics,
+        (data as any).snapshot?.spreadsheetId,
+      );
       set({
         dashboardData: data,
         dataYear: data.year ?? new Date().getFullYear(),
@@ -748,6 +755,10 @@ export const useStore = create<AppState>((set, get) => ({
       const year = get().year;
       const result = await api.refresh();
       const data = await api.getDashboard(false, year);
+      setOfficialProvenance(
+        (data as any).snapshot?.officialMetrics,
+        (data as any).snapshot?.spreadsheetId,
+      );
       set({
         dashboardData: data,
         lastRefreshed: data.lastRefreshed,
