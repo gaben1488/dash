@@ -5,6 +5,10 @@
  * поэтому «сегодня четверг» = номер суток % 7 === 0. Календарь продукта —
  * Камчатка (UTC+12, DST нет): на UTC-сервере «четверг Камчатки» начинается
  * в среду 12:00 UTC — граница пояса покрыта тестами отдельно.
+ *
+ * Второй охраняемый инвариант (Д17): снимок недели не подписывает сегодняшней
+ * датой строки книг произвольной давности. Устаревший источник до вечера
+ * четверга откладывает срез, вечером — снимает с честным признаком.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -120,8 +124,114 @@ describe('collectSnapshotDays — дни существующих снимков
   }, 20000);
 });
 
+describe('productCalendarHour — час продуктового дня', () => {
+  it('UTC-полдень и вечер пересчитываются в часы Камчатки', async () => {
+    const { productCalendarHour } = await import('./weekly-snapshot-cron.js');
+
+    expect(productCalendarHour(new Date('2026-07-22T20:00:00Z'), 12)).toBe(8);
+    expect(productCalendarHour(new Date('2026-07-23T06:00:00Z'), 12)).toBe(18);
+    // Переход через полночь пояса: UTC-полдень — уже полночь следующего дня.
+    expect(productCalendarHour(new Date('2026-07-22T12:00:00Z'), 12)).toBe(0);
+  });
+});
+
+describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', () => {
+  const NOW = new Date('2026-07-22T20:00:00Z');
+
+  /** Запись чтения книги: сдвиг в часах назад от NOW. */
+  function read(hoursAgo: number, error?: string) {
+    return {
+      loadedAt: new Date(NOW.getTime() - hoursAgo * 3_600_000).toISOString(),
+      rowCount: 100,
+      sheetName: 'УЭР',
+      ...(error ? { error } : {}),
+    };
+  }
+
+  it('книги не читались ни разу → «неизвестно», возраст null (а не ноль)', async () => {
+    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
+
+    const f = assessSourceFreshness(NOW, {});
+    expect(f.status).toBe('unknown');
+    // Пустое множество чтений не даёт возраста: ноль здесь означал бы
+    // «прочитано только что» — ровно та ложь, против которой гейт.
+    expect(f.ageHours).toBeNull();
+    expect(f.readAt).toBeNull();
+  });
+
+  it('все книги прочитаны час назад → свежо', async () => {
+    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
+
+    const f = assessSourceFreshness(NOW, { 'УЭР': read(1), 'УО': read(2) });
+    expect(f.status).toBe('fresh');
+    expect(f.readDepts).toBe(2);
+    expect(f.failedDepts).toEqual([]);
+    // Возраст — по самой отставшей книге, а не по последней.
+    expect(f.ageHours).toBeCloseTo(2, 5);
+  });
+
+  it('одна книга отстала на 40 часов → устарело, возраст считается по ней', async () => {
+    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
+
+    const f = assessSourceFreshness(NOW, { 'УЭР': read(1), 'УКСиМП': read(40) });
+    expect(f.status).toBe('stale');
+    expect(f.ageHours).toBeCloseTo(40, 5);
+    expect(f.readAt).toBe(read(40).loadedAt);
+  });
+
+  it('книга с ошибкой загрузки → устарело, даже когда остальные свежие', async () => {
+    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
+
+    const f = assessSourceFreshness(NOW, { 'УЭР': read(1), 'УКСиМП': read(1, 'IMPORTRANGE #REF!') });
+    expect(f.status).toBe('stale');
+    expect(f.failedDepts).toEqual(['УКСиМП']);
+    expect(f.readDepts).toBe(1);
+  });
+
+  it('нечитаемая отметка времени за чтение не считается', async () => {
+    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
+
+    const f = assessSourceFreshness(NOW, {
+      'УЭР': { loadedAt: 'позавчера', rowCount: 100, sheetName: 'УЭР' },
+    });
+    expect(f.status).toBe('unknown');
+    expect(f.failedDepts).toEqual(['УЭР']);
+  });
+
+  it('описание свежести называет числа: сколько книг, когда и насколько отстают', async () => {
+    const { assessSourceFreshness, describeSourceFreshness } = await import('./weekly-snapshot-cron.js');
+
+    const text = describeSourceFreshness(assessSourceFreshness(NOW, { 'УЭР': read(40.5) }));
+    expect(text).toContain('40,5 ч назад');
+    expect(text).toContain(read(40.5).loadedAt);
+  });
+});
+
 describe('tickWeeklySnapshot — тик планировщика', () => {
   const kamchatkaThursdayMorning = new Date('2026-07-22T20:00:00Z'); // четверг 08:00 Камчатки
+  const kamchatkaThursdayEvening = new Date('2026-07-23T06:00:00Z'); // четверг 18:00 Камчатки
+
+  /** Свежий источник по умолчанию: книги прочитаны за час до тика. */
+  function freshMeta(now: Date) {
+    return {
+      'УЭР': {
+        loadedAt: new Date(now.getTime() - 3_600_000).toISOString(),
+        rowCount: 100,
+        sheetName: 'УЭР',
+      },
+    };
+  }
+
+  /** Устаревший источник: книги прочитаны три недели назад (типичный прод). */
+  function staleMeta(now: Date) {
+    return {
+      'УЭР': {
+        loadedAt: new Date(now.getTime() - 21 * 24 * 3_600_000).toISOString(),
+        rowCount: 100,
+        sheetName: 'УЭР',
+      },
+    };
+  }
 
   function makeDeps(overrides: Record<string, unknown> = {}) {
     return {
@@ -129,6 +239,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
       utcOffsetHours: 12,
       listSnapshotDays: vi.fn(() => [] as number[]),
       refresh: vi.fn(async () => ({ id: 'snap-fresh' })),
+      sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayMorning)),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       ...overrides,
     };
@@ -166,5 +277,61 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
     expect(deps.log.error).toHaveBeenCalled();
+  });
+
+  it('утро четверга, книги трёхнедельной давности: снимок отложен, refresh не дёргается (Д17)', async () => {
+    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
+    const deps = makeDeps({ sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayMorning)) });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('deferred');
+    // Главное: устаревшие строки НЕ уходят в архив недели молча.
+    expect(deps.refresh).not.toHaveBeenCalled();
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('отложен'));
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('504,0 ч назад'));
+  });
+
+  it('книги не читались ни разу: тоже отложить, свежесть неизвестна', async () => {
+    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
+    const deps = makeDeps({ sourceMeta: vi.fn(() => ({})) });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('deferred');
+    expect(deps.refresh).not.toHaveBeenCalled();
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('свежесть источника неизвестна'));
+  });
+
+  it('вечер четверга, источник так и не обновился: снимок снят с честным признаком', async () => {
+    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
+    const deps = makeDeps({
+      now: () => kamchatkaThursdayEvening,
+      sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)),
+    });
+
+    // Неделю терять нельзя — срез снимается, но признак отличается от 'taken'.
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('taken-stale');
+    expect(deps.refresh).toHaveBeenCalledTimes(1);
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('ПО УСТАРЕВШЕМУ ИСТОЧНИКУ'));
+    expect(deps.log.info).not.toHaveBeenCalled();
+  });
+
+  it('вечер четверга, источник свежий: обычное снятие', async () => {
+    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
+    const deps = makeDeps({
+      now: () => kamchatkaThursdayEvening,
+      sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayEvening)),
+    });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('taken');
+    expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining('Источник свеж'));
+  });
+
+  it('вечер четверга, устаревший источник и демо-фолбэк: снимка нет, признак не «снят»', async () => {
+    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
+    const deps = makeDeps({
+      now: () => kamchatkaThursdayEvening,
+      sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)),
+      refresh: vi.fn(async () => ({ id: 'demo-123' })),
+    });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
   });
 });

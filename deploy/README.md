@@ -26,6 +26,8 @@ GOOGLE_SHEETS_SPREADSHEET_ID=<spreadsheet-id>
 GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email>
 GOOGLE_PRIVATE_KEY=<private-key-with-\n-or-real-newlines>
 DOMAIN=:80
+BASIC_AUTH_USER=aemr
+BASIC_AUTH_HASH=<bcrypt-hash-with-doubled-dollar-signs>
 ```
 
 `AEMR_API_KEY` обязателен в production. Сгенерировать:
@@ -33,6 +35,15 @@ DOMAIN=:80
 ```bash
 openssl rand -base64 32
 ```
+
+`BASIC_AUTH_HASH` — bcrypt-хэш пароля периметра:
+
+```bash
+docker run --rm -it caddy:2.10-alpine caddy hash-password
+```
+
+Каждый `$` в хэше удваивается до `$$`: docker compose подставляет переменные и
+иначе съедает часть хэша — правильный пароль начинает давать 401.
 
 ## Запуск
 
@@ -67,6 +78,70 @@ Health endpoint публичный и должен вернуть JSON вида:
 ```bash
 curl -H "Authorization: Bearer $AEMR_API_KEY" http://127.0.0.1/api/dashboard
 ```
+
+## Домен и TLS
+
+Пока `DOMAIN=:80`, стенд работает по открытому HTTP: пароль периметра идёт по
+сети текстом, и перехватить его может любой на пути. Рабочий режим — домен.
+
+Порядок перехода.
+
+1. **DNS.** A-запись домена (например `aemr.example.ru`) указывает на IP этого
+   сервера. Дождаться, пока запись разойдётся: `nslookup aemr.example.ru`
+   должен отдавать нужный IP с чужой машины, а не только локально.
+2. **Порты.** Наружу открыты 80 и 443. Порт 80 закрывать нельзя, даже когда
+   заработает HTTPS: по нему идёт ACME-проверка Let's Encrypt при каждом
+   продлении сертификата.
+3. **`.env.production`.** Заменить строку режима:
+
+   ```env
+   DOMAIN=aemr.example.ru
+   ```
+
+4. **Перезапуск.** Из каталога `deploy/`:
+
+   ```bash
+   docker compose --env-file .env.production up -d
+   ```
+
+   Пересборка образов не нужна — меняется только конфигурация Caddy.
+
+Если нужен и `www`, в переменную кладутся оба имени через запятую:
+`DOMAIN=example.ru, www.example.ru` — Caddy выпустит сертификат на каждое.
+
+Больше ничего настраивать не надо: авто-HTTPS включается от того, что адрес
+сайта стал именем. Caddy сам получает сертификат, сам продлевает его и сам
+поднимает редирект с HTTP на HTTPS. Сертификаты лежат в томе `caddy_data` и
+переживают пересборку — том удалять нельзя, иначе повторные выпуски упрутся в
+лимиты Let's Encrypt.
+
+Проверка после перезапуска:
+
+```bash
+docker compose --env-file .env.production logs caddy | grep -i "certificate obtained"
+curl -I http://aemr.example.ru/api/health          # ожидается 308 на https
+curl -sI https://aemr.example.ru/api/health | head -n 12
+```
+
+В ответе по HTTPS обязаны присутствовать три заголовка:
+`Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer`. По HTTP первого из них нет и быть не должно —
+браузер игнорирует HSTS, полученный по незащищённому соединению.
+
+Синтаксис конфигурации можно проверить до перезапуска:
+
+```bash
+docker compose --env-file .env.production exec caddy \
+  caddy validate --config /etc/caddy/Caddyfile
+```
+
+Если сертификат не выпускается, смотреть в этом порядке: домен резолвится не в
+этот IP; порт 80 закрыт файрволом или занят другим процессом; домен упёрся в
+недельный лимит Let's Encrypt (в логе Caddy — `too many certificates`).
+
+Возврат к режиму без TLS — обратная замена `DOMAIN=:80` и тот же перезапуск.
+Но браузеры, уже получившие HSTS, год будут ходить только по HTTPS: откат
+после боевого запуска пользователям бесплатно не даётся.
 
 ## Обновление
 

@@ -54,6 +54,54 @@ Required production variables:
 - `GOOGLE_PRIVATE_KEY`
 - `SQLITE_PATH=/app/packages/server/data/aemr.db`
 
+## Домен и TLS
+
+Режим периметра задаёт одна переменная `DOMAIN` в `deploy/.env.production`.
+`:80` — открытый HTTP, пароль периметра идёт по сети текстом (только отладка).
+Имя домена — рабочий режим: Caddy сам выпускает сертификат Let's Encrypt, сам
+продлевает его и сам поднимает редирект с HTTP на HTTPS.
+
+Что сделать для перехода:
+
+1. A-запись домена → IP сервера; порты 80 и 443 открыты наружу (80 нужен
+   ACME-проверке и при каждом продлении, закрывать его нельзя).
+2. В `deploy/.env.production` заменить `DOMAIN=:80` на `DOMAIN=aemr.example.ru`.
+3. `docker compose --env-file .env.production up -d` из каталога `deploy/`
+   (пересборка образов не нужна).
+
+Проверка:
+
+```bash
+docker compose --env-file .env.production exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose --env-file .env.production logs caddy | grep -i "certificate obtained"
+curl -I http://aemr.example.ru/api/health            # 308 → https
+curl -sI https://aemr.example.ru/api/health | head -n 12
+```
+
+По HTTPS в ответе обязаны быть `Strict-Transport-Security: max-age=31536000`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`. По HTTP
+первого нет намеренно: HSTS по незащищённому соединению браузер игнорирует.
+
+Сертификаты живут в томе `caddy_data` — удалять том нельзя, повторные выпуски
+упрутся в недельный лимит Let's Encrypt. Подробный разбор отказов выпуска —
+`deploy/README.md`, раздел «Домен и TLS».
+
+## Снимок недели: предупреждение об устаревшем источнике
+
+Четверговый cron архивирует недельный срез из кэша книг ГРБС, а кэш наполняется
+только стартовым preload и `POST /api/refresh`. Поэтому снимок проверяет, когда
+книги читались на самом деле, и в лог сервера пишет одно из двух:
+
+- `Еженедельный снимок четверга отложен` — источник устарел, но день ещё не
+  кончился. Лечение: `POST /api/refresh` (или открыть Пульт и нажать обновление)
+  — следующий тик, раз в час, снимет снимок уже по свежим книгам.
+- `снят ПО УСТАРЕВШЕМУ ИСТОЧНИКУ` — наступил вечер четверга, неделю терять
+  нельзя, снимок снят с честной пометкой. Числа этой недели читать как состояние
+  книг на дату снимка нельзя: в сообщении указано, на сколько часов отстаёт
+  самая старая книга.
+
+Обе строки видно в `docker compose --env-file .env.production logs server`.
+
 ## Health Check
 
 ```bash
