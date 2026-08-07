@@ -6,15 +6,7 @@
  * «снимать ли снимок») и retention снимков (группировка по дням/неделям).
  */
 
-const MS_PER_HOUR = 3_600_000;
-const MS_PER_DAY = 86_400_000;
-
-/**
- * Календарный день продукта (номер суток от 1970-01-01) для момента `instant`
- * при фиксированном смещении пояса. TZ машины не участвует: instant — абсолютный
- * момент, смещение — из конфига. Дополняет dayNumberOf из @aemr/shared, который
- * разбирает календарные ЗАПИСИ (строки/serial), а не абсолютные моменты.
- */
-export function productCalendarDay(instant: Date, utcOffsetHours: number): number {
-  return Math.floor((instant.getTime() + utcOffsetHours * MS_PER_HOUR) / MS_PER_DAY);
-}
+// Канонический дом конверсии переехал в @aemr/shared/time-selection
+// (Фаза 1 оси времени): клиент и сервер обязаны считать четверг недели
+// одинаково. Здесь — реэкспорт для существующих импортёров (cron, retention).
+export { productCalendarDay } from '@aemr/shared';
