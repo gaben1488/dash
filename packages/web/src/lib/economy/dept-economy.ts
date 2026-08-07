@@ -23,9 +23,13 @@ export function deptKeyOf(s: DepartmentSummary): string {
   return s.department?.nameShort ?? s.department?.id ?? '?';
 }
 
-/** % экономии от плана; 0 при неположительном плане. */
-function pctOf(economy: number, plan: number): number {
-  return plan > 0 ? (economy / plan) * 100 : 0;
+/**
+ * Доля экономии от лимита, %. `null` при неположительном лимите — считать
+ * не от чего, и подставлять ноль нельзя: «0 %» читатель понимает как
+ * «экономии не было», а это другое утверждение.
+ */
+export function pctOf(economy: number, plan: number): number | null {
+  return plan > 0 ? (economy / plan) * 100 : null;
 }
 
 function readBudget(src: Record<string, unknown>): BudgetData {
@@ -92,9 +96,8 @@ export function buildDeptEconomy(input: BuildDeptEconomyInput): DeptEconomy[] {
       : numOr(q?.economyTotal, num(s.economyTotal));
     const pct = pctOf(economy, limit);
 
-    const subordinates = deptOnlyMode.has(deptKey)
-      ? []
-      : buildSubordinates(s.subordinates ?? [], budgets);
+    const deptOnly = deptOnlyMode.has(deptKey);
+    const subordinates = deptOnly ? [] : buildSubordinates(s.subordinates ?? [], budgets);
 
     return {
       dept: deptKey,
@@ -102,16 +105,22 @@ export function buildDeptEconomy(input: BuildDeptEconomyInput): DeptEconomy[] {
       limit, price, economy,
       economyOfficial: s.economyTotal ?? null,
       pct,
-      highEconomy: pct > HIGH_ECONOMY_PCT,
+      highEconomy: pct !== null && pct > HIGH_ECONOMY_PCT,
       conflicts: s.economyConflicts ?? s.signalCounts?.economyConflict ?? 0,
       budget,
       subordinates,
       realSubCount: subordinates.filter(sub => sub.name !== ORG_ITSELF).length,
+      deptOnly,
     };
   });
 }
 
-/** Стабильная сортировка строк ГРБС по колонке таблицы (не мутирует вход). */
+/**
+ * Стабильная сортировка строк ГРБС по колонке таблицы (не мутирует вход).
+ * Строки без доли (лимита нет) всегда уходят вниз в обоих направлениях:
+ * «нет плана» — это отсутствие величины, ему нечего делать ни в голове
+ * списка «самых больших», ни в голове списка «самых маленьких».
+ */
 export function sortDeptEconomy(rows: DeptEconomy[], field: SortField, dir: SortDir): DeptEconomy[] {
   const mul = dir === 'desc' ? -1 : 1;
   return [...rows].sort((a, b) => {
@@ -120,7 +129,12 @@ export function sortDeptEconomy(rows: DeptEconomy[], field: SortField, dir: Sort
       case 'limit': return mul * (a.limit - b.limit);
       case 'price': return mul * (a.price - b.price);
       case 'economy': return mul * (a.economy - b.economy);
-      case 'pct': return mul * (a.pct - b.pct);
+      case 'pct': {
+        if (a.pct === null && b.pct === null) return 0;
+        if (a.pct === null) return 1;
+        if (b.pct === null) return -1;
+        return mul * (a.pct - b.pct);
+      }
       case 'conflicts': return mul * (a.conflicts - b.conflicts);
       case 'subCount': return mul * (a.realSubCount - b.realSubCount);
     }
@@ -141,14 +155,30 @@ export interface EconomyTotals {
   economy: number;
   plan: number;
   fact: number;
-  /** Среднее арифметическое pct по ГРБС (не взвешенное). */
-  avgPct: number;
-  pctMin: number;
-  pctMax: number;
+  /**
+   * Доля экономии района: сумма экономии ÷ сумма лимитов × 100.
+   * Это ЕДИНСТВЕННОЕ число, которое можно назвать «доля экономии» без
+   * оговорок, — оно взвешено объёмом. `null`, когда суммарного лимита нет.
+   */
+  share: number | null;
+  /**
+   * Среднее арифметическое долей по управлениям — НЕ доля района.
+   * Управление с лимитом в тысячу и управление с лимитом в миллиард входят
+   * сюда с одинаковым весом, поэтому подписывать это «долей района» нельзя.
+   * `null`, когда ни у одного управления нет лимита.
+   */
+  avgPct: number | null;
+  /** Сколько управлений вообще имеют лимит (знаменатель avgPct). */
+  ratedCount: number;
+  /** Минимальная/максимальная доля среди управлений с лимитом; null — таких нет. */
+  pctMin: number | null;
+  pctMax: number | null;
   highCount: number;
   conflicts: number;
   /** Реальные подведы (без ORG_ITSELF). */
   subCount: number;
+  /** Управления в режиме «только само управление» — их подведы не сосчитаны. */
+  deptOnlyCount: number;
   fbEco: number;
   kbEco: number;
   mbEco: number;
@@ -156,30 +186,34 @@ export interface EconomyTotals {
 
 export function computeEconomyTotals(rows: DeptEconomy[]): EconomyTotals {
   const t: EconomyTotals = {
-    economy: 0, plan: 0, fact: 0, avgPct: 0,
-    pctMin: 0, pctMax: 0,
-    highCount: 0, conflicts: 0, subCount: 0,
+    economy: 0, plan: 0, fact: 0,
+    share: null, avgPct: null, ratedCount: 0,
+    pctMin: null, pctMax: null,
+    highCount: 0, conflicts: 0, subCount: 0, deptOnlyCount: 0,
     fbEco: 0, kbEco: 0, mbEco: 0,
   };
   if (rows.length === 0) return t;
   let pctSum = 0;
-  t.pctMin = Infinity;
-  t.pctMax = -Infinity;
   for (const d of rows) {
     t.economy += d.economy;
     t.plan += d.limit;
     t.fact += d.price;
-    pctSum += d.pct;
-    t.pctMin = Math.min(t.pctMin, d.pct);
-    t.pctMax = Math.max(t.pctMax, d.pct);
+    if (d.pct !== null) {
+      t.ratedCount += 1;
+      pctSum += d.pct;
+      t.pctMin = t.pctMin === null ? d.pct : Math.min(t.pctMin, d.pct);
+      t.pctMax = t.pctMax === null ? d.pct : Math.max(t.pctMax, d.pct);
+    }
     if (d.highEconomy) t.highCount += 1;
     t.conflicts += d.conflicts;
     t.subCount += d.realSubCount;
+    if (d.deptOnly) t.deptOnlyCount += 1;
     t.fbEco += d.budget.economyFB;
     t.kbEco += d.budget.economyKB;
     t.mbEco += d.budget.economyMB;
   }
-  t.avgPct = pctSum / rows.length;
+  t.share = pctOf(t.economy, t.plan);
+  t.avgPct = t.ratedCount > 0 ? pctSum / t.ratedCount : null;
   return t;
 }
 
@@ -191,7 +225,8 @@ export interface EconomyBarDatum {
   kb: number;
   mb: number;
   total: number;
-  pct: number;
+  /** Доля экономии от лимита, %; null — лимита нет (точка на линии пропускается). */
+  pct: number | null;
   /** Экономия самого управления (строка ORG_ITSELF). */
   ownEco: number;
   /** Суммарная экономия реальных подведов. */

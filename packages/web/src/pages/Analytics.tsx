@@ -578,7 +578,7 @@ export function Analytics() {
 
       {/* Row 1: Quarterly procurement trend + Execution trend line */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: КП vs ЕП'} icon={BarChart3} source="calculated">
+        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated">
           {quarterlyTrend.some(q => q.kp > 0 || q.ep > 0) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={quarterlyTrend} barCategoryGap="20%">
@@ -912,7 +912,7 @@ export function Analytics() {
       )}
 
       {/* Economy Scatter: Limit vs Fact */}
-      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — ${suspiciousCount} подозрительных закупок` : ''}` : 'Экономия: Лимит vs Факт по закупкам'} icon={TrendingUp} source="calculated">
+      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — ${suspiciousCount} подозрительных закупок` : ''}` : 'Экономия: лимит против факта по закупкам'} icon={TrendingUp} source="calculated">
         {scatterLoading ? (
           <div className="flex items-center justify-center py-12 text-sm text-zinc-500 animate-pulse">Загрузка...</div>
         ) : scatterData.length === 0 ? (

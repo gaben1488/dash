@@ -83,3 +83,52 @@ describe('computeDeltas', () => {
     expect(results).toHaveLength(0);
   });
 });
+
+/**
+ * Д21: сверка обязана знать периметр обеих сторон. Расчёт без года
+ * суммирует все годы книги, лист СВОД считает строго свой — вычитание
+ * таких величин выглядело измерением, но им не было.
+ */
+describe('computeDeltas — периметр сравнения', () => {
+  const entry = makeEntry('grbs.uer.ep.year.total_plan');
+  const official = new Map([[entry.metricKey, makeMetric(entry.metricKey, 3219.7)]]);
+  const calculated = new Map([[entry.metricKey, makeMetric(entry.metricKey, 8058.24)]]);
+
+  it('расчёт по всем годам против годового официала — дельта НЕ считается', () => {
+    const [r] = computeDeltas(official, calculated, [entry], { officialYear: 2026 });
+    expect(r.delta).toBeNull();
+    expect(r.deltaPercent).toBeNull();
+    // Это не расхождение данных: экран не должен краснеть там, где сверки не было.
+    expect(r.withinTolerance).toBe(true);
+    expect(r.explanation).toContain('по всем годам');
+    expect(r.explanation).toContain('2026');
+    // Обе величины остаются на месте — читатель видит, что именно несравнимо.
+    expect(r.officialValue).toBe(3219.7);
+    expect(r.calculatedValue).toBe(8058.24);
+  });
+
+  it('разные годы у сторон — тоже несравнимо, с обоими годами в объяснении', () => {
+    const [r] = computeDeltas(official, calculated, [entry], { calcYear: 2025, officialYear: 2026 });
+    expect(r.delta).toBeNull();
+    expect(r.explanation).toContain('2025');
+    expect(r.explanation).toContain('2026');
+  });
+
+  it('годы совпали — сверка идёт как раньше', () => {
+    const [r] = computeDeltas(official, calculated, [entry], { calcYear: 2026, officialYear: 2026 });
+    expect(r.delta).toBeCloseTo(4838.54);
+    expect(r.withinTolerance).toBe(false);
+  });
+
+  it('год официала неизвестен — прежнее поведение, сверка не блокируется', () => {
+    const [r] = computeDeltas(official, calculated, [entry], { calcYear: undefined });
+    expect(r.delta).toBeCloseTo(4838.54);
+  });
+
+  it('несравнимость не мешает видеть одностороннее отсутствие значения', () => {
+    const onlyOfficial = new Map([[entry.metricKey, makeMetric(entry.metricKey, 100)]]);
+    const [r] = computeDeltas(onlyOfficial, new Map(), [entry], { officialYear: 2026 });
+    expect(r.explanation).toBe('Пересчитанное значение отсутствует');
+    expect(r.withinTolerance).toBe(false);
+  });
+});

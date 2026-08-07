@@ -4,8 +4,8 @@ import { db, schema } from '../db/index.js';
 import { desc } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
 import { getSpreadsheetMetadata } from '../google-sheets.js';
-import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept } from '@aemr/shared';
-import { validateSource, validateAllSources } from '../services/source-validation.js';
+import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept, ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
+import { validateSource, validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
 
 /**
  * Маршруты журнала (аудит-лог).
@@ -16,21 +16,117 @@ import { validateSource, validateAllSources } from '../services/source-validatio
  * - Нормализация данных
  * - Создание/изменение замечаний
  * - Ошибки ввода
- * - Изменения маппинга
+ * - Изменения сопоставления ячеек
  */
 /**
- * Возвращает русскоязычную метку для типа действия аудит-лога.
+ * Запись журнала — единая форма для трёх источников (снимки, аудит-лог,
+ * история замечаний). Раньше собиралась в `any[]`, и опечатка в имени поля
+ * ушла бы в ответ молча.
  */
-function formatAuditAction(action: string | null, _entity: string | null): string {
+interface JournalEntry {
+  id: string;
+  /** Один из FILTERABLE_TYPES либо действие-писатель, не сведённое к ним. */
+  type: string;
+  timestamp: string;
+  /** Кто выполнил — человек или подпись автоматического писателя, по-русски. */
+  actor: string;
+  /** Что произошло — готовая фраза, не ключ. */
+  action: string;
+  details: string;
+  departmentId: string | null;
+  issueId?: string;
+}
+
+/**
+ * Типы событий, по которым журнал умеет фильтровать (контракт с чипами веба:
+ * web/src/lib/selectors/journal-display.ts JOURNAL_FILTERABLE_TYPES).
+ */
+const FILTERABLE_TYPES = [
+  'import', 'edit', 'issue_create', 'issue_status',
+  'normalize', 'input_error', 'mapping_change',
+] as const;
+
+/**
+ * Действие в аудит-логе → тип события журнала.
+ *
+ * Писатели кладут в таблицу свои имена действий («cell_edit», «batch_cell_edit»,
+ * «issue_comment»), а фильтр и счётчики журнала знают только семь канонических
+ * типов. Из-за этого чип «Правка данных» не находил ни одной правки ячейки, а
+ * счётчик edit всегда показывал ноль — фильтр притворялся работающим.
+ * Здесь единственное место приведения; неизвестное действие остаётся собой,
+ * чтобы запись не потерялась и не притворилась чужим типом.
+ */
+const ACTION_TO_TYPE: Readonly<Record<string, string>> = {
+  cell_edit: 'edit',
+  batch_cell_edit: 'edit',
+};
+
+/**
+ * Форма существительного при числе. Подписи журнала уходят в интерфейс как
+ * есть, а «1 дней» / «22 замечаний» читается как сбой продукта, а не как факт.
+ */
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const tail100 = Math.abs(n) % 100;
+  const tail10 = Math.abs(n) % 10;
+  if (tail100 >= 11 && tail100 <= 14) return many;
+  if (tail10 === 1) return one;
+  if (tail10 >= 2 && tail10 <= 4) return few;
+  return many;
+}
+
+const dayWord = (n: number) => pluralRu(n, 'день', 'дня', 'дней');
+const issueWord = (n: number) => pluralRu(n, 'замечание', 'замечания', 'замечаний');
+
+/**
+ * Статус замечания — фразой продукта (@aemr/shared), а не внутренним ключом.
+ * Подписи не изобретаются локально: одно и то же решение обязано называться
+ * одинаково в журнале, в карточке замечания и в выгрузке.
+ */
+function statusLabel(status: string | null): string {
+  if (!status) return 'не указан';
+  return ISSUE_STATUS_LABELS[status] ?? productLabel(status);
+}
+
+/**
+ * Отказ проверки источника — человеческой фразой.
+ *
+ * Читатель книги (services/source-validation) кладёт в `error` техническую
+ * строку Google API («Unable to parse range…», «The caller does not have
+ * permission»). Заголовок отказа обязан говорить, что делать; исходная строка
+ * остаётся подсказкой в `details`, а не подписью состояния.
+ */
+function humanizeValidationFailure(result: SourceValidationResult): SourceValidationResult & { details?: string } {
+  return {
+    ...result,
+    error: `Книга «${result.name}» не проверена — её не удалось прочитать. Проверьте доступ учётной записи сервиса к таблице и повторите`,
+    details: result.error,
+  };
+}
+
+/** Колонка action объявлена NOT NULL (db/schema.ts) — ветки «нет действия» не бывает. */
+function auditEntryType(action: string): string {
+  return ACTION_TO_TYPE[action] ?? action;
+}
+
+/**
+ * Возвращает русскоязычную метку для типа действия аудит-лога.
+ * Ключи-действия, которые действительно пишутся в таблицу (cell_edit,
+ * batch_cell_edit, issue_comment, mapping_change), названы явно: раньше они
+ * проваливались в default и уходили пользователю сырым ключом.
+ */
+function formatAuditAction(action: string): string {
   switch (action) {
-    case 'import':        return 'Импорт данных';
-    case 'edit':          return 'Правка данных';
-    case 'issue_create':  return 'Создание замечания';
-    case 'issue_status':  return 'Изменение статуса';
-    case 'normalize':     return 'Нормализация';
-    case 'input_error':   return 'Ошибка ввода';
-    case 'mapping_change': return 'Изменение маппинга';
-    default:              return action ?? 'Действие';
+    case 'import':           return 'Импорт данных';
+    case 'edit':             return 'Правка данных';
+    case 'cell_edit':        return 'Правка ячейки';
+    case 'batch_cell_edit':  return 'Правка ячейки (пакетное сохранение)';
+    case 'issue_create':     return 'Создание замечания';
+    case 'issue_status':     return 'Изменение статуса';
+    case 'issue_comment':    return 'Комментарий к замечанию';
+    case 'normalize':        return 'Нормализация';
+    case 'input_error':      return 'Ошибка ввода';
+    case 'mapping_change':   return 'Изменение сопоставления ячеек';
+    default:                 return 'Действие в системе';
   }
 }
 
@@ -41,7 +137,9 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
    * Получить записи журнала с фильтрами.
    *
    * Query params:
-   *   - action: 'import' | 'edit' | 'issue_create' | 'issue_status' | 'normalize' | 'input_error' | 'mapping_change'
+   *   - action: тип события — один из FILTERABLE_TYPES (см. константу выше).
+   *     Параметр `entity` в контракте не значится и никогда не применялся:
+   *     обещать фильтр, которого нет, хуже, чем не обещать ничего.
    *   - deptId: string — фильтр по отделу (CSV, обе формы ключа ГРБС)
    *   - from: string — ISO date (начало периода)
    *   - to: string — ISO date (конец периода)
@@ -55,7 +153,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     const limit = Math.min(200, Math.max(1, parseInt(query.limit || '50', 10)));
 
     // Собираем записи из всех источников
-    let entries: any[] = [];
+    let entries: JournalEntry[] = [];
 
     // 1. Снапшоты (fallback — всегда доступны)
     try {
@@ -77,9 +175,17 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
           id: `J-snap-${snap.id.slice(0, 8)}`,
           type: 'import',
           timestamp: snap.createdAt,
-          actor: 'Pipeline',
+          // Подпись автоматического писателя — по-русски у источника, а не
+          // переводом на стороне веба: журнал читают и в выгрузке, и в API.
+          actor: 'Обновление данных',
           action: 'Импорт данных',
-          details: `Прочитано ${snap.rowCount ?? '?'} строк. ${snap.issueCount ?? 0} замечаний (${snap.criticalIssueCount ?? 0} критич.). Обработка: ${snap.pipelineDurationMs ?? '?'} мс.`,
+          // Неизвестное число раньше подставлялось знаком «?» — читатель не мог
+          // отличить «ноль строк» от «счётчик не записан». Теперь причина названа.
+          details: [
+            snap.rowCount != null ? `Прочитано ${snap.rowCount} строк` : 'Число строк в снимке не записано',
+            `${snap.issueCount ?? 0} ${issueWord(snap.issueCount ?? 0)}, из них критических ${snap.criticalIssueCount ?? 0}`,
+            snap.pipelineDurationMs != null ? `Обработка: ${snap.pipelineDurationMs} мс` : null,
+          ].filter(Boolean).join('. ') + '.',
           departmentId: null,
         });
         if ((snap.issueCount ?? 0) > 0) {
@@ -87,8 +193,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
             id: `J-iss-${snap.id.slice(0, 8)}`,
             type: 'issue_create',
             timestamp: snap.createdAt,
-            actor: 'Валидатор',
-            action: `Обнаружено ${snap.issueCount} замечаний`,
+            actor: 'Проверка данных',
+            action: `Обнаружено ${snap.issueCount} ${issueWord(snap.issueCount ?? 0)}`,
             details: `Из них критических: ${snap.criticalIssueCount ?? 0}`,
             departmentId: null,
           });
@@ -108,10 +214,10 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       for (const entry of auditEntries) {
         entries.push({
           id: `J-audit-${entry.id}`,
-          type: entry.action ?? 'edit',
+          type: auditEntryType(entry.action),
           timestamp: entry.timestamp,
           actor: entry.userId ?? 'Система',
-          action: formatAuditAction(entry.action, entry.entity),
+          action: formatAuditAction(entry.action),
           details: entry.details ?? `${entry.oldValue ?? ''} → ${entry.newValue ?? ''}`,
           departmentId: entry.departmentId ?? null,
         });
@@ -132,7 +238,10 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
           timestamp: entry.timestamp,
           actor: entry.userId ?? 'Система',
           action: 'Изменение статуса',
-          details: `${entry.fromStatus} → ${entry.toStatus}${entry.comment ? ': ' + entry.comment : ''}`,
+          // Переход писался сырыми ключами («open → wont_fix»); веб был вынужден
+          // разбирать строку и подменять ключи словарём. Подставляем фразы
+          // продукта здесь — у источника, чтобы журнал читался и в выгрузке.
+          details: `${statusLabel(entry.fromStatus)} → ${statusLabel(entry.toStatus)}${entry.comment ? ': ' + entry.comment : ''}`,
           departmentId: null,
           issueId: entry.issueId,
         });
@@ -147,9 +256,6 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     });
 
     // Apply filters.
-    // Параметр entity документировался, но никогда не применялся (пирамида
-    // §6, п.15): из описания убран — обещать фильтр, которого нет, хуже,
-    // чем не обещать ничего. Понадобится — вводить вместе с фильтрацией.
     if (query.action) entries = entries.filter(e => e.type === query.action);
     if (query.deptId) {
       // CSV + обе формы ключа ГРБС (кириллица/латиница) — Б6: точное равенство
@@ -176,21 +282,19 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     const totalPages = Math.ceil(total / limit);
     const paged = entries.slice((page - 1) * limit, page * limit);
 
+    // Счётчики: семь фильтруемых типов присутствуют всегда (чип с нулём честнее
+    // исчезнувшего чипа), плюс фактически встреченные типы — ни одна запись не
+    // выпадает из подсчёта молча.
+    const byAction: Record<string, number> = Object.fromEntries(FILTERABLE_TYPES.map(t => [t, 0]));
+    for (const entry of entries) {
+      const type = String(entry.type ?? 'edit');
+      byAction[type] = (byAction[type] ?? 0) + 1;
+    }
+
     return reply.send({
       entries: paged,
       pagination: { page, limit, total, totalPages },
-      counts: {
-        total,
-        byAction: {
-          import: entries.filter(e => e.type === 'import').length,
-          edit: entries.filter(e => e.type === 'edit').length,
-          issue_create: entries.filter(e => e.type === 'issue_create').length,
-          issue_status: entries.filter(e => e.type === 'issue_status').length,
-          normalize: entries.filter(e => e.type === 'normalize').length,
-          input_error: entries.filter(e => e.type === 'input_error').length,
-          mapping_change: entries.filter(e => e.type === 'mapping_change').length,
-        },
-      },
+      counts: { total, byAction },
     });
   });
 
@@ -255,7 +359,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) { app.log.warn({ err }, 'journal/stats: failed to read issue_history'); }
 
     return reply.send({
-      period: `${days} дней`,
+      period: `${days} ${dayWord(days)}`,
       totalActions,
       uniqueUsers: userSet.size,
       snapshotCount,
@@ -291,6 +395,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       spreadsheetId: string;
       status: string;
       statusLabel?: string;
+      /** Техническая причина отказа (текст Google API) — мелким шрифтом, не заголовком. */
+      statusDetails?: string;
       lastSuccess: string | null;
       rowCount: number | null;
     }> = [
@@ -299,6 +405,11 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         type: 'summary',
         spreadsheetId: config.google.spreadsheetId,
         status: isDemo ? 'warning' : (sheetsRead.includes(SVOD_SHEET_NAME) ? 'ok' : 'error'),
+        // Подпись была только у книг управлений, у сводной — нет: в одной
+        // таблице половина строк объясняла состояние, половина молчала.
+        statusLabel: isDemo
+          ? 'Демонстрационные данные — рабочая книга не прочитана'
+          : (sheetsRead.includes(SVOD_SHEET_NAME) ? 'Активна' : 'Не прочитана — проверьте доступ к книге'),
         lastSuccess: isDemo ? null : lastSuccess,
         rowCount: snapshot?.metadata?.perSheetRowCount?.[SVOD_SHEET_NAME] ?? null,
       },
@@ -312,12 +423,13 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
 
       let status: string;
       let statusLabel: string;
+      let statusDetails: string | undefined;
       let lastSuccessTime: string | null = null;
       let rowCount: number | null = null;
 
       if (isDemo) {
         status = 'warning';
-        statusLabel = 'Демо';
+        statusLabel = 'Демонстрационные данные — рабочая книга не прочитана';
       } else if (meta && !meta.error) {
         status = 'ok';
         statusLabel = 'Активна';
@@ -325,7 +437,10 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         rowCount = meta.rowCount;
       } else if (meta?.error) {
         status = 'error';
-        statusLabel = `Ошибка: ${meta.error}`;
+        // Текст ошибки Google API (английский, с кодами) — не подпись состояния:
+        // пользователю нужно действие, техническая причина уходит в details.
+        statusLabel = 'Книга не прочитана — проверьте доступ и обновите данные';
+        statusDetails = String(meta.error);
         lastSuccessTime = meta.loadedAt;
       } else if (isRead) {
         status = 'ok';
@@ -333,7 +448,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         lastSuccessTime = lastSuccess;
       } else {
         status = 'warning';
-        statusLabel = 'Не загружена';
+        statusLabel = 'Не загружена — обновите данные';
       }
 
       sourceList.push({
@@ -342,6 +457,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         spreadsheetId: sheetId,
         status,
         statusLabel,
+        statusDetails,
         lastSuccess: lastSuccessTime,
         rowCount,
       });
@@ -350,25 +466,34 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     // ШДЮ — лист внутри СВОД_для_Google (та же таблица что и СВОД ТД-ПМ)
     const { SHDYU_SPREADSHEET_ID } = await import('../config.js');
     let shdyuRows = 0;
-    let shdyuTimestamp: string | null = null;
+    let shdyuSnapshotRead = false;
     try {
       const snap = await getSnapshot();
+      shdyuSnapshotRead = Boolean(snap);
       // Use actual sheet row count (from Google Sheets API), not parsed block count
       shdyuRows = getSHDYURawRowCount();
       if (shdyuRows === 0 && snap?.shdyuData) {
         // Fallback: count parsed ГРБС blocks if raw count unavailable
         shdyuRows = Object.keys(snap.shdyuData).length;
       }
-      shdyuTimestamp = (snap?.metadata as any)?.timestamp ?? new Date().toISOString();
-    } catch { /* snapshot not ready yet */ }
+    } catch (err) {
+      app.log.warn({ err }, 'sources: monthly sheet state unknown, snapshot unavailable');
+    }
     sourceList.push({
       // Легаси-имя «ШДЮ» ушло: источник — лист «СВОД с месяцами» (та же книга, что СВОД).
       name: SHDYU_MONTHLY_SHEET_NAME,
       type: 'sheet',
       spreadsheetId: SHDYU_SPREADSHEET_ID,
       status: shdyuRows > 0 ? 'ok' : 'warning',
-      statusLabel: shdyuRows > 0 ? 'Активна' : 'Нет данных',
-      lastSuccess: shdyuTimestamp,
+      statusLabel: shdyuRows > 0
+        ? 'Активна'
+        : (shdyuSnapshotRead
+          ? 'Лист прочитан пустым — проверьте, что помесячные данные заполнены'
+          : 'Данные не собраны — обновите данные и посмотрите снова'),
+      // Раньше сюда подставлялся текущий момент, когда время чтения неизвестно:
+      // «обновлено только что» у листа, который ни разу не прочитан, — выдумка.
+      // Момент берётся у снимка, общего для всех источников этой книги.
+      lastSuccess: shdyuRows > 0 ? lastSuccess : null,
       rowCount: shdyuRows > 0 ? shdyuRows : null,
     });
 
@@ -402,7 +527,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!spreadsheetId) {
-      return reply.status(404).send({ error: `Источник "${name}" не найден` });
+      return reply.status(404).send({ error: `Источник «${name}» не найден` });
     }
 
     try {
@@ -417,11 +542,17 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         totalRows: meta.sheets.reduce((sum, s) => sum + s.rowCount, 0),
       });
     } catch (err) {
-      return reply.send({
+      // Раньше неудачная проверка отвечала кодом 200 с английским текстом Google
+      // API: для клиента это «запрос прошёл», для человека — нечитаемая строка.
+      // Теперь код честный (источник недоступен), заголовок русский, техническая
+      // причина — отдельным полем.
+      app.log.warn({ err, source: name }, 'sources/test: spreadsheet metadata unavailable');
+      return reply.status(503).send({
         success: false,
         name,
         spreadsheetId,
-        error: (err as Error).message,
+        error: `Книга «${name}» не открылась — проверьте доступ учётной записи сервиса к таблице`,
+        details: (err as Error).message,
       });
     }
   });
@@ -436,7 +567,13 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
 
     const validation = validateSpreadsheetIdForSourceChange(spreadsheetId);
     if (!validation.success) {
-      return reply.status(400).send({ error: validation.error });
+      // Причина отказа приходит из config.ts английской технической строкой
+      // («spreadsheetId must be a raw Google Sheets ID…»). Заголовок ответа —
+      // требование по-русски с действием; исходная строка остаётся подсказкой.
+      return reply.status(400).send({
+        error: 'Адрес книги не подходит. Нужен идентификатор таблицы Google — часть ссылки между /d/ и /edit, без самой ссылки и без имени файла',
+        details: validation.error,
+      });
     }
     const nextSpreadsheetId = validation.spreadsheetId;
 
@@ -448,7 +585,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!(name in DEPARTMENT_SPREADSHEETS)) {
-      return reply.status(404).send({ error: `Источник "${name}" не найден` });
+      return reply.status(404).send({ error: `Источник «${name}» не найден` });
     }
 
     updateSpreadsheetId(name, nextSpreadsheetId);
@@ -467,7 +604,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     if (!result.success && result.error?.includes('не найден')) {
       return reply.status(404).send(result);
     }
-    return reply.status(result.success ? 200 : 503).send(result);
+    if (!result.success) return reply.status(503).send(humanizeValidationFailure(result));
+    return reply.send(result);
   });
 
   /**
@@ -477,7 +615,9 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/sources/validate-all', async (_request, reply) => {
     const results = await validateAllSources();
     return reply.send({
-      results,
+      // Тот же перевод отказа, что и у одиночной проверки: список из девяти
+      // источников не должен смешивать русские строки с английскими.
+      results: results.map(r => (r.success ? r : humanizeValidationFailure(r))),
       totalIssues: results.reduce((s, r) => s + r.summary.total, 0),
       failedSources: results.filter(r => !r.success).map(r => r.name),
     });

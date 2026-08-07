@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { api, fetchJSON, fetchParsed } from './api';
+import { api, fetchJSON, fetchParsed, ApiError, humanizeRequestError } from './api';
 import { HealthResponseSchema } from '@aemr/shared';
 
 function fakeResponse(body: unknown = {}) {
@@ -83,8 +83,36 @@ describe('fetchParsed (контракт-валидация ответов по z
     await expect(fetchParsed('/health', HealthResponseSchema)).rejects.toThrow(/status/);
   });
 
-  it('api.health() валидирует ответ через схему', async () => {
+  it('api.health() валидирует ответ через схему; текст ошибки — русский, техника в скобках', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => fakeResponse({ nope: true })));
-    await expect(api.health()).rejects.toThrow(/contract/i);
+    // Читателю — фраза с действием, не «contract violation»
+    await expect(api.health()).rejects.toThrow(/обновите страницу/i);
+    await expect(api.health()).rejects.toThrow(/\/health/);
+  });
+});
+
+describe('ApiError: состояние ответа — поле, а не подстрока сообщения', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', { getItem: () => null });
+  });
+
+  it('не-ok ответ даёт ApiError с кодом состояния и русской фразой', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      text: async () => 'forbidden',
+      json: async () => ({}),
+    } as unknown as Response)));
+
+    // Различие «сервер жив, но отказал» / «сервера нет» страницы читают полем
+    // status, а не поиском подстроки в тексте (тот меняется вместе с текстовкой).
+    const err = await fetchJSON('/settings/status').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(403);
+    expect((err as ApiError).message).toMatch(/Нет доступа/);
+  });
+
+  it('сетевой отказ движка переводится в русскую фразу с действием', () => {
+    expect(humanizeRequestError(new TypeError('Failed to fetch'))).toMatch(/Нет связи с сервером/);
   });
 });

@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import { DEPARTMENTS, COL_LETTER_INDEX, DEPT_HEADER_ROWS, buildCellDict, isMetaRow } from '@aemr/shared';
+import {
+  DEPARTMENTS,
+  COL_LETTER_INDEX,
+  DEPT_COLUMNS,
+  DEPT_HEADER_LABELS,
+  DEPT_HEADER_ROWS,
+  buildCellDict,
+  isMetaRow,
+} from '@aemr/shared';
 import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
@@ -20,6 +28,38 @@ import {
 } from '../services/rows-filters.js';
 
 /**
+ * Буква колонки → подпись из живой шапки книги ГРБС.
+ *
+ * Почему: «колонка K» — внутреннее обозначение, оно ничего не объясняет тому,
+ * кто правит таблицу; в своей книге он видит подпись «ИТОГО 1». Буква остаётся
+ * только внутри адреса ячейки («K1481») — так адресуют ячейки сами таблицы.
+ * Подписи не изобретаются здесь: берутся из DEPT_HEADER_LABELS (@aemr/shared),
+ * которые сверены с реальной шапкой стражем column-map.test.ts.
+ */
+const COLUMN_KEY_BY_INDEX = new Map<number, keyof typeof DEPT_COLUMNS>(
+  (Object.entries(DEPT_COLUMNS) as Array<[keyof typeof DEPT_COLUMNS, number]>)
+    .map(([key, index]) => [index, key]),
+);
+
+function columnTitle(letter: string): string {
+  const index = COL_LETTER_INDEX[letter];
+  if (index === undefined) return letter;
+  const key = COLUMN_KEY_BY_INDEX.get(index);
+  return key ? DEPT_HEADER_LABELS[key] : letter;
+}
+
+/**
+ * Причина недоступности книги управления — человеческой фразой с действием.
+ * Одно место на все роуты чтения: пользователь должен понять, к кому идти
+ * (доступ к книге) или что нажать (обновление данных), а не увидеть «unavailable».
+ */
+function sourceUnavailableMessage(deptShortName: string, reason: 'read-error' | 'no-source'): string {
+  return reason === 'read-error'
+    ? `Книга управления «${deptShortName}» не прочитана — проверьте доступ к таблице и обновите данные`
+    : `Для управления «${deptShortName}» не указана книга — задайте адрес таблицы в разделе «Источники» и обновите данные`;
+}
+
+/**
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
  * Возвращает текст ошибки или null, если писать можно.
  *
@@ -29,10 +69,10 @@ import {
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
-  if (!Number.isInteger(idx) || idx < 2) return `Некорректный номер строки "${display}"`;
+  if (!Number.isInteger(idx) || idx < 2) return `Номер строки «${display}» не подходит: строки данных начинаются со второй`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
-  if (rowCount === 0) return `Лист "${deptShortName}" не загружен — обновите данные перед правкой`;
-  if (idx > rowCount) return `Строка ${idx} за пределами листа (строк: ${rowCount})`;
+  if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
+  if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
   return null;
 }
 
@@ -66,7 +106,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Accept both English IDs ('uer') and Russian short names ('УЭР')
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
-      return reply.status(404).send({ error: `Отдел "${deptId}" не найден` });
+      return reply.status(404).send({ error: `Управление «${deptId}» не найдено` });
     }
 
     const page = Math.max(1, parseInt(query.page || '1', 10));
@@ -88,7 +128,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       } else {
         app.log.error(`Нет данных для отдела "${dept.nameShort}" и нет spreadsheetId`);
       }
-      return reply.status(503).send({ error: 'Google Sheets unavailable' });
+      return reply.status(503).send({ error: sourceUnavailableMessage(dept.nameShort, read.reason) });
     }
 
     // Строки листа (без шапки) → DTO с сигналами, отсев не-данных — rows-dto
@@ -141,7 +181,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
-      return reply.status(404).send({ error: `Отдел "${deptId}" не найден` });
+      return reply.status(404).send({ error: `Управление «${deptId}» не найдено` });
     }
 
     // Чтение строк — каскад cache-first в rows-read (кэш → СВОД → книга управления)
@@ -152,14 +192,21 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       } else {
         app.log.error(`Нет данных для отдела "${dept.nameShort}" и нет spreadsheetId`);
       }
-      return reply.status(503).send({ error: 'Google Sheets unavailable' });
+      return reply.status(503).send({ error: sourceUnavailableMessage(dept.nameShort, read.reason) });
     }
     const rawRows = read.values;
 
     // Validate row index (idx is 1-based sheet row; row 1 = header, data starts at row 2)
-    // rawRows[0] = header, rawRows[idx - 1] = requested row
+    // rawRows[0] = header, rawRows[idx - 1] = requested row.
+    // Нечисловой номер (`/api/rows/uo/abc`) даёт NaN — обе проверки ниже его
+    // пропускали бы как «строка найдена», поэтому названа отдельной причиной.
+    if (!Number.isInteger(idx)) {
+      return reply.status(400).send({ error: `Номер строки «${rowIndex}» не похож на число` });
+    }
     if (idx < 2 || idx - 1 >= rawRows.length) {
-      return reply.status(404).send({ error: `Строка ${idx} не найдена` });
+      return reply.status(404).send({
+        error: `Строки ${idx} в книге управления «${dept.nameShort}» нет — сейчас там ${rawRows.length} строк`,
+      });
     }
 
     const row = rawRows[idx - 1];
@@ -203,12 +250,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const idx = parseInt(rowIndex, 10);
 
     if (!body.field || body.value === undefined) {
-      return reply.status(400).send({ error: 'Поля "field" и "value" обязательны' });
+      return reply.status(400).send({ error: 'Не указано, какой столбец и какое значение сохранять' });
     }
 
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
-      return reply.status(404).send({ error: `Отдел "${deptId}" не найден` });
+      return reply.status(404).send({ error: `Управление «${deptId}» не найдено` });
     }
 
     // Блокировка формульных колонок
@@ -217,8 +264,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       // Логируем попытку записи в формульную ячейку
       app.log.warn(`Попытка записи в формульную колонку ${body.field} отдела ${deptId} строка ${idx}`);
       return reply.status(403).send({
-        error: 'Запись заблокирована',
-        reason: `Колонка ${body.field} содержит формулу и не может быть изменена вручную`,
+        error: 'Правка отклонена',
+        reason: `Столбец «${columnTitle(body.field.toUpperCase())}» книга считает формулой — значение получается из других столбцов. Измените исходные суммы или даты, итог пересчитается сам`,
       });
     }
 
@@ -232,7 +279,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // field="A5:Z5" пишет значение в ДИАПАЗОН, field="AG"/"ZZ" — в произвольную колонку прод-таблицы
     // (writeCellValue USER_ENTERED → значение с "=" станет живой формулой). Только blacklist FORMULA_COLUMNS недостаточно.
     if (COL_LETTER_INDEX[field] === undefined) {
-      return reply.status(400).send({ error: `Неизвестная колонка "${body.field}"` });
+      // Человеческого имени у несуществующего столбца нет по определению —
+      // сырое обозначение уходит в details (техническая подсказка), не в заголовок.
+      return reply.status(400).send({
+        error: 'Правка отклонена: такого столбца в книге закупок нет',
+        details: `запрошенный столбец: ${body.field}`,
+      });
     }
     // idx обязан быть integer >= 2 (строка 1 — заголовок) И существовать в листе,
     // иначе cellAddress "GNaN"/"G-1"/header либо запись за пределами данных.
@@ -249,7 +301,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         : parseFloat(String(body.value).replace(/\s/g, '').replace(/,/g, '.'));
       if (isNaN(num)) {
         return reply.status(400).send({
-          error: `Колонка ${field} ожидает числовое значение`,
+          error: `Столбец «${columnTitle(field)}» принимает только число — например 1 234,56`,
           field,
           received: body.value,
         });
@@ -262,7 +314,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (!ddmmyyyy && !iso && str !== '') {
         return reply.status(400).send({
-          error: `Колонка ${field} ожидает дату в формате ДД.ММ.ГГГГ`,
+          error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
           field,
           received: body.value,
         });
@@ -274,7 +326,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Determine spreadsheet and sheet name
     const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
     if (!spreadsheetId) {
-      return reply.status(503).send({ error: `Нет spreadsheetId для "${dept.nameShort}"` });
+      return reply.status(503).send({ error: sourceUnavailableMessage(dept.nameShort, 'no-source') });
     }
 
     // РЕАЛЬНОЕ имя вкладки книги (кандидаты «ВСЕ»/«Все»/имя по метаданным) —
@@ -332,16 +384,21 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     } catch (err: any) {
       app.log.error({ err }, `field-update: failed to write ${cellAddress} for ${deptId}`);
 
-      // Check if it's an auth scope error
+      // Отказ по правам доступа отделён от прочих: действие пользователя разное —
+      // тут идти к владельцу книги, там просто повторить.
       if (err.message?.includes('readonly') || err.code === 403) {
         return reply.status(403).send({
-          error: 'Service Account не имеет прав на запись. Требуется scope spreadsheets (не readonly)',
+          error: `Нет прав на запись в книгу управления «${dept.nameShort}»`,
+          reason: 'Учётной записи сервиса выдан доступ только на чтение. Откройте доступ на редактирование книги и повторите правку',
           details: err.message,
         });
       }
 
-      return reply.status(500).send({
-        error: 'Ошибка записи в Google Таблицу',
+      // 503, а не 500: отказала внешняя книга, а не расчёт продукта —
+      // тот же код, что у чтения недоступного источника выше.
+      return reply.status(503).send({
+        error: `Не удалось сохранить значение в ячейку ${cellAddress}`,
+        reason: 'Google Таблицы не приняли правку. Повторите через минуту; если повторяется — проверьте доступ к книге',
         details: err.message ?? String(err),
       });
     }
@@ -362,7 +419,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     };
 
     if (!body.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
-      return reply.status(400).send({ error: 'Массив "rows" обязателен и не может быть пустым' });
+      return reply.status(400).send({ error: 'Не переданы строки для сохранения' });
     }
 
     const FORMULA_COLUMNS = new Set(['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC']);
@@ -383,7 +440,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       const dept = DEPARTMENTS.find(d => d.id === entry.deptId || d.nameShort === entry.deptId);
       if (!dept) {
         for (const field of Object.keys(entry.changes)) {
-          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false, error: `Отдел "${entry.deptId}" не найден` });
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false, error: `Управление «${entry.deptId}» не найдено` });
         }
         continue;
       }
@@ -391,7 +448,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       const spreadsheetId = DEPARTMENT_SPREADSHEETS[dept.nameShort];
       if (!spreadsheetId) {
         for (const field of Object.keys(entry.changes)) {
-          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false, error: `Нет spreadsheetId для "${dept.nameShort}"` });
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false, error: sourceUnavailableMessage(dept.nameShort, 'no-source') });
         }
         continue;
       }
@@ -407,7 +464,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         if (COL_LETTER_INDEX[field] === undefined) {
           results.push({
             deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: `Неизвестная колонка "${rawField}"`,
+            success: false, error: 'Такого столбца в книге закупок нет — правка отклонена',
           });
           continue;
         }
@@ -429,7 +486,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
             rowIndex: entry.rowIndex,
             field,
             success: false,
-            error: `Колонка ${field} содержит формулу и не может быть изменена`,
+            error: `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`,
           });
           continue;
         }
@@ -446,7 +503,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               rowIndex: entry.rowIndex,
               field,
               success: false,
-              error: `Колонка ${field} ожидает числовое значение`,
+              error: `Столбец «${columnTitle(field)}» принимает только число — например 1 234,56`,
             });
             continue;
           }
@@ -459,7 +516,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               rowIndex: entry.rowIndex,
               field,
               success: false,
-              error: `Колонка ${field} ожидает дату в формате ДД.ММ.ГГГГ`,
+              error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
             });
             continue;
           }
@@ -515,12 +572,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           });
         } catch (err: any) {
           app.log.error({ err }, `batch-save: failed to write ${cellAddress} for ${entry.deptId}`);
+          // Сообщение Google API (английское, с кодами) уходит только в лог:
+          // веб показывает это поле пользователю дословно (DataBrowser.tsx:260).
+          const deniedByRights = err?.message?.includes('readonly') || err?.code === 403;
           results.push({
             deptId: entry.deptId,
             rowIndex: entry.rowIndex,
             field,
             success: false,
-            error: err.message ?? String(err),
+            error: deniedByRights
+              ? `Нет прав на запись в книгу управления «${dept.nameShort}» — откройте доступ на редактирование`
+              : `Ячейка ${cellAddress} не сохранена: Google Таблицы не приняли правку. Повторите через минуту`,
           });
         }
       }
@@ -592,6 +654,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/rows/subjects', async (_request, reply) => {
     // Collect subjects across all departments
     const subjectMap = new Map<string, { text: string; count: number; departments: Set<string> }>();
+    // Непрочитанные книги называются в ответе поимённо: свод по семи книгам
+    // вместо восьми выглядит так же, как полный, и молча занижает счётчики.
+    const unreadDepartments: Array<{ department: string; reason: string }> = [];
 
     for (const dept of DEPARTMENTS) {
       // Каскад чтения — rows-read; недоступный отдел пропускается
@@ -602,6 +667,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         } else {
           app.log.warn(`subjects: no data source for ${dept.nameShort}`);
         }
+        unreadDepartments.push({
+          department: dept.nameShort,
+          reason: sourceUnavailableMessage(dept.nameShort, read.reason),
+        });
         continue;
       }
       const rawRows = read.values;
@@ -681,7 +750,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     // Sort by count descending
     entries.sort((a, b) => b.count - a.count);
 
-    return reply.send({ subjects: entries });
+    return reply.send({ subjects: entries, unreadDepartments });
   });
 
   /**
@@ -714,6 +783,11 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       procurementType: string;
       quarter: unknown;
     }> = [];
+    // Те же две честности, что и в /rows/subjects: какие книги не прочитаны и
+    // упёрлись ли мы в потолок выборки. Иначе неполное облако точек выглядит
+    // как полное, и «средняя экономия» считается по обрезку молча.
+    const unreadDepartments: Array<{ department: string; reason: string }> = [];
+    const POINT_LIMIT = 2500;
 
     for (const dept of departments) {
       // Каскад чтения — rows-read; недоступный отдел пропускается
@@ -724,11 +798,15 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         } else {
           app.log.warn(`scatter: no data source for ${dept.nameShort}`);
         }
+        unreadDepartments.push({
+          department: dept.nameShort,
+          reason: sourceUnavailableMessage(dept.nameShort, read.reason),
+        });
         continue;
       }
       const rawRows = read.values;
 
-      for (let i = DEPT_HEADER_ROWS; i < rawRows.length && allPoints.length < 2500; i++) {
+      for (let i = DEPT_HEADER_ROWS; i < rawRows.length && allPoints.length < POINT_LIMIT; i++) {
         const row = rawRows[i];
         if (!row) continue;
 
@@ -785,6 +863,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       points: allPoints,
       total: allPoints.length,
       departments: departments.map(d => d.id),
+      unreadDepartments,
+      /** Выборка упёрлась в потолок: показано не всё, среднее считать нельзя. */
+      truncated: allPoints.length >= POINT_LIMIT,
+      pointLimit: POINT_LIMIT,
     });
   });
 }

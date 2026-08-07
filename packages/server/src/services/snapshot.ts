@@ -290,6 +290,9 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
       rules: getActiveRules(),
       spreadsheetId: config.google.spreadsheetId,
       targetYear,
+      // Год официального листа (Д21): без него сверка вычитала многолетний
+      // расчёт из одногодичного официала и звала это расхождением.
+      officialYear: getSHDYUOfficialYear() ?? undefined,
     };
 
     const snapshot = runPipeline(pipelineInput);

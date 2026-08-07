@@ -1,0 +1,191 @@
+import { describe, expect, it } from 'vitest';
+import { SIGNAL_LABELS } from '@aemr/shared';
+import {
+  SIGNAL_SEVERITY,
+  activityRowLabel,
+  countBySeverity,
+  countUncheckedByPeriod,
+  describeRegistryCounts,
+  describeUncheckedByPeriod,
+  requestFilterNames,
+  screenFilterNames,
+  signalChipText,
+  signalOccurrences,
+  signalSeverity,
+} from './registry-view';
+
+describe('словарь признаков', () => {
+  it('покрывает тяжестью каждый признак словаря продукта', () => {
+    const missing = Object.keys(SIGNAL_LABELS).filter((key) => !(key in SIGNAL_SEVERITY));
+    expect(missing).toEqual([]);
+  });
+
+  it('не выдумывает признаков, которых нет в словаре', () => {
+    const extra = Object.keys(SIGNAL_SEVERITY).filter((key) => !(key in SIGNAL_LABELS));
+    expect(extra).toEqual([]);
+  });
+
+  it('незнакомый признак получает серый чип, а не тишину', () => {
+    expect(signalSeverity('какой-то-новый')).toBe('gap');
+  });
+
+  it('подпись признака берётся из словаря', () => {
+    expect(signalChipText('overdue')).toEqual({ text: SIGNAL_LABELS.overdue });
+  });
+
+  it('неописанный признак не показывает пользователю служебное имя', () => {
+    const chip = signalChipText('brandNewSignal');
+    expect(chip.text).toBe('Признак без описания');
+    expect(chip.text).not.toContain('brandNewSignal');
+    expect(chip.hint).toContain('brandNewSignal');
+  });
+});
+
+describe('счёт строк по тяжести', () => {
+  it('считает строку один раз — по худшему признаку', () => {
+    const rows = [
+      { signals: ['overdue', 'planSoon'] },
+      { signals: ['planSoon'] },
+      { signals: ['signed'] },
+      { signals: [] },
+    ];
+    expect(countBySeverity(rows)).toEqual({ critical: 1, warning: 1 });
+  });
+
+  it('пустой список даёт нули, а не пропуски', () => {
+    expect(countBySeverity([])).toEqual({ critical: 0, warning: 0 });
+  });
+});
+
+describe('двухступенчатый счёт строк', () => {
+  it('не выдаёт загруженную часть за весь реестр: ступени названы по отдельности', () => {
+    const text = describeRegistryCounts({
+      shown: 25,
+      inSelection: 128,
+      loaded: 168,
+      screenFilters: ['квартал', 'поиск по тексту'],
+      requestFilters: ['год 2026', 'управления (2)'],
+    });
+    expect(text.shown).toBe('Показано 25 строк из 128');
+    expect(text.hiddenOnScreen).toBe('На экране скрыто 40 строк фильтрами: квартал, поиск по тексту');
+    expect(text.loaded).toBe('Загружено 168 строк по запросу с фильтрами: год 2026, управления (2)');
+  });
+
+  it('без фильтров экрана молчит про скрытое', () => {
+    const text = describeRegistryCounts({
+      shown: 25,
+      inSelection: 168,
+      loaded: 168,
+      screenFilters: [],
+      requestFilters: [],
+    });
+    expect(text.hiddenOnScreen).toBeNull();
+    expect(text.loaded).toBe('Загружено 168 строк — весь реестр выбранных управлений');
+  });
+
+  it('склоняет «строка» по числу', () => {
+    const one = describeRegistryCounts({
+      shown: 1,
+      inSelection: 1,
+      loaded: 21,
+      screenFilters: ['поиск по тексту'],
+      requestFilters: [],
+    });
+    expect(one.shown).toBe('Показано 1 строка из 1');
+    expect(one.hiddenOnScreen).toBe('На экране скрыто 20 строк фильтрами: поиск по тексту');
+  });
+});
+
+describe('строки без даты и года', () => {
+  const rows = [
+    { planDate: '2026-03-14', planYear: 2026 },
+    { planDate: null, factDate: null, planYear: 2026 },
+    { planDate: '', factDate: '', planYear: 0 },
+    { planDate: 'X', planYear: 0 },
+  ];
+
+  it('считает строки, которых фильтр периода не касался', () => {
+    expect(countUncheckedByPeriod(rows)).toEqual({ noDate: 3, noYear: 2 });
+  });
+
+  it('говорит о них вслух, когда период выбран', () => {
+    const text = describeUncheckedByPeriod({ noDate: 3, noYear: 2 }, { period: true, year: true });
+    expect(text).toContain('3 без даты плана и факта');
+    expect(text).toContain('2 без года плана');
+  });
+
+  it('молчит, когда период не выбран — оговорка была бы шумом', () => {
+    expect(describeUncheckedByPeriod({ noDate: 3, noYear: 2 }, { period: false, year: false })).toBeNull();
+  });
+
+  it('называет только ту дыру, чей фильтр включён', () => {
+    const text = describeUncheckedByPeriod({ noDate: 3, noYear: 2 }, { period: false, year: true });
+    expect(text).not.toContain('без даты');
+    expect(text).toContain('2 без года плана');
+  });
+});
+
+describe('названия действующих фильтров', () => {
+  it('перечисляет фильтры запроса по-русски, без служебных ключей', () => {
+    const names = requestFilterNames({
+      departments: 2,
+      subordinates: 0,
+      activity: 'current_non_program',
+      procurement: 'single',
+      year: 2026,
+    });
+    expect(names).toEqual([
+      'год 2026',
+      'управления (2)',
+      'текущая деятельность вне программ',
+      'единственный поставщик',
+    ]);
+    expect(names.join(' ')).not.toMatch(/[a-z]/i);
+  });
+
+  it('снятые фильтры не называет', () => {
+    expect(
+      requestFilterNames({ departments: 0, subordinates: 0, activity: 'all', procurement: 'all', year: 'all' }),
+    ).toEqual([]);
+  });
+
+  it('перечисляет фильтры экрана', () => {
+    expect(
+      screenFilterNames({ period: 'q2', months: 2, search: '  ремонт ', signals: 3, budgets: 1 }),
+    ).toEqual(['квартал', 'месяцы', 'поиск по тексту', 'признаки строк (3)', 'источники финансирования']);
+  });
+
+  it('пробелы в поиске за фильтр не считает', () => {
+    expect(screenFilterNames({ period: 'year', months: 0, search: '   ', signals: 0, budgets: 0 })).toEqual([]);
+  });
+});
+
+describe('подпись вида деятельности строки', () => {
+  it('называет программное мероприятие', () => {
+    expect(activityRowLabel('Программное мероприятие')).toBe('программные мероприятия');
+  });
+
+  it('различает текущую деятельность в рамках программ и вне их', () => {
+    expect(activityRowLabel('Текущая деятельность', 'Развитие образования')).toBe(
+      'текущая деятельность в рамках программ',
+    );
+    expect(activityRowLabel('Текущая деятельность', 'X')).toBe('текущая деятельность вне программ');
+  });
+
+  it('не зачисляет строку без вида деятельности в программные', () => {
+    expect(activityRowLabel('')).toBe('вид деятельности не указан');
+    expect(activityRowLabel(null)).toBe('вид деятельности не указан');
+  });
+});
+
+describe('сколько строк найдётся по признаку', () => {
+  it('считает вхождения признаков', () => {
+    const counts = signalOccurrences([
+      { signals: ['overdue', 'planSoon'] },
+      { signals: ['overdue'] },
+      { signals: [] },
+      {},
+    ]);
+    expect(counts).toEqual({ overdue: 2, planSoon: 1 });
+  });
+});

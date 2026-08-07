@@ -25,8 +25,14 @@ setKBRegistry(STANDARD_METRICS);
 /* ── Error Boundary ────────────────────────────────────── */
 
 interface ErrorBoundaryProps {
-  /** Changing the key resets the boundary (used on page navigation) */
+  /** Смена ключа сбрасывает рамку (используется при переходе между разделами) */
   resetKey?: string;
+  /**
+   * Что именно не открылось — попадает в заголовок аварийного экрана.
+   * Читателю важно знать, потерян ли раздел или вся страница: во втором
+   * случае «попробовать снова» бессмысленно, нужна перезагрузка.
+   */
+  scope?: 'раздел' | 'страница';
   children: ReactNode;
 }
 
@@ -61,13 +67,24 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   render() {
     if (this.state.hasError) {
+      const scope = this.props.scope ?? 'раздел';
       return (
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8">
+        <div
+          role="alert"
+          className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8"
+        >
+          {/* Заголовок — утверждение о том, что случилось с данными читателя,
+              а не «произошла ошибка в модуле»: слово «модуль» ничего не
+              сообщает тому, кто открыл сводку по закупкам. */}
           <p className="text-red-600 dark:text-red-400 font-medium mb-2">
-            Произошла ошибка в модуле
+            {scope === 'страница'
+              ? 'Приложение не отрисовалось — числа на экране показать не удалось'
+              : 'Этот раздел не открылся — числа в нём показать не удалось'}
           </p>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">
-            Обновите страницу.
+            {scope === 'страница'
+              ? 'Обновите страницу. Если повторится — сообщите разработчику текст в скобках ниже.'
+              : 'Попробуйте открыть раздел заново. Данные не испорчены — сбой произошёл при показе, не при расчёте.'}
           </p>
           {/* Текст движка нужен разработчику, но он английский и непонятен читателю
               района. Поэтому он не заголовок аварийного экрана, а подпись мелким
@@ -80,12 +97,25 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               {')'}
             </p>
           )}
-          <button
-            onClick={this.resetError}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
-          >
-            Обновить
-          </button>
+          <div className="flex items-center justify-center gap-2">
+            {scope === 'раздел' && (
+              <button
+                onClick={this.resetError}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              >
+                Попробовать снова
+              </button>
+            )}
+            {/* Раньше единственная кнопка называлась «Обновить», но лишь сбрасывала
+                рамку — страница не перезагружалась. Подпись обещала не то, что
+                делала кнопка; теперь перезагрузка названа своим именем. */}
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              Обновить страницу
+            </button>
+          </div>
         </div>
       );
     }
@@ -139,23 +169,28 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
-        {/* Horizontal bar — FULL WIDTH, always on top */}
-        <Header />
-        {/* Below header: OrgStrip + main content side by side.
-            report — фикс-документ 1:1 с .docx, орг-фильтр там не режет контент;
-            навигация по ГРБС — шапка-оглавление внутри страницы (Report.tsx:703). */}
-        <div className="flex flex-1 overflow-hidden">
-          {page !== 'report' && <OrgStrip />}
-          <main className="flex-1 overflow-y-auto">
-            <div className="max-w-[1400px] mx-auto p-6">
-              <ErrorBoundary resetKey={page}>
-                {renderPage()}
-              </ErrorBoundary>
-            </div>
-          </main>
+      {/* Внешняя рамка ловит падения оболочки — шапки и полосы организаций.
+          Без неё сбой в шапке давал белый экран без единого слова: внутренняя
+          рамка живёт ниже по дереву и такое падение перехватить не может. */}
+      <ErrorBoundary scope="страница">
+        <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+          {/* Horizontal bar — FULL WIDTH, always on top */}
+          <Header />
+          {/* Below header: OrgStrip + main content side by side.
+              report — фикс-документ 1:1 с .docx, орг-фильтр там не режет контент;
+              навигация по ГРБС — шапка-оглавление внутри страницы (Report.tsx:703). */}
+          <div className="flex flex-1 overflow-hidden">
+            {page !== 'report' && <OrgStrip />}
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-[1400px] mx-auto p-6">
+                <ErrorBoundary resetKey={page} scope="раздел">
+                  {renderPage()}
+                </ErrorBoundary>
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     </TooltipProvider>
   );
 }

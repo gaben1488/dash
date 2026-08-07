@@ -4,6 +4,7 @@ import { createDemoSnapshot } from '../services/demo-data.js';
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
+import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
 
@@ -13,6 +14,15 @@ import { parseBody } from '../lib/validate.js';
  * Жизненный цикл: open → acknowledged → in_progress → resolved / wont_fix / false_positive
  * Uses canonical IssueStatus from shared/types.ts.
  */
+
+/**
+ * Статус — человеческой фразой из словаря продукта (@aemr/shared).
+ * Локально подписи не изобретаются: одно и то же решение обязано называться
+ * одинаково в бейдже, в кнопке, в журнале и в ответе сервера.
+ */
+function statusLabel(status: string): string {
+  return ISSUE_STATUS_LABELS[status] ?? productLabel(status);
+}
 
 /** Допустимые переходы статусов (canonical IssueStatus values) */
 const STATUS_TRANSITIONS: Record<string, string[]> = {
@@ -41,6 +51,23 @@ function overlayPersistedStatus(issues: Issue[]): Issue[] {
     const persisted = statusById.get(issue.id);
     return persisted ? { ...issue, status: persisted as Issue['status'] } : issue;
   });
+}
+
+/** Строка истории статуса — тип выводится из схемы, не описывается второй раз. */
+type IssueHistoryRow = typeof schema.issueHistory.$inferSelect;
+
+/**
+ * История смен статуса замечания.
+ * Единственное место чтения: карточка (/:id) и отдельный роут (/:id/history)
+ * обязаны показывать одно и то же — иначе «история» зависит от того, откуда смотреть.
+ */
+function readIssueHistory(app: FastifyInstance, issueId: string): IssueHistoryRow[] {
+  try {
+    return db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, issueId)).all();
+  } catch (err) {
+    app.log.warn({ err, issueId }, 'issues/history: failed to read issue_history');
+    return [];
+  }
 }
 
 export async function issuesRoutes(app: FastifyInstance): Promise<void> {
@@ -123,12 +150,15 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
     const issue = overlayPersistedStatus(snapshot.issues ?? []).find((i: Issue) => i.id === id);
     if (!issue) {
-      return reply.status(404).send({ error: `Замечание "${id}" не найдено` });
+      return reply.status(404).send({ error: `Замечание «${id}» не найдено` });
     }
 
+    // История отдавалась пустым массивом-заглушкой, хотя таблица issue_history
+    // заполняется каждой сменой статуса: карточка замечания показывала «истории
+    // нет» там, где история есть. Читаем тот же источник, что и /:id/history.
     return reply.send({
       issue,
-      history: [],
+      history: readIssueHistory(app, id),
     });
   });
 
@@ -146,7 +176,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
    * }
    */
   const IssueStatusUpdateSchema = z.object({
-    status: z.string().min(1, 'Поле "status" обязательно'),
+    status: z.string().min(1, 'Не указан новый статус замечания'),
     comment: z.string().optional(),
     reason: z.string().optional(),
     justification: z.string().optional(),
@@ -161,6 +191,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
     // Ищем текущий статус в DB, иначе в snapshot
     let currentStatus = 'open';
+    let snapshotIssue: Issue | undefined;
     const dbIssue = db.select({ status: schema.issues.status }).from(schema.issues).where(eq(schema.issues.id, id)).get();
     if (dbIssue) {
       currentStatus = dbIssue.status;
@@ -168,23 +199,36 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       // Ищем в snapshot
       let snapshot;
       try { snapshot = await getSnapshot(); } catch (err) { app.log.warn({ err }, 'issues/status: failed to get snapshot'); snapshot = createDemoSnapshot(); }
-      const snapshotIssue = (snapshot.issues ?? []).find((i: Issue) => i.id === id);
-      if (snapshotIssue?.status) currentStatus = snapshotIssue.status;
+      snapshotIssue = (snapshot.issues ?? []).find((i: Issue) => i.id === id);
+      // Замечания нет ни в таблице, ни в снимке. Прежде такой запрос заводил
+      // пустую запись с заголовком «Issue <id>» — продукт сам сочинял замечание,
+      // которого никто не находил, и показывал латиницу в журнале.
+      if (!snapshotIssue) {
+        return reply.status(404).send({ error: `Замечание «${id}» не найдено` });
+      }
+      if (snapshotIssue.status) currentStatus = snapshotIssue.status;
     }
 
-    // Проверка допустимости перехода
+    // Проверка допустимости перехода. Текст — фразами продукта: сырые ключи
+    // («open → resolved») веб был вынужден прятать за общей заглушкой,
+    // потому что показывать их пользователю нельзя.
     const allowedTransitions = STATUS_TRANSITIONS[currentStatus];
     if (!allowedTransitions?.includes(body.status)) {
+      const allowedNames = (allowedTransitions ?? []).map(statusLabel);
       return reply.status(400).send({
-        error: `Переход "${currentStatus}" → "${body.status}" недопустим`,
+        error: allowedNames.length > 0
+          ? `Из состояния «${statusLabel(currentStatus)}» нельзя перейти в «${statusLabel(body.status)}». Доступно: ${allowedNames.join(', ')}`
+          : `Из состояния «${statusLabel(currentStatus)}» переходов не предусмотрено`,
+        // Машинный список ключей остаётся для клиента — он рисует по нему кнопки.
         allowed: allowedTransitions || [],
+        allowedLabels: allowedNames,
       });
     }
 
     // Для wont_fix и false_positive — требуется причина
     if ((body.status === 'wont_fix' || body.status === 'false_positive') && !body.reason) {
       return reply.status(400).send({
-        error: `Для статуса "${body.status}" необходимо указать причину`,
+        error: `Чтобы поставить «${statusLabel(body.status)}», нужно назвать причину`,
       });
     }
 
@@ -207,13 +251,16 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
           // foreign_keys=ON (db/index.ts:18) the INSERT was guaranteed to fail
           // its FK constraint. The snapshot_id column is not NOT NULL, so null
           // passes.
+          // Реквизиты берутся у замечания из снимка (оно найдено выше, иначе
+          // был бы 404): подставлять «info»/«status_change»/«Issue <id>» значило
+          // подменять настоящую строгость и заголовок выдуманными.
           tx.insert(schema.issues).values({
             id,
             snapshotId: null,
-            severity: 'info',
+            severity: snapshotIssue?.severity ?? 'info',
             origin: 'user',
-            category: 'status_change',
-            title: `Issue ${id}`,
+            category: snapshotIssue?.category ?? 'status_change',
+            title: snapshotIssue?.title ?? `Замечание ${id}`,
             status: body.status,
             detectedAt: now,
           }).run();
@@ -237,7 +284,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       app.log.error({ err, issueId: id }, 'issues/status: failed to persist status change');
       return reply.status(500).send({
         success: false,
-        error: 'Не удалось сохранить смену статуса',
+        error: 'Смена статуса не сохранена — повторите; если повторяется, сообщите администратору',
       });
     }
 
@@ -246,7 +293,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       issueId: id,
       fromStatus: currentStatus,
       toStatus: body.status,
-      message: `Статус замечания изменён: ${currentStatus} → ${body.status}`,
+      message: `Статус замечания изменён: «${statusLabel(currentStatus)}» → «${statusLabel(body.status)}»`,
     });
   });
 
@@ -257,7 +304,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
    * Body: { comment: string }
    */
   const IssueCommentSchema = z.object({
-    comment: z.string().min(1, 'Поле "comment" обязательно'),
+    comment: z.string().trim().min(1, 'Комментарий не может быть пустым'),
   });
 
   app.put('/api/issues/:id/comment', async (request, reply) => {
@@ -265,25 +312,69 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const body = parseBody(IssueCommentSchema, request, reply);
     if (!body) return;
 
+    // Замечание живёт в двух местах: снимок пересобирается на каждый запрос,
+    // а таблица issues хранит только те, которых уже касался человек. Комментарий
+    // к замечанию «только из снимка» уходил в UPDATE по несуществующей строке:
+    // 0 изменённых записей, ответ «Комментарий добавлен», текста нигде нет.
+    const dbIssue = db.select({ id: schema.issues.id }).from(schema.issues).where(eq(schema.issues.id, id)).get();
+    let snapshotIssue: Issue | undefined;
+    if (!dbIssue) {
+      let snapshot;
+      try {
+        snapshot = await getSnapshot();
+      } catch (err) {
+        app.log.warn({ err }, 'issues/comment: failed to get snapshot, using demo');
+        snapshot = createDemoSnapshot();
+      }
+      snapshotIssue = (snapshot.issues ?? []).find((i: Issue) => i.id === id);
+      if (!snapshotIssue) {
+        return reply.status(404).send({ error: `Замечание «${id}» не найдено` });
+      }
+    }
+
     const now = new Date().toISOString();
     try {
-      db.update(schema.issues).set({ comment: body.comment }).where(eq(schema.issues.id, id)).run();
-    } catch (err) { app.log.warn({ err }, 'issues/comment: failed to update issue'); }
+      db.transaction((tx) => {
+        if (dbIssue) {
+          tx.update(schema.issues).set({ comment: body.comment }).where(eq(schema.issues.id, id)).run();
+        } else {
+          // Минимальная запись отслеживания — как в смене статуса; snapshotId
+          // остаётся null (внешнего ключа на несуществующий снимок быть не должно).
+          tx.insert(schema.issues).values({
+            id,
+            snapshotId: null,
+            severity: snapshotIssue?.severity ?? 'info',
+            origin: 'user',
+            category: snapshotIssue?.category ?? 'comment',
+            title: snapshotIssue?.title ?? `Замечание ${id}`,
+            status: snapshotIssue?.status ?? 'open',
+            comment: body.comment,
+            detectedAt: now,
+          }).run();
+        }
 
-    try {
-      db.insert(schema.auditLog).values({
-        action: 'issue_comment',
-        entity: 'issue',
-        entityId: id,
-        details: body.comment,
-        timestamp: now,
-      }).run();
-    } catch (err) { app.log.warn({ err }, 'issues/comment: failed to write audit_log'); }
+        tx.insert(schema.auditLog).values({
+          action: 'issue_comment',
+          entity: 'issue',
+          entityId: id,
+          details: body.comment,
+          timestamp: now,
+        }).run();
+      });
+    } catch (err) {
+      // Раньше обе ошибки глотались, а ответ всё равно был success:true —
+      // худший вид неправды: человек уверен, что комментарий сохранён.
+      app.log.error({ err, issueId: id }, 'issues/comment: failed to persist comment');
+      return reply.status(500).send({
+        success: false,
+        error: 'Комментарий не сохранён — повторите; если повторяется, сообщите администратору',
+      });
+    }
 
     return reply.send({
       success: true,
       issueId: id,
-      message: 'Комментарий добавлен',
+      message: 'Комментарий сохранён',
     });
   });
 
@@ -294,14 +385,9 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/issues/:id/history', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    let history: any[] = [];
-    try {
-      history = db.select().from(schema.issueHistory).where(eq(schema.issueHistory.issueId, id)).all();
-    } catch (err) { app.log.warn({ err }, 'issues/history: failed to read issue_history'); }
-
     return reply.send({
       issueId: id,
-      history,
+      history: readIssueHistory(app, id),
     });
   });
 
@@ -342,7 +428,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       i.category ?? '',
       (i.title ?? '') + (i.description ? ': ' + i.description : ''),
       i.recommendation ?? '',
-      i.status ?? 'open',
+      // Выгрузку открывают в Excel — «wont_fix» в колонке «Статус» там читать некому.
+      statusLabel(i.status ?? 'open'),
       i.sheet ?? '',
       i.cell ?? '',
     ]);

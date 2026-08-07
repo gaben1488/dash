@@ -31,6 +31,12 @@ export interface PipelineInput {
   spreadsheetId: string;
   /** Target year for recalculation (e.g. 2026). If set, only rows from this year are counted. */
   targetYear?: number;
+  /**
+   * Год, за который считает официальный лист СВОД. Нужен сверке: расчёт
+   * без года суммирует все годы книги, лист — только свой, и вычитать их
+   * друг из друга нельзя (Д21). Неизвестен — сверка ведёт себя как раньше.
+   */
+  officialYear?: number;
 }
 
 /** Map Russian short names → Latin IDs used in REPORT_MAP keys.
@@ -576,8 +582,12 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
   // These sum across all departments to match REPORT_MAP summary keys.
   mergeSummaryMetrics(calculatedMetrics);
 
-  // 5. Delta
-  const deltas = computeDeltas(officialMetrics, calculatedMetrics, input.reportMap);
+  // 5. Delta — со знанием периметра обеих сторон (Д21): несравнимые пары
+  // не превращаются в дельту, а объясняют, почему сверки нет.
+  const deltas = computeDeltas(officialMetrics, calculatedMetrics, input.reportMap, {
+    calcYear: input.targetYear,
+    officialYear: input.officialYear,
+  });
 
   // 6. Trust
   const trust = computeTrustScore(officialMetrics, allIssues, deltas, snapshotId);

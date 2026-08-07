@@ -1,0 +1,3 @@
+week-08.05.2026.json {"kept": 2830, "noMethod": 0, "otherYear": 521, "blankYear": 16}
+week-26.06.2026.json {"kept": 3159, "noMethod": 0, "otherYear": 532, "blankYear": 430}
+week-29.05.2026.json {"kept": 2971, "noMethod": 0, "otherYear": 523, "blankYear": 4}

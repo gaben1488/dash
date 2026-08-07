@@ -1,0 +1,3 @@
+week-08.05.2026.json rows=2830 planMismatch>1=0 planK_no_HIJ=0 factMismatch>1=0 factY_no_VWX=0 emptyStrH=0
+week-26.06.2026.json rows=3159 planMismatch>1=0 planK_no_HIJ=0 factMismatch>1=1 factY_no_VWX=1 emptyStrH=0
+week-29.05.2026.json rows=2971 planMismatch>1=0 planK_no_HIJ=0 factMismatch>1=0 factY_no_VWX=0 emptyStrH=0

@@ -1,5 +1,10 @@
 // ── Эвристическая диагностика источника расхождения СВОД↔расчёт по управлению.
 //    Извлечено move-only из pages/Recon.tsx (разрез E11-4).
+//
+//    Тексты читает человек за пультом, поэтому колонки называются по-русски
+//    («колонка даты заключения»), а не буквой листа, и латиницы в них нет:
+//    буква колонки допустима только как часть адреса ячейки (правило
+//    §1 плана к запуску, оно же канон product-dictionary §6.3).
 
 import type { ReconDeptRow } from './types';
 import { fmtNum, fmtPct } from './format';
@@ -24,7 +29,7 @@ export function diagnoseDelta(row: ReconDeptRow): DeltaDiagnosis {
   if (fAbs > 50 && row.fullFactCalculated > row.fullFactOfficial * 1.5) {
     return {
       source: 'Детекция факта',
-      detail: `Расчёт определяет значительно больше фактов (${fmtNum(row.fullFactCalculated)}) чем СВОД (${fmtNum(row.fullFactOfficial)}). Причина: алгоритм классификации строк (col Q — дата факта) может отличаться от формулы COUNTIFS в СВОД.`,
+      detail: `Расчёт видит заметно больше заключённых контрактов (${fmtNum(row.fullFactCalculated)}), чем лист СВОД (${fmtNum(row.fullFactOfficial)}). Вероятная причина: продукт и формулы листа по-разному читают колонку даты заключения — например, заглушка «Х» или дата будущего периода.`,
       severity: 'error',
     };
   }
@@ -33,7 +38,7 @@ export function diagnoseDelta(row: ReconDeptRow): DeltaDiagnosis {
   if (pAbs > 10) {
     return {
       source: 'Классификация строк',
-      detail: `Расчёт по строкам даёт ${fmtNum(row.fullPlanCalculated)} vs СВОД ${fmtNum(row.fullPlanOfficial)} (Δ ${fmtPct(pAbs)}). Вероятная причина: различие в фильтрации строк по методу (col L) или score-порогу классификации.`,
+      detail: `Расчёт по строкам даёт ${fmtNum(row.fullPlanCalculated)}, лист СВОД — ${fmtNum(row.fullPlanOfficial)} (расхождение ${fmtPct(pAbs)}). Вероятная причина: строки по-разному распределяются по способу закупки — пустой или нераспознанный способ попадает в конкурентные у одной стороны и никуда у другой.`,
       severity: 'error',
     };
   }
@@ -42,7 +47,7 @@ export function diagnoseDelta(row: ReconDeptRow): DeltaDiagnosis {
   if (pAbs < 5 && fAbs > 5) {
     return {
       source: 'Факт-классификация',
-      detail: `План близок (Δ ${fmtPct(pAbs)}), но факт расходится (Δ ${fmtPct(fAbs)}). Проверьте: col Q (дата факта) заполнена корректно, формула СВОД использует правильный диапазон.`,
+      detail: `План почти сходится (расхождение ${fmtPct(pAbs)}), а факт расходится (${fmtPct(fAbs)}). Что проверить: заполнена ли дата заключения у спорных строк и не выходит ли диапазон формулы листа за пределы данных.`,
       severity: 'warn',
     };
   }
@@ -51,7 +56,7 @@ export function diagnoseDelta(row: ReconDeptRow): DeltaDiagnosis {
   if (eAbs > 10 && Math.abs(row.ecoDelta) > 100) {
     return {
       source: 'Расчёт экономии',
-      detail: `Экономия: СВОД ${fmtNum(row.ecoTotalOfficial)} vs расчёт ${fmtNum(row.ecoTotalCalculated)}. Проверьте col Z-AC (экономия) и формулу SUMIFS в СВОД.`,
+      detail: `Экономия: лист СВОД — ${fmtNum(row.ecoTotalOfficial)}, расчёт — ${fmtNum(row.ecoTotalCalculated)}. Что проверить: суммы экономии по бюджетам в книге управления и отметку утверждения — лист считает только утверждённую экономию.`,
       severity: 'warn',
     };
   }
@@ -60,14 +65,14 @@ export function diagnoseDelta(row: ReconDeptRow): DeltaDiagnosis {
   if (pAbs < 5 && fAbs < 5) {
     return {
       source: 'Округление / граничные строки',
-      detail: `Допустимое расхождение: план Δ ${fmtPct(pAbs)}, факт Δ ${fmtPct(fAbs)}. Вероятно 1-2 граничные строки по-разному классифицируются.`,
+      detail: `Расхождение в пределах допустимого: план ${fmtPct(pAbs)}, факт ${fmtPct(fAbs)}. Скорее всего одна-две пограничные строки отнесены по-разному.`,
       severity: 'info',
     };
   }
 
   return {
     source: 'Комплексное расхождение',
-    detail: `Расходятся и план (Δ ${fmtPct(pAbs)}) и факт (Δ ${fmtPct(fAbs)}). Требуется ручная проверка формул СВОД и состава строк в листе управления.`,
+    detail: `Расходятся и план (${fmtPct(pAbs)}), и факт (${fmtPct(fAbs)}). Нужна ручная проверка: формулы листа СВОД и состав строк в книге управления.`,
     severity: 'error',
   };
 }

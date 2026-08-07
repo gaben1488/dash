@@ -740,10 +740,13 @@ export const useStore = create<AppState>((set, get) => ({
         isDemo: isDemoData(data),
       });
     } catch (err) {
+      // humanizeRequestError уже отдаёт законченную русскую фразу с действием.
+      // Приставка через точку, а не через двоеточие: иначе в плашке шапки
+      // выходило два двоеточия подряд («Не удалось…: Нет связи…: проверьте…»).
       const msg = humanizeRequestError(err);
       set({
         loading: false,
-        error: `Не удалось загрузить данные: ${msg}`,
+        error: `Данные не загружены. ${msg}`,
       });
     }
   },
@@ -770,7 +773,7 @@ export const useStore = create<AppState>((set, get) => ({
       const msg = humanizeRequestError(err);
       set({
         loading: false,
-        error: `Не удалось обновить: ${msg}`,
+        error: `Обновление не выполнено, на экране прежние числа. ${msg}`,
         refreshResult: { sources: [], loading: false },
       });
     }
@@ -792,7 +795,7 @@ export const useStore = create<AppState>((set, get) => ({
       const msg = humanizeRequestError(err);
       set({
         loading: false,
-        error: `Не удалось обновить: ${msg}`,
+        error: `Обновление не выполнено, на экране прежние числа. ${msg}`,
       });
     }
   },

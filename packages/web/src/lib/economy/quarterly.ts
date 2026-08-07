@@ -30,8 +30,12 @@ export interface QuarterTrendPoint {
   name: string;
   /** Экономия (бюджет-фильтр применён). */
   economy: number;
-  /** % снижения = экономия/план; 0 при нулевом плане. Не округлён. */
-  pct: number;
+  /**
+   * Доля экономии = экономия ÷ лимит квартала × 100, не округлена.
+   * `null` — лимита в квартале нет: на линии графика это разрыв, а не ноль
+   * (ноль читался бы как «квартал сработал без экономии»).
+   */
+  pct: number | null;
   /** Компоненты экономии по бюджетам — всегда полные (для стеков ФБ/КБ/МБ). */
   fb: number;
   kb: number;
@@ -55,7 +59,7 @@ export function buildQuarterlyTrend(
     return {
       name: quarterLabel(Number(qk.slice(1))),
       economy,
-      pct: plan > 0 ? (economy / plan) * 100 : 0,
+      pct: plan > 0 ? (economy / plan) * 100 : null,
       fb, kb, mb,
     };
   });
@@ -66,9 +70,12 @@ export function economySpark(trend: QuarterTrendPoint[]): number[] {
   return trend.map(t => t.economy);
 }
 
-/** Спарклайн % снижения по кварталам, округлён до 0.1 (hero-метрика «Снижение»). */
-export function pctSpark(trend: QuarterTrendPoint[]): number[] {
-  return trend.map(t => +t.pct.toFixed(1));
+/**
+ * Спарклайн доли экономии по кварталам, округлён до 0,1.
+ * Кварталы без лимита остаются `null` — спарклайн рвётся, а не проседает в ноль.
+ */
+export function pctSpark(trend: QuarterTrendPoint[]): Array<number | null> {
+  return trend.map(t => (t.pct === null ? null : +t.pct.toFixed(1)));
 }
 
 /** Цвета оверлей-линий ГРБС на квартальном тренде. */
@@ -99,7 +106,7 @@ export function buildPerDeptQuarterly(
 
 /** Точка тренда, дополненная полями-линиями отдельных ГРБС (для recharts). */
 export interface TrendChartPoint extends QuarterTrendPoint {
-  [key: string]: number | string;
+  [key: string]: number | string | null;
 }
 
 /** Точки тренда с дописанными полями-линиями отдельных ГРБС. */
@@ -132,18 +139,25 @@ export function buildDeptSparks(
 /** Дельты hero-метрик: последний ненулевой квартал против предыдущего. */
 export interface QuarterDeltas {
   economy: number;
-  pct: number;
-  /** '2 кв vs 1 кв'; пусто, когда предыдущего квартала нет. */
+  /** Разница долей; `null`, когда хотя бы у одного из кварталов лимита нет. */
+  pct: number | null;
+  /** «2 кв к 1 кв»; пусто, когда предыдущего квартала нет. */
   label: string;
 }
 
-export function quarterDeltas(economyByQ: number[], pctByQ: number[]): QuarterDeltas {
+export function quarterDeltas(
+  economyByQ: number[],
+  pctByQ: Array<number | null>,
+): QuarterDeltas {
   const lastQ = economyByQ.reduce((last, v, i) => (v !== 0 ? i : last), -1);
   const prevQ = lastQ > 0 ? lastQ - 1 : -1;
-  if (prevQ < 0) return { economy: 0, pct: 0, label: '' };
+  if (prevQ < 0) return { economy: 0, pct: null, label: '' };
+  const last = pctByQ[lastQ];
+  const prev = pctByQ[prevQ];
   return {
     economy: economyByQ[lastQ] - economyByQ[prevQ],
-    pct: pctByQ[lastQ] - pctByQ[prevQ],
+    // Разность с неизвестным — неизвестна. Подстановка нуля соврала бы «без изменений».
+    pct: last === null || prev === null ? null : last - prev,
     label: `${quarterLabel(lastQ + 1)} к ${quarterLabel(prevQ + 1)}`,
   };
 }

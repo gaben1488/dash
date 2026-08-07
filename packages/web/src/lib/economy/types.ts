@@ -39,8 +39,12 @@ export interface SubEconomy {
   planTotal: number;
   factTotal: number;
   economy: number;
-  /** % экономии от плана; 0 при нулевом плане. */
-  pct: number;
+  /**
+   * Доля экономии от лимита, %. `null` — лимита нет, доля не определена.
+   * Ноль здесь был бы враньём: «0 %» читается как «не сэкономили», тогда как
+   * на деле не от чего считать (канон: нулевой знаменатель — не ноль).
+   */
+  pct: number | null;
   budget: BudgetData;
 }
 
@@ -56,7 +60,8 @@ export interface DeptEconomy {
   economy: number;
   /** Официальный годовой итог СВОД (без фильтров) — для колонки «СВОД» в CSV. */
   economyOfficial: number | null;
-  pct: number;
+  /** Доля экономии от лимита, %. `null` — лимита нет (см. SubEconomy.pct). */
+  pct: number | null;
   /** pct > HIGH_ECONOMY_PCT — маркер антидемпинговой проверки. */
   highEconomy: boolean;
   /** Расхождения флага экономии УФБП/ГРБС. */
@@ -66,6 +71,12 @@ export interface DeptEconomy {
   subordinates: SubEconomy[];
   /** Реальное число подведов (без ORG_ITSELF). */
   realSubCount: number;
+  /**
+   * Включён режим «только само управление»: подведы намеренно НЕ строились.
+   * Без этого флага пустой список читался бы как «подведов нет» — а они есть,
+   * просто исключены фильтром. Интерфейс обязан назвать причину пустоты.
+   */
+  deptOnly: boolean;
 }
 
 /** Подвед в плоском списке «все подведы» с привязкой к своему ГРБС. */

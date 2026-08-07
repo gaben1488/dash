@@ -56,17 +56,65 @@ function httpErrorPhrase(status: number): string {
 }
 
 /**
+ * Отказ, на который сервер всё-таки ОТВЕТИЛ (пришёл код состояния).
+ *
+ * Отдельный класс нужен не для красоты типов: страницам приходится отличать
+ * «сервер жив, но отказал» от «сервера нет вовсе» — например, вкладка
+ * «Подключение» на этом различии рисует «Сервер работает, доступ настроен не
+ * полностью» против «Сервер не запущен». Раньше это различие ловили строкой
+ * `String(e).includes('API error')`; текст ошибки стал русским, проверка
+ * замолчала — и живой ненастроенный сервер отображался как выключенный.
+ * Признак состояния должен быть полем, а не подстрокой сообщения.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    // Текст ошибки видит пользователь в красной плашке шапки — он русский
+    // и объясняет ситуацию, а не пересказывает протокол. Код и тело
+    // остаются в скобках: без них не отличить «нет прав» от «сервер лёг».
+    super(`${httpErrorPhrase(status)} (код ${status}${body ? `: ${body.slice(0, 120)}` : ''})`);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/**
+ * Ответ сервера не совпал с объявленным контрактом (zod-схема из @aemr/shared).
+ * Читателю это ничего не говорит, поэтому наружу идёт русская фраза с
+ * действием, а перечень расхождений — технической припиской в скобках.
+ */
+export class ApiContractError extends Error {
+  readonly url: string;
+  readonly issues: string;
+
+  constructor(url: string, issues: string) {
+    super(`Сервер вернул данные в непонятном виде — обновите страницу, и если повторится, сообщите разработчику (${url}: ${issues})`);
+    this.name = 'ApiContractError';
+    this.url = url;
+    this.issues = issues;
+  }
+}
+
+/**
  * Человеческий текст любой ошибки запроса для плашки в шапке. Ловит и
  * браузерные сетевые отказы («Failed to fetch» при офлайне или упавшем
  * сервере) — их текст задаёт движок, и по-русски он не бывает.
  */
 export function humanizeRequestError(err: unknown): string {
+  // Сообщения ApiError/ApiContractError уже собраны по-русски — не трогаем.
+  if (err instanceof ApiError || err instanceof ApiContractError) return err.message;
   const raw = err instanceof Error ? err.message : String(err);
   if (/failed to fetch|networkerror|load failed|ERR_NETWORK|ERR_CONNECTION/i.test(raw)) {
     return 'Нет связи с сервером данных: проверьте подключение или дождитесь перезапуска сервера';
   }
   if (/aborted|timeout/i.test(raw)) return 'Сервер не ответил вовремя — повторите запрос';
-  return raw;
+  // Сюда попадает текст движка — он английский. Оборачиваем русской рамкой,
+  // чтобы читатель хотя бы понимал, что случилось, а подробность оставляем
+  // разработчику мелким шрифтом в скобках (правило зоны: без сырых строк).
+  return `Непредвиденная ошибка при обращении к серверу (${raw})`;
 }
 
 export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -86,10 +134,7 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
   });
   if (!res.ok) {
     const body = await res.text();
-    // Текст ошибки видит пользователь в красной плашке шапки — он русский
-    // и объясняет ситуацию, а не пересказывает протокол. Код и тело
-    // остаются в скобках: без них не отличить «нет прав» от «сервер лёг».
-    throw new Error(`${httpErrorPhrase(res.status)} (код ${res.status}${body ? `: ${body.slice(0, 120)}` : ''})`);
+    throw new ApiError(res.status, body);
   }
   return res.json() as Promise<T>;
 }
@@ -105,9 +150,9 @@ export async function fetchParsed<T>(url: string, schema: ParseSchema<T>, init?:
   if (!result.success) {
     const brief = result.error.issues
       .slice(0, 5)
-      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .map((i) => `${i.path.join('.') || 'корень ответа'}: ${i.message}`)
       .join('; ');
-    throw new Error(`API contract violation at ${url}: ${brief}`);
+    throw new ApiContractError(url, brief);
   }
   // Возвращаем исходный json, а не result.data: strip-режим zod вырезал бы
   // незадекларированные поля, на которые ещё опираются страницы.

@@ -94,10 +94,22 @@ describe('buildDeptEconomy', () => {
     expect(school.budget.economyFB).toBe(50);
   });
 
-  it('deptOnly-режим: подведы не строятся вовсе', () => {
+  it('deptOnly-режим: подведы не строятся вовсе и это помечено флагом', () => {
     const [d] = buildDeptEconomy({ summaries: [uer()], periodKey: 'year', budgets: noFilter, deptOnlyMode: new Set(['УЭР']) });
     expect(d.subordinates).toEqual([]);
     expect(d.realSubCount).toBe(0);
+    // Флаг отличает «подведов нет» от «подведы скрыты фильтром».
+    expect(d.deptOnly).toBe(true);
+    expect(buildDeptEconomy({ summaries: [uer()], periodKey: 'year', budgets: noFilter, deptOnlyMode: none })[0].deptOnly).toBe(false);
+  });
+
+  it('нет лимита → доля null, а не ноль (нулевой знаменатель — не ноль)', () => {
+    const s = uer({ planTotal: 0, economyTotal: 40, quarters: { year: { planTotal: 0, factTotal: 0, economyTotal: 40 } } });
+    const [d] = buildDeptEconomy({ summaries: [s], periodKey: 'year', budgets: noFilter, deptOnlyMode: none });
+    expect(d.limit).toBe(0);
+    expect(d.economy).toBe(40);
+    expect(d.pct).toBeNull();
+    expect(d.highEconomy).toBe(false); // без доли порог 25 % неприменим
   });
 
   it('конфликты: economyConflicts → signalCounts.economyConflict → 0', () => {
@@ -143,6 +155,19 @@ describe('sortDeptEconomy', () => {
     expect(sortDeptEconomy(rows(), 'conflicts', 'desc')[0].dept).toBe('АГЗ');
     expect(sortDeptEconomy(rows(), 'subCount', 'desc')[0].dept).toBe('УЭР');
   });
+
+  it('строки без доли уходят вниз в обе стороны', () => {
+    const noPlan = summary({
+      department: { nameShort: 'БЕЗПЛАНА', id: 'np' },
+      planTotal: 0, factTotal: 0, economyTotal: 5,
+      quarters: {}, subordinates: [],
+    });
+    const input = buildDeptEconomy({
+      summaries: [noPlan, ...([uer()])], periodKey: 'year', budgets: noFilter, deptOnlyMode: none,
+    });
+    expect(sortDeptEconomy(input, 'pct', 'desc').at(-1)!.dept).toBe('БЕЗПЛАНА');
+    expect(sortDeptEconomy(input, 'pct', 'asc').at(-1)!.dept).toBe('БЕЗПЛАНА');
+  });
 });
 
 describe('flattenSubordinates', () => {
@@ -155,12 +180,14 @@ describe('flattenSubordinates', () => {
 });
 
 describe('computeEconomyTotals', () => {
-  it('пустой набор → нули', () => {
+  it('пустой набор → нули по суммам и «нет значения» по долям', () => {
     const t = computeEconomyTotals([]);
     expect(t.economy).toBe(0);
-    expect(t.avgPct).toBe(0);
-    expect(t.pctMin).toBe(0);
-    expect(t.pctMax).toBe(0);
+    expect(t.share).toBeNull();
+    expect(t.avgPct).toBeNull();
+    expect(t.pctMin).toBeNull();
+    expect(t.pctMax).toBeNull();
+    expect(t.ratedCount).toBe(0);
   });
 
   it('агрегаты по набору', () => {
@@ -169,14 +196,48 @@ describe('computeEconomyTotals', () => {
     expect(t.plan).toBe(1500);
     expect(t.fact).toBe(1380);
     expect(t.avgPct).toBeCloseTo((10 + 4) / 2);
+    expect(t.ratedCount).toBe(2);
     expect(t.pctMin).toBe(4);
     expect(t.pctMax).toBe(10);
     expect(t.highCount).toBe(0);
     expect(t.conflicts).toBe(2);
     expect(t.subCount).toBe(2);
+    expect(t.deptOnlyCount).toBe(0);
     expect(t.fbEco).toBe(60);
     expect(t.kbEco).toBe(30);
     expect(t.mbEco).toBe(10);
+  });
+
+  it('доля района взвешена объёмом и НЕ равна среднему по управлениям', () => {
+    // Крупное управление сэкономило 10 % от 1000, мелкое — 4 % от 500.
+    // Доля района = 120/1500 = 8 %, среднее по управлениям = 7 %.
+    // Пока это разные числа, подписывать среднее «долей района» нельзя.
+    const t = computeEconomyTotals(rows());
+    expect(t.share).toBeCloseTo(8);
+    expect(t.avgPct).toBeCloseTo(7);
+    expect(t.share).not.toBeCloseTo(t.avgPct!);
+  });
+
+  it('управления без лимита не попадают в среднее и не обнуляют его', () => {
+    const noPlan = summary({
+      department: { nameShort: 'БЕЗПЛАНА', id: 'np' },
+      planTotal: 0, factTotal: 0, economyTotal: 0,
+      quarters: {}, subordinates: [],
+    });
+    const t = computeEconomyTotals(buildDeptEconomy({
+      summaries: [uer(), noPlan], periodKey: 'year', budgets: noFilter, deptOnlyMode: none,
+    }));
+    expect(t.ratedCount).toBe(1);
+    expect(t.avgPct).toBeCloseTo(10);
+    expect(t.pctMin).toBe(10);
+  });
+
+  it('считает управления в режиме «только само управление»', () => {
+    const t = computeEconomyTotals(buildDeptEconomy({
+      summaries: [uer()], periodKey: 'year', budgets: noFilter, deptOnlyMode: new Set(['УЭР']),
+    }));
+    expect(t.deptOnlyCount).toBe(1);
+    expect(t.subCount).toBe(0);
   });
 });
 

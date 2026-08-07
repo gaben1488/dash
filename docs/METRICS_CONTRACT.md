@@ -6,7 +6,13 @@ This document is the contract from Google Sheet cells to dashboard numbers. If c
 
 ## Rule
 
-- `amount_deviation` is `plan_total - fact_total`.
+- `amount_deviation` is `fact_total - plan_total` — the sign of the source
+  sheet (`СВОД ТД-ПМ` column `P`), where under-execution is negative.
+  Corrected 2026-08-08: this file previously stated the opposite order while
+  the engine (`calc-engine.ts`, `STANDARD_DERIVED`) and its guard test
+  (`exec-count-pct.test.ts`, expects −550) had always followed the sheet.
+  A delta whose sign disagrees with the source sheet reads as growth where
+  there is a shortfall, so the sheet's direction wins for every delta metric.
 - `savings_pct` is a legacy key for `СВОД ТД-ПМ` column `Q`: `fact_total / plan_total` ("Потрачено, %"). It is not savings/economy.
 - `economy_total` is approved economy from columns `Z + AA + AB` only when the row has `fact_date` and `AD = "да"`.
 - The UI must not call `amount_deviation` economy. Economy cards and economy percentages must use `economy_total`.
@@ -43,7 +49,7 @@ Production row-level calculations use department workbooks. The same layout is m
 | План, сумма | `H/I/J/K` | none beyond data row | `SUM(K)` or `SUM(H+I+J)` if total is absent | `plan_total` | `planTotal`, `totalPlan` | Plan/fact charts, RatingTable |
 | Факт, сумма | `V/W/X/Y` | `Q` not empty | `SUM(Y)` or `SUM(V+W+X)` | `fact_total` | `factTotal`, `totalFact` | Plan/fact charts |
 | Исполнение, сумма | `plan_total`, `fact_total` | denominator > 0 | `fact_total / plan_total` | `execution_pct` | `executionPct` | Secondary execution value |
-| Отклонение, сумма | `plan_total`, `fact_total` | none | `plan_total - fact_total` | `amount_deviation` | calculated metric only | Diagnostics, not economy |
+| Отклонение, сумма | `plan_total`, `fact_total` | none | `fact_total - plan_total` (sheet sign, column `P`) | `amount_deviation` | calculated metric only | Diagnostics, not economy |
 | Потрачено, % | `plan_total`, `fact_total` | denominator > 0 | `fact_total / plan_total` | `savings_pct` legacy key for SVOD `Q` | official metrics | Svod/Reconciliation; not economy |
 | Экономия ФБ/КБ/МБ | `Z/AA/AB` | `Q` not empty and `AD="да"` | `SUM(Z)`, `SUM(AA)`, `SUM(AB)` | `economy_fb`, `economy_kb`, `economy_mb` | `economyFB`, `economyKB`, `economyMB` | Economy page, budget slices |
 | Экономия итого | `Z/AA/AB` | `Q` not empty and `AD="да"` | `economy_fb + economy_kb + economy_mb` | `economy_total` | `economyTotal`, `totalEconomy` | Economy KPI, SvodView |
@@ -98,7 +104,7 @@ Result:
 | `exec_count_pct` | `2 / 3` | `66.7%` |
 | `plan_total` | `1000 + 500 + 200` | 1700 |
 | `fact_total` | `700 + 450` | 1150 |
-| `amount_deviation` | `1700 - 1150` | 550 |
+| `amount_deviation` | `1150 - 1700` (sheet sign) | −550 |
 | `savings_pct` | legacy SVOD `Q`: `1150 / 1700` | `67.6%` |
 | `economy_total` | only row 1 has `Q` and `AD="да"`: `35` | 35 |
 | `economy_rate` | `35 / 1700` | `2.1%` |
@@ -108,7 +114,9 @@ Result:
 | `ep_fact_count` | row 2 | 1 |
 | `ep_share_pct` | `1 / (2 + 1)` | `33.3%` |
 
-The critical distinction is visible here: `amount_deviation = 550`, legacy `savings_pct = 67.6%` spent, but approved `economy_total = 35`.
+The critical distinction is visible here: `amount_deviation = −550` (550 of the
+plan not yet contracted, negative because the sheet subtracts plan from fact),
+legacy `savings_pct = 67.6%` spent, but approved `economy_total = 35`.
 
 ## Implementation References
 

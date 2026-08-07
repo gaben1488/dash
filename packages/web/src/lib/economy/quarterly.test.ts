@@ -20,11 +20,12 @@ const q = (planTotal: number, economyTotal: number, extras: Record<string, numbe
   ({ planTotal, economyTotal, ...extras });
 
 describe('buildQuarterlyTrend', () => {
-  it('всегда четыре точки 1 кв..4 кв; отсутствующие кварталы — нули', () => {
+  it('всегда четыре точки 1 кв..4 кв; квартал без лимита — доля null, а не ноль', () => {
     const trend = buildQuarterlyTrend([dept('УЭР', { q1: q(1000, 100, { economyFB: 60, economyKB: 30, economyMB: 10 }) })], noFilter);
     expect(trend.map(t => t.name)).toEqual(['1 кв', '2 кв', '3 кв', '4 кв']);
     expect(trend[0]).toEqual({ name: '1 кв', economy: 100, pct: 10, fb: 60, kb: 30, mb: 10 });
-    expect(trend[3]).toEqual({ name: '4 кв', economy: 0, pct: 0, fb: 0, kb: 0, mb: 0 });
+    // Ноль читался бы как «квартал сработал без экономии»; здесь лимита нет вовсе.
+    expect(trend[3]).toEqual({ name: '4 кв', economy: 0, pct: null, fb: 0, kb: 0, mb: 0 });
   });
 
   it('суммирует по всем ГРБС набора', () => {
@@ -49,10 +50,10 @@ describe('buildQuarterlyTrend', () => {
 });
 
 describe('economySpark / pctSpark', () => {
-  it('деривятся из тренда; pct округлён до 0.1', () => {
+  it('деривятся из тренда; доля округлена до 0,1, кварталы без лимита — null', () => {
     const trend = buildQuarterlyTrend([dept('УЭР', { q1: q(300, 10) })], noFilter);
     expect(economySpark(trend)).toEqual([10, 0, 0, 0]);
-    expect(pctSpark(trend)).toEqual([3.3, 0, 0, 0]); // 10/300 = 3.333…
+    expect(pctSpark(trend)).toEqual([3.3, null, null, null]); // 10/300 = 3,333…
   });
 });
 
@@ -100,12 +101,17 @@ describe('buildDeptSparks', () => {
 
 describe('quarterDeltas', () => {
   it('последний ненулевой квартал против предыдущего', () => {
-    const d = quarterDeltas([10, 25, 40, 0], [1, 2.5, 4, 0]);
+    const d = quarterDeltas([10, 25, 40, 0], [1, 2.5, 4, null]);
     expect(d).toEqual({ economy: 15, pct: 1.5, label: '3 кв к 2 кв' });
   });
 
-  it('нет данных или только 1 кв — нулевые дельты без подписи', () => {
-    expect(quarterDeltas([0, 0, 0, 0], [0, 0, 0, 0])).toEqual({ economy: 0, pct: 0, label: '' });
-    expect(quarterDeltas([10, 0, 0, 0], [1, 0, 0, 0])).toEqual({ economy: 0, pct: 0, label: '' });
+  it('нет данных или только 1 кв — нулевая дельта суммы без подписи', () => {
+    expect(quarterDeltas([0, 0, 0, 0], [null, null, null, null])).toEqual({ economy: 0, pct: null, label: '' });
+    expect(quarterDeltas([10, 0, 0, 0], [1, null, null, null])).toEqual({ economy: 0, pct: null, label: '' });
+  });
+
+  it('доля неизвестна хотя бы в одном квартале → разница не выдумывается', () => {
+    // Ноль вместо null соврал бы «доля не изменилась».
+    expect(quarterDeltas([10, 25], [null, 4])).toEqual({ economy: 15, pct: null, label: '2 кв к 1 кв' });
   });
 });

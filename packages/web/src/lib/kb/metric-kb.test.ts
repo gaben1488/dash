@@ -29,8 +29,21 @@ describe('kbFor — null вместо пустого попапа', () => {
     expect(kbFor('__nonexistent__')).toBeNull();
   });
 
-  it('legacy-запись без человекочитаемых блоков (amount_deviation) → null', () => {
-    expect(kbFor('amount_deviation')).toBeNull();
+  // Записи без блока «откуда данные» попап не открывают: рассказывать о
+  // показателе, не умея назвать источник, — та же ложная уверенность, что и
+  // пустой попап. После закрытия Д13 (08.08) таких записей осталось две —
+  // ранг управления и его название: у них нет собственного источника, они
+  // производные от порядка сортировки и реестра.
+  it('запись без источника данных (dept_rank) → null', () => {
+    expect(kbFor('dept_rank')).toBeNull();
+  });
+
+  it('после Д13 у бывших legacy-записей попап живёт', () => {
+    // amount_deviation была главным примером «есть формула, нет объяснения».
+    const card = kbFor('amount_deviation');
+    expect(card).not.toBeNull();
+    expect(card!.what.length).toBeGreaterThan(20);
+    expect(card!.source.length).toBeGreaterThan(10);
   });
 
   it('метрики плиток отчёта покрыты полной БЗ — попап обязан жить', () => {

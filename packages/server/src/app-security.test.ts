@@ -135,16 +135,19 @@ describe('server security routes in production', () => {
       },
     });
 
+    // Проверяется инвариант безопасности (отказ до записи), а не дословная
+    // формулировка: тексты ошибок переписаны на человеческие в зоне «Серверные
+    // ответы», их страж — routes/route-messages.test.ts.
     expect(rangeField.statusCode).toBe(400);
-    expect(rangeField.json<{ error: string }>().error).toContain('Неизвестная колонка');
+    expect(rangeField.json<{ error: string }>().error).toContain('столбца');
     expect(invalidRow.statusCode).toBe(400);
-    expect(invalidRow.json<{ error: string }>().error).toContain('Некорректный номер строки');
+    expect(invalidRow.json<{ error: string }>().error).toContain('Номер строки');
     expect(batch.statusCode).toBe(200);
     expect(batch.json<{ results: Array<{ success: boolean; error?: string }> }>().results).toEqual([
-      expect.objectContaining({ success: false, error: expect.stringContaining('Неизвестная колонка') }),
+      expect.objectContaining({ success: false, error: expect.stringContaining('столбца') }),
       // Строка 1 — заголовок. Отклоняется тем же guard'ом границ (rowWriteError), что и запись
       // за пределами листа; сообщение теперь точное, а не слитное «колонка ... или строка ...».
-      expect.objectContaining({ success: false, error: expect.stringContaining('Некорректный номер строки') }),
+      expect.objectContaining({ success: false, error: expect.stringContaining('Номер строки') }),
     ]);
   });
 });

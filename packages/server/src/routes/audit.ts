@@ -1,29 +1,44 @@
 import type { FastifyInstance } from 'fastify';
 import type { Issue } from '@aemr/shared';
-import { getSnapshot, getSnapshotHistory } from '../services/snapshot.js';
+import { getSnapshot } from '../services/snapshot.js';
+
+/**
+ * Ответ, когда снимок данных не собрался.
+ *
+ * Снимок строится из живых книг: если они недоступны, getSnapshot бросает, и
+ * без перехвата Fastify отдавал англоязычный «Internal Server Error» со
+ * стектрейсом. Пользователю нужен код 503 (источник недоступен) и действие.
+ */
+const SNAPSHOT_UNAVAILABLE =
+  'Данные не собраны — книги закупок не прочитаны. Проверьте доступ к таблицам и обновите данные';
 
 export async function auditRoutes(app: FastifyInstance): Promise<void> {
 
   /* GET /api/issues moved to routes/issues.ts */
+  /* GET /api/history удалён: дубль /api/history/snapshots (routes/history.ts),
+     0 потребителей в вебе; поддержка ?limit перенесена туда. */
 
   /** GET /api/trust — скоринг доверия */
   app.get('/api/trust', async (_request, reply) => {
-    const snapshot = await getSnapshot();
+    let snapshot;
+    try {
+      snapshot = await getSnapshot();
+    } catch (err) {
+      app.log.error({ err }, 'trust: snapshot unavailable');
+      return reply.status(503).send({ error: SNAPSHOT_UNAVAILABLE });
+    }
     return reply.send(snapshot.trust);
-  });
-
-  /** GET /api/history — история снимков */
-  app.get('/api/history', async (request, reply) => {
-    const rawLimit = parseInt((request.query as Record<string, string>).limit ?? '50', 10);
-    // Guard: ?limit=abc -> NaN в drizzle; ?limit=1e9 -> unbounded. Clamp как в других роутах.
-    const limit = Number.isFinite(rawLimit) ? Math.min(500, Math.max(1, rawLimit)) : 50;
-    const history = getSnapshotHistory(limit);
-    return reply.send(history);
   });
 
   /** GET /api/export/audit — экспорт аудит-пакета (JSON) */
   app.get('/api/export/audit', async (_request, reply) => {
-    const snapshot = await getSnapshot();
+    let snapshot;
+    try {
+      snapshot = await getSnapshot();
+    } catch (err) {
+      app.log.error({ err }, 'export/audit: snapshot unavailable');
+      return reply.status(503).send({ error: SNAPSHOT_UNAVAILABLE });
+    }
     return reply
       .header('Content-Disposition', `attachment; filename="aemr-audit-${snapshot.id}.json"`)
       .header('Content-Type', 'application/json')
