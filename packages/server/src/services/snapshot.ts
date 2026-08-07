@@ -1,13 +1,14 @@
 import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow } from '@aemr/core';
-import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS } from '@aemr/shared';
+import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
 import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow } from '@aemr/shared';
+import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
 import { fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { SHDYU_SPREADSHEET_ID } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
-import { and, eq, desc, lt, sql } from 'drizzle-orm';
+import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
 import type { DeptSheetResult } from './google-sheets.js';
@@ -334,6 +335,122 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
 }
 
 /**
+ * Тип закупки по способу из колонки L. ЕП — единственный поставщик, ЭА/ЭК/ЭЗК —
+ * конкурентная процедура (канон семейств METHOD_FAMILY_MAP). Мусор оператора в
+ * L типом не притворяется: null честнее догадки, а SQL-фильтр по типу тогда
+ * честно не находит такую строку, вместо того чтобы приписать её к семейству.
+ */
+function procurementTypeOf(method: string): 'competitive' | 'single_provider' | null {
+  const code = method.trim().toUpperCase();
+  if ((METHOD_FAMILY_MAP.EP as readonly string[]).includes(code)) return 'single_provider';
+  if ((METHOD_FAMILY_MAP.COMPETITIVE as readonly string[]).includes(code)) return 'competitive';
+  return null;
+}
+
+/**
+ * Процент экономии одной строки. Нулевого (или нечислового) плана нет как
+ * знаменателя — отношение не существует и выдаётся как null, а не как ноль:
+ * ноль здесь читался бы «экономии не было», хотя её просто не от чего считать.
+ */
+function economyPercentOf(economy: number, plan: number): number | null {
+  if (!Number.isFinite(plan) || plan === 0) return null;
+  return (economy / plan) * 100;
+}
+
+/** Полностью пустая строка листа — добивка диапазона, а не атом. */
+function isBlankRow(row: unknown[]): boolean {
+  return row.every((cell) => String(cell ?? '').trim() === '');
+}
+
+/**
+ * Атом-запись `procurement_rows` для каждой строки книг ГРБС снимка.
+ *
+ * Семантика строки (сигналы, состояние, суммы, способ) берётся из
+ * ЕДИНСТВЕННОГО билдера `buildRowDto` — того же, которым живёт реестр
+ * `/api/rows`. Вторая семантика атома завела бы расхождение «SQL против
+ * реестра» на ровном месте (пирамида §4: одна свёртка — одно место).
+ *
+ * Служебные строки листа (итоги, разделы, шапки) не выбрасываются, а
+ * помечаются состоянием `non-data`: популяция таблицы остаётся точной копией
+ * листа, а потребитель отсекает служебное явным условием, а не догадкой о том,
+ * какие строки мы по дороге потеряли.
+ */
+export function buildProcurementRowValues(
+  snapshot: DataSnapshot,
+): Array<typeof schema.procurementRows.$inferInsert> {
+  const out: Array<typeof schema.procurementRows.$inferInsert> = [];
+  for (const [sheetName, rows] of Object.entries(snapshot.rowsByDept ?? {})) {
+    // Ось ГРБС в SQL — латинский id (как у issues.department_id): один язык
+    // ключа на всю базу. Лист, которого реестр ГРБС не знает, не выдумываем —
+    // кладём имя как есть, чтобы строки не пропали молча.
+    const departmentId = findDept(sheetName)?.latinId ?? sheetName;
+    rows.forEach((row, idx) => {
+      if (!Array.isArray(row) || isBlankRow(row)) return;
+      const dto = buildRowDto(row, idx, { deptId: departmentId });
+      const isData = isDataRow(dto);
+      out.push({
+        snapshotId: snapshot.id,
+        departmentId,
+        // 1-based номер строки листа (шапка в DEPT_HEADER_ROWS строк уже срезана
+        // в rowsByDept) — адрес, по которому правку видно в самой книге.
+        rowIndex: dto.rowIndex,
+        cellsJson: JSON.stringify(buildCellDict(row)),
+        // Активные сигналы строки; ложные не пишем — они восстановимы по канону
+        // сигналов, а в тысячах строк удваивали бы объём ничем.
+        signalsJson: JSON.stringify(dto.signals),
+        rowState: isData ? dto.state : 'non-data',
+        procurementType: isData ? procurementTypeOf(dto.method) : null,
+        subject: String(dto.subject ?? '').trim(),
+        planAmount: dto.planSum,
+        factAmount: dto.factSum,
+        economy: dto.economy,
+        economyPercent: economyPercentOf(dto.economy, dto.planSum),
+        createdAt: snapshot.createdAt,
+      });
+    });
+  }
+  return out;
+}
+
+/**
+ * Потолок связываемых параметров одного SQL-запроса. SQLite современных сборок
+ * держит 32 766, но исторический предел — 999; считаем по нижнему, чтобы размер
+ * пакета не стал сюрпризом на чужой сборке. Число колонок берётся из самой
+ * схемы, а не переписывается сюда руками: блок Е п.21 добавит колонки осей, и
+ * пакет ужмётся сам, вместо того чтобы разъехаться с таблицей.
+ */
+const MAX_BIND_PARAMS = 900;
+const ATOM_ROWS_PER_BATCH = Math.floor(
+  MAX_BIND_PARAMS / Object.keys(getTableColumns(schema.procurementRows)).length,
+);
+
+/**
+ * Кладёт строки-атомы снимка в `procurement_rows` — ОДНОЙ транзакцией
+ * пакетами: снимок несёт тысячи строк, и построчная вставка вне транзакции
+ * означала бы тысячи отдельных фиксаций на диск.
+ *
+ * Идемпотентна: сначала сносит уже записанные строки этого снимка. Своего
+ * бизнес-ключа у атома нет (пирамида §1: строка живёт без идентификатора,
+ * только с позицией на листе), поэтому единственный честный способ не удвоить
+ * популяцию при повторной записи — переписать её целиком.
+ *
+ * Возвращает число записанных строк. Снимок без `rowsByDept` (формат до
+ * 24.07.2026) даёт 0 и не падает.
+ */
+export function saveSnapshotRows(snapshot: DataSnapshot): number {
+  const values = buildProcurementRowValues(snapshot);
+  db.transaction((tx) => {
+    tx.delete(schema.procurementRows)
+      .where(eq(schema.procurementRows.snapshotId, snapshot.id))
+      .run();
+    for (let i = 0; i < values.length; i += ATOM_ROWS_PER_BATCH) {
+      tx.insert(schema.procurementRows).values(values.slice(i, i + ATOM_ROWS_PER_BATCH)).run();
+    }
+  });
+  return values.length;
+}
+
+/**
  * Сохраняет снимок в БД. Возвращает true, если снимок ЗАПИСАН, и false при
  * сбое: ошибка логируется, но не бросается (сохранение — побочный путь
  * createSnapshot и не должен ронять отдачу данных). Вызыватели, которым важен
@@ -389,9 +506,24 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
       }).run();
     }
 
+    // Строки-атомы в SQL (пирамида, блок Е п.20). До этого атомы жили только
+    // JSON-блобом внутри snapshots.data: ни колонки, ни индекса, ни группировки.
+    // Сбой записи атомов не отменяет уже сохранённый снимок и не должен
+    // отменять retention — поэтому он ловится здесь и произносится вслух
+    // (тот же приём, что у самого retention), а не роняет весь saveSnapshot.
+    try {
+      const savedRows = saveSnapshotRows(snapshot);
+      if (savedRows > 0) {
+        console.log(`🧱 Строки-атомы снимка ${snapshot.id}: записано ${savedRows}`);
+      }
+    } catch (error) {
+      console.error(`Строки-атомы снимка ${snapshot.id} не записаны (снимок сохранён):`, error);
+    }
+
     // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
     // неделя, еженедельные четверг-срезы — вся история; лишнее удаляется здесь
-    // же, а не ручной чисткой раздутой БД.
+    // же, а не ручной чисткой раздутой БД. Каскад удаления снимает и
+    // строки-атомы (snapshot-retention.ts: procurement_rows в транзакции).
     pruneSnapshotsByRetention();
     return true;
   } catch (error) {

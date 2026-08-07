@@ -152,7 +152,7 @@ export const procurementRows = sqliteTable('procurement_rows', {
   rowIndex: integer('row_index').notNull(),
   /** Нормализованные данные всех колонок (JSON: {A: ..., B: ..., ...AG: ...}) */
   cellsJson: text('cells_json').notNull(),
-  /** Сигналы строки (JSON: {signed: true, overdue: false, ...}) */
+  /** Активные сигналы строки (JSON-массив ключей: ["signed","overdue"]) */
   signalsJson: text('signals_json'),
   /** Итоговое состояние строки: signed | overdue | planning | ... */
   rowState: text('row_state'),
@@ -169,4 +169,36 @@ export const procurementRows = sqliteTable('procurement_rows', {
   /** % экономии */
   economyPercent: real('economy_percent'),
   createdAt: text('created_at').notNull(),
+});
+
+/**
+ * Журнал правок источника — вкладка «_ChangeLog» книг ГРБС, которую ведёт
+ * Apps Script: кто, когда и что поменял. Раньше он жил пятиминутным кэшем в
+ * памяти процесса и умирал вместе с ним; здесь история переживает рестарт и
+ * молчание книги (пирамида, блок Е п.23).
+ */
+export const changelogEntries = sqliteTable('changelog_entries', {
+  /**
+   * Устойчивый ключ записи: у правки источника нет собственного номера,
+   * поэтому опознаём её адресом — книга ГРБС, лист, ячейка, момент, автор.
+   * Журнал append-only, поэтому повторное чтение даёт тот же ключ и дублей
+   * не плодит.
+   */
+  id: text('id').primaryKey(),
+  /** Короткое имя ГРБС, чью книгу правили («УО»). */
+  dept: text('dept').notNull(),
+  /** Лист книги («ВСЕ»). */
+  sheet: text('sheet').notNull(),
+  /** Адрес ячейки как в книге («L178»). */
+  cell: text('cell').notNull(),
+  /** Название атрибута по живой шапке; пусто, если буква вне канона колонок. */
+  attribute: text('attribute'),
+  oldValue: text('old_value'),
+  newValue: text('new_value'),
+  /** Момент правки (мс эпохи) — из отметки времени журнала. */
+  atMs: integer('at_ms').notNull(),
+  /** Почта автора, как её записал источник. */
+  author: text('author'),
+  /** Когда запись прочитана нами: момент правки и момент чтения — не одно и то же. */
+  recordedAt: text('recorded_at').notNull(),
 });
