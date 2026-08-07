@@ -138,6 +138,14 @@ export interface GroupedResults {
   byQuarter: Map<string, Map<string, AccumulatedValue>>;
   /** By month (1-12). */
   byMonth: Map<number, Map<string, AccumulatedValue>>;
+  /**
+   * Год-квалифицированные кварталы: `${год}.q1..q4` + `${год}._orphan`;
+   * строки без валидного года плана — под `_noyear.*` (Фаза 2 оси времени).
+   * Существующие q1..q4 НЕ заменяет — добавлена рядом для мультигода.
+   */
+  byYearQuarter: Map<string, Map<string, AccumulatedValue>>;
+  /** Год-квалифицированные месяцы: `${год}.m1..m12`, `_noyear.m*` (Фаза 2). */
+  byYearMonth: Map<string, Map<string, AccumulatedValue>>;
   /** By method (competitive, ep). */
   byMethod: Map<string, Map<string, AccumulatedValue>>;
   /** By quarter × method (e.g., q1.competitive). */
@@ -431,12 +439,28 @@ export class CalcEngine {
        * (Пульт, Реестр и прочие «живые» виды).
        */
       asOfDay?: number;
+      /**
+       * Мультигодовой скоуп (Фаза 2): строка проходит, если её год плана
+       * входит в список (пустой год — по emptyYearPolicy). Задан вместе с
+       * targetYear — years побеждает. Пустой массив = фильтра нет.
+       */
+      years?: number[];
+      /**
+       * Политика строки без года плана (P пуст) при годовом фильтре:
+       * 'lenient' (дефолт, канон дашборда) — проходит; 'strict' — не
+       * проходит (сверка; эквивалент strictYear); 'bucket' — проходит, а в
+       * год-квалифицированных картах живёт под `_noyear` (честный остаток).
+       * В картах byYearQuarter/byYearMonth пустой год ВСЕГДА под `_noyear`.
+       */
+      emptyYearPolicy?: 'lenient' | 'strict' | 'bucket';
     },
   ): GroupedResults {
     const result: GroupedResults = {
       total: new Map(),
       byQuarter: new Map(),
       byMonth: new Map(),
+      byYearQuarter: new Map(),
+      byYearMonth: new Map(),
       byMethod: new Map(),
       byQuarterMethod: new Map(),
       bySubordinate: new Map(),
@@ -464,11 +488,18 @@ export class CalcEngine {
       if (!row) { result.droppedRows++; continue; }
       if (!filter(row)) { result.droppedRows++; continue; }
 
-      // Year filter
-      if (targetYear) {
-        const rowYear = num(row[COL.PLAN_YEAR]);
-        if (opts?.strictYear ? rowYear !== targetYear : (rowYear > 0 && rowYear !== targetYear)) continue;
+      // Year filter: мультигодовой скоуп years[] побеждает targetYear;
+      // policy обобщает strictYear (обратная совместимость сохранена).
+      const rowYear = num(row[COL.PLAN_YEAR]);
+      const yearPolicy = opts?.emptyYearPolicy ?? (opts?.strictYear ? 'strict' : 'lenient');
+      if (opts?.years && opts.years.length > 0) {
+        if (rowYear > 0 ? !opts.years.includes(rowYear) : yearPolicy === 'strict') continue;
+      } else if (targetYear) {
+        if (rowYear > 0 ? rowYear !== targetYear : yearPolicy === 'strict') continue;
       }
+      // Ключ года для год-квалифицированных карт: пустой год — честная
+      // корзина _noyear (адресуемый остаток, не потеря).
+      const yearBucket = rowYear > 0 ? String(rowYear) : '_noyear';
 
       result.rowCount++;
 
@@ -509,12 +540,21 @@ export class CalcEngine {
           this.accumulateInGroup(result.byQuarter, '_orphan', m.key, val, i);
         }
 
+        // Год-квалифицированные карты (Фаза 2): те же ключи кварталов и
+        // месяцев, но с префиксом года строки — фундамент мультигода.
+        if (quarter) {
+          this.accumulateInGroup(result.byYearQuarter, `${yearBucket}.${quarter}`, m.key, val, i);
+        } else if (hasFact) {
+          this.accumulateInGroup(result.byYearQuarter, `${yearBucket}._orphan`, m.key, val, i);
+        }
+
         // By year × activity (always accumulate for year-level activity breakdown)
         this.accumulateInGroup(result.byQuarterActivity, `year.${activity}`, m.key, val, i);
 
         // By month
         if (month) {
           this.accumulateInMonthGroup(result.byMonth, month, m.key, val, i);
+          this.accumulateInGroup(result.byYearMonth, `${yearBucket}.m${month}`, m.key, val, i);
           // By month × method (adapter reads as `m${month}.competitive` etc.)
           if (method) {
             this.accumulateInGroup(result.byQuarterMethod, `m${month}.${method}`, m.key, val, i);
@@ -580,6 +620,8 @@ export class CalcEngine {
     this.computeDerived(result.total);
     for (const group of result.byQuarter.values()) this.computeDerived(group);
     for (const group of result.byMonth.values()) this.computeDerived(group);
+    for (const group of result.byYearQuarter.values()) this.computeDerived(group);
+    for (const group of result.byYearMonth.values()) this.computeDerived(group);
     for (const group of result.byMethod.values()) this.computeDerived(group);
     for (const group of result.byQuarterMethod.values()) this.computeDerived(group);
     for (const group of result.bySubordinate.values()) this.computeDerived(group);
@@ -850,6 +892,65 @@ export function sliceResults(
   }
 
   // Производные — заново по слитым базам (единый вычислитель с compute()).
+  for (const d of STANDARD_DERIVED) {
+    const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
+    result.set(d.key, { value: val, contributingRows: [] });
+  }
+
+  return result;
+}
+
+/**
+ * Срез по дизъюнктным ключам периода (Фаза 2 оси времени): единственный
+ * потребитель `resolveTimeSelection(...).keys` из @aemr/shared.
+ *
+ * Свёртка ключей:
+ *  - month  → byYearMonth `${год}.m${месяц}`;
+ *  - quarter → byYearQuarter `${год}.q${квартал}`;
+ *  - year   → Σ четырёх кварталов года (канон печатного года, правила
+ *    счёта §2) + `${год}._orphan` ТОЛЬКО при opts.includeOrphan (Пульт
+ *    «всё, что реально произошло»; факт без квартала помечен сигналом
+ *    factQuarterMissing).
+ *
+ * Дизъюнктность ключей гарантирует резолвер — здесь без двойного счёта по
+ * построению. Производные пересчитываются из слитых базовых аккумуляторов.
+ */
+export function slicePeriods(
+  grouped: GroupedResults,
+  keys: readonly import('@aemr/shared').PeriodKey[],
+  opts?: { includeOrphan?: boolean },
+): Map<string, AccumulatedValue> {
+  const result = new Map<string, AccumulatedValue>();
+
+  function merge(source: Map<string, AccumulatedValue> | undefined): void {
+    if (!source) return;
+    for (const [key, acc] of source) {
+      if (STANDARD_DERIVED_KEYS.has(key)) continue;
+      const existing = result.get(key);
+      if (existing) {
+        existing.value += acc.value;
+        existing.contributingRows.push(...acc.contributingRows);
+      } else {
+        result.set(key, { value: acc.value, contributingRows: [...acc.contributingRows] });
+      }
+    }
+  }
+
+  for (const k of keys) {
+    if (k.kind === 'month') {
+      merge(grouped.byYearMonth.get(`${k.year}.m${k.month}`));
+    } else if (k.kind === 'quarter') {
+      merge(grouped.byYearQuarter.get(`${k.year}.q${k.quarter}`));
+    } else {
+      for (const q of [1, 2, 3, 4]) {
+        merge(grouped.byYearQuarter.get(`${k.year}.q${q}`));
+      }
+      if (opts?.includeOrphan) {
+        merge(grouped.byYearQuarter.get(`${k.year}._orphan`));
+      }
+    }
+  }
+
   for (const d of STANDARD_DERIVED) {
     const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
     result.set(d.key, { value: val, contributingRows: [] });
