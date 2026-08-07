@@ -442,6 +442,9 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
   const perSheetRowCount: Record<string, number> = {};
   const calculatedMetrics = new Map<string, NormalizedMetric>();
   const recalcResults: Record<string, RecalculatedMetrics> = {};
+  // Сигналы строк по ГРБС — один прогон detectSignals на лист (блок А п.3),
+  // переиспользуются в dataset-анализе 4b.
+  const sheetSignalsByDept: Record<string, ReturnType<typeof detectSheetSignals>> = {};
   const engine = new CalcEngine();
 
   for (const [sheetName, rows] of Object.entries(input.sheetRows)) {
@@ -457,7 +460,11 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
 
     // Signal detection + CalcEngine only for department sheets (СВОД has different column layout)
     if (sheetName !== SVOD_SHEET_NAME) {
-      const signalIssues = detectSignalsToIssues(sheetName, rows as unknown[][], deptId);
+      // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
+      // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
+      const sheetSignals = detectSheetSignals(rows as unknown[][]);
+      sheetSignalsByDept[deptId] = sheetSignals;
+      const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
 
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
@@ -492,17 +499,13 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     const recalc = recalcResults[deptId];
     if (!recalc) continue;
 
-    // Collect per-row signals for this sheet
+    // Сигналы строк уже собраны в основном цикле (detectSheetSignals) —
+    // здесь только проекция Map<row, signals> без второго прогона.
     const rowSignals = new Map<number, RowSignals>();
-    const sheetRows = rows as unknown[][];
-    for (let r = DEPT_HEADER_ROWS; r < sheetRows.length; r++) {
-      const row = sheetRows[r];
-      if (!row || row.length < 5) continue;
-      const cells = buildCellDict(row);
-      try {
-        rowSignals.set(r, detectSignals(cells));
-      } catch { /* skip unparseable rows */ }
+    for (const [r, v] of sheetSignalsByDept[deptId] ?? new Map()) {
+      rowSignals.set(r, v.signals);
     }
+    const sheetRows = rows as unknown[][];
 
     datasetAnalyses[deptId] = analyzeDataset({
       rows: sheetRows,
@@ -581,31 +584,43 @@ const SIGNAL_ISSUE_MAP: Record<string, {
   return map;
 })();
 
-function detectSignalsToIssues(sheetName: string, rows: unknown[][], deptId: string): Issue[] {
+/**
+ * Один прогон detectSignals на лист (блок А п.3 пирамиды): раньше сигналы
+ * считались дважды — здесь для замечаний и второй раз в 4b для
+ * dataset-анализа. Семантика сбора — как у 4b (все парсабельные строки);
+ * фильтр мета-/пустых строк остаётся на стороне замечаний.
+ */
+function detectSheetSignals(
+  rows: unknown[][],
+): Map<number, { cells: Record<string, unknown>; signals: RowSignals }> {
+  const out = new Map<number, { cells: Record<string, unknown>; signals: RowSignals }>();
+  for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
+    const row = rows[r] as unknown[];
+    if (!row || row.length < 5) continue;
+    const cells = buildCellDict(row);
+    try {
+      out.set(r, { cells, signals: detectSignals(cells) });
+    } catch { /* skip unparseable rows */ }
+  }
+  return out;
+}
+
+function detectSignalsToIssues(
+  sheetName: string,
+  sheetSignals: Map<number, { cells: Record<string, unknown>; signals: RowSignals }>,
+  deptId: string,
+): Issue[] {
   const signalOcc = new Map<string, number>();
   const issues: Issue[] = [];
   const now = new Date().toISOString();
 
-  // Skip header rows — they are always headers in department sheets
-  for (let r = DEPT_HEADER_ROWS; r < rows.length; r++) {
-    const row = rows[r] as unknown[];
-    if (!row || row.length < 5) continue;
-
-    const cells = buildCellDict(row);
-
+  for (const [r, { cells, signals }] of sheetSignals) {
     // Skip non-data rows: summaries ("Итого"/"Всего"), separators
     const nameCell = String(cells['C'] ?? cells['D'] ?? '').trim();
     if (isMetaRow(nameCell)) continue;
     // Skip rows where all cells are empty (separators)
     const allEmpty = Object.values(cells).every(v => v === null || v === undefined || v === '');
     if (allEmpty) continue;
-
-    let signals: RowSignals;
-    try {
-      signals = detectSignals(cells);
-    } catch {
-      continue;
-    }
 
     const subject = String(cells['G'] ?? cells['D'] ?? '').slice(0, 80);
     // Column C = subordinate org; пусто/плейсхолдер = само управление (канон @aemr/shared)
