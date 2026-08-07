@@ -423,6 +423,49 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     putSummary(`sole.${p}.economy_mb`, epEcoMb, 'rub', p);
     putSummary(`sole.${p}.economy_total`, epEcoTotal, 'rub', p);
   }
+
+  // Помесячный свод района (пирамида агрегации §4.2, gap №3).
+  //
+  // Ключи grbs.{dept}.kp.m{N}.* конвейер писал с 2026-06, но свод их не
+  // складывал: цикл выше идёт только по кварталам и году. Из-за этого
+  // помесячный разрез существовал у каждого ГРБС и НЕ существовал у района
+  // — сравнить месяц района с листом было не с чем.
+  //
+  // Складываем ровно те четыре меры, которые несут месячные ключи ГРБС
+  // (счёт и деньги по КП и ЕП): побюджетной разбивки и экономии на этом
+  // ярусе у ГРБС нет, и досчитывать её здесь значило бы завести вторую
+  // семантику месяца.
+  for (let mi = 1; mi <= 12; mi++) {
+    const mk = `m${mi}`;
+    let kpCount = 0, kpFact = 0, kpPlanTotal = 0, kpFactTotal = 0;
+    let epCount = 0, epFact = 0, epPlanTotal = 0, epFactTotal = 0;
+
+    for (const dept of ALL_DEPT_IDS) {
+      const pfx = `grbs.${dept}`;
+      kpCount += getVal(`${pfx}.kp.${mk}.count`);
+      kpFact += getVal(`${pfx}.kp.${mk}.fact`);
+      kpPlanTotal += getVal(`${pfx}.kp.${mk}.total_plan`);
+      kpFactTotal += getVal(`${pfx}.kp.${mk}.total_fact`);
+      epCount += getVal(`${pfx}.ep.${mk}.count`);
+      epFact += getVal(`${pfx}.ep.${mk}.fact`);
+      epPlanTotal += getVal(`${pfx}.ep.${mk}.total_plan`);
+      epFactTotal += getVal(`${pfx}.ep.${mk}.total_fact`);
+    }
+
+    // Месяц без единой строки во всех ГРБС не материализуется: нулевой
+    // ключ неотличим от «посчитано и вышло ноль» (канон честной пустоты).
+    if (kpCount + kpFact + kpPlanTotal + kpFactTotal
+      + epCount + epFact + epPlanTotal + epFactTotal === 0) continue;
+
+    putSummary(`competitive.${mk}.count`, kpCount, 'count', mk);
+    putSummary(`competitive.${mk}.fact_count`, kpFact, 'count', mk);
+    putSummary(`competitive.${mk}.total_plan`, kpPlanTotal, 'rub', mk);
+    putSummary(`competitive.${mk}.total_fact`, kpFactTotal, 'rub', mk);
+    putSummary(`sole.${mk}.count`, epCount, 'count', mk);
+    putSummary(`sole.${mk}.fact_count`, epFact, 'count', mk);
+    putSummary(`sole.${mk}.total_plan`, epPlanTotal, 'rub', mk);
+    putSummary(`sole.${mk}.total_fact`, epFactTotal, 'rub', mk);
+  }
 }
 
 /**
