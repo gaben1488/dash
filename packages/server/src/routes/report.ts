@@ -17,16 +17,25 @@
  *     отчёт отдаётся без официальной колонки, buildReport ставит плашку;
  *   - сигналы: issues снапшота того же года (демо-снапшот — не источник).
  *
- * Параметры (все опциональны):
+ * Параметры (все опциональны). Старая форма — одиночный срез:
  *   year     план-год среза (2020..2100); дефолт — год даты среза;
  *   quarter  отчётный квартал 1..4; дефолт — календарный квартал даты среза;
- *   asOf     дата среза YYYY-MM-DD; дефолт — ПОСЛЕДНИЙ ЧЕТВЕРГ (еженедельный
- *            канон: срез отчёта — четверг; явный asOf уважается как задан).
- * Дефолты документированы и в METHODOLOGY ответа.
+ *   asOf     дата среза YYYY-MM-DD; дефолт — ПРЯМОЙ ЭФИР (явный asOf уважается
+ *            как задан и открывает архив).
+ * Новая форма — ось времени мультизначениями (фаза 3 карты оси времени,
+ * docs/superpowers/specs/2026-08-07-time-axis-map.md §4):
+ *   years=2025,2026  quarters=2026:1,2026:2  months=2026:5  week=YYYY-MM-DD
+ * Формы не смешиваются (см. period-params.ts). Дефолты документированы и в
+ * METHODOLOGY ответа.
  *
  * Рядом с полями Report ответ несёт methodology (строка METHODOLOGY — как
  * посчитано) и svodOnlineUrl (ссылка «СВОД онлайн» — где сверить: официальная
- * сводная книга Google Sheets; id книги не настроен — поля нет).
+ * сводная книга Google Sheets; id книги не настроен — поля нет). При выборе
+ * несколькими периодами добавляются selectionLabel (подпись выбора) и
+ * periods — по отчёту на каждый срез; корень ответа при этом равен первому
+ * срезу, поэтому старый клиент, не знающий о periods, читает ответ как прежде.
+ * Суммирования периодов роут не делает: складывать проценты нельзя, а суммой
+ * счётчиков занимается ядро — до тех пор каждый срез отдаётся своим.
  */
 import type { FastifyInstance } from 'fastify';
 import { buildReport, type BuildReportInput } from '@aemr/core';
@@ -34,7 +43,6 @@ import {
   SVOD_SHEET_NAME,
   buildSheetUrl,
   collectRowsByDept,
-  dayNumberOf,
   floorToThursday,
   isoOfDayNumber,
   parseSvodGrid,
@@ -46,6 +54,12 @@ import {
 import { getDeptSheetValues, getSnapshot, getSnapshotAtOrBefore, getDeptLoadMeta, getSvodGridCache, setSvodGridCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
 import { productCalendarDay } from '../services/product-calendar.js';
+import {
+  parsePeriodQuery,
+  resolvePeriodParams,
+  type PeriodQuery,
+  type PeriodSlice,
+} from '../services/period-params.js';
 import { config } from '../config.js';
 
 /**
@@ -81,22 +95,11 @@ function svodOnlineUrl(): string | undefined {
   return config.google.spreadsheetId ? buildSheetUrl(config.google.spreadsheetId) : undefined;
 }
 
-interface ReportQuery {
-  year?: string;
-  quarter?: string;
-  asOf?: string;
-}
-
-/** Разобранный период среза или честная ошибка валидации (текст для 400). */
-type PeriodParse =
-  | { ok: true; year: number; quarter: 1 | 2 | 3 | 4; asOfDay: number; live: boolean }
-  | { ok: false; message: string };
-
 /**
- * Период из query: asOf → компоненты даты среза (без TZ-сдвигов — разбор
- * строки, не Date-парс), year/quarter поверх — явные значения побеждают дефолт.
+ * Разбор периода живёт в services/period-params.ts — одном доме валидации оси
+ * времени для всех роутов. Семантика прежняя и здесь только напоминается:
  *
- * ДЕФОЛТ БЕЗ asOf — ПРЯМОЙ ЭФИР, «на сейчас» (канон пользователя 27.07:
+ * ДЕФОЛТ БЕЗ asOf/week — ПРЯМОЙ ЭФИР, «на сейчас» (канон пользователя 27.07:
  * «отчётные даты — это про ХРАНЕНИЕ данных, а видеть ситуацию мы должны в
  * прямом эфире»). Дата среза остаётся, но её роль — адресовать СНИМОК недели
  * (архив), а не резать живой просмотр. В живом режиме гейт факта не
@@ -104,53 +107,10 @@ type PeriodParse =
  * текущий момент.
  *
  * Явный asOf = обращение к архиву: уважается как задан (без флора к четвергу),
- * гейт факта включается, строки берутся из снимка той недели.
+ * гейт факта включается, строки берутся из снимка той недели. Параметр week
+ * адресует тот же архив, но по неделе: срез — четверг выбранной недели,
+ * клампнутый к последнему прошедшему.
  */
-function parsePeriod(query: ReportQuery): PeriodParse {
-  let sliceYear: number;
-  let sliceMonth: number; // 0-based, для квартала
-  let asOfDay: number;
-  const live = query.asOf === undefined;
-  if (query.asOf !== undefined) {
-    const m = query.asOf.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    const day = dayNumberOf(query.asOf);
-    // Round-trip против переката Date.UTC: «2026-06-31» иначе принимался
-    // как 1 июля — квартал считался по июню, гейт факта пускал лишний день.
-    if (!m || day === null || isoOfDayNumber(day) !== query.asOf) {
-      return { ok: false, message: `Параметр asOf «${query.asOf}» не является датой формата YYYY-MM-DD.` };
-    }
-    sliceYear = parseInt(m[1], 10);
-    sliceMonth = parseInt(m[2], 10) - 1;
-    asOfDay = day;
-  } else {
-    // Сегодня по календарю ПРОДУКТА (не UTC): камчатский четверг 04:00 —
-    // это уже четверг. Флора к четвергу нет: эфир — на сейчас.
-    asOfDay = productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours);
-    const sliceDate = new Date(asOfDay * 86400000);
-    sliceYear = sliceDate.getUTCFullYear();
-    sliceMonth = sliceDate.getUTCMonth();
-  }
-
-  let year = sliceYear;
-  if (query.year !== undefined) {
-    const parsed = Number(query.year);
-    if (!Number.isInteger(parsed) || parsed < 2020 || parsed > 2100) {
-      return { ok: false, message: `Параметр year «${query.year}» вне диапазона 2020..2100.` };
-    }
-    year = parsed;
-  }
-
-  let quarter = (Math.floor(sliceMonth / 3) + 1) as 1 | 2 | 3 | 4;
-  if (query.quarter !== undefined) {
-    const parsed = Number(query.quarter);
-    if (parsed !== 1 && parsed !== 2 && parsed !== 3 && parsed !== 4) {
-      return { ok: false, message: `Параметр quarter «${query.quarter}» не является кварталом 1..4.` };
-    }
-    quarter = parsed;
-  }
-
-  return { ok: true, year, quarter, asOfDay, live };
-}
 
 /** Номер суток → «дд.мм.гггг» — формат дат в плашках читателю. */
 const ruDateOfDay = (day: number): string => isoOfDayNumber(day).split('-').reverse().join('.');
@@ -194,11 +154,17 @@ async function readIssues(year: number): Promise<Issue[]> {
 }
 
 export async function reportRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: ReportQuery }>('/api/report', async (request, reply) => {
-    const period = parsePeriod(request.query);
-    if (!period.ok) {
-      return reply.status(400).send({ error: 'BadRequest', message: period.message, statusCode: 400 });
+  app.get<{ Querystring: PeriodQuery }>('/api/report', async (request, reply) => {
+    const parsed = parsePeriodQuery(request.query);
+    if (parsed.errors.length > 0) {
+      // Все причины сразу: кривой запрос чинится за один заход, а не за три.
+      return reply.status(400).send({ error: 'BadRequest', message: parsed.errors.join(' '), statusCode: 400 });
     }
+    const period = resolvePeriodParams(parsed, {
+      // Сегодня по календарю ПРОДУКТА (не UTC): камчатский четверг 04:00 —
+      // это уже четверг. Флора к четвергу нет: эфир — на сейчас.
+      todayDay: productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours),
+    });
 
     // Правило источника строк («одна ось недели»): срез текущей недели — живой
     // кэш; срез прошлых недель — снимок той недели, чтобы отчёт за прошлое не
@@ -206,6 +172,12 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
     const currentThursday = currentProductThursday();
     const sourceNotes: string[] = [];
     let input: BuildReportInput | undefined;
+    /**
+     * Сигналы по годам выбора — только у ЖИВОГО пути: снимок несёт свои
+     * (годонезависимо, см. ниже), а живой читает снапшот на каждый год.
+     * undefined = сигналы уже лежат во входе и от года среза не зависят.
+     */
+    let issuesByYear: Map<number, Issue[]> | undefined;
 
     if (!period.live && period.asOfDay < currentThursday) {
       const snapshot = getSnapshotAtOrBefore(period.asOfDay);
@@ -252,8 +224,19 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
           statusCode: 503,
         });
       }
-      const [svodRead, issues] = await Promise.all([readSvodGrid(), readIssues(period.year)]);
-      input = { rowsByDept, ...(svodRead ? { svodGrid: svodRead.grid, svodExtras: svodRead.extras } : {}), issues };
+      // Сигналы читаются на КАЖДЫЙ год выбора: снапшот года — свой, и один
+      // список сигналов на все годы приписал бы замечания чужому году.
+      const years = [...new Set(period.slices.map((s) => s.year))];
+      const [svodRead, issueEntries] = await Promise.all([
+        readSvodGrid(),
+        Promise.all(years.map(async (y) => [y, await readIssues(y)] as const)),
+      ]);
+      issuesByYear = new Map(issueEntries);
+      input = {
+        rowsByDept,
+        ...(svodRead ? { svodGrid: svodRead.grid, svodExtras: svodRead.extras } : {}),
+        issues: issuesByYear.get(period.slices[0].year) ?? [],
+      };
 
       // Моменты чтения двух половин сверки. Расходятся сильнее трёх минут —
       // говорим прямо: возможны кратковременные расхождения на 1–2 строки,
@@ -274,24 +257,49 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Гейт факта — только у архивного среза. В эфире его нет: иначе отчёт
-    // молча прятал бы сегодняшние заключения, которые официальный лист уже
-    // показывает (канон «эфир по умолчанию», 27.07).
-    const report = buildReport(input, {
-      year: period.year,
-      quarter: period.quarter,
-      ...(period.live ? {} : { asOfDay: period.asOfDay }),
-    });
-    // Плашка об источнике — первой: читатель сперва узнаёт, откуда числа.
-    report.notes.unshift(...sourceNotes);
+    /**
+     * Один срез = один прогон ядра. Все срезы считаются по ОДНОМУ входу:
+     * пересобирать источники между срезами нельзя — документ склеился бы из
+     * разных моментов чтения книг (тот же класс, что фикс 67c131c в вебе).
+     *
+     * Гейт факта — только у архивного среза. В эфире его нет: иначе отчёт
+     * молча прятал бы сегодняшние заключения, которые официальный лист уже
+     * показывает (канон «эфир по умолчанию», 27.07).
+     */
+    const baseInput = input;
+    const buildSlice = (slice: PeriodSlice) => {
+      const sliceInput = issuesByYear
+        ? { ...baseInput, issues: issuesByYear.get(slice.year) ?? [] }
+        : baseInput;
+      const report = buildReport(sliceInput, {
+        year: slice.year,
+        quarter: slice.quarter,
+        ...(period.live ? {} : { asOfDay: period.asOfDay }),
+      });
+      // Плашка об источнике — первой: читатель сперва узнаёт, откуда числа.
+      // Следом — плашка гранулярности: месяц ядро отчёта пока не считает, и
+      // молчать о подмене месяца кварталом нельзя (карта оси времени, класс Г).
+      const granularityNote = slice.from?.kind === 'month'
+        ? [`Выбор месяца ${slice.from.year}:${slice.from.month} приведён к ${slice.quarter} кв. `
+          + `${slice.year}: отчёт считается квартальными срезами.`]
+        : [];
+      report.notes.unshift(...sourceNotes, ...granularityNote);
+      return {
+        ...report,
+        // asOfDay в ответе есть ВСЕГДА (веб адресует им снимки недели), а режим
+        // называет флаг live: эфир — числа на сейчас, архив — на дату среза.
+        period: { ...report.period, asOfDay: period.asOfDay, live: period.live },
+      };
+    };
 
+    const reports = period.slices.map(buildSlice);
     return {
-      ...report,
-      // asOfDay в ответе есть ВСЕГДА (веб адресует им снимки недели), а режим
-      // называет флаг live: эфир — числа на сейчас, архив — на дату среза.
-      period: { ...report.period, asOfDay: period.asOfDay, live: period.live },
+      ...reports[0],
       methodology: METHODOLOGY,
       svodOnlineUrl: svodOnlineUrl(),
+      // Поля выбора появляются ТОЛЬКО у новой формы запроса: старый запрос
+      // обязан получать прежний ответ без единого лишнего ключа.
+      ...(parsed.hasSelection ? { selectionLabel: period.label, periods: reports } : {}),
     };
   });
 }
