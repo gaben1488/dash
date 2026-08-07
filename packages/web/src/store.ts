@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type DashboardData } from '@aemr/shared';
-import { api } from './api';
+import { api, humanizeRequestError } from './api';
 import { mergeSubordinates } from './lib/subordinates';
 import { setOfficialProvenance } from './lib/provenance-registry';
 import { toCanonicalDeptId } from './lib/dept-key';
@@ -740,7 +740,7 @@ export const useStore = create<AppState>((set, get) => ({
         isDemo: isDemoData(data),
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = humanizeRequestError(err);
       set({
         loading: false,
         error: `Не удалось загрузить данные: ${msg}`,
@@ -767,7 +767,7 @@ export const useStore = create<AppState>((set, get) => ({
         refreshResult: { sources: result.sources ?? [], loading: false },
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = humanizeRequestError(err);
       set({
         loading: false,
         error: `Не удалось обновить: ${msg}`,
@@ -789,7 +789,7 @@ export const useStore = create<AppState>((set, get) => ({
         isDemo: isDemoData(data),
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = humanizeRequestError(err);
       set({
         loading: false,
         error: `Не удалось обновить: ${msg}`,

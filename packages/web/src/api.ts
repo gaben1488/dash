@@ -42,6 +42,33 @@ interface ParseSchema<T> {
     | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } };
 }
 
+/**
+ * Русская фраза по коду ответа: пользователь читает, что случилось и что
+ * делать, а не «API error 500». Единственный дом этих формулировок.
+ */
+function httpErrorPhrase(status: number): string {
+  if (status === 401 || status === 403) return 'Нет доступа к данным: ключ доступа не принят сервером';
+  if (status === 404) return 'Данные не найдены на сервере';
+  if (status === 429) return 'Слишком много запросов подряд — повторите через минуту';
+  if (status === 502 || status === 503 || status === 504) return 'Сервер данных недоступен — идёт перезапуск или обновление';
+  if (status >= 500) return 'Ошибка на стороне сервера данных';
+  return 'Запрос отклонён сервером';
+}
+
+/**
+ * Человеческий текст любой ошибки запроса для плашки в шапке. Ловит и
+ * браузерные сетевые отказы («Failed to fetch» при офлайне или упавшем
+ * сервере) — их текст задаёт движок, и по-русски он не бывает.
+ */
+export function humanizeRequestError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/failed to fetch|networkerror|load failed|ERR_NETWORK|ERR_CONNECTION/i.test(raw)) {
+    return 'Нет связи с сервером данных: проверьте подключение или дождитесь перезапуска сервера';
+  }
+  if (/aborted|timeout/i.test(raw)) return 'Сервер не ответил вовремя — повторите запрос';
+  return raw;
+}
+
 export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   // Only set Content-Type for requests with a body, and only if the caller hasn't set one
@@ -59,7 +86,10 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API error ${res.status}: ${body}`);
+    // Текст ошибки видит пользователь в красной плашке шапки — он русский
+    // и объясняет ситуацию, а не пересказывает протокол. Код и тело
+    // остаются в скобках: без них не отличить «нет прав» от «сервер лёг».
+    throw new Error(`${httpErrorPhrase(res.status)} (код ${res.status}${body ? `: ${body.slice(0, 120)}` : ''})`);
   }
   return res.json() as Promise<T>;
 }

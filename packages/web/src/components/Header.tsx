@@ -535,7 +535,10 @@ export function Header() {
         {/* 4. Filter drums */}
         {showMethod && (
           <div className="vf-drum">
-            <button onClick={() => mAll ? toggleMethod('competitive') : clearMethods()}
+            {/* Симметрично кнопке ЕП: активный КП снимается, чужой выбор
+                заменяется. Раньше клик по КП при активном ЕП ронял фильтр
+                в «ВСЕ» вместо переключения. */}
+            <button onClick={() => mAll ? toggleMethod('competitive') : (methods_has(selectedMethods, 'competitive') ? clearMethods() : (() => { clearMethods(); toggleMethod('competitive'); })())}
               className={clsx('vf-btn', !mAll && methods_has(selectedMethods, 'competitive') && 'vf-btn-active')}
               title="Конкурентные (44-ФЗ ст.24)">КП</button>
             <button onClick={() => mAll ? toggleMethod('single') : (selectedMethods.has('single') ? clearMethods() : (() => { clearMethods(); toggleMethod('single'); })())}

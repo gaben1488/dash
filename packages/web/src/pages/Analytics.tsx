@@ -204,11 +204,13 @@ function ForecastCard({ depts, isDark, formatMoney }: { depts: any[]; isDark: bo
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: scenarioColors[i % scenarioColors.length] }} />
                 <span className="font-semibold text-zinc-600 dark:text-zinc-300">{sc.label}</span>
               </div>
+              {/* Прогноз приходит с сервера как any: без проверки на число
+                  карточка показывала «NaN%» вместо честного прочерка. */}
               <div className="text-zinc-500 dark:text-zinc-400">
-                Исполнение: <strong>{(sc.yearEndExecution * 100).toFixed(0)}%</strong>
+                Исполнение: <strong>{Number.isFinite(sc.yearEndExecution) ? `${(sc.yearEndExecution * 100).toFixed(0)}%` : '—'}</strong>
               </div>
               <div className="text-zinc-400">
-                Уверенность: {(sc.confidence * 100).toFixed(0)}%
+                Уверенность: {Number.isFinite(sc.confidence) ? `${(sc.confidence * 100).toFixed(0)}%` : '—'}
               </div>
             </div>
           ))}
@@ -667,7 +669,7 @@ export function Analytics() {
                         {d.name} {d.planShare}%
                       </span>
                     )}
-                    <div className="absolute bottom-full left-1/2 -tranzinc-x-1/2 mb-1 hidden group-hover:block z-10 bg-zinc-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 bg-zinc-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
                       {d.name}: {formatMoney(d.planTotal)} ({d.planShare}%)
                     </div>
                   </div>
@@ -690,7 +692,7 @@ export function Analytics() {
                         {d.name} {d.factShare}%
                       </span>
                     )}
-                    <div className="absolute bottom-full left-1/2 -tranzinc-x-1/2 mb-1 hidden group-hover:block z-10 bg-zinc-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 bg-zinc-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
                       {d.name}: {formatMoney(d.factTotal)} ({d.factShare}%)
                     </div>
                   </div>

@@ -127,7 +127,8 @@ export function EconomyDeptTable({
               <span>ФБ/КБ/МБ</span>
             </KBTooltip>
           </th>
-          <TH label="AD" field="conflicts" metric="economy_conflicts" align="center" />
+          {/* Подпись — из словаря продукта: буква колонки листа наружу не выходит (канон §6.3). */}
+          <TH label="Конфликты" field="conflicts" metric="economy_conflicts" align="center" />
           <TH label="Орг." field="subCount" align="center" />
         </tr>
       </thead>
