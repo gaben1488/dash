@@ -3,7 +3,9 @@
  *
  * Две полосы состава по одним и тем же строкам года: вид деятельности
  * (текущая / программные мероприятия) и стадия жизненного цикла
- * (заключено / в работе / плановая дата прошла / без плановых денег).
+ * (заключено / в работе / плановая дата прошла / без подтверждённого
+ * финансирования / без плановых денег). Стадия «без подтверждённого
+ * финансирования» — строки, вынесенные из счёта года (консолидация 07.08).
  *
  * Полоса всегда продублирована числами (канон «текстовый дубль
  * визуального»): доля читается и в чёрно-белой печати. Каждая доля несёт
@@ -24,6 +26,7 @@ const TONE: Record<string, { bar: string; text: string }> = {
   lifecycle_stage_concluded: { bar: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-400' },
   lifecycle_stage_in_work: { bar: 'bg-blue-400', text: 'text-blue-700 dark:text-blue-400' },
   lifecycle_stage_overdue: { bar: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400' },
+  lifecycle_stage_no_funding: { bar: 'bg-violet-500', text: 'text-violet-700 dark:text-violet-400' },
   lifecycle_stage_unfunded: { bar: 'bg-zinc-400', text: 'text-zinc-600 dark:text-zinc-400' },
 };
 
@@ -36,6 +39,9 @@ const RULE: Record<string, string> = {
   lifecycle_stage_concluded: 'Заполнена дата заключения (колонка Q) не позже среза.',
   lifecycle_stage_in_work: 'Даты заключения нет, плановая дата (N) ещё не прошла.',
   lifecycle_stage_overdue: 'Даты заключения нет, а плановая дата (N) уже прошла.',
+  lifecycle_stage_no_funding:
+    'Способ и плановые деньги есть, а года плана (P) нет — финансирование не подтверждено. ' +
+    'В счёт года и в лимиты не входит (как и в формулы листа СВОД); состав — в секции внизу отчёта.',
   lifecycle_stage_unfunded: 'Плановые суммы (H–K) нулевые: позиция без денег.',
 };
 

@@ -184,6 +184,7 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   lifecycle_stage_concluded: 'Контракт заключён',
   lifecycle_stage_in_work: 'В работе, срок не наступил',
   lifecycle_stage_overdue: 'Плановая дата прошла',
+  lifecycle_stage_no_funding: 'Без подтверждённого финансирования',
   lifecycle_stage_unfunded: 'Без плановых денег',
 };
 

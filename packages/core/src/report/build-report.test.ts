@@ -518,6 +518,32 @@ describe('buildReport — деньги года: официал СВОД и ст
     const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
     expect(report.unfunded).toBeUndefined();
   });
+
+  it('консолидация лимитов 07.08: unfunded-строки вынесены из счёта — деньги, счётчики и pending не сдвигаются', () => {
+    const base = buildReport({ rowsByDept: fixtureRows() }, OPTS);
+    const rows = fixtureRows();
+    // Строка «примерного лимита»: деньги и даже квартал вбиты, года плана нет.
+    const uf = makeRow({ id: 'uf-q1', planYear: '', planQuarter: 1 });
+    uf[COL.SUBJECT] = 'Кредитная линия (финансирование не подтверждено)';
+    rows['УЭР'].push(uf);
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uerBase = base.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    // Лимит (деньги плана) и все счётчики — как будто строки нет: счёт
+    // отчёта совпадает с формулами листа СВОД по построению.
+    expect(uer.money.plan.total).toBe(uerBase.money.plan.total);
+    expect(uer.quarter.execution).toEqual(uerBase.quarter.execution);
+    expect(uer.year.counts).toEqual(uerBase.year.counts);
+    expect(uer.quarter.pending).toEqual(uerBase.quarter.pending);
+    // …в незаключённых позициях квартала её тоже нет…
+    expect(uer.quarter.pendingPositions.some((p) => p.subject.startsWith('Кредитная линия'))).toBe(false);
+    // …а этапность держит её отдельной долей — строка не потерялась.
+    const stage = uer.lifecycle.byStage.find((b) => b.metricKey === 'lifecycle_stage_no_funding');
+    expect(stage).toEqual({ metricKey: 'lifecycle_stage_no_funding', count: 1, planTotal: 300 });
+    // Плашка честности объясняет, почему счёт «чист».
+    expect(report.notes.some((n) => n.includes('без подтверждённого финансирования'))).toBe(true);
+    expect(base.notes.some((n) => n.includes('без подтверждённого финансирования'))).toBe(false);
+  });
 });
 
 describe('buildReport — период, порядок, сигналы', () => {

@@ -239,8 +239,10 @@ function svodYearMoneyOf(
 /**
  * Счётные строки без года плана (P пусто, включая заглушки «Х»/«-»):
  * гейт тот же, что у сигнала planYearMissing — способ есть, плановые
- * деньги есть. Наш движок относит такие строки к отчётному году, формулы
- * СВОДа — нет; их сумма и есть расхождение лимита расчёт/лист.
+ * деньги есть. С консолидации 07.08 такие строки ВЫНЕСЕНЫ из счёта отчёта
+ * (fundedRows), как их не видят и формулы СВОДа, — поле показывает, сколько
+ * и на какую сумму вынесено у этого ГРБС (раньше это было расхождение
+ * лимита расчёт/лист).
  */
 function noYearRowsOf(rows: RawRow[]): GrbsReportBlock['noYearRows'] {
   let count = 0;
@@ -415,6 +417,10 @@ function activityKeyOf(row: RawRow): string {
 function stageKeyOf(row: RawRow, asOfDay: number | undefined): string {
   if (factCountsOn(row[DEPT_COLUMNS.FACT_DATE], asOfDay)) return 'lifecycle_stage_concluded';
   if (rowPlanTotal(row) <= 0) return 'lifecycle_stage_unfunded';
+  // Деньги вбиты, а года плана нет — «без подтверждённого финансирования»
+  // (решение 07.08): не «в работе» и не «просрочка», отдельная стадия.
+  // Раньше такие строки маскировались под «в работе» (нет даты — нет просрочки).
+  if (isUnfundedRow(row)) return 'lifecycle_stage_no_funding';
   const planDay = dayNumberOf(String(row[DEPT_COLUMNS.PLAN_DATE] ?? '').trim());
   const today = asOfDay ?? dayNumberOf(new Date());
   if (planDay !== null && today !== null && planDay < today) return 'lifecycle_stage_overdue';
@@ -455,7 +461,8 @@ function lifecycleOf(rows: RawRow[], year: number, asOfDay: number | undefined):
     ]),
     byStage: bucketize(inYear, (r) => stageKeyOf(r, asOfDay), [
       'lifecycle_stage_concluded', 'lifecycle_stage_in_work',
-      'lifecycle_stage_overdue', 'lifecycle_stage_unfunded',
+      'lifecycle_stage_overdue', 'lifecycle_stage_no_funding',
+      'lifecycle_stage_unfunded',
     ]),
   };
 }
@@ -547,10 +554,17 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
   const blocks: GrbsReportBlock[] = deptOrder(Object.keys(input.rowsByDept)).map((dept) => {
     const rows = input.rowsByDept[dept] ?? [];
     const entry = resolveDept(dept);
+    // Периметр счёта отчёта — только подтверждённое финансирование
+    // (консолидация лимитов, решение 07.08): строки без года плана (P)
+    // не входят ни в деньги, ни в счётчики — формулы листа СВОД их тоже
+    // не видят, поэтому calc-лимит сходится с листом по построению.
+    // Строки не теряются: этапность держит их отдельной долей
+    // (lifecycle_stage_no_funding), секция unfunded — позициями.
+    const fundedRows = rows.filter((row) => !isUnfundedRow(row));
     // Один проход движка на блок: разрезы (КП/ЕП, деньги, экономия) и
     // исполнение квартала — из одного g (quarterExecution гонял бы второй
     // идентичный compute; горячий путь /api/report, simplify 03.08).
-    const g = ENGINE.compute(rows, standardRowFilter, 0, year, { asOfDay: opts.asOfDay });
+    const g = ENGINE.compute(fundedRows, standardRowFilter, 0, year, { asOfDay: opts.asOfDay });
     const execution = quarterExecutionFromCounts(
       getValue(g, 'plan_count', qGroup),
       getValue(g, 'fact_count', qGroup),
@@ -577,7 +591,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     // проход движка нужен только архивному срезу.
     const quarterLive = opts.asOfDay === undefined
       ? quarterMethods
-      : methodsOf(ENGINE.compute(rows, standardRowFilter, 0, year));
+      : methodsOf(ENGINE.compute(fundedRows, standardRowFilter, 0, year));
     const yearCounts = yearCountsOf(g);
 
     return {
@@ -588,7 +602,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         methods: quarterMethods,
         pendingCount: execution.planCount - execution.doneCount,
         pending: pendingOf(g, qGroup),
-        pendingPositions: pendingPositionsFor(rows, quarter, year, opts.asOfDay),
+        pendingPositions: pendingPositionsFor(fundedRows, quarter, year, opts.asOfDay),
         pendingByMethod: {
           kp: pendingOf(g, `${qGroup}.competitive`),
           ep: pendingOf(g, `${qGroup}.ep`),
@@ -621,8 +635,10 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         pendingCount: yearCounts.planCount - yearCounts.doneCount,
         pending: sumPending(QUARTERS.map((q) => pendingOf(g, `q${q}`))),
       },
+      // Этапность — по ВСЕМ строкам года (нестрогий год): unfunded видны
+      // отдельной долей, а не прячутся. Причины — только по funded.
       lifecycle: lifecycleOf(rows, year, opts.asOfDay),
-      reasons: reasonsOf(rows, year),
+      reasons: reasonsOf(fundedRows, year),
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       ...(() => {
@@ -679,6 +695,15 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         byDept: unfundedByDept,
       }
     : undefined;
+  if (unfunded) {
+    // Честная плашка: читатель должен знать, что счёт года «чист» не сам
+    // по себе, а потому что строки без финансирования вынесены отдельно.
+    notes.push(
+      `Закупки без подтверждённого финансирования (${unfunded.count} на ` +
+      `${Math.round(unfunded.total).toLocaleString('ru-RU')} тыс. руб.) в счёт года не входят — ` +
+      'как и в формулы листа СВОД; их состав — в секции внизу отчёта.',
+    );
+  }
 
   return {
     period: { year, quarter, ...(opts.asOfDay === undefined ? {} : { asOfDay: opts.asOfDay }) },
