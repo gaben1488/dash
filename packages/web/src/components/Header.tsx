@@ -36,7 +36,7 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 /* ─── Nav items with BRAND COLORS ────────────────────────── */
 
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[] = [
-  { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#d4d4d8' },  // Graphite (чёрный дэш, решение 07.08)
+  { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#e5d3a9' },  // Cream (чёрный дэш + кремовый хром, 07.08)
   { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b' },  // Amber — еженедельный отчёт
   { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2' },  // Cyan — источник истины
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
@@ -52,7 +52,7 @@ function getPageColor(page: string): string {
     case 'recon': case 'trust': case 'issues': case 'recs': case 'journal':
       return '#ef4444';
     default:
-      return NAV_ITEMS.find(n => n.id === page)?.color ?? '#a1a1aa';
+      return NAV_ITEMS.find(n => n.id === page)?.color ?? '#d6bf85';
   }
 }
 

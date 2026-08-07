@@ -268,7 +268,7 @@ export function TrustPage() {
               <path
                 d="M 10 100 A 90 90 0 0 1 190 100"
                 fill="none"
-                stroke={overallScore >= 90 ? '#10b981' : overallScore >= 75 ? '#a1a1aa' : overallScore >= 60 ? '#f59e0b' : '#ef4444'}
+                stroke={overallScore >= 90 ? '#10b981' : overallScore >= 75 ? '#bfa161' : overallScore >= 60 ? '#f59e0b' : '#ef4444'}
                 strokeWidth="14"
                 strokeLinecap="round"
                 strokeDasharray={`${(overallScore / 100) * 283} 283`}

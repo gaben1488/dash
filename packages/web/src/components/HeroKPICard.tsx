@@ -403,7 +403,7 @@ export function HeroKPICard({
                         <Line
                           type="monotone"
                           dataKey="s"
-                          stroke="#a1a1aa"
+                          stroke="#d6bf85"
                           strokeWidth={1}
                           strokeDasharray="4 2"
                           dot={false}

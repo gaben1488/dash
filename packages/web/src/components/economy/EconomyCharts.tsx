@@ -118,7 +118,7 @@ export function EconomyCharts({
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v.toFixed(0)}%`} width={30} />
               <RechartsTooltip
                 content={<EconomyChartTooltip formatMoney={formatMoney} />}
-                cursor={{ fill: 'rgba(212, 212, 216, 0.06)' }}
+                cursor={{ fill: 'rgba(214, 191, 133, 0.08)' }}
               />
               <Bar yAxisId="left" dataKey="fb" name="ФБ" stackId="eco" fill={BT.fb.fill} radius={[0, 0, 0, 0]} />
               <Bar yAxisId="left" dataKey="kb" name="КБ" stackId="eco" fill={BT.kb.fill} radius={[0, 0, 0, 0]} />
@@ -172,7 +172,7 @@ export function EconomyCharts({
                   stroke={dept.color} strokeWidth={1.2} strokeDasharray="3 2"
                   dot={{ r: 2, fill: dept.color, strokeWidth: 0 }} />
               ))}
-              <Line yAxisId="right" type="monotone" dataKey="pct" name="% снижения" stroke="#8e8e98" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2.5, fill: '#8e8e98', strokeWidth: 0 }} />
+              <Line yAxisId="right" type="monotone" dataKey="pct" name="% снижения" stroke="#bfa161" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2.5, fill: '#bfa161', strokeWidth: 0 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

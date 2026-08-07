@@ -357,7 +357,7 @@ export function Dashboard() {
                   хотя тултип план показывал. Условие живёт в `hide`. */}
               <Bar dataKey="kpPlan" name="КП план" stackId="plan" hide={!showStacked}
                 legendType={showStacked ? 'rect' : 'none'}
-                fill={isDark ? '#d4d4d8' : '#3f3f46'} barSize={32} radius={[0, 0, 0, 0]} cursor="pointer"
+                fill={isDark ? '#d6bf85' : '#8f7549'} barSize={32} radius={[0, 0, 0, 0]} cursor="pointer"
                 onClick={(data: any) => { const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' }; const q = qMap[data?.name]; if (q) navigateTo('analytics', { period: q }); }}
               />
               <Bar dataKey="epPlan" name="ЕП план" stackId="plan" hide={!showStacked}
@@ -367,7 +367,7 @@ export function Dashboard() {
               />
               <Bar dataKey="plan" name="План" hide={showStacked}
                 legendType={showStacked ? 'none' : 'rect'}
-                fill={isDark ? '#d4d4d8' : '#3f3f46'} radius={[4, 4, 0, 0]} barSize={32} cursor="pointer"
+                fill={isDark ? '#d6bf85' : '#8f7549'} radius={[4, 4, 0, 0]} barSize={32} cursor="pointer"
                 onClick={(data: any) => {
                   const qMap: Record<string, PeriodScope> = { '1 кв.': 'q1', '2 кв.': 'q2', '3 кв.': 'q3', '4 кв.': 'q4' };
                   const q = qMap[data?.name];
