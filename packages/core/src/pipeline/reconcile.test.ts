@@ -69,9 +69,24 @@ describe('reconcile', () => {
     expect(result.overallStatus).toBe('Есть расхождения');
   });
 
-  it('handles zero official values (both plan and fact = 0) as neutral', () => {
+  it('официал нулевой при живом расчёте — «официал не считается» (слепая зона №2)', () => {
+    // Сигнатура сломанного блока листа: COUNTIFS и SUMIFS ссылаются на
+    // недоступное зеркало и дают нули, а у управления при этом 500 тыс.
+    // плана. Прежде это рапортовалось как «нечего сравнивать» — молчание
+    // на месте реальной поломки источника.
     const off = mapOf([['Dept1', m(0, 0, 0)]]);
     const calc = mapOf([['Dept1', m(500_000, 300_000, 200_000)]]);
+    const result = reconcile(off, calc);
+
+    expect(result.rows[0].assessment.status).toBe('Официал не считается');
+    expect(result.rows[0].assessment.kind).toBe('warning');
+    expect(result.rows[0].assessment.source).toBe('svod_error');
+    expect(result.rows[0].assessment.reason).toContain('недоступный источник');
+  });
+
+  it('оба слоя пусты — «нечего сравнивать» (настоящая пустота, не поломка)', () => {
+    const off = mapOf([['Dept1', m(0, 0, 0)]]);
+    const calc = mapOf([['Dept1', m(0, 0, 0)]]);
     const result = reconcile(off, calc);
 
     expect(result.rows[0].assessment.kind).toBe('neutral');
@@ -153,8 +168,11 @@ describe('reconcile', () => {
 
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].department).toBe('OnlyCalc');
-    // off defaults to 0 → neutral (planOff=0, factOff=0)
-    expect(result.rows[0].assessment.kind).toBe('neutral');
+    // Официала у управления нет вовсе, а строки есть: тот же диагноз, что
+    // у сломанного блока листа — сравнивать не с чем, и это надо сказать,
+    // а не показать спокойное «нечего сравнивать».
+    expect(result.rows[0].assessment.kind).toBe('warning');
+    expect(result.rows[0].assessment.status).toBe('Официал не считается');
   });
 
   it('computes deltaPct correctly (division by zero avoided)', () => {
