@@ -10,6 +10,7 @@ import type { ReconDeptRow } from '../../lib/recon/types';
 import { fmtNum, fmtPct, isZero } from '../../lib/recon/format';
 import { diagnoseDelta } from '../../lib/recon/diagnose';
 import { buildSheetUrl, DEPT_SVOD_CELLS } from '../../lib/recon/sheet-links';
+import { RootCauseList } from './RootCauseCard';
 
 const KIND_CONFIG = {
   ok:      { label: 'Совпадает',         bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-400', icon: CheckCircle2 },
@@ -236,6 +237,26 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                                   : 'Нет данных для сравнения — проверьте что оба источника загружены.'}
                               </div>
                             </div>
+                          </div>
+
+                          {/* Первопричины: путь до строки-виновницы (требование
+                              владельца 07.08). Догадка «проверьте формулы»
+                              выше — эвристика; здесь адреса строк. */}
+                          <div className="mt-4 space-y-2">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                              <AlertTriangle size={13} className="text-amber-500" />
+                              Первопричины расхождения
+                            </div>
+                            {row.rootCauses && row.rootCauses.length > 0 ? (
+                              <RootCauseList groups={row.rootCauses} />
+                            ) : (
+                              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                {row.assessment.kind === 'ok'
+                                  ? 'Расхождения нет — объяснять нечего.'
+                                  : 'Строки-атомы этого снимка недоступны: доказательство до строки не построено. ' +
+                                    'Оно появится после следующего обновления данных.'}
+                              </p>
+                            )}
                           </div>
                         </td>
                       </tr>
