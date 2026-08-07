@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+/* Внешний @import шрифтов с CDN намеренно удалён: продукт работает за
+   периметром без интернета, где такая загрузка молча падает на системный
+   фолбэк. Шрифты подключены самохостом в main.tsx
+   (@fontsource-variable/inter, @fontsource-variable/geist-mono). */
 
 @tailwind base;
 @tailwind components;
@@ -81,6 +84,19 @@
   --budget-fb: #3b82f6;
   --budget-kb: #10b981;
   --budget-mb: #f59e0b;
+
+  /* Шкала веса шрифта. Потолок — 600: bold (700+) в плотной тёмной теме
+     читается как крик, иерархию держат светлота и размер, а не жир
+     (дизайн-арсенал §2). Единая точка настройки: правится здесь, а не по
+     трёмстам местам разметки. */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+
+  /* Набор начертательных признаков для чисел: табличные цифры (tnum) держат
+     разряды в столбик, zero — перечёркнутый ноль, чтобы 0 не путался с O в
+     кодах и реестровых номерах. cv0x — характерные глифы Inter. */
+  --numeric-features: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum', 'zero';
 }
 
 .dark {
@@ -116,7 +132,9 @@
 
   body {
     @apply bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* Стек берётся из конфига Tailwind, чтобы имя шрифта не разъезжалось
+       между CSS и утилитами font-sans. */
+    font-family: theme('fontFamily.sans');
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'calt', 'liga';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -124,14 +142,27 @@
     line-height: 1.6;
   }
 
-  /* Tabular nums for all data contexts */
+  /* Табличные цифры во всех местах, где живут числа. Правило продукта:
+     сумма не меняет ширину при обновлении, а разряды соседних строк стоят
+     ровно друг под другом — иначе колонка «дышит» и читать её нельзя.
+     [data-numeric] — точка опоры для разметки: любая ячейка или значение
+     помечается атрибутом и получает набор без нового класса. */
   [data-number-flow],
+  [data-numeric],
   .tabular-nums,
   td,
   th,
-  .font-mono {
+  input[type='number'],
+  output,
+  .font-mono,
+  /* Оси, подписи и всплывающие подсказки графиков — тоже числа, и они
+     обновляются чаще всего: без табличных цифр подпись оси дёргается по
+     ширине при каждой перерисовке. Наследуется внутрь SVG графика. */
+  .recharts-wrapper,
+  .recharts-tooltip-wrapper,
+  .recharts-default-tooltip {
     font-variant-numeric: tabular-nums;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum', 'zero';
+    font-feature-settings: var(--numeric-features);
   }
 
   /* ── Scrollbar ─────────────────────────────────────────────────── */
@@ -339,7 +370,7 @@
   }
 
   .card-value {
-    @apply text-zinc-900 dark:text-white text-3xl font-bold;
+    @apply text-zinc-900 dark:text-white text-3xl font-semibold;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.025em;
   }
@@ -612,7 +643,7 @@
   /* Countdown timer text — below shield */
   .shield-timer {
     font-size: 7px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     font-variant-numeric: tabular-nums;
     color: rgba(113, 113, 122, 0.5);
     line-height: 1;
@@ -673,7 +704,7 @@
     padding: 4px 8px;
     border-radius: 8px;
     font-size: 9px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     letter-spacing: 0.01em;
     white-space: nowrap;
     color: rgba(113, 113, 122, 0.55);
@@ -821,7 +852,7 @@
     @apply rounded-[7px] cursor-pointer whitespace-nowrap text-center;
     padding: 3px 8px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(113, 113, 122, 0.55);
     letter-spacing: 0.01em;
     transition:
@@ -900,7 +931,7 @@
   .vf-cur-active {
     color: #8f7549 !important;
     background: rgba(191, 161, 97, 0.10) !important;
-    font-weight: 800;
+    font-weight: var(--weight-strong);
     text-shadow: 0 0 6px rgba(191, 161, 97, 0.4);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.20),
@@ -1115,7 +1146,7 @@
     @apply rounded-[6px] cursor-pointer whitespace-nowrap text-center;
     padding: 2px 7px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(161, 161, 170, 0.6);
     letter-spacing: 0.01em;
     min-width: 26px;
@@ -1278,7 +1309,7 @@
   /* Label */
   .os-label {
     font-size: 10px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(113, 113, 122, 0.8);
     white-space: nowrap;
     overflow: hidden;
@@ -1302,7 +1333,7 @@
     height: 12px;
     border-radius: 6px;
     font-size: 7px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     background: rgba(191, 161, 97, 0.2);
     color: rgba(191, 161, 97, 0.9);
     padding: 0 2px;
@@ -1370,7 +1401,7 @@
 
   .os-subs-type {
     font-size: 8px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     color: rgba(161, 161, 170, 0.5);
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -1587,7 +1618,7 @@
 
   /* Year label — premium clickable badge */
   .tg-year {
-    @apply shrink-0 rounded-md font-bold tabular-nums cursor-pointer select-none;
+    @apply shrink-0 rounded-md font-semibold tabular-nums cursor-pointer select-none;
     width: 36px;
     height: 20px;
     display: flex;
@@ -1628,7 +1659,7 @@
       0 1px 4px rgba(143, 117, 73, 0.35),
       0 0 12px rgba(191, 161, 97, 0.15),
       inset 0 1px 0 rgba(255, 255, 255, 0.18);
-    font-weight: 800;
+    font-weight: var(--weight-strong);
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
   }
   .tg-year-full:hover {
@@ -1685,7 +1716,7 @@
     @apply h-[18px] px-[3px] rounded-[3px] flex items-center justify-center
            cursor-pointer transition-all duration-150 shrink-0 select-none;
     font-size: 7px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     letter-spacing: 0.03em;
     min-width: 16px;
   }
@@ -1709,7 +1740,7 @@
   }
   .tg-quarter-tab-full {
     color: #bfa161;
-    font-weight: 800;
+    font-weight: var(--weight-strong);
     text-shadow: 0 0 6px rgba(191, 161, 97, 0.2);
   }
   .dark .tg-quarter-tab-full {
@@ -1726,7 +1757,7 @@
     padding: 0 3px;
     border-radius: 5px;
     font-size: 9px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     letter-spacing: -0.01em;
     transition: all 150ms cubic-bezier(0.23, 1, 0.32, 1);
   }
@@ -1742,7 +1773,7 @@
       0 0 8px rgba(191, 161, 97, 0.2),
       0 0 0 0.5px rgba(143, 117, 73, 0.15),
       inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
   .tg-month-active:hover {
@@ -1975,7 +2006,7 @@
   /* Week number micro-badge — improved visibility */
   .wr-wnum {
     font-size: 8px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     color: rgba(148, 163, 184, 0.5);
     width: 18px;
     text-align: right;
@@ -1992,7 +2023,7 @@
   }
   .wr-range {
     font-size: 10.5px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(226, 232, 240, 0.7);
     white-space: nowrap;
     letter-spacing: -0.01em;
@@ -2000,14 +2031,14 @@
   }
   .wr-month {
     font-size: 8.5px;
-    font-weight: 500;
+    font-weight: var(--weight-medium);
     color: rgba(148, 163, 184, 0.55);
     letter-spacing: 0.02em;
   }
   /* Active row labels — bright, glowing */
   .wr-row-active .wr-range {
     color: #f1e6cb;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     text-shadow: 0 0 10px rgba(214, 191, 133, 0.25), 0 1px 2px rgba(0, 0, 0, 0.12);
   }
   .wr-row-active .wr-month {
@@ -2020,7 +2051,7 @@
   }
   /* Edge row labels — visible but receding */
   .wr-row-edge .wr-range {
-    font-weight: 500;
+    font-weight: var(--weight-medium);
     color: rgba(148, 163, 184, 0.5);
   }
   .wr-row-edge .wr-month {
@@ -2173,7 +2204,7 @@
     @apply rounded-[7px] cursor-pointer whitespace-nowrap;
     padding: 2px 7px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(113, 113, 122, 0.55);
     letter-spacing: 0.01em;
     transition:
@@ -2232,7 +2263,7 @@
     @apply flex items-center gap-1 rounded-[7px] cursor-pointer whitespace-nowrap;
     padding: 2px 6px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(113, 113, 122, 0.55);
     letter-spacing: 0.01em;
     transition:
@@ -2364,7 +2395,7 @@
     @apply rounded-[5px] cursor-pointer whitespace-nowrap;
     padding: 1px 5px;
     font-size: 9px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     color: rgba(161, 161, 170, 0.45);
     letter-spacing: 0.025em;
     transition:
@@ -2389,7 +2420,7 @@
   .hf-cur-active {
     color: #8f7549 !important;
     background: rgba(191, 161, 97, 0.10) !important;
-    font-weight: 800;
+    font-weight: var(--weight-strong);
     text-shadow: 0 0 6px rgba(191, 161, 97, 0.4);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.20),
@@ -2836,7 +2867,7 @@
     @apply font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide block;
   }
   .analytics-kpi-value {
-    @apply font-bold text-zinc-800 dark:text-white mt-1 font-mono tabular-nums;
+    @apply font-semibold text-zinc-800 dark:text-white mt-1 font-mono tabular-nums;
   }
 
   /* ════════════════════════════════════════════
@@ -2857,7 +2888,7 @@
     padding: 3px 8px;
     border-radius: 8px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: var(--weight-strong);
     color: rgba(161, 161, 170, 0.7);
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -2933,7 +2964,7 @@
     height: 13px;
     border-radius: 7px;
     font-size: 8px;
-    font-weight: 700;
+    font-weight: var(--weight-strong);
     background: rgba(191, 161, 97, 0.3);
     color: rgba(255, 255, 255, 0.9);
     padding: 0 3px;
@@ -3071,7 +3102,7 @@
      ════════════════════════════════════════════ */
 
   .metric-value {
-    @apply text-2xl font-bold text-zinc-900 dark:text-white;
+    @apply text-2xl font-semibold text-zinc-900 dark:text-white;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
   }
@@ -3138,7 +3169,7 @@
 .recharts-cartesian-axis-tick-value {
   fill: #71717a;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .dark .recharts-cartesian-axis-tick-value {
   fill: #a1a1aa;
@@ -3376,7 +3407,7 @@
 }
 .ob-vse-count {
   font-size: 8px;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   color: rgba(161, 161, 170, 0.4);
   margin-left: auto;
   font-variant-numeric: tabular-nums;
@@ -3474,7 +3505,7 @@
 /* Department name */
 .ob-dept-name {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
   color: rgba(63, 63, 70, 0.75);
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -3496,7 +3527,7 @@
 .ob-dept-num {
   margin-left: auto;
   font-size: 7px;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
   font-variant-numeric: tabular-nums;
   padding: 1px 4px;
   border-radius: 4px;
@@ -3523,7 +3554,7 @@
     );
   font-family: inherit;
   font-size: 7px;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   color: rgba(113, 113, 122, 0.38);
   cursor: pointer;
   text-align: center;
@@ -3590,7 +3621,7 @@
 .ob-chip {
   font-family: inherit;
   font-size: 8px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   line-height: 1;
   padding: 2.5px 5px;
   border-radius: 4px;
@@ -3636,7 +3667,7 @@
 
 /* Active chip — soft glow */
 .ob-chip-active {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   background: rgba(191, 161, 97, 0.06) !important;
   box-shadow: 0 0 4px rgba(191, 161, 97, 0.08);
 }
@@ -3650,7 +3681,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
   opacity: 0.55;
   border-style: dashed;
   letter-spacing: 0;
@@ -3777,4 +3808,36 @@
     black calc(100% - 6px),
     transparent 100%
   );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ЧИСЛОВАЯ ТИПОГРАФИКА — утилиты
+   ════════════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  /* Числовая колонка и любое денежное значение. Табличные цифры дают
+     одинаковую ширину знака: суммы встают в столбик по правому краю и не
+     прыгают при живом обновлении из источника. Отрицательный трекинг —
+     чтобы длинный разряд не расползался. */
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: var(--numeric-features);
+    letter-spacing: -0.01em;
+  }
+
+  /* Деньги, коды процедур, ИКЗ и дельты. Моноширинный Geist: разряды и
+     коды выравниваются посимвольно, ноль перечёркнут и не путается с «O». */
+  .numeric-mono {
+    font-family: theme('fontFamily.mono');
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum', 'zero';
+  }
+
+  /* Числовая ячейка таблицы: к табличным цифрам добавлено выравнивание по
+     правому краю — разряд под разрядом читается только так. */
+  .numeric-cell {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: var(--numeric-features);
+    text-align: right;
+  }
 }
