@@ -378,7 +378,10 @@ function WeekRoller() {
             onClick={isFocused ? () => handleWeekClick(monday) : undefined}
             style={isFocused ? { cursor: 'pointer' } : undefined}
           >
-            <span className="wr-wnum">w{weekNum}</span>
+            {/* Кириллическая «н» вместо латинской «w»: колонка шириной 18px
+                (.wr-wnum в index.css) держит ровно три знака, поэтому полное
+                слово сюда не влезает — оно вынесено в подсказку при наведении. */}
+            <span className="wr-wnum" title={`${weekNum}-я неделя года`}>н{weekNum}</span>
             <span className="wr-label">
               <span className="wr-range">{rangeLine}</span>
               <span className="wr-month">{monthLine}</span>

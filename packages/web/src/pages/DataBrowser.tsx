@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { productLabel } from '@aemr/shared';
+import { SIGNAL_LABELS, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { api } from '../api';
 import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, XCircle, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Filter, X, Edit3, Eye } from 'lucide-react';
@@ -16,8 +16,15 @@ type SortKey = 'id' | 'subject' | 'method' | 'planSum' | 'factSum' | 'economy' |
 type SortDir = 'asc' | 'desc';
 
 /**
- * Полный маппинг сигналов RowSignals → цвета и метки.
- * Ключи точно соответствуют свойствам интерфейса RowSignals из @aemr/core.
+ * Цвет сигнала. Подписи здесь НЕ живут: их дом — SIGNAL_LABELS в
+ * @aemr/shared/product-dictionary (канон «одна фраза — один дом»). Локальная
+ * копия подписей уже однажды разошлась со словарём со сменой смысла
+ * («Конфликт флага экономии» превратился в «Флаг экономии»), поэтому здесь
+ * остаётся только оформление, а текст берётся из словаря.
+ *
+ * Градация цвета повторяет severity бейджей getSignalBadges в @aemr/core:
+ * красный — критическое, жёлтый/янтарный — предупреждение, серый — неполнота
+ * данных, синий — информационное, зелёный — благополучное состояние.
  */
 const SIGNAL_COLORS: Record<string, { bg: string; text: string }> = {
   // Зелёные (позитивные)
@@ -32,6 +39,8 @@ const SIGNAL_COLORS: Record<string, { bg: string; text: string }> = {
   factExceedsPlan:  { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   formulaBroken:    { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   futureFactDate:   { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
+  epJustificationMissing: { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
+  budgetUnderallocation:  { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
   budgetMismatch:   { bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400' },
   // Жёлтые/оранжевые (предупреждения)
   stalledContract:  { bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400' },
@@ -40,46 +49,24 @@ const SIGNAL_COLORS: Record<string, { bg: string; text: string }> = {
   planSoon:         { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400' },
   lowCompetition:   { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400' },
   singleParticipant:{ bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400' },
-  dataQuality:      { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400' },
+  factDateBeforePlan:   { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400' },
+  planWithoutExecution: { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400' },
+  budgetSourceMissing:  { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400' },
+  // Янтарные — обоснование ЕП не сходится с процедурой
+  methodReasonMismatch: { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400' },
+  unmappedReasonEP:     { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400' },
   // Синие (информационные)
   planning:         { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400' },
   notDue:           { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400' },
-  // Серые
+  // Серые — неполнота данных и отменённые строки
+  dataQuality:      { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400' },
+  factWithoutDate:  { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400' },
+  dateWithoutFact:  { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400' },
   canceled:         { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-500 dark:text-zinc-400' },
 };
 
-/**
- * Русскоязычные метки для ВСЕХ сигналов RowSignals.
- * Соответствуют бейджам из getSignalBadges() в @aemr/core.
- */
-const SIGNAL_LABELS: Record<string, string> = {
-  // Позитивные
-  signed:            'Подписан',
-  hasFact:           'Есть факт',
-  economyFlag:       'Экономия',
-  // Критические
-  overdue:           'Просрочен',
-  epRisk:            'ЕП-риск',
-  highEconomy:       'Высокая экономия >25%',
-  economyConflict:   'Флаг экономии',
-  factExceedsPlan:   'Факт > план',
-  formulaBroken:     'Ошибка формулы',
-  futureFactDate:    'Дата факта в будущем',
-  budgetMismatch:    'Расхождение бюджета',
-  // Предупреждения
-  stalledContract:   'Подвисший контракт',
-  earlyClosure:      'Раннее закрытие',
-  financeDelay:      'Задержка финансирования',
-  planSoon:          'Скоро срок',
-  lowCompetition:    'Низкая конкуренция <2%',
-  singleParticipant: '1 участник',
-  dataQuality:       'Пустые поля',
-  // Информационные
-  planning:          'Планирование',
-  notDue:            'Срок не наступил',
-  // Серые
-  canceled:          'Отменён',
-};
+/** Оформление сигнала, которого ещё нет в SIGNAL_COLORS: нейтральный серый в обеих темах. */
+const SIGNAL_COLOR_FALLBACK = { bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400' };
 
 /** Строк на один запрос к серверу — его же потолок (rows.ts: min(1000, limit)). */
 const ROWS_PER_REQUEST = 1000;
@@ -410,7 +397,7 @@ export function DataBrowserPage() {
       r.factSum ?? '',
       r.economy ?? '',
       r.status ?? '',
-      `"${(r.signals ?? []).map((s: string) => SIGNAL_LABELS[s] ?? productLabel(s)).join(', ')}"`,
+      `"${(r.signals ?? []).map((s: string) => productLabel(s)).join(', ')}"`,
     ].join(';'));
     const bom = '\uFEFF';
     const csv = bom + headers.join(';') + '\n' + csvRows.join('\n');
@@ -521,8 +508,8 @@ export function DataBrowserPage() {
                       <span
                         className={clsx(
                           'px-1.5 py-0.5 rounded text-[10px] font-medium',
-                          SIGNAL_COLORS[key]?.bg ?? 'bg-zinc-100',
-                          SIGNAL_COLORS[key]?.text ?? 'text-zinc-600',
+                          (SIGNAL_COLORS[key] ?? SIGNAL_COLOR_FALLBACK).bg,
+                          (SIGNAL_COLORS[key] ?? SIGNAL_COLOR_FALLBACK).text,
                         )}
                       >
                         {label}
@@ -676,11 +663,11 @@ export function DataBrowserPage() {
                           key={sig}
                           className={clsx(
                             'px-1.5 py-0.5 rounded text-[10px] font-medium',
-                            SIGNAL_COLORS[sig]?.bg ?? 'bg-zinc-100',
-                            SIGNAL_COLORS[sig]?.text ?? 'text-zinc-600',
+                            (SIGNAL_COLORS[sig] ?? SIGNAL_COLOR_FALLBACK).bg,
+                            (SIGNAL_COLORS[sig] ?? SIGNAL_COLOR_FALLBACK).text,
                           )}
                         >
-                          {SIGNAL_LABELS[sig] ?? productLabel(sig)}
+                          {productLabel(sig)}
                         </span>
                       ))}
                     </div>

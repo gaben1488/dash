@@ -28,7 +28,8 @@ export function ReconHeader({ view, onViewChange, csvUrl }: ReconHeaderProps) {
         <div className="flex items-center gap-3">
           <GitCompare className="text-blue-500" size={22} />
           <div>
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Сверка: СВОД vs Расчёт</h2>
+            {/* Заголовок казённый: латинское «vs» в русском документе недопустимо (канон §3 плана запуска). */}
+            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Сверка: СВОД против расчёта</h2>
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
               Сравнение официальных ячеек СВОД ТД-ПМ с построчным пересчётом по листам управлений.
               Допуск: 1%. Источник: Google Sheets API.

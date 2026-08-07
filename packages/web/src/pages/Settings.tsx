@@ -319,7 +319,7 @@ export function SettingsPage() {
       // First check backend health
       const healthRes = await api.health();
       if (healthRes.status !== 'ok') {
-        setSheetsTestFeedback({ state: 'error', message: 'Бэкенд не отвечает' });
+        setSheetsTestFeedback({ state: 'error', message: 'Сервер не отвечает' });
         return;
       }
 
@@ -340,7 +340,7 @@ export function SettingsPage() {
       const msg = err instanceof Error ? err.message : String(err);
       setSheetsTestFeedback({
         state: 'error',
-        message: msg.includes('API error') ? 'Бэкенд не запущен или API недоступен' : msg,
+        message: msg.includes('API error') ? 'Сервер не запущен или недоступен' : msg,
       });
     }
 
@@ -999,11 +999,14 @@ SQLITE_PATH=./data/aemr.db
                 )}
                 <div className="flex-1">
                   <p className={clsx('text-sm font-medium', serverStatus.online && serverStatus.configured ? 'text-emerald-800 dark:text-emerald-300' : serverStatus.online ? 'text-amber-800 dark:text-amber-300' : 'text-zinc-600 dark:text-zinc-300')}>
+                    {/* configured на сервере = почта сервисного аккаунта + закрытый ключ +
+                        идентификатор книги (routes/settings.ts). Поэтому подпись говорит
+                        именно про доступ к Google Таблицам, а не про абстрактные «credentials». */}
                     {serverStatus.online && serverStatus.configured
-                      ? 'Бэкенд работает, credentials настроены'
+                      ? 'Сервер работает, доступ к Google Таблицам настроен'
                       : serverStatus.online
-                        ? 'Бэкенд работает, но credentials не полные'
-                        : 'Бэкенд не запущен'}
+                        ? 'Сервер работает, но доступ к Google Таблицам настроен не полностью'
+                        : 'Сервер не запущен'}
                   </p>
                   {serverStatus.email && (
                     <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">{serverStatus.email}</p>
@@ -1050,7 +1053,7 @@ SQLITE_PATH=./data/aemr.db
             <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-5">
               <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-2 mb-3">
                 <HelpCircle size={16} />
-                Как получить Google credentials (пошагово)
+                Как получить доступ к Google Таблицам (пошагово)
               </h3>
               <ol className="space-y-2.5 text-xs text-blue-700 dark:text-blue-400">
                 <li className="flex gap-2">

@@ -1,9 +1,10 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { productLabel } from '@aemr/shared';
+import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api } from '../api';
-import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download } from 'lucide-react';
+import { issueAxesWithoutData } from '../lib/selectors/issues-filtering';
+import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info } from 'lucide-react';
 import clsx from 'clsx';
 
 type Severity = 'critical' | 'significant' | 'warning' | 'info';
@@ -30,13 +31,20 @@ const SEV_CONFIG: Record<Severity, { label: string; bg: string; text: string; ic
   info: { label: 'Информация', bg: 'bg-zinc-50 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400', icon: MessageSquare },
 };
 
+/**
+ * Оформление статуса замечания. Подписи не дублируются: их дом —
+ * ISSUE_STATUS_LABELS в @aemr/shared. Локальная копия уже расходилась со
+ * словарём («Не будет исправлено» против «Не будет исправляться»), а статус
+ * замечания читают и на странице, и в истории, и в выгрузке — фраза обязана
+ * быть одна.
+ */
 const STATUS_CONFIG: Record<Status, { label: string; bg: string; text: string; icon: typeof CheckCircle2 }> = {
-  open: { label: 'Открыто', bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400', icon: AlertTriangle },
-  acknowledged: { label: 'Принято', bg: 'bg-blue-100 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400', icon: CheckCircle2 },
-  in_progress: { label: 'В работе', bg: 'bg-amber-100 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', icon: Clock },
-  resolved: { label: 'Исправлено', bg: 'bg-emerald-100 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-400', icon: CheckCircle2 },
-  wont_fix: { label: 'Не будет исправлено', bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400', icon: XCircle },
-  false_positive: { label: 'Ложное срабатывание', bg: 'bg-purple-100 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400', icon: XCircle },
+  open: { label: ISSUE_STATUS_LABELS.open, bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400', icon: AlertTriangle },
+  acknowledged: { label: ISSUE_STATUS_LABELS.acknowledged, bg: 'bg-blue-100 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400', icon: CheckCircle2 },
+  in_progress: { label: ISSUE_STATUS_LABELS.in_progress, bg: 'bg-amber-100 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', icon: Clock },
+  resolved: { label: ISSUE_STATUS_LABELS.resolved, bg: 'bg-emerald-100 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-400', icon: CheckCircle2 },
+  wont_fix: { label: ISSUE_STATUS_LABELS.wont_fix, bg: 'bg-zinc-100 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400', icon: XCircle },
+  false_positive: { label: ISSUE_STATUS_LABELS.false_positive, bg: 'bg-purple-100 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400', icon: XCircle },
 };
 
 interface HistoryEntry {
@@ -102,10 +110,9 @@ function IssueTimeline({ issueId }: { issueId: string }) {
     }
   };
 
-  const statusLabel = (s: string) => {
-    const map: Record<string, string> = { open: 'Открыто', acknowledged: 'Принято', in_progress: 'В работе', resolved: 'Исправлено', wont_fix: 'Не будет исправлено', false_positive: 'Ложное срабатывание' };
-    return map[s] ?? s;
-  };
+  // Статус приходит с сервера сырым ключом; человеческую фразу даёт словарь
+  // продукта — вторая локальная копия здесь и породила расхождение подписей.
+  const statusLabel = (s: string) => productLabel(s);
 
   if (loading) {
     return (
@@ -235,6 +242,10 @@ export function IssuesPage() {
     }));
   }, [fd.issues, dashboardData, statusOverrides]);
 
+  // Оси шапки, за которыми нет данных замечания. Проверяется по самим данным,
+  // а не по памяти: появится поле — подпись исчезнет вместе с ним.
+  const deadAxes = useMemo(() => issueAxesWithoutData(fd.issues), [fd.issues]);
+
   if (!dashboardData) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -341,6 +352,20 @@ export function IssuesPage() {
           );
         })}
       </div>
+
+      {/* Какие оси шапки здесь работают, а какие нечем применить */}
+      {deadAxes.length > 0 && (
+        <div className="flex items-start gap-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
+          <Info size={14} className="text-zinc-400 mt-px shrink-0" />
+          <p className="text-zinc-500 dark:text-zinc-400">
+            Здесь работают фильтры ГРБС, подведа, вида деятельности и поиска.{' '}
+            {deadAxes.map(a => a.label).join(' и ')}{' '}
+            {deadAxes.length > 1 ? 'к замечаниям не применяются' : 'к замечаниям не применяется'}
+            {': '}
+            {deadAxes.map(a => a.reason).join('; ')}. Пока поля нет, фильтр не имитируется — список и счётчики от него не меняются.
+          </p>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-4">

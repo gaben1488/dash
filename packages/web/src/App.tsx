@@ -69,9 +69,15 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">
             Обновите страницу.
           </p>
+          {/* Текст движка нужен разработчику, но он английский и непонятен читателю
+              района. Поэтому он не заголовок аварийного экрана, а подпись мелким
+              в скобках под русской рамкой. */}
           {this.state.error && (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-4 font-mono break-all">
-              {this.state.error.message}
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-4">
+              Техническая подробность для разработчика
+              {' ('}
+              <span className="font-mono break-all">{this.state.error.message}</span>
+              {')'}
             </p>
           )}
           <button

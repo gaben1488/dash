@@ -808,7 +808,7 @@ function ReconFooter({
           <span className="text-zinc-700 dark:text-zinc-300">
             {reconKeyLabel(r.key)}
             <span className="text-zinc-400 dark:text-zinc-500">
-              {' · '}расчёт {reconValue(r.key, r.calc, fmtMoney)} vs лист {reconValue(r.key, r.official, fmtMoney)}
+              {' · '}расчёт {reconValue(r.key, r.calc, fmtMoney)} против листа {reconValue(r.key, r.official, fmtMoney)}
             </span>
           </span>
         </div>

@@ -571,12 +571,22 @@ function getComponentIssues(componentName: string, issues: TrustIssue[], deltas:
   if (componentName === 'mapping_consistency') {
     return deltas
       .filter((d: TrustDelta) => !d.withinTolerance)
-      .map((d: TrustDelta) => ({
-        title: `${d.label}: расхождение ${d.deltaPercent?.toFixed(1) ?? '?'}%`,
-        severity: Math.abs(d.deltaPercent ?? 0) > 5 ? 'critical' : 'significant',
-        sheet: 'СВОД',
-        cell: d.metricKey,
-      }));
+      .map((d: TrustDelta) => {
+        // Доля расхождения известна не всегда: официал бывает нулевым или
+        // отсутствует, и тогда делить не на что. Правило чисел запрещает
+        // выдавать выдуманную величину, а «?%» читается как поломка
+        // интерфейса — поэтому говорим прямо, что доля не рассчитана.
+        const pct = d.deltaPercent;
+        const pctKnown = typeof pct === 'number' && Number.isFinite(pct);
+        return {
+          title: pctKnown
+            ? `${d.label}: расхождение ${pct.toFixed(1)}%`
+            : `${d.label}: расхождение вне допуска, доля не рассчитана`,
+          severity: pctKnown && Math.abs(pct) > 5 ? 'critical' : 'significant',
+          sheet: 'СВОД',
+          cell: d.metricKey,
+        };
+      });
   }
 
   const config = TRUST_COMPONENT_CONFIG[componentName as TrustComponentId];
