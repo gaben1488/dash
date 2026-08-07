@@ -854,13 +854,47 @@ const Q_MONTHS: Record<number, number[]> = {
 };
 
 /**
+ * Форма стороны ШДЮ для перекрёстной сверки: только те поля, которые
+ * сверка читает. Структурно совместима с SHDYUDeptData из @aemr/shared —
+ * шире брать нельзя, иначе шов начнёт зависеть от чужих полей.
+ */
+export interface CrossVerifySHDYU {
+  months?: Record<number, {
+    compPlanCount?: number;
+    compFactCount?: number;
+    epPlanCount?: number;
+    epFactCount?: number;
+  } | undefined>;
+}
+
+/** Счётчики одного способа в квартале со стороны расчёта. */
+interface CrossVerifyMethodCounts {
+  plan?: number;
+  fact?: number;
+}
+
+/**
+ * Форма стороны расчёта: подмножество RecalculatedMetrics.quarters.
+ * Совместима с ним структурно; квартал может отсутствовать целиком.
+ */
+export interface CrossVerifyRecalc {
+  quarters?: Partial<Record<'q1' | 'q2' | 'q3' | 'q4', {
+    competitive?: CrossVerifyMethodCounts;
+    ep?: CrossVerifyMethodCounts;
+  } | undefined>>;
+}
+
+/**
  * Cross-verify SHDYU monthly data against quarterly totals.
  * Sums 3 SHDYU months per quarter, compares with recalculated quarterly metrics.
  * Discrepancy > 1% warrants investigation.
  */
 export function crossVerifyQuarterly(
-  shdyuData: Record<string, any>,
-  recalcResults: Record<string, any>,
+  // Типизировано вместо Record<string, any> (пирамида агрегации §6, п.13):
+  // на нетипизированном шве опечатка в имени поля молча давала нули и
+  // «расхождение» на пустом месте. Формы обеих сторон описаны каноном.
+  shdyuData: Record<string, CrossVerifySHDYU>,
+  recalcResults: Record<string, CrossVerifyRecalc>,
   deptNames: Record<string, string>,
 ): QuarterCrossSummary {
   const rows: QuarterCrossRow[] = [];
