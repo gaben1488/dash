@@ -13,10 +13,13 @@ server_phase1_bootstrap.py — первичная настройка свеже�
 import sys, paramiko, os, time
 sys.stdout.reconfigure(encoding='utf-8')
 
-HOST = '193.233.244.217'
+HOST = os.environ.get('AEMR_SRV_HOST', '193.233.91.162')
 USER = 'root'
 PWD = os.environ.get('AEMR_SRV_PWD', '')
-PUBKEY = open(os.path.expanduser('~/.ssh/id_ed25519.pub')).read().strip()
+if not PWD and os.environ.get('AEMR_SRV_PWD_FILE'):
+    PWD = open(os.environ['AEMR_SRV_PWD_FILE'], encoding='utf-8').read().strip()
+# Выделенный деплой-ключ, НЕ личный id_ed25519 (правило: личный ключ не для деплоя).
+PUBKEY = open(os.path.expanduser(os.environ.get('AEMR_SSH_PUBKEY', '~/.ssh/aemr_deploy.pub'))).read().strip()
 NEW_USER = 'aemr'
 
 if not PWD:

@@ -16,12 +16,13 @@ server_phase2_deploy.py — деплой AEMR full stack на VPS.
 import sys, os, paramiko, secrets, time, re
 sys.stdout.reconfigure(encoding='utf-8')
 
-HOST = '193.233.244.217'
+HOST = os.environ.get('AEMR_SRV_HOST', '193.233.91.162')
 USER = os.environ.get('AEMR_SRV_USER', 'aemr')
-KEY  = os.path.expanduser('~/.ssh/id_ed25519')
+# Выделенный деплой-ключ, НЕ личный id_ed25519 (правило: личный ключ не для деплоя).
+KEY  = os.path.expanduser(os.environ.get('AEMR_SSH_KEY', '~/.ssh/aemr_deploy'))
 
 REPO_URL = 'https://github.com/gaben1488/dash.git'
-BRANCH   = 'feature/svod-rebrand-ui'
+BRANCH   = os.environ.get('AEMR_BRANCH', 'main')
 REMOTE_DIR = '/home/aemr/dash'
 
 LOCAL_ENV = r'C:\Users\filat\dash\packages\server\.env'
@@ -75,6 +76,20 @@ def parse_env(path):
 local_env = parse_env(LOCAL_ENV)
 api_key = secrets.token_urlsafe(48)
 
+# Периметр Caddy: basic auth на весь стенд (кроме /api/health).
+# Пароль генерим здесь, bcrypt-хэш считает caddy на сервере.
+basic_user = 'aemr'
+basic_pwd = secrets.token_urlsafe(12)
+ec, hash_out = run(
+    f"docker run --rm caddy:2.10-alpine caddy hash-password --plaintext '{basic_pwd}'",
+    timeout=300, hide=True)
+basic_hash = hash_out.strip().splitlines()[-1].strip()
+if ec != 0 or not basic_hash.startswith('$2'):
+    print(f'ERROR: caddy hash-password failed (ec={ec}): {hash_out[-300:]}', file=sys.stderr)
+    sys.exit(1)
+# docker compose интерполирует $ в env-файле — экранируем как $$
+basic_hash_env = basic_hash.replace('$', '$$')
+
 env_lines = [
     '# AEMR production env — сгенерировано автоматически',
     f'# {time.strftime("%Y-%m-%d %H:%M:%S")}',
@@ -84,9 +99,12 @@ env_lines = [
     'PORT=3000',
     'LOG_LEVEL=info',
     '',
-    'SQLITE_PATH=/app/data/aemr.db',
+    # Volume монтируется в /app/packages/server/data (docker-compose.yml)
+    'SQLITE_PATH=/app/packages/server/data/aemr.db',
     '',
     f'AEMR_API_KEY={api_key}',
+    f'BASIC_AUTH_USER={basic_user}',
+    f'BASIC_AUTH_HASH={basic_hash_env}',
     '',
     f'GOOGLE_SHEETS_SPREADSHEET_ID={local_env.get("GOOGLE_SHEETS_SPREADSHEET_ID","")}',
     f'GOOGLE_SERVICE_ACCOUNT_EMAIL={local_env.get("GOOGLE_SERVICE_ACCOUNT_EMAIL","")}',
@@ -138,4 +156,5 @@ run('curl -s -o /dev/null -w "GET /api/health: HTTP %{http_code} %{size_download
 c.close()
 print('\n>>> DONE')
 print(f'>>> Открывай: http://{HOST}/')
-print(f'>>> API key для /api/* (если включится auth): {api_key}')
+print(f'>>> Вход (basic auth): {basic_user} / {basic_pwd}')
+print(f'>>> AEMR_API_KEY (живёт на сервере, браузеру не нужен): {api_key}')

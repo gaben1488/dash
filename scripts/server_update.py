@@ -13,7 +13,7 @@ import paramiko
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-HOST = '193.233.244.217'
+HOST = os.environ.get('AEMR_SRV_HOST', '193.233.91.162')
 USER = os.environ.get('AEMR_SRV_USER', 'aemr')
 # Выделенный деплой-ключ, НЕ личный id_ed25519 (правило: личный ключ не для деплоя).
 KEY = os.path.expanduser(os.environ.get('AEMR_SSH_KEY', '~/.ssh/aemr_deploy'))
