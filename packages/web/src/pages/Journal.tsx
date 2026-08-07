@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { api } from '../api';
-import { BookOpen, Search, Filter, Inbox, Database, FileEdit, AlertTriangle, Settings, RefreshCw, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { journalPeriodRange } from '../lib/selectors/journal-period';
+import { BookOpen, Search, Filter, Inbox, Database, FileEdit, AlertTriangle, Settings, RefreshCw, ChevronLeft, ChevronRight, Loader2, CalendarRange, Info } from 'lucide-react';
 import clsx from 'clsx';
 
 type EventType = 'import' | 'edit' | 'issue' | 'issue_create' | 'issue_status' | 'normalize' | 'input_error' | 'mapping_change' | 'error' | 'system';
@@ -33,13 +34,32 @@ const TYPE_CONFIG: Record<string, { label: string; bg: string; text: string; ico
 const PAGE_SIZE = 10;
 
 export function JournalPage() {
-  const { selectedDepartments } = useStore();
+  const { selectedDepartments, year, period, activeMonths } = useStore();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalFromApi, setTotalFromApi] = useState(0);
+  const [countsByAction, setCountsByAction] = useState<Record<string, number>>({});
+
+  // Глобальная ось времени → интервал дат события (см. journal-period.ts).
+  const periodRange = useMemo(
+    () => journalPeriodRange({ year, period, activeMonths }),
+    [year, period, activeMonths],
+  );
+  const { from: periodFrom, to: periodTo } = periodRange;
+
+  // Смена периода меняет весь набор записей: остаться на пятой странице
+  // прежней выдачи значит показать пустой экран вместо первых событий.
+  // Сброс на рендере, а не в эффекте: иначе успевает уйти лишний запрос
+  // за несуществующей страницей нового периода.
+  const rangeKey = `${periodFrom ?? ''}|${periodTo ?? ''}`;
+  const [appliedRangeKey, setAppliedRangeKey] = useState(rangeKey);
+  if (appliedRangeKey !== rangeKey) {
+    setAppliedRangeKey(rangeKey);
+    setCurrentPage(1);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +72,10 @@ export function JournalPage() {
     if (typeFilter.size > 0) params.action = [...typeFilter][0]; // API supports single action filter
     // Б6: сервер понимает deptId (раньше слали неизвестный ему `dept` — фильтр был no-op)
     if (selectedDepartments.size > 0) params.deptId = [...selectedDepartments].join(',');
+    // Период применяется к дате СОБЫТИЯ — единственной дате, которая у записи
+    // журнала есть. Раньше барабан периода крутился вхолостую (§3 п.3 плана).
+    if (periodFrom) params.from = periodFrom;
+    if (periodTo) params.to = periodTo;
 
     api.getJournal(params).then((data: any) => {
       if (cancelled) return;
@@ -66,14 +90,15 @@ export function JournalPage() {
       }));
       setJournalEntries(entries);
       setTotalFromApi(data.pagination?.total ?? entries.length);
+      setCountsByAction(data.counts?.byAction ?? {});
     }).catch(() => {
-      if (!cancelled) setJournalEntries([]);
+      if (!cancelled) { setJournalEntries([]); setCountsByAction({}); }
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
 
     return () => { cancelled = true; };
-  }, [currentPage, search, typeFilter, selectedDepartments]);
+  }, [currentPage, search, typeFilter, selectedDepartments, periodFrom, periodTo]);
 
   const toggleType = (t: EventType) => {
     const next = new Set(typeFilter);
@@ -87,9 +112,11 @@ export function JournalPage() {
   const totalPages = Math.ceil(totalFromApi / PAGE_SIZE);
   const pageItems = journalEntries;
 
-  const todayCount = journalEntries.filter(e => e.timestamp?.startsWith(new Date().toISOString().slice(0, 10))).length;
-  const errorCount = journalEntries.filter(e => e.type === 'error' || e.type === 'input_error').length;
-  const importCount = journalEntries.filter(e => e.type === 'import').length;
+  // Счётчики берутся из серверного `counts.byAction` — итоги по ВСЕЙ выборке
+  // текущих фильтров. Прежние считались по десяти строкам открытой страницы и
+  // стояли рядом с «Всего событий», то есть читались как итоги, не будучи ими.
+  const inputErrorCount = countsByAction.input_error ?? 0;
+  const importCount = countsByAction.import ?? 0;
 
   return (
     <div className="space-y-6">
@@ -99,9 +126,26 @@ export function JournalPage() {
           <BookOpen size={14} className="text-blue-500" />
           <span className="text-zinc-500 dark:text-zinc-400">Всего событий: <strong className="text-zinc-700 dark:text-zinc-200">{totalFromApi}</strong></span>
         </div>
-        <span className="text-zinc-500 dark:text-zinc-400">Сегодня: <strong className="text-zinc-700 dark:text-zinc-200">{todayCount}</strong></span>
-        <span className="text-zinc-500 dark:text-zinc-400">Ошибок: <strong className="text-red-600 dark:text-red-400">{errorCount}</strong></span>
+        <span className="text-zinc-500 dark:text-zinc-400">Ошибок ввода: <strong className="text-red-600 dark:text-red-400">{inputErrorCount}</strong></span>
         <span className="text-zinc-500 dark:text-zinc-400">Импортов: <strong className="text-blue-600 dark:text-blue-400">{importCount}</strong></span>
+      </div>
+
+      {/* Что делает глобальная ось на этой вкладке — и чего она здесь не делает */}
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
+        <span className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+          <CalendarRange size={14} className="text-zinc-400" />
+          Период применён к дате события:{' '}
+          <strong className="text-zinc-700 dark:text-zinc-200">{periodRange.rangeLabel ?? 'без ограничения'}</strong>
+        </span>
+        {periodRange.widened && (
+          <span className="text-amber-600 dark:text-amber-400">
+            Выбраны несмежные месяцы — журнал режется одним общим интервалом, поэтому в списке есть события промежуточных месяцев.
+          </span>
+        )}
+        <span className="flex items-start gap-2 text-zinc-500 dark:text-zinc-400">
+          <Info size={14} className="text-zinc-400 mt-px shrink-0" />
+          Способ закупки и вид деятельности к журналу не применяются: у события нет ни того, ни другого — есть время, автор, действие и управление.
+        </span>
       </div>
 
       {/* Filters */}
@@ -145,9 +189,13 @@ export function JournalPage() {
         ) : pageItems.length === 0 ? (
           <div className="p-12 text-center">
             <Inbox className="mx-auto text-zinc-300 dark:text-zinc-600 mb-4" size={48} />
-            <h2 className="text-lg font-semibold text-zinc-600 dark:text-zinc-300 mb-2">Журнал событий пока пуст</h2>
+            <h2 className="text-lg font-semibold text-zinc-600 dark:text-zinc-300 mb-2">
+              {periodRange.rangeLabel ? 'За выбранный период событий нет' : 'Журнал событий пока пуст'}
+            </h2>
             <p className="text-sm text-zinc-400 dark:text-zinc-500 max-w-md mx-auto">
-              События будут записываться при обновлении данных и изменении статусов замечаний.
+              {periodRange.rangeLabel
+                ? `Отбор идёт по дате события: ${periodRange.rangeLabel}. Записи журнала появляются с момента запуска системы, а не за период данных, — сдвиньте период или снимите его.`
+                : 'События будут записываться при обновлении данных и изменении статусов замечаний.'}
             </p>
           </div>
         ) : (

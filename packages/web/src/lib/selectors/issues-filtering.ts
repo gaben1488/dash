@@ -57,6 +57,65 @@ export function filterIssues(allIssues: any[], opts: {
   return issues;
 }
 
+/**
+ * Оси шапки, которые объявлены для Замечаний, но не подкреплены данными.
+ *
+ * Замечание (`Issue` в @aemr/shared) не несёт ни периода данных, ни способа
+ * закупки: конвейер строит его из строки листа, но плановый квартал (колонка O)
+ * и способ (колонка K) в запись не переносит. Единственное временное поле —
+ * `detectedAt` — это момент ПРОГОНА конвейера, одинаковый у всех замечаний
+ * снимка, а на экране он и вовсе подменяется `lastRefreshed`; резать по нему
+ * значит выдать за фильтр периода фильтр по времени последнего обновления.
+ * Канон карты оси времени, класс Е: «у замечаний нет даты, detectedAt — фейк»
+ * (`docs/superpowers/specs/2026-08-07-time-axis-map.md`).
+ *
+ * Поэтому фильтр не имитируется: ось объявляется отсутствующей, интерфейс
+ * говорит об этом вслух. `issueAxesWithoutData` — страж от протухания подписи:
+ * как только конвейер начнёт носить поле, ось исчезнет из списка, и подпись
+ * «не применяется» перестанет печататься раньше, чем станет ложью.
+ */
+export type IssueAxisId = 'period' | 'procurement';
+
+export interface IssueAxisGap {
+  id: IssueAxisId;
+  /** Название оси так, как она подписана в шапке. */
+  label: string;
+  /** Чего именно нет в данных — предъявимая причина, а не «не поддерживается». */
+  reason: string;
+}
+
+/** Поля-зонды: непустое значение хотя бы у одного замечания = ось появилась. */
+const AXIS_PROBE_FIELDS: Record<IssueAxisId, readonly string[]> = {
+  // detectedAt сознательно НЕ зонд: это время прогона, а не период данных.
+  period: ['planQuarter', 'planYear', 'factQuarter', 'planDate', 'factDate', 'periodKey'],
+  procurement: ['method', 'procurementMethod'],
+};
+
+const ISSUE_AXES_REQUIRING_DATA: readonly IssueAxisGap[] = [
+  {
+    id: 'period',
+    label: 'Период',
+    reason: 'у замечания нет ни планового, ни фактического квартала: конвейер не переносит их из строки листа',
+  },
+  {
+    id: 'procurement',
+    label: 'Способ закупки (КП/ЕП)',
+    reason: 'у замечания нет способа закупки: конвейер не переносит его из строки листа',
+  },
+];
+
+/** Оси, которых нет в переданной выборке замечаний. Пустой список = обе оси доступны. */
+export function issueAxesWithoutData(issues: readonly unknown[]): IssueAxisGap[] {
+  return ISSUE_AXES_REQUIRING_DATA.filter(gap => !issues.some(issue => {
+    const record = issue as Record<string, unknown> | null | undefined;
+    if (!record) return false;
+    return AXIS_PROBE_FIELDS[gap.id].some(field => {
+      const value = record[field];
+      return value !== undefined && value !== null && value !== '';
+    });
+  }));
+}
+
 /** Severity-разбиение отфильтрованных issues (бывшие :843–844). */
 export function splitIssuesBySeverity(issues: any[]): { criticalIssues: any[]; warningIssues: any[] } {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterIssues, splitIssuesBySeverity } from './issues-filtering';
+import { filterIssues, issueAxesWithoutData, splitIssuesBySeverity } from './issues-filtering';
 
 const noFilters = {
   hasDeptFilter: false,
@@ -43,6 +43,43 @@ describe('filterIssues (извлечено из useFilteredData §4/§4b)', () =
   it('вид деятельности: issue без activityType проходит (СВОД-уровень)', () => {
     const out = filterIssues(issues, { ...noFilters, selectedActivities: new Set(['current_program']) });
     expect(out.map(i => i.title)).toEqual(['Расхождение сверки', 'Оргзамечание без привязки']);
+  });
+});
+
+describe('issueAxesWithoutData (страж мёртвых осей Замечаний)', () => {
+  it('на нынешней форме данных периода и способа нет — обе оси объявлены отсутствующими', () => {
+    expect(issueAxesWithoutData(issues).map(a => a.id)).toEqual(['period', 'procurement']);
+  });
+
+  it('пустая выборка: осей нет — подпись «не применяется» остаётся честной', () => {
+    expect(issueAxesWithoutData([]).map(a => a.id)).toEqual(['period', 'procurement']);
+  });
+
+  it('detectedAt не считается периодом: это время прогона конвейера, а не период данных', () => {
+    const withDetectedAt = [{ title: 'x', detectedAt: '2026-08-07T00:00:00.000Z' }];
+    expect(issueAxesWithoutData(withDetectedAt).map(a => a.id)).toContain('period');
+  });
+
+  it('появился способ в данных — ось перестаёт числиться отсутствующей', () => {
+    const withMethod = [...issues, { title: 'ЕП сверх лимита', method: 'ЕП' }];
+    expect(issueAxesWithoutData(withMethod).map(a => a.id)).toEqual(['period']);
+  });
+
+  it('появился плановый квартал — ось периода перестаёт числиться отсутствующей', () => {
+    const withQuarter = [...issues, { title: 'строка Q2', planQuarter: 2 }];
+    expect(issueAxesWithoutData(withQuarter).map(a => a.id)).toEqual(['procurement']);
+  });
+
+  it('пустое значение поля осью не считается', () => {
+    const emptyMethod = [{ title: 'x', method: '' }, { title: 'y', planQuarter: null }];
+    expect(issueAxesWithoutData(emptyMethod).map(a => a.id)).toEqual(['period', 'procurement']);
+  });
+
+  it('каждая отсутствующая ось объясняет причину', () => {
+    for (const gap of issueAxesWithoutData(issues)) {
+      expect(gap.label.length).toBeGreaterThan(0);
+      expect(gap.reason.length).toBeGreaterThan(0);
+    }
   });
 });
 
