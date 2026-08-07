@@ -1,0 +1,240 @@
+/**
+ * Первопричины расхождений сверки — контракт вводной владельца 07.08.2026.
+ *
+ * Сверка перестаёт быть табло из двух чисел и дельты. Каждое расхождение
+ * обязано показывать ПЕРВОПРИЧИНУ и ПУТЬ ДО СТРОКИ-ВИНОВНИЦЫ: лист, номер
+ * строки, адрес ячейки, вклад в дельту. Расхождение без объяснённой
+ * первопричины — не «расхождение», а недоделанная сверка.
+ *
+ * Каскад (одна дельта в данных → три производных несовпадения) показывается
+ * как ОДНА первопричина со списком задетых показателей, а не как три
+ * независимые проблемы: читатель видит один дефект и одно действие.
+ *
+ * Спека: docs/superpowers/plans/2026-08-07-launch-readiness.md §1.
+ */
+
+/** Класс первопричины. Список закрыт вводной владельца 07.08. */
+export type ReconRootCauseClass =
+  /** Строка без подтверждённого финансирования (год плана P пуст): входит в один периметр и не входит в другой. */
+  | 'unfunded'
+  /** Факт есть, плановый квартал (O) пуст — строка выпадает из квартальных свёрток. */
+  | 'factQuarterMissing'
+  /** Заключено после даты среза: официал считает «на сейчас», расчёт — на четверг снимка. */
+  | 'afterSlice'
+  /** Знак дельты: один путь считает план−факт, другой факт−план (или клампит отрицательное в ноль). */
+  | 'sign'
+  /** Разная трактовка способа закупки: пустой метод, ЕП против конкурентных, деньги против количества. */
+  | 'method'
+  /** Отменённые/незаключённые строки: учтены в одном источнике, отсеяны в другом. */
+  | 'cancelled'
+  /** Строка прочитана иначе: битое зеркало, ширина листа, формат журнала, отсев по слову. */
+  | 'parsing'
+  /** Причина не установлена: непокрытый остаток дельты. Показывается честно, не округляется. */
+  | 'unknown';
+
+/** Путь до строки-виновницы: адрес в исходной книге и вклад в дельту. */
+export interface ReconRootCauseRow {
+  /** Имя листа книги-источника, как он физически называется («УЭР», «СВОД ТД-ПМ»). */
+  sheet: string;
+  /** Номер строки листа (1-based, как видит человек в Google Sheets). */
+  row: number;
+  /**
+   * Адрес ячейки-виновницы («AD1481»). Наружу выводится именно адрес:
+   * внутренний ключ колонки до глаз пользователя не доходит (канон
+   * product-dictionary §6.3), буква допустима только как часть адреса.
+   */
+  cell: string;
+  /** Вклад ИМЕННО этой строки в расхождение, со знаком, в единицах метрики. */
+  delta: number;
+}
+
+export interface ReconRootCause {
+  class: ReconRootCauseClass;
+  /**
+   * Строки-виновницы. Пустой массив запрещён для всех классов, кроме
+   * 'unknown': причина без адресов не предъявима исполнителю.
+   */
+  rows: ReconRootCauseRow[];
+  /**
+   * Вклад причины целиком — только для 'unknown', у которой строк нет по
+   * определению. Для остальных классов вклад складывается из rows, и это
+   * поле не заполняется (иначе завелась бы вторая семантика вклада).
+   */
+  delta?: number;
+  /** Объяснение человеческим русским: что произошло и почему числа разошлись. */
+  explanation: string;
+}
+
+/** Вклад причины в дельту: сумма строк, либо явный delta у 'unknown'. */
+export function causeContribution(cause: ReconRootCause): number {
+  if (cause.rows.length > 0) return cause.rows.reduce((s, r) => s + r.delta, 0);
+  return cause.delta ?? 0;
+}
+
+/** Первопричина в строке сверки: с идентификатором каскада и списком следствий. */
+export interface ReconLineRootCause extends ReconRootCause {
+  /**
+   * Идентификатор причины. Один и тот же id в нескольких строках сверки
+   * означает каскад — интерфейс обязан схлопнуть такие строки в группу.
+   */
+  id: string;
+  /** Ключи других показателей сверки, которые ломает та же первопричина. */
+  affects: string[];
+}
+
+/** Строка сверки с объяснением расхождения. */
+export interface ReconLine {
+  /** Ключ показателя (наружу выводится подпись из словаря). */
+  metric: string;
+  official: number;
+  computed: number;
+  delta: number;
+  /** Первопричины. Пусто допустимо ровно при delta === 0. */
+  rootCauses: ReconLineRootCause[];
+}
+
+/** Человеческие подписи классов — единственный дом (в UI своих строк не заводить). */
+export const ROOT_CAUSE_LABELS: Readonly<Record<ReconRootCauseClass, string>> = {
+  unfunded: 'Закупки без подтверждённого финансирования',
+  factQuarterMissing: 'Факт без планового квартала',
+  afterSlice: 'Заключено после даты среза',
+  sign: 'Разный знак отклонения',
+  method: 'Разная трактовка способа закупки',
+  cancelled: 'Отменённые строки учтены по-разному',
+  parsing: 'Строки прочитаны по-разному',
+  unknown: 'Первопричина не установлена',
+};
+
+/**
+ * Что делать исполнителю — рекомендация на класс. Показывается рядом с
+ * причиной: сверка обязана вести к действию, а не к констатации.
+ */
+export const ROOT_CAUSE_ACTIONS: Readonly<Record<ReconRootCauseClass, string>> = {
+  unfunded: 'Проставить сроки (N, O, P) у профинансированных строк либо обнулить план у отменённых.',
+  factQuarterMissing: 'Проставить плановый квартал (O) по плановой дате или дате факта.',
+  afterSlice: 'Действий не требуется: отчёт считает на дату среза, лист — на текущий момент.',
+  sign: 'Сверить направление отклонения со столбцом P листа СВОД (факт − план).',
+  method: 'Проверить столбец способа (L): пустая ячейка считается конкурентной закупкой.',
+  cancelled: 'Пометить отменённые строки единообразно: обнулить план либо проставить признак отмены.',
+  parsing: 'Проверить источник: зеркало IMPORTRANGE, ширину листа и формат журнала правок.',
+  unknown: 'Разобрать вручную: автоматический классификатор причину не распознал.',
+};
+
+/** Допуск сходимости вкладов строк с дельтой (единицы метрики). */
+const DELTA_EPSILON = 0.01;
+
+export interface ReconLineViolation {
+  metric: string;
+  /** Машинный код нарушения инварианта. */
+  code: 'delta_without_cause' | 'cause_without_rows' | 'contributions_mismatch';
+  message: string;
+}
+
+/**
+ * Проверка инвариантов контракта (§1 спеки):
+ *  1) дельта без причин запрещена;
+ *  2) причина без адресов запрещена (кроме 'unknown');
+ *  3) сумма вкладов строк сходится с дельтой строки.
+ *
+ * Возвращает список нарушений — пустой означает, что строка сверки
+ * объясняет себя сама. Вызывается и в тестах, и в рантайме продюсера.
+ */
+export function validateReconLine(line: ReconLine): ReconLineViolation[] {
+  const out: ReconLineViolation[] = [];
+  const hasDelta = Math.abs(line.delta) > DELTA_EPSILON;
+
+  if (hasDelta && line.rootCauses.length === 0) {
+    out.push({
+      metric: line.metric,
+      code: 'delta_without_cause',
+      message: `Расхождение ${line.delta} без первопричины: сверка не объясняет себя.`,
+    });
+  }
+
+  for (const cause of line.rootCauses) {
+    if (cause.class !== 'unknown' && cause.rows.length === 0) {
+      out.push({
+        metric: line.metric,
+        code: 'cause_without_rows',
+        message: `Причина «${ROOT_CAUSE_LABELS[cause.class]}» без строк-виновниц: не предъявима исполнителю.`,
+      });
+    }
+  }
+
+  // Сходимость проверяется только когда причины есть: при их отсутствии
+  // нарушение уже названо (delta_without_cause), второе было бы шумом.
+  if (hasDelta && line.rootCauses.length > 0) {
+    const covered = line.rootCauses.reduce((sum, cause) => sum + causeContribution(cause), 0);
+    if (Math.abs(covered - line.delta) > DELTA_EPSILON) {
+      out.push({
+        metric: line.metric,
+        code: 'contributions_mismatch',
+        message:
+          `Вклады строк (${covered}) не сходятся с расхождением (${line.delta}). ` +
+          'Непокрытый остаток показывается причиной «Первопричина не установлена», а не округляется.',
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Непокрытый остаток дельты как честная причина 'unknown'. Продюсер зовёт
+ * это после всех классификаторов: остаток не прячется и не округляется.
+ * Возвращает null, если остаток в пределах допуска.
+ */
+export function unexplainedRemainder(
+  line: Omit<ReconLine, 'rootCauses'>,
+  causes: readonly ReconLineRootCause[],
+): ReconLineRootCause | null {
+  const covered = causes.reduce((sum, cause) => sum + causeContribution(cause), 0);
+  const rest = line.delta - covered;
+  if (Math.abs(rest) <= DELTA_EPSILON) return null;
+  return {
+    id: `unknown:${line.metric}`,
+    class: 'unknown',
+    rows: [],
+    delta: rest,
+    affects: [],
+    explanation:
+      `Не объяснено ${rest.toFixed(2)} из ${line.delta.toFixed(2)}: ` +
+      'автоматические классификаторы не нашли строк, дающих этот остаток.',
+  };
+}
+
+/** Группа каскада: одна первопричина и все показатели, которые она ломает. */
+export interface RootCauseGroup {
+  cause: ReconLineRootCause;
+  /** Ключи показателей сверки, задетых причиной (включая тот, где она найдена). */
+  metrics: string[];
+  /** Суммарная дельта задетых показателей — масштаб дефекта одним числом. */
+  totalDelta: number;
+}
+
+/**
+ * Схлопывание каскадов: строки сверки с одинаковым id причины собираются в
+ * одну группу. Порядок — по убыванию масштаба: дороже сверху, как всюду в
+ * продукте («внимание читателя ведут деньги»).
+ */
+export function groupCascades(lines: readonly ReconLine[]): RootCauseGroup[] {
+  const byId = new Map<string, RootCauseGroup>();
+  for (const line of lines) {
+    for (const cause of line.rootCauses) {
+      const existing = byId.get(cause.id);
+      if (existing) {
+        if (!existing.metrics.includes(line.metric)) {
+          existing.metrics.push(line.metric);
+          existing.totalDelta += line.delta;
+        }
+      } else {
+        byId.set(cause.id, {
+          cause,
+          metrics: [line.metric],
+          totalDelta: line.delta,
+        });
+      }
+    }
+  }
+  return [...byId.values()].sort((a, b) => Math.abs(b.totalDelta) - Math.abs(a.totalDelta));
+}

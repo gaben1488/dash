@@ -65,6 +65,7 @@ export * from './org-classify.js';
 export * from './parse-sheet-date.js';
 export * from './svod-grid.js';
 export * from './time-selection.js';
+export * from './recon-root-cause.js';
 
 // Re-export канон «пустая дата факта» (ось Q) — семантически отдельно от org-itself
 export * from './fact-date.js';
