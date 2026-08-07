@@ -15,9 +15,16 @@ import {
   type ReconRootCause,
   type ReconRootCauseRow,
 } from '@aemr/shared';
-import { standardRowFilter, type RawRow } from './calc-engine.js';
+import { classifyMethodGroup, standardRowFilter, type RawRow } from './calc-engine.js';
 
 const COL = DEPT_COLUMNS;
+
+/**
+ * Допуск сравнения денег — копейка. Тот же порог, что у DELTA_EPSILON в
+ * контракте сверки: классификатор и валидатор обязаны считать «сошлось»
+ * по одному правилу, иначе причина, найденная здесь, там же и упадёт.
+ */
+const MONEY_EPSILON = 0.01;
 
 /** Мера, в которой считается расхождение: деньги или количество процедур. */
 export type ReconMeasure = 'planMoney' | 'planCount' | 'factMoney' | 'factCount';
@@ -77,6 +84,42 @@ function planQuarterValid(row: RawRow): boolean {
   return q >= 1 && q <= 4;
 }
 
+/**
+ * Строка относится к отчётному году. Пустой год — не отсекаем: такая строка
+ * и есть класс `unfunded`, и молчаливый выброс по году спрятал бы её от всех
+ * остальных классификаторов.
+ */
+function matchesYear(row: RawRow, year: number | undefined): boolean {
+  if (year === undefined) return true;
+  const y = cellNum(row[COL.PLAN_YEAR]);
+  return y <= 0 || y === year;
+}
+
+/** Плановая тройка бюджетов — второй путь чтения плановой суммы строки. */
+function planTriple(row: RawRow): number {
+  return cellNum(row[COL.FB_PLAN]) + cellNum(row[COL.KB_PLAN]) + cellNum(row[COL.MB_PLAN]);
+}
+
+/** Фактическая тройка бюджетов — второй путь чтения фактической суммы строки. */
+function factTriple(row: RawRow): number {
+  return cellNum(row[COL.FB_FACT]) + cellNum(row[COL.KB_FACT]) + cellNum(row[COL.MB_FACT]);
+}
+
+/**
+ * Канонические заглушки «значения нет»: в книгах ГРБС так помечают пустоту
+ * осознанно. Их нельзя считать битым числом, иначе класс `parsing` соберёт
+ * половину книги вместо настоящих дефектов чтения.
+ */
+const NO_VALUE_PLACEHOLDERS = new Set(['х', 'x', '-', '—', '–']);
+
+/** Ячейка непуста, не заглушка, но числом не читается («н/д», «уточняется»). */
+function unreadableNumber(v: unknown): boolean {
+  const s = String(v ?? '').trim();
+  if (s === '') return false;
+  if (NO_VALUE_PLACEHOLDERS.has(s.toLowerCase())) return false;
+  return toNumber(v) === null;
+}
+
 /** Вклад строки в меру расхождения: сколько именно она добавляет расчёту. */
 function contributionOf(row: RawRow, measure: ReconMeasure): number {
   switch (measure) {
@@ -128,6 +171,12 @@ export interface ClassifyInput {
   year?: number;
   /** Номер суток среза: для класса afterSlice. */
   asOfDay?: number;
+  /**
+   * Общее расхождение строки сверки в единицах меры, со знаком «расчёт минус
+   * официал». Нужно классу `sign`: у направления нет смысла, пока неизвестно,
+   * относительно чего строка идёт против течения.
+   */
+  delta?: number;
 }
 
 /**
@@ -173,10 +222,7 @@ export function classifyFactQuarterMissing(input: ClassifyInput): ReconRootCause
     if (!standardRowFilter(row)) return;
     if (!hasFactDate(row)) return;
     if (planQuarterValid(row)) return;
-    if (input.year !== undefined) {
-      const y = cellNum(row[COL.PLAN_YEAR]);
-      if (y > 0 && y !== input.year) return;
-    }
+    if (!matchesYear(row, input.year)) return;
     const delta = contributionOf(row, input.measure);
     if (delta === 0) return;
     rows.push(toCauseRow(input.sheet, i, input.measure, delta));
@@ -222,6 +268,197 @@ export function classifyAfterSlice(input: ClassifyInput): ReconRootCause | null 
     explanation:
       `Заключено после даты среза: ${rows.length} строк на ${money(total)}. ` +
       'Лист СВОД всегда считает на текущий момент, отчёт — на дату среза; в отчётные числа эти строки войдут следующей неделей.',
+  };
+}
+
+/**
+ * Класс `sign` — расхождение по направлению отклонения.
+ *
+ * Канон листа СВОД: отклонение считается как факт минус план, поэтому
+ * перерасход у листа положителен, а экономия отрицательна. Продукт местами
+ * берёт обратную величину (экономия = план минус факт) и обнуляет
+ * отрицательную (approvedEconomy) — решение Д14 о том, чей канон главный,
+ * владельцем ещё не принято. Пока оно не принято, строки, чьё отклонение
+ * направлено против общего расхождения, обязаны быть названы поимённо:
+ * именно на них два пути расходятся знаком, а не величиной.
+ *
+ * Счёт процедур направления не имеет, поэтому к количественным мерам класс
+ * не применяется — как afterSlice не применяется к плановым.
+ */
+export function classifySign(input: ClassifyInput): ReconRootCause | null {
+  if (input.measure === 'planCount' || input.measure === 'factCount') return null;
+  if (input.delta === undefined || Math.abs(input.delta) <= MONEY_EPSILON) return null;
+  const overall = Math.sign(input.delta);
+  const rows: ReconRootCauseRow[] = [];
+  input.rows.forEach((row, i) => {
+    if (!standardRowFilter(row)) return;
+    if (!matchesYear(row, input.year)) return;
+    // Отклонение существует только у заключённого контракта. Без этого условия
+    // «факт минус план» дал бы минус на всю плановую сумму каждой незаключённой
+    // строки, и класс собрал бы всю книгу вместо знакового разнобоя.
+    if (!hasFactDate(row)) return;
+    const deviation = rowFactTotal(row) - rowPlanTotal(row);
+    if (Math.abs(deviation) <= MONEY_EPSILON) return;
+    if (Math.sign(deviation) === overall) return;
+    rows.push(toCauseRow(input.sheet, i, input.measure, deviation));
+  });
+  if (rows.length === 0) return null;
+  const total = rows.reduce((s, r) => s + r.delta, 0);
+  const overallWord = input.delta > 0 ? 'расчёт выше официального числа' : 'расчёт ниже официального числа';
+  const rowsWord = total > 0 ? 'факт выше плана (перерасход)' : 'факт ниже плана (экономия)';
+  return {
+    class: 'sign',
+    rows: sortRows(rows),
+    explanation:
+      `Строк с обратным направлением отклонения: ${rows.length}, их вклад ${money(total)}. ` +
+      `Общее расхождение — ${overallWord}, отклонение этих строк идёт против него: ${rowsWord}. ` +
+      'Лист СВОД считает отклонение как факт минус план; путь, берущий обратную величину или обнуляющий отрицательную, даёт другой знак.',
+  };
+}
+
+/**
+ * Класс `method` — разная трактовка способа закупки.
+ *
+ * Формула листа СВОД делит строки отрицанием: конкурентной считается любая,
+ * где способ не «ЕП». Пустая ячейка попадает у листа в конкурентные, и
+ * classifyMethodGroup повторяет это правило намеренно. А вот непустой
+ * нераспознанный код (не ЭА, ЕП, ЭК или ЭЗК) продукт относит к дефектам
+ * данных и не зачисляет ни в конкурентные, ни в ЕП: строка выпадает из обеих
+ * долей, тогда как лист по-прежнему держит её в конкурентных.
+ *
+ * Строки с пустым способом класс тоже показывает, но со вкладом ноль: обе
+ * стороны читают их одинаково, поэтому расхождения они не двигают. Это риск
+ * данных («если оператор имел в виду ЕП, ошибаются оба числа сразу»), а не
+ * источник дельты, и арифметика сверки от их появления не поедет.
+ */
+export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
+  const rows: ReconRootCauseRow[] = [];
+  let unknownCount = 0;
+  let emptyCount = 0;
+  input.rows.forEach((row, i) => {
+    if (!standardRowFilter(row)) return;
+    if (!matchesYear(row, input.year)) return;
+    if (rowPlanTotal(row) <= 0) return;
+    const raw = String(row[COL.METHOD] ?? '').trim();
+    const unknown = raw !== '' && classifyMethodGroup(row[COL.METHOD]) === null;
+    if (!unknown && raw !== '') return;
+    const own = contributionOf(row, input.measure);
+    // К этой мере строка отношения не имеет (например, факта нет, а мера
+    // фактическая) — молчим, чтобы не показывать пустой адрес.
+    if (own === 0) return;
+    if (unknown) unknownCount += 1;
+    else emptyCount += 1;
+    rows.push(toCauseRow(input.sheet, i, input.measure, unknown ? own : 0));
+  });
+  if (rows.length === 0) return null;
+  const total = rows.reduce((s, r) => s + r.delta, 0);
+  return {
+    class: 'method',
+    rows: sortRows(rows),
+    explanation:
+      `Строк с нераспознанным способом: ${unknownCount}, с пустым способом: ${emptyCount}; ` +
+      `вклад в расхождение ${money(total)}. ` +
+      'Лист СВОД считает конкурентной любую строку, где способ не «ЕП», поэтому пустая ячейка у него конкурентная; ' +
+      'нераспознанный код не попадает ни в конкурентные, ни в закупки у единственного поставщика и выпадает из обеих долей.',
+  };
+}
+
+/** Слова, которыми операторы помечают отменённую или несостоявшуюся закупку. */
+const CANCELLED_MARKERS = ['отмен', 'аннулир', 'не состоял'];
+
+/**
+ * Где ищем пометку: причина отклонения и три колонки комментариев.
+ * Отдельной колонки «статус» в книгах ГРБС нет вовсе (аудит 30.07), поэтому
+ * признак отмены живёт свободным текстом и другого дома у него не будет.
+ */
+const CANCELLED_COLUMNS = [
+  COL.DEVIATION_REASON,
+  COL.COMMENT_GRBS,
+  COL.COMMENT_UER,
+  COL.COMMENT_UFBP,
+];
+
+function hasCancelledMarker(row: RawRow): boolean {
+  return CANCELLED_COLUMNS.some((col) => {
+    const s = String(row[col] ?? '').trim().toLowerCase();
+    if (s === '') return false;
+    return CANCELLED_MARKERS.some((m) => s.includes(m));
+  });
+}
+
+/**
+ * Класс `cancelled` — отменённые и несостоявшиеся строки с непогашенным планом.
+ *
+ * Закупку отменили, но плановую сумму не обнулили и пометку поставили словом
+ * в свободном тексте. Дальше пути расходятся: путь, читающий текст, строку
+ * отсеивает, путь, читающий только деньги, продолжает её считать. Разница
+ * ровно в этих строках, и она устраняется единообразной пометкой, а не
+ * подгонкой чисел.
+ */
+export function classifyCancelled(input: ClassifyInput): ReconRootCause | null {
+  const rows: ReconRootCauseRow[] = [];
+  input.rows.forEach((row, i) => {
+    if (!standardRowFilter(row)) return;
+    if (!matchesYear(row, input.year)) return;
+    if (rowPlanTotal(row) <= 0) return;
+    if (!hasCancelledMarker(row)) return;
+    const delta = contributionOf(row, input.measure);
+    if (delta === 0) return;
+    rows.push(toCauseRow(input.sheet, i, input.measure, delta));
+  });
+  if (rows.length === 0) return null;
+  const total = rows.reduce((s, r) => s + r.delta, 0);
+  return {
+    class: 'cancelled',
+    rows: sortRows(rows),
+    explanation:
+      `Строк с пометкой об отмене: ${rows.length}, их вклад ${money(total)}. ` +
+      'В причине отклонения или комментариях стоит «отменено», «аннулировано» либо «не состоялось», ' +
+      'но плановая сумма не обнулена: один источник такие строки считает, другой отсеивает.',
+  };
+}
+
+/**
+ * Класс `parsing` — строка прочитана по-разному.
+ *
+ * Итоговая сумма строки и сумма трёх бюджетов обязаны совпадать (правило
+ * книги: ИТОГО = ФБ + КБ + МБ). Когда они расходятся, подсчёт по столбцу
+ * ИТОГО и подсчёт по источникам дают разные числа — и это не спор о методике,
+ * а дефект заполнения или чтения. Сюда же попадает непустая ячейка, которая
+ * числом не читается: один путь видит там ноль, другой откатывается на тройку.
+ *
+ * Вклад считается как «сумма по столбцу ИТОГО минус сумма по источникам»:
+ * ровно на столько расходятся два прочтения одной строки.
+ */
+export function classifyParsing(input: ClassifyInput): ReconRootCause | null {
+  const factSide = input.measure === 'factMoney' || input.measure === 'factCount';
+  const totalColumn = factSide ? COL.TOTAL_FACT : COL.TOTAL_PLAN;
+  const isMoney = input.measure === 'planMoney' || input.measure === 'factMoney';
+  const rows: ReconRootCauseRow[] = [];
+  let unreadable = 0;
+  input.rows.forEach((row, i) => {
+    if (!standardRowFilter(row)) return;
+    if (!matchesYear(row, input.year)) return;
+    const raw = row[totalColumn];
+    const triple = factSide ? factTriple(row) : planTriple(row);
+    const gap = cellNum(raw) - triple;
+    const broken = unreadableNumber(raw);
+    if (!broken && Math.abs(gap) <= MONEY_EPSILON) return;
+    const delta = isMoney ? gap : contributionOf(row, input.measure);
+    if (delta === 0) return;
+    if (broken) unreadable += 1;
+    rows.push(toCauseRow(input.sheet, i, input.measure, delta));
+  });
+  if (rows.length === 0) return null;
+  const total = rows.reduce((s, r) => s + r.delta, 0);
+  const brokenPart = unreadable > 0 ? `, из них с нечитаемым числом ${unreadable}` : '';
+  return {
+    class: 'parsing',
+    rows: sortRows(rows),
+    explanation:
+      `Строк, прочитанных по-разному: ${rows.length}${brokenPart}; расхождение прочтений ${money(total)}. ` +
+      'Итоговая сумма строки не сходится с суммой трёх бюджетов, поэтому подсчёт по итоговому столбцу ' +
+      'и подсчёт по источникам финансирования дают разные числа.',
   };
 }
 
