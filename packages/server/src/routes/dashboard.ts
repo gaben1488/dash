@@ -525,12 +525,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  /** POST /api/load-all — alias для /api/refresh (обратная совместимость) */
-  app.post('/api/load-all', async (request, reply) => {
-    // Forward to /api/refresh (full mode)
-    const result = await app.inject({ method: 'POST', url: '/api/refresh' });
-    reply.status(result.statusCode).send(result.json());
-  });
+  // POST /api/load-all удалён (пирамида агрегации §6, п.15): байт-в-байт
+  // алиас /api/refresh без единого потребителя — ни в web, ни в скриптах.
+  // Обратная совместимость сохранялась ради вызовов, которых не существует.
 
   // GET /api/reconciliation — перенесён в routes/reconciliation.ts (единый владелец роута,
   // расширенная сверка). Старый per-dept обработчик удалён: дублирующая регистрация GET

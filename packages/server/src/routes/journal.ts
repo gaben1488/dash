@@ -42,8 +42,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
    *
    * Query params:
    *   - action: 'import' | 'edit' | 'issue_create' | 'issue_status' | 'normalize' | 'input_error' | 'mapping_change'
-   *   - entity: 'row' | 'issue' | 'mapping' | 'snapshot' | 'system'
-   *   - deptId: string — фильтр по отделу
+   *   - deptId: string — фильтр по отделу (CSV, обе формы ключа ГРБС)
    *   - from: string — ISO date (начало периода)
    *   - to: string — ISO date (конец периода)
    *   - search: string — поиск по деталям
@@ -147,7 +146,10 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       return tb.localeCompare(ta);
     });
 
-    // Apply filters
+    // Apply filters.
+    // Параметр entity документировался, но никогда не применялся (пирамида
+    // §6, п.15): из описания убран — обещать фильтр, которого нет, хуже,
+    // чем не обещать ничего. Понадобится — вводить вместе с фильтрацией.
     if (query.action) entries = entries.filter(e => e.type === query.action);
     if (query.deptId) {
       // CSV + обе формы ключа ГРБС (кириллица/латиница) — Б6: точное равенство
