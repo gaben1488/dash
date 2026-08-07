@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, subordinateKey } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -38,6 +38,17 @@ export interface PipelineInput {
 const SHEET_TO_DEPT_ID: Record<string, string> = { ...CYRILLIC_TO_LATIN };
 
 /**
+ * Канон резолва ГРБС-листа (блок А п.4 пирамиды): реестр → latinId; лист,
+ * которого реестр не знает (ШДЮ, служебный, переименованный), → null и
+ * ЧЕСТНЫЙ ПРОПУСК аналитики — как attachUnifiedGrid на сервере. Прежний
+ * фолбэк sheetName.toLowerCase() плодил фантомный «ГРБС», который дальше
+ * нигде не матчился (тихий дроп блока).
+ */
+function sheetDeptId(sheetName: string): string | null {
+  return SHEET_TO_DEPT_ID[sheetName] ?? findDept(sheetName)?.latinId ?? null;
+}
+
+/**
  * Merge RecalculatedMetrics into the calculatedMetrics map.
  * Creates NormalizedMetric entries with keys matching REPORT_MAP:
  *   grbs.{deptId}.kp.{period}.count, grbs.{deptId}.ep.{period}.total_plan, etc.
@@ -45,9 +56,8 @@ const SHEET_TO_DEPT_ID: Record<string, string> = { ...CYRILLIC_TO_LATIN };
 function mergeRecalcIntoMetrics(
   target: Map<string, NormalizedMetric>,
   recalc: RecalculatedMetrics,
-  sheetName: string,
+  dept: string,
 ): void {
-  const dept = SHEET_TO_DEPT_ID[sheetName] ?? sheetName.toLowerCase();
   const now = new Date().toISOString();
 
   function put(key: string, value: number, unit: 'rub' | 'count' | 'percent', period: string): void {
@@ -448,7 +458,7 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
   const engine = new CalcEngine();
 
   for (const [sheetName, rows] of Object.entries(input.sheetRows)) {
-    const deptId = SHEET_TO_DEPT_ID[sheetName] ?? sheetName.toLowerCase();
+    const deptId = sheetDeptId(sheetName); // null = не-ГРБС лист (СВОД/служебный)
     const ingested = ingestSheetRows(sheetName, rows);
     const classified = classifyRows(sheetName, ingested);
     totalRows += classified.length;
@@ -458,8 +468,11 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     const sheetIssues = validateData(officialMetrics, classified, input.rules, input.reportMap);
     allIssues.push(...sheetIssues);
 
-    // Signal detection + CalcEngine only for department sheets (СВОД has different column layout)
-    if (sheetName !== SVOD_SHEET_NAME) {
+    // Signal detection + CalcEngine only for department sheets (СВОД has
+    // different column layout). deptId === null — лист не из реестра ГРБС:
+    // аналитика честно пропускается (канон attachUnifiedGrid), а не
+    // вешается на фантомный lowercase-идентификатор.
+    if (sheetName !== SVOD_SHEET_NAME && deptId !== null) {
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
       const sheetSignals = detectSheetSignals(rows as unknown[][]);
@@ -470,7 +483,7 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
       const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear);
       const recalc = adaptToRecalcMetrics(grouped, sheetName);
-      mergeRecalcIntoMetrics(calculatedMetrics, recalc, sheetName);
+      mergeRecalcIntoMetrics(calculatedMetrics, recalc, deptId);
       recalcResults[deptId] = recalc;
     }
   }
@@ -495,7 +508,8 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
   const datasetAnalyses: Record<string, DatasetAnalysis> = {};
   for (const [sheetName, rows] of Object.entries(input.sheetRows)) {
     if (sheetName === SVOD_SHEET_NAME) continue;
-    const deptId = SHEET_TO_DEPT_ID[sheetName] ?? sheetName.toLowerCase();
+    const deptId = sheetDeptId(sheetName);
+    if (deptId === null) continue; // не-ГРБС лист — честный пропуск (п.4)
     const recalc = recalcResults[deptId];
     if (!recalc) continue;
 
