@@ -114,7 +114,28 @@ const TREND_COLORS: Record<string, string> = {
   accelerating: 'text-emerald-500', decelerating: 'text-red-500', stable: 'text-zinc-400', insufficient_data: 'text-zinc-400',
 };
 
-function ForecastCard({ depts, isDark, formatMoney }: { depts: any[]; isDark: boolean; formatMoney: (v: number) => string }) {
+/**
+ * Утверждение о прогнозе для заголовка карточки.
+ *
+ * Заголовок обязан говорить, что показал расчёт, а не как он называется.
+ * Базовый сценарий — первый в списке (сервер отдаёт их от базового к
+ * крайним). Нечисловое исполнение не превращаем в ноль: пишем честно, что
+ * прогноз не построен.
+ */
+function forecastClaim(deptLabel: string, forecast: { scenarios?: unknown[] } | null): string {
+  const base = (forecast?.scenarios?.[0] ?? null) as { label?: string; yearEndExecution?: unknown } | null;
+  if (!base || !Number.isFinite(base.yearEndExecution)) return 'Прогноз исполнения';
+  const pct = ((base.yearEndExecution as number) * 100).toFixed(0);
+  return `${deptLabel}: к концу года ожидается ${pct} % годового плана (${base.label ?? 'базовый сценарий'})`;
+}
+
+function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
+  depts: any[];
+  isDark: boolean;
+  formatMoney: (v: number) => string;
+  /** Поднимает утверждение в заголовок: прогноз живёт здесь, а заголовок — выше. */
+  onClaim?: (claim: string) => void;
+}) {
   const [selectedDept, setSelectedDept] = useState<string>('');
   const [forecast, setForecast] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -130,9 +151,14 @@ function ForecastCard({ depts, isDark, formatMoney }: { depts: any[]; isDark: bo
     try {
       const data = await api.getAnalyticsForecast(deptId);
       setForecast(data);
-    } catch { setForecast(null); }
+      const label = depts.find((d: any) => d.department?.id === deptId)?.department?.nameShort ?? 'Управление';
+      onClaim?.(forecastClaim(label, data));
+    } catch {
+      setForecast(null);
+      onClaim?.('Прогноз исполнения');
+    }
     setLoading(false);
-  }, []);
+  }, [depts, onClaim]);
 
   useEffect(() => {
     if (deptOptions.length > 0 && !selectedDept) {
@@ -285,6 +311,43 @@ export function Analytics() {
   }, [filteredDepts]);
 
   const deptNames = useMemo(() => filteredDepts.map((d: any) => d.department?.nameShort ?? d.department?.id ?? '?'), [filteredDepts]);
+
+  // Заголовок карточки прогноза приходит снизу: сам прогноз грузится
+  // внутри карточки по выбранному управлению, а утверждение о нём должно
+  // стоять в шапке. Значение по умолчанию — нейтральное название.
+  const [forecastTitle, setForecastTitle] = useState('Прогноз исполнения');
+
+  /**
+   * Заголовок-утверждение для тренда: карточка обязана говорить, ЧТО
+   * показал график, а не как он называется («Отчёт++»: числа-утверждения
+   * вместо витрин). Считаем счётно — сколько управлений идёт вверх, а
+   * сколько вниз от первого непустого квартала к последнему. Средний
+   * процент здесь недопустим: усреднять проценты по управлениям с разным
+   * числом процедур значит выдать взвешенную величину за простую.
+   */
+  const execTrendClaim = useMemo(() => {
+    let rising = 0, falling = 0, flat = 0;
+    for (const name of deptNames) {
+      const series = execTrend
+        .map((p: Record<string, unknown>) => p[name])
+        .filter((v): v is number => typeof v === 'number');
+      if (series.length < 2) continue;
+      const delta = series[series.length - 1] - series[0];
+      if (delta > 1) rising += 1;
+      else if (delta < -1) falling += 1;
+      else flat += 1;
+    }
+    const total = rising + falling + flat;
+    if (total === 0) return 'Тренд исполнения по кварталам, %';
+    if (rising === total) return `Исполнение растёт у всех ${total} управлений (по кварталам)`;
+    if (falling === total) return `Исполнение падает у всех ${total} управлений (по кварталам)`;
+    if (rising > 0 && falling > 0) {
+      return `Исполнение растёт у ${rising} из ${total} управлений, снижается у ${falling}`;
+    }
+    if (rising > 0) return `Исполнение растёт у ${rising} из ${total} управлений, у остальных без движения`;
+    if (falling > 0) return `Исполнение снижается у ${falling} из ${total} управлений, у остальных без движения`;
+    return `Исполнение у всех ${total} управлений держится на одном уровне`;
+  }, [deptNames, execTrend]);
 
   // ── Budget by department (stacked ФБ/КБ/МБ) ──
   const budgetByDept = useMemo(() => {
@@ -537,8 +600,7 @@ export function Analytics() {
           )}
         </AnalyticsCard>
 
-        {/* TODO: make assertion-based when aggregated execution trend data available */}
-        <AnalyticsCard title="Тренд исполнения по кварталам, %" icon={LineChartIcon} source="calculated">
+        <AnalyticsCard title={execTrendClaim} icon={LineChartIcon} source="calculated">
           {execTrend.length > 0 && deptNames.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={execTrend}>
@@ -843,10 +905,9 @@ export function Analytics() {
       </div>
 
       {/* Forecast */}
-      {/* TODO: make assertion-based when forecast data is lifted to parent scope */}
       {filteredDepts.length > 0 && (
-        <AnalyticsCard title="Прогноз исполнения" icon={TrendingUp} source="calculated">
-          <ForecastCard depts={filteredDepts} isDark={isDark} formatMoney={formatMoney} />
+        <AnalyticsCard title={forecastTitle} icon={TrendingUp} source="calculated">
+          <ForecastCard depts={filteredDepts} isDark={isDark} formatMoney={formatMoney} onClaim={setForecastTitle} />
         </AnalyticsCard>
       )}
 
