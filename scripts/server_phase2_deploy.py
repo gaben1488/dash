@@ -61,12 +61,18 @@ else:
 print('\n=== STEP 2 — .env.production ===')
 
 def parse_env(path):
-    """Простой парсер .env с поддержкой многострочных значений в кавычках."""
+    """Построчный парсер .env: KEY="value" или KEY=value, значение — одна строка
+    (GOOGLE_PRIVATE_KEY хранится однострочно с \\n-эскейпами).
+
+    ВАЖНО: без re.DOTALL. С ним жадное (.*)$ первого же значения без кавычек
+    съедало весь остаток файла → в .env.production инжектился локальный
+    dev-.env (HOST=127.0.0.1, SQLITE_PATH=./data/...) и, побеждая как более
+    поздние строки env_file, ронял прод (сервер слушал loopback → Caddy 502).
+    """
     result = {}
     with open(path, 'r', encoding='utf-8') as f:
         text = f.read()
-    # match KEY="value" (multiline) or KEY=value
-    pattern = re.compile(r'^([A-Z_][A-Z0-9_]*)=(?:"((?:[^"\\]|\\.)*)"|(.*))$', re.MULTILINE | re.DOTALL)
+    pattern = re.compile(r'^([A-Z_][A-Z0-9_]*)=(?:"((?:[^"\\]|\\.)*)"|(.*))$', re.MULTILINE)
     for m in pattern.finditer(text):
         k = m.group(1)
         v = m.group(2) if m.group(2) is not None else m.group(3)
@@ -123,14 +129,26 @@ print(f'uploaded {remote_env} ({len(env_content)} bytes)')
 print(f'AEMR_API_KEY (save this!) = {api_key}')
 
 # ============ STEP 3 — copy aemr.db ============
-print('\n=== STEP 3 — копируем aemr.db ===')
+print('\n=== STEP 3 — копируем aemr.db (checkpoint + gzip) ===')
+# WAL-чекпойнт: без него свежие записи остаются в aemr.db-wal и не уезжают.
+import sqlite3, gzip, shutil
+con = sqlite3.connect(LOCAL_DB)
+con.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+con.close()
 db_size = os.path.getsize(LOCAL_DB)
 print(f'local aemr.db size: {db_size/1024/1024:.1f} MB')
-print('uploading via sftp...')
+# Канал до VPS медленный — жмём (sqlite жмётся ~3x), на сервере gunzip.
+gz_path = LOCAL_DB + '.gz'
+with open(LOCAL_DB, 'rb') as fin, gzip.open(gz_path, 'wb', compresslevel=6) as fout:
+    shutil.copyfileobj(fin, fout, 1024 * 1024)
+print(f'gz size: {os.path.getsize(gz_path)/1024/1024:.1f} MB, uploading via sftp...')
+run('rm -f /tmp/aemr.db.upload /tmp/aemr.db.upload.gz', hide=True)
 t0 = time.time()
-sftp.put(LOCAL_DB, '/tmp/aemr.db.upload')
+sftp.put(gz_path, '/tmp/aemr.db.upload.gz')
 print(f'uploaded in {time.time()-t0:.1f}s')
 sftp.close()
+os.remove(gz_path)
+run('gunzip -f /tmp/aemr.db.upload.gz && ls -la /tmp/aemr.db.upload')
 
 # ============ STEP 4 — docker build + up ============
 print('\n=== STEP 4 — docker compose up (это займёт 5-15 минут)... ===')
