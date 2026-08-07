@@ -647,31 +647,41 @@ export class CalcEngine {
 
   private computeDerived(metrics: Map<string, AccumulatedValue>): void {
     for (const d of this.derived) {
-      const val = this.evaluateDerived(d, metrics);
+      const val = evaluateDerivedFormula(d, (key) => metrics.get(key)?.value ?? 0);
       metrics.set(d.key, { value: val, contributingRows: [] });
     }
   }
+}
 
-  private evaluateDerived(d: DerivedMetricDefinition, metrics: Map<string, AccumulatedValue>): number {
-    const get = (key: string) => metrics.get(key)?.value ?? 0;
-
-    switch (d.formula.op) {
-      case 'ratio': {
-        const denom = get(d.formula.denominator);
-        return denom !== 0 ? get(d.formula.numerator) / denom : 0;
-      }
-      case 'diff':
-        return get(d.formula.a) - get(d.formula.b);
-      case 'pct': {
-        const denom = get(d.formula.denominator);
-        // Returns decimal: 0.316 = 31.6% (matching recalculate.ts convention)
-        return denom !== 0 ? get(d.formula.numerator) / denom : 0;
-      }
-      case 'sum':
-        return d.formula.operands.reduce((acc, key) => acc + get(key), 0);
+/**
+ * Вычисление производной метрики по базовым аккумуляторам. Общий дом для
+ * compute() и sliceResults(): проценты и доли ВСЕГДА пересчитываются из
+ * (слитых) числителя/знаменателя, никогда не агрегируются сами (§3.2
+ * пирамиды агрегации).
+ */
+function evaluateDerivedFormula(
+  d: DerivedMetricDefinition,
+  get: (key: string) => number,
+): number {
+  switch (d.formula.op) {
+    case 'ratio': {
+      const denom = get(d.formula.denominator);
+      return denom !== 0 ? get(d.formula.numerator) / denom : 0;
     }
+    case 'diff':
+      return get(d.formula.a) - get(d.formula.b);
+    case 'pct': {
+      const denom = get(d.formula.denominator);
+      // Returns decimal: 0.316 = 31.6% (matching recalculate.ts convention)
+      return denom !== 0 ? get(d.formula.numerator) / denom : 0;
+    }
+    case 'sum':
+      return d.formula.operands.reduce((acc, key) => acc + get(key), 0);
   }
 }
+
+/** Ключи производных метрик канона: при слиянии срезов их суммировать нельзя. */
+const STANDARD_DERIVED_KEYS = new Set(STANDARD_DERIVED.map((d) => d.key));
 
 // ── Factory: Standard row filter with classification scoring ─────────
 
@@ -735,7 +745,12 @@ export function getValue(results: GroupedResults, metricKey: string, group?: str
 // ── sliceResults: universal filter aggregation ───────────────────────
 
 export interface SliceFilter {
-  /** Quarter keys to include, e.g. ['q1', 'q3']. */
+  /**
+   * Quarter keys to include, e.g. ['q1', 'q3']. Служебная корзина
+   * '_orphan' (факт без план-квартала) — легальный ключ: явное
+   * ['q1','q2','q3','q4','_orphan'] эквивалентно total по счётчикам
+   * (инвариант Фазы 0; сигнал factQuarterMissing помечает такие строки).
+   */
   quarters?: string[];
   /** Month numbers to include, e.g. [1, 2, 3]. */
   months?: number[];
@@ -759,22 +774,45 @@ export function sliceResults(
   grouped: GroupedResults,
   filter: SliceFilter,
 ): Map<string, AccumulatedValue> {
-  const hasQ = filter.quarters && filter.quarters.length > 0;
-  const hasM = filter.months && filter.months.length > 0;
-  const hasMeth = filter.methods && filter.methods.length > 0;
-  const hasSub = filter.subordinates && filter.subordinates.length > 0;
-  const hasAct = filter.activities && filter.activities.length > 0;
+  const hasQ = !!(filter.quarters && filter.quarters.length > 0);
+  const hasM = !!(filter.months && filter.months.length > 0);
+  const hasMeth = !!(filter.methods && filter.methods.length > 0);
+  const hasSub = !!(filter.subordinates && filter.subordinates.length > 0);
+  const hasAct = !!(filter.activities && filter.activities.length > 0);
 
   // No filter → total
   if (!hasQ && !hasM && !hasMeth && !hasSub && !hasAct) {
     return grouped.total;
   }
 
+  // Харденинг Фазы 0: сочетание осей, для которого нет карты пересечения,
+  // — честная ошибка, а НЕ молчаливый сброс «лишних» фильтров (раньше
+  // {quarters, subordinates} тихо возвращал весь квартал по всем подведам).
+  const SUPPORTED: ReadonlySet<string> = new Set([
+    'quarters', 'months', 'methods', 'subordinates', 'activities',
+    'quarters+methods', 'quarters+activities',
+  ]);
+  const dims = [
+    hasQ && 'quarters', hasMeth && 'methods', hasAct && 'activities',
+    hasM && 'months', hasSub && 'subordinates',
+  ].filter((d): d is string => Boolean(d));
+  const combo = dims.join('+');
+  if (!SUPPORTED.has(combo)) {
+    throw new Error(
+      `sliceResults: неподдерживаемое сочетание осей (${combo}) — карты пересечения нет. ` +
+      'Поддержано: одна ось, quarters+methods, quarters+activities.',
+    );
+  }
+
   const result = new Map<string, AccumulatedValue>();
 
+  // Производные (проценты/доли/разности) при слиянии НЕ суммируются —
+  // пересчитываются ниже из слитых базовых аккумуляторов (§3.2 пирамиды:
+  // сложение процентов — запрещённая операция).
   function merge(source: Map<string, AccumulatedValue> | undefined): void {
     if (!source) return;
     for (const [key, acc] of source) {
+      if (STANDARD_DERIVED_KEYS.has(key)) continue;
       const existing = result.get(key);
       if (existing) {
         existing.value += acc.value;
@@ -785,47 +823,37 @@ export function sliceResults(
     }
   }
 
-  // Cross-dimension: quarter × method
   if (hasQ && hasMeth) {
+    // Cross-dimension: quarter × method
     for (const q of filter.quarters!) {
       for (const m of filter.methods!) {
         merge(grouped.byQuarterMethod.get(`${q}.${m}`));
       }
     }
-    return result;
-  }
-
-  // Cross-dimension: quarter × activity
-  if (hasQ && hasAct) {
+  } else if (hasQ && hasAct) {
+    // Cross-dimension: quarter × activity
     for (const q of filter.quarters!) {
       for (const a of filter.activities!) {
         merge(grouped.byQuarterActivity.get(`${q}.${a}`));
       }
     }
-    return result;
-  }
-
-  // Single dimension filters
-  if (hasQ) {
+  } else if (hasQ) {
     for (const q of filter.quarters!) merge(grouped.byQuarter.get(q));
-    return result;
-  }
-  if (hasM) {
+  } else if (hasM) {
     for (const m of filter.months!) merge(grouped.byMonth.get(m));
-    return result;
-  }
-  if (hasMeth) {
+  } else if (hasMeth) {
     for (const m of filter.methods!) merge(grouped.byMethod.get(m));
-    return result;
-  }
-  if (hasSub) {
+  } else if (hasSub) {
     for (const s of filter.subordinates!) merge(grouped.bySubordinate.get(s));
-    return result;
-  }
-  if (hasAct) {
+  } else if (hasAct) {
     for (const a of filter.activities!) merge(grouped.byActivity.get(a));
-    return result;
   }
 
-  return grouped.total;
+  // Производные — заново по слитым базам (единый вычислитель с compute()).
+  for (const d of STANDARD_DERIVED) {
+    const val = evaluateDerivedFormula(d, (key) => result.get(key)?.value ?? 0);
+    result.set(d.key, { value: val, contributingRows: [] });
+  }
+
+  return result;
 }
