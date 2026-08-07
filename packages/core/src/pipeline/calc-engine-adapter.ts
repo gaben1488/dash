@@ -123,6 +123,15 @@ function buildActivityBreakdown(
  *   - Plan values: sum of q1-q4 plan values (only rows with planQ contribute to year plan)
  *   - Fact values: sum of q1-q4 fact values + '_orphan' group (rows with fact but no planQ)
  *   - Economy: sum of q1-q4 economy + orphan economy (economy goes to year regardless)
+ *
+ * ⚠ Задокументированное различие года (блок А п.2 пирамиды): здесь факт
+ * года ВКЛЮЧАЕТ корзину _orphan (факт без план-квартала) — «всё, что
+ * реально произошло» для Пульта. Печатный год отчёта (sumOverQuarters в
+ * build-report, правила счёта §2) и свод mergeSummaryMetrics считают
+ * строго Σ кварталов — БЕЗ _orphan. Каждая orphan-строка помечается
+ * сигналом factQuarterMissing (замер 07.08: одна строка УДТХ на
+ * 67 666,68 тыс. — всё расхождение); чинится проставлением квартала O
+ * у источника, а не выравниванием формул.
  */
 export function adaptToRecalcMetrics(
   grouped: GroupedResults,

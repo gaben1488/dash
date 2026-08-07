@@ -108,6 +108,13 @@ export interface RowSignals {
    * давали расхождение 13 921 против 13 331 листа.
    */
   planYearMissing: boolean;
+  /**
+   * Дата факта есть, а планового квартала (O) нет или он невалиден.
+   * Печатный год отчёта = Σ плановых кварталов — строка из него выпадает,
+   * на Пульте живёт только в корзине «без квартала». Замер 07.08.2026:
+   * одна строка УДТХ на 67 666,68 тыс. — всё расхождение годовых чисел.
+   */
+  factQuarterMissing: boolean;
 }
 
 /**
@@ -538,6 +545,12 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const planYearEmpty = planYearText === '' || planYearText === 'х' || planYearText === 'x' || planYearText === '-';
   const planYearMissing = planYearEmpty && methodText !== '' && !isNaN(planTotal) && planTotal > 0 && !canceled;
 
+  // Факт без планового квартала (блок А п.2): дата факта проставлена, а O
+  // пуст/невалиден — строка выпадает из печатного года (Σ кварталов).
+  const planQuarterNum = Number(cellText(cells, 'O').replace(',', '.'));
+  const factQuarterMissing = hasFactDate && !canceled
+    && !(planQuarterNum >= 1 && planQuarterNum <= 4);
+
   // ── Факты без дат / Даты без фактов ──
   // factWithoutDate: есть суммы факта, но нет даты — данные неполные
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не флажить, если дата факта есть в комментарии AE
@@ -657,6 +670,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factWithoutDate,
     tdWithProgram,
     planYearMissing,
+    factQuarterMissing,
     dateWithoutFact,
     factDateBeforePlan,
     futureFactDate,
@@ -787,6 +801,9 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   }
   if (signals.planYearMissing) {
     badges.push({ label: 'Без финансирования', color: 'yellow', icon: 'calendar-x' });
+  }
+  if (signals.factQuarterMissing) {
+    badges.push({ label: 'Факт без квартала', color: 'yellow', icon: 'calendar-x' });
   }
   if (signals.planWithoutExecution) {
     badges.push({ label: 'План без исполнения', color: 'yellow', icon: 'calendar-off' });

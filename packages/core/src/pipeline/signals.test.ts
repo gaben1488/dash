@@ -1255,6 +1255,7 @@ describe('classifyRowState', () => {
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
       budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
+      factQuarterMissing: false,
       ...overrides,
     };
   }
@@ -1331,6 +1332,7 @@ describe('getSignalBadges', () => {
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
       budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
+      factQuarterMissing: false,
       ...overrides,
     };
   }
@@ -1447,5 +1449,38 @@ describe('planYearMissing', () => {
 
   it('отменённая строка — не горит', () => {
     expect(detectSignals({ L: 'ЭА', K: 190, P: '', U: 'отменена' }).planYearMissing).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// factQuarterMissing — факт без планового квартала (блок А п.2,
+// замер 07.08: одна строка УДТХ на 67 666,68 тыс. = всё расхождение
+// «год = Σ кварталов» против «год = Σ + _orphan»)
+// ────────────────────────────────────────────────────────────
+
+describe('factQuarterMissing', () => {
+  it('дата факта есть, O пусто — сигнал горит', () => {
+    const s = detectSignals({ L: 'ЭА', K: 67666.68, Q: '15.03.2026', O: '' });
+    expect(s.factQuarterMissing).toBe(true);
+  });
+
+  it('невалидный квартал (0, 5, текст) — горит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 0 }).factQuarterMissing).toBe(true);
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 5 }).factQuarterMissing).toBe(true);
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 'Х' }).factQuarterMissing).toBe(true);
+  });
+
+  it('квартал проставлен (число или строка) — не горит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 1 }).factQuarterMissing).toBe(false);
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: '4' }).factQuarterMissing).toBe(false);
+  });
+
+  it('факта нет — не горит (это не дефект факта)', () => {
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '', O: '' }).factQuarterMissing).toBe(false);
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: 'Х', O: '' }).factQuarterMissing).toBe(false);
+  });
+
+  it('отменённая строка — не горит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: '', U: 'отменена' }).factQuarterMissing).toBe(false);
   });
 });

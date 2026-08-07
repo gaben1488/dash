@@ -44,6 +44,9 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   tdWithProgram: 'td_with_program',
   // 06.08: счётная строка без года плана — невидима для SUMIFS листа СВОД (сверка лимита УЭР)
   planYearMissing: 'plan_year_missing',
+  // 07.08: факт без валидного план-квартала O — выпадает из печатного года
+  // отчёта (Σ кварталов) и живёт только в корзине _orphan Пульта (блок А п.2)
+  factQuarterMissing: 'fact_quarter_missing',
 };
 
 /**
