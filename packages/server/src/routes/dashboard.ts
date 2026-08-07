@@ -5,7 +5,7 @@ import { fetchDepartmentSpreadsheets, getSheetData } from '../services/google-sh
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
-import { computeTrustScore, crossVerifyQuarterly } from '@aemr/core';
+import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
 
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
@@ -565,7 +565,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const deptNames: Record<string, string> = {};
     for (const d of DEPARTMENTS) deptNames[d.id] = d.nameShort;
 
-    return reply.send(crossVerifyQuarterly(shdyuData, recalcResults, deptNames));
+    // Сначала проверяем сходимость самого источника: блок «ВСЕ» листа ШДЮ
+    // обязан равняться сумме блоков ГРБС. Пока не сходится лист, спорить о
+    // разнице листа и расчёта бессмысленно (слепая зона №21: валидатор
+    // существовал, но не вызывался ни разу — ручной прогон давал ноль).
+    const consistencyErrors = validateSHDYUConsistency(shdyuData);
+    const summary = crossVerifyQuarterly(shdyuData, recalcResults, deptNames);
+    return reply.send({
+      ...summary,
+      sourceConsistency: { checked: true, errors: consistencyErrors },
+    });
   });
 
   /**

@@ -835,6 +835,17 @@ export interface QuarterCrossSummary {
   rows: QuarterCrossRow[];
   counts: { ok: number; warning: number; high: number; empty: number };
   overallStatus: string;
+  /**
+   * Внутренняя сходимость самого источника ШДЮ: блок «ВСЕ» обязан быть
+   * суммой блоков ГРБС. Расхождение здесь означает, что спорить о разнице
+   * расчёта и листа рано — сначала не сходится сам лист. Пусто/отсутствует
+   * = проверка пройдена (слепая зона №21: валидатор был написан, но не
+   * вызывался ни разу).
+   */
+  sourceConsistency?: {
+    checked: boolean;
+    errors: string[];
+  };
 }
 
 function makeCrossCell(shdyuSum: number, svodValue: number): QuarterCrossCell {
