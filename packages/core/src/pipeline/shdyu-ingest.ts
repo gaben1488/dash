@@ -16,13 +16,16 @@ import {
   type SHDYUBlock, type SHDYUDeptData, type SHDYUMonthlyEntry,
   type SHDYUBlockMetrics, type SHDYUSummaryData, type SHDYUQuarterlyEntry,
   type SHDYUFormulaIssue,
+  toNumber,
 } from '@aemr/shared';
 
+/**
+ * Число листа — канон @aemr/shared (toNumber): пробелы-разряды и запятая
+ * десятичная; пусто/'-'/нечисло → 0. Прежний parseFloat не знал ни того,
+ * ни другого («1 234,56» → 1, «12,5» → 12) — блок А п.1 пирамиды.
+ */
 function num(v: unknown): number {
-  if (v == null) return 0;
-  if (typeof v === 'string' && v === '-') return 0;
-  const n = parseFloat(String(v));
-  return Number.isNaN(n) ? 0 : n;
+  return toNumber(v) ?? 0;
 }
 
 const ZERO_METRICS: SHDYUBlockMetrics = {

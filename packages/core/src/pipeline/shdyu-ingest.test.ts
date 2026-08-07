@@ -35,6 +35,16 @@ describe('parseSHDYUSheet', () => {
     expect(result.uer.months[1].ep.planCount).toBe(3);
   });
 
+  it('числа листа с пробелом-разрядом и запятой читаются целиком (канон toNumber, блок А п.1)', () => {
+    const rows = rowsWithLength(70);
+    // planTotal «1 234,56» и factTotal «12,5»: старый parseFloat обрывался
+    // на пробеле (→ 1) и на запятой (→ 12) — деньги листа занижались.
+    rows[3] = ['ВСЕ', 1, 2026, 29, 28, -1, 0.96, 1, 2, 3, '1 234,56', 4, 5, 6, '12,5', 9, 2.5, 7, 8, 9, 24];
+    const result = parseSHDYUSheet(rows);
+    expect(result.all.months[1].comp.planTotal).toBeCloseTo(1234.56);
+    expect(result.all.months[1].comp.factTotal).toBeCloseTo(12.5);
+  });
+
   it('preserves legacy formula evidence when a department block references another source sheet', () => {
     const rows = rowsWithLength(140);
     const formulas = rowsWithLength(140);

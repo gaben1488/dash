@@ -40,6 +40,7 @@ import {
   type SvodPeriodKey,
   type UnifiedCell,
   type UnifiedGrid,
+  toNumber,
 } from '@aemr/shared';
 import { getMonthFromDate } from './recalculate.js';
 
@@ -72,13 +73,13 @@ const SUMMARY_PREFIXES = ['итого', 'всего', 'справочно'] as c
 /** Известные методы закупки (для классификатора строк-данных). */
 const KNOWN_METHODS = new Set<string>(PROCUREMENT_METHODS);
 
-/** Безопасный парсер числа: пусто/'-'/нечисло → 0. */
+/**
+ * Число листа — канон @aemr/shared (toNumber): пробелы-разряды и запятая
+ * десятичная; пусто/'-'/нечисло → 0. Прежний parseFloat обрывался на
+ * пробеле («1 234,56» → 1) — блок А п.1 пирамиды агрегации.
+ */
 function num(v: unknown): number {
-  if (v == null) return 0;
-  const s = String(v).trim();
-  if (s === '' || s === '-') return 0;
-  const n = parseFloat(s.replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+  return toNumber(v) ?? 0;
 }
 
 /** Непустая ячейка (как recalculate.ts cellPresent). */
