@@ -12,7 +12,7 @@
  * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
 import clsx from 'clsx';
 import {
@@ -49,6 +49,13 @@ import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
 import { BudgetTriple } from '../components/contract/BudgetTriple';
 import { KbHover } from '../components/contract/KbHover';
+import { ProofOverlay, type ProofData } from '../components/contract/ProofOverlay';
+import {
+  officialYearMoneyProof,
+  quarterPendingProof,
+  svodCellProof,
+  unfundedProof,
+} from '../lib/report/proof';
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams, type ReportMode } from '../lib/report/request';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
@@ -99,6 +106,32 @@ function errorMessage(error: string): string {
   return error.includes('503')
     ? 'Данные не загружены: сервер ещё не получил снапшот книг. Обновите данные на Пульте и вернитесь.'
     : `Отчёт временно недоступен. ${error}`;
+}
+
+/** Открыть доказательство числа — прокидывается вглубь секций страницы. */
+type OpenProof = (proof: ProofData) => void;
+
+/**
+ * Число-кнопка: клик раскрывает доказательство ПРЯМО ЗДЕСЬ (требование
+ * владельца — никаких переходов в Реестр). Кнопка появляется только там, где
+ * доказательство действительно собралось: сборщик вернул null — число
+ * остаётся обычным текстом, а не кнопкой в пустой оверлей.
+ *
+ * Хром нейтральный (лупа курсора и подложка на наведении, без краски):
+ * цвет на странице принадлежит данным, а не управлению.
+ */
+function ProofButton({ proof, onOpen, children }: { proof: ProofData; onOpen: OpenProof; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(proof)}
+      aria-haspopup="dialog"
+      title="Показать доказательство: формула, строки-атомы, ячейка листа"
+      className="-mx-0.5 cursor-zoom-in rounded px-0.5 text-left hover:bg-zinc-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 dark:hover:bg-zinc-800"
+    >
+      {children}
+    </button>
+  );
 }
 
 /**
@@ -201,7 +234,10 @@ function MethodPct({ pct, pctText, bold }: { pct: number | null; pctText: string
 
 /** Секция одного ГРБС — контрактные элементы; memo: тики локального
     состояния страницы не перерисовывают 8 тяжёлых секций. */
-const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: GrbsSectionVM; quarter: Quarter; year: number; ctx: FilterContext }) {
+const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, onProof }: { vm: GrbsSectionVM; quarter: Quarter; year: number; ctx: FilterContext; onProof: OpenProof }) {
+  // Доказательство остатка квартала: строки-атомы — те самые незаключённые
+  // позиции, что перечислены ниже по секции. Перечня нет — кнопки нет.
+  const pendingProof = useMemo(() => quarterPendingProof(vm, quarter), [vm, quarter]);
   return (
     <SectionCard filterCtx={ctx} source={vm.source} title={vm.deptLabel} icon={Building2}>
       <div className="space-y-3">
@@ -224,7 +260,11 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
                 : 'text-[11px] text-zinc-400 dark:text-zinc-500'
             }
           >
-            <KbHover metricKey="pending_count">{vm.pendingLabel}</KbHover>
+            <KbHover metricKey="pending_count">
+              {pendingProof
+                ? <ProofButton proof={pendingProof} onOpen={onProof}>{vm.pendingLabel}</ProofButton>
+                : vm.pendingLabel}
+            </KbHover>
           </span>
         </div>
 
@@ -316,14 +356,21 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
               source="mixed"
               caption="Сверка со СВОД · на текущий момент"
               columns={SVOD_COLUMNS}
-              rows={vm.svodPairs.map((p) => ({
-                metric: (
-                  <KbHover metricKey={p.metricKey}>
-                    <span>{p.label ?? productLabel(p.metricKey)}</span>
-                  </KbHover>
-                ),
-                calc: p.fmt === 'money' ? fmtThousands(p.calc) : fmtCount(p.calc),
-                svod: (
+              rows={vm.svodPairs.map((p) => {
+                // Официальные деньги года блока (строка «ИТОГО» листа): своих
+                // строк-атомов у числа нет — его считают формулы самого листа.
+                // Доказательство показывает ячейку, причину пустоты и наш
+                // пересчёт рядом, не подменяя им официал.
+                const proof = p.fmt === 'money'
+                  ? svodCellProof({
+                    metricKey: p.metricKey,
+                    value: p.svod,
+                    calc: p.calc,
+                    money: true,
+                    ...(p.svodCell ? { cell: p.svodCell } : {}),
+                  })
+                  : null;
+                const svodValue = (
                   <DiffText
                     filterCtx={ctx}
                     source="svod"
@@ -331,23 +378,34 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx }: { vm: 
                     reference={p.calc}
                     {...(p.fmt === 'money' ? { format: fmtThousands } : {})}
                   />
-                ),
-                // Ссылка ведёт в ту самую ячейку живой книги — число проверяемо
-                // за один клик, без пересказа «где-то в СВОДе».
-                cell: p.svodCell
-                  ? (
-                    <a
-                      href={buildSheetUrl(SVOD_SPREADSHEET_ID, p.svodCell)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-mono text-[10px] text-zinc-500 hover:text-blue-600 hover:underline dark:text-zinc-400 dark:hover:text-blue-400"
-                      title={`Открыть ${SVOD_SHEET_NAME}!${p.svodCell} в Google Sheets`}
-                    >
-                      {p.svodCell}
-                    </a>
-                  )
-                  : '—',
-              }))}
+                );
+                return {
+                  metric: (
+                    <KbHover metricKey={p.metricKey}>
+                      <span>{p.label ?? productLabel(p.metricKey)}</span>
+                    </KbHover>
+                  ),
+                  calc: p.fmt === 'money' ? fmtThousands(p.calc) : fmtCount(p.calc),
+                  svod: proof
+                    ? <ProofButton proof={proof} onOpen={onProof}>{svodValue}</ProofButton>
+                    : svodValue,
+                  // Ссылка ведёт в ту самую ячейку живой книги — число проверяемо
+                  // за один клик, без пересказа «где-то в СВОДе».
+                  cell: p.svodCell
+                    ? (
+                      <a
+                        href={buildSheetUrl(SVOD_SPREADSHEET_ID, p.svodCell)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-[10px] text-zinc-500 hover:text-blue-600 hover:underline dark:text-zinc-400 dark:hover:text-blue-400"
+                        title={`Открыть ${SVOD_SHEET_NAME}!${p.svodCell} в Google Sheets`}
+                      >
+                        {p.svodCell}
+                      </a>
+                    )
+                    : '—',
+                };
+              })}
             />
             {vm.svodNote && (
               <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{vm.svodNote}</div>
@@ -556,6 +614,10 @@ export function ReportPage() {
     return () => { cancelled = true; };
   }, [asOfDay]);
   const weekDeltas = weekDelta.kind === 'ready' ? weekDelta.deltas : [];
+
+  // Доказательство числа — состояние страницы, а не маршрут: раскрытие идёт
+  // на месте, без ухода в Реестр (решение владельца, бриф «Отчёт++» §3).
+  const [proof, setProof] = useState<ProofData | null>(null);
 
   const [copied, setCopied] = useState(false);
   // Дата — из ответа сервера (period.asOfDay), не new Date(): у продукта свой
@@ -826,15 +888,22 @@ export function ReportPage() {
               </div>
 
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {summary.money.map((tile) => (
-                  <KpiTile
-                    key={`${tile.metricKey}-${tile.periodBadge}`}
-                    filterCtx={ctx}
-                    {...tile}
-                    delta={kpiDeltaFor(tile, weekDeltas)}
-                    footer={moneyFooter(tile)}
-                  />
-                ))}
+                {summary.money.map((tile) => {
+                  // Деньги года взяты с официального листа — доказательство
+                  // показывает ячейку и честную причину «строк-слагаемых нет».
+                  // Яруса листа нет (плитки живут нашим пересчётом) — клика нет.
+                  const moneyProof = officialYearMoneyProof(report, tile.metricKey);
+                  return (
+                    <KpiTile
+                      key={`${tile.metricKey}-${tile.periodBadge}`}
+                      filterCtx={ctx}
+                      {...tile}
+                      delta={kpiDeltaFor(tile, weekDeltas)}
+                      footer={moneyFooter(tile)}
+                      {...(moneyProof ? { onClick: () => setProof(moneyProof) } : {})}
+                    />
+                  );
+                })}
               </div>
 
               <RemainderLedger rows={summary.remainder} diff={summary.remainderDiff} />
@@ -849,7 +918,7 @@ export function ReportPage() {
           ) : (
             visibleBlocks.map((vm) => (
               <div key={vm.dept} id={`grbs-${vm.dept}`} className="scroll-mt-4">
-                <GrbsSection vm={vm} quarter={report.period.quarter} year={report.period.year} ctx={ctx} />
+                <GrbsSection vm={vm} quarter={report.period.quarter} year={report.period.year} ctx={ctx} onProof={setProof} />
               </div>
             ))
           )}
@@ -868,9 +937,19 @@ export function ReportPage() {
               <div className="space-y-3">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <KbHover metricKey="plan_total">
-                    <span className="text-2xl font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
-                      {fmtThousands(report.unfunded.total)}
-                    </span>
+                    {(() => {
+                      // Районный итог доказывается строками всех управлений —
+                      // теми же, что развёрнуты ниже по управлениям.
+                      const districtProof = unfundedProof(report);
+                      const amount = (
+                        <span className="text-2xl font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
+                          {fmtThousands(report.unfunded.total)}
+                        </span>
+                      );
+                      return districtProof
+                        ? <ProofButton proof={districtProof} onOpen={setProof}>{amount}</ProofButton>
+                        : amount;
+                    })()}
                   </KbHover>
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
                     тыс. руб. в {fmtCount(report.unfunded.count)} позициях без сроков (год плана не проставлен)
@@ -882,13 +961,20 @@ export function ReportPage() {
                   лимит меньше нашего расчёта ровно на эту сумму. По каждой строке нужно решение:
                   подтвердить финансирование и проставить сроки — либо вынести из плана.
                 </p>
-                {report.unfunded.byDept.map((d) => (
+                {report.unfunded.byDept.map((d) => {
+                  const deptProof = unfundedProof(report, d.dept);
+                  const deptTotals = (
+                    <span className="text-zinc-400 dark:text-zinc-500">
+                      {fmtCount(d.count)} поз. · {fmtThousands(d.total)} тыс. руб.
+                    </span>
+                  );
+                  return (
                   <div key={d.dept}>
                     <div className="mb-1 flex items-baseline gap-2 text-[11px]">
                       <span className="font-semibold text-zinc-700 dark:text-zinc-200">{d.deptLabel}</span>
-                      <span className="text-zinc-400 dark:text-zinc-500">
-                        {fmtCount(d.count)} поз. · {fmtThousands(d.total)} тыс. руб.
-                      </span>
+                      {deptProof
+                        ? <ProofButton proof={deptProof} onOpen={setProof}>{deptTotals}</ProofButton>
+                        : deptTotals}
                     </div>
                     <ExpandableRows
                       rows={d.positions}
@@ -909,7 +995,8 @@ export function ReportPage() {
                       )}
                     </ExpandableRows>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </SectionCard>
           )}
@@ -943,6 +1030,9 @@ export function ReportPage() {
         </>
       )}
       </div>
+      {/* Доказательство раскрывается поверх страницы: читатель не теряет
+          место в документе и возвращается к числу тем же кликом. */}
+      <ProofOverlay proof={proof} onClose={() => setProof(null)} />
     </div>
   );
 }
