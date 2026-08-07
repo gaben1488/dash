@@ -16,6 +16,20 @@ export {
   columnLetter, sheetRowOf, type ReconMeasure, type ClassifyInput,
 } from './pipeline/recon-classify.js';
 export { buildRootCauses, explainReconLine, linkCascades, type BuildCausesInput } from './pipeline/recon-causes.js';
+// Экономические метрики целевого дизайна: каждая с паспортом, порогами и
+// классификатором зоны (см. docs/superpowers/plans/2026-08-07-launch-readiness.md §2).
+export {
+  decemberOverhang, planningAccuracy, sourceExecutionGap, quarterCompliance,
+  classifyDecemberOverhang, classifyPlanningAccuracy, classifySourceExecutionGap,
+  classifyQuarterCompliance, planningAccuracyGrade,
+  DECEMBER_OVERHANG_THRESHOLDS, PLANNING_ACCURACY_GRADES,
+  SOURCE_GAP_THRESHOLDS, QUARTER_COMPLIANCE_THRESHOLDS,
+  type BudgetSource, type MetricZone, type RatioValue,
+  type DecemberOverhangOptions, type DecemberOverhangResult,
+  type PlanningAccuracyOptions, type PlanningAccuracyResult,
+  type SourceExecutionGapOptions, type SourceExecutionGapResult,
+  type QuarterComplianceOptions, type QuarterComplianceResult,
+} from './metrics/economic.js';
 export { adaptToRecalcMetrics } from './pipeline/calc-engine-adapter.js';
 export { reconcile, reconcileMonthly, crossVerifyQuarterly, type ReconSummary, type ReconRow, type MonthlyReconSummary, type MonthlyReconRow, type MonthlyReconCell, type QuarterCrossSummary, type QuarterCrossRow, type QuarterCrossCell } from './pipeline/reconcile.js';
 export { computeUnifiedGrid, reconcileUnified, type UnifiedOfficialMetric, type UnifiedReconRow, type UnifiedReconStatus } from './pipeline/unified-svod.js';

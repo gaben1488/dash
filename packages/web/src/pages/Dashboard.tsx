@@ -723,16 +723,15 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
   }, [apiSignalCounts, issues]);
 
   const spots = [
-    { label: 'Просрочки', signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red', icon: '⏰' },
-    { label: 'Флаг экономии', signal: 'economyConflict', search: 'флаг эконом', metricKey: 'signal_economy_conflict', color: 'rose', icon: '⚡' },
-    { label: 'Высокая экономия', signal: 'highEconomy', search: 'высокая экономия', metricKey: 'signal_high_economy', color: 'orange', icon: '📊' },
+    { label: 'Просрочки', signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red' },
+    { label: 'Флаг экономии', signal: 'economyConflict', search: 'флаг эконом', metricKey: 'signal_economy_conflict', color: 'rose' },
+    { label: 'Высокая экономия', signal: 'highEconomy', search: 'высокая экономия', metricKey: 'signal_high_economy', color: 'orange' },
     // Wave 3 TODO: add `signal_early_closure` to METRIC_KB; inline fallback until then.
     {
       label: 'Раннее закрытие',
       signal: 'earlyClosure',
       search: 'раннее закрытие',
       color: 'amber',
-      icon: '🔒',
       kbFallback: {
         whatIs: 'Строки плана, где факт закрыт раньше плановой даты окончания. Может указывать на подгонку отчётности.',
         howCalc: 'COUNT(fact_date < plan_end_date AND plan_end_date NOT EMPTY).',
@@ -745,21 +744,19 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       signal: 'factWithoutDate',
       search: 'факт без даты',
       color: 'purple',
-      icon: '📅',
       kbFallback: {
         whatIs: 'Строки, где указана сумма факта, но пустая дата исполнения. Строка не пригодна к сверке и выпадает из отчёта.',
         howCalc: 'COUNT(fact_total > 0 AND fact_date IS EMPTY).',
         thresholdsFull: '🟢 0 — чисто\n🟡 1–5 — исправимо\n🔴 > 5 — нарушение дисциплины ввода',
       },
     },
-    { label: 'Дата без сумм', signal: 'dateWithoutFact', search: 'факт дата без сумм', metricKey: 'signal_fact_date_before_plan', color: 'cyan', icon: '💰' },
+    { label: 'Дата без сумм', signal: 'dateWithoutFact', search: 'факт дата без сумм', metricKey: 'signal_fact_date_before_plan', color: 'cyan' },
     // Вводная 06.08: ТД-ПМ как рабочая проблема — возможная ошибка заполнения.
     {
       label: 'ТД с программой',
       signal: 'tdWithProgram',
       search: 'ТД с программой',
       color: 'amber',
-      icon: '⚭',
       kbFallback: {
         whatIs: 'Строки, где вид деятельности — текущая, но графа программы заполнена (срез ТД-ПМ). Возможно, это ошибка заполнения: либо строка на деле программная, либо графа программы указана ошибочно.',
         howCalc: 'Вид деятельности (F) = «текущая» И графа программы (D) не пустая и не «Х». Канон среза ТД-ПМ.',
@@ -772,23 +769,21 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       signal: 'planYearMissing',
       search: 'без года плана',
       color: 'orange',
-      icon: '📅',
       kbFallback: {
         whatIs: 'Счётные строки (способ и плановые деньги есть), у которых пуст год плана (колонка P). Наш расчёт относит их к отчётному году, а формулы листа СВОД считают год строго и такие строки не видят — официальный лимит занижен ровно на их сумму.',
         howCalc: 'Способ (L) заполнен И план (K) > 0 И год плана (P) пуст/«Х»/«-» И строка не отменена.',
         thresholdsFull: '🟡 есть строки — проставить год в P\n🟢 0 — лимит листа СВОД и расчёт сходятся',
       },
     },
-    { label: 'Подвисшие', signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue', icon: '⏸' },
-    { label: 'Факт > план', signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo', icon: '📈' },
-    { label: 'Факт < план дата', signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal', icon: '📉' },
+    { label: 'Подвисшие', signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue' },
+    { label: 'Факт > план', signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo' },
+    { label: 'Факт < план дата', signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal' },
   ] as Array<{
     label: string;
     signal: string;
     search: string;
     metricKey?: string;
     color: string;
-    icon: string;
     kbFallback?: { whatIs: string; howCalc: string; thresholdsFull: string };
   }>;
 

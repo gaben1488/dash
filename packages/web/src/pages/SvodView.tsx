@@ -550,7 +550,7 @@ function SummaryChip({
   );
 }
 
-/** Бейдж «сверено ✓ / ⚠» рядом с тегом раздела (КП/ЕП) сводного блока. */
+/** Бейдж сверки рядом с тегом раздела (КП/ЕП) сводного блока. */
 function ReconBadgeTag({ badge }: { badge: ReconBadge }) {
   if (badge.status === 'none') return null;
   if (badge.status === 'ok') {
@@ -559,7 +559,9 @@ function ReconBadgeTag({ badge }: { badge: ReconBadge }) {
         className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
         title={`Сверено с листом СВОД ТД-ПМ: ${badge.checked} метрик совпали (Δ<1%)`}
       >
-        <ShieldCheck size={10} /> ✓
+        {/* Значок щита уже несёт смысл «сверено»: галочка рядом дублировала
+            его и на печати превращалась в лишний символ. */}
+        <ShieldCheck size={10} /> сверено
       </span>
     );
   }
@@ -574,7 +576,7 @@ function ReconBadgeTag({ badge }: { badge: ReconBadge }) {
       )}
       title={`Расхождение с листом СВОД ТД-ПМ до ${badge.worstDeltaPct.toFixed(1)}% (${badge.checked} метрик)`}
     >
-      <ShieldAlert size={10} /> ⚠ {badge.worstDeltaPct.toFixed(0)}%
+      <ShieldAlert size={10} /> {badge.worstDeltaPct.toFixed(0)} %
     </span>
   );
 }
