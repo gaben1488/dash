@@ -3,15 +3,20 @@ import {
   DEPARTMENTS,
   SHDYU_MONTHLY_SHEET_NAME,
   SHDYU_SHEET_NAME_CANDIDATES,
+  groupCascades,
 } from '@aemr/shared';
-import type { DataSnapshot } from '@aemr/shared';
+import type { DataSnapshot, ReconLine } from '@aemr/shared';
 import {
   reconcile,
   reconcileMonthly,
+  explainReconLine,
+  linkCascades,
   type MonthlyReconCell,
   type MonthlyReconRow,
   type MonthlyReconSummary,
+  type ReconMeasure,
   type ReconSummary,
+  type RawRow,
 } from '@aemr/core';
 import {
   getSnapshot,
@@ -89,7 +94,50 @@ function buildDepartmentReconciliation(snapshot: DataSnapshot): ReconSummary {
     calculated.set(deptName, { planTotal: calcPlan, factTotal: calcFact, economyTotal: calcEconomy });
   }
 
-  return reconcile(official, calculated);
+  return attachRootCauses(reconcile(official, calculated), snapshot);
+}
+
+/**
+ * Наполнить строки сверки первопричинами (требование владельца 07.08).
+ *
+ * Дельта без объяснения — недоделанная сверка, поэтому по каждому ГРБС
+ * прогоняются классификаторы по трём мерам сразу (план-деньги, факт-деньги,
+ * количество процедур), а каскады схлопываются: одна причина, задевшая три
+ * показателя, показывается один раз со списком следствий.
+ *
+ * Строки-атомы берутся из снимка. Их нет (старый снимок до 24.07 либо демо) —
+ * причины не выдумываются: поле просто отсутствует, и интерфейс честно
+ * говорит, что доказательство недоступно.
+ */
+function attachRootCauses(summary: ReconSummary, snapshot: DataSnapshot): ReconSummary {
+  const rowsByDept = snapshot.rowsByDept;
+  if (!rowsByDept || Object.keys(rowsByDept).length === 0) return summary;
+
+  const sheetOf = (deptName: string): string | undefined =>
+    DEPARTMENTS.find((d) => d.nameShort === deptName)?.nameShort;
+
+  const rows = summary.rows.map((row) => {
+    const sheet = sheetOf(row.department) ?? row.department;
+    const atoms = (rowsByDept[sheet] ?? rowsByDept[row.department]) as RawRow[] | undefined;
+    if (!atoms || atoms.length === 0) return row;
+
+    // Три меры одной книги: показатели разные, а причина у них может быть
+    // общая — ради этого случая и заведён каскад.
+    const lines: ReconLine[] = [
+      { metric: `${sheet}.plan_total`, official: row.fullPlanOfficial, computed: row.fullPlanCalculated, delta: row.planDelta, rootCauses: [] },
+      { metric: `${sheet}.fact_total`, official: row.fullFactOfficial, computed: row.fullFactCalculated, delta: row.factDelta, rootCauses: [] },
+      { metric: `${sheet}.economy_total`, official: row.ecoTotalOfficial, computed: row.ecoTotalCalculated, delta: row.ecoDelta, rootCauses: [] },
+    ];
+    const measures: ReconMeasure[] = ['planMoney', 'factMoney', 'factMoney'];
+
+    const explained = lines.map((line, i) =>
+      explainReconLine(line, { rows: atoms, sheet, measure: measures[i] }),
+    );
+    const groups = groupCascades(linkCascades(explained));
+    return groups.length > 0 ? { ...row, rootCauses: groups } : row;
+  });
+
+  return { ...summary, rows };
 }
 
 function deptNamesByLatinId(): Record<string, string> {

@@ -9,7 +9,7 @@
  *   >= 5 % — Есть расхождение   (high)     — likely mapping error
  */
 
-import { findDept } from '@aemr/shared';
+import { findDept, type RootCauseGroup } from '@aemr/shared';
 
 /**
  * Канонический ключ ГРБС: латиница ('uer') и кириллица ('УЭР') → единый
@@ -71,6 +71,15 @@ export interface ReconRow {
 
   // Assessment
   assessment: ReconAssessment;
+
+  /**
+   * Первопричины расхождений строки, сгруппированные по каскадам
+   * (требование владельца 07.08): почему числа разошлись и какие именно
+   * строки книги виноваты. Поля нет — объяснять нечего: расхождение в
+   * пределах допуска. Пустой массив при ненулевой дельте означал бы
+   * необъяснённое расхождение и запрещён контрактом validateReconLine.
+   */
+  rootCauses?: RootCauseGroup[];
 }
 
 export interface ReconSummary {
