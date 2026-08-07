@@ -24,6 +24,39 @@ import {
 import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
 import { getDeptSheetValues } from '../services/snapshot.js';
 
+/**
+ * Качество данных управления — доля строк БЕЗ замечаний качества.
+ *
+ * Раньше здесь стояла константа 0,8 с пометкой «когда появится»: индекс
+ * дисциплины на пятую часть состоял из числа, которое никто не считал,
+ * и у всех управлений эта пятая часть была одинаковой. Считаем из того,
+ * что уже есть в снимке: замечания группы «качество данных» несут адрес
+ * управления и номер строки.
+ *
+ * Строк нет (лист не прочитан) — возвращаем null-эквивалент 1: штрафовать
+ * управление за то, что его книга недоступна, значит смешать поломку
+ * источника с дисциплиной исполнителя. Это видно отдельным сигналом.
+ */
+function dataQualityScore(
+  issues: readonly { departmentId?: string; group?: string; row?: number }[],
+  grbsId: string,
+  grbsShort: string,
+  rowCount: number,
+): number {
+  if (rowCount <= 0) return 1;
+  const dirtyRows = new Set<number>();
+  for (const issue of issues) {
+    if (issue.group !== 'data_quality') continue;
+    const dept = issue.departmentId;
+    if (dept !== grbsId && dept !== grbsShort) continue;
+    // Замечание без номера строки относится к листу целиком: считаем его
+    // одной проблемной строкой, а не игнорируем — иначе лист с одним
+    // общим дефектом выглядел бы безупречным.
+    dirtyRows.add(issue.row ?? -1);
+  }
+  return Math.min(1, Math.max(0, 1 - dirtyRows.size / rowCount));
+}
+
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
   /** GET /api/analytics/profiles — ГРБС profiles with role/baseline assessment */
@@ -214,7 +247,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
           dynamicsScore: c01(0.6 + profile.execDeviation),
           epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: 0.8, // TODO: per-ГРБС trust score, когда появится
+          dataScore: dataQualityScore(snapshot.issues, profile.grbsId, profile.grbsShort, rowData.length),
           anomalyScore: c01(1 - anomalyCount * 0.3),
           complianceScore: c01(1 - violations * 0.15),
           anticorruptionPenalty: anticorruption.disciplinaryPenalty,
