@@ -12,9 +12,13 @@
  * GET-собрат (rows.ts:334) границу проверял всегда — асимметрия и была багом.
  */
 import type { FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ORIGINAL_ENV = { ...process.env };
+// Среда выставляется до импорта: config.js читает её при первом импорте.
+process.env.NODE_ENV = 'test';
+process.env.AEMR_API_KEY = '';
+process.env.SQLITE_PATH = ':memory:';
+process.env.LOG_LEVEL = 'silent';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1 }));
 
@@ -34,39 +38,43 @@ function makeDataRow(id: number): unknown[] {
   return row;
 }
 
-async function createApp(dataRowCount: number): Promise<FastifyInstance> {
-  vi.resetModules();
-  process.env = {
-    ...ORIGINAL_ENV,
-    NODE_ENV: 'test',
-    AEMR_API_KEY: '',
-    SQLITE_PATH: ':memory:',
-    LOG_LEVEL: 'silent',
-  };
+/**
+ * Приложение и лист-фикстура строятся ОДИН раз на файл.
+ *
+ * Прежде каждый тест звал vi.resetModules() и поднимал Fastify заново:
+ * четыре полных сборки графа сервера давали 50+ секунд и плавающий
+ * таймаут под нагрузкой — тест падал не из-за логики, а из-за занятого
+ * процессора. Все четыре теста работают с одной и той же фикстурой
+ * (3 строки заголовка + 2 строки данных, валидные строки листа 2..5),
+ * изоляция между ними нужна только по счётчику вызовов записи — его и
+ * сбрасываем.
+ */
+const DATA_ROWS = 2;
+let app: FastifyInstance;
 
+beforeAll(async () => {
   const [{ setDeptSheetCache }, { createApp: build }] = await Promise.all([
     import('./services/snapshot.js'),
     import('./app.js'),
   ]);
 
-  const rows = Array.from({ length: dataRowCount }, (_, i) => makeDataRow(i + 1));
+  const rows = Array.from({ length: DATA_ROWS }, (_, i) => makeDataRow(i + 1));
   setDeptSheetCache({
     УО: { values: [[], [], [], ...rows], formulas: [], sheetName: 'ВСЕ' },
   });
 
-  return build({ logger: false });
-}
+  app = await build({ logger: false });
+  await app.ready();
+}, 60_000);
+
+afterAll(async () => {
+  await app?.close();
+});
 
 beforeEach(() => writeCellValue.mockClear());
-afterEach(() => {
-  process.env = { ...ORIGINAL_ENV };
-  vi.resetModules();
-});
 
 describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя граница строки', () => {
   it('отклоняет строку за пределами листа и НЕ пишет в таблицу', async () => {
-    const app = await createApp(2); // валидные строки: 2..5
-    try {
       const res = await app.inject({
         method: 'PUT',
         url: '/api/rows/uo/99999/field',
@@ -75,14 +83,9 @@ describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя границ�
 
       expect(res.statusCode).toBe(400);
       expect(writeCellValue).not.toHaveBeenCalled();
-    } finally {
-      await app.close();
-    }
   }, 30_000);
 
   it('отклоняет первую строку сразу за последней (граница на единицу)', async () => {
-    const app = await createApp(2); // последняя валидная — 5
-    try {
       const res = await app.inject({
         method: 'PUT',
         url: '/api/rows/uo/6/field',
@@ -91,14 +94,9 @@ describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя границ�
 
       expect(res.statusCode).toBe(400);
       expect(writeCellValue).not.toHaveBeenCalled();
-    } finally {
-      await app.close();
-    }
   }, 30_000);
 
   it('пропускает последнюю существующую строку', async () => {
-    const app = await createApp(2); // последняя валидная — 5
-    try {
       const res = await app.inject({
         method: 'PUT',
         url: '/api/rows/uo/5/field',
@@ -110,16 +108,11 @@ describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя границ�
       expect(writeCellValue).toHaveBeenCalledWith(
         expect.any(String), 'ВСЕ', 'G5', 'валидная правка',
       );
-    } finally {
-      await app.close();
-    }
   }, 30_000);
 });
 
 describe('POST /api/data/rows (batch) — та же верхняя граница', () => {
   it('отклоняет запись за пределами листа и НЕ пишет в таблицу', async () => {
-    const app = await createApp(2);
-    try {
       const res = await app.inject({
         method: 'POST',
         url: '/api/data/rows',
@@ -130,8 +123,5 @@ describe('POST /api/data/rows (batch) — та же верхняя границ�
       const body = res.json<{ results: Array<{ success: boolean; error?: string }> }>();
       expect(body.results[0].success).toBe(false);
       expect(writeCellValue).not.toHaveBeenCalled();
-    } finally {
-      await app.close();
-    }
   }, 30_000);
 });

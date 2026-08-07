@@ -10,33 +10,37 @@
  * датой строки книг произвольной давности. Устаревший источник до вечера
  * четверга откладывает срез, вечером — снимает с честным признаком.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-const ORIGINAL_ENV = { ...process.env };
+// Среда выставляется ДО импорта модулей: config.js читает переменные при
+// первом импорте, а beforeEach выполняется уже после него — попытка
+// настроить env там требовала vi.resetModules() и полной пересборки графа
+// (snapshot.js → googleapis) ПЕРЕД КАЖДЫМ тестом. На 22 тестах это давало
+// плавающий таймаут под нагрузкой: тест падал не из-за логики, а из-за
+// того, что параллельные пакеты заняли процессор. Один импорт на файл —
+// и файл проходит за секунды.
+process.env.NODE_ENV = 'test';
+process.env.AEMR_API_KEY = '';
+process.env.SQLITE_PATH = ':memory:';
+process.env.LOG_LEVEL = 'silent';
 
-beforeEach(() => {
-  process.env = {
-    ...ORIGINAL_ENV,
-    NODE_ENV: 'test',
-    AEMR_API_KEY: '',
-    SQLITE_PATH: ':memory:',
-    LOG_LEVEL: 'silent',
-  };
-  vi.resetModules();
-});
-
-afterEach(() => {
-  process.env = { ...ORIGINAL_ENV };
-});
+const {
+  shouldTakeWeeklySnapshot,
+  productCalendarDay,
+  productCalendarHour,
+  collectSnapshotDays,
+  assessSourceFreshness,
+  describeSourceFreshness,
+  tickWeeklySnapshot,
+} = await import('./weekly-snapshot-cron.js');
+const { dayNumberOf } = await import('@aemr/shared');
+const { saveSnapshot } = await import('./snapshot.js');
 
 /** Четверг-фикстура 23.07.2026; сверка % 7 === 0 — в первом тесте. */
 const THURSDAY_ISO = '2026-07-23';
 
 describe('shouldTakeWeeklySnapshot — правило четверга', () => {
   it('четверг без снимка этого дня → снимать', async () => {
-    const { shouldTakeWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
-    const { dayNumberOf } = await import('@aemr/shared');
-
     const thursday = dayNumberOf(THURSDAY_ISO)!;
     // Сверка фикстуры: 23.07.2026 — действительно четверг эпохи.
     expect(thursday % 7).toBe(0);
@@ -49,17 +53,11 @@ describe('shouldTakeWeeklySnapshot — правило четверга', () => {
   }, 20000);
 
   it('четверг, снимок этого дня уже есть → не снимать (идемпотентность)', async () => {
-    const { shouldTakeWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
-    const { dayNumberOf } = await import('@aemr/shared');
-
     const thursday = dayNumberOf(THURSDAY_ISO)!;
     expect(shouldTakeWeeklySnapshot(thursday, [thursday])).toBe(false);
   });
 
   it('не-четверг → не снимать даже без единого снимка', async () => {
-    const { shouldTakeWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
-    const { dayNumberOf } = await import('@aemr/shared');
-
     const thursday = dayNumberOf(THURSDAY_ISO)!;
     for (const offset of [1, 2, 3, 4, 5, 6]) {
       expect(shouldTakeWeeklySnapshot(thursday + offset, [])).toBe(false);
@@ -69,18 +67,12 @@ describe('shouldTakeWeeklySnapshot — правило четверга', () => {
 
 describe('productCalendarDay — календарь Камчатки на UTC-сервере', () => {
   it('UTC-среда 16:00 — уже четверг 04:00 Камчатки → снимать', async () => {
-    const { productCalendarDay, shouldTakeWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
-    const { dayNumberOf } = await import('@aemr/shared');
-
     const nowDay = productCalendarDay(new Date('2026-07-22T16:00:00Z'), 12);
     expect(nowDay).toBe(dayNumberOf(THURSDAY_ISO)!);
     expect(shouldTakeWeeklySnapshot(nowDay, [])).toBe(true);
   });
 
   it('UTC-четверг 13:00 — уже пятница 01:00 Камчатки → не снимать', async () => {
-    const { productCalendarDay, shouldTakeWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
-    const { dayNumberOf } = await import('@aemr/shared');
-
     const nowDay = productCalendarDay(new Date('2026-07-23T13:00:00Z'), 12);
     expect(nowDay).toBe(dayNumberOf('2026-07-24')!);
     expect(shouldTakeWeeklySnapshot(nowDay, [])).toBe(false);
@@ -105,10 +97,6 @@ describe('collectSnapshotDays — дни существующих снимков
   }
 
   it('createdAt хранится в UTC, но день снимка считается по Камчатке — дедуп через UTC-полночь работает', async () => {
-    const { collectSnapshotDays } = await import('./weekly-snapshot-cron.js');
-    const { saveSnapshot } = await import('./snapshot.js');
-    const { dayNumberOf } = await import('@aemr/shared');
-
     const thursday = dayNumberOf(THURSDAY_ISO)!;
     // Снимок снят в четверг 04:30 Камчатки = среда 16:30 UTC: по UTC-календарю
     // это ещё среда, но день снимка обязан совпасть с четвергом продукта.
@@ -126,8 +114,6 @@ describe('collectSnapshotDays — дни существующих снимков
 
 describe('productCalendarHour — час продуктового дня', () => {
   it('UTC-полдень и вечер пересчитываются в часы Камчатки', async () => {
-    const { productCalendarHour } = await import('./weekly-snapshot-cron.js');
-
     expect(productCalendarHour(new Date('2026-07-22T20:00:00Z'), 12)).toBe(8);
     expect(productCalendarHour(new Date('2026-07-23T06:00:00Z'), 12)).toBe(18);
     // Переход через полночь пояса: UTC-полдень — уже полночь следующего дня.
@@ -149,8 +135,6 @@ describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', 
   }
 
   it('книги не читались ни разу → «неизвестно», возраст null (а не ноль)', async () => {
-    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
-
     const f = assessSourceFreshness(NOW, {});
     expect(f.status).toBe('unknown');
     // Пустое множество чтений не даёт возраста: ноль здесь означал бы
@@ -160,8 +144,6 @@ describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', 
   });
 
   it('все книги прочитаны час назад → свежо', async () => {
-    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
-
     const f = assessSourceFreshness(NOW, { 'УЭР': read(1), 'УО': read(2) });
     expect(f.status).toBe('fresh');
     expect(f.readDepts).toBe(2);
@@ -171,8 +153,6 @@ describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', 
   });
 
   it('одна книга отстала на 40 часов → устарело, возраст считается по ней', async () => {
-    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
-
     const f = assessSourceFreshness(NOW, { 'УЭР': read(1), 'УКСиМП': read(40) });
     expect(f.status).toBe('stale');
     expect(f.ageHours).toBeCloseTo(40, 5);
@@ -180,8 +160,6 @@ describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', 
   });
 
   it('книга с ошибкой загрузки → устарело, даже когда остальные свежие', async () => {
-    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
-
     const f = assessSourceFreshness(NOW, { 'УЭР': read(1), 'УКСиМП': read(1, 'IMPORTRANGE #REF!') });
     expect(f.status).toBe('stale');
     expect(f.failedDepts).toEqual(['УКСиМП']);
@@ -189,8 +167,6 @@ describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', 
   });
 
   it('нечитаемая отметка времени за чтение не считается', async () => {
-    const { assessSourceFreshness } = await import('./weekly-snapshot-cron.js');
-
     const f = assessSourceFreshness(NOW, {
       'УЭР': { loadedAt: 'позавчера', rowCount: 100, sheetName: 'УЭР' },
     });
@@ -199,8 +175,6 @@ describe('assessSourceFreshness — свежесть книг ГРБС (Д17)', 
   });
 
   it('описание свежести называет числа: сколько книг, когда и насколько отстают', async () => {
-    const { assessSourceFreshness, describeSourceFreshness } = await import('./weekly-snapshot-cron.js');
-
     const text = describeSourceFreshness(assessSourceFreshness(NOW, { 'УЭР': read(40.5) }));
     expect(text).toContain('40,5 ч назад');
     expect(text).toContain(read(40.5).loadedAt);
@@ -246,7 +220,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   }
 
   it('четверг без снимка: дёргает refresh один раз и логирует снятие', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps();
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('taken');
@@ -255,7 +228,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('снимок этого четверга уже есть: refresh не дёргается', async () => {
-    const { tickWeeklySnapshot, productCalendarDay } = await import('./weekly-snapshot-cron.js');
     const nowDay = productCalendarDay(kamchatkaThursdayMorning, 12);
     const deps = makeDeps({ listSnapshotDays: vi.fn(() => [nowDay]) });
 
@@ -264,7 +236,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('refresh упал в демо-фолбэк (Google недоступен): снимок не снят, предупреждение, повтор следующим тиком', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({ refresh: vi.fn(async () => ({ id: 'demo-123' })) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
@@ -272,7 +243,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('ошибка тика — лог, не падение процесса', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({ refresh: vi.fn(async () => { throw new Error('sheets down'); }) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
@@ -280,7 +250,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('утро четверга, книги трёхнедельной давности: снимок отложен, refresh не дёргается (Д17)', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({ sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayMorning)) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('deferred');
@@ -291,7 +260,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('книги не читались ни разу: тоже отложить, свежесть неизвестна', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({ sourceMeta: vi.fn(() => ({})) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('deferred');
@@ -300,7 +268,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('вечер четверга, источник так и не обновился: снимок снят с честным признаком', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({
       now: () => kamchatkaThursdayEvening,
       sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)),
@@ -314,7 +281,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('вечер четверга, источник свежий: обычное снятие', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({
       now: () => kamchatkaThursdayEvening,
       sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayEvening)),
@@ -325,7 +291,6 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
   });
 
   it('вечер четверга, устаревший источник и демо-фолбэк: снимка нет, признак не «снят»', async () => {
-    const { tickWeeklySnapshot } = await import('./weekly-snapshot-cron.js');
     const deps = makeDeps({
       now: () => kamchatkaThursdayEvening,
       sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)),
