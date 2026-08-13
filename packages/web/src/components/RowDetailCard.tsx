@@ -153,7 +153,10 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
             <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-0.5">
               Строка № {text(row.id) ?? 'без номера'} · {deptName || 'управление не указано'}
             </div>
-            <h2 id={titleId} className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 truncate max-w-sm">
+            {/* Полное имя закупки без обрезания (интервью п.50): заголовок
+                верстается в несколько строк — «Оказание услуг по текущему
+                ремо…» лишал карточку смысла, предмет и есть главный ответ. */}
+            <h2 id={titleId} className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 break-words leading-snug">
               {text(row.subject) ?? 'Предмет закупки не указан'}
             </h2>
           </div>
