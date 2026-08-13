@@ -201,8 +201,15 @@ export interface AppState {
   setProcurementFilter: (filter: ProcurementFilter) => void;
   activityFilter: ActivityFilter;
   setActivityFilter: (filter: ActivityFilter) => void;
-  /** Поиск по тексту (debounced на UI) */
+  /** Поиск по тексту — то, что прямо сейчас набрано в поле (мгновенно) */
   searchQuery: string;
+  /**
+   * Поиск, «догоняющий» ввод: по нему считаются таблицы и сводки.
+   * Отдельное поле нужно потому, что поле ввода обязано отзываться на каждую
+   * букву, а полный пересчёт дэша (управления, подведы, KPI, графики) стоит
+   * десятки миллисекунд и на каждой букве превращает набор в рывки.
+   */
+  searchQueryDebounced: string;
   setSearchQuery: (q: string) => void;
   /** Активная вкладка Quality страницы */
   qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
@@ -280,6 +287,23 @@ export interface AppState {
 
   // Утилиты
   formatMoney: (value: number) => string;
+}
+
+/**
+ * Задержка «догоняющего» поиска. 220 мс — ниже порога, на котором пауза читается
+ * как подвисание, и выше типичного интервала между нажатиями при беглом наборе:
+ * слово из восьми букв даёт один пересчёт вместо восьми.
+ */
+export const SEARCH_DEBOUNCE_MS = 220;
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Снять отложенный пересчёт — иначе он «догонит» уже сброшенный фильтр. */
+function cancelSearchDebounce(): void {
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
 }
 
 /** Флаг: используются ли демо-данные сервера (не mock фронтенда) */
@@ -386,10 +410,28 @@ export const useStore = create<AppState>((set, get) => ({
     set({ activityFilter, selectedActivities: activities });
   },
   searchQuery: '',
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  searchQueryDebounced: '',
+  setSearchQuery: (searchQuery) => {
+    // Поле ввода обновляется сразу — курсор и буквы не должны ждать расчёта.
+    set({ searchQuery });
+    cancelSearchDebounce();
+    if (searchQuery === '') {
+      // Снятие поиска не откладываем: крестик и Escape обязаны немедленно
+      // вернуть экран к полным данным, иначе кажется, что кнопка не сработала.
+      set({ searchQueryDebounced: '' });
+      return;
+    }
+    searchDebounceTimer = setTimeout(() => {
+      searchDebounceTimer = null;
+      set({ searchQueryDebounced: get().searchQuery });
+    }, SEARCH_DEBOUNCE_MS);
+  },
   qualityTab: 'recon',
   setQualityTab: (qualityTab) => set({ qualityTab }),
   resetAllFilters: () => {
+    // Сброс должен быть мгновенным и окончательным: отложенный пересчёт,
+    // поставленный последней набранной буквой, вернул бы поиск после сброса.
+    cancelSearchDebounce();
     const monday = getMondayOfWeek(new Date());
     const currentYear = new Date().getFullYear();
     const defaultYear: YearFilter = AVAILABLE_YEARS.includes(currentYear)
@@ -412,6 +454,7 @@ export const useStore = create<AppState>((set, get) => ({
       focusedWeekStart: monday,
       monthsByYear: {},
       searchQuery: '',
+      searchQueryDebounced: '',
     });
   },
   navigateTo: (page, filters) => {
@@ -419,7 +462,7 @@ export const useStore = create<AppState>((set, get) => ({
       'page' | 'period' | 'procurementFilter' | 'activityFilter' |
       'selectedMethods' | 'selectedActivities' |
       'selectedDepartments' | 'selectedSubordinates' | 'year' |
-      'searchQuery' | 'activeMonths' | 'qualityTab' |
+      'searchQuery' | 'searchQueryDebounced' | 'activeMonths' | 'qualityTab' |
       'periodMode' | 'monthsByYear'
     >> = { page };
     // Период — АТОМАРНО (фильтр-спека 16.07, Б1-Б3): период/месяцы/режим меняются
@@ -469,7 +512,11 @@ export const useStore = create<AppState>((set, get) => ({
       updates.year = filters.year;
     }
     if (filters?.search !== undefined) {
+      // Переход по ссылке/клику — не набор с клавиатуры: запрос применяется
+      // целиком и сразу, откладывать нечего.
+      cancelSearchDebounce();
       updates.searchQuery = filters.search;
+      updates.searchQueryDebounced = filters.search;
     }
     // Quality tab: explicit qualityTab > legacy page IDs > category implies issues
     if (filters?.qualityTab) {

@@ -143,7 +143,7 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
   },
   {
     id: 'УКСиМП', latinId: 'uksimp',
-    fullName: 'Управление капитального строительства и молодёжной политики',
+    fullName: 'Управление культуры, спорта и молодёжной политики',
     shortName: 'УКСиМП',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 225, kpYear: 230, epQ1: 236, epYear: 241, totalCombined: 243, totalCurrent: 244, compShareRow: 246, epShareRow: 247 },

@@ -2,10 +2,27 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { BUDGET_SOURCE_META, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { api, humanizeRequestError } from '../api';
-import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, XCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye } from 'lucide-react';
+import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, XCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye, Keyboard, MapPin, ArrowUpToLine } from 'lucide-react';
 import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
-import { TableEditor, type ColumnConfig, type RowData } from '../components/TableEditor';
+import {
+  TableEditor,
+  type ColumnConfig,
+  type RowData,
+  COPY_REFUSED_NOTE,
+  columnsFingerprint,
+  copyText,
+  describeRowsBelow,
+  formatRowAddress,
+  isTypingTarget,
+  readTablePrefs,
+  rowToTsv,
+  useTableScroll,
+  writeTablePrefs,
+  STICKY_SEAM,
+  STICKY_SURFACE,
+  TABLE_SCROLL_AREA,
+} from '../components/TableEditor';
 import { KbHover } from '../components/contract/KbHover';
 import { filterRowsByBudgets } from '../lib/rows-filter';
 import { collectAllPages } from '../lib/rows/collect-pages';
@@ -34,6 +51,62 @@ type SortDir = 'asc' | 'desc';
 
 /** Строк на один запрос к серверу — его же потолок (rows.ts: min(1000, limit)). */
 const ROWS_PER_REQUEST = 1000;
+
+/** Доступные размеры страницы; последний — «все строки» без листания. */
+const PAGE_SIZES = [25, 50, 100, 500, 1000000] as const;
+
+/**
+ * Столбцы реестра в режиме просмотра. Один дом для трёх нужд: отпечаток набора
+ * колонок (по нему сбрасываются сохранённые настройки вида), копирование строки
+ * и порядок значений в буфере обмена.
+ */
+const BROWSE_COLUMN_KEYS = [
+  'id', 'subject', 'method', 'planSum', 'factSum', 'economy', 'status', 'signals',
+] as const;
+
+const BROWSE_PREFS_NAME = 'registry-browse';
+const BROWSE_FINGERPRINT = columnsFingerprint(BROWSE_COLUMN_KEYS);
+
+/** Настройки вида реестра, переживающие перезагрузку страницы. */
+interface BrowsePrefs {
+  sortKey: SortKey;
+  sortDir: SortDir;
+  pageSize: number;
+  viewMode: ViewMode;
+}
+
+const SORT_KEYS: SortKey[] = ['id', 'subject', 'method', 'planSum', 'factSum', 'economy', 'status', 'dept'];
+
+/**
+ * Разбор сохранённых настроек. Каждое поле проверяется отдельно: запись из
+ * прошлой версии или правленная руками не должна ни ронять экран, ни
+ * подсовывать несуществующий столбец сортировки.
+ */
+export function sanitizeBrowsePrefs(raw: unknown): Partial<BrowsePrefs> {
+  if (!raw || typeof raw !== 'object') return {};
+  const value = raw as Record<string, unknown>;
+  const result: Partial<BrowsePrefs> = {};
+  if (typeof value.sortKey === 'string' && (SORT_KEYS as string[]).includes(value.sortKey)) {
+    result.sortKey = value.sortKey as SortKey;
+  }
+  if (value.sortDir === 'asc' || value.sortDir === 'desc') result.sortDir = value.sortDir;
+  if (typeof value.pageSize === 'number' && (PAGE_SIZES as readonly number[]).includes(value.pageSize)) {
+    result.pageSize = value.pageSize;
+  }
+  if (value.viewMode === 'browse' || value.viewMode === 'editor') result.viewMode = value.viewMode;
+  return result;
+}
+
+/** Подписи горячих клавиш реестра — текст один, показывают его подсказка и нижняя строка. */
+const HOTKEYS: { keys: string; what: string }[] = [
+  { keys: '↑ ↓', what: 'переход по строкам, на краю страницы — на соседнюю' },
+  { keys: 'Enter', what: 'открыть карточку строки' },
+  { keys: 'Esc', what: 'закрыть карточку или эту подсказку' },
+  { keys: 'Home / End', what: 'первая и последняя строка выборки' },
+  { keys: '/', what: 'перейти в поле поиска' },
+  { keys: 'Ctrl + C', what: 'скопировать строку под курсором' },
+  { keys: '?', what: 'показать и скрыть эту подсказку' },
+];
 
 /** Имя управления для глаз: латинский идентификатор книги до экрана не доходит. */
 function deptDisplayName(key: unknown): string {
@@ -111,11 +184,17 @@ const NO_TROUBLE: LoadTrouble = { failedDepts: [], partialDepts: [], reason: nul
 
 export function DataBrowserPage() {
   const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets } = useStore();
-  const [viewMode, setViewMode] = useState<ViewMode>('browse');
+  // Вид реестра (сортировка, размер страницы, режим) переживает перезагрузку:
+  // читается один раз при первом кадре, дальше живёт в состоянии.
+  const storedPrefs = useMemo(
+    () => sanitizeBrowsePrefs(readTablePrefs<unknown>(BROWSE_PREFS_NAME, BROWSE_FINGERPRINT)),
+    [],
+  );
+  const [viewMode, setViewMode] = useState<ViewMode>(storedPrefs.viewMode ?? 'browse');
   const [pageNum, setPageNum] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [sortKey, setSortKey] = useState<SortKey>('id');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [pageSize, setPageSize] = useState(storedPrefs.pageSize ?? 25);
+  const [sortKey, setSortKey] = useState<SortKey>(storedPrefs.sortKey ?? 'id');
+  const [sortDir, setSortDir] = useState<SortDir>(storedPrefs.sortDir ?? 'asc');
   const [rows, setRows] = useState<any[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [trouble, setTrouble] = useState<LoadTrouble>(NO_TROUBLE);
@@ -123,6 +202,28 @@ export function DataBrowserPage() {
   const [signalFilter, setSignalFilter] = useState<string[]>([]);
   const [signalDropdownOpen, setSignalDropdownOpen] = useState(false);
   const signalDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── Клавиатура и копирование ──
+  /** Строка под курсором клавиатуры — номер внутри текущей страницы; −1 значит «курсора нет». */
+  const [cursor, setCursor] = useState(-1);
+  const [hotkeysOpen, setHotkeysOpen] = useState(false);
+  const [copyNote, setCopyNote] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  /** Куда встать после перехода на соседнюю страницу — в начало или в конец. */
+  const pendingCursorRef = useRef<'first' | 'last' | null>(null);
+
+  useEffect(() => {
+    writeTablePrefs<BrowsePrefs>(BROWSE_PREFS_NAME, BROWSE_FINGERPRINT, {
+      sortKey, sortDir, pageSize, viewMode,
+    });
+  }, [sortKey, sortDir, pageSize, viewMode]);
+
+  useEffect(() => {
+    if (!copyNote) return;
+    const timer = setTimeout(() => setCopyNote(null), 4000);
+    return () => clearTimeout(timer);
+  }, [copyNote]);
 
   // ── Состояние редактора таблиц ──
   const [editorRows, setEditorRows] = useState<RowData[]>([]);
@@ -136,8 +237,11 @@ export function DataBrowserPage() {
   }, []);
 
   const defaultEditorColumns: ColumnConfig[] = useMemo(() => [
+    // Ширины — стартовые: столбцы редактора тянутся мышью, и выбор пользователя
+    // переживает перезагрузку. Имя управления и признак экономии получили запас
+    // ширины: при жёстких ширинах короткая колонка режет текст, а не ужимается.
     { key: 'id', label: '№', type: 'text', width: 'w-14', editable: false },
-    { key: 'dept', label: 'Управление', type: 'text', width: 'w-20', editable: false },
+    { key: 'dept', label: 'Управление', type: 'text', width: 'w-44', editable: false },
     { key: 'subject', label: 'Предмет закупки', type: 'text' },
     { key: 'method', label: 'Способ', type: 'select', width: 'w-20', options: ['ЭА', 'ЭК', 'ЭЗК', 'ЕП'] },
     // Сокращения уровней бюджета — из канон-словаря, а не набраны здесь заново
@@ -153,48 +257,10 @@ export function DataBrowserPage() {
     { key: 'factSum', label: 'Факт итого', type: 'currency', width: 'w-28', editable: false },
     { key: 'planDate', label: 'Дата плана', type: 'date', width: 'w-28' },
     { key: 'factDate', label: 'Дата факта', type: 'date', width: 'w-28' },
-    { key: 'status', label: 'Статус', type: 'text', width: 'w-24', editable: false },
-    { key: 'flag', label: 'Признак экономии', type: 'text', width: 'w-24' },
+    { key: 'status', label: 'Статус', type: 'text', width: 'w-28', editable: false },
+    { key: 'flag', label: 'Признак экономии', type: 'text', width: 'w-36' },
     { key: 'commentGRBS', label: 'Комментарий управления', type: 'text' },
   ], [moneyCell]);
-
-  // Строки реестра → строки редактора при переходе на вкладку правки
-  useEffect(() => {
-    if (viewMode === 'editor' && rows.length > 0) {
-      const mapped: RowData[] = rows.map((r, idx) => ({
-        _id: `${r.dept}-${r.rowIndex ?? idx}`,
-        _dept: r.dept,
-        _rowIndex: r.rowIndex,
-        id: r.id,
-        // Ключ управления остаётся в _dept для записи; на экран идёт имя.
-        dept: deptDisplayName(r.dept),
-        subject: r.subject,
-        method: r.method,
-        planFB: r.planFB,
-        planKB: r.planKB,
-        planMB: r.planMB,
-        planSum: r.planSum,
-        factFB: r.factFB,
-        factKB: r.factKB,
-        factMB: r.factMB,
-        factSum: r.factSum,
-        planDate: r.planDate,
-        factDate: r.factDate,
-        status: r.status,
-        flag: r.flag,
-        commentGRBS: r.commentGRBS,
-      }));
-      setEditorRows(mapped);
-      const origMap: Record<string, RowData> = {};
-      for (const row of mapped) {
-        origMap[row._id] = { ...row };
-      }
-      setEditorOriginals(origMap);
-      if (editorColumns.length === 0) {
-        setEditorColumns(defaultEditorColumns);
-      }
-    }
-  }, [viewMode, rows, defaultEditorColumns, editorColumns.length]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */
   const sumBudgets = useCallback((row: RowData, keys: string[]): number => {
@@ -421,7 +487,225 @@ export function DataBrowserPage() {
     if (pageNum > totalPages) setPageNum(totalPages);
   }, [pageNum, totalPages]);
   const safePage = Math.min(pageNum, totalPages);
-  const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  // Память о срезе обязательна: он же кормит редактор, а новый массив на каждый
+  // кадр перезапускал бы пересборку строк редактора без конца.
+  const paged = useMemo(
+    () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filtered, safePage, pageSize],
+  );
+
+  // Строки реестра → строки редактора при переходе на вкладку правки.
+  // Берётся текущая страница реестра, а не весь загруженный реестр: строк в
+  // реестре бывает больше трёх тысяч, а редактор рисует каждую ячейку живой и
+  // правимой — разом это вешает вкладку намертво. Сколько строк на странице,
+  // выбирает сам пользователь тем же переключателем, что и в просмотре; в
+  // оговорке редактора это сказано прямо, чтобы правка страницы не выглядела
+  // правкой всего реестра.
+  useEffect(() => {
+    if (viewMode !== 'editor' || paged.length === 0) return;
+    const mapped: RowData[] = paged.map((r, idx) => ({
+      _id: `${r.dept}-${r.rowIndex ?? idx}`,
+      _dept: r.dept,
+      _rowIndex: r.rowIndex,
+      id: r.id,
+      // Ключ управления остаётся в _dept для записи; на экран идёт имя.
+      dept: deptDisplayName(r.dept),
+      subject: r.subject,
+      method: r.method,
+      planFB: r.planFB,
+      planKB: r.planKB,
+      planMB: r.planMB,
+      planSum: r.planSum,
+      factFB: r.factFB,
+      factKB: r.factKB,
+      factMB: r.factMB,
+      factSum: r.factSum,
+      planDate: r.planDate,
+      factDate: r.factDate,
+      status: r.status,
+      flag: r.flag,
+      commentGRBS: r.commentGRBS,
+    }));
+    setEditorRows(mapped);
+    const origMap: Record<string, RowData> = {};
+    for (const row of mapped) {
+      origMap[row._id] = { ...row };
+    }
+    setEditorOriginals(origMap);
+    if (editorColumns.length === 0) {
+      setEditorColumns(defaultEditorColumns);
+    }
+  }, [viewMode, paged, defaultEditorColumns, editorColumns.length]);
+
+  // ── Курсор по строкам ──
+  const { rowsBelow, showBackToTop, scrollToTop } = useTableScroll(scrollRef, rowRefs, paged.length);
+
+  /** Курсор не должен указывать на строку, которой уже нет: фильтры сужают выборку на лету. */
+  useEffect(() => {
+    setCursor(prev => (prev >= paged.length ? paged.length - 1 : prev));
+  }, [paged.length]);
+
+  // Переход на соседнюю страницу стрелкой: курсор встаёт на её край, а не
+  // теряется. Отдельным шагом, потому что строки соседней страницы появляются
+  // только после перерисовки.
+  useEffect(() => {
+    if (pendingCursorRef.current === null) return;
+    const target = pendingCursorRef.current;
+    pendingCursorRef.current = null;
+    if (paged.length === 0) return;
+    setCursor(target === 'first' ? 0 : paged.length - 1);
+  }, [safePage, paged.length]);
+
+  // Строка под курсором получает фокус: так её видно, слышно в экранном дикторе
+  // и она сама подтягивается в видимую часть. Два исключения, иначе фокус
+  // отбирался бы у того, кому принадлежит: открытая карточка строки (после её
+  // закрытия фокус сюда вернётся сам) и кнопка внутри самой строки, до которой
+  // дошли клавишей Tab.
+  useEffect(() => {
+    if (cursor < 0 || selectedRow) return;
+    const el = rowRefs.current[cursor];
+    if (!el) return;
+    if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    el.scrollIntoView({ block: 'nearest' });
+  }, [cursor, safePage, selectedRow]);
+
+  const cursorRow = cursor >= 0 ? paged[cursor] : undefined;
+
+  /** Адрес строки в книге: имя листа управления и номер строки. */
+  const rowAddressOf = useCallback(
+    (dept: unknown, rowIndex: unknown) => formatRowAddress(deptDisplayName(dept), rowIndex),
+    [],
+  );
+
+  const report = useCallback(async (text: string, done: string) => {
+    setCopyNote(await copyText(text) ? done : COPY_REFUSED_NOTE);
+  }, []);
+
+  /**
+   * Строка в буфер: значения через табуляцию, как их видит экран. Суммы уходят
+   * в масштабе книги (тыс. ₽) и с запятой-разделителем — так их принимает
+   * русский Excel; переключатель единиц из шапки на буфер не влияет, иначе одна
+   * и та же строка копировалась бы каждый раз в другом масштабе.
+   */
+  const copyCursorRow = useCallback(() => {
+    if (!cursorRow) {
+      setCopyNote('Скопировать нечего: выберите строку — щелчком или стрелками.');
+      return;
+    }
+    const money = (v: unknown) =>
+      typeof v === 'number' && v !== 0 ? String(v).replace('.', ',') : '';
+    void report(rowToTsv([
+      cursorRow.id ?? '',
+      cursorRow.subject ?? '',
+      deptDisplayName(cursorRow.dept),
+      activityRowLabel(cursorRow.type, cursorRow.programName),
+      cursorRow.method ?? '',
+      money(cursorRow.planSum),
+      money(cursorRow.factSum),
+      money(cursorRow.economy),
+      formatDateCell(cursorRow.planDate),
+      formatDateCell(cursorRow.factDate),
+      cursorRow.status ?? '',
+      (cursorRow.signals ?? []).map((s: string) => signalChipText(s).text).join(', '),
+    ]), 'Строка скопирована — суммы в тысячах рублей.');
+  }, [cursorRow, report]);
+
+  const copyCursorAddress = useCallback(() => {
+    const address = cursorRow ? rowAddressOf(cursorRow.dept, cursorRow.rowIndex) : null;
+    if (!address) {
+      setCopyNote(cursorRow
+        ? 'Адрес строки неизвестен: в ней нет номера строки книги.'
+        : 'Сначала выберите строку — щелчком или стрелками.');
+      return;
+    }
+    void report(address, `Адрес скопирован: ${address}`);
+  }, [cursorRow, rowAddressOf, report]);
+
+  /**
+   * Поле поиска живёт в шапке приложения — за пределами этого экрана, поэтому
+   * ссылки на него нет и фокус наводится поиском по разметке. Не нашли поле —
+   * говорим об этом, а не делаем вид, что клавиша сработала.
+   */
+  const focusSearchField = useCallback(() => {
+    const field = document.querySelector<HTMLInputElement>('input[type="text"][placeholder^="Поиск"]');
+    if (!field) {
+      setCopyNote('Поле поиска сейчас недоступно — воспользуйтесь фильтрами в шапке.');
+      return;
+    }
+    field.focus();
+    field.select();
+  }, []);
+
+  const goToPage = useCallback((page: number, land: 'first' | 'last') => {
+    pendingCursorRef.current = land;
+    setPageNum(page);
+  }, []);
+
+  // Клавиатура реестра. Слушатель на документе, а не на таблице: иначе стрелки
+  // молчали бы, пока пользователь не щёлкнет по строке, — а «умею в Excel и
+  // почту» этого не угадает.
+  useEffect(() => {
+    if (viewMode !== 'browse') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+
+      // Сверяемся с символом, а не с кодом клавиши: в русской раскладке «/»
+      // набирается через Shift, и проверка на Shift путала бы «/» с «?».
+      if (e.key === '?') {
+        e.preventDefault();
+        setHotkeysOpen(v => !v);
+        return;
+      }
+      if (e.key === 'Escape') {
+        // Карточка строки закрывается собственным слушателем — здесь только подсказка.
+        if (!selectedRow && hotkeysOpen) { e.preventDefault(); setHotkeysOpen(false); }
+        return;
+      }
+      // Пока открыта карточка строки, реестр под ней не листается.
+      if (selectedRow) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        if ((getSelection()?.toString() ?? '').length > 0) return;
+        if (!cursorRow) return;
+        e.preventDefault();
+        copyCursorRow();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key === '/') { e.preventDefault(); focusSearchField(); return; }
+      if (paged.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (cursor >= paged.length - 1) {
+          if (safePage < totalPages) goToPage(safePage + 1, 'first');
+        } else {
+          setCursor(c => c + 1);
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        // Стрелка вверх до первого выбора ставит курсор на последнюю строку
+        // страницы: иначе первое нажатие не делало бы ничего.
+        if (cursor < 0) setCursor(paged.length - 1);
+        else if (cursor === 0) { if (safePage > 1) goToPage(safePage - 1, 'last'); }
+        else setCursor(c => c - 1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        if (safePage === 1) setCursor(0);
+        else goToPage(1, 'first');
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        if (safePage === totalPages) setCursor(paged.length - 1);
+        else goToPage(totalPages, 'last');
+      } else if (e.key === 'Enter' && cursorRow) {
+        e.preventDefault();
+        setSelectedRow(cursorRow);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [viewMode, selectedRow, hotkeysOpen, cursor, cursorRow, paged.length, safePage, totalPages, copyCursorRow, focusSearchField, goToPage]);
 
   const severity = useMemo(() => countBySeverity(filtered), [filtered]);
   const occurrences = useMemo(() => signalOccurrences(rows), [rows]);
@@ -496,6 +780,34 @@ export function DataBrowserPage() {
       : 'Критических признаков в выборке нет';
 
   const everythingFailed = trouble.failedDepts.length > 0 && rows.length === 0;
+  const rowsBelowNote = describeRowsBelow(rowsBelow);
+
+  /** Листание — одно на оба режима: редактор правит ту же страницу, что показывает просмотр. */
+  const pager = (
+    <div className="flex items-center gap-2 flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => setPageNum(Math.max(1, safePage - 1))}
+        disabled={safePage <= 1}
+        aria-label="Предыдущая страница"
+        className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+      >
+        <ChevronLeft size={16} aria-hidden="true" />
+      </button>
+      <span className="px-2 font-medium tabular-nums" aria-live="polite">
+        Страница {safePage} из {totalPages}
+      </span>
+      <button
+        type="button"
+        onClick={() => setPageNum(Math.min(totalPages, safePage + 1))}
+        disabled={safePage >= totalPages}
+        aria-label="Следующая страница"
+        className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+      >
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -556,23 +868,53 @@ export function DataBrowserPage() {
       )}
 
       {viewMode === 'editor' ? (
-        <TableEditor
-          columns={editorColumns}
-          rows={editorRows}
-          loading={loadingRows}
-          onCellChange={handleEditorCellChange}
-          onSaveRow={handleEditorSaveRow}
-          onRevertRow={handleEditorRevertRow}
-          onAddColumn={handleEditorAddColumn}
-          emptyReason={
-            everythingFailed
-              ? 'Книги управлений не прочитаны — правки сейчас невозможны. Проверьте доступ и обновите данные.'
-              : rows.length === 0
-                ? 'По фильтрам шапки не загружено ни одной строки. Снимите часть фильтров — редактор правит только загруженные строки.'
-                : undefined
-          }
-          notice="Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист."
-        />
+        <>
+          {/* Тот же выбор страницы, что и в просмотре: редактор правит её строки */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <label className="sr-only" htmlFor="editor-rows-per-page">Строк на странице</label>
+              <select
+                id="editor-rows-per-page"
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setPageNum(1); }}
+                className="px-3 py-1.5 text-xs border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800/60 text-zinc-800 dark:text-zinc-200"
+              >
+                {PAGE_SIZES.map(size => (
+                  <option key={size} value={size}>
+                    {size >= 1000000 ? 'Все строки' : `${size} строк`}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                {filtered.length} {pluralRu(filtered.length, 'строка', 'строки', 'строк')} в выборке
+              </span>
+            </div>
+            {pager}
+          </div>
+          <TableEditor
+            columns={editorColumns}
+            rows={editorRows}
+            loading={loadingRows}
+            onCellChange={handleEditorCellChange}
+            onSaveRow={handleEditorSaveRow}
+            onRevertRow={handleEditorRevertRow}
+            onAddColumn={handleEditorAddColumn}
+            emptyReason={
+              everythingFailed
+                ? 'Книги управлений не прочитаны — правки сейчас невозможны. Проверьте доступ и обновите данные.'
+                : rows.length === 0
+                  ? 'По фильтрам шапки не загружено ни одной строки. Снимите часть фильтров — редактор правит только загруженные строки.'
+                  : 'На этой странице реестра строк нет. Перейдите на другую страницу или снимите часть фильтров.'
+            }
+            notice={
+              `Редактор правит страницу реестра — сейчас это ${paged.length} ${pluralRu(paged.length, 'строка', 'строки', 'строк')} `
+              + `из ${filtered.length} в выборке; остальные листаются кнопками рядом с выбором размера страницы. `
+              + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист.'
+            }
+            rowAddress={(row) => rowAddressOf(row._dept, row._rowIndex)}
+            prefsName="registry-editor"
+          />
+        </>
       ) : (
       <>
       {/* Панель: размер страницы, фильтр признаков, выгрузка */}
@@ -585,12 +927,12 @@ export function DataBrowserPage() {
             onChange={e => { setPageSize(Number(e.target.value)); setPageNum(1); }}
             className="px-3 py-1.5 text-xs border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800/60 text-zinc-800 dark:text-zinc-200"
           >
-            <option value={25}>25 строк</option>
-            <option value={50}>50 строк</option>
-            <option value={100}>100 строк</option>
-            <option value={500}>500 строк</option>
-            {/* «Все» — по просьбе пользователей: реестр целиком, без листания */}
-            <option value={1000000}>Все строки</option>
+            {PAGE_SIZES.map(size => (
+              <option key={size} value={size}>
+                {/* «Все» — по просьбе пользователей: реестр целиком, без листания */}
+                {size >= 1000000 ? 'Все строки' : `${size} строк`}
+              </option>
+            ))}
           </select>
 
           {/* Фильтр по признакам строк */}
@@ -675,16 +1017,70 @@ export function DataBrowserPage() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={downloadTable}
-          disabled={filtered.length === 0}
-          title="Файл в формате CSV с текущей выборкой — открывается в Excel и Р7-Офис"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition"
-        >
-          <Download size={13} aria-hidden="true" /> Выгрузить таблицу
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={copyCursorAddress}
+            disabled={!cursorRow}
+            title={cursorRow
+              ? 'Скопировать адрес строки — лист управления и номер строки в книге'
+              : 'Сначала выберите строку — щелчком или стрелками'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+          >
+            <MapPin size={13} aria-hidden="true" /> Скопировать адрес строки
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setHotkeysOpen(v => !v)}
+            aria-expanded={hotkeysOpen}
+            title="Горячие клавиши реестра"
+            aria-label="Показать горячие клавиши реестра"
+            className={clsx(
+              'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
+              hotkeysOpen
+                ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
+                : 'text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
+            )}
+          >
+            <Keyboard size={13} aria-hidden="true" /> Клавиши
+          </button>
+
+          <button
+            type="button"
+            onClick={downloadTable}
+            disabled={filtered.length === 0}
+            title="Файл в формате CSV с текущей выборкой — открывается в Excel и Р7-Офис"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            <Download size={13} aria-hidden="true" /> Выгрузить таблицу
+          </button>
+        </div>
       </div>
+
+      {/* Подсказка по клавишам — раскрывается на месте, не поверх экрана (канон: оверлей только для доказательства числа) */}
+      {hotkeysOpen && (
+        <div className="px-4 py-3 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50 dark:bg-zinc-800/40">
+          <div className="flex items-start justify-between gap-3">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              {HOTKEYS.map(({ keys, what }) => (
+                <div key={keys} className="contents">
+                  <dt className="font-medium text-zinc-700 dark:text-zinc-200 whitespace-nowrap">{keys}</dt>
+                  <dd className="text-zinc-500 dark:text-zinc-400">— {what}</dd>
+                </div>
+              ))}
+            </dl>
+            <button
+              type="button"
+              onClick={() => setHotkeysOpen(false)}
+              aria-label="Скрыть подсказку по клавишам"
+              className="p-1 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Сводка по выборке — утверждение, затем деньги */}
       {!loadingRows && filtered.length > 0 && (
@@ -735,12 +1131,14 @@ export function DataBrowserPage() {
       )}
 
       {/* Таблица */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="relative bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+        {/* Прокрутка живёт здесь: прилипшая шапка держится только за собственную
+            прокручиваемую область, а не за прокрутку страницы. */}
+        <div ref={scrollRef} className={TABLE_SCROLL_AREA}>
           <table className="w-full text-sm">
             <caption className="sr-only">Реестр строк закупок по текущим фильтрам</caption>
             <thead>
-              <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <tr className="text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                 {([
                   ['id', '№', 'pl-5 pr-2 py-3 w-10', ''],
                   ['subject', 'Предмет закупки', 'px-3 py-3', ''],
@@ -751,12 +1149,19 @@ export function DataBrowserPage() {
                   ['factSum', `Факт, ${moneyUnit} ₽`, 'px-3 py-3 w-28', 'text-right'],
                   ['economy', 'Экономия', 'px-3 py-3 w-28', 'text-right'],
                   ['status', 'Статус', 'px-3 py-3 w-28', ''],
-                ] as [SortKey, string, string, string][]).map(([key, label, cls, align]) => (
+                ] as [SortKey, string, string, string][]).map(([key, label, cls, align], colIdx) => (
                   <th
                     key={key}
                     scope="col"
                     aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    className={clsx(cls, align)}
+                    className={clsx(
+                      cls,
+                      align,
+                      'sticky top-0 bg-zinc-50 dark:bg-zinc-900',
+                      // Номер строки не уезжает вбок: на широкой таблице читатель
+                      // иначе теряет, о какой строке речь.
+                      colIdx === 0 ? `left-0 z-30 ${STICKY_SEAM}` : 'z-20',
+                    )}
                   >
                     {/* Кнопка, а не onClick на ячейке: сортировка обязана быть доступна с клавиатуры */}
                     <button
@@ -772,16 +1177,44 @@ export function DataBrowserPage() {
                     </button>
                   </th>
                 ))}
-                <th scope="col" className="px-3 py-3">Признаки строки</th>
+                <th scope="col" className="px-3 py-3 sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-900">
+                  Признаки строки
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
               {!loadingRows && paged.map((row, i) => {
                 const noDate = !rowHasPeriodDate(row);
                 const noYear = !row.planYear;
+                const isCursor = i === cursor;
                 return (
-                <tr key={`${row.dept}-${row.rowIndex ?? row.id}-${i}`} className="hover:bg-blue-50/30 dark:hover:bg-zinc-700/30 transition group cursor-pointer" onClick={() => setSelectedRow(row)}>
-                  <td className="pl-5 pr-2 py-3 text-zinc-400 dark:text-zinc-500 tabular-nums">
+                <tr
+                  key={`${row.dept}-${row.rowIndex ?? row.id}-${i}`}
+                  ref={el => { rowRefs.current[i] = el; }}
+                  // Строка сама принимает фокус: без этого стрелки некуда было бы
+                  // привести, а экранный диктор не назвал бы текущую строку.
+                  tabIndex={isCursor ? 0 : -1}
+                  aria-current={isCursor ? 'true' : undefined}
+                  onFocus={() => setCursor(i)}
+                  className={clsx(
+                    'transition group cursor-pointer scroll-mt-12',
+                    // Тихая подсветка: полоса слева, а не заливка — по сотням строк
+                    // курсор ходит часто, громкая подсветка превратилась бы в мельтешение.
+                    isCursor
+                      ? 'bg-blue-50/60 dark:bg-zinc-700/40 outline-none'
+                      : 'hover:bg-blue-50/30 dark:hover:bg-zinc-700/30',
+                  )}
+                  onClick={() => { setCursor(i); setSelectedRow(row); }}
+                >
+                  <td className={clsx(
+                    'pl-5 pr-2 py-3 text-zinc-400 dark:text-zinc-500 tabular-nums sticky left-0 z-10',
+                    STICKY_SEAM,
+                    isCursor ? 'bg-blue-50 dark:bg-zinc-700' : `${STICKY_SURFACE} group-hover:bg-zinc-50 dark:group-hover:bg-zinc-800`,
+                  )}>
+                    {/* Полоса-указатель текущей строки: цвет не единственный её признак */}
+                    {isCursor && (
+                      <span className="absolute left-0 top-0 h-full w-0.5 bg-blue-500 dark:bg-blue-400" aria-hidden="true" />
+                    )}
                     {row.id !== null && row.id !== undefined && row.id !== ''
                       ? row.id
                       : <span title="Порядковый номер в книге не проставлен">б/н</span>}
@@ -983,6 +1416,21 @@ export function DataBrowserPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Возврат к началу — только после первого экрана, чтобы не мозолить глаза.
+            Живёт над областью прокрутки, а не внутри: внутри его уносило бы вбок
+            вместе с горизонтальной прокруткой широкой таблицы. */}
+        {showBackToTop && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="absolute bottom-3 right-4 z-40 flex items-center justify-center w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+            title="В начало реестра"
+            aria-label="Прокрутить реестр в начало"
+          >
+            <ArrowUpToLine size={15} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Подпись под таблицей: три ступени счёта — экран, выборка, загрузка.
@@ -996,33 +1444,20 @@ export function DataBrowserPage() {
             {counts.hiddenOnScreen && <span className="text-zinc-400 dark:text-zinc-500">{counts.hiddenOnScreen}</span>}
           </div>
           <div className="text-zinc-400 dark:text-zinc-500">{counts.loaded}</div>
+          {/* Место под подпись занято всегда — см. тот же приём в редакторе:
+              исчезающая строка меняла бы высоту страницы, а та — сам счёт. */}
+          <div className="text-zinc-400 dark:text-zinc-500 tabular-nums min-h-4">{rowsBelowNote}</div>
           {uncheckedNote && (
             <div className="text-amber-600 dark:text-amber-400">{uncheckedNote}</div>
           )}
+          <div aria-live="polite" className={clsx(copyNote === COPY_REFUSED_NOTE && 'text-amber-600 dark:text-amber-400')}>
+            {copyNote}
+          </div>
+          <div className="text-zinc-400 dark:text-zinc-500">
+            Стрелки — по строкам, Enter — карточка строки, «?» — все клавиши
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => setPageNum(Math.max(1, safePage - 1))}
-            disabled={safePage <= 1}
-            aria-label="Предыдущая страница"
-            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-          >
-            <ChevronLeft size={16} aria-hidden="true" />
-          </button>
-          <span className="px-2 font-medium tabular-nums" aria-live="polite">
-            Страница {safePage} из {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPageNum(Math.min(totalPages, safePage + 1))}
-            disabled={safePage >= totalPages}
-            aria-label="Следующая страница"
-            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-          >
-            <ChevronRight size={16} aria-hidden="true" />
-          </button>
-        </div>
+        {pager}
       </div>
       )}
 

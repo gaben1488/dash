@@ -14,8 +14,16 @@
 export type Grade = 'A' | 'B' | 'C' | 'D';
 
 export interface GrbsGradeInput {
-  /** Фактическое исполнение, доля 0-1 (факт/план). */
-  execPct: number;
+  /**
+   * Фактическое исполнение, доля 0-1 (факт/план).
+   *
+   * `null` = ПЛАНА НЕТ, а не «исполнено ноль». Раньше сюда приходил ноль
+   * вместо «нет базы», и беспланное управление получало максимальный штраф
+   * за отставание (45 баллов) и грейд D за то, чего у него нет
+   * (реестр расхождений 08.08 §2, волна 0 п.5; лист в такой ячейке печатает
+   * прочерк — `IF(D13=0;"-";E13/D13)`).
+   */
+  execPct: number | null;
   /** Ожидаемое исполнение к этому моменту с учётом фазы квартала, доля 0-1. */
   expectedExecPct: number;
   /** Число аномалий (Бенфорд/Z-score). */
@@ -52,8 +60,12 @@ export function gradeGRBS(input: GrbsGradeInput): GrbsGradeResult {
   const reasons: string[] = [];
   let score = 100;
 
-  // Отставание исполнения (относительное к ожидаемому с фазовой поправкой)
-  if (expectedExecPct > 0 && execPct < expectedExecPct) {
+  // Отставание исполнения (относительное к ожидаемому с фазовой поправкой).
+  // Плана нет (execPct === null) — отставать не от чего: штрафа нет, но и
+  // молчания нет: причина названа, чтобы «A» не читалось как похвала.
+  if (execPct === null) {
+    reasons.push('плана нет — исполнение не оценивается');
+  } else if (expectedExecPct > 0 && execPct < expectedExecPct) {
     const lag = (expectedExecPct - execPct) / expectedExecPct; // 0-1
     const pen = clampPenalty(lag * 100, 45);
     score -= pen;

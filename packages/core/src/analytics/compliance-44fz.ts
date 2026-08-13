@@ -19,28 +19,34 @@ export interface ComplianceIssue {
   rowIndex?: number;
 }
 
-/** Legal thresholds from 44-ФЗ */
+/**
+ * Legal thresholds from 44-ФЗ.
+ * Единицы: тыс. руб. — как денежные колонки книг ГРБС (H/I/J/K, V/W/X/Y).
+ * До fix bug-hunt 2026-08-08 (БАГ #1) пороги были в рублях, а сравнивались
+ * с planTotal в тысячах — сравнение требовало контракта на 600 млн, чтобы
+ * сработать. Источник — @aemr/shared LAW_44FZ_THRESHOLDS (суффикс ThousandRub).
+ */
 export const LAW_44FZ = {
-  /** п.4 ч.1 ст.93 — single EP contract limit */
-  epSingleContractLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit,
+  /** п.4 ч.1 ст.93 — single EP contract limit (тыс. руб.) */
+  epSingleContractLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub,
   /** п.5 ч.1 ст.93 — education/culture EP single contract limit (600 тыс.) */
-  epEducationLimit: LAW_44FZ_THRESHOLDS.epEducationSingleContractLimit,
-  /** п.5 ч.1 ст.93 — education EP annual: 5 млн ИЛИ 50% СГОЗ, потолок 30 млн */
-  epEducationAnnualFixedLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualFixedLimit,
+  epEducationLimit: LAW_44FZ_THRESHOLDS.epEducationSingleContractLimitThousandRub,
+  /** п.5 ч.1 ст.93 — education EP annual: 5 млн ИЛИ 50% СГОЗ, потолок 30 млн (тыс. руб.) */
+  epEducationAnnualFixedLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualFixedLimitThousandRub,
   epEducationShareLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualShareLimit,
-  epEducationAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualAbsoluteLimit,
-  /** Electronic shop (магазин) purchase limit */
-  eShopLimit: LAW_44FZ_THRESHOLDS.eShopPurchaseLimit,
-  /** Request for quotations (запрос котировок) limit */
-  quotationLimit: LAW_44FZ_THRESHOLDS.quotationPurchaseLimit,
-  /** Annual EP limit for п.4 — 2M or 10% of total, capped at 50M */
-  epAnnualSmallPurchaseLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualFixedLimit,
+  epEducationAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epEducationAnnualAbsoluteLimitThousandRub,
+  /** Electronic shop (магазин) purchase limit (тыс. руб.) */
+  eShopLimit: LAW_44FZ_THRESHOLDS.eShopPurchaseLimitThousandRub,
+  /** Request for quotations (запрос котировок) limit (тыс. руб.) */
+  quotationLimit: LAW_44FZ_THRESHOLDS.quotationPurchaseLimitThousandRub,
+  /** Annual EP limit for п.4 — 2M or 10% of total, capped at 50M (тыс. руб.) */
+  epAnnualSmallPurchaseLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualFixedLimitThousandRub,
   /** Anti-dumping threshold (ст. 37) */
   antiDumpingThreshold: LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare,
   /** Annual EP share limit (% of total) */
   epAnnualShareLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualShareLimit,
-  /** Annual EP absolute limit */
-  epAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimit,
+  /** Annual EP absolute limit (тыс. руб.) */
+  epAnnualAbsoluteLimit: LAW_44FZ_THRESHOLDS.epSmallPurchaseAnnualAbsoluteLimitThousandRub,
 } as const;
 
 /**
@@ -86,7 +92,11 @@ interface RowData {
 
 /**
  * Check EP single contract limit (п.4 ч.1 ст.93 44-ФЗ).
- * EP contracts cannot exceed 600K rubles.
+ * EP contracts cannot exceed 600K rubles = 600 тыс. руб.
+ *
+ * row.planTotal и LAW_44FZ.epSingleContractLimit уже в тыс. руб. (канон колонок
+ * книг ГРБС) — второе деление на 1000 в сообщении убрано (bug-hunt 2026-08-08,
+ * БАГ #1): оно предполагало planTotal в рублях и превращало «600 тыс.» в «0.6».
  */
 export function checkEPContractLimits(rows: RowData[], grbsId: string): ComplianceIssue[] {
   const issues: ComplianceIssue[] = [];
@@ -97,8 +107,8 @@ export function checkEPContractLimits(rows: RowData[], grbsId: string): Complian
         grbsId,
         ruleCode: 'ep_contract_limit',
         severity: 'critical',
-        title: `ЕП превышает лимит ${(LAW_44FZ.epSingleContractLimit / 1000).toFixed(0)} тыс. ₽ (строка ${row.rowIndex})`,
-        description: `Сумма контракта ${(row.planTotal / 1000).toFixed(1)} тыс. ₽ превышает предельный размер для ЕП по п.4 ч.1 ст.93`,
+        title: `ЕП превышает лимит ${LAW_44FZ.epSingleContractLimit.toFixed(0)} тыс. ₽ (строка ${row.rowIndex})`,
+        description: `Сумма контракта ${row.planTotal.toFixed(1)} тыс. ₽ превышает предельный размер для ЕП по п.4 ч.1 ст.93`,
         article: 'ст. 93 ч.1 п.4',
         threshold: LAW_44FZ.epSingleContractLimit,
         actualValue: row.planTotal,
@@ -138,6 +148,9 @@ export function checkAntiDumping(rows: RowData[], grbsId: string): ComplianceIss
 
 /**
  * Check EP share limits by ГРБС role.
+ * epTotal/yearPlanTotal — тыс. руб. (канон колонок книг ГРБС). Деление на
+ * 1_000_000 в сообщении ниже осталось верным: тыс./1000 = млн — это не то
+ * же самое, что баг рублей/1000 в checkEPContractLimits (see comment there).
  */
 export function checkEPShareLimits(
   epCount: number,

@@ -124,6 +124,15 @@ function makeRecalc(overrides: {
     bySubordinate: [],
     conflicts: 0,
     economyTotalMath: 0,
+    // Корзины волны 0 (реестр расхождений 08.08 §2): факт без планового
+    // квартала и строки без года плана вынесены из года отдельными полями.
+    // В фикстуре пусты — профиль управления их не читает, но тип обязан
+    // сойтись, иначе тест разошёлся бы с продовой формой данных.
+    orphanFact: {
+      factCount: 0, factFB: 0, factKB: 0, factMB: 0, factTotal: 0,
+      economyTotal: 0, economyFB: 0, economyKB: 0, economyMB: 0,
+    },
+    noYearRows: null,
   };
 }
 
@@ -326,6 +335,17 @@ describe('forecast — seasonalForecast', () => {
     const result = seasonalForecast([100, 200], 1000);
     expect(result.label).toBe('Сезонный');
   });
+
+  it('ведущие нулевые месяцы не раздувают scaleFactor (делитель = истёкшие месяцы, не non-zero; bug-hunt #2)', () => {
+    // 3 ведущих нулевых месяца — это истёкшие месяцы без факта, а не «данных ещё нет».
+    // До фикса expectedByNow считался по nonZero.length=3 (веса 0.04+0.05+0.10=0.19) =>
+    // yearEndExecution = scaleFactor = 1.1684 (кратное завышение).
+    // После фикса делитель = monthlyFacts.length=6 (веса до 0.45) => scaleFactor ≈ 0.6667,
+    // что совпадает с фактической долей исполнения (6000/9000 ожидаемых по сезону на 6 месяцев).
+    const result = seasonalForecast([0, 0, 0, 1000, 2000, 3000], 20000);
+    expect(result.yearEndExecution).toBeCloseTo(0.6667, 3);
+    expect(result.yearEndExecution).not.toBeCloseTo(1.1684, 1);
+  });
 });
 
 describe('forecast — buildScenarios', () => {
@@ -367,6 +387,17 @@ describe('forecast — buildScenarios', () => {
     });
     expect(result.grbsId).toBe('test-grbs');
   });
+
+  it('граница факт/проекция = истёкшие месяцы, не non-zero: свершившийся факт не переписывается сценарным множителем (bug-hunt #3)', () => {
+    // nonZero.length=2 (5000, 7000), monthlyFacts.length=4. До фикса граница i < nonZero.length
+    // считала индекс 3 (последний ИСТЁКШИЙ месяц, факт 7000) уже проекцией и умножала его на 1.2/0.8.
+    // После фикса граница i < monthlyFacts.length — индексы 0..3 остаются фактом в обоих сценариях.
+    const result = buildScenarios([0, 5000, 0, 7000], 100_000);
+    const optimistic = result.scenarios.find(s => s.label === 'Оптимистичный');
+    const pessimistic = result.scenarios.find(s => s.label === 'Пессимистичный');
+    expect(optimistic?.monthlyProjection[3]).toBe(7000);
+    expect(pessimistic?.monthlyProjection[3]).toBe(7000);
+  });
 });
 
 // ===========================================================================
@@ -382,7 +413,8 @@ describe('compliance — checkEPContractLimits', () => {
   });
 
   it('does not flag EP contract at exactly 600K', () => {
-    const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 600_000, factTotal: 0, economy: 0, subject: '' }];
+    // planTotal — тыс. руб. (канон колонок книг ГРБС): 600 = 600 тыс. руб., граница лимита.
+    const rows = [{ rowIndex: 1, method: 'ЕП', planTotal: 600, factTotal: 0, economy: 0, subject: '' }];
     const issues = checkEPContractLimits(rows, 'dept1');
     expect(issues).toHaveLength(0);
   });
@@ -443,7 +475,8 @@ describe('compliance — checkEPShareLimits', () => {
   });
 
   it('returns no issues for zero totalCount', () => {
-    const issues = checkEPShareLimits(0, 0, 50_000_000, 200_000_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
+    // epTotal — тыс. руб.: 50_000 = 50 млн руб., ровно на границе годового лимита (не превышает).
+    const issues = checkEPShareLimits(0, 0, 50_000, 200_000, 'ОПЕРАЦИОННЫЙ', 'dept1');
     expect(issues.some(i => i.ruleCode === 'ep_share_role')).toBe(false);
     expect(issues.some(i => i.ruleCode === 'ep_annual_absolute')).toBe(false);
   });

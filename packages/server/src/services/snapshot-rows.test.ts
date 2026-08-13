@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
+import type { Issue } from '@aemr/shared';
 
 // Книги ГРБС по сети в этих тестах не читаются: роут журнала импортируется
 // только ради функций записи/чтения БД.
@@ -192,6 +193,77 @@ describe('строки-атомы снимка → procurement_rows (блок Е
       .where(inArray(schema.procurementRows.snapshotId, pair)).all();
     expect(new Set(left.map((r) => r.snapshotId))).toEqual(new Set(['keep-thu']));
     expect(left).toHaveLength(3);
+  }, 60000);
+
+  it('БАГ #8: второй снимок с тем же id замечания не роняет запись — issues идемпотентны, строки и ретеншен реально выполняются', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { saveSnapshot } = await import('./snapshot.js');
+    const { eq, inArray } = await import('drizzle-orm');
+
+    // Проигрывающий снимок старой недели среза — вставлен НАПРЯМУЮ (не через
+    // saveSnapshot), чтобы его появление в таблице само по себе не запускало
+    // ретеншен раньше времени. Пока у него нет недельного победителя, он
+    // остаётся единственным представителем своей недели и не прунается —
+    // недельный ретеншен хранит по одному снимку на КАЖДУЮ неделю истории.
+    const THU = 20657; // четверг 2026-07-23 (день 0 эпохи — четверг)
+    const oldThu = THU - 7 * 2;
+    const iso = (day: number): string => new Date(day * 86400000 + 10 * 3600000).toISOString();
+    db.insert(schema.snapshots).values({ id: 'bug8-drop-mon', spreadsheetId: 'test', createdAt: iso(oldThu - 3) }).run();
+
+    // id замечания намеренно СТАБИЛЕН между прогонами (issue-identity.ts) — тот
+    // же самый id приходит и во втором снимке. issues.id — PRIMARY KEY без
+    // snapshot_id в составе (schema.ts): без onConflictDoNothing второй insert
+    // падает на UNIQUE.
+    const stableIssue: Issue = {
+      id: 'issue-bug8-stable',
+      severity: 'error',
+      origin: 'runtime_error',
+      category: 'source_integrity',
+      title: 'Одно и то же замечание в двух снимках подряд',
+      description: 'Страж-тест бага #8: id замечания стабилен между прогонами.',
+      status: 'open',
+      detectedAt: '2026-08-06T08:00:00.000Z',
+      detectedBy: 'snapshot-rows.test.ts',
+    };
+    const s1 = { ...snap('bug8-first', '2026-08-06T08:00:00.000Z', { УЭР: UER_ROWS }), issues: [stableIssue] };
+    const s2 = { ...snap('bug8-second', '2026-08-06T09:00:00.000Z', { УЭР: UER_ROWS }), issues: [stableIssue] };
+
+    // Первый прогон: id замечания встречается впервые, конфликта нет — этот
+    // вызов проходил и до фикса. Ретеншен внутри него уже отработал, но
+    // недельного победителя над bug8-drop-mon ещё нет — снимок уцелел.
+    expect(await saveSnapshot(s1 as never)).toBe(true);
+    const rows1 = db.select().from(schema.procurementRows)
+      .where(eq(schema.procurementRows.snapshotId, 'bug8-first')).all();
+    expect(rows1).toHaveLength(3);
+    expect(db.select({ id: schema.snapshots.id }).from(schema.snapshots)
+      .where(eq(schema.snapshots.id, 'bug8-drop-mon')).all()).toHaveLength(1);
+
+    // Теперь у bug8-drop-mon появляется недельный победитель — тоже НАПРЯМУЮ,
+    // чтобы его появление не запустило ретеншен раньше второго saveSnapshot.
+    db.insert(schema.snapshots).values({ id: 'bug8-keep-thu', spreadsheetId: 'test', createdAt: iso(oldThu) }).run();
+
+    // Второй прогон: тот же id замечания — ровно механизм бага #8. До фикса
+    // здесь бросало на UNIQUE issues.id внутри цикла вставки issues, внешний
+    // catch глушил ошибку и возвращал false, а строки-атомы и ретеншен для
+    // ЭТОГО снимка не выполнялись вообще — bug8-drop-mon остался бы висеть.
+    expect(await saveSnapshot(s2 as never)).toBe(true);
+
+    // procurement_rows заполнился и на втором прогоне.
+    const rows2 = db.select().from(schema.procurementRows)
+      .where(eq(schema.procurementRows.snapshotId, 'bug8-second')).all();
+    expect(rows2).toHaveLength(3);
+
+    // Совпавший id замечания — ровно одна строка issues, без падения и без дубля.
+    const issueRows = db.select().from(schema.issues)
+      .where(eq(schema.issues.id, 'issue-bug8-stable')).all();
+    expect(issueRows).toHaveLength(1);
+
+    // pruneSnapshotsByRetention реально выполнился ВНУТРИ второго saveSnapshot:
+    // именно теперь у bug8-drop-mon появился повод исчезнуть, и он исчез.
+    const stale = db.select({ id: schema.snapshots.id }).from(schema.snapshots)
+      .where(inArray(schema.snapshots.id, ['bug8-drop-mon', 'bug8-keep-thu'])).all()
+      .map((r) => r.id);
+    expect(stale).toEqual(['bug8-keep-thu']);
   }, 60000);
 });
 

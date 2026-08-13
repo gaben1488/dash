@@ -56,29 +56,40 @@ export const NUMBER_FORMAT = {
 // 4. Thresholds
 // ────────────────────────────────────────────────────────────
 
+/**
+ * Единицы: ВСЕ денежные пороги ниже — в ТЫСЯЧАХ рублей, как и денежные колонки
+ * книг ГРБС (H/I/J/K, V/W/X/Y — канон @aemr/shared/report-map.ts:12 «Все суммы
+ * в тыс. руб.»). Раньше пороги были литералами в рублях (600_000, 50_000_000 —
+ * буквальные суммы из текста закона), а сравнивались с суммами в тысячах —
+ * сравнение требовало контракта на 600 МЛН руб., чтобы сработать (недостижимо
+ * на реальных данных). Найдено bug-hunt 2026-08-08 (docs/superpowers/audits/
+ * 2026-08-08-bug-hunt-register.md, БАГ #1). Верный двойник уже существовал:
+ * dictionaries/method-families.ts:95 thresholdKopUnit=600 (в тысячах).
+ * Суффикс ThousandRub делает единицу видимой на месте использования.
+ */
 export const LAW_44FZ_THRESHOLDS = {
-  /** 44-FZ art. 93 part 1 p.4: one small EP contract must not exceed this amount. */
-  epSmallPurchaseSingleContractLimit: 600_000,
-  /** 44-FZ art. 93 part 1 p.4: fixed annual small-purchase limit alternative. */
-  epSmallPurchaseAnnualFixedLimit: 2_000_000,
+  /** 44-FZ art. 93 part 1 p.4: one small EP contract must not exceed this amount (тыс. руб. = 600 тыс. руб.). */
+  epSmallPurchaseSingleContractLimitThousandRub: 600,
+  /** 44-FZ art. 93 part 1 p.4: fixed annual small-purchase limit alternative (тыс. руб. = 2 млн руб.). */
+  epSmallPurchaseAnnualFixedLimitThousandRub: 2_000,
   /** 44-FZ art. 93 part 1 p.4: annual SGOZ share alternative. */
   epSmallPurchaseAnnualShareLimit: 0.10,
-  /** 44-FZ art. 93 part 1 p.4: annual absolute cap for the SGOZ-share alternative. */
-  epSmallPurchaseAnnualAbsoluteLimit: 50_000_000,
-  /** 44-FZ art. 93 part 1 p.5: one education/culture EP contract limit.
+  /** 44-FZ art. 93 part 1 p.4: annual absolute cap for the SGOZ-share alternative (тыс. руб. = 50 млн руб.). */
+  epSmallPurchaseAnnualAbsoluteLimitThousandRub: 50_000,
+  /** 44-FZ art. 93 part 1 p.5: one education/culture EP contract limit (тыс. руб. = 600 тыс. руб.).
    *  Сверено с текстом закона 24.07.2026: разовый — 600 тыс. (было ошибочно
    *  5 млн — это годовой фикс-вариант, не разовый лимит). */
-  epEducationSingleContractLimit: 600_000,
-  /** 44-FZ art. 93 part 1 p.5: fixed annual alternative (5 млн ИЛИ 50% СГОЗ ≤ 30 млн). */
-  epEducationAnnualFixedLimit: 5_000_000,
+  epEducationSingleContractLimitThousandRub: 600,
+  /** 44-FZ art. 93 part 1 p.5: fixed annual alternative (5 млн ИЛИ 50% СГОЗ ≤ 30 млн; тыс. руб. = 5 млн руб.). */
+  epEducationAnnualFixedLimitThousandRub: 5_000,
   /** 44-FZ art. 93 part 1 p.5: annual share cap for education/culture/sport EP. */
   epEducationAnnualShareLimit: 0.50,
-  /** 44-FZ art. 93 part 1 p.5: annual absolute cap for the share alternative. */
-  epEducationAnnualAbsoluteLimit: 30_000_000,
-  /** Electronic-shop purchase limit used by source spreadsheets. */
-  eShopPurchaseLimit: 5_000_000,
-  /** Request-for-quotations limit. */
-  quotationPurchaseLimit: 10_000_000,
+  /** 44-FZ art. 93 part 1 p.5: annual absolute cap for the share alternative (тыс. руб. = 30 млн руб.). */
+  epEducationAnnualAbsoluteLimitThousandRub: 30_000,
+  /** Electronic-shop purchase limit used by source spreadsheets (тыс. руб. = 5 млн руб.). */
+  eShopPurchaseLimitThousandRub: 5_000,
+  /** Request-for-quotations limit (тыс. руб. = 10 млн руб.). */
+  quotationPurchaseLimitThousandRub: 10_000,
   /** 44-FZ art. 37 anti-dumping threshold; AEMR uses limit-fact as an approximation. */
   antiDumpingSavingsShare: 0.25,
 } as const;
@@ -210,7 +221,7 @@ export const UI_LABELS = {
   'dept.УФБП': 'Управление финансово-бюджетной политики',
   'dept.УД': 'Управление делами',
   'dept.УДТХ': 'Управление дорожно-транспортного хозяйства',
-  'dept.УКСиМП': 'Управление капитального строительства и МП',
+  'dept.УКСиМП': 'Управление культуры, спорта и МП',
   'dept.УО': 'Управление образования',
 
   // Общие действия

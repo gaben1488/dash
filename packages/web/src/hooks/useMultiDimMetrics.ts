@@ -125,6 +125,9 @@ function safePct(num: number, den: number): number {
   return den > 0 ? +((num / den) * 100).toFixed(1) : 0;
 }
 
+/** Порядок кварталов — один разделяемый массив, а не новый на каждое управление. */
+const QUARTER_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
+
 /** Год целиком и оба способа — когда период не передан (частичные фикстуры). */
 const WHOLE_YEAR = {
   periodKey: 'year' as const,
@@ -233,7 +236,7 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
       };
 
       // ── Quarterly data ──
-      const quarters: QuarterDelta[] = ['q1', 'q2', 'q3', 'q4'].map(qk => {
+      const quarters: QuarterDelta[] = QUARTER_KEYS.map(qk => {
         const q = d.quarters?.[qk];
         return {
           quarter: qk,
@@ -245,8 +248,9 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
       });
 
       // ── Delta (current quarter vs previous) ──
-      const qOrder = ['q1', 'q2', 'q3', 'q4'];
-      const curIdx = fd.periodKey.startsWith('q') ? qOrder.indexOf(fd.periodKey) : qOrder.length - 1;
+      const curIdx = fd.periodKey.startsWith('q')
+        ? QUARTER_KEYS.indexOf(fd.periodKey as typeof QUARTER_KEYS[number])
+        : QUARTER_KEYS.length - 1;
       const prevIdx = curIdx > 0 ? curIdx - 1 : -1;
       let delta: DeptMetrics['delta'] = null;
       if (prevIdx >= 0) {
@@ -299,7 +303,7 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
     };
 
     // ── Global quarterly spark ──
-    const quarterSpark: QuarterDelta[] = ['q1', 'q2', 'q3', 'q4'].map(qk => {
+    const quarterSpark: QuarterDelta[] = QUARTER_KEYS.map(qk => {
       let plan = 0, fact = 0, eco = 0;
       for (const d of fd.depts) {
         const q = d.quarters?.[qk];
@@ -309,8 +313,9 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
     });
 
     // ── Global delta ──
-    const qOrder = ['q1', 'q2', 'q3', 'q4'];
-    const curIdx = fd.periodKey.startsWith('q') ? qOrder.indexOf(fd.periodKey) : qOrder.length - 1;
+    const curIdx = fd.periodKey.startsWith('q')
+      ? QUARTER_KEYS.indexOf(fd.periodKey as typeof QUARTER_KEYS[number])
+      : QUARTER_KEYS.length - 1;
     const prevIdx = curIdx > 0 ? curIdx - 1 : -1;
     let globalDelta: MultiDimResult['globalDelta'] = null;
     if (prevIdx >= 0 && quarterSpark[curIdx] && quarterSpark[prevIdx]) {

@@ -684,6 +684,11 @@ describe('detectSeasonalAnomalies', () => {
 
 describe('detectSuspiciousSplitting', () => {
   // DEPT_COLUMNS: METHOD=11, TOTAL_PLAN=10, SUBJECT=6, PROGRAM_NAME=3, SUBORDINATE=2
+  // planTotal — тыс. руб. (канон колонок книг ГРБС, numFromRow читает сырое K).
+  // bug-hunt 2026-08-08 (БАГ #1): раньше фикстуры были в рублях (200_000 и т.п.),
+  // а EP_SPLITTING_THRESHOLD после фикса — 600 (тыс.); значения переведены в тыс.,
+  // чтобы фильтр-кандидат (planTotal < порога) и финальный гейт суммы группы
+  // (>= порога) проверяли ту же самую реальную границу 600 тыс. руб.
   function makeSplitRow(subject: string, planTotal: number, subordinate = 'Школа №1'): unknown[] {
     const row = new Array(32).fill(null);
     row[2] = subordinate;       // C = subordinate
@@ -696,21 +701,21 @@ describe('detectSuspiciousSplitting', () => {
 
   it('detects 3+ similar EP rows < 600K from same subordinate', () => {
     const rows = [
-      makeSplitRow('Поставка канцелярских товаров партия 1', 200_000),
-      makeSplitRow('Поставка канцелярских товаров партия 2', 250_000),
-      makeSplitRow('Поставка канцелярских товаров партия 3', 200_000),
+      makeSplitRow('Поставка канцелярских товаров партия 1', 200),
+      makeSplitRow('Поставка канцелярских товаров партия 2', 250),
+      makeSplitRow('Поставка канцелярских товаров партия 3', 200),
     ];
     const result = detectSuspiciousSplitting(rows);
     expect(result.length).toBe(1);
     expect(result[0].count).toBe(3);
-    expect(result[0].totalAmount).toBe(650_000);
+    expect(result[0].totalAmount).toBe(650);
     expect(result[0].rowIndices).toEqual([0, 1, 2]);
   });
 
   it('does NOT flag if less than 3 similar rows', () => {
     const rows = [
-      makeSplitRow('Поставка канцелярских товаров партия 1', 200_000),
-      makeSplitRow('Поставка канцелярских товаров партия 2', 250_000),
+      makeSplitRow('Поставка канцелярских товаров партия 1', 200),
+      makeSplitRow('Поставка канцелярских товаров партия 2', 250),
     ];
     const result = detectSuspiciousSplitting(rows);
     expect(result.length).toBe(0);
@@ -718,9 +723,9 @@ describe('detectSuspiciousSplitting', () => {
 
   it('does NOT flag if plan >= 600K', () => {
     const rows = [
-      makeSplitRow('Поставка канцелярских товаров партия 1', 600_000),
-      makeSplitRow('Поставка канцелярских товаров партия 2', 600_000),
-      makeSplitRow('Поставка канцелярских товаров партия 3', 600_000),
+      makeSplitRow('Поставка канцелярских товаров партия 1', 600),
+      makeSplitRow('Поставка канцелярских товаров партия 2', 600),
+      makeSplitRow('Поставка канцелярских товаров партия 3', 600),
     ];
     const result = detectSuspiciousSplitting(rows);
     expect(result.length).toBe(0);
@@ -728,9 +733,9 @@ describe('detectSuspiciousSplitting', () => {
 
   it('does NOT flag non-EP rows', () => {
     const rows = [
-      makeSplitRow('Поставка канцелярских товаров партия 1', 200_000),
-      makeSplitRow('Поставка канцелярских товаров партия 2', 250_000),
-      makeSplitRow('Поставка канцелярских товаров партия 3', 200_000),
+      makeSplitRow('Поставка канцелярских товаров партия 1', 200),
+      makeSplitRow('Поставка канцелярских товаров партия 2', 250),
+      makeSplitRow('Поставка канцелярских товаров партия 3', 200),
     ];
     // Change method to ЭА
     rows.forEach(r => { r[11] = 'ЭА'; });
@@ -740,9 +745,9 @@ describe('detectSuspiciousSplitting', () => {
 
   it('does NOT flag if subjects are different', () => {
     const rows = [
-      makeSplitRow('Поставка ГСМ', 200_000),
-      makeSplitRow('Ремонт здания', 250_000),
-      makeSplitRow('Уборка территории', 200_000),
+      makeSplitRow('Поставка ГСМ', 200),
+      makeSplitRow('Ремонт здания', 250),
+      makeSplitRow('Уборка территории', 200),
     ];
     const result = detectSuspiciousSplitting(rows);
     expect(result.length).toBe(0);
@@ -750,9 +755,9 @@ describe('detectSuspiciousSplitting', () => {
 
   it('separates groups by subordinate', () => {
     const rows = [
-      makeSplitRow('Поставка канцелярских товаров партия 1', 200_000, 'Школа №1'),
-      makeSplitRow('Поставка канцелярских товаров партия 2', 250_000, 'Школа №1'),
-      makeSplitRow('Поставка канцелярских товаров партия 3', 200_000, 'Школа №2'),
+      makeSplitRow('Поставка канцелярских товаров партия 1', 200, 'Школа №1'),
+      makeSplitRow('Поставка канцелярских товаров партия 2', 250, 'Школа №1'),
+      makeSplitRow('Поставка канцелярских товаров партия 3', 200, 'Школа №2'),
     ];
     // Only 2 from Школа №1, 1 from Школа №2 — neither group has 3+
     const result = detectSuspiciousSplitting(rows);
@@ -761,9 +766,9 @@ describe('detectSuspiciousSplitting', () => {
 
   it('does NOT flag if total amount < 600K (splitting is harmless)', () => {
     const rows = [
-      makeSplitRow('Поставка канцелярских товаров партия 1', 100_000),
-      makeSplitRow('Поставка канцелярских товаров партия 2', 100_000),
-      makeSplitRow('Поставка канцелярских товаров партия 3', 100_000),
+      makeSplitRow('Поставка канцелярских товаров партия 1', 100),
+      makeSplitRow('Поставка канцелярских товаров партия 2', 100),
+      makeSplitRow('Поставка канцелярских товаров партия 3', 100),
     ];
     // Total = 300K < 600K — no point in splitting, it's under the limit anyway
     const result = detectSuspiciousSplitting(rows);

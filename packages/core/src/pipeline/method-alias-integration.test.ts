@@ -124,9 +124,15 @@ describe('method alias integration — dictionaries → calc-engine', () => {
       expect(bucketFor('')).toBe('competitive');
     });
 
-    it('unknown non-empty method → no method bucket', () => {
-      expect(bucketFor('ГАРБАЖ')).toBeNull();
-      expect(metricFor('ГАРБАЖ', 'competitive_count')).toBe(0);
+    it('нераспознанный непустой способ идёт в конкурентные — правило листа', () => {
+      // Лист СВОД делит строки отрицанием: конкурентной считается любая, где
+      // способ не «ЕП», — разбиение тотально. Наш классификатор до 08.08
+      // возвращал пустую группу, и строка не попадала никуда: сумма частей
+      // выходила меньше плана, а доля единственного поставщика росла просто
+      // от загрязнения столбца. Теперь правило совпадает с листом, а мусор
+      // виден отдельным счётчиком качества данных (реестр 08.08 §2).
+      expect(bucketFor('ГАРБАЖ')).toBe('competitive');
+      expect(metricFor('ГАРБАЖ', 'competitive_count')).toBe(1);
       expect(metricFor('ГАРБАЖ', 'ep_count')).toBe(0);
     });
 

@@ -117,7 +117,8 @@ export interface CompositeScore {
   grade: 'A' | 'B' | 'C' | 'D' | 'F';
   /** Individual component scores */
   components: {
-    execution: { raw: number; weighted: number; level: ExecutionLevel };
+    /** `raw: null` = базы для оценки не было; компонента в счёт не идёт. */
+    execution: { raw: number | null; weighted: number; level: ExecutionLevel | null };
     epRisk: { raw: number; weighted: number; level: EpRiskLevel };
     anomaly: { raw: number; weighted: number; severity: AnomalySeverity };
     compliance: { raw: number; weighted: number; severity: AnomalySeverity };
@@ -149,8 +150,8 @@ export interface DatasetAnalysis {
   compositeScore: CompositeScore;
   noiseMap: NoiseGroup[];
   epRisk: EpRiskClassification;
-  /** Execution level based on exec_count_pct */
-  executionLevel: ExecutionLevel;
+  /** Execution level based on exec_count_pct. `null` = плана нет, оценивать нечего. */
+  executionLevel: ExecutionLevel | null;
   /** Row-level data anomalies (EXACT_MATCH, NEGATIVE_PLAN, etc.).
    *  Record, не Map: снапшот сериализуется в JSON для DTO — Map уезжал бы {}
    *  (fidelity-аудит §2; внутри пайплайна производители работают с Map). */
@@ -353,10 +354,15 @@ export function classifyEpRisk(
 /**
  * Classifies execution level based on exec_count_pct (шкала 0-1).
  *
- * @param execCountPct - доля исполненных в штуках (0-1)
- * @returns ExecutionLevel
+ * `null` на входе = плана нет, и уровня исполнения не существует. Прежде сюда
+ * приходил ноль вместо «нет базы», и беспланное управление получало
+ * «КРИТИЧЕСКОЕ» — то самое наказание за то, чего у него нет
+ * (реестр расхождений 08.08 §2 п.5).
+ *
+ * @param execCountPct - доля исполненных в штуках (0-1) либо null
  */
-export function classifyExecution(execCountPct: number): ExecutionLevel {
+export function classifyExecution(execCountPct: number | null): ExecutionLevel | null {
+  if (execCountPct === null) return null;
   const eps = 1e-9; // Float tolerance (consistent with classifyEpRisk)
   if (execCountPct >= 0.90 - eps) return 'ОТЛИЧНОЕ';
   if (execCountPct >= 0.70 - eps) return 'ХОРОШЕЕ';
@@ -381,21 +387,27 @@ export function classifyExecution(execCountPct: number): ExecutionLevel {
  * @returns Map of row index → anomalies
  */
 export function computeCompositeScore(
-  executionLevel: ExecutionLevel,
+  executionLevel: ExecutionLevel | null,
   epRiskLevel: EpRiskLevel,
   worstAnomalySeverity: AnomalySeverity = 'ИНФОРМАЦИЯ',
   worstComplianceSeverity: AnomalySeverity = 'ИНФОРМАЦИЯ',
 ): CompositeScore {
-  const execRaw = EXECUTION_SCORES[executionLevel];
+  const execRaw = executionLevel === null ? null : EXECUTION_SCORES[executionLevel];
   const epRaw = EP_RISK_SCORES[epRiskLevel];
   const anomalyRaw = ANOMALY_SCORES[worstAnomalySeverity];
   const complianceRaw = ANOMALY_SCORES[worstComplianceSeverity];
 
+  // Компонента без базы (плана нет) из оценки ИСКЛЮЧАЕТСЯ, а оставшиеся веса
+  // нормируются. Ни ноль, ни «критическое» тут не годятся: первое — похвала
+  // за неизвестное, второе — штраф за неизвестное (реестр 08.08 §2 п.5).
+  const presentWeight =
+    (execRaw === null ? 0 : COMPOSITE_WEIGHTS.execution) +
+    COMPOSITE_WEIGHTS.epRisk + COMPOSITE_WEIGHTS.anomaly + COMPOSITE_WEIGHTS.compliance;
   const score =
-    execRaw * COMPOSITE_WEIGHTS.execution +
-    epRaw * COMPOSITE_WEIGHTS.epRisk +
-    anomalyRaw * COMPOSITE_WEIGHTS.anomaly +
-    complianceRaw * COMPOSITE_WEIGHTS.compliance;
+    ((execRaw ?? 0) * (execRaw === null ? 0 : COMPOSITE_WEIGHTS.execution) +
+      epRaw * COMPOSITE_WEIGHTS.epRisk +
+      anomalyRaw * COMPOSITE_WEIGHTS.anomaly +
+      complianceRaw * COMPOSITE_WEIGHTS.compliance) / presentWeight;
 
   // Grade: A-F (inverted: A = best = lowest score)
   let grade: CompositeScore['grade'];
@@ -409,7 +421,11 @@ export function computeCompositeScore(
     score,
     grade,
     components: {
-      execution: { raw: execRaw, weighted: execRaw * COMPOSITE_WEIGHTS.execution, level: executionLevel },
+      execution: {
+        raw: execRaw,
+        weighted: execRaw === null ? 0 : execRaw * COMPOSITE_WEIGHTS.execution,
+        level: executionLevel,
+      },
       epRisk: { raw: epRaw, weighted: epRaw * COMPOSITE_WEIGHTS.epRisk, level: epRiskLevel },
       anomaly: { raw: anomalyRaw, weighted: anomalyRaw * COMPOSITE_WEIGHTS.anomaly, severity: worstAnomalySeverity },
       compliance: { raw: complianceRaw, weighted: complianceRaw * COMPOSITE_WEIGHTS.compliance, severity: worstComplianceSeverity },
@@ -513,10 +529,10 @@ export interface DatasetAnalysisInput {
   previousRows?: unknown[][] | null;
   /** Per-row signals from detectSignals() */
   rowSignals?: Map<number, RowSignals>;
-  /** Execution count percentage (шкала 0-1) from CalcEngine */
-  execCountPct: number;
-  /** EP share percentage (шкала 0-1) from CalcEngine */
-  epSharePct: number;
+  /** Execution count percentage (шкала 0-1) from CalcEngine. `null` = плана нет. */
+  execCountPct: number | null;
+  /** EP share percentage (шкала 0-1) from CalcEngine. `null` = процедур нет. */
+  epSharePct: number | null;
   /** Whether compliance issues exist */
   hasComplianceIssues?: boolean;
   /** Worst compliance severity */
@@ -594,7 +610,11 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
 
   // 7. Classifications
   const executionLevel = classifyExecution(execCountPct);
-  const epRisk = classifyEpRisk(epSharePct);
+  // Доли ЕП нет (процедур нет вовсе) — риск считать не от чего; берём
+  // нулевую долю, но это не «0 % ЕП по данным», а пустой периметр:
+  // при нулевом периметре ни одна ветка классификатора не сработает выше
+  // «УМЕРЕННЫЙ», и наверх это не поднимает.
+  const epRisk = classifyEpRisk(epSharePct ?? 0);
 
   // 8. Composite score
   const compositeScore = computeCompositeScore(

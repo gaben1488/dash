@@ -56,24 +56,38 @@ describe('TimeScope — years[] и emptyYearPolicy', () => {
     expect(getValue(viaYears, 'plan_total')).toBe(getValue(viaTarget, 'plan_total'));
   });
 
-  it('мультигод: years=[2025,2026] складывает оба года (+lenient пустой год)', () => {
+  it('мультигод: years=[2025,2026] складывает оба года, строка без года — в корзине', () => {
     const g = new CalcEngine().compute(ROWS, standardRowFilter, 0, undefined, { years: [2025, 2026] });
-    // 2025(1) + 2026(4) + пустой год lenient(1) = 6.
-    expect(g.rowCount).toBe(6);
+    // Дефолт с 08.08 — 'bucket': 2025(1) + 2026(4) = 5 в срезе. Шестая строка
+    // (год плана пуст) в годовой счёт не входит — лист её тоже не видит, —
+    // но и не теряется: она считается отдельной корзиной.
+    expect(g.rowCount).toBe(5);
+    expect(g.noYear.get('plan_count')?.value).toBe(1);
+    expect(g.noYear.get('plan_total')?.value).toBe(7);
   });
 
-  it("emptyYearPolicy: 'strict' режет пустой год, 'bucket' пропускает", () => {
+  it("emptyYearPolicy: 'strict' теряет строку без года молча, 'bucket' называет её", () => {
     const engine = new CalcEngine();
     const strict = engine.compute(ROWS, standardRowFilter, 0, undefined, {
       years: [2025, 2026], emptyYearPolicy: 'strict',
     });
     expect(strict.rowCount).toBe(5);
+    // Разница между strict и bucket не в счёте среза (он одинаков), а в том,
+    // остаётся ли от строки след: strict выбрасывает её без адреса.
+    expect(strict.noYear.size).toBe(0);
+
     const bucket = engine.compute(ROWS, standardRowFilter, 0, undefined, {
       years: [2025, 2026], emptyYearPolicy: 'bucket',
     });
-    expect(bucket.rowCount).toBe(6);
-    // Пустой год в год-картах — честная корзина _noyear.
-    expect(bucket.byYearQuarter.get('_noyear.q1')?.get('plan_count')?.value).toBe(1);
+    expect(bucket.rowCount).toBe(5);
+    expect(bucket.noYear.get('plan_count')?.value).toBe(1);
+
+    // Легаси-режим пускает строку в срез любого года — корень расхождения
+    // лимита, оставлен только для явного вызова.
+    const lenient = engine.compute(ROWS, standardRowFilter, 0, undefined, {
+      years: [2025, 2026], emptyYearPolicy: 'lenient',
+    });
+    expect(lenient.rowCount).toBe(6);
   });
 
   it('год-карты живут рядом со старыми: q1 = Σ по годам q1', () => {

@@ -66,7 +66,24 @@ function mergeRecalcIntoMetrics(
 ): void {
   const now = new Date().toISOString();
 
-  function put(key: string, value: number, unit: 'rub' | 'count' | 'percent', period: string): void {
+  /**
+   * Доля от знаменателя: `null` = базы нет (лист печатает прочерк). Единая
+   * дверь всех процентов оркестратора — прежние `x > 0 ? a/b : 0` по всему
+   * файлу выдавали «исполнение 0 %» там, где плана попросту не было, и
+   * управление получало за это штраф (реестр расхождений 08.08 §2).
+   */
+  function ratio(part: number, whole: number): number | null {
+    return whole > 0 ? part / whole : null;
+  }
+
+  /**
+   * Метрика с нулевым знаменателем НЕ материализуется: отсутствие ключа —
+   * честная пустота, тогда как ключ со значением 0 неотличим от «посчитано и
+   * вышло ноль» и уходит в сверку как настоящее число. Тот же приём, что у
+   * помесячного свода ниже.
+   */
+  function put(key: string, value: number | null, unit: 'rub' | 'count' | 'percent', period: string): void {
+    if (value === null) return;
     const unitMap: Record<string, import('@aemr/shared').UnitType> = {
       rub: 'rubles', count: 'count', percent: 'percent',
     };
@@ -99,7 +116,7 @@ function mergeRecalcIntoMetrics(
 
     put(`${prefix}.kp.${qk}.count`, q.competitive.plan, 'count', qk);
     put(`${prefix}.kp.${qk}.fact`, q.competitive.fact, 'count', qk);
-    put(`${prefix}.kp.${qk}.percent`, q.competitive.plan > 0 ? q.competitive.fact / q.competitive.plan : 0, 'percent', qk);
+    put(`${prefix}.kp.${qk}.percent`, ratio(q.competitive.fact, q.competitive.plan), 'percent', qk);
     put(`${prefix}.kp.${qk}.total_plan`, q.competitive.planSum, 'rub', qk);
     put(`${prefix}.kp.${qk}.total_fact`, q.competitive.factSum, 'rub', qk);
     put(`${prefix}.kp.${qk}.fb_plan`, q.competitive.planFB, 'rub', qk);
@@ -112,14 +129,14 @@ function mergeRecalcIntoMetrics(
     put(`${prefix}.kp.${qk}.deviation`, q.competitive.fact - q.competitive.plan, 'count', qk);
     const kpAmtDev = q.competitive.factSum - q.competitive.planSum;
     put(`${prefix}.kp.${qk}.amount_dev`, kpAmtDev, 'rub', qk);
-    put(`${prefix}.kp.${qk}.savings_pct`, q.competitive.planSum > 0 ? q.competitive.factSum / q.competitive.planSum : 0, 'percent', qk);
+    put(`${prefix}.kp.${qk}.savings_pct`, ratio(q.competitive.factSum, q.competitive.planSum), 'percent', qk);
     put(`${prefix}.kp.${qk}.economy_fb`, q.competitive.economyFB, 'rub', qk);
     put(`${prefix}.kp.${qk}.economy_kb`, q.competitive.economyKB, 'rub', qk);
     put(`${prefix}.kp.${qk}.economy_mb`, q.competitive.economyMB, 'rub', qk);
     put(`${prefix}.kp.${qk}.economy_total`, q.competitive.economyTotal, 'rub', qk);
     put(`${prefix}.ep.${qk}.count`, q.ep.plan, 'count', qk);
     put(`${prefix}.ep.${qk}.fact`, q.ep.fact, 'count', qk);
-    put(`${prefix}.ep.${qk}.percent`, q.ep.plan > 0 ? q.ep.fact / q.ep.plan : 0, 'percent', qk);
+    put(`${prefix}.ep.${qk}.percent`, ratio(q.ep.fact, q.ep.plan), 'percent', qk);
     put(`${prefix}.ep.${qk}.total_plan`, q.ep.planSum, 'rub', qk);
     put(`${prefix}.ep.${qk}.total_fact`, q.ep.factSum, 'rub', qk);
     put(`${prefix}.ep.${qk}.fb_plan`, q.ep.planFB, 'rub', qk);
@@ -132,7 +149,7 @@ function mergeRecalcIntoMetrics(
     put(`${prefix}.ep.${qk}.deviation`, q.ep.fact - q.ep.plan, 'count', qk);
     const epAmtDev = q.ep.factSum - q.ep.planSum;
     put(`${prefix}.ep.${qk}.amount_dev`, epAmtDev, 'rub', qk);
-    put(`${prefix}.ep.${qk}.savings_pct`, q.ep.planSum > 0 ? q.ep.factSum / q.ep.planSum : 0, 'percent', qk);
+    put(`${prefix}.ep.${qk}.savings_pct`, ratio(q.ep.factSum, q.ep.planSum), 'percent', qk);
     put(`${prefix}.ep.${qk}.economy_fb`, q.ep.economyFB, 'rub', qk);
     put(`${prefix}.ep.${qk}.economy_kb`, q.ep.economyKB, 'rub', qk);
     put(`${prefix}.ep.${qk}.economy_mb`, q.ep.economyMB, 'rub', qk);
@@ -193,13 +210,13 @@ function mergeRecalcIntoMetrics(
   const kpYearFactSum = qs.q1.competitive.factSum + qs.q2.competitive.factSum + qs.q3.competitive.factSum + qs.q4.competitive.factSum;
   put(`${yp}.kp.year.count`, kpYearPlan, 'count', 'year');
   put(`${yp}.kp.year.fact`, kpYearFact, 'count', 'year');
-  put(`${yp}.kp.year.percent`, kpYearPlan > 0 ? kpYearFact / kpYearPlan : 0, 'percent', 'year');
+  put(`${yp}.kp.year.percent`, ratio(kpYearFact, kpYearPlan), 'percent', 'year');
   put(`${yp}.kp.year.total_plan`, kpYearPlanSum, 'rub', 'year');
   put(`${yp}.kp.year.total_fact`, kpYearFactSum, 'rub', 'year');
   put(`${yp}.kp.year.deviation`, kpYearFact - kpYearPlan, 'count', 'year');
   const kpYearAmtDev = kpYearFactSum - kpYearPlanSum;
   put(`${yp}.kp.year.amount_dev`, kpYearAmtDev, 'rub', 'year');
-  put(`${yp}.kp.year.savings_pct`, kpYearPlanSum > 0 ? kpYearFactSum / kpYearPlanSum : 0, 'percent', 'year');
+  put(`${yp}.kp.year.savings_pct`, ratio(kpYearFactSum, kpYearPlanSum), 'percent', 'year');
   put(`${yp}.kp.year.economy_fb`, sumQ(q => q.competitive.economyFB), 'rub', 'year');
   put(`${yp}.kp.year.economy_kb`, sumQ(q => q.competitive.economyKB), 'rub', 'year');
   put(`${yp}.kp.year.economy_mb`, sumQ(q => q.competitive.economyMB), 'rub', 'year');
@@ -211,13 +228,13 @@ function mergeRecalcIntoMetrics(
   const epYearFactSum = qs.q1.ep.factSum + qs.q2.ep.factSum + qs.q3.ep.factSum + qs.q4.ep.factSum;
   put(`${yp}.ep.year.count`, epYearPlan, 'count', 'year');
   put(`${yp}.ep.year.fact`, epYearFact, 'count', 'year');
-  put(`${yp}.ep.year.percent`, epYearPlan > 0 ? epYearFact / epYearPlan : 0, 'percent', 'year');
+  put(`${yp}.ep.year.percent`, ratio(epYearFact, epYearPlan), 'percent', 'year');
   put(`${yp}.ep.year.total_plan`, epYearPlanSum, 'rub', 'year');
   put(`${yp}.ep.year.total_fact`, epYearFactSum, 'rub', 'year');
   put(`${yp}.ep.year.deviation`, epYearFact - epYearPlan, 'count', 'year');
   const epYearAmtDev = epYearFactSum - epYearPlanSum;
   put(`${yp}.ep.year.amount_dev`, epYearAmtDev, 'rub', 'year');
-  put(`${yp}.ep.year.savings_pct`, epYearPlanSum > 0 ? epYearFactSum / epYearPlanSum : 0, 'percent', 'year');
+  put(`${yp}.ep.year.savings_pct`, ratio(epYearFactSum, epYearPlanSum), 'percent', 'year');
   put(`${yp}.ep.year.economy_fb`, sumQ(q => q.ep.economyFB), 'rub', 'year');
   put(`${yp}.ep.year.economy_kb`, sumQ(q => q.ep.economyKB), 'rub', 'year');
   put(`${yp}.ep.year.economy_mb`, sumQ(q => q.ep.economyMB), 'rub', 'year');
@@ -229,7 +246,7 @@ function mergeRecalcIntoMetrics(
   //   SVOD formula: G64 = O{epFactRow} / O{totalRow} (money, not counts)
   put(`${yp}.ep.total`, epYearPlan, 'count', 'year');
   const totalYearFactBudget = kpYearFactSum + epYearFactSum;
-  put(`${yp}.ep.percent`, totalYearFactBudget > 0 ? epYearFactSum / totalYearFactBudget : 0, 'percent', 'year');
+  put(`${yp}.ep.percent`, ratio(epYearFactSum, totalYearFactBudget), 'percent', 'year');
 
   // ── Year-level per-method budget breakdown ──
   put(`${yp}.kp.year.fb_plan`, sumQ(q => q.competitive.planFB), 'rub', 'year');
@@ -312,7 +329,13 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     return target.get(key)?.numericValue ?? 0;
   }
 
-  function putSummary(key: string, value: number, unit: 'rub' | 'count' | 'percent', period: string): void {
+  /** Доля свода — то же правило, что и у put(): нет базы, нет числа. */
+  function ratioSummary(part: number, whole: number): number | null {
+    return whole > 0 ? part / whole : null;
+  }
+
+  function putSummary(key: string, value: number | null, unit: 'rub' | 'count' | 'percent', period: string): void {
+    if (value === null) return;
     const unitMap: Record<string, import('@aemr/shared').UnitType> = {
       rub: 'rubles', count: 'count', percent: 'percent',
     };
@@ -389,7 +412,7 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     // СВОД column F = fact_count − plan_count (negative when plan > fact)
     const kpDeviation = kpFact - kpCount;
     putSummary(`competitive.${p}.deviation`, kpDeviation, 'count', p);
-    putSummary(`competitive.${p}.percent`, kpCount > 0 ? kpFact / kpCount : 0, 'percent', p);
+    putSummary(`competitive.${p}.percent`, ratioSummary(kpFact, kpCount), 'percent', p);
     putSummary(`competitive.${p}.total_plan`, kpPlanTotal, 'rub', p);
     putSummary(`competitive.${p}.total_fact`, kpFactTotal, 'rub', p);
 
@@ -401,7 +424,7 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     putSummary(`competitive.${p}.mb_fact`, kpMbFact, 'rub', p);
     const kpAmtDev = kpFactTotal - kpPlanTotal;
     putSummary(`competitive.${p}.amount_dev`, kpAmtDev, 'rub', p);
-    putSummary(`competitive.${p}.savings_pct`, kpPlanTotal > 0 ? kpFactTotal / kpPlanTotal : 0, 'percent', p);
+    putSummary(`competitive.${p}.savings_pct`, ratioSummary(kpFactTotal, kpPlanTotal), 'percent', p);
     putSummary(`competitive.${p}.economy_fb`, kpEcoFb, 'rub', p);
     putSummary(`competitive.${p}.economy_kb`, kpEcoKb, 'rub', p);
     putSummary(`competitive.${p}.economy_mb`, kpEcoMb, 'rub', p);
@@ -412,7 +435,7 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     putSummary(`sole.${p}.fact_count`, epFact, 'count', p);
     const epDeviation = epFact - epCount;
     putSummary(`sole.${p}.deviation`, epDeviation, 'count', p);
-    putSummary(`sole.${p}.percent`, epCount > 0 ? epFact / epCount : 0, 'percent', p);
+    putSummary(`sole.${p}.percent`, ratioSummary(epFact, epCount), 'percent', p);
     putSummary(`sole.${p}.total_plan`, epPlanTotal, 'rub', p);
     putSummary(`sole.${p}.total_fact`, epFactTotal, 'rub', p);
     putSummary(`sole.${p}.fb_plan`, epFbPlan, 'rub', p);
@@ -423,7 +446,7 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
     putSummary(`sole.${p}.mb_fact`, epMbFact, 'rub', p);
     const epAmtDev = epFactTotal - epPlanTotal;
     putSummary(`sole.${p}.amount_dev`, epAmtDev, 'rub', p);
-    putSummary(`sole.${p}.savings_pct`, epPlanTotal > 0 ? epFactTotal / epPlanTotal : 0, 'percent', p);
+    putSummary(`sole.${p}.savings_pct`, ratioSummary(epFactTotal, epPlanTotal), 'percent', p);
     putSummary(`sole.${p}.economy_fb`, epEcoFb, 'rub', p);
     putSummary(`sole.${p}.economy_kb`, epEcoKb, 'rub', p);
     putSummary(`sole.${p}.economy_mb`, epEcoMb, 'rub', p);

@@ -23,6 +23,83 @@ import { sheetValuesRange } from './sheet-range.js';
 //     и getSpreadsheetMetadata(spreadsheetId?) honor явный spreadsheetId;
 //     его импортируют routes/journal.ts и services/snapshot.ts.
 
+// ------------------------------------------------------------------
+// Срок ответа источника
+// ------------------------------------------------------------------
+//
+// Без срока зависший запрос к Google держит обработчик до победного: сокет
+// живёт, обещание не разрешается, а вместе с ним стоит и та работа, ради
+// которой читателю открыли страницу. Срок ставится ДВАЖДЫ и не зря:
+//   • `timeout` в самом вызове — его понимает транспорт googleapis и реально
+//     обрывает сокет, освобождая ресурс;
+//   • собственная гонка со сроком — страховка на то, чего транспорт не
+//     покрывает: получение токена служебной учётной записи идёт отдельным
+//     запросом, и его зависание внутренним сроком вызова не ловится.
+//
+// Значение перекрывается переменной окружения AEMR_SHEETS_TIMEOUT_MS —
+// на медленном канале двадцати секунд может не хватать.
+const DEFAULT_SHEETS_TIMEOUT_MS = 20_000;
+
+function readTimeoutMs(): number {
+  const raw = Number(process.env.AEMR_SHEETS_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw >= 100 ? raw : DEFAULT_SHEETS_TIMEOUT_MS;
+}
+
+export const SHEETS_TIMEOUT_MS = readTimeoutMs();
+
+/**
+ * Источник не ответил или ответил отказом. Отдельный класс нужен затем, что
+ * это НЕ поломка продукта: показывать читателю «внутренняя ошибка сервера»
+ * (500) там, где молчит чужая таблица, — враньё. Обработчик ошибок приложения
+ * узнаёт этот класс по паре statusCode/expose и отдаёт 503 с текстом ниже.
+ */
+export class SheetsUnavailableError extends Error {
+  readonly statusCode = 503;
+  /** Текст русский и говорит, что делать, — его можно показать читателю. */
+  readonly expose = true;
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'SheetsUnavailableError';
+  }
+}
+
+/** Срок в тексте отказа: секунды, а на коротких сроках — миллисекунды. */
+function formatDeadline(ms: number): string {
+  return ms >= 1000 ? `${Math.round(ms / 1000)} с` : `${ms} мс`;
+}
+
+/**
+ * Выполняет обращение к источнику со сроком. `what` — то, что читатель поймёт
+ * («чтение листа „ВСЕ“»); идентификатор книги в текст не попадает никогда.
+ */
+export async function withSheetsDeadline<T>(
+  what: string,
+  run: () => Promise<T>,
+  ms: number = SHEETS_TIMEOUT_MS,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new SheetsUnavailableError(
+          `Таблица-источник не ответила за ${formatDeadline(ms)}: ${what}. Повторите позже.`,
+        ),
+      );
+    }, ms);
+    // Таймер не держит процесс живым: иначе закрытие сервера ждало бы срока.
+    timer.unref();
+  });
+
+  try {
+    // Проигравшее обещание остаётся с обработчиком от гонки, поэтому его
+    // поздний отказ не всплывает как необработанный.
+    return await Promise.race([run(), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 let sheetsApi: sheets_v4.Sheets | null = null;
 
 async function getSheetsApi(): Promise<sheets_v4.Sheets> {
@@ -73,27 +150,38 @@ export function invalidateCache(): void {
 }
 
 export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
-  const api = await getSheetsApi();
   const spreadsheetId = config.google.spreadsheetId;
 
   const sheetNames = ALL_SHEETS as readonly string[];
   const valueRanges = sheetNames.map((s) => sheetValuesRange(s));
 
-  const [valuesResponse, formulasResponse] = await Promise.all([
-    api.spreadsheets.values.batchGet({
-      spreadsheetId,
-      ranges: valueRanges,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-      dateTimeRenderOption: 'FORMATTED_STRING',
-      majorDimension: 'ROWS',
-    }),
-    api.spreadsheets.values.batchGet({
-      spreadsheetId,
-      ranges: valueRanges,
-      valueRenderOption: 'FORMULA',
-      majorDimension: 'ROWS',
-    }),
-  ]);
+  const [valuesResponse, formulasResponse] = await withSheetsDeadline(
+    'чтение основной книги целиком',
+    async () => {
+      const api = await getSheetsApi();
+      return Promise.all([
+        api.spreadsheets.values.batchGet(
+          {
+            spreadsheetId,
+            ranges: valueRanges,
+            valueRenderOption: 'UNFORMATTED_VALUE',
+            dateTimeRenderOption: 'FORMATTED_STRING',
+            majorDimension: 'ROWS',
+          },
+          { timeout: SHEETS_TIMEOUT_MS },
+        ),
+        api.spreadsheets.values.batchGet(
+          {
+            spreadsheetId,
+            ranges: valueRanges,
+            valueRenderOption: 'FORMULA',
+            majorDimension: 'ROWS',
+          },
+          { timeout: SHEETS_TIMEOUT_MS },
+        ),
+      ]);
+    },
+  );
 
   const valRanges = valuesResponse.data.valueRanges ?? [];
   const fmtRanges = formulasResponse.data.valueRanges ?? [];
@@ -135,14 +223,18 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
 }
 
 export async function getSheetData(sheetName: string): Promise<unknown[][]> {
-  const api = await getSheetsApi();
-
-  const response = await api.spreadsheets.values.get({
-    spreadsheetId: config.google.spreadsheetId,
-    range: sheetValuesRange(sheetName),
-    valueRenderOption: 'UNFORMATTED_VALUE',
-    dateTimeRenderOption: 'FORMATTED_STRING',
-    majorDimension: 'ROWS',
+  const response = await withSheetsDeadline(`чтение листа «${sheetName}»`, async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.values.get(
+      {
+        spreadsheetId: config.google.spreadsheetId,
+        range: sheetValuesRange(sheetName),
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'FORMATTED_STRING',
+        majorDimension: 'ROWS',
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
   });
 
   return (response.data.values as unknown[][]) ?? [];
@@ -151,14 +243,18 @@ export async function getSheetData(sheetName: string): Promise<unknown[][]> {
 export async function batchGetCells(
   ranges: string[],
 ): Promise<Array<{ range: string; values: unknown[][] }>> {
-  const api = await getSheetsApi();
-
-  const response = await api.spreadsheets.values.batchGet({
-    spreadsheetId: config.google.spreadsheetId,
-    ranges,
-    valueRenderOption: 'UNFORMATTED_VALUE',
-    dateTimeRenderOption: 'FORMATTED_STRING',
-    majorDimension: 'ROWS',
+  const response = await withSheetsDeadline('чтение ячеек основной книги', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.values.batchGet(
+      {
+        spreadsheetId: config.google.spreadsheetId,
+        ranges,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'FORMATTED_STRING',
+        majorDimension: 'ROWS',
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
   });
 
   return (response.data.valueRanges ?? []).map((vr, i) => ({
@@ -170,13 +266,17 @@ export async function batchGetCells(
 export async function batchGetFormulas(
   ranges: string[],
 ): Promise<Array<{ range: string; formulas: unknown[][] }>> {
-  const api = await getSheetsApi();
-
-  const response = await api.spreadsheets.values.batchGet({
-    spreadsheetId: config.google.spreadsheetId,
-    ranges,
-    valueRenderOption: 'FORMULA',
-    majorDimension: 'ROWS',
+  const response = await withSheetsDeadline('чтение формул основной книги', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.values.batchGet(
+      {
+        spreadsheetId: config.google.spreadsheetId,
+        ranges,
+        valueRenderOption: 'FORMULA',
+        majorDimension: 'ROWS',
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
   });
 
   return (response.data.valueRanges ?? []).map((vr, i) => ({
@@ -189,11 +289,15 @@ export async function getSpreadsheetMetadata(): Promise<{
   title: string;
   sheets: Array<{ name: string; rowCount: number; colCount: number }>;
 }> {
-  const api = await getSheetsApi();
-
-  const response = await api.spreadsheets.get({
-    spreadsheetId: config.google.spreadsheetId,
-    fields: 'properties.title,sheets.properties',
+  const response = await withSheetsDeadline('чтение состава основной книги', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.get(
+      {
+        spreadsheetId: config.google.spreadsheetId,
+        fields: 'properties.title,sheets.properties',
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
   });
 
   return {
@@ -210,14 +314,18 @@ export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,
 ): Promise<unknown[][]> {
-  const api = await getSheetsApi();
-
-  const response = await api.spreadsheets.values.get({
-    spreadsheetId,
-    range: sheetValuesRange(sheetName),
-    valueRenderOption: 'UNFORMATTED_VALUE',
-    dateTimeRenderOption: 'FORMATTED_STRING',
-    majorDimension: 'ROWS',
+  const response = await withSheetsDeadline(`чтение листа «${sheetName}»`, async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.values.get(
+      {
+        spreadsheetId,
+        range: sheetValuesRange(sheetName),
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'FORMATTED_STRING',
+        majorDimension: 'ROWS',
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
   });
 
   return (response.data.values as unknown[][]) ?? [];
@@ -227,24 +335,35 @@ export async function getSheetDataWithFormulas(
   spreadsheetId: string,
   sheetName: string,
 ): Promise<{ values: unknown[][]; formulas: unknown[][] }> {
-  const api = await getSheetsApi();
   const range = sheetValuesRange(sheetName);
 
-  const [valResp, fmlResp] = await Promise.all([
-    api.spreadsheets.values.get({
-      spreadsheetId,
-      range,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-      dateTimeRenderOption: 'FORMATTED_STRING',
-      majorDimension: 'ROWS',
-    }),
-    api.spreadsheets.values.get({
-      spreadsheetId,
-      range,
-      valueRenderOption: 'FORMULA',
-      majorDimension: 'ROWS',
-    }),
-  ]);
+  const [valResp, fmlResp] = await withSheetsDeadline(
+    `чтение листа «${sheetName}»`,
+    async () => {
+      const api = await getSheetsApi();
+      return Promise.all([
+        api.spreadsheets.values.get(
+          {
+            spreadsheetId,
+            range,
+            valueRenderOption: 'UNFORMATTED_VALUE',
+            dateTimeRenderOption: 'FORMATTED_STRING',
+            majorDimension: 'ROWS',
+          },
+          { timeout: SHEETS_TIMEOUT_MS },
+        ),
+        api.spreadsheets.values.get(
+          {
+            spreadsheetId,
+            range,
+            valueRenderOption: 'FORMULA',
+            majorDimension: 'ROWS',
+          },
+          { timeout: SHEETS_TIMEOUT_MS },
+        ),
+      ]);
+    },
+  );
 
   return {
     values: (valResp.data.values as unknown[][]) ?? [],
@@ -285,10 +404,15 @@ export async function resolveDeptSheetName(deptName: string, ssId: string): Prom
   const candidates = departmentSheetNameCandidates(registryName, deptName);
 
   try {
-    const api = await getSheetsApi();
-    const meta = await api.spreadsheets.get({
-      spreadsheetId: ssId,
-      fields: 'sheets.properties.title',
+    const meta = await withSheetsDeadline(`чтение состава книги «${deptName}»`, async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.get(
+        {
+          spreadsheetId: ssId,
+          fields: 'sheets.properties.title',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
     });
     const existing = new Set(
       (meta.data.sheets ?? []).map(s => s.properties?.title).filter((t): t is string => !!t),
@@ -366,6 +490,10 @@ export async function fetchDepartmentSpreadsheets(
 }
 
 function isNonRecoverableSheetError(err: unknown): boolean {
+  // Молчание источника — не «такого листа нет»: пробовать на нём остальные
+  // имена-кандидаты значит умножить срок ожидания на их число (три имени по
+  // двадцать секунд = минута на одно управление).
+  if (err instanceof SheetsUnavailableError) return true;
   const status = (err as { status?: unknown; code?: unknown })?.status
     ?? (err as { status?: unknown; code?: unknown })?.code;
   return status === 429 || status === 403 || (typeof status === 'number' && status >= 500);
@@ -405,15 +533,20 @@ export async function writeCellValue(
   cell: string,
   value: unknown,
 ): Promise<{ updatedRange: string; updatedCells: number }> {
-  const api = await getWriteApi();
   const range = sheetValuesRange(sheetName, cell);
   const safeValue =
     typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
-  const response = await api.spreadsheets.values.update({
-    spreadsheetId,
-    range,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[safeValue]] },
+  const response = await withSheetsDeadline(`запись в ячейку ${cell}`, async () => {
+    const api = await getWriteApi();
+    return api.spreadsheets.values.update(
+      {
+        spreadsheetId,
+        range,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[safeValue]] },
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
   });
 
   return {

@@ -459,6 +459,25 @@ export function saveSnapshotRows(snapshot: DataSnapshot): number {
  * createSnapshot и не должен ронять отдачу данных). Вызыватели, которым важен
  * факт записи (бэкфилл-скрипт: честный счётчик «сохранено N»), обязаны
  * проверять результат; остальные могут игнорировать — поведение additive.
+ *
+ * БАГ #8 (2026-08-08, docs/superpowers/audits/2026-08-08-bug-hunt-register.md):
+ * id замечания намеренно стабилен между прогонами (issue-identity.ts, чтобы
+ * статусы не орфанились), а issues.id — PRIMARY KEY БЕЗ snapshot_id в составе
+ * (schema.ts). Второй снимок с тем же замечанием раньше падал на UNIQUE
+ * ПОСЛЕ того, как snapshots и metric_history уже были записаны вне
+ * транзакции — а всё, что шло следом (строки-атомы saveSnapshotRows,
+ * ретеншен pruneSnapshotsByRetention), не выполнялось вообще, и внешний catch
+ * глушил ошибку молча. Итог в проде: procurement_rows пуст навсегда после
+ * первого снимка, ретеншен выключен навсегда, issues не растут. Фикс —
+ * вставка issues идемпотентна по id (onConflictDoNothing: совпавший id значит
+ * то же замечание, апдейт дублирующей строки бессмыслен — соседний паттерн у
+ * routes/changes.ts:110), а вся цепочка snapshots → metric_history → issues →
+ * saveSnapshotRows → pruneSnapshotsByRetention — ОДНА better-sqlite3-транзакция:
+ * частичная запись теперь невозможна в принципе, либо коммитится всё, либо
+ * ничего. Вложенные db.transaction() внутри saveSnapshotRows и
+ * pruneSnapshotsByRetention безопасны: better-sqlite3 сам переключается на
+ * SAVEPOINT/RELEASE, когда db.inTransaction уже true (node_modules/better-sqlite3/
+ * lib/methods/transaction.js) — своей вложенной транзакции достаточно.
  */
 export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
   try {
@@ -475,59 +494,59 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
       ` (строки-атомы и сетка СВОД: ${mb(atomsBytes)} МБ)`,
     );
 
-    db.insert(schema.snapshots).values({
-      id: snapshot.id,
-      spreadsheetId: snapshot.spreadsheetId,
-      createdAt: snapshot.createdAt,
-      trustOverall: snapshot.trust.overall,
-      trustGrade: snapshot.trust.grade,
-      issueCount: snapshot.issues.length,
-      criticalIssueCount: snapshot.issues.filter(i => i.severity === 'critical').length,
-      metricsCount: Object.keys(snapshot.officialMetrics).length,
-      rowCount: snapshot.rowCount,
-      readDurationMs: snapshot.metadata.readDurationMs,
-      pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
-      data: dataJson,
-    }).run();
-
-    for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
-      db.insert(schema.metricHistory).values({
-        snapshotId: snapshot.id,
-        metricKey: key,
-        numericValue: metric.numericValue,
-        displayValue: metric.displayValue,
-        confidence: metric.confidence,
-        origin: metric.origin,
+    db.transaction((tx) => {
+      tx.insert(schema.snapshots).values({
+        id: snapshot.id,
+        spreadsheetId: snapshot.spreadsheetId,
         createdAt: snapshot.createdAt,
+        trustOverall: snapshot.trust.overall,
+        trustGrade: snapshot.trust.grade,
+        issueCount: snapshot.issues.length,
+        criticalIssueCount: snapshot.issues.filter(i => i.severity === 'critical').length,
+        metricsCount: Object.keys(snapshot.officialMetrics).length,
+        rowCount: snapshot.rowCount,
+        readDurationMs: snapshot.metadata.readDurationMs,
+        pipelineDurationMs: snapshot.metadata.pipelineDurationMs,
+        data: dataJson,
       }).run();
-    }
 
-    for (const issue of snapshot.issues) {
-      db.insert(schema.issues).values({
-        ...issue,
-        snapshotId: snapshot.id,
-      }).run();
-    }
+      for (const [key, metric] of Object.entries(snapshot.officialMetrics) as [string, NormalizedMetric][]) {
+        tx.insert(schema.metricHistory).values({
+          snapshotId: snapshot.id,
+          metricKey: key,
+          numericValue: metric.numericValue,
+          displayValue: metric.displayValue,
+          confidence: metric.confidence,
+          origin: metric.origin,
+          createdAt: snapshot.createdAt,
+        }).run();
+      }
 
-    // Строки-атомы в SQL (пирамида, блок Е п.20). До этого атомы жили только
-    // JSON-блобом внутри snapshots.data: ни колонки, ни индекса, ни группировки.
-    // Сбой записи атомов не отменяет уже сохранённый снимок и не должен
-    // отменять retention — поэтому он ловится здесь и произносится вслух
-    // (тот же приём, что у самого retention), а не роняет весь saveSnapshot.
-    try {
+      for (const issue of snapshot.issues) {
+        tx.insert(schema.issues).values({
+          ...issue,
+          snapshotId: snapshot.id,
+        }).onConflictDoNothing().run();
+      }
+
+      // Строки-атомы в SQL (пирамида, блок Е п.20). До этого атомы жили только
+      // JSON-блобом внутри snapshots.data: ни колонки, ни индекса, ни группировки.
+      // Теперь часть единой транзакции снимка (см. БАГ #8 выше) — сбой здесь
+      // откатывает всё, а не оставляет снимок без строк.
       const savedRows = saveSnapshotRows(snapshot);
       if (savedRows > 0) {
         console.log(`🧱 Строки-атомы снимка ${snapshot.id}: записано ${savedRows}`);
       }
-    } catch (error) {
-      console.error(`Строки-атомы снимка ${snapshot.id} не записаны (снимок сохранён):`, error);
-    }
 
-    // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
-    // неделя, еженедельные четверг-срезы — вся история; лишнее удаляется здесь
-    // же, а не ручной чисткой раздутой БД. Каскад удаления снимает и
-    // строки-атомы (snapshot-retention.ts: procurement_rows в транзакции).
-    pruneSnapshotsByRetention();
+      // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
+      // неделя, еженедельные четверг-срезы — вся история; лишнее удаляется здесь
+      // же, а не ручной чисткой раздутой БД. Каскад удаления снимает и
+      // строки-атомы (snapshot-retention.ts: procurement_rows в транзакции).
+      // pruneSnapshotsByRetention сама не бросает (ловит свои ошибки и логирует) —
+      // сбой ретеншена не откатывает уже собранный снимок.
+      pruneSnapshotsByRetention();
+    });
+
     return true;
   } catch (error) {
     console.error('Ошибка сохранения снимка:', error);

@@ -15,7 +15,6 @@ import {
   DEPT_COLUMNS,
   subordinateKey,
   normalizeMethod,
-  isCompetitive,
   PROCUREMENT_METHODS,
   classifyActivity,
   factCountsOn,
@@ -123,9 +122,19 @@ export interface DimensionExtractors {
 /** Row filter: determines if a row should be processed at all. */
 export type RowFilter = (row: RawRow) => boolean;
 
-/** Accumulated result for a single metric. */
+/**
+ * Accumulated result for a single metric.
+ *
+ * `value === null` = «базы нет» и означает ровно это (реестр расхождений
+ * 08.08, §2 «Ноль вместо „нет базы“ при нулевом знаменателе»). Лист СВОД
+ * печатает в такой ячейке прочерк — `IF(D13=0;"-";E13/D13)`, — а мы печатали
+ * ноль, из-за чего управление без плана получало «исполнение 0 %», штраф 45
+ * баллов и грейд D за то, чего у него нет. Базовые метрики (суммы и счётчики)
+ * null не бывают никогда: пустая сумма — это честный ноль. Null появляется
+ * только у производных `ratio`/`pct` при нулевом знаменателе.
+ */
 export interface AccumulatedValue {
-  value: number;
+  value: number | null;
   /** Row indices that contributed to this value. */
   contributingRows: number[];
 }
@@ -170,6 +179,31 @@ export interface GroupedResults {
   // NOTE: byMonthMethod is stored IN byQuarterMethod (keys "m{N}.{method}") — adapter already reads it
   /** By month × activity (e.g., "m3.program"). */
   byMonthActivity: Map<string, Map<string, AccumulatedValue>>;
+  /**
+   * ЧЕСТНАЯ КОРЗИНА ГОДА: строки, не попавшие в годовой срез только потому,
+   * что плановый год (P) пуст, — при `emptyYearPolicy: 'bucket'`.
+   *
+   * Лист адресует ячейку парой O×P, и строке без года лечь на нём некуда:
+   * официальные формулы её не видят. Раньше её не видели молча — она либо
+   * проходила в срез ЛЮБОГО года («нестрогий гейт», из-за чего лимит
+   * управления расходился с листом: УЭР 13 921 против 13 331,23, пять строк
+   * на 589,93 тыс. руб.), либо отбрасывалась без следа при strict. Теперь она
+   * считается тем же набором метрик, но отдельно: годовые числа читаются без
+   * неё, а продукт может показать строку «без года плана: N позиций на X тыс.
+   * руб.» (реестр расхождений 08.08 §2 и правило владельца от 08.08 —
+   * копировать правило листа можно, копировать его немоту нельзя).
+   *
+   * Пуста при `lenient`/`strict` и когда годового фильтра нет вовсе.
+   */
+  noYear: Map<string, AccumulatedValue>;
+  /**
+   * Качество данных, а не разрез: индексы строк с НЕПУСТЫМ нераспознанным
+   * способом (столбец L — не ЭА/ЕП/ЭК/ЭЗК). В счёте такие строки идут к
+   * конкурентным, как у листа (`classifyMethodGroup` тотальна); счётчик
+   * существует, чтобы загрязнение столбца было видно как проблема данных, а
+   * не искажало доли (реестр 08.08 §2).
+   */
+  unknownMethodRows: number[];
   /** Row count processed. */
   rowCount: number;
   /** Economy conflict count: AD flag disagrees with actual economy values. */
@@ -222,17 +256,36 @@ function evaluateAllGates(row: RawRow, gates: GateCondition[], asOfDay?: number)
 // ── Default Dimension Extractors ─────────────────────────────────────
 
 /**
- * Канон группировки способа (легаси СВОДа: КП = отрицание «ЕП», пустой способ
- * остаётся конкурентным, неизвестный непустой — дефект данных, ничья группа).
+ * Канон группировки способа: разбиение ТОТАЛЬНО — не ЕП значит конкурентная.
  * Экспортирован как единственная дверь: выгрузки и UI не изобретают свой ЕП.
+ *
+ * ПОЧЕМУ ТОТАЛЬНО (реестр расхождений 08.08, §2 «Неизвестный непустой способ
+ * не попадает ни в КП, ни в ЕП»). Лист СВОД определяет конкурентные
+ * отрицанием `L<>"ЕП"`: у него нет третьей группы, и сумма частей равна
+ * плану по построению. Прежняя версия возвращала null на непустом
+ * нераспознанном коде, и строка выпадала из обеих групп: КП + ЕП < План, а
+ * доля ЕП росла от одного лишь загрязнения столбца L — то есть дефект данных
+ * подменялся ложным управленческим выводом. Загрязнение теперь видно там,
+ * где ему место: отдельным счётчиком качества данных
+ * (`GroupedResults.unknownMethodRows`), а не искажением долей.
+ *
+ * Зеркало того же правила для единой сетки — `unified-svod.ts` methodOf().
  */
-export function classifyMethodGroup(raw: unknown): MethodGroup | null {
+export function classifyMethodGroup(raw: unknown): MethodGroup {
   const canonical: ProcurementMethodCode | undefined = normalizeMethod(raw);
-  if (canonical === 'ЕП') return 'ep';
-  if (canonical && isCompetitive(canonical)) return 'competitive';
-  // Legacy СВОД formulas use L<>"ЕП"; keep only blank values in that bucket.
-  // Unknown non-empty values are data-quality issues, not competitive procedures.
-  return String(raw ?? '').trim() === '' ? 'competitive' : null;
+  return canonical === 'ЕП' ? 'ep' : 'competitive';
+}
+
+/**
+ * Непустая ячейка способа, которую словарь не опознал ни как один из четырёх
+ * кодов (ЭА/ЕП/ЭК/ЭЗК). Это дефект ДАННЫХ, а не третья группа способов:
+ * в счёте строка идёт к конкурентным (как у листа), а здесь только считается.
+ * Единственная дверь для «мусор в L» — сверка (`recon-classify`) и движок
+ * читают этот предикат, а не сравнивают классификатор с null.
+ */
+export function isUnknownMethod(raw: unknown): boolean {
+  if (String(raw ?? '').trim() === '') return false;
+  return normalizeMethod(raw) === undefined;
 }
 
 function defaultQuarterExtractor(row: RawRow): string | null {
@@ -266,7 +319,7 @@ function defaultMonthExtractor(row: RawRow): number | null {
   return null;
 }
 
-function defaultMethodExtractor(row: RawRow): MethodGroup | null {
+function defaultMethodExtractor(row: RawRow): MethodGroup {
   // Канонизируем сырое значение через METHOD_ALIAS_MAP в dictionaries.
   // Это снимает drift: 'ЭА (МЭП)', 'Ед. поставщик', 'ЭЕП', lowercase 'еп' и т.д.
   // сводятся к одному из {ЭА, ЕП, ЭК, ЭЗК} (или undefined для пустых/мусора).
@@ -315,10 +368,19 @@ const GATE_METHOD_EP: GateCondition = { column: COL.METHOD, op: 'methodGroup', m
  * economy_* (AD='да' + дата факта). Единственный источник построчной экономии
  * для потребителей вне CalcEngine (комплаенс, антидемпинг, отчёты).
  * Сырую сумму Z+AA+AB показывать/проверять нельзя — она порождает ложные вердикты.
+ *
+ * ЗНАК НЕ ОБРЕЗАЕТСЯ (реестр расхождений 08.08, §2 «Обрезка отрицательной
+ * экономии по строке»). Прежний `Math.max(0, …)` не делали ни метрики
+ * economy_*, ни лист СВОД, и он ломал сразу два обещания продукта: клик по
+ * плитке экономии раскрывал строки, сумма которых не сходилась с самой
+ * плиткой, а перерасход над лимитом (замер: −150,00327 тыс. руб. по МБ)
+ * превращался в ноль и порождал ложный антикоррупционный флаг. Отрицательная
+ * экономия — реальное явление (цена контракта выше лимита), и прятать её
+ * значит скрывать ровно то, ради чего продукт и строится.
  */
 export function approvedEconomy(row: RawRow, asOfDay?: number): number {
   if (!evaluateGate(row, GATE_HAS_FACT, asOfDay) || !evaluateGate(row, GATE_ECONOMY_APPROVED)) return 0;
-  return Math.max(0, num(row[COL.ECONOMY_FB]) + num(row[COL.ECONOMY_KB]) + num(row[COL.ECONOMY_MB]));
+  return num(row[COL.ECONOMY_FB]) + num(row[COL.ECONOMY_KB]) + num(row[COL.ECONOMY_MB]);
 }
 
 /**
@@ -446,10 +508,22 @@ export class CalcEngine {
        */
       years?: number[];
       /**
-       * Политика строки без года плана (P пуст) при годовом фильтре:
-       * 'lenient' (дефолт, канон дашборда) — проходит; 'strict' — не
-       * проходит (сверка; эквивалент strictYear); 'bucket' — проходит, а в
-       * год-квалифицированных картах живёт под `_noyear` (честный остаток).
+       * Политика строки без года плана (P пуст) при годовом фильтре.
+       *
+       * ДЕФОЛТ — 'bucket' (реестр расхождений 08.08 §2, волна 0 п.1). Лист
+       * адресует строку парой «квартал × год»: строке без года на нём лечь
+       * некуда, и в официальные числа она не входит. Прежний дефолт 'lenient'
+       * пускал её в срез ЛЮБОГО года — это и был корень расхождения лимита у
+       * каждого управления (УЭР 13 921 против 13 331,23 на листе). 'bucket'
+       * берёт правило листа, но не берёт его немоту: строка не исчезает, а
+       * попадает в `GroupedResults.noYear` — адресуемый остаток отдельной
+       * строкой.
+       *
+       * 'strict' — то же отсечение, но БЕЗ корзины (эквивалент strictYear);
+       * оставлено сверке, которой нужен ровно периметр листа.
+       * 'lenient' — легаси: строка без года проходит в любой год. Пригодно
+       * только там, где годового вопроса не задают.
+       *
        * В картах byYearQuarter/byYearMonth пустой год ВСЕГДА под `_noyear`.
        */
       emptyYearPolicy?: 'lenient' | 'strict' | 'bucket';
@@ -472,6 +546,8 @@ export class CalcEngine {
       bySubordinateActivity: new Map(),
       byActivityMethod: new Map(),
       byMonthActivity: new Map(),
+      noYear: new Map(),
+      unknownMethodRows: [],
       rowCount: 0,
       conflicts: 0,
       economyTotalMath: 0,
@@ -491,11 +567,28 @@ export class CalcEngine {
       // Year filter: мультигодовой скоуп years[] побеждает targetYear;
       // policy обобщает strictYear (обратная совместимость сохранена).
       const rowYear = num(row[COL.PLAN_YEAR]);
-      const yearPolicy = opts?.emptyYearPolicy ?? (opts?.strictYear ? 'strict' : 'lenient');
-      if (opts?.years && opts.years.length > 0) {
-        if (rowYear > 0 ? !opts.years.includes(rowYear) : yearPolicy === 'strict') continue;
-      } else if (targetYear) {
-        if (rowYear > 0 ? rowYear !== targetYear : yearPolicy === 'strict') continue;
+      const yearPolicy = opts?.emptyYearPolicy ?? (opts?.strictYear ? 'strict' : 'bucket');
+      const multiYear = opts?.years && opts.years.length > 0;
+      if (multiYear || targetYear) {
+        if (rowYear > 0) {
+          // Год есть и он чужой — строка просто из другого среза, к корзине
+          // «без года» отношения не имеет.
+          const inScope = multiYear ? opts!.years!.includes(rowYear) : rowYear === targetYear;
+          if (!inScope) continue;
+        } else if (yearPolicy === 'strict') {
+          continue;
+        } else if (yearPolicy === 'bucket') {
+          // Строгий год + адресуемый остаток: в срез не пускаем (лист её тоже
+          // не видит), но считаем отдельной корзиной, чтобы потеря была
+          // названа, а не молчалива.
+          for (const m of this.metrics) {
+            if (!evaluateAllGates(row, m.gates, opts?.asOfDay)) continue;
+            this.accumulate(result.noYear, m.key, this.extractValue(row, m.source), i);
+          }
+          continue;
+        }
+        // 'lenient' — легаси-поведение: строка без года проходит в срез
+        // ЛЮБОГО года. Оставлено только для явного вызова.
       }
       // Ключ года для год-квалифицированных карт: пустой год — честная
       // корзина _noyear (адресуемый остаток, не потеря).
@@ -509,6 +602,9 @@ export class CalcEngine {
       const method = this.extractors.method(row);
       const subordinate = this.extractors.subordinate(row);
       const activity = this.extractors.activity(row);
+      // Качество данных: способ непустой, но словарю неизвестен. В счёте
+      // строка идёт к конкурентным (правило листа), здесь только помечается.
+      if (isUnknownMethod(row[COL.METHOD])) result.unknownMethodRows.push(i);
       // Гейт со срезом — тот же, что у метрик: без asOfDay архивный срез
     // рапортовал конфликты по строкам, заключённым ПОСЛЕ даты снимка.
     const hasFact = evaluateGate(row, GATE_HAS_FACT, opts?.asOfDay);
@@ -606,8 +702,12 @@ export class CalcEngine {
         // (детектор считал её утверждённой) — деньги исчезали молча.
         const isApproved = adFlag === 'да';
 
-        // economyTotalMath: ungated economy with Math.max(0, ...)
-        result.economyTotalMath += Math.max(0, ecoTotal);
+        // economyTotalMath: экономия без гейта AD, СО ЗНАКОМ. Обрезка
+        // Math.max(0, …) снята вместе с обрезкой в approvedEconomy (реестр
+        // 08.08 §2): «математическая» экономия существует ради сверки с
+        // AD-гейтом, и если одна из двух величин прячет перерасход, а вторая
+        // нет, сверка сравнивает разные вопросы.
+        result.economyTotalMath += ecoTotal;
 
         // Conflict: flag says "да" but no economy, or has economy but no flag
         if ((isApproved && ecoTotal === 0) || (!isApproved && ecoTotal > 0)) {
@@ -618,6 +718,7 @@ export class CalcEngine {
 
     // Compute derived metrics for all groups
     this.computeDerived(result.total);
+    if (result.noYear.size > 0) this.computeDerived(result.noYear);
     for (const group of result.byQuarter.values()) this.computeDerived(group);
     for (const group of result.byMonth.values()) this.computeDerived(group);
     for (const group of result.byYearQuarter.values()) this.computeDerived(group);
@@ -653,7 +754,9 @@ export class CalcEngine {
       acc = { value: 0, contributingRows: [] };
       map.set(key, acc);
     }
-    acc.value += val;
+    // Базовый аккумулятор всегда числовой (создаётся нулём); `?? 0` здесь —
+    // не подстановка «нет базы», а сужение типа, общего с производными.
+    acc.value = (acc.value ?? 0) + val;
     acc.contributingRows.push(rowIdx);
   }
 
@@ -704,18 +807,21 @@ export class CalcEngine {
 function evaluateDerivedFormula(
   d: DerivedMetricDefinition,
   get: (key: string) => number,
-): number {
+): number | null {
   switch (d.formula.op) {
     case 'ratio': {
       const denom = get(d.formula.denominator);
-      return denom !== 0 ? get(d.formula.numerator) / denom : 0;
+      // Нулевой знаменатель = базы нет. Это НЕ ноль: прежний 0 неотличим от
+      // «база есть, числитель пуст», и на этом различии держится вся разница
+      // между «плана нет» и «план есть, факта нет» (реестр 08.08 §2).
+      return denom !== 0 ? get(d.formula.numerator) / denom : null;
     }
     case 'diff':
       return get(d.formula.a) - get(d.formula.b);
     case 'pct': {
       const denom = get(d.formula.denominator);
       // Returns decimal: 0.316 = 31.6% (matching recalculate.ts convention)
-      return denom !== 0 ? get(d.formula.numerator) / denom : 0;
+      return denom !== 0 ? get(d.formula.numerator) / denom : null;
     }
     case 'sum':
       return d.formula.operands.reduce((acc, key) => acc + get(key), 0);
@@ -775,13 +881,67 @@ export function standardRowFilter(row: RawRow): boolean {
 
 // ── Utility: extract value from grouped results ──────────────────────
 
+/** Адресуемый остаток «без года плана» — то, что показывается строкой. */
+export interface NoYearRemainder {
+  /** Счётных строк без планового года в периметре. */
+  count: number;
+  /** Их плановые деньги (ИТОГО с фолбэком ФБ+КБ+МБ), тыс. руб. */
+  planTotal: number;
+  planFB: number;
+  planKB: number;
+  planMB: number;
+  /** Индексы строк — чтобы остаток можно было раскрыть до первички. */
+  rows: number[];
+}
+
+/**
+ * Корзина «без года плана» из результатов движка. `null` — корзина пуста
+ * (или политика была не 'bucket'): пустую строку остатка рисовать не за что.
+ */
+export function noYearRemainderOf(results: GroupedResults): NoYearRemainder | null {
+  const count = results.noYear.get('plan_count')?.value ?? 0;
+  if (count === 0) return null;
+  const v = (key: string): number => results.noYear.get(key)?.value ?? 0;
+  return {
+    count,
+    planTotal: v('plan_total'),
+    planFB: v('plan_fb'),
+    planKB: v('plan_kb'),
+    planMB: v('plan_mb'),
+    rows: [...(results.noYear.get('plan_count')?.contributingRows ?? [])],
+  };
+}
+
+/**
+ * Аддитивное чтение метрики: суммы и счётчики. Отсутствующая группа и пустой
+ * аккумулятор дают 0 — для слагаемого это верно.
+ *
+ * Для производных долей (`*_pct`, `ratio`) звать НЕЛЬЗЯ: у них 0 и «нет базы»
+ * — разные ответы, и `?? 0` вернул бы обратно ровно тот ноль, ради снятия
+ * которого правило и менялось. Их дверь — `getRatio()`.
+ */
 export function getValue(results: GroupedResults, metricKey: string, group?: string): number {
-  if (!group) return results.total.get(metricKey)?.value ?? 0;
-  const g = results.byQuarter.get(group)
+  return groupOf(results, group)?.get(metricKey)?.value ?? 0;
+}
+
+/**
+ * Чтение производной доли: `null` = знаменателя не было (лист печатает в
+ * такой ячейке прочерк). Отличается от `getValue` именно тем, что не
+ * подменяет «нет базы» нулём (реестр расхождений 08.08 §2).
+ */
+export function getRatio(results: GroupedResults, metricKey: string, group?: string): number | null {
+  return groupOf(results, group)?.get(metricKey)?.value ?? null;
+}
+
+function groupOf(
+  results: GroupedResults,
+  group?: string,
+): Map<string, AccumulatedValue> | undefined {
+  if (!group) return results.total;
+  return results.byQuarter.get(group)
     ?? results.byMethod.get(group)
     ?? results.byQuarterMethod.get(group)
     ?? results.byQuarterActivity.get(group);
-  return g?.get(metricKey)?.value ?? 0;
 }
 
 // ── sliceResults: universal filter aggregation ───────────────────────
@@ -857,7 +1017,9 @@ export function sliceResults(
       if (STANDARD_DERIVED_KEYS.has(key)) continue;
       const existing = result.get(key);
       if (existing) {
-        existing.value += acc.value;
+        // Слагаемые здесь только базовые (производные отфильтрованы выше и
+        // пересчитываются заново) — `?? 0` сужает общий тип, а не прячет null.
+        existing.value = (existing.value ?? 0) + (acc.value ?? 0);
         existing.contributingRows.push(...acc.contributingRows);
       } else {
         result.set(key, { value: acc.value, contributingRows: [...acc.contributingRows] });
@@ -928,7 +1090,9 @@ export function slicePeriods(
       if (STANDARD_DERIVED_KEYS.has(key)) continue;
       const existing = result.get(key);
       if (existing) {
-        existing.value += acc.value;
+        // Слагаемые здесь только базовые (производные отфильтрованы выше и
+        // пересчитываются заново) — `?? 0` сужает общий тип, а не прячет null.
+        existing.value = (existing.value ?? 0) + (acc.value ?? 0);
         existing.contributingRows.push(...acc.contributingRows);
       } else {
         result.set(key, { value: acc.value, contributingRows: [...acc.contributingRows] });

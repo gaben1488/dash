@@ -43,6 +43,18 @@ function classifyRow(
   const amountValues = ['H', 'I', 'J', 'K'].map(c => toNumber(cells[c])).filter(v => v !== null) as number[];
   const allSmallIntegers = amountValues.length > 0 && amountValues.every(v => Number.isInteger(v) && v >= 0 && v < 100);
 
+  // БАГ #7 (docs/superpowers/audits/2026-08-08-bug-hunt-register.md): «малые целые
+  // = номера столбцов» одной суммы недостаточно — дешёвая закупка (план ≤100 тыс.,
+  // напр. H=0,I=0,J=80,K=80) проходит тот же тест на «малое целое», что и реальная
+  // шапка-нумерация столбцов. Реальная строка закупки ВСЕГДА несёт предмет (G) и
+  // способ (L); настоящая шапка — никогда. Признак «номера столбцов» требует, чтобы
+  // ОБЕ эти текстовые колонки были пусты одновременно с малыми числами — иначе треть
+  // реестра (дешёвые закупки) молча выпадала из validateData (там header пропускается
+  // безусловно).
+  const subjectEmpty = String(cells['G'] ?? '').trim().length === 0;
+  const procurementMethodEmpty = String(cells['L'] ?? '').trim().length === 0;
+  const looksLikeColumnNumbers = allSmallIntegers && subjectEmpty && procurementMethodEmpty;
+
   // Проверяем текст столбца C (наименование)
   const nameText = String(cells['C'] ?? '').trim().toLowerCase();
 
@@ -69,10 +81,10 @@ function classifyRow(
     classification = 'header';
     confidence = 0.6;
     reasons.push('Маркер заголовка блока');
-  } else if (hasId && hasAmounts && allSmallIntegers) {
+  } else if (hasId && hasAmounts && looksLikeColumnNumbers) {
     classification = 'header';
     confidence = 0.8;
-    reasons.push('Числовые столбцы содержат малые целые (<100) — вероятно номера столбцов');
+    reasons.push('Числовые столбцы содержат малые целые (<100), предмет и способ закупки пусты — вероятно номера столбцов');
   } else if (hasId && hasAmounts) {
     classification = 'procurement';
     confidence = 0.9;

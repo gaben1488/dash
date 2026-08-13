@@ -15,7 +15,7 @@ import {
   type ReconRootCause,
   type ReconRootCauseRow,
 } from '@aemr/shared';
-import { classifyMethodGroup, standardRowFilter, type RawRow } from './calc-engine.js';
+import { isUnknownMethod, standardRowFilter, type RawRow } from './calc-engine.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -317,19 +317,19 @@ export function classifySign(input: ClassifyInput): ReconRootCause | null {
 }
 
 /**
- * Класс `method` — разная трактовка способа закупки.
+ * Класс `method` — риск трактовки способа закупки.
  *
  * Формула листа СВОД делит строки отрицанием: конкурентной считается любая,
- * где способ не «ЕП». Пустая ячейка попадает у листа в конкурентные, и
- * classifyMethodGroup повторяет это правило намеренно. А вот непустой
- * нераспознанный код (не ЭА, ЕП, ЭК или ЭЗК) продукт относит к дефектам
- * данных и не зачисляет ни в конкурентные, ни в ЕП: строка выпадает из обеих
- * долей, тогда как лист по-прежнему держит её в конкурентных.
+ * где способ не «ЕП». С волны 0 (реестр расхождений 08.08 §2) то же правило
+ * стало ТОТАЛЬНЫМ и у нас: и пустая ячейка, и непустой нераспознанный код
+ * идут в конкурентные — сумма частей снова равна плану, а доля ЕП перестала
+ * расти от загрязнения столбца L. Поэтому вклад в расхождение здесь нулевой
+ * у ОБЕИХ разновидностей: стороны читают такие строки одинаково.
  *
- * Строки с пустым способом класс тоже показывает, но со вкладом ноль: обе
- * стороны читают их одинаково, поэтому расхождения они не двигают. Это риск
- * данных («если оператор имел в виду ЕП, ошибаются оба числа сразу»), а не
- * источник дельты, и арифметика сверки от их появления не поедет.
+ * Класс не удалён, потому что риск остался и он крупнее арифметики: если
+ * оператор имел в виду «ЕП», а написал непонятный код, ошибаются оба числа
+ * сразу и молча. Строки перечисляются как адресуемая проблема данных, а не
+ * как источник дельты, и арифметика сверки от их появления не поедет.
  */
 export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
   const rows: ReconRootCauseRow[] = [];
@@ -340,7 +340,11 @@ export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
     if (!matchesYear(row, input.year)) return;
     if (rowPlanTotal(row) <= 0) return;
     const raw = String(row[COL.METHOD] ?? '').trim();
-    const unknown = raw !== '' && classifyMethodGroup(row[COL.METHOD]) === null;
+    // Единственная дверь для «мусор в столбце L» — предикат движка.
+    // Прежнее `classifyMethodGroup(...) === null` держалось на том, что
+    // классификатор возвращал ничью группу; после его тотализации такое
+    // сравнение стало вечно ложным и молча выключило бы весь класс.
+    const unknown = isUnknownMethod(row[COL.METHOD]);
     if (!unknown && raw !== '') return;
     const own = contributionOf(row, input.measure);
     // К этой мере строка отношения не имеет (например, факта нет, а мера
@@ -348,7 +352,9 @@ export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
     if (own === 0) return;
     if (unknown) unknownCount += 1;
     else emptyCount += 1;
-    rows.push(toCauseRow(input.sheet, i, input.measure, unknown ? own : 0));
+    // Вклад нулевой у обеих разновидностей: обе стороны считают такую строку
+    // конкурентной, значит расхождения она не двигает — только риск данных.
+    rows.push(toCauseRow(input.sheet, i, input.measure, 0));
   });
   if (rows.length === 0) return null;
   const total = rows.reduce((s, r) => s + r.delta, 0);
@@ -358,8 +364,9 @@ export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
     explanation:
       `Строк с нераспознанным способом: ${unknownCount}, с пустым способом: ${emptyCount}; ` +
       `вклад в расхождение ${money(total)}. ` +
-      'Лист СВОД считает конкурентной любую строку, где способ не «ЕП», поэтому пустая ячейка у него конкурентная; ' +
-      'нераспознанный код не попадает ни в конкурентные, ни в закупки у единственного поставщика и выпадает из обеих долей.',
+      'Лист СВОД считает конкурентной любую строку, где способ не «ЕП»; расчёт читает столбец так же, ' +
+      'поэтому на числа такие строки не влияют. Риск в другом: если в ячейке имелась в виду закупка ' +
+      'у единственного поставщика, обе стороны ошибаются одинаково и молча.',
   };
 }
 

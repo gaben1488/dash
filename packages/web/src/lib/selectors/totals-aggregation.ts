@@ -59,6 +59,20 @@ const EMPTY_BUDGET: NodeBudget = {
   economyFB: 0, economyKB: 0, economyMB: 0,
 };
 
+/** Порядок кварталов — общий массив: функция зовётся на каждый узел дерева. */
+const QUARTER_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
+
+/**
+ * Есть ли у объекта хоть один ключ. `Object.keys(o).length > 0` строит массив
+ * всех имён ради одного «да/нет», а проверка идёт по каждому узлу (управления и
+ * все подведомственные) при каждом пересчёте фильтров.
+ */
+function hasAnyKey(obj: unknown): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  for (const _ in obj as Record<string, unknown>) return true;
+  return false;
+}
+
 function addBudget(acc: NodeBudget, src: any): void {
   if (!src) return;
   acc.planFB += src.planFB ?? 0;
@@ -101,7 +115,7 @@ export function aggregateNodeTotals(
     t.planTotal += node.planTotal ?? 0;
     t.factTotal += node.factTotal ?? 0;
     t.economyTotal += node.economyTotal ?? 0;
-    for (const qk of ['q1', 'q2', 'q3', 'q4']) {
+    for (const qk of QUARTER_KEYS) {
       const sq = node.quarters?.[qk];
       if (sq) { t.planCount += sq.planCount ?? 0; t.factCount += sq.factCount ?? 0; addBudget(t.budget, sq); }
     }
@@ -109,8 +123,8 @@ export function aggregateNodeTotals(
     return t;
   }
 
-  const hasQuarters = node?.quarters && Object.keys(node.quarters).length > 0;
-  const hasMonths = node?.months && Object.keys(node.months).length > 0;
+  const hasQuarters = hasAnyKey(node?.quarters);
+  const hasMonths = hasAnyKey(node?.months);
   if (!hasQuarters && !hasMonths) {
     // Базы периодов нет — отдаём годовое и честно помечаем.
     if (showKP) t.kp += node?.competitiveCount ?? 0;

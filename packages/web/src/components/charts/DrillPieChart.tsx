@@ -1,42 +1,58 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useId } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { ChevronLeft, Calendar, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from '../ui/kb-tooltip';
 import { useTheme } from '../ThemeProvider';
-import { getChartColors, getTooltipStyle } from '@/lib/chart-colors';
+import {
+  getChartColors,
+  getTooltipStyle,
+  getBudgetColor,
+  getMethodColor,
+  getSeriesPattern,
+  type SeriesPattern,
+} from '@/lib/chart-colors';
 import { useStore } from '../../store';
-import { periodDataLabel } from '../../lib/period-label';
-import type { MultiDimResult } from '../../hooks/useMultiDimMetrics';
+import { pluralRu } from '../../lib/economy-copy';
+import { isMeaningfulGap, splitDrawable } from '../../lib/chart-slices';
+import { periodDataLabel, MONTH_ABBR } from '../../lib/period-label';
+import type { MultiDimResult, ExecutionMetrics } from '../../hooks/useMultiDimMetrics';
 
 // ────────────────────────────────────────────────────────────────
-// DrillPieChart — 10/10 multidimensional donut
+// DrillPieChart — круг долей с раскрытием иерархии.
 //
-// METHODOLOGY (applicable to ALL multidimensional UI elements):
+// ПРАВИЛА, ОБЩИЕ ДЛЯ ВСЕХ МНОГОМЕРНЫХ ЭЛЕМЕНТОВ:
 //
-// 1. UNIFIED DRILL STACK
-//    Every click pushes a "scope" onto stack; every breadcrumb pops.
-//    Scopes are composable: dept ∩ method ∩ budget all hold simultaneously.
+// 1. ЕДИНЫЙ СТЕК РАЗРЕЗОВ
+//    Клик кладёт «разрез» в стек, хлебная крошка снимает. Разрезы
+//    складываются: управление ∩ способ ∩ бюджет держатся одновременно.
 //
-// 2. CROSS-DIMENSION DRILL (MATRIX, not tree)
-//    From any dimension slice → split remaining data by another dimension.
-//    КП → depts of КП → composition of УО's КП.
+// 2. ПЕРЕКРЁСТНОЕ РАСКРЫТИЕ (матрица, не дерево)
+//    Из любого среза одного измерения — разбивка по другому измерению.
 //
-// 3. NO NAVIGATION ON CLICK — EVER
-//    Click = drill inline. "Подробнее →" (explicit) = navigate.
-//    Reference: feedback_interaction_paradigm.md
+// 3. КЛИК НИКОГДА НЕ УВОДИТ СО СТРАНИЦЫ
+//    Клик = раскрытие на месте. Уход — только по явной команде.
 //
-// 4. PERIOD-REACTIVE + VISIBLE
-//    Period indicator always shown. Data re-computes automatically via mdm.
+// 4. ПЕРИОД ВИДЕН ВСЕГДА
+//    Плашка периода называет отрезок, за который посчитаны числа.
 //
-// 5. STABLE IDENTITY COLORS
-//    Each dept keeps same color across drill levels (mental model).
+// 5. ЦВЕТ УПРАВЛЕНИЯ ПОСТОЯНЕН МЕЖДУ УРОВНЯМИ
 //
-// 6. BREADCRUMB = REVERSE NAVIGATION
-//    Full path shown as clickable chips. Jump to any level.
+// 6. ХЛЕБНАЯ КРОШКА = ОБРАТНЫЙ ПУТЬ
 //
-// 7. METRIC ORTHOGONAL TO DRILL
-//    План/Факт/Эконом/Шт./% available at every level where meaningful.
+// 7. ПОКАЗАТЕЛЬ НЕЗАВИСИМ ОТ ГЛУБИНЫ РАСКРЫТИЯ
+//
+// 8. КРУГ ПОКАЗЫВАЕТ ТОЛЬКО СКЛАДЫВАЕМЫЕ ВЕЛИЧИНЫ
+//    Доли имеют смысл, когда части складываются в целое. Проценты не
+//    складываются: сумма процентов исполнения восьми управлений — число
+//    без смысла, а доля одного управления в этой сумме — тем более.
+//    Поэтому измерение «Исполнение» рисует ЗАКРЫТЫЕ ПРОЦЕДУРЫ (штуки —
+//    величина складываемая), а сам процент стоит в центре и считается
+//    честно: Σ факта / Σ плана, а не среднее из долей.
+//
+// 9. ИТОГ И ЧАСТИ — ИЗ ОДНОГО ИСТОЧНИКА, ИНАЧЕ РАЗНИЦА НАЗВАНА ВСЛУХ
+//    Под кругом сверяется сумма срезов с итогом страницы за тот же период.
+//    Разошлись — это видно и подписано, а не спрятано округлением.
 // ────────────────────────────────────────────────────────────────
 
 export type DrillDimension = 'procurement' | 'budget' | 'department' | 'execution';
@@ -48,14 +64,23 @@ export const DRILL_DIMENSION_LABELS: Record<DrillDimension, string> = {
   execution: 'Исполнение',
 };
 
-type Metric = 'plan' | 'fact' | 'economy' | 'count' | 'execPct';
+/**
+ * Показатели круга. «Исполнение, %» здесь сознательно отсутствует: доля
+ * процента в сумме процентов — величина без смысла (правило 8 выше).
+ */
+type Metric = 'plan' | 'fact' | 'economy' | 'count';
 
+/**
+ * Подписи не называют единицу денег: единица переключается в шапке
+ * (тысячи / миллионы / миллиарды) и печатается рядом с каждым числом
+ * форматтером. Прежние «План ₽» обещали рубли, а число рядом стояло в
+ * тысячах — подпись и значение противоречили друг другу.
+ */
 const METRIC_LABELS: Record<Metric, string> = {
-  plan: 'План ₽',
-  fact: 'Факт ₽',
-  economy: 'Эконом. ₽',
+  plan: 'План',
+  fact: 'Факт',
+  economy: 'Экономия',
   count: 'Закупки, шт.',
-  execPct: 'Исп. %',
 };
 
 type ViewLevel = 'grbs' | 'orgs';
@@ -64,11 +89,14 @@ const VIEW_LEVEL_LABELS: Record<ViewLevel, string> = {
   orgs: 'Организации',
 };
 
-const METRIC_UNIT: Record<Metric, '₽' | 'шт.' | '%'> = {
-  plan: '₽', fact: '₽', economy: '₽', count: 'шт.', execPct: '%',
+/** Что стоит за числом среза: деньги, штуки или проценты. */
+type Unit = 'money' | 'count';
+
+const METRIC_UNIT: Record<Metric, Unit> = {
+  plan: 'money', fact: 'money', economy: 'money', count: 'count',
 };
 
-// Scope constraints — composable, stack-ordered
+// Разрезы — складываются, порядок хранится в стеке
 type Scope =
   | { kind: 'dept'; deptName: string }
   | { kind: 'method'; m: 'КП' | 'ЕП' }
@@ -79,8 +107,29 @@ interface Slice {
   name: string;
   value: number;
   color?: string;
-  onClick?: () => void;
   drillable: boolean;
+}
+
+/** Всё, что нужно нарисовать один уровень раскрытия. */
+interface DrillView {
+  data: Slice[];
+  /** Сумма показанных срезов. */
+  total: number;
+  unit: Unit;
+  centerLabel: string;
+  /** Крупное число в центре; null — считать не из чего. */
+  centerValue: string | null;
+  centerSub: string;
+  /**
+   * Итог за тот же период из общего источника страницы. Круг обязан
+   * сойтись с ним. null — сверять не с чем (например включён фильтр,
+   * который сузил данные намеренно).
+   */
+  reference: number | null;
+  /** Срезы, которые круг изобразить не может: ноль и отрицательные. */
+  hidden: { count: number; sum: number };
+  /** Пояснение под кругом, когда измерение читается не буквально. */
+  note: string | null;
 }
 
 export interface DrillPieChartProps {
@@ -88,13 +137,11 @@ export interface DrillPieChartProps {
   procurementFilter: string;
   formatMoney: (v: number) => string;
   onDeptToggle?: (deptShort: string) => void;
-  /** Kept for compat; NOT called from slice clicks anymore */
+  /** Оставлен для совместимости; из кликов по срезам не вызывается. */
   onNavigate?: (page: 'analytics', opts?: any) => void;
 }
 
-// ── Helpers ──
-
-const MONTH_ABBR = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+// ── Вспомогательное ──
 
 function scopeLabel(s: Scope): string {
   if (s.kind === 'dept') return s.deptName;
@@ -104,25 +151,29 @@ function scopeLabel(s: Scope): string {
 
 function scopeHasMethod(stack: Scope[]): 'КП' | 'ЕП' | null {
   const m = stack.find(s => s.kind === 'method');
-  return m ? (m as any).m : null;
+  return m ? (m as Extract<Scope, { kind: 'method' }>).m : null;
 }
 function scopeHasBudget(stack: Scope[]): 'ФБ' | 'КБ' | 'МБ' | null {
   const b = stack.find(s => s.kind === 'budget');
-  return b ? (b as any).b : null;
+  return b ? (b as Extract<Scope, { kind: 'budget' }>).b : null;
 }
 function scopeHasDept(stack: Scope[]): string | null {
   const d = stack.find(s => s.kind === 'dept');
-  return d ? (d as any).deptName : null;
+  return d ? (d as Extract<Scope, { kind: 'dept' }>).deptName : null;
 }
 
-function readBudget(m: any, budget: 'ФБ' | 'КБ' | 'МБ', metric: Metric): number {
-  if (metric === 'plan') return m?.budget?.[`plan${budget === 'ФБ' ? 'FB' : budget === 'КБ' ? 'KB' : 'MB'}`] ?? 0;
-  if (metric === 'fact') return m?.budget?.[`fact${budget === 'ФБ' ? 'FB' : budget === 'КБ' ? 'KB' : 'MB'}`] ?? 0;
-  if (metric === 'economy') return m?.budget?.[`economy${budget === 'ФБ' ? 'FB' : budget === 'КБ' ? 'KB' : 'MB'}`] ?? 0;
+const BUDGET_FIELD = { 'ФБ': 'FB', 'КБ': 'KB', 'МБ': 'MB' } as const;
+
+function readBudget(m: ExecutionMetrics | null | undefined, budget: 'ФБ' | 'КБ' | 'МБ', metric: Metric): number {
+  if (!m?.budget) return 0;
+  const suffix = BUDGET_FIELD[budget];
+  if (metric === 'plan') return m.budget[`plan${suffix}`] ?? 0;
+  if (metric === 'fact') return m.budget[`fact${suffix}`] ?? 0;
+  if (metric === 'economy') return m.budget[`economy${suffix}`] ?? 0;
   return 0;
 }
 
-function readMetric(m: any, metric: Metric, scope: Scope[]): number {
+function readMetric(m: ExecutionMetrics | null | undefined, metric: Metric, scope: Scope[]): number {
   if (!m) return 0;
   const budgetScope = scopeHasBudget(scope);
   if (budgetScope && (metric === 'plan' || metric === 'fact' || metric === 'economy')) {
@@ -137,18 +188,58 @@ function readMetric(m: any, metric: Metric, scope: Scope[]): number {
     case 'fact': return m.factTotal ?? 0;
     case 'economy': return m.economyTotal ?? 0;
     case 'count': return (m.competitiveCount ?? 0) + (m.epCount ?? 0);
-    case 'execPct': return m.execCountPct ?? 0;
   }
 }
 
-function metricValidFor(dim: DrillDimension | 'composition', metric: Metric): boolean {
-  if (dim === 'procurement') return metric === 'count' || metric === 'plan' || metric === 'fact';
-  if (dim === 'budget') return metric === 'plan' || metric === 'fact' || metric === 'economy';
-  // department, execution, composition allow all
-  return true;
+// ── Штриховка: второй, нецветовой признак ряда ──
+
+const PATTERN_INK_DARK = 'rgba(0,0,0,0.38)';
+const PATTERN_INK_LIGHT = 'rgba(255,255,255,0.5)';
+
+/**
+ * Определения штриховок живут в отдельном нулевого размера `svg`: ссылка
+ * `url(#id)` разрешается в пределах документа, а вкладывать `defs` внутрь
+ * Recharts-графика нельзя — библиотека разбирает своих детей по типам и
+ * посторонний узел до отрисовки не доходит.
+ */
+function PatternDefs({ series, ink }: { series: Array<{ key: string; color: string; pattern: SeriesPattern }>; ink: string }) {
+  return (
+    <svg width={0} height={0} aria-hidden className="absolute pointer-events-none">
+      <defs>
+        {/* Сплошному ряду узор не нужен — он красится чистым цветом. */}
+        {series.filter(s => s.pattern !== 'solid').map(s => (
+          <pattern key={s.key} id={s.key} width="7" height="7" patternUnits="userSpaceOnUse">
+            <rect width="7" height="7" fill={s.color} />
+            {s.pattern === 'diagonal' && (
+              <path d="M-1,1 l2,-2 M0,7 l7,-7 M6,8 l2,-2" stroke={ink} strokeWidth="1.6" />
+            )}
+            {s.pattern === 'dots' && (
+              <circle cx="3.5" cy="3.5" r="1.5" fill={ink} />
+            )}
+            {s.pattern === 'grid' && (
+              <path d="M0,3.5 H7 M3.5,0 V7" stroke={ink} strokeWidth="1.3" />
+            )}
+          </pattern>
+        ))}
+      </defs>
+    </svg>
+  );
 }
 
-// ── Component ──
+/** Метка ряда в легенде: тот же цвет и та же штриховка, что у сектора. */
+function SeriesSwatch({ fill, active }: { fill: string; active: boolean }) {
+  return (
+    <svg
+      width={10} height={10} viewBox="0 0 10 10" aria-hidden
+      className="shrink-0 transition-transform"
+      style={{ transform: active ? 'scale(1.35)' : 'scale(1)' }}
+    >
+      <circle cx="5" cy="5" r="5" fill={fill} />
+    </svg>
+  );
+}
+
+// ── Компонент ──
 
 export function DrillPieChart({
   mdm,
@@ -160,8 +251,14 @@ export function DrillPieChart({
   const chartColors = getChartColors(isDark);
   const { contentStyle: tooltipStyle } = getTooltipStyle(isDark);
   const cursorStyle = { fill: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(0,0,0,0.06)', stroke: 'none' };
+  const patternInk = isDark ? PATTERN_INK_DARK : PATTERN_INK_LIGHT;
+  // Идентификаторы штриховок уникальны на экземпляр: два круга на одной
+  // странице иначе поделят один узор и покрасятся чужим цветом. React
+  // обрамляет свой идентификатор служебными знаками (двоеточия, кавычки-
+  // ёлочки в зависимости от версии) — в ссылке `url(#…)` им не место.
+  const patternPrefix = `p${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
 
-  // Period display
+  // Период показа
   const year = useStore(s => s.year);
   const activeMonths = useStore(s => s.activeMonths);
   const periodMode = useStore(s => s.periodMode);
@@ -194,14 +291,14 @@ export function DrillPieChart({
   /** Недельный выбор сделан, но на числа не влияет — предупреждаем, а не молчим. */
   const weekNotApplied = periodMode === 'week';
 
-  // Stable dept color map
+  // Постоянный цвет управления между уровнями раскрытия
   const deptColorMap = useMemo(() => {
     const map = new Map<string, string>();
-    mdm.departments.forEach((d, i) => map.set(d.dept, chartColors[i % chartColors.length]));
+    mdm.departments.forEach((d, i) => map.set(d.dept, chartColors[i % chartColors.length]!));
     return map;
   }, [mdm.departments, chartColors]);
 
-  // ── State ──
+  // ── Состояние ──
   const [dimension, setDimension] = useState<DrillDimension>('department');
   const [metric, setMetric] = useState<Metric>('plan');
   const [scope, setScope] = useState<Scope[]>([]);
@@ -223,221 +320,254 @@ export function DrillPieChart({
     setActiveSliceId(null);
   }, []);
 
-  // Ensure metric is valid for current dimension/composition
   const inDeptComposition = scopeHasDept(scope) !== null;
-  const effectiveDim: DrillDimension | 'composition' = inDeptComposition ? 'composition' : dimension;
-  if (!metricValidFor(effectiveDim, metric)) {
-    // will correct on next render via effect; here just pick a safe fallback
-  }
 
-  // ── Data builder ──
-  const { data, total, unit, centerLabel, centerSub } = useMemo(() => {
+  // ── Сборка данных уровня ──
+  const view: DrillView = useMemo(() => {
     const deptName = scopeHasDept(scope);
     const methodName = scopeHasMethod(scope);
     const budgetName = scopeHasBudget(scope);
+    const suffix = [methodName, budgetName].filter(Boolean).join(' • ');
 
-    // If a dept is in scope → composition view (orgSelf + subs), respecting method/budget scope
+    /**
+     * Итог того же показателя за тот же период из общего источника страницы.
+     * `mdm.totals` собирается тем же ядром, что и суммы карточек, поэтому
+     * сравнение с ним отвечает на вопрос «сходится ли круг с экраном».
+     */
+    const pageTotal = (m: Metric) => readMetric(mdm.totals, m, scope);
+
+    // Состав управления: сам аппарат + подведомственные
     if (deptName) {
       const dm = mdm.departments.find(d => d.dept === deptName);
-      if (!dm) return { data: [], total: 0, unit: METRIC_UNIT[metric], centerLabel: deptName, centerSub: '—' };
-      const slices: Slice[] = [];
+      if (!dm) {
+        return {
+          data: [], total: 0, unit: METRIC_UNIT[metric], centerLabel: deptName,
+          centerValue: null, centerSub: 'управление не найдено',
+          reference: null, hidden: { count: 0, sum: 0 }, note: null,
+        };
+      }
+      const raw: Slice[] = [];
       if (dm.orgSelf) {
-        const v = readMetric(dm.orgSelf.metrics, metric, scope);
-        if (v > 0) {
-          slices.push({
-            id: `self:${dm.dept}`,
-            name: `${dm.dept} (само)`,
-            value: v,
-            color: deptColorMap.get(dm.dept),
-            drillable: false,
-          });
-        }
+        raw.push({
+          id: `self:${dm.dept}`,
+          name: `${dm.dept} (само)`,
+          value: readMetric(dm.orgSelf.metrics, metric, scope),
+          color: deptColorMap.get(dm.dept),
+          drillable: false,
+        });
       }
       for (const sub of dm.realSubs) {
-        const v = readMetric(sub.metrics, metric, scope);
-        if (v > 0) {
-          slices.push({
-            id: `sub:${sub.name}`,
-            name: sub.displayName,
-            value: v,
-            drillable: false,
-          });
-        }
+        raw.push({
+          id: `sub:${sub.name}`,
+          name: sub.displayName,
+          value: readMetric(sub.metrics, metric, scope),
+          drillable: false,
+        });
       }
-      slices.sort((a, b) => b.value - a.value);
-      const t = slices.reduce((s, x) => s + x.value, 0);
-      const suffix = [methodName, budgetName].filter(Boolean).join(' • ');
+      const { drawable, hidden } = splitDrawable(raw);
+      const total = drawable.reduce((s, x) => s + x.value, 0);
       return {
-        data: slices, total: t, unit: METRIC_UNIT[metric],
+        data: drawable, total, unit: METRIC_UNIT[metric],
         centerLabel: dm.dept,
+        centerValue: null,
         centerSub: suffix || `${dm.realSubCount} подвед.`,
+        reference: readMetric(dm.total, metric, scope),
+        hidden, note: null,
       };
     }
 
-    // No dept scope: slice by `dimension`
     switch (dimension) {
       case 'procurement': {
-        // Show КП/ЕП totals (count-based by default)
+        // Разбивка по способу есть только в штуках: денежного разреза
+        // «план по способу» на этом слое данных не существует, и
+        // подставлять вместо него счётчик значило бы выдать штуки за рубли.
         const fd = mdm.fd;
-        // If metric is count/plan/fact
-        const getV = (key: 'КП' | 'ЕП') => {
-          if (metric === 'count') {
-            return key === 'КП' ? (fd.totalKP || 0) : (fd.totalEP || 0);
-          }
-          // For ₽ metric, approximate by summing dept method-filtered values if available; fallback to count
-          // We don't have plan₽ per method at fd — use count but label unit as шт.
-          return key === 'КП' ? (fd.totalKP || 0) : (fd.totalEP || 0);
-        };
-        const actualUnit = metric === 'count' ? 'шт.' : 'шт.'; // we only have counts for method split at this layer
-        const slicesRaw = ([
-          { id: 'm:КП', name: 'Конкурсные (КП)', short: 'КП' as const, value: getV('КП'), color: '#3b82f6' },
-          { id: 'm:ЕП', name: 'Единственный пост. (ЕП)', short: 'ЕП' as const, value: getV('ЕП'), color: '#f59e0b' },
+        const raw: Slice[] = ([
+          { id: 'm:КП', name: 'Конкурсные (КП)', short: 'КП' as const, value: fd.totalKP || 0 },
+          { id: 'm:ЕП', name: 'Единственный поставщик (ЕП)', short: 'ЕП' as const, value: fd.totalEP || 0 },
         ]).filter(d => {
           if (procurementFilter === 'competitive') return d.short === 'КП';
           if (procurementFilter === 'single') return d.short === 'ЕП';
           return true;
-        });
-        const slices: Slice[] = slicesRaw.map(d => ({
-          id: d.id, name: d.name, value: d.value, color: d.color, drillable: true,
+        }).map(d => ({
+          id: d.id, name: d.name, value: d.value,
+          color: getMethodColor(d.short, isDark), drillable: true,
         }));
-        const t = slices.reduce((s, x) => s + x.value, 0);
-        return { data: slices, total: t, unit: actualUnit as any, centerLabel: 'Закупки', centerSub: 'КП / ЕП' };
+        const { drawable, hidden } = splitDrawable(raw);
+        const total = drawable.reduce((s, x) => s + x.value, 0);
+        return {
+          data: drawable, total, unit: 'count',
+          centerLabel: 'Закупки', centerValue: null, centerSub: 'КП / ЕП',
+          // При включённом фильтре способа круг показывает часть намеренно —
+          // сверять его с общим итогом не с чем.
+          reference: procurementFilter === 'all' ? (fd.totalKP || 0) + (fd.totalEP || 0) : null,
+          hidden, note: null,
+        };
       }
 
       case 'budget': {
-        // ФБ/КБ/МБ sum across all depts
         let fb = 0, kb = 0, mb = 0;
         for (const d of mdm.departments) {
           fb += readBudget(d.total, 'ФБ', metric);
           kb += readBudget(d.total, 'КБ', metric);
           mb += readBudget(d.total, 'МБ', metric);
         }
-        const slices: Slice[] = [
-          { id: 'b:ФБ', name: 'ФБ (федеральный)', value: fb, color: '#3b82f6', drillable: true },
-          { id: 'b:КБ', name: 'КБ (краевой)',     value: kb, color: '#10b981', drillable: true },
-          { id: 'b:МБ', name: 'МБ (местный)',     value: mb, color: '#f59e0b', drillable: true },
-        ].filter(d => d.value > 0);
-        const t = slices.reduce((s, x) => s + x.value, 0);
-        return { data: slices, total: t, unit: METRIC_UNIT[metric], centerLabel: 'Бюджеты', centerSub: 'ФБ / КБ / МБ' };
+        const raw: Slice[] = [
+          { id: 'b:ФБ', name: 'ФБ (федеральный)', value: fb, color: getBudgetColor('ФБ', isDark), drillable: true },
+          { id: 'b:КБ', name: 'КБ (краевой)', value: kb, color: getBudgetColor('КБ', isDark), drillable: true },
+          { id: 'b:МБ', name: 'МБ (местный)', value: mb, color: getBudgetColor('МБ', isDark), drillable: true },
+        ];
+        const { drawable, hidden } = splitDrawable(raw);
+        const total = drawable.reduce((s, x) => s + x.value, 0);
+        return {
+          data: drawable, total, unit: METRIC_UNIT[metric],
+          centerLabel: 'Бюджеты', centerValue: null, centerSub: 'ФБ / КБ / МБ',
+          // Разбивка по источникам обязана складываться в общий итог: если
+          // строка не отнесена ни к одному бюджету, разница видна здесь.
+          reference: readMetric(mdm.totals, metric, []),
+          hidden, note: null,
+        };
       }
 
       case 'department': {
+        const raw: Slice[] = [];
         if (viewLevel === 'orgs') {
-          // Flat list: orgSelf + all realSubs across all depts
-          const slices: Slice[] = [];
           for (const dm of mdm.departments) {
             if (dm.orgSelf) {
-              const v = readMetric(dm.orgSelf.metrics, metric, scope);
-              if (v > 0) slices.push({
+              raw.push({
                 id: `org:self:${dm.dept}`,
                 name: `${dm.dept} (само)`,
-                value: v,
+                value: readMetric(dm.orgSelf.metrics, metric, scope),
                 color: deptColorMap.get(dm.dept),
                 drillable: false,
               });
             }
             for (const sub of dm.realSubs) {
-              const v = readMetric(sub.metrics, metric, scope);
-              if (v > 0) slices.push({
+              raw.push({
                 id: `org:sub:${dm.dept}:${sub.name}`,
                 name: sub.displayName,
-                value: v,
+                value: readMetric(sub.metrics, metric, scope),
                 color: deptColorMap.get(dm.dept),
                 drillable: false,
               });
             }
           }
-          slices.sort((a, b) => b.value - a.value);
-          const t = slices.reduce((s, x) => s + x.value, 0);
-          const suffix = [methodName, budgetName].filter(Boolean).join(' • ');
-          return {
-            data: slices, total: t, unit: METRIC_UNIT[metric],
-            centerLabel: suffix ? suffix : 'Организации',
-            centerSub: `${slices.length} орг.`,
-          };
+        } else {
+          for (const dm of mdm.departments) {
+            raw.push({
+              id: `d:${dm.dept}`,
+              name: dm.dept,
+              value: readMetric(dm.total, metric, scope),
+              color: deptColorMap.get(dm.dept),
+              drillable: true,
+            });
+          }
         }
-        const slices: Slice[] = mdm.departments.map(dm => ({
-          id: `d:${dm.dept}`,
-          name: dm.dept,
-          value: readMetric(dm.total, metric, scope),
-          color: deptColorMap.get(dm.dept),
-          drillable: true,
-        })).filter(d => d.value > 0);
-        slices.sort((a, b) => b.value - a.value);
-        const t = slices.reduce((s, x) => s + x.value, 0);
-        const suffix = [methodName, budgetName].filter(Boolean).join(' • ');
+        const { drawable, hidden } = splitDrawable(raw);
+        const total = drawable.reduce((s, x) => s + x.value, 0);
         return {
-          data: slices, total: t, unit: METRIC_UNIT[metric],
-          centerLabel: suffix ? suffix : 'Управления',
-          centerSub: `${slices.length} ГРБС`,
+          data: drawable, total, unit: METRIC_UNIT[metric],
+          centerLabel: suffix || (viewLevel === 'orgs' ? 'Организации' : 'Управления'),
+          centerValue: null,
+          centerSub: viewLevel === 'orgs' ? `${drawable.length} орг.` : `${drawable.length} ГРБС`,
+          // Оба уровня — ГРБС и организации — обязаны дать один итог: это
+          // одни и те же строки, сложенные с разной глубиной.
+          reference: pageTotal(metric),
+          hidden, note: null,
         };
       }
 
       case 'execution': {
+        // Круг показывает ЗАКРЫТЫЕ ПРОЦЕДУРЫ (складываются), а не проценты.
+        const raw: Slice[] = [];
+        let planCount = 0;
+        let factCount = 0;
         if (viewLevel === 'orgs') {
-          const slices: Slice[] = [];
           for (const dm of mdm.departments) {
-            if (dm.orgSelf) {
-              slices.push({
-                id: `eo:self:${dm.dept}`,
-                name: `${dm.dept} (само)`,
-                value: +(dm.orgSelf.metrics.execCountPct || 0).toFixed(1),
-                color: deptColorMap.get(dm.dept),
-                drillable: false,
-              });
-            }
-            for (const sub of dm.realSubs) {
-              slices.push({
-                id: `eo:sub:${dm.dept}:${sub.name}`,
-                name: sub.displayName,
-                value: +(sub.metrics.execCountPct || 0).toFixed(1),
-                color: deptColorMap.get(dm.dept),
-                drillable: false,
+            const nodes = [
+              ...(dm.orgSelf ? [{ id: `eo:self:${dm.dept}`, name: `${dm.dept} (само)`, m: dm.orgSelf.metrics }] : []),
+              ...dm.realSubs.map(sub => ({ id: `eo:sub:${dm.dept}:${sub.name}`, name: sub.displayName, m: sub.metrics })),
+            ];
+            for (const n of nodes) {
+              planCount += n.m.planCount ?? 0;
+              factCount += n.m.factCount ?? 0;
+              raw.push({
+                id: n.id, name: n.name, value: n.m.factCount ?? 0,
+                color: deptColorMap.get(dm.dept), drillable: false,
               });
             }
           }
-          const filtered = slices.filter(d => d.value > 0);
-          filtered.sort((a, b) => b.value - a.value);
-          const t = filtered.reduce((s, x) => s + x.value, 0);
-          return { data: filtered, total: t, unit: '%' as const, centerLabel: 'Исп. шт.%', centerSub: `${filtered.length} орг.` };
+        } else {
+          for (const dm of mdm.departments) {
+            planCount += dm.total.planCount ?? 0;
+            factCount += dm.total.factCount ?? 0;
+            raw.push({
+              id: `e:${dm.dept}`, name: dm.dept, value: dm.total.factCount ?? 0,
+              color: deptColorMap.get(dm.dept), drillable: true,
+            });
+          }
         }
-        const slices: Slice[] = mdm.departments.map(dm => ({
-          id: `e:${dm.dept}`,
-          name: dm.dept,
-          value: +(dm.total.execCountPct || 0).toFixed(1),
-          color: deptColorMap.get(dm.dept),
-          drillable: true,
-        })).filter(d => d.value > 0);
-        slices.sort((a, b) => b.value - a.value);
-        const t = slices.reduce((s, x) => s + x.value, 0);
-        return { data: slices, total: t, unit: '%' as const, centerLabel: 'Исп. шт.%', centerSub: `${slices.length} ГРБС` };
+        const { drawable, hidden } = splitDrawable(raw);
+        const total = drawable.reduce((s, x) => s + x.value, 0);
+        // Процент считается от сложенных плана и факта, а не усреднением
+        // долей: у управления с планом в три позиции и у управления с
+        // планом в триста вес в общем исполнении разный.
+        const pct = planCount > 0 ? (factCount / planCount) * 100 : null;
+        return {
+          data: drawable, total, unit: 'count',
+          centerLabel: 'Исполнение',
+          centerValue: pct === null ? null : `${pct.toFixed(1).replace('.', ',')} %`,
+          centerSub: pct === null
+            ? 'плана за период нет'
+            : `${factCount.toLocaleString('ru-RU')} из ${planCount.toLocaleString('ru-RU')} шт.`,
+          // Сверяем не с собственной суммой (она сойдётся всегда), а с числом
+          // закрытых процедур на странице: круг обязан говорить то же, что
+          // плитка исполнения.
+          reference: mdm.totals.factCount ?? 0,
+          hidden,
+          note: 'доли круга — вклад в закрытые процедуры; процент в центре — факт к плану',
+        };
       }
     }
-  }, [dimension, metric, scope, mdm, procurementFilter, deptColorMap, viewLevel]);
+  }, [dimension, metric, scope, mdm, procurementFilter, deptColorMap, viewLevel, isDark]);
+
+  const { data, total, unit, centerLabel, centerValue, centerSub, reference, hidden, note } = view;
 
   const formatValue = useCallback((v: number) => {
-    if (unit === '₽') return formatMoney(v);
-    if (unit === '%') return `${v.toFixed(1)}%`;
+    if (unit === 'money') return formatMoney(v);
     return `${Math.round(v).toLocaleString('ru-RU')} шт.`;
   }, [unit, formatMoney]);
 
-  // ── Click handlers ── ALL INLINE DRILL, NO NAVIGATION
+  /** Расхождение суммы срезов с итогом страницы — если оно есть. */
+  const gap = useMemo(() => {
+    if (reference === null) return null;
+    const diff = reference - total;
+    if (!isMeaningfulGap(diff, reference)) return null;
+    // Причина расхождения не додумывается: называются оба числа и то, как
+    // каждое посчитано. Утверждать «потерялись строки» нельзя — разница
+    // может идти и от разных путей расчёта при активном фильтре.
+    return {
+      diff,
+      text: `срезы дают ${formatValue(total)}, итог страницы — ${formatValue(reference)}`,
+      title: 'Круг сложен из показанных срезов, итог страницы — из общей суммы за тот же период. '
+        + 'Пока эти два пути не сведены к одному, за основу берётся итог страницы.',
+    };
+  }, [reference, total, formatValue]);
+
+  // ── Клики: только раскрытие на месте ──
   const handleSliceClick = useCallback((slice: Slice) => {
     setActiveSliceId(slice.id);
     if (!slice.drillable) return;
 
     if (slice.id.startsWith('d:') || slice.id.startsWith('e:')) {
-      // Department slice → push dept scope
-      const deptName = slice.name;
-      pushScope({ kind: 'dept', deptName });
+      pushScope({ kind: 'dept', deptName: slice.name });
       return;
     }
     if (slice.id.startsWith('m:')) {
-      const m = slice.id === 'm:КП' ? 'КП' : 'ЕП';
-      pushScope({ kind: 'method', m });
-      // Auto-switch dimension to department so user sees cross-breakdown
+      pushScope({ kind: 'method', m: slice.id === 'm:КП' ? 'КП' : 'ЕП' });
+      // Показатель переводится в штуки: разбивки денег по способу закупки
+      // на этом слое данных нет.
       setDimension('department');
-      // If metric is ₽, switch to count (method×₽ not reliably mapped at this layer)
       if (metric !== 'count') setMetric('count');
       return;
     }
@@ -445,68 +575,73 @@ export function DrillPieChart({
       const b = slice.id === 'b:ФБ' ? 'ФБ' : slice.id === 'b:КБ' ? 'КБ' : 'МБ';
       pushScope({ kind: 'budget', b });
       setDimension('department');
-      if (!['plan','fact','economy'].includes(metric)) setMetric('plan');
+      if (!['plan', 'fact', 'economy'].includes(metric)) setMetric('plan');
     }
   }, [pushScope, metric]);
 
-  // Breadcrumb items
+  // Хлебная крошка — обратный путь
   const crumbs: { label: string; onClick: () => void }[] = useMemo(() => {
-    const list: { label: string; onClick: () => void }[] = [];
-    list.push({ label: 'Все', onClick: resetAll });
-    scope.forEach((s, i) => {
-      list.push({ label: scopeLabel(s), onClick: () => popTo(i + 1) });
-    });
+    const list: { label: string; onClick: () => void }[] = [{ label: 'Все', onClick: resetAll }];
+    scope.forEach((s, i) => list.push({ label: scopeLabel(s), onClick: () => popTo(i + 1) }));
     return list;
   }, [scope, resetAll, popTo]);
 
-  // Available metrics for current view
+  // Показатели, доступные на текущем уровне
   const availableMetrics: Metric[] = useMemo(() => {
+    const hasBudget = scopeHasBudget(scope) !== null;
+    const hasMethod = scopeHasMethod(scope) !== null;
     if (inDeptComposition) {
-      const hasBudgetScope = scopeHasBudget(scope) !== null;
-      const hasMethodScope = scopeHasMethod(scope) !== null;
-      if (hasBudgetScope) return ['plan', 'fact', 'economy'];
-      if (hasMethodScope) return ['count'];
-      return ['plan', 'fact', 'economy', 'count', 'execPct'];
+      if (hasBudget) return ['plan', 'fact', 'economy'];
+      if (hasMethod) return ['count'];
+      return ['plan', 'fact', 'economy', 'count'];
     }
     if (dimension === 'procurement') return ['count'];
     if (dimension === 'budget') return ['plan', 'fact', 'economy'];
-    if (dimension === 'execution') return ['execPct'];
-    // department
-    const hasBudget = scopeHasBudget(scope) !== null;
-    const hasMethod = scopeHasMethod(scope) !== null;
+    if (dimension === 'execution') return ['count'];
     if (hasBudget) return ['plan', 'fact', 'economy'];
     if (hasMethod) return ['count'];
-    return ['plan', 'fact', 'economy', 'count', 'execPct'];
+    return ['plan', 'fact', 'economy', 'count'];
   }, [dimension, scope, inDeptComposition]);
 
-  // Auto-correct metric if not in available
+  // Показатель мог остаться от прошлого уровня — вернуть в допустимые
   if (!availableMetrics.includes(metric)) {
-    // Defer via microtask to avoid setState during render
     queueMicrotask(() => setMetric(availableMetrics[0] ?? 'plan'));
   }
 
-  // Active-slice highlight (pop-out)
+  // Цвет и штриховка ряда: пара, а не один только цвет. Постоянство между
+  // уровнями раскрытия несёт цвет (deptColorMap); штриховка различает
+  // соседние сектора внутри одного круга и потому идёт по месту в нём.
+  const series = useMemo(() => data.map((d, i) => {
+    const color = d.color ?? chartColors[i % chartColors.length]!;
+    const pattern = getSeriesPattern(i);
+    const key = `${patternPrefix}-s${i}`;
+    return { key, color, pattern, fill: pattern === 'solid' ? color : `url(#${key})` };
+  }), [data, chartColors, patternPrefix]);
+
   const activeIndex = data.findIndex(d => d.id === activeSliceId);
-  const renderActiveShape = (props: any) => {
+
+  /** Выдвинутый сектор. Тень берёт чистый цвет: заливка может быть узором. */
+  const renderActiveShape = useCallback((props: any) => {
     const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+    const glow = series.find(s => s.fill === fill)?.color ?? '#71717a';
     return (
-      <g>
-        <Sector
-          cx={cx} cy={cy}
-          innerRadius={innerRadius}
-          outerRadius={outerRadius + 6}
-          startAngle={startAngle}
-          endAngle={endAngle}
-          fill={fill}
-          style={{ filter: `drop-shadow(0 2px 8px ${fill}66)` }}
-        />
-      </g>
+      <Sector
+        cx={cx} cy={cy}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 6}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        style={{ filter: `drop-shadow(0 2px 8px ${glow}66)` }}
+      />
     );
-  };
+  }, [series]);
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-      {/* Header: title + period indicator */}
+      <PatternDefs series={series} ink={patternInk} />
+
+      {/* Заголовок + период */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <KBTooltip metric={inDeptComposition ? 'dept_composition' : `pie_${dimension}`}>
@@ -526,13 +661,13 @@ export function DrillPieChart({
               className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[13rem]"
               title="Недельный выбор пока не сужает расчёт: агрегаты считаются по кварталам и месяцам. Числа выше — за указанный период, не за неделю."
             >
-              неделя {weekLabel} выбрана, но числа за {periodLabel.toLowerCase()}
+              неделя {weekLabel} выбрана, но числа за {periodLabel}
             </span>
           )}
         </div>
       </div>
 
-      {/* Breadcrumb — reverse navigation between drill levels */}
+      {/* Хлебная крошка */}
       {crumbs.length > 1 && (
         <div className="flex items-center gap-1 flex-wrap mb-2 text-[10px]">
           {crumbs.map((c, i) => {
@@ -558,7 +693,7 @@ export function DrillPieChart({
           <button
             onClick={resetAll}
             className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition"
-            title="Сбросить drill"
+            title="Вернуться к общему кругу"
           >
             <X size={10} />
             сбросить
@@ -566,7 +701,7 @@ export function DrillPieChart({
         </div>
       )}
 
-      {/* Dimension pills (top of drill) */}
+      {/* Измерения */}
       {!inDeptComposition && (
         <div className="flex flex-wrap gap-1 mb-2">
           {(Object.keys(DRILL_DIMENSION_LABELS) as DrillDimension[]).map(dim => (
@@ -586,7 +721,7 @@ export function DrillPieChart({
         </div>
       )}
 
-      {/* ГРБС / Организации toggle — applies to department & execution views */}
+      {/* ГРБС / Организации */}
       {!inDeptComposition && (dimension === 'department' || dimension === 'execution') && (
         <div className="inline-flex items-center gap-0 mb-2 p-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800">
           {(Object.keys(VIEW_LEVEL_LABELS) as ViewLevel[]).map(lv => (
@@ -606,7 +741,7 @@ export function DrillPieChart({
         </div>
       )}
 
-      {/* Metric pills — orthogonal to drill */}
+      {/* Показатели */}
       {availableMetrics.length > 1 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {availableMetrics.map(m => (
@@ -626,7 +761,7 @@ export function DrillPieChart({
         </div>
       )}
 
-      {/* Donut */}
+      {/* Круг */}
       <div className="relative">
         <ResponsiveContainer width="100%" height={210}>
           <PieChart>
@@ -649,7 +784,7 @@ export function DrillPieChart({
               {data.map((d, i) => (
                 <Cell
                   key={d.id}
-                  fill={d.color ?? chartColors[i % chartColors.length]}
+                  fill={series[i]?.fill ?? chartColors[i % chartColors.length]}
                   stroke={isDark ? '#18181b' : '#ffffff'}
                   strokeWidth={2}
                 />
@@ -663,26 +798,43 @@ export function DrillPieChart({
           </PieChart>
         </ResponsiveContainer>
 
-        {/* Center label */}
+        {/* Центр круга */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span className="text-[9px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold">
             {centerLabel}
           </span>
           <span className="text-sm font-bold text-zinc-800 dark:text-zinc-100 tabular-nums leading-tight">
-            {formatValue(total)}
+            {centerValue ?? formatValue(total)}
           </span>
-          <span className="text-[9px] text-zinc-400 mt-0.5">
+          <span className="text-[9px] text-zinc-400 mt-0.5 text-center px-6">
             {centerSub}
           </span>
         </div>
       </div>
 
-      {/* Legend — synchronized with slice clicks */}
+      {/* Что круг изобразить не смог и где он не сошёлся с итогом */}
+      {(gap || hidden.count > 0 || note) && (
+        <div className="mt-2 space-y-0.5 text-[9px] leading-tight text-center">
+          {note && <p className="text-zinc-400 dark:text-zinc-500">{note}</p>}
+          {hidden.count > 0 && (
+            <p className="text-amber-600 dark:text-amber-400">
+              {hidden.count} {pluralRu(hidden.count, 'срез', 'среза', 'срезов')} с отрицательным
+              значением ({formatValue(hidden.sum)}) круг не изображает
+            </p>
+          )}
+          {gap && (
+            <p className="text-amber-600 dark:text-amber-400" title={gap.title}>
+              {gap.text}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Легенда — синхронна с кругом */}
       <div className="mt-3 space-y-0.5 max-h-28 overflow-y-auto">
         {data.map((d, i) => {
           const pct = total > 0 ? (d.value / total) * 100 : 0;
           const active = activeSliceId === d.id;
-          const color = d.color ?? chartColors[i % chartColors.length];
           return (
             <button
               key={d.id}
@@ -698,14 +850,7 @@ export function DrillPieChart({
                     : ''
               )}
             >
-              <span
-                className="w-2 h-2 rounded-full shrink-0 transition-transform"
-                style={{
-                  background: color,
-                  transform: active ? 'scale(1.4)' : 'scale(1)',
-                  boxShadow: active ? `0 0 0 2px ${color}33` : 'none',
-                }}
-              />
+              <SeriesSwatch fill={series[i]?.fill ?? chartColors[i % chartColors.length]!} active={active} />
               <span className="text-[10px] text-zinc-600 dark:text-zinc-300 truncate flex-1">
                 {d.name}
               </span>
@@ -713,26 +858,26 @@ export function DrillPieChart({
                 {formatValue(d.value)}
               </span>
               <span className="text-[10px] font-mono tabular-nums text-zinc-400 shrink-0 w-8 text-right">
-                {pct.toFixed(0)}%
+                {pct.toFixed(0)} %
               </span>
             </button>
           );
         })}
         {data.length === 0 && (
           <div className="text-[10px] text-zinc-400 text-center py-4">
-            Нет данных для выбранного фильтра
+            За выбранный период и фильтры здесь нет ни одной строки
           </div>
         )}
       </div>
 
-      {/* Hint strip */}
+      {/* Подсказка по управлению */}
       {!inDeptComposition && data.some(d => d.drillable) && (
         <div className="mt-2 text-[9px] text-zinc-400 text-center">
           клик по срезу = детализация • клик по пути сверху = шаг назад
         </div>
       )}
 
-      {/* Dept toggle (filter) — explicit action, only in composition view */}
+      {/* Явное действие — не побочный эффект клика по срезу */}
       {inDeptComposition && onDeptToggle && (
         <button
           onClick={() => onDeptToggle(scopeHasDept(scope)!)}

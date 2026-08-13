@@ -198,8 +198,26 @@
   }
 
   /* ── Focus ring ────────────────────────────────────────────────── */
+  /* Кольцо рисуется outline'ом, а не ring-утилитой Tailwind. Две причины.
+     Первая: ring — это box-shadow, и его сносила любая кнопка со своей тенью
+     через !important (активный фильтр, барабан недели) — кольцо просто
+     пропадало. Вторая: полупрозрачный кремовый ring на кремовой заливке
+     активной кнопки не виден вовсе. Outline со смещением ложится на фон
+     контейнера, а не на саму кнопку, поэтому в тёмной теме он кремовый
+     (на чёрном хроме ≈13:1), в светлой — чернильный. */
   *:focus-visible {
-    @apply outline-none ring-2 ring-blue-500/40 ring-offset-1 ring-offset-white dark:ring-offset-zinc-950;
+    outline: 2px solid #2f2a20;
+    outline-offset: 2px;
+  }
+  .dark *:focus-visible {
+    outline-color: #f1e6cb;
+  }
+  /* Внутри барабанов места мало (у них overflow: hidden), поэтому кольцо
+     прижимается ближе — иначе его срезает край стекла. */
+  .tg-drum *:focus-visible,
+  .wr-drum *:focus-visible,
+  .vf-drum *:focus-visible {
+    outline-offset: 1px;
   }
 
   /* ── Selection ─────────────────────────────────────────────────── */
@@ -552,20 +570,20 @@
      Logo → NavDrum → TimeDrums → AuroraFilters → Tools
      All in one seamless flex line
      ═══════════════════════════════════════════════════ */
+  /* Раньше строка уезжала в горизонтальную прокрутку с намеренно спрятанной
+     полосой: на мониторе 1280 и тем более 1024 часть фильтров оказывалась за
+     краем, и узнать об этом было нельзя — прокрутки не видно, а колесом
+     барабаны листают годы, а не строку. Теперь строка переносится: шапка
+     становится выше на ряд, но ни одна кнопка не пропадает. Прокрутки нет —
+     значит и обрезать кольцо фокуса нечем. */
   .hbar {
     @apply flex items-center;
-    padding: 4px 10px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
     gap: 6px;
     border-bottom: 1px solid rgba(228, 228, 231, 0.25);
     min-height: 42px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    /* Hide scrollbar but allow scroll */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .hbar::-webkit-scrollbar {
-    display: none;
+    overflow: visible;
   }
   .dark .hbar {
     border-bottom-color: rgba(63, 63, 70, 0.25);
@@ -594,7 +612,6 @@
     padding: 0 2px;
     gap: 0;
     transition: transform 0.15s ease;
-    outline: none;
   }
   .shield-hub:hover {
     transform: scale(1.06);
@@ -645,12 +662,14 @@
     font-size: 7px;
     font-weight: var(--weight-strong);
     font-variant-numeric: tabular-nums;
-    color: rgba(113, 113, 122, 0.5);
+    /* Семь пикселей — на пределе читаемости, поэтому цвет здесь не «намёк»:
+       было 0.5/0.45 альфы (≈2,4:1 на чёрном), цифра просто не читалась. */
+    color: rgba(82, 82, 91, 0.9);
     line-height: 1;
     margin-top: -1px;
   }
   .dark .shield-timer {
-    color: rgba(161, 161, 170, 0.45);
+    color: rgba(190, 190, 200, 0.85);
   }
 
   /* ════════════════════════════════════════════
@@ -707,10 +726,15 @@
     font-weight: var(--weight-strong);
     letter-spacing: 0.01em;
     white-space: nowrap;
-    color: rgba(113, 113, 122, 0.55);
+    /* Название раздела — главный текст хрома. Прежние 0.55 альфы давали
+       около 2:1 к фону в обеих темах: подпись вкладки было не прочесть. */
+    color: rgba(82, 82, 91, 0.95);
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.04);
     transition: all 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .dark .np-content {
+    color: rgba(161, 161, 170, 0.88);
   }
   .np-btn:hover .np-content {
     color: rgba(63, 63, 70, 0.85);
@@ -723,12 +747,15 @@
     border-color: rgba(255, 255, 255, 0.08);
   }
 
-  /* Active — filled with brand color + Apple Intelligence glow */
+  /* Active — filled with brand color + Apple Intelligence glow.
+     Подпись чернильная, а не белая: заливка вкладки — светлый фирменный тон
+     (кремовый «Пульт», янтарный «Отчёт»), и белым по нему выходило 1,5–2,8:1.
+     Чернилами по тому же тону — от 4,8 до 12:1. Белое свечение под текстом
+     убрано: оно размывало теперь уже тёмные буквы. */
   .np-btn-active .np-content {
-    color: #fff !important;
+    color: #1b170f !important;
     background: var(--np-color, #bfa161) !important;
     border-color: transparent !important;
-    text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
   }
 
   /* Apple Intelligence rotating glow — pseudo-element behind active button */
@@ -853,7 +880,9 @@
     padding: 3px 8px;
     font-size: 10px;
     font-weight: var(--weight-strong);
-    color: rgba(113, 113, 122, 0.55);
+    /* КП/ЕП/ПМ/ФБ — это несокращаемые сокращения закона, догадаться по форме
+       нельзя, только прочитать. Прежние 0.55 альфы давали ≈1,9:1. */
+    color: rgba(82, 82, 91, 0.95);
     letter-spacing: 0.01em;
     transition:
       color 180ms cubic-bezier(0.23, 1, 0.32, 1),
@@ -864,6 +893,9 @@
     align-items: center;
     justify-content: center;
     gap: 3px;
+  }
+  .dark .vf-btn {
+    color: rgba(161, 161, 170, 0.88);
   }
   .vf-btn:hover {
     color: rgba(39, 39, 42, 0.85);
@@ -884,11 +916,16 @@
     min-width: 24px;
   }
 
-  /* Active button — blue glow */
+  /* Active button — cream fill, ink label.
+     Заливка была градиентом от светлого крема к бронзе, а подпись белой: у
+     верхнего края выходило 1,5:1, у нижнего 4,4:1 — то есть надпись на
+     включённом фильтре не читалась ни там, ни там. Градиент сведён к двум
+     соседним ступеням крема, подпись чернильная — 9,9:1 в любой точке.
+     Свечение под текстом убрано: по тёмным буквам оно даёт муть. */
   .vf-btn-active {
-    color: #fff !important;
-    background: linear-gradient(180deg, #e5d3a9 0%, #8f7549 100%) !important;
-    text-shadow: 0 0 10px rgba(191, 161, 97, 0.6) !important;
+    color: #1b170f !important;
+    background: linear-gradient(180deg, #e5d3a9 0%, #d6bf85 100%) !important;
+    text-shadow: none !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.22),
       inset 0 -1px 0 rgba(0, 0, 0, 0.12),
@@ -897,7 +934,7 @@
       0 2px 5px rgba(143, 117, 73, 0.30) !important;
   }
   .dark .vf-btn-active {
-    background: linear-gradient(180deg, #d6bf85 0%, #8f7549 100%) !important;
+    background: linear-gradient(180deg, #e5d3a9 0%, #d6bf85 100%) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.18),
       inset 0 -1px 0 rgba(0, 0, 0, 0.18),
@@ -906,33 +943,36 @@
       0 2px 5px rgba(143, 117, 73, 0.35) !important;
   }
 
-  /* Budget-specific active colors */
+  /* Budget-specific active colors — тон источника сохранён, подпись чернильная
+     по той же причине: белым по изумруду выходило 1,9:1, по янтарю 2,1:1. */
   .vf-budget-fb.vf-btn-active {
-    background: linear-gradient(180deg, #e5d3a9 0%, #8f7549 100%) !important;
+    background: linear-gradient(180deg, #e5d3a9 0%, #d6bf85 100%) !important;
   }
   .vf-budget-kb.vf-btn-active {
-    background: linear-gradient(180deg, #34d399 0%, #059669 100%) !important;
-    text-shadow: 0 0 10px rgba(16, 185, 129, 0.6) !important;
+    background: linear-gradient(180deg, #6ee7b7 0%, #34d399 100%) !important;
+    text-shadow: none !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.22),
       0 0 8px rgba(16, 185, 129, 0.55),
       0 0 16px rgba(16, 185, 129, 0.28) !important;
   }
   .vf-budget-mb.vf-btn-active {
-    background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%) !important;
-    text-shadow: 0 0 10px rgba(245, 158, 11, 0.65) !important;
+    background: linear-gradient(180deg, #fcd34d 0%, #fbbf24 100%) !important;
+    text-shadow: none !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.22),
       0 0 8px rgba(245, 158, 11, 0.55),
       0 0 16px rgba(245, 158, 11, 0.28) !important;
   }
 
-  /* Currency active — subtle not full fill */
+  /* Currency active — subtle not full fill.
+     Бронза #8f7549 на светлой подложке давала 3,9:1 — на десяти пикселях мало;
+     тон уведён на ступень глубже, до 6,2:1. */
   .vf-cur-active {
-    color: #8f7549 !important;
+    color: #6b562d !important;
     background: rgba(191, 161, 97, 0.10) !important;
     font-weight: var(--weight-strong);
-    text-shadow: 0 0 6px rgba(191, 161, 97, 0.4);
+    text-shadow: none;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.20),
       0 0 6px rgba(191, 161, 97, 0.22) !important;
@@ -1490,7 +1530,9 @@
   .tg-drum {
     @apply relative flex flex-col select-none overflow-hidden;
     border-radius: 14px;
-    padding: 2px 4px 2px 4px;
+    /* Отступ поднят с 2px: у стекла overflow: hidden, и кольцо фокуса на
+       крайних месяцах срезалось краем барабана. */
+    padding: 4px 6px;
     background:
       linear-gradient(180deg,
         rgba(255, 255, 255, 0.09) 0%,
@@ -1540,8 +1582,12 @@
     width: 11px;
     height: 11px;
     border-radius: 50%;
-    color: rgba(161, 161, 170, 0.3);
+    /* Крестик — управляющий элемент, ему нужны 3:1 к фону; 0.3 альфы давали 1,9. */
+    color: rgba(113, 113, 122, 0.9);
     z-index: 3;
+  }
+  .dark .tg-drum-reset {
+    color: rgba(170, 170, 180, 0.8);
   }
   .tg-drum-reset:hover {
     color: #ef4444;
@@ -1561,31 +1607,38 @@
     margin-top: 1px;
   }
 
-  /* Edge rows: CURVE around the surface — visible, smooth transitions */
+  /* Edge rows: CURVE around the surface — visible, smooth transitions.
+     Глубину теперь держат только перспектива и масштаб. Прозрачность поднята
+     с 0.45 до 0.82, размытие снято: годы в крайних рядах — такие же кнопки,
+     как в центральном, а сквозь 0.45 альфы и блюр они давали около 1,2:1. */
   .tg-row-first, .tg-row-last {
     transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1),
-                opacity 180ms ease, filter 180ms ease;
-    filter: blur(0.2px);
+                opacity 180ms ease;
   }
   .tg-row-first {
     transform: perspective(300px) rotateX(8deg) scale(0.95);
-    opacity: 0.45;
+    opacity: 0.82;
     transform-origin: center bottom;
   }
   .tg-row-last {
     transform: perspective(300px) rotateX(-8deg) scale(0.95);
-    opacity: 0.45;
+    opacity: 0.82;
     transform-origin: center top;
   }
   .tg-row-first:hover {
-    opacity: 0.75;
-    filter: blur(0px);
+    opacity: 1;
     transform: perspective(300px) rotateX(4deg) scale(0.97);
   }
   .tg-row-last:hover {
-    opacity: 0.75;
-    filter: blur(0px);
+    opacity: 1;
     transform: perspective(300px) rotateX(-4deg) scale(0.97);
+  }
+  /* Ряд с фокусом внутри выходит из перспективы целиком: кольцо на повёрнутой
+     плоскости читается как размазанное пятно. */
+  .tg-row-first:focus-within,
+  .tg-row-last:focus-within {
+    opacity: 1;
+    transform: none;
   }
 
   /* Active row = center, glass selection band with glow */
@@ -1628,42 +1681,49 @@
     letter-spacing: -0.01em;
     transition: all 180ms cubic-bezier(0.23, 1, 0.32, 1);
   }
+  /* Год — четыре цифры на десяти пикселях; прежние 0.45–0.55 альфы давали
+     1,7:1 в тёмной теме и почти белое на белом в светлой. */
+  /* Тон непрозрачный, а не rgba: поверх него ещё ложится приглушение крайних
+     рядов барабана (0.82), и два гашения подряд роняли светлую тему до 4,2:1. */
   .tg-year-idle {
-    color: rgba(161, 161, 170, 0.55);
+    color: #494952;
   }
   .tg-year-idle:hover {
-    color: rgba(214, 191, 133, 0.85);
+    color: #6b562d;
     background: rgba(191, 161, 97, 0.06);
-    text-shadow: 0 0 8px rgba(191, 161, 97, 0.2);
+    text-shadow: none;
   }
   .dark .tg-year-idle {
-    color: rgba(113, 113, 122, 0.45);
+    color: rgba(190, 190, 200, 0.9);
   }
   .dark .tg-year-idle:hover {
-    color: rgba(229, 211, 169, 0.85);
+    color: rgba(229, 211, 169, 0.95);
     background: rgba(191, 161, 97, 0.08);
-    text-shadow: 0 0 10px rgba(214, 191, 133, 0.25);
+    text-shadow: none;
   }
   .tg-year-partial {
-    color: rgba(214, 191, 133, 0.8);
-    text-shadow: 0 0 6px rgba(191, 161, 97, 0.15);
+    color: #6b562d;
+    text-shadow: none;
   }
   .dark .tg-year-partial {
-    color: rgba(229, 211, 169, 0.7);
-    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+    color: rgba(229, 211, 169, 0.9);
+    text-shadow: none;
   }
+  /* Заливка выбранного года была сине-бронзовой с белой подписью (около 4,4:1
+     на тёмном крае и 3,1:1 на светлом) — и вдобавок синей, чего канон хрому
+     не разрешает. Теперь крем с чернильной подписью: 9,9:1. */
   .tg-year-full {
-    color: #fff;
-    background: linear-gradient(135deg, #4d8ef7 0%, #8f7549 100%);
+    color: #1b170f;
+    background: linear-gradient(135deg, #e5d3a9 0%, #d6bf85 100%);
     box-shadow:
       0 1px 4px rgba(143, 117, 73, 0.35),
       0 0 12px rgba(191, 161, 97, 0.15),
       inset 0 1px 0 rgba(255, 255, 255, 0.18);
     font-weight: var(--weight-strong);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+    text-shadow: none;
   }
   .tg-year-full:hover {
-    background: linear-gradient(135deg, #5b99f8 0%, #bfa161 100%);
+    background: linear-gradient(135deg, #f0e2c2 0%, #e5d3a9 100%);
     box-shadow:
       0 2px 8px rgba(143, 117, 73, 0.4),
       0 0 20px rgba(191, 161, 97, 0.2),
@@ -1720,32 +1780,34 @@
     letter-spacing: 0.03em;
     min-width: 16px;
   }
+  /* Ярлык квартала — семь пикселей, самый мелкий текст в шапке. Прежние
+     0.3–0.35 альфы давали 1,4:1: подпись «1кв» была видна как серая царапина. */
   .tg-quarter-tab-idle {
-    color: rgba(161, 161, 170, 0.35);
+    color: #494952;
   }
   .tg-quarter-tab-idle:hover {
-    color: rgba(191, 161, 97, 0.6);
+    color: #6b562d;
   }
   .dark .tg-quarter-tab-idle {
-    color: rgba(113, 113, 122, 0.3);
+    color: rgba(180, 180, 190, 0.88);
   }
   .dark .tg-quarter-tab-idle:hover {
-    color: rgba(214, 191, 133, 0.5);
+    color: rgba(229, 211, 169, 0.95);
   }
   .tg-quarter-tab-partial {
-    color: rgba(191, 161, 97, 0.55);
+    color: #6b562d;
   }
   .dark .tg-quarter-tab-partial {
-    color: rgba(214, 191, 133, 0.45);
+    color: rgba(229, 211, 169, 0.85);
   }
   .tg-quarter-tab-full {
-    color: #bfa161;
+    color: #6b562d;
     font-weight: var(--weight-strong);
-    text-shadow: 0 0 6px rgba(191, 161, 97, 0.2);
+    text-shadow: none;
   }
   .dark .tg-quarter-tab-full {
-    color: #d6bf85;
-    text-shadow: 0 0 8px rgba(214, 191, 133, 0.25);
+    color: #e5d3a9;
+    text-shadow: none;
   }
 
   /* Month cell — premium micro button with glow */
@@ -1765,19 +1827,22 @@
     transform: scale(0.88);
     transition-duration: 60ms;
   }
+  /* Выбранный месяц — самая нажимаемая кнопка продукта. Белая подпись на
+     сине-бронзовом градиенте давала 2,9:1 у верхнего края; крем с чернильной
+     подписью даёт 9,9:1 и заодно убирает синий из хрома. */
   .tg-month-active {
-    color: #fff;
-    background: linear-gradient(180deg, #5b99f8 0%, #8f7549 100%);
+    color: #1b170f;
+    background: linear-gradient(180deg, #e5d3a9 0%, #d6bf85 100%);
     box-shadow:
       0 1px 3px rgba(143, 117, 73, 0.4),
       0 0 8px rgba(191, 161, 97, 0.2),
       0 0 0 0.5px rgba(143, 117, 73, 0.15),
       inset 0 1px 0 rgba(255, 255, 255, 0.2);
     font-weight: var(--weight-strong);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    text-shadow: none;
   }
   .tg-month-active:hover {
-    background: linear-gradient(180deg, #6ba3f9 0%, #bfa161 100%);
+    background: linear-gradient(180deg, #f0e2c2 0%, #e5d3a9 100%);
     box-shadow:
       0 2px 6px rgba(143, 117, 73, 0.45),
       0 0 14px rgba(191, 161, 97, 0.25),
@@ -1785,21 +1850,22 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.25);
     transform: scale(1.06);
   }
+  /* Невыбранный месяц: было 0.4 альфы в тёмной теме — 2,2:1. */
   .tg-month-idle {
-    color: rgba(113, 113, 122, 0.6);
+    color: #494952;
   }
   .dark .tg-month-idle {
-    color: rgba(161, 161, 170, 0.4);
+    color: rgba(190, 190, 200, 0.88);
   }
   .tg-month-idle:hover {
-    color: rgba(214, 191, 133, 0.9);
+    color: #6b562d;
     background: rgba(191, 161, 97, 0.06);
-    text-shadow: 0 0 6px rgba(191, 161, 97, 0.15);
+    text-shadow: none;
   }
   .dark .tg-month-idle:hover {
-    color: rgba(229, 211, 169, 0.85);
+    color: rgba(240, 226, 194, 0.95);
     background: rgba(191, 161, 97, 0.08);
-    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+    text-shadow: none;
   }
 
   /* Current month — living pulse dot with glow */
@@ -1815,12 +1881,14 @@
     width: 3px;
     height: 3px;
     border-radius: 50%;
-    background: #d6bf85;
+    /* Точка «сейчас» — сигнал, а не украшение: на светлой теме кремовая точка
+       на кремовом стекле давала 1,8:1 и терялась. */
+    background: #8f7549;
     box-shadow: 0 0 6px rgba(191, 161, 97, 0.6), 0 0 12px rgba(191, 161, 97, 0.3);
     animation: pulse-soft 2s ease-in-out infinite;
   }
   .dark .tg-month-now::after {
-    background: #93bbfc;
+    background: #e5d3a9;
     box-shadow: 0 0 8px rgba(214, 191, 133, 0.7), 0 0 16px rgba(214, 191, 133, 0.3);
   }
   .tg-month-active.tg-month-now::after {
@@ -1829,14 +1897,14 @@
 
   /* WeekRoller → TimeDrum link: glowing ring on pointed month */
   .tg-month-focused {
-    box-shadow: 0 0 0 1.5px rgba(191, 161, 97, 0.3), 0 0 8px rgba(191, 161, 97, 0.1);
-    color: rgba(214, 191, 133, 0.8) !important;
-    text-shadow: 0 0 6px rgba(191, 161, 97, 0.15);
+    box-shadow: 0 0 0 1.5px rgba(143, 117, 73, 0.55), 0 0 8px rgba(191, 161, 97, 0.1);
+    color: #6b562d !important;
+    text-shadow: none;
   }
   .dark .tg-month-focused {
-    box-shadow: 0 0 0 1.5px rgba(214, 191, 133, 0.25), 0 0 10px rgba(214, 191, 133, 0.12);
-    color: rgba(229, 211, 169, 0.75) !important;
-    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+    box-shadow: 0 0 0 1.5px rgba(214, 191, 133, 0.45), 0 0 10px rgba(214, 191, 133, 0.12);
+    color: rgba(240, 226, 194, 0.95) !important;
+    text-shadow: none;
   }
 
   /* (tg-clear removed — replaced by tg-drum-reset) */
@@ -1859,7 +1927,9 @@
         rgba(255, 255, 255, 0.01) 100%
       );
     border: 1px solid rgba(255, 255, 255, 0.10);
-    padding: 3px 6px;
+    /* Как и у правого барабана: место под кольцо фокуса, которое иначе
+       срезает overflow: hidden. */
+    padding: 5px 7px;
     backdrop-filter: blur(16px) saturate(160%);
     -webkit-backdrop-filter: blur(16px) saturate(160%);
     box-shadow:
@@ -1950,6 +2020,9 @@
     animation: month-glow-pulse 2s ease-in-out infinite;
   }
 
+  /* Центральная строка — настоящая <button>, соседние остаются <div>. Сброс
+     собственных стилей кнопки держим здесь, чтобы разметка обоих видов строк
+     выглядела одинаково. */
   .wr-row {
     @apply flex items-center gap-[3px];
     transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -1957,6 +2030,15 @@
     padding: 0 2px;
     position: relative;
     z-index: 3;
+    width: 100%;
+    background: none;
+    border: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+  }
+  button.wr-row {
+    cursor: pointer;
   }
   .wr-row + .wr-row {
     margin-top: 1px;
@@ -1982,12 +2064,13 @@
     border-bottom-color: rgba(214, 191, 133, 0.12);
     box-shadow: 0 0 14px rgba(191, 161, 97, 0.05);
   }
-  /* Edge rows — curve around drum, depth-of-field blur */
+  /* Edge rows — curve around drum.
+     Соседние недели — это даты, которые читают, а не фон. Прозрачность поднята
+     с 0.45 до 0.82, размытие снято: вместе они давали около 1,4:1. */
   .wr-row-edge {
-    opacity: 0.45;
-    filter: blur(0.3px);
+    opacity: 0.82;
     transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1),
-                opacity 180ms ease, filter 180ms ease;
+                opacity 180ms ease;
   }
   .wr-row:first-child.wr-row-edge {
     transform: perspective(300px) rotateX(8deg) scale(0.94);
@@ -1997,17 +2080,20 @@
     transform: perspective(300px) rotateX(-8deg) scale(0.94);
     transform-origin: center top;
   }
+  /* Курсор-палец с соседних строк убран: они не нажимаются, и обещать нажатие
+     нечестно — кликается только центральная. */
   .wr-row-edge:hover {
-    opacity: 0.7;
-    filter: blur(0px);
-    cursor: pointer;
+    opacity: 1;
   }
 
-  /* Week number micro-badge — improved visibility */
+  /* Week number micro-badge.
+     Все три подписи барабана недели раньше были заданы в светлых тонах без
+     разделения тем: на светлой теме это белое по белому, на тёмной — 2,4–2,6:1.
+     Теперь база тёмная (светлая тема), а .dark перекрывает светлой. */
   .wr-wnum {
     font-size: 8px;
     font-weight: var(--weight-strong);
-    color: rgba(148, 163, 184, 0.5);
+    color: #494952;
     width: 18px;
     text-align: right;
     flex-shrink: 0;
@@ -2024,7 +2110,7 @@
   .wr-range {
     font-size: 10.5px;
     font-weight: var(--weight-strong);
-    color: rgba(226, 232, 240, 0.7);
+    color: rgba(63, 63, 70, 0.95);
     white-space: nowrap;
     letter-spacing: -0.01em;
     font-variant-numeric: tabular-nums;
@@ -2032,52 +2118,43 @@
   .wr-month {
     font-size: 8.5px;
     font-weight: var(--weight-medium);
-    color: rgba(148, 163, 184, 0.55);
+    color: #494952;
     letter-spacing: 0.02em;
   }
-  /* Active row labels — bright, glowing */
+  /* Active row labels */
   .wr-row-active .wr-range {
-    color: #f1e6cb;
+    color: #6b562d;
     font-weight: var(--weight-strong);
-    text-shadow: 0 0 10px rgba(214, 191, 133, 0.25), 0 1px 2px rgba(0, 0, 0, 0.12);
+    text-shadow: none;
   }
-  .wr-row-active .wr-month {
-    color: rgba(229, 211, 169, 0.7);
-    text-shadow: 0 0 6px rgba(214, 191, 133, 0.15);
-  }
+  .wr-row-active .wr-month,
   .wr-row-active .wr-wnum {
-    color: rgba(214, 191, 133, 0.7);
-    text-shadow: 0 0 8px rgba(214, 191, 133, 0.25);
+    color: rgba(107, 86, 45, 0.9);
+    text-shadow: none;
   }
-  /* Edge row labels — visible but receding */
+  /* Edge row labels — приглушены самой строкой (opacity 0.82); отдельного
+     ослабления цвета больше нет, иначе на них накладывалось два гашения. */
   .wr-row-edge .wr-range {
     font-weight: var(--weight-medium);
-    color: rgba(148, 163, 184, 0.5);
-  }
-  .wr-row-edge .wr-month {
-    color: rgba(148, 163, 184, 0.35);
-  }
-  .wr-row-edge .wr-wnum {
-    opacity: 0.7;
   }
   /* Dark overrides */
+  .dark .wr-wnum {
+    color: rgba(175, 182, 196, 0.88);
+  }
   .dark .wr-range {
-    color: rgba(226, 232, 240, 0.6);
+    color: rgba(226, 232, 240, 0.9);
   }
   .dark .wr-month {
-    color: rgba(148, 163, 184, 0.45);
+    color: rgba(175, 182, 196, 0.88);
   }
   .dark .wr-row-active .wr-range {
     color: #f1e6cb;
-    text-shadow: 0 0 12px rgba(214, 191, 133, 0.30), 0 1px 2px rgba(0, 0, 0, 0.15);
+    text-shadow: none;
   }
-  .dark .wr-row-active .wr-month {
-    color: rgba(229, 211, 169, 0.65);
-    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
-  }
+  .dark .wr-row-active .wr-month,
   .dark .wr-row-active .wr-wnum {
-    color: rgba(214, 191, 133, 0.65);
-    text-shadow: 0 0 10px rgba(214, 191, 133, 0.3);
+    color: rgba(229, 211, 169, 0.92);
+    text-shadow: none;
   }
 
 
@@ -2092,7 +2169,10 @@
     background: rgba(191, 161, 97, 0.06) !important;
   }
   .wr-row-driving .wr-wnum {
-    color: rgba(214, 191, 133, 0.9) !important;
+    color: #6b562d !important;
+  }
+  .dark .wr-row-driving .wr-wnum {
+    color: rgba(229, 211, 169, 0.95) !important;
   }
   .dark .wr-drum-active {
     border-color: rgba(214, 191, 133, 0.20) !important;
@@ -2117,7 +2197,12 @@
            transition-all duration-150 select-none;
     width: 22px;
     height: 22px;
-    color: rgba(161, 161, 170, 0.6);
+    /* Рисунок без подписи: значку нужны 3:1 к фону, 0.6 альфы давали 3,3 —
+       на грани. Поднято до уверенных 4:1 с запасом. */
+    color: rgba(113, 113, 122, 0.9);
+  }
+  .dark .hf-icon-btn {
+    color: rgba(170, 170, 180, 0.8);
   }
   .hf-icon-btn:hover {
     color: rgba(113, 113, 122, 0.9);
@@ -3393,24 +3478,28 @@
 .ob-vse-label {
   font-size: 10px;
   font-weight: 650;
-  color: rgba(63, 63, 70, 0.65);
+  color: rgba(63, 63, 70, 0.92);
   letter-spacing: 0.03em;
 }
 .ob-vse-active .ob-vse-label {
-  color: #8f7549;
+  color: #6b562d;
 }
 .dark .ob-vse-label {
-  color: rgba(161, 161, 170, 0.6);
+  color: rgba(212, 212, 216, 0.88);
 }
 .dark .ob-vse-active .ob-vse-label {
-  color: #d6bf85;
+  color: #e5d3a9;
 }
 .ob-vse-count {
   font-size: 8px;
   font-weight: var(--weight-strong);
-  color: rgba(161, 161, 170, 0.4);
+  /* Число организаций читают, а не угадывают: 0.4 альфы давали 2,2:1. */
+  color: rgba(82, 82, 91, 0.85);
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+.dark .ob-vse-count {
+  color: rgba(190, 190, 200, 0.8);
 }
 
 /* Scrollable area */
@@ -3418,7 +3507,9 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 2px 0 8px;
+  /* Боковые 3px — место под кольцо фокуса крайних чипов: горизонтальная
+     прокрутка здесь скрыта, и без запаса кольцо срезалось. */
+  padding: 2px 3px 8px;
 }
 .ob-scroll::-webkit-scrollbar {
   width: 2px;
@@ -3443,11 +3534,15 @@
 .ob-dept[data-active] {
   opacity: 1;
 }
+/* Управление вне текущего фильтра гасится, но остаётся нажимаемой кнопкой.
+   При 0.35 прозрачности его название давало около 1,5:1 — то есть кнопка,
+   которую нельзя прочитать. Приглушение оставлено, но в пределах читаемости. */
 .ob-dept:not([data-active]) {
-  opacity: 0.35;
+  opacity: 0.85;
 }
-.ob-dept:not([data-active]):hover {
-  opacity: 0.65;
+.ob-dept:not([data-active]):hover,
+.ob-dept:not([data-active]):focus-within {
+  opacity: 1;
 }
 
 /* Department header button */
@@ -3495,7 +3590,12 @@
   border-radius: 2px;
   flex-shrink: 0;
   transition: all 0.2s ease;
-  box-shadow: 0 0 3px rgba(0, 0, 0, 0.05);
+  /* На светлой теме кремовая и янтарная полоски сливались с фоном (около
+     1,8:1). Тонкая тёмная обводка возвращает границу, не трогая сам тон. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
+}
+.dark .ob-dept-bar {
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.35);
 }
 .ob-dept-active .ob-dept-bar {
   height: 18px;
@@ -3506,7 +3606,7 @@
 .ob-dept-name {
   font-size: 10px;
   font-weight: var(--weight-strong);
-  color: rgba(63, 63, 70, 0.75);
+  color: rgba(63, 63, 70, 0.92);
   letter-spacing: 0.02em;
   white-space: nowrap;
   overflow: hidden;
@@ -3514,16 +3614,18 @@
   transition: color 0.15s ease;
 }
 .ob-dept-active .ob-dept-name {
-  color: rgba(39, 39, 42, 0.95);
+  color: rgba(39, 39, 42, 0.98);
 }
 .dark .ob-dept-name {
-  color: rgba(161, 161, 170, 0.65);
+  color: rgba(212, 212, 216, 0.9);
 }
 .dark .ob-dept-active .ob-dept-name {
-  color: rgba(228, 228, 231, 0.92);
+  color: rgba(240, 240, 244, 0.96);
 }
 
-/* Sub count badge */
+/* Sub count badge — цвет управления держит подложка (задаётся в разметке
+   прозрачным тоном), сама цифра нейтральная и непрозрачная: тонкий тон на
+   семи пикселях под 0.6 прозрачности давал 2,3:1. */
 .ob-dept-num {
   margin-left: auto;
   font-size: 7px;
@@ -3531,12 +3633,11 @@
   font-variant-numeric: tabular-nums;
   padding: 1px 4px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
-  opacity: 0.6;
+  color: rgba(63, 63, 70, 0.85);
   flex-shrink: 0;
 }
 .dark .ob-dept-num {
-  background: rgba(255, 255, 255, 0.05);
+  color: rgba(212, 212, 216, 0.85);
 }
 
 /* "Только управление" sub-button — premium pill */
@@ -3555,7 +3656,9 @@
   font-family: inherit;
   font-size: 7px;
   font-weight: var(--weight-strong);
-  color: rgba(113, 113, 122, 0.38);
+  /* Подпись кнопки, а не водяной знак: 0.38 альфы давала около 2:1. Тон
+     непрозрачный — сверху ещё ложится приглушение неактивного управления. */
+  color: #4b4b53;
   cursor: pointer;
   text-align: center;
   letter-spacing: 0.04em;
@@ -3587,7 +3690,7 @@
 }
 .dark .ob-dept-only {
   border-color: rgba(255, 255, 255, 0.06);
-  color: rgba(161, 161, 170, 0.32);
+  color: rgba(190, 190, 200, 0.85);
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.04) 0%,
@@ -3600,13 +3703,16 @@
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
 }
 .ob-dept-only-active {
-  color: rgba(191, 161, 97, 0.8) !important;
-  border-color: rgba(191, 161, 97, 0.25) !important;
+  color: #6b562d !important;
+  border-color: rgba(191, 161, 97, 0.45) !important;
   background: linear-gradient(135deg, rgba(191, 161, 97, 0.08), rgba(191, 161, 97, 0.03)) !important;
   box-shadow: 0 0 6px rgba(191, 161, 97, 0.10);
 }
 .ob-dept-only-active::before {
   opacity: 0 !important;
+}
+.dark .ob-dept-only-active {
+  color: #e5d3a9 !important;
 }
 
 /* Chips container */
@@ -3631,7 +3737,9 @@
       rgba(255, 255, 255, 0.04) 0%,
       rgba(255, 255, 255, 0.01) 100%
     );
-  color: rgba(113, 113, 122, 0.55);
+  /* Восемь пикселей — предел; сокращение вроде «ЕСШ9» на таком кегле нужно
+     разобрать буква в букву, поэтому 0.55/0.45 альфы (2,4:1) не годятся. */
+  color: #4b4b53;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -3650,7 +3758,7 @@
   transform: scale(0.94);
 }
 .dark .ob-chip {
-  color: rgba(161, 161, 170, 0.45);
+  color: rgba(200, 200, 210, 0.9);
   border-color: rgba(255, 255, 255, 0.06);
   background:
     linear-gradient(180deg,
@@ -3665,13 +3773,17 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
-/* Active chip — soft glow */
+/* Active chip — soft glow.
+   Цвет группы остался только в рамке чипа: как текст тонкий тон не набирал
+   4,5:1 ни на светлой теме, ни на чёрной (кремовый на белом — 1,8:1). */
 .ob-chip-active {
   font-weight: var(--weight-strong);
+  color: #6b562d !important;
   background: rgba(191, 161, 97, 0.06) !important;
   box-shadow: 0 0 4px rgba(191, 161, 97, 0.08);
 }
 .dark .ob-chip-active {
+  color: #f0e2c2 !important;
   background: rgba(191, 161, 97, 0.10) !important;
   box-shadow: 0 0 6px rgba(191, 161, 97, 0.10);
 }
@@ -3682,7 +3794,8 @@
   align-items: center;
   gap: 2px;
   font-weight: var(--weight-strong);
-  opacity: 0.55;
+  /* Было 0.55 — вместе с базовым тоном чипа около 3:1 на восьми пикселях. */
+  opacity: 0.9;
   border-style: dashed;
   letter-spacing: 0;
 }
@@ -3809,6 +3922,12 @@
     transparent 100%
   );
 }
+/* Пока фокус внутри колонки, растушёвка краёв снимается: иначе кнопка,
+   до которой доехали табуляцией, растворяется вместе с кольцом фокуса. */
+.ob-scroll:focus-within {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
 
 /* ════════════════════════════════════════════════════════════════════
    ЧИСЛОВАЯ ТИПОГРАФИКА — утилиты
@@ -3839,5 +3958,109 @@
     font-variant-numeric: tabular-nums;
     font-feature-settings: var(--numeric-features);
     text-align: right;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ССЫЛКА «К СОДЕРЖИМОМУ»
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Первая остановка табуляции на странице. Спрятана за верхним краем окна и
+   выезжает, как только получает фокус: до чисел иначе приходится прощёлкивать
+   всю шапку и колонку организаций — это шесть-семь десятков кнопок.
+   Скрываем сдвигом, а не display: none — иначе ссылка выпадает из порядка
+   табуляции и смысл теряется. */
+.skip-link {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 200;
+  transform: translateY(calc(-100% - 20px));
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: #1b170f;
+  color: #f1e6cb;
+  font-size: 13px;
+  font-weight: var(--weight-strong);
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   УЗКИЕ РАБОЧИЕ МЕСТА — 1280 и 1024 по ширине
+   Администрация сидит не на 4K. Шапка переносится строками (см. .hbar), а
+   колонка организаций отдаёт часть ширины основному содержимому.
+   ════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1280px) {
+  .ob-strip {
+    width: 176px;
+    min-width: 176px;
+  }
+  .ob-chip {
+    max-width: 76px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .ob-strip {
+    width: 158px;
+    min-width: 158px;
+  }
+  .ob-chip {
+    max-width: 66px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   СИСТЕМНАЯ НАСТРОЙКА «УМЕНЬШИТЬ ДВИЖЕНИЕ»
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Интерфейс плотно населён бесконечными циклами: вращение свечения активной
+   вкладки, дыхание выбранного месяца, мерцание чипов, пульс полоски
+   управления. Для человека с вестибулярным расстройством это не украшение, а
+   причина закрыть вкладку. Настройка операционной системы гасит всё разом.
+   Анимации не отключаются, а сжимаются до мгновения: элементы с fill-mode
+   both должны дойти до конечного состояния, иначе они останутся невидимыми. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+  html {
+    scroll-behavior: auto !important;
+  }
+  /* Наведение и нажатие больше не двигают элемент — остаётся смена цвета. */
+  .card:hover,
+  .card-glow:hover,
+  .analytics-kpi:hover,
+  .vf-drum:hover,
+  .wr-drum:hover,
+  .tg-drum:hover,
+  .shield-hub:hover,
+  .shield-hub:active,
+  .np-btn:active,
+  .vf-btn:active,
+  .tg-month:active,
+  .tg-year-full:hover,
+  .tg-month-active:hover,
+  .ob-chip:hover,
+  .ob-chip:active,
+  .ob-dept-btn:active,
+  .ob-dept-only:hover,
+  .ob-dept-only:active,
+  .ob-dept-btn:hover .ob-dept-bar,
+  .ob-dept-btn:hover .ob-dept-name {
+    transform: none !important;
   }
 }

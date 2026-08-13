@@ -1,3 +1,10 @@
+// ── Утверждённая экономия за выбранный период: один обход для всех
+//    потребителей (карточка «Обзора», итог страницы, слой mdm).
+//
+//    Экономия здесь — только AD-подтверждённая (Z+AA+AB при флаге «да»),
+//    никогда не «план − факт»: последнее считает неосвоенный лимит, а не
+//    экономию (METRICS_CONTRACT.md, строки 10-11 и 47).
+
 const QUARTER_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
 
 export interface EconomyMetricSource {
@@ -9,6 +16,8 @@ export interface EconomyMetricSource {
 
 export interface EconomyDepartmentSource extends EconomyMetricSource {
   quarters?: Partial<Record<string, EconomyMetricSource | null>>;
+  /** Короткое имя управления — нужно, чтобы честно назвать пропущенные. */
+  dept?: string;
 }
 
 export interface EconomyTotalInput {
@@ -16,6 +25,22 @@ export interface EconomyTotalInput {
   periodKey?: string;
   coveredQuarters?: string[];
   selectedBudgets?: Set<string>;
+}
+
+/** Разбор итога: сколько сложено, откуда и что в итог не попало. */
+export interface EconomyTotalBreakdown {
+  /** Итог, который выводится на экран. */
+  total: number;
+  /** Часть итога, сложенная из квартальных строк. */
+  fromQuarters: number;
+  /** Часть, взятая с уровня управления (у него нет квартальной разбивки). */
+  fromDeptLevel: number;
+  /**
+   * Управления, чья экономия в итог не вошла: квартальной разбивки нет, а
+   * период уже сужен, и годовое число подставить нельзя — оно относится к
+   * другому отрезку времени. Пустой массив = итог полон.
+   */
+  missingDepts: string[];
 }
 
 function asNumber(value: unknown): number {
@@ -54,24 +79,64 @@ function selectedQuarterKeys(input: EconomyTotalInput): string[] {
   return [...QUARTER_KEYS];
 }
 
-export function getFilteredEconomyTotal(input: EconomyTotalInput): number {
+/**
+ * Итог с разбором происхождения.
+ *
+ * Решение принимается ПО КАЖДОМУ управлению отдельно. Раньше флаг «нашлись
+ * квартальные данные» был общим на весь обход: стоило одному управлению
+ * иметь разбивку по кварталам, как все остальные молча давали ноль — итог
+ * страницы оказывался меньше суммы карточек, и объяснить разницу было нечем.
+ *
+ * Управление без квартальной разбивки попадает в итог только когда выбран
+ * весь год: тогда годовое число и есть число за период. При суженном
+ * периоде подставить годовое нельзя — это было бы приписанное число, — и
+ * управление называется в `missingDepts`, чтобы экран сказал о пропуске
+ * вслух, а не сделал вид, что экономии не было.
+ */
+export function getEconomyTotalBreakdown(input: EconomyTotalInput): EconomyTotalBreakdown {
   const quarterKeys = selectedQuarterKeys(input);
-  let fromQuarters = 0;
-  let sawQuarterData = false;
+  const wholeYearSelected = quarterKeys.length === QUARTER_KEYS.length;
 
-  for (const dept of input.depts) {
+  let fromQuarters = 0;
+  let fromDeptLevel = 0;
+  const missingDepts: string[] = [];
+
+  input.depts.forEach((dept, index) => {
+    let deptHasQuarterData = false;
+    let deptSum = 0;
+
     for (const qk of quarterKeys) {
       const quarter = dept?.quarters?.[qk];
       if (!quarter) continue;
-      sawQuarterData = true;
-      fromQuarters += selectedEconomy(quarter, input.selectedBudgets);
+      deptHasQuarterData = true;
+      deptSum += selectedEconomy(quarter, input.selectedBudgets);
     }
-  }
 
-  if (sawQuarterData) return fromQuarters;
+    if (deptHasQuarterData) {
+      fromQuarters += deptSum;
+      return;
+    }
 
-  return input.depts.reduce(
-    (sum, dept) => sum + selectedEconomy(dept, input.selectedBudgets),
-    0,
-  );
+    if (wholeYearSelected) {
+      fromDeptLevel += selectedEconomy(dept, input.selectedBudgets);
+      return;
+    }
+
+    // Экономия у управления есть, но отнести её к выбранному отрезку нечем.
+    if (selectedEconomy(dept, input.selectedBudgets) !== 0) {
+      missingDepts.push(dept?.dept ?? `управление ${index + 1}`);
+    }
+  });
+
+  return {
+    total: fromQuarters + fromDeptLevel,
+    fromQuarters,
+    fromDeptLevel,
+    missingDepts,
+  };
+}
+
+/** Итог одним числом — для потребителей, которым разбор не нужен. */
+export function getFilteredEconomyTotal(input: EconomyTotalInput): number {
+  return getEconomyTotalBreakdown(input).total;
 }

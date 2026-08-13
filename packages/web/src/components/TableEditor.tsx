@@ -1,8 +1,8 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type RefObject } from 'react';
 import {
   Save, Undo2, PlusCircle,
-  ArrowUpDown, ArrowUp, ArrowDown,
-  AlertCircle, Info,
+  ArrowUpDown, ArrowUp, ArrowDown, ArrowUpToLine,
+  AlertCircle, Info, Columns3, Copy, MapPin, X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { formatDateCell } from '../lib/sheet-date';
@@ -49,7 +49,29 @@ export interface TableEditorProps {
   emptyReason?: string;
   /** Постоянная оговорка о границах редактора (что он умеет, а что делается в книге). */
   notice?: string;
+  /**
+   * Адрес строки в книге («лист · строка») — редактор его не выводит сам:
+   * он не знает, из какого листа пришла строка, и выдумывать не станет.
+   */
+  rowAddress?: (row: RowData) => string | null;
+  /**
+   * Имя набора настроек вида (ширины, скрытые столбцы, сортировка) в хранилище
+   * браузера. Без него вид не переживает перезагрузку — и это осознанный выбор
+   * вызывающего, а не молчаливая потеря.
+   */
+  prefsName?: string;
 }
+
+/** Настройки вида таблицы, переживающие перезагрузку страницы. */
+interface EditorViewPrefs {
+  widths: Record<string, number>;
+  hidden: string[];
+  sortKey: string | null;
+  sortDir: SortDir;
+}
+
+/** Уже, чем это, столбец превращается в полоску без содержимого. */
+const MIN_COLUMN_WIDTH = 56;
 
 type SortDir = 'asc' | 'desc';
 
@@ -131,6 +153,236 @@ function humanSaveError(err: unknown): string {
 }
 
 // ────────────────────────────────────────────────────────────
+// Общие механизмы больших таблиц
+//
+// Живут в этом файле, а не в отдельном модуле: потребителей ровно два —
+// редактор и реестр, а реестр уже связан с редактором импортом. Заводить дом
+// ради двух соседей значило бы плодить пустой дом.
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Значение для буфера обмена. Табуляция и перевод строки внутри значения
+ * разорвали бы одну ячейку на несколько, поэтому такое значение берётся в
+ * кавычки по правилу, которое одинаково понимают Excel и Р7-Офис.
+ */
+export function tsvCell(value: unknown): string {
+  const raw = value === null || value === undefined ? '' : String(value);
+  return /["\t\r\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+/** Строка таблицы для вставки в лист: значения через табуляцию. */
+export function rowToTsv(values: readonly unknown[]): string {
+  return values.map(tsvCell).join('\t');
+}
+
+/**
+ * Адрес строки для разговора и письма: «лист · строка». Нет имени листа или
+ * номера — адреса нет вовсе: выдуманный адрес хуже отсутствующего, по нему
+ * пойдут искать не туда.
+ */
+export function formatRowAddress(sheet: unknown, rowIndex: unknown): string | null {
+  const name = String(sheet ?? '').trim();
+  const num = typeof rowIndex === 'number' ? rowIndex : Number(rowIndex);
+  if (!name || !Number.isFinite(num) || num <= 0) return null;
+  return `${name} · строка ${Math.trunc(num)}`;
+}
+
+/**
+ * Копирование в буфер обмена. Современный путь требует защищённого протокола и
+ * разрешения, а дэш в казённом контуре открывают и по http — отсюда запасной
+ * путь через скрытое поле. Возвращается признак успеха: молчаливый отказ буфера
+ * заставляет вставлять пустоту и гадать, почему.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Запрет буфера — не отказ: ниже запасной путь.
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Что сказать после попытки копирования — включая честное признание отказа. */
+export const COPY_REFUSED_NOTE =
+  'Браузер не дал доступ к буферу обмена — скопируйте выделение вручную.';
+
+/** Версия схемы хранимых настроек таблиц: смена ключа обнуляет их намеренно. */
+const TABLE_PREFS_SCHEMA = 1;
+
+/**
+ * Отпечаток набора колонок. Настройки вида (ширины, скрытые столбцы,
+ * сортировка) привязаны к нему: если набор колонок сменился, прежние настройки
+ * описывают уже не эту таблицу — их надо забыть, а не натягивать на новый вид.
+ */
+export function columnsFingerprint(keys: readonly string[]): string {
+  return [...keys].sort().join('|');
+}
+
+function prefsStorageKey(name: string): string {
+  return `aemr.table.${name}.v${TABLE_PREFS_SCHEMA}`;
+}
+
+/** Настройки таблицы из хранилища браузера; при любом сомнении — null, то есть вид по умолчанию. */
+export function readTablePrefs<T>(name: string, fingerprint: string): T | null {
+  try {
+    const raw = localStorage.getItem(prefsStorageKey(name));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { fingerprint?: string; value?: T } | null;
+    if (!parsed || parsed.fingerprint !== fingerprint) return null;
+    return (parsed.value ?? null) as T | null;
+  } catch {
+    // Приватный режим, чужой формат, испорченная запись — вид по умолчанию.
+    return null;
+  }
+}
+
+export function writeTablePrefs<T>(name: string, fingerprint: string, value: T): void {
+  try {
+    localStorage.setItem(prefsStorageKey(name), JSON.stringify({ fingerprint, value }));
+  } catch {
+    // Переполненное или запрещённое хранилище — не повод ронять экран.
+  }
+}
+
+/** Ширина колонки по умолчанию: из класса вида `w-28` (шаг Tailwind — 4 пикселя). */
+export function defaultColumnWidth(column: { width?: string; type?: CellType }): number {
+  const match = /^w-(\d+)$/.exec(column.width ?? '');
+  if (match) return Number(match[1]) * 4;
+  return column.type === 'text' ? 240 : 140;
+}
+
+/**
+ * Сколько строк осталось ниже видимой части. Поиск делением пополам, а не
+ * перебором: в реестре бывают тысячи строк, а счёт идёт на каждом кадре
+ * прокрутки — перебор превратил бы индикатор в тормоз.
+ */
+export function countRowsBelow(
+  count: number,
+  topAt: (index: number) => number | null,
+  viewportBottom: number,
+): number {
+  let lo = 0;
+  let hi = count;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const top = topAt(mid);
+    if (top !== null && top >= viewportBottom) hi = mid;
+    else lo = mid + 1;
+  }
+  return Math.max(0, count - lo);
+}
+
+/**
+ * Подпись индикатора прокрутки. Ниже ничего нет — подписи нет вовсе: строка
+ * «Конец списка» под каждой короткой таблицей была бы шумом, а не сведением.
+ */
+export function describeRowsBelow(rowsBelow: number): string | null {
+  if (rowsBelow <= 0) return null;
+  return `Ниже ещё ${rowsBelow} ${pluralRu(rowsBelow, 'строка', 'строки', 'строк')}`;
+}
+
+export interface TableScrollState {
+  /** Строк, чей верхний край ниже видимой части. */
+  rowsBelow: number;
+  /** Прокручено больше экрана — пора предлагать возврат наверх. */
+  showBackToTop: boolean;
+  scrollToTop: () => void;
+}
+
+/** Глубина прокрутки области таблицы: индикатор «сколько ниже» и кнопка «наверх». */
+export function useTableScroll(
+  containerRef: RefObject<HTMLDivElement | null>,
+  rowRefs: RefObject<(HTMLTableRowElement | null)[]>,
+  rowCount: number,
+): TableScrollState {
+  const [rowsBelow, setRowsBelow] = useState(0);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const frameRef = useRef<number | null>(null);
+
+  const measure = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    // Сравниваем в координатах окна, а не через offsetTop: точка отсчёта у
+    // offsetTop — ближайший позиционированный предок, и он не обязан совпадать
+    // с областью прокрутки, отчего счёт молча смещался бы на высоту карточки.
+    const bottom = el.getBoundingClientRect().bottom;
+    setRowsBelow(countRowsBelow(
+      rowCount,
+      (i) => rowRefs.current?.[i]?.getBoundingClientRect().top ?? null,
+      bottom,
+    ));
+    setShowBackToTop(el.scrollTop > el.clientHeight);
+  }, [containerRef, rowRefs, rowCount]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      // Замер отложен до кадра отрисовки: события прокрутки летят чаще кадров,
+      // а замер читает геометрию и заставляет браузер пересчитывать раскладку.
+      if (frameRef.current !== null) return;
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        measure();
+      });
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const observer = new ResizeObserver(onScroll);
+    observer.observe(el);
+    measure();
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      observer.disconnect();
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    };
+  }, [containerRef, measure]);
+
+  const scrollToTop = useCallback(() => {
+    const reduce = typeof matchMedia === 'function'
+      && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    containerRef.current?.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+  }, [containerRef]);
+
+  return { rowsBelow, showBackToTop, scrollToTop };
+}
+
+/**
+ * Ввод ли это. Горячие клавиши экрана не должны срабатывать, пока человек
+ * набирает текст: «/» в поле поиска обязано остаться символом, а не командой.
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+/** Общая обёртка прокручиваемой области таблицы: прилипшая шапка живёт только внутри неё. */
+export const TABLE_SCROLL_AREA = 'relative overflow-auto max-h-[68vh]';
+/** Непрозрачная поверхность прилипших ячеек: сквозь полупрозрачную просвечивают строки. */
+export const STICKY_SURFACE = 'bg-white dark:bg-zinc-900';
+/** Шов прилипшего первого столбца — тенью, а не рамкой: рамка прилипшей ячейки не рисуется. */
+export const STICKY_SEAM =
+  'shadow-[inset_-1px_0_0_0_rgba(0,0,0,0.07)] dark:shadow-[inset_-1px_0_0_0_rgba(255,255,255,0.07)]';
+
+// ────────────────────────────────────────────────────────────
 // Компонент
 // ────────────────────────────────────────────────────────────
 
@@ -145,6 +397,8 @@ export function TableEditor({
   readOnly = false,
   emptyReason,
   notice,
+  rowAddress,
+  prefsName,
 }: TableEditorProps) {
   // Правки: строка → набор изменённых столбцов
   const [dirty, setDirty] = useState<Record<string, Set<string>>>({});
@@ -169,8 +423,23 @@ export function TableEditor({
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [newColLabel, setNewColLabel] = useState('');
   const [newColType, setNewColType] = useState<CellType>('text');
+  // Вид таблицы: ширины столбцов и скрытые столбцы (переживают перезагрузку)
+  const [widths, setWidths] = useState<Record<string, number>>({});
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  // Ячейка под курсором клавиатуры — её копирует Ctrl+C
+  const [focusedCell, setFocusedCell] = useState<CellEdit | null>(null);
+  // Короткий отчёт о копировании: удалось или почему нет
+  const [copyNote, setCopyNote] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const columnsMenuRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const headerRowRef = useRef<HTMLTableRowElement>(null);
+  // Высота первой строки шапки: на неё опускается прилипшая строка фильтров.
+  // Замеряется, а не задаётся числом, — подписи столбцов переносятся по-разному.
+  const [headerHeight, setHeaderHeight] = useState(0);
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -181,6 +450,49 @@ export function TableEditor({
     }
   }, [editingCell]);
 
+  useEffect(() => {
+    const el = headerRowRef.current;
+    if (!el) return;
+    // Высота округляется до целого, и равное значение не записывается: замеренная
+    // высота дробная, а от неё зависит положение прилипшей строки фильтров —
+    // дробь качалась бы на сотые доли, наблюдатель размера будил бы перерисовку,
+    // та меняла бы дробь, и так без конца.
+    const sync = () => {
+      const next = Math.round(el.getBoundingClientRect().height);
+      setHeaderHeight(prev => (prev === next ? prev : next));
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Закрытие списка столбцов щелчком мимо и клавишей Esc
+  useEffect(() => {
+    if (!columnsMenuOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(e.target as Node)) {
+        setColumnsMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setColumnsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [columnsMenuOpen]);
+
+  // Сообщение о копировании живёт несколько секунд и уходит само
+  useEffect(() => {
+    if (!copyNote) return;
+    const timer = setTimeout(() => setCopyNote(null), 4000);
+    return () => clearTimeout(timer);
+  }, [copyNote]);
+
   // ── Сортировка ──
   const toggleSort = useCallback((key: string) => {
     if (sortKey === key) {
@@ -190,6 +502,82 @@ export function TableEditor({
       setSortDir('asc');
     }
   }, [sortKey]);
+
+  // ── Вид таблицы, переживающий перезагрузку ──
+  const fingerprint = useMemo(
+    () => columnsFingerprint(columns.map(c => c.key)),
+    [columns],
+  );
+
+  // Настройки читаются не один раз при монтировании, а на каждую смену набора
+  // столбцов: столбцы приезжают позже первого кадра (строки грузятся с сервера),
+  // и однократное чтение всегда попадало бы в пустой набор.
+  useEffect(() => {
+    if (!prefsName || columns.length === 0) return;
+    const stored = readTablePrefs<EditorViewPrefs>(prefsName, fingerprint);
+    setWidths(stored?.widths ?? {});
+    setHidden(stored?.hidden ?? []);
+    setSortKey(stored?.sortKey ?? null);
+    setSortDir(stored?.sortDir === 'desc' ? 'desc' : 'asc');
+  }, [prefsName, fingerprint, columns.length]);
+
+  useEffect(() => {
+    if (!prefsName || columns.length === 0) return;
+    writeTablePrefs<EditorViewPrefs>(prefsName, fingerprint, { widths, hidden, sortKey, sortDir });
+  }, [prefsName, fingerprint, columns.length, widths, hidden, sortKey, sortDir]);
+
+  /** Скрыть все столбцы нельзя: пустая таблица не «настройка вида», а поломка. */
+  const visibleColumns = useMemo(() => {
+    const shown = columns.filter(c => !hidden.includes(c.key));
+    return shown.length > 0 ? shown : columns;
+  }, [columns, hidden]);
+
+  const widthOf = useCallback((col: ColumnConfig): number => {
+    return widths[col.key] ?? defaultColumnWidth(col);
+  }, [widths]);
+
+  /** Общая ширина таблицы: без неё столбцы сжались бы по ширине окна и правка ширин была бы бессмысленной. */
+  const tableWidth = useMemo(
+    () => visibleColumns.reduce((sum, col) => sum + widthOf(col), 0) + (readOnly ? 0 : 128),
+    [visibleColumns, widthOf, readOnly],
+  );
+
+  const toggleColumn = useCallback((key: string) => {
+    const wasHidden = hidden.includes(key);
+    setHidden(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
+    // Спрятанный столбец не должен продолжать отбирать строки невидимым фильтром.
+    if (!wasHidden) setFilters(prev => omitRecordKey(prev, key));
+  }, [hidden]);
+
+  const startResize = useCallback((col: ColumnConfig, event: React.PointerEvent<HTMLSpanElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = widthOf(col);
+    handle.setPointerCapture(event.pointerId);
+    const onMove = (e: PointerEvent) => {
+      const next = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + e.clientX - startX));
+      setWidths(prev => ({ ...prev, [col.key]: next }));
+    };
+    const onUp = () => {
+      handle.releasePointerCapture(event.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }, [widthOf]);
+
+  /** Ширина правится и с клавиатуры: мышью тянуть умеют не все, а столбец узкий у всех. */
+  const resizeByKey = useCallback((col: ColumnConfig, delta: number) => {
+    setWidths(prev => ({
+      ...prev,
+      [col.key]: Math.max(MIN_COLUMN_WIDTH, (prev[col.key] ?? defaultColumnWidth(col)) + delta),
+    }));
+  }, []);
 
   // ── Отбор и сортировка строк ──
   const processedRows = useMemo(() => {
@@ -300,7 +688,9 @@ export function TableEditor({
       commitEdit();
 
       const { rowId, colKey } = editingCell;
-      const editableCols = columns.filter(c => c.editable !== false);
+      // Обход по видимым столбцам: прыжок в спрятанный столбец выглядел бы
+      // как потеря фокуса — правка идёт там, куда пользователь не смотрит.
+      const editableCols = visibleColumns.filter(c => c.editable !== false);
       const colIdx = editableCols.findIndex(c => c.key === colKey);
       const rowIdx = processedRows.findIndex(r => r._id === rowId);
 
@@ -344,7 +734,7 @@ export function TableEditor({
         }
       }
     }
-  }, [editingCell, cancelEdit, commitEdit, columns, processedRows, startEdit]);
+  }, [editingCell, cancelEdit, commitEdit, columns, visibleColumns, processedRows, startEdit]);
 
   // ── Запись строки ──
   const handleSaveRow = useCallback(async (rowId: string) => {
@@ -397,6 +787,50 @@ export function TableEditor({
     setShowAddColumn(false);
   }, [newColLabel, newColType, onAddColumn]);
 
+  // ── Копирование ──
+  const report = useCallback(async (text: string, done: string) => {
+    setCopyNote(await copyText(text) ? done : COPY_REFUSED_NOTE);
+  }, []);
+
+  /** Строка целиком — в том виде, в каком её показывает экран, через табуляцию. */
+  const copyRow = useCallback((row: RowData) => {
+    const values = visibleColumns.map(col => displayValue(row[col.key], col.type));
+    void report(rowToTsv(values), 'Строка скопирована — вставьте её в лист.');
+  }, [visibleColumns, report]);
+
+  const copyAddress = useCallback((row: RowData) => {
+    const address = rowAddress?.(row) ?? null;
+    if (!address) {
+      setCopyNote('Адрес строки неизвестен: в строке нет ни листа, ни номера.');
+      return;
+    }
+    void report(address, `Адрес скопирован: ${address}`);
+  }, [rowAddress, report]);
+
+  // Ctrl+C копирует ячейку под курсором клавиатуры. Своё выделение текста
+  // важнее: если человек выделил кусок мышью, копируется именно он.
+  useEffect(() => {
+    const onCopyKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'c') return;
+      if (editingCell || isTypingTarget(e.target)) return;
+      if ((getSelection()?.toString() ?? '').length > 0) return;
+      if (!focusedCell) return;
+      const row = rows.find(r => r._id === focusedCell.rowId);
+      const col = columns.find(c => c.key === focusedCell.colKey);
+      if (!row || !col) return;
+      e.preventDefault();
+      void report(displayValue(row[col.key], col.type), `Ячейка «${col.label}» скопирована.`);
+    };
+    document.addEventListener('keydown', onCopyKey);
+    return () => document.removeEventListener('keydown', onCopyKey);
+  }, [editingCell, focusedCell, rows, columns, report]);
+
+  const { rowsBelow, showBackToTop, scrollToTop } = useTableScroll(
+    scrollRef,
+    rowRefs,
+    processedRows.length,
+  );
+
   const isDirtyRow = useCallback((rowId: string) => {
     return dirty[rowId] && dirty[rowId].size > 0;
   }, [dirty]);
@@ -411,7 +845,9 @@ export function TableEditor({
 
   const dirtyCount = Object.keys(dirty).length;
   const failedCount = Object.keys(saveErrors).length;
-  const colSpan = columns.length + (readOnly ? 0 : 1);
+  const colSpan = visibleColumns.length + (readOnly ? 0 : 1);
+  const hiddenCount = columns.length - visibleColumns.length;
+  const rowsBelowNote = describeRowsBelow(rowsBelow);
 
   // ── Разметка ──
   return (
@@ -434,6 +870,76 @@ export function TableEditor({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Выбор столбцов: у книги семнадцать колонок, а разбирают обычно три-четыре */}
+          <div className="relative" ref={columnsMenuRef}>
+            <button
+              type="button"
+              aria-expanded={columnsMenuOpen}
+              aria-haspopup="true"
+              disabled={columns.length === 0}
+              onClick={() => setColumnsMenuOpen(v => !v)}
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-40',
+                hiddenCount > 0
+                  ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
+                  : 'text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
+              )}
+            >
+              <Columns3 size={13} aria-hidden="true" />
+              Столбцы
+              {hiddenCount > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-blue-600 text-[10px] font-bold text-white leading-none tabular-nums">
+                  {hiddenCount}
+                </span>
+              )}
+            </button>
+            {columnsMenuOpen && (
+              <div className="absolute top-full right-0 mt-1 z-50 w-64 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg py-1">
+                <p className="px-3 py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700">
+                  Снятый столбец только прячется с экрана: значения в книге остаются, а его фильтр
+                  снимается вместе с ним. Выбор и ширины столбцов сохраняются в этом браузере.
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  {columns.map(col => {
+                    const shown = !hidden.includes(col.key);
+                    const lastOne = shown && visibleColumns.length === 1;
+                    return (
+                      <label
+                        key={col.key}
+                        title={lastOne ? 'Последний столбец спрятать нельзя' : undefined}
+                        className={clsx(
+                          'flex items-center gap-2 px-3 py-1.5 text-xs transition',
+                          lastOne
+                            ? 'opacity-45 cursor-not-allowed'
+                            : 'text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/40 cursor-pointer',
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={shown}
+                          disabled={lastOne}
+                          onChange={() => toggleColumn(col.key)}
+                          className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="truncate">{col.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {hiddenCount > 0 && (
+                  <div className="border-t border-zinc-100 dark:border-zinc-700 mt-1 pt-1 px-3 pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setHidden([])}
+                      className="flex items-center gap-1 text-xs text-zinc-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400 transition"
+                    >
+                      <X size={12} aria-hidden="true" /> Показать все столбцы
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {onAddColumn && (
             <button
               type="button"
@@ -525,21 +1031,36 @@ export function TableEditor({
       )}
 
       {/* Таблица */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
-        <div className="overflow-x-auto" onKeyDown={handleKeyDown}>
-          <table className="w-full text-sm">
+      <div className="relative bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+        {/* Прокрутка живёт здесь: прилипшая шапка держится только за собственную
+            прокручиваемую область, а не за прокрутку страницы. */}
+        <div ref={scrollRef} className={TABLE_SCROLL_AREA} onKeyDown={handleKeyDown}>
+          <table
+            className="text-sm table-fixed"
+            style={{ width: tableWidth, minWidth: '100%' }}
+          >
             <caption className="sr-only">Редактор строк книги управления</caption>
+            {/* Ширины столбцов заданы явно: иначе их правка мышью ни на что не влияет */}
+            <colgroup>
+              {visibleColumns.map(col => (
+                <col key={col.key} style={{ width: widthOf(col) }} />
+              ))}
+              {!readOnly && <col style={{ width: 128 }} />}
+            </colgroup>
             {/* Шапка */}
             <thead>
-              <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                {columns.map(col => (
+              <tr
+                ref={headerRowRef}
+                className="text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider"
+              >
+                {visibleColumns.map((col, colIdx) => (
                   <th
                     key={col.key}
                     scope="col"
                     aria-sort={sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                     className={clsx(
-                      'px-3 py-2.5 select-none',
-                      col.width ?? '',
+                      'px-3 py-2.5 select-none sticky top-0 bg-zinc-50 dark:bg-zinc-900',
+                      colIdx === 0 ? `left-0 z-30 ${STICKY_SEAM}` : 'z-20',
                       (col.type === 'number' || col.type === 'currency') && 'text-right',
                     )}
                   >
@@ -563,16 +1084,40 @@ export function TableEditor({
                         </span>
                       )}
                     </button>
+                    {/* Разделитель-ручка: тянется мышью, правится стрелками с клавиатуры */}
+                    <span
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Ширина столбца «${col.label}»: ${widthOf(col)} пикселей`}
+                      tabIndex={0}
+                      onPointerDown={e => startResize(col, e)}
+                      onKeyDown={e => {
+                        if (e.key === 'ArrowLeft') { e.preventDefault(); resizeByKey(col, -16); }
+                        if (e.key === 'ArrowRight') { e.preventDefault(); resizeByKey(col, 16); }
+                      }}
+                      onDoubleClick={() => setWidths(prev => omitRecordKey(prev, col.key))}
+                      title="Потяните, чтобы изменить ширину; двойной щелчок вернёт исходную"
+                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-blue-400/60 focus-visible:bg-blue-500 focus-visible:outline-none"
+                    />
                   </th>
                 ))}
                 {!readOnly && (
-                  <th scope="col" className="px-3 py-2.5 w-28 text-center">Действия</th>
+                  <th scope="col" className="px-3 py-2.5 text-center sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-900">
+                    Действия
+                  </th>
                 )}
               </tr>
-              {/* Строка фильтров */}
-              <tr className="dark:bg-zinc-900/30 border-b border-zinc-100 dark:border-zinc-700/50">
-                {columns.map(col => (
-                  <th key={`filter-${col.key}`} className="px-2 py-1.5">
+              {/* Строка фильтров — прилипает под первой строкой шапки, на её замеренной высоте */}
+              <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
+                {visibleColumns.map((col, colIdx) => (
+                  <th
+                    key={`filter-${col.key}`}
+                    style={{ top: headerHeight }}
+                    className={clsx(
+                      'px-2 py-1.5 sticky bg-zinc-50 dark:bg-zinc-900',
+                      colIdx === 0 ? `left-0 z-30 ${STICKY_SEAM}` : 'z-20',
+                    )}
+                  >
                     <input
                       type="text"
                       placeholder="Фильтр"
@@ -583,7 +1128,9 @@ export function TableEditor({
                     />
                   </th>
                 ))}
-                {!readOnly && <th />}
+                {!readOnly && (
+                  <th style={{ top: headerHeight }} className="sticky z-20 bg-zinc-50 dark:bg-zinc-900" />
+                )}
               </tr>
             </thead>
 
@@ -640,7 +1187,7 @@ export function TableEditor({
                 </tr>
               )}
 
-              {!loading && processedRows.map(row => {
+              {!loading && processedRows.map((row, rowIdx) => {
                 const rowId = row._id;
                 const rowDirty = isDirtyRow(rowId);
                 const rowHasErrors = hasRowErrors(rowId);
@@ -651,6 +1198,7 @@ export function TableEditor({
                 return (
                   <tr
                     key={rowId}
+                    ref={el => { rowRefs.current[rowIdx] = el; }}
                     className={clsx(
                       'transition group',
                       (rowHasErrors || rowSaveError) && 'bg-red-50/40 dark:bg-red-950/10',
@@ -658,7 +1206,7 @@ export function TableEditor({
                       !rowDirty && !rowHasErrors && !rowSaveError && 'hover:bg-blue-50/30 dark:hover:bg-zinc-700/20',
                     )}
                   >
-                    {columns.map(col => {
+                    {visibleColumns.map((col, colIdx) => {
                       const cellKey = `${rowId}:${col.key}`;
                       const isEditing = editingCell?.rowId === rowId && editingCell?.colKey === col.key;
                       const cellDirty = isDirtyCell(rowId, col.key);
@@ -672,7 +1220,12 @@ export function TableEditor({
                         <td
                           key={col.key}
                           className={clsx(
-                            'px-3 py-2 relative',
+                            'px-3 py-2',
+                            // Первый столбец не уезжает при боковой прокрутке: на широкой
+                            // таблице читатель иначе теряет, чья это строка.
+                            colIdx === 0
+                              ? `sticky left-0 z-10 ${STICKY_SEAM} ${!cellDirty && !cellError ? STICKY_SURFACE : ''}`
+                              : 'relative',
                             isNumeric && 'text-right tabular-nums',
                             cellDirty && !cellError && 'bg-amber-100/50 dark:bg-amber-900/20',
                             cellError && 'bg-red-100/50 dark:bg-red-900/20',
@@ -682,6 +1235,7 @@ export function TableEditor({
                           // Ячейка доступна с клавиатуры: Enter или F2 открывают правку —
                           // без этого редактор работал только мышью.
                           tabIndex={editable && !isEditing ? 0 : undefined}
+                          onFocus={() => setFocusedCell({ rowId, colKey: col.key })}
                           onKeyDown={(e) => {
                             if (!editable || isEditing) return;
                             if (e.key === 'Enter' || e.key === 'F2') {
@@ -690,6 +1244,7 @@ export function TableEditor({
                             }
                           }}
                           onClick={() => {
+                            setFocusedCell({ rowId, colKey: col.key });
                             if (!isEditing && editable) {
                               startEdit(rowId, col.key, value);
                             }
@@ -791,6 +1346,26 @@ export function TableEditor({
                           {!rowDirty && justSaved && (
                             <span className="text-[10px] text-emerald-600 dark:text-emerald-400">записано</span>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => copyRow(row)}
+                            aria-label="Скопировать строку"
+                            title="Скопировать строку — вставляется в лист как есть"
+                            className="p-1 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700/40 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                          >
+                            <Copy size={14} aria-hidden="true" />
+                          </button>
+                          {rowAddress && (
+                            <button
+                              type="button"
+                              onClick={() => copyAddress(row)}
+                              aria-label="Скопировать адрес строки"
+                              title="Скопировать адрес строки — лист и номер"
+                              className="p-1 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700/40 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                            >
+                              <MapPin size={14} aria-hidden="true" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     )}
@@ -799,6 +1374,38 @@ export function TableEditor({
               })}
             </tbody>
           </table>
+
+        </div>
+
+        {/* Возврат к началу — только после первого экрана, чтобы не мозолить глаза.
+            Живёт над областью прокрутки, а не внутри: внутри его уносило бы вбок
+            вместе с горизонтальной прокруткой широкой таблицы. */}
+        {showBackToTop && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="absolute bottom-3 right-4 z-40 flex items-center justify-center w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+            title="В начало таблицы"
+            aria-label="Прокрутить таблицу в начало"
+          >
+            <ArrowUpToLine size={15} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      {/* Подпись под таблицей: глубина прокрутки, отчёт о копировании и клавиши */}
+      <div className="flex items-start justify-between gap-4 text-[11px] text-zinc-500 dark:text-zinc-400 flex-wrap">
+        <div className="space-y-0.5">
+          {/* Место под подпись занято всегда: появляясь и исчезая, строка меняла бы
+              высоту страницы, та — ширину области прокрутки, а ширина — сам счёт,
+              и подпись гонялась бы за собственным хвостом. */}
+          <div className="min-h-4 tabular-nums">{!loading && rowsBelowNote}</div>
+          <div aria-live="polite" className={clsx(copyNote === COPY_REFUSED_NOTE && 'text-amber-600 dark:text-amber-400')}>
+            {copyNote}
+          </div>
+        </div>
+        <div className="text-zinc-400 dark:text-zinc-500">
+          Enter или F2 — правка ячейки · Tab — следующая ячейка · Esc — отмена · Ctrl+C — копировать ячейку
         </div>
       </div>
     </div>

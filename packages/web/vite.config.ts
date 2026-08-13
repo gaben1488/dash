@@ -34,5 +34,28 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Библиотеки разложены по кускам, которые живут разными жизнями:
+        // React и графики меняются раз в полгода, наш код — каждый день. В одном
+        // файле любая правка обесценивала бы кэш браузера целиком, и читатель
+        // качал бы полтора мегабайта заново ради исправленной подписи.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          // Recharts тянет за собой семейство d3 и victory-vendor — это самая
+          // тяжёлая зависимость дэша, и нужна она только страницам с графиками.
+          if (/node_modules[/\\](recharts|victory-vendor|d3-[a-z-]+|internmap|delaunator|robust-predicates|decimal\.js-light|fast-equals|eventemitter3)[/\\]/.test(id)) {
+            return 'charts';
+          }
+          if (/node_modules[/\\](react|react-dom|scheduler|react-is|use-sync-external-store)[/\\]/.test(id)) {
+            return 'react-vendor';
+          }
+          if (/node_modules[/\\](@radix-ui|@floating-ui|lucide-react|cmdk|sonner|aria-hidden|react-remove-scroll|react-remove-scroll-bar|react-style-singleton|get-nonce|use-callback-ref|use-sidecar|detect-node-es|tabbable)[/\\]/.test(id)) {
+            return 'ui-vendor';
+          }
+          return undefined;
+        },
+      },
+    },
   },
 });

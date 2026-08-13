@@ -232,6 +232,23 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           epShareLimit,
         });
 
+        // Волна 0: профиль честно отдаёт null, когда счётной базы нет
+        // («нет плана» ≠ «исполнение 0 %»). Оценивать управление без базы
+        // нельзя — вместо вымышленного грейда отдаём честную пустоту.
+        if (
+          profile.actualExecQ1 === null ||
+          profile.actualEpShare === null ||
+          profile.execDeviation === null
+        ) {
+          result[profile.grbsId] = {
+            grbsShort: profile.grbsShort,
+            role: profile.role,
+            noData: true,
+            noDataReason: 'Счётных строк за период нет — оценка не выдаётся.',
+          };
+          continue;
+        }
+
         // Layer A — грейд
         const grade = gradeGRBS({
           execPct: profile.actualExecQ1,

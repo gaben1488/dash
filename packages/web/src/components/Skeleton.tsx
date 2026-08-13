@@ -1,6 +1,22 @@
+// ── Скелеты ожидания.
+//
+//    Зачем они вместо строки «Загрузка…»: слово ничего не обещает. Читатель не
+//    знает, появится ли на этом месте таблица на десять строк или одна плитка,
+//    поэтому после загрузки экран приходится перечитывать заново — макет
+//    прыгает под руками. Скелет держит ту же форму и ту же высоту, что и
+//    будущее содержимое: таблица — строками, карточки — плитками, график —
+//    прямоугольником с полосами.
+//
+//    Чего здесь нет и быть не может: чисел. Скелет показывает разметку, а не
+//    правдоподобные значения — иначе на долю секунды на экране оказывается
+//    выдуманная цифра, и это ровно тот обман, который продукт запрещает.
+//
+//    Мерцание (shimmer) гасится системной настройкой «уменьшить движение»
+//    общим правилом в index.css — отдельной проверки здесь не требуется.
+
 import { cn } from '@/lib/utils';
 
-/** Shimmer animation overlay for skeleton cards */
+/** Бегущий блик поверх заглушки: признак «идёт работа», а не готовый экран. */
 function Shimmer({ className }: { className?: string }) {
   return (
     <div className={cn('absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite]', className)}>
@@ -52,18 +68,43 @@ export function SkeletonChart() {
   );
 }
 
+/**
+ * Заглушка широкой полосы состояния: слева знак, посередине две строки текста,
+ * справа столбик мелких подписей. Ровно та форма, которую занимает готовая
+ * плашка «сервер работает, доступ настроен» — поэтому при её появлении ничего
+ * не сдвигается.
+ */
+export function SkeletonStatusPanel({ className = '' }: { className?: string }) {
+  return (
+    <div className={cn('relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-4', className)}>
+      <Shimmer />
+      <div className="flex items-start gap-3">
+        <div className="h-5 w-5 flex-shrink-0 rounded-md bg-zinc-200/80 dark:bg-zinc-700/60" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="h-3 w-64 max-w-full rounded-md bg-zinc-200/80 dark:bg-zinc-700/60" />
+          <div className="h-2 w-80 max-w-full rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
+        </div>
+        <div className="hidden flex-shrink-0 space-y-1.5 sm:block">
+          <div className="h-2 w-28 rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
+          <div className="h-2 w-20 rounded-md bg-zinc-100 dark:bg-zinc-800/40" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SkeletonTable({ rows = 8 }: { rows?: number }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-5">
       <Shimmer />
       <div className="h-2.5 w-36 bg-zinc-200/80 dark:bg-zinc-700/60 rounded-md mb-4" />
-      {/* Header row */}
+      {/* Строка заголовков — та же сетка колонок, что у настоящей таблицы */}
       <div className="flex gap-4 pb-3 border-b border-zinc-200/60 dark:border-zinc-700/40 mb-2">
         {[24, 80, 48, 48, 48, 64, 48, 40].map((w, i) => (
           <div key={i} className="h-2 bg-zinc-200/60 dark:bg-zinc-700/40 rounded" style={{ width: w }} />
         ))}
       </div>
-      {/* Data rows */}
+      {/* Строки данных: к низу гаснут — взгляд не цепляется за «хвост» */}
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex gap-4 py-2.5 border-b border-zinc-100/50 dark:border-zinc-800/30">
           {[24, 80, 48, 48, 48, 64, 48, 40].map((w, j) => (

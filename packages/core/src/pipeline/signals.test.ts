@@ -383,16 +383,20 @@ describe('Financial signals', () => {
   });
 
   describe('epRisk', () => {
+    // K — тыс. руб. (канон колонок книг ГРБС): 601/600 значат 601/600 тыс. руб.,
+    // граница лимита 600 тыс. по п.4 ч.1 ст.93 44-ФЗ. bug-hunt 2026-08-08 (БАГ #1):
+    // раньше порог был в рублях (600_000), а K тоже сравнивался как рубли —
+    // граница проверялась верно только случайно; после фикса единица явная.
     it('true: method=ЕП, plan > 600K, not canceled', () => {
       const s = detectSignals(makeCells({
-        L: 'ЕП', K: 600_001, M: '',
+        L: 'ЕП', K: 601, M: '',
       }), REF_DATE);
       expect(s.epRisk).toBe(true);
     });
 
     it('false: ЕП but plan <= 600K', () => {
       const s = detectSignals(makeCells({
-        L: 'ЕП', K: 600_000, M: '',
+        L: 'ЕП', K: 600, M: '',
       }), REF_DATE);
       expect(s.epRisk).toBe(false);
     });
@@ -1207,23 +1211,23 @@ describe('Edge cases', () => {
     expect(s.highEconomy).toBe(false);
   });
 
-  it('boundary: EP_RISK_THRESHOLD exactly 600000 (not exceeded)', () => {
+  it('boundary: EP_RISK_THRESHOLD exactly 600 (тыс. руб., not exceeded)', () => {
     const s = detectSignals(makeCells({
-      L: 'ЕП', K: 600_000, M: '',
+      L: 'ЕП', K: 600, M: '',
     }), REF_DATE);
     expect(s.epRisk).toBe(false);
   });
 
-  it('boundary: EP_RISK_THRESHOLD 600001 (exceeded)', () => {
+  it('boundary: EP_RISK_THRESHOLD 601 (тыс. руб., exceeded)', () => {
     const s = detectSignals(makeCells({
-      L: 'ЕП', K: 600_001, M: '',
+      L: 'ЕП', K: 601, M: '',
     }), REF_DATE);
     expect(s.epRisk).toBe(true);
   });
 
-  it('2M EP is not treated as the single-contract boundary', () => {
+  it('2M (тыс. руб.) EP is not treated as the single-contract boundary', () => {
     const s = detectSignals(makeCells({
-      L: 'ЕП', K: 2_000_000, M: '',
+      L: 'ЕП', K: 2_000, M: '',
     }), REF_DATE);
     expect(s.epRisk).toBe(true);
   });

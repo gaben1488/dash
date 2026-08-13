@@ -30,14 +30,16 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Database, Map as MapIcon, Key, RefreshCw, CheckCircle2, AlertTriangle, Clock,
   ExternalLink, Save, Eye, EyeOff, HelpCircle, Wifi, WifiOff, Loader2,
-  Copy, Download, Info,
+  Copy, Download, Info, Search,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { api, ApiError, humanizeRequestError } from '../api';
 import { useStore } from '../store';
 import { SVOD_SPREADSHEET_ID } from '@aemr/shared';
 import { pluralRu } from '../lib/economy-copy';
-import { SkeletonCard, SkeletonTable } from '../components/Skeleton';
+import { SkeletonCard, SkeletonTable, SkeletonStatusPanel } from '../components/Skeleton';
+import { EmptyState } from '../components/EmptyState';
+import { HelpButton } from '../lib/help/HelpButton';
 
 type SourceStatus = 'ok' | 'warning' | 'error' | 'unknown';
 
@@ -77,6 +79,18 @@ interface Feedback {
 
 type TabId = 'sources' | 'mapping' | 'connection';
 
+/**
+ * Точка состояния — только дубль к слову, которое стоит рядом. Сама по себе
+ * она ничего не сообщает: чёрно-белая печать и цветовая слепота делают цвет
+ * недоступным, поэтому состояние всегда прочитывается текстом (канон DESIGN.md).
+ */
+const TONE_DOT: Record<DiagnosticTone, string> = {
+  ok: 'bg-emerald-500',
+  problem: 'bg-red-500',
+  wait: 'bg-blue-400 animate-pulse',
+  unknown: 'bg-zinc-300 dark:bg-zinc-600',
+};
+
 const TABS: { id: TabId; label: string; icon: typeof Database; description: string }[] = [
   { id: 'sources', label: 'Источники данных', icon: Database, description: 'Книги Google Таблиц, из которых берутся числа: доступны ли они и когда читались' },
   { id: 'mapping', label: 'Соответствие ячеек', icon: MapIcon, description: 'Из какой ячейки листа СВОД берётся каждый официальный показатель' },
@@ -106,10 +120,15 @@ export const CELL_ADDRESS_RE = /^[A-Z]{1,3}\d{1,4}$/;
  */
 const KEY_ON_SERVER = '(ключ уже сохранён на сервере)';
 
-/** Сколько времени прошло — русской фразой. */
-function timeAgo(dateStr: string | null): string {
+/**
+ * Сколько времени прошло — русской фразой.
+ *
+ * Момент «сейчас» передаётся снаружи, чтобы диагностику можно было проверить
+ * тестом: иначе выражение зависит от часов машины и проверяемо только на глаз.
+ */
+function timeAgo(dateStr: string | null, now: number = Date.now()): string {
   if (!dateStr) return 'никогда';
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const diff = now - new Date(dateStr).getTime();
   if (diff < 0) return 'только что';
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return 'только что';
@@ -168,6 +187,236 @@ export function parseSourcesResponse(data: unknown): SheetSource[] {
       rows: typeof s.rowCount === 'number' ? s.rowCount : null,
     };
   });
+}
+
+/* ── Диагностика: что подключено, что сломано и что с этим делать ─────────
+ *
+ * Раньше вся эта правда была рассыпана по трём вкладкам: состояние сервера —
+ * в «Подключении», число прочитанных строк — в «Источниках», признак «данные
+ * так и не пришли» — в тонкой полосе наверху. Человек, у которого экран пуст,
+ * должен был обойти три места и сложить ответ сам.
+ *
+ * Здесь ответ собран в одном списке и построен по одному правилу: предмет →
+ * состояние словами → что сделать. Строка без действия допустима только
+ * тогда, когда делать действительно нечего.
+ *
+ * Функция намеренно чистая: она не спрашивает сервер и не читает часы (момент
+ * «сейчас» передают снаружи), поэтому её поведение закреплено тестами —
+ * см. Settings.logic.test.ts.
+ */
+
+/** Тон строки диагностики. Это разные новости, а не оттенки одной. */
+export type DiagnosticTone = 'ok' | 'problem' | 'wait' | 'unknown';
+
+export interface DiagnosticLine {
+  /** О чём строка: «Сервер данных», «Книги-источники». */
+  subject: string;
+  /** Состояние словами — утверждение, читаемое без легенды. */
+  state: string;
+  /** Что сделать. null — делать нечего, всё в порядке или ответ ещё не пришёл. */
+  action: string | null;
+  tone: DiagnosticTone;
+}
+
+export interface DiagnosticsInput {
+  /** Ответил ли сервер на опрос состояния; null — ещё не спрашивали. */
+  serverOnline: boolean | null;
+  /** Сервер сообщает, что доступ к Google Таблицам настроен полностью. */
+  sheetsConfigured: boolean;
+  /** Ключ доступа к серверу, найденный в этом браузере; null — не сохранён. */
+  accessKey: string | null;
+  /** Книги-источники в том виде, в каком их вернул сервер. */
+  sources: Pick<SheetSource, 'status' | 'rows'>[];
+  /** Спрашивали ли уже список книг: «не спрашивали» ≠ «книг нет». */
+  sourcesLoadedOnce: boolean;
+  /** Момент последнего успешного перечитывания книг. */
+  lastRefreshed: string | null;
+  /** Отказ загрузки данных дэша, если он был. */
+  dataError: string | null;
+  /** Данные дэша уже пришли хотя бы раз. */
+  hasData: boolean;
+  /** Момент «сейчас» — передаётся ради проверяемости. */
+  now?: number;
+}
+
+/**
+ * Ключ доступа показывается только хвостом: четырёх последних знаков хватает,
+ * чтобы убедиться «это тот самый ключ», и не хватает, чтобы им воспользоваться
+ * по снимку экрана или через плечо. Короткий ключ закрывается целиком —
+ * по его хвосту слишком легко достроить остальное.
+ */
+export function maskAccessKey(key: string): string {
+  const compact = key.trim();
+  if (compact.length === 0) return '';
+  if (compact.length < 12) return '•'.repeat(8);
+  return `••••${compact.slice(-4)}`;
+}
+
+export function buildDiagnostics(input: DiagnosticsInput): DiagnosticLine[] {
+  const now = input.now ?? Date.now();
+  const lines: DiagnosticLine[] = [];
+
+  /* 1. Сервер данных — без него бессмысленно всё остальное. */
+  lines.push(
+    input.serverOnline === null
+      ? { subject: 'Сервер данных', state: 'спрашиваем о состоянии', action: null, tone: 'wait' }
+      : input.serverOnline
+        ? { subject: 'Сервер данных', state: 'отвечает на запросы', action: null, tone: 'ok' }
+        : {
+            subject: 'Сервер данных',
+            state: 'не отвечает',
+            action: 'Запустите сервер и обновите страницу — пока он молчит, числа брать неоткуда',
+            tone: 'problem',
+          },
+  );
+
+  /* 2. Доступ к Google Таблицам. Пока сервер молчит, ответа на этот вопрос
+        нет вовсе — и врать «настроен» нельзя. */
+  lines.push(
+    input.serverOnline !== true
+      ? {
+          subject: 'Доступ к Google Таблицам',
+          state: 'неизвестен, пока сервер не ответил',
+          action: null,
+          tone: 'unknown',
+        }
+      : input.sheetsConfigured
+        ? { subject: 'Доступ к Google Таблицам', state: 'настроен', action: null, tone: 'ok' }
+        : {
+            subject: 'Доступ к Google Таблицам',
+            state: 'настроен не полностью',
+            action: 'Откройте вкладку «Подключение» и заполните почту сервисного аккаунта, закрытый ключ и идентификатор книги',
+            tone: 'problem',
+          },
+  );
+
+  /* 3. Ключ доступа к серверу. Требует ли его сервер — знает только сервер,
+        поэтому отсутствие ключа объявляется возможной, а не точной причиной. */
+  lines.push(
+    input.accessKey
+      ? {
+          subject: 'Ключ доступа к серверу',
+          state: `сохранён в этом браузере: ${maskAccessKey(input.accessKey)}`,
+          action: null,
+          tone: 'ok',
+        }
+      : {
+          subject: 'Ключ доступа к серверу',
+          state: 'в этом браузере не сохранён',
+          action: 'Если сервер закрыт ключом, запросы будут отклоняться — возьмите ключ у того, кто настраивал сервер',
+          tone: 'unknown',
+        },
+  );
+
+  /* 4. Книги-источники. */
+  const total = input.sources.length;
+  const okCount = input.sources.filter(s => s.status === 'ok').length;
+  const errorCount = input.sources.filter(s => s.status === 'error').length;
+  if (!input.sourcesLoadedOnce) {
+    lines.push({
+      subject: 'Книги-источники',
+      state: 'список ещё не запрашивался',
+      action: 'Откройте вкладку «Источники данных» — список придёт с сервера',
+      tone: 'unknown',
+    });
+  } else if (total === 0) {
+    lines.push({
+      subject: 'Книги-источники',
+      state: 'сервер не назвал ни одной книги',
+      action: 'Так бывает, когда доступ к Google Таблицам ещё не настроен — проверьте вкладку «Подключение»',
+      tone: 'problem',
+    });
+  } else if (errorCount > 0) {
+    lines.push({
+      subject: 'Книги-источники',
+      state: `не читаются: ${errorCount} из ${total}`,
+      action: 'Нажмите «Проверить связь» в карточке книги — там будет названа причина отказа',
+      tone: 'problem',
+    });
+  } else {
+    lines.push({
+      subject: 'Книги-источники',
+      state: okCount === total ? `читаются все ${total}` : `читаются ${okCount} из ${total}`,
+      action: okCount === total ? null : 'Остальные ещё ни разу не читались — нажмите «Прочитать книги заново»',
+      tone: okCount === total ? 'ok' : 'wait',
+    });
+  }
+
+  /* 5. Строки. Книга, не сообщившая число строк, в сумму не входит — иначе
+        сумма выглядит полной, будучи частичной. */
+  const known = input.sources.filter(s => s.rows !== null);
+  const rows = known.reduce((sum, s) => sum + (s.rows ?? 0), 0);
+  lines.push(
+    known.length === 0
+      ? {
+          subject: 'Строк прочитано',
+          state: 'сервер ещё не сообщал число строк',
+          action: null,
+          tone: 'unknown',
+        }
+      : {
+          subject: 'Строк прочитано',
+          state: known.length === total
+            ? `${rows.toLocaleString('ru-RU')} по всем книгам`
+            : `${rows.toLocaleString('ru-RU')} по ${known.length} ${pluralRu(known.length, 'книге', 'книгам', 'книгам')} из ${total}; остальные число строк не сообщили`,
+          action: null,
+          tone: 'ok',
+        },
+  );
+
+  /* 6. Когда книги читались. */
+  lines.push(
+    input.lastRefreshed
+      ? {
+          subject: 'Последнее чтение книг',
+          state: timeAgo(input.lastRefreshed, now),
+          action: null,
+          tone: 'ok',
+        }
+      : {
+          subject: 'Последнее чтение книг',
+          state: 'в этой сессии книги ещё не читались',
+          action: 'Нажмите «Прочитать книги заново» — это займёт несколько секунд',
+          tone: 'wait',
+        },
+  );
+
+  /* 7. Данные на экране — то, ради чего всё остальное. */
+  lines.push(
+    input.dataError
+      ? {
+          subject: 'Данные на экране',
+          state: input.dataError,
+          action: 'Повторите запрос кнопкой в шапке; если отказ повторяется — причина выше по списку',
+          tone: 'problem',
+        }
+      : input.hasData
+        ? { subject: 'Данные на экране', state: 'загружены без отказов', action: null, tone: 'ok' }
+        : { subject: 'Данные на экране', state: 'ещё не запрашивались', action: null, tone: 'wait' },
+  );
+
+  return lines;
+}
+
+/**
+ * Заголовок диагностики — утверждение о состоянии, а не «Диагностика».
+ * Читатель должен понять, есть ли беда, не разбирая список построчно.
+ */
+export function summarizeDiagnostics(lines: DiagnosticLine[]): { problems: number; headline: string } {
+  const problems = lines.filter(l => l.tone === 'problem').length;
+  if (problems === 0) {
+    const waiting = lines.some(l => l.tone === 'wait' || l.tone === 'unknown');
+    return {
+      problems: 0,
+      headline: waiting
+        ? 'Поломок не видно, но проверено ещё не всё'
+        : 'Всё, что проверяется, работает',
+    };
+  }
+  return {
+    problems,
+    headline: `Сломано: ${problems} ${pluralRu(problems, 'место', 'места', 'мест')} из ${lines.length}`,
+  };
 }
 
 /**
@@ -229,6 +478,16 @@ export function SettingsPage() {
   } | null>(null);
   const [saveEnvFeedback, setSaveEnvFeedback] = useState<Feedback>({ state: 'idle' });
   const [sheetsTestFeedback, setSheetsTestFeedback] = useState<Feedback>({ state: 'idle' });
+
+  /**
+   * Ключ доступа к серверу лежит в браузере — его подставляет api.ts в
+   * заголовок запроса. Читаем один раз при открытии страницы: между
+   * перерисовками он не меняется, а сам ключ на экран целиком не попадает
+   * ни при каких условиях (см. maskAccessKey).
+   */
+  const [accessKey] = useState<string | null>(
+    () => (typeof localStorage !== 'undefined' ? localStorage.getItem('aemr_api_key') : null),
+  );
 
   const refreshResult = useStore(s => s.refreshResult);
   const lastRefreshed = useStore(s => s.lastRefreshed);
@@ -597,6 +856,20 @@ SQLITE_PATH=./data/aemr.db
   const okSources = sources.filter(s => s.status === 'ok').length;
   const errorSources = sources.filter(s => s.status === 'error').length;
 
+  // Диагностика собирается из того же состояния, что и остальная страница —
+  // второго источника правды о поломках не заводим.
+  const diagnostics = useMemo(() => buildDiagnostics({
+    serverOnline: serverStatus === null ? null : serverStatus.online,
+    sheetsConfigured: !!serverStatus?.configured,
+    accessKey,
+    sources,
+    sourcesLoadedOnce,
+    lastRefreshed,
+    dataError: storeError,
+    hasData: hasDashboardData,
+  }), [serverStatus, accessKey, sources, sourcesLoadedOnce, lastRefreshed, storeError, hasDashboardData]);
+  const diagnosticsSummary = summarizeDiagnostics(diagnostics);
+
   /* ── Навигация по вкладкам с клавиатуры ────────────────── */
 
   const activeIndex = Math.max(0, TABS.findIndex(t => t.id === activeTab));
@@ -616,33 +889,56 @@ SQLITE_PATH=./data/aemr.db
 
   return (
     <div className="space-y-6">
-      {/* ── Полоса состояния системы ───────────────────────── */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 bg-white dark:bg-zinc-800/60 rounded-lg border border-zinc-200/60 dark:border-zinc-700/50 text-xs">
-        <div className="flex items-center gap-2 min-w-0">
-          <span
-            className={clsx('w-2 h-2 rounded-full flex-shrink-0',
-              storeError ? 'bg-red-500'
-                : storeLoading ? 'bg-blue-400 animate-pulse'
-                  : hasDashboardData ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600')}
-            aria-hidden="true"
+      {/* ── Диагностика: один ответ вместо обхода трёх вкладок ──────────
+          Заголовок — утверждение о состоянии («Сломано: 2 места из 7»), а не
+          слово «Диагностика»: читатель должен понять, есть ли беда, ещё до
+          того, как начнёт разбирать список. */}
+      <section
+        aria-labelledby="diagnostics-title"
+        className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-200/60 dark:border-zinc-700/50"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={clsx('w-2 h-2 rounded-full flex-shrink-0',
+                diagnosticsSummary.problems > 0 ? 'bg-red-500'
+                  : storeLoading ? 'bg-blue-400 animate-pulse' : 'bg-emerald-500')}
+              aria-hidden="true"
+            />
+            <h2
+              id="diagnostics-title"
+              className={clsx('text-sm font-semibold min-w-0',
+                diagnosticsSummary.problems > 0 ? 'text-red-700 dark:text-red-300' : 'text-zinc-700 dark:text-zinc-200')}
+            >
+              {diagnosticsSummary.headline}
+            </h2>
+          </div>
+          <HelpButton
+            label="Как читать этот дэш"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           />
-          {/* Заголовок — утверждение о данных читателя, а не «Ошибок: 0».
-              Прежняя строка не говорила, ошибок в чём, и рапортовала «штатно»
-              ещё до того, как первый ответ сервера пришёл. */}
-          <span className={clsx('font-medium min-w-0', storeError ? 'text-red-700 dark:text-red-300' : 'text-zinc-700 dark:text-zinc-300')}>
-            {storeError ? storeError
-              : storeLoading ? 'Данные загружаются'
-                : hasDashboardData ? 'Данные загружены без ошибок'
-                  : 'Данные ещё не запрашивались'}
-          </span>
         </div>
-        <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 hidden sm:block" aria-hidden="true" />
-        <span className="text-zinc-500 dark:text-zinc-400">
-          {lastRefreshed
-            ? <>Книги читались: <span className="font-mono tabular-nums">{new Date(lastRefreshed).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></>
-            : 'Книги в этой сессии ещё не читались'}
-        </span>
-      </div>
+
+        <dl className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+          {diagnostics.map(line => (
+            <div key={line.subject} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-2.5 text-xs">
+              <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0 self-center', TONE_DOT[line.tone])} aria-hidden="true" />
+              <dt className="w-52 flex-shrink-0 text-zinc-500 dark:text-zinc-400">{line.subject}</dt>
+              <dd className="min-w-0 flex-1">
+                <span className={clsx('font-medium',
+                  line.tone === 'problem' ? 'text-red-700 dark:text-red-300' : 'text-zinc-700 dark:text-zinc-200')}>
+                  {line.state}
+                </span>
+                {line.action && (
+                  <span className="block mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Что делать: {line.action}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
       {/* ── Итог проверок: показывается только когда есть что показать ── */}
       {checkedSources.length > 0 && (
@@ -756,28 +1052,23 @@ SQLITE_PATH=./data/aemr.db
 
             {/* Отказ чтения — с причиной и действием, а не молчаливая пустота */}
             {!sourcesLoading && sourcesError && (
-              <div className="max-w-xl mx-auto text-center py-10" role="alert">
-                <AlertTriangle size={20} className="text-red-500 mx-auto mb-3" aria-hidden="true" />
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 mb-1">Список источников не получен</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">{sourcesError}</p>
-                <button
-                  onClick={() => void fetchSourcesData()}
-                  className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                >
-                  Повторить запрос
-                </button>
-              </div>
+              <EmptyState
+                tone="problem"
+                title="Список источников не получен"
+                description="Пока сервер не ответил, неизвестно даже, сколько книг подключено — это не значит, что книг нет."
+                detail={sourcesError}
+                action={{ label: 'Повторить запрос', onClick: () => void fetchSourcesData() }}
+              />
             )}
 
             {/* Сервер ответил, но источников нет — тоже объяснимо */}
             {!sourcesLoading && !sourcesError && sources.length === 0 && sourcesLoadedOnce && (
-              <div className="max-w-xl mx-auto text-center py-10">
-                <Database size={20} className="text-zinc-400 mx-auto mb-3" aria-hidden="true" />
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 mb-1">Сервер не назвал ни одной книги</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Так бывает, когда доступ к Google Таблицам ещё не настроен. Откройте вкладку «Подключение» и проверьте сервисный аккаунт.
-                </p>
-              </div>
+              <EmptyState
+                icon={Database}
+                title="Сервер не назвал ни одной книги"
+                description="Так бывает, когда доступ к Google Таблицам ещё не настроен: сервисный аккаунт создан, но книги ему не открыты."
+                action={{ label: 'Перейти к подключению', onClick: () => setActiveTab('connection') }}
+              />
             )}
 
             {sources.length > 0 && (
@@ -1097,27 +1388,21 @@ SQLITE_PATH=./data/aemr.db
             )}
 
             {!mappingLoading && mappingError && (
-              <div className="max-w-xl mx-auto text-center py-12" role="alert">
-                <AlertTriangle size={20} className="text-red-500 mx-auto mb-3" aria-hidden="true" />
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 mb-1">Список показателей не получен</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">{mappingError}</p>
-                <button
-                  onClick={() => void fetchMapping()}
-                  className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                >
-                  Повторить запрос
-                </button>
-              </div>
+              <EmptyState
+                tone="problem"
+                title="Список показателей не получен"
+                description="Соответствие ячеек хранится на сервере: пока он не ответил, неизвестно, из каких ячеек читаются официальные числа."
+                detail={mappingError}
+                action={{ label: 'Повторить запрос', onClick: () => void fetchMapping() }}
+              />
             )}
 
             {!mappingLoading && !mappingError && mapping.length === 0 && mappingLoadedOnce && (
-              <div className="max-w-xl mx-auto text-center py-12">
-                <MapIcon size={20} className="text-zinc-400 mx-auto mb-3" aria-hidden="true" />
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 mb-1">Сервер не назвал ни одного показателя</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Карта отчёта на сервере пуста. Это настройка расчёта, а не данных — сообщите разработчику.
-                </p>
-              </div>
+              <EmptyState
+                icon={MapIcon}
+                title="Сервер не назвал ни одного показателя"
+                description="Карта отчёта на сервере пуста. Это настройка расчёта, а не данных: своими силами со страницы её не заполнить — сообщите разработчику."
+              />
             )}
 
             {mapping.length > 0 && (() => {
@@ -1125,16 +1410,12 @@ SQLITE_PATH=./data/aemr.db
               const filtered = mapping.filter(m => !search || m.label.toLowerCase().includes(search));
               if (filtered.length === 0) {
                 return (
-                  <div className="max-w-xl mx-auto text-center py-12">
-                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 mb-1">По запросу «{mappingSearch}» показателей нет</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Попробуйте часть названия — например «экономия» или «конкурентн».</p>
-                    <button
-                      onClick={() => setMappingSearch('')}
-                      className="px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                    >
-                      Показать все
-                    </button>
-                  </div>
+                  <EmptyState
+                    icon={Search}
+                    title={`По запросу «${mappingSearch}» показателей нет`}
+                    description={`Всего показателей: ${mapping.length}. Поиск идёт по названию целиком — попробуйте его часть, например «экономия» или «конкурентн».`}
+                    action={{ label: 'Показать все', onClick: () => setMappingSearch('') }}
+                  />
                 );
               }
               const groups = [...new Set(filtered.map(m => m.group))];
@@ -1278,9 +1559,13 @@ SQLITE_PATH=./data/aemr.db
           <div className="p-5 space-y-6" role="tabpanel" id="settings-panel-connection" aria-labelledby="settings-tab-connection" tabIndex={-1}>
             {/* Состояние сервера */}
             {serverStatus === null ? (
-              <div className="flex items-center gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800">
-                <Loader2 size={18} className="text-blue-500 animate-spin" aria-hidden="true" />
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">Спрашиваем сервер о его состоянии…</p>
+              // Заглушка держит форму будущей плашки состояния, поэтому при
+              // ответе сервера текст ниже не подпрыгивает. Слова «Загрузка»
+              // здесь нет намеренно: она ничего не обещает и не резервирует
+              // места под то, что появится.
+              <div aria-busy="true">
+                <span className="sr-only">Спрашиваем сервер о его состоянии</span>
+                <SkeletonStatusPanel />
               </div>
             ) : (
               <div className={clsx(

@@ -19,13 +19,18 @@ import { historyRoutes } from './routes/history.js';
 import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
 import { changesRoutes } from './routes/changes.js';
+import { healthRoutes } from './routes/health.js';
 import { getSnapshot, setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from './services/snapshot.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { fetchDepartmentSpreadsheets, getSheetData } from './services/google-sheets.js';
 import { registerAuthHook } from './middleware/auth.js';
+import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
+import { installProcessGuards } from './plugins/process-guards.js';
 
 export interface CreateAppOptions {
   logger?: FastifyServerOptions['logger'];
+  /** Пороги частоты для тяжёлых маршрутов; свои — только в тестах. */
+  rateLimitRules?: readonly HeavyRouteRule[];
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
@@ -70,18 +75,31 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     crossOriginEmbedderPolicy: false,
   });
 
-  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+  installProcessGuards(app.log);
+
+  app.setErrorHandler((error: Error & { statusCode?: number; expose?: boolean }, request, reply) => {
     const statusCode = error.statusCode ?? 500;
     app.log.error({ err: error, url: request.url, method: request.method }, 'Request error');
+
+    // Молчащий источник — не поломка продукта. Ошибка, которая сама объявила
+    // себя показываемой (expose), несёт русский текст с действием: подменять
+    // его на «Internal server error» значит прятать от читателя единственное
+    // объяснение, которое у него было. Всё остальное 5xx по-прежнему
+    // обезличено — внутренности наружу не выносим.
+    const showOwnMessage = error.expose === true || statusCode < 500;
+
     reply.status(statusCode).send({
       error: error.name ?? 'InternalServerError',
-      message: statusCode >= 500 ? 'Internal server error' : error.message,
+      message: showOwnMessage ? error.message : 'Internal server error',
       statusCode,
       ...(process.env.NODE_ENV !== 'production' && { stack: error.stack }),
     });
   });
 
   registerAuthHook(app);
+  // После проверки ключа: обращение без ключа отсекается дешевле и не тратит
+  // окно частоты, отведённое настоящим читателям.
+  registerHeavyRouteRateLimit(app, options.rateLimitRules);
 
   await app.register(dashboardRoutes);
   await app.register(metricsRoutes);
@@ -96,12 +114,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(historyRoutes);
   await app.register(reconciliationRoutes);
   await app.register(reportRoutes);
-
-  app.get('/api/health', async () => ({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    service: 'aemr-server',
-  }));
+  await app.register(healthRoutes);
 
   if (process.env.NODE_ENV !== 'production') {
     app.get('/api/debug/sheets', async () => {
@@ -143,7 +156,40 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   return app;
 }
 
+/**
+ * Остановка по сигналу: `docker compose down` и перезапуск шлют SIGTERM, и без
+ * обработчика процесс умирает прямо посреди запроса — читатель получает
+ * оборванное соединение, а незакрытая база остаётся с открытым дескриптором.
+ * Закрываемся штатно, но не бесконечно: если что-то держит закрытие, через
+ * названный срок выходим всё равно.
+ */
+const SHUTDOWN_DEADLINE_MS = 10_000;
+
+function installGracefulShutdown(app: FastifyInstance): void {
+  let closing = false;
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      if (closing) return;
+      closing = true;
+      app.log.info(`Получен сигнал ${signal}: закрываем сервер`);
+      const forceExit = setTimeout(() => {
+        app.log.warn('Закрытие затянулось — выходим принудительно');
+        process.exit(0);
+      }, SHUTDOWN_DEADLINE_MS);
+      forceExit.unref();
+      void app
+        .close()
+        .then(() => process.exit(0))
+        .catch((err: unknown) => {
+          app.log.error({ err }, 'Ошибка при закрытии сервера');
+          process.exit(0);
+        });
+    });
+  }
+}
+
 export async function startServer(app: FastifyInstance, port: number, maxRetries = 3): Promise<void> {
+  installGracefulShutdown(app);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const actualPort = port + attempt;

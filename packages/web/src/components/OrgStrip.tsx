@@ -21,8 +21,11 @@ const DEPT_ABBR: Record<string, string> = {
 
 // Палитра ГРБС без синего/индиго (итерация палитры 07.08: кнопки-чипы —
 // кремово-тёплые вместо синих; различимость 8 тонов сохранена).
+// Тона живут только в полосках и рамках, текстом не работают — поэтому от них
+// требуется 3:1 к чёрному фону. Фиолетовый ради этого осветлён (#8b5cf6 давал
+// 2,3:1 и на чёрном терялся).
 const DEPT_COLORS = [
-  '#d6bf85', '#8b5cf6', '#06b6d4', '#f59e0b',
+  '#d6bf85', '#a78bfa', '#06b6d4', '#f59e0b',
   '#10b981', '#ef4444', '#ec4899', '#84cc16',
 ];
 
@@ -31,9 +34,9 @@ const SUB_GROUPS: { pattern: RegExp; label: string; tint: string }[] = [
   { pattern: /школ|сош|сш|гимназ|лицей|[оо]ш\b/i, label: 'Школы', tint: '#d6bf85' },
   { pattern: /сад|дс\b|дош|доу|ДОУ/i, label: 'Д/сады', tint: '#10b981' },
   { pattern: /спорт|ск\b|дюсш|физ/i, label: 'Спорт', tint: '#f59e0b' },
-  { pattern: /культур|дк\b|музей|библ|клуб|дши|дмш|школа искусств/i, label: 'Культ.', tint: '#8b5cf6' },
-  { pattern: /цб\b|бух|центр.*бух/i, label: 'ЦБ', tint: '#71717a' },
-  { pattern: /мто|хоз|ахо|хозу/i, label: 'Хоз.', tint: '#71717a' },
+  { pattern: /культур|дк\b|музей|библ|клуб|дши|дмш|школа искусств/i, label: 'Культ.', tint: '#a78bfa' },
+  { pattern: /цб\b|бух|центр.*бух/i, label: 'ЦБ', tint: '#a1a1aa' },
+  { pattern: /мто|хоз|ахо|хозу/i, label: 'Хоз.', tint: '#a1a1aa' },
 ];
 
 function detectGroup(name: string): { label: string; tint: string } | null {
@@ -175,13 +178,16 @@ export function OrgStrip() {
     <aside className="ob-strip" aria-label="Организации" data-selective={!noFilter || undefined}>
       {/* "Все" toggle */}
       <button
+        type="button"
         className={clsx('ob-vse', noFilter && 'ob-vse-active')}
         onClick={selectAllDepartments}
+        aria-pressed={noFilter}
+        aria-label={`Все организации: ${totalDepts} управлений и ${totalSubs} подведомственных`}
         title={`${totalDepts} управлений, ${totalSubs} подведов`}
       >
-        <span className="ob-vse-dot" />
+        <span className="ob-vse-dot" aria-hidden="true" />
         <span className="ob-vse-label">Все</span>
-        <span className="ob-vse-count">{totalDepts + totalSubs}</span>
+        <span className="ob-vse-count" aria-hidden="true">{totalDepts + totalSubs}</span>
       </button>
 
       {/* Scrollable accordion */}
@@ -212,6 +218,9 @@ export function OrgStrip() {
             <div key={dept.id} className="ob-dept" data-active={isActive || undefined}>
               {/* ГРБС header — click = dept + all subs */}
               <button
+                type="button"
+                aria-pressed={isDeptSelected && !isDeptOnly}
+                aria-label={`${dept.id} с подведомственными${hasSubs ? `, ${dept.realSubs.length}` : ''}`}
                 className={clsx('ob-dept-btn', isActive && !deptOnlyMode.has(dept.id) && 'ob-dept-active')}
                 onClick={() => {
                   if (selectedDepartments.has(dept.id) && !deptOnlyMode.has(dept.id)) {
@@ -227,10 +236,13 @@ export function OrgStrip() {
                 }}
                 title={`${dept.id} — выбрать с подведами`}
               >
-                <span className="ob-dept-bar" style={{ background: dept.color }} />
+                <span className="ob-dept-bar" style={{ background: dept.color }} aria-hidden="true" />
                 <span className="ob-dept-name">{dept.abbr}</span>
                 {hasSubs && (
-                  <span className="ob-dept-num" style={{ color: dept.color }}>
+                  /* Цвет управления держит подложка, а сама цифра остаётся
+                     нейтральной: тонкие тона палитры на 7 пикселях не дают
+                     нужного контраста, а число здесь читают, а не узнают. */
+                  <span className="ob-dept-num" style={{ background: `${dept.color}24` }} aria-hidden="true">
                     {dept.realSubs.length}
                   </span>
                 )}
@@ -239,6 +251,9 @@ export function OrgStrip() {
               {/* "Только управление" — dept only, no subs */}
               {hasSubs && (
                 <button
+                  type="button"
+                  aria-pressed={isDeptOnly}
+                  aria-label={`Только ${dept.abbr}, без подведомственных`}
                   className={clsx(
                     'ob-dept-only',
                     deptOnlyMode.has(dept.id) && 'ob-dept-only-active'
@@ -271,6 +286,7 @@ export function OrgStrip() {
                     return (
                       <button
                         key={sub}
+                        type="button"
                         className={clsx('ob-chip', subActive && 'ob-chip-active')}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -278,8 +294,14 @@ export function OrgStrip() {
                           toggleSubordinate(sub);
                         }}
                         title={sub}
+                        aria-pressed={subActive}
+                        /* Полное имя организации — в подписи для чтения с
+                           экрана: на чипе стоит аббревиатура, а вслух «ЕСШ9»
+                           не сообщает ничего. Цвет группы остался рамкой:
+                           текстом тонкий тон не набирает 4,5:1. */
+                        aria-label={sub}
                         style={subActive
-                          ? { borderColor: chipColor, color: chipColor }
+                          ? { borderColor: chipColor }
                           : groupTint
                             ? { borderColor: `${groupTint}30` }
                             : undefined
@@ -292,13 +314,27 @@ export function OrgStrip() {
 
                   {isLarge && (
                     <button
+                      type="button"
                       className="ob-chip ob-chip-more"
                       onClick={() => toggleExpand(dept.id)}
+                      /* Раскрытый список схлопывается по Escape, фокус остаётся
+                         на этой же кнопке — уходить с неё некуда, список
+                         разворачивается прямо над ней. */
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape' && isExpanded) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleExpand(dept.id);
+                        }
+                      }}
+                      aria-expanded={isExpanded}
+                      aria-label={isExpanded
+                        ? `Свернуть список подведомственных ${dept.abbr}`
+                        : `Показать ещё ${hiddenCount} подведомственных ${dept.abbr}`}
                       title={isExpanded ? 'Свернуть' : `Ещё ${hiddenCount}`}
-                      style={{ color: dept.color }}
                     >
                       {isExpanded ? (
-                        <><ChevronDown size={8} className="rotate-180" /> свернуть</>
+                        <><ChevronDown size={8} className="rotate-180" aria-hidden="true" /> свернуть</>
                       ) : (
                         <>+{hiddenCount}</>
                       )}

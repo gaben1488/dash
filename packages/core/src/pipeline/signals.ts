@@ -47,7 +47,7 @@ export interface RowSignals {
   economyFlag: boolean;
   /** Конфликт флага экономии: (а) AD="да" но факт ≥ план; (б) экономия >15% но финансовый орган не определил флаг (AD не «да» и не «нет») */
   economyConflict: boolean;
-  /** ЕП (колонка L) с суммой > 600 000 руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
+  /** ЕП (колонка L) с суммой > 600 тыс. руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
   epRisk: boolean;
   /** Пустые обязательные поля — проблема качества данных */
   dataQuality: boolean;
@@ -145,8 +145,14 @@ export interface SignalBadge {
 // Константы
 // ────────────────────────────────────────────────────────────
 
-/** Порог ЕП-риска в рублях: лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ. */
-const EP_RISK_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit;
+/**
+ * Порог ЕП-риска в ТЫС. РУБ. (= 600 тыс. руб.): лимит одной закупки по п.4 ч.1
+ * ст.93 44-ФЗ. Колонка K (planTotal ниже) хранит суммы в тыс. руб. — канон
+ * @aemr/shared/report-map.ts. До fix bug-hunt 2026-08-08 (БАГ #1) порог был
+ * в рублях (600_000) при planTotal в тысячах: epRisk не выставлялся никогда
+ * (требовался контракт на 600 млн руб.).
+ */
+const EP_RISK_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub;
 
 /** Антидемпинговый порог экономии (44-ФЗ ст.37): канон LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare (доля 0.25) → ×100, т.к. economyPct ниже считается в процентах. */
 const ANTI_DUMPING_PERCENT = LAW_44FZ_THRESHOLDS.antiDumpingSavingsShare * 100;

@@ -8,6 +8,8 @@
  * getMonthFromDate (used by unified-svod.ts) remain.
  */
 
+import type { NoYearRemainder } from './calc-engine.js';
+
 // ── Interfaces ────────────────────────────────────────────────────
 
 export interface QuarterMetrics {
@@ -27,13 +29,19 @@ export interface QuarterMetrics {
   economyFB: number;
   economyKB: number;
   economyMB: number;
-  executionPct: number;
+  /**
+   * Доли периода. `null` = знаменателя нет (плана нет вовсе) — лист печатает
+   * в такой ячейке прочерк, и продукт обязан отличать «плана нет» от «план
+   * есть, факта нет» (реестр расхождений 08.08 §2). Ноль здесь означал бы
+   * второе и приносил бы штраф за несуществующее отставание.
+   */
+  executionPct: number | null;
   /** Execution % by count: fact_count / plan_count (ГЛАВНЫЙ KPI — G-column СВОД) */
-  execCountPct: number;
+  execCountPct: number | null;
   /** Competitive execution by count: comp_fact_count / competitive_count */
-  compExecCountPct: number;
+  compExecCountPct: number | null;
   /** EP execution by count: ep_fact_count / ep_count */
-  epExecCountPct: number;
+  epExecCountPct: number | null;
 
   competitive: {
     plan: number; fact: number; planSum: number; factSum: number;
@@ -67,7 +75,8 @@ export interface ActivityMetrics {
   economyKB: number;
   economyMB: number;
   economyTotal: number;
-  execCountPct: number;
+  /** `null` = плана нет (см. QuarterMetrics.executionPct). */
+  execCountPct: number | null;
 }
 
 /** Activity-type breakdown: program / current_program / current_non_program */
@@ -93,8 +102,9 @@ export interface SubPeriodMetrics {
   economyFB: number;
   economyKB: number;
   economyMB: number;
-  executionPct: number;
-  execCountPct: number;
+  /** `null` = плана нет (см. QuarterMetrics.executionPct). */
+  executionPct: number | null;
+  execCountPct: number | null;
 }
 
 /** Subordinate organization summary metrics */
@@ -109,9 +119,10 @@ export interface SubordinateMetrics {
   factFB: number;
   factKB: number;
   factMB: number;
-  executionPct: number;
+  /** `null` = плана нет (см. QuarterMetrics.executionPct). */
+  executionPct: number | null;
   /** Execution by count: fact_count / plan_count */
-  execCountPct: number;
+  execCountPct: number | null;
   competitiveCount: number;
   epCount: number;
   economyTotal: number;
@@ -161,14 +172,45 @@ export interface RecalculatedMetrics {
     economyFB: number;
     economyKB: number;
     economyMB: number;
-    executionPct: number;
-    execCountPct: number;
-    compExecCountPct: number;
-    epExecCountPct: number;
+    executionPct: number | null;
+    execCountPct: number | null;
+    compExecCountPct: number | null;
+    epExecCountPct: number | null;
   };
 
-  /** ЕП share as % of total procedures */
-  epSharePct: number;
+  /**
+   * Корзина «факт без планового квартала»: строка заключена, но столбец O у
+   * неё пуст, поэтому лечь ни в один квартал она не может.
+   *
+   * ПОЧЕМУ ОТДЕЛЬНО (реестр расхождений 08.08 §2 «Корзина _orphan втекает в
+   * годовой факт Пульта»). Раньше её факт добавлялся в год, а её план — нет:
+   * числитель исполнения оказывался шире знаменателя, и Пульт с Отчётом
+   * показывали разный год на одних данных (замер 07.08: одна строка УДТХ на
+   * 67 666,68 тыс. руб. давала всё расхождение годовых денег). Теперь год —
+   * строго сумма плановых кварталов, а корзина видна строкой остатка.
+   */
+  orphanFact: {
+    factCount: number;
+    factFB: number;
+    factKB: number;
+    factMB: number;
+    factTotal: number;
+    economyTotal: number;
+    economyFB: number;
+    economyKB: number;
+    economyMB: number;
+  };
+
+  /**
+   * Корзина «без года плана»: счётные строки, которые не входят в годовой
+   * срез, потому что столбец P пуст (`emptyYearPolicy: 'bucket'`). Показывать
+   * строкой «без года плана: N позиций на X тыс. руб.» — молчаливой потери
+   * здесь больше нет (реестр 08.08 §2, волна 0 п.1). `null` — таких строк нет.
+   */
+  noYearRows: NoYearRemainder | null;
+
+  /** ЕП share as % of total procedures. `null` = процедур нет вовсе. */
+  epSharePct: number | null;
 
   /** Number of data rows that passed the classification filter */
   dataRowCount: number;

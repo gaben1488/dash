@@ -1,20 +1,18 @@
-import { useEffect, useRef, Component, type ReactNode } from 'react';
+import { useEffect, useRef, Component, Suspense, type ReactNode } from 'react';
 import { useStore } from './store';
 import { useThemeInit } from './components/ThemeProvider';
 import { useUrlSync } from './hooks/useUrlSync';
 import { Header } from './components/Header';
 import { OrgStrip } from './components/OrgStrip';
 import { Dashboard } from './pages/Dashboard';
-// Отчёт++ (бриф 2026-08-01): страница-документ, собранная из того же
-// mainReportBlocks, что и .docx-выгрузка, — состав совпадает по построению.
-// Старая вёрстка (pages/Report.tsx) сносится после аудита (шаг 7 брифа).
-import { ReportPage } from './pages/Report';
-import { SvodView } from './pages/SvodView';
-import { DataBrowserPage } from './pages/DataBrowser';
-import { EconomyPage } from './pages/Economy';
-import { Analytics } from './pages/Analytics';
-import { QualityPage } from './pages/Quality';
-import { SettingsPage } from './pages/Settings';
+// Разделы приезжают по требованию — см. pages/lazy-pages.tsx. Отчёт++ (бриф
+// 2026-08-01): страница-документ, собранная из того же mainReportBlocks, что и
+// .docx-выгрузка, — состав совпадает по построению. Старая вёрстка
+// (pages/Report.tsx) сносится после аудита (шаг 7 брифа).
+import {
+  ReportPage, SvodView, DataBrowserPage, EconomyPage,
+  Analytics, QualityPage, SettingsPage, PageSkeleton,
+} from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
 import { setKBRegistry } from './components/ui/kb-tooltip';
 import { STANDARD_METRICS } from './lib/metrics-registry';
@@ -100,8 +98,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           <div className="flex items-center justify-center gap-2">
             {scope === 'раздел' && (
               <button
+                type="button"
                 onClick={this.resetError}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
               >
                 Попробовать снова
               </button>
@@ -109,9 +108,13 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             {/* Раньше единственная кнопка называлась «Обновить», но лишь сбрасывала
                 рамку — страница не перезагружалась. Подпись обещала не то, что
                 делала кнопка; теперь перезагрузка названа своим именем. */}
+            {/* Кольцо фокуса приходит из общего правила в index.css — локальные
+                focus-visible:outline-* убраны, чтобы кольцо было одинаковым во
+                всём продукте и не спорило с темой. */}
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              className="px-4 py-2 bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600 transition"
             >
               Обновить страницу
             </button>
@@ -173,6 +176,10 @@ export function App() {
           Без неё сбой в шапке давал белый экран без единого слова: внутренняя
           рамка живёт ниже по дереву и такое падение перехватить не может. */}
       <ErrorBoundary scope="страница">
+        {/* Первая остановка табуляции: шапка и полоса организаций — это
+            несколько десятков кнопок, и без этой ссылки клавиатурный читатель
+            прощёлкивает весь хром, чтобы добраться до чисел. */}
+        <a href="#main-content" className="skip-link">Перейти к содержимому</a>
         <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
           {/* Horizontal bar — FULL WIDTH, always on top */}
           <Header />
@@ -181,10 +188,16 @@ export function App() {
               навигация по ГРБС — шапка-оглавление внутри страницы (Report.tsx:703). */}
           <div className="flex flex-1 overflow-hidden">
             {page !== 'report' && <OrgStrip />}
-            <main className="flex-1 overflow-y-auto">
+            {/* min-w-0 — чтобы широкая таблица внутри прокручивалась сама, а не
+                распирала строку и не выдавливала полосу организаций за край. */}
+            <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto">
               <div className="max-w-[1400px] mx-auto p-6">
                 <ErrorBoundary resetKey={page} scope="раздел">
-                  {renderPage()}
+                  {/* Пока файл раздела едет по сети, на его месте стоит скелет
+                      той же формы — экран не прыгает, когда раздел появился. */}
+                  <Suspense fallback={<PageSkeleton page={page} />}>
+                    {renderPage()}
+                  </Suspense>
                 </ErrorBoundary>
               </div>
             </main>

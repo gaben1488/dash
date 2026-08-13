@@ -83,7 +83,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УКСиМП',
-    fullName: 'Управление капитального строительства и молодёжной политики',
+    fullName: 'Управление культуры, спорта и молодёжной политики',
     shortName: 'УКСиМП',
     svodSheetName: 'УКСиМП',
     hasSubordinates: true,

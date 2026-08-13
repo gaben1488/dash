@@ -27,7 +27,14 @@ export interface SplittingGroup {
 /** Минимальный размер группы, при котором дробление считается подозрительным. */
 const SPLITTING_MIN_GROUP_SIZE = 3;
 
-const EP_SPLITTING_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimit;
+/**
+ * Тыс. руб. — как и planTotal, читаемый ниже из колонки K (numFromRow берёт
+ * сырое значение книги, канон @aemr/shared/report-map.ts: «Все суммы в тыс. руб.»).
+ * До fix bug-hunt 2026-08-08 (БАГ #1) порог был в рублях (600_000) при
+ * planTotal в тысячах — фильтр-кандидат ниже порога пропускал все строки
+ * (тысячи < 600 000 всегда), а финальный гейт суммы группы никогда не проходил.
+ */
+const EP_SPLITTING_THRESHOLD = LAW_44FZ_THRESHOLDS.epSmallPurchaseSingleContractLimitThousandRub;
 
 export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
   interface EpCandidate {

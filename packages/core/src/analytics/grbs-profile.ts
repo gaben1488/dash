@@ -38,10 +38,18 @@ export interface GRBSProfile {
   procurementVolume: VolumeLevel;
   avgContractSize: number;
   totalProcurements: number;
-  actualExecQ1: number;
-  actualEpShare: number;
-  execDeviation: number;   // actual - expected (negative = underperforming)
-  epShareDeviation: number; // actual - normal (positive = too much EP)
+  /**
+   * `null` = базы нет (плана нет вовсе либо книга не читалась). Отличать
+   * обязательно: ноль здесь означал бы «план есть, не исполнено», и профиль
+   * ставил бы высокий риск управлению, которому просто нечего исполнять
+   * (реестр расхождений 08.08 §2).
+   */
+  actualExecQ1: number | null;
+  actualEpShare: number | null;
+  /** actual − expected (negative = underperforming); `null` при отсутствии базы. */
+  execDeviation: number | null;
+  /** actual − normal (positive = too much EP); `null` при отсутствии базы. */
+  epShareDeviation: number | null;
   riskLevel: 'low' | 'medium' | 'high';
 }
 
@@ -59,10 +67,12 @@ export function buildGRBSProfiles(
         procurementVolume: 'НИЗКИЙ' as VolumeLevel,
         avgContractSize: 0,
         totalProcurements: 0,
-        actualExecQ1: 0,
-        actualEpShare: 0,
-        execDeviation: -baseline.expectedExecQ1,
-        epShareDeviation: 0,
+        // Книги этого ГРБС в снимке нет — это отсутствие ДАННЫХ, а не нулевое
+        // исполнение. Числа пусты, риск высокий именно из-за слепоты.
+        actualExecQ1: null,
+        actualEpShare: null,
+        execDeviation: null,
+        epShareDeviation: null,
         riskLevel: 'high' as const,
       };
     }
@@ -71,16 +81,19 @@ export function buildGRBSProfiles(
     const avgContract = totalProc > 0 ? recalc.year.planTotal / totalProc : 0;
     const actualExecQ1 = recalc.quarters.q1.executionPct;
     const actualEpShare = recalc.epSharePct;
-    const execDev = actualExecQ1 - baseline.expectedExecQ1;
-    const epDev = actualEpShare - baseline.normalEpShare;
+    // Отклонение существует, только если есть от чего отклоняться.
+    const execDev = actualExecQ1 === null ? null : actualExecQ1 - baseline.expectedExecQ1;
+    const epDev = actualEpShare === null ? null : actualEpShare - baseline.normalEpShare;
 
     let volume: VolumeLevel = 'СРЕДНИЙ';
     if (recalc.year.planTotal > 100_000_000) volume = 'ВЫСОКИЙ';
     else if (recalc.year.planTotal < 10_000_000) volume = 'НИЗКИЙ';
 
+    // Риск поднимает только измеренное отклонение: неизвестная величина не
+    // штрафует (снятие штрафа за «исполнение 0 %», реестр 08.08 §2 п.5).
     let riskLevel: 'low' | 'medium' | 'high' = 'low';
-    if (execDev < -0.20 || epDev > 0.20) riskLevel = 'high';
-    else if (execDev < -0.10 || epDev > 0.10) riskLevel = 'medium';
+    if ((execDev !== null && execDev < -0.20) || (epDev !== null && epDev > 0.20)) riskLevel = 'high';
+    else if ((execDev !== null && execDev < -0.10) || (epDev !== null && epDev > 0.10)) riskLevel = 'medium';
 
     return {
       ...baseline,

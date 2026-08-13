@@ -35,6 +35,10 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 
 /* ─── Nav items with BRAND COLORS ────────────────────────── */
 
+// Цвет вкладки — заливка активной кнопки, поверх которой стоит тёмная подпись
+// (см. .np-btn-active в index.css). Поэтому каждый тон обязан быть достаточно
+// светлым: чернильный текст #1b170f даёт на нём не меньше 4,5:1. Фиолетовый и
+// серый ради этого осветлены (были #8b5cf6 и #71717a — 4,2:1 и 3,7:1).
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[] = [
   { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#e5d3a9' },  // Cream (чёрный дэш + кремовый хром, 07.08)
   { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b' },  // Amber — еженедельный отчёт
@@ -42,9 +46,32 @@ const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
   { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald
   { id: 'quality',   label: 'Контроль',   icon: ShieldCheck, color: '#ef4444' },  // Ruby Red
-  { id: 'analytics', label: 'Аналитика',  icon: TrendingUp,  color: '#8b5cf6' },  // Violet
-  { id: 'settings',  label: 'Система',    icon: Settings,    color: '#71717a' },  // Zinc
+  { id: 'analytics', label: 'Аналитика',  icon: TrendingUp,  color: '#a78bfa' },  // Violet
+  { id: 'settings',  label: 'Система',    icon: Settings,    color: '#a1a1aa' },  // Zinc
 ];
+
+/**
+ * Системная настройка «уменьшить движение». Читается подпиской, а не разово:
+ * пользователь может включить её в панели управления, не перезагружая вкладку.
+ * CSS-анимации гасит правило в index.css; этот хук нужен там, где анимация
+ * живёт в разметке SVG (SMIL), до которой CSS не дотягивается.
+ */
+function usePrefersReducedMotion(): boolean {
+  const query = '(prefers-reduced-motion: reduce)';
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(query);
+    const onChange = () => setReduced(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return reduced;
+}
 
 /** Get brand color for current page */
 function getPageColor(page: string): string {
@@ -84,8 +111,17 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
 }) {
   const color = getPageColor(page);
   const PageIcon = getPageIcon(page);
+  const reducedMotion = usePrefersReducedMotion();
   const s = 34;
   const cx = s / 2;
+
+  // Подпись для чтения с экрана: сама кнопка — только рисунок, поэтому
+  // состояние связи и остаток до обновления проговариваются словами.
+  const label = loading
+    ? 'Идёт обновление данных'
+    : isOnline
+      ? `Обновить данные. Автообновление через ${secondsLeft} с`
+      : 'Нет связи с источником. Повторить попытку';
 
   // Shield path — compact filled silhouette
   const shieldD = `
@@ -105,9 +141,11 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
 
   return (
     <button
+      type="button"
       className={clsx('shield-hub', loading && 'shield-loading')}
       onClick={onRefresh}
       title={loading ? 'Загрузка...' : isOnline ? `Обновить (${secondsLeft}с)` : 'Нет связи — повторить'}
+      aria-label={label}
       style={{ '--shield-color': color } as React.CSSProperties}
     >
       <svg
@@ -158,21 +196,27 @@ function ShieldHub({ page, loading, isOnline, secondsLeft, onRefresh }: {
           <g opacity="0.42">
             <circle cx={wifiCx} cy={wifiY + 3} r="2.5" fill="none"
               stroke="#fff" strokeWidth="1" strokeDasharray="3.5 1.5">
-              <animateTransform attributeName="transform" type="rotate"
-                from={`0 ${wifiCx} ${wifiY + 3}`} to={`360 ${wifiCx} ${wifiY + 3}`}
-                dur="1s" repeatCount="indefinite" />
+              {/* Вращение живёт в разметке SVG, а не в CSS, поэтому системную
+                  настройку «уменьшить движение» приходится учитывать здесь
+                  вручную: без этого кольцо крутится вопреки настройке. */}
+              {!reducedMotion && (
+                <animateTransform attributeName="transform" type="rotate"
+                  from={`0 ${wifiCx} ${wifiY + 3}`} to={`360 ${wifiCx} ${wifiY + 3}`}
+                  dur="1s" repeatCount="indefinite" />
+              )}
             </circle>
           </g>
         )}
       </svg>
 
       {/* Page icon — centered in upper 40% of shield, above wifi */}
-      <div className="shield-icon">
+      <div className="shield-icon" aria-hidden="true">
         <PageIcon size={13} strokeWidth={2.2} />
       </div>
 
-      {/* Countdown — tiny text below shield */}
-      <span className="shield-timer">
+      {/* Countdown — tiny text below shield. Число уже проговорено в aria-label
+          кнопки, поэтому для чтения с экрана оно скрыто как дубль. */}
+      <span className="shield-timer" aria-hidden="true">
         {loading ? '…' : isOnline ? secondsLeft : '!'}
       </span>
     </button>
@@ -231,6 +275,17 @@ function TimeDrum() {
     return () => el.removeEventListener('wheel', handler);
   }, [currentYear, setYear]);
 
+  // Колесо мыши перелистывает годы — но мышь есть не у всех, и барабан без
+  // клавиатурного дубля означает функцию, недостижимую с клавиатуры. Стрелки
+  // вверх/вниз на любой кнопке года делают ровно то же самое.
+  const handleYearKey = useCallback((e: React.KeyboardEvent, yr: number) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const idx = AVAILABLE_YEARS.indexOf(yr);
+    const next = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+    if (idx >= 0 && next >= 0 && next < AVAILABLE_YEARS.length) setYear(AVAILABLE_YEARS[next]);
+  }, [setYear]);
+
   const isQFull = (yr: number, qKey: string) => {
     const ms = monthsByYear[yr];
     if (!ms) return false;
@@ -246,8 +301,9 @@ function TimeDrum() {
   return (
     <div className="tg-drum select-none" ref={drumRef}>
       {hasAnySelection && (
-        <button onClick={clearAllPeriods} className="tg-drum-reset" title="Сбросить период">
-          <X size={7} strokeWidth={3} />
+        <button type="button" onClick={clearAllPeriods} className="tg-drum-reset"
+          title="Сбросить период" aria-label="Сбросить выбранный период">
+          <X size={7} strokeWidth={3} aria-hidden="true" />
         </button>
       )}
       {AVAILABLE_YEARS.map((yr, idx) => {
@@ -259,7 +315,11 @@ function TimeDrum() {
         const isLast = idx === AVAILABLE_YEARS.length - 1;
         return (
           <div key={yr} className={clsx('tg-row', isActiveYear && 'tg-row-active', isFirst && 'tg-row-first', isLast && 'tg-row-last')}>
-            <button onClick={() => toggleYearFull(yr)} title={isFullYear ? `${yr} — снять` : `${yr} — весь год`}
+            <button type="button" onClick={() => toggleYearFull(yr)}
+              onKeyDown={(e) => handleYearKey(e, yr)}
+              title={isFullYear ? `${yr} — снять` : `${yr} — весь год`}
+              aria-pressed={isFullYear}
+              aria-label={`${yr} год целиком${isActiveYear ? ', год в фокусе' : ''}`}
               className={clsx('tg-year', isFullYear ? 'tg-year-full' : hasYearSelection ? 'tg-year-partial' : 'tg-year-idle')}>
               {yr}
             </button>
@@ -269,7 +329,10 @@ function TimeDrum() {
               const partial = isQPartial(yr, qKey);
               return (
                 <div key={qKey} className={clsx('tg-quarter', full && 'tg-quarter-full', partial && 'tg-quarter-partial', !full && !partial && 'tg-quarter-idle')}>
-                  <button onClick={() => toggleQuarterInYear(yr, qKey)}
+                  <button type="button" onClick={() => toggleQuarterInYear(yr, qKey)}
+                    aria-pressed={full}
+                    aria-label={`${qi + 1} квартал ${yr} года`}
+                    title={`${qi + 1} квартал ${yr}`}
                     className={clsx('tg-quarter-tab', full && 'tg-quarter-tab-full', partial && 'tg-quarter-tab-partial', !full && !partial && 'tg-quarter-tab-idle')}>
                     {QTR_SHORT[qi]}
                   </button>
@@ -279,7 +342,10 @@ function TimeDrum() {
                     const isCurrent = monthId === currentMonth && yr === currentYear;
                     const isFocusedByWeek = yr === focusedWYear && monthId === focusedWMonth;
                     return (
-                      <button key={monthId} onClick={() => toggleMonthInYear(yr, monthId)} title={`${m.full} ${yr}`}
+                      <button key={monthId} type="button" onClick={() => toggleMonthInYear(yr, monthId)}
+                        title={`${m.full} ${yr}`}
+                        aria-pressed={isSelected}
+                        aria-label={`${m.full} ${yr}${isCurrent ? ', текущий месяц' : ''}`}
                         className={clsx('tg-month', isSelected ? 'tg-month-active' : 'tg-month-idle', isCurrent && 'tg-month-now', isFocusedByWeek && !isSelected && 'tg-month-focused')}>
                         {m.short}
                       </button>
@@ -351,6 +417,14 @@ function WeekRoller() {
     });
   }, []);
 
+  // Клавиатурный дубль колеса мыши: стрелки листают недели, пока фокус стоит
+  // на центральной строке барабана.
+  const handleWeekKey = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    shiftFocusedWeek(e.key === 'ArrowDown' ? 1 : -1);
+  }, [shiftFocusedWeek]);
+
   return (
     <div className={clsx('wr-drum', isWeekMode && 'wr-drum-active')} ref={wrRef} title={isWeekMode ? 'Режим недели (данные по текущей неделе)' : 'Нажмите для переключения на неделю'}>
       {weeks.map((monday, idx) => {
@@ -371,21 +445,43 @@ function WeekRoller() {
           rangeLine = `${mDay}\u2013${sDay}`;
           monthLine = `${MONTHS[mMonthIdx].short.toLowerCase()}\u2013${MONTHS[sMonthIdx].short.toLowerCase()}`;
         }
-        return (
-          <div
-            key={monday.toISOString()}
-            className={clsx('wr-row', isFocused && 'wr-row-active', isEdge && 'wr-row-edge', isFocused && isWeekMode && 'wr-row-driving')}
-            onClick={isFocused ? () => handleWeekClick(monday) : undefined}
-            style={isFocused ? { cursor: 'pointer' } : undefined}
-          >
-            {/* Кириллическая «н» вместо латинской «w»: колонка шириной 18px
-                (.wr-wnum в index.css) держит ровно три знака, поэтому полное
-                слово сюда не влезает — оно вынесено в подсказку при наведении. */}
+        // Кириллическая «н» вместо латинской «w»: колонка шириной 18px
+        // (.wr-wnum в index.css) держит ровно три знака, поэтому полное
+        // слово сюда не влезает — оно вынесено в подсказку при наведении.
+        const body = (
+          <>
             <span className="wr-wnum" title={`${weekNum}-я неделя года`}>н{weekNum}</span>
             <span className="wr-label">
               <span className="wr-range">{rangeLine}</span>
               <span className="wr-month">{monthLine}</span>
             </span>
+          </>
+        );
+
+        // Нажимается только центральная строка — она и есть кнопка. Соседние
+        // недели показаны для контекста и остаются обычным текстом: раньше вся
+        // строка была <div> с onClick, то есть с клавиатуры недостижима.
+        if (isFocused) {
+          return (
+            <button
+              key={monday.toISOString()}
+              type="button"
+              className={clsx('wr-row', 'wr-row-active', isWeekMode && 'wr-row-driving')}
+              onClick={() => handleWeekClick(monday)}
+              onKeyDown={handleWeekKey}
+              aria-pressed={isWeekMode}
+              aria-label={`Неделя ${weekNum}, ${rangeLine} ${monthLine}. ${isWeekMode ? 'Данные считаются по этой неделе' : 'Считать данные по этой неделе'}`}
+            >
+              {body}
+            </button>
+          );
+        }
+        return (
+          <div
+            key={monday.toISOString()}
+            className={clsx('wr-row', isEdge && 'wr-row-edge')}
+          >
+            {body}
           </div>
         );
       })}
@@ -396,13 +492,16 @@ function WeekRoller() {
 /** Currency drum — тыс/млн vertical */
 function CurrencyDrum({ value, onChange }: { value: string; onChange: (v: any) => void }) {
   return (
-    <div className="vf-drum vf-drum-thin" title="Единицы измерения">
+    <div className="vf-drum vf-drum-thin" title="Единицы измерения" role="group" aria-label="Единицы измерения сумм">
       {(['тыс', 'млн'] as const).map((u) => (
         <button
           key={u}
+          type="button"
           onClick={() => onChange(u)}
           className={clsx('vf-btn vf-btn-sm', value === u && 'vf-cur-active')}
           title={u === 'тыс' ? 'Тысячи ₽' : 'Миллионы ₽'}
+          aria-pressed={value === u}
+          aria-label={u === 'тыс' ? 'Показывать суммы в тысячах рублей' : 'Показывать суммы в миллионах рублей'}
         >{u}</button>
       ))}
     </div>
@@ -424,15 +523,17 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
         return (
           <button
             key={item.id}
+            type="button"
             onClick={() => setPage(item.id)}
             className={clsx('np-btn', isActive && 'np-btn-active')}
             style={{ '--np-color': item.color } as React.CSSProperties}
             title={item.label}
+            aria-current={isActive ? 'page' : undefined}
           >
             {/* Apple Intelligence rotating glow — only on active */}
-            {isActive && <span className="np-glow" />}
+            {isActive && <span className="np-glow" aria-hidden="true" />}
             <span className="np-content">
-              <Icon size={10} strokeWidth={isActive ? 2.2 : 1.5} />
+              <Icon size={10} strokeWidth={isActive ? 2.2 : 1.5} aria-hidden="true" />
               <span>{item.label}</span>
             </span>
           </button>
@@ -502,14 +603,16 @@ export function Header() {
     <header className="sticky top-0 z-40 header-glass flex-shrink-0">
       {/* Error banner */}
       {error && (
-        <div className="px-4 py-1.5 bg-red-50/90 dark:bg-red-950/40 border-b border-red-200/60 dark:border-red-800/40 text-red-700 dark:text-red-300 text-[11px] flex items-center gap-2">
-          <AlertTriangle size={12} className="shrink-0" /><span className="truncate">{error}</span>
-          <button onClick={() => useStore.getState().refresh()} className="ml-auto text-red-600 dark:text-red-400 font-semibold hover:underline shrink-0">Повторить</button>
+        <div role="alert"
+          className="px-4 py-1.5 bg-red-50/90 dark:bg-red-950/40 border-b border-red-200/60 dark:border-red-800/40 text-red-700 dark:text-red-300 text-[11px] flex items-center gap-2">
+          <AlertTriangle size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">{error}</span>
+          <button type="button" onClick={() => useStore.getState().refresh()} className="ml-auto text-red-600 dark:text-red-400 font-semibold hover:underline shrink-0">Повторить</button>
         </div>
       )}
       {isDemo && !error && (
-        <div className="px-4 py-1 bg-amber-50/80 dark:bg-amber-950/20 border-b border-amber-200/60 dark:border-amber-800/40 text-amber-700 dark:text-amber-300 text-[10px] flex items-center gap-2">
-          <AlertTriangle size={11} className="shrink-0" /><span>Демо — Google Таблицы недоступны</span>
+        <div role="status"
+          className="px-4 py-1 bg-amber-50/80 dark:bg-amber-950/20 border-b border-amber-200/60 dark:border-amber-800/40 text-amber-700 dark:text-amber-300 text-[10px] flex items-center gap-2">
+          <AlertTriangle size={11} className="shrink-0" aria-hidden="true" /><span>Демо — Google Таблицы недоступны</span>
         </div>
       )}
 
@@ -529,7 +632,7 @@ export function Header() {
 
         {/* 3. Time drums */}
         {showTime && (
-          <div className="time-machine">
+          <div className="time-machine" role="group" aria-label="Период">
             <WeekRoller />
             <TimeDrum />
           </div>
@@ -537,46 +640,64 @@ export function Header() {
 
         {/* 4. Filter drums */}
         {showMethod && (
-          <div className="vf-drum">
+          <div className="vf-drum" role="group" aria-label="Способ закупки">
             {/* Симметрично кнопке ЕП: активный КП снимается, чужой выбор
                 заменяется. Раньше клик по КП при активном ЕП ронял фильтр
                 в «ВСЕ» вместо переключения. */}
-            <button onClick={() => mAll ? toggleMethod('competitive') : (methods_has(selectedMethods, 'competitive') ? clearMethods() : (() => { clearMethods(); toggleMethod('competitive'); })())}
+            <button type="button" onClick={() => mAll ? toggleMethod('competitive') : (methods_has(selectedMethods, 'competitive') ? clearMethods() : (() => { clearMethods(); toggleMethod('competitive'); })())}
               className={clsx('vf-btn', !mAll && methods_has(selectedMethods, 'competitive') && 'vf-btn-active')}
+              aria-pressed={!mAll && methods_has(selectedMethods, 'competitive')}
+              aria-label="Конкурентные способы, статья 24 44-ФЗ"
               title="Конкурентные (44-ФЗ ст.24)">КП</button>
-            <button onClick={() => mAll ? toggleMethod('single') : (selectedMethods.has('single') ? clearMethods() : (() => { clearMethods(); toggleMethod('single'); })())}
+            <button type="button" onClick={() => mAll ? toggleMethod('single') : (selectedMethods.has('single') ? clearMethods() : (() => { clearMethods(); toggleMethod('single'); })())}
               className={clsx('vf-btn', !mAll && selectedMethods.has('single') && 'vf-btn-active')}
+              aria-pressed={!mAll && selectedMethods.has('single')}
+              aria-label="Единственный поставщик, статья 93 44-ФЗ"
               title="Единственный поставщик (44-ФЗ ст.93)">ЕП</button>
-            <button onClick={() => clearMethods()}
+            <button type="button" onClick={() => clearMethods()}
               className={clsx('vf-btn', mAll && 'vf-cur-active')}
+              aria-pressed={mAll}
+              aria-label="Все способы закупки"
               title="Все способы">ВСЕ</button>
           </div>
         )}
 
         {showActivity && (
-          <div className="vf-drum">
-            <button onClick={() => toggleActivity('program')}
+          <div className="vf-drum" role="group" aria-label="Вид деятельности">
+            <button type="button" onClick={() => toggleActivity('program')}
               className={clsx('vf-btn', !aAll && selectedActivities.has('program') && 'vf-btn-active')}
+              aria-pressed={!aAll && selectedActivities.has('program')}
+              aria-label="Программные мероприятия"
               title="Программные мероприятия">ПМ</button>
-            <button onClick={() => toggleActivity('current_program')}
+            <button type="button" onClick={() => toggleActivity('current_program')}
               className={clsx('vf-btn', !aAll && selectedActivities.has('current_program') && 'vf-btn-active')}
+              aria-pressed={!aAll && selectedActivities.has('current_program')}
+              aria-label="Текущая деятельность, программные"
               title="Текущая деятельность — программные">ТД-ПМ</button>
-            <button onClick={() => toggleActivity('current_non_program')}
+            <button type="button" onClick={() => toggleActivity('current_non_program')}
               className={clsx('vf-btn', !aAll && selectedActivities.has('current_non_program') && 'vf-btn-active')}
+              aria-pressed={!aAll && selectedActivities.has('current_non_program')}
+              aria-label="Текущая деятельность"
               title="Текущая деятельность">ТД</button>
           </div>
         )}
 
         {showBudget && (
-          <div className="vf-drum">
-            <button onClick={() => toggleBudget('fb' as BudgetType)}
+          <div className="vf-drum" role="group" aria-label="Источник финансирования">
+            <button type="button" onClick={() => toggleBudget('fb' as BudgetType)}
               className={clsx('vf-btn vf-budget-fb', !bAll && selectedBudgets.has('fb') && 'vf-btn-active')}
+              aria-pressed={!bAll && selectedBudgets.has('fb')}
+              aria-label="Федеральный бюджет"
               title="Федеральный бюджет">ФБ</button>
-            <button onClick={() => toggleBudget('kb' as BudgetType)}
+            <button type="button" onClick={() => toggleBudget('kb' as BudgetType)}
               className={clsx('vf-btn vf-budget-kb', !bAll && selectedBudgets.has('kb') && 'vf-btn-active')}
+              aria-pressed={!bAll && selectedBudgets.has('kb')}
+              aria-label="Краевой бюджет"
               title="Краевой бюджет">КБ</button>
-            <button onClick={() => toggleBudget('mb' as BudgetType)}
+            <button type="button" onClick={() => toggleBudget('mb' as BudgetType)}
               className={clsx('vf-btn vf-budget-mb', !bAll && selectedBudgets.has('mb') && 'vf-btn-active')}
+              aria-pressed={!bAll && selectedBudgets.has('mb')}
+              aria-label="Муниципальный бюджет"
               title="Муниципальный бюджет">МБ</button>
           </div>
         )}
@@ -588,13 +709,23 @@ export function Header() {
         {/* Search */}
         {showSearch && (
           <div className="relative w-[100px] flex-shrink-0">
-            <Search size={10} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <Search size={10} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-zinc-500 dark:text-zinc-400" aria-hidden="true" />
             <input type="text" placeholder="Поиск..." value={searchQuery}
+              aria-label="Поиск по реестру закупок"
               onChange={(e) => setSearchQuery(e.target.value)}
+              // Escape очищает поле, не уводя фокус: привычный жест поиска,
+              // иначе строку приходится вычищать по символу.
+              onKeyDown={(e) => { if (e.key === 'Escape' && searchQuery) { e.preventDefault(); setSearchQuery(''); } }}
               className={clsx('w-full pl-5 pr-5 py-[3px] rounded-md text-[10px] border transition-all bg-transparent',
                 searchQuery ? 'border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/20'
                 : 'border-zinc-200/60 dark:border-zinc-700/60 text-zinc-600 dark:text-zinc-300 focus:border-blue-400')} />
-            {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition"><X size={9} /></button>}
+            {searchQuery && (
+              <button type="button" onClick={() => setSearchQuery('')}
+                aria-label="Очистить строку поиска"
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition">
+                <X size={9} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
 
@@ -603,16 +734,18 @@ export function Header() {
 
         {/* 5. Tools (right edge) — theme + reset only, LiveDot merged into ShieldHub */}
         <div className="nav-tools">
-          <button onClick={toggleTheme} className="hf-icon-btn"
-            title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}>
-            {theme === 'dark' ? <Sun size={11} /> : <Moon size={11} />}
+          <button type="button" onClick={toggleTheme} className="hf-icon-btn"
+            title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
+            {theme === 'dark' ? <Sun size={11} aria-hidden="true" /> : <Moon size={11} aria-hidden="true" />}
           </button>
           {activeCount > 0 && (
-            <button onClick={resetAllFilters}
+            <button type="button" onClick={resetAllFilters}
               className="hf-icon-btn group hover:text-red-500 hover:bg-red-50/80 dark:hover:bg-red-950/20"
-              title="Сбросить все фильтры">
-              <RotateCcw size={9} className="group-hover:rotate-[-180deg] transition-transform duration-300" />
-              <span className="w-2.5 h-2.5 flex items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[6px] font-bold">{activeCount}</span>
+              title="Сбросить все фильтры"
+              aria-label={`Сбросить все фильтры (включено: ${activeCount})`}>
+              <RotateCcw size={9} className="group-hover:rotate-[-180deg] transition-transform duration-300" aria-hidden="true" />
+              <span aria-hidden="true" className="w-2.5 h-2.5 flex items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[6px] font-bold">{activeCount}</span>
             </button>
           )}
         </div>

@@ -91,8 +91,13 @@ export function seasonalForecast(
 
   // Calculate scaling factor from actual vs expected seasonal
   const currentTotal = monthlyFacts.reduce((s, v) => s + v, 0);
+  // Делитель — ИСТЁКШИЕ месяцы (monthlyFacts.length), а не non-zero: bug-hunt #2
+  // (docs/superpowers/audits/2026-08-08-bug-hunt-register.md). Нулевой месяц в начале
+  // ряда — это истёкший месяц с нулевым фактом, а не «данных ещё нет»; счёт по nonZero
+  // занижал знаменатель и раздувал scaleFactor кратно (доказано на [0,0,0,1000,2000,3000]/20000:
+  // 1.1684 вместо верных 0.6667). linearForecast (см. выше) этот же класс дефекта уже избегает.
   const expectedByNow = seasonalWeights
-    .slice(0, nonZero.length)
+    .slice(0, monthlyFacts.length)
     .reduce((s, w) => s + w, 0);
   const scaleFactor = expectedByNow > 0 ? currentTotal / (yearPlan * expectedByNow) : 1;
 
@@ -138,6 +143,11 @@ export function buildScenarios(
   const base = linearForecast(monthlyFacts, yearPlan);
   const seasonal = seasonalForecast(monthlyFacts, yearPlan, profile);
 
+  // Граница факт/проекция — ИСТЁКШИЕ месяцы (monthlyFacts.length), а не non-zero: bug-hunt #3
+  // (docs/superpowers/audits/2026-08-08-bug-hunt-register.md). С nonZero.length интерьерный нулевой
+  // месяц читался как «ещё не наступил» и попадал под множитель сценария, переписывая уже
+  // свершившийся факт (пример: [0,5000,0,7000] — 3-й месяц полу-случайно уходил под 0.8/1.2).
+
   // Optimistic: 120% of base projection
   const optimistic: ForecastScenario = {
     label: 'Оптимистичный',
@@ -145,7 +155,7 @@ export function buildScenarios(
     yearEndFact: base.yearEndFact * 1.2,
     confidence: base.confidence * 0.6,
     monthlyProjection: base.monthlyProjection.map((v, i) =>
-      i < nonZero.length ? v : v * 1.2
+      i < monthlyFacts.length ? v : v * 1.2
     ),
   };
 
@@ -156,7 +166,7 @@ export function buildScenarios(
     yearEndFact: base.yearEndFact * 0.8,
     confidence: base.confidence * 0.6,
     monthlyProjection: base.monthlyProjection.map((v, i) =>
-      i < nonZero.length ? v : v * 0.8
+      i < monthlyFacts.length ? v : v * 0.8
     ),
   };
 

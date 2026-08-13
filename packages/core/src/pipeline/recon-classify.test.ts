@@ -209,21 +209,28 @@ describe('classifyMethod', () => {
     row({ plan: 300, method: '', type: 'Текущая деятельность', planParts: [0, 0, 300] }),
   ];
 
-  it('нераспознанный способ даёт вклад, пустой — показан с нулём', () => {
+  it('обе разновидности перечислены с нулевым вкладом — это риск данных, не дельта', () => {
     const c = classifyMethod({ rows, sheet: 'УО', measure: 'planMoney' })!;
     expect(c.class).toBe('method');
     expect(c.rows).toHaveLength(2);
-    expect(c.rows[0].delta).toBe(700);
-    expect(c.rows[0].cell).toBe(`K${sheetRowOf(1)}`);
+    // До волны 0 нераспознанный код давал вклад 700: лист держал строку в
+    // конкурентных, а наш классификатор терял её между группами. После
+    // тотализации (реестр 08.08 §2) обе стороны читают такую строку
+    // одинаково, и расхождения она больше не двигает.
+    expect(c.rows[0].delta).toBe(0);
     expect(c.rows[1].delta).toBe(0);
-    expect(c.rows[1].cell).toBe(`K${sheetRowOf(2)}`);
+    expect(c.rows.map((r) => r.cell)).toEqual([`K${sheetRowOf(1)}`, `K${sheetRowOf(2)}`]);
     expect(c.explanation).toContain('нераспознанным способом: 1');
     expect(c.explanation).toContain('пустым способом: 1');
   });
 
-  it('вклад класса равен сумме только нераспознанных строк', () => {
+  it('класс остаётся, потому что риск крупнее арифметики', () => {
     const c = classifyMethod({ rows, sheet: 'УО', measure: 'planMoney' })!;
-    expect(c.rows.reduce((s, r) => s + r.delta, 0)).toBe(700);
+    // Сумма вкладов нулевая — и это ровно тот случай, когда причина нужна не
+    // ради дельты: если в ячейке имелась в виду закупка у единственного
+    // поставщика, обе стороны ошибаются одинаково и молча.
+    expect(c.rows.reduce((s, r) => s + r.delta, 0)).toBe(0);
+    expect(c.explanation).toContain('ошибаются одинаково');
   });
 
   it('канонические коды и их синонимы причиной не считаются', () => {

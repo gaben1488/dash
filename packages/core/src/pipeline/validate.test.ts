@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateData } from './validate.js';
+import { classifyRows } from './classify.js';
 import type { ClassifiedRow, NormalizedMetric, ValidationRule, ReportMapEntry, RuleCheckContext } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────
@@ -402,6 +403,43 @@ describe('validateData — rule context', () => {
     expect(receivedCtx!.sheet).toBe('TestSheet');
     expect(receivedCtx!.rowIndex).toBe(5);
     expect(receivedCtx!.classification).toBe('procurement');
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// 10b. БАГ #7 (docs/superpowers/audits/2026-08-08-bug-hunt-register.md):
+// сквозной конвейер classifyRows → validateData. validateData сама по себе
+// корректно пропускает header (это не баг — заголовки не данные), но пока
+// classify.ts ошибочно клеймил дешёвую закупку header'ом, эта строка тихо
+// выпадала из RULE_BOOK. Тест держит связку целиком: реальная строка,
+// прошедшая через classifyRows, обязана попасть под проверку.
+// ────────────────────────────────────────────────────────────
+
+describe('validateData — БАГ #7: дешёвая закупка не теряется на стыке classify→validate', () => {
+  it('дешёвая закупка (H=0,I=0,J=80,K=80, план 80 тыс.) с предметом и способом реально проверяется правилом', () => {
+    const [classified] = classifyRows('УО', [{
+      rowIndex: 10,
+      cells: { A: '1', G: 'Медицинские услуги для обучающихся', H: 0, I: 0, J: 80, K: 80, L: 'ЭА' },
+    }]);
+    // Предусловие: сама классификация не header (иначе тест ничего бы не доказывал).
+    expect(classified.classification).not.toBe('header');
+
+    const rule = makeFailingRule();
+    const issues = validateData(EMPTY_METRICS, [classified], [rule], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].row).toBe(10);
+  });
+
+  it('настоящая шапка (номера столбцов, без предмета/способа) по-прежнему пропускается', () => {
+    const [classified] = classifyRows('УО', [{
+      rowIndex: 4,
+      cells: { A: '1', H: 1, I: 2, J: 3, K: 4 },
+    }]);
+    expect(classified.classification).toBe('header');
+
+    const rule = makeFailingRule();
+    const issues = validateData(EMPTY_METRICS, [classified], [rule], EMPTY_REPORT_MAP);
+    expect(issues).toHaveLength(0);
   });
 });
 
