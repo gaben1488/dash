@@ -600,6 +600,13 @@ export interface AppConfig {
     /** Предельный возраст кэша книг, при котором его можно смешивать со свежим официалом, с. */
     sourceFreshnessSeconds: number;
   };
+  /** Push-уведомления Google Drive о правках книг (канон п.66, домен п.69а). */
+  webhook: {
+    /** Публичный HTTPS-адрес продукта; пусто — push выключен, работает опрос. */
+    publicUrl?: string;
+    /** Секрет канала: без него приёмник отвечает 404 и ничего не запускает. */
+    secret?: string;
+  };
   database: {
     url: string;
     postgresUrl?: string;

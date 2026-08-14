@@ -8,8 +8,13 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-/** Public routes that skip auth */
-const PUBLIC_PATHS = new Set(['/api/health']);
+/**
+ * Public routes that skip auth.
+ * /api/webhook/drive: Google не умеет ни basic auth, ни Bearer — приёмник
+ * защищён собственным секретом канала (X-Goog-Channel-Token, см. routes/webhook.ts)
+ * и отвечает 404, пока секрет не настроен.
+ */
+const PUBLIC_PATHS = new Set(['/api/health', '/api/webhook/drive']);
 
 /**
  * Register API key authentication hook.

@@ -21,8 +21,10 @@ import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
 import { changesRoutes } from './routes/changes.js';
 import { healthRoutes } from './routes/health.js';
+import { webhookRoutes } from './routes/webhook.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
+import { startDriveWatch } from './services/drive-watch.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
@@ -117,6 +119,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(reconciliationRoutes);
   await app.register(reportRoutes);
   await app.register(healthRoutes);
+  await app.register(webhookRoutes);
 
   if (process.env.NODE_ENV !== 'production') {
     app.get('/api/debug/sheets', async () => {
@@ -254,6 +257,13 @@ export function preloadData(app: FastifyInstance): void {
     // Самообновление источников включается ПОСЛЕ первой полной загрузки:
     // иначе тик мог бы наложиться на старт и читать книги дважды.
     startSourceAutoRefresh({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
+
+    // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
+    // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.
+    startDriveWatch({
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });

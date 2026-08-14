@@ -43,6 +43,10 @@ const envSchema = z.object({
 
   // Auth
   AEMR_API_KEY: z.string().optional(),
+  /** Публичный HTTPS-адрес продукта (https://dash-elizovo-uer.ru) — включает push-каналы Drive. */
+  WEBHOOK_PUBLIC_URL: z.string().optional(),
+  /** Секрет каналов Drive: кладётся в token при регистрации, сверяется на каждом уведомлении. */
+  WEBHOOK_SECRET: z.string().optional(),
 
   // Четверг-cron еженедельного снимка
   NODE_ENV: z.string().optional(),
@@ -173,6 +177,10 @@ export const config: AppConfig = {
      * УКСиМП −181,9 и УО −313,6 — обе стороны были правы, разошлись моменты).
      */
     sourceFreshnessSeconds: env.SOURCE_FRESHNESS_SECONDS,
+  },
+  webhook: {
+    publicUrl: env.WEBHOOK_PUBLIC_URL,
+    secret: env.WEBHOOK_SECRET,
   },
   database: {
     url: env.SQLITE_PATH,

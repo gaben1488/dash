@@ -43,12 +43,19 @@
         Referrer-Policy no-referrer
     }
 
-    # Вход по паролю на весь стенд, кроме публичного /api/health
-    # (health нужен docker-healthcheck и внешнему мониторингу).
+    # Вход по паролю на весь стенд, кроме двух публичных путей:
+    #   /api/health        — нужен docker-healthcheck и внешнему мониторингу;
+    #   /api/webhook/drive — push-уведомления Google о правках книг: Google не
+    #                        умеет basic auth, приёмник защищён секретом канала
+    #                        (X-Goog-Channel-Token, проверка в сервере) и отвечает
+    #                        404, пока секрет не настроен.
     # Хэш пароля живёт в deploy/.env.production (BASIC_AUTH_HASH), в git его нет.
     # ACME-проверку это не задевает: Caddy обслуживает /.well-known/acme-challenge/*
     # раньше маршрутов сайта, до пароля.
-    @protected not path /api/health
+    @protected {
+        not path /api/health
+        not path /api/webhook/drive
+    }
     basic_auth @protected {
         {$BASIC_AUTH_USER:aemr} {$BASIC_AUTH_HASH}
     }
