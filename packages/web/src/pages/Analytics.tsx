@@ -5,6 +5,7 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
 import { subordinateLabel } from '../lib/subordinate-label';
+import { PeriodBadge } from '../components/PeriodBadge';
 import { selectDatasetAudit, BENFORD_LABELS } from '../lib/dataset-analyses';
 import { bothDeptKeyForms } from '../lib/dept-key';
 import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon, Microscope } from 'lucide-react';
@@ -70,6 +71,9 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
       >
         {Icon && <Icon size={15} className="text-zinc-400 dark:text-zinc-500 group-hover:text-blue-500 transition-colors" />}
         <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{title}</h3>
+        {/* Канон п.58: каждая карточка объявляет период своих ДАННЫХ сама.
+            Общий каркас ставит плашку разом на все карточки вкладки. */}
+        <PeriodBadge />
         {source && <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${sourceColor}`}>{sourceLabel}</span>}
         {open ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
       </button>

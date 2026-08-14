@@ -10,6 +10,7 @@ import { CriticalBannerV2 } from '../components/CriticalBannerV2';
 import { RatingTableV2, type DeptRowV2 } from '../components/RatingTableV2';
 import { DrillPieChart } from '../components/charts/DrillPieChart';
 import { KBTooltip } from '../components/ui/kb-tooltip';
+import { PeriodBadge } from '../components/PeriodBadge';
 import { AlertTriangle, Info } from 'lucide-react';
 import {
   Cell, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -477,9 +478,13 @@ export function Dashboard() {
               Рейтинг управлений
             </h3>
           </KBTooltip>
-          <span className="text-[10px] text-zinc-400">
-            {ratingDepts.length} {deptsWord(ratingDepts.length)} в расчёте
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-zinc-400">
+              {ratingDepts.length} {deptsWord(ratingDepts.length)} в расчёте
+            </span>
+            {/* Канон п.58: период данных — на каждой карточке */}
+            <PeriodBadge />
+          </div>
         </div>
         {/* Заголовок-утверждение о данных, а не витринное название */}
         {(() => {
@@ -525,12 +530,15 @@ export function Dashboard() {
       {/* 6. План против факта по кварталам */}
       {planFactData.some(d => d.plan > 0 || d.fact > 0) ? (
         <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-          <KBTooltip metric="plan_fact_quarterly">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
-              План против факта по кварталам
-              {showStacked && <span className="text-[10px] text-zinc-400 dark:text-zinc-500 ml-2 font-normal normal-case">(конкурентные и единственный поставщик вместе)</span>}
-            </h3>
-          </KBTooltip>
+          <div className="flex items-start justify-between gap-2">
+            <KBTooltip metric="plan_fact_quarterly">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
+                План против факта по кварталам
+                {showStacked && <span className="text-[10px] text-zinc-400 dark:text-zinc-500 ml-2 font-normal normal-case">(конкурентные и единственный поставщик вместе)</span>}
+              </h3>
+            </KBTooltip>
+            <PeriodBadge />
+          </div>
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-4">{planFactAssertion}</p>
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart data={planFactData} barCategoryGap="20%">
@@ -617,11 +625,14 @@ export function Dashboard() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Исполнение по управлениям */}
         <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-          <KBTooltip metric="execution_by_dept">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
-              Исполнение по управлениям
-            </h3>
-          </KBTooltip>
+          <div className="flex items-start justify-between gap-2">
+            <KBTooltip metric="execution_by_dept">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
+                Исполнение по управлениям
+              </h3>
+            </KBTooltip>
+            <PeriodBadge />
+          </div>
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-4">{execAssertion}</p>
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart data={barData} layout="vertical" margin={{ left: 0 }}>
