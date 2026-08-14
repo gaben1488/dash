@@ -23,6 +23,9 @@ import { changesRoutes } from './routes/changes.js';
 import { healthRoutes } from './routes/health.js';
 import { webhookRoutes } from './routes/webhook.js';
 import { timelineRoutes } from './routes/timeline.js';
+import { annotationsRoutes } from './routes/annotations.js';
+import { commentAnnotationsRoutes } from './routes/comment-annotations.js';
+import { registryBucketsRoutes } from './routes/registry-buckets.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { startDriveWatch } from './services/drive-watch.js';
@@ -122,6 +125,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(healthRoutes);
   await app.register(webhookRoutes);
   await app.register(timelineRoutes);
+  await app.register(annotationsRoutes);
+  await app.register(commentAnnotationsRoutes);
+  await app.register(registryBucketsRoutes);
 
   if (process.env.NODE_ENV !== 'production') {
     app.get('/api/debug/sheets', async () => {

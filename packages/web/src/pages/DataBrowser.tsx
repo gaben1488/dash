@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { BUDGET_SOURCE_META, productLabel } from '@aemr/shared';
+import { BUDGET_SOURCE_META, isInitiativeMarker, isYearlongStageRow, productLabel, sumInitiativeRows } from '@aemr/shared';
+import { YearlongBadge } from '../components/yearlong/YearlongBadge';
 import { useStore } from '../store';
 import { api, humanizeRequestError } from '../api';
 import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, XCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye, Keyboard, MapPin, ArrowUpToLine } from 'lucide-react';
 import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
+import { PeriodBadge } from '../components/PeriodBadge';
 import {
   TableEditor,
   type ColumnConfig,
@@ -182,7 +184,50 @@ interface LoadTrouble {
 
 const NO_TROUBLE: LoadTrouble = { failedDepts: [], partialDepts: [], reason: null };
 
-export function DataBrowserPage() {
+/**
+ * Корзины Реестра (канон п.73в интервью 14.08.2026): собственные вкладки
+ * навигации, каждая — тот же Реестр с зафиксированным фильтром класса строк.
+ * Предикаты — ровно те, которыми считает сервер (/api/registry/buckets):
+ * счётчик на кнопке навигации и строки на странице обязаны сходиться.
+ */
+export type RegistryBucket = 'unfunded' | 'yearlong';
+
+const BUCKET_META: Record<RegistryBucket, {
+  /** Имя класса — канон (п.23 / п.71), заголовок плашки. */
+  title: string;
+  /** Механизм класса простыми словами (стандарт п.53). */
+  mechanism: string;
+  /** Почему в корзине пусто и что делать (честное пустое состояние). */
+  emptyReason: string;
+  predicate: (r: Record<string, unknown>) => boolean;
+}> = {
+  unfunded: {
+    title: 'Закупки, не обеспеченные финансированием',
+    mechanism:
+      'Способ и плановые деньги у строки есть, а графа «Год (план)» пуста — финансирование не подтверждено. '
+      + 'Формулы официального листа СВОД такие строки не видят, поэтому официальный лимит меньше нашего расчёта ровно на их сумму.',
+    emptyReason:
+      'Ни у одной загруженной строки графа «Год (план)» не пуста при заполненном способе и плановых деньгах. '
+      + 'Если ожидали увидеть строки — проверьте отбор шапки (управление, период, способ) и снимите лишнее.',
+    predicate: (r) => Array.isArray(r.signals) && (r.signals as string[]).includes('planYearMissing'),
+  },
+  yearlong: {
+    title: 'Закупки, проводимые в течение года',
+    mechanism:
+      'Единственный поставщик, дата заключения — заглушка («Х» или пусто), а факт больше нуля: статья исполняется '
+      + 'серией договоров или платежей в течение года. Ровно эти строки формулы свода не считают в факте и экономии; план — входит (канон п.71).',
+    emptyReason:
+      'Среди загруженных строк нет ни одной с способом ЕП, заглушкой в дате заключения и ненулевым фактом. '
+      + 'Если ожидали увидеть строки — проверьте отбор шапки (управление, период, бюджет) и снимите лишнее.',
+    predicate: (r) => isYearlongStageRow({
+      method: String(r.method ?? ''),
+      factDateCell: r.factDateRaw,
+      factSum: typeof r.factSum === 'number' ? r.factSum : 0,
+    }),
+  },
+};
+
+export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets } = useStore();
   // Вид реестра (сортировка, размер страницы, режим) переживает перезагрузку:
   // читается один раз при первом кадре, дальше живёт в состоянии.
@@ -212,6 +257,9 @@ export function DataBrowserPage() {
   }, []);
   const [signalDropdownOpen, setSignalDropdownOpen] = useState(false);
   const signalDropdownRef = useRef<HTMLDivElement>(null);
+  // Фильтр «только инициативные заявки» (п.76б): строки, где примечание AF
+  // ЦЕЛИКОМ равно маркеру словаря «хотелки» — структурное чтение, не парсинг.
+  const [initiativeOnly, setInitiativeOnly] = useState(false);
 
   // ── Клавиатура и копирование ──
   /** Строка под курсором клавиатуры — номер внутри текущей страницы; −1 значит «курсора нет». */
@@ -407,7 +455,7 @@ export function DataBrowserPage() {
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Смена фильтров возвращает на первую страницу
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, selectedBudgets]);
+  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, initiativeOnly, selectedBudgets, bucket]);
 
   // Закрытие списка признаков щелчком мимо и клавишей Esc
   useEffect(() => {
@@ -439,6 +487,11 @@ export function DataBrowserPage() {
 
   const filtered = useMemo(() => {
     let data = [...rows];
+    // Корзина (п.73в): зафиксированный фильтр класса строк — применяется
+    // ПЕРВЫМ, остальные фильтры шапки и страницы сужают уже внутри класса.
+    if (bucket) {
+      data = data.filter(BUCKET_META[bucket].predicate);
+    }
     // Квартал
     if (period !== 'year') {
       const qMonths: Record<string, number[]> = { q1: [1,2,3], q2: [4,5,6], q3: [7,8,9], q4: [10,11,12] };
@@ -478,6 +531,11 @@ export function DataBrowserPage() {
         return signalFilter.some(s => sigs.includes(s));
       });
     }
+    // Инициативные заявки (п.76): примечание AF целиком равно маркеру словаря
+    // «хотелки» — структурный код, не интерпретация свободного текста (п.27).
+    if (initiativeOnly) {
+      data = data.filter(r => isInitiativeMarker(r.commentGRBS));
+    }
     // Источники финансирования: строка проходит, если имеет план ИЛИ факт в выбранном
     data = filterRowsByBudgets(data, selectedBudgets);
     data.sort((a, b) => {
@@ -487,7 +545,7 @@ export function DataBrowserPage() {
       return sortDir === 'asc' ? as.localeCompare(bs, 'ru') : bs.localeCompare(as, 'ru');
     });
     return data;
-  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, selectedBudgets]);
+  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, initiativeOnly, selectedBudgets, bucket]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   // Выборка могла ужаться сильнее, чем сбрасывается номер страницы (например,
@@ -719,6 +777,9 @@ export function DataBrowserPage() {
 
   const severity = useMemo(() => countBySeverity(filtered), [filtered]);
   const occurrences = useMemo(() => signalOccurrences(rows), [rows]);
+  // «В т.ч. инициативные заявки» (п.76б): счёт по ЗАГРУЖЕННЫМ строкам — как
+  // счётчики признаков рядом, чтобы подпись фильтра не зависела от него самого.
+  const initiativeTotals = useMemo(() => sumInitiativeRows(rows), [rows]);
   const unchecked = useMemo(() => countUncheckedByPeriod(filtered), [filtered]);
 
   const requestFilters = useMemo(() => requestFilterNames({
@@ -735,7 +796,8 @@ export function DataBrowserPage() {
     search: searchQuery,
     signals: signalFilter.length,
     budgets: selectedBudgets.size,
-  }), [period, activeMonths.size, searchQuery, signalFilter.length, selectedBudgets.size]);
+    initiative: initiativeOnly,
+  }), [period, activeMonths.size, searchQuery, signalFilter.length, selectedBudgets.size, initiativeOnly]);
 
   const counts = describeRegistryCounts({
     shown: paged.length,
@@ -819,8 +881,47 @@ export function DataBrowserPage() {
     </div>
   );
 
+  // Плашка корзины (п.73в): имя класса — канон, механизм — простыми словами,
+  // счёт честный: «в классе всего» считается по загруженным строкам ДО
+  // фильтров страницы, чтобы отличать «класс пуст» от «фильтры всё срезали».
+  const bucketMeta = bucket ? BUCKET_META[bucket] : null;
+  const bucketClassTotal = useMemo(
+    () => (bucket ? rows.filter(BUCKET_META[bucket].predicate).length : 0),
+    [rows, bucket],
+  );
+
   return (
     <div className="space-y-4">
+      {bucketMeta && (
+        <section
+          aria-label={bucketMeta.title}
+          className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-4"
+        >
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                {bucketMeta.title}
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed max-w-3xl">
+                {bucketMeta.mechanism}
+              </p>
+            </div>
+            {/* Подпись периметра (канон п.58): числа корзины подчиняются
+                фильтрам шапки — плашка периода здесь не лжёт. */}
+            <PeriodBadge />
+          </div>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 tabular-nums">
+            {bucketClassTotal > 0 ? (
+              <>В классе {bucketClassTotal} {pluralRu(bucketClassTotal, 'строка', 'строки', 'строк')} из загруженных книг;
+              под текущий отбор {pluralRu(filtered.length, 'подходит', 'подходят', 'подходят')} {filtered.length}.</>
+            ) : loadingRows ? (
+              'Строки книг ещё загружаются…'
+            ) : (
+              bucketMeta.emptyReason
+            )}
+          </p>
+        </section>
+      )}
       {/* Переключение режимов */}
       <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/60 rounded-lg p-0.5 w-fit" role="tablist" aria-label="Режим работы с реестром">
         <button
@@ -1011,11 +1112,47 @@ export function DataBrowserPage() {
                     );
                   })}
                 </div>
-                {signalFilter.length > 0 && (
+                {/* Инициативные заявки (п.76б): отдельная секция — это стадия
+                    по маркеру словаря, а не признак-сигнал движка. */}
+                <div className="border-t border-zinc-100 dark:border-zinc-700 mt-1 pt-1">
+                  <label
+                    title={initiativeTotals.rows === 0 && !initiativeOnly
+                      ? 'В загруженных строках нет ни одной ячейки примечания, целиком равной маркеру «хотелки»'
+                      : 'Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря («хотелки», «Хотелки», «просто хотелки»). План таких строк виден, но подписывается отдельно.'}
+                    className={clsx(
+                      'flex items-center gap-2 px-3 py-1.5 text-xs transition',
+                      initiativeTotals.rows === 0 && !initiativeOnly
+                        ? 'opacity-45 cursor-not-allowed'
+                        : 'text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/40 cursor-pointer',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={initiativeOnly}
+                      disabled={initiativeTotals.rows === 0 && !initiativeOnly}
+                      onChange={() => setInitiativeOnly(v => !v)}
+                      className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400">
+                      инициативные заявки
+                    </span>
+                    <span className="ml-auto tabular-nums text-[10px] text-zinc-400 dark:text-zinc-500">
+                      {initiativeTotals.rows}
+                    </span>
+                  </label>
+                  {initiativeTotals.rows > 0 && (
+                    <p className="px-3 pb-1.5 text-[10px] text-zinc-400 dark:text-zinc-500 tabular-nums">
+                      в плане загруженных строк — в т.ч. инициативные заявки{' '}
+                      {formatMoney(initiativeTotals.planSum)} ({initiativeTotals.rows}{' '}
+                      {pluralRu(initiativeTotals.rows, 'строка', 'строки', 'строк')})
+                    </p>
+                  )}
+                </div>
+                {(signalFilter.length > 0 || initiativeOnly) && (
                   <div className="border-t border-zinc-100 dark:border-zinc-700 mt-1 pt-1 px-3 pb-1">
                     <button
                       type="button"
-                      onClick={() => { setSignalFilter([]); setSignalDropdownOpen(false); }}
+                      onClick={() => { setSignalFilter([]); setInitiativeOnly(false); setSignalDropdownOpen(false); }}
                       className="flex items-center gap-1 text-xs text-zinc-500 hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400 transition"
                     >
                       <X size={12} aria-hidden="true" /> Снять выбор признаков
@@ -1240,6 +1377,17 @@ export function DataBrowserPage() {
                     </button>
                     <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-xs">
                       {deptDisplayName(row.dept)} • {activityRowLabel(row.type, row.programName)}
+                      {/* Стадия «в течение года» (п.71б): собственная подпись
+                          вместо лживого «есть факт»; вне стадии бейджа нет. */}
+                      <YearlongBadge row={row} className="ml-1.5" />
+                      {isInitiativeMarker(row.commentGRBS) && (
+                        <span
+                          className="ml-1.5 px-1 py-px rounded bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400"
+                          title="Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря «хотелки» (п.76). План виден, но подписывается отдельно и в риск-списки не шумит."
+                        >
+                          инициативная заявка
+                        </span>
+                      )}
                       {noDate && (
                         <span
                           className="ml-1.5 px-1 py-px rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400"

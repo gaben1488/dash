@@ -65,6 +65,20 @@ export function refreshAllSources(log?: {
   return inFlight;
 }
 
+/**
+ * Рабочее окно опроса — решение владельца 14.08 (канон п.87/20): книги правят
+ * в рабочее время, ночью и в выходные опрос жжёт квоту впустую. Окно задано
+ * по Камчатке (продуктовый пояс, config.weeklySnapshot.utcOffsetHours);
+ * вебхук-каналы работают всегда — они бесплатны и точны.
+ */
+const WORK_START_MIN = 8 * 60 + 45;
+const WORK_END_MIN = 18 * 60 + 20;
+
+export function isWithinWorkHours(now: Date, utcOffsetHours: number): boolean {
+  const localMin = (now.getUTCHours() * 60 + now.getUTCMinutes() + utcOffsetHours * 60 + 24 * 60) % (24 * 60);
+  return localMin >= WORK_START_MIN && localMin <= WORK_END_MIN;
+}
+
 let timer: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -80,6 +94,7 @@ export function startSourceAutoRefresh(log: {
   if (minutes <= 0 || timer) return;
 
   timer = setInterval(() => {
+    if (!isWithinWorkHours(new Date(), config.weeklySnapshot.utcOffsetHours)) return;
     void refreshAllSources(log)
       .then((r) => {
         log.info(

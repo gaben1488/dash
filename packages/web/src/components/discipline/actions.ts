@@ -258,6 +258,6 @@ export function buildDisciplineActions(rows: readonly DisciplineRow[]): Discipli
  */
 export function moneyToneClass(money: number): string {
   if (money >= 50_000) return 'text-rose-600 dark:text-rose-400';
-  if (money >= 5_000) return 'text-amber-600 dark:text-amber-400';
+  if (money >= 5_000) return 'text-amber-700 dark:text-amber-400';
   return 'text-zinc-800 dark:text-zinc-100';
 }

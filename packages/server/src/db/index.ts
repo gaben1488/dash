@@ -136,6 +136,18 @@ sqlite.exec(`
     timestamp TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS yearlong_kind_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dept TEXT NOT NULL,
+    pp_num TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    provisional INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    user_id TEXT,
+    UNIQUE(dept, pp_num)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_metric_history_key ON metric_history(metric_key);
   CREATE INDEX IF NOT EXISTS idx_metric_history_snapshot ON metric_history(snapshot_id);
   CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity);

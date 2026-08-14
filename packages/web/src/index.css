@@ -758,6 +758,30 @@
     border-color: transparent !important;
   }
 
+  /* Счётчик корзины на кнопке навигации (п.73в): честное число строк класса.
+     На активной кнопке фон заливки светлый и подпись чернильная — чип
+     наследует контраст через полупрозрачные чернила; в тёмной теме — светлый
+     полупрозрачный фон под текущим цветом текста. */
+  .np-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    font-size: 8px;
+    line-height: 12px;
+    font-weight: var(--weight-strong);
+    background: rgba(27, 23, 15, 0.10);
+    color: inherit;
+  }
+  .dark .np-count {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .np-btn-active .np-count {
+    background: rgba(27, 23, 15, 0.14);
+  }
+
   /* Apple Intelligence rotating glow — pseudo-element behind active button */
   .np-glow {
     position: absolute;

@@ -16,6 +16,7 @@ import { ReconPage } from './Recon';
 import { IssuesPage } from './Issues';
 import { RecsPage } from './Recs';
 import { JournalPage } from './Journal';
+import { CommentAnnotationsSection } from '../components/quality/CommentAnnotationsSection';
 
 type QualityTab = 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
 
@@ -97,7 +98,16 @@ export function QualityPage() {
       >
         {qualityTab === 'trust' && <TrustPage />}
         {qualityTab === 'recon' && <ReconPage />}
-        {qualityTab === 'issues' && <IssuesPage />}
+        {qualityTab === 'issues' && (
+          <div className="space-y-4">
+            <IssuesPage />
+            {/* Слой аннотаций (пп. 72а/78/74б): ОТДЕЛЬНАЯ секция, не смешана
+                с замечаниями конвейера — у них разные словари и жизненные
+                циклы. Рисуется и при пустом списке замечаний: сверка
+                комментариев со структурой живёт своим источником. */}
+            <CommentAnnotationsSection />
+          </div>
+        )}
         {qualityTab === 'recs' && <RecsPage />}
         {qualityTab === 'journal' && <JournalPage />}
       </div>

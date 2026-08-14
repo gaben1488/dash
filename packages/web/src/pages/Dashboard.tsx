@@ -482,13 +482,15 @@ export function Dashboard() {
           Секция рисуется ВСЕГДА: раньше при пустой выборке она молча исчезала,
           и пользователь не мог понять, фильтры это или сбой чтения. */}
       <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-        <div className="flex items-center justify-between mb-3">
+        {/* flex-wrap: на 360–430px плашка периода уходит на свою строку,
+            а не сплющивает заголовок (п.73а). */}
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <KBTooltip metric="dept_rank">
             <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
               Рейтинг управлений
             </h3>
           </KBTooltip>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] text-zinc-400">
               {ratingDepts.length} {deptsWord(ratingDepts.length)} в расчёте
             </span>
@@ -540,7 +542,7 @@ export function Dashboard() {
       {/* 6. План против факта по кварталам */}
       {planFactData.some(d => d.plan > 0 || d.fact > 0) ? (
         <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
             <KBTooltip metric="plan_fact_quarterly">
               <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
                 План против факта по кварталам
@@ -635,7 +637,7 @@ export function Dashboard() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Исполнение по управлениям */}
         <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
             <KBTooltip metric="execution_by_dept">
               <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
                 Исполнение по управлениям

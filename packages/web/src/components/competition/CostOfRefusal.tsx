@@ -189,10 +189,10 @@ export function CostOfRefusal({ epPlan, epHasData }: {
           {/* Три числа расчёта: множители и произведение. Цвет — только у данных. */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Среднее снижение на торгах
               </p>
-              <p className="text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400 mt-0.5">
+              <p className="text-lg font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 mt-0.5">
                 {stats.reductionPct !== null ? fmtPct(stats.reductionPct) : '—'}
               </p>
               <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
@@ -200,7 +200,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
               </p>
             </div>
             <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Плановый объём ЕП за периметр
               </p>
               <p className="text-lg font-semibold tabular-nums text-zinc-700 dark:text-zinc-200 mt-0.5">
@@ -255,7 +255,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
             <div id={detailId} className="mt-2 overflow-x-auto">
               <table className="w-full text-[11px]">
                 <thead>
-                  <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                  <tr className="text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
                     <th scope="col" className="py-1.5 pr-3 font-medium">Управление</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Предмет закупки</th>
                     <th scope="col" className="py-1.5 pr-3 text-right font-medium">НМЦК, тыс. ₽</th>
@@ -279,7 +279,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                       <td className={clsx(
                         'py-1.5 text-right tabular-nums',
                         p.economyPercent > 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
+                          ? 'text-emerald-700 dark:text-emerald-400'
                           : 'text-zinc-500 dark:text-zinc-400',
                       )}>
                         {fmtPct(p.economyPercent)}

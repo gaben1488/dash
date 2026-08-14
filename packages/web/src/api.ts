@@ -1,5 +1,5 @@
 import type { DashboardData } from '@aemr/shared';
-import type { MetricDelta, Report } from '@aemr/core';
+import type { MetricDelta, Report, RowTimeline, UpcomingRiskRow } from '@aemr/core';
 import {
   HealthResponseSchema,
   IssuesListResponseSchema,
@@ -31,6 +31,34 @@ export type ReportResponse = Omit<Report, 'period'> & {
   methodology?: string;
   svodOnlineUrl?: string;
 };
+
+/**
+ * Ответ GET /api/timeline/:deptId/:sheetRow — таймлайн строки (@aemr/core
+ * RowTimeline) плюс серверная сводка покрытия источников: сколько источников
+ * реально несут историю этой строки (журнал может быть недоступен — это
+ * не то же самое, что «правок не было»).
+ */
+export type RowTimelineResponse = RowTimeline & {
+  coverage: {
+    /** false — таблица журнала правок недоступна (не «правок не было»). */
+    journalAvailable: boolean;
+    journalEntries: number;
+    snapshotObservations: number;
+    weekSliceDates: string[];
+  };
+};
+
+/** Ответ GET /api/timeline/upcoming — «близкие к плановой дате» (канон п.75б). */
+export interface UpcomingResponse {
+  /** День расчёта (ISO) по календарю продукта. */
+  asOf: string;
+  /** Окно вперёд, дней. */
+  days: number;
+  total: number;
+  rows: UpcomingRiskRow[];
+  /** false — вкладка «Ежедневный мониторинг» ещё не подключена, стадий нет. */
+  monitoringLinked: boolean;
+}
 
 /**
  * Структурный контракт zod-схемы (zod не в deps web; схемы приходят из @aemr/shared).
@@ -333,6 +361,58 @@ export const api = {
     if (asOf) params.set('asOf', asOf);
     return fetchJSON<ReportResponse>(`/report?${params.toString()}`);
   },
+
+  // Таймлайн строки книги ГРБС (роуты routes/timeline.ts, канон п.75)
+
+  /** История одной строки: журнал правок + снимки + срезы недель. */
+  getRowTimeline: (deptId: string, sheetRow: number) =>
+    fetchJSON<RowTimelineResponse>(`/timeline/${encodeURIComponent(deptId)}/${sheetRow}`),
+
+  /** «Близкие к плановой дате»: просроченные + плановая дата в ближайшие N дней. */
+  getTimelineUpcoming: (days?: number) =>
+    fetchJSON<UpcomingResponse>(`/timeline/upcoming${days ? `?days=${days}` : ''}`),
+
+  // Разметка видов строк стадии «в течение года» (routes/annotations.ts, канон п.83)
+
+  /** Все пользовательские оверрайды видов (слияние со стартовой — на клиенте). */
+  getYearlongAnnotations: () =>
+    fetchJSON<{
+      overrides: Array<{ dept: string; ppNum: string; kind: string; provisional: boolean; updatedAt: string }>;
+      total: number;
+    }>('/annotations/yearlong'),
+
+  /** Разметить вид строки (kind=null — снять оверрайд, вернуть стартовую разметку). */
+  putYearlongAnnotation: (dept: string, ppNum: string, kind: string | null, provisional?: boolean) =>
+    fetchJSON<{ success: boolean }>(
+      `/annotations/yearlong/${encodeURIComponent(dept)}/${encodeURIComponent(ppNum)}`,
+      { method: 'PUT', body: JSON.stringify({ kind, ...(provisional !== undefined ? { provisional } : {}) }) },
+    ),
+
+  // Аннотации «комментарий против структуры» (routes/comment-annotations.ts,
+  // пп. 72а/74б/78): правила ядра detectCommentInconsistencies по строкам книг.
+
+  /** Все аннотации несогласованности комментариев по текущему чтению книг. */
+  getCommentAnnotations: () =>
+    fetchJSON<{
+      asOf: string;
+      source: 'live' | 'snapshot';
+      rowsScanned: number;
+      total: number;
+      byKind: Record<string, number>;
+      annotations: Array<{
+        dept: string; sheetRow: number; rowKey: string; column: string; cell: string;
+        kind: string; excerpt: string; mechanism: string; action: string;
+      }>;
+    }>('/annotations/comments'),
+
+  /** Честные счётчики корзин Реестра (п.73в): не обеспеченные финансированием + в течение года. */
+  getRegistryBuckets: () =>
+    fetchJSON<{
+      asOf: string;
+      source: 'live' | 'snapshot';
+      unfunded: { rows: number; planSum: number };
+      yearlong: { rows: number; planSum: number };
+    }>('/registry/buckets'),
 
   // Report map
   getReportMap: () =>

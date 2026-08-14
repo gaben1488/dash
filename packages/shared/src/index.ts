@@ -77,6 +77,11 @@ export * from './fact-date.js';
 // 12 причин отклонения, 20 обоснований ЕП, регексы номеров процедур
 export * from './comment-standards.js';
 
+// Re-export стадия «Закупки, проводимые в течение года» (канон пп.71, 76, 81–83):
+// структурный предикат, подклассы, девять видов, стартовая разметка 46 строк,
+// маркер «инициативная заявка» и правило дожития
+export * from './yearlong-stage.js';
+
 // Re-export структурный парсер номера процедуры из AG (канон п.74, 14.08.2026):
 // parseProcedureRef / extractProcedureRefs / detectForeignText
 export * from './procedure-ref.js';

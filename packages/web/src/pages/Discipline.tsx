@@ -13,13 +13,14 @@
  */
 import { useCallback, useMemo } from 'react';
 import { AlertTriangle, ClipboardCheck, RotateCcw } from 'lucide-react';
-import { productLabel } from '@aemr/shared';
+import { productLabel, sumInitiativeRows } from '@aemr/shared';
 import { useStore } from '../store';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { pluralRu } from '../lib/economy-copy';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
 import { ActionCard } from '../components/discipline/ActionCard';
+import { UpcomingSection } from '../components/timeline/UpcomingSection';
 import { DisciplinePeriodBadge } from '../components/discipline/DisciplinePeriodBadge';
 import { useDisciplineRows } from '../components/discipline/useDisciplineRows';
 import {
@@ -56,6 +57,11 @@ export function DisciplinePage() {
     () => buildDisciplineActions(rows as unknown as DisciplineRow[]),
     [rows],
   );
+
+  // «В т.ч. инициативные заявки» (канон п.76б): план строк, чьё примечание
+  // целиком равно маркеру словаря «хотелки», подписывается отдельно — это
+  // стадия «инициативная заявка без подтверждённой потребности», не риск.
+  const initiative = useMemo(() => sumInitiativeRows(rows), [rows]);
 
   /** Переход в Реестр с готовым фильтром: признак дела (+ управление). */
   const openInRegistry = useCallback((signal: string, dept?: string) => {
@@ -116,6 +122,11 @@ export function DisciplinePage() {
           );
         })}
       </div>
+
+      {/* ── Близкие к плановой дате (канон п.75б): просроченные + окно 14 дней.
+            Секция живёт своим запросом /api/timeline/upcoming и своим
+            периметром «от сегодня» — дела ниже она не задерживает. ── */}
+      <UpcomingSection />
 
       {/* ── Книги, которые не прочитались: честная плашка, а не тишина ── */}
       {failedDepts.length > 0 && !loading && (
@@ -197,7 +208,18 @@ export function DisciplinePage() {
                 <p className="mt-0.5">строки — из последнего чтения книг управлений</p>
               </div>
             </div>
-            <p className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-700/50 text-[11px] text-zinc-400 dark:text-zinc-500">
+            {/* Подпись плана по канону п.76б: инициативные заявки видны, но
+                подписаны отдельно — это стадия, а не риск и не дело. */}
+            {initiative.rows > 0 && (
+              <p
+                className="mt-2 text-[11px] text-violet-700 dark:text-violet-400 tabular-nums"
+                title="Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря «хотелки» (три написания). План таких строк входит в общий план книги, но подписывается отдельно и в риск-списки не шумит."
+              >
+                В плане книг — в т.ч. инициативные заявки {formatMoney(initiative.planSum)}{' '}
+                ({initiative.rows} {pluralRu(initiative.rows, 'строка', 'строки', 'строк')})
+              </p>
+            )}
+            <p className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-700/50 text-[11px] text-zinc-500 dark:text-zinc-400">
               Сводный индекс дисциплины здесь не показывается: веса его слагаемых не
               утверждены. Считаются только проверяемые вещи — дела, строки и деньги.
             </p>

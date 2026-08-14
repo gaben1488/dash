@@ -35,7 +35,7 @@ export function DisciplinePeriodBadge() {
         <span className="tabular-nums">{yearLabel}</span>
       </div>
       <span
-        className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[15rem]"
+        className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 text-right max-w-[15rem]"
         title="Дела собираются из строк, у которых даты часто не проставлены вовсе, — сузить такой список до квартала или месяца нечем, поэтому он всегда за весь год."
       >
         в шапке выбран период «{chosenLabel}», но дела считаются за весь год

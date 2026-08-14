@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useId, useRef } from 'react';
-import { BUDGET_SOURCE_META, productLabel } from '@aemr/shared';
+import { BUDGET_SOURCE_META, isYearlongStageRow, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
@@ -7,6 +7,9 @@ import { KbHover } from './contract/KbHover';
 import { formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { activityRowLabel, signalChipText, signalTone } from '../lib/rows/registry-view';
+import { RowTimelineSection } from './timeline/RowTimelineSection';
+import { YearlongBadge } from './yearlong/YearlongBadge';
+import { YearlongKindSelect } from './yearlong/YearlongKindSelect';
 
 /**
  * Карточка строки реестра — «доказательство числа» для одной закупки.
@@ -18,20 +21,23 @@ import { activityRowLabel, signalChipText, signalTone } from '../lib/rows/regist
  * @aemr/shared, единственный дом оформления — lib/rows/registry-view.
  */
 
+/** Строка реестра, как её отдаёт /api/rows (экспорт — для вызывающих карточку извне Реестра). */
+export interface RowDetailRow {
+  id: number | string;
+  subject?: string;
+  dept?: string;
+  type?: string;
+  method?: string;
+  planSum?: number;
+  factSum?: number;
+  economy?: number;
+  status?: string;
+  signals?: string[];
+  [key: string]: unknown;
+}
+
 interface RowDetailCardProps {
-  row: {
-    id: number | string;
-    subject?: string;
-    dept?: string;
-    type?: string;
-    method?: string;
-    planSum?: number;
-    factSum?: number;
-    economy?: number;
-    status?: string;
-    signals?: string[];
-    [key: string]: unknown;
-  };
+  row: RowDetailRow;
   onClose: () => void;
 }
 
@@ -108,7 +114,8 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
   const economy = num(row.economy);
   const signals = row.signals ?? [];
   const rowIndex = Number(row.rowIndex ?? 0);
-  const deptName = productLabel(toCanonicalDeptId(String(row.dept ?? '')));
+  const deptId = toCanonicalDeptId(String(row.dept ?? ''));
+  const deptName = productLabel(deptId);
 
   // Нулевой план — это не «ноль процентов», а отсутствие знаменателя: так и
   // говорим. Перерасход не подрезается до 100 %: подрезка прятала бы ровно тот
@@ -120,6 +127,15 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
 
   /** Адрес ячейки книги — доказательство происхождения числа. */
   const cell = (column: string) => (rowIndex > 0 ? `${column}${rowIndex}` : 'адрес строки неизвестен');
+
+  // Стадия «Закупки, проводимые в течение года» (канон п.71): структурный
+  // предикат — способ ЕП, заглушка свода в дате заключения, факт больше нуля.
+  // Текст комментариев не читается (п.27 в силе).
+  const isYearlong = isYearlongStageRow({
+    method: row.method,
+    factDateCell: row.factDateRaw,
+    factSum,
+  });
 
   const planDate = formatDateCell(row.planDate);
   const factDate = formatDateCell(row.factDate);
@@ -426,6 +442,37 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
             ) : (
               <p className="text-xs text-zinc-400 dark:text-zinc-500">Проверки к этой строке замечаний не нашли</p>
             )}
+          </div>
+
+          {/* Стадия «в течение года» (каноны п.71, п.81, п.83): собственная
+              подпись стадии вместо лживого «есть факт» + разметка вида одним
+              кликом. Секция появляется только у строк, прошедших структурный
+              предикат стадии, — вне стадии её нет вовсе. */}
+          {isYearlong && (
+            <div>
+              <SectionTitle>Стадия «в течение года»</SectionTitle>
+              <YearlongBadge
+                row={{
+                  dept: String(row.dept ?? ''),
+                  id: row.id,
+                  method: row.method,
+                  factDateRaw: row.factDateRaw,
+                  factSum,
+                }}
+              />
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1.5 leading-relaxed">
+                Статья исполняется серией договоров или платежей в течение года: факт и экономия
+                этой строки в свод не попадают (так считают формулы листа), план — входит.
+              </p>
+              <YearlongKindSelect dept={String(row.dept ?? '')} ppNum={row.id} className="mt-2" />
+            </div>
+          )}
+
+          {/* История строки: журнал правок + снимки + срезы недель (канон п.75в).
+              Ленивая: запрос уходит только при раскрытии секции. */}
+          <div>
+            <SectionTitle>История строки</SectionTitle>
+            <RowTimelineSection deptId={deptId} sheetRow={rowIndex} />
           </div>
 
           {/* Происхождение: где именно лежит первичка */}

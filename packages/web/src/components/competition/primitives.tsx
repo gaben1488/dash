@@ -33,10 +33,12 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], chi
 }) {
   return (
     <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
-      <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
+      {/* flex-wrap: на 360–430px плашка периода переносится под заголовок,
+          а не ломает строку и не выдавливает текст за край. */}
+      <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 flex-wrap">
         <div className="flex items-start gap-2.5 min-w-0">
           {Icon && (
-            <Icon size={16} className="text-zinc-400 dark:text-zinc-500 mt-0.5 shrink-0" aria-hidden="true" />
+            <Icon size={16} className="text-zinc-500 dark:text-zinc-400 mt-0.5 shrink-0" aria-hidden="true" />
           )}
           <div className="min-w-0">
             <h2 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h2>
@@ -54,7 +56,7 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], chi
           {caveats.map((c, i) => (
             <p
               key={i}
-              className="flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400"
+              className="flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-700 dark:text-amber-400"
             >
               <AlertTriangle size={10} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>{c}</span>

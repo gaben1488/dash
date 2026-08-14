@@ -58,7 +58,7 @@ export function PeriodBadge({ appliesWeek = false }: { appliesWeek?: boolean }) 
       </div>
       {weekNotApplied && !appliesWeek && (
         <span
-          className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[13rem]"
+          className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 text-right max-w-[13rem]"
           title="Недельный выбор пока не сужает расчёт этой карточки: числа выше — за указанный период, не за неделю."
         >
           неделя {weekLabel} выбрана, но числа за {periodLabel}

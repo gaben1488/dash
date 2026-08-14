@@ -15,8 +15,10 @@
  */
 import type { ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
+import * as Popover from '@radix-ui/react-popover';
 import { productLabel } from '@aemr/shared';
 import { kbFor } from '../../lib/kb/metric-kb';
+import { useCoarsePointer } from '../../lib/coarse-pointer';
 
 export interface KbHoverProps {
   metricKey: string;
@@ -45,10 +47,57 @@ function KbParagraph({ label, text, mono = false }: { label: string; text: strin
   );
 }
 
+/** Классы триггера и панели — общие для hover- и тап-режима (п.73а). */
+const TRIGGER_CLASS =
+  'cursor-help underline decoration-dotted decoration-zinc-300 dark:decoration-zinc-600 underline-offset-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500';
+const PANEL_CLASS =
+  'z-50 w-[min(380px,calc(100vw-16px))] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto';
+
 export function KbHover({ metricKey, live, children }: KbHoverProps) {
   const kb = kbFor(metricKey);
+  const coarsePointer = useCoarsePointer();
   // Ни записи, ни подстановки — ведём себя так, будто обёртки не было.
   if (!kb && !live) return <>{children}</>;
+
+  const body = (
+    <>
+      {/* заголовок — строго из канон-словаря, как у SectionCard */}
+      <div className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">
+        {productLabel(metricKey)}
+      </div>
+      {/* «Сейчас» идёт первым: читатель навёл на КОНКРЕТНОЕ число */}
+      {live && <KbParagraph label="Сейчас на экране" text={live} mono />}
+      {kb && <KbParagraph label="Что это" text={kb.what} />}
+      {kb && <KbParagraph label="Как считается" text={kb.how} />}
+      {kb && <KbParagraph label="Откуда" text={kb.source} />}
+      {kb?.pitfalls && <KbParagraph label="Подводные камни" text={kb.pitfalls} />}
+    </>
+  );
+
+  // ── Координатное устройство: та же подсказка открывается тапом по метрике,
+  //    тап мимо закрывает (Popover). Наведения на таче не существует. ──
+  if (coarsePointer) {
+    return (
+      <Popover.Root>
+        <Popover.Trigger asChild>
+          <span tabIndex={0} className={TRIGGER_CLASS}>
+            {children}
+          </span>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            side="top"
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+            className={PANEL_CLASS}
+          >
+            {body}
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+    );
+  }
 
   return (
     <Tooltip.Provider delayDuration={250}>
@@ -56,10 +105,7 @@ export function KbHover({ metricKey, live, children }: KbHoverProps) {
         <Tooltip.Trigger asChild>
           {/* span вместо кнопки Radix: показатель — не действие;
               tabIndex даёт фокус с клавиатуры, Radix открывает по нему попап */}
-          <span
-            tabIndex={0}
-            className="cursor-help underline decoration-dotted decoration-zinc-300 dark:decoration-zinc-600 underline-offset-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-          >
+          <span tabIndex={0} className={TRIGGER_CLASS}>
             {children}
           </span>
         </Tooltip.Trigger>
@@ -69,18 +115,9 @@ export function KbHover({ metricKey, live, children }: KbHoverProps) {
             align="start"
             sideOffset={6}
             collisionPadding={8}
-            className="z-50 max-w-[380px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg px-5 py-4 space-y-3"
+            className={PANEL_CLASS}
           >
-            {/* заголовок — строго из канон-словаря, как у SectionCard */}
-            <div className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">
-              {productLabel(metricKey)}
-            </div>
-            {/* «Сейчас» идёт первым: читатель навёл на КОНКРЕТНОЕ число */}
-            {live && <KbParagraph label="Сейчас на экране" text={live} mono />}
-            {kb && <KbParagraph label="Что это" text={kb.what} />}
-            {kb && <KbParagraph label="Как считается" text={kb.how} />}
-            {kb && <KbParagraph label="Откуда" text={kb.source} />}
-            {kb?.pitfalls && <KbParagraph label="Подводные камни" text={kb.pitfalls} />}
+            {body}
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>

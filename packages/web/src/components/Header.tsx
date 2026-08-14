@@ -3,6 +3,7 @@ import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
   Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
+  CalendarX2, Repeat,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -19,6 +20,11 @@ const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   report:     ['period'],
   svod:       ['currency', 'procurement', 'budget'],
   data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
+  // Корзины Реестра (п.73в): та же страница построчных данных, фильтр класса
+  // зафиксирован. У «В течение года» способ всегда ЕП — кнопки КП/ЕП там
+  // дезориентировали бы (класс определяется способом, фильтр не работает).
+  unfunded:   ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
+  yearlong:   ['period', 'currency', 'activity', 'budget', 'search'],
   economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
   // Конкуренция — сравнение ЕП против конкурентных встроено в сами блоки:
   // фильтр способа закупки здесь дезориентировал бы (блоки его не применяют).
@@ -53,11 +59,16 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 // (см. .np-btn-active в index.css). Поэтому каждый тон обязан быть достаточно
 // светлым: чернильный текст #1b170f даёт на нём не меньше 4,5:1. Фиолетовый и
 // серый ради этого осветлены (были #8b5cf6 и #71717a — 4,2:1 и 3,7:1).
-const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[] = [
+const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string; title?: string }[] = [
   { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#e5d3a9' },  // Cream (чёрный дэш + кремовый хром, 07.08)
   { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b' },  // Amber — еженедельный отчёт
   { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2' },  // Cyan — источник истины
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
+  // Корзины Реестра (п.73в). Цвета НАМЕРЕННО светлые: заливка активной кнопки
+  // несёт тёмную подпись #1b170f, и обе пары дают контраст сильно выше 4,5:1
+  // (#fde68a ≈ 12,3:1, #c7d2fe ≈ 10,9:1).
+  { id: 'unfunded',  label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием (год плана не проставлен)', icon: CalendarX2, color: '#fde68a' },  // Light Amber (п.23)
+  { id: 'yearlong',  label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat, color: '#c7d2fe' },  // Light Indigo (п.71)
   { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald
   { id: 'competition', label: 'Конкуренция', icon: Gavel,    color: '#5eead4' },  // Light Teal (тёмная подпись ≥4,5:1)
   { id: 'discipline', label: 'Дисциплина', icon: ListChecks, color: '#fdba74' },  // Light Orange — рабочий список дел
@@ -535,11 +546,22 @@ function CurrencyDrum({ value, onChange }: { value: string; onChange: (v: any) =
    ═══════════════════════════════════════════════════════════════════ */
 
 function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Page) => void }) {
+  // Честные счётчики корзин (п.73в): числа считает сервер теми же предикатами,
+  // что страницы-фильтры; null (нет ответа) — кнопка живёт БЕЗ числа, ноль
+  // не выдумывается.
+  const bucketCounts = useStore((s) => s.bucketCounts);
+  const countOf = (id: Page): number | null => {
+    if (bucketCounts === null) return null;
+    if (id === 'unfunded') return bucketCounts.unfunded;
+    if (id === 'yearlong') return bucketCounts.yearlong;
+    return null;
+  };
   return (
     <nav className="nav-pills-wrap" aria-label="Навигация">
       {NAV_ITEMS.map((item) => {
         const Icon = item.icon;
         const isActive = item.id === activePage;
+        const count = countOf(item.id);
         return (
           <button
             key={item.id}
@@ -547,7 +569,9 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
             onClick={() => setPage(item.id)}
             className={clsx('np-btn', isActive && 'np-btn-active')}
             style={{ '--np-color': item.color } as React.CSSProperties}
-            title={item.label}
+            title={count !== null
+              ? `${item.title ?? item.label} — ${count} строк во всех книгах на сейчас`
+              : (item.title ?? item.label)}
             aria-current={isActive ? 'page' : undefined}
           >
             {/* Apple Intelligence rotating glow — only on active */}
@@ -555,6 +579,14 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
             <span className="np-content">
               <Icon size={10} strokeWidth={isActive ? 2.2 : 1.5} aria-hidden="true" />
               <span>{item.label}</span>
+              {count !== null && (
+                <span
+                  className="np-count tabular-nums"
+                  aria-label={`${count} строк`}
+                >
+                  {count}
+                </span>
+              )}
             </span>
           </button>
         );

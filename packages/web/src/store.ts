@@ -11,6 +11,10 @@ export type Page =
   | 'report'        // Отчёт (еженедельный отчёт по закупкам — проекция buildReport)
   | 'svod'          // СВОД ТД-ПМ (панель просмотра — точная копия листа)
   | 'data'          // Реестр (построчные данные)
+  // Корзины Реестра (канон п.73в интервью 14.08.2026): собственные вкладки
+  // навигации, каждая — Реестр с зафиксированным фильтром класса строк.
+  | 'unfunded'      // Не обеспеченные финансированием (имя класса — канон п.23)
+  | 'yearlong'      // Закупки, проводимые в течение года (канон п.71)
   | 'economy'       // Экономия
   | 'competition'   // Конкуренция (исходы 1–2: меньше ЕП, больше конкурентных)
   | 'discipline'    // Дисциплина (исход 3: список дел с эффектом, не рейтинг штрафов)
@@ -306,6 +310,15 @@ export interface AppState {
   /** Быстрая проверка: только СВОД (без перезагрузки dept sheets) */
   quickRefresh: () => Promise<void>;
   refreshResult: { sources: any[]; loading: boolean } | null;
+
+  /**
+   * Честные счётчики корзин Реестра (канон п.73в) для кнопок навигации:
+   * считает сервер по тем же предикатам, что страницы-фильтры. null = ещё
+   * не загружено или сервер не ответил — кнопка показывается БЕЗ числа
+   * (отсутствие счёта не выдаётся за ноль строк).
+   */
+  bucketCounts: { unfunded: number; yearlong: number } | null;
+  fetchBucketCounts: () => Promise<void>;
 
   // Утилиты
   formatMoney: (value: number) => string;
@@ -914,6 +927,17 @@ export const useStore = create<AppState>((set, get) => ({
         loading: false,
         error: `Обновление не выполнено, на экране прежние числа. ${msg}`,
       });
+    }
+  },
+
+  bucketCounts: null,
+  fetchBucketCounts: async () => {
+    try {
+      const b = await api.getRegistryBuckets();
+      set({ bucketCounts: { unfunded: b.unfunded.rows, yearlong: b.yearlong.rows } });
+    } catch {
+      // Сервер не ответил — счётчик остаётся null: кнопка навигации живёт
+      // без числа, отсутствие счёта не выдаётся за ноль строк.
     }
   },
 

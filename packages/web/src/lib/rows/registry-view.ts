@@ -335,6 +335,8 @@ export interface ScreenFilterState {
   search: string;
   signals: number;
   budgets: number;
+  /** Фильтр «только инициативные заявки» (маркер «хотелки» в примечании, п.76). */
+  initiative?: boolean;
 }
 
 /** Названия фильтров экрана — ровно тех, что сейчас включены. */
@@ -345,6 +347,7 @@ export function screenFilterNames(state: ScreenFilterState): string[] {
   if (state.search.trim()) names.push('поиск по тексту');
   if (state.signals > 0) names.push(`признаки строк (${state.signals})`);
   if (state.budgets > 0) names.push('источники финансирования');
+  if (state.initiative) names.push('инициативные заявки');
   return names;
 }
 

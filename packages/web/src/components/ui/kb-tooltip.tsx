@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { useState } from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { cn } from '@/lib/utils';
+import { useCoarsePointer } from '../../lib/coarse-pointer';
 import {
   Info, ChevronDown, BookOpen, Scale, Lightbulb, AlertTriangle,
   ArrowRight, Link2, Cpu, Database, BarChart3, ExternalLink,
@@ -317,8 +319,22 @@ function ProvenanceBlock({ sources }: { sources: ProvenanceSource[] }) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// Main: uses Radix Tooltip (hover-based, auto-closes on mouse leave)
+// Main. Два режима одного и того же содержимого (директива п.73а):
+//   • мышь/трекпад — Radix Tooltip: наведение открывает, уход закрывает;
+//   • тач (телефон, планшет) — Radix Popover: тап по метрике открывает
+//     ту же подсказку, тап мимо закрывает. Долгое нажатие не требуется.
 // ════════════════════════════════════════════════════════════════
+
+/** Классы панели подсказки — общие для hover- и тап-режима.
+ *  Ширина упирается в экран: на 360px панель не вылезает за края. */
+const KB_PANEL_CLASS = cn(
+  'z-[100] w-[min(320px,calc(100vw-32px))] max-h-[60vh] overflow-y-auto rounded-2xl px-4 py-3',
+  'bg-zinc-900/95 backdrop-blur-xl',
+  'border border-white/[0.08]',
+  'shadow-[0_20px_40px_-12px_rgba(0,0,0,0.5)]',
+  'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150',
+  'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:duration-100',
+);
 
 export function KBTooltip({
   metric,
@@ -350,9 +366,56 @@ export function KBTooltip({
     related: related ?? registryEntry?.related,
   };
 
+  const coarsePointer = useCoarsePointer();
+
   const hasContent = Object.values(entry).some(v => Array.isArray(v) ? v.length > 0 : Boolean(v))
     || provenance.length > 0;
   if (!hasContent) return <>{children}</>;
+
+  const body = (
+    <>
+      {entry.description && (
+        <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-white/[0.06]">
+          <BookOpen size={10} className="text-blue-400/70 shrink-0" />
+          <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-wider">{entry.description}</span>
+        </div>
+      )}
+      <FullKBContent entry={entry} />
+      {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
+    </>
+  );
+
+  // ── Тап-режим (координатное устройство): Popover открывается кликом,
+  //    закрывается тапом мимо — аналог наведения по директиве п.73а. ──
+  if (coarsePointer) {
+    return (
+      <PopoverPrimitive.Root>
+        <PopoverPrimitive.Trigger asChild>
+          <span
+            tabIndex={0}
+            className={cn('inline-flex items-center gap-1 cursor-help group/kb', className)}
+          >
+            {children}
+            {showIcon && (
+              <Info size={11} className="text-zinc-500 dark:text-zinc-400 shrink-0" />
+            )}
+          </span>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            side={side}
+            sideOffset={8}
+            align="center"
+            collisionPadding={16}
+            className={KB_PANEL_CLASS}
+          >
+            {body}
+            <PopoverPrimitive.Arrow className="fill-zinc-900/95" />
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
+    );
+  }
 
   return (
     <TooltipPrimitive.Root delayDuration={300} disableHoverableContent={false}>
@@ -370,25 +433,11 @@ export function KBTooltip({
           sideOffset={8}
           align="center"
           collisionPadding={16}
-          className={cn(
-            'z-[100] w-[320px] max-h-[60vh] overflow-y-auto rounded-2xl px-4 py-3',
-            'bg-zinc-900/95 backdrop-blur-xl',
-            'border border-white/[0.08]',
-            'shadow-[0_20px_40px_-12px_rgba(0,0,0,0.5)]',
-            'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150',
-            'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:duration-100',
-          )}
+          className={KB_PANEL_CLASS}
           // Keep tooltip open when hovering over it (for interactive content)
           onPointerDownOutside={(e) => e.preventDefault()}
         >
-          {entry.description && (
-            <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-white/[0.06]">
-              <BookOpen size={10} className="text-blue-400/70 shrink-0" />
-              <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-wider">{entry.description}</span>
-            </div>
-          )}
-          <FullKBContent entry={entry} />
-          {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
+          {body}
           <TooltipPrimitive.Arrow className="fill-zinc-900/95" />
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>

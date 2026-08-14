@@ -103,6 +103,9 @@ const SHAPE_BY_PAGE: Partial<Record<Page, SkeletonShape>> = {
   competition: 'cards',
   discipline: 'cards',
   data: 'table',
+  // Корзины Реестра (п.73в) — тот же табличный раздел.
+  unfunded: 'table',
+  yearlong: 'table',
   svod: 'table',
   report: 'document',
   quality: 'cards',

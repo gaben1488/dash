@@ -134,7 +134,7 @@ export function MergeCandidates() {
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
             Найдено групп: <strong className="text-zinc-700 dark:text-zinc-200">{data.totalOpportunities}</strong>,
             их объём: <strong className="text-zinc-700 dark:text-zinc-200 tabular-nums">{formatMoney(data.totalAmount)}</strong>,
-            из них без торгов (ЕП): <strong className="text-amber-600 dark:text-amber-400 tabular-nums">{formatMoney(data.totalEpAmount)}</strong>.
+            из них без торгов (ЕП): <strong className="text-amber-700 dark:text-amber-400 tabular-nums">{formatMoney(data.totalEpAmount)}</strong>.
             Сортировка — по объёму группы.
           </p>
 
@@ -176,7 +176,7 @@ export function MergeCandidates() {
                           {o.epCount > 0 && (
                             <>
                               {' · '}
-                              <span className="text-amber-600 dark:text-amber-400">
+                              <span className="text-amber-700 dark:text-amber-400">
                                 ЕП: {formatMoney(o.epAmount)} в {o.epCount}
                               </span>
                             </>
@@ -184,8 +184,8 @@ export function MergeCandidates() {
                         </span>
                       </span>
                       {open
-                        ? <ChevronUp size={14} className="text-zinc-400" aria-hidden="true" />
-                        : <ChevronDown size={14} className="text-zinc-400" aria-hidden="true" />}
+                        ? <ChevronUp size={14} className="text-zinc-500 dark:text-zinc-400" aria-hidden="true" />
+                        : <ChevronDown size={14} className="text-zinc-500 dark:text-zinc-400" aria-hidden="true" />}
                     </span>
                   </button>
 
@@ -193,7 +193,7 @@ export function MergeCandidates() {
                     <div id={panelId} className="border-t border-zinc-100 dark:border-zinc-700/50 px-3 py-2 overflow-x-auto">
                       <table className="w-full text-[11px]">
                         <thead>
-                          <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                          <tr className="text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
                             <th scope="col" className="py-1.5 pr-3 font-medium">Управление</th>
                             <th scope="col" className="py-1.5 pr-3 font-medium">Предмет закупки</th>
                             <th scope="col" className="py-1.5 pr-3 font-medium">Способ</th>
@@ -212,7 +212,7 @@ export function MergeCandidates() {
                               <td className={clsx(
                                 'py-1.5 pr-3 whitespace-nowrap',
                                 m.method === 'ЕП'
-                                  ? 'text-amber-600 dark:text-amber-400 font-medium'
+                                  ? 'text-amber-700 dark:text-amber-400 font-medium'
                                   : 'text-zinc-500 dark:text-zinc-400',
                               )}>
                                 {m.method === 'ЕП' ? 'ЕП (без торгов)' : m.method}

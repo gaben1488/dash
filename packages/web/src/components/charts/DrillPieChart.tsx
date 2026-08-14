@@ -641,8 +641,9 @@ export function DrillPieChart({
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
       <PatternDefs series={series} ink={patternInk} />
 
-      {/* Заголовок + период */}
-      <div className="flex items-start justify-between gap-3 mb-3">
+      {/* Заголовок + период. flex-wrap: на 360–430px плашка периода переносится
+          под заголовок, а не давит его в ноль (п.73а). */}
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <KBTooltip metric={inDeptComposition ? 'dept_composition' : `pie_${dimension}`}>
             <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
@@ -658,7 +659,7 @@ export function DrillPieChart({
           </div>
           {weekNotApplied && (
             <span
-              className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[13rem]"
+              className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 text-right max-w-[13rem]"
               title="Недельный выбор пока не сужает расчёт: агрегаты считаются по кварталам и месяцам. Числа выше — за указанный период, не за неделю."
             >
               неделя {weekLabel} выбрана, но числа за {periodLabel}

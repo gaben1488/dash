@@ -710,6 +710,16 @@ export function ReportPage() {
               </span>
             </button>
           ))}
+          {/* Якорь ленты изменений в оглавлении (п.73б): блок — в самом низу. */}
+          <button
+            type="button"
+            onClick={() => document.getElementById('report-changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            title="Лента «Что изменилось с последнего среза» — в самом низу страницы"
+            className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-500 transition-colors"
+          >
+            <History size={11} aria-hidden="true" />
+            <span>Изменения ↓</span>
+          </button>
         </nav>
       )}
       <div className="min-w-0 flex-1 space-y-4">
@@ -840,6 +850,19 @@ export function ReportPage() {
             неделя из фильтра не применена
           </span>
         )}
+        {/* Кнопка-якорь к ленте изменений (п.73б): блок живёт в самом низу
+            страницы (п.35), и без якоря до него — вся страница колесом. */}
+        {report && (
+          <button
+            type="button"
+            onClick={() => document.getElementById('report-changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            title="Перейти к ленте «Что изменилось с последнего среза» — она в самом низу страницы"
+            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+          >
+            <History size={11} aria-hidden="true" />
+            Что изменилось ↓
+          </button>
+        )}
       </div>
       </div>
       {downloadError && (
@@ -854,17 +877,6 @@ export function ReportPage() {
         <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-400">Загрузка…</div>
       ) : (
         <>
-          {/* Единый провенанс (бритва Оккама): одна лента «Что изменилось» —
-              итоги недели в цифрах (снимки СВОДа) + правки книг с авторами
-              (журналы _ChangeLog). Для читателя это одна система; источник —
-              деталь реализации. Смена способа поставщика — наверху ленты. */}
-          <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History}>
-            <div className="space-y-5">
-              <WeekDeltaBody state={weekDelta} />
-              <ChangesSection since={request.asOf} />
-            </div>
-          </SectionCard>
-
           {/* Интегральная сводка — четыре яруса (переплавка 03.08): главные
               проценты крупно, способы рядом, деньги с составом бюджетов,
               остаток — сверкой нашего пересчёта с ярусом официального листа.
@@ -1029,6 +1041,22 @@ export function ReportPage() {
               </div>
             </SectionCard>
           )}
+
+          {/* «Что изменилось с последнего среза» — В САМОМ НИЗУ страницы
+              (пп. 35/73б интервью 14.08.2026 — долг закрыт): лента провенанса
+              идёт после чисел отчёта, а не перед ними. Единый провенанс
+              (бритва Оккама): итоги недели в цифрах (снимки СВОДа) + правки
+              книг с авторами (журналы _ChangeLog); для читателя это одна
+              система, источник — деталь реализации. Кнопка-якорь к блоку
+              живёт в шапке страницы (п.73б). */}
+          <div id="report-changes" className="scroll-mt-4">
+            <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History}>
+              <div className="space-y-5">
+                <WeekDeltaBody state={weekDelta} />
+                <ChangesSection since={request.asOf} />
+              </div>
+            </SectionCard>
+          </div>
         </>
       )}
       </div>

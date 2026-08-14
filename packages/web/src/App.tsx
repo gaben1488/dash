@@ -129,7 +129,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 /* ── App ───────────────────────────────────────────────── */
 
 export function App() {
-  const { page, year, fetchDashboard, fetchSubordinates } = useStore();
+  const { page, year, fetchDashboard, fetchSubordinates, fetchBucketCounts } = useStore();
   useThemeInit();
   useUrlSync();
 
@@ -137,7 +137,10 @@ export function App() {
   useEffect(() => {
     fetchDashboard();
     fetchSubordinates();
-  }, [fetchDashboard, fetchSubordinates]);
+    // Честные счётчики корзин Реестра (п.73в) для кнопок навигации: пока
+    // сервер не ответил, кнопки живут без числа — ноль не выдумывается.
+    fetchBucketCounts();
+  }, [fetchDashboard, fetchSubordinates, fetchBucketCounts]);
 
   // Re-fetch when year filter changes
   const isFirstRender = useRef(true);
@@ -157,6 +160,10 @@ export function App() {
       case 'report': return <ReportPage />;
       case 'svod': return <SvodView />;
       case 'data': return <DataBrowserPage />;
+      // Корзины Реестра (канон п.73в): тот же Реестр с зафиксированным
+      // фильтром класса строк — своя вкладка навигации, честный счётчик.
+      case 'unfunded': return <DataBrowserPage bucket="unfunded" />;
+      case 'yearlong': return <DataBrowserPage bucket="yearlong" />;
       case 'economy': return <EconomyPage />;
       case 'competition': return <CompetitionPage />;
       case 'discipline': return <DisciplinePage />;

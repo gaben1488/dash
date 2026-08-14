@@ -88,3 +88,20 @@ describe('перечитка источников одним циклом', () =
     expect(log.warn).toHaveBeenCalled();
   });
 });
+
+describe('рабочее окно опроса (канон п.87/20: 8:45–18:20 по Камчатке)', () => {
+  it('границы окна включительны, ночь и раннее утро — вне окна', async () => {
+    const { isWithinWorkHours } = await import('./source-refresh.js');
+    const kamchatka = 12;
+    // 8:45 по Камчатке = 20:45 UTC предыдущего дня
+    expect(isWithinWorkHours(new Date(Date.UTC(2026, 7, 13, 20, 45)), kamchatka)).toBe(true);
+    // 18:20 включительно
+    expect(isWithinWorkHours(new Date(Date.UTC(2026, 7, 14, 6, 20)), kamchatka)).toBe(true);
+    // 18:21 — уже вне
+    expect(isWithinWorkHours(new Date(Date.UTC(2026, 7, 14, 6, 21)), kamchatka)).toBe(false);
+    // 8:44 — ещё вне
+    expect(isWithinWorkHours(new Date(Date.UTC(2026, 7, 13, 20, 44)), kamchatka)).toBe(false);
+    // полночь по Камчатке
+    expect(isWithinWorkHours(new Date(Date.UTC(2026, 7, 14, 12, 0)), kamchatka)).toBe(false);
+  });
+});

@@ -103,7 +103,7 @@ function DiagnosticCard({ group }: { group: MechanismGroup }) {
         <ChevronDown
           size={14}
           aria-hidden="true"
-          className={cn('shrink-0 mt-1 text-zinc-400 transition-transform duration-200', open && 'rotate-180')}
+          className={cn('shrink-0 mt-1 text-zinc-500 dark:text-zinc-400 transition-transform duration-200', open && 'rotate-180')}
         />
       </button>
 
@@ -114,11 +114,11 @@ function DiagnosticCard({ group }: { group: MechanismGroup }) {
               <span className="font-medium text-zinc-700 dark:text-zinc-200">{deptText(a.dept || a.sheet || '')}</span>
               {a.row != null && <>, строка <span className="tabular-nums font-medium">{a.row}</span></>}
               {a.cell && <>, ячейка <span className="font-mono text-[11px]">{a.cell}</span></>}
-              {a.subject && <span className="text-zinc-400 dark:text-zinc-500"> — {a.subject}</span>}
+              {a.subject && <span className="text-zinc-500 dark:text-zinc-400"> — {a.subject}</span>}
             </li>
           ))}
           {hidden > 0 && (
-            <li className="text-[11px] text-zinc-400 dark:text-zinc-500">
+            <li className="text-[11px] text-zinc-500 dark:text-zinc-400">
               …и ещё {hidden} {pluralRu(hidden, 'адрес', 'адреса', 'адресов')} — полный список на странице «Контроль».
             </li>
           )}
