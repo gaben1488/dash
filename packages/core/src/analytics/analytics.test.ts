@@ -548,25 +548,61 @@ describe('centralization — findCentralizationOpportunities', () => {
     expect(opps[0].departments).toHaveLength(3);
   });
 
-  it('ignores EP rows (only competitive can be centralized)', () => {
+  // Страж-тест брифа переплавки §5.2: ЕП-строки ОБЯЗАНЫ попадать в кандидаты.
+  // Прежний фильтр «только конкурентные» исключал ровно те закупки, ради
+  // которых исход «меньше ЕП» существует.
+  it('включает ЕП-строки в кандидаты по умолчанию (страж §5.2)', () => {
     const rows = [
-      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 500, method: 'ЕП' },
-      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 500, method: 'ЕП' },
-      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 500, method: 'ЕП' },
+      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 1_500, method: 'ЕП' },
+      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 1_500, method: 'ЕП' },
+      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 1_500, method: 'ЭА' },
     ];
-    expect(findCentralizationOpportunities(rows)).toHaveLength(0);
+    const opps = findCentralizationOpportunities(rows);
+    expect(opps).toHaveLength(1);
+    expect(opps[0].departments).toHaveLength(3);
+    expect(opps[0].epCount).toBe(2);
+    expect(opps[0].epAmount).toBe(3_000);
+    expect(opps[0].totalAmount).toBe(4_500);
+    // Раскрытие до строк: участники группы доступны с адресом управления.
+    expect(opps[0].members).toHaveLength(3);
+    expect(opps[0].members.filter(m => m.method === 'ЕП')).toHaveLength(2);
   });
 
-  it('calculates savings rate based on volume tier', () => {
+  it('режим includeEP: false возвращает старый периметр «только конкурентные»', () => {
+    const rows = [
+      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 1_500, method: 'ЕП' },
+      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 1_500, method: 'ЕП' },
+      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 1_500, method: 'ЕП' },
+    ];
+    expect(findCentralizationOpportunities(rows, { includeEP: false })).toHaveLength(0);
+  });
+
+  it('не обещает экономию числом: у группы объём и заказчики, а не коэффициент', () => {
     const rows: Array<{ grbsId: string; subject: string; planTotal: number; method: string }> = [];
-    // 5 departments, each contributing 15M => total = 75M => 15% savings
     for (const id of ['A', 'B', 'C', 'D', 'E']) {
       rows.push({ grbsId: id, subject: 'Мебель столы', planTotal: 15_000, method: 'ЭА' });
     }
     const opps = findCentralizationOpportunities(rows);
     expect(opps).toHaveLength(1);
-    expect(opps[0].potentialSavings).toBe(75_000 * 0.15); // тыс. ₽
+    expect(opps[0].totalAmount).toBe(75_000); // тыс. ₽ — факт из строк
     expect(opps[0].priority).toBe('high');
+    // Выдуманного процента экономии в контракте больше нет.
+    expect('potentialSavings' in opps[0]).toBe(false);
+    expect(opps[0].recommendation).not.toMatch(/потенциальная экономия/);
+  });
+
+  it('сортирует кандидатов по объёму группы (крупнейшие первыми)', () => {
+    const rows = [
+      { grbsId: 'A', subject: 'Канцелярские товары', planTotal: 2_000, method: 'ЕП' },
+      { grbsId: 'B', subject: 'Канцелярские ручки', planTotal: 2_000, method: 'ЭА' },
+      { grbsId: 'C', subject: 'Канцелярские скрепки', planTotal: 2_000, method: 'ЭА' },
+      { grbsId: 'A', subject: 'Мебель столы', planTotal: 20_000, method: 'ЭА' },
+      { grbsId: 'B', subject: 'Мебель стулья', planTotal: 20_000, method: 'ЕП' },
+      { grbsId: 'C', subject: 'Мебель шкафы', planTotal: 20_000, method: 'ЭА' },
+    ];
+    const opps = findCentralizationOpportunities(rows);
+    expect(opps).toHaveLength(2);
+    expect(opps[0].totalAmount).toBeGreaterThan(opps[1].totalAmount);
   });
 
   it('skips "Другое" category', () => {

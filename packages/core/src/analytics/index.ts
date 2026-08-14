@@ -6,4 +6,9 @@ export { disciplineIndex, DISCIPLINE_WEIGHTS, type DisciplineInput, type Discipl
 export { benfordAnalysis, ewmaDetection, zScoreAnalysis, type BenfordResult, type EWMAResult, type ZScoreResult } from './anomaly.js';
 export { linearForecast, seasonalForecast, buildScenarios, type ForecastScenario, type ForecastResult } from './forecast.js';
 export { classifySubject, buildSubjectAnalysis, type SubjectCategory, type SubjectAnalysisReport } from './subject-classify.js';
-export { findCentralizationOpportunities, type CentralizationOpportunity } from './centralization.js';
+export {
+  findCentralizationOpportunities,
+  type CentralizationOpportunity,
+  type CentralizationMember,
+  type CentralizationOptions,
+} from './centralization.js';

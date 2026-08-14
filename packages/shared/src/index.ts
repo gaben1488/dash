@@ -73,6 +73,10 @@ export * from './recon-root-cause.js';
 // Re-export канон «пустая дата факта» (ось Q) — семантически отдельно от org-itself
 export * from './fact-date.js';
 
+// Re-export словари-канон владельца для колонок комментариев (п.72(г), 14.08.2026):
+// 12 причин отклонения, 20 обоснований ЕП, регексы номеров процедур
+export * from './comment-standards.js';
+
 // Re-export СВОД view builder (панель просмотра — точная копия листа из officialMetrics)
 export * from './svod-view.js';
 

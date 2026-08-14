@@ -199,7 +199,17 @@ export function DataBrowserPage() {
   const [loadingRows, setLoadingRows] = useState(false);
   const [trouble, setTrouble] = useState<LoadTrouble>(NO_TROUBLE);
   const [selectedRow, setSelectedRow] = useState<any>(null);
-  const [signalFilter, setSignalFilter] = useState<string[]>([]);
+  // Затравка признаков от «Дисциплины»: navigateTo('data', { signals }) кладёт
+  // ключи в store, Реестр забирает их одним чтением при открытии и очищает —
+  // повторный заход в Реестр без затравки стартует с пустым фильтром.
+  const [signalFilter, setSignalFilter] = useState<string[]>(
+    () => useStore.getState().registrySignalSeed,
+  );
+  useEffect(() => {
+    if (useStore.getState().registrySignalSeed.length > 0) {
+      useStore.getState().clearRegistrySignalSeed();
+    }
+  }, []);
   const [signalDropdownOpen, setSignalDropdownOpen] = useState(false);
   const signalDropdownRef = useRef<HTMLDivElement>(null);
 

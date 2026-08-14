@@ -27,6 +27,10 @@ export const DataBrowserPage = lazy(() =>
   freshImport(() => import('./DataBrowser')).then(m => ({ default: m.DataBrowserPage })));
 export const EconomyPage = lazy(() =>
   freshImport(() => import('./Economy')).then(m => ({ default: m.EconomyPage })));
+export const CompetitionPage = lazy(() =>
+  freshImport(() => import('./Competition')).then(m => ({ default: m.CompetitionPage })));
+export const DisciplinePage = lazy(() =>
+  freshImport(() => import('./Discipline')).then(m => ({ default: m.DisciplinePage })));
 export const Analytics = lazy(() =>
   freshImport(() => import('./Analytics')).then(m => ({ default: m.Analytics })));
 export const QualityPage = lazy(() =>
@@ -96,6 +100,8 @@ const SHAPE_BY_PAGE: Partial<Record<Page, SkeletonShape>> = {
   dashboard: 'charts',
   analytics: 'charts',
   economy: 'charts',
+  competition: 'cards',
+  discipline: 'cards',
   data: 'table',
   svod: 'table',
   report: 'document',

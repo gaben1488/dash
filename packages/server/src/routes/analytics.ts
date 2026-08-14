@@ -446,13 +446,19 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // ЕП включены по умолчанию (страж §5.2): одинаковые предметы у разных
+      // заказчиков без торгов — главный кандидат на общий конкурс.
       const opportunities = findCentralizationOpportunities(allRows);
-      const totalSavings = opportunities.reduce((s, o) => s + o.potentialSavings, 0);
+      const totalAmount = opportunities.reduce((s, o) => s + o.totalAmount, 0);
+      const totalEpAmount = opportunities.reduce((s, o) => s + o.epAmount, 0);
 
       return {
         opportunities,
         totalOpportunities: opportunities.length,
-        totalPotentialSavings: totalSavings,
+        /** Суммарный объём всех групп, тыс. ₽ — факт из строк, не оценка. */
+        totalAmount,
+        /** Из него без торгов (ЕП), тыс. ₽. */
+        totalEpAmount,
       };
     } catch (err) {
       app.log.error({ err }, 'Analytics centralization unavailable');

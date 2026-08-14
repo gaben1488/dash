@@ -78,8 +78,13 @@ export const SIGNAL_SEVERITY: Readonly<Record<string, SignalSeverity>> = {
   unmappedReasonEP: 'warning',
   // ── Пробелы в данных ──
   dataQuality: 'gap',
-  factWithoutDate: 'gap',
+  // Канон п.71 (14.08.2026): суммы факта без даты заключения — законная стадия
+  // «Закупки, проводимые в течение года», не ошибка → информационный тон.
+  factWithoutDate: 'info',
   dateWithoutFact: 'gap',
+  // Структурные классы волны 0 (P пуст / квартал O пуст при факте).
+  planYearMissing: 'warning',
+  factQuarterMissing: 'warning',
 };
 
 /** Тяжесть незнакомого признака: серый пробел, а не тишина. */

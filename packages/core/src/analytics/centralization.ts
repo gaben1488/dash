@@ -1,17 +1,49 @@
 /**
- * Centralization Recommendations Module
- * Identifies cross-ГРБС procurement consolidation opportunities.
- * Based on procurement_report.gs centralization analysis (ст. 25 44-ФЗ).
+ * Кандидаты на объединение закупок (централизация, ст. 25 44-ФЗ).
+ *
+ * Находит категории предметов, которые порознь закупают несколько управлений:
+ * такая группа — кандидат на совместную закупку.
+ *
+ * Два правила честности (бриф переплавки §5.2, волна 2026-08-14):
+ *
+ * 1. ЕП ВКЛЮЧЕНЫ. Раньше строки «у единственного поставщика» отсеивались с
+ *    комментарием «централизуются только конкурентные» — то есть из поиска
+ *    выпадали ровно те закупки, ради которых исход «меньше ЕП» существует:
+ *    одинаковые предметы, купленные разными заказчиками без торгов, — первый
+ *    кандидат на один общий конкурс. Фильтр снят; прежнее поведение доступно
+ *    режимом `includeEP: false`.
+ *
+ * 2. ЭКОНОМИЯ НЕ ОБЕЩАЕТСЯ ЧИСЛОМ. Прежний расчёт «5–15 % от объёма» был
+ *    выдуманным коэффициентом без методики (Д13: вымышленные формулы в базе
+ *    знаний запрещены). Вместо него группа честно показывает свой объём в
+ *    деньгах и число заказчиков — а оценку эффекта читатель делает по
+ *    собственной статистике торгов, не по нашему обещанию.
  */
 
 import { classifySubject, type SubjectCategory } from './subject-classify.js';
 
+/** Строка-участник группы: адрес для раскрытия кандидата до строк. */
+export interface CentralizationMember {
+  grbsId: string;
+  subject: string;
+  /** План итого в ТЫСЯЧАХ ₽ (канон колонки K). */
+  planTotal: number;
+  method: string;
+}
+
 export interface CentralizationOpportunity {
   category: SubjectCategory;
-  departments: string[];         // ГРБС IDs that procure this category
-  totalAmount: number;           // Combined procurement amount
-  contractCount: number;         // Total number of contracts
-  potentialSavings: number;      // Estimated savings (5-15% of volume)
+  /** ГРБС, закупающие категорию, — «число заказчиков» группы. */
+  departments: string[];
+  /** Суммарный объём группы, тыс. ₽. */
+  totalAmount: number;
+  /** Всего строк-закупок в группе. */
+  contractCount: number;
+  /** Из них у единственного поставщика: объём (тыс. ₽) и число строк. */
+  epAmount: number;
+  epCount: number;
+  /** Строки группы — раскрытие «до строк с адресами» на экране. */
+  members: CentralizationMember[];
   recommendation: string;
   priority: 'high' | 'medium' | 'low';
 }
@@ -24,6 +56,18 @@ interface DeptRow {
   method: string;
 }
 
+export interface CentralizationOptions {
+  /**
+   * Считать ли строки ЕП кандидатами на объединение. По умолчанию — ДА:
+   * одинаковые предметы у разных заказчиков без торгов — главный кандидат
+   * на общий конкурс. `false` возвращает старый периметр «только конкурентные».
+   */
+  includeEP?: boolean;
+}
+
+/** Способ «у единственного поставщика» в канонической записи листа. */
+const EP_METHOD = 'ЕП';
+
 /**
  * Find centralization opportunities across departments.
  * Per ст. 25 44-ФЗ: if 3+ ГРБС procure same category with
@@ -31,12 +75,16 @@ interface DeptRow {
  */
 export function findCentralizationOpportunities(
   allRows: DeptRow[],
+  options: CentralizationOptions = {},
 ): CentralizationOpportunity[] {
+  const includeEP = options.includeEP ?? true;
+
   // Group by subject category × department
   const categoryMap = new Map<SubjectCategory, Map<string, { count: number; total: number }>>();
+  const membersByCategory = new Map<SubjectCategory, CentralizationMember[]>();
 
   for (const row of allRows) {
-    if (row.method === 'ЕП') continue; // Only competitive procurement can be centralized
+    if (!includeEP && row.method === EP_METHOD) continue;
     const cat = classifySubject(row.subject);
     if (cat === 'Другое') continue;
 
@@ -46,6 +94,15 @@ export function findCentralizationOpportunities(
     existing.count++;
     existing.total += row.planTotal;
     deptMap.set(row.grbsId, existing);
+
+    const members = membersByCategory.get(cat) ?? [];
+    members.push({
+      grbsId: row.grbsId,
+      subject: row.subject,
+      planTotal: row.planTotal,
+      method: row.method,
+    });
+    membersByCategory.set(cat, members);
   }
 
   const opportunities: CentralizationOpportunity[] = [];
@@ -65,10 +122,15 @@ export function findCentralizationOpportunities(
 
     if (totalAmount < 3_000) continue; // Минимум 3 млн ₽ (суммы в тыс. ₽ — канон колонки K)
 
-    // Savings estimate: 5-15% depending on volume
-    const savingsRate = totalAmount > 50_000 ? 0.15 :
-                        totalAmount > 10_000 ? 0.10 : 0.05; // пороги в тыс. ₽
-    const potentialSavings = totalAmount * savingsRate;
+    const members = membersByCategory.get(category) ?? [];
+    let epAmount = 0;
+    let epCount = 0;
+    for (const m of members) {
+      if (m.method === EP_METHOD) {
+        epAmount += m.planTotal;
+        epCount++;
+      }
+    }
 
     let priority: 'high' | 'medium' | 'low' = 'low';
     if (totalAmount > 20_000 && deptMap.size >= 5) priority = 'high';
@@ -79,13 +141,21 @@ export function findCentralizationOpportunities(
       departments,
       totalAmount,
       contractCount,
-      potentialSavings,
-      recommendation: `Централизация закупок "${category}" для ${deptMap.size} управлений. ` +
-        `Объём: ${(totalAmount / 1_000).toFixed(1)} млн ₽, ` +
-        `потенциальная экономия: ${(potentialSavings / 1_000).toFixed(1)} млн ₽`,
+      epAmount,
+      epCount,
+      members,
+      // Объём и число заказчиков — факты из строк. Экономию числом группа не
+      // обещает: коэффициента с методикой у продукта нет (Д13).
+      recommendation: `Категорию «${category}» закупают ${deptMap.size} управлений по отдельности. ` +
+        `Объём: ${(totalAmount / 1_000).toFixed(1)} млн ₽` +
+        (epCount > 0
+          ? `, из них без торгов (ЕП): ${(epAmount / 1_000).toFixed(1)} млн ₽ в ${epCount} закупках.`
+          : '.'),
       priority,
     });
   }
 
-  return opportunities.sort((a, b) => b.potentialSavings - a.potentialSavings);
+  // Крупнейшие группы — первыми: сортировка по фактическому объёму, а не по
+  // выдуманной «потенциальной экономии».
+  return opportunities.sort((a, b) => b.totalAmount - a.totalAmount);
 }

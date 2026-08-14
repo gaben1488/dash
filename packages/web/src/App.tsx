@@ -10,8 +10,8 @@ import { Dashboard } from './pages/Dashboard';
 // .docx-выгрузка, — состав совпадает по построению. Старая вёрстка
 // (pages/Report.tsx) сносится после аудита (шаг 7 брифа).
 import {
-  ReportPage, SvodView, DataBrowserPage, EconomyPage,
-  Analytics, QualityPage, SettingsPage, PageSkeleton,
+  ReportPage, SvodView, DataBrowserPage, EconomyPage, CompetitionPage,
+  DisciplinePage, Analytics, QualityPage, SettingsPage, PageSkeleton,
 } from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
 import { setKBRegistry } from './components/ui/kb-tooltip';
@@ -158,6 +158,8 @@ export function App() {
       case 'svod': return <SvodView />;
       case 'data': return <DataBrowserPage />;
       case 'economy': return <EconomyPage />;
+      case 'competition': return <CompetitionPage />;
+      case 'discipline': return <DisciplinePage />;
       case 'analytics': return <Analytics />;
       case 'quality': return <QualityPage />;
       case 'recon': return <QualityPage />;

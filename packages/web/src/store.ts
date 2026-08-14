@@ -12,6 +12,8 @@ export type Page =
   | 'svod'          // СВОД ТД-ПМ (панель просмотра — точная копия листа)
   | 'data'          // Реестр (построчные данные)
   | 'economy'       // Экономия
+  | 'competition'   // Конкуренция (исходы 1–2: меньше ЕП, больше конкурентных)
+  | 'discipline'    // Дисциплина (исход 3: список дел с эффектом, не рейтинг штрафов)
   | 'analytics'     // Аналитика
   | 'quality'       // Контроль (Trust+Recon+Issues+Journal)
   | 'recon'         // → Контроль (legacy alias)
@@ -238,7 +240,17 @@ export interface AppState {
     months: number[];
     category: string;
     qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
+    /** Ключи признаков строк для фильтра Реестра (готовый фильтр «Дисциплины»). */
+    signals: string[];
   }>) => void;
+  /**
+   * Затравка фильтра признаков для Реестра: navigateTo('data', { signals })
+   * кладёт ключи сюда, Реестр читает их ОДИН раз при открытии и очищает.
+   * Отдельное поле, а не постоянный фильтр: признаки — локальный фильтр
+   * страницы Реестра, глобальной оси признаков в шапке нет.
+   */
+  registrySignalSeed: string[];
+  clearRegistrySignalSeed: () => void;
   /** Выбранные отделы (пустой Set = все) */
   selectedDepartments: Set<string>;
   toggleDepartment: (deptId: string) => void;
@@ -450,6 +462,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
   qualityTab: 'recon',
   setQualityTab: (qualityTab) => set({ qualityTab }),
+  registrySignalSeed: [],
+  clearRegistrySignalSeed: () => set({ registrySignalSeed: [] }),
   resetAllFilters: () => {
     // Сброс должен быть мгновенным и окончательным: отложенный пересчёт,
     // поставленный последней набранной буквой, вернул бы поиск после сброса.
@@ -485,8 +499,11 @@ export const useStore = create<AppState>((set, get) => ({
       'selectedMethods' | 'selectedActivities' |
       'selectedDepartments' | 'selectedSubordinates' | 'year' |
       'searchQuery' | 'searchQueryDebounced' | 'activeMonths' | 'qualityTab' |
-      'periodMode' | 'monthsByYear'
+      'periodMode' | 'monthsByYear' | 'registrySignalSeed'
     >> = { page };
+    if (filters?.signals) {
+      updates.registrySignalSeed = filters.signals;
+    }
     // Период — АТОМАРНО (фильтр-спека 16.07, Б1-Б3): период/месяцы/режим меняются
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.

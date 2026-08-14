@@ -26,7 +26,9 @@ interface CentralizationOpportunityDTO {
   departments: string[];
   totalAmount: number;
   contractCount: number;
-  potentialSavings: number;
+  /** Объём и число строк без торгов (ЕП) внутри группы. */
+  epAmount: number;
+  epCount: number;
   recommendation: string;
   priority: 'high' | 'medium' | 'low';
 }
@@ -1243,7 +1245,8 @@ function CentralizationCard() {
   const [data, setData] = useState<{
     opportunities: CentralizationOpportunityDTO[];
     totalOpportunities: number;
-    totalPotentialSavings: number;
+    totalAmount: number;
+    totalEpAmount: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1264,10 +1267,12 @@ function CentralizationCard() {
       ) : (
         <div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
-            Одинаковые категории закупают несколько управлений по отдельности. Совместная
-            закупка (ст. 25 44-ФЗ) обычно даёт экономию 5–15% объёма. Найдено
-            возможностей: <strong className="text-zinc-700 dark:text-zinc-200">{data.totalOpportunities}</strong>,
-            потенциальная экономия: <strong className="text-emerald-600 dark:text-emerald-400">{fmtTys(data.totalPotentialSavings)}</strong>.
+            Одинаковые категории закупают несколько управлений по отдельности — кандидаты
+            на совместную закупку (ст. 25 44-ФЗ), включая закупки у единственного поставщика.
+            Найдено групп: <strong className="text-zinc-700 dark:text-zinc-200">{data.totalOpportunities}</strong>,
+            их объём: <strong className="text-zinc-700 dark:text-zinc-200">{fmtTys(data.totalAmount)}</strong>,
+            из них без торгов: <strong className="text-amber-600 dark:text-amber-400">{fmtTys(data.totalEpAmount)}</strong>.
+            Экономию числом продукт не обещает — методики оценки эффекта объединения нет.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
@@ -1277,7 +1282,7 @@ function CentralizationCard() {
                   <th className="py-1.5 pr-3">Управления</th>
                   <th className="py-1.5 pr-3 text-right">Закупок</th>
                   <th className="py-1.5 pr-3 text-right">Объём</th>
-                  <th className="py-1.5 pr-3 text-right">Экономия (оценка)</th>
+                  <th className="py-1.5 pr-3 text-right">Из них ЕП</th>
                   <th className="py-1.5">Приоритет</th>
                 </tr>
               </thead>
@@ -1293,7 +1298,9 @@ function CentralizationCard() {
                     </td>
                     <td className="py-2 pr-3 text-right tabular-nums">{o.contractCount}</td>
                     <td className="py-2 pr-3 text-right tabular-nums">{fmtTys(o.totalAmount)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{fmtTys(o.potentialSavings)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-amber-600 dark:text-amber-400">
+                      {o.epCount > 0 ? fmtTys(o.epAmount) : '—'}
+                    </td>
                     <td className="py-2">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_BADGE[o.priority]?.cls ?? PRIORITY_BADGE.low.cls}`}>
                         {PRIORITY_BADGE[o.priority]?.label ?? o.priority}

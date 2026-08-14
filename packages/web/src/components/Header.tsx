@@ -2,7 +2,7 @@ import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount
 import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
-  Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText,
+  Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -20,6 +20,12 @@ const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   svod:       ['currency', 'procurement', 'budget'],
   data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
   economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
+  // Конкуренция — сравнение ЕП против конкурентных встроено в сами блоки:
+  // фильтр способа закупки здесь дезориентировал бы (блоки его не применяют).
+  competition: ['period', 'currency'],
+  // Дисциплина — список дел за весь год: барабан нужен ради выбора года,
+  // сужение до квартала/месяца страница честно оговаривает бейджем периода.
+  discipline: ['period', 'currency'],
   analytics:  ['period', 'currency', 'procurement', 'activity', 'budget'],
   quality:    ['period', 'procurement', 'activity'],
   recon:      ['period', 'procurement', 'activity'],
@@ -53,6 +59,8 @@ const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string }[
   { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2' },  // Cyan — источник истины
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
   { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald
+  { id: 'competition', label: 'Конкуренция', icon: Gavel,    color: '#5eead4' },  // Light Teal (тёмная подпись ≥4,5:1)
+  { id: 'discipline', label: 'Дисциплина', icon: ListChecks, color: '#fdba74' },  // Light Orange — рабочий список дел
   { id: 'quality',   label: 'Контроль',   icon: ShieldCheck, color: '#ef4444' },  // Ruby Red
   { id: 'analytics', label: 'Аналитика',  icon: TrendingUp,  color: '#a78bfa' },  // Violet
   { id: 'settings',  label: 'Система',    icon: Settings,    color: '#a1a1aa' },  // Zinc
