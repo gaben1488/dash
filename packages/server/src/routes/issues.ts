@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
-import { createDemoSnapshot } from '../services/demo-data.js';
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
@@ -25,6 +24,20 @@ function statusLabel(status: string): string {
 }
 
 /** Допустимые переходы статусов (canonical IssueStatus values) */
+/**
+ * Ответ на недоступность снимка. Демо-политику реализует ЕДИНАЯ точка —
+ * getSnapshot (демо-снимок только при ненастроенных кредах, иначе последний
+ * сохранённый из SQL либо ошибка): здесь замечания из демо-генератора не
+ * сочиняются никогда — выдуманные «нарушения» о реальных управлениях
+ * неотличимы от настоящих ни в списке, ни в выгрузке.
+ */
+const SNAPSHOT_UNAVAILABLE = {
+  error: 'Снимок недоступен: источник данных не отвечает. Повторите позже.',
+} as const;
+
+/** Замечания демо-генератора — не данные ГРБС: менять их статусы нельзя. */
+const DEMO_ISSUE_PREFIX = 'demo-issue-';
+
 const STATUS_TRANSITIONS: Record<string, string[]> = {
   'open':           ['acknowledged', 'in_progress', 'wont_fix', 'false_positive'],
   'acknowledged':   ['in_progress', 'wont_fix', 'false_positive'],
@@ -93,8 +106,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot();
     } catch (err) {
-      app.log.warn({ err }, 'issues: failed to get snapshot, using demo');
-      snapshot = createDemoSnapshot();
+      app.log.warn({ err }, 'issues: failed to get snapshot');
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
     const allIssues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);
@@ -144,8 +157,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot();
     } catch (err) {
-      app.log.warn({ err }, 'issues/:id: failed to get snapshot, using demo');
-      snapshot = createDemoSnapshot();
+      app.log.warn({ err }, 'issues/:id: failed to get snapshot');
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
     const issue = overlayPersistedStatus(snapshot.issues ?? []).find((i: Issue) => i.id === id);
@@ -189,6 +202,13 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const body = parseBody(IssueStatusUpdateSchema, request, reply);
     if (!body) return;
 
+    // Фикции демо-генератора в реальную таблицу issues не персистятся.
+    if (id.startsWith(DEMO_ISSUE_PREFIX)) {
+      return reply.status(400).send({
+        error: 'Это демонстрационное замечание, а не данные управлений — статус ему не ставится',
+      });
+    }
+
     // Ищем текущий статус в DB, иначе в snapshot
     let currentStatus = 'open';
     let snapshotIssue: Issue | undefined;
@@ -198,7 +218,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     } else {
       // Ищем в snapshot
       let snapshot;
-      try { snapshot = await getSnapshot(); } catch (err) { app.log.warn({ err }, 'issues/status: failed to get snapshot'); snapshot = createDemoSnapshot(); }
+      try {
+        snapshot = await getSnapshot();
+      } catch (err) {
+        app.log.warn({ err }, 'issues/status: failed to get snapshot');
+        return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+      }
       snapshotIssue = (snapshot.issues ?? []).find((i: Issue) => i.id === id);
       // Замечания нет ни в таблице, ни в снимке. Прежде такой запрос заводил
       // пустую запись с заголовком «Issue <id>» — продукт сам сочинял замечание,
@@ -312,6 +337,13 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const body = parseBody(IssueCommentSchema, request, reply);
     if (!body) return;
 
+    // Фикции демо-генератора в реальную таблицу issues не персистятся.
+    if (id.startsWith(DEMO_ISSUE_PREFIX)) {
+      return reply.status(400).send({
+        error: 'Это демонстрационное замечание, а не данные управлений — комментарий к нему не сохраняется',
+      });
+    }
+
     // Замечание живёт в двух местах: снимок пересобирается на каждый запрос,
     // а таблица issues хранит только те, которых уже касался человек. Комментарий
     // к замечанию «только из снимка» уходил в UPDATE по несуществующей строке:
@@ -323,8 +355,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       try {
         snapshot = await getSnapshot();
       } catch (err) {
-        app.log.warn({ err }, 'issues/comment: failed to get snapshot, using demo');
-        snapshot = createDemoSnapshot();
+        app.log.warn({ err }, 'issues/comment: failed to get snapshot');
+        return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
       }
       snapshotIssue = (snapshot.issues ?? []).find((i: Issue) => i.id === id);
       if (!snapshotIssue) {
@@ -407,8 +439,19 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot();
     } catch (err) {
-      app.log.warn({ err }, 'export/issues: failed to get snapshot, using demo');
-      snapshot = createDemoSnapshot();
+      app.log.warn({ err }, 'export/issues: failed to get snapshot');
+      return reply.status(503).send({
+        error: 'Google Таблицы недоступны — выгрузка замечаний невозможна. Повторите позже.',
+      });
+    }
+
+    // Скачанный файл живёт дольше любого баннера «Демо» в шапке: CSV с
+    // сочинёнными замечаниями о реальных ГРБС неотличим от настоящего.
+    // Демо-снимок (префикс id 'demo-') в выгрузку не попадает никогда.
+    if (snapshot.id.startsWith('demo-')) {
+      return reply.status(503).send({
+        error: 'Google Таблицы недоступны — выгрузка замечаний невозможна. Повторите позже.',
+      });
     }
 
     let issues: Issue[] = overlayPersistedStatus(snapshot.issues ?? []);

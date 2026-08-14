@@ -184,7 +184,9 @@ export const METRIC_LABELS: Readonly<Record<string, string>> = {
   lifecycle_stage_concluded: 'Контракт заключён',
   lifecycle_stage_in_work: 'В работе, срок не наступил',
   lifecycle_stage_overdue: 'Плановая дата прошла',
-  lifecycle_stage_no_funding: 'Без подтверждённого финансирования',
+  // Канон имени класса — п.23 интервью 14.08.2026: «закупки, НЕ ОБЕСПЕЧЕННЫЕ
+  // финансированием» (прежний лейбл «Без подтверждённого финансирования» снят).
+  lifecycle_stage_no_funding: 'Не обеспечено финансированием',
   lifecycle_stage_unfunded: 'Без плановых денег',
 };
 

@@ -540,9 +540,11 @@ describe('buildReport — деньги года: официал СВОД и ст
     // …а этапность держит её отдельной долей — строка не потерялась.
     const stage = uer.lifecycle.byStage.find((b) => b.metricKey === 'lifecycle_stage_no_funding');
     expect(stage).toEqual({ metricKey: 'lifecycle_stage_no_funding', count: 1, planTotal: 300 });
-    // Плашка честности объясняет, почему счёт «чист».
-    expect(report.notes.some((n) => n.includes('без подтверждённого финансирования'))).toBe(true);
-    expect(base.notes.some((n) => n.includes('без подтверждённого финансирования'))).toBe(false);
+    // Плашка честности объясняет, почему счёт «чист». Имя класса — канон
+    // п.23 интервью 14.08.2026: «не обеспеченные финансированием».
+    expect(report.notes.some((n) => n.includes('не обеспеченные финансированием'))).toBe(true);
+    expect(report.notes.some((n) => n.includes('без подтверждённого финансирования'))).toBe(false);
+    expect(base.notes.some((n) => n.includes('не обеспеченные финансированием'))).toBe(false);
   });
 });
 
@@ -610,6 +612,44 @@ describe('buildReport — период, порядок, сигналы', () => {
     expect(uksimp.signals.map((s) => s.id)).toEqual(['i5']);
     // Полный текст и адрес первички доезжают до проекции.
     expect(uer.signals[0].description).toBe('');
+  });
+});
+
+describe('канон интервью 14.08.2026 — свободный текст и адресация (пп.27, 28/29, 31)', () => {
+  it('СТРАЖ п.27/31: «ожидается 03.09.2025» в пояснении НЕ порождает машинного прогноза', () => {
+    // Решение владельца дословно: свободный текст исполнителей машинно не
+    // интерпретируется нигде. Прогнозную дату читатель видит в самом
+    // пояснении, которое доносится как есть. Поле forecastDate удалено из
+    // контракта PendingPosition целиком (14.08.2026) — его появление в
+    // проекции означает возврат класса «машинный вывод из комментария».
+    const rows = fixtureRows();
+    const bare = rows['УЭР'][9]; // незаключённая строка 1 квартала
+    bare[COL.DEVIATION_REASON] = 'контракт будет подписан, ожидается 03.09.2025';
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    const pos = uer.quarter.pendingPositions.find((p) => p.explanations.length > 0)!;
+    expect(pos.explanations[0].text).toBe('контракт будет подписан, ожидается 03.09.2025');
+    expect('forecastDate' in pos).toBe(false);
+  });
+
+  it('СТРАЖ пп.28/29: sheetRow незаключённых позиций — номер строки ЛИСТА, unfunded-строки выше его не сдвигают', () => {
+    // До фикса pendingPositionsFor получала fundedRows (rows.filter):
+    // unfunded-строка выше по листу сдвигала индексы, и исполнитель шёл по
+    // номеру не в ту строку книги — системный дефект нумерации (пп.28/29).
+    const rows = {
+      УЭР: [
+        makeRow({ id: 'uf', planYear: '' }),          // атом 0 → строка листа 4 (unfunded)
+        makeRow({ id: 'p1' }),                        // атом 1 → строка листа 5 (незаключённая)
+      ],
+    };
+    const report = buildReport({ rowsByDept: rows }, OPTS);
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.quarter.pendingPositions).toHaveLength(1);
+    // Номер строки ЛИСТА: 1 (0-based атом) + 3 (шапка) + 1 = 5. Старый код
+    // давал 4 — номер соседней unfunded-строки.
+    expect(uer.quarter.pendingPositions[0].sheetRow).toBe(5);
+    // Сама unfunded-строка адресуется своим настоящим номером в своей секции.
+    expect(report.unfunded!.byDept[0].positions[0].sheetRow).toBe(4);
   });
 });
 

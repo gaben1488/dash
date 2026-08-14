@@ -27,61 +27,78 @@ const REF_DATE = new Date(2026, 3, 13); // April 13, 2026
 // 1. Status Signals
 // ────────────────────────────────────────────────────────────
 
-describe('Status signals', () => {
-  it('detects signed from U="Подписан"', () => {
-    const s = detectSignals(makeCells({ U: 'Подписан' }), REF_DATE);
+describe('Статус строки — только структурные колонки (канон п.27, интервью 14.08.2026)', () => {
+  it('signed: дата заключения (Q) проставлена и разобрана', () => {
+    const s = detectSignals(makeCells({ Q: '10.03.2026' }), REF_DATE);
     expect(s.signed).toBe(true);
-    expect(s.planning).toBe(false);
+    expect(s.hasFact).toBe(true);
+  });
+
+  it('signed=false: только суммы факта без даты — «есть факт», но не «заключено»', () => {
+    const s = detectSignals(makeCells({ Q: null, Y: 500_000 }), REF_DATE);
+    expect(s.signed).toBe(false);
+    expect(s.hasFact).toBe(true);
+  });
+
+  it('«Подписан»/«заключен»/«исполнен» в U/AE/AF статуса НЕ дают (п.27)', () => {
+    for (const cells of [{ U: 'Подписан' }, { AE: 'договор заключен' }, { AF: 'Исполнен полностью' }]) {
+      const s = detectSignals(makeCells(cells), REF_DATE);
+      expect(s.signed).toBe(false);
+    }
+  });
+
+  it('СТРАЖ п.40 (баг #16 охоты 08.08): «не заключен» в комментарии не делает строку подписанной', () => {
+    // До канона подстрока «заключен» матчилась внутри «не заключен» —
+    // отрицание читалось как подписанный контракт при пустом факте.
+    const s = detectSignals(makeCells({ Q: null, Y: 0, AE: 'Контракт не заключен' }), REF_DATE);
+    expect(s.signed).toBe(false);
+    expect(s.hasFact).toBe(false);
+  });
+
+  it('СТРАЖ п.41: «отменён» при состоявшейся закупке не гасит её сигналы', () => {
+    // Есть факт (дата + суммы, превышение плана) — слово «отменён» в U
+    // больше не переводит строку в canceled и не глушит factExceedsPlan.
+    const s = detectSignals(makeCells({
+      U: 'отменена', K: 1_000_000, Y: 1_200_000, Q: '10.03.2026',
+    }), REF_DATE);
     expect(s.canceled).toBe(false);
-  });
-
-  it('detects signed from AE="договор заключен"', () => {
-    const s = detectSignals(makeCells({ AE: 'договор заключен' }), REF_DATE);
+    expect(s.factExceedsPlan).toBe(true);
     expect(s.signed).toBe(true);
   });
 
-  it('detects signed from AE="Исполнен"', () => {
-    const s = detectSignals(makeCells({ AE: 'Исполнен полностью' }), REF_DATE);
-    expect(s.signed).toBe(true);
-  });
-
-  it('detects planning from U="В стадии планирования"', () => {
-    const s = detectSignals(makeCells({ U: 'В стадии планирования' }), REF_DATE);
-    expect(s.planning).toBe(true);
-    expect(s.signed).toBe(false);
-  });
-
-  it('detects planning from AE comment with "подготовка"', () => {
-    const s = detectSignals(makeCells({ AE: 'идет подготовка документов' }), REF_DATE);
-    expect(s.planning).toBe(true);
-  });
-
-  it('detects notDue from combined U+AE text', () => {
-    const s = detectSignals(makeCells({ AE: 'срок не наступил, ожидание' }), REF_DATE);
-    expect(s.notDue).toBe(true);
-  });
-
-  it('detects canceled from U="Отменена"', () => {
-    const s = detectSignals(makeCells({ U: 'Отменена' }), REF_DATE);
-    expect(s.canceled).toBe(true);
-  });
-
-  it('detects canceled from AE="снят с плана"', () => {
-    const s = detectSignals(makeCells({ AE: 'снят с плана по решению руководства' }), REF_DATE);
-    expect(s.canceled).toBe(true);
-  });
-
-  it('detects canceled from "не требуется"', () => {
-    const s = detectSignals(makeCells({ AE: 'закупка не требуется' }), REF_DATE);
-    expect(s.canceled).toBe(true);
-  });
-
-  it('no status signals on empty U and AE', () => {
-    const s = detectSignals(makeCells({ U: '', AE: '' }), REF_DATE);
-    expect(s.signed).toBe(false);
+  it('текстовые статусы planning/notDue/canceled всегда false (п.27)', () => {
+    const s = detectSignals(makeCells({
+      U: 'Отменена', AE: 'В стадии планирования, срок не наступил, снят с плана, не требуется',
+    }), REF_DATE);
     expect(s.planning).toBe(false);
     expect(s.notDue).toBe(false);
     expect(s.canceled).toBe(false);
+  });
+
+  it('СТРАЖ класса (харнесс п.27): свободный текст U/AE/AF не меняет НИ ОДНОГО сигнала', () => {
+    // Фикстура из решения владельца: «не заключен», «отменён», «будет
+    // подписан», «ожидается 03.09.2025» в комментариях. Полное равенство
+    // наборов сигналов с текстами и без — тексты обязаны быть невидимы
+    // для машины на любой строке (без правки этот тест падал: signed,
+    // canceled, financeDelay, singleParticipant и гейты читали текст).
+    const variants: Array<Record<string, unknown>> = [
+      {}, // пустая строка плана
+      { N: '01.01.2026' }, // просроченный план
+      { Q: '10.03.2026', Y: 500_000 }, // заключённая
+      { K: 1_000, Y: 1_200 }, // факт больше плана
+      { L: 'ЕП', K: 700, M: '' }, // ЕП-риск без обоснования
+      { P: '', K: 190 }, // не обеспечена финансированием
+    ];
+    for (const base of variants) {
+      const clean = detectSignals(makeCells(base), REF_DATE);
+      const withText = detectSignals(makeCells({
+        ...base,
+        U: 'не заключен, будет подписан',
+        AE: 'отменён, не требуется, ожидается 03.09.2025',
+        AF: 'договор заключен, снят с плана, отсутствие финансирования, 1 участник, переносится на 2 квартал',
+      }), REF_DATE);
+      expect(withText).toEqual(clean);
+    }
   });
 });
 
@@ -149,20 +166,12 @@ describe('Date signals', () => {
     expect(sSerial.overdue).toBe(sString.overdue);
   });
 
-  it('NOT overdue when signed', () => {
+  it('NOT overdue when заключено (дата Q)', () => {
     const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'договор заключен',
+      N: '01.01.2026', Q: '05.02.2026', Y: 0,
     }), REF_DATE);
     expect(s.overdue).toBe(false);
     expect(s.signed).toBe(true);
-  });
-
-  it('NOT overdue when canceled', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0, U: 'Отменена',
-    }), REF_DATE);
-    expect(s.overdue).toBe(false);
   });
 
   it('NOT overdue when has fact amounts', () => {
@@ -173,63 +182,23 @@ describe('Date signals', () => {
     expect(s.hasFact).toBe(true);
   });
 
-  it('NOT overdue when AE has schedule transfer "переносится на..."', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'переносится на 2 квартал',
-    }), REF_DATE);
-    expect(s.overdue).toBe(false);
-  });
-
-  it('NOT overdue when AE has "перенос"', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'перенос на 2 квартал',
-    }), REF_DATE);
-    expect(s.overdue).toBe(false);
-  });
-
-  it('NOT overdue when AE has "перенесён"', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'срок перенесён на май',
-    }), REF_DATE);
-    expect(s.overdue).toBe(false);
-  });
-
-  it('NOT overdue when AE has "отложен"', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'отложен до получения финансирования',
-    }), REF_DATE);
-    expect(s.overdue).toBe(false);
-  });
-
-  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): forward план-график.
-  it('NOT overdue when status is "планирование" (forward plan-graph)', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'планирование',
-    }), REF_DATE);
-    expect(s.planning).toBe(true);
-    expect(s.overdue).toBe(false);
-  });
-
-  it('NOT overdue when status is "срок не наступил"', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'срок не наступил',
-    }), REF_DATE);
-    expect(s.notDue).toBe(true);
-    expect(s.overdue).toBe(false);
-  });
-
-  it('NOT overdue when AE has "срок изменён на ..."', () => {
-    const s = detectSignals(makeCells({
-      N: '01.01.2026', Q: null, Y: 0,
-      AE: 'срок изменён на 01.06.2026',
-    }), REF_DATE);
-    expect(s.overdue).toBe(false);
+  // Канон п.27 (14.08.2026): текстовые смягчители просрочки сняты — перенос,
+  // «планирование», «срок не наступил», «отменена» живут в комментарии,
+  // который показывается как есть, но машинный статус не меняют.
+  it('СТРАЖ п.27: «переносится на…»/«планирование»/«срок не наступил»/«отменена» просрочку больше не гасят', () => {
+    const texts = [
+      { AE: 'переносится на 2 квартал' },
+      { AE: 'срок перенесён на май' },
+      { AE: 'отложен до получения финансирования' },
+      { AE: 'планирование' },
+      { AE: 'срок не наступил' },
+      { AE: 'срок изменён на 01.06.2026' },
+      { U: 'Отменена' },
+    ];
+    for (const t of texts) {
+      const s = detectSignals(makeCells({ N: '01.01.2026', Q: null, Y: 0, ...t }), REF_DATE);
+      expect(s.overdue).toBe(true);
+    }
   });
 
   it('planSoon: plan date within 14 days', () => {
@@ -255,9 +224,9 @@ describe('Date signals', () => {
     expect(s.planSoon).toBe(false);
   });
 
-  it('NOT planSoon when already signed', () => {
+  it('NOT planSoon when уже заключено (дата Q)', () => {
     const s = detectSignals(makeCells({
-      N: '23.04.2026', Q: null, Y: 0, AE: 'подписан',
+      N: '23.04.2026', Q: '10.04.2026', Y: 0,
     }), REF_DATE);
     expect(s.planSoon).toBe(false);
   });
@@ -401,11 +370,11 @@ describe('Financial signals', () => {
       expect(s.epRisk).toBe(false);
     });
 
-    it('false: ЕП but canceled', () => {
+    it('СТРАЖ п.27/41: «Отменена» в U риск больше не гасит', () => {
       const s = detectSignals(makeCells({
         L: 'ЕП', K: 2_500_000, U: 'Отменена', M: '',
       }), REF_DATE);
-      expect(s.epRisk).toBe(false);
+      expect(s.epRisk).toBe(true);
     });
 
     it('false: ЕП but legitimate (natural monopoly)', () => {
@@ -492,13 +461,16 @@ describe('Financial signals', () => {
       expect(s.lowCompetition).toBe(false);
     });
 
-    it('false: дубль singleParticipant — УИО-квартира (стр.20: K=5812.91, Y=5812.90875, аукцион не состоялся)', () => {
+    it('УИО-квартира (стр.20): сигнал «1 участник» снят (п.27) — строка получает lowCompetition по числам', () => {
+      // До канона текст «ед.подавшим заявку» давал singleParticipant и гасил
+      // lowCompetition. Свободный текст больше не интерпретируется: остаётся
+      // числовой информационный сигнал о нулевой экономии.
       const s = detectSignals(makeCells({
         L: 'ЭА', K: 5812.91, Y: 5812.90875,
         U: 'Аукцион не состоялся, заключен контракт с ед.подавшим заявку на участие, контракт исполнен',
       }), REF_DATE);
-      expect(s.singleParticipant).toBe(true);
-      expect(s.lowCompetition).toBe(false);
+      expect(s.singleParticipant).toBe(false);
+      expect(s.lowCompetition).toBe(true);
     });
 
     it('true: честная малая экономия ~1% без единственного участника (УЭР стр.11: K=123.46, Y=122.23)', () => {
@@ -532,35 +504,44 @@ describe('Financial signals', () => {
       expect(s.factExceedsPlan).toBe(false);
     });
 
-    it('false: canceled row (data may be stale)', () => {
+    it('СТРАЖ п.41: «Отменена» в U превышение больше не гасит', () => {
       const s = detectSignals(makeCells({
         K: 1_000_000, Y: 2_000_000, U: 'Отменена',
       }), REF_DATE);
-      expect(s.factExceedsPlan).toBe(false);
+      expect(s.factExceedsPlan).toBe(true);
     });
   });
 });
 
-describe('FP-fixes 2026-06-05 (SIGNAL_VALIDATION §4)', () => {
+describe('FP-fixes 2026-06-05 и их судьба после канона п.27 (14.08.2026)', () => {
   it('factDateBeforePlan: NOT for ЕП (early sole-source conclusion is legal)', () => {
     const s = detectSignals(makeCells({ L: 'ЕП', N: '01.05.2026', Q: '15.04.2026' }), REF_DATE);
     expect(s.factDateBeforePlan).toBe(false);
   });
-  it('factDateBeforePlan: YES for competitive method (ЭА)', () => {
+  it('factDateBeforePlan: YES for competitive method (ЭА) — информационно (п.28)', () => {
     const s = detectSignals(makeCells({ L: 'ЭА', N: '01.05.2026', Q: '15.04.2026' }), REF_DATE);
     expect(s.factDateBeforePlan).toBe(true);
   });
-  it('planWithoutExecution: NOT for contingent «при необходимости» purchase', () => {
-    const s = detectSignals(makeCells({ K: 32_000_000, N: null, Q: null, Y: 0, AE: 'будет проведена при необходимости' }), REF_DATE);
+  it('п.34/п.39: кредитная линия «при необходимости» без года плана — planYearMissing подавляет planWithoutExecution', () => {
+    // Раньше строку спасал текстовый гейт «при необходимости» (снят п.27).
+    // Теперь работает структура: год плана P пуст → первопричина «не
+    // обеспечена финансированием», следствие «план без исполнения» подавлено.
+    const s = detectSignals(makeCells({
+      K: 32_000_000, N: null, Q: null, Y: 0, P: '', AE: 'будет проведена при необходимости',
+    }), REF_DATE);
+    expect(s.planYearMissing).toBe(true);
     expect(s.planWithoutExecution).toBe(false);
   });
-  it('factWithoutDate: NOT flagged when fact date is in AE comment (ae-parser)', () => {
+  it('СТРАЖ п.27: дата контракта в комментарии AE сигнал factWithoutDate больше не гасит', () => {
+    // ae-parser снят: «01.02.2026 заключен контракт №17» — свободный текст,
+    // машинно не читается. Структурно дата Q пуста (заглушка «Х») при
+    // заполненных суммах — неполнота данных остаётся видимой.
     const s = detectSignals(makeCells({ Y: 170_000, Q: 'Х', AE: '01.02.2026 заключен контракт №17' }), REF_DATE);
-    expect(s.factWithoutDate).toBe(false);
+    expect(s.factWithoutDate).toBe(true);
   });
-  it('epJustificationMissing: NOT flagged when legal basis is in AE comment (ae-parser)', () => {
+  it('СТРАЖ п.27: правовое основание в комментарии AE не заменяет пустое поле M', () => {
     const s = detectSignals(makeCells({ L: 'ЕП', M: '', K: 20_000, AE: 'Не учитывается по п.4 ч.1 ст.93' }), REF_DATE);
-    expect(s.epJustificationMissing).toBe(false);
+    expect(s.epJustificationMissing).toBe(true);
   });
 });
 
@@ -620,18 +601,13 @@ describe('Data quality signals', () => {
       expect(s.dataQuality).toBe(false);
     });
 
-    it('false: canceled rows are skipped', () => {
-      const s = detectSignals(makeCells({
-        D: '', K: 1_000_000, L: '', N: '01.01.2026', U: 'Отменена',
-      }), REF_DATE);
-      expect(s.dataQuality).toBe(false);
-    });
-
-    it('false: planning rows are skipped', () => {
-      const s = detectSignals(makeCells({
-        D: '', K: 1_000_000, L: '', N: '01.01.2026', U: 'В стадии планирования',
-      }), REF_DATE);
-      expect(s.dataQuality).toBe(false);
+    it('СТРАЖ п.27: «Отменена»/«планирование» в U пропуски полей больше не прячут', () => {
+      for (const u of ['Отменена', 'В стадии планирования']) {
+        const s = detectSignals(makeCells({
+          D: '', K: 1_000_000, L: '', N: '01.01.2026', U: u,
+        }), REF_DATE);
+        expect(s.dataQuality).toBe(true);
+      }
     });
   });
 
@@ -670,11 +646,11 @@ describe('Data quality signals', () => {
       expect(s.factWithoutDate).toBe(true);
     });
 
-    it('false: canceled row', () => {
+    it('СТРАЖ п.41: «Отменена» в U неполноту факта больше не прячет', () => {
       const s = detectSignals(makeCells({
         Y: 500_000, Q: null, U: 'Отменена',
       }), REF_DATE);
-      expect(s.factWithoutDate).toBe(false);
+      expect(s.factWithoutDate).toBe(true);
     });
 
     it('false: has fact date', () => {
@@ -684,32 +660,16 @@ describe('Data quality signals', () => {
       expect(s.factWithoutDate).toBe(false);
     });
 
-    // FP-fix signal_audit 2026-07-14 §3.6: периодические закупки «в течение года»
-    it('false: периодическая закупка «в течение года по мере необходимости» (УДТХ стр.55)', () => {
+    // Канон п.27 (14.08.2026): текстовые гейты «в течение года / по мере
+    // необходимости» сняты — фразы остаются видимыми в пояснениях как есть,
+    // а структурная неполнота (суммы без даты Q) больше не прячется.
+    it('СТРАЖ п.27: «в течение года по мере необходимости» (УДТХ стр.55) сигнал больше не гасит', () => {
       const s = detectSignals(makeCells({
         N: '31.12.2026', Q: 'х', X: 179.843, Y: 179.843,
         M: 'пп. 1, п.1 Распоряжения Администрации ЕМР от 03.09.2025 № 112', L: 'ЕП',
         AF: 'приобретение канц. и хоз. товаров осуществляется в течение года по мере необходимости',
       }), REF_DATE);
-      expect(s.factWithoutDate).toBe(false);
-    });
-
-    it('false: периодическая с опечаткой «в течении года» (УКСиМП стр.552)', () => {
-      const s = detectSignals(makeCells({
-        N: '31.12.2026', Q: 'Х', X: 12.8, Y: 12.8, L: 'ЕП',
-        M: 'нецелесообразность проведения аукциона',
-        AF: 'Выдача денежных средств по ведомости в течении года',
-      }), REF_DATE);
-      expect(s.factWithoutDate).toBe(false);
-    });
-
-    it('false: «по мере возникновения фактической потребности» (УФБП стр.14)', () => {
-      const s = detectSignals(makeCells({
-        N: '30.12.2026', Q: 'Х', X: 94.5, Y: 94.5, L: 'ЕП',
-        M: 'Небольшие суммы контракта и узкая специализация по обучению',
-        AF: 'Данная закупка будет проводится в течение года, по мере возникновения фактической потребности в обучении специалистов',
-      }), REF_DATE);
-      expect(s.factWithoutDate).toBe(false);
+      expect(s.factWithoutDate).toBe(true);
     });
   });
 
@@ -728,11 +688,11 @@ describe('Data quality signals', () => {
       expect(s.dateWithoutFact).toBe(false);
     });
 
-    it('false: canceled row', () => {
+    it('СТРАЖ п.41: «Отменена» в U пропуск сумм больше не прячет', () => {
       const s = detectSignals(makeCells({
         Q: '10.03.2026', Y: 0, U: 'Отменена',
       }), REF_DATE);
-      expect(s.dateWithoutFact).toBe(false);
+      expect(s.dateWithoutFact).toBe(true);
     });
   });
 
@@ -793,11 +753,11 @@ describe('Data quality signals', () => {
       expect(s.budgetUnderallocation).toBe(false);
     });
 
-    it('false: canceled row', () => {
+    it('СТРАЖ п.41: «Отменена» в U аномалию больше не прячет', () => {
       const s = detectSignals(makeCells({
         K: 0, Y: 500_000, U: 'Отменена',
       }), REF_DATE);
-      expect(s.budgetUnderallocation).toBe(false);
+      expect(s.budgetUnderallocation).toBe(true);
     });
   });
 
@@ -837,11 +797,11 @@ describe('Data quality signals', () => {
       expect(s.budgetSourceMissing).toBe(false);
     });
 
-    it('false: canceled row', () => {
+    it('СТРАЖ п.41: «Отменена» в U пропуск разбивки больше не прячет', () => {
       const s = detectSignals(makeCells({
         K: 1_000_000, H: 0, I: 0, J: 0, U: 'Отменена',
       }), REF_DATE);
-      expect(s.budgetSourceMissing).toBe(false);
+      expect(s.budgetSourceMissing).toBe(true);
     });
   });
 });
@@ -851,35 +811,22 @@ describe('Data quality signals', () => {
 // ────────────────────────────────────────────────────────────
 
 describe('Behavioral signals', () => {
-  describe('stalledContract', () => {
-    it('true: signed, no fact date, plan date > 30 days overdue', () => {
+  describe('stalledContract — СНЯТ каноном п.27 (14.08.2026)', () => {
+    it('всегда false: «подписан» из текста больше не читается, «подписан без даты Q» структурно невыразимо', () => {
+      // Прежний положительный кейс: «договор заключен» в AE, Q пуст,
+      // план просрочен >30 дней — держался целиком на тексте комментария.
       const s = detectSignals(makeCells({
         AE: 'договор заключен', Q: null, Y: 0,
-        N: '01.01.2026', // ~103 days before REF_DATE
-      }), REF_DATE);
-      expect(s.stalledContract).toBe(true);
-    });
-
-    it('false: signed but has fact date', () => {
-      const s = detectSignals(makeCells({
-        AE: 'договор заключен', Q: '10.03.2026',
         N: '01.01.2026',
       }), REF_DATE);
       expect(s.stalledContract).toBe(false);
+      // Строка при этом не теряется из виду: она просрочена структурно.
+      expect(s.overdue).toBe(true);
     });
 
-    it('false: signed but plan date only 20 days ago', () => {
+    it('всегда false и при дате факта', () => {
       const s = detectSignals(makeCells({
-        AE: 'подписан', Q: null, Y: 0,
-        N: '25.03.2026', // ~19 days before REF_DATE
-      }), REF_DATE);
-      expect(s.stalledContract).toBe(false);
-    });
-
-    it('false: canceled', () => {
-      const s = detectSignals(makeCells({
-        AE: 'подписан', Q: null, Y: 0,
-        N: '01.01.2026', U: 'Отменена',
+        AE: 'договор заключен', Q: '10.03.2026', N: '01.01.2026',
       }), REF_DATE);
       expect(s.stalledContract).toBe(false);
     });
@@ -901,9 +848,9 @@ describe('Behavioral signals', () => {
       expect(s.futureFactDate).toBe(false);
     });
 
-    it('false: отменённая строка — её даты не считаем данными', () => {
+    it('СТРАЖ п.41: «Отменена» в U опечатку года больше не прячет', () => {
       const s = detectSignals(makeCells({ N: '30.06.2026', Q: '15.07.2027', U: 'Отменена' }), REF_DATE);
-      expect(s.futureFactDate).toBe(false);
+      expect(s.futureFactDate).toBe(true);
     });
 
     it('false: даты факта нет вовсе', () => {
@@ -963,11 +910,11 @@ describe('Behavioral signals', () => {
       expect(s.earlyClosure).toBe(false);
     });
 
-    it('false: canceled (даже при смене года)', () => {
+    it('СТРАЖ п.41: «Отменена» в U кандидата на опечатку больше не прячет', () => {
       const s = detectSignals(makeCells({
         N: '30.04.2026', Q: '15.04.2025', U: 'Отменена',
       }), new Date(2026, 6, 15));
-      expect(s.earlyClosure).toBe(false);
+      expect(s.earlyClosure).toBe(true);
     });
   });
 
@@ -994,25 +941,24 @@ describe('Behavioral signals', () => {
       expect(s.planWithoutExecution).toBe(false);
     });
 
-    it('true: plan date >30 days in past, no fact, not overdue', () => {
-      // Plan date well in the past (>30 days) and no fact = legitimate signal
+    it('СТРАЖ п.27: «заключен» в AE не спасает от просрочки — и не даёт planWithoutExecution', () => {
+      // До канона текст «заключен» гасил overdue и открывал дорогу
+      // planWithoutExecution; теперь строка честно просрочена структурно.
       const s = detectSignals(makeCells({
-        K: 1_000_000, N: '01.01.2026', // Jan 1 — 102 days before April 13 REF_DATE
-        Y: 0, Q: null, U: '', AE: 'заключен', // signed → not overdue
+        K: 1_000_000, N: '01.01.2026',
+        Y: 0, Q: null, U: '', AE: 'заключен',
       }), REF_DATE);
-      // signed=true means overdue won't fire, but planWithoutExecution skips signed too
+      expect(s.overdue).toBe(true);
       expect(s.planWithoutExecution).toBe(false);
     });
 
-    it('true: plan date >30 days past, not signed, has schedule transfer (not overdue)', () => {
-      // Plan date in past, schedule transfer prevents overdue but not planWithoutExecution
+    it('СТРАЖ п.27: «переносится на 2кв» просрочку больше не гасит — строка overdue, не planWithoutExecution', () => {
       const s = detectSignals(makeCells({
         K: 1_000_000, N: '01.02.2026', // Feb 1 — 71 days before REF_DATE
         Y: 0, Q: null, U: '', AE: 'переносится на 2кв',
       }), REF_DATE);
-      // hasScheduleTransfer=true → not overdue; plan date >30 days past → fires
-      expect(s.overdue).toBe(false);
-      expect(s.planWithoutExecution).toBe(true);
+      expect(s.overdue).toBe(true);
+      expect(s.planWithoutExecution).toBe(false);
     });
 
     it('true: no plan date but plan sum exists, April+', () => {
@@ -1024,6 +970,18 @@ describe('Behavioral signals', () => {
       expect(s.planWithoutExecution).toBe(true);
     });
 
+    it('СТРАЖ п.34: без года плана (P пусто) первопричина главнее — planWithoutExecution подавлен', () => {
+      // Та же строка, что и в предыдущем тесте, но P пуст: строка «не
+      // обеспечена финансированием» (planYearMissing) и НЕ получает вдобавок
+      // «план без исполнения» — двойное замечание путает исполнителей.
+      const s = detectSignals(makeCells({
+        K: 1_000_000, N: null, P: '',
+        Y: 0, Q: null, U: '', AE: '',
+      }), REF_DATE);
+      expect(s.planYearMissing).toBe(true);
+      expect(s.planWithoutExecution).toBe(false);
+    });
+
     it('false: before April', () => {
       const marchDate = new Date(2026, 1, 15); // February 15
       const s = detectSignals(makeCells({
@@ -1033,10 +991,10 @@ describe('Behavioral signals', () => {
       expect(s.planWithoutExecution).toBe(false);
     });
 
-    it('false: signed row', () => {
+    it('false: заключённая строка (дата Q)', () => {
       const s = detectSignals(makeCells({
         K: 1_000_000, N: '30.04.2026',
-        Y: 0, Q: null, AE: 'подписан',
+        Y: 0, Q: '10.02.2026',
       }), REF_DATE);
       expect(s.planWithoutExecution).toBe(false);
     });
@@ -1057,11 +1015,11 @@ describe('Behavioral signals', () => {
       expect(s.epJustificationMissing).toBe(false);
     });
 
-    it('false: canceled', () => {
+    it('СТРАЖ п.41: «Отменена» в U пропуск обоснования больше не прячет', () => {
       const s = detectSignals(makeCells({
         L: 'ЕП', M: '', K: 500_000, U: 'Отменена',
       }), REF_DATE);
-      expect(s.epJustificationMissing).toBe(false);
+      expect(s.epJustificationMissing).toBe(true);
     });
 
     it('false: non-ЕП method', () => {
@@ -1079,76 +1037,28 @@ describe('Behavioral signals', () => {
     });
   });
 
-  describe('singleParticipant', () => {
-    it('true: "1 участник" in AE for competitive method', () => {
-      const s = detectSignals(makeCells({
-        L: 'ЭА', AE: 'Торги проведены, 1 участник',
-      }), REF_DATE);
-      expect(s.singleParticipant).toBe(true);
-    });
-
-    it('false: "1 участник" but method is ЕП', () => {
-      const s = detectSignals(makeCells({
-        L: 'ЕП', AE: '1 участник',
-      }), REF_DATE);
-      expect(s.singleParticipant).toBe(false);
+  describe('singleParticipant — СНЯТ каноном п.27 (14.08.2026)', () => {
+    it('всегда false: «1 участник» — текст комментария, структурной колонки участников нет', () => {
+      for (const cells of [
+        { L: 'ЭА', AE: 'Торги проведены, 1 участник' },
+        { L: 'ЭА', U: 'заключен контракт с ед.подавшим заявку' },
+        { L: 'ЕП', AE: '1 участник' },
+      ]) {
+        expect(detectSignals(makeCells(cells), REF_DATE).singleParticipant).toBe(false);
+      }
     });
   });
 
-  describe('financeDelay', () => {
-    it('true: AE contains "финансир"', () => {
-      const s = detectSignals(makeCells({
-        AE: 'отсутствие финансирования',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(true);
-    });
-
-    it('true: AF contains "нет финансирования"', () => {
-      const s = detectSignals(makeCells({
-        AF: 'нет финансирования из бюджета',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(true);
-    });
-
-    it('false: no finance-related text', () => {
-      const s = detectSignals(makeCells({ AE: 'все в порядке' }), REF_DATE);
-      expect(s.financeDelay).toBe(false);
-    });
-
-    // FP-fix signal_audit 2026-07-14 §3.8: ложные классы подстроки «финансир»
-    it('false: софинансирование — доведение, не задержка (УД стр.35)', () => {
-      const s = detectSignals(makeCells({
-        AF: 'уточнение в связи с доведением софинансирования из бюджета КК, в настоящее время подготовлена техническая документация',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(false);
-    });
-
-    it('false: «добавлением финансирования» — сумму увеличили (УО стр.1052)', () => {
-      const s = detectSignals(makeCells({
-        AF: 'договор заключен, изменение суммы в связи с добавлением финансирования',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(false);
-    });
-
-    it('false: «финансирования дефицита» — слово в предмете закупки-кредита (УФБП стр.4)', () => {
-      const s = detectSignals(makeCells({
-        AF: 'Данная закупка будет проведена при необходимости в привлечении коммерческого кредита для финансирования дефицита бюджета ЕМР',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(false);
-    });
-
-    it('true: ядро «после доведения финансирования» остаётся (УО стр.336)', () => {
-      const s = detectSignals(makeCells({
-        AE: 'страховка на автобус действует до 08.06.26. Договор будет заключен после доведения финансирования',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(true);
-    });
-
-    it('true: исключение + ядро в одном комментарии — ядро побеждает', () => {
-      const s = detectSignals(makeCells({
-        AF: 'доведение софинансирования задержано, отсутствие финансирования из МБ',
-      }), REF_DATE);
-      expect(s.financeDelay).toBe(true);
+  describe('financeDelay — СНЯТ каноном п.27 (14.08.2026)', () => {
+    it('всегда false: «финансир» в комментариях машинно не читается; структурный класс — planYearMissing', () => {
+      for (const cells of [
+        { AE: 'отсутствие финансирования' },
+        { AF: 'нет финансирования из бюджета' },
+        { AE: 'Договор будет заключен после доведения финансирования' },
+        { AF: 'доведение софинансирования задержано, отсутствие финансирования из МБ' },
+      ]) {
+        expect(detectSignals(makeCells(cells), REF_DATE).financeDelay).toBe(false);
+      }
     });
   });
 });
@@ -1403,25 +1313,45 @@ describe('getSignalBadges', () => {
     const noSigned = getSignalBadges(makeSignals({ hasFact: true, signed: false }));
     expect(noSigned.some(b => b.label === 'Есть факт')).toBe(true);
   });
+
+  it('СТРАЖ п.28: «Факт дата < план» — синий (информационный), не жёлтый', () => {
+    const badges = getSignalBadges(makeSignals({ factDateBeforePlan: true }));
+    const badge = badges.find(b => b.label === 'Факт дата < план');
+    expect(badge).toBeDefined();
+    expect(badge!.color).toBe('blue');
+  });
+
+  it('СТРАЖ п.23: бейдж planYearMissing называется «Не обеспечено финансированием»', () => {
+    const badges = getSignalBadges(makeSignals({ planYearMissing: true }));
+    expect(badges.some(b => b.label === 'Не обеспечено финансированием')).toBe(true);
+    expect(badges.some(b => b.label === 'Без финансирования')).toBe(false);
+  });
 });
 
 // ────────────────────────────────────────────────────────────
-// tdWithProgram — ТД с заполненной графой программы (вводная 06.08)
+// tdWithProgram — СНЯТ каноном п.30 (интервью 14.08.2026)
 // ────────────────────────────────────────────────────────────
 
-describe('tdWithProgram', () => {
-  it('ТД с реальной программой в D — сигнал горит', () => {
+describe('tdWithProgram снят (канон п.30): заполненная программа у ТД — норма', () => {
+  it('страж класса: ТД с реальной программой в D сигнала НЕ рождает', () => {
+    // Раньше такая строка получала предупреждение «возможная ошибка
+    // заполнения» и попадала в срез «ТД-ПМ»; канон п.30 упразднил и срез,
+    // и сигнал — строка есть обычная ТД во всей системе.
     const s = detectSignals({ F: 'Текущая деятельность', D: 'МП «Развитие культуры»', K: 100 });
-    expect(s.tdWithProgram).toBe(true);
+    expect(s.tdWithProgram).toBe(false);
   });
 
-  it('ТД с пустой/Х графой программы — не горит', () => {
+  it('поле совместимости всегда false при любой комбинации F/D', () => {
     expect(detectSignals({ F: 'Текущая деятельность', D: 'Х', K: 100 }).tdWithProgram).toBe(false);
     expect(detectSignals({ F: 'Текущая деятельность', D: '', K: 100 }).tdWithProgram).toBe(false);
+    expect(detectSignals({ F: 'Программное мероприятие', D: 'МП «Развитие культуры»', K: 100 }).tdWithProgram).toBe(false);
   });
 
-  it('программное мероприятие с программой — не горит (это норма)', () => {
-    expect(detectSignals({ F: 'Программное мероприятие', D: 'МП «Развитие культуры»', K: 100 }).tdWithProgram).toBe(false);
+  it('бейдж «ТД с программой» не рисуется даже для старого снимка с сигналом true', () => {
+    // Старые атомы могут нести tdWithProgram=true — бейдж всё равно снят.
+    const s = detectSignals({ F: 'Текущая деятельность', D: 'МП «Развитие культуры»', K: 100 });
+    const badges = getSignalBadges({ ...s, tdWithProgram: true });
+    expect(badges.map((b) => b.label)).not.toContain('ТД с программой');
   });
 });
 
@@ -1451,8 +1381,8 @@ describe('planYearMissing', () => {
     expect(detectSignals({ L: 'ЭА', K: 0, P: '' }).planYearMissing).toBe(false);
   });
 
-  it('отменённая строка — не горит', () => {
-    expect(detectSignals({ L: 'ЭА', K: 190, P: '', U: 'отменена' }).planYearMissing).toBe(false);
+  it('СТРАЖ п.41: «отменена» в U сигнал больше не гасит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 190, P: '', U: 'отменена' }).planYearMissing).toBe(true);
   });
 });
 
@@ -1484,7 +1414,7 @@ describe('factQuarterMissing', () => {
     expect(detectSignals({ L: 'ЭА', K: 100, Q: 'Х', O: '' }).factQuarterMissing).toBe(false);
   });
 
-  it('отменённая строка — не горит', () => {
-    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: '', U: 'отменена' }).factQuarterMissing).toBe(false);
+  it('СТРАЖ п.41: «отменена» в U сигнал больше не гасит', () => {
+    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: '', U: 'отменена' }).factQuarterMissing).toBe(true);
   });
 });

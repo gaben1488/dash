@@ -52,3 +52,50 @@ describe('buildMultiDimMetricsFromFilteredData', () => {
     expect(result.quarterSpark.find(q => q.quarter === 'q2')?.economy).toBe(25);
   });
 });
+
+// ── Страж бага #14 (реестр охоты 08.08; интервью пп. 14–16): «Δ кв.» на
+// годовом виде сравнивала ПУСТОЙ IV квартал с III — рейтинг всегда показывал
+// обвал. Текущий квартал на годовом виде — последний квартал С ФАКТОМ.
+describe('Δ кв. на годовом виде (баг #14)', () => {
+  const makeFd = (periodKey: string) => ({
+    depts: [
+      {
+        department: { id: 'uo', name: 'УО', nameShort: 'УО' },
+        planTotal: 600, factTotal: 450, competitiveCount: 3, soleCount: 1, economyTotal: 25,
+        quarters: {
+          q1: { planTotal: 200, factTotal: 180, executionPct: 90, economyTotal: 5 },
+          q2: { planTotal: 200, factTotal: 160, executionPct: 80, economyTotal: 10 },
+          q3: { planTotal: 200, factTotal: 110, executionPct: 55, economyTotal: 10 },
+          q4: { planTotal: 0, factTotal: 0, executionPct: 0, economyTotal: 0 }, // будущий квартал: факта нет
+        },
+      },
+    ],
+    deptCardOverrides: {},
+    barData: [],
+    execCountPctByDeptId: {},
+    periodKey,
+    totalPlan: 600, totalFact: 450, totalPlanCount: 6, totalFactCount: 5,
+    overallExecCountPct: 83.3, totalKP: 3, totalEP: 1,
+  }) as unknown as FilteredDataResult;
+
+  it('год: сравнивается последний квартал с фактом (q3 против q2), не пустой q4', () => {
+    const r = buildMultiDimMetricsFromFilteredData(makeFd('year'));
+    expect(r.globalDelta).not.toBeNull();
+    // q3 (55%) против q2 (80%): −25, а не q4 (0%) против q3 (обвал −55)
+    expect(r.globalDelta!.execPctChange).toBeCloseTo(-25, 5);
+    expect(r.departments[0].delta?.execPctChange).toBeCloseTo(-25, 5);
+  });
+
+  it('явный выбор квартала уважается как раньше', () => {
+    const r = buildMultiDimMetricsFromFilteredData(makeFd('q2'));
+    expect(r.globalDelta!.execPctChange).toBeCloseTo(-10, 5); // q2 против q1
+  });
+
+  it('факта нет ни в одном квартале — дельта не выдумывается', () => {
+    const fd = makeFd('year') as any;
+    for (const qk of ['q1', 'q2', 'q3', 'q4']) fd.depts[0].quarters[qk].factTotal = 0;
+    const r = buildMultiDimMetricsFromFilteredData(fd);
+    expect(r.globalDelta).toBeNull();
+    expect(r.departments[0].delta).toBeNull();
+  });
+});

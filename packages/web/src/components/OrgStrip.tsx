@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useStore } from '../store';
+import { isOrgItself } from '@aemr/shared';
 import clsx from 'clsx';
 import { ChevronDown } from 'lucide-react';
 
@@ -47,14 +48,29 @@ function detectGroup(name: string): { label: string; tint: string } | null {
 }
 
 /** Check if a sub name is actually the department itself (self-reference).
- *  "Администрирование", "Опека", or when sub name contains the dept abbreviation. */
+ *  "Администрирование", "Опека", or when sub name contains the dept abbreviation.
+ *  П.51 (14.08.2026): плейсхолдеры колонки C («X/x/Х/х», тире, «н/д», пусто)
+ *  = закупка самого управления — канон-предикат isOrgItself (@aemr/shared),
+ *  а не свой regex: разъехавшиеся копии предиката и рождали фейковые подведы. */
 const SELF_REF_PATTERNS = /^администрир|^опека$|^управлен/i;
-function isSelfReference(subName: string, deptId: string): boolean {
+export function isSelfReference(subName: string, deptId: string): boolean {
   if (subName === '_org_itself') return true;
+  if (isOrgItself(subName)) return true;
   if (SELF_REF_PATTERNS.test(subName)) return true;
   // If the sub name is just the dept name in quotes
   if (subName === deptId || subName === `МКУ "${deptId}"`) return true;
   return false;
+}
+
+/**
+ * Число на плашке ГРБС — ЕДИНИЦЫ СЧЁТА колонки C: реальные подведы и
+ * категории строк («Совместные закупки») ПЛЮС само управление.
+ * Канон п.51 (интервью 14.08.2026): у УКСиМП это 22 = 20 подведов +
+ * СЗ «совместные закупки» + само управление. Раньше плашка показывала 23:
+ * два выдуманных демо-подведа из старой заглушки реестра.
+ */
+export function deptPositionsCount(realSubsCount: number): number {
+  return realSubsCount + 1; // + само управление (строки-заглушки X/Х колонки C)
 }
 
 /** Abbreviate sub name to uniform short label for chip display.
@@ -241,9 +257,11 @@ export function OrgStrip() {
                 {hasSubs && (
                   /* Цвет управления держит подложка, а сама цифра остаётся
                      нейтральной: тонкие тона палитры на 7 пикселях не дают
-                     нужного контраста, а число здесь читают, а не узнают. */
+                     нужного контраста, а число здесь читают, а не узнают.
+                     Число = единицы счёта колонки C: подведы + категории +
+                     само управление (канон п.51: УКСиМП = 22, не 23). */
                   <span className="ob-dept-num" style={{ background: `${dept.color}24` }} aria-hidden="true">
-                    {dept.realSubs.length}
+                    {deptPositionsCount(dept.realSubs.length)}
                   </span>
                 )}
               </button>

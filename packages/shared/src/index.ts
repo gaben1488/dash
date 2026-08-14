@@ -13,7 +13,6 @@ export {
   DEPARTMENT_NAMES,
   DEPARTMENT_SHORT_NAMES,
   SVOD_COLUMNS,
-  COLUMNS,
   FORMULA_COLUMNS,
   RULE_COLUMNS,
   DEPARTMENT_ROWS,
@@ -59,6 +58,10 @@ export * from './activity-scope.js';
 
 // Re-export канон «само управление» (ось C: аппарат ГРБС vs подвед — единый предикат)
 export * from './org-itself.js';
+
+// Re-export канон маркера отсутствия «X/x/Х/х» — общесистемный, для ЛЮБЫХ ячеек
+// (программы D, подпрограммы E, основания и пр.; решение владельца 14.08, п.62)
+export * from './absence.js';
 
 // Re-export орг-классификатор по ОПФ (ось C: аппарат/ПБС/бюджетное/автономное/…; см. classifyOrg)
 export * from './org-classify.js';

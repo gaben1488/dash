@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTIVITY_AN4,
   ACTIVITY_F_VALUE,
+  ACTIVITY_LABEL,
   ACTIVITY_SCOPES,
   classifyActivity,
   matchesActivityScope,
@@ -9,25 +10,28 @@ import {
 } from './activity-scope';
 
 describe('activity-scope', () => {
-  it('перечисляет пять срезов; td_pm и td_clean не имеют AN4 листа (CalcEngine-only)', () => {
-    // 06.08: добавлен td_clean (мультивыбор «по отдельности и вместе»);
-    // порядок = порядок кнопок UI: целые срезы, затем состав ТД.
-    expect(ACTIVITY_SCOPES).toEqual(['all', 'pm', 'td', 'td_clean', 'td_pm']);
-    expect(ACTIVITY_AN4).toEqual({ all: '*', td: 'ТД', pm: 'ПМ', td_pm: null, td_clean: null });
+  it('срезов ровно три: ВСЕ/ПМ/ТД — срез «ТД-ПМ» упразднён (канон п.30, 14.08.2026)', () => {
+    // Страж класса: ни td_pm, ни производный td_clean не должны вернуться —
+    // они выкидывали ТД-ПМ-строки из «ТД» и рождали ложный сигнал «ошибка
+    // заполнения» (заполненная графа программы у ТД — норма).
+    expect(ACTIVITY_SCOPES).toEqual(['all', 'pm', 'td']);
+    expect(ACTIVITY_SCOPES).not.toContain('td_pm');
+    expect(ACTIVITY_SCOPES).not.toContain('td_clean');
+    expect(ACTIVITY_AN4).toEqual({ all: '*', td: 'ТД', pm: 'ПМ' });
+    expect(Object.keys(ACTIVITY_LABEL).sort()).toEqual(['all', 'pm', 'td']);
   });
 
-  it('td_pm: ТД И графа программы (D) ≠ X/Х/пусто', () => {
+  it('канон п.30: ТД с заполненной графой программы (D) — обычная ТД по срезу', () => {
     const TD = 'Текущая деятельность';
-    expect(matchesActivityScope('td_pm', TD, 'Муниципальная программа «Развитие…»')).toBe(true);
-    expect(matchesActivityScope('td_pm', TD, 'X')).toBe(false);
-    expect(matchesActivityScope('td_pm', TD, 'Х')).toBe(false);
-    expect(matchesActivityScope('td_pm', TD, '')).toBe(false);
-    expect(matchesActivityScope('td_pm', TD, null)).toBe(false);
-    // ПМ-строка не попадает в td_pm даже с программой
-    expect(matchesActivityScope('td_pm', 'Программное мероприятие', 'Программа N')).toBe(false);
-    // td (без под-разбивки) включает обе ТД-строки
+    // Числа реестра: строка ТД с реальной программой в D обязана входить в
+    // срез «ТД» при любом варианте фильтра — раньше срез td_clean её выкидывал.
+    expect(matchesActivityScope('td', TD, 'Муниципальная программа «Развитие…»')).toBe(true);
     expect(matchesActivityScope('td', TD, 'X')).toBe(true);
-    expect(matchesActivityScope('td', TD, 'Программа')).toBe(true);
+    expect(matchesActivityScope('td', TD, 'Х')).toBe(true);
+    expect(matchesActivityScope('td', TD, '')).toBe(true);
+    expect(matchesActivityScope('td', TD, null)).toBe(true);
+    // ПМ-строка в ТД не попадает — виды не смешиваются.
+    expect(matchesActivityScope('td', 'Программное мероприятие', 'Программа N')).toBe(false);
   });
 
   it('matchesActivityScope: all — любая строка', () => {
@@ -53,14 +57,10 @@ describe('activity-scope', () => {
     expect(matchesActivityScope('td', 'Текущая деятельность вне рамок программного мероприятия')).toBe(true);
     // длинная ТД-форма содержит «программного мероприятия», но это НЕ ПМ (ПМ-проверка по подстроке «программное мероприятие»)
     expect(matchesActivityScope('pm', 'Текущая деятельность в рамках программного мероприятия')).toBe(false);
-    // td_pm на длинной форме + графа программы (D≠X)
-    expect(matchesActivityScope('td_pm', 'Текущая деятельность в рамках программного мероприятия', 'Программа N')).toBe(true);
-    expect(matchesActivityScope('td_pm', 'Текущая деятельность вне рамок программного мероприятия', 'X')).toBe(false);
   });
 
   it('parseActivityScope: AN4 / F / алиасы → ActivityScope', () => {
     expect(parseActivityScope('*')).toBe('all');
-    expect(parseActivityScope('ТД-ПМ')).toBe('td_pm');
     expect(parseActivityScope('ТД')).toBe('td');
     expect(parseActivityScope('Текущая деятельность')).toBe('td');
     expect(parseActivityScope('ПМ')).toBe('pm');
@@ -68,19 +68,49 @@ describe('activity-scope', () => {
     expect(parseActivityScope('')).toBeNull();
     expect(parseActivityScope('чушь')).toBeNull();
   });
+
+  it('легаси-метки упразднённых срезов раскрываются как ТД, а не как null/ВСЕ (канон п.30)', () => {
+    // Старые URL, снимки и атомы могут нести срез «ТД-ПМ»/«ТД чистая»:
+    // строки этих срезов полностью входят в ТД, значит и метка обязана
+    // разворачиваться в 'td' — иначе старая ссылка молча показала бы «ВСЕ».
+    expect(parseActivityScope('ТД-ПМ')).toBe('td');
+    expect(parseActivityScope('td_pm')).toBe('td');
+    expect(parseActivityScope('current_program')).toBe('td');
+    expect(parseActivityScope('ТД чистая')).toBe('td');
+    expect(parseActivityScope('td_clean')).toBe('td');
+    expect(parseActivityScope('current_non_program')).toBe('td');
+  });
 });
 
-describe('classifyActivity — единый дом категории строки (Д16)', () => {
-  it('ПМ → program; ТД → по графе программы D', () => {
+describe('classifyActivity — единый дом категории строки (Д16 + канон п.30)', () => {
+  it('ПМ → program; ТД → ТД независимо от графы программы D', () => {
     expect(classifyActivity('Программное мероприятие', 'Программа N')).toBe('program');
-    expect(classifyActivity('Текущая деятельность', 'МП «Развитие»')).toBe('current_program');
+    // Канон п.30: заполненная графа программы у ТД — норма, отдельной
+    // категории 'current_program' больше не существует.
+    expect(classifyActivity('Текущая деятельность', 'МП «Развитие»')).toBe('current_non_program');
     expect(classifyActivity('Текущая деятельность', 'X')).toBe('current_non_program');
     expect(classifyActivity('Текущая деятельность', '')).toBe('current_non_program');
   });
 
+  it('страж класса: категория "current_program" не выдаётся ни для какой строки', () => {
+    // Воспроизводит дефект п.30: раньше ТД-строка с программой получала
+    // отдельную категорию и выпадала из «ТД» в фильтрах/метриках/сигнале
+    // tdWithProgram. Значение оставлено в типе только для старых снимков.
+    const rows: Array<[unknown, unknown]> = [
+      ['Текущая деятельность', 'МП «Культура»'],
+      ['Текущая деятельность в рамках программного мероприятия', 'Программа'],
+      ['Текущая деятельность', 'Х'],
+      ['Программное мероприятие', 'Программа'],
+      ['', 'Программа'],
+    ];
+    for (const [f, d] of rows) {
+      expect(classifyActivity(f, d)).not.toBe('current_program');
+    }
+  });
+
   it('длинная ТД-форма с фрагментом «программного мероприятия» остаётся ТД', () => {
     expect(classifyActivity('Текущая деятельность в рамках программного мероприятия', 'Программа'))
-      .toBe('current_program');
+      .toBe('current_non_program');
   });
 
   it('F пуст или мусор → null: НЕ молчаливое зачисление в program (корень Д16)', () => {
@@ -89,43 +119,14 @@ describe('classifyActivity — единый дом категории строк
     expect(classifyActivity('чушь', 'X')).toBeNull();
   });
 
-  it('согласован со срезами: td_pm ⇔ current_program, td_clean ⇔ current_non_program', () => {
+  it('согласован со срезами: category ⇔ matchesActivityScope при любом D', () => {
     const cases: Array<[unknown, unknown]> = [
       ['Текущая деятельность', 'Программа'], ['Текущая деятельность', 'Х'],
       ['Программное мероприятие', 'П'], ['', ''],
     ];
     for (const [f, d] of cases) {
-      expect(classifyActivity(f, d) === 'current_program').toBe(matchesActivityScope('td_pm', f, d));
-      expect(classifyActivity(f, d) === 'current_non_program').toBe(matchesActivityScope('td_clean', f, d));
+      expect(classifyActivity(f, d) === 'program').toBe(matchesActivityScope('pm', f, d));
+      expect(classifyActivity(f, d) === 'current_non_program').toBe(matchesActivityScope('td', f, d));
     }
-  });
-});
-
-describe('td_clean — чистая текущая деятельность (мультивыбор 06.08)', () => {
-  it('ТД без программы попадает, ТД с программой нет', () => {
-    expect(matchesActivityScope('td_clean', 'Текущая деятельность', 'X')).toBe(true);
-    expect(matchesActivityScope('td_clean', 'Текущая деятельность', '')).toBe(true);
-    expect(matchesActivityScope('td_clean', 'Текущая деятельность', 'МП «Развитие образования»')).toBe(false);
-    expect(matchesActivityScope('td_clean', 'Программное мероприятие', 'X')).toBe(false);
-  });
-
-  it('категории не пересекаются и в сумме дают ТД: td = td_clean + td_pm', () => {
-    const rows: Array<[string, string]> = [
-      ['Текущая деятельность', 'X'],
-      ['Текущая деятельность', 'МП «Культура»'],
-      ['Программное мероприятие', 'МП «Культура»'],
-    ];
-    for (const [f, d] of rows) {
-      const inClean = matchesActivityScope('td_clean', f, d);
-      const inTdPm = matchesActivityScope('td_pm', f, d);
-      const inTd = matchesActivityScope('td', f, d);
-      expect(inClean && inTdPm).toBe(false);        // не пересекаются
-      expect(inClean || inTdPm).toBe(inTd);          // вместе = вся ТД
-    }
-  });
-
-  it('parseActivityScope узнаёт новую категорию', () => {
-    expect(parseActivityScope('ТД чистая')).toBe('td_clean');
-    expect(parseActivityScope('td_clean')).toBe('td_clean');
   });
 });

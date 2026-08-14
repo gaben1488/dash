@@ -148,9 +148,10 @@ export function checkAntiDumping(rows: RowData[], grbsId: string): ComplianceIss
 
 /**
  * Check EP share limits by ГРБС role.
- * epTotal/yearPlanTotal — тыс. руб. (канон колонок книг ГРБС). Деление на
- * 1_000_000 в сообщении ниже осталось верным: тыс./1000 = млн — это не то
- * же самое, что баг рублей/1000 в checkEPContractLimits (see comment there).
+ * epTotal/yearPlanTotal — тыс. руб. (канон колонок книг ГРБС): млн = тыс./1000,
+ * поэтому в сообщении ниже epTotal делится на 1_000, а не на 1_000_000
+ * (последнее предполагало бы рубли — хвост БАГ #1, bug-hunt 2026-08-08:
+ * «50 001 тыс.» печаталось бы как «0.1 млн ₽»).
  */
 export function checkEPShareLimits(
   epCount: number,
@@ -186,7 +187,7 @@ export function checkEPShareLimits(
       ruleCode: 'ep_annual_absolute',
       severity: 'critical',
       title: `Годовой объём ЕП превышает 50 млн ₽`,
-      description: `Объём ЕП: ${(epTotal / 1_000_000).toFixed(1)} млн ₽. Предельный годовой объём: 50 млн ₽`,
+      description: `Объём ЕП: ${(epTotal / 1_000).toFixed(1)} млн ₽. Предельный годовой объём: 50 млн ₽`,
       article: 'ст. 93',
       threshold: LAW_44FZ.epAnnualAbsoluteLimit,
       actualValue: epTotal,

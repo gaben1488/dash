@@ -35,7 +35,7 @@ function buildGrid(): UnifiedGrid {
     planFB: 400, planKB: 0, planMB: 0,
     factFB: 300, factKB: 0, factMB: 0,
   });
-  return { cells, grbsIds: ['uo'], scopes: ['all', 'td', 'pm', 'td_pm'] };
+  return { cells, grbsIds: ['uo'], scopes: ['all', 'td', 'pm'] };
 }
 
 describe('sliceUnified', () => {

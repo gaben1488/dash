@@ -38,8 +38,14 @@ export type BudgetType = 'fb' | 'kb' | 'mb';
 
 /**
  * Period mode determines how period filtering works:
- * - 'week': Default. activeMonths auto-derived from focusedWeekStart.
- *   WeekRoller scrolling changes data. Resets to this on clearAllPeriods().
+ * - 'week': Default. Периодного фильтра НЕТ — периметр данных = год.
+ *   WeekRoller — только визуальная позиция (focusedWeekStart), не фильтр.
+ *   Баг #5 реестра охоты 08.08: раньше сброс периода и прокрутка недель
+ *   записывали месяцы недели в activeMonths — фильтр, невидимый для чипов
+ *   (hasExplicitPeriodFilter) и URL, молча резал экран до месяца.
+ *   Правило класса: в week-режиме activeMonths пуст, а всё, что в нём
+ *   осталось от легаси-писателей, игнорируется на входе расчёта
+ *   (useFilteredData). Resets to this on clearAllPeriods().
  * - 'explicit': User has manually selected months/quarters/year.
  *   WeekRoller is visual-only, doesn't drive data.
  */
@@ -83,14 +89,11 @@ export function getActiveFilterCount(input: ActiveFilterCountInput): number {
   );
 }
 
-/** Get month(s) from a week's Monday date.
- *  If week spans two months, returns both. */
-export function getMonthsForWeek(monday: Date): Set<number> {
-  const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
-  const m1 = monday.getMonth() + 1;
-  const m2 = sunday.getMonth() + 1;
-  return m1 === m2 ? new Set([m1]) : new Set([m1, m2]);
-}
+// Здесь жила getMonthsForWeek (месяцы недели по понедельнику). Удалена 14.08
+// вместе с багом #5 (реестр охоты 08.08): её единственным назначением было
+// записывать месяцы недели в activeMonths — невидимый для чипов/URL фильтр
+// периода. Week-режим — не фильтр (см. комментарий у PeriodMode ниже);
+// не возвращать функцию без пересмотра канона периода.
 
 // ── Динамические годы: не хардкодим, определяем от текущей даты ──
 const FIRST_DATA_YEAR = 2025; // первый год с данными
@@ -133,7 +136,14 @@ export const SUBORDINATES_FALLBACK: Record<string, string[]> = (() => {
   for (const sub of SUBORDINATE_REGISTRY) {
     if (sub.isOrgItself) continue; // строка самого управления — не подвед
     const deptId = GRBS_ID_TO_DEPARTMENT_ID[sub.grbsId]; // канон GrbsId → форма данных/фильтра
-    (map[deptId] ??= []).push(sub.displayName);
+    // П.51 (14.08.2026): ключ пункта — canonicalName (ДОСЛОВНОЕ значение
+    // колонки C книги), а не displayName. /api/rows/subordinates возвращает
+    // живые значения C; displayName («КДМШ» против «МБУ ДО "КДМШ"» из книги)
+    // не совпадал с ними строково, объединение fallback ∪ api плодило ДУБЛИ
+    // одной организации и завышало счётчик подведов Пульта (класс «23 вместо
+    // 22 у УКСиМП»). Ещё дефект того же ключа: фильтр строк сравнивает выбор
+    // с живой колонкой C — displayName-чип отфильтровывал в ноль строк.
+    (map[deptId] ??= []).push(sub.canonicalName);
   }
   return map;
 })();
@@ -310,6 +320,18 @@ function cancelSearchDebounce(): void {
 function isDemoData(data: DashboardData): boolean {
   return data.snapshot.id.startsWith('demo-');
 }
+
+/**
+ * Счётчик запросов загрузки дашборда — общий для fetchDashboard/refresh/
+ * quickRefresh (все трое пишут dashboardData).
+ *
+ * Баг #6 реестра охоты 08.08: булев страж `if (loading) return` молча
+ * выбрасывал смену года во время загрузки — пользователь щёлкал год, ответ не
+ * приходил никогда. Правило класса: новый запрос ПОБЕЖДАЕТ, а не выбрасывается —
+ * каждый запрос получает номер, применяется только ответ последнего; устаревший
+ * ответ (в т.ч. устаревшая ошибка) не трогает состояние.
+ */
+let dashboardRequestSeq = 0;
 
 export const useStore = create<AppState>((set, get) => ({
   // Навигация
@@ -615,10 +637,13 @@ export const useStore = create<AppState>((set, get) => ({
     } else {
       months.forEach(m => next.add(m));
     }
-    // If clearing all months → back to week mode; otherwise explicit
+    // If clearing all months → back to week mode; otherwise explicit.
+    // Баг #5 (реестр охоты 08.08): «сброшенный» период обязан быть пустым
+    // множеством, как в resetAllFilters, — запись месяцев текущей недели
+    // ставила невидимый для чипов/URL фильтр месяца.
     if (next.size === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ activeMonths: next, periodMode: 'explicit' as PeriodMode });
     }
@@ -628,10 +653,10 @@ export const useStore = create<AppState>((set, get) => ({
     const mby = typeof yr === 'number'
       ? omitYearSelection(get().monthsByYear, yr)
       : { ...get().monthsByYear };
-    // Clearing months → back to week mode
+    // Clearing months → back to week mode. Пустой Set, не месяцы недели (баг #5).
     const monday = getMondayOfWeek(new Date());
     set({
-      activeMonths: getMonthsForWeek(monday),
+      activeMonths: new Set<number>(),
       monthsByYear: mby,
       periodMode: 'week' as PeriodMode,
       focusedWeekStart: monday,
@@ -652,10 +677,10 @@ export const useStore = create<AppState>((set, get) => ({
     const targetYear = yr;
     const activeForTarget = mby[targetYear] ?? new Set<number>();
 
-    // If all months cleared → back to week mode
+    // If all months cleared → back to week mode. Пустой Set, не месяцы недели (баг #5).
     if (activeForTarget.size === 0 && Object.keys(mby).length === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ monthsByYear: mby, year: targetYear, activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ monthsByYear: mby, year: targetYear, activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: targetYear, activeMonths: new Set(activeForTarget), periodMode: 'explicit' as PeriodMode });
     }
@@ -676,10 +701,10 @@ export const useStore = create<AppState>((set, get) => ({
     else mby[yr] = current;
 
     const activeForYear = mby[yr] ?? new Set<number>();
-    // If all months cleared → back to week mode
+    // If all months cleared → back to week mode. Пустой Set, не месяцы недели (баг #5).
     if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ monthsByYear: mby, year: yr, activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
     }
@@ -695,19 +720,23 @@ export const useStore = create<AppState>((set, get) => ({
       mby[yr] = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     }
     const activeForYear = mby[yr] ?? new Set<number>();
+    // Пустой Set, не месяцы недели (баг #5).
     if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ monthsByYear: mby, year: yr, activeMonths: getMonthsForWeek(monday), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
     }
   },
 
   clearAllPeriods: () => {
+    // Баг #5 (реестр охоты 08.08): «Сбросить период» ставил фильтр текущего
+    // месяца (месяцы недели) и делал его невидимым для чипов/URL. Сброс — это
+    // пустое множество, как в resetAllFilters: периметр возвращается к году.
     const monday = getMondayOfWeek(new Date());
     set({
       monthsByYear: {},
-      activeMonths: getMonthsForWeek(monday),
+      activeMonths: new Set<number>(),
       focusedWeekStart: monday,
       periodMode: 'week' as PeriodMode,
       period: 'year' as PeriodScope,
@@ -727,13 +756,16 @@ export const useStore = create<AppState>((set, get) => ({
     if (newDate.getFullYear() < minYear || newDate.getFullYear() > maxYear) return;
     const updates: Record<string, unknown> = { focusedWeekStart: newDate };
     const newYear = newDate.getFullYear();
-    if (AVAILABLE_YEARS.includes(newYear)) {
+    // Баг #13 (реестр охоты 08.08): в режиме явного выбора (explicit) колесо
+    // недель меняло year и тем перезагружало данные, ломая выставленный период.
+    // Год следует за неделей ТОЛЬКО в week-режиме; в explicit колесо — чистая
+    // визуальная прокрутка.
+    if (get().periodMode === 'week' && AVAILABLE_YEARS.includes(newYear)) {
       updates.year = newYear;
     }
-    // In week mode: auto-derive activeMonths from the new week
-    if (get().periodMode === 'week') {
-      updates.activeMonths = getMonthsForWeek(newDate);
-    }
+    // Баг #5: месяцы недели в activeMonths НЕ записываются — week-режим не
+    // фильтр (см. комментарий у PeriodMode). Раньше здесь появлялся невидимый
+    // для чипов/URL фильтр месяца.
     set(updates as any);
   },
 
@@ -768,11 +800,14 @@ export const useStore = create<AppState>((set, get) => ({
   isDemo: false,
 
   fetchDashboard: async (force = false) => {
-    if (get().loading) return;
+    // Баг #6: НЕ выходим при get().loading — смена года во время загрузки
+    // обязана дойти до сервера. Гонку решает номер запроса (см. dashboardRequestSeq).
+    const seq = ++dashboardRequestSeq;
     set({ loading: true, error: null });
     try {
       const year = get().year;
       const data = await api.getDashboard(force, year);
+      if (seq !== dashboardRequestSeq) return; // ответ устарел — победил более поздний запрос
       // Живой провенанс официальных метрик — попапам БЗ (Д11): лист, ячейка,
       // формула, время чтения каждой официальной строки СВОДа.
       setOfficialProvenance(
@@ -787,6 +822,7 @@ export const useStore = create<AppState>((set, get) => ({
         isDemo: isDemoData(data),
       });
     } catch (err) {
+      if (seq !== dashboardRequestSeq) return; // устаревшая ошибка не затирает свежие данные
       // humanizeRequestError уже отдаёт законченную русскую фразу с действием.
       // Приставка через точку, а не через двоеточие: иначе в плашке шапки
       // выходило два двоеточия подряд («Не удалось…: Нет связи…: проверьте…»).
@@ -800,23 +836,30 @@ export const useStore = create<AppState>((set, get) => ({
 
   refreshResult: null,
   refresh: async () => {
+    const seq = ++dashboardRequestSeq; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null, refreshResult: { sources: [], loading: true } });
     try {
       const year = get().year;
       const result = await api.refresh();
       const data = await api.getDashboard(false, year);
+      if (seq !== dashboardRequestSeq) return;
       setOfficialProvenance(
         (data as any).snapshot?.officialMetrics,
         (data as any).snapshot?.spreadsheetId,
       );
       set({
         dashboardData: data,
+        // Баг #11: dataYear пишется во ВСЕХ путях загрузки — иначе после
+        // обновления баннер «данные за другой год» сравнивал год фильтра
+        // с годом давно прошедшей загрузки.
+        dataYear: data.year ?? new Date().getFullYear(),
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
         refreshResult: { sources: result.sources ?? [], loading: false },
       });
     } catch (err) {
+      if (seq !== dashboardRequestSeq) return;
       const msg = humanizeRequestError(err);
       set({
         loading: false,
@@ -827,18 +870,28 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   quickRefresh: async () => {
+    const seq = ++dashboardRequestSeq; // участвует в той же гонке, что fetchDashboard (баг #6)
     set({ loading: true, error: null });
     try {
       const year = get().year;
       await api.refresh(true);
       const data = await api.getDashboard(true, year);
+      if (seq !== dashboardRequestSeq) return;
+      // Баг #12: без обновления провенанса «Первичка сейчас» в попапах БЗ
+      // устаревала после автообновления — числа новые, доказательства старые.
+      setOfficialProvenance(
+        (data as any).snapshot?.officialMetrics,
+        (data as any).snapshot?.spreadsheetId,
+      );
       set({
         dashboardData: data,
+        dataYear: data.year ?? new Date().getFullYear(), // баг #11 — см. refresh
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
       });
     } catch (err) {
+      if (seq !== dashboardRequestSeq) return;
       const msg = humanizeRequestError(err);
       set({
         loading: false,

@@ -50,7 +50,7 @@ export default defineConfig({
           if (/node_modules[/\\](react|react-dom|scheduler|react-is|use-sync-external-store)[/\\]/.test(id)) {
             return 'react-vendor';
           }
-          if (/node_modules[/\\](@radix-ui|@floating-ui|lucide-react|cmdk|sonner|aria-hidden|react-remove-scroll|react-remove-scroll-bar|react-style-singleton|get-nonce|use-callback-ref|use-sidecar|detect-node-es|tabbable)[/\\]/.test(id)) {
+          if (/node_modules[/\\](@radix-ui|@floating-ui|lucide-react|cmdk|aria-hidden|react-remove-scroll|react-remove-scroll-bar|react-style-singleton|get-nonce|use-callback-ref|use-sidecar|detect-node-es|tabbable)[/\\]/.test(id)) {
             return 'ui-vendor';
           }
           return undefined;

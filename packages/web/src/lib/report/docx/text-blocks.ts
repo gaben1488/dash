@@ -154,6 +154,44 @@ function yearMethodMoney(
   return acc;
 }
 
+/**
+ * Деньги года ОДНОГО ГРБС по способу = Σ квартальных moneyByMethod блока
+ * (то же правило §2 «год = сумма четырёх кварталов», что у yearOf).
+ * П.44/47 интервью 14.08.2026: строка «Всего на год» секции управления
+ * обязана нести сумму с разбивкой по бюджетам, как районная шапка.
+ */
+function yearMethodMoneyDept(
+  quarters: QuarterReports,
+  method: 'kp' | 'ep',
+  kind: 'plan' | 'fact',
+  dept: string,
+): { fb: number; kb: number; mb: number; total: number } {
+  const acc = { fb: 0, kb: 0, mb: 0, total: 0 };
+  for (const q of QUARTERS) {
+    const m = blockOf(quarters[q], dept)?.quarter.moneyByMethod[method][kind];
+    if (!m) continue;
+    acc.fb += m.fb;
+    acc.kb += m.kb;
+    acc.mb += m.mb;
+    acc.total += m.total;
+  }
+  return acc;
+}
+
+/**
+ * Строка «Всего на год: N …» секции ГРБС (п.44/47): при ненулевых деньгах —
+ * с суммой и бюджетной тройкой; нулевой год остаётся голым счётчиком
+ * (нулевую тройку не печатаем — канон честной пустоты).
+ */
+function deptYearLine(
+  planCount: number,
+  m: { fb: number; kb: number; mb: number; total: number },
+): string {
+  return m.total > 0
+    ? `Всего на год: ${num(planCount)}${moneyTail(m, 'на сумму')}.`
+    : `Всего на год: ${num(planCount)}`;
+}
+
 /** «на общую сумму X тыс. руб. (ФБ – …, КБ – …, МБ – …)» — денежный хвост эталона. */
 function moneyTail(
   m: { fb: number; kb: number; mb: number; total: number },
@@ -263,22 +301,48 @@ function districtExecutionLines(quarters: QuarterReports, reportQuarter: Quarter
  * те же pendingByMethod, что и в дополнительном отчёте: на 26.06 они дают
  * УЭР 5 аукционов / 2 343,28, УАГЗО 5 / 873,33, УДТХ 4 / 23 679,79,
  * УКСиМП 1 / 1 200,00, УО 4 / 18 768,26 — знак в знак с эталоном.
- * Перечень позиций за строками пишет специалист, поэтому под строкой плашка.
+ *
+ * П.49 интервью 14.08.2026: за строкой печатается ПЕРЕЧЕНЬ незаконтрактованных
+ * позиций квартала (раздельно по блокам ЭА/КП и ЕП) из pendingPositions —
+ * предмет, плановая сумма и пояснение из колонок листа. Раньше тут стояла
+ * плашка «пишет специалист», хотя движок эти позиции уже считал и печатал их
+ * в дополнительном отчёте — основной отчёт тем же числам обязан.
  */
 function quarterRemainderLines(
   left: PendingRemainder,
   q: Quarter,
   verb: 'отыграть' | 'заключить',
   unit: (n: number) => string,
+  positions: PendingPosition[],
 ): ReportBlock[] {
   if (left.count === 0) return [];
-  return [
+  const out: ReportBlock[] = [
     line(
       `${inQuarter(q)} осталось ${verb} ${num(left.count)} ${unit(left.count)} ` +
       `на общую сумму ${money(left.total)} тыс. руб. ${budget(left)}, в том числе:`,
     ),
-    line(`- ${NOT_FILLED}: пояснение по каждой незаключённой позиции пишет специалист.`),
   ];
+  if (positions.length === 0) {
+    // Честная пустота: остаток по счётчику есть, а строк-позиций лист не дал.
+    out.push(line(`- позиции остатка в листе не найдены (строки квартала без даты факта отсутствуют).`));
+    return out;
+  }
+  for (const p of positions) {
+    out.push(line(`- ${p.subject || 'без наименования'} на сумму ${money(p.planTotal)} тыс. руб.${pendingNote(p)};`));
+  }
+  return out;
+}
+
+/**
+ * Незаключённые позиции блока за квартал по группе способа: КП-блок получает
+ * конкурентные (ЭА и прочие), ЕП-блок — единственного поставщика.
+ * Канон группировки — classifyMethodGroup (@aemr/core), не своя эвристика.
+ */
+function pendingPositionsOf(
+  qb: ReportForExport['grbsBlocks'][number] | undefined,
+  group: 'competitive' | 'ep',
+): PendingPosition[] {
+  return (qb?.quarter.pendingPositions ?? []).filter((p) => classifyMethodGroup(p.method) === group);
 }
 
 /**
@@ -414,7 +478,12 @@ export function mainReportBlocks(
     out.push(heading(`${b.dept} — ${b.deptLabel}`));
 
     out.push(heading('КОНКУРЕНТНЫЕ ПРОЦЕДУРЫ:'));
-    out.push(line(`Всего на год: ${num(deptKp.planCount)}`));
+    // П.44 (класс): каждая строка «Всего на год» несёт сумму с разбивкой по
+    // бюджетам — не только районная шапка, но и блок каждого ГРБС.
+    // Деньги — сумма квартальных moneyByMethod блока (то же правило §2,
+    // что и счётчики yearOf): чужих чисел не выдумываем; нулевой год денег
+    // не печатает нулевую тройку — это была бы пустота, выданная за разбивку.
+    out.push(line(deptYearLine(deptKp.planCount, yearMethodMoneyDept(quarters, 'kp', 'plan', b.dept))));
     for (const q of elapsed(rq)) {
       const qb = blockOf(quarters[q], b.dept);
       if (!qb) continue;
@@ -430,14 +499,19 @@ export function mainReportBlocks(
         `Проведено ${num(kp.doneCount)} ${auctions(kp.doneCount)}` +
         `${moneyTail(qb.quarter.moneyByMethod.kp.fact)}.`,
       ));
-      out.push(...quarterRemainderLines(qb.quarter.pendingByMethod.kp, q, 'отыграть', auctions));
+      // П.49: перечень незаконтрактованных процедур квартала — блок ЭА/КП.
+      out.push(...quarterRemainderLines(
+        qb.quarter.pendingByMethod.kp, q, 'отыграть', auctions,
+        pendingPositionsOf(qb, 'competitive'),
+      ));
       out.push(line(`Исполнение плана ${qGen(q)} – ${pct(kp.pct)}`));
     }
     out.push(line(`Исполнение годового плана – ${pct(deptKp.pct)}`));
     out.push(line(`Экономия местного бюджета ${money(b.economy.mb)} тыс. руб.`));
 
     out.push(heading('ЕДИНСТВЕННЫЙ ПОСТАВЩИК:'));
-    out.push(line(`Всего на год: ${num(deptEp.planCount)}`));
+    // П.47: блок ЕП — та же структура, что у КП: год с деньгами и бюджетами.
+    out.push(line(deptYearLine(deptEp.planCount, yearMethodMoneyDept(quarters, 'ep', 'plan', b.dept))));
     for (const q of elapsed(rq)) {
       const qb = blockOf(quarters[q], b.dept);
       if (!qb) continue;
@@ -451,7 +525,11 @@ export function mainReportBlocks(
         `Заключено ${num(ep.doneCount)} ${contracts(ep.doneCount)}` +
         `${moneyTail(qb.quarter.moneyByMethod.ep.fact, 'на сумму')}.`,
       ));
-      out.push(...quarterRemainderLines(qb.quarter.pendingByMethod.ep, q, 'заключить', contracts));
+      // П.49: перечень незаконтрактованных договоров квартала — блок ЕП.
+      out.push(...quarterRemainderLines(
+        qb.quarter.pendingByMethod.ep, q, 'заключить', contracts,
+        pendingPositionsOf(qb, 'ep'),
+      ));
       out.push(line(`Исполнение плана ${qGen(q)} – ${pct(ep.pct)}`));
     }
     out.push(line(`Исполнение годового плана – ${pct(deptEp.pct)}`));
@@ -471,11 +549,17 @@ export function mainReportBlocks(
 /**
  * Пояснение пункта остатка — в скобках, как пишет эталон. Приоритет —
  * живой «Комментарий ГРБСа» (именно его сотрудница переносит в отчёт),
- * дальше УЭР/УФБП и причина отклонения; пусто — честная пометка: качество
+ * дальше УФБП и причина отклонения; пусто — честная пометка: качество
  * заполнения листа — тоже информация для читателя.
+ *
+ * «Комментарий УЭР» из приоритета УБРАН (пп.22/27 интервью 14.08.2026):
+ * в колонке УЭР пишут идентификаторы аукционов («ЭА136-26»), это не
+ * пояснение — печатать его в скобках пункта значит выдавать номер за смысл.
+ * build-report эту колонку в explanations уже не кладёт (решение 07.08),
+ * здесь снят и мёртвый приоритет, чтобы класс не вернулся со старыми снимками.
  */
 const PENDING_NOTE_PRIORITY = [
-  'Комментарий ГРБСа', 'Комментарий УЭР', 'Комментарий УФБП',
+  'Комментарий ГРБСа', 'Комментарий УФБП',
   'Причина отклонения', 'Обоснование необходимости', 'Основание выбора ЕП',
 ] as const;
 
@@ -543,8 +627,7 @@ export function additionalReportBlocks(
     // Перечень позиций остатка — как в ручном отчёте: предмет, сумма и
     // пояснение исполнителя из колонок листа (реверс эталона 26.06:
     // сотрудница переписывает «Комментарий ГРБСа» в скобки пункта).
-    const positions = (b.quarter.pendingPositions ?? [])
-      .filter((p) => classifyMethodGroup(p.method) === 'competitive');
+    const positions = pendingPositionsOf(b, 'competitive');
     if (positions.length === 0) {
       out.push(line(`- позиции остатка в листе не найдены (строки квартала без даты факта отсутствуют).`));
     }

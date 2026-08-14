@@ -6,7 +6,7 @@
  * Источник — `UnifiedGrid` из ядра (CalcEngine из атомов): плоская карта
  * `unifiedKey(grbsId, scope, method, period)` → `UnifiedCell`. Здесь — чистая
  * проекция:
- *   • выбираем срез активности (all/td/pm/td_pm) и период (m1..m12 / q1..q4 / year);
+ *   • выбираем срез активности (all/td/pm — канон п.30) и период (m1..m12 / q1..q4 / year);
  *   • метод-фильтр (КП/ЕП) применяется на уровне рендера (visibleKinds), поэтому
  *     слой всегда отдаёт обе секции kp/ep + ИТОГО;
  *   • бюджет-фильтр (ФБ/КБ/МБ) реальный — денежные суммы складываются только по
@@ -42,13 +42,12 @@ export interface SliceOptions {
   /** Срез активности. */
   scope: ActivityScope;
   /**
-   * Мультивыбор атомарных категорий деятельности (вводная 06.08: «и по
-   * отдельности, и вместе»). Непустой набор ГЛАВНЕЕ `scope`: строится
-   * объединение выбранных категорий (например ПМ + ТД-ПМ, если ТД-ПМ —
-   * ошибка заполнения и это на деле программные деньги).
-   * Категории не пересекаются: pm ∪ td_clean ∪ td_pm = all.
+   * Мультивыбор атомарных категорий деятельности. Непустой набор ГЛАВНЕЕ
+   * `scope`. Канон п.30 (14.08.2026): категорий две — ПМ и ТД (срез «ТД-ПМ»
+   * упразднён, ТД-строки с заполненной графой программы входят в ТД).
+   * Категории не пересекаются: pm ∪ td = all.
    */
-  scopes?: ReadonlySet<'pm' | 'td_clean' | 'td_pm'>;
+  scopes?: ReadonlySet<'pm' | 'td'>;
   /** Период (месяц m1..m12 / квартал q1..q4 / год). */
   period: SvodPeriodKey;
   /** Метод-фильтр (КП/ЕП). Пусто/обе → показывать обе секции. */
@@ -201,37 +200,20 @@ export function sliceUnified(grid: UnifiedGrid, opts: SliceOptions): UnifiedSlic
   const { scope, period, budgets, depts } = opts;
 
   // Объединение атомарных категорий: суммируем ячейки выбранных срезов.
-  // td_clean на старых снимках отсутствует — выводится разностью td − td_pm
-  // (все поля ячейки аддитивны, проценты пересчитывает deriveCell).
-  const scopeSet = opts.scopes && opts.scopes.size > 0 && opts.scopes.size < 3
+  // Канон п.30: категории — pm и td, обе существуют в сетке как срезы,
+  // производных вычитаний (бывший td_clean = td − td_pm) больше нет.
+  const scopeSet = opts.scopes && opts.scopes.size === 1
     ? [...opts.scopes]
-    : null; // пусто или все три = ВСЕ (обычный scope-путь)
+    : null; // пусто или обе = ВСЕ (обычный scope-путь)
 
-  const subCell = (a: UnifiedCell, b: UnifiedCell): UnifiedCell => ({
-    planCount: a.planCount - b.planCount,
-    factCount: a.factCount - b.factCount,
-    planFB: a.planFB - b.planFB, planKB: a.planKB - b.planKB, planMB: a.planMB - b.planMB,
-    factFB: a.factFB - b.factFB, factKB: a.factKB - b.factKB, factMB: a.factMB - b.factMB,
-    economyFB: a.economyFB - b.economyFB, economyKB: a.economyKB - b.economyKB, economyMB: a.economyMB - b.economyMB,
-  });
-
-  // Все три категории выбраны = ВСЕ (одна ячейка сетки точнее суммы трёх).
-  const effectiveScope: ActivityScope = opts.scopes && opts.scopes.size >= 3 ? 'all' : scope;
+  // Обе категории выбраны = ВСЕ (одна ячейка сетки точнее суммы двух).
+  const effectiveScope: ActivityScope = opts.scopes && opts.scopes.size >= 2 ? 'all' : scope;
 
   const cellForScopes = (grbsId: string, method: SvodMethod): UnifiedCell => {
     if (!scopeSet) return cellFor(grid, grbsId, effectiveScope, method, period);
     const acc = emptyCell();
     for (const s of scopeSet) {
-      let c: UnifiedCell;
-      if (s === 'td_clean' && !(grid.scopes as string[] | undefined)?.includes('td_clean')) {
-        c = subCell(
-          cellFor(grid, grbsId, 'td', method, period),
-          cellFor(grid, grbsId, 'td_pm', method, period),
-        );
-      } else {
-        c = cellFor(grid, grbsId, s, method, period);
-      }
-      addCellInto(acc, c);
+      addCellInto(acc, cellFor(grid, grbsId, s, method, period));
     }
     return acc;
   };

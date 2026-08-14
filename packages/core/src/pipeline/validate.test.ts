@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateData } from './validate.js';
+import { validateData, roundMoneyInText } from './validate.js';
 import { classifyRows } from './classify.js';
 import type { ClassifiedRow, NormalizedMetric, ValidationRule, ReportMapEntry, RuleCheckContext } from '@aemr/shared';
 
@@ -285,12 +285,12 @@ describe('validateData — issue metadata', () => {
     expect(issue.activityType).toBe('program');
   });
 
-  it('derives activityType for "текущая" with program name', () => {
-    // Графа программы — D (канон classifyActivity); прежний тест кормил E
-    // (подпрограмму) и закреплял чтение не той колонки (Д16).
+  it('derives activityType for "текущая" with program name → ТД (канон п.30)', () => {
+    // Канон п.30 (14.08.2026): заполненная графа программы (D) у ТД — норма,
+    // отдельной категории 'current_program' больше нет — строка есть ТД.
     const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'Реальная программа', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
-    expect(issue.activityType).toBe('current_program');
+    expect(issue.activityType).toBe('current_non_program');
   });
 
   it('derives activityType for "текущая" without program name', () => {
@@ -444,6 +444,57 @@ describe('validateData — БАГ #7: дешёвая закупка не тер�
 });
 
 // ────────────────────────────────────────────────────────────
+// 10c. Тексты проверок — канон интервью 14.08.2026 (пп.3, 28/29).
+// Кластер В п.3: «непонятно, к какой книге относится текст замечания
+// „O237 (факт) = 7138.1467…“» — два дефекта: нет имени листа, голый float
+// с 15 знаками. validateData — единственная дверь, где result.message
+// любого правила RULE_BOOK становится issue; стражи держат её.
+// ────────────────────────────────────────────────────────────
+
+describe('validateData — тексты проверок (пп.3, 28/29 интервью 14.08.2026)', () => {
+  it('СТРАЖ п.3: каждый текст замечания несёт имя листа', () => {
+    const row = makeRow({ rowIndex: 237, sheet: 'УО' });
+    const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule({ scope: 'both' })], EMPTY_REPORT_MAP);
+    expect(issue.title).toContain('лист «УО»');
+    expect(issue.title).toContain('строка 237');
+  });
+
+  it('СТРАЖ п.3: голый float в тексте режется до копеек («7138.1467200000025» запрещён)', () => {
+    // Живой случай из интервью: budget_sum_fact на СВОД, ячейка O237.
+    const rule = makeFailingRule({
+      check: () => ({
+        passed: false,
+        message: 'O237 (факт) = 7138.1467200000025, сумма компонент = 7088.1467200000025. Разница: 50.00 руб.',
+        cell: 'O237',
+      }),
+    });
+    const [issue] = validateData(EMPTY_METRICS, [makeRow({ rowIndex: 237, sheet: 'УО' })], [rule], EMPTY_REPORT_MAP);
+    expect(issue.description).toBe('O237 (факт) = 7138.15, сумма компонент = 7088.15. Разница: 50.00 руб.');
+    expect(issue.description).not.toContain('7138.1467200000025');
+  });
+
+  it('округление не искажает даты дд.мм.гггг в текстах', () => {
+    expect(roundMoneyInText('плановая дата 03.09.2025, факт 7138.1467200000025'))
+      .toBe('плановая дата 03.09.2025, факт 7138.15');
+    // Числа, уже записанные в копейках или короче, не трогаются.
+    expect(roundMoneyInText('Разница: 50.00 руб., доля 7.5 %')).toBe('Разница: 50.00 руб., доля 7.5 %');
+  });
+
+  it('СТРАЖ пп.28/29: номер строки в тексте = номер строки ЛИСТА (как видит человек в книге)', () => {
+    // classifyRows нумерует rowIndex 1-based от начала листа со шляпкой —
+    // это и есть номер строки Google Sheets; текст обязан нести именно его,
+    // а не позицию строки в какой-либо выборке.
+    const [classified] = classifyRows('УО', [{
+      rowIndex: 10,
+      cells: { A: '1', G: 'Медицинские услуги', H: 0, I: 0, J: 80, K: 80, L: 'ЭА' },
+    }]);
+    const [issue] = validateData(EMPTY_METRICS, [classified], [makeFailingRule()], EMPTY_REPORT_MAP);
+    expect(issue.row).toBe(10);
+    expect(issue.title).toContain('строка 10');
+  });
+});
+
+// ────────────────────────────────────────────────────────────
 // 11. hasProgramName edge cases (via activityType)
 // ────────────────────────────────────────────────────────────
 
@@ -466,9 +517,9 @@ describe('validateData — hasProgramName via activityType', () => {
     expect(issue.activityType).toBe('current_non_program');
   });
 
-  it('treats real program name as current_program', () => {
+  it('real program name у ТД — тоже ТД: категория current_program упразднена (канон п.30)', () => {
     const row = makeRow({ cells: { F: 'Текущая деятельность', D: 'Нацпроект', C: '' } });
     const [issue] = validateData(EMPTY_METRICS, [row], [makeFailingRule()], EMPTY_REPORT_MAP);
-    expect(issue.activityType).toBe('current_program');
+    expect(issue.activityType).toBe('current_non_program');
   });
 });

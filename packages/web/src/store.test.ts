@@ -77,6 +77,102 @@ describe('useStore navigation filters', () => {
   });
 });
 
+// ── Страж бага #5 (реестр охоты 08.08; интервью пп. 5, 6): каждая точка
+// «период очищен» обязана оставлять activeMonths ПУСТЫМ, как resetAllFilters.
+// Раньше туда писались месяцы текущей недели — фильтр, невидимый для чипов
+// (hasExplicitPeriodFilter) и URL, молча резал экран до месяца.
+describe('сброс периода оставляет пустые месяцы (баг #5)', () => {
+  const year = new Date().getFullYear();
+
+  it('clearAllPeriods: пустой Set + week-режим', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().toggleMonthInYear(year, 5);
+    useStore.getState().clearAllPeriods();
+    const st = useStore.getState();
+    expect(st.periodMode).toBe('week');
+    expect(st.activeMonths.size).toBe(0);
+    expect(Object.keys(st.monthsByYear)).toHaveLength(0);
+  });
+
+  it('clearMonths: пустой Set', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().toggleMonth(5);
+    useStore.getState().clearMonths();
+    expect(useStore.getState().activeMonths.size).toBe(0);
+    expect(useStore.getState().periodMode).toBe('week');
+  });
+
+  it('toggleMonthInYear: снятие последнего месяца — пустой Set', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().toggleMonthInYear(year, 5);
+    useStore.getState().toggleMonthInYear(year, 5);
+    expect(useStore.getState().activeMonths.size).toBe(0);
+    expect(useStore.getState().periodMode).toBe('week');
+  });
+
+  it('toggleQuarterInYear: снятие последнего квартала — пустой Set', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().toggleQuarterInYear(year, 'q2');
+    useStore.getState().toggleQuarterInYear(year, 'q2');
+    expect(useStore.getState().activeMonths.size).toBe(0);
+    expect(useStore.getState().periodMode).toBe('week');
+  });
+
+  it('toggleYearFull: снятие полного года — пустой Set', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().toggleYearFull(year);
+    useStore.getState().toggleYearFull(year);
+    expect(useStore.getState().activeMonths.size).toBe(0);
+    expect(useStore.getState().periodMode).toBe('week');
+  });
+
+  it('setQuarterMonths: снятие последнего квартала — пустой Set', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().setQuarterMonths('q2');
+    useStore.getState().setQuarterMonths('q2');
+    expect(useStore.getState().activeMonths.size).toBe(0);
+    expect(useStore.getState().periodMode).toBe('week');
+  });
+});
+
+// ── Стражи багов #5/#13 (реестр охоты 08.08): колесо недель ──
+describe('shiftFocusedWeek — визуальная прокрутка, не фильтр', () => {
+  it('week-режим: месяцы недели НЕ пишутся в activeMonths (баг #5)', () => {
+    useStore.getState().resetAllFilters();
+    useStore.getState().shiftFocusedWeek(1);
+    useStore.getState().shiftFocusedWeek(-2);
+    expect(useStore.getState().activeMonths.size).toBe(0);
+  });
+
+  it('explicit-режим: год и месяцы не меняются, данные не перезагружаются (баг #13)', () => {
+    useStore.getState().resetAllFilters();
+    const [yearA] = AVAILABLE_YEARS;
+    useStore.getState().toggleMonthInYear(yearA, 12); // декабрь yearA, explicit
+    const before = useStore.getState();
+    // Прокрутка недель через границу года не должна дёргать year (перезагрузку)
+    for (let i = 0; i < 60; i++) useStore.getState().shiftFocusedWeek(1);
+    const after = useStore.getState();
+    expect(after.year).toBe(before.year);
+    expect(after.activeMonths).toEqual(before.activeMonths);
+    expect(after.periodMode).toBe('explicit');
+  });
+
+  it('week-режим: год следует за неделей при пересечении границы года', () => {
+    useStore.getState().resetAllFilters();
+    const start = useStore.getState().focusedWeekStart;
+    let guard = 0;
+    // крутим, пока не сменится календарный год недели (или упрёмся в границу лет)
+    while (useStore.getState().focusedWeekStart.getFullYear() === start.getFullYear() && guard < 60) {
+      useStore.getState().shiftFocusedWeek(1);
+      guard++;
+    }
+    const st = useStore.getState();
+    if (st.focusedWeekStart.getFullYear() !== start.getFullYear()) {
+      expect(st.year).toBe(st.focusedWeekStart.getFullYear());
+    }
+  });
+});
+
 describe('useStore setYear (B-5: activeMonths must track the newly selected year)', () => {
   it('syncs activeMonths from monthsByYear[target] like toggleMonthInYear/toggleQuarterInYear/toggleYearFull, instead of leaving stale months from the previously selected year', () => {
     useStore.getState().resetAllFilters();

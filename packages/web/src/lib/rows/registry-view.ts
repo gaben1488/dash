@@ -270,8 +270,12 @@ export function describeUncheckedByPeriod(
  */
 const ACTIVITY_FILTER_LABELS: Readonly<Record<string, string>> = {
   program: 'программные мероприятия',
-  current_program: 'текущая деятельность в рамках программ',
-  current_non_program: 'текущая деятельность вне программ',
+  // Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён — заполненная
+  // графа программы у ТД норма, подписи «в рамках/вне программ» лгали бы:
+  // classifyActivity теперь всю ТД отдаёт ключом current_non_program, а
+  // current_program остаётся только в старых снимках — обе подписи «ТД».
+  current_program: 'текущая деятельность',
+  current_non_program: 'текущая деятельность',
 };
 
 /**

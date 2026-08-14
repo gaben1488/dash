@@ -1,3 +1,6 @@
+import type { PeriodResolution } from './period-resolution';
+import { aggregateNodeTotals } from './totals-aggregation';
+
 /**
  * Ось бюджета (ФБ/КБ/МБ): выбор плана/факта из per-budget полей агрегата
  * и пересчёт тоталов при активном бюджет-фильтре.
@@ -32,8 +35,8 @@ export function makeBudgetPlanFact(selectedBudgets: Set<string>): BudgetPlanFact
 
 /**
  * §9c: пересчёт totalPlan/totalFact при бюджет-фильтре БЕЗ фильтра деятельности.
- * Ветви: подвед-оверрайд (_subFiltered, суммируем 4 квартала) / month-level /
- * quarter-level (покрытые кварталы либо periodKey).
+ * Ветви: подвед-оверрайд (_subFiltered — через общее периодное ядро, баг #4) /
+ * month-level / quarter-level (покрытые кварталы либо periodKey).
  */
 export function recalcTotalsByBudget(depts: any[], opts: {
   budgetPlanFact: BudgetPlanFactFn;
@@ -42,16 +45,23 @@ export function recalcTotalsByBudget(depts: any[], opts: {
   hasActiveMonths: boolean;
   coveredQuarters: string[];
   periodKey: string;
+  /** Полная резолюция периода — подвед-ветвь считается общим ядром (баг #4). */
+  resolution: PeriodResolution;
+  hasMonthData: boolean;
 }): { totalPlan: number; totalFact: number } {
-  const { budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey } = opts;
+  const { budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey, resolution, hasMonthData } = opts;
   let totalPlan = 0;
   let totalFact = 0;
   for (const d of depts) {
     if (d._subFiltered) {
-      for (const qk of ['q1', 'q2', 'q3', 'q4']) {
-        const { plan, fact } = budgetPlanFact(d.quarters?.[qk]);
-        totalPlan += plan; totalFact += fact;
-      }
+      // Баг #4 реестра охоты 08.08: раньше здесь суммировались ВСЕ 4 квартала
+      // оверрайднутого узла независимо от выбранного периода — бюджет-итог при
+      // фильтре по подведам показывал год под заголовком квартала/месяца.
+      // Теперь узел идёт через то же ядро, что итоги (aggregateNodeTotals),
+      // а бюджет выбирается из его периодной разбивки.
+      const n = aggregateNodeTotals(d, resolution, { showKP: true, showEP: true, activeMonths, hasMonthData });
+      const { plan, fact } = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
+      totalPlan += plan; totalFact += fact;
     } else if (useMonthLevel) {
       for (const monthNum of activeMonths) {
         const { plan, fact } = budgetPlanFact(d.months?.[monthNum]);

@@ -17,7 +17,27 @@ export interface GRBSBaseline {
   normalEpShare: number;
 }
 
-/** Static baselines from procurement_report.gs GRBS_BASELINES_ */
+/**
+ * Пометка происхождения нормативов, уходящая в API вместе с каждым профилем
+ * (/api/analytics/profiles). Причина: role/expectedExecQ1/normalEpShare ниже —
+ * НЕ факт и не закон, источника в данных у них нет.
+ */
+export const BASELINE_UNCONFIRMED_NOTE =
+  'Норматив не подтверждён: роль и ожидания (expectedExecQ1, normalEpShare) — внутренний '
+  + 'ориентир из легаси-генератора предыдущей команды (procurement_report.gs), происхождение '
+  + 'значений не документировано. Отклонения (execDeviation, epShareDeviation) и riskLevel '
+  + 'считаются от этого ориентира и фактом не являются.';
+
+/**
+ * Роли и ожидания по каждому ГРБС — порт из легаси-генератора предыдущей
+ * команды (procurement_report.gs, GRBS_BASELINES_). Это НЕ закон и не данные:
+ * происхождение значений не документировано, в книгах ГРБС источника нет,
+ * ожидание исполнения заточено под Q1 (тот же статус, что у EP_SHARE_BY_ROLE
+ * в compliance-44fz.ts). Целевое место — редактируемый справочник настроек
+ * аналитика (дизайн-док §5.1-3/4), не константа; до переноса каждый профиль
+ * несёт BASELINE_UNCONFIRMED_NOTE, чтобы потребители API не читали
+ * отклонения от этих чисел как факт.
+ */
 export const GRBS_BASELINES: GRBSBaseline[] = [
   { grbsId: 'uer',    grbsShort: 'УЭР',    role: 'ОПЕРАЦИОННЫЙ',     expectedExecQ1: 0.65, normalEpShare: 0.35 },
   { grbsId: 'uio',    grbsShort: 'УИО',    role: 'ОПЕРАЦИОННЫЙ',     expectedExecQ1: 0.45, normalEpShare: 0.55 },
@@ -46,11 +66,22 @@ export interface GRBSProfile {
    */
   actualExecQ1: number | null;
   actualEpShare: number | null;
-  /** actual − expected (negative = underperforming); `null` при отсутствии базы. */
+  /**
+   * actual − expected (negative = underperforming); `null` при отсутствии базы.
+   * Ожидание — неподтверждённый ориентир (см. baselineNote), не факт.
+   */
   execDeviation: number | null;
   /** actual − normal (positive = too much EP); `null` при отсутствии базы. */
   epShareDeviation: number | null;
+  /** Риск от отклонений против неподтверждённого ориентира (см. baselineNote). */
   riskLevel: 'low' | 'medium' | 'high';
+  /**
+   * Всегда true, пока нормативы не перенесены в редактируемый справочник
+   * настроек: expectedExecQ1/normalEpShare/role взяты из легаси без источника.
+   */
+  baselineUnconfirmed: true;
+  /** Текст пометки для потребителей API — см. BASELINE_UNCONFIRMED_NOTE. */
+  baselineNote: string;
 }
 
 /**
@@ -74,6 +105,8 @@ export function buildGRBSProfiles(
         execDeviation: null,
         epShareDeviation: null,
         riskLevel: 'high' as const,
+        baselineUnconfirmed: true as const,
+        baselineNote: BASELINE_UNCONFIRMED_NOTE,
       };
     }
 
@@ -85,9 +118,14 @@ export function buildGRBSProfiles(
     const execDev = actualExecQ1 === null ? null : actualExecQ1 - baseline.expectedExecQ1;
     const epDev = actualEpShare === null ? null : actualEpShare - baseline.normalEpShare;
 
+    // Единицы: planTotal — тыс. руб. (канон колонок книг ГРБС), поэтому пороги
+    // объёма тоже в тысячах: 100_000 тыс. = 100 млн руб., 10_000 тыс. = 10 млн руб.
+    // Свип БАГ #1 (bug-hunt 2026-08-08): литералы были в рублях (100_000_000 /
+    // 10_000_000) — при данных в тысячах «ВЫСОКИЙ» требовал плана на 100 млрд руб.
+    // (недостижимо), а «НИЗКИЙ» получал почти каждый ГРБС.
     let volume: VolumeLevel = 'СРЕДНИЙ';
-    if (recalc.year.planTotal > 100_000_000) volume = 'ВЫСОКИЙ';
-    else if (recalc.year.planTotal < 10_000_000) volume = 'НИЗКИЙ';
+    if (recalc.year.planTotal > 100_000) volume = 'ВЫСОКИЙ';
+    else if (recalc.year.planTotal < 10_000) volume = 'НИЗКИЙ';
 
     // Риск поднимает только измеренное отклонение: неизвестная величина не
     // штрафует (снятие штрафа за «исполнение 0 %», реестр 08.08 §2 п.5).
@@ -105,6 +143,8 @@ export function buildGRBSProfiles(
       execDeviation: execDev,
       epShareDeviation: epDev,
       riskLevel,
+      baselineUnconfirmed: true as const,
+      baselineNote: BASELINE_UNCONFIRMED_NOTE,
     };
   });
 }

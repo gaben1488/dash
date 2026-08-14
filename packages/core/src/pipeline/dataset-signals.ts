@@ -484,7 +484,8 @@ export function buildNoiseMap(
       { key: 'economyConflict', label: 'Конфликты флага экономии', severity: 'СРЕДНЯЯ' },
       { key: 'highEconomy', label: 'Высокая экономия >25%', severity: 'СРЕДНЯЯ' },
       { key: 'factExceedsPlan', label: 'Факт превышает план', severity: 'ВЫСОКАЯ' },
-      { key: 'stalledContract', label: 'Подвисшие контракты', severity: 'СРЕДНЯЯ' },
+      // stalledContract здесь не группируется: проверка отключена 14.08.2026
+      // (канон п.27), детектор всегда false — группа не собралась бы никогда.
       { key: 'dataQuality', label: 'Проблемы качества данных', severity: 'ИНФОРМАЦИЯ' },
       { key: 'formulaBroken', label: 'Ошибки формул', severity: 'КРИТИЧЕСКАЯ' },
       { key: 'epJustificationMissing', label: 'ЕП без обоснования', severity: 'ВЫСОКАЯ' },

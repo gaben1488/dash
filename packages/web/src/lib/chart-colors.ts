@@ -266,9 +266,28 @@ export function getTooltipStyle(isDark: boolean) {
       border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
       borderRadius: '8px',
       fontSize: '12px',
-      color: isDark ? '#e2e8f0' : '#334155',
+      color: isDark ? '#f1f5f9' : '#334155',
+    },
+    /* Текст строк recharts по умолчанию красится ЦВЕТОМ СЕРИИ — тёмная серия
+       на тёмной подложке нечитаема (жалоба аудитории, интервью п.25).
+       itemStyle передаётся последним в стиль строки и перебивает цвет серии. */
+    itemStyle: {
+      color: isDark ? '#f1f5f9' : '#1e293b',
+    },
+    labelStyle: {
+      color: isDark ? '#cbd5e1' : '#475569',
+      fontWeight: 600,
     },
   };
+}
+
+/**
+ * Полный набор пропсов для recharts `<Tooltip {...getTooltipProps(isDark)} />`:
+ * коробка + текст строк + заголовок. Использовать его, а не голый contentStyle —
+ * иначе текст строки наследует цвет серии и тонет в тёмной теме.
+ */
+export function getTooltipProps(isDark: boolean) {
+  return getTooltipStyle(isDark);
 }
 
 export function getGridColor(isDark: boolean): string {

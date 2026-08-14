@@ -79,12 +79,16 @@ export function applySubordinateFilter<T extends FilterableRow>(rows: T[], filte
 }
 
 /**
- * Фильтр по виду деятельности — осевой канон matchesActivityScope
- * (F = TYPE: ТД/ПМ; D = PROGRAM_NAME: реальный текст = «в рамках ПМ»).
+ * Фильтр по виду деятельности — осевой канон matchesActivityScope (F = TYPE).
  *   program             → ПМ
- *   current_program     → ТД в рамках ПМ (срез td_pm)
- *   current_non_program → ТД вне ПМ
+ *   current_program     → ТД (легаси-ключ бывшего среза «ТД-ПМ»)
+ *   current_non_program → ТД
  *   иначе               → substring по F (легаси-значения фильтра)
+ *
+ * Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён — строки ТД с
+ * заполненной графой программы (D) входят в ТД по ВСЕМ фильтрам. Оба
+ * ТД-ключа отдают текущую деятельность целиком; графа D в фильтрации
+ * не участвует.
  */
 export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterActivity: string): T[] {
   if (!filterActivity) return rows;
@@ -93,10 +97,8 @@ export function applyActivityFilter<T extends FilterableRow>(rows: T[], filterAc
       case 'program':
         return matchesActivityScope('pm', r.type);
       case 'current_program':
-        return matchesActivityScope('td_pm', r.type, r.programName);
       case 'current_non_program':
-        return matchesActivityScope('td', r.type)
-          && !matchesActivityScope('td_pm', r.type, r.programName);
+        return matchesActivityScope('td', r.type);
       default:
         return String(r.type).toLowerCase().includes(filterActivity);
     }

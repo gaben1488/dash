@@ -16,6 +16,8 @@ export interface EconomyMetricSource {
 
 export interface EconomyDepartmentSource extends EconomyMetricSource {
   quarters?: Partial<Record<string, EconomyMetricSource | null>>;
+  /** Помесячная разбивка (1..12) — нужна месячной ветви (баг #10). */
+  months?: Partial<Record<number | string, EconomyMetricSource | null>>;
   /** Короткое имя управления — нужно, чтобы честно назвать пропущенные. */
   dept?: string;
 }
@@ -24,6 +26,16 @@ export interface EconomyTotalInput {
   depts: EconomyDepartmentSource[];
   periodKey?: string;
   coveredQuarters?: string[];
+  /**
+   * Месячная ветвь (баг #10 реестра охоты 08.08): экономия за выбранный месяц
+   * считалась за весь покрытый квартал. Частично выбранные кварталы должны
+   * идти month-level — тем же правилом, что aggregateNodeTotals (смешанная
+   * агрегация: полные кварталы quarter-level + частичные месяцы month-level).
+   */
+  fullQuarters?: string[];
+  partialMonths?: number[];
+  /** Есть ли в датасете помесячные данные — без них резолюция падает на кварталы. */
+  hasMonthData?: boolean;
   selectedBudgets?: Set<string>;
 }
 
@@ -96,6 +108,13 @@ function selectedQuarterKeys(input: EconomyTotalInput): string[] {
 export function getEconomyTotalBreakdown(input: EconomyTotalInput): EconomyTotalBreakdown {
   const quarterKeys = selectedQuarterKeys(input);
   const wholeYearSelected = quarterKeys.length === QUARTER_KEYS.length;
+  // Месячная ветвь активна тем же условием, что смешанная агрегация в
+  // aggregateNodeTotals (баг #10): месяцы выбраны частично И month-данные есть.
+  // Иначе экономия месяца бралась за весь квартал, и на одном экране тоталы
+  // сужались месяцем, а экономия — нет (интервью, кластер А).
+  const partialMonths = input.hasMonthData ? (input.partialMonths ?? []) : [];
+  const fullQuarters = input.fullQuarters ?? [];
+  const useMixed = partialMonths.length > 0;
 
   let fromQuarters = 0;
   let fromDeptLevel = 0;
@@ -104,6 +123,33 @@ export function getEconomyTotalBreakdown(input: EconomyTotalInput): EconomyTotal
   input.depts.forEach((dept, index) => {
     let deptHasQuarterData = false;
     let deptSum = 0;
+
+    if (useMixed) {
+      // Полные кварталы quarter-level + частичные месяцы month-level —
+      // ровно периметр aggregateNodeTotals для того же выбора.
+      for (const mi of partialMonths) {
+        const month = dept?.months?.[mi];
+        if (!month) continue;
+        deptHasQuarterData = true;
+        deptSum += selectedEconomy(month, input.selectedBudgets);
+      }
+      for (const qk of fullQuarters) {
+        const quarter = dept?.quarters?.[qk];
+        if (!quarter) continue;
+        deptHasQuarterData = true;
+        deptSum += selectedEconomy(quarter, input.selectedBudgets);
+      }
+      if (deptHasQuarterData) {
+        fromQuarters += deptSum;
+        return;
+      }
+      // Периодной базы под выбранные месяцы нет: годовое число подставить
+      // нельзя (другой отрезок времени) — честно называем пропуск.
+      if (selectedEconomy(dept, input.selectedBudgets) !== 0) {
+        missingDepts.push(dept?.dept ?? `управление ${index + 1}`);
+      }
+      return;
+    }
 
     for (const qk of quarterKeys) {
       const quarter = dept?.quarters?.[qk];

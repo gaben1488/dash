@@ -5,8 +5,12 @@
  * - Идентификаторы (short/long/latinId)
  * - Имена (полные/краткие)
  * - Привязки к листам (sheetName, preferredSheet)
- * - Привязки к строкам СВОД ТД-ПМ (DepartmentRowConfig)
- * - Привязки к блокам ШДЮ (SHDYUBlock)
+ * - Привязки к строкам СВОД ТД-ПМ (поле svod; строки блока «ВСЕ» — SUMMARY_ROWS
+ *   в report-map.ts)
+ *
+ * Привязки к блокам ШДЮ здесь НЕ живут — их канон shdyu-map.ts
+ * (SHDYU_ALL_BLOCK/SHDYU_BLOCKS). Дубликат-копия shdyu удалена 14.08.2026:
+ * читателей не было, а вторая копия без стража-теста разъехалась бы молча.
  *
  * Occam's razor: ВСЕ данные об управлениях — в одном месте.
  * Нет дублей между report-map.ts, shdyu-map.ts, constants.ts, config.ts.
@@ -67,22 +71,6 @@ export interface DepartmentEntry {
     /** Доля ЕП row */
     epShareRow: number;
   };
-
-  // ── ШДЮ block positions (1-based) ──
-  shdyu: {
-    /** КП data rows (12 months) */
-    compStartRow: number;
-    compEndRow: number;
-    compTotalRow: number;
-    /** ЕП data rows (12 months) */
-    epStartRow: number;
-    epEndRow: number;
-    epTotalRow: number;
-    /** Summary rows */
-    totalRow: number;
-    compShareRow: number;
-    epShareRow: number;
-  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -99,7 +87,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     // управление) остаётся fallback-кандидатом. Следствие 2026-07-23.
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 42, kpYear: 47, epQ1: 53, epYear: 58, totalCombined: 60, totalCurrent: 61, compShareRow: 63, epShareRow: 64 },
-    shdyu: { compStartRow: 45, compEndRow: 56, compTotalRow: 57, epStartRow: 62, epEndRow: 73, epTotalRow: 74, totalRow: 76, compShareRow: 77, epShareRow: 78 },
   },
   {
     id: 'УИО', latinId: 'uio',
@@ -107,7 +94,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УИО',
     sheetName: 'УИО', hasSubordinates: false,
     svod: { kpQ1: 72, kpYear: 77, epQ1: 83, epYear: 88, totalCombined: 90, totalCurrent: 91, compShareRow: 93, epShareRow: 94 },
-    shdyu: { compStartRow: 85, compEndRow: 96, compTotalRow: 97, epStartRow: 102, epEndRow: 113, epTotalRow: 114, totalRow: 116, compShareRow: 117, epShareRow: 118 },
   },
   {
     id: 'УАГЗО', latinId: 'uagzo',
@@ -115,7 +101,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УАГЗО',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 102, kpYear: 107, epQ1: 113, epYear: 118, totalCombined: 120, totalCurrent: 121, compShareRow: 123, epShareRow: 124 },
-    shdyu: { compStartRow: 125, compEndRow: 136, compTotalRow: 137, epStartRow: 142, epEndRow: 153, epTotalRow: 154, totalRow: 156, compShareRow: 157, epShareRow: 158 },
   },
   {
     id: 'УФБП', latinId: 'ufbp',
@@ -123,7 +108,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УФБП',
     sheetName: 'УФБП', hasSubordinates: false,
     svod: { kpQ1: 132, kpYear: 137, epQ1: 143, epYear: 148, totalCombined: 150, totalCurrent: 151, compShareRow: 153, epShareRow: 154 },
-    shdyu: { compStartRow: 165, compEndRow: 176, compTotalRow: 177, epStartRow: 182, epEndRow: 193, epTotalRow: 194, totalRow: 196, compShareRow: 197, epShareRow: 198 },
   },
   {
     id: 'УД', latinId: 'ud',
@@ -131,7 +115,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УД',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 163, kpYear: 168, epQ1: 175, epYear: 180, totalCombined: 182, totalCurrent: 183, compShareRow: 185, epShareRow: 186 },
-    shdyu: { compStartRow: 205, compEndRow: 216, compTotalRow: 217, epStartRow: 222, epEndRow: 233, epTotalRow: 234, totalRow: 236, compShareRow: 237, epShareRow: 238 },
   },
   {
     id: 'УДТХ', latinId: 'udtx',
@@ -139,7 +122,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УДТХ',
     sheetName: 'УДТХ', hasSubordinates: false,
     svod: { kpQ1: 195, kpYear: 200, epQ1: 206, epYear: 211, totalCombined: 213, totalCurrent: 214, compShareRow: 216, epShareRow: 217 },
-    shdyu: { compStartRow: 245, compEndRow: 256, compTotalRow: 257, epStartRow: 262, epEndRow: 273, epTotalRow: 274, totalRow: 276, compShareRow: 277, epShareRow: 278 },
   },
   {
     id: 'УКСиМП', latinId: 'uksimp',
@@ -147,7 +129,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УКСиМП',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 225, kpYear: 230, epQ1: 236, epYear: 241, totalCombined: 243, totalCurrent: 244, compShareRow: 246, epShareRow: 247 },
-    shdyu: { compStartRow: 285, compEndRow: 296, compTotalRow: 297, epStartRow: 302, epEndRow: 313, epTotalRow: 314, totalRow: 316, compShareRow: 317, epShareRow: 318 },
   },
   {
     id: 'УО', latinId: 'uo',
@@ -155,7 +136,6 @@ export const DEPARTMENT_REGISTRY: readonly DepartmentEntry[] = [
     shortName: 'УО',
     sheetName: 'ВСЕ', hasSubordinates: true,
     svod: { kpQ1: 255, kpYear: 260, epQ1: 266, epYear: 271, totalCombined: 273, totalCurrent: 274, compShareRow: 276, epShareRow: 277 },
-    shdyu: { compStartRow: 325, compEndRow: 336, compTotalRow: 337, epStartRow: 342, epEndRow: 353, epTotalRow: 354, totalRow: 356, compShareRow: 357, epShareRow: 358 },
   },
 ] as const;
 
@@ -210,29 +190,7 @@ export const ALL_DEPT_IDS: readonly DepartmentId[] = DEPARTMENT_REGISTRY.map(d =
 /** All 8 latin IDs */
 export const ALL_LATIN_IDS: readonly LatinDeptId[] = DEPARTMENT_REGISTRY.map(d => d.latinId);
 
-// ────────────────────────────────────────────────────────────
-// 5. СВОД ТД-ПМ Summary block positions
-// ────────────────────────────────────────���───────────────────
-
-/** Row positions for the "ВСЕ" (summary) block in СВОД ТД-ПМ */
-export const SVOD_SUMMARY_ROWS = {
-  kpQ1: 9,
-  kpYear: 14,
-  epQ1: 21,
-  epYear: 26,
-  totalCombined: 28,
-  totalCurrent: 29,
-  compShareRow: 31,
-  epShareRow: 32,
-} as const;
-
-// ────────────────────────────────────────────────────────────
-// 6. ШДЮ Summary (ВСЕ) block
-// ────────────────────────────────────────────────────────────
-
-/** ШДЮ "ВСЕ" block — aggregates all departments */
-export const SHDYU_SUMMARY_BLOCK = {
-  compStartRow: 5, compEndRow: 16, compTotalRow: 17,
-  epStartRow: 22, epEndRow: 33, epTotalRow: 34,
-  totalRow: 36, compShareRow: 37, epShareRow: 38,
-} as const;
+// Дубликаты SVOD_SUMMARY_ROWS и SHDYU_SUMMARY_BLOCK удалены 14.08.2026:
+// читателей не было, живой канон — SUMMARY_ROWS (report-map.ts) и
+// SHDYU_ALL_BLOCK/SHDYU_BLOCKS (shdyu-map.ts). Копии без стража-теста
+// разъехались бы при следующей смене вёрстки книг.

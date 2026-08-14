@@ -139,7 +139,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
   const [selectedDept, setSelectedDept] = useState<string>('');
   const [forecast, setForecast] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const tooltipStyle = getTooltipStyle(isDark).contentStyle;
+  const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
 
   const deptOptions = useMemo(() =>
     depts.map((d: any) => ({ id: d.department?.id ?? '', label: d.department?.nameShort ?? '?' })),
@@ -203,7 +203,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
             <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
             <XAxis dataKey="name" fontSize={10} tick={{ fill: getAxisColor(isDark) }} />
             <YAxis fontSize={10} tickFormatter={(v: number) => formatMoney(v)} tick={{ fill: getAxisColor(isDark) }} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v: number, name: string) => [formatMoney(v), name]} />
+            <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: number, name: string) => [formatMoney(v), name]} />
             <Legend wrapperStyle={{ fontSize: 10 }} />
             {forecast.scenarios.map((sc: any, i: number) => (
               <Area
@@ -251,7 +251,7 @@ export function Analytics() {
   const fd = useFilteredData();
   const isDark = useTheme(s => s.theme) === 'dark';
   const chartColors = getChartColors(isDark);
-  const { contentStyle: tooltipStyle } = getTooltipStyle(isDark);
+  const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
   const cursorStyle = { fill: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(0,0,0,0.06)', stroke: 'none' };
   const periodKey = fd.periodKey;
   const periodLabel = PERIOD_LABELS[periodKey] ?? periodKey;
@@ -585,7 +585,7 @@ export function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis dataKey="name" fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
-                <Tooltip contentStyle={tooltipStyle} cursor={cursorStyle} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Bar dataKey="kp" name="Конкурсные (КП)" fill="#3b82f6" radius={[4, 4, 0, 0]} cursor="pointer"
                   onClick={() => navigateTo('data', { procurement: 'competitive' })}
@@ -607,7 +607,7 @@ export function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis dataKey="name" fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis domain={[0, 'auto']} fontSize={11} tickFormatter={(v: number) => `${v}%`} tick={{ fill: getAxisColor(isDark) }} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 {deptNames.map((name, i) => (
                   <Line key={name} type="monotone" dataKey={name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
@@ -630,7 +630,7 @@ export function Analytics() {
                 <XAxis dataKey="name" fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis fontSize={10} tickFormatter={(v: number) => formatMoney(v)} tick={{ fill: getAxisColor(isDark) }} />
                 <Tooltip
-                  contentStyle={tooltipStyle} cursor={cursorStyle}
+                  contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle}
                   formatter={(v: number, name: string) => [formatMoney(v), name]}
                 />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
@@ -808,7 +808,7 @@ export function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
               <XAxis dataKey="name" fontSize={10} tick={{ fill: getAxisColor(isDark) }} />
               <YAxis fontSize={10} tickFormatter={(v: number) => formatMoney(v)} tick={{ fill: getAxisColor(isDark) }} />
-              <Tooltip contentStyle={tooltipStyle} cursor={cursorStyle} formatter={(v: number, name: string) => [formatMoney(v), name]} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle} formatter={(v: number, name: string) => [formatMoney(v), name]} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Bar dataKey="program" name="Программная" stackId="plan" fill="#8b5cf6" radius={[0, 0, 0, 0]} cursor="pointer"
                 onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'program' }); }}
@@ -847,7 +847,7 @@ export function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis dataKey="name" fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis domain={[0, 'auto']} fontSize={11} tickFormatter={(v: number) => `${v}%`} tick={{ fill: getAxisColor(isDark) }} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} formatter={(v: any) => v != null ? [`${Number(v).toFixed(1)}%`] : ['—']} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 {velocityData.map((d, i) => (
                   <Line key={d.name} type="monotone" dataKey={d.name} stroke={chartColors[i % chartColors.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
@@ -1048,7 +1048,7 @@ export function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis type="number" domain={[0, 100]} fontSize={11} tickFormatter={(v: number) => `${v}`} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis type="category" dataKey="name" width={60} fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
-                <Tooltip formatter={(v: number) => [`${v}`, 'Trust Score']} contentStyle={tooltipStyle} cursor={cursorStyle} />
+                <Tooltip formatter={(v: number) => [`${v}`, 'Trust Score']} contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle} />
                 <Bar dataKey="trust" name="Доверие" radius={[0, 4, 4, 0]} maxBarSize={18} cursor="pointer"
                   onClick={(data: any) => { if (data?.id) navigateTo('quality', { qualityTab: 'trust', department: data.id }); }}
                 >
@@ -1073,7 +1073,7 @@ export function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis type="number" fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis type="category" dataKey="dept" width={65} fontSize={11} tick={{ fill: getAxisColor(isDark) }} tickFormatter={(v: string) => productLabel(String(v))} />
-                <Tooltip contentStyle={tooltipStyle} cursor={cursorStyle} labelFormatter={(label: unknown) => productLabel(String(label))} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle} labelFormatter={(label: unknown) => productLabel(String(label))} />
                 <Bar dataKey="critical" name="Критические" stackId="a" fill={getSeverityColor('critical', isDark)} cursor="pointer"
                   onClick={(data: any) => { if (data?.dept) navigateTo('quality', { qualityTab: 'issues', department: data.dept }); }}
                 />

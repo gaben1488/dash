@@ -1,4 +1,6 @@
 import type { BudgetPlanFactFn } from './budget-filter';
+import type { PeriodResolution } from './period-resolution';
+import { aggregateNodeTotals } from './totals-aggregation';
 
 /**
  * Данные бар-чарта исполнения per-департамент (план/факт/%, КП/ЕП, счётное
@@ -19,38 +21,35 @@ export function buildBarData(depts: any[], opts: {
   periodKey: string;
   showKP: boolean;
   showEP: boolean;
+  /** Полная резолюция периода — подвед-ветвь считается общим ядром (баг #4). */
+  resolution: PeriodResolution;
+  hasMonthData: boolean;
 }): any[] {
   const {
     budgetPlanFact, isBudgetFiltered, isActivityFiltered, actKeys,
     useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
-    showKP, showEP,
+    showKP, showEP, resolution, hasMonthData,
   } = opts;
 
   return depts.map((d: any) => {
     let pct: number, plan = 0, fact = 0, kp = 0, ep = 0;
     let execCountPct: number | null = null;
 
-    // Subordinate-filtered: use the already-overridden dept-level values
+    // Subordinate-filtered: считаем ТЕМ ЖЕ ядром, что итоги страницы.
+    // Баг #4 реестра охоты 08.08: раньше ветвь брала годовые значения узла и
+    // суммировала все 4 квартала независимо от выбранного периода — бар
+    // управления показывал год под заголовком квартала. aggregateNodeTotals
+    // сам разбирает _subFiltered-узел периодной ветвью (см. totals-aggregation).
     if (d._subFiltered) {
-      kp = d.competitiveCount ?? 0;
-      ep = d.soleCount ?? 0;
-      if (isBudgetFiltered) {
-        for (const qk of ['q1', 'q2', 'q3', 'q4']) {
-          const bf = budgetPlanFact(d.quarters?.[qk]);
-          plan += bf.plan; fact += bf.fact;
-        }
-      } else {
-        plan = d.planTotal ?? 0;
-        fact = d.factTotal ?? 0;
-      }
+      const n = aggregateNodeTotals(d, resolution, { showKP: true, showEP: true, activeMonths, hasMonthData });
+      kp = n.kp;
+      ep = n.ep;
+      // budgetPlanFact без фильтра вернёт planTotal/factTotal, с фильтром —
+      // сумму выбранных бюджетов из периодной разбивки узла.
+      const bf = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
+      plan = bf.plan; fact = bf.fact;
       pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? 0);
-      // Sum plan/fact counts from sub quarters for execCountPct
-      let dPC = 0, dFC = 0;
-      for (const qk of ['q1', 'q2', 'q3', 'q4']) {
-        const sq = d.quarters?.[qk];
-        if (sq) { dPC += sq.planCount ?? 0; dFC += sq.factCount ?? 0; }
-      }
-      execCountPct = dPC > 0 ? +((dFC / dPC) * 100).toFixed(1) : null;
+      execCountPct = n.planCount > 0 ? +((n.factCount / n.planCount) * 100).toFixed(1) : null;
     } else if (isActivityFiltered) {
       // Use byActivity breakdown for activity-filtered bar data
       const ba = d.byActivity ?? {};

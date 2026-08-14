@@ -13,15 +13,12 @@ import { sheetValuesRange } from './sheet-range.js';
 // Google Sheets API Service — AEMR Platform
 // ============================================================
 //
-// ВНИМАНИЕ: модулей google-sheets в server ДВА (исторически), не путать:
-//   • services/google-sheets.ts (ЭТОТ) — getSheetData(sheetName) и
-//     getSpreadsheetMetadata() читают ТОЛЬКО основную таблицу
-//     config.google.spreadsheetId; параметр spreadsheetId здесь НЕ
-//     принимается. Для произвольной таблицы — getSheetDataFromSpreadsheet()
-//     или getSheetDataWithFormulas() ниже (оба берут spreadsheetId).
-//   • src/google-sheets.ts (корневой) — getSheetData(sheetName, spreadsheetId?)
-//     и getSpreadsheetMetadata(spreadsheetId?) honor явный spreadsheetId;
-//     его импортируют routes/journal.ts и services/snapshot.ts.
+// ЕДИНСТВЕННЫЙ модуль доступа к Google Sheets. Исторический дубль
+// src/google-sheets.ts (без дедлайнов: висящий запрос держал снимок, журнал
+// и маппинг бесконечно, минуя 503-деградацию) слит сюда 14.08.2026.
+// getSheetData(sheetName, spreadsheetId?) и getSpreadsheetMetadata(spreadsheetId?)
+// принимают необязательный spreadsheetId (по умолчанию — основная книга
+// config.google.spreadsheetId); все вызовы идут под withSheetsDeadline.
 
 // ------------------------------------------------------------------
 // Срок ответа источника
@@ -222,12 +219,12 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
   return { sheets, loadedAt: new Date().toISOString(), spreadsheetId };
 }
 
-export async function getSheetData(sheetName: string): Promise<unknown[][]> {
+export async function getSheetData(sheetName: string, spreadsheetId?: string): Promise<unknown[][]> {
   const response = await withSheetsDeadline(`чтение листа «${sheetName}»`, async () => {
     const api = await getSheetsApi();
     return api.spreadsheets.values.get(
       {
-        spreadsheetId: config.google.spreadsheetId,
+        spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
         range: sheetValuesRange(sheetName),
         valueRenderOption: 'UNFORMATTED_VALUE',
         dateTimeRenderOption: 'FORMATTED_STRING',
@@ -285,15 +282,15 @@ export async function batchGetFormulas(
   }));
 }
 
-export async function getSpreadsheetMetadata(): Promise<{
+export async function getSpreadsheetMetadata(spreadsheetId?: string): Promise<{
   title: string;
   sheets: Array<{ name: string; rowCount: number; colCount: number }>;
 }> {
-  const response = await withSheetsDeadline('чтение состава основной книги', async () => {
+  const response = await withSheetsDeadline('чтение состава книги', async () => {
     const api = await getSheetsApi();
     return api.spreadsheets.get(
       {
-        spreadsheetId: config.google.spreadsheetId,
+        spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
         fields: 'properties.title,sheets.properties',
       },
       { timeout: SHEETS_TIMEOUT_MS },

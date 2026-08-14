@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { REPORT_MAP } from '@aemr/shared';
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
-import { batchGetCells } from '../google-sheets.js';
+import { batchGetCells } from '../services/google-sheets.js';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
 

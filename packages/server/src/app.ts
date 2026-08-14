@@ -15,6 +15,7 @@ import { mappingRoutes } from './routes/mapping.js';
 import { journalRoutes } from './routes/journal.js';
 import { settingsRoutes } from './routes/settings.js';
 import { analyticsRoutes } from './routes/analytics.js';
+import { economicMetricsRoutes } from './routes/economic-metrics.js';
 import { historyRoutes } from './routes/history.js';
 import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
@@ -111,6 +112,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(journalRoutes);
   await app.register(settingsRoutes);
   await app.register(analyticsRoutes);
+  await app.register(economicMetricsRoutes);
   await app.register(historyRoutes);
   await app.register(reconciliationRoutes);
   await app.register(reportRoutes);
@@ -119,7 +121,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   if (process.env.NODE_ENV !== 'production') {
     app.get('/api/debug/sheets', async () => {
       try {
-        const { batchGetCells } = await import('./google-sheets.js');
+        const { batchGetCells } = await import('./services/google-sheets.js');
         const result = await batchGetCells([`'${SVOD_SHEET_NAME}'!A1`]);
         return { success: true, data: result };
       } catch (err) {

@@ -29,13 +29,10 @@ import type { DataSnapshot } from '@aemr/shared';
 
 const ORIGINAL_ENV = { ...process.env };
 
-vi.mock('../google-sheets.js', () => ({
+vi.mock('../services/google-sheets.js', () => ({
   batchGetCells: vi.fn(async () => { throw new Error('net off'); }),
   batchGetFormulas: vi.fn(async () => { throw new Error('net off'); }),
-  getSheetData: vi.fn(async () => { throw new Error('net off'); }),
   getSpreadsheetMetadata: vi.fn(async () => { throw new Error('net off'); }),
-}));
-vi.mock('../services/google-sheets.js', () => ({
   fetchSHDYUSheet: vi.fn(async () => { throw new Error('net off'); }),
   getSheetData: vi.fn(async () => { throw new Error('net off'); }),
   readDeptSheet: vi.fn(async () => { throw new Error('net off'); }),

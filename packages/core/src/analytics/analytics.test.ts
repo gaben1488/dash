@@ -592,15 +592,18 @@ describe('grbs-profile — buildGRBSProfiles', () => {
     });
   });
 
-  it('assigns ВЫСОКИЙ volume for planTotal > 100M', () => {
-    const recalc = { uer: makeRecalc({ planTotal: 200_000_000 }) };
+  // Единицы planTotal — ТЫС. руб. (канон колонок книг ГРБС): 200_000 тыс. =
+  // 200 млн руб. Свип БАГ #1 (bug-hunt 2026-08-08): прежние числа теста были
+  // в рублях и закрепляли баг единиц (порог «>100 млн» был недостижим).
+  it('assigns ВЫСОКИЙ volume for planTotal > 100 млн (200_000 тыс. руб.)', () => {
+    const recalc = { uer: makeRecalc({ planTotal: 200_000 }) };
     const profiles = buildGRBSProfiles(recalc);
     const uer = profiles.find(p => p.grbsId === 'uer')!;
     expect(uer.procurementVolume).toBe('ВЫСОКИЙ');
   });
 
-  it('assigns НИЗКИЙ volume for planTotal < 10M', () => {
-    const recalc = { uer: makeRecalc({ planTotal: 5_000_000 }) };
+  it('assigns НИЗКИЙ volume for planTotal < 10 млн (5_000 тыс. руб.)', () => {
+    const recalc = { uer: makeRecalc({ planTotal: 5_000 }) };
     const profiles = buildGRBSProfiles(recalc);
     const uer = profiles.find(p => p.grbsId === 'uer')!;
     expect(uer.procurementVolume).toBe('НИЗКИЙ');

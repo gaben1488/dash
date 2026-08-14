@@ -34,6 +34,7 @@ function makeInputs(period: PeriodScope, kpiCards: any[], summaryByPeriod = SUMM
     subordinatesMap: {},
     period,
     activeMonths: new Set<number>(),
+    periodMode: 'explicit' as const,
     selectedMethods: new Set<string>(),
     selectedActivities: new Set<string>(),
     selectedBudgets: new Set<string>(),

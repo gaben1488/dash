@@ -14,6 +14,65 @@ const DEFAULT_PERIOD: PeriodScope = 'year';
 const DEFAULT_METHOD: ProcurementFilter = 'all';
 const DEFAULT_ACTIVITY: ActivityFilter = 'all';
 
+// ── Параметр `months`: сериализация выбора месяцев вместе с годом ──
+//
+// Баг #15 реестра охоты 08.08: ссылка с `?months=` восстанавливала данные
+// (activeMonths), но не барабан (monthsByYear) — TimeDrum показывал пустой
+// выбор при отфильтрованном экране, и селекция многолетних периодов терялась.
+// Формат: `2025:1,2;2026:7,8` (год:месяцы через запятую, годы через `;`).
+// Легаси-формат `1,2,7` (без года) читается и приписывается выбранному году.
+
+/** monthsByYear → значение параметра `months`; null = сериализовать нечего. */
+export function serializeMonthsParam(
+  monthsByYear: Record<number, Set<number>>,
+  activeMonths: Set<number>,
+  fallbackYear: number,
+): string | null {
+  const entries = Object.entries(monthsByYear)
+    .map(([yr, months]) => [Number(yr), Array.from(months).sort((a, b) => a - b)] as const)
+    .filter(([, months]) => months.length > 0)
+    .sort(([a], [b]) => a - b);
+  if (entries.length > 0) {
+    return entries.map(([yr, months]) => `${yr}:${months.join(',')}`).join(';');
+  }
+  // Легаси-состояние: месяцы есть, а барабан (monthsByYear) их не знает —
+  // пишем с годом, чтобы восстановление заполнило и барабан.
+  if (activeMonths.size > 0) {
+    const months = Array.from(activeMonths).sort((a, b) => a - b);
+    return `${fallbackYear}:${months.join(',')}`;
+  }
+  return null;
+}
+
+export interface ParsedMonthsParam {
+  monthsByYear: Record<number, Set<number>>;
+  /** Месяцы года `year` — то, что должно попасть в activeMonths. */
+  activeMonths: Set<number>;
+  /** Год, чей выбор становится активным (совпадает с годом URL, если он в выборе). */
+  year: number;
+}
+
+/** Разбор параметра `months` (оба формата); null = валидных месяцев нет. */
+export function parseMonthsParam(value: string, urlYear: number): ParsedMonthsParam | null {
+  const monthsByYear: Record<number, Set<number>> = {};
+  if (value.includes(':')) {
+    for (const part of value.split(';')) {
+      const [yrStr, monthsStr] = part.split(':');
+      const yr = parseInt(yrStr, 10);
+      if (Number.isNaN(yr)) continue;
+      const nums = (monthsStr ?? '').split(',').map(Number).filter((n) => n >= 1 && n <= 12);
+      if (nums.length > 0) monthsByYear[yr] = new Set(nums);
+    }
+  } else {
+    const nums = value.split(',').map(Number).filter((n) => n >= 1 && n <= 12);
+    if (nums.length > 0) monthsByYear[urlYear] = new Set(nums);
+  }
+  const years = Object.keys(monthsByYear).map(Number).sort((a, b) => a - b);
+  if (years.length === 0) return null;
+  const year = monthsByYear[urlYear] ? urlYear : years[0];
+  return { monthsByYear, activeMonths: new Set(monthsByYear[year]), year };
+}
+
 /** Parse URL search params and apply to store on mount; sync store changes back to URL (debounced). */
 export function useUrlSync() {
   const initialized = useRef(false);
@@ -44,12 +103,16 @@ export function useUrlSync() {
       updates.periodMode = 'explicit'; // URL has explicit period → explicit mode
     }
 
-    // months
+    // months — восстанавливаются И данные (activeMonths), И барабан
+    // (monthsByYear), и год выбора (баг #15).
     const monthsParam = params.get('months');
     if (monthsParam) {
-      const nums = monthsParam.split(',').map(Number).filter((n) => n >= 1 && n <= 12);
-      if (nums.length > 0) {
-        updates.activeMonths = new Set(nums);
+      const urlYear = typeof updates.year === 'number' ? updates.year : DEFAULT_YEAR;
+      const parsed = parseMonthsParam(monthsParam, urlYear);
+      if (parsed) {
+        updates.activeMonths = parsed.activeMonths;
+        updates.monthsByYear = parsed.monthsByYear;
+        updates.year = parsed.year;
         updates.periodMode = 'explicit'; // URL has explicit months → explicit mode
       }
     }
@@ -128,9 +191,12 @@ export function useUrlSync() {
           params.set('period', state.period);
         }
 
-        // months — only serialize when in explicit mode (week mode months are auto-derived)
-        if (state.activeMonths.size > 0 && state.periodMode === 'explicit') {
-          params.set('months', Array.from(state.activeMonths).sort((a, b) => a - b).join(','));
+        // months — only serialize when in explicit mode (week-режим — не фильтр,
+        // баг #5). Сериализуется monthsByYear целиком, с годами (баг #15).
+        if (state.periodMode === 'explicit') {
+          const fallbackYear = typeof state.year === 'number' ? state.year : DEFAULT_YEAR;
+          const serialized = serializeMonthsParam(state.monthsByYear, state.activeMonths, fallbackYear);
+          if (serialized) params.set('months', serialized);
         }
 
         // depts

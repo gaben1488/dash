@@ -186,13 +186,10 @@ function PendingPositionRow({ p }: { p: PendingPosition }) {
           {p.planTotal > 0 && ` · ${fmtCount(p.planTotal)} тыс. руб.`}
           <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
         </span>
-        {/* Ожидаемая дата, вынутая из текста исполнителя: отвечает на вопрос
-            «когда ждать», которого нет ни в одной колонке листа */}
-        {p.forecastDate && (
-          <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
-            ожидается {p.forecastDate}
-          </span>
-        )}
+        {/* Бейдж «ожидается <дата>» удалён 14.08.2026 (канон п.27 интервью,
+            пп.31/40/41): дата вынималась машинно из свободного текста
+            исполнителя и врала («лицензия до 30.08.2027» → «ожидается
+            30.08.2027»). Пояснения ниже показываются как есть. */}
       </div>
       {p.explanations.length > 0 ? (
         p.explanations.map((e) => (

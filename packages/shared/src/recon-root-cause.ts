@@ -95,7 +95,8 @@ export interface ReconLine {
 
 /** Человеческие подписи классов — единственный дом (в UI своих строк не заводить). */
 export const ROOT_CAUSE_LABELS: Readonly<Record<ReconRootCauseClass, string>> = {
-  unfunded: 'Закупки без подтверждённого финансирования',
+  // Канон имени класса — п.23 интервью 14.08.2026.
+  unfunded: 'Закупки, не обеспеченные финансированием',
   factQuarterMissing: 'Факт без планового квартала',
   afterSlice: 'Заключено после даты среза',
   sign: 'Разный знак отклонения',

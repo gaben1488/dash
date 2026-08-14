@@ -7,7 +7,7 @@ function cell(planCount: number, planFB: number): UnifiedCell {
 }
 
 function gridWith(entries: Array<[string, UnifiedCell]>): UnifiedGrid {
-  return { cells: Object.fromEntries(entries), grbsIds: ['uo'], scopes: ['all', 'td', 'pm', 'td_pm'] };
+  return { cells: Object.fromEntries(entries), grbsIds: ['uo'], scopes: ['all', 'td', 'pm'] };
 }
 
 const GRID = gridWith([

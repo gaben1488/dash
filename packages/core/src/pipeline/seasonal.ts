@@ -22,7 +22,10 @@ const SEASONAL_RE = {
   road: /дорог|асфальт|покрыт|тротуар|благоуст/i,
   fuel: /топлив|угл[яеьюи]|мазут|дизельн|ГСМ|котельн.*снабж/i,
   boiler: /котельн|отоплен|теплоснабж/i,
-  signed: /подписан|заключен|исполнен/i,
+  // signed-паттерн (/подписан|заключен|исполнен/) СНЯТ 14.08.2026 — канон
+  // п.27 интервью: статус «заключено» выводится только из структурной даты
+  // факта (Q), свободный текст U машинно не интерпретируется (тот же класс,
+  // что баг #16 охоты: «не заключен» матчился как «заключен»).
 } as const;
 
 /**
@@ -112,10 +115,12 @@ export function detectSeasonalAnomalies(
     }
 
     // 2. LATE_SCHOOL_FOOD_CONTRACT — контракт на питание не заключён после 15 августа
+    // «Не заключён» = нет даты факта Q (канон п.27): прежний гейт по тексту
+    // статуса пропускал строку со словами «контракт заключен» без даты.
     if (
       SEASONAL_RE.food.test(description) &&
       SEASONAL_RE.school.test(contextAll) &&
-      !SEASONAL_RE.signed.test(status)
+      !factDate
     ) {
       // Determine procurement year from plan date or reference date
       const procYear = planDate ? planDate.getFullYear() : now.getFullYear();
@@ -148,9 +153,10 @@ export function detectSeasonalAnomalies(
     }
 
     // 4. LATE_FUEL_PROCUREMENT — топливо не закуплено к отопительному сезону
+    // «Не закуплено» = нет даты факта Q (канон п.27, см. п.2 выше).
     if (
       SEASONAL_RE.fuel.test(description) &&
-      !SEASONAL_RE.signed.test(status)
+      !factDate
     ) {
       const procYear = planDate ? planDate.getFullYear() : now.getFullYear();
       const deadline = new Date(procYear, 8, 1); // September 1
@@ -186,8 +192,9 @@ export function detectSeasonalAnomalies(
     }
 
     // 7. DECEMBER_RUSH_CONTRACT — подозрительно быстрый контракт в декабре
+    // Сама дата факта и есть признак заключения (канон п.27): прежнее
+    // требование слова «подписан» в статусе пропускало строки без него.
     if (
-      SEASONAL_RE.signed.test(status) &&
       factDate &&
       planDate &&
       factDate.getMonth() === 11 // December

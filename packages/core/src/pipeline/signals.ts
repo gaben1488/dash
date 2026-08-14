@@ -15,8 +15,10 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isProceduralMismatch, matchesActivityScope, parseSheetDate } from '@aemr/shared';
-import { parseAE } from './ae-parser.js';
+import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+// parseAE снят 14.08.2026 (канон п.27 интервью): дата контракта и правовое
+// основание из комментариев (AE/AF) — машинная интерпретация свободного
+// текста, которая запрещена решением владельца.
 
 // ────────────────────────────────────────────────────────────
 // Типы
@@ -25,23 +27,32 @@ import { parseAE } from './ae-parser.js';
 /**
  * Аналитические сигналы строки закупки.
  * Каждый флаг — результат детерминированной проверки одной строки.
+ *
+ * КАНОН п.27 (интервью 14.08.2026, решение владельца ДОСЛОВНО): свободный
+ * текст исполнителей (U «Причина отклонения», AE «Обоснование необходимости»,
+ * AF «Комментарий ГРБСа») машинно НЕ интерпретируется НИГДЕ — «то, что они
+ * там пишут, отдельный смысл». Статус строки выводится ТОЛЬКО из структурных
+ * колонок: даты (N, Q), суммы (H–K, V–Y), отметки (L, O, P, AD). Комментарий
+ * показывается как есть. Живой урон старого чтения текста: «не заключен»
+ * читался как «подписан» (баг #16 охоты 08.08, пп.40–41 интервью), «отменён»
+ * гасил сигналы состоявшейся закупки.
  */
 export interface RowSignals {
-  /** Контракт подписан/заключён/исполнен (колонка U) */
+  /** Контракт заключён: дата заключения (Q) проставлена и разобрана — единственный структурный признак «подписан» (канон п.27) */
   signed: boolean;
-  /** В стадии планирования/подготовки/разработки (колонка U) */
+  /** ВСЕГДА false с 14.08.2026: статус «планирование» выводился из текста комментариев — снят каноном п.27. Поле сохранено для совместимости интерфейса. */
   planning: boolean;
-  /** Срок не наступил (колонка U) */
+  /** ВСЕГДА false с 14.08.2026: «срок не наступил» — текст, снят каноном п.27. */
   notDue: boolean;
-  /** Отменена / снята / не требуется (колонка U) */
+  /** ВСЕГДА false с 14.08.2026: «отменена/снята/не требуется» — текст, снят каноном п.27 (п.41: «отменён» при состоявшейся закупке). Структурной отметки отмены в книгах нет. */
   canceled: boolean;
-  /** Просрочена: плановая дата прошла, факта нет, не подписана, не отменена */
+  /** Просрочена: плановая дата прошла, факта (дата или суммы) нет */
   overdue: boolean;
   /** Есть фактические данные: факт дата ИЛИ факт суммы > 0 */
   hasFact: boolean;
   /** Плановая дата наступит в ближайшие 14 дней */
   planSoon: boolean;
-  /** Задержка финансирования (AE/AF: "финансир", "перенос") */
+  /** ВСЕГДА false с 14.08.2026: выводился из «финансир» в комментариях — снят каноном п.27; необеспеченность финансированием живёт в planYearMissing (структурная колонка P). */
   financeDelay: boolean;
   /** Флаг экономии от уполномоченного органа: AD = «да» (канон столбца — «да»/«нет») */
   economyFlag: boolean;
@@ -53,7 +64,7 @@ export interface RowSignals {
   dataQuality: boolean;
   /** Формула вернула ошибку (#REF, #VALUE, #N/A и т.д.) */
   formulaBroken: boolean;
-  /** 1 участник — формальная конкуренция */
+  /** ВСЕГДА false с 14.08.2026: «1 участник» выводился из текста комментариев — снят каноном п.27. */
   singleParticipant: boolean;
   /** Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт. Антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных */
   highEconomy: boolean;
@@ -63,7 +74,7 @@ export interface RowSignals {
   earlyClosure: boolean;
   /** Факт > план на >10% */
   factExceedsPlan: boolean;
-  /** Подвисший контракт: подписан, нет факт даты, план дата просрочена >60 дней */
+  /** ВСЕГДА false с 14.08.2026: «подписан, но нет факт даты» опирался на текстовый статус «подписан»; после канона п.27 «заключено» = дата Q, и такое состояние структурно неотличимо. */
   stalledContract: boolean;
   /** @deprecated Удалён — дублирует правило budget_sum_plan в RULE_BOOK */
   budgetMismatch: boolean;
@@ -71,7 +82,7 @@ export interface RowSignals {
   factWithoutDate: boolean;
   /** Есть факт дата но нет факт сумм — потенциальное отсутствие данных */
   dateWithoutFact: boolean;
-  /** Факт дата раньше плановой даты — логическая ошибка в данных */
+  /** Факт дата раньше плановой — ИНФОРМАЦИОННЫЙ сигнал (п.28 интервью 14.08.2026: «это не ошибка» — плановая дата ориентир, раннее заключение допустимо) */
   factDateBeforePlan: boolean;
   /**
    * Дата факта в БУДУЩЕМ — договор «уже заключён» позже сегодняшнего дня.
@@ -94,10 +105,10 @@ export interface RowSignals {
   /** Источники бюджета не указаны: H/I/J все пусты/нули, но K > 0 */
   budgetSourceMissing: boolean;
   /**
-   * ТД с заполненной графой программы (ТД-ПМ). Вводная пользователя 06.08:
-   * возможно, это ошибка заполнения, а не отдельная категория — строка либо
-   * на деле программная (исправить вид деятельности F), либо графа программы
-   * D заполнена ошибочно. Канон среза — matchesActivityScope('td_pm', F, D).
+   * СНЯТ каноном п.30 (интервью 14.08.2026): заполненная графа программы (D)
+   * у текущей деятельности — НОРМА, а не ошибка заполнения; срез «ТД-ПМ»
+   * упразднён, такие строки — обычная ТД. Поле оставлено false для
+   * совместимости интерфейса RowSignals (старые снимки его несут).
    */
   tdWithProgram: boolean;
   /**
@@ -264,14 +275,18 @@ function isDataRow(cells: Record<string, unknown>): boolean {
  * @param today — текущая дата (для unit-тестов), по умолчанию new Date()
  * @returns RowSignals — набор булевых флагов
  *
- * Бизнес-логика:
- * - Текстовые сигналы (signed, planning, notDue, canceled, financeDelay) —
- *   регистронезависимый поиск подстрок в столбцах U + AE (оба содержат статусные данные).
- * - Временны́е сигналы (overdue, planSoon) — сравнение плановой даты (столбец Q)
+ * Бизнес-логика (после канона п.27 от 14.08.2026):
+ * - Статус строки — ТОЛЬКО структурные колонки: «заключено» = дата Q,
+ *   «есть факт» = дата Q или суммы V–Y. Свободный текст (U/AE/AF) не читается.
+ * - Временны́е сигналы (overdue, planSoon) — сравнение плановой даты (столбец N)
  *   с текущей датой.
  * - Финансовые сигналы (epRisk, highEconomy, lowCompetition, economyConflict) —
  *   арифметические проверки сумм.
  * - Сигналы качества (dataQuality, formulaBroken) — полнота и корректность данных.
+ * - Поле M («Обоснование ЕП») — обязательное правовое поле ст.93 44-ФЗ, а не
+ *   комментарий: проверки его ЗАПОЛНЕННОСТИ и классификация по каноническим
+ *   кластерам словаря (EP_REASON_DICT) остаются — они про качество самого
+ *   поля, а не про вывод статуса строки из текста.
  */
 export function detectSignals(cells: Record<string, unknown>, today?: Date): RowSignals {
   const now = today ?? new Date();
@@ -282,25 +297,16 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // TZ-fix 2026-07-20: арифметика ниже — на целых номерах суток (toDayNumber).
   const todayDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
 
-  // ── Текстовые поля ──
-  // Колонки по живой шапке книг (аудит 30.07, 3 828 строк): U — «Причина
-  // отклонения», AE — «Обоснование необходимости», AF — «Комментарий ГРБСа».
-  // Статусные фразы («договор заключен», «планирование») живут в AF: до
-  // исправления статус искали в U + AE, и продукт видел признак «подписан»
-  // в 208 строках из 2 464 — 2 256 подписанных закупок показывались как
-  // «Исполнение», 66 % строк несли чужое состояние.
-  const statusText = cellText(cells, 'U');
+  // ── Структурные поля ──
+  // КАНОН п.27 (интервью 14.08.2026): свободный текст исполнителей — U
+  // «Причина отклонения», AE «Обоснование необходимости», AF «Комментарий
+  // ГРБСа» — здесь НЕ читается вовсе. Ни статус, ни дата, ни смягчение
+  // сигналов из него не выводятся; комментарий показывается как есть.
+  // Урок класса: «не заключен» матчился подстрокой «заключен» и делал строку
+  // подписанной (баг #16 охоты 08.08), «отменён» при состоявшейся закупке
+  // гасил её сигналы (п.41).
   const adText = cellText(cells, 'AD');
-  const aeText = cellText(cells, 'AE');
-  const afText = cellText(cells, 'AF');
-  const grbsComment = aeText + ' ' + afText;
-  // AE-parser: дата факта и правовое основание ЕП часто лежат в обосновании
-  // и комментарии (SIGNAL_VALIDATION §1, корень №3) — разбираем оба.
-  const aeParsed = parseAE(grbsComment);
   const methodText = cellText(cells, 'L');
-  // Статус ищем во всех трёх текстах: U (причина), AE (обоснование —
-  // операторы и туда пишут статусные фразы), AF (комментарий ГРБСа).
-  const statusAndComment = statusText + ' ' + grbsComment;
 
   // ── Суммы ──
   const planTotal = toNumber(cells['K']);    // K = total plan
@@ -322,80 +328,58 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const hasFactDate = factDay !== null;
   const hasFact = hasFactAmounts || hasFactDate;
 
-  // ── Статусные сигналы (столбцы U + AE) ──
-  // Real data: column U mostly has "Х"; AE has "договор заключен" (950+), "планирование" (710+).
-  // We check BOTH to avoid massive false negatives.
-  // IMPORTANT: "заключ" is ambiguous — "заключен" (signed, past) vs "заключение" (planning, future).
-  // Use precise patterns to avoid false positives.
-  const signed = textIncludes(statusAndComment, ['подписан', 'заключен', 'исполнен']);
-  const planning = textIncludes(statusAndComment, ['планир', 'подготов', 'разработ']);
-  const notDue = statusAndComment.includes('срок не наступил');
-  const canceled = textIncludes(statusAndComment, ['отмен', 'не требуется', 'снят', 'подлежит удалению']);
+  // ── Статусные сигналы — только структура (канон п.27, 14.08.2026) ──
+  // «Заключено» = дата заключения (Q) проставлена и разобрана. Подстрочный
+  // поиск «подписан/заключен/исполнен» по U/AE/AF снят: он читал «не заключен»
+  // как «подписан» (баг #16 охоты 08.08; живые подтверждения — пп.40–41
+  // интервью 14.08). Текстовых статусов «планирование», «срок не наступил»,
+  // «отменена» структурного эквивалента в книгах нет — сигналы сняты.
+  const signed = hasFactDate;
+  const planning = false;
+  const notDue = false;
+  const canceled = false;
 
   // ── Временны́е сигналы ──
   let overdue = false;
   let planSoon = false;
 
-  // Check if AE/AF indicates a known schedule change (переносится на...) — not truly overdue
-  const hasScheduleTransfer = textIncludes(grbsComment, [
-    'переносится на', 'планируется на', 'планирование на',
-    'перенос', 'перенесен', 'перенесён', 'отложен', 'переносится',
-    // Операторы пишут перенос срока ещё и так (SIGNAL_VALIDATION §4):
-    'срок изменён', 'срок изменен', 'изменён на', 'изменен на',
-  ]);
-
   if (planDay !== null) {
     const daysUntilPlan = planDay - todayDay;
 
-    // Просрочено: плановая дата прошла, нет факта, не подписан, не отменён,
-    // НЕ в статусе «планирование»/«срок не наступил» (это forward план-график —
-    // запланированная позиция, чья дата только что прошла, ещё не просрочка),
-    // и нет известного переноса срока.
-    // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): без !planning/!notDue сигнал давал
-    // ~90% ложных Критических на сезонных план-графиках (УО 51/52).
-    if (
-      daysUntilPlan < 0 &&
-      !hasFact &&
-      !signed &&
-      !canceled &&
-      !hasScheduleTransfer &&
-      !planning &&
-      !notDue
-    ) {
+    // Просрочено — чисто структурно: плановая дата прошла, факта нет.
+    // Текстовые смягчители («переносится на…», «планирование», «срок не
+    // наступил») сняты каноном п.27: их место — в колонке комментария,
+    // которая показывается читателю как есть, а не в машинном статусе.
+    if (daysUntilPlan < 0 && !hasFact) {
       overdue = true;
     }
 
     // Скоро срок: плановая дата в ближайшие 14 дней (и ещё не прошла)
-    if (daysUntilPlan >= 0 && daysUntilPlan <= PLAN_SOON_DAYS && !signed && !canceled && !hasFact) {
+    if (daysUntilPlan >= 0 && daysUntilPlan <= PLAN_SOON_DAYS && !hasFact) {
       planSoon = true;
     }
   }
 
-  // ── Финансирование (AE/AF) ──
-  // "перенос" alone is too broad — it catches schedule changes, not just finance delays.
-  // FP-fix 2026-07-16 (signal_audit §3.8): ложные классы подстроки «финансир» вырезаются
-  // из текста ДО поиска — «софинансир*» (доведение софинансирования — не задержка),
-  // «добавлени* финансирования» (сумму увеличили), «финансировани[ея] дефицита» (слово
-  // в предмете закупки-кредита). Ядро («нет/отсутствие/после доведения финансирования»)
-  // остаётся: если рядом с исключённой фразой есть честное «финансир» — сигнал живёт.
-  // \w в JS не матчит кириллицу — только явный класс [а-яё].
-  const financeText = grbsComment
-    .replace(/софинансир[а-яё]*/g, '')
-    .replace(/добавлени[а-яё]*\s+финансировани[а-яё]*/g, '')
-    .replace(/финансировани[ея]\s+дефицита/g, '');
-  const financeDelay = financeText.includes('финансир');
+  // ── Финансирование ──
+  // Сигнал «задержка финансирования» выводился из подстроки «финансир» в
+  // комментариях — снят каноном п.27 (14.08.2026). Необеспеченность
+  // финансированием определяется структурно: пустой год плана P
+  // (planYearMissing ниже) — и по п.34 она же подавляет сигналы-следствия.
+  const financeDelay = false;
 
   // ── ЕП detection (used by multiple signals below) ──
   const isEP = methodText.includes('еп') || methodText.includes('единствен');
-  // Column M = "Обоснование ЕП" — contains justification for sole-source.
-  // Natural monopolies, Governor's orders, and law-mandated sole-source are NOT risks.
+  // Колонка M — «Обоснование ЕП»: обязательное правовое поле ст.93 44-ФЗ,
+  // а не свободный комментарий; естественные монополии, поручения губернатора
+  // и законные основания ЕП риском не считаются. Ветка чтения «монополист»
+  // из комментария AE снята (канон п.27).
   const epJustification = cellText(cells, 'M');
   const isLegitimateEP = textIncludes(epJustification, [
     'монополист', 'монопол', 'естественн',           // natural monopoly (energy, water, telecom)
     'п.8', 'п.1 ч.1', 'п.6 ч.1', 'п.29',           // specific 44-FZ articles for mandatory sole-source
     'губернатор', 'поручен',                          // Governor's orders
     'региональный оператор',                          // regional operators (waste, etc.)
-  ]) || textIncludes(aeText, ['монополист']);
+  ]);
 
   // ── Экономия (AD) ──
   // Канон столбца AD — «да»/«нет» (правило status_on_data_rows + calc-engine
@@ -433,16 +417,17 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   }
 
   // ── ЕП-риск (антикоррупция) ──
-  const epRisk = isEP && !isNaN(planTotal) && planTotal > EP_RISK_THRESHOLD && !canceled && !isLegitimateEP;
+  // Гейт «!canceled» снят (п.27): «отменена» из текста больше не гасит риск.
+  const epRisk = isEP && !isNaN(planTotal) && planTotal > EP_RISK_THRESHOLD && !isLegitimateEP;
 
   // ── Качество данных ──
   // Only check required fields if the row has actual execution (fact date present)
   // or if the plan date is in the past. Pure future-plan rows are expected to have
   // incomplete data (no method, no amounts yet).
-  // Skip canceled rows and rows marked for deletion ("подлежит удалению").
+  // Текстовые исключения («планирование», «отменена») сняты каноном п.27.
   let dataQuality = false;
   const planDateInPast = planDay !== null && planDay < todayDay;
-  if (isDataRow(cells) && (hasFactDate || planDateInPast) && !planning && !notDue && !canceled) {
+  if (isDataRow(cells) && (hasFactDate || planDateInPast)) {
     dataQuality = REQUIRED_COLUMNS.some(col => {
       const val = cells[col];
       return val === null || val === undefined || String(val).trim() === '';
@@ -453,16 +438,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const formulaBroken = hasFormulaError(cells);
 
   // ── Единственный участник ──
-  // No dedicated "participants" column in standard template.
-  // Detect from status/comments: precise patterns to avoid false matches.
-  // IMPORTANT: "единственный поставщик" in column M is just ЕП method justification, NOT a competition signal.
-  // We only flag single participant for COMPETITIVE procedures (ЭА, ЭК, ЭЗК) where 1 participant
-  // indicates formal/fake competition.
-  const allText = statusText + ' ' + grbsComment;
-  const singleParticipant = !isEP && (
-    allText.includes('1 участник') ||
-    allText.includes('единственный участник') ||
-    allText.includes('ед.подавшим заявку'));
+  // Снят каноном п.27 (14.08.2026): признак жил только в свободном тексте
+  // («1 участник», «ед.подавшим заявку»), структурной колонки участников в
+  // книгах нет — машинно вывести его больше не из чего.
+  const singleParticipant = false;
 
   // ── Высокая экономия и формальная конкуренция ──
   // По 44-ФЗ: антидемпинг (ст.37) и конкуренция применимы ТОЛЬКО к конкурентным процедурам (ЭА, ЭК, ЭЗК).
@@ -478,10 +457,10 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     // FP-fix 2026-07-16 (signal_audit §3.2): 242 из 274 срабатываний были «план == факт
     // копейка-в-копейку» — операторы вписывают в план сумму заключённого контракта,
     // экономия 0% — арифметический артефакт заполнения, не мера конкуренции. Точное
-    // равенство гасим. Ещё 12 дублировали singleParticipant (несостоявшиеся аукционы) —
-    // дубль тоже гасим, сигнал «1 участник» информативнее.
+    // равенство гасим. Прежний гейт «!singleParticipant» снят вместе с самим
+    // сигналом «1 участник» (канон п.27): текст больше ничего не гасит.
     if (economyPct >= 0 && economyPct < LOW_COMPETITION_PERCENT
-      && factTotal !== planTotal && !singleParticipant) {
+      && factTotal !== planTotal) {
       lowCompetition = true;
     }
   }
@@ -492,7 +471,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Полезный сигнал прячется в экстремумах: смена календарного года (УД стр.101:
   // факт 15.04.2025 при плане 30.04.2026 — вероятна опечатка года) или разрыв > 180 дней.
   let earlyClosure = false;
-  if (factDay !== null && planDay !== null && !canceled) {
+  if (factDay !== null && planDay !== null) {
     const diff = planDay - factDay; // planDate - factDate, в сутках
     // Смена года: факт в предыдущем календарном году относительно плана. Гард diff > 30
     // отсекает нормальное заключение декабрь→январь через Новый год.
@@ -510,37 +489,36 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // ── Дата факта в будущем: опечатка в годе ──
   // Гейт «сегодня» тот же, что у остальных дат-правил (todayDay), поэтому
   // сигнал не зависит от режима просмотра: он про качество данных, а не про
-  // срез. Отменённые строки не трогаем — их даты могут быть мусорными.
-  const futureFactDate = factDay !== null && !canceled && factDay > todayDay;
+  // срез. Текстовая «отменённость» больше не гасит (канон п.27).
+  const futureFactDate = factDay !== null && factDay > todayDay;
 
   // ── Факт > план ──
-  // Skip canceled rows — their data may be stale/incorrect.
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): допуск 0.5% против округлительного шума —
   // план хранится в 2 знака, факт в 5, давало «Существенное» на превышении в 3.75 ₽ (УИО r24/25).
   // GAS гасил это допуском *1.05; берём более строгие *1.005.
+  // Гейт «!canceled» снят (п.27, п.41): состоявшаяся закупка со словом
+  // «отменён» в комментарии обязана сохранять свои сигналы.
   let factExceedsPlan = false;
-  if (!isNaN(planTotal) && planTotal > 0 && factTotal > planTotal * 1.005 && !canceled) {
+  if (!isNaN(planTotal) && planTotal > 0 && factTotal > planTotal * 1.005) {
     factExceedsPlan = true;
   }
 
-  // ── Подвисший контракт: статус "Подписан/Заключён", нет факт даты, план дата (N) просрочена >30 дней ──
-  // Порог снижен с 60→30 дней — 60 было слишком консервативно, пропускало реальные случаи.
-  // Skip canceled rows.
-  let stalledContract = false;
-  if (signed && !hasFactDate && planDay !== null && !canceled) {
-    const daysOverdue = todayDay - planDay; // now - planDate
-    if (daysOverdue > 30) {
-      stalledContract = true;
-    }
-  }
+  // ── Подвисший контракт: СНЯТ каноном п.27 (14.08.2026) ──
+  // Определение «подписан (текст), но нет факт даты» опиралось на текстовый
+  // статус; теперь «заключено» = сама дата Q, и это состояние структурно
+  // невыразимо. Поле оставлено false для совместимости интерфейса RowSignals.
+  const stalledContract = false;
 
   // ── budgetMismatch: УДАЛЁН — дублирует правило budget_sum_plan (RULE_BOOK #1a) ──
   // Проверка K = H+I+J выполняется ТОЛЬКО через RULE_BOOK → validate.ts.
   // Сигнал оставлен как false для обратной совместимости интерфейса RowSignals.
   const budgetMismatch = false;
 
-  // ── ТД с заполненной графой программы (ТД-ПМ) — возможная ошибка заполнения ──
-  const tdWithProgram = matchesActivityScope('td_pm', cells['F'], cells['D']);
+  // ── tdWithProgram: СНЯТ каноном п.30 (14.08.2026) ──
+  // Заполненные наименования программ у ТД — норма; срез «ТД-ПМ» упразднён,
+  // и сигнал «возможная ошибка заполнения» был претензией к нормальным
+  // строкам. Всегда false (как stalledContract/budgetMismatch выше).
+  const tdWithProgram = false;
 
   // ── Счётная строка без года плана (P) — невидима для формул СВОДа ──
   // Гейт «счётная»: есть способ закупки и плановые деньги — ровно такие
@@ -549,40 +527,33 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // операторы ставят заглушку вместо года.
   const planYearText = cellText(cells, 'P');
   const planYearEmpty = planYearText === '' || planYearText === 'х' || planYearText === 'x' || planYearText === '-';
-  const planYearMissing = planYearEmpty && methodText !== '' && !isNaN(planTotal) && planTotal > 0 && !canceled;
+  const planYearMissing = planYearEmpty && methodText !== '' && !isNaN(planTotal) && planTotal > 0;
 
   // Факт без планового квартала (блок А п.2): дата факта проставлена, а O
   // пуст/невалиден — строка выпадает из печатного года (Σ кварталов).
   const planQuarterNum = Number(cellText(cells, 'O').replace(',', '.'));
-  const factQuarterMissing = hasFactDate && !canceled
+  const factQuarterMissing = hasFactDate
     && !(planQuarterNum >= 1 && planQuarterNum <= 4);
 
   // ── Факты без дат / Даты без фактов ──
-  // factWithoutDate: есть суммы факта, но нет даты — данные неполные
-  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не флажить, если дата факта есть в комментарии AE
-  // («01.02.2026 заключен контракт») — ≈73% «Факт суммы без даты» были ложными по этой причине.
-  // FP-fix 2026-07-16 (signal_audit §3.6): периодические закупки «в течение года по мере
-  // необходимости» (план-дата 30/31.12) по практике заполнения не имеют канонической
-  // единственной даты факта — все 14 срабатываний прогона 15.07 были этим классом.
-  // Проверяем комментарии (AE/AF) и обоснование (M); «в течении» — реальная опечатка операторов.
-  const isPeriodicPurchase = textIncludes(grbsComment + ' ' + epJustification, [
-    'в течение года', 'в течении года', 'по мере необходимости', 'по мере возникновения',
-  ]);
-  const factWithoutDate = hasFactAmounts && !hasFactDate && !canceled
-    && !aeParsed.hasContractDate && !isPeriodicPurchase;
+  // factWithoutDate: есть суммы факта, но нет даты — структурная неполнота.
+  // Прежние текстовые гейты сняты каноном п.27 (14.08.2026): дата из
+  // комментария (ae-parser) и фразы «в течение года / по мере необходимости»
+  // — машинная интерпретация свободного текста. Пояснение исполнителя
+  // читатель видит как есть рядом с сигналом, а не вместо него.
+  const factWithoutDate = hasFactAmounts && !hasFactDate;
   // dateWithoutFact: есть факт дата, но нет факт сумм — ввели дату, забыли суммы
-  const dateWithoutFact = hasFactDate && !hasFactAmounts && !canceled;
+  const dateWithoutFact = hasFactDate && !hasFactAmounts;
 
-  // ── Факт дата раньше план даты ──
+  // ── Факт дата раньше план даты — ИНФОРМАЦИОННО (п.28 интервью 14.08) ──
   // factDate < planDate on 1-30 day range (>30 → earlyClosure).
-  // Previously excluded signed rows, but that filtered out ~95% of matches
-  // because most rows with both dates ARE signed. Now checks ALL non-canceled rows.
-  // For signed contracts, early fact date can still indicate a data entry error
-  // (e.g., plan date was updated after the fact but the old plan date remained).
+  // По оценке аудитории «это не ошибка»: плановая дата — ориентир, раннее
+  // заключение допустимо. Сигнал понижен до информационного (severity 'info'
+  // в CHECK_REGISTRY, синий бейдж), но не снят: остаётся справкой.
   let factDateBeforePlan = false;
   // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): только конкурентные методы. Для ЕП (ст.93)
   // нет извещения и 10-дневной паузы — досрочное заключение договора законно, не аномалия (~88% FP).
-  if (factDay !== null && planDay !== null && !canceled && !isEP) {
+  if (factDay !== null && planDay !== null && !isEP) {
     const diff = planDay - factDay; // planDate - factDate, в сутках
     // factDate < planDate means diff > 0. Only flag 1-30 day range (not caught by earlyClosure).
     if (diff > 0 && diff <= 30) {
@@ -591,15 +562,15 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   }
 
   // ── План без исполнения ──
-  // Plan exists (K > 0, plan date set), no fact, plan date is in past, NOT overdue (overdue = no plan date or different path)
-  // This catches rows that have a plan allocated but year is progressing and nothing happened.
-  // Skip signed, canceled, planning, notDue rows — they have legitimate reasons.
-  // Also skip rows already flagged as overdue (to avoid overlap).
-  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §4): контингентные закупки «при необходимости»
-  // (напр. резервный кредит УФБП на 32 млн) законно не имеют даты/исполнения — не «невыполненный план».
-  const isContingent = textIncludes(grbsComment, ['при необходимости', 'по мере', 'в случае возникновения', 'в случае необходимости']);
+  // Plan exists (K > 0), no fact, plan date is in past (or absent after April).
+  // Текстовый гейт «при необходимости» (контингентные закупки) снят каноном
+  // п.27. Вместо него — структурное подавление следствий (п.34 интервью
+  // 14.08.2026): строка «не обеспечена финансированием» (planYearMissing,
+  // пустой год P — это и есть кредитные линии «при необходимости», п.39)
+  // НЕ получает вдобавок «план без исполнения» — первопричина главнее,
+  // двойное замечание по одной строке путает исполнителей.
   let planWithoutExecution = false;
-  if (!isNaN(planTotal) && planTotal > 0 && !hasFact && !signed && !canceled && !planning && !notDue && !overdue && !isContingent) {
+  if (!isNaN(planTotal) && planTotal > 0 && !hasFact && !overdue && !planYearMissing) {
     // Gate: plan date must exist AND be in the past (>30 days ago to avoid noise on recent plans)
     // Without this gate, signal fires on 48% of rows including future-dated plans.
     if (planDay !== null) {
@@ -618,12 +589,12 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // ── ЕП без обоснования ──
   // ЕП (sole source) requires justification in column M per 44-ФЗ.
-  // Missing justification = compliance risk.
-  // Skip canceled rows and rows with legitimate EP markers already detected.
-  // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): не «нарушение», если основание ЕП есть в комментарии AE
-  // («Не учитывается по п.4 ч.1 ст.93») — УД r35 был ложным обвинением.
+  // Missing justification = compliance risk. Проверяется ЗАПОЛНЕННОСТЬ
+  // обязательного поля M — это структурный факт. Гейт «основание есть в
+  // комментарии AE» (ae-parser) снят каноном п.27: правовое основание обязано
+  // жить в своей колонке, комментарий показывается как есть.
   const epJustificationMissing =
-    isEP && !canceled && epJustification.length === 0 && !aeParsed.hasLegalBasis && !isNaN(planTotal) && planTotal > 0;
+    isEP && epJustification.length === 0 && !isNaN(planTotal) && planTotal > 0;
 
   // ── Классификация обоснования ЕП (M) по 15 каноническим кластерам (ep-reason-clusters) ──
   // Воскрешает 2 сигнала, потерянных при удалении signals-taxonomy.ts (DEADCODE_DISPOSITION_2026-06-05).
@@ -631,15 +602,15 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const epReasonCluster = isEP ? canonicalizeReasonEp(epJustification.slice(0, 2000)).cluster : 'EMPTY';
   // methodReasonMismatch: ЕП + обоснование = процедура «малая электронная закупка» (EP_SMALL_EL_PURCH)
   const methodReasonMismatch =
-    isEP && !canceled && epReasonCluster !== 'EMPTY' && epReasonCluster !== 'UNMAPPED' && isProceduralMismatch(epReasonCluster);
+    isEP && epReasonCluster !== 'EMPTY' && epReasonCluster !== 'UNMAPPED' && isProceduralMismatch(epReasonCluster);
   // unmappedReasonEP: ЕП + обоснование не распознано (UNMAPPED) или расплывчатое (EP_CURRENT_LAW)
   const unmappedReasonEP =
-    isEP && !canceled && (epReasonCluster === 'UNMAPPED' || epReasonCluster === 'EP_CURRENT_LAW');
+    isEP && (epReasonCluster === 'UNMAPPED' || epReasonCluster === 'EP_CURRENT_LAW');
 
   // ── Факт без плана (budget underallocation) ──
   // Y > 0 but K = 0 (or NaN) — execution without budget allocation.
   // This is a data integrity issue — spending money not in the plan.
-  const budgetUnderallocation = factTotal > 0 && (isNaN(planTotal) || planTotal === 0) && !canceled;
+  const budgetUnderallocation = factTotal > 0 && (isNaN(planTotal) || planTotal === 0);
 
   // ── Источники бюджета не указаны ──
   // H/I/J (columns 7,8,9 = ФБ/КБ/МБ план) все пусты/нули, но K (column 10 = план итого) > 0.
@@ -647,7 +618,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const planFB = toNumber(cells['H']);
   const planKB = toNumber(cells['I']);
   const planMB = toNumber(cells['J']);
-  const budgetSourceMissing = !isNaN(planTotal) && planTotal > 0 && !canceled &&
+  const budgetSourceMissing = !isNaN(planTotal) && planTotal > 0 &&
     (isNaN(planFB) || planFB === 0) &&
     (isNaN(planKB) || planKB === 0) &&
     (isNaN(planMB) || planMB === 0);
@@ -699,10 +670,14 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
  *
  * Бизнес-логика:
  * - Ошибка данных перекрывает всё: если есть сломанная формула, строка в состоянии «error».
- * - Подписанная процедура — финальное состояние, дальнейший анализ не нужен.
- * - Отменённая процедура — исключена из активного мониторинга.
+ * - Заключённая процедура (есть дата Q) — финальное состояние.
  * - Просрочка — критический сигнал для руководства.
- * - Далее по убыванию приоритета идут факт, финансовая задержка, скорый срок и т.д.
+ * - Далее по убыванию приоритета идут факт, скорый срок и т.д.
+ *
+ * С 14.08.2026 (канон п.27) состояния 'canceled', 'planning', 'not-due',
+ * 'finance-delay' недостижимы: они выводились из свободного текста
+ * комментариев. Ветки сохранены для совместимости со старыми снимками,
+ * где RowState уже записан в атомах.
  */
 export function classifyRowState(signals: RowSignals): RowState {
   // Ошибка данных — наивысший приоритет
@@ -799,14 +774,12 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   if (signals.dataQuality) {
     badges.push({ label: 'Пустые поля', color: 'yellow', icon: 'file-warning' });
   }
-  if (signals.factDateBeforePlan) {
-    badges.push({ label: 'Факт дата < план', color: 'yellow', icon: 'calendar-x' });
-  }
-  if (signals.tdWithProgram) {
-    badges.push({ label: 'ТД с программой', color: 'yellow', icon: 'git-branch' });
-  }
+  // tdWithProgram СНЯТ (канон п.30, 14.08.2026): бейдж не рисуется даже для
+  // старых снимков, где сигнал записан true — заполненная программа у ТД норма.
   if (signals.planYearMissing) {
-    badges.push({ label: 'Без финансирования', color: 'yellow', icon: 'calendar-x' });
+    // Канон имени класса — п.23 интервью 14.08.2026: «не обеспечено
+    // финансированием» (прежний лейбл «Без финансирования» снят).
+    badges.push({ label: 'Не обеспечено финансированием', color: 'yellow', icon: 'calendar-x' });
   }
   if (signals.factQuarterMissing) {
     badges.push({ label: 'Факт без квартала', color: 'yellow', icon: 'calendar-x' });
@@ -836,6 +809,11 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   }
 
   // ── Синие (информационные) ──
+  // «Факт дата < план» понижен до информационного (п.28 интервью 14.08.2026:
+  // «это не ошибка» — плановая дата ориентир): был жёлтым предупреждением.
+  if (signals.factDateBeforePlan) {
+    badges.push({ label: 'Факт дата < план', color: 'blue', icon: 'calendar-x' });
+  }
   if (signals.planning) {
     badges.push({ label: 'Планирование', color: 'blue', icon: 'edit' });
   }

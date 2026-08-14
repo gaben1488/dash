@@ -3,7 +3,7 @@ import { getSnapshot, getDeptLoadMeta, getSHDYURawRowCount } from '../services/s
 import { db, schema } from '../db/index.js';
 import { desc } from 'drizzle-orm';
 import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadsheetIdForSourceChange } from '../config.js';
-import { getSpreadsheetMetadata } from '../google-sheets.js';
+import { getSpreadsheetMetadata } from '../services/google-sheets.js';
 import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept, ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import { validateSource, validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
 

@@ -249,7 +249,7 @@ export function DrillPieChart({
 }: DrillPieChartProps) {
   const isDark = useTheme(s => s.theme) === 'dark';
   const chartColors = getChartColors(isDark);
-  const { contentStyle: tooltipStyle } = getTooltipStyle(isDark);
+  const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
   const cursorStyle = { fill: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(0,0,0,0.06)', stroke: 'none' };
   const patternInk = isDark ? PATTERN_INK_DARK : PATTERN_INK_LIGHT;
   // Идентификаторы штриховок уникальны на экземпляр: два круга на одной
@@ -793,6 +793,8 @@ export function DrillPieChart({
             <Tooltip
               formatter={(v: number, name: string) => [formatValue(v), name]}
               contentStyle={tooltipStyle}
+              itemStyle={tooltipItemStyle}
+              labelStyle={tooltipLabelStyle}
               cursor={cursorStyle}
             />
           </PieChart>

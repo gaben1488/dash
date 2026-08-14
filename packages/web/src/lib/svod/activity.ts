@@ -3,41 +3,44 @@
  *
  * До правки страница держала собственный набор категорий (`scopeSet`), а в
  * шапке приложения жил свой (`selectedActivities`). Два состояния на один
- * выбор пользователя: выбранное на «Пульте» «ТД-ПМ» в «Своде» молча
- * превращалось в «ВСЕ». Здесь — единственный переводчик между ключами
+ * выбор пользователя. Здесь — единственный переводчик между ключами
  * глобального фильтра и категориями сводной сетки.
  *
- * Категории не пересекаются и покрывают всё: ПМ ∪ ТД чистая ∪ ТД-ПМ = все
- * строки. Поэтому «выбраны все три» тождественно «не выбрано ничего».
+ * КАНОН п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён. Категорий две —
+ * ПМ и ТД; строки текущей деятельности с заполненной графой программы входят
+ * в ТД целиком. Легаси-ключи глобального фильтра 'current_program' (бывш.
+ * ТД-ПМ) и 'current_non_program' оба означают ТД.
  */
 import { ACTIVITY_LABEL, type ActivityScope } from '@aemr/shared';
 import type { ActivityKey } from '../filter-context';
 
 /** Атомарная категория деятельности, которую умеет резать сводная сетка. */
-export type SvodActivityCat = 'pm' | 'td_clean' | 'td_pm';
+export type SvodActivityCat = 'pm' | 'td';
 
-/** Ключ глобального фильтра (store.selectedActivities) → категория сетки. */
+/**
+ * Ключ глобального фильтра (store.selectedActivities) → категория сетки.
+ * Оба ТД-ключа сводятся в 'td' — канон п.30: ТД-ПМ-строки входят в ТД
+ * по всем фильтрам, отдельного среза для них нет.
+ */
 export const ACTIVITY_KEY_TO_CAT: Readonly<Record<ActivityKey, SvodActivityCat>> = {
   program: 'pm',
-  current_program: 'td_pm',
-  current_non_program: 'td_clean',
+  current_program: 'td',
+  current_non_program: 'td',
 };
 
 /** Обратный перевод: категория страницы → ключ глобального фильтра. */
 export const CAT_TO_ACTIVITY_KEY: Readonly<Record<SvodActivityCat, ActivityKey>> = {
   pm: 'program',
-  td_pm: 'current_program',
-  td_clean: 'current_non_program',
+  td: 'current_non_program',
 };
 
-/** Порядок кнопок: сперва программные, затем состав текущей деятельности. */
-export const SVOD_ACTIVITY_CATS: readonly SvodActivityCat[] = ['pm', 'td_clean', 'td_pm'];
+/** Порядок кнопок: программные, затем текущая деятельность целиком. */
+export const SVOD_ACTIVITY_CATS: readonly SvodActivityCat[] = ['pm', 'td'];
 
 /** Подсказка к кнопке — объясняет категорию словами, а не сокращением. */
 export const ACTIVITY_HINT: Readonly<Record<SvodActivityCat, string>> = {
   pm: 'Программные мероприятия — строки с видом деятельности «Программное мероприятие»',
-  td_clean: 'Текущая деятельность без заполненной графы программы',
-  td_pm: 'Текущая деятельность с заполненной графой программы — возможна ошибка заполнения',
+  td: 'Текущая деятельность целиком — включая строки с заполненной графой программы (канон п.30)',
 };
 
 /** Ключи глобального фильтра → категории сетки (чужое молча отбрасывается). */
@@ -50,24 +53,23 @@ export function catsFromActivities(selected: Iterable<string>): Set<SvodActivity
   return out;
 }
 
-/**
- * Эквивалентный одиночный срез сетки. Пусто или все три категории = «ВСЕ»;
- * «ТД чистая + ТД-ПМ» = вся текущая деятельность.
- *
- * Прочие пары (например ПМ + ТД-ПМ) одной ячейкой сетки не выражаются: их
- * складывает `sliceUnified` по самим категориям, а этот ключ он тогда не
- * читает. Возвращаемое для них 'all' — безопасное значение по умолчанию,
- * а не утверждение, что срез равен всем строкам.
- */
-export function effectiveScope(cats: ReadonlySet<SvodActivityCat>): ActivityScope {
-  if (cats.size === 0 || cats.size === 3) return 'all';
-  if (cats.size === 1) return [...cats][0];
-  return cats.has('td_clean') && cats.has('td_pm') ? 'td' : 'all';
+/** «Выбрано всё» — пусто или обе категории (ПМ ∪ ТД = все строки). */
+export function isAllCats(cats: ReadonlySet<SvodActivityCat>): boolean {
+  return cats.size === 0 || cats.size >= SVOD_ACTIVITY_CATS.length;
 }
 
-/** Фраза для заголовка: «все виды деятельности» либо «ПМ + ТД-ПМ». */
+/**
+ * Эквивалентный одиночный срез сетки. Пусто или обе категории = «ВСЕ»;
+ * одна категория — она сама (обе категории теперь и есть срезы сетки).
+ */
+export function effectiveScope(cats: ReadonlySet<SvodActivityCat>): ActivityScope {
+  if (isAllCats(cats)) return 'all';
+  return [...cats][0];
+}
+
+/** Фраза для заголовка: «все виды деятельности» либо «ПМ»/«ТД». */
 export function activityPhrase(cats: ReadonlySet<SvodActivityCat>): string {
-  if (cats.size === 0 || cats.size === 3) return 'все виды деятельности';
+  if (isAllCats(cats)) return 'все виды деятельности';
   return SVOD_ACTIVITY_CATS.filter((c) => cats.has(c))
     .map((c) => ACTIVITY_LABEL[c])
     .join(' + ');

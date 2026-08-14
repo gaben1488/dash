@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 describe('GET /api/rows/:deptId activity filter', () => {
-  it('splits current activity by column D program name', async () => {
+  it('канон п.30: оба ТД-ключа фильтра отдают текущую деятельность целиком', async () => {
     const app = await createRowsApp([
       makeDeptRow({
         id: 1,
@@ -89,10 +89,14 @@ describe('GET /api/rows/:deptId activity filter', () => {
       const currentProgramBody = currentProgram.json<RowsResponse>();
       const currentNonProgramBody = currentNonProgram.json<RowsResponse>();
 
-      expect(currentProgramBody.signals.total).toBe(1);
-      expect(currentProgramBody.rows.map((r) => r.id)).toEqual([1]);
-      expect(currentNonProgramBody.signals.total).toBe(1);
-      expect(currentNonProgramBody.rows.map((r) => r.id)).toEqual([2]);
+      // Страж класса п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён —
+      // графа программы (D) не делит ТД. Раньше current_non_program («ТД»)
+      // выкидывал строку 1 (ТД с программой) — ТД-ПМ-строки пропадали из
+      // «ТД» при этом варианте фильтра. Теперь оба ключа = вся ТД.
+      expect(currentProgramBody.signals.total).toBe(2);
+      expect(currentProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
+      expect(currentNonProgramBody.signals.total).toBe(2);
+      expect(currentNonProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
     } finally {
       await app.close();
     }

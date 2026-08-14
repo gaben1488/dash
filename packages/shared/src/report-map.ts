@@ -69,9 +69,6 @@ export const SVOD_COLUMNS = {
 
 export type ColumnLetter = keyof typeof SVOD_COLUMNS;
 
-/** @deprecated Use SVOD_COLUMNS */
-export const COLUMNS = SVOD_COLUMNS;
-
 /** Столбцы, содержащие формулы (ожидаем, что НЕ будут вручную) */
 export const FORMULA_COLUMNS: ColumnLetter[] = [
   'K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC',
@@ -788,7 +785,7 @@ export function getAllCellAddresses(): string[] {
   }
 
   // Convert to range strings
-  const colLetters = Object.entries(COLUMNS).reduce<Record<number, string>>(
+  const colLetters = Object.entries(SVOD_COLUMNS).reduce<Record<number, string>>(
     (acc, [letter, idx]) => { acc[idx] = letter; return acc; },
     {},
   );

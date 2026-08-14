@@ -14,6 +14,24 @@ function deriveActivityType(cells: Record<string, unknown>): Issue['activityType
 }
 
 /**
+ * Округляет «голые» float'ы в тексте замечания до копеек (2 знака).
+ *
+ * П.3 интервью 14.08.2026: текст «O237 (факт) = 7138.1467200000025» путал
+ * исполнителей — хвост двоичной арифметики смысла не несёт, суммы книг
+ * ведутся в 2 знака. Правило класса: ЛЮБОЙ текст правила проходит через эту
+ * одну дверь (validateData — единственное место, где result.message
+ * становится issue.description), поэтому длинный float не может просочиться
+ * ни из одного правила RULE_BOOK, нынешнего или будущего.
+ *
+ * Даты не искажаются: слева от совпадения не должно быть точки/цифры
+ * (у «09.2025» внутри «03.09.2025» слева стоит точка), справа — ещё одного
+ * числового сегмента («.цифра»); точка конца предложения не мешает.
+ */
+export function roundMoneyInText(text: string): string {
+  return text.replace(/(?<![\d.,])\d+\.\d{3,}(?!\.?\d)/g, (m) => Number(m).toFixed(2));
+}
+
+/**
  * Выполняет валидацию данных по правилам RuleBook.
  *
  * Each rule in the RULE_BOOK has a `check()` method that is called per-row.
@@ -103,8 +121,12 @@ export function validateData(
           group: check?.group,
           checkId,
           kbHint: check?.kbHint,
-          title: `${rule.name}: строка ${row.rowIndex}`,
-          description: result.message ?? rule.description,
+          // П.3 интервью 14.08.2026: каждый текст проверки несёт имя листа —
+          // «O237 (факт) = …» без книги исполнителю не найти. Номер строки —
+          // номер строки ЛИСТА (rowIndex 1-based от начала листа со шляпкой,
+          // как видит человек в Google Sheets) — пп.28/29: единая нумерация.
+          title: `${rule.name}: лист «${row.sheet}», строка ${row.rowIndex}`,
+          description: roundMoneyInText(result.message ?? rule.description),
           sheet: row.sheet,
           cell: result.cell,
           row: row.rowIndex,

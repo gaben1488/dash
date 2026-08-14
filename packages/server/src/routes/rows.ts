@@ -5,8 +5,10 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
   DEPT_HEADER_ROWS,
+  FACT_DATE_PLACEHOLDERS,
   buildCellDict,
   isMetaRow,
+  isOrgItself,
 } from '@aemr/shared';
 import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
 import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
@@ -627,13 +629,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         const row = rawRows[i];
         if (!row) continue;
         const cat = String(row[2] ?? '').trim(); // C = index 2 (наименование подведомственного учреждения)
-        // Skip empty, meta-rows, and "X" (means no subordinate)
-        if (
-          cat &&
-          cat.toLowerCase() !== 'x' &&
-          cat.length > 1 &&
-          !isMetaRow(cat)
-        ) {
+        // Канон п.51 (интервью 14.08.2026): «X/x/Х/х», тире, «н/д» и пустая
+        // ячейка C = закупка САМОГО управления, а не подвед. Прежний ad-hoc
+        // фильтр ловил только латинскую 'x' и однобуквенные значения — любой
+        // иной плейсхолдер («н/д», «нет», «—») становился фейковым подведом и
+        // завышал счётчик Пульта. Единый предикат — isOrgItself (org-itself.ts).
+        if (cat && !isOrgItself(cat) && !isMetaRow(cat)) {
           subs.add(cat);
         }
       }
@@ -755,12 +756,21 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * GET /api/rows/scatter
-   * Все строки всех управлений для scatter plot (Лимит программы vs Цена контракта).
+   * ЗАКЛЮЧЁННЫЕ контракты всех управлений для scatter plot
+   * (Лимит программы vs Цена контракта).
+   *
+   * Гейт заключения (пп. 38-39 интервью 14.08.2026): точка попадает в облако
+   * только при ФАКТЕ заключения контракта — есть дата заключения (Q) и цена
+   * (Y > 0). До гейта строка с планом и ценой 0 без даты заключения рисовалась
+   * как «экономия 100 %» и раздувала счётчик «подозрительных» (2394 шт. —
+   * следствие того же ложного гейта); незаключённые строки без плановой даты
+   * (не обеспеченные финансированием, кредитная линия УФБП на 32 млн — п.39)
+   * попадали туда же. Экономия существует только у заключённого контракта.
    *
    * Query params:
    *   - type: 'competitive' | 'single' — фильтр по типу закупки
    *   - activity: 'program' | 'current_program' | 'current_non_program'
-   *   - dept: comma-separated dept IDs
+   *   - dept: comma-separated dept IDs (латинский 'uer' или кириллический 'УЭР')
    */
   app.get('/api/rows/scatter', async (request, reply) => {
     const query = request.query as Record<string, string>;
@@ -768,9 +778,20 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const filterActivity = query.activity ?? '';
     const filterDepts = query.dept ? query.dept.split(',').map(s => s.trim()) : [];
 
+    // Обе формы ключа ГРБС: store канонизирует выбор в кириллицу (dept-key.ts),
+    // а d.id здесь латинский — матч только по d.id молча обнулял фильтр.
     const departments = filterDepts.length > 0
-      ? DEPARTMENTS.filter(d => filterDepts.includes(d.id))
+      ? DEPARTMENTS.filter(d => filterDepts.includes(d.id) || filterDepts.includes(d.nameShort))
       : DEPARTMENTS;
+
+    /**
+     * Дата в ячейке листа есть (не пусто и не заглушка «Х»/«-»/«н/д»).
+     * Канон плейсхолдеров — FACT_DATE_PLACEHOLDERS (@aemr/shared/fact-date.ts):
+     * тот же список заглушек операторы ставят и в N (дата плана), и в Q (дата
+     * заключения) — шапка книги прямо говорит «в случае отсутствия проставляется Х».
+     */
+    const hasCellDate = (raw: unknown): boolean =>
+      !FACT_DATE_PLACEHOLDERS.has(String(raw ?? '').trim().toLowerCase());
 
     const allPoints: Array<{
       id: unknown;
@@ -820,6 +841,17 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
         if (planTotal <= 0) continue; // skip rows without plan limit
 
+        // ── Гейт заключения (пп. 38-39) ──
+        // 1. Нет плановой даты (N) → закупка не обеспечена финансированием —
+        //    ей не место в облаке «лимит vs цена» вовсе (п.39, УФБП).
+        if (!hasCellDate(row[DEPT_COLUMNS.PLAN_DATE])) continue;
+        // 2. Нет даты заключения (Q) → контракта нет → нет ни цены, ни экономии.
+        //    Именно эти строки рисовались как «экономия 100 %» (п.38).
+        if (!hasCellDate(row[DEPT_COLUMNS.FACT_DATE])) continue;
+        // 3. Дата есть, а цена 0 — дефект данных листа (контракт не заключают
+        //    по цене 0), а не экономия 100 %: точку не рисуем.
+        if (factTotal <= 0) continue;
+
         const procType = String(row[11] ?? '').trim(); // L=method
         const actType = String(row[5] ?? '').trim();  // F=activityType
 
@@ -843,11 +875,18 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           if (!terms.some(t => actType.toLowerCase().includes(t))) continue;
         }
 
-        const economyPercent = planTotal > 0 ? +((1 - factTotal / planTotal) * 100).toFixed(2) : 0;
+        // Экономия считается только здесь — ПОСЛЕ гейта заключения: planTotal > 0
+        // и factTotal > 0 гарантированы, «100 %» из цены 0 больше невозможны.
+        const economyPercent = +((1 - factTotal / planTotal) * 100).toFixed(2);
 
         allPoints.push({
           id: row[0],
-          department: dept.id,
+          // Кириллический канон ('УАГЗО'), НЕ латинский dept.id ('uagzo'):
+          // поле уходит в тултип графика как есть — внутренний латинский ключ
+          // торчал наружу (п.38 интервью 14.08). Переходы по клику не ломаются:
+          // store канонизирует обе формы (dept-key.ts), роуты /api/rows ищут
+          // по d.id ИЛИ d.nameShort.
+          department: dept.nameShort,
           subject: subject.length > 80 ? subject.slice(0, 80) + '…' : subject,
           planTotal,
           factTotal,

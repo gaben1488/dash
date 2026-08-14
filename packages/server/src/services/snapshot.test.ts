@@ -17,8 +17,10 @@ const batchGetCells = vi.fn(async () => {
 const batchGetFormulas = vi.fn(async () => []);
 const getSheetData = vi.fn(async () => []);
 
-vi.mock('../google-sheets.js', () => ({ batchGetCells, batchGetFormulas, getSheetData }));
 vi.mock('./google-sheets.js', () => ({
+  batchGetCells,
+  batchGetFormulas,
+  getSheetData,
   fetchSHDYUSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'monthly' })),
 }));
 
@@ -32,6 +34,11 @@ beforeEach(() => {
     AEMR_API_KEY: '',
     SQLITE_PATH: ':memory:',
     LOG_LEVEL: 'silent',
+    // Явный демо-режим: пустые ключи существуют → dotenv их не перезапишет
+    // из .env машины. Иначе тест зависел бы от того, лежат ли на машине креды.
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
+    GOOGLE_PRIVATE_KEY: '',
+    GOOGLE_API_KEY: '',
   };
   vi.resetModules();
 });

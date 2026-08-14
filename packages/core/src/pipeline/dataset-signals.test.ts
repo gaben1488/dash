@@ -457,7 +457,19 @@ describe('detectSeasonalAnomalies', () => {
       expect(found[0].severity).toBe('high');
     });
 
-    it('does NOT flag signed food contract', () => {
+    it('does NOT flag concluded food contract (дата факта Q — канон п.27)', () => {
+      const rows = [makeSeasonalRow({
+        subordinate: 'МКУ Школа №3',
+        description: 'Организация питания учащихся',
+        planDate: '01.03.2025',
+        factDate: '10.08.2025',
+      })];
+      const refDate = new Date(2025, 8, 1); // September 1
+      const result = detectSeasonalAnomalies(rows, 'DEPT1', refDate);
+      expect(result.filter(r => r.type === 'LATE_SCHOOL_FOOD_CONTRACT').length).toBe(0);
+    });
+
+    it('СТРАЖ п.27: слова «Контракт заключен» без даты факта сигнал больше не гасят', () => {
       const rows = [makeSeasonalRow({
         subordinate: 'МКУ Школа №3',
         description: 'Организация питания учащихся',
@@ -466,7 +478,7 @@ describe('detectSeasonalAnomalies', () => {
       })];
       const refDate = new Date(2025, 8, 1); // September 1
       const result = detectSeasonalAnomalies(rows, 'DEPT1', refDate);
-      expect(result.filter(r => r.type === 'LATE_SCHOOL_FOOD_CONTRACT').length).toBe(0);
+      expect(result.filter(r => r.type === 'LATE_SCHOOL_FOOD_CONTRACT').length).toBe(1);
     });
 
     it('does NOT flag before deadline', () => {
@@ -529,14 +541,24 @@ describe('detectSeasonalAnomalies', () => {
       expect(found[0].severity).toBe('critical');
     });
 
-    it('does NOT flag signed fuel contract', () => {
+    it('does NOT flag concluded fuel contract (дата факта Q — канон п.27)', () => {
+      const rows = [makeSeasonalRow({
+        description: 'Поставка угля для котельной',
+        factDate: '15.08.2025',
+      })];
+      const refDate = new Date(2025, 9, 1);
+      const result = detectSeasonalAnomalies(rows, 'DEPT1', refDate);
+      expect(result.filter(r => r.type === 'LATE_FUEL_PROCUREMENT').length).toBe(0);
+    });
+
+    it('СТРАЖ п.27: слово «Исполнен» в статусе без даты факта сигнал больше не гасит', () => {
       const rows = [makeSeasonalRow({
         description: 'Поставка угля для котельной',
         status: 'Исполнен',
       })];
       const refDate = new Date(2025, 9, 1);
       const result = detectSeasonalAnomalies(rows, 'DEPT1', refDate);
-      expect(result.filter(r => r.type === 'LATE_FUEL_PROCUREMENT').length).toBe(0);
+      expect(result.filter(r => r.type === 'LATE_FUEL_PROCUREMENT').length).toBe(1);
     });
 
     it('matches ГСМ and дизельное топливо', () => {
@@ -629,6 +651,17 @@ describe('detectSeasonalAnomalies', () => {
       expect(found.length).toBe(1);
       expect(found[0].severity).toBe('medium');
       expect(found[0].details.daysDiff).toBe(8);
+    });
+
+    it('СТРАЖ п.27: заключение = дата факта, слово «подписан» в статусе не требуется', () => {
+      const rows = [makeSeasonalRow({
+        description: 'Закупка оборудования',
+        planDate: '10.12.2025',
+        factDate: '18.12.2025',
+        status: '', // пустой статус — до канона сигнал молчал без слова «подписан»
+      })];
+      const result = detectSeasonalAnomalies(rows);
+      expect(result.filter(r => r.type === 'DECEMBER_RUSH_CONTRACT').length).toBe(1);
     });
 
     it('does NOT flag when gap >= 15 days', () => {
@@ -823,10 +856,14 @@ describe('detectSystemicAnomalies — new signals', () => {
     expect(result.find(a => a.type === 'SUBORDINATE_CONCENTRATION')).toBeUndefined();
   });
 
+  // Единицы колонки K — ТЫС. руб. (канон книг ГРБС): 10_000 тыс. = 10 млн руб.
+  // Свип БАГ #1 (bug-hunt 2026-08-08): прежние числа теста были в рублях
+  // (10_000_000) и закрепляли баг единиц — порог «дорогая закупка ≥5 млн»
+  // в проде был недостижим (требовал 5 млрд руб.).
   it('detects VAGUE_HIGH_VALUE on expensive rows with short descriptions', () => {
     const rows = [
-      makeRow({ 3: 'Закупка', 6: '', 10: 10_000_000 }), // short desc, 10M
-      makeRow({ 3: 'Поставка компьютерного оборудования для школы №3 с монтажом', 6: 'ПК', 10: 8_000_000 }), // detailed, ok
+      makeRow({ 3: 'Закупка', 6: '', 10: 10_000 }), // short desc, 10 млн руб.
+      makeRow({ 3: 'Поставка компьютерного оборудования для школы №3 с монтажом', 6: 'ПК', 10: 8_000 }), // detailed, ok
     ];
     const result = detectSystemicAnomalies(emptyDataAnomalies, emptyBenford, rows);
     const vague = result.find(a => a.type === 'VAGUE_HIGH_VALUE');
@@ -836,26 +873,18 @@ describe('detectSystemicAnomalies — new signals', () => {
 
   it('does NOT flag VAGUE_HIGH_VALUE on cheap rows', () => {
     const rows = [
-      makeRow({ 3: 'Закупка', 6: '', 10: 100_000 }), // short but cheap
+      makeRow({ 3: 'Закупка', 6: '', 10: 100 }), // short but cheap: 100 тыс. руб. < 5 млн
     ];
     const result = detectSystemicAnomalies(emptyDataAnomalies, emptyBenford, rows);
     expect(result.find(a => a.type === 'VAGUE_HIGH_VALUE')).toBeUndefined();
   });
 
-  it('detects CANCELED_WITH_FACT when canceled row has factual amounts', () => {
+  it('СТРАЖ п.27: CANCELED_WITH_FACT больше не детектируется — «отменена» из текста не читается', () => {
+    // До канона 14.08.2026 подстрока «отмен» из U/AF при факте >100K давала
+    // системную аномалию — машинная интерпретация свободного текста снята.
     const rows = [
-      makeRow({ 20: 'отменена', 24: 500_000 }), // canceled with 500K fact
-      makeRow({ 20: 'подписан', 24: 500_000 }),  // signed, ok
-    ];
-    const result = detectSystemicAnomalies(emptyDataAnomalies, emptyBenford, rows);
-    const canceled = result.find(a => a.type === 'CANCELED_WITH_FACT');
-    expect(canceled).toBeDefined();
-    expect(canceled!.affectedRows).toEqual([0]);
-  });
-
-  it('does NOT flag CANCELED_WITH_FACT if fact < 100K', () => {
-    const rows = [
-      makeRow({ 20: 'отменена', 24: 50_000 }), // canceled but small fact
+      makeRow({ 20: 'отменена', 24: 500_000 }),
+      makeRow({ 20: 'не требуется, снята с плана', 24: 500_000 }),
     ];
     const result = detectSystemicAnomalies(emptyDataAnomalies, emptyBenford, rows);
     expect(result.find(a => a.type === 'CANCELED_WITH_FACT')).toBeUndefined();

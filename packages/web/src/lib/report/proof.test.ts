@@ -117,7 +117,8 @@ describe('unfundedProof — закупки без подтверждённого
     // Заголовок оверлея берётся из канон-словаря по этому ключу — «Без
     // подтверждённого финансирования», как называет строки сама проекция.
     expect(proof.metricKey).toBe('lifecycle_stage_no_funding');
-    expect(productLabel(proof.metricKey)).toBe('Без подтверждённого финансирования');
+    // Канон имени класса — п.23 интервью 14.08.2026 (словарь продукта).
+    expect(productLabel(proof.metricKey)).toBe('Не обеспечено финансированием');
     expect(norm(proof.displayValue)).toBe('900 тыс. руб.');
     expect(proof.rows).toHaveLength(3);
     expect(proof.rows.reduce((s, r) => s + r.value, 0)).toBe(900);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeBudgetPlanFact, recalcTotalsByBudget } from './budget-filter';
+import { resolvePeriodSelection } from './period-resolution';
+import type { PeriodScope } from '../../store';
 
 const q = {
   planTotal: 10, factTotal: 5,
@@ -28,25 +30,48 @@ describe('makeBudgetPlanFact (извлечено из useFilteredData §9a, вы
 
 describe('recalcTotalsByBudget (извлечено из useFilteredData §9c)', () => {
   const f = makeBudgetPlanFact(new Set(['fb']));
-  const base = {
-    budgetPlanFact: f, useMonthLevel: false, activeMonths: new Set<number>(),
-    hasActiveMonths: false, coveredQuarters: [] as string[], periodKey: 'q1',
-  };
+
+  /** Опции из тех же полей, что в useFilteredData (resolution согласована). */
+  function makeOpts(periodKey: PeriodScope, activeMonths = new Set<number>(), hasMonthData = false) {
+    const resolution = resolvePeriodSelection(periodKey, activeMonths, hasMonthData);
+    return {
+      budgetPlanFact: f,
+      useMonthLevel: resolution.useMonthLevel,
+      activeMonths,
+      hasActiveMonths: resolution.hasActiveMonths,
+      coveredQuarters: resolution.coveredQuarters,
+      periodKey: resolution.periodKey,
+      resolution,
+      hasMonthData,
+    };
+  }
 
   it('quarter-ветвь: суммирует бюджет-поля активного квартала', () => {
     const depts = [{ quarters: { q1: q } }, { quarters: { q1: q } }];
-    expect(recalcTotalsByBudget(depts, base)).toEqual({ totalPlan: 12, totalFact: 6 });
+    expect(recalcTotalsByBudget(depts, makeOpts('q1'))).toEqual({ totalPlan: 12, totalFact: 6 });
   });
 
-  it('_subFiltered-ветвь: суммирует все 4 квартала оверрайднутого депта', () => {
+  it('_subFiltered при выборе года: суммирует все 4 квартала оверрайднутого депта', () => {
     const depts = [{ _subFiltered: true, quarters: { q1: q, q2: q } }];
-    expect(recalcTotalsByBudget(depts, base)).toEqual({ totalPlan: 12, totalFact: 6 });
+    expect(recalcTotalsByBudget(depts, makeOpts('year'))).toEqual({ totalPlan: 12, totalFact: 6 });
+  });
+
+  it('_subFiltered + квартал: бюджет режется периодом, а не суммой года (баг #4)', () => {
+    // До правки ветвь суммировала все 4 квартала независимо от periodKey:
+    // под заголовком «I квартал» стоял год.
+    const depts = [{ _subFiltered: true, quarters: { q1: q, q2: q } }];
+    expect(recalcTotalsByBudget(depts, makeOpts('q1'))).toEqual({ totalPlan: 6, totalFact: 3 });
   });
 
   it('month-ветвь: суммирует выбранные месяцы', () => {
     const depts = [{ months: { 1: q, 2: q } }];
-    expect(recalcTotalsByBudget(depts, {
-      ...base, useMonthLevel: true, hasActiveMonths: true, activeMonths: new Set([1]),
-    })).toEqual({ totalPlan: 6, totalFact: 3 });
+    expect(recalcTotalsByBudget(depts, makeOpts('q1', new Set([1]), true)))
+      .toEqual({ totalPlan: 6, totalFact: 3 });
+  });
+
+  it('_subFiltered + месяц: бюджет из месячной разбивки подведов (баг #4)', () => {
+    const depts = [{ _subFiltered: true, quarters: { q1: q, q2: q }, months: { 1: q, 2: q } }];
+    expect(recalcTotalsByBudget(depts, makeOpts('q1', new Set([1]), true)))
+      .toEqual({ totalPlan: 6, totalFact: 3 });
   });
 });

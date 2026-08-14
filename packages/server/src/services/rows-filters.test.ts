@@ -123,12 +123,12 @@ describe('applyActivityFilter', () => {
     expect(applyActivityFilter(rows, 'program')).toEqual([pm]);
   });
 
-  it('current_program → ТД с реальным текстом программы в D', () => {
-    expect(applyActivityFilter(rows, 'current_program')).toEqual([tdInPm]);
-  });
-
-  it('current_non_program → ТД с X/х/пустым D', () => {
-    expect(applyActivityFilter(rows, 'current_non_program')).toEqual([tdNoPm, tdEmptyPm]);
+  it('канон п.30: оба ТД-ключа отдают текущую деятельность ЦЕЛИКОМ, включая строки с программой в D', () => {
+    // Страж класса п.30: раньше current_non_program (кнопка «ТД») выкидывал
+    // строку tdInPm — ТД-строки с заполненной графой программы пропадали из
+    // «ТД» при этом варианте фильтра. Срез «ТД-ПМ» упразднён: оба ключа = ТД.
+    expect(applyActivityFilter(rows, 'current_non_program')).toEqual([tdInPm, tdNoPm, tdEmptyPm]);
+    expect(applyActivityFilter(rows, 'current_program')).toEqual([tdInPm, tdNoPm, tdEmptyPm]);
   });
 
   it('прочее значение → substring по виду деятельности', () => {

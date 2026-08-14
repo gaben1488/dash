@@ -518,7 +518,7 @@ export interface Recommendation {
  * Для обратной совместимости при миграции.
  */
 // Конвертация legacy-issue вынесена в ./issue-conversion.ts (чанк G, шаг 2)
-export { LEGACY_SIGNAL_TO_CHECK, LEGACY_RULE_TO_CHECK, convertLegacyIssue, convertAllIssues } from './issue-conversion.js';
+export { LEGACY_SIGNAL_TO_CHECK, LEGACY_RULE_TO_CHECK } from './issue-conversion.js';
 /** Получить метаданные проверки по ID */
 export function getCheckById(id: string): CheckRegistryEntry | undefined {
   return CHECK_REGISTRY.find(c => c.id === id);

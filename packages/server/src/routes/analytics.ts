@@ -57,6 +57,21 @@ function dataQualityScore(
   return Math.min(1, Math.max(0, 1 - dirtyRows.size / rowCount));
 }
 
+/**
+ * Плановые ДЕНЬГИ ЕП за год = Σ ep.planSum по четырём кварталам (тыс. руб.).
+ *
+ * Одно место на все вызовы: /compliance, /anticorruption и /scorecard передают
+ * этот объём в проверки годового лимита и доли ЕП. До свипа БАГ #1 (bug-hunt
+ * 2026-08-08) два из трёх вызовов подставляли recalc.totalEP — СЧЁТЧИК процедур,
+ * не деньги, и «доля ЕП» считалась как счётчик/деньги.
+ */
+function epPlanSumOverQuarters(recalc: {
+  quarters: Record<'q1' | 'q2' | 'q3' | 'q4', { ep: { planSum: number } }>;
+}): number {
+  return recalc.quarters.q1.ep.planSum + recalc.quarters.q2.ep.planSum
+    + recalc.quarters.q3.ep.planSum + recalc.quarters.q4.ep.planSum;
+}
+
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
   /** GET /api/analytics/profiles — ГРБС profiles with role/baseline assessment */
@@ -105,8 +120,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           allIssues.push(...checkEPShareLimits(
             recalc.totalEP,
             recalc.totalCompetitive + recalc.totalEP,
-            recalc.quarters.q1.ep.planSum + recalc.quarters.q2.ep.planSum +
-            recalc.quarters.q3.ep.planSum + recalc.quarters.q4.ep.planSum,
+            epPlanSumOverQuarters(recalc),
             recalc.year.planTotal,
             baseline.role,
             dept.id,
@@ -176,9 +190,14 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const recalc = recalcResults[dept.id] as any;
         const baseline = GRBS_BASELINES.find(b => b.grbsId === dept.id);
         const epShareLimit = baseline ? EP_SHARE_BY_ROLE[baseline.role] : 0.5;
+        // Свип БАГ #1 (bug-hunt 2026-08-08, гейты денег): в epTotal передавался
+        // recalc.totalEP — это СЧЁТЧИК процедур ЕП, а totalPlan — деньги (тыс. руб.).
+        // Доля «счётчик/деньги» — бессмыслица: индикатор #9 (годовая доля ЕП)
+        // молчал или срабатывал случайно. Деньги ЕП = Σ ep.planSum по кварталам
+        // (тот же источник, что в /compliance выше).
         result[dept.id] = detectAntiCorruption(dept.id, {
           rows: rowData,
-          epTotal: recalc?.totalEP ?? 0,
+          epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
         });
@@ -224,10 +243,11 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         const benford = amounts.length >= 30 ? benfordAnalysis(amounts) : null;
         const anomalyCount = benford && benford.pValue < 0.05 ? 1 : 0;
 
-        // Layer C — антикор
+        // Layer C — антикор. epTotal — ДЕНЬГИ ЕП (тыс. руб.), не счётчик:
+        // см. комментарий у /api/analytics/anticorruption (свип БАГ #1).
         const anticorruption = detectAntiCorruption(profile.grbsId, {
           rows: rowData,
-          epTotal: recalc?.totalEP ?? 0,
+          epTotal: recalc ? epPlanSumOverQuarters(recalc) : 0,
           totalPlan: recalc?.year?.planTotal ?? 0,
           epShareLimit,
         });

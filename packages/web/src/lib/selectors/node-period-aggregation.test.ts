@@ -120,3 +120,69 @@ describe('целое = сумма частей за один и тот же пе
     expect(totals.totalEP).toBe(d.ep);
   });
 });
+
+// ── Страж бага #4 (реестр охоты 08.08; интервью пп. 5, 6, 11, 12) ──
+// Фильтр по подведам ОТМЕНЯЛ выбранный период: ветвь _subFiltered коротко
+// замыкалась на годовых значениях узла — под заголовком квартала стояли
+// годовые числа. Здесь закреплено: оверрайднутый узел идёт через ту же
+// периодную ветвь, а депт-уровневые метод-поля из спреда не читаются.
+describe('_subFiltered: период применяется, депт-поля спреда не читаются (баг #4)', () => {
+  // Узел, каким его отдаёт applySubordinateFilter: годовые поля — срез
+  // подведов; quarters/months — суммы подведов; НО в кварталах остались
+  // метод-поля УПРАВЛЕНИЯ (kpCount 40, kpPlanTotal 9000…) — ловушка спреда.
+  const overridden = {
+    _subFiltered: true,
+    planTotal: 700, factTotal: 300, competitiveCount: 6, soleCount: 3,
+    economyTotal: 44,
+    quarters: {
+      q1: {
+        planCount: 4, factCount: 2, planTotal: 380, factTotal: 200, economyTotal: 30,
+        planMB: 380, factMB: 200,
+        kpCount: 40, epCount: 20, kpPlanTotal: 9000, kpFactTotal: 8000, epPlanTotal: 1000, epFactTotal: 500,
+      },
+      q3: {
+        planCount: 5, factCount: 1, planTotal: 320, factTotal: 100, economyTotal: 14,
+        planMB: 320, factMB: 100,
+        kpCount: 41, epCount: 21, kpPlanTotal: 9100, kpFactTotal: 8100, epPlanTotal: 1100, epFactTotal: 600,
+      },
+    },
+    months: {
+      7: { planCount: 3, factCount: 1, planTotal: 210, factTotal: 100, economyTotal: 9, planMB: 210, factMB: 100 },
+      8: { planCount: 2, factCount: 0, planTotal: 110, factTotal: 0, economyTotal: 5, planMB: 110, factMB: 0 },
+    },
+  };
+
+  it('квартал: деньги/счётчики/экономия/бюджет — срез подведов за квартал, не год', () => {
+    const r = aggregateNodeTotals(overridden, resolution('q3'), BOTH);
+    expect(r.planTotal).toBe(320);   // не 700 (год) и не 9100+1100 (депт-деньги из спреда)
+    expect(r.factTotal).toBe(100);
+    expect(r.planCount).toBe(5);
+    expect(r.factCount).toBe(1);
+    expect(r.economyTotal).toBe(14);
+    expect(r.budget.planMB).toBe(320);
+  });
+
+  it('квартал: КП/ЕП — годовые подведомственные (разбивки способа у подведов нет), не депт-поля спреда', () => {
+    const r = aggregateNodeTotals(overridden, resolution('q3'), BOTH);
+    expect(r.kp).toBe(6);  // не 41 (kpCount управления в спреде квартала)
+    expect(r.ep).toBe(3);
+  });
+
+  it('месяц: срез подведов за месяц, не квартал и не год', () => {
+    const res = resolvePeriodSelection('year', new Set([7]), true);
+    const r = aggregateNodeTotals(overridden, res, { ...BOTH, activeMonths: new Set([7]), hasMonthData: true });
+    expect(r.planTotal).toBe(210);
+    expect(r.factTotal).toBe(100);
+    expect(r.economyTotal).toBe(9);
+  });
+
+  it('год: короткое замыкание на годовых полях узла сохранено', () => {
+    const r = aggregateNodeTotals(overridden, resolution('year'), BOTH);
+    expect(r.planTotal).toBe(700);
+    expect(r.factTotal).toBe(300);
+    expect(r.economyTotal).toBe(44);
+    expect(r.kp).toBe(6);
+    expect(r.ep).toBe(3);
+    expect(r.planCount).toBe(9); // 4 + 5 из квартальных сумм подведов
+  });
+});

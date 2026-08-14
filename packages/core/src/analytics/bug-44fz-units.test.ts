@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkEPContractLimits, checkEPShareLimits } from './compliance-44fz.js';
-import { detectSplitting, type AntiCorruptionRow } from './anticorruption.js';
+import { detectEpOverLimit, detectSplitting, type AntiCorruptionRow } from './anticorruption.js';
+import w2606 from '../report/__fixtures__/week-26.06.2026.json';
 
 /**
  * Страж-тест на БАГ #1 (bug-hunt 2026-08-08, docs/superpowers/audits/2026-08-08-bug-hunt-register.md):
@@ -61,5 +62,54 @@ describe('БАГ #1 — единицы 44-ФЗ (тыс. руб., не руб.)',
     expect(flags[0].indicator).toBe('splitting');
     expect(flags[0].severity).toBe('high');
     expect(flags[0].score).toBe(70);
+  });
+});
+
+/**
+ * Страж на ЖИВЫХ числах реестра охоты: фикстура недели 26.06.2026 (реальные
+ * книги восьми ГРБС) содержит ровно 94 ЕП-строки с планом > 600 тыс. руб. —
+ * число «94 реальных нарушения лимита ЕП» зафиксировано в
+ * docs/superpowers/audits/2026-08-08-bug-hunt-register.md (БАГ #1, критический).
+ * До фикса единиц весь слой контроля 44-ФЗ на этих же данных находил НОЛЬ.
+ * Точное равенство, не «>0»: сдвиг порога или единиц в любую сторону
+ * (обратно в рубли, в копейки, в миллионы) изменит счёт и уронит тест.
+ */
+describe('БАГ #1 — страж на фикстуре week-26.06.2026 (живые данные)', () => {
+  // Фикстура хранит только значимые колонки книги: columns[] — исходные
+  // 0-based индексы DEPT_COLUMNS, строки — проекция на них.
+  const fx = w2606 as unknown as {
+    columns: number[];
+    rowsByDept: Record<string, Array<Array<string | number | null>>>;
+  };
+  const iSubject = fx.columns.indexOf(6);   // G — предмет
+  const iPlan = fx.columns.indexOf(10);     // K — план итого (тыс. руб.)
+  const iMethod = fx.columns.indexOf(11);   // L — способ закупки
+  const iFact = fx.columns.indexOf(24);     // Y — факт итого (тыс. руб.)
+
+  function deptRows(rows: Array<Array<string | number | null>>) {
+    return rows.map((r, i) => ({
+      rowIndex: i + 1,
+      method: String(r[iMethod] ?? '').trim(),
+      planTotal: Number(r[iPlan] ?? 0) || 0,
+      factTotal: Number(r[iFact] ?? 0) || 0,
+      economy: 0,
+      subject: String(r[iSubject] ?? '').trim(),
+    }));
+  }
+
+  it('checkEPContractLimits находит ровно 94 нарушения лимита ЕП по всем восьми книгам (было 0)', () => {
+    let total = 0;
+    for (const [dept, rows] of Object.entries(fx.rowsByDept)) {
+      total += checkEPContractLimits(deptRows(rows), dept).length;
+    }
+    expect(total).toBe(94);
+  });
+
+  it('detectEpOverLimit (антикор-рамка того же порога) находит те же 94 строки', () => {
+    let total = 0;
+    for (const rows of Object.values(fx.rowsByDept)) {
+      total += detectEpOverLimit(deptRows(rows)).length;
+    }
+    expect(total).toBe(94);
   });
 });

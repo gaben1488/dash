@@ -24,6 +24,7 @@ import {
   activityPhrase,
   catsFromActivities,
   effectiveScope,
+  isAllCats,
 } from '../lib/svod/activity';
 import { activePeriodButton, resolveSvodPeriod } from '../lib/svod/period';
 import { collapsePeriods, hasCellsForPeriods, isGridEmpty } from '../lib/svod/grid';
@@ -186,9 +187,11 @@ export function SvodView() {
   }, [year]);
 
   // ── Вид деятельности: одна ось со всем приложением ──
+  // Канон п.30: категорий две (ПМ/ТД) — «всё выбрано» решает isAllCats,
+  // а не магическое число (три категории ушли вместе со срезом ТД-ПМ).
   const cats = useMemo(() => catsFromActivities(selectedActivities), [selectedActivities]);
   const scope = effectiveScope(cats);
-  const activityIsAll = cats.size === 0 || cats.size === 3;
+  const activityIsAll = isAllCats(cats);
 
   // ── Период: одна ось со всем приложением ──
   const gridYear = resp?.year ?? (typeof year === 'number' ? year : new Date().getFullYear());
@@ -392,14 +395,9 @@ export function SvodView() {
             </span>
           </fieldset>
 
-          {cats.has('td_pm') && (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug pl-[6.5rem]">
-              ТД-ПМ — строки текущей деятельности с заполненной графой программы.
-              Возможно, это ошибка заполнения, а не отдельная категория: включите
-              ПМ + ТД-ПМ, чтобы посмотреть «как если бы это были программные деньги»,
-              или ТД чистая + ТД-ПМ — это вся текущая деятельность целиком.
-            </p>
-          )}
+          {/* Пояснение про «ТД-ПМ» удалено: срез упразднён каноном п.30
+              (интервью 14.08.2026) — ТД-строки с заполненной графой программы
+              входят в ТД целиком, отдельной категории нет. */}
 
           <fieldset className="flex items-center gap-2 flex-wrap min-w-0">
             <legend className="sr-only">Период</legend>

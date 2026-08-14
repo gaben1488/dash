@@ -210,6 +210,18 @@ describe('строки-атомы снимка → procurement_rows (блок Е
     const iso = (day: number): string => new Date(day * 86400000 + 10 * 3600000).toISOString();
     db.insert(schema.snapshots).values({ id: 'bug8-drop-mon', spreadsheetId: 'test', createdAt: iso(oldThu - 3) }).run();
 
+    // Даты рабочих снимков — ОТНОСИТЕЛЬНО «сейчас» и на РАЗНЫЕ календарные дни.
+    // Первая редакция теста (волна багфиксов 08.08) зашила абсолютные даты
+    // 2026-08-06: ретеншен считает дневное окно от реального new Date(), и
+    // 14.08 обе даты выпали из 7-дневного окна — вдобавок два снимка одного
+    // дня оставляют лишь победителя дня, второй уносит замечание каскадом.
+    // Тест закреплял не дефект, а собственную датозависимость; страж бага #8
+    // (идемпотентность issues + строки + ретеншен в одной транзакции) от
+    // календаря запуска зависеть не обязан.
+    const NOW_MS = Date.now();
+    const tFirst = new Date(NOW_MS - 48 * 3600000).toISOString(); // позавчера — свой день окна
+    const tSecond = new Date(NOW_MS).toISOString(); // сегодня — свой день окна
+
     // id замечания намеренно СТАБИЛЕН между прогонами (issue-identity.ts) — тот
     // же самый id приходит и во втором снимке. issues.id — PRIMARY KEY без
     // snapshot_id в составе (schema.ts): без onConflictDoNothing второй insert
@@ -225,8 +237,8 @@ describe('строки-атомы снимка → procurement_rows (блок Е
       detectedAt: '2026-08-06T08:00:00.000Z',
       detectedBy: 'snapshot-rows.test.ts',
     };
-    const s1 = { ...snap('bug8-first', '2026-08-06T08:00:00.000Z', { УЭР: UER_ROWS }), issues: [stableIssue] };
-    const s2 = { ...snap('bug8-second', '2026-08-06T09:00:00.000Z', { УЭР: UER_ROWS }), issues: [stableIssue] };
+    const s1 = { ...snap('bug8-first', tFirst, { УЭР: UER_ROWS }), issues: [stableIssue] };
+    const s2 = { ...snap('bug8-second', tSecond, { УЭР: UER_ROWS }), issues: [stableIssue] };
 
     // Первый прогон: id замечания встречается впервые, конфликта нет — этот
     // вызов проходил и до фикса. Ретеншен внутри него уже отработал, но

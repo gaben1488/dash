@@ -3,7 +3,7 @@ import {
   REPORT_MAP,
   DEPARTMENT_IDS,
   DEPARTMENT_ROWS,
-  COLUMNS,
+  SVOD_COLUMNS,
   SUMMARY_ROWS,
   type RowMetrics,
 } from '@aemr/shared';
@@ -46,7 +46,7 @@ describe('Bijection: REPORT_MAP completeness', () => {
   });
 
   it('every REPORT_MAP sourceCell references a known column', () => {
-    const knownCols = new Set(Object.keys(COLUMNS));
+    const knownCols = new Set(Object.keys(SVOD_COLUMNS));
     const badCol = REPORT_MAP.filter(e => {
       const col = e.sourceCell.replace(/\d+/g, '');
       return !knownCols.has(col);

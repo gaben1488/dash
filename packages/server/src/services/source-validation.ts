@@ -8,7 +8,7 @@ import {
   CHECK_REGISTRY,
   LEGACY_SIGNAL_TO_CHECK,
 } from '@aemr/shared';
-import { getSheetData } from '../google-sheets.js';
+import { getSheetData } from './google-sheets.js';
 import { readDeptSheet } from './google-sheets.js';
 import { config, DEPARTMENT_SPREADSHEETS, SHDYU_SPREADSHEET_ID } from '../config.js';
 

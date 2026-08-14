@@ -1,4 +1,4 @@
-import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek, getMonthsForWeek } from '../store';
+import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek } from '../store';
 import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
@@ -407,11 +407,15 @@ function WeekRoller() {
     }
   }, [monthsByYear, focusedWeekStart, isWeekMode]);
 
-  /** Click on focused week → activate week mode (resets to current week's data) */
+  /** Click on focused week → week-режим (сброс явного выбора периода). */
   const handleWeekClick = useCallback((monday: Date) => {
+    // Баг #5 (реестр охоты 08.08): последний писатель месяцев недели в
+    // activeMonths. Week-режим — не фильтр: месяцы недели были невидимы для
+    // чипов/URL и молча резали экран до месяца. Сброс — пустое множество,
+    // как во всех точках «период очищен» store (clearAllPeriods и др.).
     useStore.setState({
       focusedWeekStart: monday,
-      activeMonths: getMonthsForWeek(monday),
+      activeMonths: new Set<number>(),
       periodMode: 'week',
       monthsByYear: {},
     });
@@ -426,7 +430,7 @@ function WeekRoller() {
   }, [shiftFocusedWeek]);
 
   return (
-    <div className={clsx('wr-drum', isWeekMode && 'wr-drum-active')} ref={wrRef} title={isWeekMode ? 'Режим недели (данные по текущей неделе)' : 'Нажмите для переключения на неделю'}>
+    <div className={clsx('wr-drum', isWeekMode && 'wr-drum-active')} ref={wrRef} title={isWeekMode ? 'Режим недели (период не выбран — данные за год)' : 'Нажмите для сброса выбранного периода'}>
       {weeks.map((monday, idx) => {
         const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
         const isFocused = idx === 1;

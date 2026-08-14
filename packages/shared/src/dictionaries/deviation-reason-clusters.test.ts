@@ -3,7 +3,8 @@
  * Каждый пример — дословная строка листа, не выдуманная.
  */
 import { describe, expect, it } from 'vitest';
-import { canonicalizeDeviation, extractForecastDate, DEVIATION_DICT } from './deviation-reason-clusters.js';
+import { canonicalizeDeviation, DEVIATION_DICT } from './deviation-reason-clusters.js';
+import * as deviationModule from './deviation-reason-clusters.js';
 
 const c = (s: string) => canonicalizeDeviation(s).cluster;
 
@@ -55,13 +56,12 @@ describe('canonicalizeDeviation — живые формулировки', () => 
     expect(c('увеличился срок составления технического задания и обоснования НМЦК')).toBe('DEV_NMCK_WORK');
   });
 
-  it('ожидаемая дата вынимается из текста, прошлое прогнозом не считается', () => {
-    expect(extractForecastDate('Контракт будет подписан до 31.07.2026')).toBe('31.07.2026');
-    // Из нескольких дат берётся самая поздняя — она и есть ожидание.
-    expect(extractForecastDate('ЭА размещен 23.07.2026, заключение 20.08.2026')).toBe('20.08.2026');
-    // Дата раньше среза — не прогноз, а факт прошлого.
-    expect(extractForecastDate('Протокол 16.07.2026', 20670)).toBeNull();
-    expect(extractForecastDate('без дат')).toBeNull();
+  it('СТРАЖ п.27/31/40/41: extractForecastDate снята — свободный текст машинно не интерпретируется', () => {
+    // Канон п.27 интервью 14.08.2026: «ожидается 30.08.2027» бралось из
+    // «лицензия до 30.08.2027», «ожидается 17.07.2026» — из «17.07 будет
+    // РАСТОРГНУТ МК». Функция удалена целиком; появление её заново в этом
+    // модуле — регресс класса «машинный вывод из комментария».
+    expect('extractForecastDate' in deviationModule).toBe(false);
   });
 
   it('каждый кластер несёт ответственного и признак действия', () => {

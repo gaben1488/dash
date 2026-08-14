@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { REPORT_MAP, DEPARTMENT_IDS, DEPARTMENT_ROWS, COLUMNS } from './report-map.js';
+import { REPORT_MAP, DEPARTMENT_IDS, DEPARTMENT_ROWS, SVOD_COLUMNS } from './report-map.js';
 import { RULE_BOOK } from './rule-book.js';
 
 describe('REPORT_MAP', () => {
@@ -72,10 +72,10 @@ describe('DEPARTMENT_ROWS', () => {
 });
 
 describe('ROW_COLUMN_DEFS coverage', () => {
-  it('COLUMNS constant has entries D through U', () => {
+  it('SVOD_COLUMNS constant has entries D through U', () => {
     const expected = ['D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
     for (const col of expected) {
-      expect(col in COLUMNS).toBe(true);
+      expect(col in SVOD_COLUMNS).toBe(true);
     }
   });
 

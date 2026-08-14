@@ -19,20 +19,21 @@ process.env.NODE_ENV = 'test';
 process.env.AEMR_API_KEY = '';
 process.env.SQLITE_PATH = ':memory:';
 process.env.LOG_LEVEL = 'silent';
-
-// Сеть в тесте запрещена: снимок обязан честно падать в демо, а не ходить в
-// живые книги с машинных учёток разработчика.
-vi.mock('../google-sheets.js', () => ({
-  batchGetCells: vi.fn(async () => { throw new Error('network disabled in test'); }),
-  batchGetFormulas: vi.fn(async () => { throw new Error('network disabled in test'); }),
-  getSheetData: vi.fn(async () => { throw new Error('network disabled in test'); }),
-  getSpreadsheetMetadata: vi.fn(async () => { throw new Error('network disabled in test'); }),
-}));
+// Явный демо-режим (пустые ключи существуют → dotenv не подставит машинные
+// креды из .env): снимок при отказе сети честно падает в демо, а не в 503.
+process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+process.env.GOOGLE_PRIVATE_KEY = '';
+process.env.GOOGLE_API_KEY = '';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G5' }));
 
+// Сеть в тесте запрещена: снимок обязан честно падать в демо, а не ходить в
+// живые книги с машинных учёток разработчика.
 vi.mock('../services/google-sheets.js', () => ({
   writeCellValue,
+  batchGetCells: vi.fn(async () => { throw new Error('network disabled in test'); }),
+  batchGetFormulas: vi.fn(async () => { throw new Error('network disabled in test'); }),
+  getSpreadsheetMetadata: vi.fn(async () => { throw new Error('network disabled in test'); }),
   getSheetData: vi.fn(async () => []),
   getSheetDataFromSpreadsheet: vi.fn(async () => []),
   readDeptSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'ВСЕ' })),
@@ -146,11 +147,28 @@ describe('тексты ошибок — по-русски, без внутрен
   });
 
   it('недопустимый переход статуса → 400 и названия состояний, а не ключи', async () => {
-    // demo-issue-001 живёт в демо-снимке со статусом «Открыто»; переход
-    // «Открыто» → «Исправлено» правилами не предусмотрен.
+    // Замечание сеется в БД со статусом «Открыто» (демо-замечания гейт PUT
+    // отклоняет как фикции); переход «Открыто» → «Исправлено» не предусмотрен.
+    const { db, schema } = await import('../db/index.js');
+    db.insert(schema.snapshots)
+      .values({ id: 'seed-rm-1', spreadsheetId: 'x', createdAt: '2026-01-01T00:00:00Z' })
+      .run();
+    db.insert(schema.issues)
+      .values({
+        id: 'rm-issue-1',
+        snapshotId: 'seed-rm-1',
+        severity: 'warning',
+        origin: 'system',
+        category: 'test',
+        title: 'посев для проверки переходов',
+        status: 'open',
+        detectedAt: '2026-01-01T00:00:00Z',
+      })
+      .run();
+
     const res = await app.inject({
       method: 'PUT',
-      url: '/api/issues/demo-issue-001/status',
+      url: '/api/issues/rm-issue-1/status',
       payload: { status: 'resolved' },
     });
     expect(res.statusCode).toBe(400);

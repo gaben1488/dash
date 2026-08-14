@@ -86,6 +86,32 @@ function addBudget(acc: NodeBudget, src: any): void {
   acc.economyMB += src.economyMB ?? 0;
 }
 
+/**
+ * Снять с периодных объектов оверрайднутого подвед-узла метод-поля (КП/ЕП),
+ * протащенные спредом от управления (см. комментарий в ветви `_subFiltered`).
+ * Баг #4 реестра охоты 08.08: без вычистки addMoney/addCommon читали бы
+ * kpPlanTotal/kpCount УПРАВЛЕНИЯ там, где выбраны только его подведы.
+ */
+function stripMethodFields(
+  byKey: Record<string, any> | undefined,
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [key, src] of Object.entries(byKey ?? {})) {
+    if (!src) continue;
+    const rest = { ...src };
+    delete rest.kpCount;
+    delete rest.epCount;
+    delete rest.kpFactCount;
+    delete rest.epFactCount;
+    delete rest.kpPlanTotal;
+    delete rest.kpFactTotal;
+    delete rest.epPlanTotal;
+    delete rest.epFactTotal;
+    out[key] = rest;
+  }
+  return out;
+}
+
 function emptyTotals(): NodeTotals {
   return {
     kp: 0, ep: 0, planTotal: 0, factTotal: 0, planCount: 0, factCount: 0,
@@ -107,20 +133,51 @@ export function aggregateNodeTotals(
   const { showKP, showEP, activeMonths, hasMonthData } = opts;
   const t = emptyTotals();
 
-  // ── Подвед-оверрайд: значения на узле уже являются срезом подведа (год) ──
-  // Квартальная разбивка объекта при этом описывает управление целиком.
+  // ── Подвед-оверрайд: значения на узле уже являются срезом подведа ──
+  //
+  // Баг #4 реестра охоты 08.08 (интервью пп. 5, 6, 11, 12): раньше эта ветвь
+  // коротко замыкалась на ГОДОВЫХ значениях узла независимо от resolution —
+  // фильтр по подведам отменял выбранный период, и под заголовком квартала
+  // стояли годовые числа. Теперь собранные оверрайдом quarters/months подведов
+  // (subordinate-override.ts суммирует их из SubPeriodMetrics) идут через ту же
+  // общую периодную ветвь, что и обычные узлы, — один экран, один периметр.
   if (node?._subFiltered) {
-    if (showKP) t.kp += node.competitiveCount ?? 0;
-    if (showEP) t.ep += node.soleCount ?? 0;
-    t.planTotal += node.planTotal ?? 0;
-    t.factTotal += node.factTotal ?? 0;
-    t.economyTotal += node.economyTotal ?? 0;
-    for (const qk of QUARTER_KEYS) {
-      const sq = node.quarters?.[qk];
-      if (sq) { t.planCount += sq.planCount ?? 0; t.factCount += sq.factCount ?? 0; addBudget(t.budget, sq); }
+    if (!hasActiveMonths && periodKey === 'year') {
+      // Год целиком: годовые поля узла — уже срез подведов, короткое замыкание
+      // корректно (годового ключа в quarters{} у оверрайднутого узла нет,
+      // поэтому общая ветвь здесь дала бы фолбэк на те же поля).
+      if (showKP) t.kp += node.competitiveCount ?? 0;
+      if (showEP) t.ep += node.soleCount ?? 0;
+      t.planTotal += node.planTotal ?? 0;
+      t.factTotal += node.factTotal ?? 0;
+      t.economyTotal += node.economyTotal ?? 0;
+      for (const qk of QUARTER_KEYS) {
+        const sq = node.quarters?.[qk];
+        if (sq) { t.planCount += sq.planCount ?? 0; t.factCount += sq.factCount ?? 0; addBudget(t.budget, sq); }
+      }
+      return t;
     }
-    t.periodApplied = false;
-    return t;
+    // Период сужен. ОСТОРОЖНО: спред `...(d.quarters?.[qk] ?? {})` в
+    // subordinate-override.ts оставляет в оверрайднутых кварталах/месяцах
+    // МЕТОД-поля управления (kpCount/epCount/kpPlanTotal/epPlanTotal/…):
+    // у SubPeriodMetrics подведов разбивки по способу нет, и спред протаскивает
+    // их от депта целиком. Читать их здесь нельзя — деньги и счётчики
+    // управления подменили бы срез подведа. Вычищаем их и гоним узел через
+    // общую ветвь; счётчики-суммы-бюджет-экономия в этих объектах подведовские.
+    const sanitized = {
+      ...node,
+      _subFiltered: false,
+      quarters: stripMethodFields(node.quarters),
+      months: stripMethodFields(node.months),
+    };
+    const st = aggregateNodeTotals(sanitized, resolution, opts);
+    // КП/ЕП: поквартальной/помесячной разбивки по способу у подведов в данных
+    // НЕТ — единственная существующая база годовая (competitiveCount/soleCount
+    // узла = сумма выбранных подведов за год). Показываем её, а не ноль:
+    // это тот же честный годовой фолбэк, что и у узла без периодной базы.
+    st.kp = showKP ? (node.competitiveCount ?? 0) : 0;
+    st.ep = showEP ? (node.soleCount ?? 0) : 0;
+    return st;
   }
 
   const hasQuarters = hasAnyKey(node?.quarters);

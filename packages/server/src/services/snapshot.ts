@@ -2,12 +2,11 @@ import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, 
 import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
 import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow } from '@aemr/shared';
 import { buildRowDto, isDataRow } from './rows-dto.js';
-import { batchGetCells, batchGetFormulas, getSheetData } from '../google-sheets.js';
-import { fetchSHDYUSheet } from './google-sheets.js';
+import { batchGetCells, batchGetFormulas, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { SHDYU_SPREADSHEET_ID } from '../config.js';
 import { db, schema } from '../db/index.js';
-import { config } from '../config.js';
+import { config, isDemoMode } from '../config.js';
 import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
@@ -330,11 +329,52 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
 
     return snapshot;
   } catch (error) {
-    console.error('❌ Google Sheets unavailable, falling back to demo data:', error);
+    // Гейт демо-фолбэка (класс КЦЕ-прецедента 14.08): при настроенных Google-кредах
+    // подменять данные сочинённым демо-снимком нельзя — сбой источника (или баг
+    // пайплайна после чтения) отдаётся честно: последний сохранённый снимок из SQL,
+    // а если истории нет — ошибка пробрасывается, и роуты отвечают 503.
+    if (!isDemoMode) {
+      const last = loadLatestSavedSnapshot();
+      if (last) {
+        console.error('❌ Ошибка получения снимка — отдан последний сохранённый из SQL:', error);
+        return last;
+      }
+      throw error;
+    }
+    console.error('❌ Google Sheets недоступны и креды не настроены — демо-снимок:', error);
     const demo = createDemoSnapshot();
     demo.id = `demo-${demo.id}`;
     return demo;
   }
+}
+
+/**
+ * Последний сохранённый настоящий снимок из SQL — фолбэк на сбой источника при
+ * настроенных кредах. Просматриваем несколько последних строк: повреждённый
+ * data-JSON не должен лишать продукт более старого целого снимка. Снимок может
+ * не совпадать с запрошенным годом — это устаревшие, но НАСТОЯЩИЕ данные, в
+ * отличие от демо-генератора.
+ */
+function loadLatestSavedSnapshot(): DataSnapshot | null {
+  try {
+    const rows = db.select({ data: schema.snapshots.data })
+      .from(schema.snapshots)
+      .orderBy(desc(schema.snapshots.createdAt))
+      .limit(5)
+      .all();
+    for (const row of rows) {
+      if (!row.data) continue;
+      try {
+        const snapshot = JSON.parse(row.data) as DataSnapshot;
+        if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
+      } catch {
+        // Повреждённый data-JSON — пробуем снимок старше.
+      }
+    }
+  } catch {
+    // БД недоступна — фолбэка нет, вызывающий пробросит исходную ошибку.
+  }
+  return null;
 }
 
 /**
@@ -523,10 +563,18 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
       }
 
       for (const issue of snapshot.issues) {
+        // Совпавший id — то же замечание в новом снимке: перевешиваем ТОЛЬКО
+        // snapshot_id на свежий снимок. Прочие поля не трогаем (статус/комментарий
+        // ставит человек через PUT — затирать их снимком нельзя). Без перевешивания
+        // строка оставалась приписанной к ПЕРВОМУ снимку, ретеншен его прунил и
+        // каскадом удалял живое замечание (страж: snapshot-rows.test.ts, БАГ #8).
         tx.insert(schema.issues).values({
           ...issue,
           snapshotId: snapshot.id,
-        }).onConflictDoNothing().run();
+        }).onConflictDoUpdate({
+          target: schema.issues.id,
+          set: { snapshotId: snapshot.id },
+        }).run();
       }
 
       // Строки-атомы в SQL (пирамида, блок Е п.20). До этого атомы жили только

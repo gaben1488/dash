@@ -59,7 +59,8 @@ describe('attachUnifiedGrid (server Task 5 wiring)', () => {
     expect(grid.grbsIds).not.toContain('СВОД ТД-ПМ');
     expect(grid.grbsIds).not.toContain('свод тд-пм');
 
-    const cell = (s: 'all' | 'pm' | 'td' | 'td_pm') => grid.cells[unifiedKey('uo', s, 'kp', 'q1')];
+    // Срезов три (канон п.30: ТД-ПМ упразднён).
+    const cell = (s: 'all' | 'pm' | 'td') => grid.cells[unifiedKey('uo', s, 'kp', 'q1')];
     expect(cell('all')?.planCount).toBe(2);
     expect((cell('pm')?.planCount ?? 0) + (cell('td')?.planCount ?? 0)).toBe(2);
     // Лист СВОД исключён: план ФБ среза ВСЕ = 100 + 30, без 999999.

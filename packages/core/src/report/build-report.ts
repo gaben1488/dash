@@ -20,7 +20,6 @@ import {
   type DepartmentEntry,
   canonicalizeDeviation,
   canonicalizeReasonEp,
-  extractForecastDate,
   dayNumberOf,
   DEVIATION_DICT,
   EP_REASON_DICT,
@@ -363,11 +362,21 @@ const rowPlanTotal = (row: RawRow): number =>
  * движка: строка проходит standardRowFilter, плановый квартал = отчётный,
  * год нестрогий (строки без года не теряются), дата факта пуста (эфир).
  * Номер строки листа = индекс атома + шапка (DEPT_HEADER_ROWS) + 1.
+ *
+ * ВАЖНО (пп.28/29 интервью 14.08.2026): на вход подаются ВСЕ атомы листа,
+ * не отфильтрованный поднабор — sheetRow обязан быть номером строки ЛИСТА.
+ * Прежде функция получала fundedRows (rows.filter(...)), и индекс i считался
+ * по выборке: любая unfunded-строка выше сдвигала номера всех позиций под
+ * ней — исполнитель шёл по номеру не в ту строку книги. Исключение
+ * unfunded-строк теперь внутри, с сохранением исходных индексов.
  */
 function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOfDay?: number): PendingPosition[] {
   const out: PendingPosition[] = [];
   rows.forEach((row, i) => {
     if (!standardRowFilter(row)) return;
+    // Периметр счёта отчёта — только обеспеченное финансированием (решение
+    // 07.08): unfunded-строки живут в своей секции, не в незаключённых.
+    if (isUnfundedRow(row)) return;
     if (cellNum(row[DEPT_COLUMNS.PLAN_QUARTER]) !== quarter) return;
     const rowYear = cellNum(row[DEPT_COLUMNS.PLAN_YEAR]);
     if (rowYear !== 0 && rowYear !== year) return;
@@ -387,11 +396,11 @@ function pendingPositionsFor(rows: RawRow[], quarter: number, year: number, asOf
       planDate: String(row[DEPT_COLUMNS.PLAN_DATE] ?? '').trim(),
       planTotal,
       explanations,
-      // Ожидаемая дата ищется по всем пояснениям строки: исполнитель может
-      // написать её в любой из колонок комментариев.
-      forecastDate: explanations
-        .map((e) => extractForecastDate(e.text, asOfDay))
-        .find((d): d is string => d !== null) ?? null,
+      // Поля forecastDate больше НЕТ (канон п.27 интервью 14.08.2026, пп.31):
+      // «ожидается 03.09.2025» выводилось extractForecastDate из свободного
+      // текста пояснений — машинная интерпретация комментариев исполнителей
+      // запрещена владельцем. Пояснения выше доносятся как есть — прогнозную
+      // дату читатель видит в них своими глазами.
     });
   });
   // Дороже — выше: внимание читателя ведут деньги.
@@ -602,7 +611,9 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
         methods: quarterMethods,
         pendingCount: execution.planCount - execution.doneCount,
         pending: pendingOf(g, qGroup),
-        pendingPositions: pendingPositionsFor(fundedRows, quarter, year, opts.asOfDay),
+        // ВСЕ атомы листа, не fundedRows: sheetRow позиций — номер строки
+        // ЛИСТА (пп.28/29), фильтрация до индексации сдвигала номера.
+        pendingPositions: pendingPositionsFor(rows, quarter, year, opts.asOfDay),
         pendingByMethod: {
           kp: pendingOf(g, `${qGroup}.competitive`),
           ep: pendingOf(g, `${qGroup}.ep`),
@@ -698,8 +709,10 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
   if (unfunded) {
     // Честная плашка: читатель должен знать, что счёт года «чист» не сам
     // по себе, а потому что строки без финансирования вынесены отдельно.
+    // Имя класса — канон п.23 интервью 14.08.2026: «закупки, НЕ ОБЕСПЕЧЕННЫЕ
+    // финансированием» (прежнее «без подтверждённого финансирования» снято).
     notes.push(
-      `Закупки без подтверждённого финансирования (${unfunded.count} на ` +
+      `Закупки, не обеспеченные финансированием (${unfunded.count} на ` +
       `${Math.round(unfunded.total).toLocaleString('ru-RU')} тыс. руб.) в счёт года не входят — ` +
       'как и в формулы листа СВОД; их состав — в секции внизу отчёта.',
     );

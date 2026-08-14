@@ -139,6 +139,24 @@ const WHOLE_YEAR = {
 };
 const BOTH_METHODS = { showKP: true, showEP: true, activeMonths: new Set<number>(), hasMonthData: false };
 
+/**
+ * Индекс «текущего» квартала для Δ кв.
+ *
+ * Баг #14 реестра охоты 08.08 (интервью пп. 14–16): на годовом виде «текущим»
+ * безусловно считался IV квартал — рейтинг сравнивал пустой q4 с q3 и всегда
+ * показывал обвал. Правило класса: на годовом виде текущий квартал — ПОСЛЕДНИЙ
+ * квартал с фактом; если факта нет нигде, дельту считать не из чего (−1 → null).
+ */
+function currentQuarterIdx(periodKey: string, quarters: Array<{ fact: number }>): number {
+  if (periodKey.startsWith('q')) {
+    return QUARTER_KEYS.indexOf(periodKey as typeof QUARTER_KEYS[number]);
+  }
+  for (let i = QUARTER_KEYS.length - 1; i >= 0; i--) {
+    if ((quarters[i]?.fact ?? 0) > 0) return i;
+  }
+  return -1;
+}
+
 /** Метрики узла за ВЫБРАННЫЙ период (одно правило с итогами страницы). */
 function buildExecMetricsForPeriod(node: any, fd: FilteredDataResult): ExecutionMetrics {
   const n = aggregateNodeTotals(node, fd.periodResolution ?? WHOLE_YEAR, fd.nodeAggregateOpts ?? BOTH_METHODS);
@@ -248,9 +266,8 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
       });
 
       // ── Delta (current quarter vs previous) ──
-      const curIdx = fd.periodKey.startsWith('q')
-        ? QUARTER_KEYS.indexOf(fd.periodKey as typeof QUARTER_KEYS[number])
-        : QUARTER_KEYS.length - 1;
+      // На годовом виде — последний квартал С ФАКТОМ этого управления (баг #14).
+      const curIdx = currentQuarterIdx(fd.periodKey, quarters);
       const prevIdx = curIdx > 0 ? curIdx - 1 : -1;
       let delta: DeptMetrics['delta'] = null;
       if (prevIdx >= 0) {
@@ -313,9 +330,8 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
     });
 
     // ── Global delta ──
-    const curIdx = fd.periodKey.startsWith('q')
-      ? QUARTER_KEYS.indexOf(fd.periodKey as typeof QUARTER_KEYS[number])
-      : QUARTER_KEYS.length - 1;
+    // На годовом виде — последний квартал с фактом по всем управлениям (баг #14).
+    const curIdx = currentQuarterIdx(fd.periodKey, quarterSpark);
     const prevIdx = curIdx > 0 ? curIdx - 1 : -1;
     let globalDelta: MultiDimResult['globalDelta'] = null;
     if (prevIdx >= 0 && quarterSpark[curIdx] && quarterSpark[prevIdx]) {

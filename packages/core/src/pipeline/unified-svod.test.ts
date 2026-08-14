@@ -22,8 +22,8 @@ function row(o: Partial<Record<number, unknown>>): unknown[] {
 describe('computeUnifiedGrid — инварианты §7', () => {
   // uo: 3 строки.
   //   A: ПМ, КП(ЭА), 1 кв/2026 (план-дата фев), план ФБ=100, факт ФБ=90, эко ФБ=10, gate=да, есть факт
-  //   B: ТД с программой → td_pm, ЕП, 1 кв (фев), план ФБ=50, факт ФБ=50, эко=0, gate=нет, есть факт
-  //   C: ТД без программы (X) → чистая ТД, КП(ЭА), 1 кв (мар), план ФБ=30, факт=нет (Х), gate=нет
+  //   B: ТД с программой (канон п.30: обычная ТД), ЕП, 1 кв (фев), план ФБ=50, факт ФБ=50, эко=0, gate=нет, есть факт
+  //   C: ТД без программы (X), КП(ЭА), 1 кв (мар), план ФБ=30, факт=нет (Х), gate=нет
   const rows: Record<string, unknown[][]> = {
     uo: [
       row({ 3: 'Программа A', 5: 'Программное мероприятие', 11: 'ЭА', 13: '2026-02-01', 14: 1, 15: 2026, 16: '2026-02-10', 7: 100, 21: 90, 25: 10, 29: 'да' }),
@@ -53,11 +53,14 @@ describe('computeUnifiedGrid — инварианты §7', () => {
     expect(td).toBe(30);
   });
 
-  it('инвариант: td_pm ⊂ td (td_pm.count ≤ td.count, ТД-без-программы → td_pm=0)', () => {
-    expect(cell('td_pm', 'ep', 'q1')?.planCount).toBe(1); // строка B (ТД+программа)
-    expect(cell('td', 'ep', 'q1')?.planCount).toBe(1);    // строка B
-    expect(cell('td', 'kp', 'q1')?.planCount).toBe(1);    // строка C (ТД, X)
-    expect(cell('td_pm', 'kp', 'q1')?.planCount ?? 0).toBe(0); // C без программы → нет td_pm
+  it('канон п.30: среза td_pm НЕ существует — ТД с программой считается в ТД', () => {
+    // Страж класса п.30: строка B (ТД + заполненная графа программы) обязана
+    // входить в срез «ТД», а отдельных ячеек td_pm/td_clean в сетке быть не
+    // должно ни для одной комбинации метод×период.
+    expect(cell('td', 'ep', 'q1')?.planCount).toBe(1);    // строка B (ТД+программа) — в ТД
+    expect(cell('td', 'kp', 'q1')?.planCount).toBe(1);    // строка C (ТД, X) — тоже ТД
+    expect(Object.keys(grid.cells).some((k) => k.includes('|td_pm|'))).toBe(false);
+    expect(Object.keys(grid.cells).some((k) => k.includes('|td_clean|'))).toBe(false);
   });
 
   it('инвариант 2: год = Σ месяцев = Σ кварталов (planFB, ВСЕ КП)', () => {
@@ -118,7 +121,7 @@ describe('computeUnifiedGrid — инварианты §7', () => {
     expect(cell('all', 'kp', 'q1')?.economyFB).toBe(10);
     // строка B gate=нет (эко=0 в любом случае); строка C gate=нет → ТД economyFB=0
     expect(cell('td', 'kp', 'q1')?.economyFB ?? 0).toBe(0);
-    expect(cell('td_pm', 'ep', 'q1')?.economyFB ?? 0).toBe(0);
+    expect(cell('td', 'ep', 'q1')?.economyFB ?? 0).toBe(0);
   });
 
   it('инвариант 5: экономия требует и fact-date, и AD=да', () => {
@@ -216,12 +219,10 @@ describe('computeUnifiedGrid — инварианты §7', () => {
     const all = g.cells[unifiedKey('x', 'all', 'kp', 'q1')]?.planFB ?? 0;
     const td = g.cells[unifiedKey('x', 'td', 'kp', 'q1')]?.planFB ?? 0;
     const pm = g.cells[unifiedKey('x', 'pm', 'kp', 'q1')]?.planFB ?? 0;
-    const tdpm = g.cells[unifiedKey('x', 'td_pm', 'kp', 'q1')]?.planFB ?? 0;
     expect(all).toBe(100);
-    expect(td).toBe(100);          // обе длинные ТД-формы → td
+    expect(td).toBe(100);          // обе длинные ТД-формы → td (канон п.30: графа D не делит ТД)
     expect(pm).toBe(0);            // ни одна не ПМ
     expect(pm + td).toBe(all);     // инвариант 1
-    expect(tdpm).toBe(40);         // только строка с программой (D≠X) → td_pm
   });
 
   it('месяц из план-даты раскладывается по правильному кварталу', () => {
@@ -231,10 +232,11 @@ describe('computeUnifiedGrid — инварианты §7', () => {
     expect(cell('all', 'ep', 'm2')?.planFB).toBe(50);  // B
   });
 
-  it('grbsIds и scopes заполнены (порядок = ACTIVITY_SCOPES)', () => {
+  it('grbsIds и scopes заполнены: ровно три среза, ТД-ПМ упразднён (канон п.30)', () => {
     expect(grid.grbsIds).toContain('uo');
-    expect([...grid.scopes].sort()).toEqual(['all', 'pm', 'td', 'td_clean', 'td_pm']) // 06.08: + td_clean (чистая ТД);
-    expect(grid.scopes).toContain('td_pm');
+    expect([...grid.scopes].sort()).toEqual(['all', 'pm', 'td']);
+    expect(grid.scopes).not.toContain('td_pm');
+    expect(grid.scopes).not.toContain('td_clean');
   });
 });
 

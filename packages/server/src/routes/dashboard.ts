@@ -1,11 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from '../services/snapshot.js';
-import { createDemoSnapshot } from '../services/demo-data.js';
 import { fetchDepartmentSpreadsheets, getSheetData } from '../services/google-sheets.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
+
+/**
+ * Ответ на недоступность снимка. Демо-политика живёт в ОДНОЙ точке — getSnapshot:
+ * демо-снимок возвращается только при ненастроенных Google-кредах, при настроенных
+ * сбой источника даёт последний сохранённый снимок из SQL либо ошибку. Здесь
+ * createDemoSnapshot не зовётся: роуты без баннера «Демо» (trust, refresh, сверки)
+ * отдавали выдуманные числа по реальным управлениям без единого маркера.
+ */
+const SNAPSHOT_UNAVAILABLE = {
+  error: 'Данные недоступны: не удалось получить снимок из источника. Повторите позже.',
+} as const;
 
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
@@ -27,8 +37,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot(force, targetYear);
     } catch (err) {
-      app.log.warn('Google Sheets unavailable, serving demo data: %s', (err as Error).message);
-      snapshot = createDemoSnapshot();
+      app.log.warn('dashboard: snapshot unavailable: %s', (err as Error).message);
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
     // Формируем KPI-карточки
@@ -417,8 +427,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot(false);
     } catch (err) {
-      app.log.warn({ err }, 'Google Sheets unavailable for trust detail, serving demo data');
-      snapshot = createDemoSnapshot();
+      app.log.warn({ err }, 'trust: snapshot unavailable');
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
     const deptPrefix = `grbs.${dept.id}`;
@@ -503,8 +513,14 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       app.log.warn('SVOD unavailable: %s', msg);
-      snapshot = createDemoSnapshot();
       sources.push({ name: SVOD_SHEET_NAME, type: 'svod', loaded: false, error: msg });
+      // Снимок не собран — честный 503 со статусом источников вместо демо-чисел.
+      return reply.status(503).send({
+        success: false,
+        sources,
+        quick,
+        error: 'Обновление не выполнено: снимок из источника не собран. Повторите позже.',
+      });
     }
 
     const deltaCount = snapshot.deltas?.length ?? 0;
@@ -544,8 +560,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     let snapshot;
     try {
       snapshot = await getSnapshot();
-    } catch {
-      snapshot = createDemoSnapshot();
+    } catch (err) {
+      // Раньше ошибка глоталась без лога, а сверка наполнялась демо-числами.
+      app.log.warn({ err }, 'reconciliation/quarterly: snapshot unavailable');
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
     const recalcResults = snapshot.recalcResults ?? {};
@@ -576,7 +594,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * GET /api/svod/unified — единая сетка СВОД + сверка против листа СВОД ТД-ПМ.
-   * grid: ГРБС × активность(4: all/td/pm/td_pm) × метод(КП/ЕП) × период(мес/кв/год).
+   * grid: ГРБС × активность(3: all/td/pm — канон п.30, срез ТД-ПМ упразднён) × метод(КП/ЕП) × период(мес/кв/год).
    * reconciliation: срез ВСЕ vs ячейки СВОД ТД-ПМ (ok/warning/high по Δ%).
    * Считается в snapshot (CalcEngine из атомов); ?year= уважается через getSnapshot.
    */
@@ -594,8 +612,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     try {
       snapshot = await getSnapshot(false, targetYear);
     } catch (err) {
-      app.log.warn('Google Sheets unavailable for /api/svod/unified, serving demo data: %s', (err as Error).message);
-      snapshot = createDemoSnapshot();
+      app.log.warn('svod/unified: snapshot unavailable: %s', (err as Error).message);
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
 
     const grid = snapshot.unifiedGrid ?? { cells: {}, grbsIds: [], scopes: [] };

@@ -40,6 +40,9 @@ export interface SystemicAnomaly {
     | 'BENFORD_VIOLATION'
     | 'SUBORDINATE_CONCENTRATION'
     | 'VAGUE_HIGH_VALUE'
+    // CANCELED_WITH_FACT больше не детектируется (канон п.27 от 14.08.2026:
+    // «отменена» выводилась из свободного текста U/AF). Тип оставлен для
+    // чтения старых снимков, где аномалия уже записана.
     | 'CANCELED_WITH_FACT';
   details: string;
   severity: AnomalySeverity;
@@ -332,7 +335,11 @@ export function detectSystemicAnomalies(
       const row = rows[i];
       if (!row || row.length < 25) continue;
       const plan = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
-      if (plan < 5_000_000) continue; // только дорогие закупки
+      // Единицы: колонка K — тыс. руб. (канон книг ГРБС), порог «дорогая закупка»
+      // = 5_000 тыс. = 5 млн руб. Свип БАГ #1 (bug-hunt 2026-08-08): литерал был
+      // в рублях (5_000_000) — при данных в тысячах фильтр требовал закупку на
+      // 5 млрд руб., индикатор молчал всегда.
+      if (plan < 5_000) continue; // только дорогие закупки (≥ 5 млн руб.)
       const desc = String(row[DEPT_COLUMNS.PROGRAM_NAME] ?? '').trim(); // D=3 «графа программы»
       const subj = String(row[DEPT_COLUMNS.SUBJECT] ?? '').trim();
       const text = (desc + ' ' + subj).trim();
@@ -353,30 +360,13 @@ export function detectSystemicAnomalies(
     }
   }
 
-  // CANCELED_WITH_FACT: отменена/снята, но есть существенные фактические суммы (ОЭСР: status-amount inconsistency)
-  {
-    const inconsistentRows: number[] = [];
-    const cancelPatterns = /отмен|не требуется|снят|подлежит удалению/i;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length < 25) continue;
-      const status = String(row[DEPT_COLUMNS.DEVIATION_REASON] ?? '').toLowerCase();
-      const comment = String(row[DEPT_COLUMNS.COMMENT_GRBS] ?? '').toLowerCase();
-      if (!cancelPatterns.test(status) && !cancelPatterns.test(comment)) continue;
-      const factTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_FACT);
-      if (factTotal > 100_000) { // >100K факт на отменённой закупке
-        inconsistentRows.push(i);
-      }
-    }
-    if (inconsistentRows.length > 0) {
-      anomalies.push({
-        type: 'CANCELED_WITH_FACT',
-        details: `${inconsistentRows.length} отменённых/снятых закупок с фактическими суммами >100K — несоответствие статуса и данных`,
-        severity: 'ВЫСОКАЯ',
-        affectedRows: inconsistentRows,
-      });
-    }
-  }
+  // CANCELED_WITH_FACT СНЯТ 14.08.2026 (канон п.27 интервью): признак
+  // «отменена/снята» выводился из свободного текста колонок U/AF
+  // (/отмен|не требуется|снят/), а решение владельца дословно — текст
+  // исполнителей машинно не интерпретируется нигде. Тот же класс, что
+  // баг #16 охоты 08.08 и пп.40–41 интервью: подстрока «отмен» ловила и
+  // «не отменена», и комментарии о прошлых отменах. Комментарий читателю
+  // показывается как есть; структурной отметки отмены в книгах нет.
 
   return anomalies;
 }

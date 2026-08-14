@@ -132,6 +132,16 @@ export function updateSpreadsheetId(name: string, spreadsheetId: string): void {
   } catch { /* best-effort */ }
 }
 
+/**
+ * Демо-режим: НЕ настроен ни один способ доступа к Google (ни служебная
+ * учётка, ни API-ключ). Только в этом режиме продукту разрешено подменять
+ * данные сгенерированным демо-снимком. При настроенных кредах любая ошибка
+ * источника отдаётся честно (последний сохранённый снимок либо 503), а не
+ * сочинёнными числами по реальным ГРБС — класс КЦЕ-прецедента 14.08.
+ */
+export const isDemoMode: boolean =
+  !(env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY) && !env.GOOGLE_API_KEY;
+
 export const config: AppConfig = {
   google: {
     spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID ?? SVOD_SPREADSHEET_ID,

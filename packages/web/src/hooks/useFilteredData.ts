@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { DashboardData } from '@aemr/shared';
-import { useStore, type ActivityFilter, type PeriodScope, type YearFilter } from '../store';
+import { useStore, type ActivityFilter, type PeriodMode, type PeriodScope, type YearFilter } from '../store';
 import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 import { bothDeptKeyForms } from '../lib/dept-key';
 import { aggregateSignalCounts } from '../lib/signal-counts';
@@ -32,6 +32,14 @@ interface FilterInputs {
   subordinatesMap: Record<string, string[]>;
   period: PeriodScope;
   activeMonths: Set<number>;
+  /**
+   * Режим периода (баг #5 реестра охоты 08.08): в week-режиме activeMonths
+   * могут содержать месяцы текущей недели, записанные легаси-писателями
+   * (клик по неделе в шапке и т.п.). Такие месяцы — НЕ фильтр: они невидимы
+   * для чипов (hasExplicitPeriodFilter) и URL, поэтому подавать их в
+   * resolvePeriodSelection нельзя — экран молча сужался бы до месяца.
+   */
+  periodMode: PeriodMode;
   selectedMethods: Set<string>;
   selectedActivities: Set<string>;
   selectedBudgets: Set<string>;
@@ -60,7 +68,8 @@ export function computeFilteredData(input: FilterInputs) {
     selectedDepartments,
     selectedSubordinates,
     period,
-    activeMonths,
+    activeMonths: rawActiveMonths,
+    periodMode,
     activityFilter,
     selectedMethods,
     selectedActivities,
@@ -72,6 +81,11 @@ export function computeFilteredData(input: FilterInputs) {
     deptOnlyMode,
     loading,
   } = input;
+
+  // Одна дверь периода (баг #5): месяцы недели в week-режиме фильтром не
+  // являются — в расчёт идёт пустое множество, периметр экрана = год.
+  // Фильтром месяцы становятся только в explicit-режиме (барабан/навигация/URL).
+  const activeMonths = periodMode === 'week' ? new Set<number>() : rawActiveMonths;
 
   const allDepts: any[] = dashboardData?.departmentSummaries ?? [];
   const allIssues: any[] = dashboardData?.snapshot?.issues ?? dashboardData?.recentIssues ?? [];
@@ -139,6 +153,7 @@ export function computeFilteredData(input: FilterInputs) {
   if (isBudgetFiltered && !isActivityFiltered) {
     ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
       budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
+      resolution, hasMonthData, // подвед-ветвь считается общим ядром (баг #4)
     }));
   }
 
@@ -148,6 +163,7 @@ export function computeFilteredData(input: FilterInputs) {
   const barData = buildBarData(depts, {
     budgetPlanFact, isBudgetFiltered, isActivityFiltered, actKeys,
     useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey, showKP, showEP,
+    resolution, hasMonthData, // подвед-ветвь считается общим ядром (баг #4)
   });
 
   // ── summaryByPeriod: пересчёт, когда фильтры сузили датасет ──
@@ -205,8 +221,13 @@ export function computeFilteredData(input: FilterInputs) {
   // ── конец DEPRECATED-блока ──
 
   // Экономия за выбранный период считается ОДИН раз: и карточке KPI, и итогу
-  // страницы нужен один и тот же обход всех управлений по кварталам.
-  const totalEconomy = getFilteredEconomyTotal({ depts, periodKey, coveredQuarters, selectedBudgets });
+  // страницы нужен один и тот же обход всех управлений. fullQuarters/partialMonths
+  // включают месячную ветвь (баг #10: экономия месяца бралась за весь квартал).
+  const totalEconomy = getFilteredEconomyTotal({
+    depts, periodKey, coveredQuarters,
+    fullQuarters: resolution.fullQuarters, partialMonths: resolution.partialMonths,
+    hasMonthData, selectedBudgets,
+  });
 
   // ── Производные KPI-карточки (гварды порядка/заполнения — как до разреза) ──
   if (overallExecCountPct != null) {
@@ -254,6 +275,10 @@ export function computeFilteredData(input: FilterInputs) {
     warningIssues,
     periodKey,
     coveredQuarters,
+    // Для потребителей, зовущих getFilteredEconomyTotal(fd): без этих полей
+    // экономия падала бы на квартальную ветвь и расходилась с тоталами (баг #10).
+    fullQuarters: resolution.fullQuarters,
+    partialMonths: resolution.partialMonths,
 
     // Month-level awareness
     useMonthLevel,
@@ -322,6 +347,7 @@ export function useFilteredData(): FilteredData {
   const subordinatesMap = useStore(s => s.subordinatesMap);
   const period = useStore(s => s.period);
   const activeMonths = useStore(s => s.activeMonths);
+  const periodMode = useStore(s => s.periodMode);
   const selectedMethods = useStore(s => s.selectedMethods);
   const selectedActivities = useStore(s => s.selectedActivities);
   const selectedBudgets = useStore(s => s.selectedBudgets);
@@ -335,7 +361,7 @@ export function useFilteredData(): FilteredData {
   return useMemo(() => {
     const inputs: unknown[] = [
       dashboardData, selectedDepartments, selectedSubordinates, deptOnlyMode,
-      subordinatesMap, period, activeMonths, selectedMethods, selectedActivities,
+      subordinatesMap, period, activeMonths, periodMode, selectedMethods, selectedActivities,
       selectedBudgets, activityFilter, searchQuery, year, dataYear, loading,
     ];
     if (cachedResult !== null && cachedInputs !== null && sameInputs(cachedInputs, inputs)) {
@@ -343,7 +369,7 @@ export function useFilteredData(): FilteredData {
     }
     const result = computeFilteredData({
       dashboardData, selectedDepartments, selectedSubordinates, deptOnlyMode,
-      subordinatesMap, period, activeMonths, selectedMethods, selectedActivities,
+      subordinatesMap, period, activeMonths, periodMode, selectedMethods, selectedActivities,
       selectedBudgets, activityFilter, searchQuery, year, dataYear, loading,
     });
     cachedInputs = inputs;
@@ -357,6 +383,7 @@ export function useFilteredData(): FilteredData {
     subordinatesMap,
     period,
     activeMonths,
+    periodMode,
     selectedMethods,
     selectedActivities,
     selectedBudgets,

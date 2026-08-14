@@ -158,7 +158,7 @@ export function Dashboard() {
   const fd = useFilteredData();
   const mdm = useMultiDimMetrics();
   const isDark = useTheme(s => s.theme) === 'dark';
-  const { contentStyle: tooltipStyle } = getTooltipStyle(isDark);
+  const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
   const cursorStyle = { fill: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(0,0,0,0.06)', stroke: 'none' };
 
   const [expandedKpi, setExpandedKpi] = useState<string | null>(null);
@@ -511,6 +511,8 @@ export function Dashboard() {
               <YAxis fontSize={10} tickFormatter={(v: number) => formatMoney(v)} tick={{ fill: getAxisColor(isDark) }} />
               <Tooltip
                 contentStyle={tooltipStyle}
+                itemStyle={tooltipItemStyle}
+                labelStyle={tooltipLabelStyle}
                 cursor={cursorStyle}
                 content={showStacked ? ({ payload, label }) => {
                   if (!payload?.length) return null;
@@ -602,8 +604,11 @@ export function Dashboard() {
                   if (!payload?.[0]?.payload) return null;
                   const d = payload[0].payload;
                   return (
-                    <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 shadow-lg text-xs">
-                      <p className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">{d.name}</p>
+                    // Явный цвет текста обязателен: тултип рендерится в обёртке
+                    // recharts и наследует цвет страницы — в тёмной теме это
+                    // тёмный текст на тёмной подложке (жалоба п.24-25 интервью)
+                    <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 shadow-lg text-xs text-zinc-700 dark:text-zinc-100">
+                      <p className="font-semibold text-zinc-800 dark:text-zinc-100 mb-1">{d.name}</p>
                       <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
                       {d.execCountPct != null
                         ? <p>По количеству: <strong>{formatPercent(d.execCountPct)}</strong></p>
@@ -1044,19 +1049,9 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
         thresholdsFull: '🟢 ноль — суммы проставлены везде\n🟡 есть строки — запросить суммы у исполнителя',
       },
     },
-    // Вводная 06.08: текущая деятельность с заполненной программой — возможная
-    // ошибка заполнения.
-    {
-      label: 'Текущая деятельность с программой',
-      signal: 'tdWithProgram',
-      search: 'ТД с программой',
-      color: 'amber',
-      kbFallback: {
-        whatIs: 'Строки, где вид деятельности указан как текущая, но графа «Наименование программы» заполнена. Одно из двух заполнено ошибочно: либо строка на самом деле программная, либо программа указана лишней.',
-        howCalc: 'Считаются строки, у которых вид деятельности — текущая, а графа «Наименование программы» не пуста и не помечена как отсутствующая.',
-        thresholdsFull: '🟡 есть строки — разобрать с исполнителями\n🟢 ноль — категории разведены чисто',
-      },
-    },
+    // Карточка «ТД с программой» (tdWithProgram) УДАЛЕНА каноном п.30
+    // (интервью 14.08.2026): заполненная графа программы у ТД — норма,
+    // сигнал снят, срез «ТД-ПМ» упразднён.
     // Вводная 06.08: сверка лимита — строки без года плана невидимы для формул
     // официального листа СВОД.
     {
