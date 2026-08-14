@@ -33,6 +33,8 @@ const envSchema = z.object({
 
   // Cache
   CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(300),
+  SOURCE_AUTO_REFRESH_MINUTES: z.coerce.number().int().nonnegative().default(15),
+  SOURCE_FRESHNESS_SECONDS: z.coerce.number().int().nonnegative().default(300),
 
   // Database
   SQLITE_PATH: z.string().default('./data/aemr.db'),
@@ -156,6 +158,21 @@ export const config: AppConfig = {
   },
   cache: {
     ttlSeconds: env.CACHE_TTL_SECONDS,
+    /**
+     * Как часто сервер сам перечитывает источники (канон п.66 «прямой эфир»).
+     * 0 отключает автообновление. Дефолт — 15 минут: книги правят руками весь
+     * рабочий день, а девять книг стоят десятки запросов, что укладывается в
+     * квоты Sheets API с большим запасом.
+     */
+    autoRefreshMinutes: env.SOURCE_AUTO_REFRESH_MINUTES,
+    /**
+     * Предельный возраст кэша книг ГРБС, при котором его ещё можно смешивать
+     * со свежим чтением официальных ячеек. Старше — источники перечитываются
+     * ЦЕЛИКОМ перед сборкой снимка: сверка обязана сравнивать один момент
+     * времени, иначе появляются фиктивные расхождения (прецедент 14.08:
+     * УКСиМП −181,9 и УО −313,6 — обе стороны были правы, разошлись моменты).
+     */
+    sourceFreshnessSeconds: env.SOURCE_FRESHNESS_SECONDS,
   },
   database: {
     url: env.SQLITE_PATH,

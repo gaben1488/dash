@@ -40,6 +40,49 @@ export function setDeptSheetCache(
     Reflect.deleteProperty(next, name);
   }
   cachedDeptSheetData = next;
+  deptCacheFilledAt = Date.now();
+}
+
+/**
+ * Момент последнего чтения книг ГРБС. Нужен не для отчётности, а для запрета
+ * смешивать моменты: официальные ячейки снимок читает свежими, и если книги в
+ * кэше старше, разница между сторонами — артефакт сборки, а не расхождение
+ * данных (прецедент 14.08.2026: УКСиМП −181,9 и УО −313,6 при полностью
+ * согласованных книгах). Ноль означает «книги ещё не читались».
+ */
+let deptCacheFilledAt = 0;
+
+export function getDeptCacheFilledAt(): number {
+  return deptCacheFilledAt;
+}
+
+/**
+ * Перечитка всех источников одним циклом. Регистрируется приложением (app.ts),
+ * чтобы снимок мог обновить книги перед сборкой, не импортируя загрузчик и не
+ * замыкая цикл модулей.
+ */
+type SourceRefresher = () => Promise<void>;
+let sourceRefresher: SourceRefresher | null = null;
+
+export function setSourceRefresher(fn: SourceRefresher | null): void {
+  sourceRefresher = fn;
+}
+
+/**
+ * Гарантия одного момента: если книги в кэше старше допустимого возраста,
+ * перечитываем их ДО сборки снимка. Отказ перечитки не валит снимок — он
+ * собирается на том, что есть, но возраст источников остаётся видимым.
+ */
+async function ensureSourcesFresh(): Promise<void> {
+  if (!sourceRefresher) return;
+  const maxAgeMs = config.cache.sourceFreshnessSeconds * 1000;
+  const age = deptCacheFilledAt === 0 ? Infinity : Date.now() - deptCacheFilledAt;
+  if (age <= maxAgeMs) return;
+  try {
+    await sourceRefresher();
+  } catch (err) {
+    console.warn('Не удалось перечитать книги перед сборкой снимка:', (err as Error).message);
+  }
 }
 
 export function getDeptSheetCache(): Record<string, DeptSheetResult> {
@@ -215,6 +258,9 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
  */
 async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
   try {
+    // Один момент для обеих сторон сверки: официальные ячейки читаются здесь и
+    // сейчас, поэтому устаревшие книги обновляются ДО чтения, а не после.
+    await ensureSourcesFresh();
     const cellAddresses = getAllCellAddresses();
     const [batchValues, batchFormulas] = await Promise.all([
       batchGetCells(cellAddresses),

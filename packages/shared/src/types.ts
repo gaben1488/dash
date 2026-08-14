@@ -595,6 +595,10 @@ export interface AppConfig {
   };
   cache: {
     ttlSeconds: number;
+    /** Период самообновления источников сервером, мин.; 0 — выключено (канон п.66). */
+    autoRefreshMinutes: number;
+    /** Предельный возраст кэша книг, при котором его можно смешивать со свежим официалом, с. */
+    sourceFreshnessSeconds: number;
   };
   database: {
     url: string;

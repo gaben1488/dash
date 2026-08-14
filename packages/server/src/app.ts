@@ -4,7 +4,7 @@ import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { config, DEPARTMENT_SPREADSHEETS } from './config.js';
+import { config } from './config.js';
 import { SVOD_SHEET_NAME } from '@aemr/shared';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { metricsRoutes } from './routes/metrics.js';
@@ -21,9 +21,9 @@ import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
 import { changesRoutes } from './routes/changes.js';
 import { healthRoutes } from './routes/health.js';
-import { getSnapshot, setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from './services/snapshot.js';
+import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
+import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
-import { fetchDepartmentSpreadsheets, getSheetData } from './services/google-sheets.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
 import { installProcessGuards } from './plugins/process-guards.js';
@@ -215,30 +215,25 @@ http://localhost:${actualPort}
 }
 
 export function preloadData(app: FastifyInstance): void {
+  // Снимок умеет сам перечитать устаревшие книги перед сборкой — без этого
+  // официальные ячейки читались свежими, а строки брались из кэша от старта
+  // (канон п.66: обе стороны сверки — из одного момента).
+  setSourceRefresher(async () => {
+    await refreshAllSources({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
+  });
+
   void (async () => {
     try {
       app.log.info('Loading department spreadsheets...');
-      const { data, errors } = await fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS);
-      setDeptSheetCache(data, Object.keys(errors));
-      // СВОД — тем же циклом, что книги: сверка сравнивает один момент времени
-      try {
-        setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
-      } catch (err) {
-        app.log.warn('SVOD grid preload failed: %s', (err as Error).message);
-      }
-      const now = new Date().toISOString();
-      const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
-      for (const [name, result] of Object.entries(data)) {
-        loadMeta[name] = { loadedAt: now, rowCount: result.values.length, sheetName: result.sheetName };
-      }
-      for (const [name, errMsg] of Object.entries(errors)) {
-        loadMeta[name] = { loadedAt: now, rowCount: 0, sheetName: name, error: errMsg };
-      }
-      setDeptLoadMeta(loadMeta);
-      const loaded = Object.keys(data);
-      const failed = Object.keys(errors);
+      const r = await refreshAllSources({
+        info: (m) => app.log.info(m),
+        warn: (m) => app.log.warn(m),
+      });
       app.log.info(
-        `Departments loaded: ${loaded.length}${failed.length > 0 ? `, failed: ${failed.join(', ')}` : ''}`,
+        `Departments loaded: ${r.loaded.length}${r.failed.length > 0 ? `, failed: ${r.failed.join(', ')}` : ''}`,
       );
     } catch (err) {
       app.log.warn('Department spreadsheets unavailable at startup: %s', (err as Error).message);
@@ -255,5 +250,12 @@ export function preloadData(app: FastifyInstance): void {
     } catch (err) {
       app.log.warn('SVOD unavailable at startup: %s', (err as Error).message);
     }
+
+    // Самообновление источников включается ПОСЛЕ первой полной загрузки:
+    // иначе тик мог бы наложиться на старт и читать книги дважды.
+    startSourceAutoRefresh({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
   })();
 }
