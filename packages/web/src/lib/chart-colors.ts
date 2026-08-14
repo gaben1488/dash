@@ -136,9 +136,20 @@ const EXECUTION_BAND_COLORS: Record<ExecutionBand, { light: string; dark: string
   bad: { light: '#ef4444', dark: '#f87171' },
 };
 
-/** Заливка столбца исполнения. */
-export function getExecutionBarColor(pct: number, isDark: boolean): string {
-  const pair = EXECUTION_BAND_COLORS[getExecutionBand(pct)];
+/** Нейтральная заливка «базы нет» — по образцу getExecutionTextClass. */
+const EXECUTION_NO_BASE_COLOR = { light: '#a1a1aa', dark: '#71717a' };
+
+/**
+ * Заливка столбца исполнения. `null` — плана за период не было: столбец
+ * красится нейтрально, а не красным. Без этого «нет базы» приезжало в полосу
+ * `bad` (сравнение `null >= 50` ложно) и управление без плана выглядело
+ * провалившим исполнение — вход в жалобу «8 управлений отстают от графика»
+ * при прочерках (интервью пп. 14-16).
+ */
+export function getExecutionBarColor(pct: number | null, isDark: boolean): string {
+  const pair = pct === null
+    ? EXECUTION_NO_BASE_COLOR
+    : EXECUTION_BAND_COLORS[getExecutionBand(pct)];
   return isDark ? pair.dark : pair.light;
 }
 

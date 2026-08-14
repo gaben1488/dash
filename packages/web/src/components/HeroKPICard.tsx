@@ -3,6 +3,9 @@ import NumberFlow from '@number-flow/react';
 import { BUDGET_SOURCE_META } from '@aemr/shared';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from './ui/kb-tooltip';
+import { FigureView, PerimeterCaption } from './FigureView';
+import { formatFigure, type Figure } from '@/lib/figure';
+import type { Perimeter } from '@/lib/perimeter';
 import {
   TrendingUp,
   TrendingDown,
@@ -51,6 +54,22 @@ export interface HeroKPICardProps {
   metricKey: string;
   label: string;
   value: number;
+  /**
+   * Число по контракту `Figure` — значение вместе с единицей, периметром и
+   * происхождением. Задано — плитка печатает главное значение ТОЛЬКО через
+   * `formatFigure` (и берёт причину пустоты из самой фигуры), а `value`,
+   * `unit` и `emptyReason` остаются нужны лишь для кривой, дельты и оценки
+   * состояния. Канон п.58: каждая карточка объявляет свой периметр.
+   */
+  figure?: Figure;
+  /** То же для дополнительного показателя плитки. */
+  secondaryFigure?: Figure;
+  /**
+   * Периметр плитки для микроподписи. Обязателен для блоков, чей показатель —
+   * не число с единицей (двоичный вердикт доверия): подпись периметра нужна
+   * им ровно так же. Когда задан `figure`, периметр берётся из него.
+   */
+  perimeter?: Perimeter;
   displayValue?: string;
   // Латинское «binary» из перечня единиц убрано: единица подписывается рядом с
   // числом, и слово «binary» однажды доехало бы до глаз пользователя. Признак
@@ -156,6 +175,9 @@ export function HeroKPICard({
   metricKey,
   label,
   value,
+  figure,
+  secondaryFigure,
+  perimeter,
   displayValue,
   unit,
   status = 'normal',
@@ -262,6 +284,48 @@ export function HeroKPICard({
   // а не оставалась немой картинкой без единой подписи.
   const sparkDescription = sparkData ? describeSpark(sparkData, sparkLabels, unit) : '';
 
+  // Строка направления и недельного изменения. Вынесена из ветки отрисовки:
+  // её показывают и старый путь (`value` + `unit`), и путь контракта `Figure`,
+  // а две копии одной вёрстки расходятся при первой же правке.
+  const trendRow = (
+    <div className="flex items-center gap-2 mt-1.5">
+      {trend && (
+        <span className={cn(
+          'flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md',
+          trend === 'up' && 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+          trend === 'down' && 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400',
+          trend === 'stable' && 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400',
+        )}>
+          {trend === 'up' && <TrendingUp size={10} />}
+          {trend === 'down' && <TrendingDown size={10} />}
+          {trend === 'stable' && <Minus size={8} />}
+          {trend === 'up' ? 'Рост' : trend === 'down' ? 'Падение' : 'Стабильно'}
+        </span>
+      )}
+      {/* Изменение за неделю. Числа нет — значка нет, без «—». */}
+      {hasDelta && (
+        <span
+          className={cn(
+            'inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums',
+            deltaBg,
+            deltaColor,
+          )}
+          title={`Изменение за неделю: ${deltaLabel}`}
+          aria-label={`Изменение за неделю: ${deltaLabel}`}
+        >
+          <DeltaIcon size={10} aria-hidden="true" />
+          {/* Греческая «дельта» заменена русским сокращением:
+              символ читается только теми, кто и так в теме. */}
+          Изм. {deltaLabel}
+        </span>
+      )}
+    </div>
+  );
+
+  // Периметр показывается один раз на плитку: из фигуры, если она задана,
+  // иначе из явного свойства (плитка-вердикт доверия — число без единицы).
+  const shownPerimeter = figure?.perimeter ?? perimeter;
+
   return (
     <div className="flex flex-col">
       {/* Сама плитка */}
@@ -315,7 +379,17 @@ export function HeroKPICard({
             {/* Строка значения */}
             <div className="flex items-end gap-3">
               <div className="flex-1">
-                {emptyReason ? (
+                {figure ? (
+                  // ── Путь контракта числа ──────────────────────
+                  // Печать — только `formatFigure` внутри FigureView: пустое
+                  // значение выходит своей причиной, а не нулём, и единица
+                  // берётся из фигуры, а не из отдельного свойства плитки.
+                  // Периметр рисуется ниже, общий на плитку.
+                  <>
+                    <FigureView figure={figure} showPerimeter={false} valueClassName="leading-none" />
+                    {trendRow}
+                  </>
+                ) : emptyReason ? (
                   // Причина пустоты проверяется ПЕРВОЙ — раньше вердикта доверия.
                   // Прежний порядок ветвей давал непосчитанной оценке красный
                   // ярлык «Требует проверки»: балл отсутствовал, приводился к
@@ -379,38 +453,7 @@ export function HeroKPICard({
                       )}
                     </div>
                     {/* Направление и изменение за неделю */}
-                    <div className="flex items-center gap-2 mt-1.5">
-                      {trend && (
-                        <span className={cn(
-                          'flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md',
-                          trend === 'up' && 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                          trend === 'down' && 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400',
-                          trend === 'stable' && 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400',
-                        )}>
-                          {trend === 'up' && <TrendingUp size={10} />}
-                          {trend === 'down' && <TrendingDown size={10} />}
-                          {trend === 'stable' && <Minus size={8} />}
-                          {trend === 'up' ? 'Рост' : trend === 'down' ? 'Падение' : 'Стабильно'}
-                        </span>
-                      )}
-                      {/* Изменение за неделю. Числа нет — значка нет, без «—». */}
-                      {hasDelta && (
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums',
-                            deltaBg,
-                            deltaColor,
-                          )}
-                          title={`Изменение за неделю: ${deltaLabel}`}
-                          aria-label={`Изменение за неделю: ${deltaLabel}`}
-                        >
-                          <DeltaIcon size={10} aria-hidden="true" />
-                          {/* Греческая «дельта» заменена русским сокращением:
-                              символ читается только теми, кто и так в теме. */}
-                          Изм. {deltaLabel}
-                        </span>
-                      )}
-                    </div>
+                    {trendRow}
                   </>
                 )}
               </div>
@@ -486,15 +529,41 @@ export function HeroKPICard({
               )}
             </div>
 
+            {/* Микроподпись периметра — правило (а) канона п.58: карточка
+                объявляет собственной подписью, за что посчитано её число.
+                Одна на плитку: оба показателя двойной плитки считаются одним
+                периметром, и повторять фразу под каждым числом значит
+                перестать её читать. */}
+            {shownPerimeter && <PerimeterCaption perimeter={shownPerimeter} />}
+
             {/* Дополнительный показатель плитки (двойная метрика) */}
-            {(secondaryValue != null || secondaryEmptyReason) && !isBinaryTrust && (
+            {(secondaryFigure || secondaryValue != null || secondaryEmptyReason) && !isBinaryTrust && (
               <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-medium">
                     {secondaryLabel ?? 'Дополнительно'}
                   </span>
                   <div className="flex items-center gap-2">
-                    {secondaryEmptyReason ? (
+                    {secondaryFigure ? (
+                      // Тот же контракт печати, что у главного числа: единица
+                      // и причина пустоты приходят из фигуры.
+                      <>
+                        <span
+                          className={cn(
+                            'tabular-nums',
+                            secondaryFigure.value === null
+                              ? 'text-[11px] text-zinc-400 dark:text-zinc-500'
+                              : 'text-lg font-bold text-zinc-600 dark:text-zinc-300',
+                          )}
+                          title={secondaryFigure.provenance.engine}
+                        >
+                          {formatFigure(secondaryFigure)}
+                        </span>
+                        {secondaryFigure.value !== null && secondaryTrend === 'up' && <TrendingUp size={12} className="text-emerald-500" aria-label="Рост" />}
+                        {secondaryFigure.value !== null && secondaryTrend === 'down' && <TrendingDown size={12} className="text-red-500" aria-label="Падение" />}
+                        {secondaryFigure.value !== null && secondaryTrend === 'stable' && <Minus size={10} className="text-zinc-400" aria-label="Стабильно" />}
+                      </>
+                    ) : secondaryEmptyReason ? (
                       <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
                         {secondaryEmptyReason}
                       </span>
@@ -524,7 +593,7 @@ export function HeroKPICard({
                 {/* Наложение двух кривых: основной показатель и дополнительный.
                     Обе строятся только когда у каждой есть хотя бы две известные
                     точки — иначе рисовать нечего, а не «ноль». */}
-                {!secondaryEmptyReason && secondarySparkData && sparkData
+                {!secondaryEmptyReason && secondaryFigure?.value !== null && secondarySparkData && sparkData
                   && secondarySparkData.filter((v) => v != null).length >= 2
                   && sparkKnownCount >= 2 && (
                   <div

@@ -1,7 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const ORIGINAL_ENV = { ...process.env };
+// Среда выставляется до импорта: config.js читает её при первом импорте.
+process.env.NODE_ENV = 'test';
+process.env.AEMR_API_KEY = '';
+process.env.SQLITE_PATH = ':memory:';
+process.env.LOG_LEVEL = 'silent';
 
 type RowsResponse = {
   rows: Array<{ id: unknown; subject: unknown }>;
@@ -25,16 +29,19 @@ function makeDeptRow(overrides: {
   return row;
 }
 
-async function createRowsApp(rows: unknown[][]): Promise<FastifyInstance> {
-  vi.resetModules();
-  process.env = {
-    ...ORIGINAL_ENV,
-    NODE_ENV: 'test',
-    AEMR_API_KEY: '',
-    SQLITE_PATH: ':memory:',
-    LOG_LEVEL: 'silent',
-  };
+/**
+ * Приложение и лист-фикстура строятся ОДИН раз на файл.
+ *
+ * Прежде тест звал vi.resetModules() и поднимал Fastify внутри самого теста:
+ * полная пересборка графа сервера стоит ~8 секунд в одиночку и уходит за
+ * тридцать под параллельной нагрузкой — падение было по занятому процессору,
+ * а не по логике (тот же класс уже разобран в rows-write-bounds.test.ts).
+ * Изоляция по модулям здесь не нужна: vitest и так даёт файлу свой граф,
+ * а фикстура у обоих запросов одна.
+ */
+let app: FastifyInstance;
 
+beforeAll(async () => {
   const [{ setDeptSheetCache }, { createApp }] = await Promise.all([
     import('./services/snapshot.js'),
     import('./app.js'),
@@ -42,63 +49,60 @@ async function createRowsApp(rows: unknown[][]): Promise<FastifyInstance> {
 
   setDeptSheetCache({
     УО: {
-      values: [[], [], [], ...rows],
+      values: [
+        [],
+        [],
+        [],
+        makeDeptRow({
+          id: 1,
+          type: 'Текущая деятельность',
+          programName: 'Муниципальная программа «Развитие»',
+          subject: 'Program-backed purchase',
+        }),
+        makeDeptRow({
+          id: 2,
+          type: 'Текущая деятельность',
+          programName: 'Х',
+          subject: 'Non-program purchase',
+        }),
+      ],
       formulas: [],
       sheetName: 'ВСЕ',
     },
   });
 
-  return createApp({ logger: false });
-}
+  app = await createApp({ logger: false });
+  await app.ready();
+}, 60_000);
 
-afterEach(() => {
-  process.env = { ...ORIGINAL_ENV };
-  vi.resetModules();
+afterAll(async () => {
+  await app?.close();
 });
 
 describe('GET /api/rows/:deptId activity filter', () => {
   it('канон п.30: оба ТД-ключа фильтра отдают текущую деятельность целиком', async () => {
-    const app = await createRowsApp([
-      makeDeptRow({
-        id: 1,
-        type: 'Текущая деятельность',
-        programName: 'Муниципальная программа «Развитие»',
-        subject: 'Program-backed purchase',
-      }),
-      makeDeptRow({
-        id: 2,
-        type: 'Текущая деятельность',
-        programName: 'Х',
-        subject: 'Non-program purchase',
-      }),
-    ]);
+    const currentProgram = await app.inject({
+      method: 'GET',
+      url: '/api/rows/uo?activity=current_program&limit=100',
+    });
+    const currentNonProgram = await app.inject({
+      method: 'GET',
+      url: '/api/rows/uo?activity=current_non_program&limit=100',
+    });
 
-    try {
-      const currentProgram = await app.inject({
-        method: 'GET',
-        url: '/api/rows/uo?activity=current_program&limit=100',
-      });
-      const currentNonProgram = await app.inject({
-        method: 'GET',
-        url: '/api/rows/uo?activity=current_non_program&limit=100',
-      });
+    expect(currentProgram.statusCode).toBe(200);
+    expect(currentNonProgram.statusCode).toBe(200);
 
-      expect(currentProgram.statusCode).toBe(200);
-      expect(currentNonProgram.statusCode).toBe(200);
+    const currentProgramBody = currentProgram.json<RowsResponse>();
+    const currentNonProgramBody = currentNonProgram.json<RowsResponse>();
 
-      const currentProgramBody = currentProgram.json<RowsResponse>();
-      const currentNonProgramBody = currentNonProgram.json<RowsResponse>();
-
-      // Страж класса п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён —
-      // графа программы (D) не делит ТД. Раньше current_non_program («ТД»)
-      // выкидывал строку 1 (ТД с программой) — ТД-ПМ-строки пропадали из
-      // «ТД» при этом варианте фильтра. Теперь оба ключа = вся ТД.
-      expect(currentProgramBody.signals.total).toBe(2);
-      expect(currentProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
-      expect(currentNonProgramBody.signals.total).toBe(2);
-      expect(currentNonProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
-    } finally {
-      await app.close();
-    }
+    // Страж класса п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён —
+    // графа программы (D) не делит ТД. Раньше current_non_program («ТД»)
+    // выкидывал строку 1 (ТД с программой) — ТД-ПМ-строки пропадали из
+    // «ТД» при этом варианте фильтра. Теперь оба ключа = вся ТД.
+    expect(currentProgramBody.signals.total).toBe(2);
+    expect(currentProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
+    expect(currentNonProgramBody.signals.total).toBe(2);
+    expect(currentNonProgramBody.rows.map((r) => r.id)).toEqual([1, 2]);
   }, 30_000);
 });

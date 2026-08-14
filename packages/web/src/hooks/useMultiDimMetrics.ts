@@ -36,15 +36,19 @@ export interface BudgetBreakdown {
 export interface ExecutionMetrics {
   planTotal: number;
   factTotal: number;
-  executionPct: number;
+  /** `null` — знаменателя нет («нет плана»), и это не то же, что «исполнено 0 %». */
+  executionPct: number | null;
   planCount: number;
   factCount: number;
-  execCountPct: number;
+  /** `null` — плановых закупок за период не было. */
+  execCountPct: number | null;
   economyTotal: number;
-  economyPct: number;
+  /** `null` — экономию не от чего считать. */
+  economyPct: number | null;
   competitiveCount: number;
   epCount: number;
-  epSharePct: number;
+  /** `null` — закупок в периоде нет, доля ЕП не определена. */
+  epSharePct: number | null;
   budget: BudgetBreakdown;
 }
 
@@ -59,7 +63,8 @@ export interface QuarterDelta {
   quarter: string;
   plan: number;
   fact: number;
-  execPct: number;
+  /** `null` — в квартале не было плана: исполнять было нечего, а не «0 %». */
+  execPct: number | null;
   economy: number;
 }
 
@@ -121,8 +126,22 @@ const EMPTY_BUDGET: BudgetBreakdown = {
   economyFB: 0, economyKB: 0, economyMB: 0,
 };
 
-function safePct(num: number, den: number): number {
-  return den > 0 ? +((num / den) * 100).toFixed(1) : 0;
+/**
+ * Доля в процентах — либо `null`, когда базы нет.
+ *
+ * Возвращала ноль при нулевом знаменателе, и «нет плана» становилось
+ * неотличимо от «план есть, исполнения ноль». На рейтинге это читалось как
+ * «управление отстаёт от графика» там, где сравнивать было не с чем
+ * (интервью 14.08, пп. 14-16: проценты у трёх ГРБС из восьми, у остальных
+ * прочерки — и вывод «8 управлений отстают» поверх прочерков). Тот же дефект
+ * назван в реестре расхождений §2 «Ноль вместо „нет базы“ при нулевом
+ * знаменателе»: лист печатает прочерк `IF(D13=0,"-",…)`, а мы печатали ноль.
+ *
+ * `null` заставляет читающий слой сказать «—» вместо числа — потребители
+ * (RatingTableV2, карточки, отчёт) уже умеют показывать прочерк.
+ */
+function safePct(num: number, den: number): number | null {
+  return den > 0 ? +((num / den) * 100).toFixed(1) : null;
 }
 
 /** Порядок кварталов — один разделяемый массив, а не новый на каждое управление. */
@@ -260,7 +279,7 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
           quarter: qk,
           plan: q?.planTotal ?? 0,
           fact: q?.factTotal ?? 0,
-          execPct: q?.executionPct ?? 0,
+          execPct: q?.executionPct ?? null,
           economy: q?.economyTotal ?? 0,
         };
       });
@@ -273,7 +292,12 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
       if (prevIdx >= 0) {
         const cur = quarters[curIdx];
         const prev = quarters[prevIdx];
-        if (cur && prev && (prev.plan > 0 || cur.plan > 0)) {
+        // Дельта существует только когда план был в ОБОИХ кварталах: иначе
+        // сравнение шло с нулём, приписанным кварталу без плана, и управление
+        // получало эффектный скачок на пустом месте. Раньше это правило жило
+        // на экране (Dashboard `comparable`), а метрика всё равно отдавала
+        // число — теперь его нет в самом источнике.
+        if (cur && prev && cur.execPct !== null && prev.execPct !== null) {
           delta = {
             execPctChange: cur.execPct - prev.execPct,
             execCountPctChange: 0, // No quarterly count-pct available at dept level
@@ -307,12 +331,12 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
     const totals: ExecutionMetrics = {
       planTotal: fd.totalPlan,
       factTotal: fd.totalFact,
-      executionPct: fd.totalPlan > 0 ? safePct(fd.totalFact, fd.totalPlan) : 0,
+      executionPct: safePct(fd.totalFact, fd.totalPlan),
       planCount: fd.totalPlanCount,
       factCount: fd.totalFactCount,
-      execCountPct: fd.overallExecCountPct ?? 0,
+      execCountPct: fd.overallExecCountPct ?? null,
       economyTotal: globalEconomyTotal,
-      economyPct: fd.totalPlan > 0 ? safePct(globalEconomyTotal, fd.totalPlan) : 0,
+      economyPct: safePct(globalEconomyTotal, fd.totalPlan),
       competitiveCount: fd.totalKP,
       epCount: fd.totalEP,
       epSharePct: safePct(fd.totalEP, fd.totalKP + fd.totalEP),
@@ -337,11 +361,15 @@ export function buildMultiDimMetricsFromFilteredData(fd: FilteredDataResult): Om
     if (prevIdx >= 0 && quarterSpark[curIdx] && quarterSpark[prevIdx]) {
       const cur = quarterSpark[curIdx];
       const prev = quarterSpark[prevIdx];
-      globalDelta = {
-        execPctChange: cur.execPct - prev.execPct,
-        execCountPctChange: 0,
-        economyChange: cur.economy - prev.economy,
-      };
+      // То же правило, что и для управления: сравнивать можно только кварталы,
+      // у которых есть база.
+      if (cur.execPct !== null && prev.execPct !== null) {
+        globalDelta = {
+          execPctChange: cur.execPct - prev.execPct,
+          execCountPctChange: 0,
+          economyChange: cur.economy - prev.economy,
+        };
+      }
     }
 
     // ── All subordinates flattened (excludes _org_itself) ──

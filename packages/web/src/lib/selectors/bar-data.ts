@@ -32,7 +32,11 @@ export function buildBarData(depts: any[], opts: {
   } = opts;
 
   return depts.map((d: any) => {
-    let pct: number, plan = 0, fact = 0, kp = 0, ep = 0;
+    // `pct` — доля исполнения либо `null`, когда базы нет. Ноль здесь означал
+    // бы «исполнено 0 %» там, где плана не было вовсе: сосед `execCountPct`
+    // это различие держал с самого начала, денежный процент — нет
+    // (реестр расхождений §2 «Ноль вместо „нет базы“»).
+    let pct: number | null, plan = 0, fact = 0, kp = 0, ep = 0;
     let execCountPct: number | null = null;
 
     // Subordinate-filtered: считаем ТЕМ ЖЕ ядром, что итоги страницы.
@@ -48,7 +52,7 @@ export function buildBarData(depts: any[], opts: {
       // сумму выбранных бюджетов из периодной разбивки узла.
       const bf = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
       plan = bf.plan; fact = bf.fact;
-      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? 0);
+      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? null);
       execCountPct = n.planCount > 0 ? +((n.factCount / n.planCount) * 100).toFixed(1) : null;
     } else if (isActivityFiltered) {
       // Use byActivity breakdown for activity-filtered bar data
@@ -70,7 +74,7 @@ export function buildBarData(depts: any[], opts: {
           kp += a.planCount ?? 0;
         }
       }
-      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : 0;
+      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
     } else if (useMonthLevel) {
       // Aggregate selected months for this department
       let dPC = 0, dFC = 0;
@@ -88,7 +92,7 @@ export function buildBarData(depts: any[], opts: {
         kp += m.kpCount ?? 0;
         ep += m.epCount ?? 0;
       }
-      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : 0;
+      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
       execCountPct = dPC > 0 ? +((dFC / dPC) * 100).toFixed(1) : null;
     } else {
       const q = d.quarters?.[periodKey];
@@ -98,9 +102,9 @@ export function buildBarData(depts: any[], opts: {
       if (isBudgetFiltered) {
         const bf = budgetPlanFact(q);
         plan = bf.plan; fact = bf.fact;
-        pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : 0;
+        pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
       } else {
-        pct = q?.executionPct ?? d.executionPercent ?? 0;
+        pct = q?.executionPct ?? d.executionPercent ?? null;
         plan = q?.planTotal ?? d.planTotal ?? 0;
         fact = q?.factTotal ?? d.factTotal ?? 0;
       }

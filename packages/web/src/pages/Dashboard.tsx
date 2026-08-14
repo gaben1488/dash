@@ -22,6 +22,9 @@ import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 import { pluralRu } from '../lib/economy-copy';
 import { ORG_ITSELF_LABEL } from '../lib/subordinate-label';
 import { formatPercent, formatMetricValue } from '../components/HeroKPICard';
+import { buildPerimeter, type Perimeter } from '../lib/perimeter';
+import { figure, ratio, toPercent, type Figure, type FigureProvenance } from '../lib/figure';
+import { officialProvenanceFor } from '../lib/provenance-registry';
 import { productLabel, quarterLabel } from '@aemr/shared';
 
 // ────────────────────────────────────────────────────────────────
@@ -165,6 +168,31 @@ export function Dashboard() {
 
   const { depts, barData, issues, periodKey } = fd;
 
+  // ── Периметр плиток: за что именно посчитаны их числа ──
+  // Собирается из ТОГО ЖЕ состояния, которым считал useFilteredData, иначе
+  // подпись описывала бы не те числа, что нарисованы (канон п.58 «б»: бейдж,
+  // унаследованный от фильтра, которому числа не подчиняются, запрещён).
+  //   • год — ДАННЫХ: при расхождении с выбором шапки страница честно считает
+  //     за год данных, и подпись обязана назвать именно его;
+  //   • период — эффективный `periodKey` после resolvePeriodSelection;
+  //   • месяцы — только когда фильтр периода задан явно: в недельном режиме
+  //     useFilteredData их обнуляет, и неделя расчёт не сужает;
+  //   • момент — «на сейчас»: Пульт читает эфир, архивного среза у плиток нет.
+  const rawActiveMonths = useStore((s) => s.activeMonths);
+  const periodMode = useStore((s) => s.periodMode);
+  const selectedSubordinates = useStore((s) => s.selectedSubordinates);
+  const perimeter = useMemo<Perimeter>(() => buildPerimeter({
+    year: fd.yearMismatch ? fd.dataYear : fd.year,
+    period: periodKey as PeriodScope,
+    activeMonths: periodMode === 'week' ? [] : rawActiveMonths,
+    departments: selectedDepartments,
+    subordinates: selectedSubordinates,
+    asOf: null,
+  }), [
+    fd.yearMismatch, fd.dataYear, fd.year, periodKey,
+    periodMode, rawActiveMonths, selectedDepartments, selectedSubordinates,
+  ]);
+
   // Подписи кварталов берутся из канона @aemr/shared («1 кв»), а не собираются
   // здесь строками с точкой. Ключ квартала едет вместе с точкой данных: раньше
   // переход по клику восстанавливал ключ обратным разбором подписи — стоило
@@ -230,7 +258,7 @@ export function Dashboard() {
   }, [barData]);
 
   // ── Ключевые показатели ──
-  const heroKpis = useMemo(() => buildHeroKPIs(fd), [fd]);
+  const heroKpis = useMemo(() => buildHeroKPIs(fd, perimeter), [fd, perimeter]);
 
   // Замечания для полосы: приводим к виду, который она понимает, и отдаём
   // ЦЕЛИКОМ — сколько показать и сколько спрятать, решает сама полоса.
@@ -609,7 +637,9 @@ export function Dashboard() {
                     // тёмный текст на тёмной подложке (жалоба п.24-25 интервью)
                     <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 shadow-lg text-xs text-zinc-700 dark:text-zinc-100">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-100 mb-1">{d.name}</p>
-                      <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
+                      {d.pct != null
+                        ? <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
+                        : <p className="text-zinc-400">По сумме: плана за период нет</p>}
                       {d.execCountPct != null
                         ? <p>По количеству: <strong>{formatPercent(d.execCountPct)}</strong></p>
                         : <p className="text-zinc-400">По количеству: плана за период нет</p>}
@@ -674,17 +704,67 @@ export function Dashboard() {
 /** Фраза для плитки, когда считать не из чего. */
 const NO_PLAN_REASON = 'Плана за период нет';
 
-function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
+/**
+ * Провенанс числа плитки: чем посчитано плюс адрес официального источника.
+ * Реестр официальных метрик снимка знает по ключу базы знаний, какими строками
+ * СВОДа отвечает лист. Адрес пишется ровно настолько точно, насколько он
+ * известен достоверно:
+ *   • одна ячейка на всю плитку — лист и ячейка;
+ *   • несколько ячеек одного листа (исполнение собирается из четырёх — КП и ЕП,
+ *     план и заключено) — только имя листа: п.3 интервью просил именно его,
+ *     а любая одна ячейка из четырёх была бы неправдой;
+ *   • ничего достоверного — только движок. Выдуманного провенанса не бывает.
+ */
+function tileProvenance(engine: string, kbKey: string, periodKey: string): FigureProvenance {
+  const official = officialProvenanceFor(kbKey, periodKey);
+  const first = official[0];
+  if (!first) return { engine };
+  if (official.length === 1) return { engine, source: { sheet: first.sheet, cell: first.cell } };
+  return official.every((s) => s.sheet === first.sheet)
+    ? { engine, source: { sheet: first.sheet } }
+    : { engine };
+}
+
+function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perimeter) {
   const kpis: Array<Omit<import('../components/HeroKPICard').HeroKPICardProps, 'expanded' | 'onToggleExpand' | 'expandContent'>> = [];
 
   // 1. Исполнение — одна плитка на два измерения: по количеству процедур
   //    (главное число) и по сумме (дополнительное).
   {
-    // null означает «нечего исполнять»: плановых процедур/сумм за период не
-    // было. Прежний фолбэк в 0 превращал отсутствие плана в «исполнено 0 %» —
-    // плитка краснела там, где работы просто не планировалось.
-    const countPct = fd.overallExecCountPct;
-    const amountPct = fd.totalPlan > 0 ? +((fd.totalFact / fd.totalPlan) * 100).toFixed(1) : null;
+    // Доли живут числителем и знаменателем до самой печати: процент считается
+    // от СУММ, а не как среднее долей управлений. Нулевой знаменатель даёт
+    // `null` с причиной — как прочерк листа, а не «исполнено 0 %».
+    const countRatio = ratio({
+      numerator: fd.totalFactCount,
+      denominator: fd.totalPlanCount,
+      unit: 'шт',
+      perimeter,
+      provenance: tileProvenance(
+        'движок: заключено ÷ план по количеству позиций',
+        'exec_count_pct',
+        fd.periodKey,
+      ),
+      nullReason: NO_PLAN_REASON,
+    });
+    const amountRatio = ratio({
+      numerator: fd.totalFact,
+      denominator: fd.totalPlan,
+      unit: 'тыс.руб',
+      perimeter,
+      provenance: tileProvenance(
+        'движок: факт ÷ план по сумме',
+        'execution_pct',
+        fd.periodKey,
+      ),
+      nullReason: NO_PLAN_REASON,
+    });
+    const countFigure = toPercent(countRatio);
+    const amountFigure = toPercent(amountRatio);
+
+    // Кривая, дельта и оценка состояния читают уже посчитанное значение
+    // фигуры — второй формулы того же процента на плитке не существует.
+    const countPct = countFigure.value;
+    const amountPct = amountFigure.value;
 
     // Кривые по кварталам для обоих измерений. Квартал без плана даёт `null`,
     // а не ноль: прежний ноль тянул кривую на дно в кварталах, до которых год
@@ -717,18 +797,17 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
     kpis.push({
       metricKey: 'exec_count_pct',
       label: 'Исполнение',
+      figure: countFigure,
+      // `value`/`unit` остаются для кривой, дельты и подписи точек
+      // («1 кв: 62,0 %») — печатает число только `figure`.
       value: countPct ?? 0,
-      emptyReason: countPct == null ? NO_PLAN_REASON : undefined,
-      // Единица задана всегда: рядом с причиной пустоты плитка её не рисует,
-      // зато по ней подписываются точки кривой («1 кв: 62,0 %»).
       unit: '%',
       status: execStatus,
       trend: countPct == null ? undefined : trendOfKnown(countSpark),
       sparkData: countSpark.some(v => v != null) ? countSpark : undefined,
       sparkLabels: QUARTER_LABELS,
       // Дополнительное измерение — исполнение по сумме
-      secondaryValue: amountPct ?? undefined,
-      secondaryEmptyReason: amountPct == null ? NO_PLAN_REASON : undefined,
+      secondaryFigure: amountFigure,
       secondaryLabel: 'по сумме',
       secondaryUnit: '%',
       secondaryMetricKey: 'execution_pct',
@@ -737,11 +816,17 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
     });
   }
 
-  // 2. Критические замечания
+  // 2. Критические замечания — счётная величина, знаменателя у неё нет.
   const critCount = fd.criticalIssues.length;
   kpis.push({
     metricKey: 'critical_issues',
     label: 'Критические замечания',
+    figure: figure({
+      value: critCount,
+      unit: 'шт',
+      perimeter,
+      provenance: { engine: 'движок: сигналы уровня «критично» по строкам книг' },
+    }),
     value: critCount,
     unit: 'шт.',
     status: critCount > 3 ? 'critical' : critCount > 0 ? 'warning' : 'normal',
@@ -751,21 +836,35 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
   // 3. Экономия. Плитка рисуется ВСЕГДА: раньше при нулевом плане она молча
   //    исчезала, и ряд показателей менял состав без единого слова.
   {
-    const economyTotal = getFilteredEconomyTotal(fd);
-    const savingsPct = fd.totalPlan > 0 ? +((economyTotal / fd.totalPlan) * 100).toFixed(1) : null;
+    const economyFigure = toPercent(ratio({
+      numerator: getFilteredEconomyTotal(fd),
+      denominator: fd.totalPlan,
+      unit: 'тыс.руб',
+      perimeter,
+      provenance: tileProvenance(
+        'движок: экономия ÷ план по сумме',
+        'economy_rate',
+        fd.periodKey,
+      ),
+      nullReason: NO_PLAN_REASON,
+    }));
     kpis.push({
       metricKey: 'economy_rate',
       label: 'Экономия',
-      value: savingsPct ?? 0,
-      emptyReason: savingsPct == null ? NO_PLAN_REASON : undefined,
+      figure: economyFigure,
+      value: economyFigure.value ?? 0,
       unit: '%',
-      status: savingsPct != null && savingsPct > 25 ? 'warning' : 'normal',
+      status: economyFigure.value != null && economyFigure.value > 25 ? 'warning' : 'normal',
     });
   }
 
   // 4. Доверие к данным — двоичный показатель «норма / требует проверки».
   //    Когда оценки нет, плитка НЕ рисует «Норма»: отсутствие проверки — это
   //    не пройденная проверка. Раньше пустой балл давал зелёное «Норма».
+  //    Балл доверия — не штуки, не деньги, не проценты и не дни: единицы для
+  //    него в контракте `Figure` намеренно нет, поэтому плитка идёт прежним
+  //    путём. Периметр она объявляет наравне со всеми — правило (а) канона
+  //    п.58 не знает исключений для нечисловых карточек.
   const trustScore = fd.trust?.overall ?? null;
   if (trustScore == null) {
     kpis.push({
@@ -773,6 +872,7 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
       label: 'Доверие к данным',
       value: 0,
       emptyReason: 'Оценка ещё не рассчитана',
+      perimeter,
       status: 'normal',
     });
   } else {
@@ -783,6 +883,7 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>) {
       value: trustScore,
       isTrust: true,
       trustOk,
+      perimeter,
       status: trustOk ? 'normal' : 'warning',
     });
   }
