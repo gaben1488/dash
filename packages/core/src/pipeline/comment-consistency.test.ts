@@ -151,6 +151,69 @@ describe('правило (б): просроченное обещание при 
   });
 });
 
+describe('правило (г): посторонний текст в колонке номера процедуры AG (п.74б)', () => {
+  it('УИО r27: «ЭА220-26 не состоялся (…)» — код + приписка → карточка «перенести в примечание»', () => {
+    // Живая ячейка дампа: AG = код + пояснение. Q заполнена — правило (г)
+    // от Q не зависит, а правила (а)/(б) AG-текстом не срабатывают.
+    const cards = detectCommentInconsistencies(ref('УИО', 27), {
+      Q: '08.06.2026',
+      AG: 'ЭА220-26 не состоялся (заявка 1 , заключили с ед. поставщиком)',
+    }, SNAPSHOT);
+
+    expect(cards).toHaveLength(1);
+    const card = cards[0];
+    expect(card.kind).toBe('foreign_text_in_ag');
+    expect(card.rowKey).toBe('УИО:r27');
+    expect(card.column).toBe('AG');
+    expect(card.cell).toBe('AG27');
+    expect(card.excerpt).toContain('не состоялся');
+    expect(card.mechanism).toContain('ЭА220-26'); // распознанный код назван
+    expect(card.action).toContain('AE27'); // перенести в примечание
+    expect(card.action).toContain('AG27');
+  });
+
+  it('УИО r37: «ЭЗК 283» — искажённый номер без валидного кода → карточка «исправьте или перенесите»', () => {
+    const cards = detectCommentInconsistencies(ref('УИО', 37), {
+      Q: '7.7.2026',
+      AG: 'ЭЗК 283',
+    }, SNAPSHOT);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].kind).toBe('foreign_text_in_ag');
+    expect(cards[0].cell).toBe('AG37');
+    expect(cards[0].mechanism).toContain('не содержит распознаваемого номера');
+    expect(cards[0].action).toContain('исправьте');
+  });
+
+  it('УКСиМП r346: «Отдел ФК и С» — текст вовсе без кода → карточка', () => {
+    const cards = detectCommentInconsistencies(ref('УКСиМП', 346), {
+      Q: '19.01.2026',
+      AG: 'Отдел ФК и С',
+    }, SNAPSHOT);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].kind).toBe('foreign_text_in_ag');
+    expect(cards[0].excerpt).toBe('Отдел ФК и С');
+  });
+
+  it('чистый код, список кодов и скобочная пара кодов — НЕ карточка', () => {
+    // УЭР r5: одиночный код; УЭР r28: список ЭЕП (план дробится на процедуры);
+    // УД r45: «ЭА160-26 (ЭА141-26)» — скобки-разделители между кодами.
+    for (const [row, ag] of [
+      [5, 'ЭЗК426-25'],
+      [28, 'ЭЕП123-26,ЭЕП124-26,ЭЕП125-26,ЭЕП128-26'],
+      [45, 'ЭА160-26 (ЭА141-26)'],
+    ] as const) {
+      expect(detectCommentInconsistencies(ref('УЭР', row), { Q: '15.01.2026', AG: ag }, SNAPSHOT))
+        .toHaveLength(0);
+    }
+  });
+
+  it('заглушки Х/-/точка и пустая AG — молчание', () => {
+    for (const ag of ['Х', 'X', '-', '—', '.', '', '  ']) {
+      expect(detectCommentInconsistencies(ref('УО', 2), { Q: 'X', AG: ag }, SNAPSHOT)).toHaveLength(0);
+    }
+  });
+});
+
 describe('границы подсистемы', () => {
   it('строка без комментариев и без Q — молчание', () => {
     expect(detectCommentInconsistencies(ref('УО', 1), { Q: 'X' }, SNAPSHOT)).toHaveLength(0);

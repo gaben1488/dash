@@ -34,6 +34,7 @@ export { adaptToRecalcMetrics } from './pipeline/calc-engine-adapter.js';
 export { reconcile, reconcileMonthly, crossVerifyQuarterly, type ReconSummary, type ReconRow, type MonthlyReconSummary, type MonthlyReconRow, type MonthlyReconCell, type QuarterCrossSummary, type QuarterCrossRow, type QuarterCrossCell } from './pipeline/reconcile.js';
 export { computeUnifiedGrid, reconcileUnified, type UnifiedOfficialMetric, type UnifiedReconRow, type UnifiedReconStatus } from './pipeline/unified-svod.js';
 export { parseSHDYUSheet, validateSHDYUConsistency } from './pipeline/shdyu-ingest.js';
+export { linkRowsToProcedures, buildProcedureIndex, type ProcedureLinkRow, type ProcedureLink, type ProcedureIndex } from './pipeline/procedure-link.js';
 export { analyzeDataset, benfordTest, detectOutliers, classifyEpRisk, classifyExecution, computeCompositeScore, buildNoiseMap, detectDataAnomalies, detectBehavioralAnomalies, detectSystemicAnomalies } from './pipeline/dataset-signals.js';
 export type { BenfordResult, OutlierResult, EpRiskClassification, EpRiskLevel, ExecutionLevel, AnomalySeverity, AnomalyResult, DataAnomaly, BehavioralAnomaly, SystemicAnomaly, CompositeScore, NoiseGroup, DatasetAnalysis, DatasetAnalysisInput } from './pipeline/dataset-signals.js';
 
@@ -57,6 +58,26 @@ export type {
   PendingRemainder, LifecycleBreakdown, LifecycleBucket, ReasonBreakdown, ReasonBucket,
 } from './report/types.js';
 
+// Comments — несогласованность комментария со структурой (п.72а: этапность при
+// заключённом, просроченное обещание; п.74б: посторонний текст в AG)
+export { detectCommentInconsistencies } from './pipeline/comment-consistency.js';
+export type {
+  CommentAnnotation, CommentColumn, CommentInconsistencyKind, CommentRowRef,
+  MonitoringStageContext,
+} from './pipeline/comment-consistency.js';
+
 // History — snapshot-diff (слой 1 фичи «История изменений»)
 export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';
 export type { Direction, Sentiment, MetricRow, MetricDelta } from './history/snapshot-diff.js';
+
+// Timeline — таймлайн строки по всей истории проекта (канон п.75в) +
+// «закупки, близкие к реализации» (п.75б) + срезы архивных недель
+export { buildRowTimeline } from './timeline/row-timeline.js';
+export type {
+  RowTimeline, TimelineEvent, TimelineEventKind, TimelineSource,
+  RowTimelineInput, RowObservation, JournalCellChange,
+} from './timeline/row-timeline.js';
+export { buildUpcoming } from './timeline/upcoming.js';
+export type { UpcomingInputRow, UpcomingOptions, UpcomingRiskRow, UpcomingReason } from './timeline/upcoming.js';
+export { weekSliceObservations, WEEK_SLICE_DATES } from './timeline/week-slices.js';
+export type { WeekSliceKey, WeekSliceObservation } from './timeline/week-slices.js';

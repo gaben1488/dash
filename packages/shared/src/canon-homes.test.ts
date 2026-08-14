@@ -42,6 +42,12 @@ const FMT_DEBT: Record<string, string[]> = {
 
 /** Долг: сколько самописных коэрций в файле известно. Сокращается волной В0. */
 const COERCE_DEBT: Record<string, number> = {
+  // Волна «строка во времени» (14.08, п.75): две локальные sheetNumber с РАЗНОЙ
+  // семантикой мусора — у таймлайна мусор → null (дифф не выдумывает нулей),
+  // у «близких к реализации» мусор → 0 (слагаемое суммы). Консолидация в дом
+  // коэрции — волной В0, вместе с остальными строками этого списка.
+  'core/src/timeline/row-timeline.ts': 1,
+  'core/src/timeline/upcoming.ts': 1,
   'core/src/pipeline/ingest.ts': 1,
   'core/src/pipeline/normalize.ts': 1,
   'core/src/pipeline/normalizer-rules.ts': 2,

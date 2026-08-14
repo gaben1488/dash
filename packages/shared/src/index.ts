@@ -77,6 +77,10 @@ export * from './fact-date.js';
 // 12 причин отклонения, 20 обоснований ЕП, регексы номеров процедур
 export * from './comment-standards.js';
 
+// Re-export структурный парсер номера процедуры из AG (канон п.74, 14.08.2026):
+// parseProcedureRef / extractProcedureRefs / detectForeignText
+export * from './procedure-ref.js';
+
 // Re-export СВОД view builder (панель просмотра — точная копия листа из officialMetrics)
 export * from './svod-view.js';
 
