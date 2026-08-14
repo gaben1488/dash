@@ -261,15 +261,25 @@ export function Dashboard() {
   // ── Ключевые показатели ──
   const heroKpis = useMemo(() => buildHeroKPIs(fd, perimeter), [fd, perimeter]);
 
-  // Замечания для полосы: приводим к виду, который она понимает, и отдаём
-  // ЦЕЛИКОМ — сколько показать и сколько спрятать, решает сама полоса.
+  // Замечания для полосы — ЦЕЛИКОМ и со всеми полями карточки диагноста
+  // (канон п.53): механизм (signal/checkId/title), подсказка (kbHint),
+  // действие (recommendation) и адрес строки (sheet/row/cell). Группировку
+  // по механизмам и свёртку адресов делает сама полоса.
   const bannerIssues = useMemo(
     () => fd.criticalIssues.concat(fd.warningIssues).map((iss: any) => ({
       id: iss.id,
       signal: iss.signal,
+      checkId: iss.checkId,
       severity: iss.severity,
+      title: iss.title,
       description: iss.description ?? iss.message,
+      kbHint: iss.kbHint,
+      recommendation: iss.recommendation,
+      sheet: iss.sheet,
+      cell: iss.cell,
+      row: iss.row,
       department: iss.department ?? iss.deptId,
+      departmentId: iss.departmentId,
     })),
     [fd.criticalIssues, fd.warningIssues],
   );

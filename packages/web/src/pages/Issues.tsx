@@ -11,6 +11,7 @@ import {
   issueTransitionRefusal,
 } from '../lib/selectors/issue-transitions';
 import { formatEventTime } from '../lib/selectors/event-time';
+import { groupIssuesByMechanism } from '../lib/diagnostics/mechanism-groups';
 import { pluralRu } from '../lib/economy-copy';
 import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
@@ -27,6 +28,11 @@ interface DisplayIssue {
   dept: string;
   row?: number;
   cell?: string;
+  /** Ключ сигнала/проверки — для группировки по механизму (канон п.53). */
+  signal?: string;
+  checkId?: string;
+  /** Механизм простыми словами из реестра проверок. */
+  kbHint?: string;
   status: Status;
   /** Момент прогона проверок (ISO). Это НЕ момент появления проблемы в книге. */
   detectedAt: string;
@@ -313,6 +319,9 @@ export function IssuesPage() {
       dept: iss.departmentId || iss.sheet || '',
       row: iss.row,
       cell: iss.cell,
+      signal: iss.signal,
+      checkId: iss.checkId,
+      kbHint: iss.kbHint,
       status: statusOverrides[iss.id] ?? ((iss.status as Status) || 'open'),
       // Своё время замечания, а не время обновления дашборда: подменять одно
       // другим значит выдавать «когда последний раз читали книги» за «когда
@@ -340,6 +349,23 @@ export function IssuesPage() {
       return true;
     });
   }, [issues, search, sevFilter, statusFilter]);
+
+  // Карточки диагноста (канон п.53): одна группа = один механизм проверки.
+  // Простыня «строка N: предмет» удалена решением владельца (п.69д) — список
+  // строк живёт внутри группы, заголовок группы называет механизм, не предмет.
+  const mechanismGroups = useMemo(
+    () => groupIssuesByMechanism(filtered, productLabel),
+    [filtered],
+  );
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (key: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   // Экспорт = РОВНО отфильтрованный список (глобальные фильтры ГРБС/подвед/вид
   // деятельности уже применены в fd.issues, локальные — в filtered). Раньше
@@ -548,7 +574,52 @@ export function IssuesPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(iss => {
+          {mechanismGroups.map(group => {
+            const groupSev = SEV_CONFIG[group.severity as Severity] ?? SEV_CONFIG.info;
+            const GroupIcon = groupSev.icon;
+            const groupOpen = openGroups.has(group.key);
+            const groupBodyId = `mechanism-group-${group.key.replace(/[^\w-]/g, '_')}`;
+            const groupIssues = group.issues as DisplayIssue[];
+            return (
+              <section
+                key={group.key}
+                aria-label={`${group.label}: ${group.count} ${issuesWord(group.count)}`}
+                className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden"
+              >
+                {/* Заголовок карточки диагноста: механизм + счёт + действие (п.53) */}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  aria-expanded={groupOpen}
+                  aria-controls={groupBodyId}
+                  className="w-full text-left flex items-start gap-3 p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700/30 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+                >
+                  <span className={clsx('flex-shrink-0 mt-0.5 p-1.5 rounded-lg', groupSev.bg)}>
+                    <GroupIcon size={16} className={groupSev.text} aria-hidden="true" />
+                  </span>
+                  <span className="flex-1 min-w-0 block">
+                    <span className="flex items-center gap-2 flex-wrap">
+                      <span className={clsx('text-[10px] px-1.5 py-0.5 rounded-full font-medium', groupSev.bg, groupSev.text)}>{groupSev.label}</span>
+                      <span className="text-sm font-semibold text-zinc-800 dark:text-white">{group.label}</span>
+                      <span className="text-sm font-bold tabular-nums text-zinc-500 dark:text-zinc-400">
+                        — {group.count} {issuesWord(group.count)}
+                      </span>
+                    </span>
+                    {group.kbHint && (
+                      <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{group.kbHint}</span>
+                    )}
+                    {group.recommendation && (
+                      <span className="block text-xs text-blue-600 dark:text-blue-400 mt-1 leading-relaxed">Что делать: {group.recommendation}</span>
+                    )}
+                  </span>
+                  {groupOpen
+                    ? <ChevronUp size={14} className="text-zinc-400 mt-1 flex-shrink-0" aria-hidden="true" />
+                    : <ChevronDown size={14} className="text-zinc-400 mt-1 flex-shrink-0" aria-hidden="true" />}
+                </button>
+
+                {groupOpen && (
+                  <div id={groupBodyId} className="space-y-2 px-3 pb-3 border-t border-zinc-100 dark:border-zinc-700/50 pt-3">
+                    {groupIssues.map(iss => {
             const sev = SEV_CONFIG[iss.severity] ?? SEV_CONFIG.info;
             const stat = STATUS_CONFIG[iss.status] ?? STATUS_CONFIG.open;
             const SevIcon = sev.icon;
@@ -713,6 +784,11 @@ export function IssuesPage() {
                 )}
               </div>
             );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
           })}
         </div>
       )}
@@ -720,7 +796,8 @@ export function IssuesPage() {
       {/* Status bar */}
       {filtered.length > 0 && (
         <div className="text-xs text-zinc-400 dark:text-zinc-500 text-center">
-          Показано {filtered.length} из {issues.length} {issuesWord(issues.length)}
+          Показано {filtered.length} из {issues.length} {issuesWord(issues.length)} — {mechanismGroups.length}{' '}
+          {pluralRu(mechanismGroups.length, 'класс проверки', 'класса проверок', 'классов проверок')}
         </div>
       )}
     </div>

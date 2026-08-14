@@ -8,6 +8,8 @@
  * депт-ключей (selectedDeptBothForms) умирает при канонизации DepartmentId
  * в FilterContext; до резки — обе формы (Б5).
  */
+import { isRetiredIssue } from '../diagnostics/mechanism-groups';
+
 export function filterIssues(allIssues: any[], opts: {
   hasDeptFilter: boolean;
   /** Обе формы выбранных ключей ГРБС (кириллица+латиница), см. bothDeptKeyForms */
@@ -18,6 +20,15 @@ export function filterIssues(allIssues: any[], opts: {
 }): any[] {
   const { hasDeptFilter, selectedDeptBothForms, selectedSubordinates, normalizedSearch, selectedActivities } = opts;
   const hasSubFilter = selectedSubordinates.size > 0;
+
+  // Проверки, снятые каноном (td_with_program, п.30 интервью 14.08.2026):
+  // ядро их больше не рождает, но старые снимки могут хранить такие записи —
+  // на экран (полоса, счётчики сигналов, список «Контроля») они не выходят.
+  // Массив пересобирается только при реальной находке: без фильтров функция
+  // обязана возвращать ту же ссылку (контракт memo-цепочки useFilteredData).
+  if (allIssues.some((i: any) => isRetiredIssue(i ?? {}))) {
+    allIssues = allIssues.filter((i: any) => !isRetiredIssue(i ?? {}));
+  }
 
   // Обе формы ключа ГРБС (кириллица+латиница): данные разного происхождения
   // несут разные формы, сравнение по одной форме молча пропускало фильтр (Б5).

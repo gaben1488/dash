@@ -968,7 +968,8 @@ export function Analytics() {
                     }}
                   />
                   <Scatter name="Норма (5-15%)" data={scatterData.filter((d: any) => d.economyPercent >= 5 && d.economyPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Предрешённость (<5%)" data={scatterData.filter((d: any) => d.economyPercent >= 0 && d.economyPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
+                  <Scatter name="Снижение менее 5%" data={scatterData.filter((d: any) => d.economyPercent >= 0 && d.economyPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   <Scatter name="Антидемпинг (>25%)" data={scatterData.filter((d: any) => d.economyPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   <Scatter name="Превышение (<0%)" data={scatterData.filter((d: any) => d.economyPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   <Scatter name="Высокая (15-25%)" data={scatterData.filter((d: any) => d.economyPercent > 15 && d.economyPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
@@ -978,7 +979,7 @@ export function Analytics() {
             <div className="flex gap-4 mt-3 text-[10px] flex-wrap">
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5-15% норма</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-blue-500" /> 15-25% высокая</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> &lt;5% предрешённость</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> снижение менее 5%</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> &gt;25% антидемпинг</span>
               <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> &lt;0% превышение</span>
             </div>

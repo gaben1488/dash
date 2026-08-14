@@ -67,9 +67,12 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], chi
   );
 }
 
-/** Процент по-русски: запятая, один знак, неразрывный пробел перед %. */
-export const fmtPct = (v: number): string =>
-  `${v.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} %`;
+/**
+ * Процент — канонический форматтер продукта из дома форматирования
+ * (web/src/lib/report/mappers.ts), не своя копия: страж canon-homes
+ * запрещает новые дубли, и правильно делает.
+ */
+export { fmtPct } from '../../lib/report/mappers';
 
 // ── Счёт ЕП/КП по периметру шапки ────────────────────────────────
 
