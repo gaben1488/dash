@@ -30,6 +30,7 @@ import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
+import { freshImport } from '../lib/fresh-import';
 import { KpiTile } from '../components/contract/KpiTile';
 import { SectionCard } from '../components/contract/SectionCard';
 import { ReportTable, type ReportTableColumn } from '../components/contract/ReportTable';
@@ -637,8 +638,12 @@ export function ReportPage() {
       // уже загружен страницей. Импорты и запросы независимы — один Promise.all.
       const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, additionalReportBlocks }, q1, q2, q3, q4] =
         await Promise.all([
-          import('../lib/report/docx/build-docx'),
-          import('../lib/report/docx/text-blocks'),
+          // freshImport: после выката старые куски сборки исчезают с сервера,
+          // и открытая до выката вкладка ловила красное «Failed to fetch
+          // dynamically imported module» (прод, 14.08). Теперь страница один
+          // раз перезагружается на новую версию вместо ошибки.
+          freshImport(() => import('../lib/report/docx/build-docx')),
+          freshImport(() => import('../lib/report/docx/text-blocks')),
           // В архиве срез пришпилен asOf — текущий квартал можно взять из
           // загруженного отчёта. В ЭФИРЕ пиновки нет: между открытием
           // страницы и кликом сервер мог перечитать книги, и документ

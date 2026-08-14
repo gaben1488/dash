@@ -14,21 +14,25 @@
 import { lazy } from 'react';
 import type { Page } from '../store';
 import { SkeletonCard, SkeletonChart, SkeletonKPIRow, SkeletonTable } from '../components/Skeleton';
+import { freshImport } from '../lib/fresh-import';
 
+// freshImport: открытая до выката вкладка просит кусок сборки со старым хэшем,
+// которого на сервере уже нет, — вместо белого экрана страница один раз
+// перезагружается на новую версию (прод-прецедент 14.08, кнопка «Отчёт в Word»).
 export const ReportPage = lazy(() =>
-  import('./Report').then(m => ({ default: m.ReportPage })));
+  freshImport(() => import('./Report')).then(m => ({ default: m.ReportPage })));
 export const SvodView = lazy(() =>
-  import('./SvodView').then(m => ({ default: m.SvodView })));
+  freshImport(() => import('./SvodView')).then(m => ({ default: m.SvodView })));
 export const DataBrowserPage = lazy(() =>
-  import('./DataBrowser').then(m => ({ default: m.DataBrowserPage })));
+  freshImport(() => import('./DataBrowser')).then(m => ({ default: m.DataBrowserPage })));
 export const EconomyPage = lazy(() =>
-  import('./Economy').then(m => ({ default: m.EconomyPage })));
+  freshImport(() => import('./Economy')).then(m => ({ default: m.EconomyPage })));
 export const Analytics = lazy(() =>
-  import('./Analytics').then(m => ({ default: m.Analytics })));
+  freshImport(() => import('./Analytics')).then(m => ({ default: m.Analytics })));
 export const QualityPage = lazy(() =>
-  import('./Quality').then(m => ({ default: m.QualityPage })));
+  freshImport(() => import('./Quality')).then(m => ({ default: m.QualityPage })));
 export const SettingsPage = lazy(() =>
-  import('./Settings').then(m => ({ default: m.SettingsPage })));
+  freshImport(() => import('./Settings')).then(m => ({ default: m.SettingsPage })));
 
 /** Заголовок-заглушка: та же высота, что у настоящего заголовка раздела. */
 function SkeletonHeading() {
