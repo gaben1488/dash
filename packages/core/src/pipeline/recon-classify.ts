@@ -308,9 +308,14 @@ export function classifySign(input: ClassifyInput): ReconRootCause | null {
   const rowsWord = total > 0 ? 'факт выше плана (перерасход)' : 'факт ниже плана (экономия)';
   return {
     class: 'sign',
+    // Наблюдение, не вкладчик: разнонаправленные отклонения описывают
+    // подозрительные строки, но арифметического права на разницу чисел у них
+    // нет — складывая их в общий счёт, карточка объявляла остаток больше
+    // самой разницы (прецедент 14.08.2026).
+    kind: 'observation',
     rows: sortRows(rows),
     explanation:
-      `Строк с обратным направлением отклонения: ${rows.length}, их вклад ${money(total)}. ` +
+      `Строк с обратным направлением отклонения: ${rows.length}, их сумма ${money(total)}. ` +
       `Общее расхождение — ${overallWord}, отклонение этих строк идёт против него: ${rowsWord}. ` +
       'Лист СВОД считает отклонение как факт минус план; путь, берущий обратную величину или обнуляющий отрицательную, даёт другой знак.',
   };
@@ -360,6 +365,9 @@ export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
   const total = rows.reduce((s, r) => s + r.delta, 0);
   return {
     class: 'method',
+    // Наблюдение: обе стороны читают такие строки одинаково (лист делит
+    // отрицанием, у нас с волны 0 то же правило) — вклад в разницу нулевой.
+    kind: 'observation',
     rows: sortRows(rows),
     explanation:
       `Строк с нераспознанным способом: ${unknownCount}, с пустым способом: ${emptyCount}; ` +
@@ -370,59 +378,24 @@ export function classifyMethod(input: ClassifyInput): ReconRootCause | null {
   };
 }
 
-/** Слова, которыми операторы помечают отменённую или несостоявшуюся закупку. */
-const CANCELLED_MARKERS = ['отмен', 'аннулир', 'не состоял'];
-
 /**
- * Где ищем пометку: причина отклонения и три колонки комментариев.
- * Отдельной колонки «статус» в книгах ГРБС нет вовсе (аудит 30.07), поэтому
- * признак отмены живёт свободным текстом и другого дома у него не будет.
- */
-const CANCELLED_COLUMNS = [
-  COL.DEVIATION_REASON,
-  COL.COMMENT_GRBS,
-  COL.COMMENT_UER,
-  COL.COMMENT_UFBP,
-];
-
-function hasCancelledMarker(row: RawRow): boolean {
-  return CANCELLED_COLUMNS.some((col) => {
-    const s = String(row[col] ?? '').trim().toLowerCase();
-    if (s === '') return false;
-    return CANCELLED_MARKERS.some((m) => s.includes(m));
-  });
-}
-
-/**
- * Класс `cancelled` — отменённые и несостоявшиеся строки с непогашенным планом.
+ * Класс `cancelled` СНЯТ 14.08.2026 по канону п.27 (интервью): свободный текст
+ * комментариев исполнителей машинно не интерпретируется НИГДЕ. Классификатор
+ * искал слова «отмен», «аннулир», «не состоял» в причине отклонения и трёх
+ * колонках комментариев — то же чтение слов, из-за которого продукт объявлял
+ * состоявшуюся закупку отменённой (жалоба п.41).
  *
- * Закупку отменили, но плановую сумму не обнулили и пометку поставили словом
- * в свободном тексте. Дальше пути расходятся: путь, читающий текст, строку
- * отсеивает, путь, читающий только деньги, продолжает её считать. Разница
- * ровно в этих строках, и она устраняется единообразной пометкой, а не
- * подгонкой чисел.
+ * Отдельной структурной колонки статуса в книгах ГРБС нет, поэтому заменить
+ * чтение текста нечем: признак отмены должен появиться у источника (просьба
+ * владельцам книг — завести колонку статуса со списком значений). До тех пор
+ * такие строки объясняются общими классами: план без исполнения, отсутствие
+ * финансирования, факт вне периметра.
+ *
+ * Функция сохранена как заглушка, потому что на неё ссылаются старые тесты и
+ * снимки; она НИЧЕГО не находит и в очередь классификаторов не включена.
  */
-export function classifyCancelled(input: ClassifyInput): ReconRootCause | null {
-  const rows: ReconRootCauseRow[] = [];
-  input.rows.forEach((row, i) => {
-    if (!standardRowFilter(row)) return;
-    if (!matchesYear(row, input.year)) return;
-    if (rowPlanTotal(row) <= 0) return;
-    if (!hasCancelledMarker(row)) return;
-    const delta = contributionOf(row, input.measure);
-    if (delta === 0) return;
-    rows.push(toCauseRow(input.sheet, i, input.measure, delta));
-  });
-  if (rows.length === 0) return null;
-  const total = rows.reduce((s, r) => s + r.delta, 0);
-  return {
-    class: 'cancelled',
-    rows: sortRows(rows),
-    explanation:
-      `Строк с пометкой об отмене: ${rows.length}, их вклад ${money(total)}. ` +
-      'В причине отклонения или комментариях стоит «отменено», «аннулировано» либо «не состоялось», ' +
-      'но плановая сумма не обнулена: один источник такие строки считает, другой отсеивает.',
-  };
+export function classifyCancelled(_input: ClassifyInput): ReconRootCause | null {
+  return null;
 }
 
 /**

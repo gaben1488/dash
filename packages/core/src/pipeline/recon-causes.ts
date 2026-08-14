@@ -13,6 +13,7 @@
  */
 
 import {
+  causeContribution,
   unexplainedRemainder,
   type ReconLine,
   type ReconLineRootCause,
@@ -21,7 +22,7 @@ import {
 } from '@aemr/shared';
 import {
   classifyAfterSlice,
-  classifyCancelled,
+
   classifyFactQuarterMissing,
   classifyMethod,
   classifyParsing,
@@ -43,7 +44,9 @@ const PIPELINE: readonly Classifier[] = [
   classifyFactQuarterMissing,
   classifyAfterSlice,
   classifyMethod,
-  classifyCancelled,
+  // classifyCancelled снят 14.08.2026 (канон п.27): он выводил статус закупки
+  // из слов в свободных комментариях — то же чтение текста, из-за которого
+  // состоявшаяся закупка объявлялась отменённой.
   classifySign,
   classifyParsing,
 ];
@@ -77,6 +80,15 @@ export function buildRootCauses(input: BuildCausesInput): ReconLineRootCause[] {
       id: causeId(cause.class, input.sheet, input.metric),
       affects: [],
     });
+  }
+  // Страховка сходимости: вкладчики не имеют права объяснять БОЛЬШЕ самой
+  // разницы. Если совокупный вклад перевалил за неё вдвое, значит классы
+  // считают в разных базисах — тогда честнее показать их наблюдениями и
+  // оставить разницу неразобранной, чем печатать остаток, противоречащий
+  // арифметике (прецедент 14.08.2026: «не объяснено −3152 из −181»).
+  const claimed = out.reduce((s, c) => s + (c.kind === 'observation' ? 0 : causeContribution(c)), 0);
+  if (Math.abs(input.delta) > 0.01 && Math.abs(claimed) > Math.abs(input.delta) * 2) {
+    for (const cause of out) cause.kind = 'observation';
   }
   const rest = unexplainedRemainder(
     { metric: input.metric, official: 0, computed: input.delta, delta: input.delta },

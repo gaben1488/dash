@@ -48,8 +48,26 @@ export interface ReconRootCauseRow {
   delta: number;
 }
 
+/**
+ * Роль причины в арифметике расхождения.
+ *
+ * `contributor` — вклад строк РЕАЛЬНО складывается в разницу: лист не увидел
+ * эти строки (нет года плана), мы не увидели (после среза), строка прочитана
+ * иначе. Такие причины участвуют в сходимости «сумма вкладов + остаток = дельта».
+ *
+ * `observation` — строки подозрительны, но арифметического права на разницу у
+ * них нет: разнонаправленные отклонения, спорные способы, отменённые закупки.
+ * Прецедент 14.08.2026: такие наблюдения складывали в общий счёт, и карточка
+ * писала «не объяснено −3152,07 из −181,85» — остаток в семнадцать раз больше
+ * самой разницы. Наблюдения показываются как «возможно связано» и в
+ * арифметику не входят.
+ */
+export type ReconCauseKind = 'contributor' | 'observation';
+
 export interface ReconRootCause {
   class: ReconRootCauseClass;
+  /** Роль в арифметике; отсутствие поля читается как 'contributor'. */
+  kind?: ReconCauseKind;
   /**
    * Строки-виновницы. Пустой массив запрещён для всех классов, кроме
    * 'unknown': причина без адресов не предъявима исполнителю.
@@ -65,10 +83,20 @@ export interface ReconRootCause {
   explanation: string;
 }
 
-/** Вклад причины в дельту: сумма строк, либо явный delta у 'unknown'. */
+/**
+ * Вклад причины в дельту: сумма строк, либо явный delta у 'unknown'.
+ * Наблюдения вклада не имеют — их суммы описывают подозрительные строки, а не
+ * разницу чисел, и в сходимость не входят.
+ */
 export function causeContribution(cause: ReconRootCause): number {
+  if (cause.kind === 'observation') return 0;
   if (cause.rows.length > 0) return cause.rows.reduce((s, r) => s + r.delta, 0);
   return cause.delta ?? 0;
+}
+
+/** Сумма, которую показывает карточка наблюдения: масштаб находки, не вклад. */
+export function causeObservedTotal(cause: ReconRootCause): number {
+  return cause.rows.reduce((s, r) => s + r.delta, 0);
 }
 
 /** Первопричина в строке сверки: с идентификатором каскада и списком следствий. */
@@ -199,8 +227,9 @@ export function unexplainedRemainder(
     delta: rest,
     affects: [],
     explanation:
-      `Не объяснено ${rest.toFixed(2)} из ${line.delta.toFixed(2)}: ` +
-      'автоматические классификаторы не нашли строк, дающих этот остаток.',
+      `Разобрано ${(line.delta - rest).toFixed(2)} из ${line.delta.toFixed(2)}; ` +
+      `остаток ${rest.toFixed(2)} не разложен: автоматические классификаторы ` +
+      'не нашли строк, дающих его. Разобрать вручную по книге за тот же период.',
   };
 }
 

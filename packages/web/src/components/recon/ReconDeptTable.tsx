@@ -50,12 +50,26 @@ function plural(n: number, one: string, few: string, many: string): string {
  * Заголовок-утверждение: что именно показала сверка. Витринное название
  * («Сверка по управлениям») читателю не сообщает ничего — вывод сообщает.
  */
-function verdictHeadline(counts: { ok: number; neutral: number; warning: number; high: number }): string {
+function verdictHeadline(
+  counts: { ok: number; neutral: number; warning: number; high: number },
+  /**
+   * Все ли разницы РОВНО нулевые. Канон п.64: слово «чиста» разрешено только
+   * при нуле. Разница в пределах допуска — это «сошлось в пределах допуска»,
+   * и она обязана оставаться разбираемой: сотрудница увидела «Сверка чиста:
+   * сходятся все 8» рядом с жёлтым −181,9 и справедливо перестала верить
+   * вкладке (жалоба 14.08.2026).
+   */
+  allZero: boolean,
+): string {
   const total = counts.ok + counts.neutral + counts.warning + counts.high;
   const units = (n: number) => `${n} ${plural(n, 'управление', 'управления', 'управлений')}`;
   if (counts.high > 0) return `Расходятся ${units(counts.high)} из ${total}`;
   if (counts.warning > 0) return `Явных расхождений нет, но ${units(counts.warning)} несопоставимы`;
-  if (counts.ok > 0) return `Сверка чиста: сходятся все ${units(counts.ok)}`;
+  if (counts.ok > 0) {
+    return allZero
+      ? `Сверка чиста: сходятся все ${units(counts.ok)}`
+      : `Сверх допуска не вышло ни одно управление; у части разница ненулевая — раскройте строку`;
+  }
   return 'Сравнивать не с чем ни по одному управлению';
 }
 
@@ -63,7 +77,9 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
   return (
     <>
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{verdictHeadline(counts)}</h3>
+        <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+          {verdictHeadline(counts, rows.every((r) => isZero(r.planDelta) && isZero(r.factDelta) && isZero(r.ecoDelta)))}
+        </h3>
 
         {/* Summary badges */}
         <div className="flex flex-wrap gap-3 text-xs">
@@ -174,8 +190,14 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                             : row.assessment.source === 'methodology' ? 'text-blue-500 dark:text-blue-400'
                             : 'text-zinc-400 dark:text-zinc-500',
                         )}>
+                          {/* Канон п.64: «разбирать нечего» разрешено только при
+                              НУЛЕВОЙ разнице. Ненулевая, пусть и в пределах
+                              допуска, обязана предлагать разбор — иначе продукт
+                              просит поверить ему на слово (жалоба 14.08). */}
                           {row.assessment.source === 'none' || !row.assessment.sourceLabel || row.assessment.sourceLabel === '—'
-                            ? 'разбирать нечего'
+                            ? (isZero(row.planDelta) && isZero(row.factDelta) && isZero(row.ecoDelta)
+                                ? 'разбирать нечего'
+                                : 'причина не установлена — раскрыть строку')
                             : row.assessment.sourceLabel}
                         </span>
                       </td>

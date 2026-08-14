@@ -243,32 +243,28 @@ describe('classifyMethod', () => {
   });
 });
 
-describe('classifyCancelled', () => {
+/**
+ * Класс «отменённые» снят 14.08.2026 по канону п.27: он выводил статус закупки
+ * из слов в свободных комментариях («отменено», «аннулировано», «не состоялось»).
+ * Тесты ниже сторожат ОТСУТСТВИЕ такой трактовки — раньше они закрепляли её.
+ */
+describe('classifyCancelled: чтение свободного текста снято (канон п.27)', () => {
   const rows = [
     row({ plan: 1_200, reason: 'Закупка отменена заказчиком' }),
     row({ plan: 800, comment: 'Аукцион не состоялся' }),
     row({ plan: 640, comment: 'Контракт аннулирован' }),
-    row({ plan: 0, reason: 'Отменено' }), // план обнулён — источники сходятся
-    row({ plan: 400, reason: 'Х' }), // обычная строка
+    row({ plan: 400, reason: 'Х' }),
   ];
 
-  it('находит отменённые строки с непогашенным планом, дороже выше', () => {
-    const c = classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planMoney' })!;
-    expect(c.class).toBe('cancelled');
-    expect(c.rows.map((r) => r.delta)).toEqual([1_200, 800, 640]);
-    expect(c.rows[0].cell).toBe(`K${sheetRowOf(0)}`);
-    expect(c.rows[1].cell).toBe(`K${sheetRowOf(1)}`);
-    expect(c.explanation.replace(/\s/g, ' ')).toContain('2 640');
+  it('слова об отмене в тексте не порождают причину ни в деньгах, ни в штуках', () => {
+    expect(classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planMoney' })).toBeNull();
+    expect(classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planCount' })).toBeNull();
   });
 
-  it('пометок об отмене нет — причины нет', () => {
-    const c = classifyCancelled({ rows: [row({ plan: 400, reason: 'Х' })], sheet: 'УДТХ', measure: 'planMoney' });
-    expect(c).toBeNull();
-  });
-
-  it('мера «количество»: вклад каждой строки — единица', () => {
-    const c = classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planCount' })!;
-    expect(c.rows.map((r) => r.delta)).toEqual([1, 1, 1]);
+  it('сборщик причин не выдаёт класс «отменённые» даже на таких строках', async () => {
+    const { buildRootCauses } = await import('./recon-causes.js');
+    const causes = buildRootCauses({ rows, sheet: 'УДТХ', measure: 'planMoney', metric: 'm', delta: 2_640 });
+    expect(causes.map((c) => c.class)).not.toContain('cancelled');
   });
 });
 
@@ -348,19 +344,15 @@ describe('сквозной сценарий: причина закрывает �
     expect(validateReconLine(line)).toEqual([]);
   });
 
-  it('отменённые строки объясняют расхождение плана целиком', () => {
+  // Переписан 14.08.2026: тест закреплял чтение слова «отменена» из свободного
+  // комментария как причину расхождения. Канон п.27 (решение владельца) это
+  // запрещает НИГДЕ: тот же механизм объявлял состоявшуюся закупку отменённой
+  // (жалоба п.41). Теперь тест сторожит отсутствие такой трактовки.
+  it('слово «отменена» в свободном тексте не порождает причину расхождения', () => {
     const rows = [
       row({ plan: 1_200, reason: 'Закупка отменена заказчиком' }),
       row({ plan: 500 }),
     ];
-    const cause = classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planMoney' })!;
-    const line: ReconLine = {
-      metric: 'udth.plan_total.year',
-      official: 8_000,
-      computed: 9_200,
-      delta: 1_200,
-      rootCauses: [{ ...cause, id: 'cancelled:УДТХ', affects: [] }],
-    };
-    expect(validateReconLine(line)).toEqual([]);
+    expect(classifyCancelled({ rows, sheet: 'УДТХ', measure: 'planMoney' })).toBeNull();
   });
 });

@@ -60,19 +60,29 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 
 /** Заголовок-утверждение: чем закончилась сверка показателей. */
-function verdictHeadline(counts: { ok: number; warning: number; critical: number }): string {
+function verdictHeadline(
+  counts: { ok: number; warning: number; critical: number },
+  /** Канон п.64: «чиста» — только при нулевой разнице (см. ReconDeptTable). */
+  allZero: boolean,
+): string {
   const total = counts.ok + counts.warning + counts.critical;
   const items = (n: number) => `${n} ${plural(n, 'показатель', 'показателя', 'показателей')}`;
   if (counts.critical > 0) return `Расходятся ${items(counts.critical)} из ${total}`;
   if (counts.warning > 0) return `За пределы допуска не вышел ни один показатель, у ${items(counts.warning)} расхождение в пределах допуска`;
-  return `Сверка чиста: сходятся все ${items(total)}`;
+  return allZero
+    ? `Сверка чиста: сходятся все ${items(total)}`
+    : `Сверх допуска не вышел ни один показатель; у части разница ненулевая — раскройте строку`;
 }
 
 export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggleMetric }: ReconMetricTableProps) {
   return (
     <>
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{verdictHeadline(counts)}</h3>
+        <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+          {/* null-разница означает «сравнивать не с чем» — она не мешает
+              слову «чиста», в отличие от ненулевого числа. */}
+          {verdictHeadline(counts, deltas.every((d) => d.delta == null || isZero(d.delta)))}
+        </h3>
 
         {/* Summary badges */}
         <div className="flex flex-wrap gap-3 text-xs">
