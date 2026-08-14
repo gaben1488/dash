@@ -426,12 +426,13 @@ export function Analytics() {
       return {
         name: d.department?.nameShort ?? '?',
         id: d.department?.id,
+        // Канон п.30: видов деятельности два — ПМ и ТД. Строки бывшего среза
+        // «ТД-ПМ» (ключ current_program) складываются в ТД, а не живут третьим
+        // рядом: иначе на графике разложение не сходится с фильтром на экране.
         program: ba.program?.planTotal ?? 0,
-        current_program: ba.current_program?.planTotal ?? 0,
-        current_non_program: ba.current_non_program?.planTotal ?? 0,
+        current: (ba.current_program?.planTotal ?? 0) + (ba.current_non_program?.planTotal ?? 0),
         programFact: ba.program?.factTotal ?? 0,
-        cpFact: ba.current_program?.factTotal ?? 0,
-        cnpFact: ba.current_non_program?.factTotal ?? 0,
+        currentFact: (ba.current_program?.factTotal ?? 0) + (ba.current_non_program?.factTotal ?? 0),
       };
     });
   }, [filteredDepts, hasDeptData, periodKey]);
@@ -801,7 +802,7 @@ export function Analytics() {
       )}
 
       {/* Activity breakdown by department */}
-      {activityData.some(d => d.program > 0 || d.current_program > 0 || d.current_non_program > 0) && (
+      {activityData.some(d => d.program > 0 || d.current > 0) && (
         <AnalyticsCard title={`Разбивка по видам деятельности (${periodLabel})`} icon={Layers} source="calculated">
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={activityData} barCategoryGap="15%">
@@ -813,19 +814,13 @@ export function Analytics() {
               <Bar dataKey="program" name="Программная" stackId="plan" fill="#8b5cf6" radius={[0, 0, 0, 0]} cursor="pointer"
                 onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'program' }); }}
               />
-              <Bar dataKey="current_program" name="Текущая (программы)" stackId="plan" fill="#3b82f6" radius={[0, 0, 0, 0]} cursor="pointer"
-                onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'current_program' }); }}
-              />
-              <Bar dataKey="current_non_program" name="Текущая (вне программ)" stackId="plan" fill="#06b6d4" radius={[4, 4, 0, 0]} cursor="pointer"
+              <Bar dataKey="current" name="Текущая деятельность" stackId="plan" fill="#06b6d4" radius={[4, 4, 0, 0]} cursor="pointer"
                 onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'current_non_program' }); }}
               />
               <Bar dataKey="programFact" name="Программная (факт)" stackId="fact" fill="#a78bfa" radius={[0, 0, 0, 0]} cursor="pointer"
                 onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'program' }); }}
               />
-              <Bar dataKey="cpFact" name="Текущая прогр. (факт)" stackId="fact" fill="#60a5fa" radius={[0, 0, 0, 0]} cursor="pointer"
-                onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'current_program' }); }}
-              />
-              <Bar dataKey="cnpFact" name="Текущая вне прогр. (факт)" stackId="fact" fill="#22d3ee" radius={[4, 4, 0, 0]} cursor="pointer"
+              <Bar dataKey="currentFact" name="Текущая деятельность (факт)" stackId="fact" fill="#22d3ee" radius={[4, 4, 0, 0]} cursor="pointer"
                 onClick={(data: any) => { if (data?.id) navigateTo('data', { department: data.id, activity: 'current_non_program' }); }}
               />
             </BarChart>

@@ -114,9 +114,9 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
       )}
       {hasActivity && (
         <Chip
-          label={[...selectedActivities].map(a =>
-            a === 'program' ? 'ПМ' : a === 'current_program' ? 'ТД-ПМ' : 'ТД'
-          ).join(', ')}
+          // Канон п.30: подписи две — ПМ и ТД; легаси-ключ current_program
+          // («ТД-ПМ») подписывается как ТД, дубль «ТД, ТД» схлопывается.
+          label={[...new Set([...selectedActivities].map(a => (a === 'program' ? 'ПМ' : 'ТД')))].join(', ')}
           onRemove={clearActivities}
           color="purple"
         />

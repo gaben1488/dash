@@ -30,6 +30,14 @@ const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   settings:   [],
 };
 
+/**
+ * Ключи текущей деятельности. Канон п.30 (интервью 14.08.2026): среза «ТД-ПМ»
+ * больше нет, но ключ current_program остаётся в сохранённых ссылках и старых
+ * снимках — кнопка ТД обязана включать оба, иначе часть строк ТД пропадёт из
+ * выборки молча.
+ */
+const TD_ACTIVITY_KEYS = ['current_program', 'current_non_program'] as const;
+
 const QTR_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
 const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 
@@ -666,25 +674,31 @@ export function Header() {
           </div>
         )}
 
-        {showActivity && (
-          <div className="vf-drum" role="group" aria-label="Вид деятельности">
-            <button type="button" onClick={() => toggleActivity('program')}
-              className={clsx('vf-btn', !aAll && selectedActivities.has('program') && 'vf-btn-active')}
-              aria-pressed={!aAll && selectedActivities.has('program')}
-              aria-label="Программные мероприятия"
-              title="Программные мероприятия">ПМ</button>
-            <button type="button" onClick={() => toggleActivity('current_program')}
-              className={clsx('vf-btn', !aAll && selectedActivities.has('current_program') && 'vf-btn-active')}
-              aria-pressed={!aAll && selectedActivities.has('current_program')}
-              aria-label="Текущая деятельность, программные"
-              title="Текущая деятельность — программные">ТД-ПМ</button>
-            <button type="button" onClick={() => toggleActivity('current_non_program')}
-              className={clsx('vf-btn', !aAll && selectedActivities.has('current_non_program') && 'vf-btn-active')}
-              aria-pressed={!aAll && selectedActivities.has('current_non_program')}
-              aria-label="Текущая деятельность"
-              title="Текущая деятельность">ТД</button>
-          </div>
-        )}
+        {showActivity && (() => {
+          // Канон п.30 (интервью 14.08.2026): срез «ТД-ПМ» упразднён. Кнопки две —
+          // ПМ и ТД; строки бывшего ТД-ПМ входят в ТД, поэтому кнопка ТД включает
+          // и легаси-ключ current_program (он ещё живёт в сохранённых ссылках и
+          // старых снимках) вместе с current_non_program — одним движением.
+          const tdActive = !aAll && TD_ACTIVITY_KEYS.some((k) => selectedActivities.has(k));
+          return (
+            <div className="vf-drum" role="group" aria-label="Вид деятельности">
+              <button type="button" onClick={() => toggleActivity('program')}
+                className={clsx('vf-btn', !aAll && selectedActivities.has('program') && 'vf-btn-active')}
+                aria-pressed={!aAll && selectedActivities.has('program')}
+                aria-label="Программные мероприятия"
+                title="Программные мероприятия">ПМ</button>
+              <button type="button"
+                onClick={() => TD_ACTIVITY_KEYS.forEach((k) => {
+                  const on = selectedActivities.has(k);
+                  if (tdActive ? on : !on) toggleActivity(k);
+                })}
+                className={clsx('vf-btn', tdActive && 'vf-btn-active')}
+                aria-pressed={tdActive}
+                aria-label="Текущая деятельность"
+                title="Текущая деятельность (включая строки с заполненной графой программы)">ТД</button>
+            </div>
+          );
+        })()}
 
         {showBudget && (
           <div className="vf-drum" role="group" aria-label="Источник финансирования">
