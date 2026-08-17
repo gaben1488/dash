@@ -1169,7 +1169,7 @@ describe('classifyRowState', () => {
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
       budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
-      factQuarterMissing: false,
+      derivedFormulaBroken: false, factQuarterMissing: false,
       ...overrides,
     };
   }
@@ -1246,7 +1246,7 @@ describe('getSignalBadges', () => {
       methodReasonMismatch: false, unmappedReasonEP: false,
       budgetUnderallocation: false,
       budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
-      factQuarterMissing: false,
+      derivedFormulaBroken: false, factQuarterMissing: false,
       ...overrides,
     };
   }
@@ -1383,6 +1383,74 @@ describe('planYearMissing', () => {
 
   it('СТРАЖ п.41: «отменена» в U сигнал больше не гасит', () => {
     expect(detectSignals({ L: 'ЭА', K: 190, P: '', U: 'отменена' }).planYearMissing).toBe(true);
+  });
+
+  it('фикс п.98а: N датой + P пусто — НЕ «не обеспечено финансированием»', () => {
+    // Живой кейс УКСиМП строка 280 (18.08.2026): N=30.11.2026, формулы O/P
+    // стёрты. Финансирование есть — ложное обвинение снято, это поломка формулы.
+    const s = detectSignals({ L: 'ЕП', K: 200, N: '30.11.2026', O: '', P: '' });
+    expect(s.planYearMissing).toBe(false);
+    expect(s.derivedFormulaBroken).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// derivedFormulaBroken — стёртая формула производной даты (канон п.93/45:
+// рукописны только N и Q; O/P и R/S считаются формулами). Живые кейсы
+// 18.08.2026: УКСиМП строки 280/283 — жалоба оператора «не обеспечено
+// финансирование — 4 строки — все данные заполнены и сверены».
+// ────────────────────────────────────────────────────────────
+
+describe('derivedFormulaBroken', () => {
+  it('живой кейс УКСиМП 283: N=31.08.2026, O/P без формулы — горит', () => {
+    const s = detectSignals({ L: 'ЕП', K: 30, N: '31.08.2026', O: '', P: '' });
+    expect(s.derivedFormulaBroken).toBe(true);
+  });
+
+  it('живой кейс УКСиМП 326: N=Х — формулы честно пусты, цела; это unfunded', () => {
+    const s = detectSignals({ L: 'ЕП', K: 240, N: 'Х', O: '', P: '' });
+    expect(s.derivedFormulaBroken).toBe(false);
+    expect(s.planYearMissing).toBe(true);
+  });
+
+  it('здоровая строка: N датой, O/P посчитаны — молчит', () => {
+    const s = detectSignals({ L: 'ЕП', K: 40, N: '15.08.2026', O: 3, P: 2026 });
+    expect(s.derivedFormulaBroken).toBe(false);
+    expect(s.planYearMissing).toBe(false);
+  });
+
+  it('производная без источника: P=2026 при пустой N — тоже поломка', () => {
+    const s = detectSignals({ L: 'ЭА', K: 190, P: 2026 });
+    expect(s.derivedFormulaBroken).toBe(true);
+    expect(s.planYearMissing).toBe(false);
+  });
+
+  it('факт-сторона: Q датой, R/S пусты — горит', () => {
+    const s = detectSignals({
+      L: 'ЕП', K: 40, N: '15.08.2026', O: 3, P: 2026,
+      Q: '11.08.2026', R: '', S: '',
+    });
+    expect(s.derivedFormulaBroken).toBe(true);
+  });
+
+  it('факт-сторона цела: Q датой, R/S посчитаны — молчит', () => {
+    const s = detectSignals({
+      L: 'ЕП', K: 40, N: '15.08.2026', O: 3, P: 2026,
+      Q: '11.08.2026', R: 3, S: 2026,
+    });
+    expect(s.derivedFormulaBroken).toBe(false);
+  });
+
+  it('не счётная строка (нет способа или нулевой план) — молчит', () => {
+    expect(detectSignals({ L: '', K: 190, N: '15.08.2026', P: '' }).derivedFormulaBroken).toBe(false);
+    expect(detectSignals({ L: 'ЭА', K: 0, N: '15.08.2026', P: '' }).derivedFormulaBroken).toBe(false);
+  });
+
+  it('бейдж: красный «Сломана формула даты»', () => {
+    const s = detectSignals({ L: 'ЕП', K: 200, N: '30.11.2026', O: '', P: '' });
+    const b = getSignalBadges(s).find((x) => x.label === 'Сломана формула даты');
+    expect(b).toBeDefined();
+    expect(b!.color).toBe('red');
   });
 });
 

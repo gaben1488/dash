@@ -87,6 +87,7 @@ const NATURE_BY_CHECK: Readonly<Record<string, NatureCategoryId>> = {
   economy_hidden: 'fill',
   // ── Дефект формул листа ──
   formula_broken: 'sheet',
+  derived_formula_broken: 'sheet',
   execution_percentage: 'sheet',
   deviation_calc: 'sheet',
   q1_leq_year: 'sheet',

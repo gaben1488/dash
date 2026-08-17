@@ -15,7 +15,7 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isAbsentCell, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
 // parseAE снят 14.08.2026 (канон п.27 интервью): дата контракта и правовое
 // основание из комментариев (AE/AF) — машинная интерпретация свободного
 // текста, которая запрещена решением владельца.
@@ -119,6 +119,17 @@ export interface RowSignals {
    * давали расхождение 13 921 против 13 331 листа.
    */
   planYearMissing: boolean;
+  /**
+   * Сломана формула производной даты. Канон п.93/45: рукописны только N
+   * (план) и Q (факт); O/P и R/S считаются формулами от них. Если источник
+   * заполнен датой, а производная пуста — формула в ячейке стёрта (формула
+   * с датой в источнике не может дать пусто). Обратный перекос — производная
+   * заполнена при пустом источнике — та же поломка (значение без формулы).
+   * Живой пример 18.08.2026: УКСиМП строки 280/283 — N=30.11.2026/31.08.2026,
+   * в O и P нет даже формулы; система ложно звала их «не обеспеченными
+   * финансированием» (жалоба оператора: «все данные заполнены и сверены»).
+   */
+  derivedFormulaBroken: boolean;
   /**
    * Дата факта есть, а планового квартала (O) нет или он невалиден.
    * Печатный год отчёта = Σ плановых кварталов — строка из него выпадает,
@@ -527,7 +538,31 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // операторы ставят заглушку вместо года.
   const planYearText = cellText(cells, 'P');
   const planYearEmpty = planYearText === '' || planYearText === 'х' || planYearText === 'x' || planYearText === '-';
-  const planYearMissing = planYearEmpty && methodText !== '' && !isNaN(planTotal) && planTotal > 0;
+  // Канон п.93/45 (фикс 18.08.2026, п.98а): «не обеспечено финансированием»
+  // решает РУКОПИСНАЯ N, а не производная P. Пустая P при заполненной N —
+  // сломанная формула листа (сигнал derivedFormulaBroken ниже), строка при
+  // этом профинансирована. Оба пусты — настоящая невидимка для SUMIFS СВОДа.
+  const planDateText = cellText(cells, 'N');
+  const planDateAbsent = planDateText === '' || isAbsentCell(planDateText);
+  const planYearMissing = planDateAbsent && planYearEmpty
+    && methodText !== '' && !isNaN(planTotal) && planTotal > 0;
+
+  // ── Сломана формула производной даты (п.98а, живой кейс УКСиМП 280/283) ──
+  // Пары источник→производные: N→(O,P), Q→(R,S). Рассинхрон в любую сторону
+  // (дата без производной или производная без даты) = стёртая/битая формула.
+  const planQuarterText = cellText(cells, 'O');
+  const planQuarterEmpty = planQuarterText === '' || isAbsentCell(planQuarterText);
+  const factQuarterText = cellText(cells, 'R');
+  const factYearText = cellText(cells, 'S');
+  const planDerivedPresent = !planQuarterEmpty || !planYearEmpty;
+  const planPairBroken = (planDay !== null && (planQuarterEmpty || planYearEmpty))
+    || (planDateAbsent && planDerivedPresent);
+  const factDerivedPresent = (factQuarterText !== '' && !isAbsentCell(factQuarterText))
+    || (factYearText !== '' && !isAbsentCell(factYearText));
+  const factPairBroken = (factDay !== null && (factQuarterText === '' || factYearText === ''))
+    || (factDay === null && factDerivedPresent);
+  const derivedFormulaBroken = (methodText !== '' && !isNaN(planTotal) && planTotal > 0)
+    && (planPairBroken || factPairBroken);
 
   // Факт без планового квартала (блок А п.2): дата факта проставлена, а O
   // пуст/невалиден — строка выпадает из печатного года (Σ кварталов).
@@ -647,6 +682,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factWithoutDate,
     tdWithProgram,
     planYearMissing,
+    derivedFormulaBroken,
     factQuarterMissing,
     dateWithoutFact,
     factDateBeforePlan,
@@ -780,6 +816,9 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
     // Канон имени класса — п.23 интервью 14.08.2026: «не обеспечено
     // финансированием» (прежний лейбл «Без финансирования» снят).
     badges.push({ label: 'Не обеспечено финансированием', color: 'yellow', icon: 'calendar-x' });
+  }
+  if (signals.derivedFormulaBroken) {
+    badges.push({ label: 'Сломана формула даты', color: 'red', icon: 'calendar-x' });
   }
   if (signals.factQuarterMissing) {
     badges.push({ label: 'Факт без квартала', color: 'yellow', icon: 'calendar-x' });

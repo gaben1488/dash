@@ -85,6 +85,9 @@ export const SIGNAL_SEVERITY: Readonly<Record<string, SignalSeverity>> = {
   // Структурные классы волны 0 (P пуст / квартал O пуст при факте).
   planYearMissing: 'warning',
   factQuarterMissing: 'warning',
+  // Канон п.98а: дата рукописная есть, формульная производная молчит —
+  // поломка листа, чинится восстановлением формулы, не вводом данных.
+  derivedFormulaBroken: 'critical',
 };
 
 /** Тяжесть незнакомого признака: серый пробел, а не тишина. */
