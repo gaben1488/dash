@@ -130,6 +130,15 @@ export function validateData(
           sheet: row.sheet,
           cell: result.cell,
           row: row.rowIndex,
+          // «№ п/п» (колонка A) — стабильный второй адрес: строки листа
+          // двигаются, позиционный row на момент сборки устаревает (п.98б).
+          rowSeq: String(row.cells['A'] ?? '').trim() || undefined,
+          // П.98в: rule-замечание обязано нести управление — без departmentId
+          // клиентский фильтр ГРБС пропускал его сквозь любой выбор (при
+          // фильтре УКСиМП были видны строки УД). Классификация листа его
+          // знает (classifySheet → latinId, та же форма, что у сигналов);
+          // листы вне ГРБС (СВОД, «ВСЕ», разметка) честно остаются без него.
+          departmentId: sheetClass.latinId,
           recommendation: check?.recommendation ?? rule.description,
           activityType: deriveActivityType(row.cells),
           subordinateId: subordinateKey(row.cells['C']),

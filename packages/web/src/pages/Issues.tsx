@@ -28,6 +28,8 @@ interface DisplayIssue {
   /** Ключ управления; пустая строка = управление у замечания не проставлено. */
   dept: string;
   row?: number;
+  /** «№ п/п» из колонки A — стабильный второй адрес: строки листа двигаются (п.98б). */
+  rowSeq?: string;
   cell?: string;
   /** Ключ сигнала/проверки — для группировки по механизму (канон п.53). */
   signal?: string;
@@ -319,6 +321,7 @@ export function IssuesPage() {
       description: iss.description,
       dept: iss.departmentId || iss.sheet || '',
       row: iss.row,
+      rowSeq: iss.rowSeq,
       cell: iss.cell,
       signal: iss.signal,
       checkId: iss.checkId,
@@ -397,7 +400,7 @@ export function IssuesPage() {
       const s = v == null ? '' : String(v);
       return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const headers = ['Управление', 'Серьёзность', 'Заголовок', 'Описание', 'Рекомендация', 'Статус', 'Строка', 'Ячейка', 'Найдено при проверке'];
+    const headers = ['Управление', 'Серьёзность', 'Заголовок', 'Описание', 'Рекомендация', 'Статус', 'Строка', '№ п/п', 'Ячейка', 'Найдено при проверке'];
     const rows = filtered.map(i => [
       esc(deptLabel(i.dept)),
       esc(SEV_CONFIG[i.severity]?.label ?? i.severity),
@@ -406,6 +409,7 @@ export function IssuesPage() {
       esc(i.recommendation ?? ''),
       esc(STATUS_CONFIG[i.status]?.label ?? issueStatusLabel(i.status)),
       esc(i.row ?? ''),
+      esc(i.rowSeq ?? ''),
       esc(i.cell ?? ''),
       esc(formatEventTime(i.detectedAt)),
     ].join(';'));
@@ -718,6 +722,13 @@ export function IssuesPage() {
                         <div className="flex flex-wrap gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
                           {iss.cell && <span>Ячейка: <strong className="text-zinc-700 dark:text-zinc-200 font-mono">{deptLabel(iss.dept)}!{iss.cell}</strong></span>}
                           {iss.row && <span>Строка книги: <strong className="text-zinc-700 dark:text-zinc-200">{iss.row}</strong></span>}
+                          {/* Двойной адрес (п.98б): номер строки листа — позиция на момент
+                              проверки, лист живёт; № п/п из колонки A находит строку и после сдвига. */}
+                          {iss.rowSeq && (
+                            <span title="Стабильный номер из колонки A («№ п/п»): строки листа двигаются, № п/п остаётся.">
+                              № п/п: <strong className="text-zinc-700 dark:text-zinc-200">{iss.rowSeq}</strong>
+                            </span>
+                          )}
                           {iss.detectedAt && (
                             <span title="Время прогона проверок, а не момент появления проблемы в книге: когда проблема возникла, система не знает.">
                               Найдено при проверке: <strong className="text-zinc-700 dark:text-zinc-200">{formatEventTime(iss.detectedAt)}</strong>

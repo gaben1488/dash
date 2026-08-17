@@ -86,6 +86,17 @@ describe('groupIssuesByMechanism', () => {
     expect(groupIssuesByMechanism([retired, overdueA])).toHaveLength(1);
   });
 
+  it('«№ п/п» из замечания проносится в адрес карточки (двойной адрес, п.98б)', () => {
+    // Строки листа двигаются («Опрессовка»: была 534 → стала 155), поэтому
+    // рядом с позиционным номером адрес несёт стабильный № п/п из колонки A.
+    const withSeq = { ...overdueA, row: 155, rowSeq: '531' };
+    const [group] = groupIssuesByMechanism([withSeq, overdueB]);
+    expect(group.addresses[0].row).toBe(155);
+    expect(group.addresses[0].rowSeq).toBe('531');
+    // Замечание без rowSeq (старый снимок из SQL) — поле честно отсутствует.
+    expect(group.addresses[1].rowSeq).toBeUndefined();
+  });
+
   it('предмет закупки уходит в адрес, а не в заголовок; служебный хвост правил отбрасывается', () => {
     const rule = {
       severity: 'significant',

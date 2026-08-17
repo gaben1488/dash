@@ -734,6 +734,9 @@ function detectSignalsToIssues(
         description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}`,
         sheet: sheetName,
         row: r + 1,
+        // «№ п/п» (колонка A) — стабильный второй адрес: строки листа
+        // двигаются, позиционный row на момент сборки устаревает (п.98б).
+        rowSeq: String(cells['A'] ?? '').trim() || undefined,
         departmentId: deptId,
         subordinateId,
         recommendation: meta.recommendation,

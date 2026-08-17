@@ -279,6 +279,7 @@ export function Dashboard() {
       sheet: iss.sheet,
       cell: iss.cell,
       row: iss.row,
+      rowSeq: iss.rowSeq,
       department: iss.department ?? iss.deptId,
       departmentId: iss.departmentId,
     })),

@@ -113,6 +113,10 @@ function DiagnosticCard({ group }: { group: MechanismGroup }) {
             <li key={a.issueId ?? `${a.sheet}-${a.row}-${i}`} className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
               <span className="font-medium text-zinc-700 dark:text-zinc-200">{deptText(a.dept || a.sheet || '')}</span>
               {a.row != null && <>, строка <span className="tabular-nums font-medium">{a.row}</span></>}
+              {/* Двойной адрес (п.98б): строки листа двигаются, позиционный
+                  номер устаревает — «№ п/п» из колонки A находит строку
+                  и после сдвига. */}
+              {a.rowSeq && <> · № п/п <span className="tabular-nums font-medium">{a.rowSeq}</span></>}
               {a.cell && <>, ячейка <span className="font-mono text-[11px]">{a.cell}</span></>}
               {a.subject && <span className="text-zinc-500 dark:text-zinc-400"> — {a.subject}</span>}
             </li>

@@ -8,6 +8,7 @@
  * депт-ключей (selectedDeptBothForms) умирает при канонизации DepartmentId
  * в FilterContext; до резки — обе формы (Б5).
  */
+import { classifySheet } from '@aemr/shared';
 import { isRetiredIssue } from '../diagnostics/mechanism-groups';
 
 export function filterIssues(allIssues: any[], opts: {
@@ -34,8 +35,18 @@ export function filterIssues(allIssues: any[], opts: {
   // несут разные формы, сравнение по одной форме молча пропускало фильтр (Б5).
   let issues = hasDeptFilter
     ? allIssues.filter((i: any) => {
-        if (!i.departmentId) return true;
-        return selectedDeptBothForms.has(i.departmentId) || selectedDeptBothForms.has(i.department);
+        if (i.departmentId) {
+          return selectedDeptBothForms.has(i.departmentId) || selectedDeptBothForms.has(i.department);
+        }
+        // П.98в: старые снимки хранят rule-замечания без departmentId, но с
+        // именем листа. Лист-ГРБС резолвится каноном (classifySheet) и
+        // фильтруется по обеим формам ключа — иначе при фильтре УКСиМП на
+        // экран шли строки УД и всех подряд. Сквозной пропуск остаётся
+        // только для листов вне ГРБС (СВОД, «ВСЕ», разметка).
+        const cls = classifySheet(String(i.sheet ?? ''));
+        if (cls.kind !== 'department') return true;
+        return (cls.grbsId !== undefined && selectedDeptBothForms.has(cls.grbsId))
+          || (cls.latinId !== undefined && selectedDeptBothForms.has(cls.latinId));
       })
     : allIssues;
 

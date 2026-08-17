@@ -37,6 +37,8 @@ export interface DiagnosticIssueLike {
   sheet?: string;
   cell?: string;
   row?: number;
+  /** «№ п/п» из колонки A на момент проверки — стабильный второй адрес (п.98б). */
+  rowSeq?: string;
   department?: string;
   departmentId?: string;
 }
@@ -47,6 +49,8 @@ export interface DiagnosticAddress {
   dept: string;
   sheet?: string;
   row?: number;
+  /** «№ п/п» из колонки A: строки листа двигаются, № п/п — нет (п.98б). */
+  rowSeq?: string;
   cell?: string;
   /** Предмет закупки строки — контекст адреса, не заголовок. */
   subject?: string;
@@ -194,6 +198,7 @@ export function groupIssuesByMechanism(
       dept: issue.departmentId ?? issue.department ?? '',
       sheet: issue.sheet,
       row: issue.row,
+      rowSeq: issue.rowSeq,
       cell: issue.cell,
       subject: subjectOf(issue),
       issueId: issue.id,

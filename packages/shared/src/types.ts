@@ -218,6 +218,10 @@ export interface Issue {
   sheet?: string;
   cell?: string;
   row?: number;
+  /** «№ п/п» из колонки A на момент проверки. Позиционный row устаревает —
+   *  лист живёт, строки двигаются (п.98б: «Опрессовка» была в 534, стала 155);
+   *  № п/п — стабильный человекочитаемый второй адрес строки. */
+  rowSeq?: string;
   metricKey?: string;
   departmentId?: string;
   /** Subordinate org name from col C ("_org_itself" when col C is empty) */

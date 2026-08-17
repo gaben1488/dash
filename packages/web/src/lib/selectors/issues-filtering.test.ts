@@ -29,6 +29,23 @@ describe('filterIssues (извлечено из useFilteredData §4/§4b)', () =
     expect(out.map(i => i.title)).toEqual(['Просрочка контракта', 'Оргзамечание без привязки']);
   });
 
+  it('СТРАЖ п.98в: rule-замечание без departmentId, но с листом-ГРБС фильтруется по листу', () => {
+    // Старые снимки из SQL: rule-замечания несут только sheet. Лист «УД» —
+    // чужое управление, при фильтре «УКСиМП» оно проходить не должно;
+    // лист СВОД — вне ГРБС, сквозной пропуск сохраняется.
+    const ruleIssues = [
+      { title: 'Правило на УД', sheet: 'УД' },
+      { title: 'Правило на УКСиМП', sheet: 'УКСиМП' },
+      { title: 'Правило на СВОД', sheet: 'СВОД ТД-ПМ' },
+    ];
+    const out = filterIssues(ruleIssues, {
+      ...noFilters,
+      hasDeptFilter: true,
+      selectedDeptBothForms: new Set(['УКСиМП', 'uksimp']),
+    });
+    expect(out.map(i => i.title)).toEqual(['Правило на УКСиМП', 'Правило на СВОД']);
+  });
+
   it('подвед: issue без subordinateId проходит (орг-уровень), чужой подвед — нет', () => {
     const out = filterIssues(issues, { ...noFilters, selectedSubordinates: new Set(['Сад №2']) });
     expect(out.map(i => i.title)).toEqual(['Расхождение сверки', 'Оргзамечание без привязки']);

@@ -400,7 +400,7 @@ export const api = {
       total: number;
       byKind: Record<string, number>;
       annotations: Array<{
-        dept: string; sheetRow: number; rowKey: string; column: string; cell: string;
+        dept: string; sheetRow: number; rowSeq?: string; rowKey: string; column: string; cell: string;
         kind: string; excerpt: string; mechanism: string; action: string;
       }>;
     }>('/annotations/comments'),

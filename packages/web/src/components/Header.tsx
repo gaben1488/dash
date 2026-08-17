@@ -266,7 +266,15 @@ function useAutoRefresh() {
         }
       }, 60_000);
     };
-    const onVis = () => { if (!document.hidden) start(); else { clearInterval(rt); clearInterval(ct); } };
+    const onVis = () => {
+      if (!document.hidden) {
+        // П.98б: на скрытой вкладке автообновление гасится — вернувшийся
+        // пользователь смотрел бы на данные возрастом до минуты (плюс TTL
+        // снимка). Обновляемся сразу, не дожидаясь следующего тика.
+        if (!useStore.getState().loading) useStore.getState().quickRefresh();
+        start();
+      } else { clearInterval(rt); clearInterval(ct); }
+    };
     start();
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(rt); clearInterval(ct); document.removeEventListener('visibilitychange', onVis); };

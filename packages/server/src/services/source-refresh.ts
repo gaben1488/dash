@@ -11,7 +11,7 @@
 
 import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { fetchDepartmentSpreadsheets, getSheetData } from './google-sheets.js';
-import { setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from './snapshot.js';
+import { setDeptSheetCache, setDeptLoadMeta, setSvodGridCache, invalidateCache } from './snapshot.js';
 import { SVOD_SHEET_NAME } from '@aemr/shared';
 
 export interface SourceRefreshResult {
@@ -56,6 +56,12 @@ export function refreshAllSources(log?: {
       loadMeta[name] = { loadedAt: at, rowCount: 0, sheetName: name, error: errMsg };
     }
     setDeptLoadMeta(loadMeta);
+
+    // П.98б («внесла данные, из красного не ушло»): свежие книги обязаны сразу
+    // попасть в снимок — без сброса кэш снимка (TTL 300 с) держал старые
+    // замечания до 5 минут после вебхука. Пересборка дедуплицирована
+    // inFlightLoads, шторма пересчётов сброс не создаёт.
+    invalidateCache();
 
     return { loaded: Object.keys(data), failed: Object.keys(errors), svodOk, at };
   })().finally(() => {

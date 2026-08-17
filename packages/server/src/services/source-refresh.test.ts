@@ -14,6 +14,7 @@ const getSheetData = vi.fn();
 const setDeptSheetCache = vi.fn();
 const setDeptLoadMeta = vi.fn();
 const setSvodGridCache = vi.fn();
+const invalidateCache = vi.fn();
 
 vi.mock('./google-sheets.js', () => ({
   fetchDepartmentSpreadsheets: (...a: unknown[]) => fetchDepartmentSpreadsheets(...a),
@@ -24,6 +25,7 @@ vi.mock('./snapshot.js', () => ({
   setDeptSheetCache: (...a: unknown[]) => setDeptSheetCache(...a),
   setDeptLoadMeta: (...a: unknown[]) => setDeptLoadMeta(...a),
   setSvodGridCache: (...a: unknown[]) => setSvodGridCache(...a),
+  invalidateCache: (...a: unknown[]) => invalidateCache(...a),
 }));
 
 const log = { info: vi.fn(), warn: vi.fn() };
@@ -56,6 +58,15 @@ describe('перечитка источников одним циклом', () =
     expect(setSvodGridCache).toHaveBeenCalledTimes(1);
     expect(r.loaded).toEqual(['УКСиМП', 'УО']);
     expect(r.svodOk).toBe(true);
+  });
+
+  it('СТРАЖ п.98б: после перечитки кэш снимка сброшен — замечания не живут старыми до 5 минут', async () => {
+    // Прецедент 18.08: refreshAllSources обновлял кэш книг, но снимок с TTL 300 с
+    // не инвалидировал — «внесла данные, из красного не ушло».
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log);
+
+    expect(invalidateCache).toHaveBeenCalledTimes(1);
   });
 
   it('параллельные вызовы разделяют один цикл, а не читают книги дважды', async () => {

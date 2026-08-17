@@ -98,6 +98,7 @@ function toDiagnosticIssue(a: AnnotationsResponse['annotations'][number]): Diagn
     sheet: a.dept,
     cell: a.cell,
     row: a.sheetRow,
+    rowSeq: a.rowSeq,
     departmentId: a.dept,
   };
 }

@@ -30,6 +30,9 @@ export interface CommentAnnotationDto extends CommentAnnotation {
   dept: string;
   /** Номер строки ЛИСТА (канон нумерации п.28 — не номер выборки). */
   sheetRow: number;
+  /** «№ п/п» из колонки A — стабильный второй адрес: строки листа двигаются,
+   *  позиционный sheetRow на момент чтения устаревает (п.98б). */
+  rowSeq?: string;
 }
 
 export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<void> {
@@ -68,8 +71,10 @@ export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<vo
           buildCellDict(row),
           asOfDate,
         );
+        // «№ п/п» (сырьё колонки A) — стабильный второй адрес строки (п.98б).
+        const rowSeq = String(dto.id ?? '').trim() || undefined;
         for (const a of found) {
-          annotations.push({ ...a, dept: dept.id, sheetRow: dto.rowIndex });
+          annotations.push({ ...a, dept: dept.id, sheetRow: dto.rowIndex, rowSeq });
         }
       });
     }
