@@ -17,6 +17,7 @@ import { useStore } from '../../store';
 import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
+import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import { CompetitionCard, FOCUS_RING } from './primitives';
 
 interface MemberDTO {
@@ -108,6 +109,7 @@ export function MergeCandidates() {
       subtitle="Одну и ту же категорию закупают несколько управлений по отдельности — включая закупки у единственного поставщика: это первые кандидаты на один общий конкурс (ст. 25 44-ФЗ). Экономию числом продукт не обещает — методики оценки эффекта объединения нет."
       icon={Layers}
       caveats={caveats}
+      kb={GROUP3_KB_ADDITIONS.merge_candidates}
     >
       {loading ? (
         <div className="flex items-center gap-2 py-8 justify-center text-xs text-zinc-500 dark:text-zinc-400">

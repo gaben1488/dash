@@ -45,6 +45,12 @@ describe('selectDatasetAudit', () => {
     expect(r.benfordMad).toBeCloseTo(0.0116);
     expect(r.benfordSampleSize).toBe(4465);
     expect(r.outlierCount).toBe(39);
+    // Образовательная развёртка (п.88/24): распределения и параметры z-оценки
+    expect(r.benfordObserved).toHaveLength(9);
+    expect(r.benfordExpected).toHaveLength(9);
+    expect(r.outlierMean).toBeCloseTo(541.9);
+    expect(r.outlierStdDev).toBeCloseTo(2837.9);
+    expect(r.outlierThreshold).toBe(3);
     expect(r.epRiskLevel).toBe('КРИТИЧЕСКИЙ');
     expect(r.epSharePct).toBeCloseTo(86.94, 1);
     expect(r.seasonalCount).toBe(23);
@@ -60,6 +66,8 @@ describe('selectDatasetAudit', () => {
     expect(r.compositeGrade).toBeNull();
     expect(r.benfordConformity).toBeNull();
     expect(r.benfordMad).toBeNull();
+    expect(r.benfordObserved).toBeNull();
+    expect(r.benfordExpected).toBeNull();
     expect(r.epRiskLevel).toBeNull();
     expect(r.epSharePct).toBeNull();
     expect(r.outlierCount).toBe(3);

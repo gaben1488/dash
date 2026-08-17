@@ -130,7 +130,7 @@ export function EconomyCharts({
       {/* ── Бар-чарт по бюджетам (3/5) ── */}
       <Card className="lg:col-span-3" accent="emerald">
         <SectionHead
-          icon={<BarChart3 size={13} className="text-emerald-400" />}
+          icon={<BarChart3 size={13} className="text-emerald-600 dark:text-emerald-400" />}
           title={barTitle}
           hint={barHint}
           right={
@@ -141,7 +141,7 @@ export function EconomyCharts({
                   {BT[k].label}
                 </span>
               ))}
-              <span className="text-[8px] text-zinc-700">клик — фильтр</span>
+              <span className="text-[8px] text-zinc-400 dark:text-zinc-700">клик — фильтр</span>
             </div>
           }
         />
@@ -156,7 +156,7 @@ export function EconomyCharts({
               }}
               className="cursor-pointer"
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
               <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#71717a' }} axisLine={false} tickLine={false} interval={0} angle={-30} textAnchor="end" height={35} />
               <YAxis yAxisId="left" tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} tickFormatter={formatAxisMoney} width={56} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} tickFormatter={formatAxisPct} width={38} />
@@ -176,7 +176,7 @@ export function EconomyCharts({
       {/* ── Квартальный тренд (2/5) ── */}
       <Card className="lg:col-span-2" accent="blue">
         <SectionHead
-          icon={<TrendingUp size={13} className="text-blue-400" />}
+          icon={<TrendingUp size={13} className="text-blue-600 dark:text-blue-400" />}
           title={trendTitle}
           hint={overlayNote}
           right={
@@ -188,7 +188,9 @@ export function EconomyCharts({
               className={clsx(
                 'text-[9px] font-semibold px-2 py-0.5 rounded-md transition-all shrink-0',
                 FOCUS_RING,
-                showBudgetBreakdown ? 'bg-emerald-500/10 text-emerald-400' : 'text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.04]',
+                showBudgetBreakdown
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : 'text-zinc-500 dark:text-zinc-600 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.04]',
               )}
             >
               ФБ/КБ/МБ
@@ -198,7 +200,7 @@ export function EconomyCharts({
         <div className="p-3 h-48">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#71717a' }} axisLine={false} tickLine={false} />
               <YAxis yAxisId="left" tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} tickFormatter={formatAxisMoney} width={56} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} tickFormatter={formatAxisPct} width={38} />

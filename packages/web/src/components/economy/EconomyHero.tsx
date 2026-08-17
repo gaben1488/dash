@@ -62,7 +62,7 @@ export function EconomyHero({
       title: 'Утверждённая экономия по выбранным управлениям',
       delta: deltas.economy !== 0 ? formatMoney(Math.abs(deltas.economy)) : null,
       deltaUp: deltas.economy > 0,
-      color: 'text-emerald-400',
+      color: 'text-emerald-600 dark:text-emerald-400',
       metric: 'total_economy',
       status: totals.economy < 0 ? 'border-red-500/40' : '',
       spark: economySpark,
@@ -75,7 +75,7 @@ export function EconomyHero({
       title: 'Экономия района ÷ сумма лимитов района',
       delta: deltas.pct !== null && deltas.pct !== 0 ? formatPct(Math.abs(deltas.pct)) : null,
       deltaUp: (deltas.pct ?? 0) > 0,
-      color: shareIsHigh ? 'text-red-400' : 'text-blue-400',
+      color: shareIsHigh ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400',
       metric: 'economy_rate',
       status: shareIsHigh ? 'border-red-500/40' : '',
       spark: pctSpark,
@@ -90,7 +90,7 @@ export function EconomyHero({
       title: 'Управления, где экономия превысила четверть лимита',
       delta: null,
       deltaUp: false,
-      color: totals.highCount > 0 ? 'text-red-400' : 'text-emerald-400',
+      color: totals.highCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400',
       metric: null,
       status: totals.highCount > 0 ? 'border-red-500/40' : '',
       spark: null,
@@ -105,7 +105,7 @@ export function EconomyHero({
       title: 'Строки, где финансовый орган и управление разошлись в признании экономии',
       delta: null,
       deltaUp: false,
-      color: totals.conflicts > 0 ? 'text-amber-400' : 'text-emerald-400',
+      color: totals.conflicts > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
       metric: 'economy_conflicts',
       status: totals.conflicts > 3 ? 'border-red-500/40' : totals.conflicts > 0 ? 'border-amber-500/40' : '',
       spark: null,
@@ -113,9 +113,9 @@ export function EconomyHero({
   ];
 
   const budgetLegend = [
-    { token: BT.fb, val: totals.fbEco, color: 'text-blue-400' },
-    { token: BT.kb, val: totals.kbEco, color: 'text-emerald-400' },
-    { token: BT.mb, val: totals.mbEco, color: 'text-amber-400' },
+    { token: BT.fb, val: totals.fbEco, color: 'text-blue-600 dark:text-blue-400' },
+    { token: BT.kb, val: totals.kbEco, color: 'text-emerald-600 dark:text-emerald-400' },
+    { token: BT.mb, val: totals.mbEco, color: 'text-amber-600 dark:text-amber-400' },
   ];
 
   // Четвёрка лидеров считается по экономии всегда — даже когда таблица
@@ -140,7 +140,7 @@ export function EconomyHero({
                     <span
                       className={clsx(
                         'inline-flex items-center gap-px text-[7px] font-bold tabular-nums whitespace-nowrap',
-                        m.deltaUp ? 'text-emerald-400' : 'text-red-400',
+                        m.deltaUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
                       )}
                       title={`${deltas.label}: ${m.deltaUp ? 'рост' : 'снижение'} на ${m.delta}`}
                     >
@@ -152,7 +152,7 @@ export function EconomyHero({
                 </div>
                 <div className="flex items-center gap-1 mt-0.5">
                   {m.spark && <MiniSpark data={m.spark} w={40} h={10} color={m.color.includes('red') ? '#ef4444' : '#10b981'} />}
-                  <span className="text-[8px] text-zinc-600 truncate" title={m.sub}>{m.sub}</span>
+                  <span className="text-[8px] text-zinc-500 dark:text-zinc-600 truncate" title={m.sub}>{m.sub}</span>
                 </div>
               </div>
             );
@@ -166,8 +166,8 @@ export function EconomyHero({
                 className={clsx(
                   'relative px-3 py-2 text-left transition-all group/metric',
                   FOCUS_RING,
-                  active ? 'bg-white/[0.04]' : 'hover:bg-white/[0.02]',
-                  i > 0 && 'border-l border-white/[0.04]',
+                  active ? 'bg-zinc-100 dark:bg-white/[0.04]' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.02]',
+                  i > 0 && 'border-l border-zinc-200/70 dark:border-white/[0.04]',
                   m.status,
                 )}
               >
@@ -211,7 +211,7 @@ export function EconomyHero({
                 <span className={clsx('w-1 h-1 rounded-full shrink-0', b.token.dot)} aria-hidden="true" />
                 <span className="text-[8px] text-zinc-500 w-4" title={b.token.full}>{b.token.label}</span>
                 <span className={clsx('text-[9px] font-bold tabular-nums', b.color)}>{formatMoney(b.val)}</span>
-                <span className="text-[8px] text-zinc-600 ml-auto">
+                <span className="text-[8px] text-zinc-500 dark:text-zinc-600 ml-auto">
                   {totals.economy > 0 ? formatPct((b.val / totals.economy) * 100, 0) : ''}
                 </span>
               </div>
@@ -231,13 +231,13 @@ export function EconomyHero({
               onClick={() => onToggleDepartment(d.deptId)}
               title={`Оставить в фильтре только ${d.dept}`}
               className={clsx(
-                'w-full flex items-center gap-1.5 py-0.5 hover:bg-white/[0.03] rounded transition-colors group/rank',
+                'w-full flex items-center gap-1.5 py-0.5 hover:bg-zinc-100/70 dark:hover:bg-white/[0.03] rounded transition-colors group/rank',
                 FOCUS_RING,
               )}
             >
-              <span className="text-[9px] font-bold text-zinc-600 w-3" aria-hidden="true">{i + 1}</span>
-              <span className="text-[10px] text-zinc-400 group-hover/rank:text-blue-400 transition-colors truncate flex-1 text-left">{d.dept}</span>
-              <span className="text-[10px] font-bold tabular-nums text-emerald-400">{formatMoney(d.economy)}</span>
+              <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-600 w-3" aria-hidden="true">{i + 1}</span>
+              <span className="text-[10px] text-zinc-600 dark:text-zinc-400 group-hover/rank:text-blue-600 dark:group-hover/rank:text-blue-400 transition-colors truncate flex-1 text-left">{d.dept}</span>
+              <span className="text-[10px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(d.economy)}</span>
             </button>
           ))}
         </div>

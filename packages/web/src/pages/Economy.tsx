@@ -28,6 +28,7 @@ import { buildEconomyCsv, economyCsvFilename } from '../lib/economy/csv';
 import { formatPct } from '../lib/economy/format';
 import type { SortDir, SortField } from '../lib/economy/types';
 import { Card, FOCUS_RING } from '../components/economy/primitives';
+import { PeriodBadge } from '../components/PeriodBadge';
 import { EconomyHero } from '../components/economy/EconomyHero';
 import type { HeroMetric } from '../components/economy/EconomyHero';
 import { EconomyCharts } from '../components/economy/EconomyCharts';
@@ -72,9 +73,9 @@ function EconomyNotice({ icon, title, body, detail, tone = 'neutral' }: {
         )}>
           {icon}
         </div>
-        <p className="text-sm font-medium text-zinc-300">{title}</p>
+        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{title}</p>
         <p className="text-[11px] text-zinc-500 leading-relaxed">{body}</p>
-        {detail && <p className="text-[10px] text-zinc-600 leading-relaxed">({detail})</p>}
+        {detail && <p className="text-[10px] text-zinc-500 dark:text-zinc-600 leading-relaxed">({detail})</p>}
       </div>
     </div>
   );
@@ -230,6 +231,21 @@ export function EconomyPage() {
 
   return (
     <div className="space-y-2.5">
+      {/* ── Шапка страницы: заголовок + собственная подпись периода данных
+            (канон п.58а: каждая карточка объявляет периметр; здесь — общий
+            для баннера и hero-полосы, у блоков с иным периметром — своя
+            оговорка на месте). ── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">Экономия</h1>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-2xl mt-0.5">
+            Утверждённая экономия торгов: где она возникла, из каких бюджетов и
+            у каких управлений. Разница «план минус факт» экономией не считается.
+          </p>
+        </div>
+        <PeriodBadge />
+      </div>
+
       {error && (
         <div
           role="alert"
@@ -268,6 +284,14 @@ export function EconomyPage() {
         onToggleDepartment={toggleDepartment}
       />
 
+      {/* Подпись методики — у чисел hero-полосы и баннера (директива группы:
+          методика называется рядом с каждой цифрой, не в глубине БЗ). */}
+      <p className="px-1 text-[10px] text-zinc-500 leading-relaxed">
+        Методика: экономия — только утверждённая финансовым органом по строкам
+        книг управлений; «план минус факт» экономией не считается. Доля — экономия,
+        делённая на лимит того же периметра. Подробности — при наведении на каждую цифру.
+      </p>
+
       {/* ═══ Сводка одним предложением ═══ */}
       <div className="flex items-center gap-2 px-1 animate-[fadeIn_500ms_ease-out_200ms_both]">
         <Activity size={10} className="text-emerald-500/60 shrink-0" aria-hidden="true" />
@@ -285,6 +309,16 @@ export function EconomyPage() {
         </p>
       </div>
 
+      {/* Квартальный график живёт своим периметром — весь год по кварталам.
+          При суженном периоде шапки об этом сказано вслух (канон п.58б/г):
+          унаследованный бейдж здесь был бы ложью. */}
+      {periodKey !== 'year' && (
+        <p className="px-1 text-[10px] text-amber-700 dark:text-amber-400 leading-relaxed">
+          Графики ниже показывают все кварталы года — выбор периода в шапке их не
+          сужает. Итоги выше посчитаны за выбранный период.
+        </p>
+      )}
+
       <EconomyCharts
         barChartData={barChartData}
         trendData={trendData}
@@ -296,18 +330,38 @@ export function EconomyPage() {
         onBarClick={toggleDepartment}
       />
 
+      {/* ── Шов с «Конкуренцией» (канон п.91-8): цена отказа от конкурса —
+            родня динамики экономии, определения на обеих вкладках общие
+            (среднее снижение считается по тем же состоявшимся торгам). ── */}
+      <div className="flex items-center gap-2 px-1">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Сколько экономии теряется на закупках без торгов — оценка «цена отказа
+          от конкурса» по этой же статистике торгов:
+        </p>
+        <button
+          type="button"
+          onClick={() => navigateTo('competition')}
+          className={clsx(
+            'inline-flex items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap',
+            FOCUS_RING,
+          )}
+        >
+          открыть «Конкуренцию»
+        </button>
+      </div>
+
       {/* ═══ Таблица экономии — герой страницы ═══ */}
       <Card accent="blue">
-        <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.04]">
+        <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-zinc-200/70 dark:border-white/[0.04]">
           <div className="flex items-center gap-3 min-w-0">
             {/* Заголовок-утверждение: говорит, что показывает таблица, а не как называется */}
-            <h2 className="text-xs font-bold text-zinc-200 tracking-tight truncate">
+            <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 tracking-tight truncate">
               {totals.share !== null
                 ? `Управления сэкономили ${formatPct(totals.share)} своих лимитов`
                 : 'Экономия по управлениям (лимиты не заданы)'}
             </h2>
 
-            <div className="flex items-center bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.04] shrink-0">
+            <div className="flex items-center bg-zinc-100 dark:bg-white/[0.04] rounded-lg p-0.5 border border-zinc-200/70 dark:border-white/[0.04] shrink-0">
               {([
                 { key: 'departments' as const, icon: Building2, label: `Управления (${deptEconomy.length})` },
                 { key: 'subordinates' as const, icon: Layers, label: `Подведомственные (${totals.subCount})` },
@@ -321,8 +375,8 @@ export function EconomyPage() {
                     'flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded-md transition-all uppercase tracking-wider whitespace-nowrap',
                     FOCUS_RING,
                     tableView === v.key
-                      ? 'bg-white/[0.08] text-zinc-200 shadow-sm'
-                      : 'text-zinc-600 hover:text-zinc-400',
+                      ? 'bg-zinc-200/70 dark:bg-white/[0.08] text-zinc-800 dark:text-zinc-200 shadow-sm'
+                      : 'text-zinc-500 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400',
                   )}
                 >
                   <v.icon size={9} aria-hidden="true" />{v.label}
@@ -337,7 +391,7 @@ export function EconomyPage() {
             aria-label="Выгрузить таблицу экономии файлом для Excel"
             title="Скачать таблицу файлом для Excel (разделитель — точка с запятой)"
             className={clsx(
-              'flex items-center gap-1 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-300 rounded-lg hover:bg-white/[0.04] transition-all border border-white/[0.04] shrink-0',
+              'flex items-center gap-1 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 rounded-lg hover:bg-zinc-100 dark:hover:bg-white/[0.04] transition-all border border-zinc-200/70 dark:border-white/[0.04] shrink-0',
               FOCUS_RING,
             )}
           >

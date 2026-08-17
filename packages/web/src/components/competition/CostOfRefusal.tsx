@@ -19,6 +19,7 @@ import { useStore } from '../../store';
 import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
+import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import { CompetitionCard, FOCUS_RING, fmtPct } from './primitives';
 
 interface ScatterPoint {
@@ -57,6 +58,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
 }) {
   const formatMoney = useStore((s) => s.formatMoney);
   const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const navigateTo = useStore((s) => s.navigateTo);
   const fd = useFilteredData();
 
   const [resp, setResp] = useState<ScatterResponse | null>(null);
@@ -163,6 +165,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
       subtitle="На состоявшихся торгах цена падает от НМЦК; у закупки у единственного поставщика снижение — ноль. Цена отказа — сколько снижения теряет объём ЕП при среднем проценте собственных торгов."
       icon={Scale}
       caveats={caveats}
+      kb={GROUP3_KB_ADDITIONS.refusal_cost}
     >
       {loading ? (
         <div className="flex items-center gap-2 py-8 justify-center text-xs text-zinc-500 dark:text-zinc-400">
@@ -237,19 +240,34 @@ export function CostOfRefusal({ epPlan, epHasData }: {
             от предмета и рынка.
           </p>
 
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            aria-controls={detailId}
-            className={clsx(
-              'mt-3 flex items-center gap-1.5 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-100 rounded-md px-1.5 py-1 -mx-1.5 transition-colors',
-              FOCUS_RING,
-            )}
-          >
-            {open ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
-            {open ? 'Скрыть строки расчёта' : `Показать строки расчёта (${rows.length})`}
-          </button>
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-controls={detailId}
+              className={clsx(
+                'flex items-center gap-1.5 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-100 rounded-md px-1.5 py-1 -mx-1.5 transition-colors',
+                FOCUS_RING,
+              )}
+            >
+              {open ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+              {open ? 'Скрыть строки расчёта' : `Показать строки расчёта (${rows.length})`}
+            </button>
+            {/* Шов с «Экономией» (п.91-8): цена отказа и фактическая экономия
+                торгов — родня, считаются по одним состоявшимся процедурам. */}
+            <button
+              type="button"
+              onClick={() => navigateTo('economy')}
+              title="Фактическая утверждённая экономия торгов и её динамика по кварталам — на вкладке «Экономия»"
+              className={clsx(
+                'text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline rounded-md px-1.5 py-1 -mx-1.5',
+                FOCUS_RING,
+              )}
+            >
+              Фактическая экономия и динамика — на вкладке «Экономия»
+            </button>
+          </div>
 
           {open && (
             <div id={detailId} className="mt-2 overflow-x-auto">

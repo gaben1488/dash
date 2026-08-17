@@ -40,6 +40,9 @@ import { pluralRu } from '../lib/economy-copy';
 import { SkeletonCard, SkeletonTable, SkeletonStatusPanel } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 import { HelpButton } from '../lib/help/HelpButton';
+import { KBTooltip } from '../components/ui/kb-tooltip';
+import { kbCardProps } from './kb-additions';
+import { SYSTEM_KB_ADDITIONS } from './kb-additions-control';
 
 type SourceStatus = 'ok' | 'warning' | 'error' | 'unknown';
 
@@ -154,6 +157,30 @@ export function maskSecret(value: string): string {
 /** Короткий вид идентификатора книги: он длинный и в карточку не помещается. */
 function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 14)}…` : id;
+}
+
+/**
+ * Паспорт самообновления источников (директива «Система — паспорт данных»):
+ * рабочее окно опроса, интервал самообновления, статус канала уведомлений.
+ */
+export interface RefreshPassport {
+  workWindowLabel: string;
+  withinWorkWindow: boolean;
+  autoRefreshMinutes: number;
+  webhookConfigured: boolean;
+}
+
+/** Ответ /api/sources → паспорт; старый сервер без поля refresh даёт null, а не выдумку. */
+export function parseRefreshPassport(data: unknown): RefreshPassport | null {
+  const r = (data as { refresh?: unknown } | null)?.refresh;
+  if (!r || typeof r !== 'object') return null;
+  const o = r as Record<string, unknown>;
+  return {
+    workWindowLabel: typeof o.workWindowLabel === 'string' ? o.workWindowLabel : '8:45–18:20 по Камчатке',
+    withinWorkWindow: Boolean(o.withinWorkWindow),
+    autoRefreshMinutes: typeof o.autoRefreshMinutes === 'number' ? o.autoRefreshMinutes : 0,
+    webhookConfigured: Boolean(o.webhookConfigured),
+  };
 }
 
 /**
@@ -437,6 +464,8 @@ export function SettingsPage() {
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [sourcesLoadedOnce, setSourcesLoadedOnce] = useState(false);
+  /** Паспорт самообновления: окно опроса, интервал, канал уведомлений. */
+  const [refreshPassport, setRefreshPassport] = useState<RefreshPassport | null>(null);
 
   const [testResults, setTestResults] = useState<Record<string, { loading: boolean; result?: any }>>({});
   const [validationResults, setValidationResults] = useState<Record<string, { loading: boolean; result?: any }>>({});
@@ -503,6 +532,7 @@ export function SettingsPage() {
     try {
       const data = await api.getSources();
       setSources(parseSourcesResponse(data));
+      setRefreshPassport(parseRefreshPassport(data));
     } catch (err) {
       setSourcesError(humanizeRequestError(err));
     } finally {
@@ -577,6 +607,7 @@ export function SettingsPage() {
       const sourcesData = await api.getSources();
       const newSources = parseSourcesResponse(sourcesData);
       setSources(newSources);
+      setRefreshPassport(parseRefreshPassport(sourcesData));
       setSourcesError(null);
       setSourcesLoadedOnce(true);
 
@@ -1073,6 +1104,70 @@ SQLITE_PATH=./data/aemr.db
 
             {sources.length > 0 && (
               <>
+                {/* ── Паспорт данных (директива «Система»): возраст, окно опроса,
+                       канал уведомлений — в одном месте, а не по трём вкладкам ── */}
+                <section
+                  aria-label="Паспорт данных"
+                  className="mb-4 rounded-xl border border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/60 dark:bg-zinc-900/30 px-4 py-3"
+                >
+                  <h4 className="text-xs font-bold text-zinc-700 dark:text-zinc-200 mb-2">Паспорт данных</h4>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-[11px]">
+                    <div>
+                      <dt className="text-zinc-400 dark:text-zinc-500">
+                        <KBTooltip metric="system_source_age" {...kbCardProps(SYSTEM_KB_ADDITIONS.system_source_age)}>
+                          <span className="underline decoration-dotted cursor-help">Возраст данных</span>
+                        </KBTooltip>
+                      </dt>
+                      <dd className="text-zinc-700 dark:text-zinc-200 font-medium">
+                        {lastRefreshed
+                          ? `книги читались ${timeAgo(lastRefreshed)}`
+                          : 'в этой сессии книги ещё не читались'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-400 dark:text-zinc-500">
+                        <KBTooltip metric="system_poll_window" {...kbCardProps(SYSTEM_KB_ADDITIONS.system_poll_window)}>
+                          <span className="underline decoration-dotted cursor-help">Рабочее окно опроса</span>
+                        </KBTooltip>
+                      </dt>
+                      <dd className="text-zinc-700 dark:text-zinc-200 font-medium">
+                        {refreshPassport ? (
+                          <>
+                            {refreshPassport.workWindowLabel}
+                            {' · '}
+                            {refreshPassport.withinWorkWindow
+                              ? <span className="text-emerald-600 dark:text-emerald-400">сейчас в окне</span>
+                              : <span className="text-zinc-500 dark:text-zinc-400">сейчас вне окна — опрос ждёт утра</span>}
+                            {refreshPassport.autoRefreshMinutes > 0
+                              ? ` · самообновление каждые ${refreshPassport.autoRefreshMinutes} мин`
+                              : ' · самообновление выключено'}
+                          </>
+                        ) : (
+                          'сервер это поле не сообщил'
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-400 dark:text-zinc-500">
+                        <KBTooltip metric="system_webhook" {...kbCardProps(SYSTEM_KB_ADDITIONS.system_webhook)}>
+                          <span className="underline decoration-dotted cursor-help">Уведомления об изменениях книг</span>
+                        </KBTooltip>
+                      </dt>
+                      <dd className="font-medium">
+                        {refreshPassport === null ? (
+                          <span className="text-zinc-700 dark:text-zinc-200">сервер это поле не сообщил</span>
+                        ) : refreshPassport.webhookConfigured ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">настроены — работают круглосуточно</span>
+                        ) : (
+                          <span className="text-zinc-700 dark:text-zinc-200">
+                            не настроены — продукт живёт на опросе по расписанию (штатный запасной режим)
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+
                 <div className="flex flex-wrap items-center gap-4 mb-4 text-xs text-zinc-500 dark:text-zinc-400">
                   <span>Книг: <strong className="text-zinc-700 dark:text-zinc-200">{sources.length}</strong></span>
                   <span>Читаются: <strong className="text-emerald-600 dark:text-emerald-400">{okSources}</strong></span>

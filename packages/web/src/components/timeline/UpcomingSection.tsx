@@ -12,7 +12,7 @@
  * дочитывается из книги управления тем же путём, что в Реестре.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, CalendarClock, ChevronDown, ChevronRight, Loader2, RotateCcw } from 'lucide-react';
+import { Calendar, CalendarClock, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import { productLabel } from '@aemr/shared';
 import type { UpcomingRiskRow } from '@aemr/core';
@@ -24,6 +24,8 @@ import { collectAllPages } from '../../lib/rows/collect-pages';
 import { EmptyState } from '../EmptyState';
 import { SkeletonCard } from '../Skeleton';
 import { RowDetailCard, type RowDetailRow } from '../RowDetailCard';
+import { KBTooltip } from '../ui/kb-tooltip';
+import { GROUP3_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
 import { daysPhrase, formatDateRu } from './timeline-view';
 
 /** Окно «близких» — канонические 14 дней (п.75б, дефолт сервера). */
@@ -206,10 +208,13 @@ export function UpcomingSection() {
       {/* ── Шапка: заголовок + собственная подпись периметра (канон п.58а) ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-            <CalendarClock size={15} className="text-zinc-500 dark:text-zinc-400" aria-hidden="true" />
-            Близкие к плановой дате
-          </h2>
+          {/* Карточка БЗ секции (п.91-2): окно, периметр «от сегодня», действия. */}
+          <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.upcoming_window)} showIcon>
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+              <CalendarClock size={15} className="text-zinc-500 dark:text-zinc-400" aria-hidden="true" />
+              Близкие к плановой дате
+            </h2>
+          </KBTooltip>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 max-w-2xl">
             Незаключённые строки, чья плановая дата уже прошла или наступает в ближайшие{' '}
             {UPCOMING_DAYS} дней. Просроченные — сверху, по глубине просрочки.

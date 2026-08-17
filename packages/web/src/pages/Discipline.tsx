@@ -19,6 +19,8 @@ import { toCanonicalDeptId } from '../lib/dept-key';
 import { pluralRu } from '../lib/economy-copy';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
+import { KBTooltip } from '../components/ui/kb-tooltip';
+import { GROUP3_KB_ADDITIONS, kbCardProps } from './kb-additions';
 import { ActionCard } from '../components/discipline/ActionCard';
 import { UpcomingSection } from '../components/timeline/UpcomingSection';
 import { DisciplinePeriodBadge } from '../components/discipline/DisciplinePeriodBadge';
@@ -178,14 +180,18 @@ export function DisciplinePage() {
           >
             <div className="flex items-center justify-between gap-6 flex-wrap">
               <div className="flex items-center gap-8 flex-wrap">
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-                    {summary.totalActions}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {делРу(summary.totalActions)} на сегодня
-                  </p>
-                </div>
+                {/* Карточка БЗ сводки дел (п.91-2): что такое дело, как считаются
+                    строки и деньги эффекта, почему нет сводного индекса. */}
+                <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.discipline_actions)} showIcon>
+                  <div>
+                    <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
+                      {summary.totalActions}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {делРу(summary.totalActions)} на сегодня
+                    </p>
+                  </div>
+                </KBTooltip>
                 <div>
                   <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                     {summary.totalRows}

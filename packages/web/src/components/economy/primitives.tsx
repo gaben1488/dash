@@ -18,7 +18,7 @@ export type BudgetTokenKey = keyof typeof BT;
 
 /** Общий класс видимого фокуса — клавиатура должна видеть, где она находится. */
 export const FOCUS_RING =
-  'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900 rounded-sm';
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-900 rounded-sm';
 
 /**
  * Бейдж доли экономии от лимита.
@@ -43,10 +43,10 @@ export function PctBadge({ pct, compact }: { pct: number | null; compact?: boole
     );
   }
   const cls =
-    pct > 25 ? 'bg-red-500/10 text-red-400 ring-red-500/20'
-    : pct >= 5 && pct <= 15 ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
-    : pct < 2 ? 'bg-amber-500/10 text-amber-400 ring-amber-500/20'
-    : 'bg-zinc-500/8 text-zinc-400 ring-zinc-500/10';
+    pct > 25 ? 'bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/20'
+    : pct >= 5 && pct <= 15 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20'
+    : pct < 2 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20'
+    : 'bg-zinc-500/8 text-zinc-600 dark:text-zinc-400 ring-zinc-500/10';
   return (
     <span
       className={clsx(
@@ -68,7 +68,7 @@ export function EconomyProgress({ limit, fact, className }: { limit: number; fac
   const remainingPct = 100 - factPct;
   return (
     <div
-      className={clsx('relative h-1 rounded-full bg-zinc-800/40 overflow-hidden', className)}
+      className={clsx('relative h-1 rounded-full bg-zinc-200 dark:bg-zinc-800/40 overflow-hidden', className)}
       title={`Факт освоил ${formatPct(factPct)} лимита, остаток ${formatPct(remainingPct)}`}
       aria-hidden="true"
     >
@@ -98,7 +98,7 @@ export function TriBar({ fb, kb, mb, h = 'h-1' }: { fb: number; kb: number; mb: 
   if (hasNegative || total <= 0) {
     return (
       <span
-        className="text-zinc-600 text-[9px] whitespace-nowrap"
+        className="text-zinc-500 dark:text-zinc-600 text-[9px] whitespace-nowrap"
         title={hasNegative
           ? 'Среди сумм ФБ/КБ/МБ есть отрицательные — доли не строятся'
           : 'Экономии по ФБ/КБ/МБ нет — разбивку строить не от чего'}
@@ -112,7 +112,7 @@ export function TriBar({ fb, kb, mb, h = 'h-1' }: { fb: number; kb: number; mb: 
   const pMB = 100 - pFB - pKB;
   return (
     <div
-      className={clsx('w-full rounded-full overflow-hidden flex', h, 'bg-zinc-800/40')}
+      className={clsx('w-full rounded-full overflow-hidden flex', h, 'bg-zinc-200 dark:bg-zinc-800/40')}
       title={`ФБ ${pFB.toFixed(0)} %, КБ ${pKB.toFixed(0)} %, МБ ${pMB.toFixed(0)} %`}
     >
       {pFB > 0 && <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${pFB}%` }} />}
@@ -169,10 +169,10 @@ export function MiniSpark({ data, color = '#10b981', w = 48, h = 16 }: {
 
 /** Индикатор сортировки колонки (декоративный — состояние несёт aria-sort). */
 export function SortChevron({ field, active, dir }: { field: SortField; active: SortField; dir: SortDir }) {
-  if (field !== active) return <ArrowUpDown size={9} aria-hidden="true" className="text-zinc-600 ml-0.5 opacity-40" />;
+  if (field !== active) return <ArrowUpDown size={9} aria-hidden="true" className="text-zinc-500 dark:text-zinc-600 ml-0.5 opacity-40" />;
   return dir === 'desc'
-    ? <ChevronDown size={9} aria-hidden="true" className="text-blue-400 ml-0.5" />
-    : <ChevronUp size={9} aria-hidden="true" className="text-blue-400 ml-0.5" />;
+    ? <ChevronDown size={9} aria-hidden="true" className="text-blue-600 dark:text-blue-400 ml-0.5" />
+    : <ChevronUp size={9} aria-hidden="true" className="text-blue-600 dark:text-blue-400 ml-0.5" />;
 }
 
 /**
@@ -196,8 +196,8 @@ export function Card({ children, className, accent }: {
   const accentGrad = accent ? CARD_ACCENTS[accent] : 'from-white/[0.06] via-transparent to-transparent';
   return (
     <div className={clsx(
-      'relative rounded-xl border border-white/[0.06] bg-white/[0.02]',
-      'backdrop-blur-sm overflow-hidden',
+      'relative rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02]',
+      'shadow-sm dark:shadow-none backdrop-blur-sm overflow-hidden',
       className,
     )}>
       <div className={clsx('absolute top-0 inset-x-0 h-px bg-gradient-to-r', accentGrad)} aria-hidden="true" />
@@ -211,11 +211,11 @@ export function SectionHead({ icon, title, hint, right }: {
   icon: React.ReactNode; title: string; hint?: string; right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.04]">
+    <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-zinc-200/70 dark:border-white/[0.04]">
       <div className="flex items-baseline gap-2 min-w-0">
         <span className="shrink-0 self-center" aria-hidden="true">{icon}</span>
-        <h3 className="text-xs font-semibold text-zinc-200 tracking-tight truncate">{title}</h3>
-        {hint && <span className="text-[9px] text-zinc-600 truncate">{hint}</span>}
+        <h3 className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 tracking-tight truncate">{title}</h3>
+        {hint && <span className="text-[9px] text-zinc-500 dark:text-zinc-600 truncate">{hint}</span>}
       </div>
       {right}
     </div>

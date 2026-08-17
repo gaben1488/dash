@@ -6,6 +6,7 @@ import { config, DEPARTMENT_SPREADSHEETS, updateSpreadsheetId, validateSpreadshe
 import { getSpreadsheetMetadata } from '../services/google-sheets.js';
 import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME, findDept, ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import { validateSource, validateAllSources, type SourceValidationResult } from '../services/source-validation.js';
+import { isWithinWorkHours } from '../services/source-refresh.js';
 
 /**
  * Маршруты журнала (аудит-лог).
@@ -505,6 +506,18 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       totalSources: sourceList.length,
       onlineCount,
       errorCount,
+      /**
+       * Паспорт самообновления (директива «Система — паспорт данных»):
+       * рабочее окно опроса — канон п.87/20 (8:45–18:20 по Камчатке),
+       * вебхук-каналы работают всегда. Строки — готовые русские подписи,
+       * булевы поля — для тона строки на экране.
+       */
+      refresh: {
+        workWindowLabel: '8:45–18:20 по Камчатке',
+        withinWorkWindow: isWithinWorkHours(new Date(), config.weeklySnapshot.utcOffsetHours),
+        autoRefreshMinutes: config.cache.autoRefreshMinutes,
+        webhookConfigured: Boolean(config.webhook.publicUrl && config.webhook.secret),
+      },
     });
   });
 

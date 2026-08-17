@@ -48,8 +48,39 @@ import {
 
 type ViewMode = 'browse' | 'editor';
 
-type SortKey = 'id' | 'subject' | 'method' | 'planSum' | 'factSum' | 'economy' | 'status' | 'dept';
+type SortKey = 'id' | 'subject' | 'method' | 'planSum' | 'factSum' | 'economy' | 'status' | 'dept' | 'signals';
 type SortDir = 'asc' | 'desc';
+
+/**
+ * Быстрые порядки реестра — переключатель над таблицей (задание группы:
+ * по строкам / по деньгам / по числу дел). Дефолт пока «по строкам листа» —
+ * канонический дефолт решится отдельным вопросом владельцу (вопрос 37).
+ * Щелчок по заголовку столбца по-прежнему сортирует по нему — тогда ни одна
+ * кнопка переключателя не активна.
+ */
+const SORT_PRESETS: { id: string; label: string; hint: string; key: SortKey; dir: SortDir }[] = [
+  {
+    id: 'rows',
+    label: 'По строкам',
+    hint: 'Порядок листа книги: № п/п по возрастанию — строки идут так же, как в книге управления.',
+    key: 'id',
+    dir: 'asc',
+  },
+  {
+    id: 'money',
+    label: 'По деньгам',
+    hint: 'Сначала самые дорогие: плановый итог строки по убыванию.',
+    key: 'planSum',
+    dir: 'desc',
+  },
+  {
+    id: 'cases',
+    label: 'По числу дел',
+    hint: 'Сначала строки, собравшие больше всего замечаний проверок, — разбор разумно начинать с них.',
+    key: 'signals',
+    dir: 'desc',
+  },
+];
 
 /** Строк на один запрос к серверу — его же потолок (rows.ts: min(1000, limit)). */
 const ROWS_PER_REQUEST = 1000;
@@ -77,7 +108,7 @@ interface BrowsePrefs {
   viewMode: ViewMode;
 }
 
-const SORT_KEYS: SortKey[] = ['id', 'subject', 'method', 'planSum', 'factSum', 'economy', 'status', 'dept'];
+const SORT_KEYS: SortKey[] = ['id', 'subject', 'method', 'planSum', 'factSum', 'economy', 'status', 'dept', 'signals'];
 
 /**
  * Разбор сохранённых настроек. Каждое поле проверяется отдельно: запись из
@@ -199,10 +230,13 @@ const BUCKET_META: Record<RegistryBucket, {
   mechanism: string;
   /** Почему в корзине пусто и что делать (честное пустое состояние). */
   emptyReason: string;
+  /** Ключ карточки БЗ корзины (объект — в kb-additions.ts рядом со страницей). */
+  kbKey: string;
   predicate: (r: Record<string, unknown>) => boolean;
 }> = {
   unfunded: {
     title: 'Закупки, не обеспеченные финансированием',
+    kbKey: 'bucket_unfunded_rows',
     mechanism:
       'Способ и плановые деньги у строки есть, а графа «Год (план)» пуста — финансирование не подтверждено. '
       + 'Формулы официального листа СВОД такие строки не видят, поэтому официальный лимит меньше нашего расчёта ровно на их сумму.',
@@ -213,6 +247,7 @@ const BUCKET_META: Record<RegistryBucket, {
   },
   yearlong: {
     title: 'Закупки, проводимые в течение года',
+    kbKey: 'bucket_yearlong_rows',
     mechanism:
       'Единственный поставщик, дата заключения — заглушка («Х» или пусто), а факт больше нуля: статья исполняется '
       + 'серией договоров или платежей в течение года. Ровно эти строки формулы свода не считают в факте и экономии; план — входит (канон п.71).',
@@ -228,7 +263,7 @@ const BUCKET_META: Record<RegistryBucket, {
 };
 
 export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
-  const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets } = useStore();
+  const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets, navigateTo } = useStore();
   // Вид реестра (сортировка, размер страницы, режим) переживает перезагрузку:
   // читается один раз при первом кадре, дальше живёт в состоянии.
   const storedPrefs = useMemo(
@@ -538,8 +573,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     }
     // Источники финансирования: строка проходит, если имеет план ИЛИ факт в выбранном
     data = filterRowsByBudgets(data, selectedBudgets);
+    // «По числу дел» — производный ключ: замечаний у строки, а не колонка.
+    const sortValue = (r: Record<string, unknown>) =>
+      sortKey === 'signals' ? (Array.isArray(r.signals) ? r.signals.length : 0) : r[sortKey];
     data.sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
+      const av = sortValue(a), bv = sortValue(b);
       if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
       const as = String(av ?? ''), bs = String(bv ?? '');
       return sortDir === 'asc' ? as.localeCompare(bs, 'ru') : bs.localeCompare(as, 'ru');
@@ -912,7 +950,18 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
           </div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 tabular-nums">
             {bucketClassTotal > 0 ? (
-              <>В классе {bucketClassTotal} {pluralRu(bucketClassTotal, 'строка', 'строки', 'строк')} из загруженных книг;
+              <>В классе{' '}
+              {/* Карточка БЗ корзины (п.91-2): запись — в kb-additions.ts рядом
+                  со страницей, гейт вливает её в общую базу знаний. */}
+              <KbHover
+                metricKey={bucketMeta.kbKey}
+                live={`${bucketClassTotal} ${pluralRu(bucketClassTotal, 'строка проходит', 'строки проходят', 'строк проходят')} предикат класса среди загруженных книг;\nпод текущий отбор шапки и страницы ${pluralRu(filtered.length, 'подходит', 'подходят', 'подходят')} ${filtered.length}.\nСчёт класса идёт до фильтров экрана — так «класс пуст» отличим от «фильтры всё срезали».`}
+              >
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  {bucketClassTotal} {pluralRu(bucketClassTotal, 'строка', 'строки', 'строк')}
+                </span>
+              </KbHover>{' '}
+              из загруженных книг;
               под текущий отбор {pluralRu(filtered.length, 'подходит', 'подходят', 'подходят')} {filtered.length}.</>
             ) : loadingRows ? (
               'Строки книг ещё загружаются…'
@@ -1045,6 +1094,36 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               </option>
             ))}
           </select>
+
+          {/* Быстрый порядок строк: по строкам листа / по деньгам / по числу дел.
+              Дефолт «по строкам» — до решения владельца (вопрос 37). Сортировка
+              по заголовку столбца снимает выбор переключателя сама собой. */}
+          <div
+            role="group"
+            aria-label="Порядок строк реестра"
+            className="flex items-center gap-0.5 bg-zinc-100 dark:bg-zinc-800/60 rounded-lg p-0.5"
+          >
+            {SORT_PRESETS.map((p) => {
+              const active = sortKey === p.key && sortDir === p.dir;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  aria-pressed={active}
+                  title={p.hint}
+                  onClick={() => { setSortKey(p.key); setSortDir(p.dir); setPageNum(1); }}
+                  className={clsx(
+                    'px-2.5 py-1 rounded-md text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
+                    active
+                      ? 'bg-white dark:bg-zinc-700 text-zinc-800 dark:text-white shadow-sm'
+                      : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200',
+                  )}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Фильтр по признакам строк */}
           <div className="relative" ref={signalDropdownRef}>
@@ -1274,6 +1353,25 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               </span>
             </>
           )}
+          <span className="ml-auto flex items-center gap-3 flex-wrap">
+            {/* Шов Реестр → Свод (канон п.91-8): итоги той же выборки в сетке
+                Свода. Общие фильтры (управления, период, способ, бюджет)
+                переезжают сами — они живут в шапке; локальные фильтры этой
+                страницы (признаки, поиск по признакам) действуют только здесь. */}
+            {!bucket && (
+              <button
+                type="button"
+                onClick={() => navigateTo('svod')}
+                title="Открыть вкладку «Свод» с теми же фильтрами шапки: управления, период, способ и бюджет сохранятся. Фильтр по признакам строк действует только в Реестре."
+                className="text-cyan-700 dark:text-cyan-300 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded-sm"
+              >
+                Итоги выборки — в сетке Свода
+              </button>
+            )}
+            {/* Подпись периметра (канон п.58): числа строки подчиняются
+                фильтрам периода из шапки — плашка честная. */}
+            <PeriodBadge />
+          </span>
         </div>
       )}
 
@@ -1375,14 +1473,20 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                     >
                       {row.subject || 'Предмет закупки не указан'}
                     </button>
-                    <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-xs">
-                      {deptDisplayName(row.dept)} • {activityRowLabel(row.type, row.programName)}
+                    {/* Бейджи стадий переносятся на новую строку, а не режутся
+                        обрезанием текста: на экране 360–430 px «truncate» съедал
+                        подпись стадии целиком (критерий п.91-5). Обрезается
+                        только имя управления с видом деятельности. */}
+                    <div className="text-[10px] text-zinc-400 dark:text-zinc-500 max-w-xs flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      <span className="truncate max-w-full">
+                        {deptDisplayName(row.dept)} • {activityRowLabel(row.type, row.programName)}
+                      </span>
                       {/* Стадия «в течение года» (п.71б): собственная подпись
                           вместо лживого «есть факт»; вне стадии бейджа нет. */}
-                      <YearlongBadge row={row} className="ml-1.5" />
+                      <YearlongBadge row={row} />
                       {isInitiativeMarker(row.commentGRBS) && (
                         <span
-                          className="ml-1.5 px-1 py-px rounded bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400"
+                          className="px-1 py-px rounded bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400"
                           title="Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря «хотелки» (п.76). План виден, но подписывается отдельно и в риск-списки не шумит."
                         >
                           инициативная заявка
@@ -1390,7 +1494,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                       )}
                       {noDate && (
                         <span
-                          className="ml-1.5 px-1 py-px rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                          className="px-1 py-px rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400"
                           title="Ни плановая, ни фактическая дата не заполнены: фильтр периода такую строку не проверял"
                         >
                           без даты
@@ -1398,7 +1502,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                       )}
                       {!noDate && noYear && (
                         <span
-                          className="ml-1.5 px-1 py-px rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                          className="px-1 py-px rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400"
                           title="Год плана в книге не проставлен: годовой фильтр такую строку не проверял"
                         >
                           без года плана

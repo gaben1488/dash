@@ -23,7 +23,9 @@ import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { useYearlongKinds } from '../yearlong/useYearlongKinds';
 import { excludedEpTotals, excludedEpTotalsQuarter, type ExcludedEpTotals } from '../yearlong/legally-clean';
-import { CompetitionCard, FOCUS_RING, fmtPct, sumEpKp, sumEpKpQuarter, type EpKpTotals, type PeriodSel } from './primitives';
+import { GROUP3_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
+import { KBTooltip } from '../ui/kb-tooltip';
+import { CompetitionCard, FOCUS_RING, fmtPct, sumEpKpQuarter, type EpKpTotals, type PeriodSel } from './primitives';
 
 const procWord = (n: number) => pluralRu(n, 'процедуры', 'процедур', 'процедур');
 
@@ -210,9 +212,12 @@ export function EpShare({ totals }: {
               стояли рядом, а не по очереди (п.82). */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                По числу процедур · {MODE_LABELS[mode]}
-              </p>
+              {/* Карточка БЗ счётной доли (п.91-2): объяснение пары и тумблера. */}
+              <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.ep_share_count)} showIcon>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  По числу процедур · {MODE_LABELS[mode]}
+                </p>
+              </KBTooltip>
               <p className="text-lg font-semibold tabular-nums text-sky-700 dark:text-sky-400 mt-0.5">
                 {countShareTotal !== null ? fmtPct(countShareTotal) : '—'}
               </p>
@@ -226,9 +231,12 @@ export function EpShare({ totals }: {
               </p>
             </div>
             <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                По деньгам (план) · {MODE_LABELS[mode]}
-              </p>
+              {/* Денежная доля — главная в паре (канон п.90/32а); карточка БЗ своя. */}
+              <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.ep_share_money)} showIcon>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  По деньгам (план) · {MODE_LABELS[mode]}
+                </p>
+              </KBTooltip>
               <p className="text-lg font-semibold tabular-nums text-amber-700 dark:text-amber-400 mt-0.5">
                 {moneyShareTotal !== null ? fmtPct(moneyShareTotal) : '—'}
               </p>

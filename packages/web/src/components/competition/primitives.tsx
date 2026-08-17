@@ -12,7 +12,10 @@
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { AlertTriangle } from 'lucide-react';
+import type { KBEntryData } from '@aemr/core';
 import { PeriodBadge } from '../PeriodBadge';
+import { KBTooltip } from '../ui/kb-tooltip';
+import { kbCardProps } from '../../pages/kb-additions';
 
 /** Единое фокус-кольцо вкладки — клавиатурный обход виден на каждой кнопке. */
 export const FOCUS_RING =
@@ -24,13 +27,16 @@ export const FOCUS_RING =
  * `caveats` — оговорки счёта; они янтарные и живут прямо под заголовком,
  * потому что метрика без оговорок выглядела бы точнее, чем она есть.
  */
-export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], children }: {
+export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], kb, children }: {
   title: string;
   subtitle?: ReactNode;
   icon?: LucideIcon;
   caveats?: string[];
+  /** Карточка БЗ метрики блока (kb-additions, п.91-2): наведение/тап на заголовок. */
+  kb?: KBEntryData;
   children: ReactNode;
 }) {
+  const heading = <h2 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h2>;
   return (
     <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
       {/* flex-wrap: на 360–430px плашка периода переносится под заголовок,
@@ -41,7 +47,7 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], chi
             <Icon size={16} className="text-zinc-500 dark:text-zinc-400 mt-0.5 shrink-0" aria-hidden="true" />
           )}
           <div className="min-w-0">
-            <h2 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h2>
+            {kb ? <KBTooltip {...kbCardProps(kb)} showIcon>{heading}</KBTooltip> : heading}
             {subtitle && (
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed max-w-2xl">
                 {subtitle}

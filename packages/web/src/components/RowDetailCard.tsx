@@ -7,6 +7,7 @@ import { KbHover } from './contract/KbHover';
 import { formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { activityRowLabel, signalChipText, signalTone } from '../lib/rows/registry-view';
+import { looksLikeEconomyDisposal } from '../lib/economy/disposal';
 import { RowTimelineSection } from './timeline/RowTimelineSection';
 import { YearlongBadge } from './yearlong/YearlongBadge';
 import { YearlongKindSelect } from './yearlong/YearlongKindSelect';
@@ -402,17 +403,37 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
             </div>
           )}
 
-          {/* Комментарии */}
+          {/* Комментарии. Подсветка «похоже на распоряжение экономией» —
+              безопасная версия слоя перераспределения (канон п.85/12б):
+              подсвечиваем автоматически, но НИЧЕГО не считаем и статуса не
+              выводим — учёт возможен только после подтверждения человеком
+              (п.27: свободный текст не источник статусов). */}
           {filledComments.length > 0 && (
             <div>
               <SectionTitle>Комментарии</SectionTitle>
               <div className="space-y-2">
-                {filledComments.map(c => (
-                  <div key={c.label}>
-                    <div className="text-[10px] text-zinc-400 dark:text-zinc-500">{c.label}</div>
-                    <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">{c.value}</p>
-                  </div>
-                ))}
+                {filledComments.map(c => {
+                  const disposal = looksLikeEconomyDisposal(c.value);
+                  return (
+                    <div
+                      key={c.label}
+                      className={clsx(disposal && 'border-l-2 border-violet-400 dark:border-violet-500 pl-2')}
+                    >
+                      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center gap-1.5 flex-wrap">
+                        {c.label}
+                        {disposal && (
+                          <span
+                            className="px-1.5 py-px rounded-full text-[9px] font-medium bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300"
+                            title="Подсветка автоматическая — по словам о перераспределении сэкономленных денег. Статус строки из текста не выводится, в счётчики такие строки не попадают: распоряжение учитывается только после подтверждения ответственным."
+                          >
+                            похоже на распоряжение экономией
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">{c.value}</p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

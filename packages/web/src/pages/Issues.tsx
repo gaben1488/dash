@@ -11,7 +11,8 @@ import {
   issueTransitionRefusal,
 } from '../lib/selectors/issue-transitions';
 import { formatEventTime } from '../lib/selectors/event-time';
-import { groupIssuesByMechanism } from '../lib/diagnostics/mechanism-groups';
+import { groupIssuesByMechanism, type MechanismGroup } from '../lib/diagnostics/mechanism-groups';
+import { natureOf, NATURE_ORDER, NATURE_CATEGORIES, type NatureCategory } from '../lib/diagnostics/nature-categories';
 import { pluralRu } from '../lib/economy-copy';
 import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
@@ -357,6 +358,26 @@ export function IssuesPage() {
     () => groupIssuesByMechanism(filtered, productLabel),
     [filtered],
   );
+
+  // Категории по природе (канон п.88/26б): «Ошибка заполнения книги» /
+  // «Дефект формул листа» / «Исполнение закупок». Карточка диагноста целиком
+  // живёт в одной категории: у всех замечаний группы один механизм — одна
+  // природа. Пустые категории не рисуются.
+  const natureSections = useMemo(() => {
+    const byNature = new Map<string, MechanismGroup[]>();
+    for (const group of mechanismGroups) {
+      const nature = natureOf(group.issues[0] ?? {});
+      const bucket = byNature.get(nature.id) ?? [];
+      bucket.push(group);
+      byNature.set(nature.id, bucket);
+    }
+    return NATURE_ORDER
+      .filter(id => (byNature.get(id) ?? []).length > 0)
+      .map(id => ({
+        nature: NATURE_CATEGORIES[id] as NatureCategory,
+        groups: byNature.get(id) ?? [],
+      }));
+  }, [mechanismGroups]);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (key: string) => {
     setOpenGroups(prev => {
@@ -573,8 +594,26 @@ export function IssuesPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {mechanismGroups.map(group => {
+        <div className="space-y-6">
+          {natureSections.map(({ nature, groups }) => {
+            const natureCount = groups.reduce((sum, g) => sum + g.count, 0);
+            return (
+              <section key={nature.id} aria-label={`${nature.label}: ${natureCount} ${issuesWord(natureCount)}`}>
+                {/* Шапка категории по природе (канон п.88/26б): подпись,
+                    отличие от соседних категорий и адресат действия. */}
+                <header className="mb-2 px-1">
+                  <h2 className="text-sm font-bold text-zinc-800 dark:text-white">
+                    {nature.label}
+                    <span className="ml-2 font-semibold tabular-nums text-zinc-500 dark:text-zinc-400">
+                      {natureCount} {issuesWord(natureCount)}
+                    </span>
+                  </h2>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                    {nature.description} {nature.addressee}
+                  </p>
+                </header>
+                <div className="space-y-3">
+                  {groups.map(group => {
             const groupSev = SEV_CONFIG[group.severity as Severity] ?? SEV_CONFIG.info;
             const GroupIcon = groupSev.icon;
             const groupOpen = openGroups.has(group.key);
@@ -787,6 +826,10 @@ export function IssuesPage() {
                     })}
                   </div>
                 )}
+              </section>
+            );
+                  })}
+                </div>
               </section>
             );
           })}

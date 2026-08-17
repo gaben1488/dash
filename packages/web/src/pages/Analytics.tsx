@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
@@ -6,7 +6,10 @@ import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
 import { subordinateLabel } from '../lib/subordinate-label';
 import { PeriodBadge } from '../components/PeriodBadge';
-import { selectDatasetAudit, BENFORD_LABELS } from '../lib/dataset-analyses';
+import { selectDatasetAudit, BENFORD_LABELS, type DatasetAuditRow } from '../lib/dataset-analyses';
+import { KBTooltip } from '../components/ui/kb-tooltip';
+import { kbCardProps } from './kb-additions';
+import { CONTROL_ANALYTICS_KB_ADDITIONS } from './kb-additions-control';
 import { bothDeptKeyForms } from '../lib/dept-key';
 import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon, Microscope } from 'lucide-react';
 import {
@@ -53,12 +56,19 @@ function EmptyState({ message }: { message: string }) {
 }
 
 /** Card wrapper with optional expand/collapse */
-function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source }: {
+function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source, perimeter }: {
   title: string;
   icon?: typeof TrendingUp;
   children: React.ReactNode;
   defaultOpen?: boolean;
   source?: 'calculated' | 'official' | 'hybrid';
+  /**
+   * Собственная подпись периметра для карточек, чей расчёт НЕ подчиняется
+   * периоду шапки (канон п.58б: бейдж, унаследованный от фильтра, которому
+   * числа не подчиняются, — запрещён). Если задана — рисуется вместо общей
+   * плашки периода.
+   */
+  perimeter?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const sourceLabel = source === 'official' ? 'СВОД' : source === 'hybrid' ? 'Комби' : 'Расчёт';
@@ -74,8 +84,10 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
         {Icon && <Icon size={15} className="text-zinc-400 dark:text-zinc-500 group-hover:text-blue-500 transition-colors" />}
         <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{title}</h3>
         {/* Канон п.58: каждая карточка объявляет период своих ДАННЫХ сама.
-            Общий каркас ставит плашку разом на все карточки вкладки. */}
-        <PeriodBadge />
+            Карточки, не подчиняющиеся периоду шапки, несут собственную подпись. */}
+        {perimeter
+          ? <span className="px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 shrink-0">{perimeter}</span>
+          : <PeriodBadge />}
         {source && <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${sourceColor}`}>{sourceLabel}</span>}
         {open ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
       </button>
@@ -202,6 +214,9 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
           </span>
         )}
         {loading && <span className="text-[10px] text-zinc-400 animate-pulse">Загрузка...</span>}
+        <KBTooltip metric="analytics_forecast" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_forecast)}>
+          <span className="text-[10px] text-zinc-400 underline decoration-dotted cursor-help">как строится прогноз</span>
+        </KBTooltip>
       </div>
       {chartData.length > 0 && forecast?.scenarios?.length > 0 ? (
         <ResponsiveContainer width="100%" height={260}>
@@ -585,7 +600,7 @@ export function Analytics() {
 
       {/* Row 1: Quarterly procurement trend + Execution trend line */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated">
+        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated" perimeter="2026 · все кварталы">
           {quarterlyTrend.some(q => q.kp > 0 || q.ep > 0) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={quarterlyTrend} barCategoryGap="20%">
@@ -607,7 +622,7 @@ export function Analytics() {
           )}
         </AnalyticsCard>
 
-        <AnalyticsCard title={execTrendClaim} icon={LineChartIcon} source="calculated">
+        <AnalyticsCard title={execTrendClaim} icon={LineChartIcon} source="calculated" perimeter="2026 · по кварталам">
           {execTrend.length > 0 && deptNames.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={execTrend}>
@@ -837,7 +852,7 @@ export function Analytics() {
       {/* Execution velocity — cumulative fact as % of year plan */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {velocityData.length > 0 && (
-          <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated">
+          <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated" perimeter="2026 · нарастающим итогом">
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={[
                 { name: '1 кв.', ...Object.fromEntries(velocityData.map(d => [d.name, d.q1])) },
@@ -860,7 +875,7 @@ export function Analytics() {
 
         {/* Subordinate rankings */}
         {topSubordinates.length > 0 && (
-          <AnalyticsCard title="Рейтинг подведомственных (топ-15 по плану)" icon={Building2} source="calculated">
+          <AnalyticsCard title="Рейтинг подведомственных (топ-15 по плану)" icon={Building2} source="calculated" perimeter="2026 · весь год">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -907,37 +922,41 @@ export function Analytics() {
 
       {/* Forecast */}
       {filteredDepts.length > 0 && (
-        <AnalyticsCard title={forecastTitle} icon={TrendingUp} source="calculated">
+        <AnalyticsCard title={forecastTitle} icon={TrendingUp} source="calculated" perimeter="2026 · прогноз до конца года">
           <ForecastCard depts={filteredDepts} isDark={isDark} formatMoney={formatMoney} onClaim={setForecastTitle} />
         </AnalyticsCard>
       )}
 
       {/* Economy Scatter: Limit vs Fact */}
-      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — ${suspiciousCount} подозрительных закупок` : ''}` : 'Экономия: лимит против факта по закупкам'} icon={TrendingUp} source="calculated">
+      <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — у ${suspiciousCount} закупок экономия вне коридора 2–25 %` : ''}` : 'Экономия: лимит против цены по заключённым закупкам'} icon={TrendingUp} source="calculated">
         {scatterLoading ? (
           <div className="flex items-center justify-center py-12 text-sm text-zinc-500 animate-pulse">Загрузка...</div>
         ) : scatterData.length === 0 ? (
-          <EmptyState message="Нет данных по закупкам для scatter plot" />
+          <EmptyState message="Заключённых закупок под текущий отбор нет: на диаграмму попадают только строки с датой заключения и ценой. Снимите фильтры шапки или обновите данные." />
         ) : (
           <>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-3">
-              Каждая точка — одна закупка. Диагональ = нулевая экономия. Цвет по % снижения (44-ФЗ ст.37).
+              Каждая точка — одна ЗАКЛЮЧЁННАЯ закупка (есть дата заключения и цена).
+              Обе оси — в тысячах рублей, как в книгах. Диагональ = нулевая экономия. Цвет по % снижения (44-ФЗ ст.37).
               <span className="ml-2 font-medium text-zinc-500">{scatterData.length} закупок</span>
             </p>
             <div style={{ width: '100%', height: 380 }}>
               <ResponsiveContainer>
                 <ScatterChart margin={{ top: 10, right: 20, bottom: 40, left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
+                  {/* Обе величины в книгах ведутся в ТЫСЯЧАХ рублей — оси и деления
+                      подписаны одной единицей (скрин-разбор №5: «руб.» против
+                      «тыс. руб.» на осях одного графика — запрещено). */}
                   <XAxis
-                    type="number" dataKey="planTotal" name="Лимит программы"
-                    tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млн` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} тыс` : String(v)}
-                    label={{ value: 'Лимит программы (тыс. руб.)', position: 'bottom', offset: 20, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
+                    type="number" dataKey="planTotal" name="Лимит строки плана"
+                    tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млрд` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} млн` : `${v} тыс`}
+                    label={{ value: 'Лимит строки плана (тыс. руб.)', position: 'bottom', offset: 20, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
                     className="text-xs"
                   />
                   <YAxis
                     type="number" dataKey="factTotal" name="Цена контракта"
-                    tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млн` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} тыс` : String(v)}
-                    label={{ value: 'Цена контракта (руб.)', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
+                    tickFormatter={(v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)} млрд` : v >= 1e3 ? `${(v / 1e3).toFixed(0)} млн` : `${v} тыс`}
+                    label={{ value: 'Цена контракта (тыс. руб.)', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 11, fill: getAxisColor(isDark) } }}
                     className="text-xs"
                   />
                   <ZAxis range={[30, 80]} />
@@ -954,10 +973,12 @@ export function Analytics() {
                           <div className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">{d.subject}</div>
                           <div className="text-zinc-500">{d.department} · {d.procurementType}</div>
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+                            {/* Единица — та же, что в книге: тысячи рублей. «7 000 ₽»
+                                на деле было 7 млн руб. (скрин-разбор №5). */}
                             <span className="text-zinc-400">Лимит:</span>
-                            <span className="text-right font-medium">{d.planTotal?.toLocaleString('ru-RU')} ₽</span>
+                            <span className="text-right font-medium">{d.planTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
                             <span className="text-zinc-400">Цена:</span>
-                            <span className="text-right font-medium">{d.factTotal?.toLocaleString('ru-RU')} ₽</span>
+                            <span className="text-right font-medium">{d.factTotal?.toLocaleString('ru-RU')} тыс. руб.</span>
                             <span className="text-zinc-400">Экономия:</span>
                             <span className={`text-right font-bold ${d.economyPercent > 25 ? 'text-red-500' : d.economyPercent < 2 ? 'text-amber-500' : 'text-emerald-500'}`}>
                               {d.economyPercent?.toFixed(1)}%
@@ -970,24 +991,26 @@ export function Analytics() {
                   <Scatter name="Норма (5-15%)" data={scatterData.filter((d: any) => d.economyPercent >= 5 && d.economyPercent <= 15)} fill={getPositiveColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                   {/* Термин «предрешённость» снят владельцем (п.69д интервью 14.08.2026): самодельный жаргон, подпись — фактом. */}
                   <Scatter name="Снижение менее 5%" data={scatterData.filter((d: any) => d.economyPercent >= 0 && d.economyPercent < 5)} fill={getChartColor(2, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Антидемпинг (>25%)" data={scatterData.filter((d: any) => d.economyPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Превышение (<0%)" data={scatterData.filter((d: any) => d.economyPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
-                  <Scatter name="Высокая (15-25%)" data={scatterData.filter((d: any) => d.economyPercent > 15 && d.economyPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  {/* Лейбл-канон п.32: «на него повлиять нельзя, указывает лишь на
+                      высокую экономию» — из тона претензии в информационный. */}
+                  <Scatter name="Высокая экономия (свыше 25%)" data={scatterData.filter((d: any) => d.economyPercent > 25)} fill={getNegativeColor(isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Цена выше лимита (меньше 0%)" data={scatterData.filter((d: any) => d.economyPercent < 0)} fill={getChartColor(4, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
+                  <Scatter name="Заметная (15-25%)" data={scatterData.filter((d: any) => d.economyPercent > 15 && d.economyPercent <= 25)} fill={getChartColor(0, isDark)} fillOpacity={0.7} onClick={(d: any) => d && navigateTo('data', { department: d.department })} cursor="pointer" />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
             <div className="flex gap-4 mt-3 text-[10px] flex-wrap">
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5-15% норма</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-blue-500" /> 15-25% высокая</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> снижение менее 5%</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> &gt;25% антидемпинг</span>
-              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> &lt;0% превышение</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-emerald-500" /> 5–15 % — норма</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-blue-500" /> 15–25 % — заметная</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-amber-500" /> менее 5 % — низкое снижение</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-red-500" /> свыше 25 % — высокая экономия по закупке (информационно)</span>
+              <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"><span className="w-3 h-3 rounded-full bg-violet-500" /> меньше 0 % — цена выше лимита</span>
             </div>
           </>
         )}
       </AnalyticsCard>
 
-      {/* Row 4: Heatmap + Trust */}
+      {/* Row 4: Heatmap + Качество заполнения */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Heatmap */}
         <AnalyticsCard title={avgExecHeatmap > 0 ? `Среднее исполнение ${avgExecHeatmap.toFixed(0)}% по ${heatmapData.length} управлениям` : 'Сводка по управлениям'} icon={Building2} defaultOpen={true} source="calculated">
@@ -1042,16 +1065,23 @@ export function Analytics() {
           )}
         </AnalyticsCard>
 
-        {/* Trust by department */}
-        <AnalyticsCard title={avgTrust > 0 ? `Доверие: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Индекс доверия'} icon={TrendingUp} source="hybrid">
+        {/* Качество заполнения книг по управлениям (термин «доверие» снят — п.88/26б) */}
+        <AnalyticsCard title={avgTrust > 0 ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Качество заполнения книг'} icon={TrendingUp} source="hybrid" perimeter="2026 · вся книга">
           {trustData.length > 0 ? (
+            <>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2">
+              <KBTooltip metric="analytics_fill_quality" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_fill_quality)}>
+                <span className="underline decoration-dotted cursor-help">Как считается этот балл</span>
+              </KBTooltip>
+              {' '}— разбор по компонентам открывается кликом по столбцу.
+            </p>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={trustData} layout="vertical" margin={{ left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
                 <XAxis type="number" domain={[0, 100]} fontSize={11} tickFormatter={(v: number) => `${v}`} tick={{ fill: getAxisColor(isDark) }} />
                 <YAxis type="category" dataKey="name" width={60} fontSize={11} tick={{ fill: getAxisColor(isDark) }} />
-                <Tooltip formatter={(v: number) => [`${v}`, 'Trust Score']} contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle} />
-                <Bar dataKey="trust" name="Доверие" radius={[0, 4, 4, 0]} maxBarSize={18} cursor="pointer"
+                <Tooltip formatter={(v: number) => [`${v} из 100`, 'Качество заполнения']} contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={cursorStyle} />
+                <Bar dataKey="trust" name="Качество заполнения" radius={[0, 4, 4, 0]} maxBarSize={18} cursor="pointer"
                   onClick={(data: any) => { if (data?.id) navigateTo('quality', { qualityTab: 'trust', department: data.id }); }}
                 >
                   {trustData.map((d: any, i: number) => (
@@ -1060,6 +1090,7 @@ export function Analytics() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            </>
           ) : (
             <EmptyState message="Нет данных" />
           )}
@@ -1067,7 +1098,7 @@ export function Analytics() {
       </div>
 
       {/* Row 5: Issues by department */}
-      <AnalyticsCard title={totalIssues > 0 ? `${totalIssues} замечаний${criticalIssues > 0 ? `, ${criticalIssues} критических` : ''} по управлениям` : 'Замечания по управлениям'} icon={Info} source="hybrid">
+      <AnalyticsCard title={totalIssues > 0 ? `${totalIssues} замечаний${criticalIssues > 0 ? `, ${criticalIssues} критических` : ''} по управлениям` : 'Замечания по управлениям'} icon={Info} source="hybrid" perimeter="2026 · вся книга">
         {issuesByDept.length > 0 ? (
           <div>
             <ResponsiveContainer width="100%" height={Math.max(160, issuesByDept.length * 32)}>
@@ -1138,9 +1169,96 @@ const BENFORD_TONE_CLS: Record<'ok' | 'warn' | 'bad', string> = {
   bad: 'text-red-600 dark:text-red-400',
 };
 
+/**
+ * Развёртка теста Бенфорда для одного управления: ожидаемое против
+ * фактического распределение первых цифр графиком (канон п.88/24 — тесты
+ * остаются, но подаются образовательно: «погрузиться, понять, найти косяк»).
+ */
+function BenfordBreakdown({ row, isDark }: { row: DatasetAuditRow; isDark: boolean }) {
+  const { contentStyle, itemStyle, labelStyle } = getTooltipStyle(isDark);
+  const chartData = useMemo(() => {
+    if (!row.benfordObserved || !row.benfordExpected) return [];
+    return row.benfordObserved.map((obs, i) => ({
+      digit: String(i + 1),
+      fact: +(obs * 100).toFixed(1),
+      expected: +((row.benfordExpected?.[i] ?? 0) * 100).toFixed(1),
+    }));
+  }, [row]);
+
+  // Цифра с самым большим перекосом — прямой указатель, где искать косяк.
+  const worstDigit = useMemo(() => {
+    if (chartData.length === 0) return null;
+    return chartData.reduce((max, d) =>
+      Math.abs(d.fact - d.expected) > Math.abs(max.fact - max.expected) ? d : max, chartData[0]);
+  }, [chartData]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-3">
+      <div>
+        <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 mb-1">
+          Первые цифры сумм: ожидаемые доли против фактических
+        </p>
+        {chartData.length > 0 ? (
+          <>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={chartData} barCategoryGap="25%">
+                <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
+                <XAxis dataKey="digit" fontSize={10} tick={{ fill: getAxisColor(isDark) }} label={{ value: 'Первая цифра суммы', position: 'bottom', offset: -4, style: { fontSize: 9, fill: getAxisColor(isDark) } }} />
+                <YAxis fontSize={10} tickFormatter={(v: number) => `${v}%`} tick={{ fill: getAxisColor(isDark) }} />
+                <Tooltip contentStyle={contentStyle} itemStyle={itemStyle} labelStyle={labelStyle} formatter={(v: number, name: string) => [`${v}%`, name]} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Bar dataKey="expected" name="Ожидается по закону Бенфорда" fill={isDark ? '#64748b' : '#94a3b8'} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="fact" name="Фактически в книге" fill={isDark ? '#60a5fa' : '#3b82f6'} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            {worstDigit && (
+              <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1">
+                Сильнее всего выбивается цифра «{worstDigit.digit}»: фактически {worstDigit.fact} % сумм
+                против ожидаемых {worstDigit.expected} %. Чтобы найти косяк — открыть строки управления
+                и посмотреть суммы, начинающиеся с этой цифры.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+            Снимок не сохранил распределение цифр — доступен только итог теста. Обновите данные.
+          </p>
+        )}
+      </div>
+      <div className="text-[11px] text-zinc-600 dark:text-zinc-300 leading-relaxed space-y-2">
+        <p>
+          <strong>Как читать.</strong> В естественных финансовых данных суммы чаще начинаются
+          с маленьких цифр: с «1» — около 30 %, с «9» — меньше 5 %. Серые столбики — эта норма,
+          синие — ваша книга. Небольшие расхождения законны.
+        </p>
+        <p>
+          <strong>Почему пик у лимитов — не криминал.</strong> Круглые лимиты (100, 500, 600 тыс. руб.)
+          назначаются правилами закупок, поэтому их первая цифра даёт законный пик — тест это видит
+          как отклонение, а не как манипуляцию.
+        </p>
+        <p>
+          <strong>Что тянет z-оценку.</strong>{' '}
+          {row.outlierCount > 0 && row.outlierMean !== null && row.outlierStdDev !== null ? (
+            <>
+              Типичная сумма этой книги — около {Math.round(row.outlierMean).toLocaleString('ru-RU')} тыс. руб.
+              при разбросе {Math.round(row.outlierStdDev).toLocaleString('ru-RU')} тыс. Выбросами считаются
+              строки дальше {row.outlierThreshold ?? 3} разбросов от типичной — таких {row.outlierCount}:
+              это самые крупные суммы книги, их и стоит проверить глазами первыми.
+            </>
+          ) : (
+            'Выбросов нет: все суммы книги лежат в типичном коридоре, z-оценку не тянет ни одна строка.'
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Аудит качества данных по ГРБС: Бенфорд, композит, выбросы, сезонность, ЕП-риск. */
 function DatasetAuditCard() {
   const { dashboardData, navigateTo, selectedDepartments } = useStore();
+  const isDark = useTheme(s => s.theme) === 'dark';
+  const [expandedDept, setExpandedDept] = useState<string | null>(null);
 
   const rows = useMemo(
     () => selectDatasetAudit(dashboardData?.snapshot?.datasetAnalyses),
@@ -1158,41 +1276,64 @@ function DatasetAuditCard() {
   const nonconforming = visibleRows.filter(r => r.benfordConformity === 'nonconforming').length;
 
   return (
-    <AnalyticsCard title="Аномалии данных по управлениям" icon={Microscope} source="calculated">
+    <AnalyticsCard title="Аномалии данных по управлениям" icon={Microscope} source="calculated" perimeter="2026 · вся книга">
       {visibleRows.length === 0 ? (
         <EmptyState message={rows.length === 0
-          ? 'Анализ качества данных ещё не построен — в снапшоте нет datasetAnalyses'
-          : 'Для выбранных управлений анализ качества данных не построен'} />
+          ? 'Анализ качества данных ещё не построен: в снимке книг нет результатов проверок. Обновите данные — анализ считается при разборе книг.'
+          : 'Для выбранных управлений анализ качества данных не построен. Снимите фильтр по управлениям в шапке.'} />
       ) : (
         <div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
-            Аудиторский вердикт по каждому ГРБС: закон Бенфорда не проходят суммы
+            Аудиторский вердикт по каждому управлению: закон Бенфорда не проходят суммы
             у <strong className="text-zinc-700 dark:text-zinc-200">{nonconforming} из {visibleRows.length}</strong> управлений.
-            Композит-скор 0–100 по шкале аудита: <strong>меньше = лучше</strong> (A — чисто, F — худшее).
-            Клик по строке — к данным управления.
+            Композитная оценка 0–100 по шкале аудита: <strong>меньше = лучше</strong> (A — чисто, F — худшее).
+            Клик по строке раскрывает разбор тестов; переход к данным — кнопкой внутри разбора.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
               <thead>
                 <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
-                  <th className="py-1.5 pr-3">ГРБС</th>
-                  <th className="py-1.5 pr-3">Композит</th>
-                  <th className="py-1.5 pr-3">Закон Бенфорда</th>
+                  <th className="py-1.5 pr-3">Управление</th>
+                  <th className="py-1.5 pr-3">
+                    <KBTooltip metric="analytics_composite" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_composite)}>
+                      <span className="underline decoration-dotted cursor-help">Композитная оценка</span>
+                    </KBTooltip>
+                  </th>
+                  <th className="py-1.5 pr-3">
+                    <KBTooltip metric="analytics_benford" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_benford)}>
+                      <span className="underline decoration-dotted cursor-help">Закон Бенфорда</span>
+                    </KBTooltip>
+                  </th>
                   <th className="py-1.5 pr-3 text-right">Сезонные аномалии</th>
-                  <th className="py-1.5 pr-3 text-right">Выбросы</th>
-                  <th className="py-1.5">ЕП-риск</th>
+                  <th className="py-1.5 pr-3 text-right">
+                    <KBTooltip metric="analytics_zscore" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_zscore)}>
+                      <span className="underline decoration-dotted cursor-help">Выбросы</span>
+                    </KBTooltip>
+                  </th>
+                  <th className="py-1.5">
+                    <KBTooltip metric="analytics_ep_risk" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_ep_risk)}>
+                      <span className="underline decoration-dotted cursor-help">Риск без торгов</span>
+                    </KBTooltip>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {visibleRows.map(r => {
                   const benford = r.benfordConformity ? BENFORD_LABELS[r.benfordConformity] : null;
+                  const isExpanded = expandedDept === r.deptId;
                   return (
+                    <Fragment key={r.deptId}>
                     <tr
-                      key={r.deptId}
                       className="border-b border-zinc-50 dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-700/20 transition-colors"
-                      onClick={() => navigateTo('data', { department: r.deptId })}
+                      onClick={() => setExpandedDept(isExpanded ? null : r.deptId)}
+                      aria-expanded={isExpanded}
                     >
-                      <td className="py-2 pr-3 font-medium text-zinc-700 dark:text-zinc-200">{productLabel(r.deptId)}</td>
+                      <td className="py-2 pr-3 font-medium text-zinc-700 dark:text-zinc-200">
+                        <span className="inline-flex items-center gap-1">
+                          {isExpanded ? <ChevronDown size={12} className="text-zinc-400" /> : <ChevronRight size={12} className="text-zinc-400" />}
+                          {productLabel(r.deptId)}
+                        </span>
+                      </td>
                       <td className="py-2 pr-3">
                         {r.compositeGrade !== null && r.compositeScore !== null ? (
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums ${COMPOSITE_GRADE_BADGE[r.compositeGrade] ?? COMPOSITE_GRADE_BADGE.C}`}>
@@ -1205,7 +1346,7 @@ function DatasetAuditCard() {
                           <span className={`font-medium ${BENFORD_TONE_CLS[benford.tone]}`} title={benford.hint}>
                             {benford.label}
                             <span className="font-normal text-[10px] text-zinc-400 ml-1.5">
-                              MAD {r.benfordMad?.toFixed(4)}, n={r.benfordSampleSize}
+                              отклонение {r.benfordMad?.toFixed(4)} · сумм: {r.benfordSampleSize}
                             </span>
                           </span>
                         ) : <span className="text-zinc-400">—</span>}
@@ -1224,13 +1365,29 @@ function DatasetAuditCard() {
                         {r.epRiskLevel ? (
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${EP_RISK_BADGE[r.epRiskLevel] ?? EP_RISK_BADGE['НИЗКИЙ']}`}
-                            title={r.epSharePct !== null ? `Доля ЕП: ${r.epSharePct.toFixed(1)}%` : undefined}
+                            title={r.epSharePct !== null ? `Доля закупок без торгов: ${r.epSharePct.toFixed(1)}%` : undefined}
                           >
                             {r.epRiskLevel}
                           </span>
                         ) : <span className="text-zinc-400">—</span>}
                       </td>
                     </tr>
+                    {isExpanded && (
+                      <tr className="border-b border-zinc-50 dark:border-zinc-800/50 bg-zinc-50/40 dark:bg-zinc-900/30">
+                        <td colSpan={6} className="px-3">
+                          <BenfordBreakdown row={r} isDark={isDark} />
+                          <div className="pb-3">
+                            <button
+                              onClick={() => navigateTo('data', { department: r.deptId })}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition"
+                            >
+                              Открыть строки управления {productLabel(r.deptId)} →
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -1258,9 +1415,9 @@ function CentralizationCard() {
   }, []);
 
   return (
-    <AnalyticsCard title="Централизация закупок: что можно объединить между управлениями" icon={Building2} source="calculated">
+    <AnalyticsCard title="Централизация закупок: что можно объединить между управлениями" icon={Building2} source="calculated" perimeter="2026 · весь год">
       {error ? (
-        <EmptyState message="Раздел временно недоступен (данные не загружены)" />
+        <EmptyState message="Список возможностей централизации не получен с сервера. Обновите страницу; если отказ повторяется — проверьте вкладку «Система»." />
       ) : !data ? (
         <div className="py-8 text-center text-xs text-zinc-400">Загрузка…</div>
       ) : data.opportunities.length === 0 ? (
@@ -1268,7 +1425,10 @@ function CentralizationCard() {
       ) : (
         <div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
-            Одинаковые категории закупают несколько управлений по отдельности — кандидаты
+            <KBTooltip metric="analytics_centralization" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_centralization)}>
+              <span className="underline decoration-dotted cursor-help">Как строится этот список</span>
+            </KBTooltip>
+            {': '}одинаковые категории закупают несколько управлений по отдельности — кандидаты
             на совместную закупку (ст. 25 44-ФЗ), включая закупки у единственного поставщика.
             Найдено групп: <strong className="text-zinc-700 dark:text-zinc-200">{data.totalOpportunities}</strong>,
             их объём: <strong className="text-zinc-700 dark:text-zinc-200">{fmtTys(data.totalAmount)}</strong>,

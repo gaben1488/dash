@@ -20,7 +20,19 @@ export interface DatasetAuditRow {
   benfordConformity: 'close' | 'acceptable' | 'marginal' | 'nonconforming' | null;
   benfordMad: number | null;
   benfordSampleSize: number;
+  /**
+   * Частоты первых цифр 1–9 (доли 0–1): фактические против ожидаемых по
+   * закону Бенфорда. Нужны образовательной развёртке (канон п.88/24:
+   * «показать ожидаемое против фактического, чтобы читатель нашёл косяк»).
+   * null — снимок распределение не сохранил.
+   */
+  benfordObserved: number[] | null;
+  benfordExpected: number[] | null;
   outlierCount: number;
+  /** Параметры z-оценки — чтобы объяснить, ЧТО именно считается выбросом. */
+  outlierMean: number | null;
+  outlierStdDev: number | null;
+  outlierThreshold: number | null;
   epRiskLevel: EpRiskLevel | null;
   /** Доля ЕП в процентах 0-100; null — не посчитана */
   epSharePct: number | null;
@@ -57,7 +69,16 @@ export function selectDatasetAudit(
       benfordConformity: a.benford?.conformity ?? null,
       benfordMad: a.benford?.mad ?? null,
       benfordSampleSize: a.benford?.sampleSize ?? 0,
+      benfordObserved: Array.isArray(a.benford?.observed) && a.benford.observed.length === 9
+        ? a.benford.observed
+        : null,
+      benfordExpected: Array.isArray(a.benford?.expected) && a.benford.expected.length === 9
+        ? a.benford.expected
+        : null,
       outlierCount: a.outliers?.count ?? 0,
+      outlierMean: typeof a.outliers?.mean === 'number' ? a.outliers.mean : null,
+      outlierStdDev: typeof a.outliers?.stdDev === 'number' ? a.outliers.stdDev : null,
+      outlierThreshold: typeof a.outliers?.threshold === 'number' ? a.outliers.threshold : null,
       epRiskLevel: a.epRisk?.level ?? null,
       epSharePct: typeof a.epRisk?.epShare === 'number' ? a.epRisk.epShare * 100 : null,
       seasonalCount: a.seasonalAnomalies?.length ?? 0,

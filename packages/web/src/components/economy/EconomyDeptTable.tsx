@@ -35,7 +35,7 @@ function BudgetRow({ label, plan, fact, economy, fmt, tk }: {
 }) {
   const t = BT[tk];
   return (
-    <tr className="text-[10px] border-t border-white/[0.03]">
+    <tr className="text-[10px] border-t border-zinc-100 dark:border-white/[0.03]">
       <td className="pl-10 pr-2 py-1">
         <span className={clsx('flex items-center gap-1.5 font-medium', t.text)}>
           <span className={clsx('w-1.5 h-1.5 rounded-full', t.dot)} aria-hidden="true" />
@@ -44,7 +44,7 @@ function BudgetRow({ label, plan, fact, economy, fmt, tk }: {
       </td>
       <td className="px-2 py-1 text-right tabular-nums text-zinc-500">{fmt(plan)}</td>
       <td className="px-2 py-1 text-right tabular-nums text-zinc-500">{fmt(fact)}</td>
-      <td className="px-2 py-1 text-right tabular-nums text-emerald-400 font-medium">{fmt(economy)}</td>
+      <td className="px-2 py-1 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{fmt(economy)}</td>
       <td className="px-2 py-1 text-right"><PctBadge pct={pctOf(economy, plan)} compact /></td>
       <td colSpan={3} />
     </tr>
@@ -54,25 +54,25 @@ function BudgetRow({ label, plan, fact, economy, fmt, tk }: {
 /** Строка подведомственной организации; клик — переход в Реестр строк. */
 function SubRow({ sub, fmt, onNav }: { sub: SubEconomy; fmt: Fmt; onNav?: () => void }) {
   return (
-    <tr className="text-[10px] border-t border-white/[0.02] hover:bg-white/[0.02] transition-colors group/sub">
+    <tr className="text-[10px] border-t border-zinc-100 dark:border-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group/sub">
       <td className="pl-10 pr-2 py-1">
         <button
           type="button"
           onClick={onNav}
           className={clsx(
-            'text-zinc-400 hover:text-blue-400 transition-colors text-left truncate max-w-[180px] flex items-center gap-1.5',
+            'text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left truncate max-w-[180px] flex items-center gap-1.5',
             FOCUS_RING,
           )}
           title={`${sub.name} — открыть строки закупок в Реестре`}
         >
-          <CircleDot size={7} className="shrink-0 text-zinc-600" aria-hidden="true" />
+          <CircleDot size={7} className="shrink-0 text-zinc-500 dark:text-zinc-600" aria-hidden="true" />
           <span className="truncate">{sub.name}</span>
           <ExternalLink size={7} className="shrink-0 opacity-0 group-hover/sub:opacity-60 transition-opacity" aria-hidden="true" />
         </button>
       </td>
       <td className="px-2 py-1 text-right tabular-nums text-zinc-500">{fmt(sub.planTotal)}</td>
       <td className="px-2 py-1 text-right tabular-nums text-zinc-500">{fmt(sub.factTotal)}</td>
-      <td className="px-2 py-1 text-right tabular-nums text-emerald-400/80">{fmt(sub.economy)}</td>
+      <td className="px-2 py-1 text-right tabular-nums text-emerald-600/80 dark:text-emerald-400/80">{fmt(sub.economy)}</td>
       <td className="px-2 py-1 text-right"><PctBadge pct={sub.pct} compact /></td>
       <td className="px-2 py-1">
         <TriBar fb={sub.budget.economyFB} kb={sub.budget.economyKB} mb={sub.budget.economyMB} />
@@ -118,7 +118,7 @@ export function EconomyDeptTable({
         type="button"
         onClick={() => onSort(field)}
         title={hint ? `${hint}. Нажмите, чтобы отсортировать` : 'Нажмите, чтобы отсортировать'}
-        className={clsx('inline-flex items-center gap-0.5 hover:text-zinc-300 transition-colors', FOCUS_RING)}
+        className={clsx('inline-flex items-center gap-0.5 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors', FOCUS_RING)}
       >
         {label}<SortChevron field={field} active={sortField} dir={sortDir} />
       </button>
@@ -145,7 +145,7 @@ export function EconomyDeptTable({
         разбивка по бюджетам, расхождения и число подведомственных организаций.
       </caption>
       <thead>
-        <tr className="border-b border-white/[0.06]">
+        <tr className="border-b border-zinc-200 dark:border-white/[0.06]">
           <TH label="Управление" field="dept" align="left" w="w-[180px]" hint="Главный распорядитель бюджетных средств" />
           <TH label="Лимит" field="limit" metric="plan_total" hint="Плановая сумма мероприятий" />
           <TH label="Факт" field="price" metric="fact_total" hint="Сумма заключённых контрактов" />
@@ -183,7 +183,7 @@ export function EconomyDeptTable({
                   'transition-all duration-150 cursor-pointer group/row border-b',
                   isExp
                     ? 'bg-blue-500/[0.04] border-blue-500/10'
-                    : 'border-white/[0.03] hover:bg-white/[0.02]',
+                    : 'border-zinc-100 dark:border-white/[0.03] hover:bg-zinc-50 dark:hover:bg-white/[0.02]',
                 )}
                 onClick={() => onToggleExpand(d.dept)}
               >
@@ -200,8 +200,8 @@ export function EconomyDeptTable({
                         size={11}
                         aria-hidden="true"
                         className={clsx(
-                          'text-zinc-600 transition-transform duration-200',
-                          isExp && 'rotate-90 text-blue-400',
+                          'text-zinc-500 dark:text-zinc-600 transition-transform duration-200',
+                          isExp && 'rotate-90 text-blue-600 dark:text-blue-400',
                         )}
                       />
                     </button>
@@ -209,7 +209,7 @@ export function EconomyDeptTable({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onToggleDepartment(d.deptId); }}
                       className={clsx(
-                        'text-[11px] font-bold text-zinc-300 hover:text-blue-400 transition-colors truncate max-w-[140px]',
+                        'text-[11px] font-bold text-zinc-700 dark:text-zinc-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate max-w-[140px]',
                         FOCUS_RING,
                       )}
                       title={`Оставить в фильтре только ${d.dept}`}
@@ -218,7 +218,7 @@ export function EconomyDeptTable({
                     </button>
                     {d.highEconomy && (
                       <span
-                        className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-red-500/10 text-[8px] font-black text-red-400 tracking-wider whitespace-nowrap"
+                        className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-red-500/10 text-[8px] font-black text-red-600 dark:text-red-400 tracking-wider whitespace-nowrap"
                         title="Экономия превысила четверть лимита — нужна проверка обоснования цены"
                       >
                         <Zap size={7} aria-hidden="true" />свыше 25 %
@@ -226,13 +226,13 @@ export function EconomyDeptTable({
                     )}
                   </div>
                 </td>
-                <td className="px-2 py-1.5 text-right text-[11px] tabular-nums text-zinc-400">{formatMoney(d.limit)}</td>
-                <td className="px-2 py-1.5 text-right text-[11px] tabular-nums text-zinc-400">{formatMoney(d.price)}</td>
+                <td className="px-2 py-1.5 text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">{formatMoney(d.limit)}</td>
+                <td className="px-2 py-1.5 text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">{formatMoney(d.price)}</td>
                 <td className="px-2 py-1.5 text-right">
                   <div className="space-y-0.5">
                     <div className="flex items-center justify-end gap-1.5">
                       <MiniSpark data={spark} color={d.economy >= 0 ? '#10b981' : '#ef4444'} />
-                      <span className="text-[11px] font-bold tabular-nums text-emerald-400">{formatMoney(d.economy)}</span>
+                      <span className="text-[11px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(d.economy)}</span>
                     </div>
                     <EconomyProgress limit={d.limit} fact={d.price} className="w-full" />
                   </div>
@@ -243,12 +243,12 @@ export function EconomyDeptTable({
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   {d.conflicts > 0 ? (
-                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-400"
+                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
                       title={`${d.conflicts} ${conflictWord(d.conflicts)} по признанию экономии`}>
                       <AlertTriangle size={9} aria-hidden="true" />{d.conflicts}
                     </span>
                   ) : (
-                    <span className="text-[10px] text-emerald-500/70" title="Расхождений по признанию экономии нет">нет</span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-500/70" title="Расхождений по признанию экономии нет">нет</span>
                   )}
                 </td>
                 <td className="px-2 py-1.5 text-center">
@@ -262,12 +262,12 @@ export function EconomyDeptTable({
                   ) : d.realSubCount > 0 ? (
                     <span className={clsx(
                       'text-[10px] tabular-nums font-semibold',
-                      isExp ? 'text-blue-400' : 'text-zinc-500',
+                      isExp ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-500',
                     )}>
                       {d.realSubCount}
                     </span>
                   ) : (
-                    <span className="text-[9px] text-zinc-600" title="Подведомственных организаций с закупками в выборке нет">нет</span>
+                    <span className="text-[9px] text-zinc-500 dark:text-zinc-600" title="Подведомственных организаций с закупками в выборке нет">нет</span>
                   )}
                 </td>
               </tr>
@@ -279,7 +279,7 @@ export function EconomyDeptTable({
                   <BudgetRow label="МБ (муниципальный)" plan={b.planMB} fact={b.factMB} economy={b.economyMB} fmt={formatMoney} tk="mb" />
 
                   {d.deptOnly && (
-                    <tr className="border-t border-white/[0.03]">
+                    <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                       <td colSpan={8} className="pl-10 pr-4 py-1.5 text-[10px] text-zinc-500">
                         Состав расходов не показан: включён режим «только само управление».
                         Снимите его в фильтре управлений, чтобы увидеть подведомственные организации.
@@ -288,7 +288,7 @@ export function EconomyDeptTable({
                   )}
 
                   {!d.deptOnly && d.subordinates.length === 0 && (
-                    <tr className="border-t border-white/[0.03]">
+                    <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                       <td colSpan={8} className="pl-10 pr-4 py-1.5 text-[10px] text-zinc-500">
                         За выбранный период у управления нет строк ни по аппарату, ни по подведомственным организациям.
                       </td>
@@ -297,9 +297,9 @@ export function EconomyDeptTable({
 
                   {d.subordinates.length > 0 && (
                     <>
-                      <tr className="border-t border-white/[0.03]">
+                      <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                         <td colSpan={8} className="pl-8 pr-4 pt-1.5 pb-0.5">
-                          <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.15em] flex items-center gap-1.5">
+                          <span className="text-[9px] font-black text-zinc-500 dark:text-zinc-600 uppercase tracking-[0.15em] flex items-center gap-1.5">
                             <Building2 size={8} aria-hidden="true" />
                             Структура расходов
                           </span>
@@ -308,17 +308,17 @@ export function EconomyDeptTable({
 
                       {/* Аппарат управления — собственные закупки ГРБС, не подвед */}
                       {orgItself && (
-                        <tr className="text-[10px] border-t border-white/[0.02] bg-blue-500/[0.03]">
+                        <tr className="text-[10px] border-t border-zinc-100 dark:border-white/[0.02] bg-blue-500/[0.03]">
                           <td className="pl-10 pr-2 py-1">
-                            <span className="flex items-center gap-1.5 font-semibold text-blue-300"
+                            <span className="flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-300"
                               title="Собственные закупки управления, без подведомственных организаций">
                               <Building2 size={7} className="shrink-0" aria-hidden="true" />
                               {d.dept}: аппарат управления
                             </span>
                           </td>
-                          <td className="px-2 py-1 text-right tabular-nums text-zinc-400">{formatMoney(orgItself.planTotal)}</td>
-                          <td className="px-2 py-1 text-right tabular-nums text-zinc-400">{formatMoney(orgItself.factTotal)}</td>
-                          <td className="px-2 py-1 text-right tabular-nums text-emerald-400 font-medium">{formatMoney(orgItself.economy)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{formatMoney(orgItself.planTotal)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums text-zinc-600 dark:text-zinc-400">{formatMoney(orgItself.factTotal)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{formatMoney(orgItself.economy)}</td>
                           <td className="px-2 py-1 text-right"><PctBadge pct={orgItself.pct} compact /></td>
                           <td className="px-2 py-1">
                             <TriBar fb={orgItself.budget.economyFB} kb={orgItself.budget.economyKB} mb={orgItself.budget.economyMB} />
@@ -329,12 +329,12 @@ export function EconomyDeptTable({
 
                       {realSubs.length > 0 && (
                         <>
-                          <tr className="border-t border-white/[0.03]">
+                          <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                             <td colSpan={8} className="pl-8 pr-4 py-1">
-                              <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.15em] flex items-center gap-1.5">
+                              <span className="text-[9px] font-black text-zinc-500 dark:text-zinc-600 uppercase tracking-[0.15em] flex items-center gap-1.5">
                                 <Layers size={8} aria-hidden="true" />
                                 Подведомственные организации ({realSubs.length})
-                                <span className="ml-auto text-[8px] font-medium normal-case tracking-normal text-zinc-700">
+                                <span className="ml-auto text-[8px] font-medium normal-case tracking-normal text-zinc-400 dark:text-zinc-700">
                                   клик — переход в Реестр строк
                                 </span>
                               </span>
@@ -357,8 +357,8 @@ export function EconomyDeptTable({
                     <tr className="border-t border-amber-500/10">
                       <td colSpan={8} className="px-8 py-1.5">
                         <div className="flex items-start gap-2 text-[10px]">
-                          <Sparkles size={10} className="text-amber-400 mt-0.5 shrink-0" aria-hidden="true" />
-                          <div className="text-amber-300/80 space-y-0.5">
+                          <Sparkles size={10} className="text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" aria-hidden="true" />
+                          <div className="text-amber-700 dark:text-amber-300/80 space-y-0.5">
                             {d.highEconomy && (
                               <p>Экономия {formatPct(d.pct)} — запросить обоснование начальной цены (ст. 22) и проверить антидемпинговые меры (ст. 37, 44-ФЗ).</p>
                             )}
@@ -378,23 +378,23 @@ export function EconomyDeptTable({
       </tbody>
 
       <tfoot>
-        <tr className="border-t border-white/[0.08] bg-white/[0.02]">
-          <th scope="row" className="px-2 py-2 text-left text-[11px] font-black text-zinc-300 uppercase tracking-wider">Итого</th>
-          <td className="px-2 py-2 text-right text-[11px] tabular-nums font-bold text-zinc-300">{formatMoney(totals.plan)}</td>
-          <td className="px-2 py-2 text-right text-[11px] tabular-nums font-bold text-zinc-300">{formatMoney(totals.fact)}</td>
-          <td className="px-2 py-2 text-right text-[11px] tabular-nums font-black text-emerald-400">{formatMoney(totals.economy)}</td>
+        <tr className="border-t border-zinc-200 dark:border-white/[0.08] bg-zinc-50/70 dark:bg-white/[0.02]">
+          <th scope="row" className="px-2 py-2 text-left text-[11px] font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">Итого</th>
+          <td className="px-2 py-2 text-right text-[11px] tabular-nums font-bold text-zinc-700 dark:text-zinc-300">{formatMoney(totals.plan)}</td>
+          <td className="px-2 py-2 text-right text-[11px] tabular-nums font-bold text-zinc-700 dark:text-zinc-300">{formatMoney(totals.fact)}</td>
+          <td className="px-2 py-2 text-right text-[11px] tabular-nums font-black text-emerald-600 dark:text-emerald-400">{formatMoney(totals.economy)}</td>
           {/* Итоговая доля — взвешенная (сумма экономии ÷ сумма лимитов), а не
               среднее строк: усреднять проценты по управлениям здесь нельзя. */}
           <td className="px-2 py-2 text-right"><PctBadge pct={totals.share} /></td>
           <td className="px-2 py-2">
             <TriBar fb={totals.fbEco} kb={totals.kbEco} mb={totals.mbEco} h="h-1.5" />
           </td>
-          <td className="px-2 py-2 text-center text-[10px] font-bold text-amber-400">
+          <td className="px-2 py-2 text-center text-[10px] font-bold text-amber-600 dark:text-amber-400">
             {totals.conflicts > 0
               ? totals.conflicts
-              : <span className="font-medium text-emerald-500/70">нет</span>}
+              : <span className="font-medium text-emerald-600 dark:text-emerald-500/70">нет</span>}
           </td>
-          <td className="px-2 py-2 text-center text-[10px] tabular-nums text-zinc-400">
+          <td className="px-2 py-2 text-center text-[10px] tabular-nums text-zinc-600 dark:text-zinc-400">
             {totals.deptOnlyCount > 0
               ? <span title={`У ${totals.deptOnlyCount} управлений подведомственные скрыты режимом «только само управление»`}>{totals.subCount}*</span>
               : totals.subCount}

@@ -38,7 +38,7 @@ export function EconomySubTable({ subs, deptOnlyCount, formatMoney, onNavigateTo
         Подведомственные организации выбранных управлений, по убыванию экономии.
       </caption>
       <thead>
-        <tr className="border-b border-white/[0.06]">
+        <tr className="border-b border-zinc-200 dark:border-white/[0.06]">
           <TH label="Организация" align="left" />
           <TH label="Управление" align="left" hint="Главный распорядитель, которому подведомственна организация" />
           <TH label="Лимит" />
@@ -62,29 +62,29 @@ export function EconomySubTable({ subs, deptOnlyCount, formatMoney, onNavigateTo
         {subs.slice(0, MAX_ROWS).map((sub, i) => (
           <tr
             key={`${sub.deptId}-${sub.name}-${i}`}
-            className="border-b border-white/[0.02] hover:bg-white/[0.02] transition-colors cursor-pointer group/subrow"
+            className="border-b border-zinc-100 dark:border-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer group/subrow"
             onClick={() => onNavigateToSub(sub.deptId, sub.name)}
           >
-            <td className="px-2 py-1.5 text-[10px] text-zinc-300 max-w-[200px]">
+            <td className="px-2 py-1.5 text-[10px] text-zinc-700 dark:text-zinc-300 max-w-[200px]">
               {/* Кнопка, а не просто ячейка: строка должна открываться и с клавиатуры */}
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onNavigateToSub(sub.deptId, sub.name); }}
                 title={`${sub.name} — открыть строки закупок в Реестре`}
-                className={`flex items-center gap-1 max-w-full text-left hover:text-blue-400 transition-colors ${FOCUS_RING}`}
+                className={`flex items-center gap-1 max-w-full text-left hover:text-blue-600 dark:hover:text-blue-400 transition-colors ${FOCUS_RING}`}
               >
                 <span className="truncate">{sub.name}</span>
                 <ExternalLink size={8} className="shrink-0 opacity-0 group-hover/subrow:opacity-40 transition-opacity" aria-hidden="true" />
               </button>
             </td>
             <td className="px-2 py-1.5">
-              <span className="text-[9px] font-bold text-zinc-500 bg-white/[0.04] px-1.5 py-0.5 rounded">
+              <span className="text-[9px] font-bold text-zinc-500 bg-zinc-100 dark:bg-white/[0.04] px-1.5 py-0.5 rounded">
                 {sub.deptName}
               </span>
             </td>
             <td className="px-2 py-1.5 text-right text-[10px] tabular-nums text-zinc-500">{formatMoney(sub.planTotal)}</td>
             <td className="px-2 py-1.5 text-right text-[10px] tabular-nums text-zinc-500">{formatMoney(sub.factTotal)}</td>
-            <td className="px-2 py-1.5 text-right text-[10px] tabular-nums font-bold text-emerald-400">{formatMoney(sub.economy)}</td>
+            <td className="px-2 py-1.5 text-right text-[10px] tabular-nums font-bold text-emerald-600 dark:text-emerald-400">{formatMoney(sub.economy)}</td>
             <td className="px-2 py-1.5 text-right"><PctBadge pct={sub.pct} compact /></td>
             <td className="px-2 py-1.5 w-16">
               <TriBar fb={sub.budget.economyFB} kb={sub.budget.economyKB} mb={sub.budget.economyMB} />
@@ -93,7 +93,7 @@ export function EconomySubTable({ subs, deptOnlyCount, formatMoney, onNavigateTo
         ))}
         {subs.length > MAX_ROWS && (
           <tr>
-            <td colSpan={7} className="px-2 py-2 text-center text-[10px] text-zinc-600">
+            <td colSpan={7} className="px-2 py-2 text-center text-[10px] text-zinc-500 dark:text-zinc-600">
               Показаны первые {MAX_ROWS} организаций из {subs.length} — сузьте фильтр
               или раскройте нужное управление на соседней вкладке.
             </td>

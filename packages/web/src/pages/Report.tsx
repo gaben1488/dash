@@ -64,6 +64,10 @@ import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
 import { ChangesSection } from '../components/report/ChangesSection';
 import { fmtMetricValue } from '../lib/delta-format';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
+import { KBTooltip } from '../components/ui/kb-tooltip';
+import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
 
 type Quarter = 1 | 2 | 3 | 4;
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
@@ -102,11 +106,25 @@ function moneyFooter(tile: KpiVM) {
   );
 }
 
-/** Честная расшифровка ошибки загрузки (503 = снапшота ещё нет). */
-function errorMessage(error: string): string {
+/**
+ * Честная расшифровка ошибки загрузки для EmptyState (503 = снимка ещё нет).
+ * Заголовок — причина, описание — что это значит и что делать; технический
+ * текст сервера уезжает в мелкую строку подробности, а не подменяет объяснение.
+ */
+function errorContent(error: string): { title: string; description: string } {
   return error.includes('503')
-    ? 'Данные не загружены: сервер ещё не получил снапшот книг. Обновите данные на Пульте и вернитесь.'
-    : `Отчёт временно недоступен. ${error}`;
+    ? {
+      title: 'Сервер ещё не прочитал книги управлений',
+      description:
+        'Снимка данных на сервере пока нет, поэтому отчёту не из чего собраться. ' +
+        'Запустите чтение книг на Пульте и вернитесь сюда.',
+    }
+    : {
+      title: 'Отчёт не удалось загрузить',
+      description:
+        'Сервер не ответил на запрос отчёта. Проверьте связь с сервером данных ' +
+        'и повторите запрос.',
+    };
 }
 
 /** Открыть доказательство числа — прокидывается вглубь секций страницы. */
@@ -355,19 +373,20 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, onProof 
               caption="Сверка со СВОД · на текущий момент"
               columns={SVOD_COLUMNS}
               rows={vm.svodPairs.map((p) => {
-                // Официальные деньги года блока (строка «ИТОГО» листа): своих
-                // строк-атомов у числа нет — его считают формулы самого листа.
-                // Доказательство показывает ячейку, причину пустоты и наш
-                // пересчёт рядом, не подменяя им официал.
-                const proof = p.fmt === 'money'
-                  ? svodCellProof({
-                    metricKey: p.metricKey,
-                    value: p.svod,
-                    calc: p.calc,
-                    money: true,
-                    ...(p.svodCell ? { cell: p.svodCell } : {}),
-                  })
-                  : null;
+                // Официальное число листа (деньги года и квартальные счётчики):
+                // своих строк-атомов у него нет — его считают формулы самого
+                // листа. Доказательство показывает ячейку, причину пустоты и
+                // наш пересчёт рядом, не подменяя им официал. Ревизия п.91:
+                // раньше кликались только деньги — счётчики с адресом ячейки
+                // оставались немыми без причины (сборщик без ячейки сам
+                // вернёт null, кнопка не появится).
+                const proof = svodCellProof({
+                  metricKey: p.metricKey,
+                  value: p.svod,
+                  calc: p.calc,
+                  money: p.fmt === 'money',
+                  ...(p.svodCell ? { cell: p.svodCell } : {}),
+                });
                 const svodValue = (
                   <DiffText
                     filterCtx={ctx}
@@ -473,9 +492,13 @@ function WeekDeltaBody({ state }: { state: WeekDeltaState }) {
 
   return (
     <div className="space-y-2">
-      <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-        Итоги недели в цифрах · официальные метрики СВОДа
-      </div>
+      {/* Карточка БЗ яруса — из kb-additions (п.91): у блока с числами
+          обязано быть объяснение «что это и как считается». */}
+      <KBTooltip {...kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.report_week_delta)}>
+        <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+          Итоги недели в цифрах · официальные метрики СВОДа
+        </div>
+      </KBTooltip>
       {note !== null ? (
         <div className="text-[11px] text-zinc-500 dark:text-zinc-400">— {note}</div>
       ) : state.kind === 'ready' && (() => {
@@ -516,6 +539,7 @@ function WeekDeltaBody({ state }: { state: WeekDeltaState }) {
 
 export function ReportPage() {
   // FilterContext из store — единый объект для всех контрактных элементов
+  const navigateTo = useStore((s) => s.navigateTo);
   const year = useStore((s) => s.year);
   const period = useStore((s) => s.period);
   const activeMonths = useStore((s) => s.activeMonths);
@@ -561,9 +585,12 @@ export function ReportPage() {
     [ctx, localQuarter, mode],
   );
 
-  // Загрузка по образцу CentralizationCard: useEffect + useState, без TanStack
+  // Загрузка по образцу CentralizationCard: useEffect + useState, без TanStack.
+  // retry — счётчик «Повторить запрос» из пустого состояния ошибки: без него
+  // читатель после сбоя мог только перезагрузить страницу целиком.
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setReport(null);
@@ -572,7 +599,7 @@ export function ReportPage() {
       .then((r) => { if (!cancelled) setReport(r); })
       .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
-  }, [request.year, request.quarter, request.asOf]);
+  }, [request.year, request.quarter, request.asOf, retry]);
 
   // История снимков вокруг четверга среза — ОДИН запрос на страницу:
   // питает и секцию «Что изменилось за неделю», и дельта-бейджи KPI-плиток
@@ -692,10 +719,13 @@ export function ReportPage() {
           фильтра — шапка», перенесена из инлайн-строки 06.08: строка
           прокручивалась вместе со страницей, после клика нужно было
           листать обратно наверх, чтобы кликнуть следующий пункт). */}
+      {/* На узких экранах (360–430px) колонка съедала треть ширины и плющила
+          документ — до планшета навигация скрыта, дорогу к низу страницы
+          держит кнопка-якорь «Что изменилось ↓» в шапке. */}
       {visibleBlocks.length > 1 && (
         <nav
           aria-label="ГРБС отчёта"
-          className="sticky top-2 flex w-28 shrink-0 flex-col gap-1"
+          className="sticky top-2 hidden w-28 shrink-0 flex-col gap-1 md:flex"
         >
           {visibleBlocks.map((vm) => (
             <button
@@ -870,11 +900,29 @@ export function ReportPage() {
       )}
 
       {error ? (
-        <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-500 dark:text-zinc-400">
-          {errorMessage(error)}
+        // Пустое состояние с причиной и действием (критерий «честная пустота»):
+        // повтор запроса — на месте, дорога к чтению книг — на Пульт.
+        <div className="analytics-chart-card">
+          <EmptyState
+            tone="problem"
+            title={errorContent(error).title}
+            description={errorContent(error).description}
+            detail={error}
+            action={{ label: 'Запросить отчёт заново', onClick: () => setRetry((r) => r + 1) }}
+            secondaryAction={{ label: 'Открыть Пульт', onClick: () => navigateTo('dashboard') }}
+          />
         </div>
       ) : !report ? (
-        <div className="analytics-chart-card px-5 py-8 text-center text-xs text-zinc-400">Загрузка…</div>
+        // Скелет вместо голого «Загрузка…»: видно, какой формы страница
+        // собирается, а диктору объявлено, что идёт загрузка.
+        <div className="space-y-4" role="status" aria-live="polite">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Собираем отчёт из книг управлений — это занимает несколько секунд.
+          </p>
+          <SkeletonKPIRow count={4} />
+          <SkeletonChart />
+          <SkeletonChart />
+        </div>
       ) : (
         <>
           {/* Интегральная сводка — четыре яруса (переплавка 03.08): главные
@@ -937,20 +985,29 @@ export function ReportPage() {
             ))
           )}
 
-          {/* Закупки без подтверждённого финансирования — решение 07.08:
-              строки без сроков видны отдельно, внизу, с разбивкой по ГРБС.
-              Эти же строки — причина расхождения лимита с листом СВОД. */}
+          {/* Закупки, не обеспеченные финансированием (имя класса — канон
+              п.23 интервью 14.08.2026), решение 07.08: строки без сроков
+              видны отдельно, внизу, с разбивкой по ГРБС. Эти же строки —
+              причина расхождения лимита с листом СВОД. */}
           {report.unfunded && (
             <SectionCard
               filterCtx={ctx}
               source="calc"
-              title="Закупки без подтверждённого финансирования"
+              title="Закупки, не обеспеченные финансированием"
               icon={Building2}
               defaultOpen={false}
             >
               <div className="space-y-3">
+                {/* Периметр блока — собственной подписью (канон п.58): строки
+                    без года плана не принадлежат ни кварталу, ни неделе —
+                    квартальные кнопки шапки этот блок не сужают. */}
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                  Весь {request.year} год · все управления · на текущий момент · выбор квартала на блок не действует
+                </p>
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <KbHover metricKey="plan_total">
+                  {/* Карточка БЗ — из kb-additions (п.91): запись описывает
+                      именно этот итог, а не общий план, как прежний ключ. */}
+                  <KBTooltip {...kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.unfunded_total)}>
                     {(() => {
                       // Районный итог доказывается строками всех управлений —
                       // теми же, что развёрнуты ниже по управлениям.
@@ -964,14 +1021,14 @@ export function ReportPage() {
                         ? <ProofButton proof={districtProof} onOpen={setProof}>{amount}</ProofButton>
                         : amount;
                     })()}
-                  </KbHover>
+                  </KBTooltip>
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
                     тыс. руб. в {fmtCount(report.unfunded.count)} позициях без сроков (год плана не проставлен)
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Способ и плановые деньги у строк есть, а сроков нет — финансирование не
-                  подтверждено. Формулы листа СВОД такие строки не видят, поэтому официальный
+                  Способ и плановые деньги у строк есть, а сроков нет — закупки не обеспечены
+                  финансированием. Формулы листа СВОД такие строки не видят, поэтому официальный
                   лимит меньше нашего расчёта ровно на эту сумму. По каждой строке нужно решение:
                   подтвердить финансирование и проставить сроки — либо вынести из плана.
                 </p>
@@ -1054,6 +1111,19 @@ export function ReportPage() {
               <div className="space-y-5">
                 <WeekDeltaBody state={weekDelta} />
                 <ChangesSection since={request.asOf} />
+                {/* Обратный якорь (шов п.91): вниз читателя привела кнопка
+                    «Что изменилось ↓» из шапки — обратно наверх без него
+                    пришлось бы крутить всю страницу колесом. */}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                    title="Вернуться к шапке отчёта"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                  >
+                    Наверх ↑
+                  </button>
+                </div>
               </div>
             </SectionCard>
           </div>

@@ -163,7 +163,7 @@ export function SvodView() {
   const {
     moneyUnit, year, period, activeMonths, monthsByYear, periodMode,
     selectedDepartments, selectedMethods, selectedBudgets, selectedActivities, selectedSubordinates,
-    searchQuery, setYear,
+    searchQuery, setYear, navigateTo,
     toggleActivity, clearActivities, clearAllPeriods, toggleMonthInYear, toggleQuarterInYear,
   } = useStore();
 
@@ -599,6 +599,8 @@ export function SvodView() {
                   visibleKinds={visibleKinds}
                   reconByKind={{ kp: badges.kp, ep: badges.ep }}
                   emphasized
+                  onOpenRows={() => navigateTo('data')}
+                  openRowsHint="Открыть Реестр с теми же фильтрами шапки: строки, из которых сложены эти итоги"
                 />
                 {sliced.departments.map((d) => (
                   <BlockGroup
@@ -609,6 +611,8 @@ export function SvodView() {
                     budgetFull={showBudgetBreakdown}
                     fmtMoney={fmtMoney}
                     visibleKinds={visibleKinds}
+                    onOpenRows={() => navigateTo('data', { department: d.id })}
+                    openRowsHint={`Открыть Реестр, оставив только строки управления «${d.shortName}»: период и способ из шапки сохранятся`}
                   />
                 ))}
               </tbody>
@@ -624,8 +628,13 @@ export function SvodView() {
 
           <p className="px-4 py-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 border-t border-zinc-100 dark:border-zinc-700/50">
             Числа посчитаны по строкам книг управлений, а не сняты с формул листа: лист служит
-            эталоном для сверки. «ИТОГО» = конкурентные процедуры плюс единственный поставщик.
-            Управление здесь — главный распорядитель бюджетных средств (ГРБС).
+            эталоном для сверки. Как считает лист: план — по всем счётным строкам периода;
+            факт и экономия — только по строкам с заполненной датой заключения, поэтому
+            «закупки, проводимые в течение года» входят в план листа, но не в его факт и
+            экономию. Единица листа — тысячи рублей. «ИТОГО» = конкурентные процедуры плюс
+            единственный поставщик. Управление здесь — главный распорядитель бюджетных
+            средств (ГРБС). Строки-вкладчицы любого блока открываются ссылкой «строки в
+            Реестре» в его заголовке.
           </p>
         </div>
       )}
@@ -781,13 +790,30 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         <th scope="colgroup" className={clsx(th, 'text-center border-l border-zinc-200 dark:border-zinc-700')} colSpan={4}>
           Количество, ед.
         </th>
-        <th scope="colgroup" className={clsx(th, GROUP_HEAD.plan, 'text-center border-l border-zinc-200 dark:border-zinc-700')} colSpan={moneySpan}>
+        {/* Подписи «как считает лист» (задание группы): по наведению на группу
+            столбцов видно правило формул официального листа — с ним и сверяемся. */}
+        <th
+          scope="colgroup"
+          className={clsx(th, GROUP_HEAD.plan, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
+          colSpan={moneySpan}
+          title="Как считает лист: плановые деньги суммируются по всем счётным строкам периода — условия по дате заключения у формул плана нет, поэтому «закупки, проводимые в течение года» в план входят."
+        >
           План, {moneyLabel}
         </th>
-        <th scope="colgroup" className={clsx(th, GROUP_HEAD.fact, 'text-center border-l border-zinc-200 dark:border-zinc-700')} colSpan={moneySpan}>
+        <th
+          scope="colgroup"
+          className={clsx(th, GROUP_HEAD.fact, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
+          colSpan={moneySpan}
+          title="Как считает лист: фактические деньги суммируются только по строкам с заполненной датой заключения — строки без даты (стадия «в течение года») в факт листа не попадают."
+        >
           Факт, {moneyLabel}
         </th>
-        <th scope="colgroup" className={clsx(th, GROUP_HEAD.eco, 'text-center border-l border-zinc-200 dark:border-zinc-700')} colSpan={moneySpan}>
+        <th
+          scope="colgroup"
+          className={clsx(th, GROUP_HEAD.eco, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
+          colSpan={moneySpan}
+          title="Как считает лист: экономия суммируется по тем же строкам, что и факт, — только при заполненной дате заключения. Экономии без заключения не бывает."
+        >
           Экономия, {moneyLabel}
         </th>
       </tr>
@@ -816,6 +842,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
 
 function BlockGroup({
   title, subtitle, block, budgetFull, fmtMoney, emphasized, visibleKinds, reconByKind,
+  onOpenRows, openRowsHint,
 }: {
   title: string;
   subtitle: string;
@@ -825,6 +852,9 @@ function BlockGroup({
   emphasized?: boolean;
   visibleKinds: SectionKind[];
   reconByKind?: Partial<Record<SectionKind, ReconBadge>>;
+  /** Шов Свод → Реестр (п.91-8): показать строки-вкладчицы блока. */
+  onOpenRows?: () => void;
+  openRowsHint?: string;
 }) {
   const colCount = 1 + 4 + (budgetFull ? 4 : 1) * 3;
   // Срез кладёт выбранный период в обе ноги секции — берём year.
@@ -843,11 +873,25 @@ function BlockGroup({
           colSpan={colCount}
           className="px-3 py-2 text-left sticky left-0 z-[1] backdrop-blur-sm bg-inherit font-normal"
         >
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-2 min-w-0">
             <span className={clsx('font-semibold', emphasized ? 'text-cyan-800 dark:text-cyan-200' : 'text-zinc-700 dark:text-zinc-200')}>
               {title}
             </span>
             <span className="text-[10px] truncate text-zinc-400 dark:text-zinc-500">{subtitle}</span>
+            {/* Провенанс блока: те же строки — в Реестре (взаимный шов со «Строками») */}
+            {onOpenRows && (
+              <button
+                type="button"
+                onClick={onOpenRows}
+                title={openRowsHint}
+                className={clsx(
+                  'ml-auto flex-shrink-0 text-[10px] font-medium text-cyan-700 dark:text-cyan-300 hover:underline whitespace-nowrap',
+                  FOCUS_RING,
+                )}
+              >
+                строки в Реестре
+              </button>
+            )}
           </span>
         </th>
       </tr>

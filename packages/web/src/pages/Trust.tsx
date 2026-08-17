@@ -21,6 +21,7 @@ import { CHECK_REGISTRY, THRESHOLDS, TRUST_COMPONENT_CONFIG, productLabel } from
 import type { TrustComponentId, TrustComponent } from '@aemr/shared';
 import { buildTrustViewModel } from '../lib/trust-metrics';
 import { kbFor } from '../lib/kb/metric-kb';
+import { natureOf } from '../lib/diagnostics/nature-categories';
 
 // ── Локальные view-model типы для данных доверия (источники из useFilteredData — any[]).
 interface TrustIssue {
@@ -57,6 +58,8 @@ interface TrustFactor {
   ref: string | null;
   category: string;
   departmentId: string;
+  /** Природа замечания (канон п.88/26б): заполнение / формулы листа / исполнение. */
+  natureLabel: string;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -269,6 +272,8 @@ export function TrustPage() {
       ref: issue.sheet && issue.cell ? `${issue.sheet}!${issue.cell}` : null,
       category: issue.category as string,
       departmentId: issue.departmentId as string,
+      // Категория по природе (канон п.88/26б) — подписью у каждого фактора.
+      natureLabel: natureOf({ category: issue.category, group: issue.group }).label,
     }));
 
   const criticalFactors = factors.filter((f) => f.severity === 'critical').length;
@@ -309,13 +314,18 @@ export function TrustPage() {
           </div>
           <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            Надёжность данных: {overallScore} из 100
+            Качество заполнения книг: {overallScore} из 100
           </p>
           {scopedToFilter && (
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
               Считается по выбранным управлениям ({filteredDeptSummaries.length}), а не по всему району
             </p>
           )}
+          {/* Подпись периметра (канон п.58): индекс считается по последнему
+              прочтению книг целиком — периоду и месяцам шапки не подчиняется. */}
+          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
+            Периметр: 2026 · вся книга · {scopedToFilter ? 'выбранные управления' : 'все управления'} · на момент последнего чтения
+          </p>
 
           <details className="mt-3 w-full group">
             <summary className="text-[11px] text-blue-600 dark:text-blue-400 cursor-pointer hover:text-blue-700 flex items-center gap-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
@@ -647,11 +657,14 @@ export function TrustPage() {
                   {f.description && (
                     <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{f.description}</p>
                   )}
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     {f.ref && <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">{f.ref}</span>}
                     {f.departmentId && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-500">{productLabel(f.departmentId)}</span>
                     )}
+                    {/* Природа замечания (п.88/26б): читателю сразу видно,
+                        это дисциплина ввода, дефект листа или сама закупка. */}
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400">{f.natureLabel}</span>
                   </div>
                 </div>
               </div>

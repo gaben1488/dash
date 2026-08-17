@@ -24,7 +24,8 @@ import { pluralRu } from '../lib/economy-copy';
 import { ORG_ITSELF_LABEL } from '../lib/subordinate-label';
 import { formatPercent, formatMetricValue } from '../components/HeroKPICard';
 import { buildPerimeter, type Perimeter } from '../lib/perimeter';
-import { figure, ratio, toPercent, type Figure, type FigureProvenance } from '../lib/figure';
+import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
+import { figure, ratio, toPercent, type FigureProvenance } from '../lib/figure';
 import { officialProvenanceFor } from '../lib/provenance-registry';
 import { productLabel, quarterLabel } from '@aemr/shared';
 
@@ -1141,37 +1142,29 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
     { signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red' },
     { signal: 'economyConflict', search: 'флаг эконом', metricKey: 'signal_economy_conflict', color: 'rose' },
     { signal: 'highEconomy', search: 'высокая экономия', metricKey: 'signal_high_economy', color: 'orange' },
+    // Карточки четырёх сигналов ниже METRIC_KB пока не знает — их база
+    // знаний живёт объектами в kb-additions.ts рядом со страницей (п.91:
+    // у каждой метрики карточка; гейт вольёт записи в METRIC_KB одним
+    // проходом). Тексты согласованы с канонами интервью 14.08.2026:
+    // «факт без даты» — стадия «Закупка, проводимая в течение года» (п.71),
+    // «без года плана» — класс «не обеспечено финансированием» (п.23).
     {
       signal: 'earlyClosure',
       search: 'раннее закрытие',
       color: 'amber',
-      kbFallback: {
-        whatIs: 'Строки, где фактическая дата исполнения раньше плановой. Иногда это опережение графика, иногда — подгонка отчётности под срок.',
-        howCalc: 'Считаются строки, у которых фактическая дата заполнена, плановая тоже, и фактическая раньше плановой.',
-        thresholdsFull: '🟢 ноль — расхождений нет\n🟡 от одной до трёх — проверить выборочно\n🔴 больше трёх — похоже на системную практику',
-      },
+      kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_early_closure),
     },
     {
       signal: 'factWithoutDate',
       search: 'факт без даты',
       color: 'purple',
-      kbFallback: {
-        whatIs: 'Строки, где фактическая сумма проставлена, а дата исполнения пуста. Такая строка не участвует в сверке по срокам и выпадает из недельного отчёта.',
-        howCalc: 'Считаются строки, у которых фактическая сумма больше нуля, а графа фактической даты пуста.',
-        thresholdsFull: '🟢 ноль — заполнение чистое\n🟡 от одной до пяти — поправимо на месте\n🔴 больше пяти — дисциплина ввода нарушена',
-      },
+      kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_fact_without_date),
     },
     {
       signal: 'dateWithoutFact',
       search: 'факт дата без сумм',
       color: 'cyan',
-      // Ключ базы знаний здесь раньше указывал на «Факт раньше плановой даты» —
-      // подсказка описывала совсем другой сигнал, чем считало число.
-      kbFallback: {
-        whatIs: 'Строки, где фактическая дата заполнена, а фактических сумм нет. Закупка формально исполнена, но деньги в книге не отражены.',
-        howCalc: 'Считаются строки, у которых фактическая дата заполнена, а сумма факта равна нулю или пуста.',
-        thresholdsFull: '🟢 ноль — суммы проставлены везде\n🟡 есть строки — запросить суммы у исполнителя',
-      },
+      kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_date_without_fact),
     },
     // Карточка «ТД с программой» (tdWithProgram) УДАЛЕНА каноном п.30
     // (интервью 14.08.2026): заполненная графа программы у ТД — норма,
@@ -1179,15 +1172,11 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
     // Вводная 06.08: сверка лимита — строки без года плана невидимы для формул
     // официального листа СВОД.
     {
-      label: 'Год плана не указан',
+      label: DASHBOARD_REPORT_KB_ADDITIONS.signal_plan_year_missing.label,
       signal: 'planYearMissing',
       search: 'без года плана',
       color: 'orange',
-      kbFallback: {
-        whatIs: 'Счётные строки — способ определения поставщика указан и плановые деньги есть, — у которых пуста графа «Год (план)». Наш расчёт относит их к отчётному году, а формулы официального листа СВОД проверяют год строго и такие строки не видят: официальный лимит занижен ровно на их сумму.',
-        howCalc: 'Считаются неотменённые строки, у которых способ определения поставщика заполнен, плановая сумма больше нуля, а графа «Год (план)» пуста или помечена как отсутствующая.',
-        thresholdsFull: '🟡 есть строки — проставить год в графе «Год (план)»\n🟢 ноль — лимит официального листа и расчёт сходятся',
-      },
+      kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_plan_year_missing),
     },
     { signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue' },
     { signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo' },
@@ -1204,7 +1193,7 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
     search: string;
     metricKey?: string;
     color: string;
-    kbFallback?: { whatIs: string; howCalc: string; thresholdsFull: string };
+    kbFallback?: ReturnType<typeof kbCardProps>;
   }>;
 
   const colorMap: Record<string, { bg: string; border: string; text: string; number: string; glow: string }> = {
@@ -1228,7 +1217,7 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
     return count > (best?.count ?? 0) ? { label: spot.label, count } : best;
   }, null);
   const assertion = totalSpots === 0
-    ? 'Проверки прошли чисто: ни одного сигнала за выбранный период.'
+    ? 'Проверки прошли чисто: по текущему состоянию книг ни одного сигнала.'
     : leader
       ? `Чаще всего срабатывает «${leader.label}» — ${leader.count} ${pluralRu(leader.count, 'строка', 'строки', 'строк')} из ${totalSpots}.`
       : '';
@@ -1255,6 +1244,12 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
           </span>
         </div>
       </div>
+      {/* Периметр блока — собственной подписью (канон п.58): сигналы считаются
+          по строкам книг на момент последнего чтения; выбор периода в шапке
+          их не сужает, поэтому унаследованный бейдж периода здесь запрещён. */}
+      <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-2">
+        Проверки всех строк книг · на момент последнего чтения · выбор периода в шапке на сигналы не действует
+      </p>
       <p className={`text-xs font-medium mb-4 ${totalSpots === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-600 dark:text-zinc-300'}`}>
         {assertion}
       </p>
@@ -1269,14 +1264,12 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
           // а не просто гаснет.
           const hint = isActive
             ? `Показать строки «${spot.label}» на странице «Контроль»`
-            : `«${spot.label}»: за выбранный период таких строк нет — переходить не к чему`;
+            : `«${spot.label}»: в книгах сейчас таких строк нет — переходить не к чему`;
           return (
             <KBTooltip
               key={spot.signal}
               metric={spot.metricKey}
-              whatIs={spot.kbFallback?.whatIs}
-              howCalc={spot.kbFallback?.howCalc}
-              thresholdsFull={spot.kbFallback?.thresholdsFull}
+              {...(spot.kbFallback ?? {})}
             >
               {/* Карточка без срабатываний не выключается через `disabled`:
                   выключенная кнопка выпадает из обхода клавиатурой и не отдаёт
