@@ -10,7 +10,11 @@ describe('METRIC_KB metric contract', () => {
     expect(entry.label.toLowerCase()).not.toContain('отклонен');
     expect(entry.formula).toContain('fact_total / plan_total');
     expect(entry.note ?? '').toContain('legacy key');
-    expect(`${entry.whatIs ?? ''} ${entry.howCalc ?? ''}`.toLowerCase()).toMatch(/потрачен|факт к плану|освоен/);
+    // Владелец переименовал столбец Q листа СВОД 18.08.2026: «Потрачено, %» →
+    // «Законтрактовано, %». Расчёт не менялся, поэтому в допустимые слова
+    // добавлено новое имя, а запрет называть показатель экономией остался.
+    expect(`${entry.whatIs ?? ''} ${entry.howCalc ?? ''}`.toLowerCase())
+      .toMatch(/потрачен|законтрактован|факт к плану|освоен/);
   });
 
   it('does not label limit−fact deviation as AD-gated economy (high_economy_count / signal_high_economy)', () => {

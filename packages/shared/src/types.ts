@@ -596,6 +596,8 @@ export interface AppConfig {
     port: number;
     host: string;
     logLevel: string;
+    /** Адреса, которым браузер разрешает обращаться к API (канон CORS). */
+    corsOrigins: string[];
   };
   cache: {
     ttlSeconds: number;

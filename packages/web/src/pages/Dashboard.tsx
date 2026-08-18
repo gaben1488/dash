@@ -11,6 +11,7 @@ import { RatingTableV2, type DeptRowV2 } from '../components/RatingTableV2';
 import { DrillPieChart } from '../components/charts/DrillPieChart';
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import { PeriodBadge } from '../components/PeriodBadge';
+import { PlanSemanticsNote } from '../components/PlanSemanticsNote';
 import { AlertTriangle, Info } from 'lucide-react';
 import {
   Cell, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -551,7 +552,12 @@ export function Dashboard() {
                 {showStacked && <span className="text-[10px] text-zinc-400 dark:text-zinc-500 ml-2 font-normal normal-case">(конкурентные и единственный поставщик вместе)</span>}
               </h3>
             </KBTooltip>
-            <PeriodBadge />
+            {/* Период отвечает «за какое время», сноска семантики — «из чего
+                сложен план»: у УДТХ это лимит, у остальных НМЦК (канон п.102). */}
+            <div className="flex flex-col items-end gap-1">
+              <PeriodBadge />
+              <PlanSemanticsNote className="justify-end text-right" />
+            </div>
           </div>
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-4">{planFactAssertion}</p>
           <ResponsiveContainer width="100%" height={220}>

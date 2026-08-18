@@ -20,9 +20,10 @@ import { google } from 'googleapis';
 import { randomUUID } from 'node:crypto';
 import { config, SHDYU_SPREADSHEET_ID } from '../config.js';
 import { DEPARTMENT_SPREADSHEET_IDS } from '@aemr/shared';
-
-/** Мониторинговая книга (п.69в) — тоже под наблюдением. */
-const MONITORING_SPREADSHEET_ID = '15VKFyOPbyP2vJVvmAFVXD0lV14ZwgJ0nxwbhBdjJMps';
+// Мониторинговая книга (п.69в) — тоже под наблюдением. Идентификатор живёт
+// у сервиса чтения книги: два разных значения одной константы означали бы,
+// что вебхук следит не за той книгой, которую читает вкладка.
+import { MONITORING_SPREADSHEET_ID } from './monitoring.js';
 
 /** Все файлы, за которыми следим: 8 книг ГРБС + сводная + ШДЮ + мониторинг. */
 export function watchedFileIds(): string[] {

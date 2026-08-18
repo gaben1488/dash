@@ -554,6 +554,11 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
 
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
       const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear);
+      // Строки, не дошедшие до счёта, обязаны быть названы (реестр багов
+      // 09.07.2026, п.6): счётчик droppedRows появился, но его никто не читал —
+      // молчание осталось прежним.
+      const dropIssue = droppedRowsIssue(sheetName, deptId, grouped.droppedRows, (rows as unknown[][]).length - DEPT_HEADER_ROWS);
+      if (dropIssue) allIssues.push(dropIssue);
       const recalc = adaptToRecalcMetrics(grouped, sheetName);
       mergeRecalcIntoMetrics(calculatedMetrics, recalc, deptId);
       recalcResults[deptId] = recalc;
@@ -643,6 +648,70 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
       pipelineDurationMs: Date.now() - pipelineStart,
       perSheetRowCount,
     },
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// Строки, не дошедшие до счёта
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Порог, за которым отсев строк перестаёт быть бытовым и становится поводом
+ * для разговора: доля отсеянных от числа строк данных листа.
+ *
+ * Реестр багов 09.07.2026, п.6 «CalcEngine молча дропает строки при провале
+ * классификации»: счётчик `droppedRows` в движок добавили, но за пределами
+ * его собственного теста к нему никто не обращался — сдвиг колонок или
+ * сломанный разбор по-прежнему не подавали голоса. Ниже — тот самый
+ * «порог-сигнал», которого не хватало.
+ *
+ * Разделители и пустые вставки между блоками листа — обычное дело, поэтому
+ * замечание не выносится, пока отсев не набрал разом и заметную долю, и
+ * ощутимое число строк: одна пустая строка на маленьком листе — не событие.
+ */
+const DROPPED_ROWS_SHARE_THRESHOLD = 0.1;
+const DROPPED_ROWS_MIN_COUNT = 5;
+/** Доля, при которой речь идёт уже не о мусоре в данных, а о сломанном разборе. */
+const DROPPED_ROWS_BROKEN_SHARE = 0.5;
+
+/**
+ * Замечание о строках, отсеянных до накопления метрик, либо null, если отсев
+ * укладывается в житейскую норму.
+ *
+ * Считаются только строки, отвергнутые классификацией (или пустые слоты);
+ * строки чужого года движок в этот счётчик не пишет — там отбор по сроку, а
+ * не поломка (см. GroupedResults.droppedRows).
+ */
+function droppedRowsIssue(
+  sheetName: string,
+  deptId: string,
+  droppedRows: number,
+  dataRowCount: number,
+): Issue | null {
+  if (dataRowCount <= 0 || droppedRows < DROPPED_ROWS_MIN_COUNT) return null;
+  const share = droppedRows / dataRowCount;
+  if (share < DROPPED_ROWS_SHARE_THRESHOLD) return null;
+
+  const broken = share >= DROPPED_ROWS_BROKEN_SHARE;
+  const percent = (share * 100).toFixed(1).replace('.', ',');
+  return {
+    id: issueIdentity(['dropped-rows', sheetName]),
+    severity: broken ? 'significant' : 'warning',
+    origin: 'runtime_error',
+    category: 'dropped_rows',
+    group: 'data_quality',
+    title: `Строки листа «${sheetName}» не попали в расчёт: ${droppedRows} из ${dataRowCount}`,
+    description: broken
+      ? `Расчёт отверг ${percent} % строк листа — столько сразу отсеивается, когда колонки сдвинуты (вставили или убрали столбец) либо лист прочитан не с той вкладки. Показатели управления в таком виде считать нельзя.`
+      : `Расчёт отверг ${percent} % строк листа: в них не хватает опознавательных признаков закупки (номер, предмет, способ, суммы). В показатели эти строки не вошли.`,
+    sheet: sheetName,
+    departmentId: deptId,
+    recommendation: broken
+      ? 'Сверить шапку листа с эталонной раскладкой столбцов (A — № п/п, G — предмет, K — итого плана, L — способ) и убедиться, что читается нужная вкладка книги.'
+      : 'Открыть лист и просмотреть строки без номера, предмета и способа закупки: либо дозаполнить, либо убрать, если это остатки разметки.',
+    status: 'open',
+    detectedAt: new Date().toISOString(),
+    detectedBy: 'pipeline:calc-engine',
   };
 }
 

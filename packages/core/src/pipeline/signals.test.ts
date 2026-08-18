@@ -511,6 +511,44 @@ describe('Financial signals', () => {
       expect(s.factExceedsPlan).toBe(true);
     });
   });
+
+  describe('epFactDeviation — по ЕП факт обязан равняться плану (канон п.98м + п.102)', () => {
+    it('ЕП, факт < план — горит: «экономия», которой по ЕП быть не должно', () => {
+      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 900_000 }), REF_DATE);
+      expect(s.epFactDeviation).toBe(true);
+      // Превышения нет — factExceedsPlan молчит: сигналы про разное.
+      expect(s.factExceedsPlan).toBe(false);
+    });
+
+    it('ЕП, факт = план — молчит: канон соблюдён', () => {
+      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 1_000_000 }), REF_DATE);
+      expect(s.epFactDeviation).toBe(false);
+    });
+
+    it('ЭА, факт < план — молчит: у конкурентного способа план = НМЦК, экономия — норма торгов (п.102)', () => {
+      const s = detectSignals(makeCells({ L: 'ЭА', K: 1_000_000, Y: 900_000 }), REF_DATE);
+      expect(s.epFactDeviation).toBe(false);
+    });
+
+    it('допуск округления 0.5% (как у factExceedsPlan): микрорасхождение в обе стороны не горит', () => {
+      // План в 2 знака, факт в 5 — копеечный шум не считается расхождением.
+      for (const y of [999_999, 1_000_001, 995_001, 1_004_999]) {
+        const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: y }), REF_DATE);
+        expect(s.epFactDeviation, `Y=${y}`).toBe(false);
+      }
+    });
+
+    it('ЕП, факт > план сверх допуска — то же расхождение (горит вместе с factExceedsPlan)', () => {
+      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 1_100_000 }), REF_DATE);
+      expect(s.epFactDeviation).toBe(true);
+      expect(s.factExceedsPlan).toBe(true);
+    });
+
+    it('ЕП без факта — молчит: строка ещё не исполнена, сравнивать нечего', () => {
+      const s = detectSignals(makeCells({ L: 'ЕП', K: 1_000_000, Y: 0 }), REF_DATE);
+      expect(s.epFactDeviation).toBe(false);
+    });
+  });
 });
 
 describe('FP-fixes 2026-06-05 и их судьба после канона п.27 (14.08.2026)', () => {
@@ -1162,7 +1200,7 @@ describe('classifyRowState', () => {
       economyFlag: false, economyConflict: false, epRisk: false,
       dataQuality: false, formulaBroken: false, singleParticipant: false,
       highEconomy: false, lowCompetition: false, earlyClosure: false,
-      factExceedsPlan: false, stalledContract: false, budgetMismatch: false,
+      factExceedsPlan: false, epFactDeviation: false, stalledContract: false, budgetMismatch: false,
       factWithoutDate: false, dateWithoutFact: false, factDateBeforePlan: false,
       futureFactDate: false,
       planWithoutExecution: false, epJustificationMissing: false,
@@ -1239,7 +1277,7 @@ describe('getSignalBadges', () => {
       economyFlag: false, economyConflict: false, epRisk: false,
       dataQuality: false, formulaBroken: false, singleParticipant: false,
       highEconomy: false, lowCompetition: false, earlyClosure: false,
-      factExceedsPlan: false, stalledContract: false, budgetMismatch: false,
+      factExceedsPlan: false, epFactDeviation: false, stalledContract: false, budgetMismatch: false,
       factWithoutDate: false, dateWithoutFact: false, factDateBeforePlan: false,
       futureFactDate: false,
       planWithoutExecution: false, epJustificationMissing: false,

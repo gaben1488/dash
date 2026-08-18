@@ -7,6 +7,7 @@ import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2,
 import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
 import { PeriodBadge } from '../components/PeriodBadge';
+import { PlanSemanticsNote, planSemanticsHoverText, usePlanSemantics } from '../components/PlanSemanticsNote';
 import {
   TableEditor,
   type ColumnConfig,
@@ -851,6 +852,9 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   });
 
   const planTotal = useMemo(() => filtered.reduce((s: number, r: { planSum?: number }) => s + (r.planSum || 0), 0), [filtered]);
+  // Из чего сложена эта сумма: подпись величины плановых столбцов по периметру
+  // (канон п.102) — уходит и в подсказку показателя, и в сноску рядом с числом.
+  const planSemantics = usePlanSemantics();
   const factTotal = useMemo(() => filtered.reduce((s: number, r: { factSum?: number }) => s + (r.factSum || 0), 0), [filtered]);
 
   const downloadTable = useCallback(() => {
@@ -1326,14 +1330,17 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             {filtered.length} {pluralRu(filtered.length, 'строка', 'строки', 'строк')} в выборке
           </span>
           <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
-          <span className="text-zinc-500 dark:text-zinc-400">
+          <span className="text-zinc-500 dark:text-zinc-400 inline-flex items-center gap-1.5 flex-wrap">
             План:{' '}
             <KbHover
               metricKey="plan_total"
-              live={`${formatMoney(planTotal)} — сумма плановых итогов по строкам текущей выборки (их ${filtered.length}).\nПервичка: колонка «ИТОГО план» книг управлений.\nЭто не показатель листа СВОД: выборка сужена фильтрами.`}
+              live={`${formatMoney(planTotal)} — сумма плановых итогов по строкам текущей выборки (их ${filtered.length}).\nПервичка: колонка «ИТОГО план» книг управлений.\nЭто не показатель листа СВОД: выборка сужена фильтрами.\n\n${planSemanticsHoverText(planSemantics)}`}
             >
               <span className="font-medium text-zinc-700 dark:text-zinc-300 tabular-nums">{formatMoney(planTotal)}</span>
             </KbHover>
+            {/* Сумма по строкам разных книг: у УДТХ в плановой колонке лимит, у
+                остальных НМЦК — подпись идёт вплотную к числу (канон п.102). */}
+            <PlanSemanticsNote compact />
           </span>
           <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
           <span className="text-zinc-500 dark:text-zinc-400">

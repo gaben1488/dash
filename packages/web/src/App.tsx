@@ -11,7 +11,7 @@ import { Dashboard } from './pages/Dashboard';
 // (pages/Report.tsx) сносится после аудита (шаг 7 брифа).
 import {
   ReportPage, SvodView, DataBrowserPage, EconomyPage, CompetitionPage,
-  DisciplinePage, Analytics, QualityPage, SettingsPage, PageSkeleton,
+  DisciplinePage, MonitoringPage, Analytics, QualityPage, SettingsPage, PageSkeleton,
 } from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
 import { setKBRegistry } from './components/ui/kb-tooltip';
@@ -164,6 +164,9 @@ export function App() {
       // фильтром класса строк — своя вкладка навигации, честный счётчик.
       case 'unfunded': return <DataBrowserPage bucket="unfunded" />;
       case 'yearlong': return <DataBrowserPage bucket="yearlong" />;
+      // Мониторинг (п.69в/п.101а): реестр процедур определения поставщика
+      // из книги «Ежедневный мониторинг» — отдельная вкладка, не слита с планом.
+      case 'monitoring': return <MonitoringPage />;
       case 'economy': return <EconomyPage />;
       case 'competition': return <CompetitionPage />;
       case 'discipline': return <DisciplinePage />;

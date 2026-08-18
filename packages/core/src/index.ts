@@ -35,6 +35,7 @@ export { reconcile, reconcileMonthly, crossVerifyQuarterly, type ReconSummary, t
 export { computeUnifiedGrid, reconcileUnified, type UnifiedOfficialMetric, type UnifiedReconRow, type UnifiedReconStatus } from './pipeline/unified-svod.js';
 export { parseSHDYUSheet, validateSHDYUConsistency } from './pipeline/shdyu-ingest.js';
 export { linkRowsToProcedures, buildProcedureIndex, type ProcedureLinkRow, type ProcedureLink, type ProcedureIndex } from './pipeline/procedure-link.js';
+export { matchMonitoring, indexMonitoringProcedures, compareMoney, THOUSANDS_TO_RUB, NMCK_AGREEMENT_TOLERANCE, type MonitoringBookRow, type MonitoringProcedureRow, type MonitoringMatchOutcome, type MoneyComparison, type MonitoringMatch, type BookOnlyCode, type MonitoringOnlyCode, type AmbiguousCode, type ListCellRow, type MonitoringMatchResult } from './pipeline/monitoring-match.js';
 export { analyzeDataset, benfordTest, detectOutliers, classifyEpRisk, classifyExecution, computeCompositeScore, buildNoiseMap, detectDataAnomalies, detectBehavioralAnomalies, detectSystemicAnomalies } from './pipeline/dataset-signals.js';
 export type { BenfordResult, OutlierResult, EpRiskClassification, EpRiskLevel, ExecutionLevel, AnomalySeverity, AnomalyResult, DataAnomaly, BehavioralAnomaly, SystemicAnomaly, CompositeScore, NoiseGroup, DatasetAnalysis, DatasetAnalysisInput } from './pipeline/dataset-signals.js';
 
@@ -66,6 +67,17 @@ export type {
   MonitoringStageContext,
 } from './pipeline/comment-consistency.js';
 
+// Monitoring — реестр процедур определения поставщика из книги «Ежедневный
+// мониторинг» (канон п.69в/п.101а; деньги книги — РУБЛИ, книги ГРБС — тысячи)
+export {
+  MONITORING_DEPT_SHEETS, PROCEDURE_STAGE_LABELS,
+  aggregateMonitoring, monitoringNumber, parseMonitoringProcedures, procedureStage,
+} from './monitoring/procedures.js';
+export type {
+  MonitoringAggregates, MonitoringProcedure, MonitoringRegistry,
+  ProcedureStage, UnparsedCodeRef,
+} from './monitoring/procedures.js';
+
 // History — snapshot-diff (слой 1 фичи «История изменений»)
 export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';
 export type { Direction, Sentiment, MetricRow, MetricDelta } from './history/snapshot-diff.js';
@@ -81,3 +93,20 @@ export { buildUpcoming } from './timeline/upcoming.js';
 export type { UpcomingInputRow, UpcomingOptions, UpcomingRiskRow, UpcomingReason } from './timeline/upcoming.js';
 export { weekSliceObservations, WEEK_SLICE_DATES } from './timeline/week-slices.js';
 export type { WeekSliceKey, WeekSliceObservation } from './timeline/week-slices.js';
+
+// Provenance — провенанс плановых сумм (канон п.102: три семантики K, экономия
+// уходит правкой плана задним числом; журнал правок ведётся неравномерно, поэтому
+// каждый ответ несёт честный признак наблюдаемости)
+export {
+  buildPlanProvenance, summarizeBookProvenance, classifyPlanEdit,
+  parseJournalRowKey, parseJournalInstant, planColumnLabel,
+  UNIT_FIX_RATIO_MIN, UNIT_FIX_RATIO_MAX,
+  // Дефекты заполнения отделены от движения плана: без них «растворённая
+  // экономия» у УО насчитывалась в 27 млрд тыс. руб. вместо 4,4 млн.
+  DEFECT_KINDS, DATE_SERIAL_BAND_MIN, DATE_SERIAL_BAND_MAX,
+} from './provenance/plan-provenance.js';
+export type {
+  PlanProvenance, PlanProvenanceSummary, PlanProvenanceOptions, PlanObservability,
+  PlanEvent, PlanEventKind, PlanColumn, JournalRecord, PlanRowInput,
+  ParsedJournalRowKey, BookProvenanceSummary,
+} from './provenance/plan-provenance.js';

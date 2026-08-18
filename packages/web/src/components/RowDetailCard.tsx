@@ -9,6 +9,8 @@ import { toCanonicalDeptId } from '../lib/dept-key';
 import { activityRowLabel, signalChipText, signalTone } from '../lib/rows/registry-view';
 import { looksLikeEconomyDisposal } from '../lib/economy/disposal';
 import { RowTimelineSection } from './timeline/RowTimelineSection';
+import { PlanProvenanceSection } from './provenance/PlanProvenanceSection';
+import { toRowSeq } from '../hooks/useRowProvenance';
 import { YearlongBadge } from './yearlong/YearlongBadge';
 import { YearlongKindSelect } from './yearlong/YearlongKindSelect';
 
@@ -488,6 +490,24 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
               <YearlongKindSelect dept={String(row.dept ?? '')} ppNum={row.id} className="mt-2" />
             </div>
           )}
+
+          {/* Провенанс плановой суммы (канон п.102). Плановая ячейка K несёт в
+              разных книгах три разные сущности: неизменную НМЦК; НМЦК за
+              вычетом изъятого перераспределением; распределяемый лимит, который
+              при экономии снимают со строки и переносят на следующую. В двух
+              последних случаях экономия уходит правкой ПЛАНА задним числом и
+              исчезает из разницы план−факт — единственный её след лежит в
+              журнале правок книги. Секция достаёт этот след и подписывает
+              честно, включая случай, когда журнала по книге почти нет. */}
+          <div>
+            <SectionTitle>Откуда взялась плановая сумма</SectionTitle>
+            <PlanProvenanceSection
+              deptId={deptId}
+              rowSeq={toRowSeq(row.id)}
+              planNow={planSum}
+              planCell={cell('K')}
+            />
+          </div>
 
           {/* История строки: журнал правок + снимки + срезы недель (канон п.75в).
               Ленивая: запрос уходит только при раскрытии секции. */}

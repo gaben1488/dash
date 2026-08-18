@@ -49,10 +49,13 @@ export interface SvodRow {
   factMB: number | null;
   /** O — Итого факт */
   factTotal: number | null;
-  /** P — Отклонение сумм */
+  /** P — «Отклонение, тыс. руб» (O−K = факт−план) */
   amountDeviation: number | null;
-  /** Q — Потрачено, % (расход = O/K; шапка листа «Потрачено, %»; доля 0..1).
-   *  Снапшотный ключ остаётся savings_pct — это персистентный формат снимков. */
+  /** Q — «Законтрактовано, %» (O/K = факт/план в деньгах; доля 0..1).
+   *  Владелец переименовал столбец 18.08.2026 (было «Потрачено, %»), расчёт
+   *  не менялся. Имя поля и снапшотный ключ savings_pct оставлены: это
+   *  персистентный формат снимков, а имя на экране берётся из
+   *  SVOD_SHEET_FIELDS (svod-sheet-names.ts). */
   spentPct: number | null;
   /** R — Экономия ФБ */
   economyFB: number | null;
@@ -177,7 +180,7 @@ function sumRows(a: SvodRow, b: SvodRow): SvodRow {
     factMB: add(a.factMB, b.factMB),
     factTotal,
     amountDeviation: add(a.amountDeviation, b.amountDeviation),
-    // Q = «Потрачено, %» (шапка листа СВОД) = O/K = факт/план, как держат ячейки КП/ЕП
+    // Q = «Законтрактовано, %» (шапка листа СВОД) = O/K = факт/план, как держат ячейки КП/ЕП
     // (orchestrator.ts: savings_pct = factSum/planSum). ИТОГО обязан быть той же семантики,
     // что суммируемые строки — НЕ (K−O)/K (это было бы «недоосвоено», обратный смысл).
     spentPct: ratio(factTotal, planTotal),

@@ -1,5 +1,10 @@
-import type { ValidationRule, RuleCheckContext, RuleCheckResult } from './types.js';
+import type { ClassifiedRow, ValidationRule, RuleCheckContext, RuleCheckResult } from './types.js';
 import { DEPARTMENT_REGISTRY } from './department-registry.js';
+import {
+  detectCellHygiene,
+  detectSubordinateNameHygiene,
+  type TextHygieneFinding,
+} from './text-hygiene.js';
 
 // ============================================================
 // RuleBook — правила проверки данных АЕМР
@@ -601,6 +606,240 @@ const deptEconomySumConsistency: ValidationRule = {
 };
 
 // ============================================================
+// ПРАВИЛО 13: Сквозная нумерация «№ п/п» (колонка A) — канон п.98з
+// (docs/superpowers/audits/2026-08-14-interview-register.md).
+// Проверка УРОВНЯ ЛИСТА, не строки: дубли, пропуски и пустые номера
+// собираются в ОДНУ карточку со списком адресов (каскад п.53), а не в
+// россыпь замечаний по каждой строке.
+// ============================================================
+
+/**
+ * Счётная строка для нумерации — строка, обязанная нести «№ п/п»:
+ * классифицирована как данные (procurement / procurement_derived / service)
+ * либо несёт явные признаки закупки (способ L + план K > 0) при сомнительной
+ * классификации. Служебные строки (шапка, разделитель, «итого», текстовая
+ * пометка) номера не носят — пустая A у них не дефект.
+ */
+const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
+  'procurement',
+  'procurement_derived',
+  'service',
+]);
+
+function isNumberedRow(row: ClassifiedRow): boolean {
+  if (NUMBERED_CLASSES.has(row.classification)) return true;
+  // Шапку validateData не проверяет вовсе: якорь на ней молча отключил бы
+  // проверку всего листа — поэтому header из страховки исключён.
+  if (row.classification === 'header') return false;
+  return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
+}
+
+/**
+ * Якорь листа — первая счётная строка. check() зовётся для каждой строки, а
+ * карточка на лист нужна одна (каскад п.53), поэтому анализ выполняется только
+ * на якоре. WeakMap-кэш по массиву строк листа избавляет от повторного
+ * сканирования на каждой строке (лист управления — сотни строк).
+ */
+const numberingAnchorCache = new WeakMap<ClassifiedRow[], number | null>();
+
+function numberingAnchor(all: ClassifiedRow[]): number | null {
+  const cached = numberingAnchorCache.get(all);
+  if (cached !== undefined) return cached;
+  let min: number | null = null;
+  for (const r of all) {
+    if (isNumberedRow(r) && (min === null || r.rowIndex < min)) min = r.rowIndex;
+  }
+  numberingAnchorCache.set(all, min);
+  return min;
+}
+
+/** Пределы перечней в карточке: диагноз, а не простыня (тон п.53). */
+const NUMBERING_LIST_CAP = 20;
+const NUMBERING_DUPES_CAP = 10;
+
+const rowNumbering: ValidationRule = {
+  id: 'row_numbering',
+  name: 'Сквозная нумерация «№ п/п» (колонка A)',
+  description:
+    'Счётные строки листа несут сквозную нумерацию в колонке A: без повторов, ' +
+    'пропусков и пустых номеров. Проверка уровня листа — одна карточка со ' +
+    'списком адресов (канон п.98з; каскад п.53).',
+  severity: 'warning',
+  origin: 'bi_heuristic',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!ctx.allRows || ctx.allRows.length === 0) return { passed: true };
+    const anchor = numberingAnchor(ctx.allRows);
+    if (anchor === null || ctx.rowIndex !== anchor) return { passed: true };
+
+    const counted = ctx.allRows
+      .filter(isNumberedRow)
+      .sort((a, b) => a.rowIndex - b.rowIndex);
+
+    // Разбор колонки A: пустые номера, дубли (по нормализованному значению),
+    // целые номера — для поиска пропусков в последовательности.
+    const emptyRows: number[] = [];
+    const byNo = new Map<string, number[]>();
+    const ints = new Set<number>();
+    for (const r of counted) {
+      const raw = String(r.cells['A'] ?? '').trim();
+      if (!raw) {
+        emptyRows.push(r.rowIndex);
+        continue;
+      }
+      const n = toNumber(raw);
+      const intNo = n !== null && Number.isInteger(n) ? n : null;
+      if (intNo !== null) ints.add(intNo);
+      // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
+      const key = intNo !== null ? String(intNo) : raw;
+      const at = byNo.get(key);
+      if (at) at.push(r.rowIndex);
+      else byNo.set(key, [r.rowIndex]);
+    }
+
+    const dupes = [...byNo.entries()].filter(([, at]) => at.length > 1);
+
+    // Пропуски: макс−мин против количества уникальных целых №.
+    let minNo = 0;
+    let maxNo = 0;
+    let missingCount = 0;
+    const missingList: number[] = [];
+    if (ints.size >= 2) {
+      minNo = Math.min(...ints);
+      maxNo = Math.max(...ints);
+      missingCount = maxNo - minNo + 1 - ints.size;
+      if (missingCount > 0) {
+        // Скан ограничен и по перечню, и по числу шагов: номер-опечатка
+        // (53 → 5300) раздувает диапазон, карточка не должна раздуваться с ним.
+        for (
+          let n = minNo + 1, scanned = 0;
+          n < maxNo && missingList.length < NUMBERING_LIST_CAP && scanned < 100_000;
+          n++, scanned++
+        ) {
+          if (!ints.has(n)) missingList.push(n);
+        }
+      }
+    }
+
+    if (dupes.length === 0 && missingCount === 0 && emptyRows.length === 0) {
+      return { passed: true };
+    }
+
+    const parts: string[] = [];
+    if (dupes.length > 0) {
+      const shown = dupes
+        .slice(0, NUMBERING_DUPES_CAP)
+        .map(([no, at]) => `№ ${no} — строки листа ${at.join(', ')}`);
+      parts.push(
+        `повторяются: ${shown.join('; ')}` +
+          (dupes.length > NUMBERING_DUPES_CAP
+            ? `; и ещё ${dupes.length - NUMBERING_DUPES_CAP} повторяющихся №`
+            : ''),
+      );
+    }
+    if (missingCount > 0) {
+      parts.push(
+        `отсутствуют: № ${missingList.join(', ')}` +
+          (missingCount > missingList.length ? ` и ещё ${missingCount - missingList.length}` : '') +
+          ` (диапазон ${minNo}–${maxNo} вмещает ${maxNo - minNo + 1} №, в колонке ${ints.size})`,
+      );
+    }
+    if (emptyRows.length > 0) {
+      const shown = emptyRows.slice(0, NUMBERING_LIST_CAP);
+      parts.push(
+        `без номера счётные строки листа ${shown.join(', ')}` +
+          (emptyRows.length > shown.length ? ` и ещё ${emptyRows.length - shown.length}` : ''),
+      );
+    }
+
+    return {
+      passed: false,
+      message:
+        `Нумерация «№ п/п» (колонка A) листа сбита — ${parts.join('; ')}. ` +
+        `№ п/п — стабильный адрес строки: лист живёт, строки двигаются, и найти ` +
+        `строку при перемещениях можно только по нему (п.98б).`,
+      actual: `${dupes.length} повторов, ${missingCount} пропусков, ${emptyRows.length} пустых`,
+      expected: 'сквозная нумерация без повторов, пропусков и пустых № п/п',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 14: Гигиена текста — канон п.98д (пакет поручений 18.08) + п.95/55
+// (docs/superpowers/audits/2026-08-14-interview-register.md).
+// Проверка УРОВНЯ ЛИСТА, как и нумерация A: находки по колонкам C (подвед)
+// и G (предмет) собираются в ОДНУ карточку «ячейка → дефект → готовое
+// исправление» (каскад п.53), а не в россыпь по каждой строке.
+// ============================================================
+
+/** Пределы перечня карточки гигиены: диагноз, а не простыня (тон п.53). */
+const HYGIENE_LIST_CAP = 20;
+
+const textHygiene: ValidationRule = {
+  id: 'text_hygiene',
+  name: 'Гигиена текста (C — подвед, G — предмет)',
+  description:
+    'Технические дефекты набора в текстовых ячейках: двойные и краевые ' +
+    'пробелы, пробел не с той стороны знака препинания, невидимые символы, ' +
+    'латиница внутри кириллического слова, имя подведа с отступлением от ' +
+    'справочника. Одна карточка на лист: адрес → дефект → готовое ' +
+    'исправленное значение, скопировать и вставить (п.98д).',
+  severity: 'info',
+  origin: 'bi_heuristic',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!ctx.allRows || ctx.allRows.length === 0) return { passed: true };
+    // Якорь и предикат счётной строки — те же, что у нумерации A: одна
+    // карточка на лист рождается на первой счётной строке, служебные строки
+    // («итого», разделители) чистке не подлежат.
+    const anchor = numberingAnchor(ctx.allRows);
+    if (anchor === null || ctx.rowIndex !== anchor) return { passed: true };
+
+    const counted = ctx.allRows
+      .filter(isNumberedRow)
+      .sort((a, b) => a.rowIndex - b.rowIndex);
+
+    // Одна запись перечня = одна ячейка: дефекты ячейки сливаются в одну
+    // строку, потому что fix у них общий — готовое значение всей ячейки.
+    const items: Array<{ cell: string; what: string; fix: string }> = [];
+    const pushCell = (col: 'C' | 'G', rowIndex: number, findings: TextHygieneFinding[]) => {
+      if (findings.length === 0) return;
+      const labels = [...new Set(findings.map((f) => f.label))];
+      items.push({ cell: `${col}${rowIndex}`, what: labels.join(', '), fix: findings[0].fix });
+    };
+
+    for (const r of counted) {
+      // C сличается со справочником имён подведов, G — только механика:
+      // предмет закупки — свободный текст, канона имён у него нет.
+      pushCell('C', r.rowIndex, detectSubordinateNameHygiene(r.cells['C']));
+      pushCell('G', r.rowIndex, detectCellHygiene(r.cells['G']));
+    }
+
+    if (items.length === 0) return { passed: true };
+
+    const shown = items
+      .slice(0, HYGIENE_LIST_CAP)
+      .map((i) => `${i.cell} — ${i.what} → вставить: «${i.fix}»`);
+    const rest = items.length > shown.length ? `; и ещё ${items.length - shown.length} ячеек` : '';
+
+    return {
+      passed: false,
+      // Адрес первой находки — точка входа карточки; остальные в перечне.
+      cell: items[0].cell,
+      message:
+        `Текст листа несёт технические дефекты набора в ${items.length} ` +
+        `ячейках (C — подвед, G — предмет): ${shown.join('; ')}${rest}. ` +
+        `Каждое исправление — готовое значение ячейки: скопировать и ` +
+        `вставить целиком (п.98д).`,
+      actual: `${items.length} ячеек с дефектами текста`,
+      expected: 'текст без лишних и невидимых символов, имена подведов по справочнику',
+    };
+  },
+};
+
+// ============================================================
 // ПРАВИЛО 12: УДАЛЕНО — dept_fact_leq_plan
 // Дублировало сигнал factExceedsPlan (signals.ts, порог 10%).
 // Проверка Y>K на dept sheets выполняется ТОЛЬКО через signal → Issue.
@@ -648,6 +887,8 @@ export const RULE_BOOK: ValidationRule[] = [
   statusOnDataRows,          // 8  -- AD gate: economy cols ≠ 0 → AD required
   deptFactSumConsistency,    // 10 -- Y=V+W+X (dept fact total)
   deptEconomySumConsistency, // 11 -- AC=Z+AA+AB (dept economy total)
+  rowNumbering,              // 13 -- № п/п (A): дубли/пропуски/пустые, одна карточка на лист (п.98з)
+  textHygiene,               // 14 -- гигиена текста C/G: одна карточка на лист с готовыми исправлениями (п.98д)
   // deptFactLeqPlan УДАЛЁН (#12) — дубль сигнала factExceedsPlan
   // formulaContinuity УДАЛЁН (#13) — дублирует budget_sum_plan (#1a) + dept_fact_sum (#10)
 ];

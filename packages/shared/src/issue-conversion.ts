@@ -13,6 +13,10 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   overdue: 'overdue',
   stalledContract: 'stalled_contract',
   factExceedsPlan: 'fact_vs_plan',
+  // 18.08: расхождение факт/план по ЕП (канон п.98м + п.102) — отдельная
+  // проверка, не fact_vs_plan: по ЕП план обязан равняться факту, и «экономия»
+  // (факт < план) там тоже расхождение, а не норма торгов.
+  epFactDeviation: 'ep_fact_deviation',
   earlyClosure: 'early_closure',
   highEconomy: 'anti_dumping',
   epRisk: 'ep_risk',

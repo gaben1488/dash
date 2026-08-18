@@ -41,6 +41,9 @@ export type {
 // Re-export rule-book
 export * from './rule-book.js';
 
+// Re-export гигиена текста (детекторы п.98д: готовые исправления ячеек для операторов)
+export * from './text-hygiene.js';
+
 // Re-export constants
 export * from './constants.js';
 
@@ -92,17 +95,30 @@ export * from './svod-view.js';
 // Re-export единая сетка СВОД (CalcEngine-истина: активность×метод×бюджет×период)
 export * from './unified-svod.js';
 
+// Re-export имена показателей листа СВОД ТД-ПМ (переименование владельца 18.08.2026):
+// «Заключено, %», «Законтрактовано, %», «Остаток к заключ.», переключатель B1
+export * from './svod-sheet-names.js';
+
 // Re-export unified class system
 export * from './unified-class-system.js';
 
 // Re-export department registry (canonical source of truth)
 export * from './department-registry.js';
 
+// Re-export семантику плановой суммы книг (канон п.102, 18.08.2026): столбцы
+// H/I/J/K несут у разных управлений НМЦК, НМЦК за вычетом изъятого или лимит —
+// подпись обязана идти рядом с числом, иначе сводный план врёт молча
+export * from './plan-semantics.js';
+
 // Re-export sheet classifier (SSOT: имя листа → смысл; см. classifySheet)
 export * from './sheet-classifier.js';
 
 // Re-export словарь продукта (SSOT человеческих лейблов: внутренний ключ → русская фраза)
 export * from './product-dictionary.js';
+
+// Re-export карту происхождения метрик (канон п.104, 18.08.2026): из какого из
+// пяти источников показатель родом и совпадает ли наш счёт со счётом источника
+export * from './metric-provenance.js';
 
 // Re-export all dictionaries (canonical methods, ГРБС aliases, EP reasons, legal refs, etc.)
 // See packages/shared/src/dictionaries/index.ts for full barrel.

@@ -29,6 +29,8 @@ export const EconomyPage = lazy(() =>
   freshImport(() => import('./Economy')).then(m => ({ default: m.EconomyPage })));
 export const CompetitionPage = lazy(() =>
   freshImport(() => import('./Competition')).then(m => ({ default: m.CompetitionPage })));
+export const MonitoringPage = lazy(() =>
+  freshImport(() => import('./Monitoring')).then(m => ({ default: m.MonitoringPage })));
 export const DisciplinePage = lazy(() =>
   freshImport(() => import('./Discipline')).then(m => ({ default: m.DisciplinePage })));
 export const Analytics = lazy(() =>
@@ -102,6 +104,8 @@ const SHAPE_BY_PAGE: Partial<Record<Page, SkeletonShape>> = {
   economy: 'charts',
   competition: 'cards',
   discipline: 'cards',
+  // Мониторинг — таблица реестра процедур: скелет той же формы.
+  monitoring: 'table',
   data: 'table',
   // Корзины Реестра (п.73в) — тот же табличный раздел.
   unfunded: 'table',

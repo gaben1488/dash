@@ -442,9 +442,16 @@ export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
   { key: 'execution_pct', label: '% исполнения', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // P: Amount deviation = fact_total - plan_total (как лист СВОД, недоосвоение < 0)
   { key: 'amount_deviation', label: 'Отклонение сумм', unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
-  // Q: Amount deviation % = (plan_total - fact_total) / plan_total (decimal).
-  // This is not approved economy; approved economy is economy_total.
-  { key: 'savings_pct', label: 'Потрачено, %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
+  // Q листа СВОД: fact_total / plan_total — та же дробь, что и у execution_pct
+  // выше. Дубль намеренный: у столбца Q своё имя в отчёте, а ключ savings_pct
+  // записан в сохранённых снимках и переименованию не подлежит.
+  // Экономией это не является: утверждённая экономия — economy_total (Z+AA+AB
+  // под гейтом AD='да'), разница лимит−факт — amount_deviation. Прежний
+  // комментарий описывал здесь формулу (plan−fact)/plan, которой в коде нет
+  // (реестр багов 09.07.2026, п.5 «savings_pct = копия execution_pct»:
+  // мислейбл снят переименованием 18.08.2026, ложное описание осталось).
+  // Имя листа СВОД после переименования владельцем 18.08.2026 (было «Потрачено, %»).
+  { key: 'savings_pct', label: 'Законтрактовано, %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
   // U: Economy total = economy_fb + economy_kb + economy_mb
   { key: 'economy_total', label: 'Экономия ИТОГО', unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
   // Total procedures and EP share

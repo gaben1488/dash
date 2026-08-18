@@ -76,6 +76,10 @@ export const SIGNAL_SEVERITY: Readonly<Record<string, SignalSeverity>> = {
   budgetSourceMissing: 'warning',
   methodReasonMismatch: 'warning',
   unmappedReasonEP: 'warning',
+  // Канон п.98м + п.102 (18.08.2026): по ЕП план обязан равняться факту;
+  // расхождение — ошибка заполнения либо «экономия», которой по ЕП не бывает.
+  // Тон warning, не critical: чаще всего это ошибка ввода, а не нарушение.
+  epFactDeviation: 'warning',
   // ── Пробелы в данных ──
   dataQuality: 'gap',
   // Канон п.71 (14.08.2026): суммы факта без даты заключения — законная стадия

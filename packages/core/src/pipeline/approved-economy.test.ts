@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { DEPT_COLUMNS } from '@aemr/shared';
-import { approvedEconomy } from './calc-engine.js';
+import { approvedEconomy, STANDARD_DERIVED } from './calc-engine.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -65,5 +65,20 @@ describe('approvedEconomy — AD-gate SSOT', () => {
 
   it('нечисловые ячейки экономии трактует как 0, не как NaN', () => {
     expect(approvedEconomy(makeRow({ ecoFB: '', ecoKB: 'абв', ecoMB: 5, flag: 'да' }))).toBe(5);
+  });
+});
+
+describe('savings_pct — столбец Q экономией не называется (реестр багов 09.07.2026, п.5)', () => {
+  const savings = STANDARD_DERIVED.find(m => m.key === 'savings_pct');
+
+  it('считается как факт к плану — ровно то, что стоит в столбце Q', () => {
+    expect(savings).toBeDefined();
+    expect(savings!.formula).toEqual({ op: 'pct', numerator: 'fact_total', denominator: 'plan_total' });
+  });
+
+  it('в подписи нет слова «экономия» — иначе показатель прочтут как сбережённые деньги', () => {
+    // Экономия в продукте одна: economy_total = Z+AA+AB под гейтом AD='да'.
+    // Прежняя подпись у столбца Q стоила ложного прочтения на планёрке.
+    expect(savings!.label.toLowerCase()).not.toContain('эконом');
   });
 });

@@ -3,7 +3,7 @@ import type { BudgetType, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
   Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
-  CalendarX2, Repeat,
+  CalendarX2, Repeat, Radar,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -25,6 +25,11 @@ const PAGE_FILTERS: Record<string, FilterGroup[]> = {
   // дезориентировали бы (класс определяется способом, фильтр не работает).
   unfunded:   ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
   yearlong:   ['period', 'currency', 'activity', 'budget', 'search'],
+  // Мониторинг — другая книга (процедуры, деньги в рублях): глобальные фильтры
+  // книг ГРБС (период/способ/бюджет) к ней не применяются — показывать их
+  // значило бы обещать отбор, которого нет. Свои фильтры (стадия/заказчик) —
+  // внутри страницы.
+  monitoring: [],
   economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
   // Конкуренция — сравнение ЕП против конкурентных встроено в сами блоки:
   // фильтр способа закупки здесь дезориентировал бы (блоки его не применяют).
@@ -69,6 +74,9 @@ const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string; t
   // (#fde68a ≈ 12,3:1, #c7d2fe ≈ 10,9:1).
   { id: 'unfunded',  label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием (год плана не проставлен)', icon: CalendarX2, color: '#fde68a' },  // Light Amber (п.23)
   { id: 'yearlong',  label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat, color: '#c7d2fe' },  // Light Indigo (п.71)
+  // Мониторинг (п.69в/п.101а): реестр процедур из книги «Ежедневный
+  // мониторинг». Светлый тон ради тёмной подписи активной кнопки (#bae6fd ≈ 12:1).
+  { id: 'monitoring', label: 'Мониторинг', title: 'Реестр процедур определения поставщика — книга «Ежедневный мониторинг»', icon: Radar, color: '#bae6fd' },  // Light Sky
   { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald
   { id: 'competition', label: 'Конкуренция', icon: Gavel,    color: '#5eead4' },  // Light Teal (тёмная подпись ≥4,5:1)
   { id: 'discipline', label: 'Дисциплина', icon: ListChecks, color: '#fdba74' },  // Light Orange — рабочий список дел

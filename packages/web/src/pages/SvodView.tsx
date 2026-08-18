@@ -4,10 +4,14 @@ import { api, humanizeRequestError } from '../api';
 import {
   SVOD_SPREADSHEET_ID,
   ACTIVITY_LABEL,
+  SVOD_SHEET_BLOCK_TITLES,
+  SVOD_SHEET_EXTRAS,
+  SVOD_SWITCH_BY_SCOPE,
   THRESHOLDS,
   UI_LABELS,
   productLabel,
   quarterLabel,
+  svodSheetName,
   type SvodRow,
   type SvodBlock,
   type SvodView as SvodViewShape,
@@ -28,6 +32,14 @@ import {
 } from '../lib/svod/activity';
 import { activePeriodButton, resolveSvodPeriod } from '../lib/svod/period';
 import { collapsePeriods, hasCellsForPeriods, isGridEmpty } from '../lib/svod/grid';
+import {
+  epShareByCount,
+  methodShares,
+  remainderToConclude,
+  type SvodMethodShares,
+  type SvodRemainder,
+} from '../lib/svod/sheet-metrics';
+import { PeriodBadge } from '../components/PeriodBadge';
 import {
   isCountMetric,
   reconAvailability,
@@ -115,20 +127,22 @@ interface UnifiedResp {
 
 type SectionKind = 'kp' | 'ep' | 'total';
 
+// Подсказки разделов — заголовки блоков листа СВОД ТД-ПМ дословно (D3/D15/A28):
+// раздел на экране и раздел на листе обязаны называться одним и тем же.
 const SECTION_META: Record<SectionKind, { label: string; hint: string; tagClass: string }> = {
   kp: {
     label: 'КП',
-    hint: 'Конкурентные процедуры — аукцион, конкурс, запрос котировок',
+    hint: `Блок листа «${SVOD_SHEET_BLOCK_TITLES.kp}»`,
     tagClass: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
   },
   ep: {
     label: 'ЕП',
-    hint: 'Закупки у единственного поставщика',
+    hint: `Блок листа «${SVOD_SHEET_BLOCK_TITLES.ep}»`,
     tagClass: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
   },
   total: {
     label: 'ИТОГО',
-    hint: 'Конкурентные процедуры плюс закупки у единственного поставщика',
+    hint: `Строка листа «${SVOD_SHEET_BLOCK_TITLES.total}»: конкурентные процедуры плюс единственный поставщик`,
     tagClass: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-200',
   },
 };
@@ -267,6 +281,18 @@ export function SvodView() {
   const headRow: SvodRow | null = sliced
     ? (methodFilter ? sliced.summary[methodFilter].year : sliced.summary.total.year)
     : null;
+
+  // ── Ярус листа поверх блоков (до 18.08.2026 вкладка его не показывала) ──
+  // «Остаток к заключ.» шапки листа и строки долей ЭА/ЕП. Считаются по строке
+  // ИТОГО текущего среза, а не по одной ячейке листа: срез шире, арифметика та же.
+  const remainder = useMemo<SvodRemainder | null>(
+    () => (headRow ? remainderToConclude(headRow) : null),
+    [headRow],
+  );
+  const shares = useMemo<SvodMethodShares | null>(
+    () => (sliced ? methodShares(sliced.summary) : null),
+    [sliced],
+  );
   const sliceEmpty =
     headRow !== null && (headRow.planCount ?? 0) === 0 && (headRow.factCount ?? 0) === 0;
   const periodMissing =
@@ -393,6 +419,16 @@ export function SvodView() {
             <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
               показано: {activityPhrase(cats)}
             </span>
+            {/* Тот же выбор на листе — переключатель B1. Молчать об этом нельзя:
+                ВСЕ формулы листа несут условие «вид деятельности = B1», и
+                читатель, сверяющий число с листом, обязан знать, в каком
+                положении переключатель даёт то же самое. */}
+            <span
+              className="text-[11px] text-zinc-400 dark:text-zinc-500"
+              title={`Все COUNTIFS и SUMIFS листа фильтруют строки условием «вид деятельности = B1». Расшифровка листа: «${SVOD_SHEET_EXTRAS.switchLegend}». Одно отличие: критерий «*» на листе ловит только НЕПУСТОЙ вид деятельности, поэтому строка с пустой графой в число листа не входит, а в срез «ВСЕ» здесь входит.`}
+            >
+              на листе это переключатель B1 = «{SVOD_SWITCH_BY_SCOPE[scope]}»
+            </span>
           </fieldset>
 
           {/* Пояснение про «ТД-ПМ» удалено: срез упразднён каноном п.30
@@ -511,35 +547,52 @@ export function SvodView() {
           </Notice>
         )}
 
-        {/* Сводные чипы — те же числа, что в строке ИТОГО таблицы */}
+        {/* Сводные чипы — те же числа, что в строке ИТОГО таблицы. Подписи
+            берутся из карты имён листа (SVOD_SHEET_FIELDS), а не пишутся тут:
+            после переименования 18.08.2026 экран обязан говорить словами листа. */}
         {headRow && !sliceEmpty && (
-          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             <SummaryChip
               metricKey="plan_count"
+              label={svodSheetName('planCount')}
               value={countText(headRow.planCount)}
               live={`${countText(headRow.planCount)} закупок запланировано за ${periodSel.shortLabel}`}
             />
             <SummaryChip
               metricKey="fact_count"
+              label={svodSheetName('factCount')}
               value={countText(headRow.factCount)}
               live={`${countText(headRow.factCount)} закупок состоялось за ${periodSel.shortLabel}`}
             />
             <SummaryChip
               metricKey="exec_count_pct"
+              label={svodSheetName('executionPct')}
               value={pctText(headRow.executionPct)}
               valueClass={execColorClass(headRow.executionPct)}
-              live={`${pctText(headRow.executionPct)} = ${countText(headRow.factCount)} ÷ ${countText(headRow.planCount)}`}
+              live={`${pctText(headRow.executionPct)} = ${countText(headRow.factCount)} ÷ ${countText(headRow.planCount)} (столбец G листа)`}
+            />
+            {/* Столбец Q листа. Его на вкладке не было вовсе, хотя число уже
+                считалось: «Законтрактовано» — деньги, «Заключено» — штуки. */}
+            <SummaryChip
+              metricKey="savings_pct"
+              label={svodSheetName('spentPct')}
+              value={pctText(headRow.spentPct)}
+              valueClass={execColorClass(headRow.spentPct)}
+              live={`${pctText(headRow.spentPct)} = ${fmtMoney(headRow.factTotal)} ÷ ${fmtMoney(headRow.planTotal)} (${moneyLabel}, столбец Q листа)`}
             />
             <SummaryChip
               metricKey="economy_total"
               value={`${fmtMoney(headRow.economyTotal)} ${moneyLabel}`}
               live={`${fmtMoney(headRow.economyTotal)} = ${fmtMoney(headRow.economyFB)} + ${fmtMoney(headRow.economyKB)} + ${fmtMoney(headRow.economyMB)} (${moneyLabel})`}
             />
-            {methodFilter === null && sliced && (
+            {/* Доля ЕП — ПО ДЕНЬГАМ, как строка «Доля ЕП:» листа (O/O плана и
+                факта). Прежний чип считал её по штукам под тем же словом. */}
+            {methodFilter === null && shares && (
               <SummaryChip
-                metricKey="ep_share_pct"
-                value={pctText(epShareOf(sliced))}
-                live={`${pctText(epShareOf(sliced))} = ${countText(sliced.summary.ep.year.planCount)} ÷ ${countText(sliced.summary.total.year.planCount)} (по количеству)`}
+                metricKey="share_ep_money"
+                label={`${SVOD_SHEET_EXTRAS.shareEp.replace(/:$/, '')}, план`}
+                value={pctText(shares.ep.plan)}
+                live={`${pctText(shares.ep.plan)} = ${fmtMoney(sliced?.summary.ep.year.planTotal ?? null)} ÷ ${fmtMoney(sliced?.summary.total.year.planTotal ?? null)} (${moneyLabel})`}
               />
             )}
           </div>
@@ -582,6 +635,7 @@ export function SvodView() {
           text={`Выбрано: ${scopeLine}. Снимите часть условий — вид деятельности, управление или способ закупки — чтобы увидеть числа.`}
         />
       ) : (
+        <>
         <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
@@ -634,9 +688,23 @@ export function SvodView() {
             экономию. Единица листа — тысячи рублей. «ИТОГО» = конкурентные процедуры плюс
             единственный поставщик. Управление здесь — главный распорядитель бюджетных
             средств (ГРБС). Строки-вкладчицы любого блока открываются ссылкой «строки в
-            Реестре» в его заголовке.
+            Реестре» в его заголовке. Столбцы названы словами листа: владелец переименовал
+            их 18.08.2026 («Выполнено, %» → «Заключено, %», «Потрачено, %» →
+            «Законтрактовано, %»), расчёт при этом не менялся. Расчётной экономии (около
+            8 %) и расчётной экономии без УИО на листе больше нет — поэтому нет их и здесь.
           </p>
         </div>
+
+        <SheetExtras
+          remainder={remainder}
+          shares={shares}
+          epByCount={sliced ? epShareByCount(sliced.summary) : null}
+          budgets={budgetSet}
+          fmtMoney={fmtMoney}
+          moneyLabel={moneyLabel}
+          methodFiltered={methodFilter !== null}
+        />
+        </>
       )}
     </div>
   );
@@ -656,11 +724,221 @@ function headline(row: SvodRow): string {
   return `Исполнение ${pctText(row.executionPct)} — ${countText(fact)} из ${countText(plan)} закупок`;
 }
 
-/** Доля ЕП по количеству плановых закупок; нулевой план → «нет плана». */
-function epShareOf(view: SvodViewShape): number | null {
-  const total = view.summary.total.year.planCount ?? 0;
-  if (total === 0) return null;
-  return (view.summary.ep.year.planCount ?? 0) / total;
+/**
+ * Ярус листа поверх таблицы: «Остаток к заключению» и доли способов закупки.
+ *
+ * Оба показателя лист считает сам, а вкладка не показывала ни одного. Карточки
+ * держат правило вкладок (канон п.58): каждая называет период своих данных
+ * плашкой и оговаривает, чем её охват отличается от охвата листа.
+ */
+function SheetExtras({
+  remainder, shares, epByCount, budgets, fmtMoney, moneyLabel, methodFiltered,
+}: {
+  remainder: SvodRemainder | null;
+  shares: SvodMethodShares | null;
+  epByCount: number | null;
+  budgets: ReadonlySet<BudgetKey>;
+  fmtMoney: (n: number | null) => string;
+  moneyLabel: string;
+  /** Выбран один способ закупки: доли считать не от чего. */
+  methodFiltered: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <RemainderCard
+        remainder={remainder}
+        budgets={budgets}
+        fmtMoney={fmtMoney}
+        moneyLabel={moneyLabel}
+      />
+      <SharesCard shares={shares} epByCount={epByCount} methodFiltered={methodFiltered} />
+    </div>
+  );
+}
+
+/** Каркас карточки яруса — кремовый хром, цвет отдан числам. */
+function ExtrasCard({ title, subtitle, children }: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
+      <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 flex-wrap">
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h3>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed max-w-xl">
+            {subtitle}
+          </p>
+        </div>
+        <PeriodBadge />
+      </header>
+      <div className="px-5 pb-5">{children}</div>
+    </section>
+  );
+}
+
+/** Одно число яруса: подпись сверху, значение снизу — как в чипах шапки. */
+function ExtrasValue({ label, value, valueClass, hint }: {
+  label: string;
+  value: string;
+  valueClass?: string;
+  hint?: string;
+}) {
+  return (
+    <div
+      className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-700/40 px-3 py-2"
+      title={hint}
+    >
+      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{label}</div>
+      <div className={clsx('text-sm font-semibold tabular-nums mt-0.5', valueClass ?? 'text-zinc-800 dark:text-zinc-100')}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * «Остаток к заключению» — новый блок листа (K1:O2, добавлен начальницей).
+ * План минус факт по каждому источнику: сколько плановых денег ещё не связано
+ * контрактами. Знак положительный, когда часть плана не выбрана.
+ */
+function RemainderCard({ remainder, budgets, fmtMoney, moneyLabel }: {
+  remainder: SvodRemainder | null;
+  budgets: ReadonlySet<BudgetKey>;
+  fmtMoney: (n: number | null) => string;
+  moneyLabel: string;
+}) {
+  const filtered = budgets.size > 0;
+  const cell = (key: BudgetKey, label: string, value: number | null) => {
+    // Бюджет вне фильтра — не ноль: ноль читался бы как «всё законтрактовано».
+    if (filtered && !budgets.has(key)) {
+      return (
+        <ExtrasValue
+          key={key}
+          label={label}
+          value="вне фильтра"
+          valueClass="text-zinc-400 dark:text-zinc-500 text-xs font-normal"
+          hint={`${label}: бюджет не выбран в шапке, суммы по нему не считались`}
+        />
+      );
+    }
+    return (
+      <ExtrasValue
+        key={key}
+        label={label}
+        value={value === null ? NO_DATA : `${fmtMoney(value)} ${moneyLabel}`}
+        valueClass={value !== null && value < 0 ? 'text-violet-700 dark:text-violet-300' : undefined}
+        hint={`${label}: план минус факт. Отрицательное значение — факт превысил план.`}
+      />
+    );
+  };
+  return (
+    <ExtrasCard
+      title={SVOD_SHEET_EXTRAS.remainderFull}
+      subtitle={`Блок листа «${SVOD_SHEET_EXTRAS.remainderGroup}» (шапка, строка «${SVOD_SHEET_EXTRAS.remainder}»): плановые деньги минус законтрактованные, по каждому источнику. На листе он посчитан по конкурентным процедурам за год; здесь — по всему видимому срезу.`}
+    >
+      {remainder === null ? (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Под выбранные условия строк нет — остаток считать не от чего.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {cell('fb', UI_LABELS['budget.fb'], remainder.fb)}
+          {cell('kb', UI_LABELS['budget.kb'], remainder.kb)}
+          {cell('mb', UI_LABELS['budget.mb'], remainder.mb)}
+          <ExtrasValue
+            label={UI_LABELS['budget.total']}
+            value={remainder.total === null ? NO_DATA : `${fmtMoney(remainder.total)} ${moneyLabel}`}
+            valueClass="text-blue-800 dark:text-blue-200"
+            hint="Итог: сумма остатков по трём источникам. Та же величина, что «Отклонение, тыс. руб» в таблице, с обратным знаком."
+          />
+        </div>
+      )}
+    </ExtrasCard>
+  );
+}
+
+/**
+ * Доли способов закупки — строки «Доля ЭА…» и «Доля ЕП:» листа, ПО ДЕНЬГАМ,
+ * двумя колонками «факт» и «план». Раньше вкладка показывала долю ЕП по
+ * штукам под тем же словом — два разных числа назывались одинаково.
+ */
+function SharesCard({ shares, epByCount, methodFiltered }: {
+  shares: SvodMethodShares | null;
+  epByCount: number | null;
+  methodFiltered: boolean;
+}) {
+  const cellCls = 'px-2.5 py-1.5 text-right tabular-nums whitespace-nowrap font-semibold';
+  return (
+    <ExtrasCard
+      title="Доли способов закупки"
+      subtitle={`Строки листа «${SVOD_SHEET_EXTRAS.shareKp}» и «${SVOD_SHEET_EXTRAS.shareEp}» — доли считаются ПО ДЕНЬГАМ: своя сумма делится на сумму «${SVOD_SHEET_EXTRAS.totalYear}». Колонка «${SVOD_SHEET_EXTRAS.shareFact}» — от фактических сумм, «${SVOD_SHEET_EXTRAS.sharePlan}» — от плановых.`}
+    >
+      {methodFiltered ? (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Выбран один способ закупки, поэтому долей нет: доля считается от суммы обоих
+          способов. Снимите фильтр способа в шапке, чтобы увидеть числа.
+        </p>
+      ) : shares === null ? (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Под выбранные условия строк нет — доли считать не от чего.
+        </p>
+      ) : (
+        <>
+          <table className="w-full text-xs border-collapse">
+            <caption className="sr-only">Доли конкурентных процедур и единственного поставщика по деньгам</caption>
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                <th scope="col" className="px-2.5 py-1.5 text-left font-medium">Способ</th>
+                <th scope="col" className="px-2.5 py-1.5 text-right font-medium">{SVOD_SHEET_EXTRAS.shareFact}</th>
+                <th scope="col" className="px-2.5 py-1.5 text-right font-medium">{SVOD_SHEET_EXTRAS.sharePlan}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-zinc-100 dark:border-zinc-800/60">
+                <th scope="row" className="px-2.5 py-1.5 text-left font-normal text-zinc-600 dark:text-zinc-300">
+                  <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold', SECTION_META.kp.tagClass)} title={SECTION_META.kp.hint}>
+                    {SECTION_META.kp.label}
+                  </span>
+                  <span className="ml-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {SVOD_SHEET_EXTRAS.shareKp.replace(/:$/, '')}
+                  </span>
+                </th>
+                <td className={clsx(cellCls, 'text-blue-800 dark:text-blue-200')}>{pctText(shares.kp.fact)}</td>
+                <td className={clsx(cellCls, 'text-blue-800 dark:text-blue-200')}>{pctText(shares.kp.plan)}</td>
+              </tr>
+              <tr className="border-t border-zinc-100 dark:border-zinc-800/60">
+                <th scope="row" className="px-2.5 py-1.5 text-left font-normal text-zinc-600 dark:text-zinc-300">
+                  <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold', SECTION_META.ep.tagClass)} title={SECTION_META.ep.hint}>
+                    {SECTION_META.ep.label}
+                  </span>
+                  <span className="ml-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {SVOD_SHEET_EXTRAS.shareEp.replace(/:$/, '')}
+                  </span>
+                </th>
+                <td className={clsx(cellCls, 'text-amber-700 dark:text-amber-300')}>{pctText(shares.ep.fact)}</td>
+                <td className={clsx(cellCls, 'text-amber-700 dark:text-amber-300')}>{pctText(shares.ep.plan)}</td>
+              </tr>
+            </tbody>
+          </table>
+          {/* Доля ЕП по штукам — наше число, не листовое. Названо иначе, чтобы
+              его больше не путали с долей по деньгам. */}
+          <p className="mt-3 text-[11px] text-zinc-500 dark:text-zinc-400">
+            Доля ЕП по числу процедур — {pctText(epByCount)}. Это отдельный показатель:
+            на листе долей по количеству нет, там обе доли только денежные.
+          </p>
+          {/* Лист печатает доли и под каждым блоком ГРБС. Здесь они получаются
+              выбором управления в шапке: срез считает итог по видимым
+              управлениям, поэтому одно выбранное даёт ровно его доли. */}
+          <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+            Лист повторяет обе доли под блоком каждого управления. Чтобы увидеть доли
+            одного управления, выберите его в шапке: числа пересчитаются по нему.
+          </p>
+        </>
+      )}
+    </ExtrasCard>
+  );
 }
 
 /** Строка-пояснение под осями: что именно сейчас с числами делает фильтр. */
@@ -711,14 +989,21 @@ function StatePanel({
   );
 }
 
+/**
+ * Чип показателя. `label` перебивает словарную подпись там, где показатель
+ * называется на листе иначе, чем в движке: на экране «Свода» побеждает имя
+ * листа, а ключ БЗ остаётся движковым, чтобы попап объяснял ту же метрику.
+ */
 function SummaryChip({
-  metricKey, value, valueClass, live,
-}: { metricKey: string; value: string; valueClass?: string; live: string }) {
+  metricKey, label, value, valueClass, live,
+}: { metricKey: string; label?: string; value: string; valueClass?: string; live: string }) {
   return (
     <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-700/40 px-3 py-2">
-      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{productLabel(metricKey)}</div>
+      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{label ?? productLabel(metricKey)}</div>
       <div className={clsx('text-sm font-semibold tabular-nums mt-0.5', valueClass ?? 'text-zinc-800 dark:text-zinc-100')}>
-        <KbHover metricKey={metricKey} live={live}>{value}</KbHover>
+        {/* Попап открывается под тем же именем, что стоит на чипе: иначе
+            читатель наводит на «Заключено, %», а видит заголовок из движка. */}
+        <KbHover metricKey={metricKey} title={label} live={live}>{value}</KbHover>
       </div>
     </div>
   );
@@ -808,6 +1093,24 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         >
           Факт, {moneyLabel}
         </th>
+        {/* P и Q листа. На листе их шапка объединена по вертикали (P5:P6, Q5:Q6),
+            здесь та же геометрия — rowSpan, а не выдуманное имя группы. */}
+        <th
+          scope="col"
+          className={clsx(th, 'text-right border-l border-zinc-200 dark:border-zinc-700 normal-case')}
+          rowSpan={2}
+          title={`Столбец P листа «${svodSheetName('amountDeviation')}»: факт минус план в деньгах. Отрицательное значение — план не выбран.`}
+        >
+          Отклонение, {moneyLabel}
+        </th>
+        <th
+          scope="col"
+          className={clsx(th, GROUP_HEAD.fact, 'text-right border-l border-zinc-200 dark:border-zinc-700 normal-case')}
+          rowSpan={2}
+          title={`Столбец Q листа «${svodSheetName('spentPct')}»: факт ÷ план в деньгах. Считается по тем же строкам, что и факт, — только при заполненной дате заключения.`}
+        >
+          {svodSheetName('spentPct')}
+        </th>
         <th
           scope="colgroup"
           className={clsx(th, GROUP_HEAD.eco, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
@@ -818,10 +1121,25 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         </th>
       </tr>
       <tr>
-        <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700')}>План</th>
-        <th scope="col" className={sub}>Факт</th>
-        <th scope="col" className={sub} title="Факт минус план: отрицательное значение — недобор">Откл.</th>
-        <th scope="col" className={sub} title="Факт ÷ план по количеству закупок">Вып. %</th>
+        {/* Подписи счётной группы — дословно из шапки листа (столбцы D–G). */}
+        <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700 normal-case')}>
+          {svodSheetName('planCount')}
+        </th>
+        <th scope="col" className={clsx(sub, 'normal-case')}>{svodSheetName('factCount')}</th>
+        <th
+          scope="col"
+          className={clsx(sub, 'normal-case')}
+          title={`Столбец F листа «${svodSheetName('deviationCount')}»: факт минус план; отрицательное значение — недобор`}
+        >
+          {svodSheetName('deviationCount')}
+        </th>
+        <th
+          scope="col"
+          className={clsx(sub, 'normal-case')}
+          title={`Столбец G листа «${svodSheetName('executionPct')}»: факт ÷ план по количеству закупок`}
+        >
+          {svodSheetName('executionPct')}
+        </th>
         {budgetFull ? (
           <>
             {budgetHeads}
@@ -856,7 +1174,9 @@ function BlockGroup({
   onOpenRows?: () => void;
   openRowsHint?: string;
 }) {
-  const colCount = 1 + 4 + (budgetFull ? 4 : 1) * 3;
+  // 1 подпись + 4 счётных + три денежных группы + два одиночных столбца листа
+  // («Отклонение, тыс. руб» и «Законтрактовано, %»).
+  const colCount = 1 + 4 + (budgetFull ? 4 : 1) * 3 + 2;
   // Срез кладёт выбранный период в обе ноги секции — берём year.
   const allRows: Array<{ kind: SectionKind; row: SvodRow }> = [
     { kind: 'kp', row: block.kp.year },
@@ -970,6 +1290,15 @@ function SvodDataRow({
       ) : (
         <td className={clsx(num, GROUP_CELL.fact, 'font-medium text-violet-800 dark:text-violet-200 border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.factTotal)}</td>
       )}
+
+      {/* Столбцы P и Q листа: до сверки 18.08.2026 вкладка их не рисовала,
+          хотя оба числа модель уже держала. */}
+      <td className={clsx(num, deviationColor(row.amountDeviation), 'border-l border-zinc-200 dark:border-zinc-700')}>
+        {fmtMoney(row.amountDeviation)}
+      </td>
+      <td className={clsx(num, GROUP_CELL.fact, 'font-semibold border-l border-zinc-200 dark:border-zinc-700', execColorClass(row.spentPct))}>
+        {pctText(row.spentPct)}
+      </td>
 
       {budgetFull ? (
         <>

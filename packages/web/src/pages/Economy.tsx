@@ -34,6 +34,7 @@ import type { HeroMetric } from '../components/economy/EconomyHero';
 import { EconomyCharts } from '../components/economy/EconomyCharts';
 import { EconomyDeptTable } from '../components/economy/EconomyDeptTable';
 import { EconomySubTable } from '../components/economy/EconomySubTable';
+import { EconomyDisposalMock } from '../components/economy/EconomyDisposalMock';
 
 /**
  * Какой колонкой таблицы «управляет» каждая плитка hero-полосы.
@@ -425,6 +426,12 @@ export function EconomyPage() {
           )}
         </div>
       </Card>
+
+      {/* ── МАКЕТ «Распоряжение экономией» (канон п.101д, вопрос 72):
+            владелец решает по скриншоту, на какие статусы распадается
+            свободная экономия. Числа иллюстративные из констант компонента —
+            к данным книг блок не подключён до решения владельца. ── */}
+      <EconomyDisposalMock formatMoney={formatMoney} />
     </div>
   );
 }

@@ -94,7 +94,7 @@ export interface UnifiedDerived {
   economyTotal: number;
   /** Исполнение по штукам = факт/план кол-во (0..1) */
   execCountPct: number | null;
-  /** Потрачено = факт-сумма/план-сумма (0..1) */
+  /** «Законтрактовано, %» листа (столбец Q) = факт-сумма/план-сумма (0..1) */
   spentPct: number | null;
   deviationCount: number;
   amountDeviation: number;

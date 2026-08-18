@@ -30,6 +30,16 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.string().default('info'),
+  /**
+   * Кто вправе обращаться к API из браузера — список адресов через запятую
+   * (`https://dash-elizovo-uer.ru,https://stage.example`).
+   *
+   * Реестр багов 09.07.2026, п.15: список был вписан в код двумя адресами
+   * локальной разработки, и на боевом сервере, где продукт открывают по
+   * доменному имени, разрешения не существовало вовсе. Не задано — остаются
+   * прежние адреса разработки, так что локальный запуск ничего не требует.
+   */
+  AEMR_CORS_ORIGINS: z.string().optional(),
 
   // Cache
   CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(300),
@@ -64,6 +74,21 @@ const env = parsedEnv.data;
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_DEPARTMENT_SPREADSHEETS = { ...DEPARTMENT_SPREADSHEET_IDS };
+
+/** Адреса разработки — то, что было вписано в код до перевода списка в окружение. */
+export const DEV_CORS_ORIGINS = ['http://localhost:5173', 'http://localhost:3000'] as const;
+
+/**
+ * Разбирает список разрешённых адресов из переменной окружения.
+ *
+ * Пустая строка или одни разделители — это «ничего не задали», а не «запретить
+ * всё»: молча оставить продукт без единого разрешённого адреса значит выключить
+ * веб одним лишним пробелом в конфигурации.
+ */
+export function parseCorsOrigins(raw: string | undefined): string[] {
+  const listed = (raw ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  return listed.length > 0 ? listed : [...DEV_CORS_ORIGINS];
+}
 
 const GOOGLE_SPREADSHEET_ID_RE = /^[A-Za-z0-9_-]{20,}$/;
 const DEMO_SPREADSHEET_ID_RE = /^demo-/i;
@@ -159,6 +184,7 @@ export const config: AppConfig = {
     port: env.PORT,
     host: env.HOST,
     logLevel: env.LOG_LEVEL,
+    corsOrigins: parseCorsOrigins(env.AEMR_CORS_ORIGINS),
   },
   cache: {
     ttlSeconds: env.CACHE_TTL_SECONDS,

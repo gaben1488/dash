@@ -15,6 +15,7 @@
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { refreshAllSources } from '../services/source-refresh.js';
+import { invalidateMonitoringCache } from '../services/monitoring.js';
 
 /** Задержка склейки серии уведомлений в одну перечитку. */
 const DEBOUNCE_MS = 15_000;
@@ -26,6 +27,11 @@ function scheduleRefresh(log: { info: (m: string) => void; warn: (m: string) => 
   if (pending) clearTimeout(pending);
   pending = setTimeout(() => {
     pending = null;
+    // Книга мониторинга под тем же наблюдением Drive (drive-watch), но в цикл
+    // refreshAllSources не входит — её кэш сбрасывается здесь, и следующий
+    // запрос /api/monitoring перечитает книгу, а не отдаст правку с опозданием
+    // до TTL (п.66 «прямой эфир»).
+    invalidateMonitoringCache();
     void refreshAllSources(log)
       .then((r) => log.info(
         `Вебхук: источники перечитаны (книг ${r.loaded.length}${r.failed.length ? `, не прочитано: ${r.failed.join(', ')}` : ''})`,

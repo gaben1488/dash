@@ -23,9 +23,11 @@ import { changesRoutes } from './routes/changes.js';
 import { healthRoutes } from './routes/health.js';
 import { webhookRoutes } from './routes/webhook.js';
 import { timelineRoutes } from './routes/timeline.js';
+import { provenanceRoutes } from './routes/provenance.js';
 import { annotationsRoutes } from './routes/annotations.js';
 import { commentAnnotationsRoutes } from './routes/comment-annotations.js';
 import { registryBucketsRoutes } from './routes/registry-buckets.js';
+import { monitoringRoutes } from './routes/monitoring.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { startDriveWatch } from './services/drive-watch.js';
@@ -51,8 +53,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     },
   });
 
+  // Список разрешённых адресов берётся из окружения (AEMR_CORS_ORIGINS).
+  // Реестр багов 09.07.2026, п.15: здесь стояли два адреса локальной разработки,
+  // вписанные в код, — на боевом сервере продукт открывают по доменному имени,
+  // и разрешения для него не было ни одного. Переменная не задана — остаются
+  // прежние адреса разработки, поэтому локальный запуск ничего не требует.
   await app.register(cors, {
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: config.server.corsOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   });
 
@@ -125,9 +132,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(healthRoutes);
   await app.register(webhookRoutes);
   await app.register(timelineRoutes);
+  await app.register(provenanceRoutes);
   await app.register(annotationsRoutes);
   await app.register(commentAnnotationsRoutes);
   await app.register(registryBucketsRoutes);
+  await app.register(monitoringRoutes);
 
   if (process.env.NODE_ENV !== 'production') {
     app.get('/api/debug/sheets', async () => {

@@ -39,6 +39,13 @@ const ALLOWED: Record<string, string> = {
   'services/rows-read.ts': 'ступень 2 каскада — DEPRECATED-зеркало листа управления внутри книги СВОД',
   'services/snapshot.ts': 'вкладки книги СВОД по ALL_SHEETS; книги ГРБС грузит fetchDepartmentSpreadsheets',
   'routes/changes.ts': 'журнал правок _ChangeLog — служебная вкладка, не строки управления; периметр строк не задет',
+  'services/provenance-journal.ts':
+    'тот же журнал правок _ChangeLog для провенанса плановых сумм (канон п.102): '
+    + 'служебная вкладка существует в книге в единственном числе — агрегата «ВСЕ» '
+    + 'и подведомственных двойников у неё нет, поэтому периметр строк не задет',
+  'services/monitoring.ts':
+    'книга «Ежедневный мониторинг» (п.69в) — другая книга: листы процедур, не вкладки ГРБС; '
+    + 'агрегата «ВСЕ» и двойного счёта подведов там нет',
 };
 
 const CALL = /\bgetSheetData(FromSpreadsheet|WithFormulas)?\s*\(([^)]*)\)/g;

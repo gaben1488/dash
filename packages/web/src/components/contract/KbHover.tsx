@@ -24,6 +24,14 @@ export interface KbHoverProps {
   metricKey: string;
   /** Подстановка живых чисел в формулу этого показателя (блок «Сейчас»). */
   live?: string;
+  /**
+   * Заголовок попапа, если показатель называется на экране иначе, чем в
+   * движковом словаре. Нужен там, где имя даёт первоисточник: столбцы листа
+   * СВОД ТД-ПМ владелец переименовал 18.08.2026, и попап обязан открыться под
+   * тем же словом, под которым читатель навёл. Ключ БЗ при этом остаётся
+   * движковым — объясняется та же метрика.
+   */
+  title?: string;
   children: ReactNode;
 }
 
@@ -53,7 +61,7 @@ const TRIGGER_CLASS =
 const PANEL_CLASS =
   'z-50 w-[min(380px,calc(100vw-16px))] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto';
 
-export function KbHover({ metricKey, live, children }: KbHoverProps) {
+export function KbHover({ metricKey, live, title, children }: KbHoverProps) {
   const kb = kbFor(metricKey);
   const coarsePointer = useCoarsePointer();
   // Ни записи, ни подстановки — ведём себя так, будто обёртки не было.
@@ -61,9 +69,11 @@ export function KbHover({ metricKey, live, children }: KbHoverProps) {
 
   const body = (
     <>
-      {/* заголовок — строго из канон-словаря, как у SectionCard */}
+      {/* заголовок — из канон-словаря, как у SectionCard; имя первоисточника
+          (подпись столбца листа) перебивает его, чтобы попап открывался под
+          тем же словом, что стоит на экране */}
       <div className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">
-        {productLabel(metricKey)}
+        {title ?? productLabel(metricKey)}
       </div>
       {/* «Сейчас» идёт первым: читатель навёл на КОНКРЕТНОЕ число */}
       {live && <KbParagraph label="Сейчас на экране" text={live} mono />}

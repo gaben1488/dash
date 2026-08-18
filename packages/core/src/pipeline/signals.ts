@@ -74,6 +74,16 @@ export interface RowSignals {
   earlyClosure: boolean;
   /** Факт > план на >10% */
   factExceedsPlan: boolean;
+  /**
+   * По ЕП факт обязан равняться плану, а расходится (канон п.98м + п.102,
+   * 18.08.2026). По ЕП в план (K) пишут планируемую сумму договора, «которая
+   * по идее должна соответствовать потраченной» (Y) — тезис владельца: «по ЕП
+   * не может быть экономии», торгов нет. Расхождение в любую сторону сверх
+   * допуска округления — ошибка заполнения либо «экономия», которой по ЕП
+   * быть не должно. Конкурентные способы сигнал не трогает: там план = НМЦК,
+   * и факт < план — нормальная торговая экономия.
+   */
+  epFactDeviation: boolean;
   /** ВСЕГДА false с 14.08.2026: «подписан, но нет факт даты» опирался на текстовый статус «подписан»; после канона п.27 «заключено» = дата Q, и такое состояние структурно неотличимо. */
   stalledContract: boolean;
   /** @deprecated Удалён — дублирует правило budget_sum_plan в RULE_BOOK */
@@ -514,6 +524,18 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factExceedsPlan = true;
   }
 
+  // ── Расхождение факт/план по ЕП (канон п.98м + семантика п.102, 18.08.2026) ──
+  // По ЕП в план (K) пишут планируемую сумму договора, обязанную равняться
+  // потраченной (Y): торгов нет, тезис владельца — «по ЕП не может быть
+  // экономии». Расхождение в любую сторону сверх допуска — ошибка заполнения
+  // либо «экономия», которой по ЕП быть не должно. Допуск округления тот же
+  // 0.5%, что у factExceedsPlan выше (план в 2 знака, факт в 5 — шум).
+  // Конкурентные способы (ЭА/ЭК/ЭЗК) не трогаются: там план = НМЦК, и
+  // факт < план — нормальная торговая экономия (п.102).
+  const epFactDeviation = isEP
+    && !isNaN(planTotal) && planTotal > 0 && factTotal > 0
+    && Math.abs(factTotal - planTotal) > planTotal * 0.005;
+
   // ── Подвисший контракт: СНЯТ каноном п.27 (14.08.2026) ──
   // Определение «подписан (текст), но нет факт даты» опиралось на текстовый
   // статус; теперь «заключено» = сама дата Q, и это состояние структурно
@@ -677,6 +699,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     lowCompetition,
     earlyClosure,
     factExceedsPlan,
+    epFactDeviation,
     stalledContract,
     budgetMismatch,
     factWithoutDate,
@@ -782,6 +805,11 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
   }
   if (signals.factExceedsPlan) {
     badges.push({ label: 'Факт > план', color: 'red', icon: 'trending-up' });
+  }
+  if (signals.epFactDeviation) {
+    // Тон предупреждения (жёлтый), не критики: расхождение факт/план по ЕП —
+    // чаще всего ошибка заполнения, а не нарушение (канон п.98м + п.102).
+    badges.push({ label: 'ЕП: факт не равен плану', color: 'yellow', icon: 'scale' });
   }
   if (signals.stalledContract) {
     badges.push({ label: 'Подвисший', color: 'yellow', icon: 'pause-circle' });

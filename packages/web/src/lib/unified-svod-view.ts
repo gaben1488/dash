@@ -119,7 +119,7 @@ function toSvodRow(cell: UnifiedCell, budgets?: Set<BudgetKey>): SvodRow {
     factFB, factKB, factMB,
     factTotal: d.factTotal,
     amountDeviation: d.amountDeviation,
-    // Q «Потрачено, %» = факт/план (как лист СВОД и svod-view.sumRows).
+    // Q «Законтрактовано, %» = факт/план (как лист СВОД и svod-view.sumRows).
     spentPct: d.spentPct,
     economyFB, economyKB, economyMB,
     economyTotal: d.economyTotal,

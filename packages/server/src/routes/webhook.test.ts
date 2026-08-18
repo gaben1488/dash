@@ -21,6 +21,14 @@ vi.mock('../config.js', () => ({
   },
 }));
 
+// Книга «Ежедневный мониторинг» живёт вне цикла refreshAllSources, поэтому
+// вебхук сбрасывает её кэш отдельно. В тесте сервис заглушён: настоящий при
+// импорте тянет полный config (здесь он подменён огрызком) и клиент Google.
+const invalidateMonitoringCache = vi.fn();
+vi.mock('../services/monitoring.js', () => ({
+  invalidateMonitoringCache: () => invalidateMonitoringCache(),
+}));
+
 let app: FastifyInstance;
 
 beforeAll(async () => {

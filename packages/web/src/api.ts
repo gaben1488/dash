@@ -1,5 +1,8 @@
 import type { DashboardData } from '@aemr/shared';
-import type { MetricDelta, Report, RowTimeline, UpcomingRiskRow } from '@aemr/core';
+import type {
+  MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
+  UnparsedCodeRef, UpcomingRiskRow,
+} from '@aemr/core';
 import {
   HealthResponseSchema,
   IssuesListResponseSchema,
@@ -47,6 +50,28 @@ export type RowTimelineResponse = RowTimeline & {
     weekSliceDates: string[];
   };
 };
+
+/**
+ * Ответ GET /api/monitoring — реестр процедур определения поставщика из книги
+ * «Ежедневный мониторинг» (канон п.69в/п.101а). Деньги — РУБЛИ (книги ГРБС —
+ * тысячи): единица объявлена в source.moneyUnit, экран обязан её подписывать.
+ */
+export interface MonitoringResponse {
+  source: {
+    bookName: string;
+    /** Момент чтения книги (ISO) — плашка периода данных (п.58). */
+    readAt: string;
+    moneyUnit: 'руб';
+    sheetsRead: string[];
+    /** Лист книги → русская причина отказа; пусто — прочитано всё. */
+    sheetsFailed: Record<string, string>;
+  };
+  procedures: MonitoringProcedure[];
+  aggregates: MonitoringAggregates;
+  /** Строки с нераспознанным кодом процедуры — сигнал с адресами, не потеря. */
+  unparsedCodes: UnparsedCodeRef[];
+  notes: string[];
+}
 
 /** Ответ GET /api/timeline/upcoming — «близкие к плановой дате» (канон п.75б). */
 export interface UpcomingResponse {
@@ -371,6 +396,12 @@ export const api = {
   /** «Близкие к плановой дате»: просроченные + плановая дата в ближайшие N дней. */
   getTimelineUpcoming: (days?: number) =>
     fetchJSON<UpcomingResponse>(`/timeline/upcoming${days ? `?days=${days}` : ''}`),
+
+  // Мониторинг — реестр процедур определения поставщика (routes/monitoring.ts, п.69в/п.101а)
+
+  /** Реестр процедур книги «Ежедневный мониторинг»; refresh — перечитать книгу мимо кэша. */
+  getMonitoring: (refresh = false) =>
+    fetchJSON<MonitoringResponse>(`/monitoring${refresh ? '?refresh=true' : ''}`),
 
   // Разметка видов строк стадии «в течение года» (routes/annotations.ts, канон п.83)
 

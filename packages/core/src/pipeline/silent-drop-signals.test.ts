@@ -15,6 +15,7 @@ import { DEPT_COLUMNS } from '@aemr/shared';
 import type { ClassifiedRow, NormalizedMetric, ReportMapEntry, ValidationRule } from '@aemr/shared';
 import { CalcEngine, standardRowFilter } from './calc-engine.js';
 import { validateData } from './validate.js';
+import { runPipeline } from './orchestrator.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -99,5 +100,64 @@ describe('validateData() — unclassified-sheet silent skip', () => {
     const signalIssue = issues.find(i => i.category === 'unclassified_sheet');
     expect(signalIssue).toBeDefined();
     expect(signalIssue?.sheet).toBe('Лист1');
+  });
+});
+
+// ── Порог-сигнал по отсеянным строкам (реестр багов 09.07.2026, п.6) ────
+//
+// Счётчик droppedRows появился, но за пределами теста выше его никто не читал:
+// сдвиг колонок или сломанный разбор молчали ровно как прежде. Стражи ниже
+// держат вторую половину фикса — замечание, которое отсев называет вслух.
+
+/** Лист управления: три строки шапки + переданные строки данных. */
+function deptSheet(dataRows: unknown[][]): unknown[][] {
+  return [new Array(32).fill('H1'), new Array(32).fill('H2'), new Array(32).fill('H3'), ...dataRows];
+}
+
+function pipelineWith(dataRows: unknown[][]): ReturnType<typeof runPipeline> {
+  return runPipeline({
+    batchGetData: [],
+    sheetRows: { 'УД': deptSheet(dataRows) },
+    reportMap: [],
+    rules: [],
+    spreadsheetId: 'test',
+    targetYear: 2025,
+  });
+}
+
+const emptyRow = (): unknown[] => new Array(32).fill('');
+
+describe('runPipeline — отсеянные строки перестают быть немыми (реестр 09.07.2026, п.6)', () => {
+  it('половина листа не дошла до счёта — замечание есть, и оно говорит о сломанном разборе', () => {
+    const rows = [
+      ...Array.from({ length: 10 }, (_, i) => makeGoodRow(String(i + 1))),
+      ...Array.from({ length: 10 }, emptyRow),
+    ];
+    const issue = pipelineWith(rows).issues.find(i => i.category === 'dropped_rows');
+
+    expect(issue).toBeDefined();
+    expect(issue!.sheet).toBe('УД');
+    expect(issue!.departmentId).toBe('ud');
+    expect(issue!.severity).toBe('significant');
+    // Числа обязаны стоять в тексте: «часть строк потерялась» — не адрес проблемы.
+    expect(issue!.title).toContain('10 из 20');
+  });
+
+  it('одиночная пустая вставка между блоками листа замечанием не становится', () => {
+    const rows = [...Array.from({ length: 20 }, (_, i) => makeGoodRow(String(i + 1))), emptyRow()];
+    const issues = pipelineWith(rows).issues.filter(i => i.category === 'dropped_rows');
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it('заметный, но не катастрофический отсев — предупреждение, а не «сломан разбор»', () => {
+    const rows = [
+      ...Array.from({ length: 25 }, (_, i) => makeGoodRow(String(i + 1))),
+      ...Array.from({ length: 5 }, emptyRow),
+    ];
+    const issue = pipelineWith(rows).issues.find(i => i.category === 'dropped_rows');
+
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe('warning');
   });
 });
