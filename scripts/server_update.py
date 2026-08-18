@@ -61,6 +61,17 @@ def main() -> None:
             client,
             'sleep 6 && curl -fsS -m 10 http://127.0.0.1/api/health && echo',
         )
+        # Каждая сборка оставляет слои в кэше сборщика, и он не чистится сам:
+        # 18.08.2026 кэш дорос до 37,5 ГБ при диске 59 ГБ (занято 84%). Предел
+        # держит /etc/docker/daemon.json (builder.gc.defaultKeepStorage=5GB),
+        # но сборщик подрезает кэш лениво — здесь чистим сразу после выката, а
+        # заодно снимаем образы, оставшиеся от предыдущей версии.
+        run_remote(
+            client,
+            'docker builder prune -f --keep-storage 5GB >/dev/null 2>&1; '
+            'docker image prune -f >/dev/null 2>&1; '
+            "df -h / | tail -1 && docker system df | head -5",
+        )
     finally:
         client.close()
     print('>>> done')
