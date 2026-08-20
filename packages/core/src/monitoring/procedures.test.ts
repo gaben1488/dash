@@ -114,10 +114,19 @@ describe('parseMonitoringProcedures', () => {
     // Лист УО: маппинг имени листа на канонический ид ГРБС.
     expect(procedures[4]).toMatchObject({ sheet: '8. УО', dept: 'УО', reductionRub: 0 });
 
-    // Искажённый код: строка в реестре без кода, адрес поднят сигналом.
+    // Искажённый код: строка в реестре без кода, адрес поднят сигналом,
+    // диагноз с догадкой показан человеку (скриншот 20.08: «без кода» при
+    // видимом коде — ложь; догадка показывается, мост по ней не строится).
     expect(procedures[5].code).toBeNull();
+    expect(procedures[5].codeNote).toContain('похоже на ЭЗК120-26');
     expect(unparsedCodes).toEqual([
-      { sheet: '8. УО', row: 4, text: 'ЭЗК-120-26 Стройматериалы' },
+      {
+        sheet: '8. УО',
+        row: 4,
+        text: 'ЭЗК-120-26 Стройматериалы',
+        guess: 'ЭЗК120-26',
+        note: 'лишний дефис после букв семейства',
+      },
     ]);
   });
 
@@ -132,7 +141,11 @@ describe('parseMonitoringProcedures', () => {
 
     expect(agg.total).toBe(6);
     // Заявки две: мебель УЭР и строка УО с искажённым кодом (ни цены, ни публикации).
-    expect(agg.byStage).toEqual({ application: 2, published: 1, awarded: 2, no_result: 1 });
+    // Пятая ступень «торги прошли, итог не внесён» на этой фикстуре пуста,
+    // но существует: ноль здесь — измеренный ноль, а не отсутствие ступени.
+    expect(agg.byStage).toEqual({
+      application: 2, published: 1, bidding: 0, awarded: 2, no_result: 1,
+    });
     // Все строки с числовой НМЦК: 446 700 + 100 000 + 2 250 000 + 50 000 + 780 000 + 10 000.
     expect(agg.nmckTotal).toBe(3_636_700);
 
@@ -147,5 +160,85 @@ describe('parseMonitoringProcedures', () => {
 
     expect(agg.codesParsed).toBe(5);
     expect(agg.codesUnparsed).toBe(1);
+  });
+
+  it('победитель разбирается на имя, ИНН и исход, а сырая ячейка сохраняется', () => {
+    const { procedures } = parseMonitoringProcedures(sheets);
+    expect(procedures[0].winner).toMatchObject({
+      name: 'ИП ДОЙНЯК-НОВЫЙ ДМИТРИЙ ОЛЕГОВИЧ',
+      inn: '541003717453',
+      outcome: 'supplier',
+    });
+    expect(procedures[0].winner.raw).toContain('ИНН 541003717453');
+  });
+
+  it('способ определения поставщика и год читаются из кода процедуры', () => {
+    const { procedures } = parseMonitoringProcedures(sheets);
+    expect(procedures[0]).toMatchObject({ method: 'ЭЗК', year: 25 });
+    expect(procedures[1]).toMatchObject({ method: 'ЭА', year: 26 });
+    // Код не разобран — способа и года нет, а не «ЭА по умолчанию».
+    expect(procedures[5]).toMatchObject({ method: null, year: null });
+  });
+});
+
+describe('пятая ступень и дефекты строки', () => {
+  it('дата торгов без цены — «торги прошли, итог не внесён», не «объявлена»', () => {
+    const { procedures } = parseMonitoringProcedures({
+      '1. УЭР': [
+        ...HEADERS,
+        row({
+          subject: 'ЭА30-26 Ремонт дороги', nmck: 500_000,
+          publication: '01.03.2026', deadline: '10.03.2026', auction: '14.03.2026',
+        }),
+      ],
+    });
+    expect(procedures[0].stage).toBe('bidding');
+    expect(procedures[0].durations).toMatchObject({ toDeadline: 9, toAuction: 4 });
+  });
+
+  it('сумма текстом остаётся в реестре числом, а её адрес уезжает сигналом', () => {
+    const { procedures } = parseMonitoringProcedures({
+      '5. УДТХиРКИ': [
+        ...HEADERS,
+        row({ subject: 'ЭА291-26 Капитальный ремонт', nmck: '73 970 897,35', publication: '05.03.2026' }),
+      ],
+    });
+    expect(procedures[0].nmck).toBe(73_970_897.35);
+    const defect = procedures[0].defects.find((d) => d.kind === 'text-number');
+    expect(defect?.address).toBe('5. УДТХиРКИ!D3');
+  });
+
+  it('контроль книги «ошибка» переносится с разрывом в рублях, а не словом', () => {
+    const r = row({
+      subject: 'ЭА40-26 Поставка', nmck: 100_000, publication: '01.03.2026',
+      price: 90_000, savings: 10_000, check: 'ошибка',
+    });
+    r[11] = 4_000; // МБ
+    const { procedures } = parseMonitoringProcedures({ '8. УО': [...HEADERS, r] });
+    expect(procedures[0]).toMatchObject({ controlAgrees: false, controlGapRub: 6_000 });
+    expect(procedures[0].defects.some((d) => d.kind === 'control-error')).toBe(true);
+  });
+
+  it('дата, которую нельзя прочитать, не выбрасывает строку — она даёт адрес', () => {
+    const { procedures } = parseMonitoringProcedures({
+      '6. УД': [
+        ...HEADERS,
+        row({ subject: 'ЭА50-26 Услуги связи', nmck: 20_000, deadline: '23.062026' }),
+      ],
+    });
+    expect(procedures).toHaveLength(1);
+    expect(procedures[0].deadlineDate).toMatchObject({ raw: '23.062026', iso: null });
+    expect(procedures[0].defects.some((d) => d.kind === 'broken-date')).toBe(true);
+  });
+
+  it('совместная закупка помечается по способу ЭАС и по признаку в заказчике', () => {
+    const { procedures } = parseMonitoringProcedures({
+      '1. УЭР': [
+        ...HEADERS,
+        row({ subject: 'ЭАС258-26 Поставка продуктов', nmck: 719_574.67 }),
+        row({ customer: 'Совместный аукцион ШКОЛЫ', subject: 'ЭА60-26 Мебель', nmck: 100_000 }),
+      ],
+    });
+    expect(procedures.map((p) => p.joint)).toEqual([true, true]);
   });
 });

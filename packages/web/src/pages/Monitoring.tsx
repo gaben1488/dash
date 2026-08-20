@@ -1,332 +1,342 @@
 /**
  * «Мониторинг · Реестр процедур определения поставщика» — книга «Ежедневный
- * мониторинг» (канон п.69в: отдельная вкладка, не сливать с планом; п.101а:
- * название дополнено «Реестром процедур», переносятся все листы книги —
- * эта волна несёт восемь листов управлений, остальные — следующей).
+ * мониторинг» целиком (канон п.101а, спека
+ * docs/superpowers/specs/2026-08-18-monitoring-tab-spec-v2.md).
  *
- * Правила экрана:
- *  - деньги — РУБЛИ, и подпись единицы стоит у каждой суммы: книги управлений
- *    ведутся в тысячах, перепутать — значит ошибиться в тысячу раз (18.08);
- *  - плашка периметра (п.58): книга-источник, момент чтения, оговорка, что
- *    глобальные фильтры шапки к этой книге не применяются;
- *  - стадия — по числам (цена/даты), текст «Победителя» не интерпретируется
- *    (п.27) и показывается как есть;
- *  - честные пустоты: «книга не прочитана» ≠ «в книге нет процедур» ≠
- *    «фильтры всё срезали» — три разных экрана;
- *  - нераспознанные коды процедур — плашка с адресами (сигнал, не потеря).
+ * ЧТО ЭТОТ ЭКРАН ОБЕЩАЕТ. Перенести ФОРМУ КНИГИ, а не выжимку из неё: у
+ * каждого листа свой режим, и в режиме лист узнаётся глазами. Восемь листов
+ * управлений, свод, переходящий реестр «25-26» с победителями и ИНН,
+ * справочник учреждений и три скрытых листа-предка — четырнадцать листов,
+ * ни одного молча выброшенного.
+ *
+ * ПОЧЕМУ РЕЖИМ И РАЗРЕЗ РАЗВЕДЕНЫ. Режим отвечает на вопрос «на какой лист я
+ * смотрю», разрез — «какие строки меня интересуют». Они перпендикулярны:
+ * выбрав квартал, читатель обязан увидеть его и на листе УО, и в своде.
+ * Поэтому смена режима разрезов не сбрасывает, а панель разрезов стоит выше
+ * ряда режимов.
+ *
+ * ЧЕСТНЫЕ ПУСТОТЫ — ТРИ РАЗНЫЕ (п.36). «Книга не прочитана» (отказ чтения),
+ * «на прочитанных листах нет строк» (книга пуста) и «разрезы всё срезали»
+ * (отбор экрана) — три разные новости с тремя разными действиями, и путать
+ * их нельзя. Четвёртая пустота — «сервер этот лист ещё не отдаёт»: она про
+ * незаконченную трубу чтения, а не про книгу.
+ *
+ * ДЕНЬГИ — РУБЛИ, и подпись единицы стоит у каждой суммы: книги управлений
+ * ведутся в тысячах, перепутать эти две книги значит ошибиться в тысячу раз.
+ *
+ * ЧЕГО ЗДЕСЬ НЕТ. Графиков аналитики (воронка, гистограмма снижения,
+ * сезонность, сравнение управлений) — они собираются отдельной волной и
+ * встают ниже реестра; место под них помечено в разметке.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, RotateCcw, SearchX } from 'lucide-react';
-import type { MonitoringProcedure, ProcedureStage } from '@aemr/core';
-import { PROCEDURE_STAGE_LABELS } from '@aemr/core';
-import { api, humanizeRequestError, type MonitoringResponse } from '../api';
+import { RotateCcw, SearchX } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonKPIRow, SkeletonTable } from '../components/Skeleton';
-import { KBTooltip } from '../components/ui/kb-tooltip';
-import { pluralRu } from '../lib/economy-copy';
-import { MONITORING_KB_ADDITIONS, kbCardProps } from './kb-additions';
-
-// ── Форматирование ───────────────────────────────────────────────────
-
-/** Рубли с разрядами, без копеек: копейки в реестре — шум, точность в title. */
-const fmtRub = (v: number): string =>
-  v.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
-
-/** Момент чтения книги: «18.08.2026, 14:05» по часам читателя. */
-function fmtReadAt(iso: string): string {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-/** Порядок стадий на экране — жизненный цикл процедуры, не алфавит. */
-const STAGE_ORDER: ProcedureStage[] = ['application', 'published', 'awarded', 'no_result'];
-
-/** Тон бейджа стадии: цвет — данным, стадия и есть данные строки. */
-const STAGE_BADGE: Record<ProcedureStage, string> = {
-  application: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-300',
-  published: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
-  awarded: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
-  no_result: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-};
-
-// ── Страница ─────────────────────────────────────────────────────────
+import { BookPeriodBadge } from '../components/monitoring/BookPeriodBadge';
+import { BookStatusStrip } from '../components/monitoring/BookStatusStrip';
+import { PortraitNumbers } from '../components/monitoring/PortraitNumbers';
+import { SheetModeTabs } from '../components/monitoring/SheetModeTabs';
+import { SliceBar } from '../components/monitoring/SliceBar';
+import { RegistryTable } from '../components/monitoring/RegistryTable';
+import { SheetTotalsRow, SvodTable } from '../components/monitoring/SvodTable';
+import { JournalTable } from '../components/monitoring/JournalTable';
+import { DirectoryTable } from '../components/monitoring/DirectoryTable';
+import { AncestorSheets } from '../components/monitoring/AncestorSheets';
+import { SignalCards } from '../components/monitoring/SignalCards';
+import { humanizeRequestError } from '../api';
+import {
+  fetchMonitoring, fetchMonitoringMatch,
+  type JournalRow, type LineageChain, type MatchPayload, type MatchRow,
+  type MonitoringPayload,
+} from '../lib/monitoring/contract';
+import { ALL_DEPTS_MODE, deptSheetName, modeById, type SheetMode } from '../lib/monitoring/modes';
+import {
+  applySlices, emptySlices, hasAnySlice, sortProcedures,
+  type SliceState, type SortDir, type SortKey,
+} from '../lib/monitoring/slices';
+import { portraitFrom } from '../lib/monitoring/portrait';
+import { fmtReadAt, pluralCount } from '../lib/monitoring/format';
 
 export function MonitoringPage() {
-  const [data, setData] = useState<MonitoringResponse | null>(null);
+  const [data, setData] = useState<MonitoringPayload | null>(null);
+  const [match, setMatch] = useState<MatchPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stageFilter, setStageFilter] = useState<ProcedureStage | null>(null);
-  const [customerFilter, setCustomerFilter] = useState<string>('');
+
+  const [modeId, setModeId] = useState<string>(ALL_DEPTS_MODE.id);
+  const [slices, setSlices] = useState<SliceState>(emptySlices);
+  const [sortKey, setSortKey] = useState<SortKey>('row');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [openCode, setOpenCode] = useState<string | null>(null);
 
   const load = useCallback((refresh = false) => {
     setLoading(true);
     setError(null);
-    api.getMonitoring(refresh)
+    fetchMonitoring(refresh)
       .then((resp) => setData(resp))
       .catch((e: unknown) => setError(humanizeRequestError(e)))
       .finally(() => setLoading(false));
+    // Сверка с книгами управлений едет отдельным запросом и отдельной судьбой:
+    // её роут может быть ещё не поднят, и это не повод не показать реестр.
+    void fetchMonitoringMatch().then(setMatch).catch(() => setMatch(null));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // Своя ссылка-мемо: «?? []» в теле рендера рождал бы новый массив на каждый
-  // кадр и зря пересчитывал фильтры и список заказчиков ниже.
+  const mode = modeById(modeId);
   const procedures = useMemo(() => data?.procedures ?? [], [data]);
 
-  /** Заказчики для фильтра — по алфавиту, без дублей. */
-  const customers = useMemo(
-    () => [...new Set(procedures.map((p) => p.customer).filter((c) => c !== ''))]
-      .sort((a, b) => a.localeCompare(b, 'ru')),
-    [procedures],
+  /** Строки режима: лист управления сужает набор, остальные режимы — нет. */
+  const modeRows = useMemo(
+    () => (mode.dept === null ? procedures : procedures.filter((p) => p.dept === mode.dept)),
+    [procedures, mode.dept],
   );
 
-  const filtered = useMemo(
-    () => procedures.filter((p) =>
-      (stageFilter === null || p.stage === stageFilter)
-      && (customerFilter === '' || p.customer === customerFilter)),
-    [procedures, stageFilter, customerFilter],
+  const filtered = useMemo(() => applySlices(modeRows, slices), [modeRows, slices]);
+  const sorted = useMemo(() => sortProcedures(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+  const portrait = useMemo(() => portraitFrom(filtered), [filtered]);
+
+  /** Счётчики на кнопках режимов — сколько строк лист даёт после разрезов. */
+  const modeCounts = useMemo(() => {
+    const out: Record<string, number> = { all: applySlices(procedures, slices).length };
+    for (const p of applySlices(procedures, slices)) {
+      const id = `dept:${p.dept}`;
+      out[id] = (out[id] ?? 0) + 1;
+    }
+    return out;
+  }, [procedures, slices]);
+
+  // Три указателя «код процедуры → …»: родословная и строка «25-26» дают
+  // карточке то, чего на листе управления нет, сверка — встречную сторону из
+  // книги ГРБС. Строятся один раз на ответ, а не на каждую открытую карточку.
+  const lineageByCode = useMemo(() => {
+    const map = new Map<string, LineageChain>();
+    for (const chain of data?.journal?.lineage ?? []) {
+      for (const code of chain.codes) map.set(code, chain);
+    }
+    return map;
+  }, [data]);
+
+  const journalByCode = useMemo(() => {
+    const map = new Map<string, JournalRow>();
+    for (const r of data?.journal?.rows ?? []) {
+      if (r.code !== null && !map.has(r.code)) map.set(r.code, r);
+    }
+    return map;
+  }, [data]);
+
+  const matchByCode = useMemo(() => {
+    const map = new Map<string, MatchRow>();
+    for (const r of match?.rows ?? []) map.set(r.code, r);
+    return map;
+  }, [match]);
+
+  /** Строка свода про выбранный лист — итог листа под его таблицей (§2.1). */
+  const sheetTotals = useMemo(
+    () => (mode.dept === null
+      ? null
+      : data?.svod?.rows.find((r) => r.dept === mode.dept || r.sheet === mode.sheet) ?? null),
+    [data, mode],
   );
 
-  const agg = data?.aggregates ?? null;
-  const failedSheets = data ? Object.keys(data.source.sheetsFailed) : [];
+  const onSort = useCallback((key: SortKey) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('asc');
+      return key;
+    });
+  }, []);
+
+  const onOpenCode = useCallback((code: string) => {
+    // Переход по родословной: показать процедуру там, где она лежит, а не
+    // делать вид, что она нашлась в текущем разрезе.
+    setModeId(ALL_DEPTS_MODE.id);
+    setSlices({ ...emptySlices(), query: code });
+    setOpenCode(code);
+  }, []);
+
+  const readAtLabel = data ? `данные книги на ${fmtReadAt(data.source.readAt)}` : 'книга ещё читается';
+  const pendingIds = data
+    ? [
+      ...(data.svod === null ? ['svod'] : []),
+      ...(data.journal === null ? ['journal'] : []),
+      ...(data.directory === null ? ['directory'] : []),
+    ]
+    : [];
+
+  const scopeLabel = mode.dept !== null
+    ? `лист «${deptSheetName(mode.dept)}»`
+    : hasAnySlice(slices) ? 'выбранные разрезы' : 'весь реестр книги';
 
   return (
     <div className="space-y-4">
-      {/* ── Шапка раздела: название по п.101а + плашка периметра (п.58) ── */}
+      {/* ── Шапка вкладки: название дословно по п.101а + периметр (п.58) ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
             Мониторинг · Реестр процедур определения поставщика
           </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-2xl mt-0.5">
-            Процедуры из книги «Ежедневный мониторинг»: заявка → публикация →
-            торги → итог. Другая книга, чем планы управлений: деньги здесь —
-            в рублях.
+          <p className="mt-0.5 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
+            Книга «Ежедневный мониторинг» целиком: восемь листов управлений, свод, переходящий
+            реестр «25-26» с победителями и ИНН, справочник учреждений и скрытые листы-предки.
+            Путь процедуры — заявка → публикация → торги → итог.
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+            Деньги этой книги — <span className="font-medium">в рублях</span>; книги управлений
+            ведутся в тысячах рублей. Фильтры года и управлений в шапке приложения к этой книге
+            не применяются — здесь свои разрезы.
           </p>
         </div>
-        {data && (
-          <div className="text-right text-[11px] text-zinc-500 dark:text-zinc-400">
-            <p>Книга «{data.source.bookName}» · все процедуры книги</p>
-            <p className="mt-0.5">данные на {fmtReadAt(data.source.readAt)}</p>
-            {/* Экран не подчиняется глобальным фильтрам шапки — честная
-                пометка вместо унаследованного бейджа (п.58б). */}
-            <p className="mt-0.5">фильтры года и управлений шапки здесь не действуют</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Книга не прочиталась целиком: поимённая плашка, не тишина ── */}
-      {failedSheets.length > 0 && !loading && (
-        <div className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
-          <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 mt-px shrink-0" aria-hidden="true" />
-          <div className="text-amber-800 dark:text-amber-300">
-            <p>
-              Листы книги не прочитались: {failedSheets.join(', ')}. Счётчики
-              ниже собраны только по прочитанным листам и неполные.
-            </p>
-            <button
-              type="button"
-              onClick={() => load(true)}
-              className="mt-1.5 inline-flex items-center gap-1 font-medium hover:underline"
-            >
-              <RotateCcw size={11} aria-hidden="true" /> Прочитать книгу ещё раз
-            </button>
-          </div>
+        <div className="flex items-center gap-3">
+          <BookPeriodBadge label={readAtLabel} note="книга читается целиком, без периода из шапки" />
+          <button
+            type="button"
+            onClick={() => load(true)}
+            className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
+          >
+            <RotateCcw size={12} aria-hidden="true" /> Прочитать книгу заново
+          </button>
         </div>
-      )}
+      </div>
 
       {loading ? (
         <div className="space-y-4" role="status" aria-live="polite">
           <span className="sr-only">Читаем книгу «Ежедневный мониторинг»</span>
-          <SkeletonKPIRow count={4} />
-          <SkeletonTable rows={10} />
+          <SkeletonKPIRow count={6} />
+          <SkeletonTable rows={12} />
         </div>
-      ) : error ? (
+      ) : error !== null || data === null ? (
         <EmptyState
           tone="problem"
           title="Книга «Ежедневный мониторинг» не прочитана"
-          description="Реестр процедур собрать не из чего: сервер не отдал ни одного листа книги. Это отказ чтения, а не «в книге пусто»."
-          detail={error}
-          action={{ label: 'Прочитать ещё раз', onClick: () => load(true) }}
-        />
-      ) : procedures.length === 0 ? (
-        <EmptyState
-          title="На прочитанных листах книги нет ни одной строки процедуры"
-          description="Листы управлений прочитаны, но строк с данными в них не нашлось. Если процедуры ожидались — проверьте книгу-источник."
+          description="Реестр собрать не из чего: сервер не отдал ни одного листа книги. Это отказ чтения, а не «в книге пусто» — числа не потеряны, их просто неоткуда взять прямо сейчас."
+          {...(error !== null ? { detail: error } : {})}
           action={{ label: 'Прочитать ещё раз', onClick: () => load(true) }}
         />
       ) : (
         <>
-          {/* ── Карточки-агрегаты: цвет — данным, подпись единицы у денег ── */}
-          {agg && (
-            <section
-              aria-label="Сводка по процедурам"
-              className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5"
-            >
-              <div className="flex items-start gap-8 flex-wrap">
-                <KBTooltip {...kbCardProps(MONITORING_KB_ADDITIONS.monitoring_procedures_total)} showIcon>
-                  <div>
-                    <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-                      {agg.total}
-                    </p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      {pluralRu(agg.total, 'процедура', 'процедуры', 'процедур')} в реестре
-                    </p>
-                  </div>
-                </KBTooltip>
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums text-sky-700 dark:text-sky-400">
-                    {agg.byStage.published}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">в торгах (объявлены, итога нет)</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                    {agg.byStage.awarded}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    состоялось · без результата — {agg.byStage.no_result}
-                  </p>
-                </div>
-                <KBTooltip {...kbCardProps(MONITORING_KB_ADDITIONS.monitoring_auction_savings)} showIcon>
-                  <div>
-                    <p className="text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                      {fmtRub(agg.awarded.savingsTotal)} руб.
-                    </p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      экономия на торгах: НМЦК {fmtRub(agg.awarded.nmckTotal)} → цена {fmtRub(agg.awarded.priceTotal)}
-                    </p>
-                  </div>
-                </KBTooltip>
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-                    {agg.awarded.avgReductionPct !== null
-                      ? `${agg.awarded.avgReductionPct.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} %`
-                      : '—'}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {agg.awarded.avgReductionPct !== null
-                      ? `среднее снижение · без снижения — ${agg.awarded.noReductionCount} из ${agg.awarded.count}`
-                      : 'среднего снижения нет: состоявшихся торгов нет'}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-700/50 text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
-                НМЦК всех процедур реестра — {fmtRub(agg.nmckTotal)} руб. Деньги этой книги —
-                в рублях; книги управлений ведутся в тысячах рублей.
-              </p>
-            </section>
-          )}
+          <BookStatusStrip data={data} rowsTotal={procedures.length} onReload={() => load(true)} />
 
-          {/* ── Нераспознанные коды: сигнал с адресами (спека §2), не потеря ── */}
-          {data && data.unparsedCodes.length > 0 && (
-            <details className="text-xs bg-white dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-700/50 rounded-xl px-4 py-3 text-zinc-600 dark:text-zinc-300">
-              <summary className="cursor-pointer font-medium">
-                Код процедуры не распознан у {data.unparsedCodes.length}{' '}
-                {pluralRu(data.unparsedCodes.length, 'строки', 'строк', 'строк')} — искажён формат
-                записи; строки остались в реестре без кода
-              </summary>
-              <ul className="mt-2 space-y-1">
-                {data.unparsedCodes.map((u) => (
-                  <li key={`${u.sheet}:${u.row}`} className="tabular-nums">
-                    Лист «{u.sheet}», строка {u.row}: «{u.text}» — поправить код в книге
-                    (образец: ЭА152-26, без дефиса после букв и без приписок).
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          {/* ── Фильтры страницы: стадия + заказчик ── */}
-          <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Фильтр по стадии">
-            <button
-              type="button"
-              onClick={() => setStageFilter(null)}
-              aria-pressed={stageFilter === null}
-              className={stageFilter === null
-                ? 'px-2.5 py-1 text-xs font-medium rounded-full bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                : 'px-2.5 py-1 text-xs font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40 transition'}
-            >
-              Все стадии
-            </button>
-            {STAGE_ORDER.map((stage) => {
-              const active = stageFilter === stage;
-              const count = agg?.byStage[stage] ?? 0;
-              return (
-                <button
-                  key={stage}
-                  type="button"
-                  onClick={() => setStageFilter(active ? null : stage)}
-                  aria-pressed={active}
-                  className={active
-                    ? 'px-2.5 py-1 text-xs font-medium rounded-full bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                    : 'px-2.5 py-1 text-xs font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40 transition'}
-                >
-                  {PROCEDURE_STAGE_LABELS[stage]} · {count}
-                </button>
-              );
-            })}
-            <label className="ml-auto flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              Заказчик
-              <select
-                value={customerFilter}
-                onChange={(e) => setCustomerFilter(e.target.value)}
-                className="max-w-[16rem] truncate text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 px-2 py-1"
-              >
-                <option value="">все заказчики</option>
-                {customers.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          {/* ── Таблица реестра ── */}
-          {filtered.length === 0 ? (
+          {procedures.length === 0 ? (
             <EmptyState
-              icon={SearchX}
-              title="Под выбранные фильтры не попала ни одна процедура"
-              description={`В реестре ${procedures.length} ${pluralRu(procedures.length, 'процедура', 'процедуры', 'процедур')} — фильтры стадии или заказчика срезали все строки. Это отбор экрана, а не пустота книги.`}
-              action={{
-                label: 'Сбросить фильтры',
-                onClick: () => { setStageFilter(null); setCustomerFilter(''); },
-              }}
+              title="На прочитанных листах книги нет ни одной строки процедуры"
+              description="Листы управлений прочитаны, но строк с данными в них не нашлось. Это пустота самой книги, а не отказ чтения: если процедуры ожидались — стоит открыть книгу-источник."
+              action={{ label: 'Прочитать ещё раз', onClick: () => load(true) }}
             />
           ) : (
-            <section
-              aria-label="Реестр процедур"
-              className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-x-auto"
-            >
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-[11px] text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
-                    <th className="px-3 py-2 font-medium">Код</th>
-                    <th className="px-3 py-2 font-medium">Заказчик</th>
-                    <th className="px-3 py-2 font-medium">Предмет</th>
-                    <th className="px-3 py-2 font-medium text-right">НМЦК, руб.</th>
-                    <th className="px-3 py-2 font-medium">Публикация</th>
-                    <th className="px-3 py-2 font-medium">Торги</th>
-                    <th className="px-3 py-2 font-medium text-right">Цена, руб.</th>
-                    <th className="px-3 py-2 font-medium text-right">Снижение</th>
-                    <th className="px-3 py-2 font-medium">Стадия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((p) => <ProcedureRow key={`${p.sheet}:${p.row}`} p={p} />)}
-                </tbody>
-              </table>
-            </section>
-          )}
+            <>
+              {mode.kind === 'registry' && (
+                <PortraitNumbers portrait={portrait} scopeLabel={scopeLabel} readAtLabel={readAtLabel} />
+              )}
 
-          {/* Оговорки сервера (единица денег, неполнота, сигналы) — как есть. */}
-          {data && data.notes.length > 0 && (
-            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 space-y-0.5">
-              {data.notes.map((n) => <p key={n}>{n}</p>)}
-            </div>
+              {/* Место аналитики: воронка стадий и четыре графика встают сюда
+                  отдельной волной — реестр от них не зависит. */}
+
+              <SliceBar
+                rows={modeRows}
+                slices={slices}
+                onChange={(next) => { setSlices(next); setOpenCode(null); }}
+                shownCount={filtered.length}
+              />
+
+              <div>
+                <SheetModeTabs
+                  activeId={modeId}
+                  onSelect={(m: SheetMode) => { setModeId(m.id); setOpenCode(null); }}
+                  pendingIds={pendingIds}
+                  counts={modeCounts}
+                />
+                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{mode.hint}</p>
+              </div>
+
+              {/* ── Содержимое режима ── */}
+              {mode.kind === 'registry' && (
+                sorted.length === 0 ? (
+                  <EmptyState
+                    icon={SearchX}
+                    title="Под выбранные разрезы не попала ни одна процедура"
+                    description={`На этом листе ${pluralCount(modeRows.length, 'процедура', 'процедуры', 'процедур')}, и разрезы срезали их все. Это отбор экрана, а не пустота книги.`}
+                    action={{ label: 'Снять все разрезы', onClick: () => setSlices(emptySlices()) }}
+                  />
+                ) : (
+                  <>
+                    <RegistryTable
+                      rows={sorted}
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={onSort}
+                      lineageByCode={lineageByCode}
+                      journalByCode={journalByCode}
+                      matchByCode={matchByCode}
+                      onOpenCode={onOpenCode}
+                      openCode={openCode}
+                    />
+                    {sheetTotals !== null && <SheetTotalsRow row={sheetTotals} />}
+                  </>
+                )
+              )}
+
+              {mode.kind === 'svod' && (
+                data.svod !== null
+                  ? <SvodTable svod={data.svod} readAtLabel={readAtLabel} />
+                  : <PendingSheet name="СВОДНЫЙ" onReload={() => load(true)} />
+              )}
+
+              {mode.kind === 'journal' && (
+                data.journal !== null
+                  ? <JournalTable journal={data.journal} readAtLabel={readAtLabel} query={slices.query} />
+                  : <PendingSheet name="25-26" onReload={() => load(true)} />
+              )}
+
+              {mode.kind === 'directory' && (
+                data.directory !== null
+                  ? (
+                    <DirectoryTable
+                      directory={data.directory}
+                      readAtLabel={readAtLabel}
+                      onPickCustomer={(name) => {
+                        setModeId(ALL_DEPTS_MODE.id);
+                        setSlices({ ...emptySlices(), customer: name });
+                      }}
+                    />
+                  )
+                  : <PendingSheet name="Перечень ГРБС" onReload={() => load(true)} />
+              )}
+
+              {mode.kind === 'ancestors' && <AncestorSheets />}
+
+              {/* ── Нераспознанные коды: сигнал с адресами, не потеря ── */}
+              {data.unparsedCodes.length > 0 && (
+                <details className="rounded-xl border border-zinc-100 dark:border-zinc-700/50 bg-white dark:bg-zinc-800/60 px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">
+                  <summary className="cursor-pointer font-medium">
+                    Код процедуры не разобран у{' '}
+                    {pluralCount(data.unparsedCodes.length, 'строки', 'строк', 'строк')} — по каждой
+                    сказано, что записано и на что это похоже
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {data.unparsedCodes.map((u) => (
+                      <li key={`${u.sheet}:${u.row}`} className="tabular-nums">
+                        Лист «{u.sheet}», строка {u.row}: «{u.text}»
+                        {u.guess !== null
+                          ? <> — похоже на <span className="font-mono font-medium">{u.guess}</span>{u.note !== null ? ` (${u.note})` : ''}; сверка по догадке не идёт — код правится в книге.</>
+                          : <> — номера процедуры в начале записи не видно; образец: ЭА152-26.</>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {data.signals !== null && data.signals.length > 0 && <SignalCards signals={data.signals} />}
+
+              {data.notes.length > 0 && (
+                <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {data.notes.map((n) => <p key={n}>{n}</p>)}
+                </div>
+              )}
+            </>
           )}
         </>
       )}
@@ -334,46 +344,17 @@ export function MonitoringPage() {
   );
 }
 
-/** Строка таблицы: адрес листа книги — в подсказке кода (карточка п.53). */
-function ProcedureRow({ p }: { p: MonitoringProcedure }) {
+/**
+ * Лист книги есть, а раздела ответа нет — четвёртая пустота. Она про трубу
+ * чтения, а не про книгу, и её слова обязаны отличаться от «в книге пусто»:
+ * действие здесь другое — не открывать книгу, а перечитать её сервером.
+ */
+function PendingSheet({ name, onReload }: { name: string; onReload: () => void }) {
   return (
-    <tr className="border-b border-zinc-50 dark:border-zinc-700/30 align-top">
-      <td
-        className="px-3 py-2 whitespace-nowrap font-medium tabular-nums text-zinc-800 dark:text-zinc-100"
-        title={`Лист «${p.sheet}», строка ${p.row}`}
-      >
-        {p.code ?? <span className="text-amber-600 dark:text-amber-400" title="Код не распознан — формат записи искажён; адрес строки в плашке над таблицей">без кода</span>}
-      </td>
-      <td className="px-3 py-2 max-w-[14rem] truncate text-zinc-600 dark:text-zinc-300" title={p.customer}>
-        {p.customer}
-      </td>
-      <td className="px-3 py-2 max-w-[24rem] truncate text-zinc-600 dark:text-zinc-300" title={p.subject}>
-        {p.subject}
-      </td>
-      <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100">
-        {p.nmck !== null ? fmtRub(p.nmck) : '—'}
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-        {p.publicationDate ?? '—'}
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-        {p.auctionDate ?? '—'}
-      </td>
-      <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100">
-        {p.auctionPrice !== null && p.auctionPrice > 0 ? fmtRub(p.auctionPrice) : '—'}
-      </td>
-      <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-        {p.reductionPct !== null ? (
-          <span className={p.reductionPct > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-zinc-500 dark:text-zinc-400'}>
-            {p.reductionPct.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} %
-          </span>
-        ) : '—'}
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap">
-        <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] ${STAGE_BADGE[p.stage]}`}>
-          {PROCEDURE_STAGE_LABELS[p.stage]}
-        </span>
-      </td>
-    </tr>
+    <EmptyState
+      title={`Лист «${name}» сервер пока не отдаёт`}
+      description={`В книге этот лист есть, и в реестре он нужен — но в ответе сервера его раздела нет. Это незаконченная труба чтения, а не пустой лист: числа с него не потеряны, их просто ещё не читают.`}
+      action={{ label: 'Прочитать книгу заново', onClick: onReload }}
+    />
   );
 }

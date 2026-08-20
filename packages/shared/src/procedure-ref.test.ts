@@ -8,16 +8,15 @@ import { describe, it, expect } from 'vitest';
 import {
   parseProcedureRef,
   extractProcedureRefs,
-  detectForeignText,
-} from './procedure-ref.js';
+  detectForeignText, explainDistortedCode,} from './procedure-ref.js';
 
 describe('parseProcedureRef — строгий разбор ячейки AG', () => {
   it('разбирает канонические коды всех четырёх семейств (живые ячейки)', () => {
     // УЭР r30, УЭР r5, УЭР r23, УЭР r42 из дампа
-    expect(parseProcedureRef('ЭА152-26')).toEqual({ code: 'ЭА152-26', family: 'ЭА', n: 152, yy: 26 });
-    expect(parseProcedureRef('ЭЗК426-25')).toEqual({ code: 'ЭЗК426-25', family: 'ЭЗК', n: 426, yy: 25 });
-    expect(parseProcedureRef('ЭЕП113-26')).toEqual({ code: 'ЭЕП113-26', family: 'ЭЕП', n: 113, yy: 26 });
-    expect(parseProcedureRef('ЭАС258-26')).toEqual({ code: 'ЭАС258-26', family: 'ЭАС', n: 258, yy: 26 });
+    expect(parseProcedureRef('ЭА152-26')).toEqual({ code: 'ЭА152-26', family: 'ЭА', n: 152, yy: 26, lot: null });
+    expect(parseProcedureRef('ЭЗК426-25')).toEqual({ code: 'ЭЗК426-25', family: 'ЭЗК', n: 426, yy: 25, lot: null });
+    expect(parseProcedureRef('ЭЕП113-26')).toEqual({ code: 'ЭЕП113-26', family: 'ЭЕП', n: 113, yy: 26, lot: null });
+    expect(parseProcedureRef('ЭАС258-26')).toEqual({ code: 'ЭАС258-26', family: 'ЭАС', n: 258, yy: 26, lot: null });
   });
 
   it('терпит пробелы внутри и вокруг кода (живая ячейка УЭР r33 «ЭЕП 180-26»)', () => {
@@ -41,10 +40,18 @@ describe('parseProcedureRef — строгий разбор ячейки AG', ()
   });
 
   it('разбирает странный, но формально валидный год (живая ячейка УЭР r26 «ЭЕП110-06»)', () => {
-    expect(parseProcedureRef('ЭЕП110-06')).toEqual({ code: 'ЭЕП110-06', family: 'ЭЕП', n: 110, yy: 6 });
+    expect(parseProcedureRef('ЭЕП110-06')).toEqual({ code: 'ЭЕП110-06', family: 'ЭЕП', n: 110, yy: 6, lot: null });
   });
 
-  it('пять искажённых кодов из спеки мониторинга → null, БЕЗ молчаливой починки', () => {
+  it('разбирает код лота совместных торгов (п.121, живая ячейка УО r2101)', () => {
+    expect(parseProcedureRef('ЭАС205/1-26')).toEqual({
+      code: 'ЭАС205/1-26', family: 'ЭАС', n: 205, yy: 26, lot: 1,
+    });
+    // Лот и базовая процедура — разные ключи; мост к базе — по family+n+yy.
+    expect(parseProcedureRef('ЭАС205-26')?.lot).toBeNull();
+  });
+
+  it('четыре искажённых кода из спеки мониторинга → null, БЕЗ молчаливой починки', () => {
     // потеря «Э» (УД!20; в книге ГРБС тот же код записан «ЭА427-25»)
     expect(parseProcedureRef('А427-25')).toBeNull();
     // дефис после префикса (УД!53)
@@ -54,11 +61,15 @@ describe('parseProcedureRef — строгий разбор ячейки AG', ()
     // код приклеен к предмету без пробела (УД!106)
     expect(parseProcedureRef('ЭЗК264-26Выполнение работ по благоустройству')).toBeNull();
     // вариант с косой чертой (УО!80, он же живая ячейка книги УО r2101)
-    expect(parseProcedureRef('ЭАС205/1-26')).toBeNull();
   });
 
-  it('не признаёт чужие семейства и обрезки (живые ячейки УАГЗО r10, УИО r37)', () => {
-    expect(parseProcedureRef('ЭК03-26')).toBeNull(); // семейства ЭК в каноне нет
+  it('семейство ЭК — настоящее (сверка 20.08.2026: «ЭК03-26» ×5 в книгах ГРБС)', () => {
+    expect(parseProcedureRef('ЭК03-26')).toEqual({
+      code: 'ЭК3-26', family: 'ЭК', n: 3, yy: 26, lot: null,
+    });
+  });
+
+  it('не признаёт обрезки (живая ячейка УИО r37)', () => {
     expect(parseProcedureRef('ЭЗК 283')).toBeNull(); // нет «-год»
     expect(parseProcedureRef('№ 32615775240')).toBeNull(); // номер ЕИС — не код процедуры
   });
@@ -97,7 +108,6 @@ describe('extractProcedureRefs — коды в свободном тексте',
     expect(extractProcedureRefs('ЭА146-226')).toEqual([]);
     // нельзя признать приклеенный код
     expect(extractProcedureRefs('ЭЗК264-26Выполнение работ')).toEqual([]);
-    expect(extractProcedureRefs('ЭАС205/1-26')).toEqual([]);
   });
 
   it('дедуплицирует по каноническому коду', () => {
@@ -132,8 +142,8 @@ describe('detectForeignText — посторонний текст в колон�
 
   it('искажённый код — тоже остаток: парсер его не признал, не чинит молча', () => {
     expect(detectForeignText('ЭЗК 283')).toBe('ЭЗК 283'); // УИО r37
-    expect(detectForeignText('ЭК03-26')).toBe('ЭК03-26'); // УАГЗО r10
-    expect(detectForeignText('ЭАС205/1-26')).toBe('ЭАС205/1-26'); // УО r2101
+    expect(detectForeignText('ЭК03-26')).toBeNull(); // УАГЗО r10 — валидный конкурс (сверка 20.08)
+    expect(detectForeignText('ЭАС205/1-26')).toBeNull(); // УО r2101 — лот валиден (п.121)
   });
 
   it('код с припиской: остаток — только приписка (живая ячейка УИО r27)', () => {
@@ -146,5 +156,84 @@ describe('detectForeignText — посторонний текст в колон�
       'ЭАС09-25                                                          Школы: 5, 9, Пионерская, Нагорненская',
     );
     expect(rest).toBe('Школы: 5 9 Пионерская Нагорненская');
+  });
+});
+
+describe('explainDistortedCode — диагноз нераспознанного кода (скриншот 20.08)', () => {
+  it('переставленные буквы семейства: «ЭКЗ301-26» (лист «25-26», живой)', () => {
+    const d = explainDistortedCode('ЭКЗ301-26 Приобретение однокомнатной квартиры');
+    expect(d).not.toBeNull();
+    expect(d?.raw).toBe('ЭКЗ301-26');
+    expect(d?.guess).toBe('ЭЗК301-26');
+    expect(d?.note).toContain('переставлены');
+  });
+
+  it('задвоенная буква: «ЭЗЗК01-26» (лист «25-26», живой; ведущий ноль снят в догадке)', () => {
+    const d = explainDistortedCode('ЭЗЗК01-26 Подготовка нормативов');
+    expect(d?.raw).toBe('ЭЗЗК01-26');
+    expect(d?.guess).toBe('ЭЗК1-26');
+    expect(d?.note).toContain('задвоена');
+  });
+
+  it('«ЭК03-26» — не искажение: семейство ЭК настоящее (сверка 20.08.2026)', () => {
+    // Раньше диагност гадал «пропущена З → ЭЗК3-26». Сверка по книгам ГРБС
+    // опровергла: «ЭК03-26» живёт там 5 раз, а «ЭЗК03-26» не существует нигде.
+    expect(explainDistortedCode('ЭК03-26 Выполнение работ по разработке Генерального плана')).toBeNull();
+    expect(extractProcedureRefs('ЭК03-26 Выполнение работ')[0]?.code).toBe('ЭК3-26');
+  });
+
+  it('пропущенная буква семейства чинится догадкой: «ЭЗ88-26» (синтетический)', () => {
+    const d = explainDistortedCode('ЭЗ88-26 Поставка мебели');
+    expect(d?.raw).toBe('ЭЗ88-26');
+    expect(d?.guess).toBe('ЭЗК88-26');
+    expect(d?.note).toContain('К');
+  });
+
+  it('потеряна «Э»: «А427-25» (спека мониторинга §5)', () => {
+    const d = explainDistortedCode('А427-25');
+    expect(d?.guess).toBe('ЭА427-25');
+    expect(d?.note).toContain('Э');
+  });
+
+  it('лишний дефис: «ЭЗК-120-26» (спека §5)', () => {
+    const d = explainDistortedCode('ЭЗК-120-26 Поставка');
+    expect(d?.raw).toBe('ЭЗК-120-26');
+    expect(d?.guess).toBe('ЭЗК120-26');
+    expect(d?.note).toContain('дефис');
+  });
+
+  it('лишняя цифра в годе: «ЭА146-226» (спека §5; догадка по хвостовым двум)', () => {
+    const d = explainDistortedCode('ЭА146-226');
+    expect(d?.guess).toBe('ЭА146-26');
+    expect(d?.note).toContain('годе');
+  });
+
+  it('код приклеен к предмету: «ЭЗК264-26Выполнение…» (спека §5)', () => {
+    const d = explainDistortedCode('ЭЗК264-26Выполнение работ');
+    expect(d?.guess).toBe('ЭЗК264-26');
+    expect(d?.note).toContain('приклеен');
+  });
+
+  it('код лота — не искажение (п.121): диагност молчит, парсер читает штатно', () => {
+    expect(explainDistortedCode('ЭАС205/1-26')).toBeNull();
+    expect(extractProcedureRefs('ЭАС205/1-26 Поставка учебников')[0]?.code).toBe('ЭАС205/1-26');
+  });
+
+  it('текст вовсе без кода → null (честное «без кода», не выдумывает)', () => {
+    expect(explainDistortedCode('Поставка бумаги для офиса')).toBeNull();
+    expect(explainDistortedCode('Общий объём ассигнований')).toBeNull();
+    expect(explainDistortedCode('')).toBeNull();
+    expect(explainDistortedCode(null)).toBeNull();
+  });
+
+  it('валидный код диагноза не получает: чинить нечего', () => {
+    // Валидный код в начале разберёт extractProcedureRefs — диагност
+    // вызывается только когда кода не нашлось; но и на прямой вызов
+    // с валидным кодом он не должен сочинять искажение.
+    expect(explainDistortedCode('ЭА152-26 Ремонт кровли')).toBeNull();
+  });
+
+  it('чужой префикс, который не чинится одной операцией, → null (не гадает дико)', () => {
+    expect(explainDistortedCode('ПРО14-26 набор')).toBeNull();
   });
 });

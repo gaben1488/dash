@@ -1,18 +1,24 @@
 /**
  * monitoring.ts — чтение книги «Ежедневный мониторинг» (канон п.69в:
- * отдельная вкладка; п.101а: перенос всех листов книги).
+ * отдельная вкладка; п.101а: ВСЕ страницы книги переносятся в продукт).
  *
  * Паттерн — тот же, что у source-refresh/google-sheets: кэш на процесс с TTL
  * из config.cache.ttlSeconds, дедупликация параллельных чтений одним
  * промисом, отказ отдельного листа не валит цикл, а честно записывается в
  * failed (читатель увидит плашку неполноты, а не тишину).
  *
- * Эта волна читает восемь листов управлений — реестр процедур. Остальные
- * листы книги (журнал «25-26», СВОДНЫЙ, справочник ГРБС) — следующей волной,
- * той же трубой.
+ * ЧИТАЕМ ОДИННАДЦАТЬ ВИДИМЫХ ЛИСТОВ, а не восемь: восемь реестров управлений,
+ * «СВОДНЫЙ» (итог книги и его разрыв с нашим счётом), «25-26» (переходящий
+ * реестр с победителями, ИНН и родословной переобъявлений) и «Перечень ГРБС»
+ * (справочник учреждений). Три скрытых листа-предка данными не читаются — там
+ * ноль строк, и продукт показывает их как форму, а не как данные.
+ *
+ * Чего этот слой НЕ делает: не разбирает строки (это @aemr/core), не решает,
+ * что считать ошибкой, и не сглаживает неполноту. Лист не ответил — его имя
+ * едет наружу.
  */
 
-import { MONITORING_DEPT_SHEETS } from '@aemr/core';
+import { MONITORING_DATA_SHEETS } from '@aemr/core';
 import { config } from '../config.js';
 import { getSheetDataFromSpreadsheet } from './google-sheets.js';
 
@@ -36,7 +42,7 @@ let cachedAtMs = 0;
 let inFlight: Promise<MonitoringBookSnapshot> | null = null;
 
 /**
- * Прочитать листы управлений книги мониторинга (с кэшем).
+ * Прочитать листы книги мониторинга (с кэшем).
  *
  * Кэшируется только снимок, где прочитан хоть один лист: полный отказ
  * источника не должен занимать TTL и держать «пустоту» пять минут —
@@ -53,10 +59,10 @@ export function getMonitoringBook(force = false): Promise<MonitoringBookSnapshot
     const sheets: Record<string, unknown[][]> = {};
     const failed: Record<string, string> = {};
 
-    // Листы читаются параллельно: книга одна, листов восемь, а срок ответа
-    // источника на каждый вызов свой (withSheetsDeadline внутри).
+    // Листы читаются параллельно: книга одна, листов одиннадцать, а срок
+    // ответа источника на каждый вызов свой (withSheetsDeadline внутри).
     const results = await Promise.allSettled(
-      MONITORING_DEPT_SHEETS.map(async ({ sheet }) => ({
+      MONITORING_DATA_SHEETS.map(async (sheet) => ({
         sheet,
         values: await getSheetDataFromSpreadsheet(MONITORING_SPREADSHEET_ID, sheet),
       })),
@@ -67,7 +73,7 @@ export function getMonitoringBook(force = false): Promise<MonitoringBookSnapshot
       if (result.status === 'fulfilled') {
         sheets[result.value.sheet] = result.value.values;
       } else {
-        const sheetName = MONITORING_DEPT_SHEETS[i].sheet;
+        const sheetName = MONITORING_DATA_SHEETS[i];
         failed[sheetName] = result.reason instanceof Error
           ? result.reason.message
           : String(result.reason);
