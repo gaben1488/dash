@@ -10,6 +10,9 @@ import {
 } from 'lucide-react';
 import { officialProvenanceFor, type ProvenanceSource } from '../../lib/provenance-registry';
 import { useStore } from '../../store';
+import { MetricProvenance } from '../metric/MetricProvenance';
+import { DivergenceMark } from '../metric/DivergenceMark';
+import { provenanceCard } from '../metric/metric-provenance-view';
 
 // ────────────────────────────────────────────────────────────────
 // KBTooltip — 10-блочный KB на литературном русском
@@ -21,6 +24,13 @@ import { useStore } from '../../store';
 //
 // Используем Radix Tooltip (hover open, auto close on mouse leave).
 // Внутри — expandable секции для глубокого контента.
+//
+// Ниже блоков БЗ живут два разных провенанса, и путать их нельзя:
+//   • «Первичка сейчас» — какая ячейка какой книги дала ИМЕННО ЭТО число в
+//     ИМЕННО ЭТОМ снимке; меняется с каждым обновлением данных;
+//   • «Происхождение» (metric/MetricProvenance, канон п.104) — из какого из
+//     пяти документов показатель родом вообще и совпадает ли наш счёт со
+//     счётом документа; от снимка не зависит.
 // ────────────────────────────────────────────────────────────────
 
 export interface KBEntry {
@@ -347,6 +357,10 @@ export function KBTooltip({
   // Живой провенанс за выбранный период — официальные ячейки СВОДа (Д11).
   const period = useStore((s) => s.period);
   const provenance = metric ? officialProvenanceFor(metric, period) : [];
+  // Родословная показателя (канон п.104): из какого документа он родом.
+  // Не путать с живым провенансом выше: тот меняется от снимка к снимку,
+  // эта — нет. Родословной одной достаточно, чтобы подсказка открылась.
+  const lineage = metric ? provenanceCard(metric) : null;
   const entry: KBEntry = {
     formula: formula ?? registryEntry?.formula,
     source: source ?? registryEntry?.source,
@@ -369,7 +383,8 @@ export function KBTooltip({
   const coarsePointer = useCoarsePointer();
 
   const hasContent = Object.values(entry).some(v => Array.isArray(v) ? v.length > 0 : Boolean(v))
-    || provenance.length > 0;
+    || provenance.length > 0
+    || lineage !== null;
   if (!hasContent) return <>{children}</>;
 
   const body = (
@@ -382,65 +397,77 @@ export function KBTooltip({
       )}
       <FullKBContent entry={entry} />
       {provenance.length > 0 && <ProvenanceBlock sources={provenance} />}
+      {/* Нижний ярус — родословная показателя. Панель подсказки всегда тёмная,
+          поэтому тон 'dark': светлые классы темы здесь не сработают. */}
+      {metric && <MetricProvenance metricKey={metric} tone="dark" />}
     </>
   );
+
+  // Значок расхождения рядом с числом — для тех, кто не наведёт (см. п.104).
+  const mark = metric ? <DivergenceMark metricKey={metric} className="ml-0.5" /> : null;
 
   // ── Тап-режим (координатное устройство): Popover открывается кликом,
   //    закрывается тапом мимо — аналог наведения по директиве п.73а. ──
   if (coarsePointer) {
     return (
-      <PopoverPrimitive.Root>
-        <PopoverPrimitive.Trigger asChild>
-          <span
-            tabIndex={0}
-            className={cn('inline-flex items-center gap-1 cursor-help group/kb', className)}
-          >
+      <>
+        <PopoverPrimitive.Root>
+          <PopoverPrimitive.Trigger asChild>
+            <span
+              tabIndex={0}
+              className={cn('inline-flex items-center gap-1 cursor-help group/kb', className)}
+            >
+              {children}
+              {showIcon && (
+                <Info size={11} className="text-zinc-500 dark:text-zinc-400 shrink-0" />
+              )}
+            </span>
+          </PopoverPrimitive.Trigger>
+          <PopoverPrimitive.Portal>
+            <PopoverPrimitive.Content
+              side={side}
+              sideOffset={8}
+              align="center"
+              collisionPadding={16}
+              className={KB_PANEL_CLASS}
+            >
+              {body}
+              <PopoverPrimitive.Arrow className="fill-zinc-900/95" />
+            </PopoverPrimitive.Content>
+          </PopoverPrimitive.Portal>
+        </PopoverPrimitive.Root>
+        {mark}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <TooltipPrimitive.Root delayDuration={300} disableHoverableContent={false}>
+        <TooltipPrimitive.Trigger asChild>
+          <span className={cn('inline-flex items-center gap-1 cursor-help group/kb', className)}>
             {children}
             {showIcon && (
-              <Info size={11} className="text-zinc-500 dark:text-zinc-400 shrink-0" />
+              <Info size={11} className="text-zinc-400 dark:text-zinc-500 opacity-0 group-hover/kb:opacity-100 transition-opacity shrink-0" />
             )}
           </span>
-        </PopoverPrimitive.Trigger>
-        <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content
+        </TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
             side={side}
             sideOffset={8}
             align="center"
             collisionPadding={16}
             className={KB_PANEL_CLASS}
+            // Keep tooltip open when hovering over it (for interactive content)
+            onPointerDownOutside={(e) => e.preventDefault()}
           >
             {body}
-            <PopoverPrimitive.Arrow className="fill-zinc-900/95" />
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      </PopoverPrimitive.Root>
-    );
-  }
-
-  return (
-    <TooltipPrimitive.Root delayDuration={300} disableHoverableContent={false}>
-      <TooltipPrimitive.Trigger asChild>
-        <span className={cn('inline-flex items-center gap-1 cursor-help group/kb', className)}>
-          {children}
-          {showIcon && (
-            <Info size={11} className="text-zinc-400 dark:text-zinc-500 opacity-0 group-hover/kb:opacity-100 transition-opacity shrink-0" />
-          )}
-        </span>
-      </TooltipPrimitive.Trigger>
-      <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content
-          side={side}
-          sideOffset={8}
-          align="center"
-          collisionPadding={16}
-          className={KB_PANEL_CLASS}
-          // Keep tooltip open when hovering over it (for interactive content)
-          onPointerDownOutside={(e) => e.preventDefault()}
-        >
-          {body}
-          <TooltipPrimitive.Arrow className="fill-zinc-900/95" />
-        </TooltipPrimitive.Content>
-      </TooltipPrimitive.Portal>
-    </TooltipPrimitive.Root>
+            <TooltipPrimitive.Arrow className="fill-zinc-900/95" />
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+      {mark}
+    </>
   );
 }

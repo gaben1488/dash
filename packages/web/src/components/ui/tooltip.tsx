@@ -15,9 +15,14 @@ const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 overflow-hidden rounded-lg border px-3 py-1.5 text-sm shadow-md',
-        'border-zinc-200 bg-white text-zinc-950',
-        'dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50',
+        'z-50 overflow-hidden rounded-[var(--radius-card)] border px-3 py-1.5 ds-text-2xs shadow-[var(--elevation-3)]',
+        // Фон, линия и чернила названы РОЛЬЮ и объявлены один раз. Было две
+        // строки классов — отдельно светлая (белая заливка, серая линия) и
+        // отдельно тёмная с цифрами zinc. Это ровно тот случай, из-за
+        // которого светлая тема отставала: белый прямоугольник на кремовой
+        // странице даёт 1,04 : 1, то есть края у подсказки нет вовсе.
+        // Роль знает обе темы, поэтому второй строки больше не нужно.
+        'border-[var(--line-strong)] bg-[var(--surface-overlay)] text-[var(--ink)]',
         'animate-in fade-in-0 zoom-in-95',
         'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
         'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',

@@ -9,6 +9,8 @@ import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
 import { FilterBreadcrumb } from './FilterBreadcrumb';
+import { LiveFreshness } from './live/LiveFreshness';
+import { useLiveEvents } from '../hooks/useLiveEvents';
 
 // Re-export for compatibility
 export type FilterGroup =
@@ -60,29 +62,42 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 
 /* ─── Nav items with BRAND COLORS ────────────────────────── */
 
-// Цвет вкладки — заливка активной кнопки, поверх которой стоит тёмная подпись
-// (см. .np-btn-active в index.css). Поэтому каждый тон обязан быть достаточно
-// светлым: чернильный текст #1b170f даёт на нём не меньше 4,5:1. Фиолетовый и
-// серый ради этого осветлены (были #8b5cf6 и #71717a — 4,2:1 и 3,7:1).
-const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string; title?: string }[] = [
-  { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#e5d3a9' },  // Cream (чёрный дэш + кремовый хром, 07.08)
-  { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b' },  // Amber — еженедельный отчёт
-  { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2' },  // Cyan — источник истины
-  { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9' },  // Sky Teal
+// Цвет вкладки — заливка активной кнопки. Значений ДВА, и это не дубль.
+//
+// Повод (регресс, замечен владельцем 19.08.2026): кнопка строится как
+// «заливка цветом раздела плюс подпись поверх», и силуэт её держится на том,
+// что заливка по светлоте отличается от фона страницы. Все тона ниже были
+// подобраны под тёмную тему (фон #0b0a08) и потому светлые. На светлой теме
+// (фон #faf8f3) светлая заливка даёт около 1,3:1 — силуэта нет вовсе, коническое
+// свечение тем же тоном невидно, а подпись читается вялой.
+//
+// Решение: у каждого раздела два значения ОДНОГО тона — светлое для тёмной
+// темы (`color`) и насыщенное тёмное для светлой (`colorLight`). Семейство цвета
+// при этом НЕ меняется — меняется только светлота, поэтому исключения
+// канона п.115 целы: «Реестр» остаётся бирюзовым в обеих темах.
+//
+// Подпись берётся ролью `--accent-ink` (белая на светлой теме, чернильная на
+// тёмной), поэтому оба набора обязаны давать не меньше 4,5:1 к своей подписи
+// и не меньше 3:1 к фону своей страницы. Замер держит страж `nav-contrast.test.ts`.
+export const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string; colorLight: string; title?: string }[] = [
+  { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#e5d3a9', colorLight: '#7a5f33' },  // Cream (чёрный дэш + кремовый хром, 07.08)
+  { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b', colorLight: '#a25a06' },  // Amber — еженедельный отчёт
+  { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2', colorLight: '#0e6d85' },  // Cyan — источник истины
+  { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9', colorLight: '#0b6f96' },  // Sky Teal
   // Корзины Реестра (п.73в). Цвета НАМЕРЕННО светлые: заливка активной кнопки
   // несёт тёмную подпись #1b170f, и обе пары дают контраст сильно выше 4,5:1
   // (#fde68a ≈ 12,3:1, #c7d2fe ≈ 10,9:1).
-  { id: 'unfunded',  label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием (год плана не проставлен)', icon: CalendarX2, color: '#fde68a' },  // Light Amber (п.23)
-  { id: 'yearlong',  label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat, color: '#c7d2fe' },  // Light Indigo (п.71)
+  { id: 'unfunded',  label: 'Не обеспеченные', title: 'Закупки, не обеспеченные финансированием (год плана не проставлен)', icon: CalendarX2, color: '#fde68a', colorLight: '#8a6508' },  // Light Amber (п.23)
+  { id: 'yearlong',  label: 'В течение года', title: 'Закупки, проводимые в течение года (серии договоров, выплаты, платежи)', icon: Repeat, color: '#c7d2fe', colorLight: '#4338ca' },  // Light Indigo (п.71)
   // Мониторинг (п.69в/п.101а): реестр процедур из книги «Ежедневный
   // мониторинг». Светлый тон ради тёмной подписи активной кнопки (#bae6fd ≈ 12:1).
-  { id: 'monitoring', label: 'Мониторинг', title: 'Реестр процедур определения поставщика — книга «Ежедневный мониторинг»', icon: Radar, color: '#bae6fd' },  // Light Sky
-  { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981' },  // Emerald
-  { id: 'competition', label: 'Конкуренция', icon: Gavel,    color: '#5eead4' },  // Light Teal (тёмная подпись ≥4,5:1)
-  { id: 'discipline', label: 'Дисциплина', icon: ListChecks, color: '#fdba74' },  // Light Orange — рабочий список дел
-  { id: 'quality',   label: 'Контроль',   icon: ShieldCheck, color: '#ef4444' },  // Ruby Red
-  { id: 'analytics', label: 'Аналитика',  icon: TrendingUp,  color: '#a78bfa' },  // Violet
-  { id: 'settings',  label: 'Система',    icon: Settings,    color: '#a1a1aa' },  // Zinc
+  { id: 'monitoring', label: 'Мониторинг', title: 'Реестр процедур определения поставщика — книга «Ежедневный мониторинг»', icon: Radar, color: '#bae6fd', colorLight: '#0369a1' },  // Light Sky
+  { id: 'economy',   label: 'Экономия',   icon: Coins,       color: '#10b981', colorLight: '#04704f' },  // Emerald
+  { id: 'competition', label: 'Конкуренция', icon: Gavel,    color: '#5eead4', colorLight: '#0d6d63' },  // Light Teal (тёмная подпись ≥4,5:1)
+  { id: 'discipline', label: 'Дисциплина', icon: ListChecks, color: '#fdba74', colorLight: '#9a3a0b' },  // Light Orange — рабочий список дел
+  { id: 'quality',   label: 'Контроль',   icon: ShieldCheck, color: '#ef4444', colorLight: '#b3211d' },  // Ruby Red
+  { id: 'analytics', label: 'Аналитика',  icon: TrendingUp,  color: '#a78bfa', colorLight: '#6431c4' },  // Violet
+  { id: 'settings',  label: 'Система',    icon: Settings,    color: '#a1a1aa', colorLight: '#55555f' },  // Zinc
 ];
 
 /**
@@ -566,6 +581,10 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
   // что страницы-фильтры; null (нет ответа) — кнопка живёт БЕЗ числа, ноль
   // не выдумывается.
   const bucketCounts = useStore((s) => s.bucketCounts);
+  // Новые замечания, о которых сказал прямой эфир, но которых читатель ещё не
+  // видел. Это НЕ счётчик всех замечаний (их сотни и на кнопке они бесполезны),
+  // а прирост с последнего обновления данных: «пришло ещё три».
+  const newIssues = useLiveEvents().newIssues;
   const countOf = (id: Page): number | null => {
     if (bucketCounts === null) return null;
     if (id === 'unfunded') return bucketCounts.unfunded;
@@ -584,7 +603,7 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
             type="button"
             onClick={() => setPage(item.id)}
             className={clsx('np-btn', isActive && 'np-btn-active')}
-            style={{ '--np-color': item.color } as React.CSSProperties}
+            style={{ '--np-color': item.color, '--np-color-light': item.colorLight } as React.CSSProperties}
             title={count !== null
               ? `${item.title ?? item.label} — ${count} строк во всех книгах на сейчас`
               : (item.title ?? item.label)}
@@ -595,6 +614,17 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
             <span className="np-content">
               <Icon size={10} strokeWidth={isActive ? 2.2 : 1.5} aria-hidden="true" />
               <span>{item.label}</span>
+              {/* Прирост замечаний из прямого эфира — только на Контроле и
+                  только пока он не отработан. Точка спокойная, без мигания. */}
+              {item.id === 'quality' && newIssues > 0 && (
+                <span
+                  className="np-count tabular-nums"
+                  aria-label={`новых замечаний: ${newIssues}`}
+                  title={`С последнего обновления данных замечаний стало больше на ${newIssues}`}
+                >
+                  +{newIssues}
+                </span>
+              )}
               {count !== null && (
                 <span
                   className="np-count tabular-nums"
@@ -808,6 +838,9 @@ export function Header() {
 
         {/* 5. Tools (right edge) — theme + reset only, LiveDot merged into ShieldHub */}
         <div className="nav-tools">
+          {/* Свежесть чисел — ответ на «то ли я вижу, что сейчас в книгах»
+              (канон п.58: у каждого числа момент чтения). */}
+          <LiveFreshness className="mr-1" />
           <button type="button" onClick={toggleTheme} className="hf-icon-btn"
             title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
             aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>

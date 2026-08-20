@@ -150,12 +150,12 @@ const SECTION_META: Record<SectionKind, { label: string; hint: string; tagClass:
 // Цветовая кодировка метрик — как в листах СВОД/ШДЮ: план голубой, факт сиреневый,
 // экономия зелёная (оригинал A4C2F4 / DDD6FE / B6D7A8, ИТОГО C9DAF8/D9D2E9/D9EAD3).
 const GROUP_HEAD = {
-  plan: 'bg-blue-100/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-200',
+  plan: 'bg-blue-100/70 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300',
   fact: 'bg-violet-100/70 dark:bg-violet-950/40 text-violet-800 dark:text-violet-200',
   eco: 'bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200',
 } as const;
 const GROUP_CELL = {
-  plan: 'bg-blue-50/50 dark:bg-blue-950/20',
+  plan: 'bg-blue-50/60 dark:bg-blue-950/30',
   fact: 'bg-violet-50/50 dark:bg-violet-950/20',
   eco: 'bg-emerald-50/50 dark:bg-emerald-950/20',
 } as const;
@@ -850,7 +850,7 @@ function RemainderCard({ remainder, budgets, fmtMoney, moneyLabel }: {
           <ExtrasValue
             label={UI_LABELS['budget.total']}
             value={remainder.total === null ? NO_DATA : `${fmtMoney(remainder.total)} ${moneyLabel}`}
-            valueClass="text-blue-800 dark:text-blue-200"
+            valueClass="text-blue-700 dark:text-blue-300"
             hint="Итог: сумма остатков по трём источникам. Та же величина, что «Отклонение, тыс. руб» в таблице, с обратным знаком."
           />
         </div>
@@ -905,8 +905,8 @@ function SharesCard({ shares, epByCount, methodFiltered }: {
                     {SVOD_SHEET_EXTRAS.shareKp.replace(/:$/, '')}
                   </span>
                 </th>
-                <td className={clsx(cellCls, 'text-blue-800 dark:text-blue-200')}>{pctText(shares.kp.fact)}</td>
-                <td className={clsx(cellCls, 'text-blue-800 dark:text-blue-200')}>{pctText(shares.kp.plan)}</td>
+                <td className={clsx(cellCls, 'text-blue-700 dark:text-blue-300')}>{pctText(shares.kp.fact)}</td>
+                <td className={clsx(cellCls, 'text-blue-700 dark:text-blue-300')}>{pctText(shares.kp.plan)}</td>
               </tr>
               <tr className="border-t border-zinc-100 dark:border-zinc-800/60">
                 <th scope="row" className="px-2.5 py-1.5 text-left font-normal text-zinc-600 dark:text-zinc-300">
@@ -948,7 +948,7 @@ function Notice({ tone, children }: { tone: 'info' | 'muted'; children: ReactNod
       className={clsx(
         'mt-3 flex items-start gap-2 text-[11px] leading-snug rounded-lg px-3 py-2 border',
         tone === 'info'
-          ? 'text-blue-800 dark:text-blue-200 bg-blue-50/70 dark:bg-blue-950/30 border-blue-100 dark:border-blue-900/40'
+          ? 'text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30 border-blue-100 dark:border-blue-900/40'
           : 'text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900/40 border-zinc-100 dark:border-zinc-700/40',
       )}
     >
@@ -1274,10 +1274,10 @@ function SvodDataRow({
           <td className={clsx(numMuted, GROUP_CELL.plan, 'border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.planFB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.plan)}>{fmtMoney(row.planKB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.plan)}>{fmtMoney(row.planMB)}</td>
-          <td className={clsx(num, GROUP_CELL.plan, 'font-semibold text-blue-800 dark:text-blue-200')}>{fmtMoney(row.planTotal)}</td>
+          <td className={clsx(num, GROUP_CELL.plan, 'font-semibold text-blue-700 dark:text-blue-300')}>{fmtMoney(row.planTotal)}</td>
         </>
       ) : (
-        <td className={clsx(num, GROUP_CELL.plan, 'font-medium text-blue-800 dark:text-blue-200 border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.planTotal)}</td>
+        <td className={clsx(num, GROUP_CELL.plan, 'font-medium text-blue-700 dark:text-blue-300 border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.planTotal)}</td>
       )}
 
       {budgetFull ? (

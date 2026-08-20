@@ -56,6 +56,15 @@
   to   { transform: rotate(360deg); }
 }
 
+/* Выезд шторки снизу (components/ui/drawer.tsx). Отдельное имя нужно
+   потому, что slideUp сдвигает на десять пикселей — это проявление
+   карточки, а не выход панели из-за края экрана. Настройка «уменьшить
+   движение» гасит это правило вместе со всеми остальными ниже по файлу. */
+@keyframes sheetIn {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 /* ── СВОД Design Tokens (anti-slop foundation) ────────────────────── */
 
 :root {
@@ -110,6 +119,231 @@
 .elevation-2 { box-shadow: var(--elevation-2); }
 .elevation-3 { box-shadow: var(--elevation-3); }
 
+/* ════════════════════════════════════════════════════════════════════
+   ЕДИНЫЙ ДОМ ОБЛИКА — семантические имена вместо готовых красок
+   ────────────────────────────────────────────────────────────────────
+   Правило: разметка не называет краску, разметка называет РОЛЬ.
+   Не «zinc-100 dark:zinc-800», а «поверхность карточки» — и тогда обе
+   темы правятся в одном месте, а не в трёх тысячах парных классов.
+   Каждое имя обязано быть определено и здесь, и в тёмном блоке ниже:
+   светлая и тёмная тема равноправны, у них одинаковый словарь.
+   Страж на равноправие — `components/ui/tokens.test.ts`.
+   ════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Поверхности. Четыре высоты, не больше: страница, утопленная
+        подложка, карточка, приподнятое (наведение, всплывающее). ─── */
+  --surface-page: #faf8f3;
+  --surface-sunken: #f2efe8;
+  --surface-card: #fdfcf8;
+  /* Приподнятое было #f7f4ec — 1,036 : 1 к странице, то есть ступени не было
+     вовсе: наведённая строка, чип и сегмент сливались с фоном. В тёмной
+     теме та же ступень даёт 1,154 : 1 — именно поэтому «в тёмной подложки
+     есть, в светлой нет». Новое значение даёт 1,182 : 1 — ровная с тёмной
+     темой ступень. Текст на ней: --ink 9,43 : 1, --ink-muted 4,73 : 1. */
+  --surface-raised: #ece5d6;
+  --surface-overlay: #fdfcf8;
+
+  /* ── Линии. Мягкая — разделитель внутри карточки, крепкая — граница
+        самой карточки и таблицы. ────────────────────────────────── */
+  --line-soft: #e8e3d8;
+  --line-strong: #d5cec0;
+
+  /* ── Чернила. Четыре ступени светлоты; иерархию держит светлота, а
+        не жир (потолок веса 600 задан выше). ────────────────────── */
+  --ink-strong: #211d16;
+  --ink: #3c372d;
+  --ink-muted: #6a6358;
+  --ink-faint: #8e8779;
+
+  /* ── Акцент. Крем — это хром интерфейса; на светлой теме он должен
+        быть тёмным, иначе кремовое на кремовом не читается. ─────── */
+  --accent: #8f7549;
+  --accent-hover: #6f5a38;
+  --accent-ink: #fdfbf4;
+  --accent-soft: #f1e6cb;
+  --accent-line: #d6bf85;
+
+  /* ── Цвет данных. Единственное место, где интерфейсу разрешён цвет.
+        Значения светлой темы приглушены до тонов 600 — насыщенный
+        янтарь на белом даёт около 2,2 : 1, ниже порога фигуры. ──── */
+  --data-good: #0f8f63;
+  --data-warn: #b8730a;
+  --data-bad: #d43a34;
+  --data-info: #4b6a8a;
+  --data-neutral: #7c7568;
+
+  /* Бюджетная тройка — закреплённая семантика, живёт и здесь, и в
+     `lib/chart-colors.ts`; значения обязаны совпадать. */
+  --data-fb: #3b82f6;
+  --data-kb: #10b981;
+  --data-mb: #f59e0b;
+
+  /* Категориальный ряд без собственного смысла: управления, организации.
+     Уведён по тону от бюджетной тройки намеренно — иначе круг по
+     управлениям читается как круг по бюджетам. */
+  --cat-1: #6366f1;
+  --cat-2: #0e9488;
+  --cat-3: #be185d;
+  --cat-4: #7c5cbf;
+  --cat-5: #b45309;
+  --cat-6: #0369a1;
+  --cat-7: #4d7c0f;
+  --cat-8: #9d174d;
+
+  /* ── Части графика. Сетка почти не видна, ось — тише подписи. ─── */
+  --chart-grid: #e8e3d8;
+  --chart-axis: #8e8779;
+  --chart-tooltip-bg: #fdfcf8;
+  --chart-tooltip-line: #d5cec0;
+  --chart-reference: #a49c8c;
+
+  /* ── Модульная шкала кегля (шаг ≈1,22 от 13 px). Плотный интерфейс
+        живёт в нижних трёх ступенях, число-показатель — в верхних. ─ */
+  --text-3xs: 0.625rem;    /* 10 px — приписка под числом, адрес ячейки */
+  --text-2xs: 0.6875rem;   /* 11 px — подпись, чип, столбец таблицы */
+  --text-xs: 0.75rem;      /* 12 px — вспомогательный текст */
+  --text-sm: 0.8125rem;    /* 13 px — основной текст интерфейса */
+  --text-base: 0.9375rem;  /* 15 px — объяснение, проза */
+  --text-lg: 1.125rem;     /* 18 px — заголовок карточки */
+  --text-xl: 1.375rem;     /* 22 px — заголовок раздела */
+  --text-2xl: 1.75rem;     /* 28 px — число-показатель */
+  --text-3xl: 2.25rem;     /* 36 px — главное число экрана */
+
+  /* Межстрочное: мелкому тесно нельзя, крупному просторно нельзя. */
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Межбуквенное: крупное сжимается, мелкое разрежается — иначе
+     заголовок рассыпается, а подпись в 10 px слипается. */
+  --tracking-display: -0.02em;
+  --tracking-body: -0.011em;
+  --tracking-caption: 0.01em;
+
+  /* ── Шаг отступов (4 px). Одна лестница на весь продукт. ──────── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* ── Плотность. Компактный режим — по умолчанию: читатель этого
+        продукта смотрит на реестр, а не на витрину. Просторный —
+        для проектора и разговора с начальством. ────────────────── */
+  --row-h: 1.75rem;
+  --cell-pad-x: 0.5rem;
+  --cell-pad-y: 0.25rem;
+  --card-pad: 0.875rem;
+  --stack-gap: 0.5rem;
+
+  /* ── Движение. Три длительности и две кривые — весь словарь. ──── */
+  --dur-instant: 90ms;
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 360ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Просторный режим: те же имена, другие числа. Разметка не меняется. */
+[data-density='comfortable'] {
+  --row-h: 2.375rem;
+  --cell-pad-x: 0.75rem;
+  --cell-pad-y: 0.5rem;
+  --card-pad: 1.25rem;
+  --stack-gap: 0.75rem;
+}
+
+.dark {
+  --surface-page: #0b0a08;
+  --surface-sunken: #100f0d;
+  --surface-card: #161411;
+  --surface-raised: #1e1b17;
+  --surface-overlay: #1a1714;
+
+  --line-soft: #262320;
+  --line-strong: #38332c;
+
+  --ink-strong: #f6f2e9;
+  --ink: #ded8cb;
+  --ink-muted: #a49c8c;
+  --ink-faint: #7b7466;
+
+  --accent: #e5d3a9;
+  --accent-hover: #f1e6cb;
+  --accent-ink: #1b170f;
+  --accent-soft: #2b251b;
+  --accent-line: #4c3e28;
+
+  /* На почти чёрном фоне те же тона садятся ниже порога различимости,
+     поэтому светлее — это не другая палитра, а та же на другом фоне. */
+  --data-good: #34d399;
+  --data-warn: #fbbf24;
+  --data-bad: #f87171;
+  --data-info: #93b4d6;
+  --data-neutral: #a1a1aa;
+
+  --data-fb: #60a5fa;
+  --data-kb: #34d399;
+  --data-mb: #fbbf24;
+
+  --cat-1: #a5b4fc;
+  --cat-2: #5eead4;
+  --cat-3: #f472b6;
+  --cat-4: #c4b5fd;
+  --cat-5: #fcd34d;
+  --cat-6: #7dd3fc;
+  --cat-7: #bef264;
+  --cat-8: #fda4af;
+
+  --chart-grid: #262320;
+  --chart-axis: #7b7466;
+  --chart-tooltip-bg: #1a1714;
+  --chart-tooltip-line: #38332c;
+  --chart-reference: #6a6358;
+}
+
+/* ── Ступени кегля как готовые классы. Кегль, межстрочное и
+      межбуквенное едут вместе: порознь они всегда разъезжаются. ──── */
+.ds-text-3xs  { font-size: var(--text-3xs);  line-height: var(--leading-snug);    letter-spacing: var(--tracking-caption); }
+.ds-text-2xs  { font-size: var(--text-2xs);  line-height: var(--leading-snug);    letter-spacing: var(--tracking-caption); }
+.ds-text-xs   { font-size: var(--text-xs);   line-height: var(--leading-normal);  letter-spacing: 0; }
+.ds-text-sm   { font-size: var(--text-sm);   line-height: var(--leading-normal);  letter-spacing: var(--tracking-body); }
+.ds-text-base { font-size: var(--text-base); line-height: var(--leading-relaxed); letter-spacing: var(--tracking-body); }
+.ds-text-lg   { font-size: var(--text-lg);   line-height: var(--leading-snug);    letter-spacing: var(--tracking-body); }
+.ds-text-xl   { font-size: var(--text-xl);   line-height: var(--leading-snug);    letter-spacing: var(--tracking-display); }
+.ds-text-2xl  { font-size: var(--text-2xl);  line-height: var(--leading-tight);   letter-spacing: var(--tracking-display); }
+.ds-text-3xl  { font-size: var(--text-3xl);  line-height: var(--leading-tight);   letter-spacing: var(--tracking-display); }
+
+/* Строка объяснения не тянется на всю ширину монитора: длинная строка
+   теряется при переносе взгляда. Потолок — около 72 знаков. */
+.ds-prose { max-width: 68ch; }
+
+/* ── Режим высокой контрастности операционной системы. Там краски
+      задаёт система, а наши — молча пропадают вместе с границами;
+      без явных border элемент превращается в невидимый прямоугольник. */
+@media (forced-colors: active) {
+  .ds-card,
+  .ds-chip,
+  .ds-stat {
+    border: 1px solid CanvasText;
+  }
+  .ds-table th,
+  .ds-table td {
+    border-color: CanvasText;
+  }
+  *:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
 /* ── Base layer ────────────────────────────────────────────────────── */
 
 @layer base {
@@ -163,6 +397,13 @@
   .recharts-default-tooltip {
     font-variant-numeric: tabular-nums;
     font-feature-settings: var(--numeric-features);
+    /* Фон был объявлен ТОЛЬКО под `.dark` (ниже по файлу), а в светлой
+       теме подсказка оставалась с белым умолчанием библиотеки — белый
+       прямоугольник на кремовой странице без видимого края. */
+    background: var(--chart-tooltip-bg) !important;
+    border: 1px solid var(--chart-tooltip-line) !important;
+    border-radius: var(--radius-card);
+    color: var(--ink);
   }
 
   /* ── Scrollbar ─────────────────────────────────────────────────── */
@@ -698,6 +939,16 @@
   }
 
   /* Individual nav button — standalone, no shared card */
+  /* Тон раздела зависит от темы, и это не прихоть (правка 19.08.2026).
+     Конструкция активной кнопки — заливка цветом раздела — рассчитана на
+     то, что заливка отличается от фона страницы по светлоте. Светлые тона
+     (кремовый «Пульт», светло-янтарные корзины) рисовались под тёмную тему,
+     где фон почти чёрный. На светлой теме светлая заливка на кремовом фоне
+     даёт 1,3:1 — силуэта у кнопки нет, а коническое свечение тем же тоном
+     невидно вовсе. Отсюда два значения одного тона: на светлой теме
+     тот же цвет, но насыщенный и тёмный. Оттенок раздела при этом сохранён
+     (канон п.115: бирюзовый «Реестр» остаётся бирюзовым) — меняется светлота,
+     не семейство. Замер обоих наборов — в страже `components/nav-contrast.test.ts`. */
   .np-btn {
     position: relative;
     border: none;
@@ -708,6 +959,10 @@
     background: transparent;
     overflow: hidden;
     transition: transform 100ms ease;
+    --np-tone: var(--np-color-light, #7a5f33);
+  }
+  .dark .np-btn {
+    --np-tone: var(--np-color, #e5d3a9);
   }
   .np-btn:active {
     transform: scale(0.93);
@@ -753,8 +1008,10 @@
      Чернилами по тому же тону — от 4,8 до 12:1. Белое свечение под текстом
      убрано: оно размывало теперь уже тёмные буквы. */
   .np-btn-active .np-content {
-    color: #1b170f !important;
-    background: var(--np-color, #bfa161) !important;
+    /* Подпись — роль «чернила на акценте», а не жёсткий чёрный: на
+       светлой теме заливка тёмная и подпись обязана быть светлой. */
+    color: var(--accent-ink) !important;
+    background: var(--np-tone) !important;
     border-color: transparent !important;
   }
 
@@ -779,7 +1036,9 @@
     background: rgba(255, 255, 255, 0.12);
   }
   .np-btn-active .np-count {
-    background: rgba(27, 23, 15, 0.14);
+    /* Чип счётчика наследует подпись: на тёмной заливке светлой темы
+       чернильный подложкой был бы невиден. */
+    background: color-mix(in srgb, var(--accent-ink) 16%, transparent);
   }
 
   /* Apple Intelligence rotating glow — pseudo-element behind active button */
@@ -790,13 +1049,13 @@
     z-index: 0;
     background: conic-gradient(
       from var(--np-angle, 0deg),
-      var(--np-color, #bfa161) 0%,
+      var(--np-tone, #bfa161) 0%,
       transparent 12%,
       transparent 38%,
-      var(--np-color, #bfa161) 50%,
+      var(--np-tone, #bfa161) 50%,
       transparent 62%,
       transparent 88%,
-      var(--np-color, #bfa161) 100%
+      var(--np-tone, #bfa161) 100%
     );
     opacity: 0.7;
     filter: blur(3px);
@@ -2643,19 +2902,30 @@
   .dark .data-row {
     border-bottom-color: theme('colors.zinc.800');
   }
+  /* Подсветка строки под курсором — ОДНО правило на обе темы.
+     Было два: светлое `bg-zinc-50` (СЕРЫЙ #fafafa на КРЕМОВОЙ странице —
+     1,004 : 1, то есть наведения не видно вовсе) и тёмное с цифрами zinc.
+     Теперь фон назван ролью, а роль знает обе темы. */
   .data-row:hover {
-    @apply bg-zinc-50;
-  }
-  .dark .data-row:hover {
-    background: rgba(39, 39, 42, 0.5);
+    background: var(--surface-raised);
   }
 
-  /* Zebra striping — dark mode only for subtlety */
+  /* Зебра существует только в тёмной теме, и это РЕШЕНИЕ, а не забытое
+     правило. На светлой теме чередование заливки добавляет краски, не добавляя
+     сведений (правило «краска только данным»), а строки разделяет линия.
+     Решение записано явным `transparent`: молчание и решение выглядят одинаково,
+     и следующий человек их не различит. */
+  .data-row:nth-child(even) {
+    background: transparent;
+  }
   .dark .data-row:nth-child(even) {
     background: rgba(24, 24, 27, 0.3);
   }
+  .data-row:nth-child(even):hover {
+    background: var(--surface-raised);
+  }
   .dark .data-row:nth-child(even):hover {
-    background: rgba(39, 39, 42, 0.5);
+    background: var(--surface-raised);
   }
 
   .data-cell {
@@ -4086,5 +4356,60 @@
   .ob-dept-btn:hover .ob-dept-bar,
   .ob-dept-btn:hover .ob-dept-name {
     transform: none !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   ПРЯМОЙ ЭФИР — полоса оповещения и след правки в Реестре.
+
+   Движения здесь ровно два, и оба короткие: полоса въезжает снизу один раз,
+   изменившаяся строка мягко подсвечивается и гаснет. Ничего не мигает и не
+   повторяется — постоянная анимация в рабочем инструменте превращается
+   в раздражитель к третьему часу работы.
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes live-bar-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.live-bar-enter {
+  animation: live-bar-in 220ms ease-out both;
+}
+
+/* След правки: заливка появляется и уходит сама за шесть секунд — столько же
+   живёт событие в состоянии эфира (FLASH_MS). Цвет янтарный и очень слабый:
+   это отметка «сюда посмотри», а не сигнал тревоги. */
+@keyframes live-row-fade {
+  0%   { background-color: rgba(245, 158, 11, 0.16); }
+  70%  { background-color: rgba(245, 158, 11, 0.10); }
+  100% { background-color: transparent; }
+}
+
+.live-row-changed {
+  animation: live-row-fade 6s ease-out both;
+  /* Цвет — не единственный признак: слева остаётся тонкая янтарная полоса,
+     видимая и при чёрно-белом восприятии. */
+  box-shadow: inset 2px 0 0 0 rgba(245, 158, 11, 0.75);
+}
+
+.dark .live-row-changed {
+  animation-name: live-row-fade-dark;
+}
+
+@keyframes live-row-fade-dark {
+  0%   { background-color: rgba(245, 158, 11, 0.20); }
+  70%  { background-color: rgba(245, 158, 11, 0.12); }
+  100% { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-bar-enter { animation: none; }
+  /* Подсветка строки остаётся, но статичной: сам факт «эту строку правили»
+     нужен и тем, кто выключил движение. */
+  .live-row-changed {
+    animation: none;
+    background-color: rgba(245, 158, 11, 0.12);
   }
 }
