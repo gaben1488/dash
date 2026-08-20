@@ -42,6 +42,12 @@ export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   // 06.08: счётная строка без года плана — невидима для SUMIFS листа СВОД (сверка лимита УЭР)
   planYearMissing: 'plan_year_missing',
   derivedFormulaBroken: 'derived_formula_broken',
+  // 21.08: два признака ЕП, живших одними чипами Реестра (инвентаризация
+  // сигналов 20.08.2026, §4 п.10). Паспорта заведены в CHECK_REGISTRY —
+  // отсюда конвейер берёт их имя, строгость и рекомендацию, и замечание
+  // доезжает до Контроля и Отчёта вместе с адресом строки.
+  methodReasonMismatch: 'method_reason_mismatch',
+  unmappedReasonEP: 'unmapped_reason_ep',
   // 07.08: факт без валидного план-квартала O — выпадает из печатного года
   // отчёта (Σ кварталов) и живёт только в корзине _orphan Пульта (блок А п.2)
   factQuarterMissing: 'fact_quarter_missing',

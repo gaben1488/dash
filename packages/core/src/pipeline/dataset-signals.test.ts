@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { SIGNAL_LABELS } from '@aemr/shared';
+import type { RowSignals } from './signals.js';
 import {
   benfordTest,
   detectOutliers,
@@ -304,6 +306,34 @@ describe('buildNoiseMap', () => {
     expect(exactGroup).toBeDefined();
     expect(exactGroup!.count).toBe(2);
     expect(exactGroup!.rows).toEqual([0, 1]);
+  });
+
+  /**
+   * СТРАЖ 21.08.2026 (консолидация имён). Карта шума была одним из пяти
+   * независимых списков подписей: здесь жили «ЕП-риски (>600K)» с латинской
+   * буквой на экран, «Высокая экономия >25%» против «Высокой экономии свыше
+   * 25%» реестра проверок и «Факт без плана» против «Факта без планового
+   * бюджета». Имя класса приходит из дома имён — своей строки у карты нет.
+   */
+  it('подписи групп признаков приходят из дома имён, а не из своей копии', () => {
+    const rowSignals = new Map<number, Partial<RowSignals>>([
+      [0, { highEconomy: true }],
+      [1, { epRisk: true }],
+      [2, { economyConflict: true }],
+      [3, { budgetUnderallocation: true }],
+    ]);
+    const groups = buildNoiseMap(
+      new Map(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rowSignals as any,
+    );
+    for (const key of ['highEconomy', 'epRisk', 'economyConflict', 'budgetUnderallocation'] as const) {
+      const group = groups.find(g => g.key === `signal_${key}`);
+      expect(group, `группа признака ${key}`).toBeDefined();
+      expect(group!.label).toBe(SIGNAL_LABELS[key]);
+      // Латиница в подписи означала бы внутренний ключ или «600K» на экране.
+      expect(group!.label).not.toMatch(/[A-Za-z]/);
+    }
   });
 
   it('sorts by severity then count', () => {

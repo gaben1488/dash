@@ -15,7 +15,17 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, PLAN_SOURCE_COLUMNS, canonicalizeReasonEp, dayNumberOf, isAbsentCell, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+import {
+  LAW_44FZ_THRESHOLDS,
+  PLAN_SOURCE_COLUMNS,
+  SIGNAL_LABELS,
+  canonicalizeReasonEp,
+  dayNumberOf,
+  economyFlagVerdict,
+  isAbsentCell,
+  isProceduralMismatch,
+  parseSheetDate,
+} from '@aemr/shared';
 import { sheetNumber } from '../timeline/row-timeline.js';
 // parseAE снят 14.08.2026 (канон п.27 интервью): дата контракта и правовое
 // основание из комментариев (AE/AF) — машинная интерпретация свободного
@@ -77,8 +87,27 @@ export interface RowSignals {
   financeDelay: boolean;
   /** Флаг экономии от уполномоченного органа: AD = «да» (канон столбца — «да»/«нет») */
   economyFlag: boolean;
-  /** Конфликт флага экономии: (а) AD="да" но факт ≥ план; (б) экономия 15–25% но финансовый орган не определил флаг (AD не «да» и не «нет»). Выше 25% случай (б) молчит — там говорит «Высокая экономия >25%», дубль снят 18.08.2026 (В-7) */
+  /**
+   * Конфликт флага экономии: в графе «Статус» (AD) стоит «да», а факт не ниже
+   * плана — экономии по числам нет.
+   *
+   * Второй случай («экономия 15–25 % без решения органа») отсюда снят
+   * 21.08.2026: он был узкой полосой явления «Экономия без отметки» и жил под
+   * вторым именем. Явление получило единый дом (@aemr/shared economy-flag.ts)
+   * и собственный признак economyFlagUndetermined ниже.
+   */
   economyConflict: boolean;
+  /**
+   * «Экономия без отметки» — план и факт заполнены, факт меньше плана, а в
+   * графе «Статус» (AD) нет ни «да», ни «нет».
+   *
+   * Определение НЕ живёт здесь: оно одно на продукт и лежит в
+   * @aemr/shared economy-flag.ts, откуда его берут и правило листа
+   * status_on_data_rows, и карточка «Экономии», и срез Реестра. До
+   * консолидации 21.08.2026 одно и то же положение дел считалось тремя
+   * способами под тремя именами и давало три разных числа.
+   */
+  economyFlagUndetermined: boolean;
   /** ЕП (колонка L) с суммой > 600 тыс. руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
   epRisk: boolean;
   /** Пустые обязательные поля — проблема качества данных */
@@ -378,7 +407,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // Урок класса: «не заключен» матчился подстрокой «заключен» и делал строку
   // подписанной (баг #16 охоты 08.08), «отменён» при состоявшейся закупке
   // гасил её сигналы (п.41).
-  const adText = cellText(cells, 'AD');
+  // Графа «Статус» (AD) читается не здесь, а каноном economy-flag.ts —
+  // единственным домом чтения этой отметки (консолидация 21.08.2026).
   const methodText = cellText(cells, 'L');
 
   // ── Суммы ──
@@ -450,50 +480,37 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     'региональный оператор',                          // regional operators (waste, etc.)
   ]) || citesUnlimitedArt93Point(epJustification);
 
-  // ── Экономия (AD) ──
-  // Канон столбца AD — «да»/«нет» (правило status_on_data_rows + calc-engine
-  // GATE_ECONOMY_APPROVED: adFlag === 'да' || 'yes'). Техбаг-fix 2026-07-16
-  // (signal_audit §3.1): старый поиск подстроки «эконом» никогда не матчил канон —
-  // economyFlag был вечно false, случай (а) конфликта мёртв, зелёный бейдж «Экономия»
-  // не показывался, а случай (б) давал 77 ложных срабатываний на строках с AD=да/нет.
-  const economyFlag = adText === 'да' || adText === 'yes';
-  // Флаг определён = орган принял решение («да» ИЛИ «нет»). Пусто/Х/· — не определён.
-  const economyFlagDetermined = economyFlag || adText === 'нет' || adText === 'no';
+  // ── Экономия: графа «Статус» (AD) ──
+  // Чтение графы и явление «Экономия без отметки» — ЕДИНЫЙ канон @aemr/shared
+  // (economy-flag.ts): план и факт заполнены, факт меньше плана, а в графе нет
+  // ни «да», ни «нет». Тот же предикат зовёт правило листа status_on_data_rows,
+  // поэтому счёт признака строки, счёт замечания и число карточки «Экономии»
+  // больше не могут разойтись. Единственный поставщик в класс входит (решение
+  // владельца 20.08) — род называется словами в карточке, а не вычёркиванием
+  // строк из счёта.
+  //
+  // Техбаг-fix 2026-07-16 (signal_audit §3.1), ради которого канон и записан:
+  // прежний поиск подстроки «эконом» не совпадал с каноном графы никогда —
+  // economyFlag был вечно false, зелёный бейдж «Экономия» не показывался, а
+  // разбор пустой отметки давал 77 ложных срабатываний на строках с «да»/«нет».
+  const economyCanon = economyFlagVerdict({
+    planTotal: isNaN(planTotal) ? null : planTotal,
+    factTotal,
+    adCell: cells['AD'],
+    isEp: isEP,
+  });
+  const economyFlag = economyCanon.state === 'approved';
+  const economyFlagUndetermined = economyCanon.matches;
 
-  // Конфликт флага экономии:
-  // (а) AD="да", но факт >= план — некорректный флаг;
-  // (б) существенная экономия >15%, но финансовый орган НЕ определил флаг (AD пуст/Х/·).
-  //     AD="нет" — это решение органа («экономией не является»), не пробел данных.
-  //     EXCEPT for ЕП: economy on ЕП is just underspend vs allocation (лимит), not competitive savings.
-  //     Missing AD flag on ЕП is normal and NOT an error.
-  // Skip if factTotal === 0 — row hasn't been executed yet, no meaningful conflict possible.
-  let economyConflict = false;
-  if (!isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
-    const hasEconomyByNumbers = factTotal < planTotal;
-    if (economyFlag && factTotal >= planTotal) {
-      // Помечена экономия (AD=да), но факт >= план
-      economyConflict = true;
-    } else if (!economyFlagDetermined && hasEconomyByNumbers && !isEP) {
-      // Есть числовая экономия, но орган не определил флаг.
-      // Skip ЕП: economy on sole-source is just budget underspend, AD flag not required.
-      // Порог 15%: мелкая экономия (5-15%) часто не требует флага AD,
-      // а >15% без флага — реальный конфликт данных.
-      const economyPct = ((planTotal - factTotal) / planTotal) * 100;
-      // Дедупликация 18.08.2026 (SIGNAL_VALIDATION В-7/П-6, «снять дубль карточек»).
-      // Верхняя граница — тот же порог, с которого зажигается «Высокая экономия
-      // >25%» (highEconomy ниже): выше него строка получала ДВЕ красных карточки
-      // об одном и том же. Живая проверка на восьми книгах (18.08.2026,
-      // E:/aemr-dumps/book-dumps, 8476 строк): конфликт срабатывал 33 раза, из
-      // них 23 — вместе с «Высокой экономией», и ВСЕ 23 при этом уже помечены
-      // правилом status_on_data_rows («AD пуст при существенной экономии»,
-      // rule-book.ts). Значит пробел флага виден читателю и без второй красной
-      // карточки, а размер экономии — из первой. Ниже 25% дубля нет: там
-      // «Высокая экономия» молчит, и конфликт остаётся единственным замечанием.
-      if (economyPct > 15 && economyPct <= ANTI_DUMPING_PERCENT) {
-        economyConflict = true;
-      }
-    }
-  }
+  // Конфликт флага экономии — ОДИН случай: отметка «да» стоит, а факт не ниже
+  // плана. Второй случай («экономия есть, отметки нет») с 21.08.2026 носит
+  // собственное имя «Экономия без отметки» — он был тем же явлением под
+  // вторым именем и с третьим счётом. Порог 15–25 %, разводивший его с
+  // «Высокой экономией», ушёл вместе со случаем: делить полосами одно явление
+  // больше не нужно.
+  const economyConflict = economyFlag
+    && !isNaN(planTotal) && planTotal > 0 && factTotal > 0
+    && factTotal >= planTotal;
 
   // ── ЕП-риск (антикоррупция) ──
   // Гейт «!canceled» снят (п.27): «отменена» из текста больше не гасит риск.
@@ -770,6 +787,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     financeDelay,
     economyFlag,
     economyConflict,
+    economyFlagUndetermined,
     epRisk,
     dataQuality,
     formulaBroken,
@@ -850,6 +868,19 @@ export function classifyRowState(signals: RowSignals): RowState {
 }
 
 /**
+ * Подпись бейджа — из ЕДИНОГО дома имён (@aemr/shared SIGNAL_CLASS_NAMES,
+ * короткая форма SIGNAL_LABELS). Своих строк бейджи больше не держат:
+ * ручное зеркало было тем самым механизмом, которым разъехались шестнадцать
+ * имён (инвентаризация 20.08.2026) — «Флаг экономии» на бейдже против
+ * «Конфликта флага экономии» в чипе, «Факт без плана» против «Факта без
+ * планового бюджета». Ключа нет в словаре — возвращаем сам ключ, и это
+ * ловится стражем в signals.test.ts, а не глазами пользователя.
+ */
+function badgeLabel(key: keyof RowSignals): string {
+  return SIGNAL_LABELS[key] ?? key;
+}
+
+/**
  * Формирует массив бейджей для отображения сигналов строки в UI.
  * Каждый бейдж содержит русскоязычную метку, цвет и иконку.
  *
@@ -857,7 +888,7 @@ export function classifyRowState(signals: RowSignals): RowState {
  * @returns массив бейджей, отсортированных по важности (красные первыми)
  *
  * Бизнес-логика:
- * - Красные бейджи: просрочка, ЕП-риск, антидемпинг, ошибка формулы, конфликт экономии.
+ * - Красные бейджи: просрочка, ЕП-риск, высокая экономия, ошибка формулы, конфликт отметки.
  * - Жёлтые: задержка финансирования, скорый срок, формальная конкуренция, пустые поля.
  * - Зелёные: подписано, есть факт, экономия.
  * - Синие: планирование, срок не наступил.
@@ -868,108 +899,113 @@ export function getSignalBadges(signals: RowSignals): Array<SignalBadge> {
 
   // ── Красные (критические) ──
   if (signals.overdue) {
-    badges.push({ label: 'Просрочено', color: 'red', icon: 'alert-circle' });
+    badges.push({ label: badgeLabel('overdue'), color: 'red', icon: 'alert-circle' });
   }
   if (signals.formulaBroken) {
-    badges.push({ label: 'Ошибка формулы', color: 'red', icon: 'alert-triangle' });
+    badges.push({ label: badgeLabel('formulaBroken'), color: 'red', icon: 'alert-triangle' });
   }
   if (signals.epRisk) {
-    badges.push({ label: 'ЕП-риск', color: 'red', icon: 'shield-alert' });
+    badges.push({ label: badgeLabel('epRisk'), color: 'red', icon: 'shield-alert' });
   }
   if (signals.highEconomy) {
-    badges.push({ label: 'Высокая экономия >25%', color: 'red', icon: 'trending-down' });
+    badges.push({ label: badgeLabel('highEconomy'), color: 'red', icon: 'trending-down' });
   }
   if (signals.economyConflict) {
-    badges.push({ label: 'Флаг экономии', color: 'red', icon: 'alert-octagon' });
+    badges.push({ label: badgeLabel('economyConflict'), color: 'red', icon: 'alert-octagon' });
   }
   if (signals.factExceedsPlan) {
-    badges.push({ label: 'Факт > план', color: 'red', icon: 'trending-up' });
+    badges.push({ label: badgeLabel('factExceedsPlan'), color: 'red', icon: 'trending-up' });
   }
   if (signals.epFactDeviation) {
     // Тон предупреждения (жёлтый), не критики: расхождение факт/план по ЕП —
     // чаще всего ошибка заполнения, а не нарушение (канон п.98м + п.102).
-    badges.push({ label: 'ЕП: факт не равен плану', color: 'yellow', icon: 'scale' });
+    badges.push({ label: badgeLabel('epFactDeviation'), color: 'yellow', icon: 'scale' });
   }
   if (signals.stalledContract) {
-    badges.push({ label: 'Подвисший', color: 'yellow', icon: 'pause-circle' });
+    badges.push({ label: badgeLabel('stalledContract'), color: 'yellow', icon: 'pause-circle' });
   }
   // budgetMismatch УДАЛЁН — дублирует правило budget_sum_plan (отображается через Issues)
   if (signals.earlyClosure) {
-    badges.push({ label: 'Раннее закрытие', color: 'yellow', icon: 'fast-forward' });
+    badges.push({ label: badgeLabel('earlyClosure'), color: 'yellow', icon: 'fast-forward' });
   }
   if (signals.futureFactDate) {
-    badges.push({ label: 'Дата факта в будущем', color: 'red', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('futureFactDate'), color: 'red', icon: 'calendar-x' });
   }
 
   // ── Жёлтые (предупреждения) ──
   if (signals.financeDelay) {
-    badges.push({ label: 'Задержка финансирования', color: 'yellow', icon: 'clock' });
+    badges.push({ label: badgeLabel('financeDelay'), color: 'yellow', icon: 'clock' });
   }
   if (signals.planSoon) {
-    badges.push({ label: 'Скоро срок', color: 'yellow', icon: 'calendar' });
+    badges.push({ label: badgeLabel('planSoon'), color: 'yellow', icon: 'calendar' });
   }
   if (signals.lowCompetition) {
-    badges.push({ label: 'Низкая конкуренция <2%', color: 'yellow', icon: 'users' });
+    badges.push({ label: badgeLabel('lowCompetition'), color: 'yellow', icon: 'users' });
   }
   if (signals.singleParticipant) {
-    badges.push({ label: '1 участник', color: 'yellow', icon: 'user' });
+    badges.push({ label: badgeLabel('singleParticipant'), color: 'yellow', icon: 'user' });
   }
   if (signals.dataQuality) {
-    badges.push({ label: 'Пустые поля', color: 'yellow', icon: 'file-warning' });
+    badges.push({ label: badgeLabel('dataQuality'), color: 'yellow', icon: 'file-warning' });
+  }
+  // «Экономия без отметки» — решение органа не принято, а не нарушение:
+  // тон предупреждения, не критики (канон п.104 — без упрёка).
+  if (signals.economyFlagUndetermined) {
+    badges.push({ label: badgeLabel('economyFlagUndetermined'), color: 'yellow', icon: 'flag-off' });
   }
   // tdWithProgram СНЯТ (канон п.30, 14.08.2026): бейдж не рисуется даже для
   // старых снимков, где сигнал записан true — заполненная программа у ТД норма.
   if (signals.planYearMissing) {
     // Канон имени класса — п.23 интервью 14.08.2026: «не обеспечено
     // финансированием» (прежний лейбл «Без финансирования» снят).
-    badges.push({ label: 'Не обеспечено финансированием', color: 'yellow', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('planYearMissing'), color: 'yellow', icon: 'calendar-x' });
   }
   if (signals.derivedFormulaBroken) {
-    badges.push({ label: 'Сломана формула даты', color: 'red', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('derivedFormulaBroken'), color: 'red', icon: 'calendar-x' });
   }
   if (signals.factQuarterMissing) {
-    badges.push({ label: 'Факт без квартала', color: 'yellow', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('factQuarterMissing'), color: 'yellow', icon: 'calendar-x' });
   }
   if (signals.planWithoutExecution) {
-    badges.push({ label: 'План без исполнения', color: 'yellow', icon: 'calendar-off' });
+    badges.push({ label: badgeLabel('planWithoutExecution'), color: 'yellow', icon: 'calendar-off' });
   }
   if (signals.epJustificationMissing) {
-    badges.push({ label: 'ЕП без обоснования', color: 'red', icon: 'file-x' });
+    badges.push({ label: badgeLabel('epJustificationMissing'), color: 'red', icon: 'file-x' });
   }
   if (signals.budgetUnderallocation) {
-    badges.push({ label: 'Факт без плана', color: 'red', icon: 'banknote' });
+    badges.push({ label: badgeLabel('budgetUnderallocation'), color: 'red', icon: 'banknote' });
   }
   if (signals.budgetSourceMissing) {
-    badges.push({ label: 'Нет разбивки бюджета', color: 'yellow', icon: 'wallet' });
+    badges.push({ label: badgeLabel('budgetSourceMissing'), color: 'yellow', icon: 'wallet' });
   }
 
   // ── Зелёные (позитивные) ──
   if (signals.signed) {
-    badges.push({ label: 'Подписано', color: 'green', icon: 'check-circle' });
+    badges.push({ label: badgeLabel('signed'), color: 'green', icon: 'check-circle' });
   }
   if (signals.hasFact && !signals.signed) {
-    badges.push({ label: 'Есть факт', color: 'green', icon: 'check' });
+    badges.push({ label: badgeLabel('hasFact'), color: 'green', icon: 'check' });
   }
   if (signals.economyFlag && !signals.economyConflict) {
-    badges.push({ label: 'Экономия', color: 'green', icon: 'piggy-bank' });
+    badges.push({ label: badgeLabel('economyFlag'), color: 'green', icon: 'piggy-bank' });
   }
 
   // ── Синие (информационные) ──
   // «Факт дата < план» понижен до информационного (п.28 интервью 14.08.2026:
   // «это не ошибка» — плановая дата ориентир): был жёлтым предупреждением.
   if (signals.factDateBeforePlan) {
-    badges.push({ label: 'Факт дата < план', color: 'blue', icon: 'calendar-x' });
+    badges.push({ label: badgeLabel('factDateBeforePlan'), color: 'blue', icon: 'calendar-x' });
   }
   if (signals.planning) {
-    badges.push({ label: 'Планирование', color: 'blue', icon: 'edit' });
+    badges.push({ label: badgeLabel('planning'), color: 'blue', icon: 'edit' });
   }
   if (signals.notDue) {
-    badges.push({ label: 'Срок не наступил', color: 'blue', icon: 'hourglass' });
+    badges.push({ label: badgeLabel('notDue'), color: 'blue', icon: 'hourglass' });
   }
 
   // ── Серые ──
   if (signals.canceled) {
-    badges.push({ label: 'Отменено', color: 'gray', icon: 'x-circle' });
+    badges.push({ label: badgeLabel('canceled'), color: 'gray', icon: 'x-circle' });
   }
 
   return badges;

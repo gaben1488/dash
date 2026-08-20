@@ -1,5 +1,6 @@
 import type { ClassifiedRow, ValidationRule, RuleCheckContext, RuleCheckResult } from './types.js';
 import { DEPARTMENT_REGISTRY } from './department-registry.js';
+import { ECONOMY_FLAG_CANON, economyFlagVerdict } from './economy-flag.js';
 import {
   detectCellHygiene,
   detectSubordinateNameHygiene,
@@ -423,63 +424,59 @@ const typeValidation: ValidationRule = {
 };
 
 // ============================================================
-// ПРАВИЛО 8: Столбец AD (статус) — проверка только на строках данных
-// Пустой AD на заголовках/пустых строках — НЕ ошибка.
-// Ошибка только если строка — строка данных (есть метод, тип, деньги),
-// а AD пуст.
+// ПРАВИЛО 8: «Экономия без отметки» — графа «Статус» (AD)
+//
+// Консолидация 21.08.2026 (решение владельца 20.08). Правило перестало
+// считать явление по-своему и зовёт единый канон (economy-flag.ts): план и
+// факт заполнены, факт меньше плана, а в графе «Статус» нет ни «да», ни
+// «нет». Прежний гейт требовал вдобавок ненулевых столбцов экономии
+// (Z/AA/AB) и целой тысячи рублей — из-за этого правило давало СВОЁ число,
+// не сходившееся ни с сигналом строки, ни с карточкой «Экономии»: одно
+// положение дел жило под тремя именами и тремя счётчиками.
+//
+// Столбцы Z/AA/AB здесь больше не гейт, а источник суммы для текста: пока
+// отметки нет, они у большинства строк пусты (их считает формула по «да»),
+// и требовать их означало не видеть само явление.
 // ============================================================
 const statusOnDataRows: ValidationRule = {
   id: 'status_on_data_rows',
-  name: 'Статус (AD) на строках данных',
-  description:
-    'Столбец AD = шлюз для расчёта экономии в СВОД (SUMIFS с AD="да"). ' +
-    'Флагирует строки, где есть экономия (Z/AA/AB ≠ 0) но AD не заполнен.',
+  name: ECONOMY_FLAG_CANON.name,
+  description: ECONOMY_FLAG_CANON.definition,
   severity: 'info',
   origin: 'bi_heuristic',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const ad = ctx.cells['AD'];
-
-    // AD is a GATE for economy calculation in СВОД formulas:
-    //   SUMIFS(..., AD="да") — only rows with AD="да" contribute to economy.
-    // Empty AD is NORMAL for rows without savings. It is NOT an error.
-    //
-    // Flag ONLY when there's evidence of savings that should be captured:
-    //   - fact < plan (savings exist) AND economy columns (Z/AA/AB) are non-zero
-    //   - but AD is empty → potential missing economy flag
+    // Гейт счётной строки: без способа закупки строка не закупка (заголовок,
+    // разделитель, остаток разметки) — пустая графа «Статус» там не дефект.
     if (!hasData(ctx.cells['L'])) return { passed: true };
-    const plan = toNumber(ctx.cells['K']);
-    const fact = toNumber(ctx.cells['Y']);
-    if (plan === null || fact === null || fact === 0) return { passed: true };
 
-    // Check economy columns (Z/AA/AB on dept sheets)
-    const ecoFB = toNumber(ctx.cells['Z']) ?? 0;
-    const ecoKB = toNumber(ctx.cells['AA']) ?? 0;
-    const ecoMB = toNumber(ctx.cells['AB']) ?? 0;
-    const ecoTotal = ecoFB + ecoKB + ecoMB;
+    const method = String(ctx.cells['L'] ?? '').trim().toLowerCase();
+    const verdict = economyFlagVerdict({
+      planTotal: toNumber(ctx.cells['K']),
+      factTotal: toNumber(ctx.cells['Y']),
+      adCell: ctx.cells['AD'],
+      isEp: method.includes('еп') || method.includes('единствен'),
+    });
+    if (!verdict.matches) return { passed: true };
 
-    // FP-fix 2026-06-05 (SIGNAL_VALIDATION §1): Z/AA/AB — экономия в ТЫС ₽ с float-резидуалами
-    // («рваные дроби» 0.0003, «−0»). Без округления и порога значимости сигнал давал ~⅔ ложных
-    // (срабатывал на 0.00025 тыс и «−0 руб»). Округляем до 10 ₽ и флажим только при |экономии| ≥ 1 тыс ₽.
-    // Заодно чиним единицы: было «руб» при значении в тыс (УИО r12 «100 руб» = реально 100 тыс).
-    const ecoNorm = Math.round(ecoTotal * 100) / 100; // до 0.01 тыс = 10 ₽
-    const ECONOMY_FLAG_MIN_THOUSAND = 1; // порог значимости: 1 тыс ₽
+    // Род называется вслух (канон: «ЕП включённо, но с пометкой рода»).
+    const kindNote = verdict.kind === 'ep'
+      ? ' Способ — единственный поставщик: по нему экономии быть не должно вовсе, поэтому строку'
+        + ' стоит разобрать заодно с проверкой «По ЕП факт не равен плану».'
+      : '';
 
-    // Only flag if a MATERIAL economy exists but AD is not set
-    if (Math.abs(ecoNorm) >= ECONOMY_FLAG_MIN_THOUSAND && !hasData(ad)) {
-      return {
-        passed: false,
-        message:
-          `AD${ctx.rowIndex} пуст, но экономия ${ecoNorm.toLocaleString('ru')} тыс ₽. ` +
-          `Укажите "да" или "нет" для учёта экономии в СВОД.`,
-        cell: `AD${ctx.rowIndex}`,
-        actual: null,
-        expected: '"да" или "нет"',
-      };
-    }
-
-    return { passed: true };
+    return {
+      passed: false,
+      message:
+        `AD${ctx.rowIndex}: экономия по числам ${verdict.economy.toLocaleString('ru', { maximumFractionDigits: 2 })} тыс ₽ `
+        + `(${verdict.sharePct.toLocaleString('ru', { maximumFractionDigits: 1 })} % плана), `
+        + `а отметки о ней нет — в графе «Статус» ни «да», ни «нет». `
+        + `Лист СВОД складывает экономию только по строкам с «да».${kindNote}`,
+      cell: `AD${ctx.rowIndex}`,
+      actual: ctx.cells['AD'] ?? null,
+      expected: '«да» или «нет»',
+    };
   },
 };
 
@@ -706,8 +703,8 @@ const rowNumbering: ValidationRule = {
     const dupes = [...byNo.entries()].filter(([, at]) => at.length > 1);
 
     // Пропуски: макс−мин против количества уникальных целых №.
-    let minNo = 0;
-    let maxNo = 0;
+    let minNo: number;
+    let maxNo: number;
     let missingCount = 0;
     const missingList: number[] = [];
     if (ints.size >= 2) {
@@ -911,7 +908,7 @@ export const RULE_BOOK: ValidationRule[] = [
   // -- Только листы подразделений --
   methodValidation,          // 6  -- L in {ЭА,ЕП,ЭК,ЭЗК} (COUNTIFS criterion)
   typeValidation,            // 7  -- F in {ТД,ПМ} (COUNTIFS X$37 criterion)
-  statusOnDataRows,          // 8  -- AD gate: economy cols ≠ 0 → AD required
+  statusOnDataRows,          // 8  -- «Экономия без отметки»: канон economy-flag.ts
   deptFactSumConsistency,    // 10 -- Y=V+W+X (dept fact total)
   deptEconomySumConsistency, // 11 -- AC=Z+AA+AB (dept economy total)
   rowNumbering,              // 13 -- № п/п (A): дубли/пропуски/пустые, одна карточка на лист (п.98з)

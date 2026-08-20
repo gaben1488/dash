@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PLAN_SOURCE_COLUMNS } from '@aemr/shared';
+import { PLAN_SOURCE_COLUMNS, SIGNAL_LABELS } from '@aemr/shared';
 import { detectSignals, classifyRowState, getSignalBadges, type RowSignals } from './signals.js';
 
 // ────────────────────────────────────────────────────────────
@@ -313,43 +313,6 @@ describe('Financial signals', () => {
       expect(s.economyConflict).toBe(false);
     });
 
-    // Дедупликация 18.08.2026 (SIGNAL_VALIDATION В-7/П-6). Живой прогон по
-    // восьми книгам (E:/aemr-dumps/book-dumps, 8476 строк, дамп 18.08.2026):
-    // конфликт зажигался 33 раза, 23 из них — на строках, где уже горит
-    // «Высокая экономия >25%», и все 23 при этом помечены правилом
-    // status_on_data_rows. Ниже — обе стороны границы на живых числах.
-    it('НЕТ конфликта: экономия 43% выше порога «Высокой экономии» — вторая красная карточка снята (УД стр.10: K=333.8024, Y=188.56238, AD пуст)', () => {
-      const s = detectSignals(makeCells({
-        K: 333.8024, Y: 188.56238, AD: '·', L: 'ЭА',
-      }), REF_DATE);
-      expect(s.economyConflict).toBe(false);
-      // Строка не замолчала: о ней говорит «Высокая экономия >25%».
-      expect(s.highEconomy).toBe(true);
-    });
-
-    it('конфликт (случай б): экономия 23.5% — полоса 15–25%, «Высокая экономия» молчит (УД стр.122: K=624.6345, Y=477.84504, AD пуст)', () => {
-      const s = detectSignals(makeCells({
-        K: 624.6345, Y: 477.84504, AD: '', L: 'ЭА',
-      }), REF_DATE);
-      expect(s.economyConflict).toBe(true);
-      expect(s.highEconomy).toBe(false);
-    });
-
-    it('конфликт (случай б): экономия 15.5% — нижний край полосы (УД стр.20: K=74.79996, Y=63.20598, AD пуст)', () => {
-      const s = detectSignals(makeCells({
-        K: 74.79996, Y: 63.20598, AD: '', L: 'ЭА',
-      }), REF_DATE);
-      expect(s.economyConflict).toBe(true);
-    });
-
-    it('НЕТ конфликта: экономия 68.5% — карточку берёт «Высокая экономия» (УО стр.1214: K=151.25025, Y=47.64263, AD пуст)', () => {
-      const s = detectSignals(makeCells({
-        K: 151.25025, Y: 47.64263, AD: '', L: 'ЭА',
-      }), REF_DATE);
-      expect(s.economyConflict).toBe(false);
-      expect(s.highEconomy).toBe(true);
-    });
-
     it('случай (а) границу не заметил: AD="да" при равенстве плана и факта (УО стр.7: K=Y=15799.9968)', () => {
       const s = detectSignals(makeCells({
         K: 15_799.9968, Y: 15_799.9968, AD: 'да', L: 'ЭА',
@@ -357,35 +320,112 @@ describe('Financial signals', () => {
       expect(s.economyConflict).toBe(true);
     });
 
-    it('conflict: economy >15% but no AD flag (competitive method)', () => {
+    // Консолидация 21.08.2026 (решение владельца 20.08): второй случай
+    // конфликта («экономия есть, отметки нет») здесь больше не живёт — он и
+    // есть класс «Экономия без отметки», у которого теперь одно имя и один
+    // счёт. Строки ниже — те самые живые числа, на которых прежде проверялась
+    // полоса 15–25 %: они не замолчали, они переехали в свой класс.
+    it('экономия без отметки — это НЕ конфликт: конфликт остался про отметку «да» (УД стр.122: K=624.6345, Y=477.84504)', () => {
       const s = detectSignals(makeCells({
-        K: 1_000_000, Y: 800_000, AD: '', L: 'ЭА',
-      }), REF_DATE);
-      // economy = 20% > 15%
-      expect(s.economyConflict).toBe(true);
-    });
-
-    it('NO conflict: economy >15% on EP (sole source)', () => {
-      const s = detectSignals(makeCells({
-        K: 1_000_000, Y: 800_000, AD: '', L: 'ЕП',
-      }), REF_DATE);
-      // ЕП is exempt from economy flag requirement
-      expect(s.economyConflict).toBe(false);
-    });
-
-    it('NO conflict: economy <15% without flag', () => {
-      const s = detectSignals(makeCells({
-        K: 1_000_000, Y: 900_000, AD: '', L: 'ЭА',
-      }), REF_DATE);
-      // economy = 10% < 15%
-      expect(s.economyConflict).toBe(false);
-    });
-
-    it('NO conflict when factTotal = 0 (not yet executed)', () => {
-      const s = detectSignals(makeCells({
-        K: 1_000_000, Y: 0, AD: 'экономия',
+        K: 624.6345, Y: 477.84504, AD: '', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(false);
+      expect(s.economyFlagUndetermined).toBe(true);
+    });
+
+    it('экономия выше 25 % без отметки — тоже свой класс, а не конфликт (УД стр.10: K=333.8024, Y=188.56238)', () => {
+      const s = detectSignals(makeCells({
+        K: 333.8024, Y: 188.56238, AD: '·', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(false);
+      expect(s.economyFlagUndetermined).toBe(true);
+      // Размер экономии по-прежнему называет своя проверка.
+      expect(s.highEconomy).toBe(true);
+    });
+
+    it('НЕТ конфликта, когда факта нет вовсе', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000_000, Y: 0, AD: 'да',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(false);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // «Экономия без отметки» — единый канон (@aemr/shared economy-flag.ts).
+  // Консолидация 21.08.2026: до неё одно положение дел считалось тремя
+  // способами (полоса 15–25 % в конфликте, правило листа со своим гейтом по
+  // столбцам экономии, мёртвая запись «Скрытая экономия») и давало три разных
+  // числа. Живые числа ниже — те же строки книг, что и в тестах выше.
+  // ────────────────────────────────────────────────────────────
+  describe('economyFlagUndetermined (класс «Экономия без отметки»)', () => {
+    it('экономия 15,5 % без отметки — строка в классе (УД стр.20: K=74.79996, Y=63.20598)', () => {
+      const s = detectSignals(makeCells({
+        K: 74.79996, Y: 63.20598, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(true);
+    });
+
+    it('мелкая экономия тоже в классе: полос и порогов у явления нет', () => {
+      // Прежде 10 % не доходили ни до одного счётчика: конфликт требовал 15 %,
+      // правило листа — заполненных столбцов экономии и целой тысячи рублей.
+      const s = detectSignals(makeCells({
+        K: 1_000, Y: 900, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(true);
+    });
+
+    it('отметка «нет» — решение органа: строка вне класса (УАГЗО стр.6: K=63.03332, Y=9.81406)', () => {
+      const s = detectSignals(makeCells({
+        K: 63.03332, Y: 9.81406, AD: 'нет', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(false);
+    });
+
+    it('отметка «да» — решение принято: строка вне класса (УЭР стр.6: K=445, Y=312.79)', () => {
+      const s = detectSignals(makeCells({
+        K: 445, Y: 312.79, AD: 'да', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(false);
+    });
+
+    it('единственный поставщик ВХОДИТ в класс (решение владельца 20.08: «ЕП включённо»)', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000, Y: 800, AD: '', L: 'ЕП',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(true);
+      // Род называется соседней проверкой, а не вычёркиванием из счёта.
+      expect(s.epFactDeviation).toBe(true);
+    });
+
+    it('заглушка «Х» в графе — та же непроставленная отметка', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000, Y: 800, AD: 'Х', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(true);
+    });
+
+    it('факта нет — вопроса об отметке ещё не возникло', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000, Y: 0, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(false);
+    });
+
+    it('факт выше плана — экономии по числам нет', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000, Y: 1_200, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyFlagUndetermined).toBe(false);
+    });
+
+    it('бейдж класса — жёлтый и называется «Экономия без отметки»', () => {
+      const s = detectSignals(makeCells({
+        K: 1_000, Y: 800, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      const badge = getSignalBadges(s).find((b) => b.label === 'Экономия без отметки');
+      expect(badge).toBeDefined();
+      expect(badge!.color).toBe('yellow');
     });
   });
 
@@ -1376,7 +1416,7 @@ describe('classifyRowState', () => {
     return {
       signed: false, planning: false, notDue: false, canceled: false,
       overdue: false, hasFact: false, planSoon: false, financeDelay: false,
-      economyFlag: false, economyConflict: false, epRisk: false,
+      economyFlag: false, economyConflict: false, economyFlagUndetermined: false, epRisk: false,
       dataQuality: false, formulaBroken: false, singleParticipant: false,
       highEconomy: false, lowCompetition: false, earlyClosure: false,
       factExceedsPlan: false, epFactDeviation: false, stalledContract: false, budgetMismatch: false,
@@ -1453,7 +1493,7 @@ describe('getSignalBadges', () => {
     return {
       signed: false, planning: false, notDue: false, canceled: false,
       overdue: false, hasFact: false, planSoon: false, financeDelay: false,
-      economyFlag: false, economyConflict: false, epRisk: false,
+      economyFlag: false, economyConflict: false, economyFlagUndetermined: false, epRisk: false,
       dataQuality: false, formulaBroken: false, singleParticipant: false,
       highEconomy: false, lowCompetition: false, earlyClosure: false,
       factExceedsPlan: false, epFactDeviation: false, stalledContract: false, budgetMismatch: false,
@@ -1477,12 +1517,12 @@ describe('getSignalBadges', () => {
     const badges = getSignalBadges(makeSignals({ overdue: true }));
     expect(badges.length).toBe(1);
     expect(badges[0].color).toBe('red');
-    expect(badges[0].label).toBe('Просрочено');
+    expect(badges[0].label).toBe('Просрочен');
   });
 
   it('returns green badge for signed', () => {
     const badges = getSignalBadges(makeSignals({ signed: true }));
-    expect(badges.some(b => b.color === 'green' && b.label === 'Подписано')).toBe(true);
+    expect(badges.some(b => b.color === 'green' && b.label === 'Подписан')).toBe(true);
   });
 
   it('returns blue badge for planning', () => {
@@ -1492,7 +1532,7 @@ describe('getSignalBadges', () => {
 
   it('returns gray badge for canceled', () => {
     const badges = getSignalBadges(makeSignals({ canceled: true }));
-    expect(badges.some(b => b.color === 'gray' && b.label === 'Отменено')).toBe(true);
+    expect(badges.some(b => b.color === 'gray' && b.label === 'Отменён')).toBe(true);
   });
 
   it('returns multiple badges for compound signals', () => {
@@ -1501,15 +1541,15 @@ describe('getSignalBadges', () => {
     }));
     expect(badges.length).toBe(3);
     const labels = badges.map(b => b.label);
-    expect(labels).toContain('Просрочено');
+    expect(labels).toContain('Просрочен');
     expect(labels).toContain('ЕП-риск');
-    expect(labels).toContain('Пустые поля');
+    expect(labels).toContain('Пустые обязательные поля');
   });
 
   it('economyFlag shows green badge only when no conflict', () => {
     const withConflict = getSignalBadges(makeSignals({ economyFlag: true, economyConflict: true }));
     expect(withConflict.some(b => b.label === 'Экономия')).toBe(false);
-    expect(withConflict.some(b => b.label === 'Флаг экономии')).toBe(true);
+    expect(withConflict.some(b => b.label === 'Конфликт флага экономии')).toBe(true);
 
     const noConflict = getSignalBadges(makeSignals({ economyFlag: true, economyConflict: false }));
     expect(noConflict.some(b => b.label === 'Экономия')).toBe(true);
@@ -1520,7 +1560,7 @@ describe('getSignalBadges', () => {
     const s = detectSignals(makeCells({ K: 445, Y: 312.79, AD: 'да', L: 'ЭА' }), REF_DATE);
     const badges = getSignalBadges(s);
     expect(badges.some(b => b.label === 'Экономия' && b.color === 'green')).toBe(true);
-    expect(badges.some(b => b.label === 'Флаг экономии')).toBe(false);
+    expect(badges.some(b => b.label === 'Конфликт флага экономии')).toBe(false);
   });
 
   it('hasFact shows green badge only when NOT signed', () => {
@@ -1531,9 +1571,9 @@ describe('getSignalBadges', () => {
     expect(noSigned.some(b => b.label === 'Есть факт')).toBe(true);
   });
 
-  it('СТРАЖ п.28: «Факт дата < план» — синий (информационный), не жёлтый', () => {
+  it('СТРАЖ п.28: «Факт раньше плановой даты» — синий (информационный), не жёлтый', () => {
     const badges = getSignalBadges(makeSignals({ factDateBeforePlan: true }));
-    const badge = badges.find(b => b.label === 'Факт дата < план');
+    const badge = badges.find(b => b.label === 'Факт раньше плановой даты');
     expect(badge).toBeDefined();
     expect(badge!.color).toBe('blue');
   });
@@ -1711,5 +1751,63 @@ describe('factQuarterMissing — остаточная страховка (кан
 
   it('СТРАЖ п.41: «отменена» в U сигнал больше не гасит', () => {
     expect(detectSignals({ L: '', K: 0, Q: '15.03.2026', O: '', U: 'отменена' }).factQuarterMissing).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Один дом имён (консолидация 21.08.2026)
+//
+// До неё подпись класса жила в четырёх независимых местах — бейджи здесь,
+// словарь продукта, реестр проверок и формулировки экранов, — и синхронизация
+// была ручной. Инвентаризация 20.08.2026 насчитала шестнадцать разъехавшихся
+// имён. Тесты ниже держат дом единственным.
+// ────────────────────────────────────────────────────────────
+
+describe('имена классов строк — единственный дом (@aemr/shared)', () => {
+  /** Все ключи RowSignals — по объекту, который возвращает детектор. */
+  const allSignalKeys = Object.keys(detectSignals(makeCells(), REF_DATE)) as Array<keyof RowSignals>;
+
+  /**
+   * Единственное намеренное исключение: tdWithProgram снят каноном п.30
+   * (14.08.2026) вместе с подписью — заполненная графа программы у текущей
+   * деятельности норма, и класс не должен называться нигде. Поле держится в
+   * типе ради чтения старых снимков и всегда false; бейджа у него нет, и веб
+   * отфильтровывает его даже из исторических замечаний.
+   */
+  const RETIRED_WITHOUT_NAME = new Set(['tdWithProgram']);
+
+  it('у каждого признака строки есть человеческая подпись в словаре продукта', () => {
+    const missing = allSignalKeys
+      .filter((key) => !RETIRED_WITHOUT_NAME.has(key))
+      .filter((key) => SIGNAL_LABELS[key] === undefined);
+    expect(missing).toEqual([]);
+  });
+
+  it('снятый класс подписи не получает — иначе он вернётся на экран', () => {
+    for (const key of RETIRED_WITHOUT_NAME) {
+      expect(SIGNAL_LABELS[key]).toBeUndefined();
+    }
+  });
+
+  it('словарь не подписывает признаков, которых движок не считает', () => {
+    const known = new Set<string>(allSignalKeys);
+    const extra = Object.keys(SIGNAL_LABELS).filter((key) => !known.has(key));
+    expect(extra).toEqual([]);
+  });
+
+  it('бейдж берёт подпись из словаря, а не держит свою строку', () => {
+    // Включаем ВСЕ признаки разом: каждый бейдж, который умеет родиться,
+    // обязан назваться словами словаря.
+    const all = Object.fromEntries(allSignalKeys.map((key) => [key, true])) as unknown as RowSignals;
+    const known = new Set(Object.values(SIGNAL_LABELS));
+    const foreign = getSignalBadges(all).map((b) => b.label).filter((label) => !known.has(label));
+    expect(foreign).toEqual([]);
+  });
+
+  it('ни один бейдж не показывает служебное имя ключа', () => {
+    const all = Object.fromEntries(allSignalKeys.map((key) => [key, true])) as unknown as RowSignals;
+    for (const badge of getSignalBadges(all)) {
+      expect(badge.label).not.toMatch(/[a-z]+[A-Z][a-zA-Z]*/);
+    }
   });
 });

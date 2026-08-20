@@ -22,7 +22,7 @@ import {
   firstSignificantDigit,
   BENFORD_EXPECTED as BENFORD_EXPECTED_SHARED,
 } from '../utils/statistics.js';
-import { DEPT_COLUMNS, isReadableDeptRow } from '@aemr/shared';
+import { DEPT_COLUMNS, SIGNAL_LABELS, isReadableDeptRow } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 import { detectSeasonalAnomalies } from './seasonal.js';
 import { detectSuspiciousSplitting } from './splitting.js';
@@ -492,21 +492,28 @@ export function buildNoiseMap(
 
   // Group row signals by type
   if (rowSignals) {
-    const signalKeys: Array<{ key: keyof RowSignals; label: string; severity: AnomalySeverity }> = [
-      { key: 'overdue', label: 'Просроченные закупки', severity: 'ВЫСОКАЯ' },
-      { key: 'epRisk', label: 'ЕП-риски (>600K)', severity: 'СРЕДНЯЯ' },
-      { key: 'economyConflict', label: 'Конфликты флага экономии', severity: 'СРЕДНЯЯ' },
-      { key: 'highEconomy', label: 'Высокая экономия >25%', severity: 'СРЕДНЯЯ' },
-      { key: 'factExceedsPlan', label: 'Факт превышает план', severity: 'ВЫСОКАЯ' },
+    // Имён классов карта шума больше не держит: они приходят из дома имён
+    // (@aemr/shared SIGNAL_LABELS). Своя копия была одним из пяти независимых
+    // списков подписей и разъезжалась с остальными — здесь жили «ЕП-риски
+    // (>600K)» с латинской K на экран, «Высокая экономия >25%» против «Высокой
+    // экономии свыше 25%» реестра и «Факт без плана» против «Факта без
+    // планового бюджета» (инвентаризация сигналов 20.08.2026, раздел «Дубли»).
+    const signalKeys: Array<{ key: keyof RowSignals; severity: AnomalySeverity }> = [
+      { key: 'overdue', severity: 'ВЫСОКАЯ' },
+      { key: 'epRisk', severity: 'СРЕДНЯЯ' },
+      { key: 'economyConflict', severity: 'СРЕДНЯЯ' },
+      { key: 'highEconomy', severity: 'СРЕДНЯЯ' },
+      { key: 'factExceedsPlan', severity: 'ВЫСОКАЯ' },
       // stalledContract здесь не группируется: проверка отключена 14.08.2026
       // (канон п.27), детектор всегда false — группа не собралась бы никогда.
-      { key: 'dataQuality', label: 'Проблемы качества данных', severity: 'ИНФОРМАЦИЯ' },
-      { key: 'formulaBroken', label: 'Ошибки формул', severity: 'КРИТИЧЕСКАЯ' },
-      { key: 'epJustificationMissing', label: 'ЕП без обоснования', severity: 'ВЫСОКАЯ' },
-      { key: 'budgetUnderallocation', label: 'Факт без плана', severity: 'ВЫСОКАЯ' },
+      { key: 'dataQuality', severity: 'ИНФОРМАЦИЯ' },
+      { key: 'formulaBroken', severity: 'КРИТИЧЕСКАЯ' },
+      { key: 'epJustificationMissing', severity: 'ВЫСОКАЯ' },
+      { key: 'budgetUnderallocation', severity: 'ВЫСОКАЯ' },
     ];
 
-    for (const { key: sigKey, label, severity } of signalKeys) {
+    for (const { key: sigKey, severity } of signalKeys) {
+      const label = SIGNAL_LABELS[sigKey] ?? sigKey;
       const matchingRows: number[] = [];
       for (const [idx, signals] of rowSignals) {
         if (signals[sigKey]) matchingRows.push(idx);

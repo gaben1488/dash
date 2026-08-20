@@ -45,6 +45,10 @@ export * from './analytics/index.js';
 // Metrics KB registry
 export { METRIC_KB, getMetricKB, getMetricTooltip, getMetricsByCategory, ALL_METRIC_KEYS } from './metrics/index.js';
 export type { KBEntryData, MetricCategory, MetricUnit } from './metrics/index.js';
+// Доводка карточек до состава 2.0: словарь нужен интерфейсу целиком —
+// страж двери к строкам-основаниям сверяется с его ключами.
+export { KB_UPLIFT, applyKbUplift } from './metrics/kb-uplift.js';
+export type { KbUpliftEntry } from './metrics/kb-uplift.js';
 
 // Каноническая метрика «исполнение квартального плана» (G = E/D, канон СВОД + отчёт 20.03.2026)
 export { quarterExecution, quarterExecutionFromCounts } from './metrics/quarter-execution.js';
