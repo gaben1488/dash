@@ -9,7 +9,9 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 HOST = '193.233.244.217'
 USER = os.environ.get('AEMR_SRV_USER', 'aemr')
-KEY = os.path.expanduser('~/.ssh/id_ed25519')
+# Выделенный деплой-ключ, НЕ личный id_ed25519 (правило: личный ключ не для деплоя;
+# шов 12 реестра швов 09.07.2026 — здесь он оставался последним).
+KEY = os.path.expanduser(os.environ.get('AEMR_SSH_KEY', '~/.ssh/aemr_deploy'))
 
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())

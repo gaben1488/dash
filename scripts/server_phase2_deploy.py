@@ -82,6 +82,31 @@ def parse_env(path):
 local_env = parse_env(LOCAL_ENV)
 api_key = secrets.token_urlsafe(48)
 
+
+def masked(secret):
+    """Показывает только хвост секрета — чтобы человек убедился, что записан
+    нужный ключ, но сам ключ не осел в истории терминала и в логах.
+
+    Реестр багов 09.07.2026, PLAUSIBLE «скрипт выката печатает ключ доступа
+    открытым текстом»: ключ уезжает на сервер в .env.production (права 600) и
+    браузеру не нужен вовсе — печатать его целиком было незачем. Понадобился
+    полностью — он лежит на сервере: grep AEMR_API_KEY deploy/.env.production.
+    """
+    return '…' + secret[-4:] if len(secret) > 4 else '…'
+
+
+# Режим периметра: DOMAIN из окружения. ":80" — доступ по адресу без
+# шифрования: пароль периметра и данные 44-ФЗ идут открытым текстом, годится
+# только для отладки контура. Имя домена включает автоматику сертификатов
+# Caddy (deploy/Caddyfile). Реестр багов 09.07.2026, PLAUSIBLE «прод по
+# незащищённому протоколу»: раньше здесь стояло ":80" намертво, и защищённый
+# режим было нечем включить, кроме правки файла на сервере руками.
+domain = os.environ.get('AEMR_DOMAIN', ':80').strip() or ':80'
+if domain.startswith(':'):
+    print('!!! ВНИМАНИЕ: стенд поднимается БЕЗ шифрования (DOMAIN=' + domain + ').')
+    print('!!! Пароль периметра пойдёт открытым текстом. Для работы людей задайте')
+    print('!!! AEMR_DOMAIN=<имя домена> — сертификат Caddy получит и продлит сам.')
+
 # Периметр Caddy: basic auth на весь стенд (кроме /api/health).
 # Пароль генерим здесь, bcrypt-хэш считает caddy на сервере.
 basic_user = 'aemr'
@@ -116,7 +141,7 @@ env_lines = [
     f'GOOGLE_SERVICE_ACCOUNT_EMAIL={local_env.get("GOOGLE_SERVICE_ACCOUNT_EMAIL","")}',
     f'GOOGLE_PRIVATE_KEY="{local_env.get("GOOGLE_PRIVATE_KEY","")}"',
     '',
-    'DOMAIN=:80',
+    f'DOMAIN={domain}',
 ]
 env_content = '\n'.join(env_lines) + '\n'
 
@@ -126,7 +151,7 @@ with sftp.open(remote_env, 'w') as f:
     f.write(env_content)
 sftp.chmod(remote_env, 0o600)
 print(f'uploaded {remote_env} ({len(env_content)} bytes)')
-print(f'AEMR_API_KEY (save this!) = {api_key}')
+print(f'AEMR_API_KEY записан в {remote_env} (в терминал не печатаем): {masked(api_key)}')
 
 # ============ STEP 3 — copy aemr.db ============
 print('\n=== STEP 3 — копируем aemr.db (checkpoint + gzip) ===')
@@ -173,6 +198,9 @@ run('curl -s -o /dev/null -w "GET /api/health: HTTP %{http_code} %{size_download
 
 c.close()
 print('\n>>> DONE')
-print(f'>>> Открывай: http://{HOST}/')
-print(f'>>> Вход (basic auth): {basic_user} / {basic_pwd}')
-print(f'>>> AEMR_API_KEY (живёт на сервере, браузеру не нужен): {api_key}')
+print('>>> Открывай: ' + (f'https://{domain}/' if not domain.startswith(':') else f'http://{HOST}/'))
+# Пароль периметра печатается один раз намеренно: он сгенерирован здесь, на
+# сервере лежит только его односторонний хэш, и другого способа сообщить его
+# человеку нет. Ключ доступа — другое дело: он целиком живёт на сервере.
+print(f'>>> Вход (пароль периметра, сохраните сейчас): {basic_user} / {basic_pwd}')
+print(f'>>> AEMR_API_KEY (живёт на сервере, браузеру не нужен): {masked(api_key)}')
