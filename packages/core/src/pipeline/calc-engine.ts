@@ -211,12 +211,17 @@ export interface GroupedResults {
   /** Mathematical economy total (ungated by AD, Math.max(0, eco)), only hasFact gate. */
   economyTotalMath: number;
   /**
-   * Rows silently excluded BEFORE metric accumulation: empty row slots or rows
-   * that failed the row-classification filter (e.g. standardRowFilter score < 3).
-   * Does NOT include rows skipped by the year filter (targetYear) — that is
-   * intentional scoping, not a parsing/classification problem. (B-8)
+   * Rows with DATA that failed the row-classification filter (e.g.
+   * standardRowFilter score < 3). Does NOT include: rows skipped by the year
+   * filter (intentional scoping), and — с 20.08.2026 — полностью пустые строки
+   * листа-простыни (вопрос владельца: УАГЗО «925 из 994 не попали в расчёт» —
+   * 925 были пустотой хвоста диапазона, а сигнал читался как поломка). (B-8)
    */
   droppedRows: number;
+  /** Полностью пустые слоты/строки — не носители данных, отсевом не считаются. */
+  emptyRows: number;
+  /** Адреса первых отвергнутых строк С ДАННЫМИ (номер строки листа, 1-based). */
+  droppedRowNumbers: number[];
 }
 
 // ── Gate Evaluation ──────────────────────────────────────────────────
@@ -589,6 +594,8 @@ export class CalcEngine {
       conflicts: 0,
       economyTotalMath: 0,
       droppedRows: 0,
+      emptyRows: 0,
+      droppedRowNumbers: [],
     };
 
     // Initialize total accumulators
@@ -598,8 +605,19 @@ export class CalcEngine {
 
     for (let i = startRow; i < rows.length; i++) {
       const row = rows[i];
-      if (!row) { result.droppedRows++; continue; }
-      if (!filter(row)) { result.droppedRows++; continue; }
+      // Пустой слот и строка без единого значения — не «отвергнутые данные»,
+      // а простыня листа (диапазон дочитан до последней заполненной ячейки
+      // где-то в далёкой колонке). Вопрос владельца 20.08: «925 из 994» УАГЗО.
+      if (!row || row.every((c) => c === null || c === undefined || String(c).trim() === '')) {
+        result.emptyRows++;
+        continue;
+      }
+      if (!filter(row)) {
+        result.droppedRows++;
+        // Адрес строки листа (1-based): rows приходит с листа целиком.
+        if (result.droppedRowNumbers.length < 12) result.droppedRowNumbers.push(i + 1);
+        continue;
+      }
 
       // Year filter: мультигодовой скоуп years[] побеждает targetYear;
       // policy обобщает strictYear (обратная совместимость сохранена).

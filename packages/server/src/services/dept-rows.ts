@@ -11,7 +11,13 @@ import { collectRowsByDept } from '@aemr/shared';
 import { getDeptSheetValues, getSnapshot } from './snapshot.js';
 
 export interface DeptRowsReading {
-  /** Строки книг по кириллическим именам листов (без среза шапки). */
+  /**
+   * Строки книг по кириллическим именам листов. Шапка (DEPT_HEADER_ROWS = 3)
+   * УЖЕ СРЕЗАНА и живым путём (collectRowsByDept), и в rowsByDept снимка:
+   * первая строка массива — строка листа 4. Потребитель НЕ должен срезать
+   * шапку второй раз (двойной срез сдвинул бы все адреса на 3) и получает
+   * номер строки листа как idx + DEPT_HEADER_ROWS + 1 (канон buildRowDto).
+   */
   rowsByDept: Record<string, unknown[][]>;
   /** Момент, на который валидны строки (ISO). */
   asOf: string;

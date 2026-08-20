@@ -14,13 +14,19 @@
  * проверок и жизненный цикл статусов, у аннотаций — свой словарь видов;
  * поэтому секция отдельная, а карточки — существующий DiagnosticCardList.
  *
- * Периметр (канон п.58а): все управления, все строки книг, момент чтения из
- * ответа сервера. Фильтры шапки сюда НЕ применяются — об этом сказано вслух
- * честной пометкой (образец — карточка «Управления»), а не лживым бейджем.
+ * Периметр. Сверка идёт по всем строкам всех книг, момент чтения — из ответа
+ * сервера; фильтры периода и способа из шапки к секции не применяются (канон
+ * п.58а — бейдж периода здесь лгал бы). Выбранное управление, напротив,
+ * ПРИМЕНЯЕТСЯ (канон п.127, 20.08.2026): в срезе управления секция показывает
+ * только его карточки — чужие противоречия в чужой срез не лезут.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MessageSquareWarning, CheckCircle2, Loader2, RotateCcw } from 'lucide-react';
+import { productLabel } from '@aemr/shared';
 import { api, humanizeRequestError } from '../../api';
+import { useStore } from '../../store';
+import { toCanonicalDeptId } from '../../lib/dept-key';
+import { deptScopeOf, filterByDeptScope } from '../../lib/selectors/dept-isolation';
 import { pluralRu } from '../../lib/economy-copy';
 import { DiagnosticCardList } from '../DiagnosticCards';
 import type { DiagnosticIssueLike } from '../../lib/diagnostics/mechanism-groups';
@@ -163,7 +169,18 @@ export function CommentAnnotationsSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  const issues = (data?.annotations ?? []).map(toDiagnosticIssue);
+  // Изоляция по управлению (канон п.127): аннотация несёт канонический ид
+  // книги (a.dept) — в срезе управления показываются только свои карточки.
+  const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const deptScope = useMemo(() => deptScopeOf(selectedDepartments), [selectedDepartments]);
+  const scopedAnnotations = useMemo(
+    () => filterByDeptScope(data?.annotations ?? [], deptScope, (a) => a.dept),
+    [data, deptScope],
+  );
+  const issues = scopedAnnotations.map(toDiagnosticIssue);
+  const scopeLabel = deptScope === null
+    ? 'все управления'
+    : [...selectedDepartments].map((d) => productLabel(toCanonicalDeptId(d))).join(', ');
 
   return (
     <section
@@ -176,8 +193,8 @@ export function CommentAnnotationsSection() {
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
               Комментарии против структуры
-              {data && data.total > 0 && (
-                <span className="ml-2 text-zinc-500 dark:text-zinc-400 font-bold tabular-nums">{data.total}</span>
+              {data && issues.length > 0 && (
+                <span className="ml-2 text-zinc-500 dark:text-zinc-400 font-bold tabular-nums">{issues.length}</span>
               )}
             </h2>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed max-w-3xl">
@@ -188,14 +205,15 @@ export function CommentAnnotationsSection() {
           </div>
         </div>
         {/* Подпись собственного периметра (канон п.58а): бейдж выбранного
-            периода здесь лгал бы — аннотации считаются по всем строкам книг. */}
+            периода здесь лгал бы — сверка идёт по всем строкам книг. Выбранное
+            управление, напротив, применяется (канон п.127). */}
         {data && (
           <div className="flex flex-col items-end gap-1 shrink-0">
             <span className="px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 tabular-nums">
-              все управления · {data.rowsScanned} строк · {data.source === 'live' ? 'книги на' : 'снимок от'} {ruMoment(data.asOf)}
+              {scopeLabel} · сверено {data.rowsScanned} строк всех книг · {data.source === 'live' ? 'книги на' : 'снимок от'} {ruMoment(data.asOf)}
             </span>
             <span className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[15rem]">
-              фильтры шапки к этой секции не применяются
+              период и способ из шапки не применяются; выбор управления — действует
             </span>
           </div>
         )}
@@ -224,9 +242,13 @@ export function CommentAnnotationsSection() {
         <div className="flex items-start gap-2 py-2">
           <CheckCircle2 size={16} className="text-emerald-500 mt-0.5 shrink-0" aria-hidden="true" />
           <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-            Противоречий не найдено: {data ? `${data.rowsScanned} ${pluralRu(data.rowsScanned, 'счётная строка', 'счётные строки', 'счётных строк')}` : 'строки книг'}{' '}
-            прошли все три правила сверки. Появится противоречие — здесь встанет карточка с механизмом,
-            адресом ячейки и действием; чтобы пересверить прямо сейчас, обновите данные кнопкой в шапке.
+            {deptScope !== null && (data?.total ?? 0) > 0
+              ? `По выбранным управлениям (${scopeLabel}) противоречий не найдено; ` +
+                `${data?.total} ${pluralRu(data?.total ?? 0, 'карточка других управлений', 'карточки других управлений', 'карточек других управлений')} ` +
+                'видны в срезе «все управления».'
+              : <>Противоречий не найдено: {data ? `${data.rowsScanned} ${pluralRu(data.rowsScanned, 'счётная строка', 'счётные строки', 'счётных строк')}` : 'строки книг'}{' '}
+                прошли все три правила сверки. Появится противоречие — здесь встанет карточка с механизмом,
+                адресом ячейки и действием; чтобы пересверить прямо сейчас, обновите данные кнопкой в шапке.</>}
           </p>
         </div>
       ) : (

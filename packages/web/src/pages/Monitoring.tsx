@@ -44,6 +44,9 @@ import { DirectoryTable } from '../components/monitoring/DirectoryTable';
 import { AncestorSheets } from '../components/monitoring/AncestorSheets';
 import { SignalCards } from '../components/monitoring/SignalCards';
 import { humanizeRequestError } from '../api';
+import { useStore } from '../store';
+import { deptScopeOf } from '../lib/selectors/dept-isolation';
+import { scopeProcedures, scopeSignals } from '../lib/monitoring/dept-scope';
 import {
   fetchMonitoring, fetchMonitoringMatch,
   type JournalRow, type LineageChain, type MatchPayload, type MatchRow,
@@ -84,7 +87,20 @@ export function MonitoringPage() {
   useEffect(() => { load(); }, [load]);
 
   const mode = modeById(modeId);
-  const procedures = useMemo(() => data?.procedures ?? [], [data]);
+
+  // Изоляция по управлению (канон п.127): выбранное в шапке управление сужает
+  // и реестр процедур, и сигналы книги — чужие листы в срез не попадают.
+  // Периметр периода/года у книги по-прежнему свой: книга читается целиком.
+  const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const deptScope = useMemo(() => deptScopeOf(selectedDepartments), [selectedDepartments]);
+  const procedures = useMemo(
+    () => scopeProcedures(data?.procedures ?? [], deptScope),
+    [data, deptScope],
+  );
+  const scopedSignals = useMemo(
+    () => scopeSignals(data?.signals ?? [], deptScope),
+    [data, deptScope],
+  );
 
   /** Строки режима: лист управления сужает набор, остальные режимы — нет. */
   const modeRows = useMemo(
@@ -186,8 +202,9 @@ export function MonitoringPage() {
           </p>
           <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
             Деньги этой книги — <span className="font-medium">в рублях</span>; книги управлений
-            ведутся в тысячах рублей. Фильтры года и управлений в шапке приложения к этой книге
-            не применяются — здесь свои разрезы.
+            ведутся в тысячах рублей. Фильтр года в шапке к этой книге не применяется — книга
+            читается целиком; выбранное управление сужает реестр и сигналы до своих листов
+            (канон п.127).
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -329,7 +346,13 @@ export function MonitoringPage() {
                 </details>
               )}
 
-              {data.signals !== null && data.signals.length > 0 && <SignalCards signals={data.signals} />}
+              {scopedSignals.length > 0 && <SignalCards signals={scopedSignals} />}
+              {deptScope !== null && (data.signals?.length ?? 0) > 0 && scopedSignals.length === 0 && (
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  По выбранным управлениям адресных сигналов книги нет; сигналы уровня всей книги
+                  (свод, переходящий реестр, справочник) показываются в срезе «все управления».
+                </p>
+              )}
 
               {data.notes.length > 0 && (
                 <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">

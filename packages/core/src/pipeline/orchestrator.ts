@@ -586,7 +586,13 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       // Строки, не дошедшие до счёта, обязаны быть названы (реестр багов
       // 09.07.2026, п.6): счётчик droppedRows появился, но его никто не читал —
       // молчание осталось прежним.
-      const dropIssue = droppedRowsIssue(sheetName, deptId, grouped.droppedRows, (rows as unknown[][]).length - DEPT_HEADER_ROWS);
+      const dropIssue = droppedRowsIssue(
+        sheetName,
+        deptId,
+        grouped.droppedRows,
+        (rows as unknown[][]).length - DEPT_HEADER_ROWS - grouped.emptyRows,
+        grouped.droppedRowNumbers,
+      );
       if (dropIssue) allIssues.push(dropIssue);
       const recalc = adaptToRecalcMetrics(grouped, sheetName);
       mergeRecalcIntoMetrics(calculatedMetrics, recalc, deptId);
@@ -766,6 +772,7 @@ function droppedRowsIssue(
   deptId: string,
   droppedRows: number,
   dataRowCount: number,
+  droppedRowNumbers: readonly number[] = [],
 ): Issue | null {
   if (dataRowCount <= 0 || droppedRows < DROPPED_ROWS_MIN_COUNT) return null;
   const share = droppedRows / dataRowCount;
@@ -773,6 +780,11 @@ function droppedRowsIssue(
 
   const broken = share >= DROPPED_ROWS_BROKEN_SHARE;
   const percent = (share * 100).toFixed(1).replace('.', ',');
+  // Ответ «какие именно строчки» обязан быть в самой карточке (п.119, вопрос
+  // владельца 20.08 по УАГЗО): адреса первых отвергнутых строк листа.
+  const addresses = droppedRowNumbers.length > 0
+    ? ` Первые из них — строки листа ${droppedRowNumbers.join(', ')}${droppedRows > droppedRowNumbers.length ? ` и ещё ${droppedRows - droppedRowNumbers.length}` : ''}.`
+    : '';
   return {
     id: issueIdentity(['dropped-rows', sheetName]),
     severity: broken ? 'significant' : 'warning',
@@ -780,14 +792,15 @@ function droppedRowsIssue(
     category: 'dropped_rows',
     group: 'data_quality',
     title: `Строки листа «${sheetName}» не попали в расчёт: ${droppedRows} из ${dataRowCount}`,
-    description: broken
-      ? `Расчёт отверг ${percent} % строк листа — столько сразу отсеивается, когда колонки сдвинуты (вставили или убрали столбец) либо лист прочитан не с той вкладки. Показатели управления в таком виде считать нельзя.`
-      : `Расчёт отверг ${percent} % строк листа: в них не хватает опознавательных признаков закупки (номер, предмет, способ, суммы). В показатели эти строки не вошли.`,
+    description: (broken
+      ? `Расчёт отверг ${percent} % заполненных строк листа — столько сразу отсеивается, когда колонки сдвинуты (вставили или убрали столбец) либо лист прочитан не с той вкладки. Показатели управления в таком виде считать нельзя.`
+      : `Расчёт отверг ${percent} % заполненных строк листа: в них не хватает опознавательных признаков закупки (номер, предмет, способ, суммы). В показатели эти строки не вошли. Пустые строки листа отсевом не считаются.`)
+      + addresses,
     sheet: sheetName,
     departmentId: deptId,
     recommendation: broken
       ? 'Сверить шапку листа с эталонной раскладкой столбцов (A — № п/п, G — предмет, K — итого плана, L — способ) и убедиться, что читается нужная вкладка книги.'
-      : 'Открыть лист и просмотреть строки без номера, предмета и способа закупки: либо дозаполнить, либо убрать, если это остатки разметки.',
+      : 'Открыть перечисленные строки листа: это записи без номера, предмета и способа закупки — либо дозаполнить, либо убрать, если это остатки разметки.',
     status: 'open',
     detectedAt: new Date().toISOString(),
     detectedBy: 'pipeline:calc-engine',

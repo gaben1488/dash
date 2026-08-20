@@ -261,25 +261,25 @@
 }
 
 .dark {
-  --surface-page: #0b0a08;
-  --surface-sunken: #100f0d;
-  --surface-card: #161411;
-  --surface-raised: #1e1b17;
-  --surface-overlay: #1a1714;
+  --surface-page: #0a0a0b;
+  --surface-sunken: #0f0f10;
+  --surface-card: #151516;
+  --surface-raised: #1d1d1f;
+  --surface-overlay: #19191b;
 
-  --line-soft: #262320;
-  --line-strong: #38332c;
+  --line-soft: #242426;
+  --line-strong: #363639;
 
-  --ink-strong: #f6f2e9;
-  --ink: #ded8cb;
-  --ink-muted: #a49c8c;
-  --ink-faint: #7b7466;
+  --ink-strong: #f4f4f5;
+  --ink: #d9d9db;
+  --ink-muted: #a0a0a3;
+  --ink-faint: #757578;
 
   --accent: #e5d3a9;
   --accent-hover: #f1e6cb;
-  --accent-ink: #1b170f;
-  --accent-soft: #2b251b;
-  --accent-line: #4c3e28;
+  --accent-ink: #141416;
+  --accent-soft: #232326;
+  --accent-line: #3f3f45;
 
   /* На почти чёрном фоне те же тона садятся ниже порога различимости,
      поэтому светлее — это не другая палитра, а та же на другом фоне. */
@@ -982,19 +982,23 @@
     letter-spacing: 0.01em;
     white-space: nowrap;
     /* Название раздела — главный текст хрома. Прежние 0.55 альфы давали
-       около 2:1 к фону в обеих темах: подпись вкладки было не прочесть. */
+       около 2:1 к фону в обеих темах: подпись вкладки было не прочесть.
+       Плашка красится тёмной полупрозрачной краской: белая краска (как было)
+       на кремовом фоне невидима — кнопки выглядели голым текстом (20.08). */
     color: rgba(82, 82, 91, 0.95);
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(43, 38, 28, 0.05);
+    border: 1px solid rgba(43, 38, 28, 0.09);
     transition: all 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
   .dark .np-content {
     color: rgba(161, 161, 170, 0.88);
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.04);
   }
   .np-btn:hover .np-content {
-    color: rgba(63, 63, 70, 0.85);
-    background: rgba(255, 255, 255, 0.45);
-    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(63, 63, 70, 0.95);
+    background: rgba(43, 38, 28, 0.09);
+    border-color: rgba(43, 38, 28, 0.14);
   }
   .dark .np-btn:hover .np-content {
     color: rgba(212, 212, 216, 0.85);

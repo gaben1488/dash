@@ -41,10 +41,14 @@ export function filterIssues(allIssues: any[], opts: {
         // П.98в: старые снимки хранят rule-замечания без departmentId, но с
         // именем листа. Лист-ГРБС резолвится каноном (classifySheet) и
         // фильтруется по обеим формам ключа — иначе при фильтре УКСиМП на
-        // экран шли строки УД и всех подряд. Сквозной пропуск остаётся
-        // только для листов вне ГРБС (СВОД, «ВСЕ», разметка).
+        // экран шли строки УД и всех подряд.
+        // П.127 (канон 20.08.2026): замечание, которое не привязано ни к
+        // управлению, ни к листу-ГРБС (СВОД, «ВСЕ», разметка, пустой лист), —
+        // районное. В срезе управления оно НЕ показывается: его место —
+        // срез «все управления». Прежний сквозной пропуск подмешивал чужое
+        // в срез каждого управления.
         const cls = classifySheet(String(i.sheet ?? ''));
-        if (cls.kind !== 'department') return true;
+        if (cls.kind !== 'department') return false;
         return (cls.grbsId !== undefined && selectedDeptBothForms.has(cls.grbsId))
           || (cls.latinId !== undefined && selectedDeptBothForms.has(cls.latinId));
       })

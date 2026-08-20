@@ -12,7 +12,7 @@
  *      другие слова.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '../ui/tooltip';
 import { TextHygieneSection } from './TextHygieneSection';
 import type { TextHygieneResponse } from './contract';
@@ -176,6 +176,23 @@ describe('TextHygieneSection', () => {
     expect(await screen.findByText('Дефектов не найдено')).toBeTruthy();
     // Знаменатель проверки — рядом с утверждением о чистоте.
     expect(screen.getByText(/Проверено 8\s*100/)).toBeTruthy();
+  });
+
+  it('момент данных назван, а кнопка «перечитать» требует свежести (?refresh=true)', async () => {
+    // Прецедент 20.08.2026: правка G174 УКСиМП не гасила находку — повтор
+    // запроса без ?refresh=true возвращал то же пятиминутное окно кэша.
+    fetchJSONMock.mockResolvedValue(WITH_FINDINGS);
+    renderSection();
+
+    // Честная подпись момента данных (канон п.58).
+    expect(await screen.findByText(/данные на/)).toBeTruthy();
+    expect(fetchJSONMock).toHaveBeenCalledWith('/text-hygiene');
+
+    // Кнопка живёт в шапке раздела и шлёт запрос со свежестью.
+    fireEvent.click(screen.getByRole('button', { name: /перечитать/i }));
+    await waitFor(() => {
+      expect(fetchJSONMock).toHaveBeenCalledWith('/text-hygiene?refresh=true');
+    });
   });
 
   it('«книги не прочитаны» не выдаётся за «дефектов нет»', async () => {

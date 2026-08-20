@@ -45,8 +45,12 @@ function buildSheet(dataRows: unknown[][]): unknown[][] {
 
 describe('CalcEngine.compute() — dropped-row signal (B-8)', () => {
   it('counts a malformed row rejected by standardRowFilter instead of letting it vanish silently', () => {
-    // No ID, no subject, no method → standardRowFilter rejects it immediately (score 0).
+    // Данные есть (обрывок предмета), но ни №, ни способа, ни сумм —
+    // standardRowFilter отвергает (score < 3). Полностью пустая строка с
+    // 20.08.2026 отсевом НЕ считается (вопрос владельца: УАГЗО «925 из 994»
+    // были пустотой хвоста диапазона) — она уходит в emptyRows.
     const malformedRow: unknown[] = new Array(32).fill('');
+    malformedRow[6] = 'обрывок разметки';
     const rows = buildSheet([makeGoodRow('1'), malformedRow, makeGoodRow('2')]);
 
     const grouped = new CalcEngine().compute(rows, standardRowFilter, 3, 2025);
@@ -126,12 +130,19 @@ function pipelineWith(dataRows: unknown[][]): ReturnType<typeof runPipeline> {
 }
 
 const emptyRow = (): unknown[] => new Array(32).fill('');
+// Строка С ДАННЫМИ, отвергнутая классификацией: есть текст в предмете,
+// нет ни №, ни способа, ни сумм — настоящий брак, а не пустота простыни.
+const junkRow = (): unknown[] => {
+  const r: unknown[] = new Array(32).fill('');
+  r[6] = 'остаток разметки';
+  return r;
+};
 
 describe('runPipeline — отсеянные строки перестают быть немыми (реестр 09.07.2026, п.6)', () => {
   it('половина листа не дошла до счёта — замечание есть, и оно говорит о сломанном разборе', () => {
     const rows = [
       ...Array.from({ length: 10 }, (_, i) => makeGoodRow(String(i + 1))),
-      ...Array.from({ length: 10 }, emptyRow),
+      ...Array.from({ length: 10 }, junkRow),
     ];
     const issue = pipelineWith(rows).issues.find(i => i.category === 'dropped_rows');
 
@@ -153,7 +164,7 @@ describe('runPipeline — отсеянные строки перестают б�
   it('заметный, но не катастрофический отсев — предупреждение, а не «сломан разбор»', () => {
     const rows = [
       ...Array.from({ length: 25 }, (_, i) => makeGoodRow(String(i + 1))),
-      ...Array.from({ length: 5 }, emptyRow),
+      ...Array.from({ length: 5 }, junkRow),
     ];
     const issue = pipelineWith(rows).issues.find(i => i.category === 'dropped_rows');
 

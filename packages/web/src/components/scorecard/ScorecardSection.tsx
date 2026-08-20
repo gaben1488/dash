@@ -23,7 +23,10 @@
  *      «лист · строка · ячейка», действие с адресатом (канон п.53), а не
  *      простынёй «строка N».
  */
+import { useMemo } from 'react';
 import { AlertTriangle, Clock, RotateCcw, Scale } from 'lucide-react';
+import { useStore } from '../../store';
+import { deptScopeOf, filterByDeptScope } from '../../lib/selectors/dept-isolation';
 import { DiagnosticCardList } from '../DiagnosticCards';
 import { EmptyState } from '../EmptyState';
 import { SkeletonCard } from '../Skeleton';
@@ -50,7 +53,7 @@ function ScorecardPeriodBadge({ readAt }: { readAt: string }) {
       </div>
       <span
         className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 text-right max-w-[15rem]"
-        title="Маршруты оценки не принимают ни года, ни квартала, ни выбора управлений: они считают по всему снимку книг."
+        title="Маршруты оценки не принимают ни года, ни квартала: они считают по всему снимку книг. Выбранное в шапке управление сужает показ (канон п.127)."
       >
         {PERIMETER_CAVEAT}
       </span>
@@ -91,9 +94,20 @@ function FailurePlate({
 export function ScorecardSection() {
   const { data, loading, error, reload } = useScorecard();
 
-  const rows = data ? sortScorecard(data.scorecard) : [];
+  // Изоляция по управлению (канон п.127): выбранное в шапке управление сужает
+  // и таблицу оценок, и карточки норм закона — чужие грейды и чужие строки
+  // в срез не попадают. Периметр ПЕРИОДА у секции по-прежнему свой (п.58б):
+  // маршруты считают 1 кв и год, выбор квартала в шапке на числа не влияет.
+  const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const deptScope = useMemo(() => deptScopeOf(selectedDepartments), [selectedDepartments]);
+
+  const allRows = data ? sortScorecard(data.scorecard) : [];
+  const rows = filterByDeptScope(allRows, deptScope, (r) => r.grbsId);
   const graded = rows.filter((r) => isGraded(r.entry)).length;
-  const complianceIssues = data?.compliance?.issues ?? [];
+  const complianceIssues = filterByDeptScope(
+    data?.compliance?.issues ?? [], deptScope, (i) => i.grbsId,
+  );
+  const complianceCritical = complianceIssues.filter((i) => i.severity === 'critical').length;
 
   return (
     <div className="space-y-6">
@@ -137,16 +151,26 @@ export function ScorecardSection() {
             />
           )
         ) : rows.length === 0 ? (
-          <EmptyState
-            tone="problem"
-            title="Ни одно управление не оценено"
-            description={
-              'Оценка строится на пересчёте плана-факта по книгам. Сейчас пересчёта нет ' +
-              'ни по одной книге, поэтому вместо букв — эта причина: грейд без счётной ' +
-              'базы был бы выдуман.'
-            }
-            action={{ label: 'Прочитать ещё раз', onClick: reload }}
-          />
+          deptScope !== null && allRows.length > 0 ? (
+            <EmptyState
+              title="По выбранным управлениям оценки нет"
+              description={
+                'Оценённые управления есть, но все они — вне выбранного в шапке среза. ' +
+                'Снимите отбор управления, чтобы увидеть таблицу целиком.'
+              }
+            />
+          ) : (
+            <EmptyState
+              tone="problem"
+              title="Ни одно управление не оценено"
+              description={
+                'Оценка строится на пересчёте плана-факта по книгам. Сейчас пересчёта нет ' +
+                'ни по одной книге, поэтому вместо букв — эта причина: грейд без счётной ' +
+                'базы был бы выдуман.'
+              }
+              action={{ label: 'Прочитать ещё раз', onClick: reload }}
+            />
+          )
         ) : (
           <>
             {graded === 0 && (
@@ -192,21 +216,32 @@ export function ScorecardSection() {
             <SkeletonCard />
           </div>
         ) : data && !data.complianceError && complianceIssues.length === 0 ? (
-          <EmptyState
-            tone="neutral"
-            title="Проверки норм закона не нашли ни одной строки"
-            description={
-              'Проверены три механизма: разовая закупка у единственного поставщика выше ' +
-              '600 тыс., годовой объём малых закупок и снижение больше четверти. Ни одна ' +
-              'строка книг под них не подошла.'
-            }
-          />
+          deptScope !== null && (data.compliance?.issues.length ?? 0) > 0 ? (
+            <EmptyState
+              tone="neutral"
+              title="По выбранным управлениям строк под проверками нет"
+              description={
+                'Проверки норм закона нашли строки, но все они — у других управлений. ' +
+                'Их карточки видны в срезе «все управления».'
+              }
+            />
+          ) : (
+            <EmptyState
+              tone="neutral"
+              title="Проверки норм закона не нашли ни одной строки"
+              description={
+                'Проверены три механизма: разовая закупка у единственного поставщика выше ' +
+                '600 тыс., годовой объём малых закупок и снижение больше четверти. Ни одна ' +
+                'строка книг под них не подошла.'
+              }
+            />
+          )
         ) : complianceIssues.length > 0 ? (
           <>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Всего строк под проверками — {data?.compliance?.totalIssues ?? complianceIssues.length}:
-              критических {data?.compliance?.critical ?? 0}, предупреждений{' '}
-              {data?.compliance?.warnings ?? 0}. Ниже они свёрнуты в классы.
+              Строк под проверками в текущем срезе — {complianceIssues.length}:
+              критических {complianceCritical}, предупреждений{' '}
+              {complianceIssues.length - complianceCritical}. Ниже они свёрнуты в классы.
             </p>
             <DiagnosticCardList issues={toDiagnosticIssues(complianceIssues)} />
           </>

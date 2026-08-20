@@ -784,11 +784,31 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
   return { rows, unmatchedCustomers: unmatched, notes: strList(r.notes) };
 }
 
+/**
+ * Адреса сигнала: ядро отдаёт их объектами {address, note}, старые ответы —
+ * строками. Строковая форма для экрана: «адрес — что там увидено». Раньше
+ * strList молча выбрасывал объекты, и адреса сигналов не доезжали до экрана
+ * вовсе — сигнал оставался без половины карточки диагноста (п.53).
+ */
+function readSignalAddresses(raw: unknown): string[] {
+  return arr(raw)
+    .map((a) => {
+      const asString = str(a);
+      if (asString !== null) return asString;
+      const o = rec(a);
+      const address = text(o.address);
+      if (address === '') return null;
+      const note = text(o.note);
+      return note === '' ? address : `${address} — ${note}`;
+    })
+    .filter((s): s is string => s !== null);
+}
+
 function readSignals(raw: unknown): MonitoringSignal[] | null {
   if (raw === null || raw === undefined) return null;
   const list = arr(raw).map((x): MonitoringSignal => {
     const s = rec(x);
-    const addresses = strList(s.addresses);
+    const addresses = readSignalAddresses(s.addresses);
     return {
       id: text(s.id),
       title: text(s.title),

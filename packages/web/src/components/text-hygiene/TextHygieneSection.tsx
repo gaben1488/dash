@@ -9,9 +9,12 @@
  * кнопкой «скопировать» — тон диагноста п.53: механизм + адрес + действие,
  * без упрёков.
  *
- * СВОЙ ПЕРИМЕТР И СВОЙ МОМЕНТ. Раздел не подчиняется отбору шапки: детекторы
- * проходят по всем книгам целиком, и фильтры здесь свои — по роду дефекта и
- * по управлению. Момент чтения назван в плашке (канон п.58).
+ * ПЕРИМЕТР И МОМЕНТ. Детекторы проходят по всем книгам целиком; период и
+ * способ из шапки к разделу не применяются (канон п.58). Выбранное управление,
+ * напротив, ПРИМЕНЯЕТСЯ (канон п.127, 20.08.2026): в срезе управления раздел
+ * показывает только его находки — чужие книги в чужой срез не лезут. Поверх
+ * него живёт локальный отбор раздела: род дефекта и книга внутри среза.
+ * Момент чтения назван в плашке.
  *
  * ЧЕСТНАЯ ПУСТОТА. «Дефектов не найдено — проверено N ячеек» и «книги не
  * прочитаны — проверки не было» различаются и словами, и тоном.
@@ -19,6 +22,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, Check, Clock, Copy, Info, RotateCcw, SpellCheck } from 'lucide-react';
 import { productLabel } from '@aemr/shared';
+import { useStore } from '../../store';
+import { deptScopeOf, filterByDeptScope } from '../../lib/selectors/dept-isolation';
 import { pluralRu } from '../../lib/economy-copy';
 import { Card, CardHeader } from '../ui/card';
 import { Chip } from '../ui/chip';
@@ -140,20 +145,49 @@ function AddressCell({ sheet, cell, rowSeq }: { sheet: string; cell: string; row
   );
 }
 
-/* ── Плашка момента чтения (канон п.58) ──────────────────────────────── */
+/* ── Плашка момента чтения (канон п.58) + перечитка по требованию ────── */
 
-function PeriodBadge({ asOf, rowsSource }: { asOf: string; rowsSource: string }) {
+function PeriodBadge({
+  asOf,
+  rowsSource,
+  onReload,
+  reloading,
+  scoped,
+}: {
+  asOf: string;
+  rowsSource: string;
+  onReload: () => void;
+  reloading: boolean;
+  /** Активен ли срез по управлению из шапки (канон п.127). */
+  scoped: boolean;
+}) {
   return (
     <div className="flex flex-col items-end gap-1 shrink-0">
-      <div className="flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--surface-raised)] px-2 py-0.5 ds-text-3xs font-[var(--weight-medium)] text-[var(--ink-muted)]">
-        <Clock size={10} aria-hidden="true" />
-        <span className="tabular-nums">прочитано {fmtMoment(asOf)}</span>
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--surface-raised)] px-2 py-0.5 ds-text-3xs font-[var(--weight-medium)] text-[var(--ink-muted)]">
+          <Clock size={10} aria-hidden="true" />
+          <span className="tabular-nums">данные на {fmtMoment(asOf)}</span>
+        </div>
+        {/* Кнопка честной свежести: перечитать книги и пересчитать сейчас,
+            не дожидаясь автоматической перечитки (?refresh=true на сервере). */}
+        <button
+          type="button"
+          onClick={onReload}
+          disabled={reloading}
+          title="Перечитать книги и пересчитать находки прямо сейчас — не дожидаясь автоматической перечитки"
+          className="inline-flex items-center gap-1 rounded-[var(--radius-badge)] border border-[var(--line-strong)] bg-[var(--surface-card)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--ink-strong)] disabled:opacity-60"
+        >
+          <RotateCcw size={10} aria-hidden="true" className={reloading ? 'animate-spin' : undefined} />
+          {reloading ? 'читаем…' : 'перечитать'}
+        </button>
       </div>
       <span
         className="max-w-[15rem] text-right ds-text-3xs leading-tight text-[var(--ink-faint)]"
-        title="Детекторы проходят по всем счётным строкам всех книг — отбор шапки этот раздел не сужает."
+        title="Детекторы проходят по всем счётным строкам всех книг; период и способ из шапки раздел не сужают. Выбранное управление срез сужает (канон п.127)."
       >
-        проверены все книги целиком, отбор шапки здесь не действует
+        {scoped
+          ? 'проверены все книги; показаны находки выбранных управлений (п.127)'
+          : 'проверены все книги целиком; период из шапки здесь не действует'}
         {rowsSource === 'snapshot' && '; строки — из сохранённого снимка'}
       </span>
     </div>
@@ -173,13 +207,26 @@ export function TextHygieneSection() {
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<Set<TextHygieneKind>>(new Set());
 
+  // Изоляция по управлению (канон п.127): выбранное в шапке управление сужает
+  // и находки, и чипы книг — чужие книги в чужой срез не попадают. Локальный
+  // отбор раздела (deptFilter) живёт ПОВЕРХ этого среза.
+  const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const deptScope = useMemo(() => deptScopeOf(selectedDepartments), [selectedDepartments]);
+  const scopedByDept = useMemo(
+    () => filterByDeptScope(data?.byDept ?? [], deptScope, (d) => d.dept),
+    [data, deptScope],
+  );
+  const scopedLanguage = useMemo(
+    () => filterByDeptScope(data?.language ?? [], deptScope, (l) => l.dept),
+    [data, deptScope],
+  );
+
   /** Плоский перечень находок: фильтры и таблица работают по одной оси. */
   const allItems: FlatItem[] = useMemo(() => {
-    if (!data) return [];
-    return data.byDept.flatMap((d) =>
+    return scopedByDept.flatMap((d) =>
       d.items.map((item) => ({ ...item, dept: d.dept, deptLatin: d.deptLatin, sheet: d.sheet })),
     );
-  }, [data]);
+  }, [scopedByDept]);
 
   const deptItems = useMemo(
     () => (deptFilter ? allItems.filter((i) => i.dept === deptFilter) : allItems),
@@ -198,10 +245,10 @@ export function TextHygieneSection() {
     [deptItems, kindFilter],
   );
 
-  const languageItems = useMemo(() => {
-    if (!data) return [];
-    return deptFilter ? data.language.filter((l) => l.dept === deptFilter) : data.language;
-  }, [data, deptFilter]);
+  const languageItems = useMemo(
+    () => (deptFilter ? scopedLanguage.filter((l) => l.dept === deptFilter) : scopedLanguage),
+    [scopedLanguage, deptFilter],
+  );
 
   const toggleKind = (kind: TextHygieneKind) => {
     setKindFilter((prev) => {
@@ -235,7 +282,15 @@ export function TextHygieneSection() {
             целиком, править руками не нужно.
           </p>
         </div>
-        {data && <PeriodBadge asOf={data.asOf} rowsSource={data.rowsSource} />}
+        {data && (
+          <PeriodBadge
+            asOf={data.asOf}
+            rowsSource={data.rowsSource}
+            onReload={reload}
+            reloading={loading}
+            scoped={deptScope !== null}
+          />
+        )}
       </div>
 
       {/* Отказ сервера: прежний ответ не стирается, момент назван в плашке. */}
@@ -305,6 +360,17 @@ export function TextHygieneSection() {
             </p>
           )}
         </>
+      ) : allItems.length === 0 && scopedLanguage.length === 0 ? (
+        // Книга находки несёт, но все они — у других управлений: срез шапки
+        // (канон п.127) честно говорит об этом, а не показывает пустое место.
+        <EmptyState
+          title="По выбранным управлениям находок нет"
+          description={
+            `В книгах есть ${fmtCount(data.totals.hygieneFindings + data.totals.languageFindings)} ` +
+            `${pluralFindings(data.totals.hygieneFindings + data.totals.languageFindings)}, но все они — ` +
+            'у других управлений. Их перечень виден в срезе «все управления»: снимите отбор управления в шапке.'
+          }
+        />
       ) : (
         <>
           {/* Фильтры: управление и род дефекта. Счётчики совпадают с таблицей. */}
@@ -319,7 +385,7 @@ export function TextHygieneSection() {
               >
                 все книги
               </Chip>
-              {data.byDept.map((d) => (
+              {scopedByDept.map((d) => (
                 <Chip
                   key={d.dept}
                   tone="neutral"

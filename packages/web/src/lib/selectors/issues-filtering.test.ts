@@ -20,19 +20,20 @@ describe('filterIssues (извлечено из useFilteredData §4/§4b)', () =
     expect(filterIssues(issues, noFilters)).toBe(issues);
   });
 
-  it('ГРБС: матч по любой форме ключа; без departmentId — проходит (Б5)', () => {
+  it('ГРБС (п.127): матч по любой форме ключа; районное (без departmentId и листа-ГРБС) — скрыто', () => {
     const out = filterIssues(issues, {
       ...noFilters,
       hasDeptFilter: true,
       selectedDeptBothForms: new Set(['УЭР', 'uer']),
     });
-    expect(out.map(i => i.title)).toEqual(['Просрочка контракта', 'Оргзамечание без привязки']);
+    expect(out.map(i => i.title)).toEqual(['Просрочка контракта']);
   });
 
-  it('СТРАЖ п.98в: rule-замечание без departmentId, но с листом-ГРБС фильтруется по листу', () => {
+  it('СТРАЖ п.98в/п.127: rule-замечание без departmentId фильтруется по листу; СВОД в срез управления не попадает', () => {
     // Старые снимки из SQL: rule-замечания несут только sheet. Лист «УД» —
     // чужое управление, при фильтре «УКСиМП» оно проходить не должно;
-    // лист СВОД — вне ГРБС, сквозной пропуск сохраняется.
+    // лист СВОД — районный уровень: по канону п.127 (20.08.2026) он живёт
+    // только в срезе «все управления», сквозного пропуска больше нет.
     const ruleIssues = [
       { title: 'Правило на УД', sheet: 'УД' },
       { title: 'Правило на УКСиМП', sheet: 'УКСиМП' },
@@ -43,7 +44,16 @@ describe('filterIssues (извлечено из useFilteredData §4/§4b)', () =
       hasDeptFilter: true,
       selectedDeptBothForms: new Set(['УКСиМП', 'uksimp']),
     });
-    expect(out.map(i => i.title)).toEqual(['Правило на УКСиМП', 'Правило на СВОД']);
+    expect(out.map(i => i.title)).toEqual(['Правило на УКСиМП']);
+  });
+
+  it('без фильтра управления районные замечания (СВОД, без привязки) видны', () => {
+    const mixed = [
+      { title: 'Правило на СВОД', sheet: 'СВОД ТД-ПМ' },
+      { title: 'Оргзамечание без привязки' },
+    ];
+    expect(filterIssues(mixed, noFilters).map(i => i.title))
+      .toEqual(['Правило на СВОД', 'Оргзамечание без привязки']);
   });
 
   it('подвед: issue без subordinateId проходит (орг-уровень), чужой подвед — нет', () => {

@@ -12,6 +12,7 @@ import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
 import type { DeptSheetResult } from './google-sheets.js';
 import { publishLiveEvent } from './event-bus.js';
+import { diffIssueNews, type IssueNewsBaseline } from './issue-news.js';
 import { classifySourceFailure } from './source-failure.js';
 import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 
@@ -93,6 +94,26 @@ async function ensureSourcesFresh(): Promise<void> {
 
 export function getDeptSheetCache(): Record<string, DeptSheetResult> {
   return cachedDeptSheetData;
+}
+
+/**
+ * Перечитать источники ПРЯМО СЕЙЧАС — по требованию читателя (кнопка
+ * «перечитать» раздела), а не по возрасту кэша. Возвращает true, если
+ * перечитка прошла; false — перечитчик не зарегистрирован или чтение упало
+ * (вызывающий считает по тому, что есть, и честно называет момент данных).
+ */
+export async function refreshSourcesNow(): Promise<boolean> {
+  if (!sourceRefresher) return false;
+  try {
+    await sourceRefresher();
+    return true;
+  } catch (err) {
+    logSourceFailure('перечитка книг по запросу читателя', {
+      ms: 0,
+      reason: classifySourceFailure((err as Error)?.message ?? String(err)),
+    });
+    return false;
+  }
 }
 
 /**
@@ -268,17 +289,26 @@ export function attachUnifiedGrid(
 }
 
 /**
- * Сколько замечаний было в прошлый раз — по ключу кэша (год или «все годы»).
- * Нужно, чтобы объявлять в эфир ПРИРОСТ, а не текущий счёт: «замечаний 214»
- * читателю ничего не сообщает, «появилось 3 новых» — сообщает.
+ * База сравнения замечаний прошлой сборки — по ключу кэша (год или «все
+ * годы»). Хранит СОСТАВ (стабильные id по корзинам-книгам), а не число:
+ * сравнение чисел («стало 2000, было 14 → новых 1986») объявляло лавину
+ * «новых» после любой просадки базы — упавшего источника или фолбэка на
+ * старый снимок — и приписывало её последней правке (прецедент 20.08.2026:
+ * правка одной строки УКСиМП → «новых замечаний 1986»).
  */
-const lastAnnouncedIssues = new Map<number, number>();
+const issueNewsBaselines = new Map<number, IssueNewsBaseline>();
+
+/** Только для тестов: забыть базы сравнения, как после перезапуска процесса. */
+export function resetIssueNewsBaselines(): void {
+  issueNewsBaselines.clear();
+}
 
 /**
  * Объявить пересборку снимка в прямом эфире. Событий два и они разные:
  * «снимок пересобран» — числа на экране устарели, «появились замечания» —
- * есть на что посмотреть в Контроле. Первая сборка за жизнь процесса приросты
- * не объявляет: тогда «новыми» оказались бы все замечания разом.
+ * есть на что посмотреть в Контроле. «Новое» — замечание, чей стабильный ключ
+ * появился (issue-news.ts); первая сборка за жизнь процесса новостей не
+ * объявляет: тогда «новыми» оказались бы все замечания разом.
  */
 function announceSnapshot(snapshot: DataSnapshot, year: number | null): void {
   const key = year ?? 0;
@@ -287,20 +317,19 @@ function announceSnapshot(snapshot: DataSnapshot, year: number | null): void {
 
   publishLiveEvent({ kind: 'snapshot-rebuilt', rows, issues: issues.length, year });
 
-  const previous = lastAnnouncedIssues.get(key);
-  lastAnnouncedIssues.set(key, issues.length);
-  if (previous === undefined || issues.length <= previous) return;
+  const { appeared, baseline } = diffIssueNews(issueNewsBaselines.get(key), snapshot);
+  issueNewsBaselines.set(key, baseline);
+  if (appeared.length === 0) return;
 
-  // Разбивка прироста по строгости: сам список замечаний пересобирается
-  // целиком, поэтому «какие именно новые» честно назвать нельзя — называем
-  // строгость тех, что есть сейчас, в доле прироста.
+  // Разбивка ПОЯВИВШИХСЯ по строгости: состав новых известен по ключам,
+  // поэтому и строгость называется именно у них, а не у всего снимка.
   const bySeverity: Record<string, number> = {};
-  for (const issue of issues) {
+  for (const issue of appeared) {
     bySeverity[issue.severity] = (bySeverity[issue.severity] ?? 0) + 1;
   }
   publishLiveEvent({
     kind: 'issues-appeared',
-    added: issues.length - previous,
+    added: appeared.length,
     total: issues.length,
     bySeverity,
   });
@@ -487,7 +516,11 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // кэша тиха, и «источник сломан» снова выглядел бы как «данных нет».
     for (const m of brokenMirrors) {
       const issue: Issue = {
-        id: `mirror-broken-${m.dept}-${snapshot.id}`,
+        // Id СТАБИЛЕН между сборками (без snapshot.id): пока зеркало сломано,
+        // это одно и то же замечание, а не «новое» на каждом пересчёте —
+        // иначе каждая пересборка объявляла бы его в эфир заново, а статусы
+        // в SQLite орфанились бы (тот же канон, что у issue-identity.ts).
+        id: `mirror-broken-${m.dept}`,
         severity: 'error',
         origin: 'runtime_error',
         category: 'source_integrity',

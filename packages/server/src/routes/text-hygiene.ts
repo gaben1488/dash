@@ -41,7 +41,12 @@ import {
   type TextHygieneKind,
 } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import {
+  getDeptCacheFilledAt,
+  getDeptSheetValues,
+  getSnapshot,
+  refreshSourcesNow,
+} from '../services/snapshot.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 
 /** Колонки, которые проверяет гигиена набора: C — подвед, G — предмет. */
@@ -129,10 +134,19 @@ export interface TextHygieneResponse {
  * что у /api/workload и /api/provenance: живой кэш книг, затем сохранённый
  * снимок, затем честная пустота. Шапка листов уже срезана (collectRowsByDept
  * и rowsByDept снимка держат только строки-атомы).
+ *
+ * Момент чтения (asOf) — момент, когда строки БЫЛИ ПРОЧИТАНЫ из книг, а не
+ * момент сборки ответа: для живого кэша это его последняя перечитка, для
+ * снимка — его createdAt. Лист живёт (п.98б): адрес «G174» верен на момент
+ * чтения, и подписывать его временем «сейчас» значило бы выдавать старую
+ * позицию за свежую (прецедент 20.08.2026: владелец сверял адреса находок с
+ * книгой, в которую только что вставили строку).
  */
 async function readRowsByDeptId(): Promise<{
   rows: Record<string, unknown[][]>;
   source: 'live' | 'snapshot' | 'none';
+  /** ISO-момент чтения строк; null — источники молчат. */
+  asOf: string | null;
 }> {
   const byDeptId = (source: Record<string, unknown[][]>): Record<string, unknown[][]> => {
     const out: Record<string, unknown[][]> = {};
@@ -144,18 +158,27 @@ async function readRowsByDeptId(): Promise<{
   };
 
   const live = byDeptId(collectRowsByDept(getDeptSheetValues()));
-  if (Object.keys(live).length > 0) return { rows: live, source: 'live' };
+  if (Object.keys(live).length > 0) {
+    const filledAt = getDeptCacheFilledAt();
+    return {
+      rows: live,
+      source: 'live',
+      asOf: new Date(filledAt > 0 ? filledAt : Date.now()).toISOString(),
+    };
+  }
 
   try {
     const snapshot = await getSnapshot();
     if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
       const saved = byDeptId(snapshot.rowsByDept);
-      if (Object.keys(saved).length > 0) return { rows: saved, source: 'snapshot' };
+      if (Object.keys(saved).length > 0) {
+        return { rows: saved, source: 'snapshot', asOf: snapshot.createdAt ?? null };
+      }
     }
   } catch {
     // источники молчат — ответ скажет об этом словами, а не пустым экраном
   }
-  return { rows: {}, source: 'none' };
+  return { rows: {}, source: 'none', asOf: null };
 }
 
 /** Радиус контекста вокруг слова-опечатки — тот же, что у вырезок гигиены. */
@@ -184,7 +207,7 @@ function isCheckableCell(value: unknown): value is string {
 export async function buildTextHygieneResponse(
   now: number = Date.now(),
 ): Promise<TextHygieneResponse> {
-  const { rows: rowsByDeptId, source: rowsSource } = await readRowsByDeptId();
+  const { rows: rowsByDeptId, source: rowsSource, asOf: readAsOf } = await readRowsByDeptId();
 
   const booksChecked: string[] = [];
   const booksSilent: string[] = [];
@@ -316,7 +339,10 @@ export async function buildTextHygieneResponse(
   );
 
   return {
-    asOf: new Date(now).toISOString(),
+    // Момент ЧТЕНИЯ строк, а не сборки ответа: адреса находок позиционны и
+    // верны ровно на этот момент (п.58 + п.98б); «сейчас» — только когда
+    // источники молчат и подписывать нечего.
+    asOf: readAsOf ?? new Date(now).toISOString(),
     rowsSource,
     booksChecked,
     booksSilent,
@@ -334,11 +360,16 @@ export async function buildTextHygieneResponse(
 }
 
 /**
- * Кэш ответа: пять минут. Сеть роут не трогает, но детекторы и Левенштейн по
- * тысячам ячеек не бесплатны, а вкладка живёт переключением фильтров.
+ * Кэш ответа: пять минут — И не старше живого кэша книг. Сеть роут не трогает,
+ * но детекторы и Левенштейн по тысячам ячеек не бесплатны, а вкладка живёт
+ * переключением фильтров. Привязка к моменту чтения книг (deptFilledAt) —
+ * фикс негаснущей находки 20.08.2026: владелец исправил ячейку в книге,
+ * вебхук перечитал книги, а раздел ещё до пяти минут показывал находку из
+ * старого пересчёта. Теперь перечитка книг (вебхук, автоцикл) делает кэш
+ * недействительным сама — находка гаснет не позже автоцикла.
  */
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cached: { at: number; response: TextHygieneResponse } | null = null;
+let cached: { at: number; deptFilledAt: number; response: TextHygieneResponse } | null = null;
 
 /** Сбрасывает окно кэша — нужен тестам и ручной перечитке. */
 export function resetTextHygieneCache(): void {
@@ -351,15 +382,23 @@ export async function textHygieneRoutes(app: FastifyInstance): Promise<void> {
    *
    * Отвечает 200 и на пустых источниках: «проверять нечего» — тоже ответ,
    * и он обязан назвать, каких книг не хватает, а не прятаться за 503.
+   *
+   * ?refresh=true — кнопка «перечитать» раздела: сначала перечитываются САМИ
+   * КНИГИ (а не только пересчёт от старого кэша — иначе кнопка выдавала бы
+   * ту же устаревшую находку), затем счёт идёт заново. Отказ перечитки не
+   * валит ответ: счёт идёт по тому, что есть, момент назван в asOf.
    */
   app.get('/api/text-hygiene', async (request, reply) => {
     const fresh = (request.query as { refresh?: string } | undefined)?.refresh === 'true';
+    if (fresh) await refreshSourcesNow();
+
     const now = Date.now();
-    if (!fresh && cached && now - cached.at < CACHE_TTL_MS) {
+    const deptFilledAt = getDeptCacheFilledAt();
+    if (!fresh && cached && now - cached.at < CACHE_TTL_MS && cached.deptFilledAt === deptFilledAt) {
       return reply.send(cached.response);
     }
     const response = await buildTextHygieneResponse(now);
-    cached = { at: now, response };
+    cached = { at: now, deptFilledAt: getDeptCacheFilledAt(), response };
     return reply.send(response);
   });
 }

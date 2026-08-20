@@ -224,6 +224,97 @@ describe('GET /api/text-hygiene', () => {
     expect(again.json<ResponseDto>().asOf).toBe(body.asOf);
   });
 
+  it('перечитка книг гасит находку без ?refresh: кэш привязан к моменту чтения книг', async () => {
+    // Прецедент 20.08.2026: владелец исправил ячейку, вебхук перечитал книги,
+    // а раздел до пяти минут показывал находку из старого пересчёта.
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
+    setDeptSheetCache({
+      'УЭР': {
+        values: [
+          ...headers,
+          sheetRow('1', ZHAR_VARIANT, 'Поставка бумаги'),      // C4: находка остаётся
+          sheetRow('2', ZHAR_CANON, 'Поставка канцелярии'),    // G5: двойной пробел ИСПРАВЛЕН
+        ],
+        formulas: [],
+        sheetName: 'УЭР',
+      },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/text-hygiene' });
+    expect(res.statusCode).toBe(200);
+    const fresh = res.json<ResponseDto>();
+    // Ответ пересчитан по свежим книгам, а не отдан из пятиминутного окна.
+    const uer = fresh.byDept.find((d) => d.dept === 'УЭР');
+    expect(uer?.items.some((i) => i.kind === 'double_space')).toBe(false);
+    expect(uer?.items.some((i) => i.kind === 'registry_mismatch')).toBe(true);
+  });
+
+  it('?refresh=true перечитывает САМИ книги, а не пересчитывает старый кэш', async () => {
+    const { setDeptSheetCache, setSourceRefresher } = await import('../services/snapshot.js');
+    const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
+    // Перечитчик изображает вебхук-цикл: книга приходит уже исправленной.
+    const reread = vi.fn(async () => {
+      setDeptSheetCache({
+        'УЭР': {
+          values: [...headers, sheetRow('1', ZHAR_CANON, 'Поставка бумаги')], // C4 исправлена
+          formulas: [],
+          sheetName: 'УЭР',
+        },
+      });
+    });
+    setSourceRefresher(reread);
+
+    const res = await app.inject({ method: 'GET', url: '/api/text-hygiene?refresh=true' });
+    expect(res.statusCode).toBe(200);
+    expect(reread).toHaveBeenCalledTimes(1);
+    const fresh = res.json<ResponseDto>();
+    // Находка погасла СРАЗУ: счёт шёл по перечитанной книге.
+    expect(fresh.byDept.some((d) => d.items.some((i) => i.kind === 'registry_mismatch'))).toBe(false);
+  });
+
+  it('живой пример УКСиМП: адрес находки — строка ЛИСТА 174, а не 171 (позиция среди данных)', async () => {
+    // Страж класса «двойной срез шапки / номер выборки вместо номера листа».
+    // Живой случай, выверенный по книге УКСиМП 20.08.2026: ячейка G174
+    // (№ п/п 171) несёт «выполнение работ (проведение противопожарных␣␣работ)»
+    // с двойным пробелом. В массиве данных (шапка в 3 строки уже срезана) эта
+    // строка стоит 171-й (индекс 170): перепутав основание счёта, роут назвал
+    // бы её G171 — на три строки выше настоящей ячейки книги. Дамп той же
+    // книги от 17.08 держал её на строке 173 (№ п/п 170): лист живёт, потому
+    // адрес обязан рождаться от номера строки листа на момент чтения.
+    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
+    const filler = Array.from({ length: 170 }, (_, i) => sheetRow(String(i + 1), 'Х', 'Поставка воды'));
+    setDeptSheetCache({
+      'УКСиМП': {
+        values: [
+          ...headers,
+          ...filler,
+          // 171-я строка данных = строка листа 174 (3 шапки + 171).
+          sheetRow('171', 'Х', 'выполнение работ (проведение противопожарных  работ)'),
+        ],
+        formulas: [],
+        sheetName: 'ВСЕ',
+      },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/text-hygiene' });
+    expect(res.statusCode).toBe(200);
+    const fresh = res.json<ResponseDto>();
+    const uksimp = fresh.byDept.find((d) => d.dept === 'УКСиМП');
+    expect(uksimp, 'книга УКСиМП должна нести находку').toBeDefined();
+    expect(uksimp!.sheet).toBe('ВСЕ');
+
+    const finding = uksimp!.items.find((i) => i.kind === 'double_space');
+    expect(finding).toBeDefined();
+    // Номер строки ЛИСТА и «№ п/п» из колонки A — двойной адрес (п.98б).
+    expect(finding!.cell).toBe('G174');
+    expect(finding!.row).toBe(174);
+    expect(finding!.rowSeq).toBe('171');
+    // Регресс-ловушка: адрес НЕ от позиции в выборке (171 = 174 − 3 шапки).
+    expect(uksimp!.items.some((i) => i.row === 171)).toBe(false);
+  });
+
   it('маршрут прикрыт порогом частоты: счёт по всем книгам не бесплатен', () => {
     const limiter = createHeavyRouteLimiter(HEAVY_ROUTE_RULES);
     let refused = false;
