@@ -97,6 +97,19 @@ jobs:
           script: |
             set -euo pipefail
             cd /home/aemr/dash
+            # Точка возврата. Реестр багов 09.07.2026, PLAUSIBLE «нет отката:
+            # образы только :latest, выкат затирает единственный рабочий»:
+            # сборка шла поверх работающих образов, и вернуться было некуда —
+            # оставалось чинить на живом стенде. Теперь перед сборкой рабочие
+            # образы получают метку :previous, а слепок кода запоминается в
+            # файле. Порядок обязателен: метка ставится ДО git reset, иначе
+            # запомнится уже новый слепок. Откат — deploy/rollback.sh.
+            git rev-parse HEAD > deploy/.last-known-good
+            for img in aemr-server aemr-web; do
+              if docker image inspect "$img:latest" >/dev/null 2>&1; then
+                docker tag "$img:latest" "$img:previous"
+              fi
+            done
             git fetch origin
             git checkout main
             git reset --hard origin/main
@@ -104,4 +117,9 @@ jobs:
             cd /home/aemr/dash/deploy
             docker compose --env-file .env.production up -d --build
             sleep 8
-            curl -fsS -m 15 http://127.0.0.1/api/health && echo " — deploy OK"
+            # Проверка идёт ВНУТРЬ контейнера, а не через край периметра:
+            # при работе по домену запрос на 127.0.0.1 не совпадает с именем
+            # сайта и получает отказ, а при пароле на периметре — требование
+            # войти. Ни то, ни другое не говорит о здоровье продукта.
+            docker compose --env-file .env.production exec -T server \
+              curl -fsS -m 15 http://127.0.0.1:3000/api/health && echo " — deploy OK"

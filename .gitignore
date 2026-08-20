@@ -92,3 +92,7 @@ data/
 
 # Крэш-дампы bash (MSYS) — локальный мусор, не исходники
 *.stackdump
+
+# Точка возврата выката: слепок кода работающей сборки, пишется на сервере
+# (.github/workflows/ci.yml, откат — deploy/rollback.sh). У каждого сервера свой.
+deploy/.last-known-good
