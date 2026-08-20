@@ -600,9 +600,100 @@ function readSvodRow(raw: unknown): SvodRow {
 function readSvod(raw: unknown): SvodPayload | null {
   if (raw === null || raw === undefined) return null;
   const r = rec(raw);
+  // Роут /api/monitoring отдаёт свод ОБЁРТКОЙ { book, comparison } — книга и
+  // сравнение с продуктом раздельно. До 20.08 маппер ждал только плоскую
+  // форму { rows, total }, из-за чего живой свод превращался в null и плашка
+  // вкладки честно (но ложно) говорила «„СВОДНЫЙ" не доехал».
+  if (r.book !== undefined || r.comparison !== undefined) {
+    return readSvodWrapped(rec(r.book), rec(r.comparison));
+  }
   const rows = arr(r.rows).map(readSvodRow);
   if (rows.length === 0 && r.total === undefined) return null;
   return { rows, total: readSvodRow(r.total), notes: strList(r.notes) };
+}
+
+/**
+ * Склейка серверной обёртки в строки вкладки: цифры «как считает книга» и
+ * «как считает продукт» — из сравнения, разбивка экономии МБ/КБ/ФБ и контроль
+ * «ВСЕГО = МБ+КБ+ФБ» — из книжной стороны (в сравнении их нет).
+ */
+function readSvodWrapped(
+  book: Record<string, unknown>,
+  comparison: Record<string, unknown>,
+): SvodPayload | null {
+  const bookRows = arr(book.rows).map(rec);
+  const compRows = arr(comparison.rows).map(rec);
+  if (bookRows.length === 0 && compRows.length === 0) return null;
+  const bookByDept = new Map(
+    bookRows
+      .map((b) => [str(b.dept), b] as const)
+      .filter((pair): pair is readonly [string, Record<string, unknown>] => pair[0] !== null),
+  );
+
+  const rows: SvodRow[] = compRows.map((c) => {
+    const dept = text(c.dept);
+    const b = bookByDept.get(dept) ?? {};
+    const cb = rec(c.book);
+    const cp = rec(c.product);
+    return {
+      dept,
+      sheet: '',
+      bookLabel: text(c.svodName),
+      book: {
+        count: num(cb.count),
+        nmck: num(cb.nmck),
+        price: num(cb.price),
+        savingsTotal: num(cb.savingsTotal),
+        mb: num(b.savingsMb),
+        kb: num(b.savingsKb),
+        fb: num(b.savingsFb),
+      },
+      product: {
+        count: num(cp.count),
+        nmck: num(cp.nmck),
+        price: num(cp.price),
+        savingsTotal: num(cp.savingsTotal),
+        mb: null,
+        kb: null,
+        fb: null,
+      },
+      budgetGap: num(b.controlGapRub),
+      divergenceNote: str(c.explanation),
+    };
+  });
+
+  const bt = rec(book.total);
+  const pt = rec(comparison.productTotals);
+  const total: SvodRow = {
+    dept: 'total',
+    sheet: '',
+    bookLabel: text(bt.svodName) || 'Итого:',
+    book: {
+      count: num(bt.count),
+      nmck: num(bt.nmck),
+      price: num(bt.price),
+      savingsTotal: num(bt.savingsTotal),
+      mb: num(bt.savingsMb),
+      kb: num(bt.savingsKb),
+      fb: num(bt.savingsFb),
+    },
+    product: {
+      count: num(pt.count),
+      nmck: num(pt.nmck),
+      price: num(pt.price),
+      savingsTotal: num(pt.savingsTotal),
+      mb: null,
+      kb: null,
+      fb: null,
+    },
+    budgetGap: num(bt.controlGapRub),
+    divergenceNote: null,
+  };
+
+  const notes: string[] = [];
+  const authorNote = str(book.authorNote);
+  if (authorNote !== null) notes.push(authorNote);
+  return { rows, total, notes };
 }
 
 function readJournal(raw: unknown): JournalPayload | null {
@@ -646,6 +737,28 @@ function readJournal(raw: unknown): JournalPayload | null {
 function readDirectory(raw: unknown): DirectoryPayload | null {
   if (raw === null || raw === undefined) return null;
   const r = rec(raw);
+  // Сервер называет строки справочника entries (с полями ordinal/shortIsFull/
+  // usageCount), написания вне справочника — customersOutside. До 20.08 маппер
+  // ждал rows/unmatchedCustomers — живой справочник превращался в null.
+  if (r.entries !== undefined) {
+    const entries = arr(r.entries).map((x): DirectoryRow => {
+      const d = rec(x);
+      return {
+        num: num(d.ordinal) === null ? null : String(num(d.ordinal)),
+        grbs: str(d.grbs),
+        fullName: str(d.fullName),
+        shortName: str(d.shortName),
+        shortMissing: bool(d.shortIsFull),
+        usedInBook: num(d.usageCount),
+      };
+    });
+    if (entries.length === 0) return null;
+    const outside = arr(r.customersOutside).map((x) => {
+      const u = rec(x);
+      return { name: text(u.name), count: count(u.count) };
+    }).filter((u) => u.name !== '');
+    return { rows: entries, unmatchedCustomers: outside, notes: strList(r.notes) };
+  }
   const rows = arr(r.rows).map((x): DirectoryRow => {
     const d = rec(x);
     const full = str(d.fullName);
