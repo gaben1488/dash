@@ -22,7 +22,7 @@ RUN corepack enable
 WORKDIR /app
 
 # 1) сначала только манифесты — кэшируем pnpm fetch layer
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json tsconfig.strict.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/core/package.json   packages/core/
 COPY packages/server/package.json packages/server/
