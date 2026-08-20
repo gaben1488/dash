@@ -35,6 +35,11 @@ pnpm audit --audit-level moderate
 - Keep documentation factual. If a command, route, script, deploy path, or table is not present in the repo, do not document it as implemented.
 - Prefer `@aemr/shared` constants and `@aemr/core` calculations over duplicating legal/procurement thresholds in UI or server code.
 - Keep `docs/REVIEW.md` updated when security posture or verification commands change.
+- Атлас продукта `docs/superpowers/audits/2026-08-20-cards-map/` — живой артефакт
+  (требование владельца 20.08.2026): любая волна, меняющая UI вкладки, обязана
+  обновить карту этой вкладки (инвентарь карточек, источники цифр до файла:строки,
+  навигация и интерактив, вердикты по канону). Карта, разошедшаяся с кодом, хуже
+  отсутствующей — при правке экрана без обновления карты волна не считается завершённой.
 
 ## Tooling Routing (триггер → скилл)
 
