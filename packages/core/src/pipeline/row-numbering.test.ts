@@ -44,8 +44,9 @@ describe('row_numbering — правило есть и заведено в ре�
     const check = CHECK_REGISTRY.find((c) => c.id === 'row_numbering');
     expect(check).toBeDefined();
     expect(check!.scope).toBe('department');
-    // Канон п.98б: № п/п — стабильный адрес строки при перемещениях.
-    expect(check!.recommendation).toContain('стабильный адрес строки при перемещениях');
+    // Канон п.118: пропуски — информация, не дефект; чинить их не предлагаем.
+    expect(check!.recommendation).toContain('НЕ закрывать');
+    expect(check!.recommendation).not.toContain('закрыть пропуски');
   });
 });
 
@@ -65,12 +66,9 @@ describe('row_numbering — дубли', () => {
   });
 });
 
-describe('row_numbering — пропуски', () => {
-  it('отсутствующие № перечисляются поимённо (макс−мин против количества)', () => {
-    const issues = run([procRow(4, 1), procRow(5, 2), procRow(6, 5)]);
-    expect(issues).toHaveLength(1);
-    expect(issues[0].description).toContain('№ 3, 4');
-    expect(issues[0].description).toContain('1–5');
+describe('row_numbering — пропуски (п.118: информация, не нарушение)', () => {
+  it('ТОЛЬКО пропуски — карточки нет: дыра это след удалённой строки', () => {
+    expect(run([procRow(4, 1), procRow(5, 2), procRow(6, 5)])).toHaveLength(0);
   });
 });
 
@@ -106,8 +104,9 @@ describe('row_numbering — каскад п.53 и тишина здоровой 
     expect(issues).toHaveLength(1);
     const text = issues[0].description;
     expect(text).toContain('повторяются');
-    expect(text).toContain('отсутствуют');
     expect(text).toContain('без номера');
+    // Дыры — справкой, с явной оговоркой «не дефект» (п.118).
+    expect(text).toContain('не дефект');
   });
 
   it('карточка несёт управление и второй адрес якоря (п.98б/в: departmentId + rowSeq)', () => {
