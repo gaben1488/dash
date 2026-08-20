@@ -222,11 +222,14 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                                 <AlertTriangle size={13} className={diag.severity === 'error' ? 'text-red-500' : diag.severity === 'warn' ? 'text-amber-500' : 'text-emerald-500'} aria-hidden="true" />
                                 Источник расхождения
                               </div>
+                              {/* Обводки у плитки нет (канон п.129): от соседних
+                                  плиток её отделяет собственная заливка, а тяжесть
+                                  названа словом и значком выше. */}
                               <div className={clsx(
-                                'rounded-lg p-3 border',
-                                diag.severity === 'error' ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'
-                                : diag.severity === 'warn' ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
-                                : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800',
+                                'rounded-lg p-3',
+                                diag.severity === 'error' ? 'bg-red-50 dark:bg-red-950/30'
+                                : diag.severity === 'warn' ? 'bg-amber-50 dark:bg-amber-950/30'
+                                : 'bg-emerald-50 dark:bg-emerald-950/30',
                               )}>
                                 <div className={clsx('font-bold text-[11px]',
                                   diag.severity === 'error' ? 'text-red-700 dark:text-red-400'
@@ -242,7 +245,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <FileSpreadsheet size={13} className="text-blue-500" aria-hidden="true" /> Официальные ячейки листа СВОД
                               </div>
-                              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-1">
+                              <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 space-y-1">
                                 {cells ? (
                                   <>
                                     {[
@@ -280,7 +283,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <Info size={13} className="text-indigo-500" aria-hidden="true" /> Экономия за год
                               </div>
-                              <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+                              <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-3">
                                 <div className="flex justify-between text-[10px]">
                                   <span className="text-indigo-600 dark:text-indigo-400">Официально:</span>
                                   <strong className="text-indigo-800 dark:text-indigo-300 tabular-nums">{fmtNum(row.ecoTotalOfficial)}</strong>
@@ -303,7 +306,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <ArrowRight size={13} className="text-violet-500" aria-hidden="true" /> Что делать
                               </div>
-                              <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg p-3 text-[10px] text-violet-700 dark:text-violet-400 leading-relaxed">
+                              <div className="bg-violet-50 dark:bg-violet-950/30 rounded-lg p-3 text-[10px] text-violet-700 dark:text-violet-400 leading-relaxed">
                                 {row.assessment.kind === 'ok'
                                   ? 'Числа сходятся. Дополнительных действий не требуется.'
                                   : row.assessment.kind === 'warning'

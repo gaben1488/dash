@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useId } from 'react';
+import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from 'recharts';
 import { ChevronLeft, Calendar, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import {
   type SeriesPattern,
 } from '@/lib/chart-colors';
 import { useStore } from '../../store';
+import { useOrgScope } from '../../lib/selectors/org-scope';
 import { pluralRu } from '../../lib/economy-copy';
 import { isMeaningfulGap, splitDrawable } from '../../lib/chart-slices';
 import { periodDataLabel, MONTH_ABBR } from '../../lib/period-label';
@@ -304,6 +305,18 @@ export function DrillPieChart({
   const [scope, setScope] = useState<Scope[]>([]);
   const [activeSliceId, setActiveSliceId] = useState<string | null>(null);
   const [viewLevel, setViewLevel] = useState<ViewLevel>('grbs');
+
+  /**
+   * Режим организаций правит уровнем круга (приказ владельца 20.08):
+   * выбрано управление «с подведомственными» — круг сам переходит в разбивку
+   * по учреждениям; «только ГРБС» — возвращается к одной доле управления,
+   * потому что подведы скрыты сознательно и подсовывать их обратно нельзя.
+   */
+  const orgScope = useOrgScope();
+  useEffect(() => {
+    if (orgScope.mode === 'withSubs') setViewLevel(orgScope.hasSubs ? 'orgs' : 'grbs');
+    else if (orgScope.mode === 'grbs') setViewLevel('grbs');
+  }, [orgScope.mode, orgScope.hasSubs]);
 
   const pushScope = useCallback((s: Scope) => {
     setScope(prev => [...prev, s]);
@@ -638,7 +651,7 @@ export function DrillPieChart({
   }, [series]);
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
+    <div className="rounded-2xl border border-[var(--line-soft)] bg-[var(--surface-card)] p-5 shadow-sm transition-shadow duration-300 hover:shadow-lg">
       <PatternDefs series={series} ink={patternInk} />
 
       {/* Заголовок + период. flex-wrap: на 360–430px плашка периода переносится
@@ -646,20 +659,30 @@ export function DrillPieChart({
       <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <KBTooltip metric={inDeptComposition ? 'dept_composition' : `pie_${dimension}`}>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+            <h3 className="truncate text-xs font-medium uppercase tracking-wider text-[var(--ink-muted)]">
               {inDeptComposition ? 'Состав управления' : DRILL_DIMENSION_LABELS[dimension]}
             </h3>
           </KBTooltip>
         </div>
         {/* Период ДАННЫХ + честная оговорка про недельный выбор */}
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300">
-            <Calendar size={10} />
-            <span className="tabular-nums">{periodLabel}</span>
+          <div className="flex items-center gap-1">
+            {/* Происхождение числа стоит у числа: круг сложен из строк книг,
+                а не переписан из официального листа (PRODUCT.md, провенанс). */}
+            <span
+              className="rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--ink-muted)]"
+              title="Доли пересчитаны из строк книг управлений, а не взяты из официального листа"
+            >
+              Расчёт
+            </span>
+            <div className="flex items-center gap-1 rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-muted)]">
+              <Calendar size={10} aria-hidden="true" />
+              <span className="tabular-nums">{periodLabel}</span>
+            </div>
           </div>
           {weekNotApplied && (
             <span
-              className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 text-right max-w-[13rem]"
+              className="max-w-[13rem] text-right text-[9px] leading-tight text-[var(--data-warn)]"
               title="Недельный выбор пока не сужает расчёт: агрегаты считаются по кварталам и месяцам. Числа выше — за указанный период, не за неделю."
             >
               неделя {weekLabel} выбрана, но числа за {periodLabel}
@@ -681,19 +704,19 @@ export function DrillPieChart({
                   className={cn(
                     'px-1.5 py-0.5 rounded-md font-medium transition',
                     isLast
-                      ? 'bg-blue-600 text-white cursor-default'
-                      : 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer'
+                      ? 'cursor-default bg-[var(--accent)] text-[var(--accent-ink)]'
+                      : 'cursor-pointer text-[var(--accent)] hover:bg-[var(--surface-raised)]'
                   )}
                 >
                   {c.label}
                 </button>
-                {!isLast && <ChevronLeft size={10} className="text-zinc-400 rotate-180" />}
+                {!isLast && <ChevronLeft size={10} className="rotate-180 text-[var(--ink-faint)]" aria-hidden="true" />}
               </div>
             );
           })}
           <button
             onClick={resetAll}
-            className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition"
+            className="ml-auto flex items-center gap-0.5 text-[10px] text-[var(--ink-faint)] transition hover:text-[var(--ink-strong)]"
             title="Вернуться к общему кругу"
           >
             <X size={10} />
@@ -712,8 +735,8 @@ export function DrillPieChart({
               className={cn(
                 'px-2 py-1 text-[10px] font-medium rounded-full transition',
                 dimension === dim
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  ? 'bg-[var(--accent)] text-[var(--accent-ink)] shadow-sm'
+                  : 'bg-[var(--surface-raised)] text-[var(--ink-muted)] hover:bg-[var(--surface-sunken)] hover:text-[var(--ink-strong)]'
               )}
             >
               {DRILL_DIMENSION_LABELS[dim]}
@@ -722,23 +745,46 @@ export function DrillPieChart({
         </div>
       )}
 
-      {/* ГРБС / Организации */}
+      {/* ГРБС / Организации + оговорка режима организаций */}
       {!inDeptComposition && (dimension === 'department' || dimension === 'execution') && (
-        <div className="inline-flex items-center gap-0 mb-2 p-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800">
-          {(Object.keys(VIEW_LEVEL_LABELS) as ViewLevel[]).map(lv => (
-            <button
-              key={lv}
-              onClick={() => setViewLevel(lv)}
-              className={cn(
-                'px-2.5 py-0.5 text-[10px] font-medium rounded-full transition',
-                viewLevel === lv
-                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-sm'
-                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-              )}
-            >
-              {VIEW_LEVEL_LABELS[lv]}
-            </button>
-          ))}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-0 rounded-full bg-[var(--surface-raised)] p-0.5">
+            {(Object.keys(VIEW_LEVEL_LABELS) as ViewLevel[]).map(lv => {
+              // В режиме «только ГРБС» уровень организаций закрыт: подведы
+              // скрыты самим читателем, и круг не вправе их вернуть.
+              const blocked = lv === 'orgs' && orgScope.mode === 'grbs';
+              return (
+                <button
+                  key={lv}
+                  type="button"
+                  disabled={blocked}
+                  onClick={() => setViewLevel(lv)}
+                  title={blocked
+                    ? 'Включён режим «только ГРБС»: подведомственные скрыты фильтром организаций'
+                    : undefined}
+                  className={cn(
+                    'px-2.5 py-0.5 text-[10px] font-medium rounded-full transition',
+                    blocked && 'cursor-not-allowed opacity-40',
+                    viewLevel === lv
+                      ? 'bg-[var(--surface-card)] text-[var(--ink-strong)] shadow-sm'
+                      : 'text-[var(--ink-muted)] hover:text-[var(--ink-strong)]'
+                  )}
+                >
+                  {VIEW_LEVEL_LABELS[lv]}
+                </button>
+              );
+            })}
+          </div>
+          {orgScope.mode === 'withSubs' && !orgScope.hasSubs && (
+            <span className="text-[9px] leading-tight text-[var(--ink-faint)]">
+              у этого управления подведомственных учреждений нет — круг остаётся на уровне ГРБС
+            </span>
+          )}
+          {orgScope.mode === 'grbs' && orgScope.hasSubs && (
+            <span className="text-[9px] leading-tight text-[var(--ink-faint)]">
+              подведомственные скрыты режимом «только ГРБС»
+            </span>
+          )}
         </div>
       )}
 
@@ -752,8 +798,8 @@ export function DrillPieChart({
               className={cn(
                 'px-2 py-0.5 text-[10px] rounded-full transition',
                 metric === m
-                  ? 'bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900'
-                  : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
+                  ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
+                  : 'text-[var(--ink-faint)] hover:text-[var(--ink-strong)]'
               )}
             >
               {METRIC_LABELS[m]}
@@ -803,13 +849,13 @@ export function DrillPieChart({
 
         {/* Центр круга */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-[9px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold">
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--ink-faint)]">
             {centerLabel}
           </span>
-          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-100 tabular-nums leading-tight">
+          <span className="text-sm font-bold leading-tight tabular-nums text-[var(--ink-strong)]">
             {centerValue ?? formatValue(total)}
           </span>
-          <span className="text-[9px] text-zinc-400 mt-0.5 text-center px-6">
+          <span className="mt-0.5 px-6 text-center text-[9px] text-[var(--ink-faint)]">
             {centerSub}
           </span>
         </div>
@@ -818,15 +864,15 @@ export function DrillPieChart({
       {/* Что круг изобразить не смог и где он не сошёлся с итогом */}
       {(gap || hidden.count > 0 || note) && (
         <div className="mt-2 space-y-0.5 text-[9px] leading-tight text-center">
-          {note && <p className="text-zinc-400 dark:text-zinc-500">{note}</p>}
+          {note && <p className="text-[var(--ink-faint)]">{note}</p>}
           {hidden.count > 0 && (
-            <p className="text-amber-600 dark:text-amber-400">
+            <p className="text-[var(--data-warn)]">
               {hidden.count} {pluralRu(hidden.count, 'срез', 'среза', 'срезов')} с отрицательным
               значением ({formatValue(hidden.sum)}) круг не изображает
             </p>
           )}
           {gap && (
-            <p className="text-amber-600 dark:text-amber-400" title={gap.title}>
+            <p className="text-[var(--data-warn)]" title={gap.title}>
               {gap.text}
             </p>
           )}
@@ -847,35 +893,36 @@ export function DrillPieChart({
               className={cn(
                 'w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left transition',
                 active
-                  ? 'bg-blue-50 dark:bg-blue-900/20'
+                  ? 'bg-[var(--surface-raised)]'
                   : d.drillable
-                    ? 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
+                    ? 'hover:bg-[var(--surface-sunken)]'
                     : ''
               )}
             >
               <SeriesSwatch fill={series[i]?.fill ?? chartColors[i % chartColors.length]!} active={active} />
-              <span className="text-[10px] text-zinc-600 dark:text-zinc-300 truncate flex-1">
+              <span className="flex-1 truncate text-[10px] text-[var(--ink)]">
                 {d.name}
               </span>
-              <span className="text-[10px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--ink-muted)]">
                 {formatValue(d.value)}
               </span>
-              <span className="text-[10px] font-mono tabular-nums text-zinc-400 shrink-0 w-8 text-right">
+              <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-[var(--ink-faint)]">
                 {pct.toFixed(0)} %
               </span>
             </button>
           );
         })}
         {data.length === 0 && (
-          <div className="text-[10px] text-zinc-400 text-center py-4">
-            За выбранный период и фильтры здесь нет ни одной строки
+          <div className="py-4 text-center text-[10px] leading-relaxed text-[var(--ink-faint)]">
+            Под выбранный период и фильтры шапки не попало ни одной строки —
+            круг складывать не из чего. Это отбор, а не отказ сервера.
           </div>
         )}
       </div>
 
       {/* Подсказка по управлению */}
       {!inDeptComposition && data.some(d => d.drillable) && (
-        <div className="mt-2 text-[9px] text-zinc-400 text-center">
+        <div className="mt-2 text-center text-[9px] text-[var(--ink-faint)]">
           клик по срезу = детализация • клик по пути сверху = шаг назад
         </div>
       )}
@@ -884,7 +931,7 @@ export function DrillPieChart({
       {inDeptComposition && onDeptToggle && (
         <button
           onClick={() => onDeptToggle(scopeHasDept(scope)!)}
-          className="mt-2 w-full text-[10px] font-medium px-2 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+          className="mt-2 w-full rounded-lg bg-[var(--surface-raised)] px-2 py-1.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft)]"
         >
           Применить как глобальный фильтр →
         </button>

@@ -17,6 +17,20 @@ export interface MetricKbCard {
   source: string;
   /** «Подводные камни» — только если запись их несёт. */
   pitfalls?: string;
+
+  // ── Поля карточки 2.0 (спека 2026-08-20-kb-uplift) ──
+  //
+  // Все три необязательны и отдаются ровно тогда, когда запись их несёт:
+  // правило пустоты не меняется — незаполненный раздел не рисуется.
+
+  /** «Скоуп и момент» — за какой периметр и на какое время это число. */
+  scope?: string;
+  /** «Почему может разойтись с книгой или Сводом». */
+  divergence?: string;
+  /** «Порог» — цветовые зоны словами; текущую зону считает экран. */
+  thresholds?: string;
+  /** «Что делать» — действие при отклонении. */
+  actions?: string;
 }
 
 export function kbFor(metricKey: string): MetricKbCard | null {
@@ -36,5 +50,9 @@ export function kbFor(metricKey: string): MetricKbCard | null {
     how: entry.example ? `${how}\n${entry.example}` : how,
     source,
     ...(entry.pitfalls ? { pitfalls: entry.pitfalls } : {}),
+    ...(entry.scopeMoment ? { scope: entry.scopeMoment } : {}),
+    ...(entry.divergence ? { divergence: entry.divergence } : {}),
+    ...(entry.thresholdsFull ? { thresholds: entry.thresholdsFull } : {}),
+    ...(entry.actions ? { actions: entry.actions } : {}),
   };
 }

@@ -48,6 +48,14 @@ export const DATA_TOKENS = [
   '--data-mb',
 ] as const;
 
+/**
+ * Способ определения поставщика. Отдельный перечень, а не часть `DATA_TOKENS`,
+ * ровно потому, что смешение — та самая болезнь: способ и бюджет обязаны
+ * краситься непересекающимися наборами, иначе синий на соседних графиках
+ * значит то федеральный бюджет, то конкурентную закупку.
+ */
+export const METHOD_TOKENS = ['--method-kp', '--method-ep'] as const;
+
 /** Категориальный ряд: управления, организации, произвольные группы. */
 export const CATEGORICAL_TOKENS = [
   '--cat-1',
@@ -81,6 +89,7 @@ export const THEMED_TOKENS = [
   ...INK_TOKENS,
   ...ACCENT_TOKENS,
   ...DATA_TOKENS,
+  ...METHOD_TOKENS,
   ...CATEGORICAL_TOKENS,
   ...CHART_TOKENS,
 ] as const;

@@ -13,11 +13,23 @@ export interface EconomySubTableProps {
   subs: SubordinateFlat[];
   /** Есть ли управления в режиме «только само управление» — причина пустоты. */
   deptOnlyCount: number;
+  /**
+   * Режим подведов (org-scope): организации выбранного управления, у которых
+   * за период НЕТ ни одной строки. Они остаются в списке с честным «строк
+   * нет»: «строк нет» и «организации нет» — разные новости.
+   */
+  canonicalEmptySubs?: readonly string[];
+  /** Управление, которому принадлежат эти организации (подпись колонки). */
+  emptySubsDeptName?: string | null;
   formatMoney: (v: number) => string;
   onNavigateToSub: (deptId: string, subName: string) => void;
 }
 
-export function EconomySubTable({ subs, deptOnlyCount, formatMoney, onNavigateToSub }: EconomySubTableProps) {
+export function EconomySubTable({
+  subs, deptOnlyCount, canonicalEmptySubs, emptySubsDeptName,
+  formatMoney, onNavigateToSub,
+}: EconomySubTableProps) {
+  const emptyCanon = canonicalEmptySubs ?? [];
   const TH = ({ label, align = 'right', w, hint }: {
     label: string; align?: 'left' | 'right' | 'center'; w?: string; hint?: string;
   }) => (
@@ -49,7 +61,7 @@ export function EconomySubTable({ subs, deptOnlyCount, formatMoney, onNavigateTo
         </tr>
       </thead>
       <tbody>
-        {subs.length === 0 && (
+        {subs.length === 0 && emptyCanon.length === 0 && (
           // Пустота с причиной: либо фильтр прячет подведы, либо их правда нет.
           <tr>
             <td colSpan={7} className="px-2 py-6 text-center text-[11px] text-zinc-500 leading-relaxed">
@@ -88,6 +100,25 @@ export function EconomySubTable({ subs, deptOnlyCount, formatMoney, onNavigateTo
             <td className="px-2 py-1.5 text-right"><PctBadge pct={sub.pct} compact /></td>
             <td className="px-2 py-1.5 w-16">
               <TriBar fb={sub.budget.economyFB} kb={sub.budget.economyKB} mb={sub.budget.economyMB} />
+            </td>
+          </tr>
+        ))}
+        {/* Честная пустота режима подведов: организация числится за управлением,
+            а строк за период у неё нет — она остаётся в списке словами. */}
+        {emptyCanon.map(name => (
+          <tr key={`canon-${name}`} className="border-b border-zinc-100 dark:border-white/[0.02]">
+            <td className="px-2 py-1.5 text-[10px] text-zinc-500 dark:text-zinc-600 max-w-[200px]">
+              <span className="truncate block" title={name}>{name}</span>
+            </td>
+            <td className="px-2 py-1.5">
+              {emptySubsDeptName && (
+                <span className="text-[9px] font-bold text-zinc-500 bg-zinc-100 dark:bg-white/[0.04] px-1.5 py-0.5 rounded">
+                  {emptySubsDeptName}
+                </span>
+              )}
+            </td>
+            <td colSpan={5} className="px-2 py-1.5 text-[9px] text-zinc-500 dark:text-zinc-600">
+              строк за выбранный период нет — организация числится за управлением
             </td>
           </tr>
         ))}

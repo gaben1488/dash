@@ -11,23 +11,36 @@
 // СВОДом; «юридически чистый» режим убирает выплаты физлицам и платежи без
 // договора (подклассы стадии «в течение года», п.81) — там договора не будет
 // по природе статьи. Оба режима подписаны, обе цифры видны одновременно.
+//
+// Режим подведов (приказ владельца 20.08.2026): при выборе одного ГРБС «с
+// подведомственными» карточка достраивает разбивку доли ЕП ПО УЧРЕЖДЕНИЯМ —
+// единственный блок вкладки, у которого расчёт держит срез способа по каждой
+// организации колонки C. Счёт разбивки — ep-sub-view.ts; её периметр (год
+// целиком, режим «как в листе») назван на карточке словами, а не подразумевается.
 // ────────────────────────────────────────────────────────────────
 
 import { useMemo, useState } from 'react';
 import { PieChart } from 'lucide-react';
-import { quarterLabel } from '@aemr/shared';
+import { ORG_ITSELF_SENTINEL, quarterLabel } from '@aemr/shared';
 import { clsx } from 'clsx';
 import { useStore } from '../../store';
 import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
+import { toCanonicalDeptId } from '../../lib/dept-key';
+import type { OrgScope } from '../../lib/selectors/org-scope';
 import { useYearlongKinds } from '../yearlong/useYearlongKinds';
 import { excludedEpTotals, excludedEpTotalsQuarter, type ExcludedEpTotals } from '../yearlong/legally-clean';
 import { GROUP3_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
 import { KBTooltip } from '../ui/kb-tooltip';
-import { CompetitionCard, FOCUS_RING, fmtPct, sumEpKpQuarter, type EpKpTotals, type PeriodSel } from './primitives';
+import {
+  CompetitionCard, FOCUS_RING, RULE_HEAD, RULE_ROW, SubScopeNote, TILE,
+  fmtPct, sumEpKpQuarter, type EpKpTotals, type PeriodSel,
+} from './primitives';
+import { buildEpSubRows, sumEpSubRows } from './ep-sub-view';
 
 const procWord = (n: number) => pluralRu(n, 'процедуры', 'процедур', 'процедур');
+const orgWord = (n: number) => pluralRu(n, 'учреждение', 'учреждения', 'учреждений');
 
 function share(part: number, whole: number): number | null {
   return whole > 0 ? (part / whole) * 100 : null;
@@ -76,9 +89,11 @@ function ShareBar({ pct, tone }: { pct: number | null; tone: 'count' | 'money' }
   );
 }
 
-export function EpShare({ totals }: {
+export function EpShare({ totals, orgScope }: {
   /** Итоги ЕП/КП за периметр шапки (счёт — sumEpKp, общий с блоком 1). */
   totals: EpKpTotals;
+  /** Режим подведов страницы (org-scope): здесь строится сама разбивка. */
+  orgScope: OrgScope;
 }) {
   const formatMoney = useStore((s) => s.formatMoney);
   const fd = useFilteredData();
@@ -129,6 +144,26 @@ export function EpShare({ totals }: {
     }),
     [fd.depts, mode, deptIds, overrides],
   );
+
+  // ── Разбивка по учреждениям (режим подведов) ──────────────────────
+  //
+  // Строится ТОЛЬКО в режиме «с подведомственными» и только из среза способа,
+  // который расчёт держит у каждой организации колонки C. Канонический список
+  // организаций берётся из скоупа: учреждение без единой строки остаётся
+  // видимым с честным «строк нет», а не исчезает из разбивки.
+  const subRows = useMemo(() => {
+    if (orgScope.mode !== 'withSubs' || !orgScope.dept) return null;
+    const dept = (fd.depts as Array<Record<string, unknown>>).find(
+      (d) => toCanonicalDeptId(String(d.id ?? '')) === orgScope.dept,
+    );
+    if (!dept) return null;
+    const canonical = orgScope.subordinates
+      .map((g) => g.key)
+      .filter((k) => k !== ORG_ITSELF_SENTINEL);
+    return buildEpSubRows(dept.subordinates as unknown[] | undefined, canonical);
+  }, [orgScope.mode, orgScope.dept, orgScope.subordinates, fd.depts]);
+
+  const subTotals = useMemo(() => (subRows ? sumEpSubRows(subRows) : null), [subRows]);
 
   const countShareTotal = active.hasData ? share(active.epCount, active.epCount + active.kpCount) : null;
   const moneyShareTotal = active.hasData ? share(active.epPlan, active.epPlan + active.kpPlan) : null;
@@ -183,7 +218,7 @@ export function EpShare({ totals }: {
             <span className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Счёт ЕП
             </span>
-            <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+            <div className={clsx('inline-flex overflow-hidden', TILE)}>
               {(['sheet', 'clean'] as const).map((m) => (
                 <button
                   key={m}
@@ -211,7 +246,7 @@ export function EpShare({ totals }: {
               второго режима, чтобы «и как правильно, и как считает свод»
               стояли рядом, а не по очереди (п.82). */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
+            <div className={clsx(TILE, 'px-3 py-2.5')}>
               {/* Карточка БЗ счётной доли (п.91-2): объяснение пары и тумблера. */}
               <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.ep_share_count)} showIcon>
                 <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -230,7 +265,7 @@ export function EpShare({ totals }: {
                 {altLabel}: {altCountShare !== null ? fmtPct(altCountShare) : '—'}
               </p>
             </div>
-            <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
+            <div className={clsx(TILE, 'px-3 py-2.5')}>
               {/* Денежная доля — главная в паре (канон п.90/32а); карточка БЗ своя. */}
               <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.ep_share_money)} showIcon>
                 <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -250,6 +285,96 @@ export function EpShare({ totals }: {
               </p>
             </div>
           </div>
+
+          {/* ── Разбивка по учреждениям управления (режим подведов, 20.08) ──
+                Карточка переходит из одной строки ГРБС в строки организаций.
+                Периметр разбивки честно назван: год целиком и счёт «как в
+                листе» — сочетаний «учреждение × способ × квартал» и вычета
+                чистого режима по учреждениям расчёт не хранит. ── */}
+          {subRows && (
+            <div className="mt-4">
+              <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1">
+                Доля закупок без торгов по учреждениям {orgScope.dept ?? 'управления'}
+              </h3>
+              {!orgScope.hasSubs && subRows.length <= 1 ? (
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  У этого управления подведомственных учреждений нет: книгу ведёт
+                  аппарат управления, и разбивать долю не на кого. Числа выше —
+                  это и есть весь его объём.
+                </p>
+              ) : (
+                <>
+                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mb-2 leading-relaxed max-w-2xl">
+                    Разбивка считается за год целиком и по счёту «как в листе»: сочетаний
+                    «учреждение × способ × квартал» и вычета чистого режима по учреждениям
+                    расчёт не хранит. Поэтому строки ниже не обязаны сходиться с числами
+                    выше, посчитанными за выбранный период.
+                    {subTotals && (
+                      <>
+                        {' '}Со строками — {subTotals.withData} {orgWord(subTotals.withData)} из {subRows.length}.
+                      </>
+                    )}
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px]">
+                      <caption className="sr-only">
+                        Доля закупок у единственного поставщика по организациям управления за год
+                      </caption>
+                      <thead>
+                        <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
+                          <th scope="col" className="py-1.5 pr-3 font-medium">Организация</th>
+                          <th scope="col" className="py-1.5 pr-3 font-medium">По числу процедур</th>
+                          <th scope="col" className="py-1.5 font-medium">По деньгам плана</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subRows.map((r) => (
+                          <tr key={r.key} className={clsx(RULE_ROW, 'last:border-0 align-top')}>
+                            <td className="py-1.5 pr-3 text-zinc-700 dark:text-zinc-200 max-w-[280px]">
+                              <span className="line-clamp-2" title={r.label}>{r.label}</span>
+                            </td>
+                            {r.hasData ? (
+                              <>
+                                <td className="py-1.5 pr-4 w-[34%]">
+                                  <ShareBar pct={r.countShare} tone="count" />
+                                  <span className="block text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                    {r.epCount} ЕП из {r.epCount + r.kpCount} {procWord(r.epCount + r.kpCount)}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 w-[34%]">
+                                  <ShareBar pct={r.moneyShare} tone="money" />
+                                  <span className="block text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                    {formatMoney(r.epPlan)} из {formatMoney(r.epPlan + r.kpPlan)}
+                                  </span>
+                                </td>
+                              </>
+                            ) : (
+                              // Честная пустота: организация в справочнике есть,
+                              // закупок со способом за год у неё нет — это не ноль.
+                              <td colSpan={2} className="py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                                закупок со способом определения поставщика за год нет
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Оговорка нужна там, где разбивки НЕТ: режим «только ГРБС» (скрыл
+              сам читатель) и редкий случай, когда выбранного управления нет в
+              прочитанном расчёте. Когда разбивка построена — она и есть ответ. */}
+          {(orgScope.mode === 'grbs' || (orgScope.mode === 'withSubs' && !subRows)) && (
+            <SubScopeNote
+              mode={orgScope.mode}
+              deptLabel={orgScope.dept}
+              reason="выбранного управления нет в прочитанном расчёте — разложить долю по его учреждениям не из чего. Запустите обновление данных в шапке."
+            />
+          )}
 
           {/* Динамика по кварталам — обе доли, год целиком. */}
           <div className="mt-4">
@@ -272,7 +397,7 @@ export function EpShare({ totals }: {
                   </thead>
                   <tbody>
                     {quarters.map((q) => (
-                      <tr key={q.label} className="border-b border-zinc-50 dark:border-zinc-800/50 last:border-0">
+                      <tr key={q.label} className={clsx(RULE_ROW, 'last:border-0')}>
                         <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300 w-14">
                           {q.label}
                         </td>

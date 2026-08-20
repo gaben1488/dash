@@ -23,12 +23,21 @@
  * стоит честная строка «показано 200 из 374» с кнопкой. Это не сокрытие
  * данных: число сказано, кнопка рядом.
  *
+ * ДВЕ ГАРМОШКИ ДЕРЖАТ ТАБЛИЦУ В ЭКРАНЕ (п.128-3, п.128-4). Четыре колонки дат
+ * по умолчанию сложены в одну колонку «Сроки» с длительностью пути «заявка →
+ * торги»; разбивка экономии МБ/КБ/ФБ сложена под «ВСЕГО + проверка». Обе
+ * раскрываются кнопкой в шапке колонки, выбор запоминается в localStorage.
+ * Сложенное не потеряно: полный набор дат и разбивка видны в карточке строки,
+ * а длительность в свёрнутой ячейке носит все четыре даты в подсказке.
+ * Контейнер сохраняет свой внутренний скролл на случай узкого окна — страница
+ * горизонтально не едет никогда.
+ *
  * НА УЗКОМ ЭКРАНЕ (§6.3) таблица заменяется списком карточек — той же
  * строкой, разложенной в столбик. Горизонтально едет только таблица внутри
  * своего контейнера; корпус страницы стоит.
  */
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type {
   JournalRow, LineageChain, MatchRow, RegistryProcedure,
 } from '../../lib/monitoring/contract';
@@ -36,15 +45,91 @@ import type { SortDir, SortKey } from '../../lib/monitoring/slices';
 import { procedureDefects } from '../../lib/monitoring/slices';
 import { KBTooltip } from '../ui/kb-tooltip';
 import { MONITORING_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
-import { fmtCount, fmtDate, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
+import { fmtCount, fmtDate, fmtDays, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
 import { methodLabel, stageBadgeClass, stageMeaning, stageShort } from '../../lib/monitoring/stage-labels';
 import { ProcedureCard } from './ProcedureCard';
 
 /** Сколько строк показывается сразу; остальное — по кнопке. */
 const CHUNK = 200;
 
-/** Всего колонок нижнего этажа — ширина ячейки раскрытия. */
-const COLUMN_COUNT = 16;
+/**
+ * Ключи памяти гармошек (п.128-4). Версия в ключе — чтобы смена смысла
+ * значения не читала старую запись как новую.
+ */
+const DATES_PREF_KEY = 'aemr.monitoring.dates-open.v1';
+const BUDGETS_PREF_KEY = 'aemr.monitoring.budgets-open.v1';
+
+/** Чтение флага из localStorage; хранилища нет (тест, приватный режим) — свёрнуто. */
+function loadPref(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function savePref(key: string, value: boolean): void {
+  try {
+    window.localStorage.setItem(key, value ? '1' : '0');
+  } catch {
+    // Хранилище недоступно — гармошка живёт до перезагрузки, это не ошибка.
+  }
+}
+
+/** Кнопка гармошки в шапке колонки: свёрнуто ▸, раскрыто ▾. */
+function FoldButton({ open, onToggle, labelOpen, labelClosed }: {
+  open: boolean;
+  onToggle: () => void;
+  labelOpen: string;
+  labelClosed: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="inline-flex items-center gap-0.5 font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+    >
+      {open
+        ? <ChevronDown size={10} aria-hidden="true" />
+        : <ChevronRight size={10} aria-hidden="true" />}
+      {open ? labelOpen : labelClosed}
+    </button>
+  );
+}
+
+/**
+ * Свёрнутая колонка «Сроки»: длительность пути «заявка → торги», а все четыре
+ * даты — в подсказке. Пути нет (крайней даты не хватает) — честный прочерк с
+ * объяснением, не ноль.
+ */
+function DatesFoldedCell({ p }: { p: RegistryProcedure }) {
+  const detail = [
+    `заявка: ${fmtDate(p.applicationDate)}`,
+    `публикация: ${fmtDate(p.publicationDate)}`,
+    `окончание подачи: ${fmtDate(p.deadlineDate)}`,
+    `торги: ${fmtDate(p.auctionDate)}`,
+  ].join(' · ');
+  if (p.durations.total === null) {
+    return (
+      <span
+        className="text-zinc-400 dark:text-zinc-500"
+        title={`Путь не измерить: одной из крайних дат в книге нет. ${detail}`}
+      >
+        —
+      </span>
+    );
+  }
+  const negative = p.durations.total < 0;
+  return (
+    <span
+      className={`tabular-nums ${negative ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500 dark:text-zinc-400'}`}
+      title={`Путь «заявка → торги». ${detail}${negative ? '. Отрицательная длительность: вторая дата раньше первой — так записано в книге' : ''}`}
+    >
+      {fmtDays(p.durations.total)}
+    </span>
+  );
+}
 
 function SortButton({
   label, sortKey, active, dir, onSort, align = 'left',
@@ -134,6 +219,20 @@ export function RegistryTable({
 }: RegistryTableProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [limit, setLimit] = useState(CHUNK);
+  const [datesOpen, setDatesOpen] = useState(() => loadPref(DATES_PREF_KEY));
+  const [budgetsOpen, setBudgetsOpen] = useState(() => loadPref(BUDGETS_PREF_KEY));
+
+  const toggleDates = (): void => {
+    setDatesOpen((v) => { savePref(DATES_PREF_KEY, !v); return !v; });
+  };
+  const toggleBudgets = (): void => {
+    setBudgetsOpen((v) => { savePref(BUDGETS_PREF_KEY, !v); return !v; });
+  };
+
+  // Колонок в нижнем этаже: 5 слева + даты (4 или 1) + 2 итога торгов
+  // + экономия (5 или 2) + победитель + стадия. Ячейка раскрытия обязана
+  // накрывать все — иначе хвост строки торчит из-под карточки.
+  const columnCount = 5 + (datesOpen ? 4 : 1) + 2 + (budgetsOpen ? 5 : 2) + 2;
 
   const idOf = (p: RegistryProcedure): string => `${p.sheet}:${p.row}`;
   const shown = rows.slice(0, limit);
@@ -168,14 +267,38 @@ export function RegistryTable({
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">
                 <SortButton label="НМЦК, руб." sortKey="nmck" active={sortKey === 'nmck'} dir={sortDir} onSort={onSort} align="right" />
               </th>
-              <th colSpan={4} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
-                Даты
-              </th>
+              {datesOpen ? (
+                <th colSpan={4} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
+                  <FoldButton
+                    open
+                    onToggle={toggleDates}
+                    labelOpen="Даты — свернуть в «Сроки»"
+                    labelClosed="Сроки"
+                  />
+                </th>
+              ) : (
+                <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom border-l border-zinc-100 dark:border-zinc-700/50">
+                  <FoldButton
+                    open={false}
+                    onToggle={toggleDates}
+                    labelOpen="Даты"
+                    labelClosed="Сроки"
+                  />
+                </th>
+              )}
               <th colSpan={2} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
                 Итог торгов
               </th>
-              <th colSpan={5} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
-                Экономия, руб.
+              <th colSpan={budgetsOpen ? 5 : 2} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
+                <span className="inline-flex items-center gap-1.5">
+                  Экономия, руб.
+                  <FoldButton
+                    open={budgetsOpen}
+                    onToggle={toggleBudgets}
+                    labelOpen="свернуть МБ/КБ/ФБ"
+                    labelClosed="по бюджетам"
+                  />
+                </span>
               </th>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom border-l border-zinc-100 dark:border-zinc-700/50">
                 Победитель
@@ -183,14 +306,18 @@ export function RegistryTable({
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Стадия</th>
             </tr>
             <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
-              <th className="px-2 py-1 text-left font-normal border-l border-zinc-100 dark:border-zinc-700/50">заявка</th>
-              <th className="px-2 py-1 text-left font-normal">
-                <SortButton label="публикация" sortKey="publicationDate" active={sortKey === 'publicationDate'} dir={sortDir} onSort={onSort} />
-              </th>
-              <th className="px-2 py-1 text-left font-normal">окончание подачи</th>
-              <th className="px-2 py-1 text-left font-normal">
-                <SortButton label="торги" sortKey="auctionDate" active={sortKey === 'auctionDate'} dir={sortDir} onSort={onSort} />
-              </th>
+              {datesOpen && (
+                <>
+                  <th className="px-2 py-1 text-left font-normal border-l border-zinc-100 dark:border-zinc-700/50">заявка</th>
+                  <th className="px-2 py-1 text-left font-normal">
+                    <SortButton label="публикация" sortKey="publicationDate" active={sortKey === 'publicationDate'} dir={sortDir} onSort={onSort} />
+                  </th>
+                  <th className="px-2 py-1 text-left font-normal">окончание подачи</th>
+                  <th className="px-2 py-1 text-left font-normal">
+                    <SortButton label="торги" sortKey="auctionDate" active={sortKey === 'auctionDate'} dir={sortDir} onSort={onSort} />
+                  </th>
+                </>
+              )}
               <th className="px-2 py-1 text-right font-normal border-l border-zinc-100 dark:border-zinc-700/50">
                 <SortButton label="цена, руб." sortKey="auctionPrice" active={sortKey === 'auctionPrice'} dir={sortDir} onSort={onSort} align="right" />
               </th>
@@ -207,21 +334,28 @@ export function RegistryTable({
                   <span>проверка</span>
                 </KBTooltip>
               </th>
-              <th className="px-2 py-1 text-right font-normal">МБ</th>
-              <th className="px-2 py-1 text-right font-normal">КБ</th>
-              <th className="px-2 py-1 text-right font-normal">ФБ</th>
+              {budgetsOpen && (
+                <>
+                  <th className="px-2 py-1 text-right font-normal">МБ</th>
+                  <th className="px-2 py-1 text-right font-normal">КБ</th>
+                  <th className="px-2 py-1 text-right font-normal">ФБ</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
-            {shown.map((p) => {
+            {shown.map((p, i) => {
               const open = isOpen(p);
               const defects = procedureDefects(p);
+              // Тихая полосатость чётных строк (п.129): строки разводит
+              // светлота, а не рамки — рамка между строками и так самая тонкая.
+              const stripe = i % 2 === 1 ? 'bg-zinc-50/60 dark:bg-zinc-900/25' : '';
               return [
                 <tr
                   key={idOf(p)}
                   onClick={() => setExpanded(open ? null : idOf(p))}
                   aria-expanded={open}
-                  className="border-b border-zinc-50 dark:border-zinc-700/30 align-top cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700/20"
+                  className={`border-b border-zinc-50 dark:border-zinc-700/30 align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
                 >
                   <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
                     <ChevronDown
@@ -250,18 +384,26 @@ export function RegistryTable({
                   <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100">
                     {fmtRub(p.nmck)}
                   </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400 border-l border-zinc-50 dark:border-zinc-700/30">
-                    {fmtDate(p.applicationDate)}
-                  </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-                    {fmtDate(p.publicationDate)}
-                  </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-                    {fmtDate(p.deadlineDate)}
-                  </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-                    {fmtDate(p.auctionDate)}
-                  </td>
+                  {datesOpen ? (
+                    <>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400 border-l border-zinc-50 dark:border-zinc-700/30">
+                        {fmtDate(p.applicationDate)}
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
+                        {fmtDate(p.publicationDate)}
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
+                        {fmtDate(p.deadlineDate)}
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
+                        {fmtDate(p.auctionDate)}
+                      </td>
+                    </>
+                  ) : (
+                    <td className="px-2 py-1.5 whitespace-nowrap border-l border-zinc-50 dark:border-zinc-700/30">
+                      <DatesFoldedCell p={p} />
+                    </td>
+                  )}
                   <td
                     className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100 border-l border-zinc-50 dark:border-zinc-700/30"
                     title={p.auctionPrice === 0 ? 'Ноль — содержательный исход: торги прошли без результата' : undefined}
@@ -285,9 +427,13 @@ export function RegistryTable({
                     )}
                   </td>
                   <td className="px-2 py-1.5 text-center"><ControlDot p={p} /></td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsMb)}</td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsKb)}</td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsFb)}</td>
+                  {budgetsOpen && (
+                    <>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsMb)}</td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsKb)}</td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsFb)}</td>
+                    </>
+                  )}
                   <td className="px-2 py-1.5 max-w-[14rem] border-l border-zinc-50 dark:border-zinc-700/30" title={p.winner ?? undefined}>
                     <span className="block truncate text-zinc-600 dark:text-zinc-300">
                       {p.winnerName ?? p.outcome ?? '—'}
@@ -304,7 +450,7 @@ export function RegistryTable({
                 </tr>,
                 open && (
                   <tr key={`${idOf(p)}:card`} className="border-b border-zinc-100 dark:border-zinc-700/40">
-                    <td colSpan={COLUMN_COUNT} className="p-2 bg-zinc-50/60 dark:bg-zinc-900/30">
+                    <td colSpan={columnCount} className="p-2 bg-zinc-50/60 dark:bg-zinc-900/30">
                       {cardFor(p)}
                     </td>
                   </tr>

@@ -13,7 +13,8 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeMonitoring, type RegistryProcedure } from './contract';
 import {
-  applySlices, emptySlices, hasAnySlice, nmckBucketId, procedureDefects, sortProcedures,
+  applySlices, emptySlices, hasAnySlice, nmckBucketId, procedureDefects, reductionBucketId,
+  sortProcedures,
 } from './slices';
 import { portraitFrom } from './portrait';
 
@@ -60,6 +61,19 @@ describe('разрезы реестра', () => {
     // Сумма, не читаемая числом, ни в одну корзину не попадает и не
     // притворяется нулевой.
     expect(nmckBucketId(null)).toBeNull();
+  });
+
+  it('разрез по корзине снижения совпадает со счётом ядра для гистограммы', () => {
+    // Состоявшаяся с 10 % — корзина «10-25»; та же корзина отбирает строку.
+    expect(reductionBucketId(proc())).toBe('10-25');
+    expect(applySlices(rows, { ...emptySlices(), reductionBucket: '10-25' }).map((p) => p.code))
+      .toEqual(['ЭА152-26', 'ЭЕП9-25']);
+    // Несостоявшаяся процедура ни в одну корзину не попадает: снижение — про
+    // прошедшие торги, а не про объявленные.
+    expect(reductionBucketId(proc({ stage: 'published', reductionPct: null }))).toBeNull();
+    expect(applySlices(rows, { ...emptySlices(), reductionBucket: 'zero' })).toHaveLength(0);
+    // Цена в точности равна начальной — «ровно 0 %», а не «до 1 %».
+    expect(reductionBucketId(proc({ reductionPct: 0 }))).toBe('zero');
   });
 
   it('поиск ищет по коду, предмету, заказчику и ИНН победителя', () => {

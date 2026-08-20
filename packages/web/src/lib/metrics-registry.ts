@@ -34,6 +34,9 @@ function toKBEntry(key: string): KBEntry {
     pitfalls: entry.pitfalls,
     actions: entry.actions,
     related: entry.related,
+    // Карточка 2.0: скоуп с моментом и расхождение с источником.
+    scopeMoment: entry.scopeMoment,
+    divergence: entry.divergence,
   };
 }
 

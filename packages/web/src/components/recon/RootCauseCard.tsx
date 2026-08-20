@@ -24,17 +24,30 @@ import {
  * Тон карточки по классу. Смысл, а не радуга: дефект данных — тревожный,
  * объяснимое поведение системы (после среза) — спокойное, нераспознанное —
  * нейтральное серое, потому что вины строки в этом нет.
+ *
+ * Тон живёт ТОЛЬКО в ярлыке класса, у которого рядом стоит слово (канон
+ * «текстовый дубль визуального»). Прежде тот же тон дублировался цветной
+ * полосой слева и рамкой по кругу: полоса-акцент на карточке запрещена
+ * каноном облика, а рамка на каждом атоме — п.129; поверхности карточек
+ * разделяет светлота, а не частокол обводок.
  */
-const TONE: Record<ReconRootCauseClass, { border: string; badge: string }> = {
-  unfunded: { border: 'border-l-amber-500', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
-  factQuarterMissing: { border: 'border-l-amber-500', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
-  afterSlice: { border: 'border-l-emerald-500', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' },
-  sign: { border: 'border-l-red-500', badge: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300' },
-  method: { border: 'border-l-amber-500', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
-  cancelled: { border: 'border-l-amber-500', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
-  parsing: { border: 'border-l-red-500', badge: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300' },
-  unknown: { border: 'border-l-zinc-400', badge: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' },
+const TONE: Record<ReconRootCauseClass, { badge: string }> = {
+  unfunded: { badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
+  factQuarterMissing: { badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
+  afterSlice: { badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' },
+  sign: { badge: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300' },
+  method: { badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
+  cancelled: { badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' },
+  parsing: { badge: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300' },
+  unknown: { badge: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' },
 };
+
+/**
+ * Единица сумм сверки. Обе стороны — лист СВОД и пересчёт строк — считаются
+ * в тысячах рублей, и подпись обязана стоять у числа: разбор п.52 начался
+ * ровно с того, что «Разница: 50.00» читалась как пятьдесят рублей.
+ */
+const MONEY_UNIT = 'тыс. ₽';
 
 /** Деньги по-русски: разряды отбиты, копейки только когда они есть. */
 function money(n: number): string {
@@ -55,7 +68,7 @@ export function RootCauseCard({ group, previewRows = 5 }: Props) {
   const hidden = cause.rows.length - rows.length;
 
   return (
-    <div className={`rounded-lg border border-zinc-200 dark:border-zinc-700 border-l-4 ${tone.border} bg-white dark:bg-zinc-800/60 p-3`}>
+    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${tone.badge}`}>
@@ -65,7 +78,7 @@ export function RootCauseCard({ group, previewRows = 5 }: Props) {
         </div>
         <div className="shrink-0 text-right">
           <div className="text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-            {money(totalDelta)}
+            {money(totalDelta)} <span className="text-[10px] font-normal text-zinc-400">{MONEY_UNIT}</span>
           </div>
           <div className="text-[10px] text-zinc-400">вклад в расхождение</div>
         </div>
@@ -91,7 +104,7 @@ export function RootCauseCard({ group, previewRows = 5 }: Props) {
               <th className="text-left font-medium">Лист</th>
               <th className="text-left font-medium">Строка</th>
               <th className="text-left font-medium">Ячейка</th>
-              <th className="text-right font-medium">Вклад</th>
+              <th className="text-right font-medium">Вклад, {MONEY_UNIT}</th>
             </tr>
           </thead>
           <tbody className="text-zinc-600 dark:text-zinc-300">

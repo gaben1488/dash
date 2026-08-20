@@ -3,16 +3,21 @@
 // по периметру шапки.
 //
 // Правила вкладки (канон 14.08, пп. 53, 58, 69):
-//   • каждая карточка сама объявляет период своих ДАННЫХ (PeriodBadge);
+//   • каждая карточка сама объявляет период своих ДАННЫХ (PeriodBadge)
+//     и момент чтения книг, из которых эти числа взяты (п.58);
 //   • оговорки счёта видны на карточке, а не спрятаны в тултип;
 //   • хром кремово-серый, цвет — только у данных;
-//   • на экране нет латинских внутренних ключей.
+//   • на экране нет латинских внутренних ключей;
+//   • поверхности разделяет светлота, а не частокол обводок (п.129).
 // ────────────────────────────────────────────────────────────────
 
 import type { ReactNode } from 'react';
+import clsx from 'clsx';
 import type { LucideIcon } from 'lucide-react';
 import { AlertTriangle } from 'lucide-react';
 import type { KBEntryData } from '@aemr/core';
+import { useStore } from '../../store';
+import { readingMoment } from '../../lib/reading-moment';
 import { PeriodBadge } from '../PeriodBadge';
 import { KBTooltip } from '../ui/kb-tooltip';
 import { kbCardProps } from '../../pages/kb-additions';
@@ -20,6 +25,82 @@ import { kbCardProps } from '../../pages/kb-additions';
 /** Единое фокус-кольцо вкладки — клавиатурный обход виден на каждой кнопке. */
 export const FOCUS_RING =
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-zinc-900';
+
+// ── Поверхности вкладки (канон п.129) ────────────────────────────
+//
+// Тёмная тема разделяет вложенные поверхности СВЕТЛОТОЙ: плитка внутри
+// карточки светлее самой карточки, и обводка ей не нужна — обводка на каждом
+// атоме и давала тот «частокол», которым владелец был недоволен. В светлой
+// теме тонкая линия остаётся: на белом фоне разница светлот почти не читается.
+
+/** Вложенная плитка карточки (число с подписью, элемент списка, группа). */
+export const TILE =
+  'rounded-lg border border-zinc-200/70 dark:border-transparent bg-zinc-50/60 dark:bg-white/[0.04]';
+
+/** Линейка шапки таблицы — тише текста, но различима в обеих темах. */
+export const RULE_HEAD = 'border-b border-zinc-200/70 dark:border-white/[0.06]';
+
+/** Линейка между строками таблицы — самая тихая линия вкладки. */
+export const RULE_ROW = 'border-b border-zinc-100 dark:border-white/[0.03]';
+
+/**
+ * Момент чтения книг у чисел карточки (канон п.58: у каждого числа виден не
+ * только период, но и момент, на который оно верно). Книги живут: без этой
+ * строки читатель не отличит «сегодня так» от «так было во вторник».
+ */
+export function ReadMoment() {
+  const lastRefreshed = useStore((s) => s.lastRefreshed);
+  // Фразу собирает единственный дом продукта (lib/reading-moment): незнание
+  // момента там не выдаётся за свежесть, и своя копия подписи была бы вторым
+  // домом одной фразы (канон п.112).
+  const moment = readingMoment({ readAt: lastRefreshed });
+  return (
+    <span
+      title={moment.phrase}
+      className={clsx(
+        'text-[9px] leading-tight text-right',
+        // Остывшие числа говорят об этом сами: до подсказки читатель может и
+        // не добраться.
+        moment.stale ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500 dark:text-zinc-400',
+      )}
+    >
+      {moment.label}
+    </span>
+  );
+}
+
+/**
+ * Оговорка режима подведов для карточек, которые разбивку по учреждениям
+ * построить НЕ могут (приказ владельца 20.08: разбивка там, где осмысленна;
+ * где невозможна — сказать словами, а не промолчать). `reason` называет
+ * механизм: чего именно не хватает данным, чтобы разложить число по
+ * организациям управления.
+ */
+export function SubScopeNote({ mode, deptLabel, reason, grbsNote }: {
+  mode: 'district' | 'grbs' | 'withSubs';
+  /** Короткое имя выбранного управления — оговорка адресная, а не общая. */
+  deptLabel?: string | null;
+  reason: string;
+  /**
+   * Чем заменить фразу режима «только ГРБС». По умолчанию — «числа по книге
+   * целиком»; карточке, которая отбор управлений вовсе не применяет (кандидаты
+   * на объединение), эта фраза была бы неправдой, и она передаёт `null` —
+   * тогда в режиме «только ГРБС» оговорки нет: её место занимает собственная.
+   */
+  grbsNote?: string | null;
+}) {
+  if (mode === 'district') return null;
+  const who = deptLabel ? `${deptLabel}` : 'выбранного управления';
+  if (mode === 'grbs' && grbsNote === null) return null;
+  return (
+    <p className="mt-3 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      {mode === 'grbs'
+        ? (grbsNote
+          ?? `Выбран режим «только ГРБС»: числа карточки — по книге ${who} целиком, включая закупки подведомственных учреждений. Режим скрывает разбивку, а не вычитает их из счёта.`)
+        : `Разбивки по учреждениям ${who} на этой карточке нет: ${reason}`}
+    </p>
+  );
+}
 
 /**
  * Каркас карточки вкладки. Плашка периода стоит на каждой карточке (канон
@@ -38,7 +119,9 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], kb,
 }) {
   const heading = <h2 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h2>;
   return (
-    <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
+    // Карточка — поверхность светлее страницы; в тёмной теме её и отделяет
+    // светлота, обводка гаснет (п.129). В светлой остаётся тонкая линия.
+    <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm dark:shadow-none border border-zinc-200/70 dark:border-transparent">
       {/* flex-wrap: на 360–430px плашка периода переносится под заголовок,
           а не ломает строку и не выдавливает текст за край. */}
       <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 flex-wrap">
@@ -55,7 +138,12 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], kb,
             )}
           </div>
         </div>
-        <PeriodBadge />
+        {/* Скоуп числа и момент его чтения стоят вместе: период отвечает на
+            «за что посчитано», момент — на «когда это было верно» (п.58). */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <PeriodBadge />
+          <ReadMoment />
+        </div>
       </header>
       {caveats.length > 0 && (
         <div className="px-5 pb-2 space-y-1">
@@ -113,7 +201,7 @@ const present = (v: unknown): boolean => v !== null && v !== undefined;
  * квартальным уровнем, частично выбранные — месячным): иначе доля ЕП этой
  * вкладки расходилась бы с числами «Пульта» при одном и том же выборе.
  */
-export function sumEpKp(depts: Array<Record<string, any>>, sel: PeriodSel): EpKpTotals {
+export function sumEpKp(depts: Array<Record<string, unknown>>, sel: PeriodSel): EpKpTotals {
   const out: EpKpTotals = { epCount: 0, kpCount: 0, epPlan: 0, kpPlan: 0, hasData: false };
 
   let quarterKeys: string[];
@@ -154,7 +242,7 @@ export function sumEpKp(depts: Array<Record<string, any>>, sel: PeriodSel): EpKp
 }
 
 /** Итоги одного квартала по quarter-level данным (для динамики по кварталам). */
-export function sumEpKpQuarter(depts: Array<Record<string, any>>, qk: string): EpKpTotals {
+export function sumEpKpQuarter(depts: Array<Record<string, unknown>>, qk: string): EpKpTotals {
   return sumEpKp(depts, {
     periodKey: qk,
     hasActiveMonths: false,

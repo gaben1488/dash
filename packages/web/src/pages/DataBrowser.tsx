@@ -1,5 +1,13 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { BUDGET_SOURCE_META, isInitiativeMarker, isYearlongStageRow, productLabel, sumInitiativeRows } from '@aemr/shared';
+import {
+  BUDGET_SOURCE_META,
+  isInitiativeMarker,
+  isOrgItself,
+  isYearlongStageRow,
+  productLabel,
+  subordinateKey,
+  sumInitiativeRows,
+} from '@aemr/shared';
 import { YearlongBadge } from '../components/yearlong/YearlongBadge';
 import { useStore } from '../store';
 import { api, humanizeRequestError } from '../api';
@@ -27,6 +35,7 @@ import {
   TABLE_SCROLL_AREA,
 } from '../components/TableEditor';
 import { KbHover } from '../components/contract/KbHover';
+import { SourceBadge } from '../components/contract/SourceBadge';
 import { filterRowsByBudgets } from '../lib/rows-filter';
 import { collectAllPages } from '../lib/rows/collect-pages';
 import { monthOfDateValue, formatDateCell } from '../lib/sheet-date';
@@ -34,6 +43,18 @@ import { toCanonicalDeptId } from '../lib/dept-key';
 import { useLiveEvents } from '../hooks/useLiveEvents';
 import { changedRowKey, rowChangeHint } from '../components/live/live-text';
 import { pluralRu } from '../lib/economy-copy';
+import { formatPct } from '../lib/economy/format';
+import { useOrgScope } from '../lib/selectors/org-scope';
+import { subordinateLabel } from '../lib/subordinate-label';
+import { readingMoment } from '../lib/reading-moment';
+import {
+  REGISTRY_SLICE_PRESETS,
+  findSlicePreset,
+  numericEconomyOf,
+  slicePresetCounts,
+  splitRegistrySeed,
+  type SliceRow,
+} from '../lib/rows/slice-presets';
 import {
   ALL_SIGNAL_KEYS,
   activityRowLabel,
@@ -144,6 +165,43 @@ const HOTKEYS: { keys: string; what: string }[] = [
   { keys: '?', what: 'показать и скрыть эту подсказку' },
 ];
 
+/**
+ * Ключ-ведро организации внутри управления — дословное значение колонки C
+ * книги. Функция объявлена вне компонента намеренно: хук разбивки помнит
+ * результат по ссылке на неё, и новая стрелка на каждый кадр пересобирала бы
+ * разбивку впустую.
+ */
+function rowSubordinateKey(row: Record<string, unknown>): string {
+  return subordinateKey(row.subordinate);
+}
+
+/**
+ * Момент чтения книг у чисел выборки (канон п.58: у числа виден не только
+ * период, но и момент, на который оно верно).
+ *
+ * Фразу собирает единственный дом продукта — `lib/reading-moment`: там же
+ * закреплено правило «незнание момента — не свежесть», поэтому молчание
+ * сервера здесь не превращается в бодрое «на сейчас». Своей формулировки в
+ * странице нет намеренно: вторая копия подписи разошлась бы с первой молча.
+ */
+function ReadMomentNote() {
+  const lastRefreshed = useStore((s) => s.lastRefreshed);
+  const moment = readingMoment({ readAt: lastRefreshed });
+  return (
+    <span
+      title={moment.phrase}
+      className={clsx(
+        'text-[10px]',
+        // Остывшие числа говорят об этом сами: до подсказки читатель может и
+        // не добраться.
+        moment.stale ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-500',
+      )}
+    >
+      {moment.label}
+    </span>
+  );
+}
+
 /** Имя управления для глаз: латинский идентификатор книги до экрана не доходит. */
 function deptDisplayName(key: unknown): string {
   const raw = String(key ?? '').trim();
@@ -240,11 +298,16 @@ const BUCKET_META: Record<RegistryBucket, {
   unfunded: {
     title: 'Закупки, не обеспеченные финансированием',
     kbKey: 'bucket_unfunded_rows',
+    // Текст ведёт с рукописной плановой даты N, а не с производного года P
+    // (канон п.123 «N и Q первичны»): год пуст вслед за датой, и просить
+    // читателя заполнить производную графу означало бы послать его не туда.
     mechanism:
-      'Способ и плановые деньги у строки есть, а графа «Год (план)» пуста — финансирование не подтверждено. '
-      + 'Формулы официального листа СВОД такие строки не видят, поэтому официальный лимит меньше нашего расчёта ровно на их сумму.',
+      'Способ и плановые деньги у строки есть, а рукописная плановая дата (графа N) не проставлена — '
+      + 'и год плана пуст вслед за ней: финансирование не подтверждено. '
+      + 'Формулы официального листа СВОД такие строки не видят, и наш годовой срез тоже: они лежат '
+      + 'вне обоих чисел и ждут решения — подтвердить срок или снять план.',
     emptyReason:
-      'Ни у одной загруженной строки графа «Год (план)» не пуста при заполненном способе и плановых деньгах. '
+      'Ни у одной загруженной строки плановая дата не пуста при заполненном способе и плановых деньгах. '
       + 'Если ожидали увидеть строки — проверьте отбор шапки (управление, период, способ) и снимите лишнее.',
     predicate: (r) => Array.isArray(r.signals) && (r.signals as string[]).includes('planYearMissing'),
   },
@@ -282,12 +345,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const [loadingRows, setLoadingRows] = useState(false);
   const [trouble, setTrouble] = useState<LoadTrouble>(NO_TROUBLE);
   const [selectedRow, setSelectedRow] = useState<any>(null);
-  // Затравка признаков от «Дисциплины»: navigateTo('data', { signals }) кладёт
-  // ключи в store, Реестр забирает их одним чтением при открытии и очищает —
-  // повторный заход в Реестр без затравки стартует с пустым фильтром.
-  const [signalFilter, setSignalFilter] = useState<string[]>(
-    () => useStore.getState().registrySignalSeed,
+  // Затравка признаков от «Дисциплины», «Пульта» и «Экономии»:
+  // navigateTo('data', { signals }) кладёт ключи в store, Реестр забирает их
+  // одним чтением при открытии и очищает — повторный заход в Реестр без
+  // затравки стартует с пустым фильтром.
+  //
+  // Один ключ, у которого есть именованный срез, ведёт В СРЕЗ, а не в
+  // безымянный отбор по признаку: так кнопка-чип карточки приводит читателя
+  // к подписи класса, механизму отбора и честной причине пустоты, а не к
+  // молча сузившейся таблице. Разбор затравки — в lib/rows/slice-presets.
+  const [seedRouting] = useState(
+    () => splitRegistrySeed(useStore.getState().registrySignalSeed),
   );
+  const [signalFilter, setSignalFilter] = useState<string[]>(seedRouting.signals);
   useEffect(() => {
     if (useStore.getState().registrySignalSeed.length > 0) {
       useStore.getState().clearRegistrySignalSeed();
@@ -298,6 +368,28 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // Фильтр «только инициативные заявки» (п.76б): строки, где примечание AF
   // ЦЕЛИКОМ равно маркеру словаря «хотелки» — структурное чтение, не парсинг.
   const [initiativeOnly, setInitiativeOnly] = useState(false);
+  // Пресет-срез: именованный отбор строк в один щелчок. Одновременно активен
+  // ровно один — срезы отвечают на разные вопросы, а не складываются.
+  // Список срезов живёт в lib/rows/slice-presets.
+  const [slicePresetId, setSlicePresetId] = useState<string | null>(seedRouting.slicePresetId);
+  const slicePreset = findSlicePreset(slicePresetId);
+
+  // Организационный срез (приказ владельца 20.08.2026). Реестр — единственное
+  // место, где разрез по учреждениям НАСТОЯЩИЙ: заказчик записан в самой
+  // строке книги (колонка C), делить готовые итоги ничем не приходится.
+  // Здесь берётся только режим; сама разбивка собирается ниже, по выборке.
+  const orgMode = useOrgScope();
+  /**
+   * Фокус на одной организации управления — щелчок по строке разбивки.
+   *
+   * Почему собственное состояние, а не общий фильтр организаций из шапки:
+   * закупки самого аппарата хранятся в книге плейсхолдером колонки C («х»,
+   * пустая ячейка), а не именем, и отправить такой отбор на сервер строкой
+   * нельзя — он ищет точное совпадение имени и вернул бы пусто. Фокус живёт
+   * рядом с разбивкой, работает по тому же ключу-ведру и называется в подписи
+   * фильтров экрана наравне с остальными.
+   */
+  const [subFocus, setSubFocus] = useState<string | null>(null);
 
   // ── Клавиатура и копирование ──
   /** Строка под курсором клавиатуры — номер внутри текущей страницы; −1 значит «курсора нет». */
@@ -493,7 +585,12 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Смена фильтров возвращает на первую страницу
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, initiativeOnly, selectedBudgets, bucket]);
+  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, initiativeOnly, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
+
+  // Смена управления (или выход из режима «с подведомственными») снимает фокус
+  // на организации: чужой ключ пережил бы переключение и молча оставил бы
+  // выборку пустой — читатель увидел бы «строк нет» без причины.
+  useEffect(() => { setSubFocus(null); }, [orgMode.dept, orgMode.mode]);
 
   // Закрытие списка признаков щелчком мимо и клавишей Esc
   useEffect(() => {
@@ -523,12 +620,31 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     setPageNum(1);
   };
 
-  const filtered = useMemo(() => {
+  /**
+   * Выборка страницы ДО фокуса на одной организации. Разбивка по учреждениям
+   * считается именно по ней: иначе щелчок по учреждению схлопывал бы разбивку
+   * до одной строки, и вернуться к соседям было бы не по чему — счёт зависел
+   * бы от собственного нажатия.
+   */
+  const scopedRows = useMemo(() => {
     let data = [...rows];
     // Корзина (п.73в): зафиксированный фильтр класса строк — применяется
     // ПЕРВЫМ, остальные фильтры шапки и страницы сужают уже внутри класса.
     if (bucket) {
       data = data.filter(BUCKET_META[bucket].predicate);
+    }
+    // Режим «только управление» (org-scope): пользователь сознательно убрал
+    // подведомственные учреждения, и в Реестре это выполнимо честно — заказчик
+    // записан в самой строке. Остаются закупки аппарата управления. Строка
+    // подписи под таблицей называет этот отбор наравне с прочими фильтрами
+    // экрана: молча сжавшаяся выборка читалась бы как пропажа строк.
+    if (orgMode.mode === 'grbs') {
+      data = data.filter((r) => isOrgItself(r.subordinate));
+    }
+    // Пресет-срез — именованный вопрос к выборке; предикат живёт в словаре
+    // срезов, не здесь, поэтому счёт кнопки и число строк не расходятся.
+    if (slicePreset) {
+      data = data.filter((r) => slicePreset.predicate(r as SliceRow));
     }
     // Квартал
     if (period !== 'year') {
@@ -586,7 +702,17 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       return sortDir === 'asc' ? as.localeCompare(bs, 'ru') : bs.localeCompare(as, 'ru');
     });
     return data;
-  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, initiativeOnly, selectedBudgets, bucket]);
+  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, initiativeOnly, selectedBudgets, bucket, orgMode.mode, slicePreset]);
+
+  /**
+   * Итоговая выборка таблицы: та же, плюс фокус на одной организации, если он
+   * выбран щелчком в разбивке. Ключ сравнения — тот же, по которому строится
+   * разбивка, поэтому число в её строке и число под таблицей совпадают.
+   */
+  const filtered = useMemo(
+    () => (subFocus === null ? scopedRows : scopedRows.filter((r) => rowSubordinateKey(r) === subFocus)),
+    [scopedRows, subFocus],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   // Выборка могла ужаться сильнее, чем сбрасывается номер страницы (например,
@@ -827,6 +953,16 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
   const severity = useMemo(() => countBySeverity(filtered), [filtered]);
   const occurrences = useMemo(() => signalOccurrences(rows), [rows]);
+  // Счёт срезов — по ЗАГРУЖЕННЫМ строкам, как счётчики признаков рядом: иначе
+  // подпись кнопки среза зависела бы от самого среза и таяла бы при нажатии.
+  const sliceCounts = useMemo(() => slicePresetCounts(rows as SliceRow[]), [rows]);
+  // Разбивка по организациям управления — по строкам ТЕКУЩЕЙ выборки:
+  // читатель видит именно то, что лежит под таблицей. Учреждение без строк
+  // остаётся в списке с честным «строк нет» — «организации нет» и «строк у неё
+  // нет» обязаны различаться словами.
+  const orgBreakdown = useOrgScope<Record<string, unknown>>(scopedRows, rowSubordinateKey);
+  /** Подпись сфокусированной организации; ключ аппарата спрятан за русским именем. */
+  const subFocusLabel = subFocus === null ? null : subordinateLabel(subFocus);
   // «В т.ч. инициативные заявки» (п.76б): счёт по ЗАГРУЖЕННЫМ строкам — как
   // счётчики признаков рядом, чтобы подпись фильтра не зависела от него самого.
   const initiativeTotals = useMemo(() => sumInitiativeRows(rows), [rows]);
@@ -840,14 +976,24 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     year,
   }), [selectedDepartments.size, selectedSubordinates.size, activityFilter, procurementFilter, year]);
 
-  const screenFilters = useMemo(() => screenFilterNames({
-    period,
-    months: activeMonths.size,
-    search: searchQuery,
-    signals: signalFilter.length,
-    budgets: selectedBudgets.size,
-    initiative: initiativeOnly,
-  }), [period, activeMonths.size, searchQuery, signalFilter.length, selectedBudgets.size, initiativeOnly]);
+  // Названия фильтров экрана. Два последних имени приписаны здесь, а не в
+  // общем словаре фильтров: и срез, и режим организаций живут только на этой
+  // странице. Молчать о них нельзя — иначе строка «на экране скрыто N» назовёт
+  // не все причины, по которым выборка сжалась.
+  const screenFilters = useMemo(() => {
+    const names = screenFilterNames({
+      period,
+      months: activeMonths.size,
+      search: searchQuery,
+      signals: signalFilter.length,
+      budgets: selectedBudgets.size,
+      initiative: initiativeOnly,
+    });
+    if (orgMode.mode === 'grbs') names.push('только аппарат управления, без учреждений');
+    if (slicePreset) names.push(`срез «${slicePreset.label}»`);
+    if (subFocusLabel) names.push(`организация «${subFocusLabel}»`);
+    return names;
+  }, [period, activeMonths.size, searchQuery, signalFilter.length, selectedBudgets.size, initiativeOnly, orgMode.mode, slicePreset, subFocusLabel]);
 
   const counts = describeRegistryCounts({
     shown: paged.length,
@@ -868,18 +1014,44 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const planSemantics = usePlanSemantics();
   const factTotal = useMemo(() => filtered.reduce((s: number, r: { factSum?: number }) => s + (r.factSum || 0), 0), [filtered]);
 
+  /**
+   * Деньги каждой организации управления. Складываются те же поля строк, что
+   * и в итогах выборки над таблицей, — второй формулы здесь нет, и разбивка не
+   * может разойтись с итогом. Организация без строк остаётся в перечне с
+   * нулевым счётом: «строк нет» и «организации нет» — разные новости, и
+   * различать их обязаны слова, а не пропажа строки из таблицы.
+   */
+  const orgGroups = useMemo(
+    () => orgBreakdown.subordinates.map((group) => {
+      let plan = 0, fact = 0, economy = 0;
+      for (const row of group.rows) {
+        plan += Number(row.planSum) || 0;
+        fact += Number(row.factSum) || 0;
+        economy += Number(row.economy) || 0;
+      }
+      return { key: group.key, label: group.label, rows: group.rows.length, plan, fact, economy };
+    }),
+    [orgBreakdown],
+  );
+
   const downloadTable = useCallback(() => {
     if (filtered.length === 0) return;
     const headers = ['№', 'Предмет закупки', 'Управление', 'Вид деятельности', 'Способ', 'План, тыс. ₽', 'Факт, тыс. ₽', 'Экономия, тыс. ₽', 'Дата плана', 'Дата факта', 'Статус', 'Признаки'];
+    // Десятичная запятая, как в буфере обмена рядом: разделитель полей — «;»,
+    // и точка в числе заставляла русский Excel читать «1234.5» текстом, а то и
+    // резать его на две ячейки. Столбцы подписаны в тысячах рублей — масштаб
+    // книги, а не переключатель единиц из шапки: файл не должен менять смысл
+    // от того, как сейчас настроен экран.
+    const money = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',') : '');
     const csvRows = filtered.map(r => [
       r.id,
       `"${String(r.subject ?? '').replace(/"/g, '""')}"`,
       deptDisplayName(r.dept),
       `"${activityRowLabel(r.type, r.programName)}"`,
       r.method ?? '',
-      r.planSum ?? '',
-      r.factSum ?? '',
-      r.economy ?? '',
+      money(r.planSum),
+      money(r.factSum),
+      money(r.economy),
       formatDateCell(r.planDate),
       formatDateCell(r.factDate),
       r.status ?? '',
@@ -891,11 +1063,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const today = new Date().toISOString().slice(0, 10);
+    // Периметр в имени файла: выгрузка живёт дальше экрана — по почте, в папке
+    // среди соседних файлов, — и «Реестр закупок 2026-08-21.csv» ничего не
+    // говорит о том, чьи строки и за какой год внутри. Косая черта и двоеточие
+    // в имени файла недопустимы, поэтому управления перечисляются через тире.
+    const deptPart = selectedDepartments.size === 0
+      ? 'все управления'
+      : [...selectedDepartments].map((d) => productLabel(toCanonicalDeptId(d))).join(' - ');
+    const yearPart = typeof year === 'number' ? `${year}` : 'все годы';
     a.href = url;
-    a.download = `Реестр закупок ${today}.csv`;
+    a.download = `Реестр закупок — ${deptPart} — ${yearPart} — выгружено ${today}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filtered]);
+  }, [filtered, selectedDepartments, year]);
 
   /** Утверждение о выборке — оно же заголовок сводной строки. */
   const summaryClaim = severity.critical > 0
@@ -952,9 +1132,16 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
         >
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                {bucketMeta.title}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                  {bucketMeta.title}
+                </h2>
+                {/* Происхождение числа рядом с именем класса: счёт класса
+                    получен предикатом по строкам книг, а не взят с листа. */}
+                <span title="Строки класса отобраны предикатом по полям книг управлений; официальный лист СВОД в этот счёт не участвует.">
+                  <SourceBadge source="calc" />
+                </span>
+              </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed max-w-3xl">
                 {bucketMeta.mechanism}
               </p>
@@ -1020,7 +1207,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
       {/* Плашка о непрочитанных книгах — одна на оба режима */}
       {!loadingRows && (trouble.failedDepts.length > 0 || trouble.partialDepts.length > 0) && (
-        <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-xs">
+        // Обводки нет (канон п.129): плашку от страницы отделяет тон заливки.
+        <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-xs">
           <AlertCircle size={15} className="text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
           <div className="space-y-1">
             {trouble.failedDepts.length > 0 && (
@@ -1092,6 +1280,89 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
         </>
       ) : (
       <>
+      {/* ── Срезы реестра ────────────────────────────────────────────────────
+           Именованные отборы строк в один щелчок: готовый вопрос вместо
+           перебора признаков по одному. Одновременно активен ровно один —
+           срезы отвечают на разные вопросы, а не складываются. Список живёт
+           в lib/rows/slice-presets: новый срез — одна запись словаря, разметку
+           здесь править не нужно. Обводок на кнопках нет (канон п.129):
+           нажатую отделяет светлота поверхности внутри общей подложки. */}
+      <section aria-label="Срезы реестра" className="space-y-1.5">
+        <div
+          role="group"
+          aria-label="Готовые срезы строк"
+          className="flex items-center gap-0.5 bg-zinc-100 dark:bg-zinc-800/60 rounded-lg p-0.5 w-fit flex-wrap"
+        >
+          <button
+            type="button"
+            aria-pressed={slicePresetId === null}
+            title="Все строки текущей выборки, без именованного среза"
+            onClick={() => setSlicePresetId(null)}
+            className={clsx(
+              'px-2.5 py-1 rounded-md text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
+              slicePresetId === null
+                ? 'bg-white dark:bg-zinc-700 text-zinc-800 dark:text-white shadow-sm'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200',
+            )}
+          >
+            Без среза
+          </button>
+          {REGISTRY_SLICE_PRESETS.map((preset) => {
+            const active = slicePresetId === preset.id;
+            const found = sliceCounts[preset.id] ?? 0;
+            // Пустой срез не исчезает и не притворяется доступным: кнопка
+            // остаётся на месте, гаснет и объясняет причину словами.
+            const unavailable = found === 0 && !active;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                aria-pressed={active}
+                disabled={unavailable || loadingRows}
+                title={loadingRows
+                  ? 'Книги ещё читаются — счёт по срезам появится после загрузки'
+                  : unavailable
+                    ? `${preset.mechanism}\n\nСейчас: ${preset.emptyReason}`
+                    : preset.mechanism}
+                onClick={() => setSlicePresetId(active ? null : preset.id)}
+                className={clsx(
+                  'px-2.5 py-1 rounded-md text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
+                  active
+                    ? 'bg-white dark:bg-zinc-700 text-zinc-800 dark:text-white shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200',
+                  (unavailable || loadingRows) && 'opacity-45 cursor-not-allowed',
+                )}
+              >
+                {preset.label}
+                <span className="ml-1.5 tabular-nums text-[10px] text-zinc-400 dark:text-zinc-500">
+                  {loadingRows ? '—' : found}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {/* Скоуп и момент чтения у самого числа (канон п.58): счёт кнопок
+            берётся по загруженным строкам, а не по тому, что осталось после
+            фильтров экрана, — иначе подпись среза зависела бы от него самого. */}
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug max-w-3xl">
+          {slicePreset ? (
+            <>
+              {slicePreset.mechanism}{' '}
+              {(sliceCounts[slicePreset.id] ?? 0) === 0
+                ? slicePreset.emptyReason
+                : `Под срез подходит ${sliceCounts[slicePreset.id]} ${pluralRu(sliceCounts[slicePreset.id] ?? 0, 'строка', 'строки', 'строк')} из загруженных; в таблице ниже они дополнительно сужены фильтрами экрана — сейчас ${filtered.length}.`}
+            </>
+          ) : (
+            <>
+              Числа у кнопок — сколько загруженных строк проходит срез
+              {typeof year === 'number' ? ` за ${year} год` : ' за все годы книг'} по книгам,
+              прочитанным под отбор шапки. Фильтры экрана — период, поиск, признаки — этот счёт
+              не меняют.
+            </>
+          )}
+        </p>
+      </section>
+
       {/* Панель: размер страницы, фильтр признаков, выгрузка */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
@@ -1301,7 +1572,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
       {/* Подсказка по клавишам — раскрывается на месте, не поверх экрана (канон: оверлей только для доказательства числа) */}
       {hotkeysOpen && (
-        <div className="px-4 py-3 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50 dark:bg-zinc-800/40">
+        // Обводки нет (канон п.129): подсказку от страницы отделяет светлота фона.
+        <div className="px-4 py-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/40">
           <div className="flex items-start justify-between gap-3">
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               {HOTKEYS.map(({ keys, what }) => (
@@ -1387,10 +1659,147 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               </button>
             )}
             {/* Подпись периметра (канон п.58): числа строки подчиняются
-                фильтрам периода из шапки — плашка честная. */}
+                фильтрам периода из шапки — плашка честная. Рядом момент, на
+                который эти числа верны: книги живут, и без него читатель не
+                отличит «сегодня так» от «так было во вторник». */}
+            <ReadMomentNote />
             <PeriodBadge />
           </span>
         </div>
+      )}
+
+      {/* ── Организации управления (режим подведов, приказ владельца 20.08) ──
+           Реестр — единственное место, где разрез по учреждениям НАСТОЯЩИЙ:
+           заказчик записан в самой строке книги (колонка C), делить готовые
+           итоги пропорцией не приходится. Поэтому здесь карточка не «одна
+           строка ГРБС», а разбивка: аппарат первым, дальше учреждения по
+           алфавиту. Щелчок по строке сужает таблицу до этой организации. */}
+      {!loadingRows && orgMode.mode !== 'district' && (
+        <section
+          aria-label="Организации управления"
+          className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-200/60 dark:border-zinc-700/50 p-4 space-y-2"
+        >
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                  Организации управления
+                </h2>
+                {/* Происхождение числа: суммы сложены по строкам книг, а не
+                    взяты с официального листа (канон двухисточниковости). */}
+                <span title="Числа сложены по строкам книг управления: заказчик берётся из колонки C, суммы — из плановых и фактических итогов строки.">
+                  <SourceBadge source="calc" />
+                </span>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed max-w-3xl">
+                Строки текущей выборки, разложенные по заказчику: аппарат управления первой
+                строкой, дальше подведомственные учреждения по алфавиту.
+              </p>
+            </div>
+            {/* Подпись периметра (канон п.58): разбивка считается по той же
+                выборке, что и таблица, — период у неё общий с шапкой. */}
+            <PeriodBadge />
+          </div>
+
+          {orgMode.mode === 'grbs' ? (
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+              {orgBreakdown.hasSubs
+                ? 'Выбран режим «только управление»: в таблице остались закупки аппарата, строки учреждений скрыты этим режимом. Вернуть разбивку — переключить управление в фильтре на «с подведомственными».'
+                : 'Выбран режим «только управление». Подведомственных учреждений у него нет, поэтому режим ничего не убирает: в таблице те же строки.'}
+            </p>
+          ) : !orgBreakdown.hasSubs ? (
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+              У этого управления подведомственных учреждений нет: все строки выборки — закупки
+              самого аппарата, и раскладывать их не на что.
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto -mx-1 px-1 max-h-72 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <caption className="sr-only">
+                    Строки выборки по организациям управления: число строк, план, факт и экономия
+                  </caption>
+                  <thead>
+                    <tr className="text-left text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                      <th scope="col" className="py-1.5 pr-3 font-medium">Организация</th>
+                      <th scope="col" className="py-1.5 px-2 font-medium text-right">Строк</th>
+                      <th scope="col" className="py-1.5 px-2 font-medium text-right">План, {moneyUnit} ₽</th>
+                      <th scope="col" className="py-1.5 px-2 font-medium text-right">Факт, {moneyUnit} ₽</th>
+                      <th scope="col" className="py-1.5 pl-2 font-medium text-right">Экономия, {moneyUnit} ₽</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+                    {orgGroups.map((group) => {
+                      const focused = subFocus === group.key;
+                      return (
+                        <tr
+                          key={group.key}
+                          className={clsx(
+                            'transition',
+                            focused
+                              ? 'bg-blue-50/60 dark:bg-zinc-700/40'
+                              : group.rows > 0 && 'hover:bg-blue-50/30 dark:hover:bg-zinc-700/30',
+                          )}
+                        >
+                          <th scope="row" className="py-1.5 pr-3 text-left font-medium text-zinc-700 dark:text-zinc-200">
+                            {group.rows > 0 ? (
+                              <button
+                                type="button"
+                                aria-pressed={focused}
+                                onClick={() => setSubFocus(focused ? null : group.key)}
+                                title={focused
+                                  ? 'Снять сужение: вернуть в таблицу строки всех организаций управления'
+                                  : `Оставить в таблице только строки этой организации (${group.rows})`}
+                                className="text-left hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded-sm"
+                              >
+                                {group.label}
+                              </button>
+                            ) : (
+                              <span className="text-zinc-500 dark:text-zinc-400">{group.label}</span>
+                            )}
+                          </th>
+                          {group.rows === 0 ? (
+                            // Честная пустота: организация из перечня не исчезает,
+                            // а говорит, что строк у неё в выборке нет.
+                            <td colSpan={4} className="py-1.5 px-2 text-right text-[11px] text-zinc-400 dark:text-zinc-500">
+                              строк этой организации в выборке нет
+                            </td>
+                          ) : (
+                            <>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-zinc-500 dark:text-zinc-400">{group.rows}</td>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{formatMoney(group.plan)}</td>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{formatMoney(group.fact)}</td>
+                              <td className="py-1.5 pl-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">
+                                {group.economy > 0 ? formatMoney(group.economy) : <span className="text-zinc-400 dark:text-zinc-500">нет</span>}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-snug">
+                Разбивка появилась потому, что в фильтре выбрано одно управление «с
+                подведомственными». Организация без строк из перечня не исчезает: пустая строка
+                значит «закупок в выборке нет», а не «учреждения нет».
+              </p>
+              {subFocusLabel && (
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-300 flex items-center gap-2 flex-wrap">
+                  В таблице ниже — только строки организации «{subFocusLabel}».
+                  <button
+                    type="button"
+                    onClick={() => setSubFocus(null)}
+                    className="inline-flex items-center gap-1 text-cyan-700 dark:text-cyan-300 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded-sm"
+                  >
+                    <X size={11} aria-hidden="true" /> вернуть все организации
+                  </button>
+                </p>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       {/* Таблица */}
@@ -1410,7 +1819,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                   // застывшее «тыс.» превращало верную цифру в неверное утверждение.
                   ['planSum', `План, ${moneyUnit} ₽`, 'px-3 py-3 w-28', 'text-right'],
                   ['factSum', `Факт, ${moneyUnit} ₽`, 'px-3 py-3 w-28', 'text-right'],
-                  ['economy', 'Экономия', 'px-3 py-3 w-28', 'text-right'],
+                  // Единица у столбца экономии — та же, что у плана и факта:
+                  // без неё столбец единственный на таблице читался безразмерным.
+                  // В срезе, где экономия читается по числам, подпись сразу
+                  // называет вторую величину столбца — долю от плана: число
+                  // без имени читатель достраивает сам и обычно неверно.
+                  [
+                    'economy',
+                    slicePreset?.economyByNumbers === true
+                      ? `Экономия, ${moneyUnit} ₽ · % плана`
+                      : `Экономия, ${moneyUnit} ₽`,
+                    'px-3 py-3 w-28',
+                    'text-right',
+                  ],
                   ['status', 'Статус', 'px-3 py-3 w-28', ''],
                 ] as [SortKey, string, string, string][]).map(([key, label, cls, align], colIdx) => (
                   <th
@@ -1454,6 +1875,17 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 // держится несколько секунд и гаснет сама — след правки, а не
                 // постоянная метка.
                 const justChanged = liveChangedRows.get(changedRowKey(row.dept, row.rowIndex ?? -1));
+                // Экономия по числам (план минус факт) — только в срезе, где
+                // графы экономии книги пусты по построению; условие и порог
+                // шума приходят из канона явления, а не переписаны здесь.
+                const economyByNumbers = slicePreset?.economyByNumbers === true
+                  ? numericEconomyOf(row as SliceRow)
+                  : null;
+                // Доля показанной экономии от плана — вторая величина столбца
+                // в том же срезе: она объясняет размер вопроса быстрее суммы.
+                const economyShare = slicePreset?.economyByNumbers === true && row.planSum > 0
+                  ? (row.economy / row.planSum) * 100
+                  : null;
                 return (
                 <tr
                   key={`${row.dept}-${row.rowIndex ?? row.id}-${i}`}
@@ -1559,18 +1991,54 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                       : <span className="text-zinc-400 dark:text-zinc-500" title="Контракт не заключён или его сумма не внесена">нет факта</span>}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums">
-                    {row.economy > 0
-                      ? <span className="text-emerald-600 dark:text-emerald-400 font-medium">{formatMoney(row.economy)}</span>
-                      : (
-                        <span
-                          className="text-zinc-400 dark:text-zinc-500"
-                          title={row.factSum > 0
-                            ? 'Экономия не зафиксирована: столбцы экономии пусты или признак экономии не проставлен'
-                            : 'Экономия появится после заключения контракта'}
-                        >
-                          {row.factSum > 0 ? 'не отмечена' : 'нет факта'}
+                    {row.economy > 0 ? (
+                      <>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">{formatMoney(row.economy)}</span>
+                        {economyShare !== null && (
+                          <span className="block text-[10px] font-normal text-zinc-500 dark:text-zinc-400">
+                            {formatPct(economyShare)} плана
+                          </span>
+                        )}
+                      </>
+                    ) : row.economy < 0 ? (
+                      // Отрицательная экономия не прячется под «не отмечена»:
+                      // так быть не должно, и молчание об этом — потеря случая,
+                      // ради которого на столбец и смотрят.
+                      <span
+                        className="text-red-600 dark:text-red-400 font-medium"
+                        title="Экономия отрицательная: факт превысил план. Проверьте суммы строки — либо план занижен правкой задним числом, либо в факт попала не та сумма."
+                      >
+                        {formatMoney(row.economy)}
+                      </span>
+                    ) : economyByNumbers !== null ? (
+                      // Срез «Экономия без отметки»: графы экономии книги пусты
+                      // по построению — формула листа заполняет их только после
+                      // отметки «да». Показываем разность плана и факта и прямо
+                      // говорим, откуда взято число (канон п.58).
+                      <span
+                        title={
+                          'Число прочитано как план минус факт на момент чтения книг: графы экономии книги '
+                          + '(Z/AA/AB) заполняются формулой листа только после отметки «да» в графе «Статус», '
+                          + 'а её у этой строки нет.'
+                        }
+                      >
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                          {formatMoney(economyByNumbers.economy)}
                         </span>
-                      )}
+                        <span className="block text-[10px] font-normal text-zinc-500 dark:text-zinc-400">
+                          {formatPct(economyByNumbers.sharePct)} плана · по числам
+                        </span>
+                      </span>
+                    ) : (
+                      <span
+                        className="text-zinc-400 dark:text-zinc-500"
+                        title={row.factSum > 0
+                          ? 'Экономия не зафиксирована: столбцы экономии пусты или признак экономии не проставлен'
+                          : 'Экономия появится после заключения контракта'}
+                      >
+                        {row.factSum > 0 ? 'не отмечена' : 'нет факта'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     {row.status ? (

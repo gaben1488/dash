@@ -39,7 +39,10 @@ import { pluralRu } from '../../lib/economy-copy';
 import { getAxisColor, getGridColor, getTooltipStyle } from '../../lib/chart-colors';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import { activePeriodKeys } from '../../lib/selectors/period-resolution';
-import { CompetitionCard, FOCUS_RING, fmtPct } from './primitives';
+import type { OrgScope } from '../../lib/selectors/org-scope';
+import {
+  CompetitionCard, FOCUS_RING, RULE_HEAD, RULE_ROW, SubScopeNote, TILE, fmtPct,
+} from './primitives';
 import { reducibleTrend, selectEpGradeView } from './ep-grade-view';
 
 const rowsWord = (n: number) => pluralRu(n, 'закупка', 'закупки', 'закупок');
@@ -112,7 +115,10 @@ function GradeStack({ slices, isDark }: {
   );
 }
 
-export function EpJustification() {
+export function EpJustification({ orgScope }: {
+  /** Режим подведов страницы (org-scope): здесь — только честная оговорка. */
+  orgScope: OrgScope;
+}) {
   const formatMoney = useStore((s) => s.formatMoney);
   const navigateTo = useStore((s) => s.navigateTo);
   const isDark = useTheme((s) => s.theme) === 'dark';
@@ -248,7 +254,7 @@ export function EpJustification() {
       ) : (
         <>
           {/* ── Главное число: сокращаемый ЕП ── */}
-          <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-4 py-3">
+          <div className={clsx(TILE, 'px-4 py-3')}>
             <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Сокращаемый ЕП — решение заказчика и закупки без обоснования
             </p>
@@ -301,10 +307,7 @@ export function EpJustification() {
               const clusters = topClustersOfGrade(view.clusters, g.grade, 3);
               const reducible = REDUCIBLE_GRADES.includes(g.grade);
               return (
-                <li
-                  key={g.grade}
-                  className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5"
-                >
+                <li key={g.grade} className={clsx(TILE, 'px-3 py-2.5')}>
                   <div className="flex items-start gap-2">
                     <span
                       className="mt-1 h-2 w-2 rounded-full shrink-0"
@@ -430,7 +433,7 @@ export function EpJustification() {
                   Доля закупок без торгов и доля сокращаемых закупок по кварталам года
                 </caption>
                 <thead>
-                  <tr className="text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                  <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Квартал</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium text-right">Без торгов</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium text-right">Сокращаемые</th>
@@ -439,7 +442,7 @@ export function EpJustification() {
                 </thead>
                 <tbody>
                   {dynamics.map((p) => (
-                    <tr key={p.quarter} className="border-b border-zinc-50 dark:border-zinc-800/50 last:border-0">
+                    <tr key={p.quarter} className={clsx(RULE_ROW, 'last:border-0')}>
                       <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300">
                         {quarterLabel(p.index)}
                       </td>
@@ -477,6 +480,14 @@ export function EpJustification() {
           >
             Открыть все закупки без торгов в Реестре →
           </button>
+
+          {/* Режим подведов: разбор обоснований приходит с сервера сведённым по
+              управлениям — сочетания «учреждение × причина» расчёт не держит. */}
+          <SubScopeNote
+            mode={orgScope.mode}
+            deptLabel={orgScope.dept}
+            reason="разбор причин сервер сводит по управлениям целиком: сочетания «учреждение × причина выбора способа» расчёт не хранит. Разложить объём по учреждениям умеет доля закупок без торгов выше."
+          />
         </>
       )}
     </CompetitionCard>

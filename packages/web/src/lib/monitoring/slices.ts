@@ -12,6 +12,7 @@
  * различать «книга не прочитана», «в книге нет строк» и «разрезы всё срезали»
  * обязан экран — тремя разными словами и тремя разными кнопками (п.36).
  */
+import { discountBucketOf } from '@aemr/core';
 import type { ProcedureDefect, RegistryProcedure } from './contract';
 import { dateQuarter, dateSortKey, dateYear, daysBetween } from './format';
 
@@ -45,6 +46,34 @@ export function nmckBucketId(nmck: number | null): string | null {
   return b ? b.id : null;
 }
 
+// ── Корзины снижения ─────────────────────────────────────────────────
+
+/**
+ * Подписи корзин снижения для крошек и панели разрезов. ГРАНИЦЫ ЗДЕСЬ НЕ
+ * ЖИВУТ: принадлежность строки корзине считает ядро (`discountBucketOf` из
+ * `@aemr/core`) — тот же счёт, что строит гистограмму аналитики, поэтому клик
+ * по столбу и разрез экрана не могут разойтись. Здесь только слова.
+ */
+export const REDUCTION_BUCKETS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'zero', label: 'ровно 0 %' },
+  { id: '0-1', label: 'от 0 до 1 %' },
+  { id: '1-5', label: 'от 1 до 5 %' },
+  { id: '5-10', label: 'от 5 до 10 %' },
+  { id: '10-25', label: 'от 10 до 25 %' },
+  { id: '25-50', label: 'от 25 до 50 %' },
+  { id: '50+', label: 'свыше 50 %' },
+];
+
+/**
+ * Корзина снижения строки; null — процедура не состоялась либо процента нет.
+ * Ядро читает только стадию и процент снижения; остальные поля своей формы
+ * процедуры ему не нужны, поэтому сужение типа безопасно.
+ */
+export function reductionBucketId(p: RegistryProcedure): string | null {
+  type CoreInput = Parameters<typeof discountBucketOf>[0];
+  return discountBucketOf({ stage: p.stage, reductionPct: p.reductionPct } as CoreInput);
+}
+
 // ── Состояние разрезов ───────────────────────────────────────────────
 
 /** По какой дате режется период: обе даты содержательны, подмена меняет картину. */
@@ -64,6 +93,8 @@ export interface SliceState {
   /** Победитель — по ИНН, а не по написанию имени. */
   winnerInn: string | null;
   nmckBucket: string | null;
+  /** Корзина снижения на торгах — та же, что столбы гистограммы аналитики. */
+  reductionBucket: string | null;
   /** Год процедуры из суффикса кода — книга переходящая. */
   procedureYear: number | null;
   /** Оставить только строки, у которых есть хоть один машинный дефект. */
@@ -83,6 +114,7 @@ export function emptySlices(): SliceState {
     customer: null,
     winnerInn: null,
     nmckBucket: null,
+    reductionBucket: null,
     procedureYear: null,
     defectsOnly: false,
     query: '',
@@ -95,6 +127,7 @@ export function hasAnySlice(s: SliceState): boolean {
     s.dept !== null || s.stage !== null || s.method !== null
     || s.periodYear !== null || s.periodQuarter !== null || s.periodMonth !== null
     || s.customer !== null || s.winnerInn !== null || s.nmckBucket !== null
+    || s.reductionBucket !== null
     || s.procedureYear !== null || s.defectsOnly || s.query.trim() !== ''
   );
 }
@@ -196,6 +229,7 @@ export function applySlices(rows: readonly RegistryProcedure[], s: SliceState): 
     if (s.customer !== null && p.customer !== s.customer) return false;
     if (s.winnerInn !== null && p.winnerInn !== s.winnerInn) return false;
     if (s.nmckBucket !== null && nmckBucketId(p.nmck) !== s.nmckBucket) return false;
+    if (s.reductionBucket !== null && reductionBucketId(p) !== s.reductionBucket) return false;
     if (s.procedureYear !== null && p.year !== s.procedureYear) return false;
 
     if (s.periodYear !== null || s.periodQuarter !== null || s.periodMonth !== null) {
@@ -246,6 +280,10 @@ export function describeSlices(s: SliceState, deptName?: (dept: string) => strin
   if (s.nmckBucket !== null) {
     const b = NMCK_BUCKETS.find((x) => x.id === s.nmckBucket);
     out.push({ key: 'nmckBucket', label: `размер НМЦК: ${b ? b.label : s.nmckBucket}` });
+  }
+  if (s.reductionBucket !== null) {
+    const b = REDUCTION_BUCKETS.find((x) => x.id === s.reductionBucket);
+    out.push({ key: 'reductionBucket', label: `снижение: ${b ? b.label : s.reductionBucket}` });
   }
   if (s.procedureYear !== null) out.push({ key: 'procedureYear', label: `год процедуры: ${s.procedureYear}` });
   if (s.defectsOnly) out.push({ key: 'defectsOnly', label: 'только строки с дефектами' });

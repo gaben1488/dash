@@ -50,6 +50,14 @@ export interface KBEntry {
   pitfalls?: string;
   actions?: string;
   related?: string[];
+  /**
+   * ⑪ Скоуп и момент — за какой периметр и на какое время это число (карточка
+   * 2.0). Постоянная часть приходит из карточки; изменчивую — выбранные
+   * управления, период и время чтения — подставляет экран.
+   */
+  scopeMoment?: string;
+  /** ⑫ Почему может разойтись с книгой или Сводом. */
+  divergence?: string;
 }
 
 interface KBTooltipProps {
@@ -70,6 +78,8 @@ interface KBTooltipProps {
   pitfalls?: string;
   actions?: string;
   related?: string[];
+  scopeMoment?: string;
+  divergence?: string;
   children: React.ReactNode;
   side?: 'top' | 'bottom' | 'left' | 'right';
   showIcon?: boolean;
@@ -114,14 +124,19 @@ function ThresholdLine({ text }: { text: string }) {
     <div className="space-y-0.5">
       {lines.map((line, i) => {
         const trimmed = line.trim();
-        const isGreen = trimmed.startsWith('🟢');
-        const isRed = trimmed.startsWith('🔴');
-        const isYellow = trimmed.startsWith('🟡');
-        const dotColor = isGreen ? 'bg-emerald-400' : isRed ? 'bg-red-400' : isYellow ? 'bg-amber-400' : 'bg-zinc-400';
+        // Пять зон, а не три: у грейда есть синяя середина, у вердикта сверки
+        // — оранжевая «лист не считает» и серая «нечего сравнивать». Кружок
+        // без своего цвета сводил бы их все к безымянному серому.
+        const dotColor = trimmed.startsWith('🟢') ? 'bg-emerald-400'
+          : trimmed.startsWith('🔴') ? 'bg-red-400'
+          : trimmed.startsWith('🟡') ? 'bg-amber-400'
+          : trimmed.startsWith('🔵') ? 'bg-blue-400'
+          : trimmed.startsWith('🟠') ? 'bg-orange-400'
+          : 'bg-zinc-400';
         return (
           <div key={i} className="flex items-start gap-1.5">
             <span className={cn('w-1.5 h-1.5 rounded-full mt-1 shrink-0', dotColor)} />
-            <span className="text-[10px] text-zinc-300">{trimmed.replace(/^[🟢🟡🔴]\s*/u, '')}</span>
+            <span className="text-[10px] text-zinc-300">{trimmed.replace(/^[🟢🟡🔴🔵🟠⚪]\s*/u, '')}</span>
           </div>
         );
       })}
@@ -195,7 +210,7 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
   const [expanded, setExpanded] = useState(false);
   const hasFullContent = entry.whatIs || entry.thresholdsFull || entry.example;
   const hasExpandable = entry.howCalc || entry.dataSource || entry.engine
-    || entry.lawFull || entry.pitfalls || entry.actions
+    || entry.lawFull || entry.pitfalls || entry.actions || entry.divergence
     || (entry.related && entry.related.length > 0);
 
   if (!hasFullContent) return <LegacyContent entry={entry} />;
@@ -205,6 +220,14 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
       {/* Always visible: ①⑤⑦ */}
       {entry.whatIs && (
         <p className="text-[11px] leading-relaxed text-zinc-100 font-medium">{entry.whatIs}</p>
+      )}
+      {/* ⑪ Скоуп и момент стоит сразу под механизмом и ДО порога: читатель,
+          открывший объяснение, уже не видит плашку периметра на плитке, и без
+          этой строки не знает, за что число (спека карточки 2.0, п.③). */}
+      {entry.scopeMoment && (
+        <Section icon={<Database size={8} />} num="⑪" title="Скоуп и момент">
+          <p className="text-zinc-300 text-[10px]">{entry.scopeMoment}</p>
+        </Section>
       )}
       {entry.thresholdsFull && (
         <Section icon={<BarChart3 size={8} />} num="⑤" title="Пороги">
@@ -255,6 +278,14 @@ function FullKBContent({ entry }: { entry: KBEntry }) {
               {entry.lawFull && (
                 <Section icon={<Scale size={8} />} num="⑥" title="Закон">
                   <LawBlock text={entry.lawFull} />
+                </Section>
+              )}
+              {/* ⑫ Расхождение с источником — рядом с «откуда данные»: это
+                  ответ на вопрос «как считает лист против того, как считаем
+                  мы», и без него сверка выглядит спором двух чисел. */}
+              {entry.divergence && (
+                <Section icon={<Scale size={8} />} num="⑫" title="Почему может разойтись">
+                  <p className="text-zinc-300 text-[10px]">{entry.divergence}</p>
                 </Section>
               )}
               {entry.pitfalls && (
@@ -350,7 +381,7 @@ export function KBTooltip({
   metric,
   formula, source, cell, thresholds, law, description,
   whatIs, howCalc, dataSource, engine, thresholdsFull, lawFull,
-  example, pitfalls, actions, related,
+  example, pitfalls, actions, related, scopeMoment, divergence,
   children, side = 'top', showIcon = false, className,
 }: KBTooltipProps) {
   const registryEntry = getKB(metric);
@@ -378,6 +409,10 @@ export function KBTooltip({
     pitfalls: pitfalls ?? registryEntry?.pitfalls,
     actions: actions ?? registryEntry?.actions,
     related: related ?? registryEntry?.related,
+    // Поля карточки 2.0. Пропс сильнее записи реестра — экран знает свой
+    // периметр лучше словаря и вправе уточнить скоуп живыми значениями.
+    scopeMoment: scopeMoment ?? registryEntry?.scopeMoment,
+    divergence: divergence ?? registryEntry?.divergence,
   };
 
   const coarsePointer = useCoarsePointer();

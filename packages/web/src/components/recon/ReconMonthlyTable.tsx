@@ -215,8 +215,9 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                                   Причина расхождения с листом «СВОД с месяцами»
                                 </div>
                                 {rc ? (
-                                  <div className={clsx('rounded-lg p-3 border',
-                                    rc.severity === 'critical' ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800')}>
+                                  // Обводки нет (канон п.129): плитку отделяет заливка.
+                                  <div className={clsx('rounded-lg p-3',
+                                    rc.severity === 'critical' ? 'bg-red-50 dark:bg-red-950/30' : 'bg-amber-50 dark:bg-amber-950/30')}>
                                     <div className="flex items-start justify-between gap-2">
                                       <span className={clsx('font-bold text-[11px]', rc.severity === 'critical' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400')}>{rc.label}</span>
                                       <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/60 dark:bg-black/20 text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{confidenceLabel(rc.confidence)} достоверность</span>
@@ -227,7 +228,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                                     )}
                                   </div>
                                 ) : (
-                                  <div className="rounded-lg p-3 border bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200 dark:border-zinc-700 text-[10px] text-zinc-500 dark:text-zinc-400">
+                                  <div className="rounded-lg p-3 bg-zinc-50 dark:bg-zinc-800/40 text-[10px] text-zinc-500 dark:text-zinc-400">
                                     Существенных расхождений за этот месяц нет — либо расхождение есть,
                                     но под известные причины оно не подошло: разбирайте по строкам.
                                   </div>
@@ -253,7 +254,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                                 <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                   <FileSpreadsheet size={13} className="text-blue-500" aria-hidden="true" /> Суммы, тыс. ₽: официально → пересчёт и расхождение
                                 </div>
-                                <div className="bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5">
+                                <div className="bg-white dark:bg-zinc-800/60 rounded-lg p-3 space-y-1.5">
                                   {moneyRow('КП план', r.compPlanTotal)}
                                   {moneyRow('КП факт', r.compFactTotal)}
                                   {moneyRow('ЕП план', r.epPlanTotal)}
@@ -267,7 +268,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                                       Разбивка по федеральному, краевому и муниципальному бюджетам сходится.
                                     </div>
                                   ) : (
-                                    <div className="bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5">
+                                    <div className="bg-white dark:bg-zinc-800/60 rounded-lg p-3 space-y-1.5">
                                       <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">
                                         Расходится по бюджетам (федеральный, краевой, муниципальный)
                                       </div>

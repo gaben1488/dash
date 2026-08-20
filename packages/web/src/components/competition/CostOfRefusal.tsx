@@ -19,8 +19,12 @@ import { useStore } from '../../store';
 import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
+import { fmtThousands } from '../../lib/report/mappers';
+import type { OrgScope } from '../../lib/selectors/org-scope';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
-import { CompetitionCard, FOCUS_RING, fmtPct } from './primitives';
+import {
+  CompetitionCard, FOCUS_RING, RULE_HEAD, RULE_ROW, SubScopeNote, TILE, fmtPct,
+} from './primitives';
 
 interface ScatterPoint {
   department: string;
@@ -51,10 +55,12 @@ function parseQuarter(raw: unknown): number | null {
   return m ? Number(m[0]) : null;
 }
 
-export function CostOfRefusal({ epPlan, epHasData }: {
+export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
   /** Плановый объём ЕП за периметр шапки, тыс. ₽ (счёт — sumEpKp). */
   epPlan: number;
   epHasData: boolean;
+  /** Режим подведов страницы (org-scope): здесь — только честная оговорка. */
+  orgScope: OrgScope;
 }) {
   const formatMoney = useStore((s) => s.formatMoney);
   const selectedDepartments = useStore((s) => s.selectedDepartments);
@@ -161,7 +167,9 @@ export function CostOfRefusal({ epPlan, epHasData }: {
 
   return (
     <CompetitionCard
-      title="Сколько стоит отказ от конкурса"
+      // Заголовок-существительное и ровно тот, каким метрика названа в базе
+      // знаний («Цена отказа от конкурса»): одно имя у числа на всех экранах.
+      title="Цена отказа от конкурса"
       subtitle="На состоявшихся торгах цена падает от НМЦК; у закупки у единственного поставщика снижение — ноль. Цена отказа — сколько снижения теряет объём ЕП при среднем проценте собственных торгов."
       icon={Scale}
       caveats={caveats}
@@ -191,7 +199,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
         <>
           {/* Три числа расчёта: множители и произведение. Цвет — только у данных. */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
+            <div className={clsx(TILE, 'px-3 py-2.5')}>
               <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Среднее снижение на торгах
               </p>
@@ -202,7 +210,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                 по {rows.length} {procWord(rows.length)} с заключённым контрактом
               </p>
             </div>
-            <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 px-3 py-2.5">
+            <div className={clsx(TILE, 'px-3 py-2.5')}>
               <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Плановый объём ЕП за периметр
               </p>
@@ -215,7 +223,9 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                   : 'счётных строк ЕП за периметр нет'}
               </p>
             </div>
-            <div className="rounded-lg border border-amber-200/70 dark:border-amber-700/40 bg-amber-50/50 dark:bg-amber-900/10 px-3 py-2.5">
+            {/* Итог расчёта — единственная плитка с собственным тоном: в тёмной
+                теме её отделяет янтарная подложка, а не обводка (п.129). */}
+            <div className="rounded-lg border border-amber-200/70 dark:border-transparent bg-amber-50/50 dark:bg-amber-400/[0.07] px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-amber-700/80 dark:text-amber-400/80">
                 Цена отказа от конкурса
               </p>
@@ -273,7 +283,7 @@ export function CostOfRefusal({ epPlan, epHasData }: {
             <div id={detailId} className="mt-2 overflow-x-auto">
               <table className="w-full text-[11px]">
                 <thead>
-                  <tr className="text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                  <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Управление</th>
                     <th scope="col" className="py-1.5 pr-3 font-medium">Предмет закупки</th>
                     <th scope="col" className="py-1.5 pr-3 text-right font-medium">НМЦК, тыс. ₽</th>
@@ -283,16 +293,16 @@ export function CostOfRefusal({ epPlan, epHasData }: {
                 </thead>
                 <tbody>
                   {sortedRows.slice(0, ROWS_VISIBLE_LIMIT).map((p, i) => (
-                    <tr key={i} className="border-b border-zinc-50 dark:border-zinc-800/50 align-top">
+                    <tr key={i} className={clsx(RULE_ROW, 'align-top')}>
                       <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300">{p.department}</td>
                       <td className="py-1.5 pr-3 text-zinc-700 dark:text-zinc-200 max-w-[380px]">
                         <span className="line-clamp-2" title={p.subject}>{p.subject}</span>
                       </td>
                       <td className="py-1.5 pr-3 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {p.planTotal.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}
+                        {fmtThousands(p.planTotal)}
                       </td>
                       <td className="py-1.5 pr-3 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {p.factTotal.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}
+                        {fmtThousands(p.factTotal)}
                       </td>
                       <td className={clsx(
                         'py-1.5 text-right tabular-nums',
@@ -313,6 +323,15 @@ export function CostOfRefusal({ epPlan, epHasData }: {
               )}
             </div>
           )}
+
+          {/* Режим подведов: разбивки здесь нет — и это сказано словами вместе
+              с механизмом (приказ 20.08). Строка торгов приходит с адресом
+              управления; колонки учреждения у неё нет. */}
+          <SubScopeNote
+            mode={orgScope.mode}
+            deptLabel={orgScope.dept}
+            reason="строка торгов приходит с адресом управления, колонки учреждения у неё нет — разложить среднее снижение по учреждениям не из чего. Разбивка по учреждениям есть у доли закупок без торгов ниже."
+          />
         </>
       )}
     </CompetitionCard>

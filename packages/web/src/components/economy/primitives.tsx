@@ -20,6 +20,24 @@ export type BudgetTokenKey = keyof typeof BT;
 export const FOCUS_RING =
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-900 rounded-sm';
 
+// ── Поверхности страницы (канон п.129) ───────────────────────────
+//
+// Тёмная тема разделяет вложенные поверхности СВЕТЛОТОЙ: плитка внутри
+// карточки светлее самой карточки, и обводка ей не нужна — обводка на
+// каждом атоме и давала тот «частокол», которым владелец был недоволен.
+// В светлой теме тонкая линия остаётся: на белом фоне разница светлот
+// почти не читается. Словарь тот же, что на соседней вкладке
+// «Конкуренция» (components/competition/primitives.tsx) — одна страница
+// не должна разделять поверхности иначе, чем другая.
+
+/** Вложенная плитка карточки (число с подписью, элемент списка, группа). */
+export const TILE =
+  'rounded-lg border border-zinc-200/70 dark:border-transparent bg-zinc-50/60 dark:bg-white/[0.04]';
+
+/** Кнопка-хром на поверхности карточки: в тёмной теме без обводки. */
+export const CHROME_BOX =
+  'border border-zinc-200/70 dark:border-transparent bg-zinc-100/70 dark:bg-white/[0.04]';
+
 /**
  * Бейдж доли экономии от лимита.
  * Пороги: свыше 25 % красный (проверка по ст.37 44-ФЗ), 5–15 % зелёный
@@ -188,7 +206,14 @@ const CARD_ACCENTS = {
   purple: 'from-purple-500/30 via-purple-400/10 to-transparent',
 } as const;
 
-/** Карточка-обёртка (тонкая рамка, акцент-градиент сверху). */
+/**
+ * Карточка-обёртка (поверхность + акцент-градиент сверху).
+ *
+ * Тёмная тема (п.129): карточку отделяет от страницы СВЕТЛОТА поверхности,
+ * обводка гаснет — иначе экран из восьми карточек превращался в частокол
+ * рамок. В светлой теме тонкая линия остаётся: кремовое на кремовом
+ * ступенью светлоты не разделяется.
+ */
 export function Card({ children, className, accent }: {
   children: React.ReactNode; className?: string;
   accent?: keyof typeof CARD_ACCENTS;
@@ -196,7 +221,7 @@ export function Card({ children, className, accent }: {
   const accentGrad = accent ? CARD_ACCENTS[accent] : 'from-white/[0.06] via-transparent to-transparent';
   return (
     <div className={clsx(
-      'relative rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02]',
+      'relative rounded-xl border border-zinc-200/70 dark:border-transparent bg-white dark:bg-zinc-800/60',
       'shadow-sm dark:shadow-none backdrop-blur-sm overflow-hidden',
       className,
     )}>

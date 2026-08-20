@@ -28,15 +28,20 @@ import {
   type TimelineDisplayItem,
 } from './timeline-view';
 
-/** Палитра тонов: точка на линии + значок; обе темы. */
+/**
+ * Тон узла на линии: поверхность у всех узлов одна и тихая, различает их
+ * ЗНАЧОК и его цвет (канон п.129: в тёмной теме поверхности — нейтральный
+ * графит, цветных подложек и частокола обводок нет; цвет остаётся у данных).
+ */
+const DOT_SURFACE = 'bg-[var(--surface-raised)] ring-[var(--line-strong)]';
 const ACCENT: Readonly<Record<DisplayAccent, { dot: string; icon: string }>> = {
-  blue:    { dot: 'bg-blue-100 dark:bg-blue-950/60 ring-blue-300 dark:ring-blue-700',          icon: 'text-blue-600 dark:text-blue-400' },
-  emerald: { dot: 'bg-emerald-100 dark:bg-emerald-950/60 ring-emerald-300 dark:ring-emerald-700', icon: 'text-emerald-600 dark:text-emerald-400' },
-  amber:   { dot: 'bg-amber-100 dark:bg-amber-950/60 ring-amber-300 dark:ring-amber-700',      icon: 'text-amber-700 dark:text-amber-400' },
-  violet:  { dot: 'bg-violet-100 dark:bg-violet-950/60 ring-violet-300 dark:ring-violet-700',  icon: 'text-violet-600 dark:text-violet-400' },
-  zinc:    { dot: 'bg-zinc-100 dark:bg-zinc-800 ring-zinc-300 dark:ring-zinc-600',             icon: 'text-zinc-500 dark:text-zinc-400' },
-  red:     { dot: 'bg-red-100 dark:bg-red-950/60 ring-red-400 dark:ring-red-700',              icon: 'text-red-600 dark:text-red-400' },
-  sky:     { dot: 'bg-sky-100 dark:bg-sky-950/60 ring-sky-300 dark:ring-sky-700',              icon: 'text-sky-600 dark:text-sky-400' },
+  blue:    { dot: DOT_SURFACE, icon: 'text-[var(--data-info)]' },
+  emerald: { dot: DOT_SURFACE, icon: 'text-[var(--data-good)]' },
+  amber:   { dot: DOT_SURFACE, icon: 'text-[var(--data-warn)]' },
+  violet:  { dot: DOT_SURFACE, icon: 'text-[var(--cat-4)]' },
+  zinc:    { dot: DOT_SURFACE, icon: 'text-[var(--ink-muted)]' },
+  red:     { dot: DOT_SURFACE, icon: 'text-[var(--data-bad)]' },
+  sky:     { dot: DOT_SURFACE, icon: 'text-[var(--accent)]' },
 };
 
 /** Значок по виду события; у якоря плановой даты — ромб-насечка без значка. */
@@ -74,31 +79,31 @@ function EventNode({ item }: { item: TimelineDisplayItem }) {
       </span>
 
       <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+        <span className="text-[10px] tabular-nums text-[var(--ink-muted)]">
           {item.dateLabel}
           {item.timeLabel && <span> · {item.timeLabel}</span>}
         </span>
         {item.source && (
-          <span className="text-[9px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          <span className="text-[9px] uppercase tracking-wide text-[var(--ink-faint)]">
             {item.source}
           </span>
         )}
         {item.cell && (
-          <span className="text-[9px] text-zinc-500 dark:text-zinc-400">ячейка {item.cell}</span>
+          <span className="text-[9px] text-[var(--ink-faint)]">ячейка {item.cell}</span>
         )}
       </div>
       <p className={clsx(
         'leading-snug',
         anchor
-          ? 'text-xs font-medium text-sky-700 dark:text-sky-300'
+          ? 'text-xs font-medium text-[var(--accent)]'
           : item.emphasis
-            ? 'text-xs font-semibold text-red-700 dark:text-red-400'
-            : 'text-xs font-medium text-zinc-700 dark:text-zinc-200',
+            ? 'text-xs font-semibold text-[var(--data-bad)]'
+            : 'text-xs font-medium text-[var(--ink)]',
       )}>
         {item.title}
       </p>
       {item.detail && (
-        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug break-words">
+        <p className="break-words text-[11px] leading-snug text-[var(--ink-muted)]">
           {item.detail}
         </p>
       )}
@@ -112,7 +117,7 @@ export function RowTimeline({ timeline }: { timeline: RowTimelineResponse }) {
   return (
     <div>
       {items.length === 0 ? (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+        <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
           Изменений по строке не зафиксировано: во всех наблюдениях она одинакова,
           а журнал правок её ячеек не упоминает. История накапливается со снимками
           сервера — новые правки появятся здесь сами.
@@ -121,7 +126,7 @@ export function RowTimeline({ timeline }: { timeline: RowTimelineResponse }) {
         <ol className="relative" aria-label="События строки по времени">
           {/* Сама линия времени: сверху — начало истории, снизу — самое свежее. */}
           <span
-            className="absolute left-[11px] top-1 bottom-1 w-px bg-zinc-200 dark:bg-zinc-700"
+            className="absolute left-[11px] top-1 bottom-1 w-px bg-[var(--line-strong)]"
             aria-hidden="true"
           />
           {items.map((item) => <EventNode key={item.key} item={item} />)}
@@ -129,7 +134,7 @@ export function RowTimeline({ timeline }: { timeline: RowTimelineResponse }) {
       )}
 
       {/* Честная глубина истории — фраза сервера, не выдумка витрины. */}
-      <p className="mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-700/50 text-[10px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+      <p className="mt-3 border-t border-[var(--line-soft)] pt-2 text-[10px] leading-relaxed text-[var(--ink-muted)]">
         {timeline.historyNote}
         {!timeline.coverage.journalAvailable &&
           ' Журнал правок сейчас недоступен — это не значит, что правок не было.'}

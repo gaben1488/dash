@@ -1,15 +1,18 @@
 /**
  * Ряд режимов листов книги — вкладки второго уровня (спека §2, §6.1).
  *
+ * ПЯТЬ КНОПОК, А НЕ ТРИНАДЦАТЬ (п.128-1). Восемь кнопок листов управлений из
+ * ряда убраны: срез по управлению даёт глобальный фильтр шапки (п.127), и
+ * линейка организаций внутри вкладки его дублировала. Ряд теперь помещается
+ * в одну строку рядом с поиском и разрезами.
+ *
  * ЛИСТ, КОТОРОГО СЕРВЕР ЕЩЁ НЕ ОТДАЁТ, ОСТАЁТСЯ В РЯДУ. Спрятать его значило
  * бы соврать о книге: лист в книге есть, и читатель, который его ищет, должен
  * найти кнопку и прочитать, чего именно она ждёт. Кнопка помечается точкой и
  * ведёт на честную пустоту с причиной, а не в никуда.
  *
- * НА УЗКОМ ЭКРАНЕ (§6.3) ряд едет горизонтально, а первая кнопка липнет к
- * левому краю: без неё возврат к «Всем управлениям» требовал бы прокрутки
- * назад через одиннадцать кнопок. Горизонтально едет только этот ряд — корпус
- * страницы стоит на месте.
+ * НА УЗКОМ ЭКРАНЕ (§6.3) ряд едет горизонтально внутри себя — корпус страницы
+ * стоит на месте.
  */
 import { SHEET_MODES, type SheetMode } from '../../lib/monitoring/modes';
 
@@ -31,7 +34,7 @@ export function SheetModeTabs({ activeId, onSelect, pendingIds = [], counts = {}
       aria-label="Листы книги «Ежедневный мониторинг»"
       className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1"
     >
-      {SHEET_MODES.map((mode, index) => {
+      {SHEET_MODES.map((mode) => {
         const active = mode.id === activeId;
         const pending = pendingIds.includes(mode.id);
         const count = counts[mode.id];
@@ -43,10 +46,7 @@ export function SheetModeTabs({ activeId, onSelect, pendingIds = [], counts = {}
             aria-current={active ? 'page' : undefined}
             title={pending ? `${mode.hint} Сервер этот лист ещё не отдаёт.` : mode.hint}
             className={[
-              'shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition',
-              // Липкая первая кнопка: возврат к «Всем управлениям» с телефона
-              // не должен требовать прокрутки назад через весь ряд.
-              index === 0 ? 'sticky left-0 z-10' : '',
+              'shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition',
               active
                 ? 'bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
                 : 'border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40',

@@ -25,11 +25,13 @@ import {
   getMetricByKey,
   productLabel,
   quarterLabel,
+  subordinateKey,
 } from '@aemr/shared';
 import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
+import { useOrgScope } from '../lib/selectors/org-scope';
 import { freshImport } from '../lib/fresh-import';
 import { KpiTile } from '../components/contract/KpiTile';
 import { SectionCard } from '../components/contract/SectionCard';
@@ -221,6 +223,31 @@ function PendingPositionRow({ p }: { p: PendingPosition }) {
           пояснений в листе нет
         </div>
       )}
+    </div>
+  );
+}
+
+/** Позиция секции «Закупки, не обеспеченные финансированием» (тип ответа сервера). */
+type UnfundedPositionVM = NonNullable<ReportResponse['unfunded']>['byDept'][number]['positions'][number];
+
+/** Ключ-ведро подведа для org-scope: дословная колонка C, пусто = аппарат. */
+const unfundedSubKey = (p: UnfundedPositionVM): string => subordinateKey(p.subordinate);
+
+/**
+ * Строка закупки без финансирования: предмет целиком, подвед (в разбивке по
+ * подведам не повторяется — его называет заголовок группы), способ, деньги,
+ * адрес строки листа.
+ */
+function UnfundedPositionRow({ p, showSubordinate = true }: { p: UnfundedPositionVM; showSubordinate?: boolean }) {
+  return (
+    <div className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
+      {p.subject || 'Без наименования'}
+      <span className="text-zinc-400 dark:text-zinc-500">
+        {showSubordinate && p.subordinate && ` — ${p.subordinate}`}
+        {p.method && ` · ${p.method}`}
+        {` · ${fmtThousands(p.planTotal)} тыс. руб.`}
+        <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
+      </span>
     </div>
   );
 }
@@ -640,6 +667,22 @@ export function ReportPage() {
   }, [asOfDay]);
   const weekDeltas = weekDelta.kind === 'ready' ? weekDelta.deltas : [];
 
+  // ── Режим подведов (org-scope, приказ владельца 20.08.2026) ──
+  // Отчёт — документ по всем управлениям (решение 03.08: фильтр секций не
+  // режет), поэтому режим не прячет блоки, а добавляет измерение там, где у
+  // страницы есть строки с колонкой C: секция «Закупки, не обеспеченные
+  // финансированием» при выборе одного ГРБС «с подведомственными»
+  // раскладывается по учреждениям. Образец подключения — шапка
+  // lib/selectors/org-scope.ts.
+  const orgMode = useOrgScope();
+  const unfundedSelectedRows = useMemo<UnfundedPositionVM[]>(
+    () => (orgMode.dept !== null && report?.unfunded
+      ? report.unfunded.byDept.find((d) => d.dept === orgMode.dept)?.positions ?? []
+      : []),
+    [report, orgMode.dept],
+  );
+  const orgScope = useOrgScope(unfundedSelectedRows, unfundedSubKey);
+
   // Доказательство числа — состояние страницы, а не маршрут: раскрытие идёт
   // на месте, без ухода в Реестр (решение владельца, бриф «Отчёт++» §3).
   const [proof, setProof] = useState<ProofData | null>(null);
@@ -732,7 +775,7 @@ export function ReportPage() {
               key={vm.dept}
               type="button"
               onClick={() => document.getElementById(`grbs-${vm.dept}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              className="flex items-center justify-between rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors"
+              className="flex items-center justify-between rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] text-zinc-600 hover:border-zinc-300 dark:border-zinc-700/40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/60 transition-colors"
             >
               <span>{vm.dept}</span>
               <span className="tabular-nums font-medium text-zinc-800 dark:text-zinc-100">
@@ -745,7 +788,7 @@ export function ReportPage() {
             type="button"
             onClick={() => document.getElementById('report-changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
             title="Лента «Что изменилось с последнего среза» — в самом низу страницы"
-            className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-500 transition-colors"
+            className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-500 hover:border-zinc-400 dark:border-zinc-600/40 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700/60 transition-colors"
           >
             <History size={11} aria-hidden="true" />
             <span>Изменения ↓</span>
@@ -766,9 +809,10 @@ export function ReportPage() {
         </h2>
         {/* Переключатель режима — управление, а не подпись: читателю нужно
             уметь ВЕРНУТЬСЯ в эфир, а не только видеть, где он находится. */}
-        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700/50 overflow-hidden">
           <button
             onClick={() => setMode('live')}
+            aria-pressed={mode === 'live'}
             title="Числа на текущий момент — как считает официальный лист СВОД."
             className={clsx(
               'inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition',
@@ -785,9 +829,10 @@ export function ReportPage() {
           </button>
           <button
             onClick={() => setMode('archive')}
+            aria-pressed={mode === 'archive'}
             title="Снимок недели: заключённое после даты среза в числа не входит."
             className={clsx(
-              'px-2 py-0.5 text-[10px] font-medium border-l border-zinc-200 dark:border-zinc-700 transition',
+              'px-2 py-0.5 text-[10px] font-medium border-l border-zinc-200 dark:border-zinc-700/50 transition',
               mode === 'archive'
                 ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
                 : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-700/40',
@@ -831,13 +876,14 @@ export function ReportPage() {
 
       {/* Ярус 2: период и служебные оговорки */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700/50 overflow-hidden">
           {QUARTERS.map((q) => (
             <button
               key={q}
               onClick={() => setLocalQuarter(q)}
+              aria-pressed={request.quarter === q}
               className={clsx(
-                'px-2.5 py-0.5 text-[10px] font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700 first:border-l-0',
+                'px-2.5 py-0.5 text-[10px] font-medium transition-colors border-l border-zinc-200 dark:border-zinc-700/50 first:border-l-0',
                 request.quarter === q
                   ? 'bg-amber-500 text-white border-amber-500'
                   : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-700/40',
@@ -878,6 +924,19 @@ export function ReportPage() {
             title="Переключитесь в «Архив недели», чтобы увидеть снимок выбранной недели."
           >
             неделя из фильтра не применена
+          </span>
+        )}
+        {/* Выбранное управление отчёт не сужает (решение 03.08: документ по
+            всем управлениям сразу) — говорим об этом прямо, и называем, где
+            режим подведов на этой странице работает. */}
+        {orgScope.mode !== 'district' && (
+          <span
+            className="text-[10px] text-zinc-500 dark:text-zinc-400"
+            title="Отчёт — документ по всем управлениям сразу, фильтр организаций его не сужает. Разбивка по подведомственным выбранного управления есть в секции «Закупки, не обеспеченные финансированием»."
+          >
+            {orgScope.mode === 'withSubs'
+              ? 'разбивка по подведам — в секции закупок без финансирования'
+              : 'фильтр организаций отчёт не сужает'}
           </span>
         )}
         {/* Кнопка-якорь к ленте изменений (п.73б): блок живёт в самом низу
@@ -1032,6 +1091,16 @@ export function ReportPage() {
                   лимит меньше нашего расчёта ровно на эту сумму. По каждой строке нужно решение:
                   подтвердить финансирование и проставить сроки — либо вынести из плана.
                 </p>
+                {/* Честная пустота режима подведов: у выбранного управления
+                    таких строк нет вовсе — говорим словами, а не отсутствием
+                    блока (в byDept входят только управления со строками). */}
+                {orgScope.mode === 'withSubs'
+                  && !report.unfunded.byDept.some((d) => d.dept === orgScope.dept) && (
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    У выбранного управления закупок, не обеспеченных финансированием, нет —
+                    ни у аппарата, ни у подведомственных.
+                  </p>
+                )}
                 {report.unfunded.byDept.map((d) => {
                   const deptProof = unfundedProof(report, d.dept);
                   const deptTotals = (
@@ -1039,6 +1108,14 @@ export function ReportPage() {
                       {fmtCount(d.count)} поз. · {fmtThousands(d.total)} тыс. руб.
                     </span>
                   );
+                  // Режим подведов: у выбранного «с подведомственными» ГРБС
+                  // блок раскладывается по учреждениям (аппарат первым,
+                  // подведы по алфавиту — канон org-scope); прочие ГРБС
+                  // остаются плоским списком — документ целиком.
+                  const grouped = orgScope.mode === 'withSubs' && d.dept === orgScope.dept && orgScope.hasSubs
+                    ? orgScope.subordinates
+                    : null;
+                  const emptyGroups = grouped?.filter((g) => g.rows.length === 0) ?? [];
                   return (
                   <div key={d.dept}>
                     <div className="mb-1 flex items-baseline gap-2 text-[11px]">
@@ -1047,24 +1124,58 @@ export function ReportPage() {
                         ? <ProofButton proof={deptProof} onOpen={setProof}>{deptTotals}</ProofButton>
                         : deptTotals}
                     </div>
-                    <ExpandableRows
-                      rows={d.positions}
-                      top={3}
-                      noun="позиций"
-                      searchText={(p) => `${p.subject} ${p.subordinate} ${p.method}`}
-                    >
-                      {(p) => (
-                        <div key={p.sheetRow} className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
-                          {p.subject || 'Без наименования'}
-                          <span className="text-zinc-400 dark:text-zinc-500">
-                            {p.subordinate && ` — ${p.subordinate}`}
-                            {p.method && ` · ${p.method}`}
-                            {` · ${fmtThousands(p.planTotal)} тыс. руб.`}
-                            <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
-                          </span>
-                        </div>
-                      )}
-                    </ExpandableRows>
+                    {grouped ? (
+                      <div className="space-y-2">
+                        {grouped.filter((g) => g.rows.length > 0).map((g) => (
+                          <div key={g.key}>
+                            <div className="mb-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+                              {g.label}
+                              <span className="ml-1.5 font-normal tabular-nums text-zinc-400 dark:text-zinc-500">
+                                {fmtCount(g.rows.length)} поз. · {fmtThousands(g.rows.reduce((s, p) => s + p.planTotal, 0))} тыс. руб.
+                              </span>
+                            </div>
+                            <ExpandableRows
+                              rows={g.rows}
+                              top={3}
+                              noun="позиций"
+                              searchText={(p) => `${p.subject} ${p.method}`}
+                            >
+                              {(p) => <UnfundedPositionRow key={p.sheetRow} p={p} showSubordinate={false} />}
+                            </ExpandableRows>
+                          </div>
+                        ))}
+                        {/* Честная пустота: организация есть, строк нет —
+                            отличается от «организации нет» (канон org-scope). */}
+                        {emptyGroups.length > 0 && (
+                          <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                            {emptyGroups.length <= 4
+                              ? `Таких строк нет: ${emptyGroups.map((g) => g.label).join(', ')}.`
+                              : `Таких строк нет ещё у ${fmtCount(emptyGroups.length)} организаций управления.`}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <ExpandableRows
+                        rows={d.positions}
+                        top={3}
+                        noun="позиций"
+                        searchText={(p) => `${p.subject} ${p.subordinate} ${p.method}`}
+                      >
+                        {(p) => <UnfundedPositionRow key={p.sheetRow} p={p} />}
+                      </ExpandableRows>
+                    )}
+                    {/* Оговорки режима — словами, не молчанием (канон org-scope):
+                        подведов нет вообще / разбивка выключена самим читателем. */}
+                    {orgScope.mode === 'withSubs' && d.dept === orgScope.dept && !orgScope.hasSubs && (
+                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+                        У этого управления подведомственных учреждений нет — все строки аппарата.
+                      </p>
+                    )}
+                    {orgScope.mode === 'grbs' && d.dept === orgScope.dept && orgScope.hasSubs && (
+                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+                        Разбивка по подведомственным не строится: в фильтре организаций выбран режим «только ГРБС».
+                      </p>
+                    )}
                   </div>
                   );
                 })}

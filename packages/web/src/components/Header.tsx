@@ -9,7 +9,7 @@ import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
 import { FilterBreadcrumb } from './FilterBreadcrumb';
-import { LiveFreshness } from './live/LiveFreshness';
+import { ProvenanceHub } from './live/ProvenanceHub';
 import { useLiveEvents } from '../hooks/useLiveEvents';
 
 // Re-export for compatibility
@@ -836,11 +836,8 @@ export function Header() {
         {/* Active filter chips — inline, pushes to the right */}
         <FilterBreadcrumb variant="inline" />
 
-        {/* 5. Tools (right edge) — theme + reset only, LiveDot merged into ShieldHub */}
+        {/* 5. Tools (right edge) — тема, сброс фильтров, узел провенанса */}
         <div className="nav-tools">
-          {/* Свежесть чисел — ответ на «то ли я вижу, что сейчас в книгах»
-              (канон п.58: у каждого числа момент чтения). */}
-          <LiveFreshness className="mr-1" />
           <button type="button" onClick={toggleTheme} className="hf-icon-btn"
             title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
             aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
@@ -855,6 +852,11 @@ export function Header() {
               <span aria-hidden="true" className="w-2.5 h-2.5 flex items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[6px] font-bold">{activeCount}</span>
             </button>
           )}
+          {/* Провенанс и изменения — крайний правый угол линейки, справа от
+              смены темы и снятия фильтров (канон п.133). Свёрнутый вид —
+              одна тихая строка «обновлено …»; раскрытый отвечает разом на
+              «откуда числа», «как они обновляются» и «что изменилось». */}
+          <ProvenanceHub className="ml-1" />
         </div>
       </div>
     </header>

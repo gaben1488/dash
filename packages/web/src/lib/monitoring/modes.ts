@@ -33,25 +33,22 @@ export interface SheetMode {
   dept: string | null;
 }
 
-/** Режим «все восемь листов управлений разом» — вход по умолчанию. */
+/**
+ * Режим реестра — восемь листов управлений одной таблицей, вход по умолчанию.
+ *
+ * ОТДЕЛЬНЫХ КНОПОК ЛИСТОВ УПРАВЛЕНИЙ В РЯДУ БОЛЬШЕ НЕТ (п.128-1, владелец
+ * 20.08.2026): срез по управлению даёт глобальный фильтр шапки (изоляция
+ * п.127, `lib/monitoring/dept-scope.ts`), и вторая линейка с теми же восемью
+ * именами внутри вкладки дублировала его и съедала целый ряд высоты.
+ */
 export const ALL_DEPTS_MODE: SheetMode = {
   id: 'all',
   kind: 'registry',
-  label: 'Все управления',
-  hint: 'Восемь листов управлений одной таблицей: реестр процедур целиком, как его видит книга.',
+  label: 'Реестр',
+  hint: 'Восемь листов управлений одной таблицей; выбранное в шапке управление сужает реестр до своих листов.',
   sheet: null,
   dept: null,
 };
-
-/** Восемь режимов листов управлений в порядке книги, а не алфавита. */
-export const DEPT_MODES: readonly SheetMode[] = MONITORING_DEPT_SHEETS.map(({ sheet, dept }) => ({
-  id: `dept:${dept}`,
-  kind: 'registry' as const,
-  label: sheet,
-  hint: `Лист «${sheet}» книги — процедуры управления ${dept} в форме самой книги.`,
-  sheet,
-  dept,
-}));
 
 export const SVOD_MODE: SheetMode = {
   id: 'svod',
@@ -92,7 +89,6 @@ export const ANCESTORS_MODE: SheetMode = {
 /** Полный ряд режимов в порядке книги: реестр → свод → журнал → справочники. */
 export const SHEET_MODES: readonly SheetMode[] = [
   ALL_DEPTS_MODE,
-  ...DEPT_MODES,
   SVOD_MODE,
   JOURNAL_MODE,
   DIRECTORY_MODE,

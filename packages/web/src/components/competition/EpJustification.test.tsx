@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { buildEpJustificationDept, type EpJustificationRow } from '@aemr/core';
+import type { OrgScope } from '../../lib/selectors/org-scope';
 import { TooltipProvider } from '../ui/tooltip';
 
 // jsdom не знает ResizeObserver, а на нём стоит адаптивный контейнер recharts.
@@ -65,6 +66,11 @@ const row = (r: Partial<EpJustificationRow>): EpJustificationRow => ({
 const draw = (ui: ReactNode) =>
   render(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
 
+/** Районный срез: управление не выбрано, оговорки режима подведов молчат. */
+const districtScope: OrgScope = { mode: 'district', dept: null, subordinates: [], hasSubs: false };
+/** Один ГРБС «только ГРБС»: подведы скрыл сам читатель. */
+const grbsScope: OrgScope = { mode: 'grbs', dept: 'УЭР', subordinates: [], hasSubs: true };
+
 function respond(rows: EpJustificationRow[]) {
   getAnalyticsEPReasons.mockResolvedValue({
     byDept: {},
@@ -84,7 +90,7 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
       row({ reason: '', planTotal: 100, quarter: 3 }),
       row({ method: 'ЭА', reason: '', planTotal: 1000, quarter: 1 }),
     ]);
-    draw(<EpJustification />);
+    draw(<EpJustification orgScope={districtScope} />);
 
     await waitFor(() => expect(screen.getByText(/Сокращаемый ЕП/)).toBeTruthy());
     // Четыре степени подписаны по-русски, латинских ключей на экране нет.
@@ -109,7 +115,7 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
       row({ reason: 'Монополист', planTotal: 100, quarter: 3 }),
       row({ method: 'ЭА', reason: '', planTotal: 100, quarter: 3 }),
     ]);
-    draw(<EpJustification />);
+    draw(<EpJustification orgScope={districtScope} />);
 
     await waitFor(() => expect(screen.getByText(/Как меняются доли по кварталам года/)).toBeTruthy());
     expect(screen.getByText('1 кв')).toBeTruthy();
@@ -126,14 +132,14 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
       row({ reason: 'Проведение аукциона нецелесообразно', planTotal: 500, quarter: null }),
       row({ reason: 'Монополист', planTotal: 500, quarter: 2 }),
     ]);
-    draw(<EpJustification />);
+    draw(<EpJustification orgScope={districtScope} />);
 
     await waitFor(() => expect(screen.getByText(/не имеют квартала плана/)).toBeTruthy());
   });
 
   it('счётных строк нет — честная пустота с причиной, а не нули', async () => {
     respond([]);
-    draw(<EpJustification />);
+    draw(<EpJustification orgScope={districtScope} />);
 
     await waitFor(() =>
       expect(screen.getByText('Закупок с определённым способом за периметр нет')).toBeTruthy(),
@@ -143,9 +149,27 @@ describe('EpJustification — сокращаемый ЕП на экране', ()
 
   it('отказ сервера объявляется отдельно и даёт повтор запроса', async () => {
     getAnalyticsEPReasons.mockRejectedValue(new Error('503 Service Unavailable'));
-    draw(<EpJustification />);
+    draw(<EpJustification orgScope={districtScope} />);
 
     await waitFor(() => expect(screen.getByText('Разбор обоснований не получен')).toBeTruthy());
     expect(screen.getByRole('button', { name: /Повторить запрос/ })).toBeTruthy();
+  });
+
+  it('режим «только ГРБС» объявлен словами: разбивка скрыта, а не вычтена', async () => {
+    respond([row({ reason: 'Монополист', planTotal: 500, quarter: 1 })]);
+    draw(<EpJustification orgScope={grbsScope} />);
+
+    await waitFor(() => expect(screen.getByText(/Сокращаемый ЕП/)).toBeTruthy());
+    expect(screen.getByText(/Режим скрывает разбивку, а не вычитает их из счёта/)).toBeTruthy();
+    expect(screen.getByText(/УЭР/)).toBeTruthy();
+  });
+
+  it('районный срез оговорки режима подведов не показывает', async () => {
+    respond([row({ reason: 'Монополист', planTotal: 500, quarter: 1 })]);
+    draw(<EpJustification orgScope={districtScope} />);
+
+    await waitFor(() => expect(screen.getByText(/Сокращаемый ЕП/)).toBeTruthy());
+    expect(screen.queryByText(/Режим скрывает разбивку/)).toBeNull();
+    expect(screen.queryByText(/Разбивки по учреждениям/)).toBeNull();
   });
 });

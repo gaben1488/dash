@@ -8,7 +8,7 @@
 // Чистые вычисления — lib/economy/*; блоки интерфейса — components/economy/*.
 // ────────────────────────────────────────────────────────────────
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import type { DepartmentSummary } from '@aemr/shared';
 import clsx from 'clsx';
 import { Activity, AlertTriangle, Building2, Download, Inbox, Layers, Loader2 } from 'lucide-react';
@@ -26,8 +26,12 @@ import {
 } from '../lib/economy/quarterly';
 import { buildEconomyCsv, economyCsvFilename } from '../lib/economy/csv';
 import { formatPct } from '../lib/economy/format';
+import { ORG_ITSELF } from '../lib/economy/types';
 import type { SortDir, SortField } from '../lib/economy/types';
-import { Card, FOCUS_RING } from '../components/economy/primitives';
+import { useOrgScope } from '../lib/selectors/org-scope';
+import { readingMoment } from '../lib/reading-moment';
+import { ORG_ITSELF_LABEL } from '../lib/subordinate-label';
+import { CHROME_BOX, Card, FOCUS_RING } from '../components/economy/primitives';
 import { PeriodBadge } from '../components/PeriodBadge';
 import { EconomyHero } from '../components/economy/EconomyHero';
 import type { HeroMetric } from '../components/economy/EconomyHero';
@@ -35,6 +39,9 @@ import { EconomyCharts } from '../components/economy/EconomyCharts';
 import { EconomyDeptTable } from '../components/economy/EconomyDeptTable';
 import { EconomySubTable } from '../components/economy/EconomySubTable';
 import { EconomyDisposalMock } from '../components/economy/EconomyDisposalMock';
+import { ECONOMY_CONFLICT_SIGNAL, EconomyConflictRows } from '../components/economy/EconomyConflictRows';
+import type { ConflictIssue, ConflictSubScope } from '../components/economy/EconomyConflictRows';
+import type { HeroSubScope } from '../components/economy/EconomyHero';
 
 /**
  * Какой колонкой таблицы «управляет» каждая плитка hero-полосы.
@@ -84,10 +91,16 @@ function EconomyNotice({ icon, title, body, detail, tone = 'neutral' }: {
 
 export function EconomyPage() {
   const { formatMoney, toggleDepartment, toggleSubordinate, navigateTo,
-    selectedBudgets, selectedMethods, deptOnlyMode,
+    selectedBudgets, selectedMethods, deptOnlyMode, selectedDepartments,
     loading, error, dashboardData } = useStore();
   const fd = useFilteredData();
   const summaries = fd.depts as DepartmentSummary[];
+
+  // ── Режим подведов (org-scope, приказ владельца 20.08.2026): один выбранный
+  //    ГРБС «с подведомственными» переводит карточки страницы из строки
+  //    управления в разбивку по учреждениям; «только ГРБС» — честная оговорка.
+  //    Образец подключения — шапка lib/selectors/org-scope.ts.
+  const orgScope = useOrgScope();
 
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [sortField, setSortField] = useState<SortField>('economy');
@@ -98,6 +111,8 @@ export function EconomyPage() {
   // «Свыше 25 %» и «Доля от лимита» сортируют одной колонкой: выводить
   // подсветку из колонки — значит подсвечивать не то, что нажали.
   const [heroMetric, setHeroMetric] = useState<HeroMetric | null>('economy');
+  // Раскрытие счётчика «Расхождения» до строк с адресами (канон п.119).
+  const [conflictsOpen, setConflictsOpen] = useState(false);
 
   const toggleExpand = useCallback((dept: string) => {
     setExpandedDepts(prev => {
@@ -123,6 +138,9 @@ export function EconomyPage() {
     setSortField(HERO_SORT[metric]);
     setSortDir('desc');
     setTableView('departments');
+    // Счётчик расхождений — раскрываемый (п.119): нажатие на плитку не только
+    // сортирует таблицу, но и открывает список строк с адресами.
+    if (metric === 'conflicts') setConflictsOpen(true);
   }, []);
 
   const budgets = useMemo(() => budgetSelection(selectedBudgets), [selectedBudgets]);
@@ -148,7 +166,94 @@ export function EconomyPage() {
   );
   const allSubordinates = useMemo(() => flattenSubordinates(deptEconomy), [deptEconomy]);
   const totals = useMemo(() => computeEconomyTotals(deptEconomy), [deptEconomy]);
-  const barChartData = useMemo(() => buildBarChartData(sortedDeptEconomy), [sortedDeptEconomy]);
+
+  // ── Производные режима подведов ──
+  const singleDept = deptEconomy.length === 1 ? deptEconomy[0] : null;
+  const withSubsMode = orgScope.mode === 'withSubs' && singleDept !== null;
+
+  // В режиме «с подведомственными» строка ГРБС раскрывается сама: разбивка по
+  // учреждениям — то, ради чего режим включён. Раскрытие сеется один раз на
+  // выбор управления, свернуть руками читатель по-прежнему может.
+  const singleDeptKey = singleDept?.dept ?? null;
+  useEffect(() => {
+    if (orgScope.mode === 'withSubs' && singleDeptKey) {
+      setExpandedDepts(prev => prev.has(singleDeptKey) ? prev : new Set(prev).add(singleDeptKey));
+    }
+  }, [orgScope.mode, singleDeptKey]);
+
+  // Канонические подведы управления, у которых в выборке нет ни одной строки:
+  // присутствуют в разбивке с честным «строк нет» (орг-скоуп различает
+  // «строк нет» и «организации нет»).
+  const canonicalEmptySubs = useMemo(() => {
+    if (!withSubsMode || !singleDept) return undefined;
+    const live = new Set(singleDept.subordinates.map(s => s.name));
+    return orgScope.subordinates
+      .filter(g => g.key !== ORG_ITSELF && !live.has(g.key))
+      .map(g => g.label);
+  }, [withSubsMode, singleDept, orgScope.subordinates]);
+
+  // Переход к строкам учреждения при УЖЕ выбранном управлении: фильтр ГРБС
+  // не трогаем (toggleDepartment снял бы его), сужаем только организацию.
+  const openSubRows = useCallback((subName: string) => {
+    if (subName === ORG_ITSELF || subName === ORG_ITSELF_LABEL) navigateTo('data');
+    else navigateTo('data', { subordinate: subName });
+  }, [navigateTo]);
+
+  // Правая панель hero-полосы в режиме подведов (org-scope).
+  const heroSubScope: HeroSubScope | null = useMemo(() => {
+    if (orgScope.mode === 'district' || !singleDept) return null;
+    return {
+      mode: orgScope.mode,
+      deptLabel: singleDept.dept,
+      hasSubs: orgScope.hasSubs,
+      top: singleDept.subordinates
+        .filter(s => s.name !== ORG_ITSELF)
+        .slice(0, 4)
+        .map(s => ({ name: s.name, economy: s.economy })),
+      onOpenSub: openSubRows,
+    };
+  }, [orgScope.mode, orgScope.hasSubs, singleDept, openSubRows]);
+
+  // Бар-чарт в режиме подведов: полосы — по учреждениям управления, а не по
+  // единственному ГРБС (та самая разбивка, ради которой режим включён).
+  const districtBarData = useMemo(() => buildBarChartData(sortedDeptEconomy), [sortedDeptEconomy]);
+  const barChartData = useMemo(() => {
+    if (!withSubsMode || !singleDept || singleDept.subordinates.length === 0) return districtBarData;
+    return singleDept.subordinates.map(s => ({
+      name: s.name === ORG_ITSELF ? ORG_ITSELF_LABEL : s.name,
+      deptId: s.name,
+      fb: s.budget.economyFB,
+      kb: s.budget.economyKB,
+      mb: s.budget.economyMB,
+      total: s.economy,
+      pct: s.pct,
+      ownEco: 0,
+      subsEco: 0,
+      subCount: 0,
+      topSubs: [],
+    }));
+  }, [withSubsMode, singleDept, districtBarData]);
+  const subBarMode = withSubsMode && singleDept !== null && singleDept.subordinates.length > 0;
+
+  // ── Строки-основания счётчика «Расхождения» (п.119). fd.issues уже
+  //    отфильтрованы по выбранным управлениям — изоляция п.127 обеспечена входом.
+  const conflictIssues = useMemo(
+    () => ((fd.issues ?? []) as Array<ConflictIssue & { signal?: string }>)
+      .filter(i => i?.signal === ECONOMY_CONFLICT_SIGNAL),
+    [fd.issues],
+  );
+
+  // Режим подведов у карточки расхождений: строки-основания раскладываются по
+  // учреждениям выбранного управления, организация без расхождений называется
+  // словами (org-scope, приказ владельца 20.08).
+  const conflictSubScope: ConflictSubScope | null = useMemo(() => {
+    if (!withSubsMode || !singleDept) return null;
+    return {
+      deptLabel: singleDept.dept,
+      hasSubs: orgScope.hasSubs,
+      orgs: orgScope.subordinates.map(g => ({ key: g.key, label: g.label })),
+    };
+  }, [withSubsMode, singleDept, orgScope.hasSubs, orgScope.subordinates]);
 
   const quarterlyTrend = useMemo(() => buildQuarterlyTrend(summaries, budgets), [summaries, budgets]);
   const perDeptQuarterly = useMemo(() => buildPerDeptQuarterly(summaries, budgets), [summaries, budgets]);
@@ -168,9 +273,11 @@ export function EconomyPage() {
 
   const navigateToSub = useCallback((deptId: string, subName?: string) => {
     if (subName) toggleSubordinate(subName);
-    toggleDepartment(deptId);
+    // Управление добавляется в фильтр, только если ещё не выбрано: toggle по
+    // уже выбранному снял бы его — и Реестр открылся бы по всему району.
+    if (!selectedDepartments.has(deptId)) toggleDepartment(deptId);
     navigateTo('data');
-  }, [toggleDepartment, toggleSubordinate, navigateTo]);
+  }, [toggleDepartment, toggleSubordinate, navigateTo, selectedDepartments]);
 
   // ── Состояния до данных (после всех хуков) ──
 
@@ -224,11 +331,20 @@ export function EconomyPage() {
   const methodTag = isMethodFiltered
     ? `, способ ${[mKP && 'конкурентные процедуры', mEP && 'единственный поставщик'].filter(Boolean).join(' и ')}`
     : '';
+  // Режим «только ГРБС» математики вычитания не имеет (маркер UI): итоги
+  // по-прежнему считаются по книге целиком — подпись обязана сказать правду,
+  // а не обещать «без подведомственных».
   const deptOnlyTag = deptOnlyMode.size > 0
-    ? `, без подведомственных у ${[...deptOnlyMode].join(', ')}`
+    ? `, у ${[...deptOnlyMode].join(', ')} скрыта разбивка по учреждениям (режим «только ГРБС»; итоги — по книге целиком)`
     : '';
   // «В норме» — только при нуле отклонений свыше 25 % И нуле расхождений.
   const bannerStatus = economyBannerStatus({ conflicts: totals.conflicts, over25: totals.highCount });
+
+  // Момент чтения книг у чисел страницы (канон п.58: у каждого числа виден не
+  // только период, но и момент, на который оно верно). Фразу собирает
+  // единственный дом продукта — lib/reading-moment: незнание момента там не
+  // выдаётся за свежесть, и своя копия подписи здесь была бы вторым домом.
+  const readMoment = readingMoment({ readAt: dashboardData?.lastRefreshed ?? null });
 
   return (
     <div className="space-y-2.5">
@@ -244,13 +360,33 @@ export function EconomyPage() {
             у каких управлений. Разница «план минус факт» экономией не считается.
           </p>
         </div>
-        <PeriodBadge />
+        {/* Скоуп числа и момент его чтения стоят вместе: период отвечает на
+            «за что посчитано», момент — на «когда это было верно» (п.58).
+            Тот же порядок, что на соседней вкладке «Конкуренция». */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <PeriodBadge />
+          <span
+            title={readMoment.phrase}
+            className={clsx(
+              'text-[9px] leading-tight text-right',
+              // Остывшие числа говорят об этом сами: до подсказки читатель
+              // может и не добраться.
+              readMoment.stale
+                ? 'text-amber-700 dark:text-amber-400'
+                : 'text-zinc-500 dark:text-zinc-400',
+            )}
+          >
+            {readMoment.label}
+          </span>
+        </div>
       </div>
 
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300"
+          // Тихие рамки (п.129): в тёмной теме плашку отделяет светлота фона,
+          // рамка остаётся только светлой теме.
+          className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-transparent bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300"
         >
           <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div className="text-xs leading-relaxed">
@@ -265,9 +401,10 @@ export function EconomyPage() {
         role="status"
         className={clsx(
           'px-3 py-2 rounded-lg border text-xs font-medium',
+          // Тихие рамки (п.129): тёмная тема — светлота фона вместо обводки.
           bannerStatus.ok
-            ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300'
-            : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/40 text-amber-700 dark:text-amber-300',
+            ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-transparent text-emerald-700 dark:text-emerald-300'
+            : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-transparent text-amber-700 dark:text-amber-300',
         )}
       >
         {formatMoney(totals.economy)} экономии{budgetTag}{methodTag}{deptOnlyTag} • {bannerStatus.label}
@@ -283,6 +420,7 @@ export function EconomyPage() {
         onHeroMetric={handleHeroMetric}
         formatMoney={formatMoney}
         onToggleDepartment={toggleDepartment}
+        subScope={heroSubScope}
       />
 
       {/* Подпись методики — у чисел hero-полосы и баннера (директива группы:
@@ -292,6 +430,19 @@ export function EconomyPage() {
         книг управлений; «план минус факт» экономией не считается. Доля — экономия,
         делённая на лимит того же периметра. Подробности — при наведении на каждую цифру.
       </p>
+
+      {/* ── Раскрытие счётчика «Расхождения» до строк с адресами (п.119):
+            какая строка, что в ней, почему. Изоляция п.127 — fd.issues уже
+            отфильтрованы по выбранным управлениям. ── */}
+      <EconomyConflictRows
+        issues={conflictIssues}
+        conflictsTotal={totals.conflicts}
+        lastRefreshed={dashboardData?.lastRefreshed ?? null}
+        open={conflictsOpen}
+        onToggle={() => setConflictsOpen(v => !v)}
+        onOpenRegistry={() => navigateTo('data', { signals: [ECONOMY_CONFLICT_SIGNAL] })}
+        subScope={conflictSubScope}
+      />
 
       {/* ═══ Сводка одним предложением ═══ */}
       <div className="flex items-center gap-2 px-1 animate-[fadeIn_500ms_ease-out_200ms_both]">
@@ -328,7 +479,9 @@ export function EconomyPage() {
         showBudgetBreakdown={showBudgetBreakdown}
         onToggleBudgetBreakdown={() => setShowBudgetBreakdown(v => !v)}
         formatMoney={formatMoney}
-        onBarClick={toggleDepartment}
+        // Режим подведов: полосы — учреждения, клик ведёт к их строкам в Реестре.
+        onBarClick={subBarMode ? openSubRows : toggleDepartment}
+        barClickHint={subBarMode ? 'клик — строки учреждения в Реестре' : undefined}
       />
 
       {/* ── Шов с «Конкуренцией» (канон п.91-8): цена отказа от конкурса —
@@ -357,15 +510,29 @@ export function EconomyPage() {
           <div className="flex items-center gap-3 min-w-0">
             {/* Заголовок-утверждение: говорит, что показывает таблица, а не как называется */}
             <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 tracking-tight truncate">
-              {totals.share !== null
-                ? `Управления сэкономили ${formatPct(totals.share)} своих лимитов`
-                : 'Экономия по управлениям (лимиты не заданы)'}
+              {/* Скоуп заголовка честный: при одном управлении — его имя,
+                  а не «управления» во множественном числе. */}
+              {singleDept
+                ? (totals.share !== null
+                  ? `${singleDept.dept}: сэкономлено ${formatPct(totals.share)} лимита`
+                  : `Экономия ${singleDept.dept} (лимиты не заданы)`)
+                : (totals.share !== null
+                  ? `Управления сэкономили ${formatPct(totals.share)} своих лимитов`
+                  : 'Экономия по управлениям (лимиты не заданы)')}
             </h2>
 
-            <div className="flex items-center bg-zinc-100 dark:bg-white/[0.04] rounded-lg p-0.5 border border-zinc-200/70 dark:border-white/[0.04] shrink-0">
+            {/* Переключатель вида — подложка, а не рамка (п.129): в тёмной теме
+                сегмент отделяет светлота, обводка гаснет. */}
+            <div className={clsx('flex items-center rounded-lg p-0.5 shrink-0', CHROME_BOX)}>
               {([
                 { key: 'departments' as const, icon: Building2, label: `Управления (${deptEconomy.length})` },
-                { key: 'subordinates' as const, icon: Layers, label: `Подведомственные (${totals.subCount})` },
+                {
+                  key: 'subordinates' as const,
+                  icon: Layers,
+                  // Счётчик считает и каноничные организации без строк: список
+                  // ниже их показывает, и число обязано совпадать со списком.
+                  label: `Подведомственные (${totals.subCount + (canonicalEmptySubs?.length ?? 0)})`,
+                },
               ]).map(v => (
                 <button
                   key={v.key}
@@ -392,7 +559,9 @@ export function EconomyPage() {
             aria-label="Выгрузить таблицу экономии файлом для Excel"
             title="Скачать таблицу файлом для Excel (разделитель — точка с запятой)"
             className={clsx(
-              'flex items-center gap-1 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 rounded-lg hover:bg-zinc-100 dark:hover:bg-white/[0.04] transition-all border border-zinc-200/70 dark:border-white/[0.04] shrink-0',
+              'flex items-center gap-1 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 rounded-lg transition-all shrink-0',
+              CHROME_BOX,
+              'hover:bg-zinc-200/70 dark:hover:bg-white/[0.07]',
               FOCUS_RING,
             )}
           >
@@ -412,6 +581,7 @@ export function EconomyPage() {
               onSort={handleSort}
               deptSparks={deptSparks}
               budgetFiltered={budgets.filtered}
+              canonicalEmptySubs={canonicalEmptySubs}
               formatMoney={formatMoney}
               onToggleDepartment={toggleDepartment}
               onNavigateToSub={navigateToSub}
@@ -420,6 +590,10 @@ export function EconomyPage() {
             <EconomySubTable
               subs={allSubordinates}
               deptOnlyCount={totals.deptOnlyCount}
+              // Режим подведов: каноничные организации без строк не пропадают
+              // из плоского списка — «строк нет» и «организации нет» различимы.
+              canonicalEmptySubs={canonicalEmptySubs}
+              emptySubsDeptName={singleDept?.dept ?? null}
               formatMoney={formatMoney}
               onNavigateToSub={navigateToSub}
             />

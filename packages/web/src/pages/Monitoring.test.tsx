@@ -27,6 +27,7 @@ vi.mock('../api', () => ({
 }));
 
 import { TooltipProvider } from '../components/ui/tooltip';
+import { useStore } from '../store';
 import { MonitoringPage } from './Monitoring';
 
 // jsdom не реализует ResizeObserver, а Radix меряет им поповер подсказки БЗ.
@@ -52,6 +53,14 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   fetchJSON.mockReset();
+  // Фильтр шапки живёт в общем хранилище: не сбросить — соседний тест
+  // получит чужой срез управления и упадёт на пустом реестре.
+  useStore.setState({ selectedDepartments: new Set<string>() });
+  try {
+    window.localStorage.clear();
+  } catch {
+    /* хранилища нет — сбрасывать нечего */
+  }
 });
 
 /** Дата в той форме, в какой её отдаёт ядро: написание книги плюс разбор. */
@@ -147,12 +156,24 @@ describe('Мониторинг: форма книги перенесена', () 
     renderPage();
 
     const registry = await screen.findByRole('region', { name: 'Реестр процедур' });
-    const group = within(registry).getByText('Экономия, руб.');
-    // Надшапка обязана накрывать ровно пять колонок: ВСЕГО, проверка, МБ, КБ, ФБ.
-    expect(group.getAttribute('colspan')).toBe('5');
+    // Гармошка бюджетов (п.128) входит свёрнутой: сначала «по бюджетам»,
+    // и только потом надшапка обязана накрывать пять колонок.
+    fireEvent.click(within(registry).getByRole('button', { name: 'по бюджетам' }));
+    const group = within(registry).getByText('Экономия, руб.').closest('th');
+    expect(group?.getAttribute('colspan')).toBe('5');
     for (const sub of ['ВСЕГО', 'проверка', 'МБ', 'КБ', 'ФБ']) {
       expect(within(registry).getByText(sub)).toBeTruthy();
     }
+  });
+
+  it('свёрнутая гармошка бюджетов держит два столбца и прячет МБ/КБ/ФБ', async () => {
+    serve(payload());
+    renderPage();
+
+    const registry = await screen.findByRole('region', { name: 'Реестр процедур' });
+    const group = within(registry).getByText('Экономия, руб.').closest('th');
+    expect(group?.getAttribute('colspan')).toBe('2');
+    expect(within(registry).queryByText('МБ')).toBeNull();
   });
 
   it('показывает строки книги с кодом, НМЦК и стадией', async () => {
@@ -242,12 +263,20 @@ describe('Мониторинг: режимы листов', () => {
     expect(screen.getByText(/незаконченная труба чтения, а не пустой лист/u)).toBeTruthy();
   });
 
-  it('лист управления сужает реестр до своих строк', async () => {
+  it('в ряду листов больше нет второй линейки управлений', async () => {
     serve(payload());
     renderPage();
 
     const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
-    fireEvent.click(within(tabs).getByRole('button', { name: /8\. УО/u }));
+    expect(within(tabs).queryByRole('button', { name: /8\. УО/u })).toBeNull();
+  });
+
+  it('выбранное в шапке управление сужает реестр до своих строк', async () => {
+    // Отдельной кнопки листа управления в ряду больше нет (п.128-1):
+    // срез даёт глобальный фильтр шапки — изоляция п.127.
+    useStore.setState({ selectedDepartments: new Set(['УО']) });
+    serve(payload());
+    renderPage();
 
     await waitFor(() => {
       const registry = screen.getByRole('region', { name: 'Реестр процедур' });

@@ -86,7 +86,9 @@ export function LifecycleStrip({
 }: { byType: LifecycleBucket[]; byStage: LifecycleBucket[]; year: number }) {
   if (byType.length === 0 && byStage.length === 0) return null;
   return (
-    <div className="space-y-2 rounded-lg border border-zinc-200/70 px-3 py-2.5 dark:border-zinc-700/60">
+    // Тихая рамка (п.129): в тёмной теме панель отделяет светлота поверхности
+    // (утопленный тон + едва заметный край white/5), а не обводка zinc-700.
+    <div className="space-y-2 rounded-lg border border-zinc-200/70 bg-zinc-50/60 px-3 py-2.5 dark:border-white/5 dark:bg-zinc-900/25">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">Этапность закупок</span>
         <span className="text-[10px] text-zinc-400 dark:text-zinc-500">все строки плана {year} года</span>

@@ -3,6 +3,14 @@ import { X, Filter } from 'lucide-react';
 import { subordinateLabel } from '../lib/subordinate-label';
 import clsx from 'clsx';
 
+/** Подписи кварталов для чипа «квартал без месяцев». */
+const QUARTER_LABELS: Record<string, string> = {
+  q1: 'I квартал',
+  q2: 'II квартал',
+  q3: 'III квартал',
+  q4: 'IV квартал',
+};
+
 /**
  * Premium breadcrumb showing active filters as removable pills.
  * Renders only when at least one filter is active.
@@ -14,20 +22,38 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
   const {
     selectedDepartments, selectedSubordinates, activeMonths,
     selectedMethods, selectedActivities, selectedBudgets,
-    periodMode, monthsByYear,
-    selectAllDepartments, clearSubordinates, toggleMonth,
-    clearMethods, clearActivities, clearBudgets,
+    periodMode, monthsByYear, period, searchQuery,
+    selectAllDepartments, clearSubordinates, clearAllPeriods,
+    clearMethods, clearActivities, clearBudgets, setSearchQuery,
     resetAllFilters,
   } = useStore();
 
   const hasDept = selectedDepartments.size > 0;
   const hasSub = selectedSubordinates.size > 0;
   const hasMonth = hasExplicitPeriodFilter(periodMode, activeMonths, monthsByYear);
+  /**
+   * Квартал сам по себе — тоже фильтр (канон п.134). `period` участвует в
+   * расчёте наравне с месяцами (resolvePeriodSelection берёт его, когда
+   * месяцев нет), и приехать он может не только кликом: адресом `?period=q2`
+   * или переходом со страницы. Без этого чипа такой отбор резал экран молча —
+   * ровно то «рандомное непонятное включение фильтра», против которого канон.
+   * Показывается только когда месяцев нет: при выбранных месяцах квартал уже
+   * назван их чипом, и второй ярлык об одном и том же был бы шумом.
+   */
+  const hasQuarterOnly = period !== 'year' && !hasMonth;
   const hasMethod = selectedMethods.size > 0;
   const hasActivity = selectedActivities.size > 0;
   const hasBudget = selectedBudgets.size > 0;
+  /**
+   * Поиск режет таблицы наравне с остальными отборами, а приехать может
+   * переходом (клик по замечанию на Пульте кладёт запрос в шапку). Поле ввода
+   * шапки на узком экране уезжает под другие элементы управления, и тогда
+   * отбор действует, а назвать его нечему — поэтому он тоже чип.
+   */
+  const hasSearch = searchQuery.trim() !== '';
 
-  if (!hasDept && !hasSub && !hasMonth && !hasMethod && !hasActivity && !hasBudget) return null;
+  if (!hasDept && !hasSub && !hasMonth && !hasQuarterOnly && !hasMethod
+    && !hasActivity && !hasBudget && !hasSearch) return null;
 
   const monthNames = hasMonth
     ? [...activeMonths].sort((a, b) => a - b).map(m => MONTHS.find(mo => mo.id === m)?.short ?? String(m)).join(', ')
@@ -101,7 +127,18 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
       {hasMonth && (
         <Chip
           label={monthNames!}
-          onRemove={() => [...activeMonths].forEach(m => toggleMonth(m))}
+          // Снятие — одной точкой store, а не перещёлкиванием месяцев по
+          // одному: toggleMonth не знает про барабан (monthsByYear) и про
+          // `period`, поэтому после него оставался чип с пустой подписью и
+          // живой квартал под ним. clearAllPeriods очищает период целиком.
+          onRemove={clearAllPeriods}
+          color="emerald"
+        />
+      )}
+      {hasQuarterOnly && (
+        <Chip
+          label={QUARTER_LABELS[period] ?? period}
+          onRemove={clearAllPeriods}
           color="emerald"
         />
       )}
@@ -126,6 +163,13 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
           label={[...selectedBudgets].map(b => b.toUpperCase()).join(', ')}
           onRemove={clearBudgets}
           color="blue"
+        />
+      )}
+      {hasSearch && (
+        <Chip
+          label={`поиск: ${searchQuery.trim()}`}
+          onRemove={() => setSearchQuery('')}
+          color="indigo"
         />
       )}
 

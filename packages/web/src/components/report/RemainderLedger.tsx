@@ -25,8 +25,10 @@ export interface RemainderLedgerProps {
 export function RemainderLedger({ rows, diff }: RemainderLedgerProps) {
   if (rows.length === 0) return null;
   return (
-    <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200/70 dark:border-zinc-700/60">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-200/70 bg-zinc-50 px-3 py-2 dark:border-zinc-700/60 dark:bg-zinc-800/40">
+    // Тихая рамка (п.129): в тёмной теме блок отделяет светлота поверхности,
+    // а не обводка — край едва заметен (white/5), как у примитивов карточек.
+    <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200/70 bg-zinc-50/60 dark:border-white/5 dark:bg-zinc-900/25">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-200/70 bg-zinc-50 px-3 py-2 dark:border-white/5 dark:bg-zinc-800/40">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
           Остаток к заключению — обе стороны
         </span>
@@ -36,7 +38,7 @@ export function RemainderLedger({ rows, diff }: RemainderLedgerProps) {
       {rows.map((r) => (
         <div
           key={`${r.label}-${r.cell ?? 'calc'}`}
-          className="grid grid-cols-1 items-center gap-x-3 gap-y-1 border-t border-zinc-100 px-3 py-2.5 first:border-t-0 dark:border-zinc-800 sm:grid-cols-[minmax(180px,1.2fr)_120px_1fr_auto]"
+          className="grid grid-cols-1 items-center gap-x-3 gap-y-1 border-t border-zinc-100 px-3 py-2.5 first:border-t-0 dark:border-white/5 sm:grid-cols-[minmax(180px,1.2fr)_120px_1fr_auto]"
         >
           <div>
             <KbHover metricKey={r.metricKey} live={r.live}>
@@ -83,7 +85,7 @@ export function RemainderLedger({ rows, diff }: RemainderLedgerProps) {
       ))}
 
       {diff && (
-        <p className="border-t border-zinc-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-zinc-800 dark:bg-amber-950/20 dark:text-amber-400">
+        <p className="border-t border-zinc-100 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-white/5 dark:bg-amber-950/20 dark:text-amber-400">
           {diff}
         </p>
       )}

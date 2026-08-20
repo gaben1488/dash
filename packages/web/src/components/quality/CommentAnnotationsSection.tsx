@@ -19,15 +19,25 @@
  * п.58а — бейдж периода здесь лгал бы). Выбранное управление, напротив,
  * ПРИМЕНЯЕТСЯ (канон п.127, 20.08.2026): в срезе управления секция показывает
  * только его карточки — чужие противоречия в чужой срез не лезут.
+ *
+ * Режим подведов (приказ владельца 20.08.2026). Разбивки по подведомственным
+ * учреждениям здесь нет, и это ответ, а не пропуск: карточка адресует ЯЧЕЙКУ
+ * комментария, а имя учреждения живёт в самой строке — оно видно при переходе
+ * в Реестр по адресу карточки. Секция говорит это словами.
+ *
+ * Облик (канон п.129). Поверхность — общая карточка продукта; отдельных
+ * обводок у плашек и подписей нет, их отделяет светлота ролей.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { MessageSquareWarning, CheckCircle2, Loader2, RotateCcw } from 'lucide-react';
+import { MessageSquareWarning, CheckCircle2, Loader2, RotateCcw, Users } from 'lucide-react';
 import { productLabel } from '@aemr/shared';
 import { api, humanizeRequestError } from '../../api';
 import { useStore } from '../../store';
 import { toCanonicalDeptId } from '../../lib/dept-key';
 import { deptScopeOf, filterByDeptScope } from '../../lib/selectors/dept-isolation';
+import { useOrgScope } from '../../lib/selectors/org-scope';
 import { pluralRu } from '../../lib/economy-copy';
+import { Card, CardHeader } from '../ui/card';
 import { DiagnosticCardList } from '../DiagnosticCards';
 import type { DiagnosticIssueLike } from '../../lib/diagnostics/mechanism-groups';
 
@@ -39,16 +49,23 @@ type AnnotationsResponse = Awaited<ReturnType<typeof api.getCommentAnnotations>>
  * живут в раскрытом списке адресов карточки).
  */
 const KIND_META: Record<string, { label: string; severity: string; kbHint: string; recommendation: string }> = {
+  // Информационный род с 21.08.2026 (решение владельца 20.08, дословно:
+  // «скорее хороший или важный сигнал, не замечание»). Этапность в
+  // комментарии нередко объясняет, почему поставщик другой: процедура не
+  // состоялась, протокол признал заявку единственной. Тон справки и синий
+  // бейдж «Информация» вместо жёлтого предупреждения.
   stage_marker_when_signed: {
     label: 'Этапность в комментарии при заключённом контракте',
-    severity: 'warning',
+    severity: 'info',
     kbHint:
       'Текст комментария описывает стадию размещения процедуры (подача заявок, протокол, на подписании), '
-      + 'а дата заключения в строке уже проставлена: комментарий написан до заключения и больше не отражает '
-      + 'состояние закупки. Статус берётся только из структурной даты — свободный текст машинно не интерпретируется (канон п.27).',
+      + 'а дата заключения в строке уже проставлена. Это не ошибка: этапность может объяснять смену '
+      + 'поставщика — например, аукцион не состоялся и договор заключили с единственным участником. '
+      + 'Статус закупки всё равно берётся только из структурной даты, свободный текст машинно не '
+      + 'интерпретируется (канон п.27) — карточка лишь показывает расхождение текста и даты.',
     recommendation:
-      'Владельцу книги: обновите комментарий в названной ячейке — опишите состояние после заключения '
-      + 'контракта или удалите устаревшую этапность.',
+      'Владельцу книги: сверьте, актуален ли текст в названной ячейке. Он объясняет историю закупки — '
+      + 'оставьте как есть; описывает только состояние до заключения — допишите итог.',
   },
   past_promise_no_fact: {
     label: 'Просроченное обещание в комментарии',
@@ -182,78 +199,112 @@ export function CommentAnnotationsSection() {
     ? 'все управления'
     : [...selectedDepartments].map((d) => productLabel(toCanonicalDeptId(d))).join(', ');
 
+  // Режим подведов: разбивать сверку по учреждениям нечем — карточка адресует
+  // ячейку комментария, имя учреждения живёт в строке. Говорим это словами.
+  const orgScope = useOrgScope();
+  const orgNote = orgScope.mode === 'withSubs'
+    ? (orgScope.hasSubs
+      ? 'Карточки не разложены по подведомственным учреждениям: сверка адресует ячейку '
+        + 'комментария, а учреждение указано в самой строке — оно видно по адресу карточки '
+        + 'при переходе в Реестр.'
+      : 'У этого управления подведомственных учреждений нет: все карточки ниже — по книге '
+        + 'самого аппарата.')
+    : orgScope.mode === 'grbs'
+      ? 'Выбран режим «только ГРБС»: сверка всё равно идёт по всей книге управления — '
+        + 'отделить комментарии подведов от комментариев аппарата в ней нечем.'
+      : null;
+
   return (
-    <section
-      aria-label="Комментарии против структуры"
-      className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5 space-y-3"
-    >
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-start gap-2 min-w-0">
-          <MessageSquareWarning size={16} className="text-amber-500 mt-0.5 shrink-0" aria-hidden="true" />
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+    <section aria-label="Комментарии против структуры">
+      <Card className="space-y-[var(--space-3)]">
+        <CardHeader
+          className="mb-0"
+          title={
+            <span className="inline-flex items-center gap-1.5">
+              <MessageSquareWarning
+                size={14}
+                aria-hidden="true"
+                style={{ color: 'var(--data-warn)' }}
+              />
               Комментарии против структуры
               {data && issues.length > 0 && (
-                <span className="ml-2 text-zinc-500 dark:text-zinc-400 font-bold tabular-nums">{issues.length}</span>
+                <span className="tabular-nums text-[var(--ink-muted)]">{issues.length}</span>
               )}
-            </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed max-w-3xl">
-              Сверка свободного текста комментариев со структурными колонками строки: этапность при
-              заключённом контракте, просроченные обещания, посторонний текст в колонке номера процедуры.
-              Статус закупки из текста не выводится никогда (канон п.27) — проверяется только согласованность.
+            </span>
+          }
+          // Подпись собственного периметра (канон п.58а): бейдж выбранного
+          // периода здесь лгал бы — сверка идёт по всем строкам книг.
+          // Выбранное управление, напротив, применяется (канон п.127).
+          scope={data
+            ? `${scopeLabel} · сверено ${data.rowsScanned} ${pluralRu(data.rowsScanned, 'строка', 'строки', 'строк')} всех книг · ${data.source === 'live' ? 'книги на' : 'снимок от'} ${ruMoment(data.asOf)}`
+            : undefined}
+          note="Сверка свободного текста комментариев со структурными колонками строки: этапность при заключённом контракте, просроченные обещания, посторонний текст в колонке номера процедуры. Статус закупки из текста не выводится никогда (канон п.27) — проверяется только согласованность."
+        />
+
+        {data && (
+          <p className="ds-text-3xs text-[var(--ink-faint)]">
+            Период и способ из шапки к сверке не применяются; выбор управления — действует.
+          </p>
+        )}
+
+        {loading ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-center gap-2 py-4 ds-text-xs text-[var(--ink-faint)]"
+          >
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+            Сверяем комментарии со структурой строк…
+          </div>
+        ) : error ? (
+          <div
+            role="alert"
+            className="rounded-[var(--radius-card)] px-3 py-2.5 ds-text-xs"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--data-warn) 10%, transparent)',
+              color: 'var(--data-warn)',
+            }}
+          >
+            <p>Сверка комментариев не прочитана — противоречия могут быть, но сейчас их не видно.</p>
+            <p className="mt-0.5 ds-text-3xs opacity-80">({error})</p>
+            <button
+              type="button"
+              onClick={load}
+              className="mt-1.5 inline-flex items-center gap-1 rounded ds-text-2xs font-[var(--weight-medium)] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              <RotateCcw size={11} aria-hidden="true" /> Попробовать снова
+            </button>
+          </div>
+        ) : issues.length === 0 ? (
+          <div className="flex items-start gap-2 py-2">
+            <CheckCircle2
+              size={16}
+              className="mt-0.5 shrink-0"
+              aria-hidden="true"
+              style={{ color: 'var(--data-good)' }}
+            />
+            <p className="ds-prose ds-text-xs text-[var(--ink-muted)]">
+              {deptScope !== null && (data?.total ?? 0) > 0
+                ? `По выбранным управлениям (${scopeLabel}) противоречий не найдено; ` +
+                  `${data?.total} ${pluralRu(data?.total ?? 0, 'карточка других управлений', 'карточки других управлений', 'карточек других управлений')} ` +
+                  'видны в срезе «все управления».'
+                : <>Противоречий не найдено: {data ? `${data.rowsScanned} ${pluralRu(data.rowsScanned, 'счётная строка', 'счётные строки', 'счётных строк')}` : 'строки книг'}{' '}
+                  прошли все три правила сверки. Появится противоречие — здесь встанет карточка с механизмом,
+                  адресом ячейки и действием; чтобы пересверить прямо сейчас, обновите данные кнопкой в шапке.</>}
             </p>
           </div>
-        </div>
-        {/* Подпись собственного периметра (канон п.58а): бейдж выбранного
-            периода здесь лгал бы — сверка идёт по всем строкам книг. Выбранное
-            управление, напротив, применяется (канон п.127). */}
-        {data && (
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <span className="px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 tabular-nums">
-              {scopeLabel} · сверено {data.rowsScanned} строк всех книг · {data.source === 'live' ? 'книги на' : 'снимок от'} {ruMoment(data.asOf)}
-            </span>
-            <span className="text-[9px] leading-tight text-amber-600 dark:text-amber-400 text-right max-w-[15rem]">
-              период и способ из шапки не применяются; выбор управления — действует
-            </span>
+        ) : (
+          <DiagnosticCardList issues={issues} />
+        )}
+
+        {/* Ответ режима подведов — словами, а не пустым местом. */}
+        {orgNote && !loading && !error && (
+          <div className="flex items-start gap-2 ds-text-3xs text-[var(--ink-faint)]">
+            <Users size={12} className="mt-px shrink-0" aria-hidden="true" />
+            <p className="max-w-3xl">{orgNote}</p>
           </div>
         )}
-      </div>
-
-      {loading ? (
-        <div className="flex items-center gap-2 py-4 text-xs text-zinc-400 dark:text-zinc-500">
-          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-          Сверяем комментарии со структурой строк…
-        </div>
-      ) : error ? (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
-          <p className="text-xs text-amber-800 dark:text-amber-300">
-            Сверка комментариев не прочитана — противоречия могут быть, но сейчас их не видно.
-          </p>
-          <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">({error})</p>
-          <button
-            type="button"
-            onClick={load}
-            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 dark:text-amber-300 hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-          >
-            <RotateCcw size={11} aria-hidden="true" /> Попробовать снова
-          </button>
-        </div>
-      ) : issues.length === 0 ? (
-        <div className="flex items-start gap-2 py-2">
-          <CheckCircle2 size={16} className="text-emerald-500 mt-0.5 shrink-0" aria-hidden="true" />
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-            {deptScope !== null && (data?.total ?? 0) > 0
-              ? `По выбранным управлениям (${scopeLabel}) противоречий не найдено; ` +
-                `${data?.total} ${pluralRu(data?.total ?? 0, 'карточка других управлений', 'карточки других управлений', 'карточек других управлений')} ` +
-                'видны в срезе «все управления».'
-              : <>Противоречий не найдено: {data ? `${data.rowsScanned} ${pluralRu(data.rowsScanned, 'счётная строка', 'счётные строки', 'счётных строк')}` : 'строки книг'}{' '}
-                прошли все три правила сверки. Появится противоречие — здесь встанет карточка с механизмом,
-                адресом ячейки и действием; чтобы пересверить прямо сейчас, обновите данные кнопкой в шапке.</>}
-          </p>
-        </div>
-      ) : (
-        <DiagnosticCardList issues={issues} />
-      )}
+      </Card>
     </section>
   );
 }

@@ -120,6 +120,16 @@ export function ProcedureCard({ p, lineage, journalRow, match, onOpenCode }: Pro
           <p className="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500">
             {rowAddress(p.sheet, p.row, p.ppNum)} · заказчик: {p.customer || 'в книге не назван'}
           </p>
+          {/* Диагноз кода — видимым текстом, не только подсказкой при наведении
+              (скриншот владельца 20.08.2026: «код с опечаткой» без объяснения
+              читался как потеря данных). Догадка показана, сверка по ней не идёт. */}
+          {p.code === null && (
+            <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+              {p.codeNote ?? 'Номера процедуры в начале записи не видно; образец: ЭА152-26.'}{' '}
+              Пока код не исправлен в самой книге, связь этой строки с книгами управлений и
+              переходящим реестром не строится — сверка по догадке не идёт.
+            </p>
+          )}
         </div>
         <span
           className={`shrink-0 rounded px-2 py-0.5 text-[11px] ${stageBadgeClass(p.stage)}`}

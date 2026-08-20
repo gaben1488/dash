@@ -25,6 +25,10 @@ import { pluralRu } from '../lib/economy-copy';
 import { ORG_ITSELF_LABEL } from '../lib/subordinate-label';
 import { formatPercent, formatMetricValue } from '../components/HeroKPICard';
 import { buildPerimeter, type Perimeter } from '../lib/perimeter';
+import { useOrgScope, type OrgScope } from '../lib/selectors/org-scope';
+import { DeptPortrait } from '../components/dashboard/DeptPortrait';
+import type { DeptMetrics } from '../hooks/useMultiDimMetrics';
+import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
 import { figure, ratio, toPercent, type FigureProvenance } from '../lib/figure';
 import { officialProvenanceFor } from '../lib/provenance-registry';
@@ -170,6 +174,17 @@ export function Dashboard() {
   const [expandedKpi, setExpandedKpi] = useState<string | null>(null);
 
   const { depts, barData, issues, periodKey } = fd;
+
+  // ── Режим подведов (org-scope, приказ владельца 20.08.2026) ──
+  // Один выбранный ГРБС переводит страницу в портретный режим: большая
+  // карточка управления + разбивка карточек по подведам («с подведомственными»)
+  // либо честная оговорка («только ГРБС»). Образец подключения — в шапке
+  // lib/selectors/org-scope.ts; другие страницы повторяют его.
+  const orgScope = useOrgScope();
+  const portraitDm: DeptMetrics | null =
+    orgScope.mode !== 'district' && mdm.departments.length === 1
+      ? mdm.departments[0]
+      : null;
 
   // ── Периметр плиток: за что именно посчитаны их числа ──
   // Собирается из ТОГО ЖЕ состояния, которым считал useFilteredData, иначе
@@ -456,6 +471,20 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* 3б. Портрет управления (приказ владельца 20.08.2026): когда выбран
+          один ГРБС — большая карточка на видном месте, выше ряда показателей.
+          Секция вставляется в поток целой строкой, остальная сетка не рвётся. */}
+      {portraitDm && (
+        <DeptPortrait
+          dm={portraitDm}
+          scope={orgScope}
+          issues={issues ?? []}
+          lastRefreshed={dashboardData.lastRefreshed ?? null}
+          formatMoney={formatMoney}
+          navigateTo={navigateTo}
+        />
+      )}
+
       {/* 4. Ряд ключевых показателей: клик разворачивает подробности на месте */}
       <section aria-label="Ключевые показатели за выбранный период">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -474,6 +503,8 @@ export function Dashboard() {
                   formatMoney={formatMoney}
                   toggleDepartment={toggleDepartment}
                   navigateTo={navigateTo}
+                  orgScope={orgScope}
+                  portraitDm={portraitDm}
                 />
               )}
             />
@@ -952,6 +983,8 @@ function KPIExpandPanel({
   formatMoney,
   toggleDepartment,
   navigateTo,
+  orgScope,
+  portraitDm,
 }: {
   kpi: HeroKPI;
   depts: any[];
@@ -960,6 +993,10 @@ function KPIExpandPanel({
   formatMoney: (v: number) => string;
   toggleDepartment: (id: string) => void;
   navigateTo: (page: Page, params?: any) => void;
+  /** Режим подведов страницы (org-scope); null-безопасно по умолчанию district. */
+  orgScope?: OrgScope;
+  /** Метрики единственного выбранного управления — источник разбивки по подведам. */
+  portraitDm?: DeptMetrics | null;
 }) {
   // Разбивка по управлениям. null здесь — «нечего исполнять», а не ноль:
   // строка покажет «нет плана», а не красную полосу на нуле.
@@ -1013,6 +1050,34 @@ function KPIExpandPanel({
     };
   });
 
+  // ── Режим подведов (org-scope): выбран один ГРБС «с подведомственными» ──
+  // Карточки, где разбивка по подведам осмысленна (исполнение, экономия),
+  // переходят из одной строки ГРБС в разбивку по учреждениям: аппарат первым,
+  // дальше подведы. Числа — тот же слой метрик (useMultiDimMetrics), вторых
+  // формул здесь нет; «нет плана» остаётся прочерком, не нулём.
+  const subBreakdownApplies = ['exec_count_pct', 'economy_rate'].includes(kpi.metricKey);
+  const subBreakdown = (orgScope?.mode === 'withSubs' && portraitDm && subBreakdownApplies)
+    ? [
+        ...(portraitDm.orgSelf ? [{ entry: portraitDm.orgSelf, label: ORG_ITSELF_LABEL, key: ORG_ITSELF_SENTINEL }] : []),
+        ...portraitDm.realSubs.map((s) => ({ entry: s, label: s.displayName, key: s.name })),
+      ].map(({ entry, label, key }) => {
+        const m = entry.metrics;
+        let value: number | null;
+        let secondaryValue: number | null | undefined;
+        let colorClass: string | undefined;
+        let secondaryColor: string | undefined;
+        if (kpi.metricKey === 'exec_count_pct') {
+          value = m.execCountPct;
+          colorClass = value != null ? getThresholdColor('dept_exec_count_pct', value) : undefined;
+          secondaryValue = m.executionPct;
+          secondaryColor = secondaryValue != null ? getThresholdColor('dept_exec_amount_pct', secondaryValue) : undefined;
+        } else {
+          value = m.economyPct;
+        }
+        return { id: key, name: label, value, secondaryValue, color: colorClass, secondaryColor };
+      })
+    : null;
+
   // Разбивка по уровням бюджета — для исполнения и экономии
   const showBudget = ['exec_count_pct', 'economy_rate'].includes(kpi.metricKey);
   let fbTotal = 0, kbTotal = 0, mbTotal = 0;
@@ -1040,10 +1105,39 @@ function KPIExpandPanel({
 
   return (
     <div className="space-y-4">
-      {/* Разбивка по управлениям.
+      {/* Разбивка по управлениям — либо, в режиме одного ГРБС «с
+          подведомственными» (org-scope), по подведам этого управления.
           Единица зависит от показателя: доверие — балл из ста, а не процент.
           Раньше столбец подписывался «87,0 %», хотя процентом это число не
           является: шкала совпала, смысл — нет. */}
+      {subBreakdown ? (
+        <>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+            По организациям управления
+          </p>
+          {subBreakdown.length <= 1 && (
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              У этого управления подведомственных учреждений нет — вся разбивка
+              состоит из закупок аппарата.
+            </p>
+          )}
+          <DeptBreakdown
+            departments={subBreakdown}
+            unit="%"
+            primaryLabel={isDualExecution ? 'Количество' : undefined}
+            secondaryLabel={isDualExecution ? 'Сумма' : undefined}
+            secondaryUnit="%"
+            emptyLabel="нет плана"
+            onDeptClick={(id) => {
+              // Щелчок по организации ведёт к её строкам-основаниям в Реестре;
+              // аппарат (сентинел) открывает строки управления целиком.
+              navigateTo('data', id === ORG_ITSELF_SENTINEL
+                ? { department: portraitDm!.deptId }
+                : { department: portraitDm!.deptId, subordinate: id });
+            }}
+          />
+        </>
+      ) : (
       <DeptBreakdown
         departments={deptBreakdown}
         unit={BREAKDOWN_UNITS[kpi.metricKey] ?? '%'}
@@ -1059,6 +1153,7 @@ function KPIExpandPanel({
           toggleDepartment(dept?.department?.nameShort ?? productLabel(id));
         }}
       />
+      )}
 
       {/* Разбивка по уровням бюджета */}
       {showBudget && (
@@ -1185,7 +1280,11 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       color: 'orange',
       kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_plan_year_missing),
     },
-    { signal: 'stalledContract', search: 'подвис', metricKey: 'signal_stalled_contract', color: 'blue' },
+    // Карточка «Подвисший контракт» (stalledContract) УДАЛЕНА: проверка
+    // снята каноном п.27 (интервью 14.08.2026), детектор всегда возвращает
+    // false (core/pipeline/signals.ts, const stalledContract = false) —
+    // карточка вечно показывала ноль и была мертва. Возвращать только
+    // вместе с воскрешением проверки в ядре.
     { signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo' },
     { signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal' },
   ].map(spot => ({
@@ -1235,7 +1334,7 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
         <div className="flex items-center gap-2">
           <KBTooltip
             whatIs="Сигналы — отклонения в данных закупок, которые находит автоматическая проверка: просрочки, спорные флаги экономии, расхождения плана и факта. За каждым сигналом стоит своё правило из реестра проверок продукта."
-            thresholdsFull={'🔴 просрочки и конфликт флага экономии — критические\n🟡 подвисшие контракты и факт без даты — предупреждения\n🟢 ноль сигналов — данные чистые'}
+            thresholdsFull={'🔴 просрочки и конфликт флага экономии — критические\n🟡 факт без даты и раннее закрытие — предупреждения\n🟢 ноль сигналов — данные чистые'}
             example="9 просрочек, 3 конфликта флага экономии, 1 строка с фактом выше плана"
             actions="Щелчок по карточке открывает страницу «Контроль» с отбором строк по этому сигналу."
           >
@@ -1260,8 +1359,8 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       <p className={`text-xs font-medium mb-4 ${totalSpots === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-600 dark:text-zinc-300'}`}>
         {assertion}
       </p>
-      {/* Одиннадцать карточек в девяти колонках не помещались, а подписи из
-          словаря длиннее прежних сокращений — сетка расширена по ширине экрана. */}
+      {/* Девять карточек; подписи из словаря длиннее прежних сокращений —
+          сетка расширена по ширине экрана. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
         {spots.map(spot => {
           const count = signalCounts[spot.signal] || 0;

@@ -13,8 +13,15 @@
  * способ из шапки к разделу не применяются (канон п.58). Выбранное управление,
  * напротив, ПРИМЕНЯЕТСЯ (канон п.127, 20.08.2026): в срезе управления раздел
  * показывает только его находки — чужие книги в чужой срез не лезут. Поверх
- * него живёт локальный отбор раздела: род дефекта и книга внутри среза.
+ * него живёт локальный отбор раздела: род находки и книга внутри среза.
  * Момент чтения назван в плашке.
+ *
+ * ОДИН РЯД РОДОВ (приказ владельца 20.08.2026). Орфография — такой же род
+ * находки, как двойной пробел, и стоит в ТОМ ЖЕ ряду чипов, а не отдельным
+ * переключателем: читатель отбирает «что именно показать» одним движением.
+ * Отбор по управлению действует на ОБЕ группы — и на дефекты набора, и на
+ * орфографию, — а счётчик книги называет все её находки, а не половину.
+ * Книга, у которой нашлась только орфография, чипом не пропадает.
  *
  * ЧЕСТНАЯ ПУСТОТА. «Дефектов не найдено — проверено N ячеек» и «книги не
  * прочитаны — проверки не было» различаются и словами, и тоном.
@@ -109,7 +116,10 @@ function CopyFixButton({ fix }: { fix: string }) {
       onClick={() => void copy()}
       title="Скопировать готовое значение ячейки — вставляется в книгу целиком"
       aria-label="Скопировать готовое значение ячейки"
-      className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-badge)] border border-[var(--line-strong)] bg-[var(--surface-card)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--ink-strong)]"
+      // Рамки у кнопки нет (канон п.129): она повторяется в каждой строке
+      // таблицы, и восемь десятков обводок подряд — частокол, а не форма.
+      // Кнопку от ячейки отделяет светлота поверхности.
+      className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-badge)] bg-[var(--surface-raised)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--ink-strong)]"
     >
       {state === 'done'
         ? <><Check size={11} aria-hidden="true" style={{ color: 'var(--data-good)' }} /> скопировано</>
@@ -175,7 +185,7 @@ function PeriodBadge({
           onClick={onReload}
           disabled={reloading}
           title="Перечитать книги и пересчитать находки прямо сейчас — не дожидаясь автоматической перечитки"
-          className="inline-flex items-center gap-1 rounded-[var(--radius-badge)] border border-[var(--line-strong)] bg-[var(--surface-card)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--ink-strong)] disabled:opacity-60"
+          className="inline-flex items-center gap-1 rounded-[var(--radius-badge)] bg-[var(--surface-raised)] px-1.5 py-0.5 ds-text-3xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--ink-strong)] disabled:opacity-60"
         >
           <RotateCcw size={10} aria-hidden="true" className={reloading ? 'animate-spin' : undefined} />
           {reloading ? 'читаем…' : 'перечитать'}
@@ -202,10 +212,38 @@ interface FlatItem extends TextHygieneItem {
   sheet: string;
 }
 
+/**
+ * Род находки в одном ряду чипов: механические дефекты набора плюс орфография.
+ * Орфография приходит отдельным списком сервера, но для читателя это такой же
+ * род, как «двойные пробелы», — и отбирается тем же чипом (приказ 20.08.2026).
+ */
+type FindingKind = TextHygieneKind | 'spelling';
+
+// Литеральный тип, а не расширенный FindingKind: иначе сравнение
+// `kind === SPELLING_KIND` не сужает род и словарь дефектов индексируется
+// ключом «орфография», которого в нём нет.
+const SPELLING_KIND = 'spelling' as const;
+const SPELLING_LABEL = 'орфография';
+
+/** Подпись рода для чипа и подсказки: словарь дефектов плюс орфография. */
+function findingKindLabel(kind: FindingKind): string {
+  return kind === SPELLING_KIND ? SPELLING_LABEL : TEXT_HYGIENE_KIND_LABELS[kind];
+}
+
+/** Одна книга в ряду чипов управлений: обе группы находок в одном счётчике. */
+interface DeptChip {
+  dept: string;
+  deptLatin: string;
+  deptName: string;
+  hygiene: number;
+  spelling: number;
+  total: number;
+}
+
 export function TextHygieneSection() {
   const { data, loading, error, reload } = useTextHygiene();
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
-  const [kindFilter, setKindFilter] = useState<Set<TextHygieneKind>>(new Set());
+  const [kindFilter, setKindFilter] = useState<Set<FindingKind>>(new Set());
 
   // Изоляция по управлению (канон п.127): выбранное в шапке управление сужает
   // и находки, и чипы книг — чужие книги в чужой срез не попадают. Локальный
@@ -233,24 +271,86 @@ export function TextHygieneSection() {
     [allItems, deptFilter],
   );
 
-  /** Счётчики родов — после фильтра по управлению: числа совпадают с таблицей. */
+  /**
+   * Отбор по управлению действует на ОБЕ группы: орфография сужается тем же
+   * чипом книги, что и дефекты набора (приказ 20.08.2026).
+   */
+  const deptLanguage = useMemo(
+    () => (deptFilter ? scopedLanguage.filter((l) => l.dept === deptFilter) : scopedLanguage),
+    [scopedLanguage, deptFilter],
+  );
+
+  /**
+   * Ряд чипов книг. Строится по ОБЪЕДИНЕНИЮ обеих групп: книга, у которой
+   * нашлась только орфография, из ряда не пропадает, а счётчик называет все
+   * находки книги, а не половину.
+   */
+  const deptChips = useMemo<DeptChip[]>(() => {
+    const byDept = new Map<string, DeptChip>();
+    for (const d of scopedByDept) {
+      byDept.set(d.dept, {
+        dept: d.dept,
+        deptLatin: d.deptLatin,
+        deptName: d.deptName,
+        hygiene: d.items.length,
+        spelling: 0,
+        total: d.items.length,
+      });
+    }
+    for (const l of scopedLanguage) {
+      const chip = byDept.get(l.dept);
+      if (chip) {
+        chip.spelling += 1;
+        chip.total += 1;
+      } else {
+        byDept.set(l.dept, {
+          dept: l.dept,
+          deptLatin: l.deptLatin,
+          deptName: l.dept,
+          hygiene: 0,
+          spelling: 1,
+          total: 1,
+        });
+      }
+    }
+    return [...byDept.values()].sort((a, b) => b.total - a.total || a.dept.localeCompare(b.dept, 'ru'));
+  }, [scopedByDept, scopedLanguage]);
+
+  /**
+   * Счётчики родов — после отбора по управлению: числа чипов совпадают с тем,
+   * что стоит в таблицах. Орфография считается наравне с дефектами набора.
+   */
   const kindCounts = useMemo(() => {
-    const counts = new Map<TextHygieneKind, number>();
+    const counts = new Map<FindingKind, number>();
     for (const item of deptItems) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+    if (deptLanguage.length > 0) counts.set(SPELLING_KIND, deptLanguage.length);
     return counts;
-  }, [deptItems]);
+  }, [deptItems, deptLanguage]);
+
+  /** Роды в одном ряду: механика набора канонным порядком, орфография замыкает. */
+  const kindOrder = useMemo<FindingKind[]>(
+    () => [...TEXT_HYGIENE_KIND_ORDER, SPELLING_KIND].filter((k) => (kindCounts.get(k) ?? 0) > 0),
+    [kindCounts],
+  );
 
   const filteredItems = useMemo(
     () => (kindFilter.size > 0 ? deptItems.filter((i) => kindFilter.has(i.kind)) : deptItems),
     [deptItems, kindFilter],
   );
 
+  /** Орфография показана, пока её род не исключён отбором ряда. */
   const languageItems = useMemo(
-    () => (deptFilter ? scopedLanguage.filter((l) => l.dept === deptFilter) : scopedLanguage),
-    [scopedLanguage, deptFilter],
+    () => (kindFilter.size === 0 || kindFilter.has(SPELLING_KIND) ? deptLanguage : []),
+    [deptLanguage, kindFilter],
   );
 
-  const toggleKind = (kind: TextHygieneKind) => {
+  /**
+   * Отобрана одна орфография — таблицу набора не показываем вовсе: пустая
+   * карточка «под отбор ничего не подошло» здесь была бы шумом, а не ответом.
+   */
+  const hygieneAsked = kindFilter.size === 0 || [...kindFilter].some((k) => k !== SPELLING_KIND);
+
+  const toggleKind = (kind: FindingKind) => {
     setKindFilter((prev) => {
       const next = new Set(prev);
       if (next.has(kind)) next.delete(kind);
@@ -385,29 +485,36 @@ export function TextHygieneSection() {
               >
                 все книги
               </Chip>
-              {scopedByDept.map((d) => (
+              {deptChips.map((d) => (
                 <Chip
                   key={d.dept}
                   tone="neutral"
                   pressed={deptFilter === d.dept}
                   onClick={() => setDeptFilter(deptFilter === d.dept ? null : d.dept)}
-                  title={d.deptName}
+                  title={
+                    `${d.deptName}: ${fmtCount(d.hygiene)} ${pluralFindings(d.hygiene)} набора, ` +
+                    `${fmtCount(d.spelling)} ${pluralFindings(d.spelling)} орфографии`
+                  }
                 >
-                  {productLabel(d.deptLatin)} · {fmtCount(d.items.length)}
+                  {productLabel(d.deptLatin)} · {fmtCount(d.total)}
                 </Chip>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Отбор по роду дефекта">
-              <span className="ds-text-3xs text-[var(--ink-faint)]">Род дефекта:</span>
-              {TEXT_HYGIENE_KIND_ORDER.filter((kind) => (kindCounts.get(kind) ?? 0) > 0).map((kind) => (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Отбор по роду находки">
+              <span className="ds-text-3xs text-[var(--ink-faint)]">Род находки:</span>
+              {kindOrder.map((kind) => (
                 <Chip
                   key={kind}
                   tone="accent"
                   pressed={kindFilter.has(kind)}
                   onClick={() => toggleKind(kind)}
-                  title={`Показать только находки рода «${TEXT_HYGIENE_KIND_LABELS[kind]}»`}
+                  title={
+                    kind === SPELLING_KIND
+                      ? 'Показать только орфографию — слова с единственным близким соседом в словаре книг'
+                      : `Показать только находки рода «${findingKindLabel(kind)}»`
+                  }
                 >
-                  {TEXT_HYGIENE_KIND_LABELS[kind]} · {kindCounts.get(kind)}
+                  {findingKindLabel(kind)} · {kindCounts.get(kind)}
                 </Chip>
               ))}
               {hasFilter && (
@@ -423,7 +530,7 @@ export function TextHygieneSection() {
           </div>
 
           {/* Перечень гигиены набора. Прокрутка живёт внутри контейнера таблицы. */}
-          {deptItems.length > 0 && (
+          {deptItems.length > 0 && hygieneAsked && (
             <Card bare aria-label="Перечень дефектов набора">
               <div className="px-[var(--card-pad)] pt-[var(--card-pad)]">
                 <CardHeader
@@ -547,8 +654,17 @@ export function TextHygieneSection() {
             </Card>
           )}
 
+          {/* Орфография скрыта отбором рода — говорим словами, а не пустым местом:
+              исчезнувшая группа читается как «опечаток нет», а это неправда. */}
+          {deptLanguage.length > 0 && languageItems.length === 0 && (
+            <p className="ds-text-2xs text-[var(--ink-muted)]">
+              Орфография скрыта отбором рода: {fmtCount(deptLanguage.length)}{' '}
+              {pluralFindings(deptLanguage.length)} ждут — верните чип «орфография» в ряду родов.
+            </p>
+          )}
+
           {/* Орфография пуста при живой гигиене — говорим словами, а не пустым местом. */}
-          {languageItems.length === 0 && data.totals.languageFindings === 0 && (
+          {deptLanguage.length === 0 && data.totals.languageFindings === 0 && (
             <p className="ds-text-2xs text-[var(--ink-muted)]">
               Орфография: опечаток по словарю корпуса не найдено — проверены предмет закупки (G)
               и обоснование ЕП (M) всех счётных строк.

@@ -413,6 +413,12 @@ export const useStore = create<AppState>((set, get) => ({
     } else {
       current.add(month);
     }
+    if (current.size === 0) {
+      // Снят последний месяц — период очищен целиком, включая `period`
+      // (п.134: осиротевший квартал резал бы экран без чипа).
+      set({ activeMonths: current, period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode });
+      return;
+    }
     // Manual month toggle → switch to explicit mode
     set({ activeMonths: current, periodMode: 'explicit' as PeriodMode });
   },
@@ -514,6 +520,9 @@ export const useStore = create<AppState>((set, get) => ({
       monthsByYear: {},
       searchQuery: '',
       searchQueryDebounced: '',
+      // Затравка — тоже отбор: «Сбросить» обязан снимать и её, иначе
+      // непотреблённая затравка всплывёт фильтром при следующем входе в Реестр.
+      registrySignalSeed: [],
     });
   },
   navigateTo: (page, filters) => {
@@ -524,9 +533,11 @@ export const useStore = create<AppState>((set, get) => ({
       'searchQuery' | 'searchQueryDebounced' | 'activeMonths' | 'qualityTab' |
       'periodMode' | 'monthsByYear' | 'registrySignalSeed'
     >> = { page };
-    if (filters?.signals) {
-      updates.registrySignalSeed = filters.signals;
-    }
+    // Затравка ПЕРЕЗАПИСЫВАЕТСЯ на каждом переходе, а не дописывается: переход
+    // без признаков обязан обнулить прежнюю затравку (п.134). Иначе затравка,
+    // положенная «Дисциплиной» и не потреблённая Реестром, доживала до
+    // следующего входа и включала фильтр признаков, которого никто не просил.
+    updates.registrySignalSeed = filters?.signals ?? [];
     // Период — АТОМАРНО (фильтр-спека 16.07, Б1-Б3): период/месяцы/режим меняются
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.
@@ -683,7 +694,9 @@ export const useStore = create<AppState>((set, get) => ({
     // ставила невидимый для чипов/URL фильтр месяца.
     if (next.size === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      // period тоже возвращается к году (п.134): осиротевший 'q2' без месяцев —
+      // фильтр, которого не видит ни один чип (см. clearMonths ниже).
+      set({ activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ activeMonths: next, periodMode: 'explicit' as PeriodMode });
     }
@@ -698,6 +711,13 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       activeMonths: new Set<number>(),
       monthsByYear: mby,
+      // Канон п.134 (самовключения фильтров): `period` — самостоятельный
+      // фильтр расчёта (resolvePeriodSelection берёт его, когда месяцев нет),
+      // а чипа у него нет. Если очистить месяцы и оставить `period: 'q2'`,
+      // экран продолжает резаться кварталом, а «Активные фильтры» показывают
+      // пусто — ровно тот невидимый отбор, который канон запрещает. Поэтому
+      // ВСЕ точки «период очищен» обнуляют и `period`.
+      period: 'year' as PeriodScope,
       periodMode: 'week' as PeriodMode,
       focusedWeekStart: monday,
     });
@@ -720,7 +740,7 @@ export const useStore = create<AppState>((set, get) => ({
     // If all months cleared → back to week mode. Пустой Set, не месяцы недели (баг #5).
     if (activeForTarget.size === 0 && Object.keys(mby).length === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ monthsByYear: mby, year: targetYear, activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ monthsByYear: mby, year: targetYear, activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: targetYear, activeMonths: new Set(activeForTarget), periodMode: 'explicit' as PeriodMode });
     }
@@ -744,7 +764,7 @@ export const useStore = create<AppState>((set, get) => ({
     // If all months cleared → back to week mode. Пустой Set, не месяцы недели (баг #5).
     if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
     }
@@ -763,7 +783,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Пустой Set, не месяцы недели (баг #5).
     if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
       const monday = getMondayOfWeek(new Date());
-      set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
+      set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
     }

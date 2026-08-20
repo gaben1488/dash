@@ -19,6 +19,24 @@ import type { QuarterDeltas } from '../../lib/economy/quarterly';
 /** Выбранная hero-метрика (подсветка активной плитки). */
 export type HeroMetric = 'economy' | 'share' | 'high' | 'conflicts';
 
+/**
+ * Режим подведов правой панели (org-scope, приказ владельца 20.08.2026):
+ * при одном выбранном ГРБС четвёрка «управлений» смысла не несёт — панель
+ * переходит в разбивку по учреждениям этого управления либо честно называет
+ * причину, по которой разбивки нет.
+ */
+export interface HeroSubScope {
+  mode: 'withSubs' | 'grbs';
+  /** Короткое имя выбранного управления. */
+  deptLabel: string;
+  /** Есть ли у управления подведы вообще (канон фильтра, не выборка). */
+  hasSubs: boolean;
+  /** Учреждения с наибольшей экономией за периметр (уже отсортированы). */
+  top: Array<{ name: string; economy: number }>;
+  /** Клик по учреждению — переход к его строкам в Реестре. */
+  onOpenSub: (name: string) => void;
+}
+
 export interface EconomyHeroProps {
   /** Отфильтрованные строки ГРБС (списки в подписях + четвёрка лидеров). */
   rows: DeptEconomy[];
@@ -31,11 +49,13 @@ export interface EconomyHeroProps {
   onHeroMetric: (metric: HeroMetric) => void;
   formatMoney: (v: number) => string;
   onToggleDepartment: (deptId: string) => void;
+  /** Не null — правая панель живёт в режиме подведов (см. HeroSubScope). */
+  subScope?: HeroSubScope | null;
 }
 
 export function EconomyHero({
   rows, totals, economySpark, pctSpark, deltas,
-  heroMetric, onHeroMetric, formatMoney, onToggleDepartment,
+  heroMetric, onHeroMetric, formatMoney, onToggleDepartment, subScope,
 }: EconomyHeroProps) {
   // Разброс долей показываем только когда управлений с лимитом больше одного —
   // «мин 8 % / макс 8 %» по единственной строке смысла не несёт.
@@ -64,7 +84,6 @@ export function EconomyHero({
       deltaUp: deltas.economy > 0,
       color: 'text-emerald-600 dark:text-emerald-400',
       metric: 'total_economy',
-      status: totals.economy < 0 ? 'border-red-500/40' : '',
       spark: economySpark,
     },
     {
@@ -77,7 +96,6 @@ export function EconomyHero({
       deltaUp: (deltas.pct ?? 0) > 0,
       color: shareIsHigh ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400',
       metric: 'economy_rate',
-      status: shareIsHigh ? 'border-red-500/40' : '',
       spark: pctSpark,
     },
     {
@@ -92,7 +110,6 @@ export function EconomyHero({
       deltaUp: false,
       color: totals.highCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400',
       metric: null,
-      status: totals.highCount > 0 ? 'border-red-500/40' : '',
       spark: null,
     },
     {
@@ -107,7 +124,6 @@ export function EconomyHero({
       deltaUp: false,
       color: totals.conflicts > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
       metric: 'economy_conflicts',
-      status: totals.conflicts > 3 ? 'border-red-500/40' : totals.conflicts > 0 ? 'border-amber-500/40' : '',
       spark: null,
     },
   ];
@@ -167,8 +183,12 @@ export function EconomyHero({
                   'relative px-3 py-2 text-left transition-all group/metric',
                   FOCUS_RING,
                   active ? 'bg-zinc-100 dark:bg-white/[0.04]' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.02]',
+                  // Разделитель плиток — одна тихая вертикаль (п.129). Прежде
+                  // сюда же подмешивалась красная «рамка тревоги», но ширины
+                  // границы у плитки нет: у первой она не рисовалась вовсе, у
+                  // остальных перекрашивала разделитель. Тревогу несут цвет
+                  // числа и подпись под ним — текстовый дубль визуального.
                   i > 0 && 'border-l border-zinc-200/70 dark:border-white/[0.04]',
-                  m.status,
                 )}
               >
                 {active && (
@@ -199,7 +219,8 @@ export function EconomyHero({
           })}
         </div>
 
-        <div className="bg-white/[0.06] hidden lg:block" aria-hidden="true" />
+        {/* Разделитель колонок: в светлой теме белый был невидим — цвет обеих тем. */}
+        <div className="bg-zinc-200/70 dark:bg-white/[0.06] hidden lg:block" aria-hidden="true" />
 
         {/* ── Центр: разрез по бюджетам ── */}
         <div className="hidden lg:flex flex-col justify-center px-3 py-1.5 gap-1 min-w-[140px]">
@@ -219,9 +240,61 @@ export function EconomyHero({
           </div>
         </div>
 
-        <div className="bg-white/[0.06] hidden lg:block" aria-hidden="true" />
+        {/* Разделитель колонок: в светлой теме белый был невидим — цвет обеих тем. */}
+        <div className="bg-zinc-200/70 dark:bg-white/[0.06] hidden lg:block" aria-hidden="true" />
 
-        {/* ── Справа: четвёрка управлений с наибольшей экономией ── */}
+        {/* ── Справа: четвёрка управлений с наибольшей экономией — либо, в
+              режиме подведов, учреждения выбранного управления (org-scope) ── */}
+        {subScope ? (
+          <div className="hidden lg:block px-3 py-1.5 min-w-[150px] max-w-[190px]">
+            {subScope.mode === 'grbs' ? (
+              <>
+                <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1">Учреждения</h3>
+                <p className="text-[9px] text-zinc-500 leading-relaxed">
+                  Скрыты режимом «только ГРБС» — снимите его в фильтре управлений,
+                  чтобы увидеть разбивку по учреждениям.
+                </p>
+              </>
+            ) : !subScope.hasSubs ? (
+              <>
+                <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1">Учреждения</h3>
+                <p className="text-[9px] text-zinc-500 leading-relaxed">
+                  У этого управления подведомственных учреждений нет — вся экономия
+                  принадлежит аппарату управления.
+                </p>
+              </>
+            ) : subScope.top.length === 0 ? (
+              <>
+                <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1">Больше всего сэкономили</h3>
+                <p className="text-[9px] text-zinc-500 leading-relaxed">
+                  За выбранный период у учреждений управления строк с экономией нет.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
+                  Больше всего сэкономили — учреждения
+                </h3>
+                {subScope.top.map((s, i) => (
+                  <button
+                    key={s.name}
+                    type="button"
+                    onClick={() => subScope.onOpenSub(s.name)}
+                    title={`${s.name} — открыть строки закупок в Реестре`}
+                    className={clsx(
+                      'w-full flex items-center gap-1.5 py-0.5 hover:bg-zinc-100/70 dark:hover:bg-white/[0.03] rounded transition-colors group/rank',
+                      FOCUS_RING,
+                    )}
+                  >
+                    <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-600 w-3" aria-hidden="true">{i + 1}</span>
+                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 group-hover/rank:text-blue-600 dark:group-hover/rank:text-blue-400 transition-colors truncate flex-1 text-left">{s.name}</span>
+                    <span className="text-[10px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(s.economy)}</span>
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        ) : (
         <div className="hidden lg:block px-3 py-1.5 min-w-[140px] max-w-[170px]">
           <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1">Больше всего сэкономили</h3>
           {topByEconomy.map((d, i) => (
@@ -241,6 +314,7 @@ export function EconomyHero({
             </button>
           ))}
         </div>
+        )}
       </div>
     </Card>
   );

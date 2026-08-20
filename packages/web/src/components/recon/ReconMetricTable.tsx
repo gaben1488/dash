@@ -204,7 +204,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <FileSpreadsheet size={13} className="text-blue-500" aria-hidden="true" /> Официальное число
                               </div>
-                              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                              <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3">
                                 <div className="text-blue-800 dark:text-blue-300 font-mono text-[11px] flex items-center gap-1.5">
                                   {delta?.sourceCell ? `Ячейка ${delta.sourceCell}` : (
                                     <span className="font-sans text-blue-600 dark:text-blue-400">Адрес ячейки в снимке не сохранён</span>
@@ -229,7 +229,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <Info size={13} className="text-indigo-500" aria-hidden="true" /> Наш пересчёт
                               </div>
-                              <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+                              <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-3">
                                 <div className="text-indigo-600 dark:text-indigo-400 mt-1">
                                   Результат: <strong><SideValue value={calculatedValue} missingNote="не построен" /></strong>
                                 </div>
@@ -245,11 +245,13 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                                   : <CheckCircle2 size={13} className="text-emerald-500" aria-hidden="true" />}
                                 Что делать
                               </div>
+                              {/* Обводки нет (канон п.129): плитку отделяет заливка,
+                                  а тяжесть названа значком и словами выше. */}
                               <div className={clsx(
-                                'rounded-lg p-3 border text-[11px] leading-relaxed',
-                                row.assessment === 'critical' ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' :
-                                row.assessment === 'warning' ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400' :
-                                'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400'
+                                'rounded-lg p-3 text-[11px] leading-relaxed',
+                                row.assessment === 'critical' ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400' :
+                                row.assessment === 'warning' ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400' :
+                                'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
                               )}>
                                 {!bothSidesKnown
                                   ? 'Сравнить нельзя: одной из сторон нет. Если отсутствует официальное число — проверьте, заполнена ли строка в листе СВОД; если нет пересчёта — строки управления за этот срез не прочитаны.'

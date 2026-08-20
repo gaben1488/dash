@@ -12,10 +12,18 @@
  * вместо них идёт объяснение сервера во всю ширину. Ноль на её месте означал бы
  * «работы нет» там, где на самом деле «мы не смотрели», и ровно эта подмена
  * превращает дыру наблюдаемости в чистый отчёт.
+ *
+ * КЛИК ВЕДЁТ К ОСНОВАНИЯМ. Число трудоёмкости считается по строкам книги,
+ * поэтому строка таблицы открывает эти строки в Реестре — сверить меру с тем,
+ * из чего она сложилась, можно в одно движение, а не пересчитывая руками.
+ *
+ * ОБЛИК (канон п.129). Своей рамки таблица не заводит: её держит карточка
+ * секции, а строки разделяет тихая линия из ролей. Обводка на каждом атоме —
+ * частокол, а не форма.
  */
 import { Eye, EyeOff, Minus } from 'lucide-react';
-import clsx from 'clsx';
 import { productLabel } from '@aemr/shared';
+import { DataTable, TBody, THead, Td, Th, Tr } from '../ui/data-table';
 import {
   OBSERVABILITY_LABEL,
   OBSERVABILITY_MEANING,
@@ -25,19 +33,19 @@ import {
   type WorkloadBook,
 } from './contract';
 
-/** Значок и цвет признака наблюдаемости. Цвет несёт данные, не украшает. */
+/** Значок и роль цвета признака наблюдаемости. Цвет несёт данные, не украшает. */
 const OBSERVABILITY_STYLE: Readonly<
-  Record<JournalObservability, { icon: typeof Eye; className: string }>
+  Record<JournalObservability, { icon: typeof Eye; color: string }>
 > = {
-  rich: { icon: Eye, className: 'text-emerald-600 dark:text-emerald-400' },
-  thin: { icon: Eye, className: 'text-amber-600 dark:text-amber-400' },
-  blind: { icon: EyeOff, className: 'text-zinc-500 dark:text-zinc-400' },
+  rich: { icon: Eye, color: 'var(--data-good)' },
+  thin: { icon: Eye, color: 'var(--data-warn)' },
+  blind: { icon: EyeOff, color: 'var(--ink-muted)' },
 };
 
 function ObservabilityCell({ value }: { value: JournalObservability | null }) {
   if (value === null) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-zinc-400 dark:text-zinc-500">
+      <span className="inline-flex items-center gap-1.5 text-[var(--ink-faint)]">
         <Minus size={13} aria-hidden="true" />
         не измерено
       </span>
@@ -47,7 +55,8 @@ function ObservabilityCell({ value }: { value: JournalObservability | null }) {
   const Icon = style.icon;
   return (
     <span
-      className={clsx('inline-flex items-center gap-1.5 font-medium', style.className)}
+      className="inline-flex items-center gap-1.5 font-[var(--weight-medium)]"
+      style={{ color: style.color }}
       title={OBSERVABILITY_MEANING[value]}
     >
       <Icon size={13} aria-hidden="true" />
@@ -56,98 +65,84 @@ function ObservabilityCell({ value }: { value: JournalObservability | null }) {
   );
 }
 
-export function WorkloadTable({ books }: { books: readonly WorkloadBook[] }) {
+export interface WorkloadTableProps {
+  books: readonly WorkloadBook[];
+  /** Момент чтения книг — уезжает в подпись таблицы (канон п.58). */
+  readAt: string;
+  /** Открыть строки книги в Реестре: мера сверяется со своими основаниями. */
+  onOpenBook?: (dept: string) => void;
+}
+
+export function WorkloadTable({ books, readAt, onOpenBook }: WorkloadTableProps) {
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <caption className="sr-only">
-            Нагрузка управлений: строки книги, учреждения, правки журнала и их отношения.
-            Порядок — по числу строк на одно учреждение, убыванием.
-          </caption>
-          <thead>
-            <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              <th scope="col" className="px-4 py-2.5">Управление</th>
-              <th scope="col" className="px-3 py-2.5 text-right" title="Строк-закупок в книге управления">
-                Строк
-              </th>
+    <DataTable
+      caption={`Нагрузка управлений: строки книги, учреждения, правки журнала и их отношения. Порядок — по числу строк на одно учреждение, убыванием. Прочитано ${readAt}.`}
+      captionHidden
+    >
+      <THead>
+        <tr>
+          <Th>Управление</Th>
+          <Th numeric title="Строк-закупок в книге управления">Строк</Th>
+          <Th numeric title="Различных учреждений в колонке C, включая само управление">
+            Учреждений
+          </Th>
+          <Th numeric title="Записей в журнале правок книги">Правок</Th>
+          <Th numeric title="Записей журнала на одну строку закупки">Правок на строку</Th>
+          <Th numeric title="Сколько закупок ведёт одно учреждение">Строк на учреждение</Th>
+          <Th>Наблюдаемость журнала</Th>
+        </tr>
+      </THead>
+      <TBody>
+        {books.map((book) => {
+          const measured = book.observability !== null;
+          const open = onOpenBook && book.rowsAvailable ? () => onOpenBook(book.dept) : undefined;
+          return (
+            <Tr
+              key={book.dept}
+              onClick={open}
+              // Непрочитанная книга утоплена подложкой, а не второй рамкой:
+              // поверхности разделяет светлота (канон п.129).
+              className={measured ? undefined : 'bg-[var(--surface-sunken)]'}
+            >
+              {/* Имя книги — заголовок строки, а не ячейка: диктор читает его
+                  перед каждым числом ряда, иначе «12,6» звучит без адресата. */}
               <th
-                scope="col"
-                className="px-3 py-2.5 text-right"
-                title="Различных учреждений в колонке C, включая само управление"
+                scope="row"
+                className="whitespace-nowrap text-left font-[var(--weight-medium)] text-[var(--ink-strong)]"
+                style={{ padding: 'var(--cell-pad-y) var(--cell-pad-x)' }}
               >
-                Учреждений
-              </th>
-              <th scope="col" className="px-3 py-2.5 text-right" title="Записей в журнале правок книги">
-                Правок
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2.5 text-right"
-                title="Записей журнала на одну строку закупки"
-              >
-                Правок на строку
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2.5 text-right"
-                title="Сколько закупок ведёт одно учреждение"
-              >
-                Строк на учреждение
-              </th>
-              <th scope="col" className="px-4 py-2.5">Наблюдаемость журнала</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
-            {books.map((book) => {
-              const measured = book.observability !== null;
-              return (
-                <tr
-                  key={book.dept}
-                  className={clsx(
-                    'transition',
-                    measured
-                      ? 'hover:bg-zinc-50 dark:hover:bg-zinc-700/30'
-                      : 'bg-zinc-50/60 dark:bg-zinc-900/30',
-                  )}
+                <span
+                  title={
+                    open
+                      ? `${book.deptName}. Открыть строки книги в Реестре`
+                      : book.deptName
+                  }
                 >
-                  <th scope="row" className="px-4 py-2.5 text-left font-medium text-zinc-700 dark:text-zinc-200 whitespace-nowrap">
-                    <span title={book.deptName}>{productLabel(book.deptLatin)}</span>
-                  </th>
-                  {measured ? (
-                    <>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {fmtCount(book.rows)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {fmtCount(book.subordinates)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {fmtCount(book.journalEntries)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-700 dark:text-zinc-200">
-                        {fmtRatio(book.editsPerRow)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-zinc-800 dark:text-zinc-100">
-                        {fmtRatio(book.rowsPerSubordinate)}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs">
-                        <ObservabilityCell value={book.observability} />
-                      </td>
-                    </>
-                  ) : (
-                    // Числа не показываем вовсе: прочерк с объяснением честнее
-                    // нуля, который читался бы как «работы нет».
-                    <td colSpan={6} className="px-3 py-2.5 text-xs text-zinc-500 dark:text-zinc-400">
-                      {book.note}
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+                  {productLabel(book.deptLatin)}
+                </span>
+              </th>
+              {measured ? (
+                <>
+                  <Td numeric muted>{fmtCount(book.rows)}</Td>
+                  <Td numeric muted>{fmtCount(book.subordinates)}</Td>
+                  <Td numeric muted>{fmtCount(book.journalEntries)}</Td>
+                  <Td numeric>{fmtRatio(book.editsPerRow)}</Td>
+                  <Td numeric className="font-[var(--weight-medium)]">
+                    {fmtRatio(book.rowsPerSubordinate)}
+                  </Td>
+                  <Td>
+                    <ObservabilityCell value={book.observability} />
+                  </Td>
+                </>
+              ) : (
+                // Числа не показываем вовсе: прочерк с объяснением честнее
+                // нуля, который читался бы как «работы нет».
+                <Td colSpan={6} muted>{book.note}</Td>
+              )}
+            </Tr>
+          );
+        })}
+      </TBody>
+    </DataTable>
   );
 }

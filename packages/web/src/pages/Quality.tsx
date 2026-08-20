@@ -21,6 +21,7 @@ import { IssuesPage } from './Issues';
 import { RecsPage } from './Recs';
 import { JournalPage } from './Journal';
 import { CommentAnnotationsSection } from '../components/quality/CommentAnnotationsSection';
+import { IntegritySection } from '../components/analytics-extra/IntegritySection';
 import { ScorecardSection } from '../components/scorecard/ScorecardSection';
 import { PageHeader } from '../components/ui/page-header';
 
@@ -130,6 +131,12 @@ export function QualityPage() {
                 циклы. Рисуется и при пустом списке замечаний: сверка
                 комментариев со структурой живёт своим источником. */}
             <CommentAnnotationsSection />
+            {/* Целостность книг (21.08.2026): нумерация «№ п/п», код даты
+                текстом в графе срока и пропавшие между чтениями закупки. Тоже
+                отдельная секция со своим источником: у неё другой жизненный
+                цикл, чем у замечаний конвейера, и рисуется она независимо от
+                того, есть ли замечания. */}
+            <IntegritySection />
           </div>
         )}
         {qualityTab === 'scorecard' && <ScorecardSection />}

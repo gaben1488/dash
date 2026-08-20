@@ -16,10 +16,18 @@
 // Счёт ЕП/КП за периметр делается ОДИН раз (sumEpKp) и раздаётся блокам 1
 // и 3: цена отказа и доля ЕП обязаны стоять на одном объёме ЕП, иначе два
 // блока одной вкладки спорили бы друг с другом числами.
+//
+// Режим подведов (приказ владельца 20.08.2026, образец — шапка
+// lib/selectors/org-scope.ts): скоуп считается ОДИН раз на странице и
+// раздаётся блокам. Разбивку по учреждениям строит только «Доля ЕП» — у неё
+// расчёт хранит срез способа по каждой организации колонки C. Три остальных
+// блока разбивку построить не могут и говорят об этом словами (SubScopeNote),
+// называя механизм: чего именно не хватает их данным.
 // ────────────────────────────────────────────────────────────────
 
 import { useMemo } from 'react';
 import { useFilteredData } from '../hooks/useFilteredData';
+import { useOrgScope } from '../lib/selectors/org-scope';
 import { CostOfRefusal } from '../components/competition/CostOfRefusal';
 import { MergeCandidates } from '../components/competition/MergeCandidates';
 import { EpShare } from '../components/competition/EpShare';
@@ -29,6 +37,7 @@ import { PageHeader } from '../components/ui/page-header';
 
 export function CompetitionPage() {
   const fd = useFilteredData();
+  const orgScope = useOrgScope();
 
   const epKpTotals = useMemo(
     () => sumEpKp(fd.depts, {
@@ -53,10 +62,14 @@ export function CompetitionPage() {
         lead="Сколько стоит отказ от конкурса и где объединение закупок разных управлений позволит провести общие торги вместо закупок у единственного поставщика."
       />
 
-      <CostOfRefusal epPlan={epKpTotals.epPlan} epHasData={epKpTotals.hasData && epKpTotals.epPlan > 0} />
-      <MergeCandidates />
-      <EpShare totals={epKpTotals} />
-      <EpJustification />
+      <CostOfRefusal
+        epPlan={epKpTotals.epPlan}
+        epHasData={epKpTotals.hasData && epKpTotals.epPlan > 0}
+        orgScope={orgScope}
+      />
+      <MergeCandidates orgScope={orgScope} />
+      <EpShare totals={epKpTotals} orgScope={orgScope} />
+      <EpJustification orgScope={orgScope} />
     </div>
   );
 }

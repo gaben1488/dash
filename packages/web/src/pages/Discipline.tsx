@@ -10,10 +10,21 @@
  * Сводный индекс дисциплины сознательно НЕ показывается: веса слагаемых не
  * утверждены (развилка Р-16). Вместо него — счётчик «дел на сегодня» и деньги,
  * которые вернёт их выполнение.
+ *
+ * РЕЖИМ ПОДВЕДОВ (приказ владельца 20.08.2026). Выбран один ГРБС «с
+ * подведомственными» — сводка перестаёт быть одной строкой управления и
+ * раскладывается ПО УЧРЕЖДЕНИЯМ: аппарат первым, дальше подведы. Числа считает
+ * та же чистая сборка дел (buildDisciplineActions), что и сводку целиком, —
+ * вторых формул здесь нет, и разбивка не может разойтись с итогом. Подвед без
+ * единой строки в выборке из разбивки НЕ пропадает: «строк нет» и «учреждения
+ * нет» — разные новости.
+ *
+ * ОБЛИК (канон п.129). Обводок на атомах нет: поверхность даёт карточка
+ * продукта, чипы и плашки отделяет светлота ролей.
  */
 import { useCallback, useMemo } from 'react';
 import { AlertTriangle, ClipboardCheck, RotateCcw } from 'lucide-react';
-import { productLabel, sumInitiativeRows } from '@aemr/shared';
+import { productLabel, subordinateKey, sumInitiativeRows } from '@aemr/shared';
 import { useStore } from '../store';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { pluralRu } from '../lib/economy-copy';
@@ -26,6 +37,11 @@ import { UpcomingSection } from '../components/timeline/UpcomingSection';
 import { WorkloadSection } from '../components/workload/WorkloadSection';
 import { DisciplinePeriodBadge } from '../components/discipline/DisciplinePeriodBadge';
 import { PageHeader } from '../components/ui/page-header';
+import { Card, CardHeader } from '../components/ui/card';
+import { Chip } from '../components/ui/chip';
+import { Stat } from '../components/ui/stat';
+import { DataTable, TBody, THead, Td, Th, Tr } from '../components/ui/data-table';
+import { useOrgScope } from '../lib/selectors/org-scope';
 import { useDisciplineRows } from '../components/discipline/useDisciplineRows';
 import {
   buildDisciplineActions,
@@ -35,6 +51,10 @@ import {
 
 function делРу(n: number): string {
   return pluralRu(n, 'дело', 'дела', 'дел');
+}
+
+function строкРу(n: number): string {
+  return pluralRu(n, 'строка', 'строки', 'строк');
 }
 
 export function DisciplinePage() {
@@ -75,6 +95,37 @@ export function DisciplinePage() {
     });
   }, [navigateTo]);
 
+  // ── Режим подведов (org-scope, приказ владельца 20.08.2026) ──────────────
+  // Ключ ведра — ДОСЛОВНОЕ значение колонки C: только оно строково совпадает
+  // с живыми строками книги (канон п.51).
+  const subKeyOf = useCallback(
+    (row: Record<string, unknown>) => subordinateKey(row.subordinate),
+    [],
+  );
+  const orgScope = useOrgScope(rows, subKeyOf);
+
+  /**
+   * Дела каждой организации управления. Считает та же чистая сборка, что и
+   * сводку целиком: разбивка не может разойтись с итогом по построению.
+   */
+  const subSummaries = useMemo(
+    () => orgScope.subordinates.map((group) => ({
+      key: group.key,
+      label: group.label,
+      rowsInScope: group.rows.length,
+      summary: buildDisciplineActions(group.rows as unknown as DisciplineRow[]),
+    })),
+    [orgScope],
+  );
+
+  /** Переход в Реестр к строкам одной организации управления. */
+  const openSubordinate = useCallback((subKey: string) => {
+    navigateTo('data', {
+      ...(orgScope.dept ? { department: orgScope.dept } : {}),
+      subordinate: subKey,
+    });
+  }, [navigateTo, orgScope.dept]);
+
   const scopeLabel = selectedDepartments.size === 0
     ? 'все управления'
     : [...selectedDepartments].map((d) => productLabel(toCanonicalDeptId(d))).join(', ');
@@ -91,38 +142,30 @@ export function DisciplinePage() {
         actions={<DisciplinePeriodBadge />}
       />
 
+      {/* Отбор управлений — тот же ГЛОБАЛЬНЫЙ фильтр, что и полоса организаций
+          слева: страница второго периметра не заводит. Чипы — общий примитив
+          продукта, а не своя строка классов: нажатое состояние слышно диктору
+          (aria-pressed), краски приходят ролями (п.115, п.129). */}
       <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Выбор управления">
-        <button
-          type="button"
+        <Chip
+          tone="neutral"
+          pressed={selectedDepartments.size === 0}
           onClick={selectAllDepartments}
-          aria-pressed={selectedDepartments.size === 0}
-          className={
-            selectedDepartments.size === 0
-              ? 'px-2.5 py-1 text-xs font-medium rounded-full bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
-              : 'px-2.5 py-1 text-xs font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40 transition'
-          }
+          title="Считать дела по книгам всех управлений района"
         >
           Все управления
-        </button>
-        {allDepartments.map((dept) => {
-          const active = selectedDepartments.has(dept);
-          return (
-            <button
-              key={dept}
-              type="button"
-              onClick={() => toggleDepartment(dept)}
-              aria-pressed={active}
-              title={`Считать дела только по ${productLabel(dept)} (общий фильтр управлений)`}
-              className={
-                active
-                  ? 'px-2.5 py-1 text-xs font-medium rounded-full bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'px-2.5 py-1 text-xs font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40 transition'
-              }
-            >
-              {productLabel(dept)}
-            </button>
-          );
-        })}
+        </Chip>
+        {allDepartments.map((dept) => (
+          <Chip
+            key={dept}
+            tone="neutral"
+            pressed={selectedDepartments.has(dept)}
+            onClick={() => toggleDepartment(dept)}
+            title={`Считать дела только по ${productLabel(dept)} (общий фильтр управлений)`}
+          >
+            {productLabel(dept)}
+          </Chip>
+        ))}
       </div>
 
       {/* ── Близкие к плановой дате (канон п.75б): просроченные + окно 14 дней.
@@ -132,18 +175,25 @@ export function DisciplinePage() {
 
       {/* ── Книги, которые не прочитались: честная плашка, а не тишина ── */}
       {failedDepts.length > 0 && !loading && (
-        <div className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
-          <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 mt-px shrink-0" aria-hidden="true" />
-          <div className="text-amber-800 dark:text-amber-300">
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-[var(--radius-card)] px-4 py-3 ds-text-xs"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--data-warn) 10%, transparent)',
+            color: 'var(--data-warn)',
+          }}
+        >
+          <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden="true" />
+          <div>
             <p>
               Книги не прочитались: {failedDepts.map((d) => productLabel(toCanonicalDeptId(d))).join(', ')}.
               Дела по ним не посчитаны — счётчики ниже неполные.
             </p>
-            {reason && <p className="mt-0.5 text-amber-700/70 dark:text-amber-400/60">({reason})</p>}
+            {reason && <p className="mt-0.5 ds-text-3xs opacity-80">({reason})</p>}
             <button
               type="button"
               onClick={reload}
-              className="mt-1.5 inline-flex items-center gap-1 font-medium hover:underline"
+              className="mt-1.5 inline-flex items-center gap-1 font-[var(--weight-medium)] hover:underline"
             >
               <RotateCcw size={11} aria-hidden="true" /> Прочитать ещё раз
             </button>
@@ -174,61 +224,149 @@ export function DisciplinePage() {
       ) : (
         <>
           {/* ── Сводка: счётчик дел и деньги — вместо сводного индекса ── */}
-          <section
-            aria-label="Сводка дел"
-            className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5"
-          >
-            <div className="flex items-center justify-between gap-6 flex-wrap">
-              <div className="flex items-center gap-8 flex-wrap">
-                {/* Карточка БЗ сводки дел (п.91-2): что такое дело, как считаются
-                    строки и деньги эффекта, почему нет сводного индекса. */}
-                <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.discipline_actions)} showIcon>
-                  <div>
-                    <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-                      {summary.totalActions}
-                    </p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      {делРу(summary.totalActions)} на сегодня
-                    </p>
+          <section aria-label="Сводка дел">
+            <Card className="space-y-[var(--space-3)]">
+              <CardHeader
+                className="mb-0"
+                // Карточка БЗ сводки дел (п.91-2): что такое дело, как считаются
+                // строки и деньги эффекта, почему нет сводного индекса.
+                title={
+                  <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.discipline_actions)} showIcon>
+                    <span>Сводка дел</span>
+                  </KBTooltip>
+                }
+                scope={`${scopeLabel} · строки последнего чтения книг`}
+                note="Дело — класс незаполненных полей, влияющих на план: одно действие закрывает все свои строки разом. Сводный индекс дисциплины здесь не показывается — веса его слагаемых не утверждены; считаются только проверяемые вещи: дела, строки и деньги."
+              />
+
+              <div className="flex flex-wrap items-start gap-x-[var(--space-8)] gap-y-[var(--space-3)]">
+                <Stat
+                  label={`${делРу(summary.totalActions)} на сегодня`}
+                  value={String(summary.totalActions)}
+                  hint="Классы дел, у которых нашлась хотя бы одна строка."
+                />
+                <Stat
+                  label={`${pluralRu(summary.totalRows, 'строка ждёт', 'строки ждут', 'строк ждут')} действия`}
+                  value={String(summary.totalRows)}
+                  hint="Строка, попавшая в два дела, считается одной."
+                />
+                {/* Деньги — единственное место цвета в сводке (бриф §2.3:
+                    критичность только тоном денег эффекта). Пороги тона живут
+                    в одном доме — components/discipline/actions.ts. */}
+                <div className="ds-stat min-w-0">
+                  <div className="ds-text-2xs text-[var(--ink-muted)]">деньги в строках дел</div>
+                  <div className="mt-0.5 flex items-baseline gap-1">
+                    <span
+                      data-numeric
+                      className={`ds-text-2xl font-[var(--weight-strong)] tabular-nums ${moneyToneClass(summary.totalMoney)}`}
+                    >
+                      {formatMoney(summary.totalMoney)}
+                    </span>
                   </div>
-                </KBTooltip>
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-                    {summary.totalRows}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {pluralRu(summary.totalRows, 'строка ждёт', 'строки ждут', 'строк ждут')} действия
-                  </p>
-                </div>
-                <div>
-                  <p className={`text-2xl font-semibold tabular-nums ${moneyToneClass(summary.totalMoney)}`}>
-                    {formatMoney(summary.totalMoney)}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    деньги в строках дел
+                  <p className="ds-prose mt-1 ds-text-3xs text-[var(--ink-faint)]">
+                    План строк планового дела, иначе факт. Это деньги строк, а не сумма дел.
                   </p>
                 </div>
               </div>
-              <div className="text-right text-[11px] text-zinc-500 dark:text-zinc-400">
-                <p>Периметр: {scopeLabel}</p>
-                <p className="mt-0.5">строки — из последнего чтения книг управлений</p>
-              </div>
-            </div>
-            {/* Подпись плана по канону п.76б: инициативные заявки видны, но
-                подписаны отдельно — это стадия, а не риск и не дело. */}
-            {initiative.rows > 0 && (
-              <p
-                className="mt-2 text-[11px] text-violet-700 dark:text-violet-400 tabular-nums"
-                title="Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря «хотелки» (три написания). План таких строк входит в общий план книги, но подписывается отдельно и в риск-списки не шумит."
-              >
-                В плане книг — в т.ч. инициативные заявки {formatMoney(initiative.planSum)}{' '}
-                ({initiative.rows} {pluralRu(initiative.rows, 'строка', 'строки', 'строк')})
-              </p>
-            )}
-            <p className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-700/50 text-[11px] text-zinc-500 dark:text-zinc-400">
-              Сводный индекс дисциплины здесь не показывается: веса его слагаемых не
-              утверждены. Считаются только проверяемые вещи — дела, строки и деньги.
-            </p>
+
+              {/* Подпись плана по канону п.76б: инициативные заявки видны, но
+                  подписаны отдельно — это стадия, а не риск и не дело. */}
+              {initiative.rows > 0 && (
+                <p
+                  className="ds-text-2xs tabular-nums text-violet-700 dark:text-violet-400"
+                  title="Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря «хотелки» (три написания). План таких строк входит в общий план книги, но подписывается отдельно и в риск-списки не шумит."
+                >
+                  В плане книг — в т.ч. инициативные заявки {formatMoney(initiative.planSum)}{' '}
+                  ({initiative.rows} {строкРу(initiative.rows)})
+                </p>
+              )}
+
+              {/* ── Режим подведов: сводка раскладывается по учреждениям ── */}
+              {orgScope.mode === 'withSubs' && orgScope.hasSubs && (
+                <>
+                  <DataTable
+                    caption={`Дела по организациям управления: ${subSummaries.length} ${pluralRu(subSummaries.length, 'организация', 'организации', 'организаций')} в выборке ${scopeLabel}`}
+                    maxHeight="22rem"
+                  >
+                    <THead>
+                      <tr>
+                        <Th>Организация</Th>
+                        <Th numeric title="Классы дел, у которых у этой организации есть строки">
+                          Дел
+                        </Th>
+                        <Th numeric title="Строки этой организации, ждущие действия">
+                          Строк ждут
+                        </Th>
+                        <Th numeric title="Деньги строк, ждущих действия">
+                          Деньги дел
+                        </Th>
+                        <Th numeric title="Все строки организации в текущей выборке">
+                          Строк в выборке
+                        </Th>
+                      </tr>
+                    </THead>
+                    <TBody>
+                      {subSummaries.map((group) => (
+                        <Tr
+                          key={group.key}
+                          onClick={group.rowsInScope > 0 ? () => openSubordinate(group.key) : undefined}
+                        >
+                          <th
+                            scope="row"
+                            className="text-left font-[var(--weight-medium)] text-[var(--ink-strong)]"
+                            style={{ padding: 'var(--cell-pad-y) var(--cell-pad-x)' }}
+                          >
+                            <span
+                              title={group.rowsInScope > 0
+                                ? `${group.label}. Открыть строки организации в Реестре`
+                                : group.label}
+                            >
+                              {group.label}
+                            </span>
+                          </th>
+                          {group.rowsInScope === 0 ? (
+                            // Учреждение без строк из разбивки не пропадает:
+                            // «строк нет» и «организации нет» — разные новости.
+                            <Td colSpan={4} muted>
+                              строк этой организации в выборке нет — дела считать не из чего
+                            </Td>
+                          ) : (
+                            <>
+                              <Td numeric>{group.summary.totalActions}</Td>
+                              <Td numeric muted>{group.summary.totalRows}</Td>
+                              <Td numeric className={moneyToneClass(group.summary.totalMoney)}>
+                                {formatMoney(group.summary.totalMoney)}
+                              </Td>
+                              <Td numeric muted>{group.rowsInScope}</Td>
+                            </>
+                          )}
+                        </Tr>
+                      ))}
+                    </TBody>
+                  </DataTable>
+                  <p className="ds-text-3xs text-[var(--ink-faint)]">
+                    Разбивка появилась потому, что в фильтре выбрано одно управление «с
+                    подведомственными». Организация без строк из перечня не исчезает: пустая
+                    строка означает «закупок в выборке нет», а не «учреждения нет».
+                  </p>
+                </>
+              )}
+
+              {orgScope.mode === 'withSubs' && !orgScope.hasSubs && (
+                <p className="ds-text-2xs text-[var(--ink-muted)]">
+                  У этого управления подведомственных учреждений нет: все дела выше — по
+                  закупкам самого аппарата управления, и раскладывать их не на что.
+                </p>
+              )}
+
+              {orgScope.mode === 'grbs' && (
+                <p className="ds-text-2xs text-[var(--ink-muted)]">
+                  Выбран режим «только ГРБС»: дела считаются по строкам аппарата и подведов
+                  вместе, но разбивка по учреждениям скрыта этим режимом. Вернуть её —
+                  переключить управление в фильтре на «с подведомственными».
+                </p>
+              )}
+            </Card>
           </section>
 
           {/* ── Список дел ── */}

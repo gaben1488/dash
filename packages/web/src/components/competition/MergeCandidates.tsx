@@ -17,8 +17,12 @@ import { useStore } from '../../store';
 import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
+import { fmtThousands } from '../../lib/report/mappers';
+import type { OrgScope } from '../../lib/selectors/org-scope';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
-import { CompetitionCard, FOCUS_RING } from './primitives';
+import {
+  CompetitionCard, FOCUS_RING, RULE_HEAD, RULE_ROW, SubScopeNote, TILE,
+} from './primitives';
 
 interface MemberDTO {
   grbsId: string;
@@ -51,7 +55,10 @@ const MEMBERS_VISIBLE_LIMIT = 50;
 const deptsWord = (n: number) => pluralRu(n, 'управление', 'управления', 'управлений');
 const rowsWord = (n: number) => pluralRu(n, 'закупка', 'закупки', 'закупок');
 
-export function MergeCandidates() {
+export function MergeCandidates({ orgScope }: {
+  /** Режим подведов страницы (org-scope): здесь — только честная оговорка. */
+  orgScope: OrgScope;
+}) {
   const formatMoney = useStore((s) => s.formatMoney);
   const fd = useFilteredData();
 
@@ -146,10 +153,7 @@ export function MergeCandidates() {
               const panelId = `merge-group-${o.category}`;
               const sortedMembers = [...o.members].sort((a, b) => b.planTotal - a.planTotal);
               return (
-                <li
-                  key={o.category}
-                  className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 overflow-hidden"
-                >
+                <li key={o.category} className={clsx(TILE, 'overflow-hidden')}>
                   <button
                     type="button"
                     onClick={() => toggle(o.category)}
@@ -192,10 +196,13 @@ export function MergeCandidates() {
                   </button>
 
                   {open && (
-                    <div id={panelId} className="border-t border-zinc-100 dark:border-zinc-700/50 px-3 py-2 overflow-x-auto">
+                    <div
+                      id={panelId}
+                      className="border-t border-zinc-200/70 dark:border-white/[0.06] px-3 py-2 overflow-x-auto"
+                    >
                       <table className="w-full text-[11px]">
                         <thead>
-                          <tr className="text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                          <tr className={clsx('text-left text-[10px] uppercase text-zinc-500 dark:text-zinc-400', RULE_HEAD)}>
                             <th scope="col" className="py-1.5 pr-3 font-medium">Управление</th>
                             <th scope="col" className="py-1.5 pr-3 font-medium">Предмет закупки</th>
                             <th scope="col" className="py-1.5 pr-3 font-medium">Способ</th>
@@ -204,7 +211,7 @@ export function MergeCandidates() {
                         </thead>
                         <tbody>
                           {sortedMembers.slice(0, MEMBERS_VISIBLE_LIMIT).map((m, i) => (
-                            <tr key={i} className="border-b border-zinc-50 dark:border-zinc-800/50 align-top">
+                            <tr key={i} className={clsx(RULE_ROW, 'align-top')}>
                               <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300">
                                 {productLabel(m.grbsId)}
                               </td>
@@ -220,7 +227,7 @@ export function MergeCandidates() {
                                 {m.method === 'ЕП' ? 'ЕП (без торгов)' : m.method}
                               </td>
                               <td className="py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                                {m.planTotal.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}
+                                {fmtThousands(m.planTotal)}
                               </td>
                             </tr>
                           ))}
@@ -237,6 +244,18 @@ export function MergeCandidates() {
               );
             })}
           </ul>
+
+          {/* Режим подведов: разбивка здесь противоречила бы самому блоку —
+              пересечение ищется поверх управлений района (приказ 20.08). */}
+          <SubScopeNote
+            mode={orgScope.mode}
+            deptLabel={orgScope.dept}
+            reason="кандидат на объединение — это одна категория у РАЗНЫХ управлений; поиск ведётся поверх всего района, и сужение до учреждений одного управления обессмыслило бы сам блок."
+            // Отбор управлений блок не применяет вовсе — фраза «числа по книге
+            // управления целиком» была бы здесь неправдой; оговорка про район
+            // уже стоит выше, у заголовка.
+            grbsNote={null}
+          />
         </>
       )}
     </CompetitionCard>

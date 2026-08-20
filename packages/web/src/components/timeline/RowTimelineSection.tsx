@@ -24,10 +24,10 @@ function TimelineSkeleton() {
       <span className="sr-only">Собираем историю строки из журнала правок и снимков</span>
       {[0, 1, 2].map((i) => (
         <div key={i} className="flex items-start gap-3">
-          <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-700/60 shrink-0" />
+          <div className="h-6 w-6 shrink-0 rounded-full bg-[var(--surface-raised)]" />
           <div className="flex-1 space-y-1.5 pt-0.5">
-            <div className="h-2 w-24 rounded bg-zinc-100 dark:bg-zinc-700/60" />
-            <div className="h-2.5 w-3/4 rounded bg-zinc-100 dark:bg-zinc-700/60" />
+            <div className="h-2 w-24 rounded bg-[var(--surface-raised)]" />
+            <div className="h-2.5 w-3/4 rounded bg-[var(--surface-raised)]" />
           </div>
         </div>
       ))}
@@ -65,7 +65,7 @@ export function RowTimelineSection({ deptId, sheetRow }: RowTimelineSectionProps
   // говорим причину вместо кнопки, которая обещала бы невозможное.
   if (!deptId || sheetRow <= 3) {
     return (
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="text-xs text-[var(--ink-muted)]">
         История недоступна: адрес строки в книге неизвестен, запросить журнал и снимки не по чему.
       </p>
     );
@@ -77,7 +77,7 @@ export function RowTimelineSection({ deptId, sheetRow }: RowTimelineSectionProps
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-100 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded"
+        className="flex items-center gap-1.5 rounded text-xs font-medium text-[var(--ink-muted)] transition hover:text-[var(--ink-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
       >
         <History size={13} aria-hidden="true" />
         {open ? 'Свернуть историю' : 'Показать историю строки'}
@@ -93,12 +93,12 @@ export function RowTimelineSection({ deptId, sheetRow }: RowTimelineSectionProps
           {loading ? (
             <TimelineSkeleton />
           ) : error ? (
-            <div className="text-xs bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg px-3 py-2.5">
-              <p className="text-red-700 dark:text-red-300">История строки не загрузилась. {error}</p>
+            <div className="rounded-lg bg-[var(--surface-raised)] px-3 py-2.5 text-xs">
+              <p className="text-[var(--data-bad)]">История строки не загрузилась. {error}</p>
               <button
                 type="button"
                 onClick={() => void load()}
-                className="mt-1.5 inline-flex items-center gap-1 font-medium text-red-700 dark:text-red-300 hover:underline"
+                className="mt-1.5 inline-flex items-center gap-1 font-medium text-[var(--data-bad)] hover:underline"
               >
                 <RotateCcw size={11} aria-hidden="true" /> Запросить ещё раз
               </button>

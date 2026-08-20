@@ -87,7 +87,9 @@ function Block({ title, buckets, kind, note }: {
 export function ReasonsPanel({ epReasons, deviations }: { epReasons: ReasonBucket[]; deviations: ReasonBucket[] }) {
   if (epReasons.length === 0 && deviations.length === 0) return null;
   return (
-    <div className="space-y-3 rounded-lg border border-zinc-200/70 px-3 py-2.5 dark:border-zinc-700/60">
+    // Тихая рамка (п.129): в тёмной теме панель отделяет светлота поверхности
+    // (утопленный тон + едва заметный край white/5), а не обводка zinc-700.
+    <div className="space-y-3 rounded-lg border border-zinc-200/70 bg-zinc-50/60 px-3 py-2.5 dark:border-white/5 dark:bg-zinc-900/25">
       <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
         Чем управление объясняет свои решения
       </span>

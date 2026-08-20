@@ -151,6 +151,7 @@ export function DiscountHistogram({
                 <Bar
                   dataKey="count"
                   radius={[3, 3, 0, 0]}
+                  cursor={onPickBucket !== undefined ? 'pointer' : undefined}
                   onClick={(d: { key?: string }) => {
                     if (onPickBucket !== undefined && typeof d.key === 'string') onPickBucket(d.key);
                   }}
@@ -160,6 +161,13 @@ export function DiscountHistogram({
               </BarChart>
             </ResponsiveContainer>
           </div>
+
+          {onPickBucket !== undefined && (
+            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+              Клик по столбу ставит реестру выше разрез той же корзиной снижения — видно сами
+              строки за числом.
+            </p>
+          )}
 
           {/* Текстовый дубль графика: печать бывает чёрно-белой, а часть
               читателей не различает тона. Числа обязаны быть словами тоже. */}

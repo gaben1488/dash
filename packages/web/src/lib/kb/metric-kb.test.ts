@@ -59,6 +59,25 @@ describe('kbFor — null вместо пустого попапа', () => {
   });
 });
 
+describe('kbFor — поля карточки 2.0', () => {
+  it('скоуп, расхождение, порог и действие доезжают до попапа', () => {
+    const card = kbFor('scorecard_grade');
+    expect(card).not.toBeNull();
+    expect(card!.scope!.length).toBeGreaterThan(20);
+    expect(card!.divergence!.length).toBeGreaterThan(20);
+    expect(card!.thresholds).toContain('A');
+    expect(card!.actions!.length).toBeGreaterThan(20);
+  });
+
+  it('запись без новых полей их и не отдаёт — пустых разделов не бывает', () => {
+    // Ключ намеренно взят из тех, кого доводка не касалась.
+    const card = kbFor('signal_high_economy');
+    expect(card).not.toBeNull();
+    expect(card!.scope).toBeUndefined();
+    expect(card!.divergence).toBeUndefined();
+  });
+});
+
 describe('kbFor — тексты для людей, не для разработчиков', () => {
   it('«Что это» всюду по-русски; внутренний ключ exec_count_pct не светится', () => {
     let covered = 0;

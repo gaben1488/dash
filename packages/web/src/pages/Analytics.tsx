@@ -1,23 +1,36 @@
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
-import { productLabel } from '@aemr/shared';
+import { productLabel, ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
-import { subordinateLabel } from '../lib/subordinate-label';
-import { PeriodBadge } from '../components/PeriodBadge';
+import { subordinateLabel, ORG_ITSELF_LABEL } from '../lib/subordinate-label';
+import { PeriodBadge, usePeriodBadge } from '../components/PeriodBadge';
+import { EmptyState } from '../components/EmptyState';
 import { selectDatasetAudit, BENFORD_LABELS, type DatasetAuditRow } from '../lib/dataset-analyses';
+import {
+  selectSeasonalFindings,
+  selectSplittingFindings,
+  outlierRule,
+  groupFindingsBySubordinate,
+  type SeasonalFinding,
+  type SplittingFinding,
+} from '../lib/analytics/anomaly-addresses';
+import { useOrgScope, type OrgScope } from '../lib/selectors/org-scope';
+import { buildSubBreakdown, subBreakdownTotals, type SubordinateMetricsLike } from '../lib/analytics/sub-breakdown';
+import { pluralRu } from '../lib/economy-copy';
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import { kbCardProps } from './kb-additions';
 import { CONTROL_ANALYTICS_KB_ADDITIONS } from './kb-additions-control';
-import { bothDeptKeyForms } from '../lib/dept-key';
-import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon, Microscope } from 'lucide-react';
+import { bothDeptKeyForms, toCanonicalDeptId } from '../lib/dept-key';
+import { Info, ChevronDown, ChevronRight, TrendingUp, Building2, Layers, BarChart3, LineChart as LineChartIcon, Microscope, MapPin } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, Cell, AreaChart, Area,
   ScatterChart, Scatter, ZAxis, ReferenceLine,
 } from 'recharts';
 import { api } from '../api';
+import { AnomalySignsSection } from '../components/analytics-extra/AnomalySignsSection';
 
 const PERIOD_LABELS: Record<string, string> = {
   year: 'Год', q1: '1 кв.', q2: '2 кв.', q3: '3 кв.', q4: '4 кв.',
@@ -44,14 +57,51 @@ const PRIORITY_BADGE: Record<string, { label: string; cls: string }> = {
 
 const fmtTys = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} тыс. ₽`;
 
-function EmptyState({ message }: { message: string }) {
+/**
+ * Пустота карточки — через единственный дом «здесь ничего нет»
+ * (components/EmptyState): заголовок называет ПРИЧИНУ, объяснение говорит,
+ * отчего так вышло, действие даёт следующий шаг. Три рода пустоты (не
+ * прочитано / пусто по правде / не считается) различаются словами и тоном,
+ * а не одинаковой серой строкой «Нет данных».
+ */
+function CardEmpty({ title, description, tone, action, detail }: {
+  title: string;
+  description?: string;
+  tone?: 'neutral' | 'problem';
+  action?: { label: string; onClick: () => void };
+  detail?: string;
+}) {
   return (
-    <div className="flex items-center justify-center py-10 text-center">
-      <div>
-        <Info className="mx-auto text-zinc-300 dark:text-zinc-600 mb-3" size={28} />
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{message}</p>
-      </div>
-    </div>
+    <EmptyState
+      size="compact"
+      tone={tone ?? 'neutral'}
+      title={title}
+      {...(description ? { description } : {})}
+      {...(action ? { action } : {})}
+      {...(detail ? { detail } : {})}
+    />
+  );
+}
+
+/**
+ * Оговорка карточки о режиме организаций (приказ владельца 20.08).
+ * Три режима фильтра — три разные новости, и каждая проговаривается вслух:
+ * в районном срезе разбивки нет по построению, в режиме «только ГРБС» она
+ * скрыта самим читателем, а у управления без подведов её не из чего строить.
+ */
+function OrgScopeNote({ scope, whatSplits }: { scope: OrgScope<unknown>; whatSplits: string }) {
+  if (scope.mode === 'district') return null;
+  const text = scope.mode === 'grbs'
+    ? `Разбивка ${whatSplits} по учреждениям скрыта: включён режим «только ГРБС». Верните «с подведомственными» в фильтре организаций, чтобы её увидеть.`
+    : scope.hasSubs
+      ? null
+      : 'У этого управления подведомственных учреждений нет: все закупки ведёт аппарат управления.';
+  if (!text) return null;
+  return (
+    <p className="mb-2 flex items-start gap-1.5 text-[11px] text-[var(--ink-muted)]">
+      <Building2 size={12} className="mt-px shrink-0 text-[var(--ink-faint)]" aria-hidden="true" />
+      <span>{text}</span>
+    </p>
   );
 }
 
@@ -72,24 +122,41 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const sourceLabel = source === 'official' ? 'СВОД' : source === 'hybrid' ? 'Комби' : 'Расчёт';
-  const sourceColor = source === 'official' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-    : source === 'hybrid' ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400'
-    : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
+  const sourceTitle = source === 'official'
+    ? 'Число взято из официального листа СВОД без пересчёта'
+    : source === 'hybrid'
+      ? 'Часть чисел пересчитана из строк книг, часть взята из официального листа'
+      : 'Число пересчитано из строк книг управлений';
+  // Происхождение — роль, а не краска: СВОД несёт акцент темы, расчёт —
+  // тихую поверхность. Обе темы получают один словарь (п.129).
+  const sourceCls = source === 'official'
+    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+    : source === 'hybrid'
+      ? 'bg-[var(--surface-raised)] text-[var(--accent)]'
+      : 'bg-[var(--surface-raised)] text-[var(--ink-muted)]';
   return (
     <div className="analytics-chart-card group">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-zinc-50/30 dark:hover:bg-zinc-700/10 transition-colors"
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 px-5 py-3 text-left transition-colors hover:bg-[var(--surface-raised)]"
       >
-        {Icon && <Icon size={15} className="text-zinc-400 dark:text-zinc-500 group-hover:text-blue-500 transition-colors" />}
-        <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{title}</h3>
+        {Icon && <Icon size={15} className="shrink-0 text-[var(--ink-faint)] transition-colors group-hover:text-[var(--accent)]" aria-hidden="true" />}
+        <h3 className="text-[13px] font-semibold text-[var(--ink-strong)] flex-1">{title}</h3>
         {/* Канон п.58: каждая карточка объявляет период своих ДАННЫХ сама.
             Карточки, не подчиняющиеся периоду шапки, несут собственную подпись. */}
         {perimeter
-          ? <span className="px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 shrink-0">{perimeter}</span>
+          ? <span className="shrink-0 rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-muted)]">{perimeter}</span>
           : <PeriodBadge />}
-        {source && <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${sourceColor}`}>{sourceLabel}</span>}
-        {open ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
+        {source && (
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium ${sourceCls}`} title={sourceTitle}>
+            {sourceLabel}
+          </span>
+        )}
+        {open
+          ? <ChevronDown size={14} className="shrink-0 text-[var(--ink-faint)]" aria-hidden="true" />
+          : <ChevronRight size={14} className="shrink-0 text-[var(--ink-faint)]" aria-hidden="true" />}
       </button>
       {open && <div className="px-5 pb-5">{children}</div>}
     </div>
@@ -157,6 +224,9 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
   const [selectedDept, setSelectedDept] = useState<string>('');
   const [forecast, setForecast] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  // Отказ сервера и «прогноз не из чего строить» — разные новости
+  // (честная пустота): одинаковая серая строка на оба случая врёт читателю.
+  const [error, setError] = useState<string | null>(null);
   const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
 
   const deptOptions = useMemo(() =>
@@ -166,6 +236,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
   const loadForecast = useCallback(async (deptId: string) => {
     if (!deptId) return;
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getAnalyticsForecast(deptId);
       setForecast(data);
@@ -173,6 +244,7 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
       onClaim?.(forecastClaim(label, data));
     } catch {
       setForecast(null);
+      setError('Сервер не отдал сценарии прогноза по выбранному управлению.');
       onClaim?.('Прогноз исполнения');
     }
     setLoading(false);
@@ -204,7 +276,8 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
         <select
           value={selectedDept}
           onChange={(e) => { setSelectedDept(e.target.value); loadForecast(e.target.value); }}
-          className="text-xs bg-zinc-100 dark:bg-zinc-700/50 border border-zinc-200 dark:border-zinc-600 rounded-lg px-2 py-1.5 text-zinc-700 dark:text-zinc-200"
+          aria-label="Управление, по которому строится прогноз"
+          className="rounded-lg bg-[var(--surface-raised)] px-2 py-1.5 text-xs text-[var(--ink)]"
         >
           {deptOptions.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
         </select>
@@ -213,7 +286,11 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
             {TREND_LABELS[forecast.trend] ?? forecast.trend}
           </span>
         )}
-        {loading && <span className="text-[10px] text-zinc-400 animate-pulse">Загрузка...</span>}
+        {loading && (
+          <span className="animate-pulse text-[10px] text-[var(--ink-faint)]" role="status" aria-live="polite">
+            Считаем сценарии…
+          </span>
+        )}
         <KBTooltip metric="analytics_forecast" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_forecast)}>
           <span className="text-[10px] text-zinc-400 underline decoration-dotted cursor-help">как строится прогноз</span>
         </KBTooltip>
@@ -240,13 +317,28 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
             ))}
           </AreaChart>
         </ResponsiveContainer>
+      ) : loading ? (
+        <div role="status" aria-live="polite" className="py-12 text-center text-sm text-[var(--ink-faint)] animate-pulse">
+          Считаем сценарии прогноза…
+        </div>
+      ) : error ? (
+        <CardEmpty
+          tone="problem"
+          title="Прогноз не получен"
+          description="Без ответа сервера сценарии не строятся — это отказ чтения, а не отсутствие закупок."
+          detail={error}
+          action={{ label: 'Запросить ещё раз', onClick: () => loadForecast(selectedDept) }}
+        />
       ) : (
-        !loading && <EmptyState message="Нет данных для прогноза" />
+        <CardEmpty
+          title="Прогноз по этому управлению не построен"
+          description="Сценарии считаются от заключённых закупок текущего года: пока их слишком мало, продолжать линию не от чего."
+        />
       )}
       {forecast?.scenarios?.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
           {forecast.scenarios.map((sc: any, i: number) => (
-            <div key={sc.label} className="text-[10px] rounded-lg bg-zinc-50 dark:bg-zinc-700/30 p-2">
+            <div key={sc.label} className="rounded-lg bg-[var(--surface-raised)] p-2 text-[10px]">
               <div className="flex items-center gap-1.5 mb-1">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: scenarioColors[i % scenarioColors.length] }} />
                 <span className="font-semibold text-zinc-600 dark:text-zinc-300">{sc.label}</span>
@@ -270,6 +362,11 @@ function ForecastCard({ depts, isDark, formatMoney, onClaim }: {
 export function Analytics() {
   const { formatMoney, navigateTo, subordinatesMap, selectedSubordinates, selectedDepartments, procurementFilter, activityFilter, period, activeMonths } = useStore();
   const fd = useFilteredData();
+  // Режим организаций (приказ владельца 20.08): «с подведомственными» —
+  // карточки, где это осмысленно, переходят из строки ГРБС в разбивку по
+  // учреждениям; «только ГРБС» — разбивки нет, и об этом сказано словами.
+  const orgScope = useOrgScope();
+  const { periodLabel: dataPeriodLabel } = usePeriodBadge();
   const isDark = useTheme(s => s.theme) === 'dark';
   const chartColors = getChartColors(isDark);
   const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
@@ -496,6 +593,73 @@ export function Analytics() {
     return all.sort((a, b) => b.planTotal - a.planTotal).slice(0, 15);
   }, [filteredDepts, hasDeptData]);
 
+  /**
+   * Разбивка выбранного управления по учреждениям — общее сырьё карточек,
+   * переходящих в режим подведов (доли, сводка, рейтинг).
+   *
+   * Присутствие организации задаёт КАНОН фильтра (orgScope.subordinates), а
+   * числа приходят из снимка управления. Организация канона без чисел из
+   * списка не исчезает: «строк в выборке нет» и «организации нет» — разные
+   * новости, и различать их обязан экран, а не читатель.
+   */
+  const subBreakdown = useMemo(() => {
+    if (orgScope.mode !== 'withSubs' || !orgScope.dept) return [];
+    const dept = filteredDepts.find((d: any) =>
+      toCanonicalDeptId(d.department?.id ?? d.department?.nameShort ?? '') === orgScope.dept);
+    return buildSubBreakdown({
+      groups: orgScope.subordinates,
+      subordinates: (dept?.subordinates ?? []) as SubordinateMetricsLike[],
+      periodKey,
+    });
+  }, [orgScope, filteredDepts, periodKey]);
+
+  const subTotals = useMemo(() => subBreakdownTotals(subBreakdown), [subBreakdown]);
+
+  const orgDeptLabel = orgScope.dept ? productLabel(orgScope.dept) : '';
+
+  /** Переход к строкам-основаниям организации: управление плюс само учреждение. */
+  const openOrgRows = useCallback((key: string) => {
+    navigateTo('data', {
+      department: orgScope.dept ?? '',
+      ...(key === ORG_ITSELF_SENTINEL ? {} : { subordinate: key }),
+    });
+  }, [navigateTo, orgScope.dept]);
+
+  /**
+   * Строки карточки долей. Районный срез делит закупки между управлениями,
+   * режим «с подведомственными» — между организациями одного управления.
+   * Считается один и тот же вопрос «чья это доля», меняется только уровень.
+   */
+  const shareRows = useMemo(() => {
+    if (orgScope.mode === 'withSubs' && subBreakdown.length > 0) {
+      const { plan, fact } = subTotals;
+      return subBreakdown.map((r, i) => ({
+        key: r.key,
+        name: r.label,
+        color: chartColors[i % chartColors.length],
+        planTotal: r.planTotal ?? 0,
+        factTotal: r.factTotal ?? 0,
+        planShare: plan > 0 ? +(((r.planTotal ?? 0) / plan) * 100).toFixed(1) : 0,
+        factShare: fact > 0 ? +(((r.factTotal ?? 0) / fact) * 100).toFixed(1) : 0,
+        open: () => openOrgRows(r.key),
+      }));
+    }
+    return deptShares.map((d: any, i: number) => ({
+      key: String(d.id ?? i),
+      name: d.name as string,
+      color: d.color as string,
+      planTotal: d.planTotal as number,
+      factTotal: d.factTotal as number,
+      planShare: d.planShare as number,
+      factShare: d.factShare as number,
+      open: () => { if (d.id) navigateTo('data', { department: d.id }); },
+    }));
+  }, [orgScope.mode, subBreakdown, subTotals, deptShares, chartColors, navigateTo, openOrgRows]);
+
+  const topShare = shareRows.length > 0
+    ? shareRows.reduce((max, r) => (r.planShare > max.planShare ? r : max), shareRows[0])
+    : null;
+
   // ── Assertion-driven title data ──
   const epTotal = quarterlyTrend.reduce((s, q) => s + q.ep, 0);
   const kpTotal = quarterlyTrend.reduce((s, q) => s + q.kp, 0);
@@ -504,10 +668,6 @@ export function Analytics() {
   const totalPlan = budgetByDept.reduce((s, d) => s + d.planTotal, 0);
   const totalFact = budgetByDept.reduce((s, d) => s + d.factTotal, 0);
   const overallExecPct = totalPlan > 0 ? (totalFact / totalPlan) * 100 : 0;
-
-  const topDeptByPlan = deptShares.length > 0
-    ? deptShares.reduce((max, d) => d.planShare > max.planShare ? d : max, deptShares[0])
-    : null;
 
   const avgEconomy = scatterData.length > 0
     ? scatterData.reduce((s: number, d: any) => s + (d.economyPercent ?? 0), 0) / scatterData.length
@@ -545,12 +705,28 @@ export function Analytics() {
 
   return (
     <div className="space-y-4">
-      {/* Subordinate filter info banner */}
+      {/* Что делает выбор организаций с этой страницей — сказано до чисел,
+          а не после (канон п.53: механизм, адрес, действие). */}
       {selectedSubordinates.size > 0 && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-300">
-          <Info size={14} className="shrink-0" />
-          <span>Аналитика отображается по полному управлению. Фильтр по подведомственным применяется на вкладках Дашборд и Экономия.</span>
-        </div>
+        <p className="flex items-start gap-2 rounded-xl bg-[var(--surface-sunken)] px-4 py-2.5 text-xs text-[var(--ink-muted)]">
+          <Info size={14} className="mt-px shrink-0 text-[var(--ink-faint)]" aria-hidden="true" />
+          <span>
+            Графики этой страницы считаются по управлению целиком: выбранные учреждения их не сужают.
+            Разбивку по учреждениям дают карточки «Доли», «Сводка» и «Рейтинг» — для этого выберите
+            в фильтре одно управление «с подведомственными».
+          </span>
+        </p>
+      )}
+      {orgScope.mode === 'withSubs' && orgScope.hasSubs && (
+        <p className="flex items-start gap-2 rounded-xl bg-[var(--surface-sunken)] px-4 py-2.5 text-xs text-[var(--ink-muted)]">
+          <Building2 size={14} className="mt-px shrink-0 text-[var(--ink-faint)]" aria-hidden="true" />
+          <span>
+            Выбрано управление <strong className="text-[var(--ink)]">{orgDeptLabel}</strong> с подведомственными:
+            карточки «Доли», «Сводка» и «Рейтинг» показывают разбивку по его учреждениям
+            ({subBreakdown.length} {pluralRu(subBreakdown.length, 'организация', 'организации', 'организаций')}),
+            остальные — управление целиком.
+          </span>
+        </p>
       )}
       {/* KPI row — Anti-Slop Rule #3: size = importance (2 large + 2 medium + 2 compact) */}
       {fd.topKpis.length > 0 && (() => {
@@ -563,10 +739,22 @@ export function Analytics() {
         const renderCard = (card: any, tier: 'hero' | 'med' | 'compact') => {
           const cleanValue = card.value?.replace(/\s*(percent|count|rubles|thousand_rubles|million_rubles|days|none)\s*$/i, '').trim() ?? '—';
           const hasWarning = card.delta && !card.delta.withinTolerance;
+          // Происхождение числа стоит У ЧИСЛА (PRODUCT.md, «провенанс до
+          // ячейки»): плитка называет, пересчитана величина из строк или
+          // взята из официального листа, и за какой период она посчитана.
+          const fromSvod = card.origin === 'svod' || card.source === 'official';
+          const originWord = fromSvod ? 'СВОД' : 'Расчёт';
+          const originTitle = fromSvod
+            ? 'Взято из официального листа СВОД без пересчёта'
+            : 'Пересчитано из строк книг управлений';
           return (
-            <div
+            <button
+              type="button"
               key={card.metricKey}
-              className={`analytics-kpi analytics-kpi-${tier} cursor-pointer`}
+              className={`analytics-kpi analytics-kpi-${tier} cursor-pointer text-left`}
+              title={hasWarning
+                ? 'Открыть сверку: расчёт по строкам разошёлся с официальным листом'
+                : 'Открыть разбор показателя: как считается и из чего сложен'}
               onClick={() => navigateTo('quality', {
                 qualityTab: hasWarning ? 'recon' : 'trust',
                 search: card.label,
@@ -576,10 +764,24 @@ export function Analytics() {
               <div className={`analytics-kpi-value ${tier === 'hero' ? 'text-2xl' : tier === 'med' ? 'text-lg' : 'text-base'}`}>
                 {cleanValue}
               </div>
+              {/* Скоуп и происхождение — у каждого числа, без исключений (пп.53, 58). */}
+              <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px] text-[var(--ink-faint)]">
+                <span className="tabular-nums">{dataPeriodLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span title={originTitle}>{originWord}</span>
+                {orgScope.dept && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{orgDeptLabel}{orgScope.mode === 'withSubs' ? ' с подведами' : ' без подведов'}</span>
+                  </>
+                )}
+              </div>
               {hasWarning && (
-                <div className="text-[10px] mt-1 text-amber-500 font-medium">Δ {card.delta.deltaPercent}</div>
+                <div className="mt-1 text-[10px] font-medium text-[var(--data-warn)]">
+                  расходится с официальным листом на {card.delta.deltaPercent}
+                </div>
               )}
-            </div>
+            </button>
           );
         };
 
@@ -618,7 +820,11 @@ export function Analytics() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState message="Нет данных о закупках по кварталам" />
+            <CardEmpty
+              title="Закупок по кварталам не нашлось"
+              description="В книгах выбранных управлений нет ни одной строки с распознанным кварталом за этот год: сравнивать конкурентные и единственного поставщика не по чему."
+              action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+            />
           )}
         </AnalyticsCard>
 
@@ -637,7 +843,10 @@ export function Analytics() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState message="Нет данных для тренда" />
+            <CardEmpty
+              title="Тренд исполнения не построен"
+              description="Исполнение по кварталам считается от плановых сумм: у выбранных управлений плана за год нет, а линия по пустым кварталам была бы выдумкой."
+            />
           )}
         </AnalyticsCard>
       </div>
@@ -682,42 +891,52 @@ export function Analytics() {
               {budgetByDept.map((dept: typeof budgetByDept[0]) => {
                 const isExpanded = expandedDept === dept.id;
                 const subs = subordinatesMap[dept.id ?? ''] ?? [];
+                // Поверхность разделяет карточки, а не обводка у каждого атома (п.129).
                 return (
-                  <div key={dept.id} className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+                  <div key={dept.id} className="overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
                     <button
+                      type="button"
+                      aria-expanded={isExpanded}
                       onClick={() => setExpandedDept(isExpanded ? null : (dept.id ?? null))}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-700/30 transition"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-[var(--surface-raised)]"
                     >
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dept.color }} />
-                      <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{dept.name}</span>
-                      {isExpanded ? <ChevronDown size={12} className="text-zinc-400" /> : <ChevronRight size={12} className="text-zinc-400" />}
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: dept.color }} aria-hidden="true" />
+                      <span className="flex-1 text-xs font-semibold text-[var(--ink-strong)]">{dept.name}</span>
+                      {isExpanded
+                        ? <ChevronDown size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />
+                        : <ChevronRight size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />}
                     </button>
                     {isExpanded && (
                       <div className="px-3 pb-3 space-y-1">
                         <BudgetProgress label="ФБ (федеральный)" plan={dept.planFB} fact={dept.factFB} color="#3b82f6" formatMoney={formatMoney} />
                         <BudgetProgress label="КБ (краевой)" plan={dept.planKB} fact={dept.factKB} color="#60a5fa" formatMoney={formatMoney} />
                         <BudgetProgress label="МБ (муниципальный)" plan={dept.planMB} fact={dept.factMB} color="#93c5fd" formatMoney={formatMoney} />
-                        <div className="border-t border-zinc-100 dark:border-zinc-700/50 pt-2 mt-2">
-                          <div className="flex justify-between text-[10px] text-zinc-500">
+                        <div className="mt-2 border-t border-[var(--line-soft)] pt-2">
+                          <div className="flex justify-between text-[10px] text-[var(--ink-muted)]">
                             <span>Итого план:</span>
-                            <span className="font-semibold">{formatMoney(dept.planTotal)}</span>
+                            <span className="font-semibold tabular-nums">{formatMoney(dept.planTotal)}</span>
                           </div>
-                          <div className="flex justify-between text-[10px] text-zinc-500">
+                          <div className="flex justify-between text-[10px] text-[var(--ink-muted)]">
                             <span>Итого факт:</span>
-                            <span className="font-semibold">{formatMoney(dept.factTotal)}</span>
+                            <span className="font-semibold tabular-nums">{formatMoney(dept.factTotal)}</span>
                           </div>
                         </div>
                         {subs.length > 0 && (
-                          <div className="border-t border-zinc-100 dark:border-zinc-700/50 pt-2 mt-2">
-                            <div className="text-[9px] font-bold text-zinc-400 uppercase mb-1">Подведомственные</div>
+                          <div className="mt-2 border-t border-[var(--line-soft)] pt-2">
+                            <div className="mb-1 text-[9px] font-semibold uppercase text-[var(--ink-faint)]">
+                              Подведомственные учреждения ({subs.length})
+                            </div>
                             {subs.map(s => (
-                              <div key={s} className="text-[10px] text-zinc-500 dark:text-zinc-400 py-0.5 flex items-center gap-1">
-                                <Building2 size={9} className="text-zinc-300" />
-                                <span
-                                  className="hover:text-blue-500 cursor-pointer transition"
-                                  onClick={() => navigateTo('data', { department: dept.id ?? '', subordinate: s })}
-                                >{subordinateLabel(s)}</span>
-                              </div>
+                              <button
+                                type="button"
+                                key={s}
+                                className="flex w-full items-center gap-1 py-0.5 text-left text-[10px] text-[var(--ink-muted)] transition hover:text-[var(--accent)]"
+                                onClick={() => navigateTo('data', { department: dept.id ?? '', subordinate: s })}
+                                title="Открыть строки этого учреждения в Реестре"
+                              >
+                                <Building2 size={9} className="shrink-0 text-[var(--ink-faint)]" aria-hidden="true" />
+                                <span className="truncate">{subordinateLabel(s)}</span>
+                              </button>
                             ))}
                           </div>
                         )}
@@ -729,102 +948,159 @@ export function Analytics() {
             </div>
           </div>
         ) : (
-          <EmptyState message="Нет данных по бюджетам" />
+          <CardEmpty
+              title="Плановых сумм по бюджетам нет"
+              description="Ни у одного выбранного управления не заполнены федеральный, краевой и муниципальный планы за этот период — столбцы складывать не из чего."
+              action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+            />
         )}
       </AnalyticsCard>
 
-      {/* Row 3: Department shares — 100% stacked horizontal bar */}
-      <AnalyticsCard title={topDeptByPlan ? `${topDeptByPlan.name} лидирует с ${topDeptByPlan.planShare}% плана (${periodLabel})` : `Доли управлений в закупках (${periodLabel})`} icon={TrendingUp}>
-        {deptShares.length > 0 ? (
+      {/* Доли: район — между управлениями, «с подведомственными» — между
+          организациями выбранного управления (режим подведов, 20.08). */}
+      <AnalyticsCard
+        icon={TrendingUp}
+        source="calculated"
+        title={topShare
+          ? `${topShare.name} ведёт ${topShare.planShare} % плана ${orgScope.mode === 'withSubs' ? `управления ${orgDeptLabel}` : 'района'} (${periodLabel})`
+          : `Доли в закупках (${periodLabel})`}
+      >
+        <OrgScopeNote scope={orgScope} whatSplits="долей" />
+        {shareRows.length > 0 ? (
           <div>
-            {/* Plan shares */}
+            <p className="mb-2 text-[11px] text-[var(--ink-muted)]">
+              {orgScope.mode === 'withSubs'
+                ? `Доля организации в плане управления ${orgDeptLabel} за ${dataPeriodLabel}. Клик по полосе открывает строки этой организации в Реестре.`
+                : `Доля управления в плане района за ${dataPeriodLabel}. Клик по полосе открывает строки управления в Реестре.`}
+            </p>
+            {/* План */}
             <div className="mb-4">
-              <div className="text-[10px] font-semibold text-zinc-400 uppercase mb-1.5">По плану</div>
-              <div className="flex h-7 rounded-lg overflow-hidden">
-                {deptShares.filter((d: any) => d.planShare > 0).map((d: any, i: number) => (
-                  <div
-                    key={d.id ?? i}
-                    className="relative group cursor-pointer transition-opacity hover:opacity-80"
+              <div className="mb-1.5 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">По плану</div>
+              <div className="flex h-7 overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
+                {shareRows.filter((d) => d.planShare > 0).map((d) => (
+                  <button
+                    type="button"
+                    key={`plan-${d.key}`}
+                    className="relative cursor-pointer transition-opacity hover:opacity-80"
                     style={{ width: `${d.planShare}%`, backgroundColor: d.color }}
-                    onClick={() => d.id && navigateTo('data', { department: d.id })}
+                    onClick={d.open}
+                    title={`${d.name}: ${formatMoney(d.planTotal)} — ${d.planShare} % плана`}
                   >
                     {d.planShare > 6 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90">
                         {d.name} {d.planShare}%
                       </span>
                     )}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 bg-zinc-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
-                      {d.name}: {formatMoney(d.planTotal)} ({d.planShare}%)
-                    </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
-            {/* Fact shares */}
+            {/* Факт */}
             <div>
-              <div className="text-[10px] font-semibold text-zinc-400 uppercase mb-1.5">По факту</div>
-              <div className="flex h-7 rounded-lg overflow-hidden">
-                {deptShares.filter((d: any) => d.factShare > 0).map((d: any, i: number) => (
-                  <div
-                    key={d.id ?? i}
-                    className="relative group cursor-pointer transition-opacity hover:opacity-80"
+              <div className="mb-1.5 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">По факту</div>
+              <div className="flex h-7 overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
+                {shareRows.filter((d) => d.factShare > 0).map((d) => (
+                  <button
+                    type="button"
+                    key={`fact-${d.key}`}
+                    className="relative cursor-pointer transition-opacity hover:opacity-80"
                     style={{ width: `${d.factShare}%`, backgroundColor: d.color, opacity: 0.85 }}
-                    onClick={() => d.id && navigateTo('data', { department: d.id })}
+                    onClick={d.open}
+                    title={`${d.name}: ${formatMoney(d.factTotal)} — ${d.factShare} % факта`}
                   >
                     {d.factShare > 6 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90">
                         {d.name} {d.factShare}%
                       </span>
                     )}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 bg-zinc-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
-                      {d.name}: {formatMoney(d.factTotal)} ({d.factShare}%)
-                    </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
-            {/* Legend */}
-            <div className="flex flex-wrap gap-3 mt-3">
-              {deptShares.map((d: any, i: number) => (
-                <span key={d.id ?? i} className="flex items-center gap-1 text-[10px] text-zinc-500">
-                  <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: d.color }} />
-                  {d.name}
-                </span>
+            {/* Текстовый дубль визуального (канон 01.08): цвет полосы — не
+                единственный носитель смысла, рядом стоят имя и проценты. */}
+            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+              {shareRows.map((d) => (
+                <li key={`legend-${d.key}`} className="flex items-center gap-1 text-[10px] text-[var(--ink-muted)]">
+                  <span className="h-2.5 w-2.5 rounded" style={{ backgroundColor: d.color }} aria-hidden="true" />
+                  <span>{d.name}</span>
+                  <span className="tabular-nums text-[var(--ink-faint)]">
+                    {d.planShare > 0 ? `${d.planShare} % плана` : 'плана нет'}
+                  </span>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
+        ) : orgScope.mode === 'withSubs' ? (
+          <CardEmpty
+            title={`У управления ${orgDeptLabel} нет сумм для разбивки`}
+            description="Ни у аппарата, ни у учреждений за выбранный период не заполнены план и факт — доли считать не от чего."
+            action={{ label: 'Открыть строки управления', onClick: () => openOrgRows(ORG_ITSELF_SENTINEL) }}
+          />
         ) : (
-          <EmptyState message="Нет данных для отображения" />
+          <CardEmpty
+            title="Долей нет: план и факт по управлениям пусты"
+            description="Доля считается от суммы по всем показанным управлениям; пока сумма равна нулю, любая доля была бы делением на ноль."
+          />
         )}
       </AnalyticsCard>
 
-      {/* Treemap: spend hierarchy */}
-      {treemapData.length > 0 && (
-        <AnalyticsCard title={`Структура расходов (${periodLabel})`} icon={Layers} source="calculated">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      {/* Структура расходов: сколько заплатило каждое управление за период. */}
+      {(
+        <AnalyticsCard
+          icon={Layers}
+          source="calculated"
+          title={`Структура расходов по управлениям (${periodLabel})`}
+        >
+          <p className="mb-2 text-[11px] text-[var(--ink-muted)]">
+            Доля управления в фактических платежах района за {dataPeriodLabel}. Клик открывает его строки в Реестре.
+          </p>
+          {treemapData.length === 0 ? (
+            <CardEmpty
+              title="Платежей за период нет"
+              description="Ни одно управление не показало факта за выбранный период: структуру расходов складывать не из чего."
+              action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+            />
+          ) : (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {treemapData.map((d: any) => {
               const totalSize = treemapData.reduce((s: number, item: any) => s + item.size, 0);
               const pct = totalSize > 0 ? ((d.size / totalSize) * 100).toFixed(1) : '0';
               return (
-                <div
+                <button
+                  type="button"
                   key={d.name}
-                  className="rounded-xl p-3 relative overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200"
-                  style={{ backgroundColor: d.fill + '22', borderLeft: `4px solid ${d.fill}` }}
+                  className="relative overflow-hidden rounded-xl p-3 text-left transition-all duration-200 hover:shadow-md"
+                  // Боковая цветная полоса запрещена (DESIGN.md): цвет управления
+                  // несут точка и число, поверхность остаётся спокойной.
+                  style={{ backgroundColor: `${d.fill}1f` }}
                   onClick={() => { if (d.id) navigateTo('data', { department: d.id }); }}
+                  title={`${d.name}: ${formatMoney(d.size)} — ${pct} % факта района`}
                 >
-                  <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200">{d.name}</div>
-                  <div className="text-sm font-bold mt-1" style={{ color: d.fill }}>{formatMoney(d.size)}</div>
-                  <div className="text-[10px] text-zinc-400">{pct}% от общего</div>
-                </div>
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-strong)]">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: d.fill }} aria-hidden="true" />
+                    {d.name}
+                  </span>
+                  <span className="mt-1 block text-sm font-semibold tabular-nums text-[var(--ink-strong)]">{formatMoney(d.size)}</span>
+                  <span className="block text-[10px] tabular-nums text-[var(--ink-faint)]">{pct} % факта района</span>
+                </button>
               );
             })}
           </div>
+          )}
         </AnalyticsCard>
       )}
 
-      {/* Activity breakdown by department */}
-      {activityData.some(d => d.program > 0 || d.current > 0) && (
+      {/* Виды деятельности: программная против текущей */}
+      {(
         <AnalyticsCard title={`Разбивка по видам деятельности (${periodLabel})`} icon={Layers} source="calculated">
+          {!activityData.some(d => d.program > 0 || d.current > 0) ? (
+            <CardEmpty
+              title="Вид деятельности в строках не проставлен"
+              description="Разбивка строится по колонке вида деятельности книги: за выбранный период ни программных, ни текущих сумм в ней нет."
+              action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+            />
+          ) : (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={activityData} barCategoryGap="15%">
               <CartesianGrid strokeDasharray="3 3" stroke={getGridColor(isDark)} />
@@ -846,13 +1122,20 @@ export function Analytics() {
               />
             </BarChart>
           </ResponsiveContainer>
+          )}
         </AnalyticsCard>
       )}
 
       {/* Execution velocity — cumulative fact as % of year plan */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {velocityData.length > 0 && (
+        {(
           <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated" perimeter="2026 · нарастающим итогом">
+            {velocityData.length === 0 ? (
+              <CardEmpty
+                title="Скорость исполнения не построена"
+                description="Кумулятивная линия считается от годового плана управления: пока плана нет, накопленный процент был бы делением на ноль."
+              />
+            ) : (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={[
                 { name: '1 кв.', ...Object.fromEntries(velocityData.map(d => [d.name, d.q1])) },
@@ -870,52 +1153,137 @@ export function Analytics() {
                 ))}
               </LineChart>
             </ResponsiveContainer>
+            )}
           </AnalyticsCard>
         )}
 
-        {/* Subordinate rankings */}
-        {topSubordinates.length > 0 && (
-          <AnalyticsCard title="Рейтинг подведомственных (топ-15 по плану)" icon={Building2} source="calculated" perimeter="2026 · весь год">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">
-                    <th className="py-2 text-left">#</th>
-                    <th className="py-2 text-left">Организация</th>
-                    <th className="py-2 text-left">Управление</th>
-                    <th className="py-2 text-right w-20">План</th>
-                    <th className="py-2 text-right w-20">Факт</th>
-                    <th className="py-2 text-center w-14">Исп.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topSubordinates.map((sub, idx) => (
-                    <tr
-                      key={`${sub.name}-${idx}`}
-                      className="border-t border-zinc-100 dark:border-zinc-700/50 cursor-pointer hover:bg-blue-50/40 dark:hover:bg-zinc-700/30 transition"
-                      onClick={() => {
-                        const dept = filteredDepts.find((d: any) => (d.department?.nameShort ?? '?') === sub.dept);
-                        if (dept?.department?.id) navigateTo('data', { department: dept.department.id, subordinate: sub.name });
-                      }}
-                    >
-                      <td className="py-1.5 text-[10px] text-zinc-400">{idx + 1}</td>
-                      <td className="py-1.5 text-xs text-zinc-700 dark:text-zinc-200 max-w-[180px] truncate" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
-                      <td className="py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">{sub.dept}</td>
-                      <td className="py-1.5 text-right text-[10px] text-zinc-600 dark:text-zinc-300 tabular-nums">{formatMoney(sub.planTotal)}</td>
-                      <td className="py-1.5 text-right text-[10px] text-zinc-600 dark:text-zinc-300 tabular-nums">{formatMoney(sub.factTotal)}</td>
-                      <td className="py-1.5 text-center">
-                        <span
-                          className="inline-block w-12 py-0.5 rounded text-[10px] font-bold"
-                          style={{ backgroundColor: getExecutionHeatBg(sub.executionPct, isDark), color: getExecutionHeatText(sub.executionPct, isDark) }}
+        {/* Организации: район — топ-15 по плану, «с подведомственными» —
+            ПОЛНЫЙ список учреждений выбранного управления, включая те, у
+            которых строк в выборке нет (режим подведов, 20.08). */}
+        {(orgScope.mode === 'withSubs' || topSubordinates.length > 0) && (
+          <AnalyticsCard
+            icon={Building2}
+            source="calculated"
+            perimeter={orgScope.mode === 'withSubs' ? `${dataPeriodLabel} · все организации` : '2026 · весь год'}
+            title={orgScope.mode === 'withSubs'
+              ? `Организации управления ${orgDeptLabel}: ${subTotals.withRows} из ${subBreakdown.length} ведут закупки`
+              : 'Организации района: пятнадцать крупнейших по плану'}
+          >
+            <OrgScopeNote scope={orgScope} whatSplits="списка организаций" />
+            {orgScope.mode === 'withSubs' ? (
+              subBreakdown.length === 0 ? (
+                <CardEmpty
+                  title={`Разбивка управления ${orgDeptLabel} не построена`}
+                  description="Фильтр организаций не знает ни одного учреждения этого управления, а в выборке нет ни одной строки с колонкой учреждения."
+                  action={{ label: 'Открыть строки управления', onClick: () => openOrgRows(ORG_ITSELF_SENTINEL) }}
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <caption className="sr-only">
+                      Организации управления {orgDeptLabel}: план, факт и исполнение за {dataPeriodLabel}
+                    </caption>
+                    <thead>
+                      <tr className="text-[10px] font-medium uppercase text-[var(--ink-faint)]">
+                        <th scope="col" className="py-2 text-left">Организация</th>
+                        <th scope="col" className="w-20 py-2 text-right">План</th>
+                        <th scope="col" className="w-20 py-2 text-right">Факт</th>
+                        <th scope="col" className="w-14 py-2 text-center">Исп.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subBreakdown.map((row) => (
+                        <tr
+                          key={row.key}
+                          className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--surface-raised)]"
+                          onClick={() => openOrgRows(row.key)}
+                          title="Открыть строки этой организации в Реестре"
                         >
-                          {sub.executionPct > 0 ? `${sub.executionPct.toFixed(0)}%` : '—'}
-                        </span>
-                      </td>
+                          <td className="max-w-[220px] truncate py-1.5 text-xs text-[var(--ink)]">
+                            {row.label}
+                            {!row.hasRows && (
+                              <span className="ml-1.5 text-[10px] text-[var(--ink-faint)]">строк в выборке нет</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
+                            {row.planTotal != null ? formatMoney(row.planTotal) : '—'}
+                          </td>
+                          <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
+                            {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
+                          </td>
+                          <td className="py-1.5 text-center">
+                            {/* Пустота нулём запрещена: нет плана — нет процента. */}
+                            {row.executionPct != null ? (
+                              <span
+                                className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
+                                style={{ backgroundColor: getExecutionHeatBg(row.executionPct, isDark), color: getExecutionHeatText(row.executionPct, isDark) }}
+                              >
+                                {row.executionPct.toFixed(0)}%
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-[var(--ink-faint)]" title="Плана за период нет — исполнять нечего">
+                                нет базы
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">
+                    Пятнадцать организаций района с наибольшим планом за 2026 год
+                  </caption>
+                  <thead>
+                    <tr className="text-[10px] font-medium uppercase text-[var(--ink-faint)]">
+                      <th scope="col" className="py-2 text-left">#</th>
+                      <th scope="col" className="py-2 text-left">Организация</th>
+                      <th scope="col" className="py-2 text-left">Управление</th>
+                      <th scope="col" className="w-20 py-2 text-right">План</th>
+                      <th scope="col" className="w-20 py-2 text-right">Факт</th>
+                      <th scope="col" className="w-14 py-2 text-center">Исп.</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {topSubordinates.map((sub, idx) => (
+                      <tr
+                        key={`${sub.name}-${idx}`}
+                        className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--surface-raised)]"
+                        onClick={() => {
+                          const dept = filteredDepts.find((d: any) => (d.department?.nameShort ?? '?') === sub.dept);
+                          if (dept?.department?.id) navigateTo('data', { department: dept.department.id, subordinate: sub.name });
+                        }}
+                        title="Открыть строки этой организации в Реестре"
+                      >
+                        <td className="py-1.5 text-[10px] tabular-nums text-[var(--ink-faint)]">{idx + 1}</td>
+                        <td className="max-w-[180px] truncate py-1.5 text-xs text-[var(--ink)]" title={subordinateLabel(sub.name)}>{subordinateLabel(sub.name)}</td>
+                        <td className="py-1.5 text-[10px] text-[var(--ink-muted)]">{sub.dept}</td>
+                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.planTotal)}</td>
+                        <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">{formatMoney(sub.factTotal)}</td>
+                        <td className="py-1.5 text-center">
+                          {sub.executionPct > 0 ? (
+                            <span
+                              className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
+                              style={{ backgroundColor: getExecutionHeatBg(sub.executionPct, isDark), color: getExecutionHeatText(sub.executionPct, isDark) }}
+                            >
+                              {sub.executionPct.toFixed(0)}%
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-[var(--ink-faint)]" title="Плана за период нет — исполнять нечего">
+                              нет базы
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </AnalyticsCard>
         )}
       </div>
@@ -930,9 +1298,19 @@ export function Analytics() {
       {/* Economy Scatter: Limit vs Fact */}
       <AnalyticsCard title={scatterData.length > 0 ? `Средняя экономия ${avgEconomy.toFixed(1)}%${suspiciousCount > 0 ? ` — у ${suspiciousCount} закупок экономия вне коридора 2–25 %` : ''}` : 'Экономия: лимит против цены по заключённым закупкам'} icon={TrendingUp} source="calculated">
         {scatterLoading ? (
-          <div className="flex items-center justify-center py-12 text-sm text-zinc-500 animate-pulse">Загрузка...</div>
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex animate-pulse items-center justify-center py-12 text-sm text-[var(--ink-faint)]"
+          >
+            Собираем заключённые закупки: лимит строки против цены контракта…
+          </div>
         ) : scatterData.length === 0 ? (
-          <EmptyState message="Заключённых закупок под текущий отбор нет: на диаграмму попадают только строки с датой заключения и ценой. Снимите фильтры шапки или обновите данные." />
+          <CardEmpty
+              title="Заключённых закупок под текущий отбор нет"
+              description="На диаграмму попадают только строки с датой заключения и ценой контракта. Снимите фильтры шапки или обновите данные."
+              action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+            />
         ) : (
           <>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-3">
@@ -969,7 +1347,7 @@ export function Analytics() {
                       if (!active || !payload?.[0]) return null;
                       const d = payload[0].payload;
                       return (
-                        <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-lg border border-zinc-200 dark:border-zinc-600 p-3 max-w-xs text-xs">
+                        <div className="max-w-xs rounded-lg border border-[var(--line-soft)] bg-[var(--surface-overlay)] p-3 text-xs shadow-lg">
                           <div className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">{d.subject}</div>
                           <div className="text-zinc-500">{d.department} · {d.procurementType}</div>
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
@@ -1012,48 +1390,123 @@ export function Analytics() {
 
       {/* Row 4: Heatmap + Качество заполнения */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Heatmap */}
-        <AnalyticsCard title={avgExecHeatmap > 0 ? `Среднее исполнение ${avgExecHeatmap.toFixed(0)}% по ${heatmapData.length} управлениям` : 'Сводка по управлениям'} icon={Building2} defaultOpen={true} source="calculated">
-          {heatmapData.length > 0 ? (
+        {/* Сводка: район — строка на управление, «с подведомственными» —
+            строка на организацию выбранного управления (режим подведов). */}
+        <AnalyticsCard
+          icon={Building2}
+          defaultOpen={true}
+          source="calculated"
+          title={orgScope.mode === 'withSubs'
+            ? `Сводка управления ${orgDeptLabel} по организациям (${periodLabel})`
+            : avgExecHeatmap > 0
+              ? `Среднее исполнение ${avgExecHeatmap.toFixed(0)} % по ${heatmapData.length} управлениям (${periodLabel})`
+              : `Сводка по управлениям (${periodLabel})`}
+        >
+          <OrgScopeNote scope={orgScope} whatSplits="сводки" />
+          {orgScope.mode === 'withSubs' && subBreakdown.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
+                <caption className="sr-only">
+                  Организации управления {orgDeptLabel}: исполнение, план, факт и число процедур за {dataPeriodLabel}
+                </caption>
                 <thead>
-                  <tr className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">
-                    <th className="py-2 text-left">Упр.</th>
-                    <th className="py-2 text-center w-14">Исп.</th>
-                    <th className="py-2 text-right w-20">План</th>
-                    <th className="py-2 text-right w-20">Факт</th>
-                    <th className="py-2 text-center w-10">КП</th>
-                    <th className="py-2 text-center w-10">ЕП</th>
-                    <th className="py-2 text-center w-10">!</th>
+                  <tr className="text-[10px] font-medium uppercase text-[var(--ink-faint)]">
+                    <th scope="col" className="py-2 text-left">Организация</th>
+                    <th scope="col" className="w-14 py-2 text-center">Исп.</th>
+                    <th scope="col" className="w-20 py-2 text-right">План</th>
+                    <th scope="col" className="w-20 py-2 text-right">Факт</th>
+                    <th scope="col" className="w-10 py-2 text-center" title="Конкурентные процедуры">КП</th>
+                    <th scope="col" className="w-10 py-2 text-center" title="Закупки у единственного поставщика">ЕП</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subBreakdown.map((row) => (
+                    <tr
+                      key={row.key}
+                      className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--surface-raised)]"
+                      onClick={() => openOrgRows(row.key)}
+                      title="Открыть строки этой организации в Реестре"
+                    >
+                      <td className="max-w-[200px] truncate py-1.5 text-xs font-medium text-[var(--ink)]">
+                        {row.label}
+                        {!row.hasRows && (
+                          <span className="ml-1.5 font-normal text-[10px] text-[var(--ink-faint)]">строк в выборке нет</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-center">
+                        {row.executionPct != null ? (
+                          <span
+                            className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
+                            style={{ backgroundColor: getExecutionHeatBg(row.executionPct, isDark), color: getExecutionHeatText(row.executionPct, isDark) }}
+                          >
+                            {row.executionPct.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-[var(--ink-faint)]" title="Плана за период нет — исполнять нечего">нет базы</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
+                        {row.planTotal != null ? formatMoney(row.planTotal) : '—'}
+                      </td>
+                      <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
+                        {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
+                      </td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : heatmapData.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">
+                  Управления района: исполнение, план, факт, число процедур и замечаний за {dataPeriodLabel}
+                </caption>
+                <thead>
+                  <tr className="text-[10px] font-medium uppercase text-[var(--ink-faint)]">
+                    <th scope="col" className="py-2 text-left">Упр.</th>
+                    <th scope="col" className="w-14 py-2 text-center">Исп.</th>
+                    <th scope="col" className="w-20 py-2 text-right">План</th>
+                    <th scope="col" className="w-20 py-2 text-right">Факт</th>
+                    <th scope="col" className="w-10 py-2 text-center" title="Конкурентные процедуры">КП</th>
+                    <th scope="col" className="w-10 py-2 text-center" title="Закупки у единственного поставщика">ЕП</th>
+                    <th scope="col" className="w-12 py-2 text-center" title="Замечания к книге управления">Замеч.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {heatmapData.map((row: any) => (
                     <tr
                       key={row.dept}
-                      className="border-t border-zinc-100 dark:border-zinc-700/50 cursor-pointer hover:bg-blue-50/30 dark:hover:bg-zinc-700/20 transition"
+                      className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--surface-raised)]"
                       onClick={() => row.id && navigateTo('data', { department: row.id })}
+                      title="Открыть строки управления в Реестре"
                     >
-                      <td className="py-1.5 font-medium text-zinc-700 dark:text-zinc-200 text-xs">{row.dept}</td>
+                      <td className="py-1.5 text-xs font-medium text-[var(--ink)]">{row.dept}</td>
                       <td className="py-1.5 text-center">
                         <span
-                          className="inline-block w-12 py-0.5 rounded text-[10px] font-bold"
+                          className="inline-block w-12 rounded py-0.5 text-[10px] font-bold tabular-nums"
                           style={{ backgroundColor: getExecutionHeatBg(row.execPct, isDark), color: getExecutionHeatText(row.execPct, isDark) }}
                         >
-                          {row.execPct > 0 ? `${typeof row.execPct === 'number' ? row.execPct.toFixed(0) : row.execPct}%` : '\u2014'}
+                          {row.execPct > 0 ? `${typeof row.execPct === 'number' ? row.execPct.toFixed(0) : row.execPct}%` : '—'}
                         </span>
                       </td>
-                      <td className="py-1.5 text-right text-[10px] text-zinc-600 dark:text-zinc-300 tabular-nums">
-                        {row.planTotal != null ? formatMoney(row.planTotal) : '\u2014'}
+                      <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
+                        {row.planTotal != null ? formatMoney(row.planTotal) : '—'}
                       </td>
-                      <td className="py-1.5 text-right text-[10px] text-zinc-600 dark:text-zinc-300 tabular-nums">
-                        {row.factTotal != null ? formatMoney(row.factTotal) : '\u2014'}
+                      <td className="py-1.5 text-right text-[10px] tabular-nums text-[var(--ink-muted)]">
+                        {row.factTotal != null ? formatMoney(row.factTotal) : '—'}
                       </td>
-                      <td className="py-1.5 text-center text-[10px] text-blue-600 dark:text-blue-400 font-medium">{row.kpCount || '—'}</td>
-                      <td className="py-1.5 text-center text-[10px] text-amber-600 dark:text-amber-400 font-medium">{row.epCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--ink-muted)]">{row.kpCount || '—'}</td>
+                      <td className="py-1.5 text-center text-[10px] font-medium tabular-nums text-[var(--data-warn)]">{row.epCount || '—'}</td>
                       <td className="py-1.5 text-center" onClick={(e) => { e.stopPropagation(); if (row.id && row.issues > 0) navigateTo('quality', { qualityTab: 'issues', department: row.id }); }}>
-                        <span className={`text-[10px] font-bold ${row.issues > 0 ? 'text-red-500 cursor-pointer hover:underline' : 'text-zinc-300 dark:text-zinc-600'}`}>{row.issues}</span>
+                        <span
+                          className={`text-[10px] font-bold tabular-nums ${row.issues > 0 ? 'cursor-pointer text-[var(--data-bad)] hover:underline' : 'text-[var(--ink-faint)]'}`}
+                          title={row.issues > 0 ? 'Открыть замечания этого управления' : 'Замечаний к книге нет'}
+                        >
+                          {row.issues}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -1061,7 +1514,11 @@ export function Analytics() {
               </table>
             </div>
           ) : (
-            <EmptyState message="Нет данных" />
+            <CardEmpty
+              title="Сводка пуста: строк под текущий отбор нет"
+              description="Ни одно управление не дало строк за выбранный период и фильтры шапки — складывать нечего."
+              action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+            />
           )}
         </AnalyticsCard>
 
@@ -1092,7 +1549,10 @@ export function Analytics() {
             </ResponsiveContainer>
             </>
           ) : (
-            <EmptyState message="Нет данных" />
+            <CardEmpty
+              title="Балл заполнения не посчитан"
+              description="Оценка складывается из полноты колонок книги: у выбранных управлений в снимке нет ни одной прочитанной книги, а балл без книги был бы выдуманным."
+            />
           )}
         </AnalyticsCard>
       </div>
@@ -1131,7 +1591,10 @@ export function Analytics() {
             </div>
           </div>
         ) : (
-          <EmptyState message="Замечания не обнаружены" />
+          <CardEmpty
+            title="Замечаний к книгам нет"
+            description="Проверки прошли по всем строкам выбранного периметра и ни одного признака не подняли — это настоящая пустота, а не молчание сервера."
+          />
         )}
       </AnalyticsCard>
 
@@ -1142,6 +1605,13 @@ export function Analytics() {
       {/* Аномалии данных по управлениям — datasetAnalyses уже приезжает в
           snapshot /api/dashboard, серверного кода ноль (E4 волна-1, W1-A) */}
       <DatasetAuditCard />
+
+      {/* Признаки странностей в строках (21.08.2026): двенадцать адресных
+          признаков детектора и пятнадцать видов аномалий датасета, которые до
+          сих пор считались и не выводились никуда (инвентаризация сигналов
+          20.08, §4). Секция живёт своим источником /api/anomalies и своими
+          компонентами — страница только даёт ей место. */}
+      <AnomalySignsSection />
     </div>
   );
 }
@@ -1254,16 +1724,155 @@ function BenfordBreakdown({ row, isDark }: { row: DatasetAuditRow; isDark: boole
   );
 }
 
+/** Один адрес находки: номер строки книги плюс сама строка словами. */
+function FindingAddress({ sheetRow }: { sheetRow: number | null }) {
+  return sheetRow === null ? (
+    <span
+      className="shrink-0 rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--ink-faint)]"
+      title="Признак посчитан по всей книге целиком — отдельной строки-виновницы у него нет"
+    >
+      вся книга
+    </span>
+  ) : (
+    <span className="shrink-0 rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[var(--ink)]">
+      строка {sheetRow}
+    </span>
+  );
+}
+
+/**
+ * Адресный разбор счётчиков аномалий (канон п.119: какая строка, что в ней,
+ * почему). Счётчик сам по себе — упрёк; ниже он превращён в перечень строк,
+ * по которому можно пойти в книгу и проверить.
+ */
+function AnomalyFindings({ row, seasonal, splitting, byOrg, onOpenRows }: {
+  row: DatasetAuditRow;
+  seasonal: SeasonalFinding[];
+  splitting: SplittingFinding[];
+  /** Режим «с подведомственными»: находки раскладываются по учреждениям. */
+  byOrg: boolean;
+  onOpenRows: (subject: string) => void;
+}) {
+  const rule = outlierRule(row);
+  const seasonalGroups = byOrg
+    ? groupFindingsBySubordinate(seasonal)
+    : [{ label: '', items: seasonal }];
+
+  const renderSeasonal = (item: SeasonalFinding) => (
+    <li key={item.key}>
+      <button
+        type="button"
+        onClick={() => onOpenRows(item.subject)}
+        title={item.subject
+          ? 'Открыть Реестр с поиском по предмету этой закупки'
+          : 'Предмет в строке не заполнен — Реестр откроется на книге управления'}
+        className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[var(--surface-raised)]"
+      >
+        <FindingAddress sheetRow={item.sheetRow} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[11px] font-medium text-[var(--ink)]">
+            {item.typeLabel}
+            <span className="ml-1.5 font-normal text-[10px] text-[var(--ink-faint)]">{item.urgency}</span>
+          </span>
+          <span className="block text-[10px] text-[var(--ink-muted)]">{item.why}</span>
+          <span className="block truncate text-[10px] text-[var(--ink-faint)]">
+            {item.subject || 'предмет в строке не заполнен'}
+            {!byOrg && item.subordinate !== ORG_ITSELF_LABEL && <> · {item.subordinate}</>}
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+
+  return (
+    <div className="space-y-3 py-3">
+      {/* Сезонные признаки */}
+      <section>
+        <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ink-strong)]">
+          <MapPin size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />
+          Сезонные признаки: {row.seasonalCount === 0 ? 'ни одного' : `${row.seasonalCount} ${pluralRu(row.seasonalCount, 'находка', 'находки', 'находок')}`}
+        </h4>
+        {seasonal.length === 0 ? (
+          <p className="text-[11px] text-[var(--ink-muted)]">
+            {row.seasonalCount > 0
+              ? 'Снимок сохранил только счётчик, без самих находок — адреса строк назвать не по чему. Обновите данные: адреса приходят вместе с разбором книг.'
+              : 'Календарных признаков в книге не нашлось: ремонты, топливо и питание законтрактованы в свои сезоны.'}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {seasonalGroups.map((group) => (
+              <div key={group.label || 'all'}>
+                {group.label && (
+                  <p className="px-2 text-[10px] font-semibold uppercase text-[var(--ink-faint)]">{group.label}</p>
+                )}
+                <ul>{group.items.map(renderSeasonal)}</ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Признаки дробления */}
+      <section>
+        <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ink-strong)]">
+          <Layers size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />
+          Однородные закупки ниже порога: {splitting.length === 0 ? 'групп нет' : `${splitting.length} ${pluralRu(splitting.length, 'группа', 'группы', 'групп')}`}
+        </h4>
+        {splitting.length === 0 ? (
+          <p className="text-[11px] text-[var(--ink-muted)]">
+            {row.splittingCount > 0
+              ? 'Снимок сохранил только счётчик групп, без номеров строк. Обновите данные, чтобы увидеть адреса.'
+              : 'Групп из трёх и более однородных закупок у единственного поставщика ниже порога малой закупки в книге нет.'}
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {splitting.map((group) => (
+              <li key={group.key}>
+                <button
+                  type="button"
+                  onClick={() => onOpenRows(group.commonSubject)}
+                  title="Открыть Реестр с поиском по общему предмету группы"
+                  className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[var(--surface-raised)]"
+                >
+                  <span className="shrink-0 rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[var(--ink)]">
+                    строки {group.sheetRows.join(', ')}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[11px] font-medium text-[var(--ink)]">
+                      {group.commonSubject || 'общий предмет не распознан'}
+                    </span>
+                    <span className="block text-[10px] text-[var(--ink-muted)]">
+                      {group.subordinate} · {group.count} {pluralRu(group.count, 'закупка', 'закупки', 'закупок')} на {fmtTys(group.totalAmount)} — каждая ниже порога малой закупки (п.4 ч.1 ст.93 44-ФЗ), вместе выше.
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Выбросы: адреса снимок не хранит — вместо них правило с порогом */}
+      <section>
+        <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ink-strong)]">
+          <TrendingUp size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />
+          Выбросы сумм: {row.outlierCount === 0 ? 'ни одного' : `${row.outlierCount} ${pluralRu(row.outlierCount, 'строка', 'строки', 'строк')}`}
+        </h4>
+        <p className="text-[11px] text-[var(--ink-muted)]">{rule.text}</p>
+      </section>
+    </div>
+  );
+}
+
 /** Аудит качества данных по ГРБС: Бенфорд, композит, выбросы, сезонность, ЕП-риск. */
 function DatasetAuditCard() {
   const { dashboardData, navigateTo, selectedDepartments } = useStore();
   const isDark = useTheme(s => s.theme) === 'dark';
+  const orgScope = useOrgScope();
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
 
-  const rows = useMemo(
-    () => selectDatasetAudit(dashboardData?.snapshot?.datasetAnalyses),
-    [dashboardData],
-  );
+  const analyses = dashboardData?.snapshot?.datasetAnalyses;
+  const rows = useMemo(() => selectDatasetAudit(analyses), [analyses]);
 
   // Глобальный фильтр ГРБС: selectedDepartments — кириллический канон,
   // ключи datasetAnalyses — латиница; сравниваем через обе формы.
@@ -1274,25 +1883,38 @@ function DatasetAuditCard() {
   }, [rows, selectedDepartments]);
 
   const nonconforming = visibleRows.filter(r => r.benfordConformity === 'nonconforming').length;
+  const addressableTotal = visibleRows.reduce((s, r) => s + r.seasonalCount + r.splittingCount, 0);
 
   return (
-    <AnalyticsCard title="Аномалии данных по управлениям" icon={Microscope} source="calculated" perimeter="2026 · вся книга">
+    <AnalyticsCard
+      icon={Microscope}
+      source="calculated"
+      perimeter="2026 · вся книга"
+      title={addressableTotal > 0
+        ? `Аномалии данных: ${addressableTotal} ${pluralRu(addressableTotal, 'находка', 'находки', 'находок')} с адресами строк по ${visibleRows.length} ${pluralRu(visibleRows.length, 'управлению', 'управлениям', 'управлениям')}`
+        : 'Аномалии данных по управлениям'}
+    >
       {visibleRows.length === 0 ? (
-        <EmptyState message={rows.length === 0
-          ? 'Анализ качества данных ещё не построен: в снимке книг нет результатов проверок. Обновите данные — анализ считается при разборе книг.'
-          : 'Для выбранных управлений анализ качества данных не построен. Снимите фильтр по управлениям в шапке.'} />
+        <CardEmpty
+          title={rows.length === 0 ? 'Проверки качества данных ещё не считались' : 'По выбранным управлениям проверок в снимке нет'}
+          description={rows.length === 0
+            ? 'Анализ строится при разборе книг: в текущем снимке его результатов нет, поэтому показывать нечего — это не «аномалий ноль».'
+            : 'Снимок содержит проверки других управлений, а по выбранным — нет. Снимите фильтр по управлениям в шапке или обновите данные.'}
+          action={{ label: 'Открыть Реестр', onClick: () => navigateTo('data') }}
+        />
       ) : (
         <div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
             Аудиторский вердикт по каждому управлению: закон Бенфорда не проходят суммы
             у <strong className="text-zinc-700 dark:text-zinc-200">{nonconforming} из {visibleRows.length}</strong> управлений.
             Композитная оценка 0–100 по шкале аудита: <strong>меньше = лучше</strong> (A — чисто, F — худшее).
-            Клик по строке раскрывает разбор тестов; переход к данным — кнопкой внутри разбора.
+            Клик по строке — и каждый счётчик раскрывается перечнем строк-виновниц: какая строка,
+            что в ней, почему сработало.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
               <thead>
-                <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
+                <tr className="border-b border-[var(--line-soft)] text-left text-[10px] uppercase text-[var(--ink-faint)]">
                   <th className="py-1.5 pr-3">Управление</th>
                   <th className="py-1.5 pr-3">
                     <KBTooltip metric="analytics_composite" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_composite)}>
@@ -1304,7 +1926,10 @@ function DatasetAuditCard() {
                       <span className="underline decoration-dotted cursor-help">Закон Бенфорда</span>
                     </KBTooltip>
                   </th>
-                  <th className="py-1.5 pr-3 text-right">Сезонные аномалии</th>
+                  <th className="py-1.5 pr-3 text-right">Сезонные признаки</th>
+                  <th className="py-1.5 pr-3 text-right" title="Группы однородных закупок у единственного поставщика ниже порога малой закупки">
+                    Однородные ниже порога
+                  </th>
                   <th className="py-1.5 pr-3 text-right">
                     <KBTooltip metric="analytics_zscore" {...kbCardProps(CONTROL_ANALYTICS_KB_ADDITIONS.analytics_zscore)}>
                       <span className="underline decoration-dotted cursor-help">Выбросы</span>
@@ -1321,16 +1946,21 @@ function DatasetAuditCard() {
                 {visibleRows.map(r => {
                   const benford = r.benfordConformity ? BENFORD_LABELS[r.benfordConformity] : null;
                   const isExpanded = expandedDept === r.deptId;
+                  const seasonal = selectSeasonalFindings(analyses, r.deptId);
+                  const splitting = selectSplittingFindings(analyses, r.deptId);
                   return (
                     <Fragment key={r.deptId}>
                     <tr
-                      className="border-b border-zinc-50 dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-700/20 transition-colors"
+                      className="cursor-pointer border-b border-[var(--line-soft)] transition-colors hover:bg-[var(--surface-raised)]"
                       onClick={() => setExpandedDept(isExpanded ? null : r.deptId)}
                       aria-expanded={isExpanded}
+                      title={isExpanded ? 'Свернуть разбор' : 'Раскрыть разбор: строки-виновницы каждого счётчика'}
                     >
-                      <td className="py-2 pr-3 font-medium text-zinc-700 dark:text-zinc-200">
+                      <td className="py-2 pr-3 font-medium text-[var(--ink)]">
                         <span className="inline-flex items-center gap-1">
-                          {isExpanded ? <ChevronDown size={12} className="text-zinc-400" /> : <ChevronRight size={12} className="text-zinc-400" />}
+                          {isExpanded
+                            ? <ChevronDown size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />
+                            : <ChevronRight size={12} className="text-[var(--ink-faint)]" aria-hidden="true" />}
                           {productLabel(r.deptId)}
                         </span>
                       </td>
@@ -1351,15 +1981,21 @@ function DatasetAuditCard() {
                           </span>
                         ) : <span className="text-zinc-400">—</span>}
                       </td>
+                      {/* Счётчики адресуемы: каждое число раскрывается перечнем строк (п.119). */}
                       <td className="py-2 pr-3 text-right tabular-nums">
                         {r.seasonalCount > 0
-                          ? <span className="text-amber-600 dark:text-amber-400 font-medium">{r.seasonalCount}</span>
-                          : <span className="text-zinc-400">0</span>}
+                          ? <span className="font-medium text-[var(--data-warn)]" title={`Раскрыть ${r.seasonalCount} находок с номерами строк`}>{r.seasonalCount}</span>
+                          : <span className="text-[var(--ink-faint)]" title="Календарных признаков в книге не нашлось">0</span>}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {r.splittingCount > 0
+                          ? <span className="font-medium text-[var(--data-warn)]" title={`Раскрыть ${r.splittingCount} групп с номерами строк`}>{r.splittingCount}</span>
+                          : <span className="text-[var(--ink-faint)]" title="Групп однородных закупок ниже порога нет">0</span>}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">
                         {r.outlierCount > 0
-                          ? <span className="text-zinc-700 dark:text-zinc-200 font-medium">{r.outlierCount}</span>
-                          : <span className="text-zinc-400">0</span>}
+                          ? <span className="font-medium text-[var(--ink)]" title="Раскрыть правило: с какой суммы строка считается выбросом">{r.outlierCount}</span>
+                          : <span className="text-[var(--ink-faint)]" title="Все суммы книги лежат в типичном коридоре">0</span>}
                       </td>
                       <td className="py-2">
                         {r.epRiskLevel ? (
@@ -1373,13 +2009,26 @@ function DatasetAuditCard() {
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="border-b border-zinc-50 dark:border-zinc-800/50 bg-zinc-50/40 dark:bg-zinc-900/30">
-                        <td colSpan={6} className="px-3">
+                      <tr className="border-b border-[var(--line-soft)] bg-[var(--surface-sunken)]">
+                        <td colSpan={7} className="px-3">
+                          {/* Сначала адреса строк, потом объяснение тестов:
+                              читателю нужен ответ «куда идти», а не лекция. */}
+                          <AnomalyFindings
+                            row={r}
+                            seasonal={seasonal}
+                            splitting={splitting}
+                            byOrg={orgScope.mode === 'withSubs' && toCanonicalDeptId(r.deptId) === orgScope.dept}
+                            onOpenRows={(subject) => navigateTo('data', {
+                              department: r.deptId,
+                              ...(subject ? { search: subject } : {}),
+                            })}
+                          />
                           <BenfordBreakdown row={r} isDark={isDark} />
                           <div className="pb-3">
                             <button
+                              type="button"
                               onClick={() => navigateTo('data', { department: r.deptId })}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-raised)] px-2.5 py-1 text-[11px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft)]"
                             >
                               Открыть строки управления {productLabel(r.deptId)} →
                             </button>
@@ -1400,6 +2049,7 @@ function DatasetAuditCard() {
 }
 
 function CentralizationCard() {
+  const { navigateTo, selectedDepartments } = useStore();
   const [data, setData] = useState<{
     opportunities: CentralizationOpportunityDTO[];
     totalOpportunities: number;
@@ -1407,21 +2057,65 @@ function CentralizationCard() {
     totalEpAmount: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let alive = true;
+    setError(null);
     api.getAnalyticsCentralization()
-      .then(setData)
-      .catch((e: unknown) => setError(String(e)));
-  }, []);
+      .then((res) => { if (alive) setData(res); })
+      .catch((e: unknown) => { if (alive) setError(String(e)); });
+    return () => { alive = false; };
+  }, [reloadKey]);
+
+  /**
+   * Изоляция управлений (канон п.127): при выбранном управлении на экране
+   * остаются ТОЛЬКО группы с его участием. Партнёры по группе названы —
+   * в этом весь смысл совместной закупки, — но чужая группа, к которой
+   * выбранное управление отношения не имеет, не показывается вовсе.
+   */
+  const visible = useMemo(() => {
+    const all = data?.opportunities ?? [];
+    if (selectedDepartments.size === 0) return all;
+    const keys = bothDeptKeyForms(selectedDepartments);
+    return all.filter((o) => o.departments.some((d) => keys.has(d) || keys.has(toCanonicalDeptId(d))));
+  }, [data, selectedDepartments]);
+
+  const deptScopeLabel = selectedDepartments.size === 0
+    ? 'все управления района'
+    : [...selectedDepartments].map((d) => productLabel(toCanonicalDeptId(d))).join(', ');
+
+  const visibleAmount = visible.reduce((s, o) => s + o.totalAmount, 0);
+  const visibleEpAmount = visible.reduce((s, o) => s + o.epAmount, 0);
 
   return (
-    <AnalyticsCard title="Централизация закупок: что можно объединить между управлениями" icon={Building2} source="calculated" perimeter="2026 · весь год">
+    <AnalyticsCard
+      icon={Building2}
+      source="calculated"
+      perimeter="2026 · весь год"
+      title={visible.length > 0
+        ? `Кандидаты на совместную закупку: ${visible.length} ${pluralRu(visible.length, 'группа', 'группы', 'групп')} на ${fmtTys(visibleAmount)}`
+        : 'Централизация закупок: что можно объединить между управлениями'}
+    >
       {error ? (
-        <EmptyState message="Список возможностей централизации не получен с сервера. Обновите страницу; если отказ повторяется — проверьте вкладку «Система»." />
+        <CardEmpty
+          tone="problem"
+          title="Список возможностей централизации не получен"
+          description="Сервер не ответил на запрос групп однородных закупок — это отказ чтения, а не отсутствие кандидатов."
+          detail={error}
+          action={{ label: 'Запросить ещё раз', onClick: () => setReloadKey((k) => k + 1) }}
+        />
       ) : !data ? (
-        <div className="py-8 text-center text-xs text-zinc-400">Загрузка…</div>
-      ) : data.opportunities.length === 0 ? (
-        <EmptyState message="Пересечений категорий закупок между управлениями не найдено" />
+        <div role="status" aria-live="polite" className="py-8 text-center text-xs text-[var(--ink-faint)]">
+          Ищем однородные категории по книгам управлений…
+        </div>
+      ) : visible.length === 0 ? (
+        <CardEmpty
+          title={selectedDepartments.size > 0
+            ? `У выбранного периметра (${deptScopeLabel}) общих категорий с другими управлениями нет`
+            : 'Пересечений категорий закупок между управлениями не найдено'}
+          description="Группа собирается, когда одинаковую категорию закупают разные управления по отдельности. Пока таких совпадений в книгах нет — объединять нечего."
+        />
       ) : (
         <div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
@@ -1430,40 +2124,52 @@ function CentralizationCard() {
             </KBTooltip>
             {': '}одинаковые категории закупают несколько управлений по отдельности — кандидаты
             на совместную закупку (ст. 25 44-ФЗ), включая закупки у единственного поставщика.
-            Найдено групп: <strong className="text-zinc-700 dark:text-zinc-200">{data.totalOpportunities}</strong>,
-            их объём: <strong className="text-zinc-700 dark:text-zinc-200">{fmtTys(data.totalAmount)}</strong>,
-            из них без торгов: <strong className="text-amber-600 dark:text-amber-400">{fmtTys(data.totalEpAmount)}</strong>.
+            Периметр: <strong className="text-[var(--ink)]">{deptScopeLabel}</strong>. Показано групп:{' '}
+            <strong className="text-[var(--ink)]">{visible.length}</strong>
+            {selectedDepartments.size > 0 && <> из {data.totalOpportunities} по району</>},
+            их объём: <strong className="text-[var(--ink)]">{fmtTys(visibleAmount)}</strong>,
+            из них без торгов: <strong className="text-[var(--data-warn)]">{fmtTys(visibleEpAmount)}</strong>.
             Экономию числом продукт не обещает — методики оценки эффекта объединения нет.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
+              <caption className="sr-only">
+                Группы однородных закупок разных управлений: категория, участники, объём и приоритет
+              </caption>
               <thead>
-                <tr className="text-left text-[10px] uppercase text-zinc-400 border-b border-zinc-100 dark:border-zinc-700/50">
-                  <th className="py-1.5 pr-3">Категория</th>
-                  <th className="py-1.5 pr-3">Управления</th>
-                  <th className="py-1.5 pr-3 text-right">Закупок</th>
-                  <th className="py-1.5 pr-3 text-right">Объём</th>
-                  <th className="py-1.5 pr-3 text-right">Из них ЕП</th>
-                  <th className="py-1.5">Приоритет</th>
+                <tr className="border-b border-[var(--line-soft)] text-left text-[10px] uppercase text-[var(--ink-faint)]">
+                  <th scope="col" className="py-1.5 pr-3">Категория</th>
+                  <th scope="col" className="py-1.5 pr-3">Управления</th>
+                  <th scope="col" className="py-1.5 pr-3 text-right">Закупок</th>
+                  <th scope="col" className="py-1.5 pr-3 text-right">Объём</th>
+                  <th scope="col" className="py-1.5 pr-3 text-right">Из них ЕП</th>
+                  <th scope="col" className="py-1.5">Приоритет</th>
                 </tr>
               </thead>
               <tbody>
-                {data.opportunities.map((o, i) => (
-                  <tr key={i} className="border-b border-zinc-50 dark:border-zinc-800/50 align-top">
-                    <td className="py-2 pr-3 font-medium text-zinc-700 dark:text-zinc-200">
-                      {o.category}
-                      <div className="font-normal text-[10px] text-zinc-400 mt-0.5 max-w-[360px]">{o.recommendation}</div>
+                {visible.map((o, i) => (
+                  <tr key={i} className="border-b border-[var(--line-soft)] align-top">
+                    <td className="py-2 pr-3 font-medium text-[var(--ink)]">
+                      <button
+                        type="button"
+                        className="text-left transition hover:text-[var(--accent)]"
+                        title="Открыть строки этой категории в Реестре"
+                        onClick={() => navigateTo('data', { search: o.category })}
+                      >
+                        {o.category}
+                      </button>
+                      <span className="mt-0.5 block max-w-[360px] text-[10px] font-normal text-[var(--ink-faint)]">{o.recommendation}</span>
                     </td>
-                    <td className="py-2 pr-3 text-zinc-600 dark:text-zinc-300">
+                    <td className="py-2 pr-3 text-[var(--ink-muted)]">
                       {o.departments.map(d => productLabel(d)).join(', ')}
                     </td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{o.contractCount}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{fmtTys(o.totalAmount)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-amber-600 dark:text-amber-400">
-                      {o.epCount > 0 ? fmtTys(o.epAmount) : '—'}
+                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--ink-muted)]">{o.contractCount}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--ink-muted)]">{fmtTys(o.totalAmount)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-[var(--data-warn)]">
+                      {o.epCount > 0 ? fmtTys(o.epAmount) : 'без торгов нет'}
                     </td>
                     <td className="py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${PRIORITY_BADGE[o.priority]?.cls ?? PRIORITY_BADGE.low.cls}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${PRIORITY_BADGE[o.priority]?.cls ?? PRIORITY_BADGE.low.cls}`}>
                         {PRIORITY_BADGE[o.priority]?.label ?? o.priority}
                       </span>
                     </td>

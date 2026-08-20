@@ -24,7 +24,7 @@
 
 import clsx from 'clsx';
 import { FlaskConical, SendHorizonal } from 'lucide-react';
-import { Card, FOCUS_RING, SectionHead } from './primitives';
+import { CHROME_BOX, Card, FOCUS_RING, SectionHead, TILE } from './primitives';
 
 /** Ключи статусов свободной экономии (постановка вопроса 72). */
 export type DisposalStatusKey = 'free' | 'keptByGrbs' | 'takenByUfbp' | 'disputed' | 'returned';
@@ -124,8 +124,11 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
         right={
           // Честная пометка макета: числа не из книг, а из констант — блок
           // существует, чтобы владелец решил по скриншоту (п.101д).
-          <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-inset ring-purple-500/20">
-            макет — данные иллюстративные
+          <span
+            className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-inset ring-purple-500/20"
+            title="Числа иллюстративные, из констант компонента; к данным книг блок будет подключён после решения владельца по вопросу 72"
+          >
+            макет, ждёт решения
           </span>
         }
       />
@@ -154,7 +157,8 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
           {DISPOSAL_MOCK.map(r => (
             <div
               key={r.key}
-              className="rounded-lg border border-zinc-200/70 dark:border-white/[0.05] bg-zinc-50/50 dark:bg-white/[0.02] px-2.5 py-2 space-y-1"
+              // Плитку статуса отделяет светлота поверхности, не обводка (п.129).
+              className={clsx(TILE, 'px-2.5 py-2 space-y-1')}
             >
               <div className="flex items-center gap-1.5">
                 <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', r.dot)} aria-hidden="true" />
@@ -192,8 +196,8 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
               aria-disabled="true"
               className={clsx(
                 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider',
-                'border border-zinc-200/70 dark:border-white/[0.06] text-zinc-400 dark:text-zinc-600',
-                'bg-zinc-100/70 dark:bg-white/[0.03] cursor-not-allowed',
+                CHROME_BOX,
+                'text-zinc-400 dark:text-zinc-600 cursor-not-allowed',
                 FOCUS_RING,
               )}
             >

@@ -12,16 +12,24 @@
  * книгой, и разрез начнёт молча терять строки. Рядом с каждым значением
  * стоит его частота — читатель видит вес выбора до нажатия.
  *
- * НА УЗКОМ ЭКРАНЕ (§6.3) панель складывается в одну кнопку с числом
- * действующих разрезов; крошки остаются на виду всегда — читатель обязан
- * видеть, почему в таблице двенадцать строк вместо трёхсот семидесяти
- * четырёх, не открывая панель.
+ * ПАНЕЛЬ СЛОЖЕНА ПО УМОЛЧАНИЮ НА ЛЮБОМ ЭКРАНЕ (п.128-2): верх вкладки — один
+ * ряд «режимы листов · поиск · кнопка разрезов», десять раскрытых селектов
+ * съедали три ряда высоты каждому, кто разрезами не пользуется. Крошки
+ * остаются на виду всегда — читатель обязан видеть, почему в таблице
+ * двенадцать строк вместо трёхсот семидесяти четырёх, не открывая панель.
+ *
+ * РАЗРЕЗА «УПРАВЛЕНИЕ» ЗДЕСЬ БОЛЬШЕ НЕТ (п.128-1): срез по управлению даёт
+ * глобальный фильтр шапки (изоляция п.127), а второй орган управления тем же
+ * самым внутри вкладки рано или поздно разошёлся бы с первым. Механика
+ * `slices.dept` в `slices.ts` жива (тесты, крошка со снятием) — не предлагается
+ * только новый выбор отсюда.
  */
 import { useMemo, useState } from 'react';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
 import type { RegistryProcedure } from '../../lib/monitoring/contract';
 import {
-  NMCK_BUCKETS, clearSlice, describeSlices, emptySlices, hasAnySlice, procedureDefects,
+  NMCK_BUCKETS, REDUCTION_BUCKETS, clearSlice, describeSlices, emptySlices, hasAnySlice,
+  procedureDefects, reductionBucketId,
   type SliceState,
 } from '../../lib/monitoring/slices';
 import { deptSheetName } from '../../lib/monitoring/modes';
@@ -76,13 +84,14 @@ export interface SliceBarProps {
   onChange: (next: SliceState) => void;
   /** Сколько строк осталось после разрезов — число на кнопке сброса. */
   shownCount: number;
+  /** Что встаёт в начало ряда — кнопки режимов листов (п.128-2: один ряд). */
+  leading?: React.ReactNode;
 }
 
-export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) {
-  const [openOnMobile, setOpenOnMobile] = useState(false);
+export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceBarProps) {
+  const [open, setOpen] = useState(false);
 
   const options = useMemo(() => ({
-    depts: tally(rows.map((p) => p.dept)),
     stages: stagesPresent(rows.map((p) => p.stage)),
     methods: tally(rows.map((p) => p.method)),
     customers: tally(rows.map((p) => p.customer)),
@@ -90,6 +99,7 @@ export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) 
     winnerNames: new Map(rows.filter((p) => p.winnerInn !== null)
       .map((p) => [p.winnerInn as string, p.winnerName ?? p.winnerInn as string])),
     procedureYears: tally(rows.map((p) => (p.year === null ? null : String(p.year)))),
+    reductionBuckets: tally(rows.map((p) => reductionBucketId(p))),
     defectRows: rows.filter((p) => procedureDefects(p).length > 0).length,
   }), [rows]);
 
@@ -99,12 +109,11 @@ export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) 
   const opt = (v: string | null): string => v ?? '';
 
   return (
-    <section
-      aria-label="Разрезы реестра"
-      className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4 space-y-3"
-    >
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 min-w-0">
+    <section aria-label="Разрезы реестра" className="space-y-2">
+      {/* ── Один ряд: режимы листов · поиск · кнопка разрезов (п.128-2) ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {leading}
+        <div className="relative flex-1 min-w-[14rem]">
           <Search
             size={13}
             aria-hidden="true"
@@ -119,12 +128,11 @@ export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) 
             className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 pl-8 pr-2 py-1.5 text-xs text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-400"
           />
         </div>
-        {/* Кнопка-складка: только на телефоне, на большом экране панель открыта. */}
         <button
           type="button"
-          onClick={() => setOpenOnMobile((v) => !v)}
-          aria-expanded={openOnMobile}
-          className="sm:hidden shrink-0 inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
         >
           <SlidersHorizontal size={13} aria-hidden="true" />
           Разрезы
@@ -136,14 +144,7 @@ export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) 
         </button>
       </div>
 
-      <div className={`${openOnMobile ? 'grid' : 'hidden'} sm:grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2`}>
-        <Select label="Управление" value={opt(slices.dept)} onChange={(v) => set({ dept: v || null })}>
-          <option value="">все восемь листов</option>
-          {options.depts.map((d) => (
-            <option key={d.value} value={d.value}>{deptSheetName(d.value)} · {d.count}</option>
-          ))}
-        </Select>
-
+      <div className={`${open ? 'grid' : 'hidden'} grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2 rounded-xl border border-zinc-100 dark:border-zinc-700/50 bg-white dark:bg-zinc-800/60 p-3`}>
         <Select label="Стадия" value={opt(slices.stage)} onChange={(v) => set({ stage: v || null })}>
           <option value="">любая стадия</option>
           {options.stages.map((s) => (
@@ -200,6 +201,20 @@ export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) 
           {NMCK_BUCKETS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
         </Select>
 
+        {/* Корзины — те же, что столбы гистограммы аналитики: принадлежность
+            строки считает ядро, клик по столбу ставит ровно этот разрез. */}
+        <Select label="Снижение на торгах" value={opt(slices.reductionBucket)} onChange={(v) => set({ reductionBucket: v || null })}>
+          <option value="">любое снижение</option>
+          {REDUCTION_BUCKETS.map((b) => {
+            const found = options.reductionBuckets.find((x) => x.value === b.id);
+            return (
+              <option key={b.id} value={b.id}>
+                {b.label}{found ? ` · ${found.count}` : ''}
+              </option>
+            );
+          })}
+        </Select>
+
         <Select label="Год процедуры (из кода)" value={slices.procedureYear === null ? '' : String(slices.procedureYear)} onChange={(v) => set({ procedureYear: v === '' ? null : Number(v) })}>
           <option value="">оба года книги</option>
           {options.procedureYears.map((y) => (
@@ -221,7 +236,7 @@ export function SliceBar({ rows, slices, onChange, shownCount }: SliceBarProps) 
 
       {/* ── Крошки: видны всегда, в том числе со сложенной панелью ── */}
       {active && (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-zinc-100 dark:border-zinc-700/50 pt-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
             показано {fmtCount(shownCount)} из {fmtCount(rows.length)}:
           </span>

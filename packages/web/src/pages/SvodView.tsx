@@ -40,6 +40,9 @@ import {
   type SvodRemainder,
 } from '../lib/svod/sheet-metrics';
 import { PeriodBadge } from '../components/PeriodBadge';
+import { SourceBadge } from '../components/contract/SourceBadge';
+import { useOrgScope, type OrgScope } from '../lib/selectors/org-scope';
+import { readingMoment } from '../lib/reading-moment';
 import {
   isCountMetric,
   reconAvailability,
@@ -147,8 +150,14 @@ const SECTION_META: Record<SectionKind, { label: string; hint: string; tagClass:
   },
 };
 
-// Цветовая кодировка метрик — как в листах СВОД/ШДЮ: план голубой, факт сиреневый,
-// экономия зелёная (оригинал A4C2F4 / DDD6FE / B6D7A8, ИТОГО C9DAF8/D9D2E9/D9EAD3).
+// Цветовая кодировка групп столбцов повторяет листы СВОД/ШДЮ: план, факт и
+// экономия отличаются заливкой, как в оригинале (A4C2F4 / DDD6FE / B6D7A8,
+// ИТОГО C9DAF8 / D9D2E9 / D9EAD3). Оговорка про имена классов, чтобы не
+// вводить читателя кода в заблуждение: палитры blue/sky/indigo в настройках
+// оформления переопределены кремовой шкалой (п.115), поэтому «blue» ниже
+// рисуется КРЕМОВЫМ, а не голубым; сиреневая и зелёная группы — свои цвета.
+// Смысл группы держит подпись столбца («План», «Факт», «Экономия»), а не
+// заливка: текстовый дубль обязателен, печать бывает чёрно-белой.
 const GROUP_HEAD = {
   plan: 'bg-blue-100/70 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300',
   fact: 'bg-violet-100/70 dark:bg-violet-950/40 text-violet-800 dark:text-violet-200',
@@ -184,6 +193,13 @@ export function SvodView() {
   // Показ бюджетов в столбцах — это раскладка таблицы, а не фильтр данных,
   // поэтому единственное состояние, которое честно остаётся локальным.
   const [budgetFull, setBudgetFull] = useState(false);
+
+  // Организационный срез (приказ владельца 20.08.2026). Свод строится по
+  // главным распорядителям: ячейка единой сетки заведена на ГРБС, разреза по
+  // подведомственным учреждениям в ней нет вовсе. Значит, разбивку по подведам
+  // эта страница построить не может — и обязана сказать об этом словами, а не
+  // молча показать строку управления так, будто выбор режима на неё повлиял.
+  const orgScope = useOrgScope();
 
   // ── Загрузка сетки (год — из глобального фильтра) ──
   const [resp, setResp] = useState<UnifiedResp | null>(null);
@@ -314,10 +330,21 @@ export function SvodView() {
               <FileSpreadsheet className="text-cyan-600 dark:text-cyan-400" size={20} aria-hidden />
             </div>
             <div>
+              {/* Имя раздела существительным — оно не меняется от чисел;
+                  рядом происхождение: всё на странице пересчитано по строкам
+                  книг, лист служит эталоном сверки, а не источником. */}
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                  Свод по управлениям
+                </span>
+                <span title="Числа пересчитаны по строкам книг управлений; официальный лист СВОД служит эталоном сверки — её итог под таблицей.">
+                  <SourceBadge source="calc" />
+                </span>
+              </div>
               <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
                 {headRow && !sliceEmpty
                   ? headline(headRow)
-                  : 'Свод: план, факт и экономия по управлениям'}
+                  : 'План, факт и экономия по управлениям'}
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 {loading && resp ? 'Пересчитываем свод за выбранный год…' : scopeLine}
@@ -326,6 +353,13 @@ export function SvodView() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Периметр у самих чисел, а не только в строке охвата под
+                заголовком (канон п.58): плашка называет период, которому числа
+                подчиняются, а подпись рядом — момент, на который они верны.
+                Период и момент — разные оси: «весь 2026 год» ничего не говорит
+                о том, когда книги читали в последний раз. */}
+            <ReadMomentNote />
+            <PeriodBadge />
             {/* Обёртка со всплывающей подсказкой: выключенная кнопка сама
                 событий мыши не получает, и причина «почему нельзя» пропала бы. */}
             <span
@@ -529,6 +563,10 @@ export function SvodView() {
             не делится — столбцы «Количество» показывают все закупки среза целиком.
           </Notice>
         )}
+
+        {/* Организационный срез: что режим подведомственных делает — и чего
+            не делает — с числами этой страницы. */}
+        <OrgScopeNotice scope={orgScope} onOpenRows={() => navigateTo('data')} />
 
         {/* Фильтры, которые эта страница применить не может. Молчать о них
             нельзя: в шапке они видны крошкой, и читатель вправе считать, что
@@ -766,7 +804,15 @@ function ExtrasCard({ title, subtitle, children }: {
     <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
       <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 flex-wrap">
         <div className="min-w-0">
-          <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h3>
+            {/* Происхождение числа у каждой карточки, а не только у страницы:
+                арифметика взята у листа, но применена к видимому срезу —
+                значит, это пересчёт, а не цитата официальной ячейки. */}
+            <span title="Формула повторяет формулу листа СВОД, но считается по строкам видимого среза — это пересчёт, а не значение официальной ячейки.">
+              <SourceBadge source="calc" />
+            </span>
+          </div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed max-w-xl">
             {subtitle}
           </p>
@@ -786,10 +832,9 @@ function ExtrasValue({ label, value, valueClass, hint }: {
   hint?: string;
 }) {
   return (
-    <div
-      className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-700/40 px-3 py-2"
-      title={hint}
-    >
+    // Обводки у плитки нет (канон п.129): от карточки её отделяет светлота
+    // поверхности, а не рамка — иначе на экране вырастает частокол.
+    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2" title={hint}>
       <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{label}</div>
       <div className={clsx('text-sm font-semibold tabular-nums mt-0.5', valueClass ?? 'text-zinc-800 dark:text-zinc-100')}>
         {value}
@@ -941,15 +986,113 @@ function SharesCard({ shares, epByCount, methodFiltered }: {
   );
 }
 
+/**
+ * Организационный срез свода (приказ владельца 20.08.2026: карточки переходят
+ * в разбивку по подведомственным учреждениям, где это осмысленно).
+ *
+ * Здесь это НЕ осмысленно, и молчать об этом нельзя. Единая сетка свода
+ * заведена на главного распорядителя: её ячейка — «управление × вид
+ * деятельности × способ × период», графы учреждения в ней нет. Разложить
+ * готовую ячейку по подведам можно было бы только выдумав пропорцию — то
+ * есть соврав. Поэтому страница называет своё ограничение прямо и ведёт
+ * туда, где разбивка настоящая: в Реестр, у строк которого заказчик записан
+ * в самой строке.
+ *
+ * Отдельный случай — «только управление». На свод режим не влияет вовсе:
+ * формулы считают управление целиком, вместе с закупками его учреждений.
+ * Промолчать здесь опаснее всего: читатель увидел бы прежние числа под новой
+ * подписью и решил, что подведы из них вычтены.
+ */
+function OrgScopeNotice({ scope, onOpenRows }: { scope: OrgScope; onOpenRows: () => void }) {
+  if (scope.mode === 'district') return null;
+
+  const rowsLink = (
+    <button
+      type="button"
+      onClick={onOpenRows}
+      className={clsx(
+        'font-medium text-cyan-700 dark:text-cyan-300 hover:underline',
+        FOCUS_RING,
+      )}
+      title="Открыть Реестр с теми же фильтрами шапки: в его строках заказчик указан поимённо, поэтому разрез по учреждениям там настоящий"
+    >
+      строки этого управления в Реестре
+    </button>
+  );
+
+  if (scope.mode === 'withSubs') {
+    return (
+      <Notice tone="muted">
+        {scope.hasSubs ? (
+          <>
+            Выбрано управление вместе с подведомственными учреждениями. Свод показывает его
+            одной строкой: сетка заведена на главного распорядителя, графы учреждения в ней
+            нет — разложить готовый итог по учреждениям можно было бы только выдумав пропорцию.
+            Разбивка по учреждениям есть там, где заказчик записан в самой строке: {rowsLink}.
+          </>
+        ) : (
+          <>
+            У этого управления подведомственных учреждений нет — строка управления и есть весь
+            его срез, делить её не на что. Построчная выборка: {rowsLink}.
+          </>
+        )}
+      </Notice>
+    );
+  }
+
+  return (
+    <Notice tone="muted">
+      {scope.hasSubs ? (
+        <>
+          Выбран режим «только управление», но на свод он не действует: формулы считают
+          управление целиком, вместе с закупками его подведомственных учреждений, — числа ниже
+          те же, что и с учреждениями. Отделить закупки аппарата от учреждений можно построчно:
+          {' '}{rowsLink}.
+        </>
+      ) : (
+        <>
+          Выбран режим «только управление». Подведомственных учреждений у него нет, поэтому
+          режим ничего не меняет: числа ниже те же самые.
+        </>
+      )}
+    </Notice>
+  );
+}
+
+/**
+ * Момент чтения книг у чисел свода (канон п.58). Фраза приходит из
+ * единственного дома продукта — `lib/reading-moment`, где закреплено правило
+ * «незнание момента — не свежесть»: молчание сервера остаётся молчанием, а не
+ * превращается в бодрое «на сейчас».
+ */
+function ReadMomentNote() {
+  const lastRefreshed = useStore((s) => s.lastRefreshed);
+  const moment = readingMoment({ readAt: lastRefreshed });
+  return (
+    <span
+      title={moment.phrase}
+      className={clsx(
+        'text-[10px]',
+        // Остывшие числа говорят об этом сами: до подсказки читатель может и
+        // не добраться.
+        moment.stale ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-500',
+      )}
+    >
+      {moment.label}
+    </span>
+  );
+}
+
 /** Строка-пояснение под осями: что именно сейчас с числами делает фильтр. */
 function Notice({ tone, children }: { tone: 'info' | 'muted'; children: ReactNode }) {
   return (
     <p
       className={clsx(
-        'mt-3 flex items-start gap-2 text-[11px] leading-snug rounded-lg px-3 py-2 border',
+        // Рамки нет (канон п.129): плашку от карточки отделяет тон заливки.
+        'mt-3 flex items-start gap-2 text-[11px] leading-snug rounded-lg px-3 py-2',
         tone === 'info'
-          ? 'text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30 border-blue-100 dark:border-blue-900/40'
-          : 'text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900/40 border-zinc-100 dark:border-zinc-700/40',
+          ? 'text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30'
+          : 'text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900/40',
       )}
     >
       <Info size={13} className="mt-px flex-shrink-0" aria-hidden />
@@ -998,7 +1141,8 @@ function SummaryChip({
   metricKey, label, value, valueClass, live,
 }: { metricKey: string; label?: string; value: string; valueClass?: string; live: string }) {
   return (
-    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-700/40 px-3 py-2">
+    // Обводки нет (канон п.129): плитку от карточки отделяет светлота фона.
+    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2">
       <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{label ?? productLabel(metricKey)}</div>
       <div className={clsx('text-sm font-semibold tabular-nums mt-0.5', valueClass ?? 'text-zinc-800 dark:text-zinc-100')}>
         {/* Попап открывается под тем же именем, что стоит на чипе: иначе

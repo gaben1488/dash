@@ -78,14 +78,14 @@ export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
             формула, либо в строках беспорядок. Третьего не дано.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3">
               <div className="font-semibold text-blue-800 dark:text-blue-300">Официальное число</div>
               <div className="text-blue-700 dark:text-blue-400 mt-1 leading-relaxed">
                 Берётся прямо из листа СВОД ТД-ПМ — так, как его посчитала сама книга своими
                 формулами. Это то число, которое уходит в отчётность.
               </div>
             </div>
-            <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+            <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-3">
               <div className="font-semibold text-indigo-800 dark:text-indigo-300">Наш пересчёт</div>
               <div className="text-indigo-700 dark:text-indigo-400 mt-1 leading-relaxed">
                 Считается заново, строка за строкой, по листам управлений: способ закупки, сроки,

@@ -94,6 +94,14 @@ export interface EconomyDeptTableProps {
   deptSparks: Record<string, number[]>;
   /** Активен фильтр по бюджетам: расхождения он не сужает — об этом надо сказать. */
   budgetFiltered: boolean;
+  /**
+   * Режим подведов (org-scope): канонические подведы выбранного управления,
+   * у которых в выборке НЕТ ни одной строки. Передаётся только при одном
+   * выбранном ГРБС «с подведомственными»; такие учреждения присутствуют в
+   * разбивке с честным «строк нет» — «строк нет» и «организации нет» обязаны
+   * различаться (честная пустота).
+   */
+  canonicalEmptySubs?: readonly string[];
   formatMoney: Fmt;
   onToggleDepartment: (deptId: string) => void;
   onNavigateToSub: (deptId: string, subName: string) => void;
@@ -102,8 +110,12 @@ export interface EconomyDeptTableProps {
 export function EconomyDeptTable({
   rows, totals, expandedDepts, onToggleExpand,
   sortField, sortDir, onSort, deptSparks, budgetFiltered,
-  formatMoney, onToggleDepartment, onNavigateToSub,
+  canonicalEmptySubs, formatMoney, onToggleDepartment, onNavigateToSub,
 }: EconomyDeptTableProps) {
+  // Канонические подведы без строк участвуют в разбивке только в режиме
+  // одного ГРБС «с подведомственными» — при нескольких управлениях список
+  // не к кому отнести.
+  const emptyCanon = rows.length === 1 ? (canonicalEmptySubs ?? []) : [];
   /**
    * Заголовок-сортировщик. aria-sort принадлежит ячейке заголовка, а кнопка
    * внутри даёт клавиатуре точку входа — раньше сортировка жила на onClick
@@ -287,7 +299,7 @@ export function EconomyDeptTable({
                     </tr>
                   )}
 
-                  {!d.deptOnly && d.subordinates.length === 0 && (
+                  {!d.deptOnly && d.subordinates.length === 0 && emptyCanon.length === 0 && (
                     <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                       <td colSpan={8} className="pl-10 pr-4 py-1.5 text-[10px] text-zinc-500">
                         За выбранный период у управления нет строк ни по аппарату, ни по подведомственным организациям.
@@ -295,7 +307,7 @@ export function EconomyDeptTable({
                     </tr>
                   )}
 
-                  {d.subordinates.length > 0 && (
+                  {(d.subordinates.length > 0 || (!d.deptOnly && emptyCanon.length > 0)) && (
                     <>
                       <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                         <td colSpan={8} className="pl-8 pr-4 pt-1.5 pb-0.5">
@@ -327,13 +339,13 @@ export function EconomyDeptTable({
                         </tr>
                       )}
 
-                      {realSubs.length > 0 && (
+                      {(realSubs.length > 0 || (!d.deptOnly && emptyCanon.length > 0)) && (
                         <>
                           <tr className="border-t border-zinc-100 dark:border-white/[0.03]">
                             <td colSpan={8} className="pl-8 pr-4 py-1">
                               <span className="text-[9px] font-black text-zinc-500 dark:text-zinc-600 uppercase tracking-[0.15em] flex items-center gap-1.5">
                                 <Layers size={8} aria-hidden="true" />
-                                Подведомственные организации ({realSubs.length})
+                                Подведомственные организации ({realSubs.length + emptyCanon.length})
                                 <span className="ml-auto text-[8px] font-medium normal-case tracking-normal text-zinc-400 dark:text-zinc-700">
                                   клик — переход в Реестр строк
                                 </span>
@@ -347,6 +359,22 @@ export function EconomyDeptTable({
                               fmt={formatMoney}
                               onNav={() => onNavigateToSub(d.deptId, sub.name)}
                             />
+                          ))}
+                          {/* Честная пустота (org-scope): организация есть в
+                              каноне управления, а строк за период нет —
+                              присутствует словами, а не пропадает молча. */}
+                          {!d.deptOnly && emptyCanon.map(name => (
+                            <tr key={`canon-${name}`} className="text-[10px] border-t border-zinc-100 dark:border-white/[0.02]">
+                              <td className="pl-10 pr-2 py-1">
+                                <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-600">
+                                  <CircleDot size={7} className="shrink-0" aria-hidden="true" />
+                                  <span className="truncate max-w-[180px]" title={name}>{name}</span>
+                                </span>
+                              </td>
+                              <td colSpan={7} className="px-2 py-1 text-[9px] text-zinc-500 dark:text-zinc-600">
+                                строк за выбранный период нет — организация числится за управлением
+                              </td>
+                            </tr>
                           ))}
                         </>
                       )}

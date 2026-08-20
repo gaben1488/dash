@@ -203,12 +203,19 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
                 <div className="text-[10px] text-zinc-400 dark:text-zinc-500">Способ определения поставщика</div>
                 <div>
                   {text(row.method) ? (
-                    <span className={clsx(
-                      'inline-block px-1.5 py-0.5 rounded text-[10px] font-bold',
-                      row.method === 'ЕП'
-                        ? 'bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400'
-                        : 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400',
-                    )}>
+                    <span
+                      // Сокращение книги раскрывается словами: читатель карточки
+                      // не обязан помнить, что «ЕП» — единственный поставщик.
+                      title={row.method === 'ЕП'
+                        ? 'Единственный поставщик — закупка без торгов'
+                        : 'Конкурентная процедура — поставщик определяется торгами'}
+                      className={clsx(
+                        'inline-block px-1.5 py-0.5 rounded text-[10px] font-bold',
+                        row.method === 'ЕП'
+                          ? 'bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400'
+                          : 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400',
+                      )}
+                    >
                       {row.method}
                     </span>
                   ) : (
@@ -321,6 +328,16 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
                         )}
                       </span>
                     </KbHover>
+                  ) : economy < 0 ? (
+                    // Отрицательная экономия не прячется за «не зафиксирована»:
+                    // так быть не должно, и это ровно тот случай, ради которого
+                    // на строку и открывают карточку.
+                    <span
+                      className="text-red-600 dark:text-red-400"
+                      title={`Экономия отрицательная: факт превысил план. Проверьте суммы строки — ячейки ${cell('K')} (план) и ${cell('Y')} (факт).`}
+                    >
+                      {formatMoney(economy)}
+                    </span>
                   ) : (
                     <span className="text-xs font-normal text-zinc-400 dark:text-zinc-500">
                       {factSum > 0 ? 'не зафиксирована' : 'появится после факта'}
@@ -517,10 +534,16 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
           </div>
 
           {/* Происхождение: где именно лежит первичка */}
+          {/* Периметр карточки (канон п.58 (б)): числа одной строки книги не
+              подчиняются фильтрам шапки — период, способ и бюджет сузили список
+              строк, но саму строку не режут. Промолчать об этом значило бы
+              оставить читателя гадать, «за какой период» эти суммы. */}
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 border-t border-zinc-100 dark:border-zinc-700/50 pt-3">
             {rowIndex > 0
               ? `Все числа взяты из книги управления ${deptName || ''} — строка ${rowIndex} листа закупок. Адреса ячеек указаны рядом с показателями.`
               : 'Адрес строки в книге неизвестен: числа показаны как пришли от сервера.'}
+            {' '}Фильтры периода и способа из шапки на карточку не действуют: строка показана
+            целиком, как записана в книге на момент её последнего чтения.
           </p>
         </div>
       </div>

@@ -12,6 +12,7 @@ import {
   Area, Bar, CartesianGrid, ComposedChart, Line,
   ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis,
 } from 'recharts';
+import { tooltipProps } from '../ui/chart-theme';
 import { BT, Card, FOCUS_RING, SectionHead } from './primitives';
 import { formatAxisMoney, formatAxisPct, formatPct } from '../../lib/economy/format';
 import type { EconomyBarDatum } from '../../lib/economy/dept-economy';
@@ -28,40 +29,56 @@ function EconomyChartTooltip({ active, payload, formatMoney: fmt }: {
   const d = payload[0]?.payload;
   if (!d) return null;
   return (
-    <div className="rounded-lg border border-white/[0.08] bg-zinc-900/95 backdrop-blur-sm shadow-2xl px-3 py-2 text-[10px] min-w-[160px]">
-      <div className="font-bold text-zinc-200 text-[11px] mb-1.5">{d.name}</div>
+    // Подсказка живёт на поверхности всплывающего слоя и говорит ролями, а не
+    // красками: прежде она была прибита к тёмной теме (zinc-900 + светлые
+    // чернила) и на светлой теме читалась чужеродным чёрным прямоугольником.
+    <div
+      className="rounded-lg px-3 py-2 text-[10px] min-w-[160px] backdrop-blur-sm"
+      style={{
+        background: 'var(--chart-tooltip-bg)',
+        border: '1px solid var(--chart-tooltip-line)',
+        color: 'var(--ink)',
+        boxShadow: 'var(--elevation-2)',
+      }}
+    >
+      <div className="font-bold text-[11px] mb-1.5" style={{ color: 'var(--ink-strong)' }}>{d.name}</div>
       <div className="space-y-1 mb-1.5">
-        <div className="flex justify-between gap-4"><span className="text-blue-400">ФБ</span><span className="tabular-nums text-zinc-300">{fmt(d.fb)}</span></div>
-        <div className="flex justify-between gap-4"><span className="text-emerald-400">КБ</span><span className="tabular-nums text-zinc-300">{fmt(d.kb)}</span></div>
-        <div className="flex justify-between gap-4"><span className="text-amber-400">МБ</span><span className="tabular-nums text-zinc-300">{fmt(d.mb)}</span></div>
+        <div className="flex justify-between gap-4"><span className="text-blue-600 dark:text-blue-400">ФБ</span><span className="tabular-nums">{fmt(d.fb)}</span></div>
+        <div className="flex justify-between gap-4"><span className="text-emerald-600 dark:text-emerald-400">КБ</span><span className="tabular-nums">{fmt(d.kb)}</span></div>
+        <div className="flex justify-between gap-4"><span className="text-amber-600 dark:text-amber-400">МБ</span><span className="tabular-nums">{fmt(d.mb)}</span></div>
       </div>
-      <div className="border-t border-white/[0.06] pt-1.5 flex justify-between gap-4">
-        <span className="text-zinc-400">Итого</span>
-        <span className="font-bold tabular-nums text-emerald-400">{fmt(d.total)}</span>
+      <div
+        className="pt-1.5 flex justify-between gap-4"
+        style={{ borderTop: '1px solid var(--chart-tooltip-line)' }}
+      >
+        <span style={{ color: 'var(--ink-muted)' }}>Итого</span>
+        <span className="font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{fmt(d.total)}</span>
       </div>
       <div className="flex justify-between gap-4">
-        <span className="text-zinc-500">Доля от лимита</span>
-        <span className="tabular-nums text-purple-400">{formatPct(d.pct)}</span>
+        <span style={{ color: 'var(--ink-muted)' }}>Доля от лимита</span>
+        <span className="tabular-nums text-purple-600 dark:text-purple-400">{formatPct(d.pct)}</span>
       </div>
       {d.subCount > 0 && (
-        <div className="border-t border-white/[0.06] mt-1.5 pt-1.5">
-          <div className="flex justify-between gap-4 text-zinc-500">
+        <div className="mt-1.5 pt-1.5" style={{ borderTop: '1px solid var(--chart-tooltip-line)' }}>
+          <div className="flex justify-between gap-4" style={{ color: 'var(--ink-muted)' }}>
             <span className="flex items-center gap-1"><Building2 size={7} aria-hidden="true" />Аппарат управления</span>
-            <span className="tabular-nums text-blue-300">{fmt(d.ownEco)}</span>
+            <span className="tabular-nums text-blue-600 dark:text-blue-400">{fmt(d.ownEco)}</span>
           </div>
-          <div className="flex justify-between gap-4 text-zinc-500">
+          <div className="flex justify-between gap-4" style={{ color: 'var(--ink-muted)' }}>
             <span className="flex items-center gap-1"><Layers size={7} aria-hidden="true" />Подведомственные ({d.subCount})</span>
-            <span className="tabular-nums text-zinc-400">{fmt(d.subsEco)}</span>
+            <span className="tabular-nums">{fmt(d.subsEco)}</span>
           </div>
           {d.topSubs.length > 0 && (
             <div className="mt-1 space-y-px">
               {d.topSubs.map(s => (
-                <div key={s.name} className="flex justify-between gap-2 text-[9px]">
-                  <span className="text-zinc-600 truncate max-w-[120px]">{s.name}</span>
-                  <span className="tabular-nums text-zinc-500">{fmt(s.eco)}</span>
+                <div key={s.name} className="flex justify-between gap-2 text-[9px]" style={{ color: 'var(--ink-faint)' }}>
+                  <span className="truncate max-w-[120px]">{s.name}</span>
+                  <span className="tabular-nums">{fmt(s.eco)}</span>
                 </div>
               ))}
-              {d.subCount > 3 && <div className="text-[8px] text-zinc-700">…ещё {d.subCount - 3}</div>}
+              {d.subCount > 3 && (
+                <div className="text-[8px]" style={{ color: 'var(--ink-faint)' }}>…ещё {d.subCount - 3}</div>
+              )}
             </div>
           )}
         </div>
@@ -79,13 +96,17 @@ export interface EconomyChartsProps {
   showBudgetBreakdown: boolean;
   onToggleBudgetBreakdown: () => void;
   formatMoney: (v: number) => string;
-  /** Клик по бару = фильтр по управлению (deptId из payload). */
+  /** Клик по бару = фильтр по управлению (deptId из payload);
+      в режиме подведов страница передаёт переход к строкам учреждения. */
   onBarClick: (deptId: string) => void;
+  /** Подпись действия клика по бару; страница меняет её в режиме подведов. */
+  barClickHint?: string;
 }
 
 export function EconomyCharts({
   barChartData, trendData, perDeptQuarterly, deptCount,
   showBudgetBreakdown, onToggleBudgetBreakdown, formatMoney, onBarClick,
+  barClickHint = 'клик — фильтр',
 }: EconomyChartsProps) {
   // ── Заголовки-утверждения: говорят, что видно на картинке, а не как она называется ──
   const budgetSums = barChartData.reduce(
@@ -141,7 +162,7 @@ export function EconomyCharts({
                   {BT[k].label}
                 </span>
               ))}
-              <span className="text-[8px] text-zinc-400 dark:text-zinc-700">клик — фильтр</span>
+              <span className="text-[8px] text-zinc-400 dark:text-zinc-700">{barClickHint}</span>
             </div>
           }
         />
@@ -206,7 +227,10 @@ export function EconomyCharts({
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} tickFormatter={formatAxisPct} width={38} />
               <RechartsTooltip
                 formatter={(value: number, name: string) => name === SHARE_SERIES ? formatPct(+value) : formatMoney(value)}
-                contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', background: '#18181b', color: '#e4e4e7', padding: '6px 10px' }}
+                // Облик подсказки — общий дом графиков (ui/chart-theme): роли
+                // вместо красок, обе темы правятся в одном месте.
+                {...tooltipProps}
+                contentStyle={{ ...tooltipProps.contentStyle, fontSize: 10, padding: '6px 10px' }}
               />
               {showBudgetBreakdown ? (
                 <>

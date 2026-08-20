@@ -24,9 +24,19 @@
  * ДЕНЬГИ — РУБЛИ, и подпись единицы стоит у каждой суммы: книги управлений
  * ведутся в тысячах, перепутать эти две книги значит ошибиться в тысячу раз.
  *
- * ЧЕГО ЗДЕСЬ НЕТ. Графиков аналитики (воронка, гистограмма снижения,
- * сезонность, сравнение управлений) — они собираются отдельной волной и
- * встают ниже реестра; место под них помечено в разметке.
+ * ВЕРХ ВКЛАДКИ — ОДИН РЯД (п.128-1, п.128-2, владелец 20.08.2026). Линейки
+ * листов управлений внутри вкладки нет: срез по управлению даёт глобальный
+ * фильтр шапки (изоляция п.127). Режимы листов, поиск и кнопка разрезов стоят
+ * в одном ряду; панель разрезов раскрывается по кнопке.
+ *
+ * РАЙОННЫЕ ЛИСТЫ ПРИ ВЫБРАННОМ УПРАВЛЕНИИ показываются целиком с пояснением:
+ * «Сводный», «25-26» и справочник — листы всего района, и резать их по
+ * управлению продукт не берётся (решение о резке — за владельцем).
+ *
+ * АНАЛИТИКА КНИГИ (воронка, снижение, поставщики, сроки, сезонность, сверка)
+ * встаёт ниже реестра секцией `MonitoringAnalyticsSection`: она сама ходит за
+ * своими данными, и её отказ реестр не роняет. Считается она по ВСЕЙ районной
+ * книге — при выбранном управлении об этом сказано словами, а не молчанием.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RotateCcw, SearchX } from 'lucide-react';
@@ -43,9 +53,11 @@ import { JournalTable } from '../components/monitoring/JournalTable';
 import { DirectoryTable } from '../components/monitoring/DirectoryTable';
 import { AncestorSheets } from '../components/monitoring/AncestorSheets';
 import { SignalCards } from '../components/monitoring/SignalCards';
+import { MonitoringAnalyticsSection } from '../components/monitoring/AnalyticsSection';
 import { humanizeRequestError } from '../api';
 import { useStore } from '../store';
-import { deptScopeOf } from '../lib/selectors/dept-isolation';
+import { deptScopeOf, inDeptScope } from '../lib/selectors/dept-isolation';
+import { useOrgScope } from '../lib/selectors/org-scope';
 import { scopeProcedures, scopeSignals } from '../lib/monitoring/dept-scope';
 import {
   fetchMonitoring, fetchMonitoringMatch,
@@ -93,6 +105,16 @@ export function MonitoringPage() {
   // Периметр периода/года у книги по-прежнему свой: книга читается целиком.
   const selectedDepartments = useStore((s) => s.selectedDepartments);
   const deptScope = useMemo(() => deptScopeOf(selectedDepartments), [selectedDepartments]);
+
+  // Режим подведов (приказ владельца 20.08.2026). Разбивка по подведам на
+  // этой вкладке НЕ строится: заказчик в книге мониторинга записан свободным
+  // текстом и со словарём подведов (колонка C книг ГРБС) строково не
+  // совпадает — молчаливое сопоставление по похожести теряло бы строки.
+  // Мультидименсиональность у реестра своя: каждая строка несёт заказчика,
+  // и разрез «Заказчик» раскладывает лист по учреждениям. Единственное, что
+  // вкладка обязана режиму, — честно сказать словами, что «только ГРБС» к
+  // листу не применяется (см. пояснение у таблицы).
+  const orgScope = useOrgScope();
   const procedures = useMemo(
     () => scopeProcedures(data?.procedures ?? [], deptScope),
     [data, deptScope],
@@ -102,25 +124,16 @@ export function MonitoringPage() {
     [data, deptScope],
   );
 
-  /** Строки режима: лист управления сужает набор, остальные режимы — нет. */
-  const modeRows = useMemo(
-    () => (mode.dept === null ? procedures : procedures.filter((p) => p.dept === mode.dept)),
-    [procedures, mode.dept],
-  );
+  // Режимов отдельных листов управлений больше нет (п.128-1): строки реестра
+  // сужает периметр шапки, а не кнопка внутри вкладки.
+  const modeRows = procedures;
 
   const filtered = useMemo(() => applySlices(modeRows, slices), [modeRows, slices]);
   const sorted = useMemo(() => sortProcedures(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
   const portrait = useMemo(() => portraitFrom(filtered), [filtered]);
 
-  /** Счётчики на кнопках режимов — сколько строк лист даёт после разрезов. */
-  const modeCounts = useMemo(() => {
-    const out: Record<string, number> = { all: applySlices(procedures, slices).length };
-    for (const p of applySlices(procedures, slices)) {
-      const id = `dept:${p.dept}`;
-      out[id] = (out[id] ?? 0) + 1;
-    }
-    return out;
-  }, [procedures, slices]);
+  /** Счётчик на кнопке «Реестр» — сколько строк даёт периметр после разрезов. */
+  const modeCounts = useMemo(() => ({ all: filtered.length }), [filtered]);
 
   // Три указателя «код процедуры → …»: родословная и строка «25-26» дают
   // карточке то, чего на листе управления нет, сверка — встречную сторону из
@@ -147,13 +160,16 @@ export function MonitoringPage() {
     return map;
   }, [match]);
 
-  /** Строка свода про выбранный лист — итог листа под его таблицей (§2.1). */
-  const sheetTotals = useMemo(
-    () => (mode.dept === null
-      ? null
-      : data?.svod?.rows.find((r) => r.dept === mode.dept || r.sheet === mode.sheet) ?? null),
-    [data, mode],
-  );
+  /**
+   * Итог листа под таблицей реестра (§2.1) — когда в шапке выбрано РОВНО одно
+   * управление: тогда таблица и есть его лист, и под ней уместна строка «что
+   * лист отдаёт своду». При двух и более управлениях итог листа был бы ложью
+   * о сумме, поэтому не показывается.
+   */
+  const sheetTotals = useMemo(() => {
+    if (deptScope === null || selectedDepartments.size !== 1) return null;
+    return data?.svod?.rows.find((r) => inDeptScope(deptScope, r.dept)) ?? null;
+  }, [data, deptScope, selectedDepartments]);
 
   const onSort = useCallback((key: SortKey) => {
     setSortKey((prev) => {
@@ -183,28 +199,31 @@ export function MonitoringPage() {
     ]
     : [];
 
-  const scopeLabel = mode.dept !== null
-    ? `лист «${deptSheetName(mode.dept)}»`
-    : hasAnySlice(slices) ? 'выбранные разрезы' : 'весь реестр книги';
+  // Скоуп словами (п.58): периметр шапки и разрезы называются, а не подразумеваются.
+  const deptNames = [...selectedDepartments].map(deptSheetName);
+  const scopeParts: string[] = [];
+  if (deptScope !== null) {
+    scopeParts.push(deptNames.length <= 2
+      ? `лист${deptNames.length > 1 ? 'ы' : ''} «${deptNames.join('», «')}»`
+      : `${pluralCount(deptNames.length, 'управление', 'управления', 'управлений')} из шапки`);
+  }
+  if (hasAnySlice(slices)) scopeParts.push('выбранные разрезы');
+  const scopeLabel = scopeParts.length > 0 ? scopeParts.join(' · ') : 'весь реестр книги';
 
   return (
     <div className="space-y-4">
-      {/* ── Шапка вкладки: название дословно по п.101а + периметр (п.58) ── */}
+      {/* ── Шапка вкладки: название по п.101а, компактно в один блок (п.128-2) ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
             Мониторинг · Реестр процедур определения поставщика
           </h1>
-          <p className="mt-0.5 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 max-w-3xl text-[11px] text-zinc-500 dark:text-zinc-400">
             Книга «Ежедневный мониторинг» целиком: восемь листов управлений, свод, переходящий
-            реестр «25-26» с победителями и ИНН, справочник учреждений и скрытые листы-предки.
-            Путь процедуры — заявка → публикация → торги → итог.
-          </p>
-          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-            Деньги этой книги — <span className="font-medium">в рублях</span>; книги управлений
-            ведутся в тысячах рублей. Фильтр года в шапке к этой книге не применяется — книга
-            читается целиком; выбранное управление сужает реестр и сигналы до своих листов
-            (канон п.127).
+            реестр «25-26», справочник учреждений и листы-предки. Деньги книги —{' '}
+            <span className="font-medium">в рублях</span> (книги управлений — в тысячах).
+            Фильтр года из шапки не применяется — книга читается целиком; выбранное управление
+            сужает реестр и сигналы до своих листов (п.127).
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -245,29 +264,53 @@ export function MonitoringPage() {
             />
           ) : (
             <>
-              {mode.kind === 'registry' && (
-                <PortraitNumbers portrait={portrait} scopeLabel={scopeLabel} readAtLabel={readAtLabel} />
-              )}
-
-              {/* Место аналитики: воронка стадий и четыре графика встают сюда
-                  отдельной волной — реестр от них не зависит. */}
-
+              {/* ── Один ряд управления вкладкой: режимы · поиск · разрезы (п.128-2) ── */}
               <SliceBar
                 rows={modeRows}
                 slices={slices}
                 onChange={(next) => { setSlices(next); setOpenCode(null); }}
                 shownCount={filtered.length}
+                leading={(
+                  <SheetModeTabs
+                    activeId={modeId}
+                    onSelect={(m: SheetMode) => { setModeId(m.id); setOpenCode(null); }}
+                    pendingIds={pendingIds}
+                    counts={modeCounts}
+                  />
+                )}
               />
 
-              <div>
-                <SheetModeTabs
-                  activeId={modeId}
-                  onSelect={(m: SheetMode) => { setModeId(m.id); setOpenCode(null); }}
-                  pendingIds={pendingIds}
-                  counts={modeCounts}
-                />
-                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{mode.hint}</p>
-              </div>
+              {/* Подсказка режима — только у листов с собственной формой:
+                  у реестра ту же роль выполняет портрет со скоупом. */}
+              {mode.kind !== 'registry' && (
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{mode.hint}</p>
+              )}
+
+              {/* Районные листы при выбранном управлении режутся только решением
+                  владельца — пока показываются целиком, и об этом сказано словами. */}
+              {deptScope !== null && (mode.kind === 'svod' || mode.kind === 'journal' || mode.kind === 'directory') && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  В шапке выбрано управление, но лист «{mode.sheet ?? mode.label}» — районный и
+                  показан целиком: срез по управлению к нему не применяется, резать этот лист
+                  продукт не берётся (решение — за владельцем).
+                </p>
+              )}
+
+              {/* Честность режима «только ГРБС» (закон подведов 20.08.2026):
+                  лист управления не делится на аппарат и подведы — вместо
+                  молчаливого (и ненадёжного) отсева сказано словами. */}
+              {mode.kind === 'registry' && orgScope.mode === 'grbs' && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Режим «только ГРБС» из шапки к этой книге не применяется: лист управления
+                  ведётся по заказчикам-учреждениям без словаря подведов, и надёжно отделить
+                  закупки аппарата от подведомственных продукт не берётся — показан весь лист.
+                  Разложить его по учреждениям можно разрезом «Заказчик».
+                </p>
+              )}
+
+              {mode.kind === 'registry' && (
+                <PortraitNumbers portrait={portrait} scopeLabel={scopeLabel} readAtLabel={readAtLabel} />
+              )}
 
               {/* ── Содержимое режима ── */}
               {mode.kind === 'registry' && (
@@ -324,6 +367,29 @@ export function MonitoringPage() {
               )}
 
               {mode.kind === 'ancestors' && <AncestorSheets />}
+
+              {/* ── Аналитика книги — ниже реестра (канон п.101а, спека §3–§4).
+                  Секция остаётся смонтированной при смене режима (класс hidden),
+                  чтобы не перечитывать аналитику при каждом переключении листа. ── */}
+              <div className={mode.kind === 'registry' ? 'space-y-3' : 'hidden'}>
+                {deptScope !== null && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    Аналитика ниже — районная: она считается по всей книге, срез по управлению из
+                    шапки к ней пока не применяется. Числа аналитики шире показанного выше реестра.
+                  </p>
+                )}
+                <MonitoringAnalyticsSection
+                  procedures={data.procedures}
+                  onPickDiscountBucket={(bucketKey) => {
+                    // Клик по столбу гистограммы — разрез реестра той же
+                    // корзиной (п.119: от числа к строкам-основаниям).
+                    // Корзину считает ядро с обеих сторон, разойтись нечему.
+                    setSlices((prev) => ({ ...prev, reductionBucket: bucketKey }));
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                />
+              </div>
 
               {/* ── Нераспознанные коды: сигнал с адресами, не потеря ── */}
               {data.unparsedCodes.length > 0 && (

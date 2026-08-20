@@ -160,11 +160,19 @@ export function App() {
       // страница, улучшаемая до идеала (бриф Отчёт++, поворот v4).
       case 'report': return <ReportPage />;
       case 'svod': return <SvodView />;
-      case 'data': return <DataBrowserPage />;
+      // `key` — не украшение (канон п.134). Реестр и обе его корзины — один и
+      // тот же компонент на одном и том же месте дерева, поэтому React их не
+      // размонтировал, а лишь менял свойство `bucket`: собственные отборы
+      // страницы (фильтр признаков, «только инициативные», поиск по странице,
+      // номер страницы) переезжали с Реестра в корзину и резали её молча,
+      // расходясь с честным счётчиком класса в её же шапке. Разные ключи
+      // делают переход между вкладками настоящим входом на вкладку — с
+      // чистыми фильтрами и с гарантированным потреблением затравки.
+      case 'data': return <DataBrowserPage key="data" />;
       // Корзины Реестра (канон п.73в): тот же Реестр с зафиксированным
       // фильтром класса строк — своя вкладка навигации, честный счётчик.
-      case 'unfunded': return <DataBrowserPage bucket="unfunded" />;
-      case 'yearlong': return <DataBrowserPage bucket="yearlong" />;
+      case 'unfunded': return <DataBrowserPage key="unfunded" bucket="unfunded" />;
+      case 'yearlong': return <DataBrowserPage key="yearlong" bucket="yearlong" />;
       // Мониторинг (п.69в/п.101а): реестр процедур определения поставщика
       // из книги «Ежедневный мониторинг» — отдельная вкладка, не слита с планом.
       case 'monitoring': return <MonitoringPage />;

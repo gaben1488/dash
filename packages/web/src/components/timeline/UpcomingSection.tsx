@@ -19,6 +19,8 @@ import type { UpcomingRiskRow } from '@aemr/core';
 import { api, humanizeRequestError, type UpcomingResponse } from '../../api';
 import { useStore } from '../../store';
 import { toCanonicalDeptId } from '../../lib/dept-key';
+import { useOrgScope } from '../../lib/selectors/org-scope';
+import { subordinateLabel, ORG_ITSELF_LABEL } from '../../lib/subordinate-label';
 import { pluralRu } from '../../lib/economy-copy';
 import { collectAllPages } from '../../lib/rows/collect-pages';
 import { EmptyState } from '../EmptyState';
@@ -40,10 +42,10 @@ function DaysChip({ daysToPlan }: { daysToPlan: number }) {
       className={clsx(
         'shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold tabular-nums whitespace-nowrap',
         daysToPlan < 0
-          ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400'
+          ? 'bg-[var(--surface-raised)] text-[var(--data-bad)]'
           : daysToPlan === 0
-            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
-            : 'bg-zinc-100 dark:bg-zinc-700/50 text-zinc-600 dark:text-zinc-300',
+            ? 'bg-[var(--surface-raised)] text-[var(--data-warn)]'
+            : 'bg-[var(--surface-raised)] text-[var(--ink-muted)]',
       )}
     >
       {daysPhrase(daysToPlan)}
@@ -69,14 +71,14 @@ function UpcomingItem({
         type="button"
         onClick={() => onOpen(row)}
         title="Открыть карточку строки"
-        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left hover:bg-zinc-50 dark:hover:bg-zinc-700/30 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-[var(--surface-raised)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
       >
         <DaysChip daysToPlan={row.daysToPlan} />
         <span className="flex-1 min-w-0">
-          <span className="block text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate">
+          <span className="block truncate text-xs font-medium text-[var(--ink)]">
             {row.subject || 'Предмет закупки не указан'}
           </span>
-          <span className="block text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
+          <span className="block truncate text-[10px] text-[var(--ink-muted)]">
             {productLabel(toCanonicalDeptId(row.dept))} · строка {row.sheetRow} · план{' '}
             <span className="tabular-nums">{row.plannedDate ? formatDateRu(row.plannedDate) : '—'}</span>
             {row.planSum > 0 && <> · {formatMoney(row.planSum)}</>}
@@ -86,7 +88,7 @@ function UpcomingItem({
         <span className="shrink-0 flex items-center gap-1.5">
           {row.hasLiveReason && row.reason && (
             <span
-              className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400"
+              className="rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--accent)]"
               title={`Живая причина по словарю (ячейка ${row.reason.cell}): ${row.reason.canon}`}
             >
               живая причина
@@ -94,7 +96,7 @@ function UpcomingItem({
           )}
           {row.procedureCode && (
             <span
-              className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400 tabular-nums"
+              className="rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-[var(--ink-muted)]"
               title={row.monitoringStage
                 ? `Процедура ${row.procedureCode} · стадия в мониторинге: ${row.monitoringStage}`
                 : `Номер процедуры из книги: ${row.procedureCode}`}
@@ -103,17 +105,24 @@ function UpcomingItem({
             </span>
           )}
           {row.monitoringStage && (
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
+            <span className="rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--data-good)]">
               {row.monitoringStage}
             </span>
           )}
           {opening
-            ? <Loader2 size={13} className="animate-spin text-zinc-400" aria-hidden="true" />
-            : <ChevronRight size={13} className="text-zinc-300 dark:text-zinc-600" aria-hidden="true" />}
+            ? <Loader2 size={13} className="animate-spin text-[var(--ink-faint)]" aria-hidden="true" />
+            : <ChevronRight size={13} className="text-[var(--ink-faint)]" aria-hidden="true" />}
         </span>
       </button>
     </li>
   );
+}
+
+/** Одна пачка списка: организация управления и её строки (может быть пустой). */
+interface OrgBucket {
+  key: string;
+  label: string;
+  rows: UpcomingRiskRow[];
 }
 
 export function UpcomingSection() {
@@ -157,6 +166,72 @@ export function UpcomingSection() {
   const overdueCount = useMemo(() => rows.filter((r) => r.overdue).length, [rows]);
   const soonCount = rows.length - overdueCount;
   const visible = expanded ? rows : rows.slice(0, COLLAPSED_LIMIT);
+
+  /**
+   * Режим организаций (приказ владельца 20.08). Список приходит с сервера
+   * БЕЗ колонки учреждения, поэтому в режиме «с подведомственными» книга
+   * выбранного управления дочитывается один раз — тем же путём, что для
+   * карточки строки, — и даёт соответствие «строка книги → учреждение».
+   * Второго дома чтения книг здесь не заводится: используется тот же кэш.
+   */
+  const orgScope = useOrgScope();
+  const [orgByRow, setOrgByRow] = useState<Map<number, string> | null>(null);
+  const [orgState, setOrgState] = useState<'idle' | 'loading' | 'error'>('idle');
+
+  useEffect(() => {
+    if (orgScope.mode !== 'withSubs' || !orgScope.dept || rows.length === 0) {
+      setOrgByRow(null);
+      setOrgState('idle');
+      return;
+    }
+    const dept = orgScope.dept;
+    let alive = true;
+    setOrgState('loading');
+    const readBook = async () => {
+      let deptRows = rowsCache.current.get(dept);
+      if (!deptRows) {
+        deptRows = await collectAllPages<Record<string, unknown>>((page) =>
+          api.getRows(dept, { limit: '1000', ...(page > 1 ? { page: String(page) } : {}) }));
+        if (deptRows.length > 0) rowsCache.current.set(dept, deptRows);
+      }
+      return deptRows;
+    };
+    readBook()
+      .then((deptRows) => {
+        if (!alive) return;
+        if (deptRows.length === 0) { setOrgState('error'); setOrgByRow(null); return; }
+        const map = new Map<number, string>();
+        for (const r of deptRows) {
+          const idx = Number(r.rowIndex);
+          if (!Number.isFinite(idx)) continue;
+          const raw = typeof r.subordinate === 'string' ? r.subordinate.trim() : '';
+          map.set(idx, raw || ORG_ITSELF_LABEL);
+        }
+        setOrgByRow(map);
+        setOrgState('idle');
+      })
+      .catch(() => { if (alive) { setOrgState('error'); setOrgByRow(null); } });
+    return () => { alive = false; };
+  }, [orgScope.mode, orgScope.dept, rows.length]);
+
+  /**
+   * Разбивка видимых строк по организациям. Присутствие организации задаёт
+   * канон фильтра: учреждение без единой близкой строки остаётся в списке с
+   * честным «строк нет» — «нет строк» и «нет организации» обязаны звучать
+   * по-разному.
+   */
+  const orgBuckets: OrgBucket[] | null = useMemo(() => {
+    if (orgScope.mode !== 'withSubs' || orgByRow === null) return null;
+    const buckets = new Map<string, UpcomingRiskRow[]>();
+    for (const group of orgScope.subordinates) buckets.set(group.label, []);
+    for (const row of visible) {
+      const label = orgByRow.get(row.sheetRow) ?? ORG_ITSELF_LABEL;
+      const bucket = buckets.get(label) ?? buckets.get(subordinateLabel(label));
+      if (bucket) bucket.push(row);
+      else buckets.set(label, [row]);
+    }
+    return [...buckets.entries()].map(([label, bucketRows]) => ({ key: label, label, rows: bucketRows }));
+  }, [orgScope.mode, orgScope.subordinates, orgByRow, visible]);
 
   const scopeLabel = selectedDepartments.size === 0
     ? 'все управления'
@@ -203,26 +278,26 @@ export function UpcomingSection() {
   return (
     <section
       aria-label="Близкие к плановой дате"
-      className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5"
+      className="rounded-xl border border-[var(--line-soft)] bg-[var(--surface-card)] p-5 shadow-sm"
     >
       {/* ── Шапка: заголовок + собственная подпись периметра (канон п.58а) ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           {/* Карточка БЗ секции (п.91-2): окно, периметр «от сегодня», действия. */}
           <KBTooltip {...kbCardProps(GROUP3_KB_ADDITIONS.upcoming_window)} showIcon>
-            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-              <CalendarClock size={15} className="text-zinc-500 dark:text-zinc-400" aria-hidden="true" />
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ink-strong)]">
+              <CalendarClock size={15} className="text-[var(--ink-muted)]" aria-hidden="true" />
               Близкие к плановой дате
             </h2>
           </KBTooltip>
-          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 max-w-2xl">
+          <p className="mt-0.5 max-w-2xl text-[11px] text-[var(--ink-muted)]">
             Незаключённые строки, чья плановая дата уже прошла или наступает в ближайшие{' '}
             {UPCOMING_DAYS} дней. Просроченные — сверху, по глубине просрочки.
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300"
+            className="flex items-center gap-1 rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-muted)]"
             title={`Окно отсчитывается от сегодняшнего дня календаря продукта${data ? ` (${formatDateRu(data.asOf)})` : ''}: просроченные без ограничения глубины плюс ${UPCOMING_DAYS} дней вперёд. Числа — на текущий момент.`}
           >
             <Calendar size={10} aria-hidden="true" />
@@ -231,7 +306,7 @@ export function UpcomingSection() {
             </span>
           </div>
           {headerPeriodNarrowed && (
-            <span className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 text-right max-w-[15rem]">
+            <span className="max-w-[15rem] text-right text-[9px] leading-tight text-[var(--data-warn)]">
               выбранный в шапке период на этот список не влияет: окно всегда от сегодняшней даты
             </span>
           )}
@@ -262,9 +337,9 @@ export function UpcomingSection() {
         ) : (
           <>
             {/* Счётчики остроты: сколько горит, сколько на подходе. */}
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2 tabular-nums">
+            <p className="mb-2 text-[11px] tabular-nums text-[var(--ink-muted)]">
               {overdueCount > 0 && (
-                <span className="font-semibold text-red-600 dark:text-red-400">
+                <span className="font-semibold text-[var(--data-bad)]">
                   {overdueCount} {pluralRu(overdueCount, 'просроченная', 'просроченные', 'просроченных')}
                 </span>
               )}
@@ -275,7 +350,7 @@ export function UpcomingSection() {
             </p>
 
             {openError && (
-              <div className="mb-2 text-[11px] bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-amber-800 dark:text-amber-300">
+              <div className="mb-2 rounded-lg bg-[var(--surface-raised)] px-3 py-2 text-[11px] text-[var(--data-warn)]">
                 {openError}{' '}
                 <button type="button" onClick={() => navigateTo('data')} className="font-medium hover:underline">
                   Открыть Реестр
@@ -283,23 +358,75 @@ export function UpcomingSection() {
               </div>
             )}
 
-            <ol className="divide-y divide-zinc-50 dark:divide-zinc-700/30">
-              {visible.map((row) => (
-                <UpcomingItem
-                  key={row.rowKey}
-                  row={row}
-                  opening={openingKey === row.rowKey}
-                  formatMoney={formatMoney}
-                  onOpen={openRowCard}
-                />
-              ))}
-            </ol>
+            {/* Оговорка режима организаций: три режима — три разные новости. */}
+            {orgScope.mode === 'grbs' && orgScope.hasSubs && (
+              <p className="mb-2 text-[11px] text-[var(--ink-faint)]">
+                Разбивка по учреждениям скрыта: включён режим «только ГРБС».
+              </p>
+            )}
+            {orgScope.mode === 'withSubs' && !orgScope.hasSubs && (
+              <p className="mb-2 text-[11px] text-[var(--ink-faint)]">
+                У этого управления подведомственных учреждений нет — список идёт одной лентой.
+              </p>
+            )}
+            {orgScope.mode === 'withSubs' && orgScope.hasSubs && orgState === 'loading' && (
+              <p className="mb-2 text-[11px] text-[var(--ink-faint)]" role="status" aria-live="polite">
+                Раскладываем строки по учреждениям: дочитываем книгу управления…
+              </p>
+            )}
+            {orgScope.mode === 'withSubs' && orgState === 'error' && (
+              <p className="mb-2 text-[11px] text-[var(--data-warn)]">
+                Книга управления не прочиталась — разбивка по учреждениям не построена, список идёт одной лентой.
+              </p>
+            )}
+
+            {orgBuckets ? (
+              <div className="space-y-3">
+                {orgBuckets.map((bucket) => (
+                  <section key={bucket.key} aria-label={bucket.label}>
+                    <h3 className="mb-1 flex items-baseline gap-2 text-[11px] font-semibold text-[var(--ink)]">
+                      {bucket.label}
+                      <span className="text-[10px] font-normal tabular-nums text-[var(--ink-faint)]">
+                        {bucket.rows.length > 0
+                          ? `${bucket.rows.length} ${pluralRu(bucket.rows.length, 'строка', 'строки', 'строк')}`
+                          : 'близких к плановой дате строк нет'}
+                      </span>
+                    </h3>
+                    {bucket.rows.length > 0 && (
+                      <ol className="divide-y divide-[var(--line-soft)]">
+                        {bucket.rows.map((row) => (
+                          <UpcomingItem
+                            key={row.rowKey}
+                            row={row}
+                            opening={openingKey === row.rowKey}
+                            formatMoney={formatMoney}
+                            onOpen={openRowCard}
+                          />
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <ol className="divide-y divide-[var(--line-soft)]">
+                {visible.map((row) => (
+                  <UpcomingItem
+                    key={row.rowKey}
+                    row={row}
+                    opening={openingKey === row.rowKey}
+                    formatMoney={formatMoney}
+                    onOpen={openRowCard}
+                  />
+                ))}
+              </ol>
+            )}
 
             {rows.length > COLLAPSED_LIMIT && (
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition"
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-muted)] transition hover:text-[var(--ink-strong)]"
               >
                 <ChevronDown
                   size={12}
@@ -311,7 +438,7 @@ export function UpcomingSection() {
             )}
 
             {data && !data.monitoringLinked && (
-              <p className="mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-700/50 text-[10px] text-zinc-500 dark:text-zinc-400">
+              <p className="mt-3 border-t border-[var(--line-soft)] pt-2 text-[10px] text-[var(--ink-muted)]">
                 Стадии процедур появятся после подключения вкладки «Ежедневный мониторинг» —
                 связки по номерам процедур пока нет, поэтому они не показываются.
               </p>
