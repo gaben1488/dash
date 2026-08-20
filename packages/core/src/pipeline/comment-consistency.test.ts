@@ -232,3 +232,241 @@ describe('границы подсистемы', () => {
     );
   });
 });
+
+// ────────────────────────────────────────────────────────────
+// Правила (д)-(ж) — канон п.110 (уточнение владельца 18.08.2026):
+// «сигналы, которые вычленяют некорректность и неактуальность комментариев;
+// например, где пишут, что контракт отложен до даты позже той, по которой
+// фактически уже заключились». Даты чужих документов (распоряжений,
+// постановлений) при этом НЕ принимаются за срок закупки — именно их
+// смешение с датой контракта заставило владельца отключить чтение текста.
+// ────────────────────────────────────────────────────────────
+
+describe('противоречия текста и факта (канон п.110)', () => {
+  const ref = { book: 'УКСиМП', sheetRow: 155 };
+  const snapshot = new Date('2026-08-18T00:00:00Z');
+
+  it('отложено до даты позже заключения — карточка «текст пережил событие»', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '15.08.2026', AF: 'Закупка отложена до 01.09.2026 по решению управления' },
+      snapshot,
+    );
+    const card = found.find((c) => c.kind === 'promise_after_fact');
+    expect(card).toBeDefined();
+    expect(card!.cell).toBe('AF155');
+    expect(card!.mechanism).toContain('01.09.2026');
+    expect(card!.mechanism).toContain('15.08.2026');
+  });
+
+  it('дата распоряжения не принимается за отложенный срок', () => {
+    // Ровно та ошибка, из-за которой владелец отключил чтение текста: дата
+    // документа-основания не имеет отношения к сроку закупки.
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '15.08.2026', AF: 'Закупка перенесена согласно распоряжению от 01.09.2026' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'promise_after_fact')).toBe(false);
+  });
+
+  it('отложено на срок раньше заключения — не противоречие', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '15.08.2026', AF: 'Отложено до 01.08.2026' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'promise_after_fact')).toBe(false);
+  });
+
+  it('«не заключён» при заполненной дате — прямое противоречие', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '11.08.2026', U: 'Контракт не заключен' },
+      snapshot,
+    );
+    const card = found.find((c) => c.kind === 'denial_when_signed');
+    expect(card).toBeDefined();
+    expect(card!.mechanism).toContain('не заключён');
+    expect(card!.action).toContain('Q155');
+  });
+
+  it('отменена ЗАКУПКА при заполненной дате — противоречие', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '11.08.2026', AE: 'Закупка отменена' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'denial_when_signed')).toBe(true);
+  });
+
+  it('отменена ПРОЦЕДУРА при заключённом — норма: сняли, разместили повторно, заключили', () => {
+    // Живой сюжет УЭР r41: «процедура в ЕИС была отменена… размещена повторно».
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '11.08.2026', U: 'Процедура в ЕИС была отменена, размещена повторно' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'denial_when_signed')).toBe(false);
+  });
+
+  it('«не заключён» без даты — норма, карточки нет', () => {
+    const found = detectCommentInconsistencies(ref, { Q: 'Х', U: 'Контракт не заключен' }, snapshot);
+    expect(found.some((c) => c.kind === 'denial_when_signed')).toBe(false);
+  });
+
+  it('«оплачено» без фактических сумм — карточка', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '11.08.2026', V: 0, W: 0, X: 0, Y: 0, AF: 'Работы выполнены, оплачено полностью' },
+      snapshot,
+    );
+    const card = found.find((c) => c.kind === 'execution_claim_no_fact');
+    expect(card).toBeDefined();
+    expect(card!.mechanism).toContain('V155');
+  });
+
+  it('«оплачено» при внесённых суммах — карточки нет', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '11.08.2026', X: 40, Y: 40, AF: 'Оплачено' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'execution_claim_no_fact')).toBe(false);
+  });
+
+  it('ни одно правило не меняет статус строки — только карточки', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { Q: '15.08.2026', AF: 'Отложено до 01.09.2026, контракт не заключен' },
+      snapshot,
+    );
+    // Обе карточки выданы, но обе — про текст; структурная Q осталась как есть.
+    expect(found.map((c) => c.kind)).toEqual(
+      expect.arrayContaining(['promise_after_fact', 'denial_when_signed']),
+    );
+    for (const card of found) expect(card.action).toMatch(/комментарий|сверьте|ячейк/i);
+  });
+});
+
+describe('границы слова на кириллице (живой прогон 18.08)', () => {
+  it('«не состоялся, ЭА объявлен повторно» — про процедуру, карточки нет', () => {
+    // Живая строка УД AF48. Прежде «\b» не работал на кириллице, и сокращение
+    // «ЭА» рядом с «не состоялся» не защищало от ложного противоречия.
+    const found = detectCommentInconsistencies(
+      { book: 'УД', sheetRow: 48 },
+      { Q: '15.04.2026', AF: 'в установленные сроки не состоялся, ЭА объявлен повторно ЭА155-26' },
+      new Date('2026-08-18T00:00:00Z'),
+    );
+    expect(found.some((c) => c.kind === 'denial_when_signed')).toBe(false);
+  });
+
+  it('«контракт не заключен в срок» при заполненной дате — противоречие остаётся', () => {
+    // Живая строка УД AF45: здесь речь именно о договоре, карточка нужна.
+    const found = detectCommentInconsistencies(
+      { book: 'УД', sheetRow: 45 },
+      { Q: '10.04.2026', AF: 'размещен 24.03. извещение, контракт не заключен в срок до 01.04.' },
+      new Date('2026-08-18T00:00:00Z'),
+    );
+    expect(found.some((c) => c.kind === 'denial_when_signed')).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Правило (и) — поручение владельца 19.08: у конкурентной строки в AG
+// обязан стоять номер процедуры, иначе связка с мониторингом невозможна.
+// ────────────────────────────────────────────────────────────
+
+describe('номер процедуры у конкурентных строк (поручение 19.08)', () => {
+  const ref = { book: 'УО', sheetRow: 77 };
+  const snapshot = new Date('2026-08-19T00:00:00Z');
+
+  it('ЭА без номера в AG — карточка с действием для УЭР', () => {
+    const found = detectCommentInconsistencies(ref, { L: 'ЭА', K: 1500, AG: '' }, snapshot);
+    const card = found.find((c) => c.kind === 'missing_procedure_ref');
+    expect(card).toBeDefined();
+    expect(card!.cell).toBe('AG77');
+    expect(card!.mechanism).toContain('Ежедневный мониторинг');
+    expect(card!.action).toContain('УЭР');
+  });
+
+  it('ЭА с номером — тишина', () => {
+    const found = detectCommentInconsistencies(ref, { L: 'ЭА', AG: 'ЭА152-26' }, snapshot);
+    expect(found.some((c) => c.kind === 'missing_procedure_ref')).toBe(false);
+  });
+
+  it('ЭЗК и ЭАС — тоже конкурентные, без номера сигналят', () => {
+    for (const method of ['ЭЗК', 'ЭАС']) {
+      const found = detectCommentInconsistencies(ref, { L: method, AG: 'выплаты' }, snapshot);
+      expect(found.some((c) => c.kind === 'missing_procedure_ref')).toBe(true);
+    }
+  });
+
+  it('ЕП и строка без способа — правило молчит: процедуры нет по природе', () => {
+    expect(detectCommentInconsistencies(ref, { L: 'ЕП', AG: '' }, snapshot)
+      .some((c) => c.kind === 'missing_procedure_ref')).toBe(false);
+    expect(detectCommentInconsistencies(ref, { AG: '' }, snapshot)
+      .some((c) => c.kind === 'missing_procedure_ref')).toBe(false);
+  });
+
+  it('искажённый номер (без буквы Э) считается отсутствующим и ловится', () => {
+    // «А427-25» — живой случай книги мониторинга: потеряна первая буква.
+    const found = detectCommentInconsistencies(ref, { L: 'ЭА', AG: 'А427-25' }, snapshot);
+    expect(found.some((c) => c.kind === 'missing_procedure_ref')).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+
+describe('ЕП-обоснование при конкурентном способе (правило (к), вопрос 20.08)', () => {
+  const ref = { book: 'УО', sheetRow: 2039 };
+  const snapshot = new Date('2026-08-20T00:00:00Z');
+
+  it('живой пример УО № п/п 2346: «ЭА» + ЕП-текст в M — карточка на M', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { L: 'ЭА', M: 'Закупка с ЕП предусматривает заключение по наименьшей цене' },
+      snapshot,
+    );
+    const card = found.find((c) => c.kind === 'ep_reason_on_competitive');
+    expect(card).toBeDefined();
+    expect(card!.cell).toBe('M2039');
+    expect(card!.mechanism).toContain('конкурентн');
+    expect(card!.action).toContain('L2039');
+  });
+
+  it('живой род УД: «ч.12 ст.93» при конкурентном способе — сигналит', () => {
+    const found = detectCommentInconsistencies(ref, { L: 'ЭА', M: 'ч.12 ст.93' }, snapshot);
+    expect(found.some((c) => c.kind === 'ep_reason_on_competitive')).toBe(true);
+  });
+
+  it('ЕП-строка с ЕП-обоснованием — тишина: колонка использована по назначению', () => {
+    const found = detectCommentInconsistencies(ref, { L: 'ЕП', M: 'п.4 ч.1 ст.93' }, snapshot);
+    expect(found.some((c) => c.kind === 'ep_reason_on_competitive')).toBe(false);
+  });
+
+  it('свободный комментарий без ЕП-маркеров в M — тишина (не логическая ошибка)', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { L: 'ЭЗК', M: 'Запрос котировок. По итогам совещания изменен способ определения' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'ep_reason_on_competitive')).toBe(false);
+  });
+
+  it('пустая M и маркеры-заглушки — тишина', () => {
+    for (const M of ['', 'Х', 'x', '—', '·']) {
+      const found = detectCommentInconsistencies(ref, { L: 'ЭА', M }, snapshot);
+      expect(found.some((c) => c.kind === 'ep_reason_on_competitive')).toBe(false);
+    }
+  });
+
+  it('«степень» и слова с «еп» внутри не матчатся (кириллические границы)', () => {
+    const found = detectCommentInconsistencies(
+      ref,
+      { L: 'ЭА', M: 'после совещания концепция изменена' },
+      snapshot,
+    );
+    expect(found.some((c) => c.kind === 'ep_reason_on_competitive')).toBe(false);
+  });
+});

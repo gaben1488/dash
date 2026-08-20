@@ -22,7 +22,7 @@ import {
   firstSignificantDigit,
   BENFORD_EXPECTED as BENFORD_EXPECTED_SHARED,
 } from '../utils/statistics.js';
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, isReadableDeptRow } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 import { detectSeasonalAnomalies } from './seasonal.js';
 import { detectSuspiciousSplitting } from './splitting.js';
@@ -174,7 +174,21 @@ const BENFORD_CLOSE = 0.006;
 const BENFORD_ACCEPTABLE = 0.012;
 const BENFORD_MARGINAL = 0.015;
 
-/** Normal EP share reference point (шкала 0-1) */
+/**
+ * Normal EP share reference point (шкала 0-1).
+ *
+ * Пробел GAP L3.3 («эталоны статичны»), сверка 18.08.2026: это ЧИСЛО ИЗ
+ * ИСХОДНОГО СКРИПТА, а не скользящая медиана по своим же данным — оно не
+ * пересчитывается и с годами будет стареть. Пробел оставлен сознательно:
+ * скользящий эталон требует двух лет сопоставимых снимков, которых у системы
+ * пока нет. Держится он безопасно: единственный потребитель `classifyEpRisk`
+ * ниже в рабочем коде не вызывается (только реестр поверхности
+ * `god-file-surface.test.ts`), на экран это число не выходит. Живой ориентир
+ * доли ЕП живёт в карточке управлений и там же несёт свою оговорку
+ * «ориентир не подтверждён» (web/components/scorecard/contract.ts).
+ * Перед тем как вывести эталон на экран — считать его по данным, не по
+ * константе.
+ */
 const NORMAL_EP_SHARE = 0.30;
 
 /** EP risk excess thresholds (procurement_report.gs line 4534) */
@@ -565,7 +579,10 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
   // 1. Extract amounts for Benford test (plan totals, K=10)
   const amounts: number[] = [];
   for (const row of rows) {
-    if (!row || row.length < 25) continue;
+    // Одна дверь длины строки (реестр багов 09.07.2026, пп.12-13). Прежний порог
+    // «не короче 25» уводил из выборки Бенфорда все ещё не заключённые закупки —
+    // проверка велась по перекошенной выборке и молчала об этом.
+    if (!isReadableDeptRow(row)) continue;
     const plan = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
     if (plan > 0) amounts.push(plan);
     const fact = numFromRow(row, DEPT_COLUMNS.TOTAL_FACT);
@@ -575,7 +592,7 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
 
   // 2. Z-score outliers on plan totals
   const planAmounts = rows
-    .filter(r => r && r.length >= 25)
+    .filter(r => isReadableDeptRow(r))
     .map(r => numFromRow(r, DEPT_COLUMNS.TOTAL_PLAN))
     .filter(v => v > 0);
   const outliers = detectOutliers(planAmounts);
@@ -663,21 +680,34 @@ export function analyzeDataset(input: DatasetAnalysisInput): DatasetAnalysis {
 // Helpers
 // ────────────────────────────────────────────────────────────
 
+/**
+ * Лестница степеней и подписи видов — таблицы, а не switch.
+ * SIMPLIFY_REGISTER_2026-06-05 §C3: обе функции были написаны через switch,
+ * тогда как весь остальной файл держит соответствия неизменяемыми таблицами
+ * (COMPOSITE_WEIGHTS, ANOMALY_SCORES). Содержимое дословно прежнее; таблица
+ * помечена `satisfies Record<...>`, поэтому новый вид аномалии или новая
+ * степень без подписи не пройдут сборку — то же, что давал switch.
+ * Замок: dataset-signals.test.ts «C3 — подписи видов и лестница степеней».
+ */
+const SEVERITY_RANK = {
+  'ИНФОРМАЦИЯ': 0,
+  'СРЕДНЯЯ': 1,
+  'ВЫСОКАЯ': 2,
+  'КРИТИЧЕСКАЯ': 3,
+} satisfies Record<AnomalySeverity, number>;
+
+const ANOMALY_TYPE_LABEL = {
+  EXEC_OVER_200: 'Факт > 200% плана',
+  FACT_NO_PLAN: 'Факт без плана',
+  NEGATIVE_PLAN: 'Отрицательный план',
+  EXACT_MATCH: 'Точное совпадение факт=план',
+  ZERO_ECONOMY_WITH_FACT: 'Нулевая экономия при факте',
+} satisfies Record<DataAnomaly['type'], string>;
+
 function severityRank(s: AnomalySeverity): number {
-  switch (s) {
-    case 'ИНФОРМАЦИЯ': return 0;
-    case 'СРЕДНЯЯ': return 1;
-    case 'ВЫСОКАЯ': return 2;
-    case 'КРИТИЧЕСКАЯ': return 3;
-  }
+  return SEVERITY_RANK[s];
 }
 
 function anomalyTypeLabel(type: DataAnomaly['type']): string {
-  switch (type) {
-    case 'EXEC_OVER_200': return 'Факт > 200% плана';
-    case 'FACT_NO_PLAN': return 'Факт без плана';
-    case 'NEGATIVE_PLAN': return 'Отрицательный план';
-    case 'EXACT_MATCH': return 'Точное совпадение факт=план';
-    case 'ZERO_ECONOMY_WITH_FACT': return 'Нулевая экономия при факте';
-  }
+  return ANOMALY_TYPE_LABEL[type];
 }

@@ -3,7 +3,10 @@ import { DEPARTMENT_REGISTRY } from './department-registry.js';
 import {
   detectCellHygiene,
   detectSubordinateNameHygiene,
+  TEXT_HYGIENE_KIND_LABELS,
+  TEXT_HYGIENE_KIND_ORDER,
   type TextHygieneFinding,
+  type TextHygieneKind,
 } from './text-hygiene.js';
 
 // ============================================================
@@ -769,12 +772,24 @@ const rowNumbering: ValidationRule = {
 // ПРАВИЛО 14: Гигиена текста — канон п.98д (пакет поручений 18.08) + п.95/55
 // (docs/superpowers/audits/2026-08-14-interview-register.md).
 // Проверка УРОВНЯ ЛИСТА, как и нумерация A: находки по колонкам C (подвед)
-// и G (предмет) собираются в ОДНУ карточку «ячейка → дефект → готовое
-// исправление» (каскад п.53), а не в россыпь по каждой строке.
+// и G (предмет) собираются в ОДНУ карточку (каскад п.53).
+//
+// ПОДАЧА — СВОДКА, НЕ ПРОСТЫНЯ (канон п.122, приказ владельца 20.08).
+// Раньше message перечислял ВСЕ находки с готовыми исправлениями в одну
+// строку — на экране это читалось сплошным абзацем. Теперь карточка несёт
+// счёт по родам дефектов и отсылает к разделу «Гигиена текста» на вкладке
+// «Контроль»: там каждый адрес — строкой таблицы, с контекстом, готовым
+// значением и кнопкой «скопировать» (роут /api/text-hygiene).
 // ============================================================
 
-/** Пределы перечня карточки гигиены: диагноз, а не простыня (тон п.53). */
-const HYGIENE_LIST_CAP = 20;
+/** Русское склонение слова «ячейка» по числу находок. */
+function cellsWord(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 'ячейках';
+  const mod10 = mod100 % 10;
+  if (mod10 === 1) return 'ячейке';
+  return 'ячейках';
+}
 
 const textHygiene: ValidationRule = {
   id: 'text_hygiene',
@@ -783,8 +798,9 @@ const textHygiene: ValidationRule = {
     'Технические дефекты набора в текстовых ячейках: двойные и краевые ' +
     'пробелы, пробел не с той стороны знака препинания, невидимые символы, ' +
     'латиница внутри кириллического слова, имя подведа с отступлением от ' +
-    'справочника. Одна карточка на лист: адрес → дефект → готовое ' +
-    'исправленное значение, скопировать и вставить (п.98д).',
+    'справочника. Одна карточка на лист — сводка по родам дефектов; полный ' +
+    'перечень с готовыми значениями — вкладка «Контроль», раздел «Гигиена ' +
+    'текста» (п.98д, п.122).',
   severity: 'info',
   origin: 'bi_heuristic',
   scope: 'department',
@@ -801,39 +817,45 @@ const textHygiene: ValidationRule = {
       .filter(isNumberedRow)
       .sort((a, b) => a.rowIndex - b.rowIndex);
 
-    // Одна запись перечня = одна ячейка: дефекты ячейки сливаются в одну
-    // строку, потому что fix у них общий — готовое значение всей ячейки.
-    const items: Array<{ cell: string; what: string; fix: string }> = [];
-    const pushCell = (col: 'C' | 'G', rowIndex: number, findings: TextHygieneFinding[]) => {
+    // Ячейки с дефектами и счёт по родам. Адрес первой дефектной ячейки
+    // остаётся точкой входа карточки; сами перечни живут на Контроле.
+    let firstCell: string | null = null;
+    let cellCount = 0;
+    const byKind = new Map<TextHygieneKind, number>();
+    const takeCell = (col: 'C' | 'G', rowIndex: number, findings: TextHygieneFinding[]) => {
       if (findings.length === 0) return;
-      const labels = [...new Set(findings.map((f) => f.label))];
-      items.push({ cell: `${col}${rowIndex}`, what: labels.join(', '), fix: findings[0].fix });
+      cellCount += 1;
+      if (firstCell === null) firstCell = `${col}${rowIndex}`;
+      // Род считается по ячейкам: две латинские буквы в одном слове — одна
+      // ячейка «латиницы в кириллице», а не две находки в счётчике.
+      for (const kind of new Set(findings.map((f) => f.kind))) {
+        byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
+      }
     };
 
     for (const r of counted) {
       // C сличается со справочником имён подведов, G — только механика:
       // предмет закупки — свободный текст, канона имён у него нет.
-      pushCell('C', r.rowIndex, detectSubordinateNameHygiene(r.cells['C']));
-      pushCell('G', r.rowIndex, detectCellHygiene(r.cells['G']));
+      takeCell('C', r.rowIndex, detectSubordinateNameHygiene(r.cells['C']));
+      takeCell('G', r.rowIndex, detectCellHygiene(r.cells['G']));
     }
 
-    if (items.length === 0) return { passed: true };
+    if (cellCount === 0 || firstCell === null) return { passed: true };
 
-    const shown = items
-      .slice(0, HYGIENE_LIST_CAP)
-      .map((i) => `${i.cell} — ${i.what} → вставить: «${i.fix}»`);
-    const rest = items.length > shown.length ? `; и ещё ${items.length - shown.length} ячеек` : '';
+    const parts = TEXT_HYGIENE_KIND_ORDER
+      .filter((kind) => byKind.has(kind))
+      .map((kind) => `${TEXT_HYGIENE_KIND_LABELS[kind]} — ${byKind.get(kind)}`);
 
     return {
       passed: false,
-      // Адрес первой находки — точка входа карточки; остальные в перечне.
-      cell: items[0].cell,
+      cell: firstCell,
       message:
-        `Текст листа несёт технические дефекты набора в ${items.length} ` +
-        `ячейках (C — подвед, G — предмет): ${shown.join('; ')}${rest}. ` +
-        `Каждое исправление — готовое значение ячейки: скопировать и ` +
-        `вставить целиком (п.98д).`,
-      actual: `${items.length} ячеек с дефектами текста`,
+        `Текст листа несёт дефекты набора в ${cellCount} ${cellsWord(cellCount)} ` +
+        `(C — подвед, G — предмет): ${parts.join(', ')}. ` +
+        `Полный перечень с готовыми исправлениями — на вкладке «Контроль», ` +
+        `в разделе «Гигиена текста»: каждое значение копируется и вставляется ` +
+        `целиком (п.98д, п.122).`,
+      actual: `${cellCount} ${cellsWord(cellCount)} с дефектами текста`,
       expected: 'текст без лишних и невидимых символов, имена подведов по справочнику',
     };
   },

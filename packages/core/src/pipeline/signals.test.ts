@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { PLAN_SOURCE_COLUMNS } from '@aemr/shared';
 import { detectSignals, classifyRowState, getSignalBadges, type RowSignals } from './signals.js';
 
 // ────────────────────────────────────────────────────────────
@@ -312,9 +313,46 @@ describe('Financial signals', () => {
       expect(s.economyConflict).toBe(false);
     });
 
-    it('conflict (случай б): AD="·" (плейсхолдер = не определён) + экономия 43% (УД стр.10: K=333.8024, Y=188.56238)', () => {
+    // Дедупликация 18.08.2026 (SIGNAL_VALIDATION В-7/П-6). Живой прогон по
+    // восьми книгам (E:/aemr-dumps/book-dumps, 8476 строк, дамп 18.08.2026):
+    // конфликт зажигался 33 раза, 23 из них — на строках, где уже горит
+    // «Высокая экономия >25%», и все 23 при этом помечены правилом
+    // status_on_data_rows. Ниже — обе стороны границы на живых числах.
+    it('НЕТ конфликта: экономия 43% выше порога «Высокой экономии» — вторая красная карточка снята (УД стр.10: K=333.8024, Y=188.56238, AD пуст)', () => {
       const s = detectSignals(makeCells({
         K: 333.8024, Y: 188.56238, AD: '·', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(false);
+      // Строка не замолчала: о ней говорит «Высокая экономия >25%».
+      expect(s.highEconomy).toBe(true);
+    });
+
+    it('конфликт (случай б): экономия 23.5% — полоса 15–25%, «Высокая экономия» молчит (УД стр.122: K=624.6345, Y=477.84504, AD пуст)', () => {
+      const s = detectSignals(makeCells({
+        K: 624.6345, Y: 477.84504, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(true);
+      expect(s.highEconomy).toBe(false);
+    });
+
+    it('конфликт (случай б): экономия 15.5% — нижний край полосы (УД стр.20: K=74.79996, Y=63.20598, AD пуст)', () => {
+      const s = detectSignals(makeCells({
+        K: 74.79996, Y: 63.20598, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(true);
+    });
+
+    it('НЕТ конфликта: экономия 68.5% — карточку берёт «Высокая экономия» (УО стр.1214: K=151.25025, Y=47.64263, AD пуст)', () => {
+      const s = detectSignals(makeCells({
+        K: 151.25025, Y: 47.64263, AD: '', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.economyConflict).toBe(false);
+      expect(s.highEconomy).toBe(true);
+    });
+
+    it('случай (а) границу не заметил: AD="да" при равенстве плана и факта (УО стр.7: K=Y=15799.9968)', () => {
+      const s = detectSignals(makeCells({
+        K: 15_799.9968, Y: 15_799.9968, AD: 'да', L: 'ЭА',
       }), REF_DATE);
       expect(s.economyConflict).toBe(true);
     });
@@ -396,6 +434,33 @@ describe('Financial signals', () => {
         L: 'ЭА', K: 5_000_000, M: '',
       }), REF_DATE);
       expect(s.epRisk).toBe(false);
+    });
+
+    // Ссылка на пункт ч.1 ст.93 читается разбором, а не поиском подстроки
+    // (правка 19.08.2026, живая сверка по E:/aemr-dumps/book-dumps, 3 885 строк
+    // восьми управлений). Прежний список ловил «п.6 ч.1» и спотыкался о пробел
+    // после «ч.», как его ставят операторы.
+    it('false: «п.6 ч. 1 ст. 93» с пробелами — лимит 600 тыс. к этому пункту не относится (УАГЗО стр.9 № 42, план 3 078,96)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', K: 3_078.96,
+        M: 'Услуги оказываются в соответствии с п.6 ч. 1 ст. 93 ФЗ-44 ГАУ "Государственная экспертиза"',
+      }), REF_DATE);
+      expect(s.epRisk).toBe(false);
+    });
+
+    it('true: ссылка на распоряжение администрации лимит не снимает (УО стр.311 № 314: «пп. 8, п.1 Распоряжения АЕМР от 03.09.2025 № 112»)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', K: 2_500,
+        M: 'пп. 8, п.1 Распоряжения Администрации ЕМР от 03.09.2025 № 112',
+      }), REF_DATE);
+      expect(s.epRisk).toBe(true);
+    });
+
+    it('true: п.12 ч.1 ст.93 в список беспредельных пунктов не входит — замечание остаётся (живой корпус: 26 строк)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', K: 1_500, M: 'п. 12 ч.1 ст.93 44-ФЗ',
+      }), REF_DATE);
+      expect(s.epRisk).toBe(true);
     });
   });
 
@@ -767,6 +832,33 @@ describe('Data quality signals', () => {
       }), REF_DATE);
       expect(s.factDateBeforePlan).toBe(false);
     });
+
+    // Страж гейта по способу закупки (SIGNAL_VALIDATION В-4/П-4). Реестр июня
+    // числил гейт непоставленным; живой прогон 18.08.2026 по восьми книгам
+    // (E:/aemr-dumps/book-dumps, 8476 строк) показал обратное: сигнал зажёгся
+    // 115 раз и НИ РАЗУ на ЕП, при том что строк «ЕП, факт на 1–30 суток
+    // раньше плана» в книгах 212. Тесты ниже держат оба края на живых адресах:
+    // снятие гейта утроило бы поток замечаний.
+    it('false: ЕП, факт на 12 суток раньше плана (УАГЗО стр.16: N=16.02.2026, Q=04.02.2026, K=Y=190)', () => {
+      const s = detectSignals(makeCells({
+        N: '16.02.2026', Q: '04.02.2026', L: 'ЕП', K: 190, Y: 190,
+      }), REF_DATE);
+      expect(s.factDateBeforePlan).toBe(false);
+    });
+
+    it('false: ЕП, факт на сутки раньше плана (УД стр.40: N=31.03.2026, Q=30.03.2026, K=Y=64.2724)', () => {
+      const s = detectSignals(makeCells({
+        N: '31.03.2026', Q: '30.03.2026', L: 'ЕП', K: 64.2724, Y: 64.2724,
+      }), REF_DATE);
+      expect(s.factDateBeforePlan).toBe(false);
+    });
+
+    it('true: тот же разрыв на конкурентном способе — справка остаётся (УАГЗО стр.6: N=20.02.2026, Q=17.02.2026, ЭА)', () => {
+      const s = detectSignals(makeCells({
+        N: '20.02.2026', Q: '17.02.2026', L: 'ЭА',
+      }), REF_DATE);
+      expect(s.factDateBeforePlan).toBe(true);
+    });
   });
 
   describe('budgetUnderallocation', () => {
@@ -840,6 +932,21 @@ describe('Data quality signals', () => {
         K: 1_000_000, H: 0, I: 0, J: 0, U: 'Отменена',
       }), REF_DATE);
       expect(s.budgetSourceMissing).toBe(true);
+    });
+
+    /**
+     * Страж §W-7 (DEADCODE_DISPOSITION_2026-06-05): колонки источников признак
+     * берёт из справочника PLAN_SOURCE_COLUMNS, а не из букв, переписанных в
+     * коде сигнала. Любая заполненная колонка справочника снимает признак.
+     */
+    it('колонки источников совпадают со справочником, и каждая снимает признак', () => {
+      expect(PLAN_SOURCE_COLUMNS).toEqual(['H', 'I', 'J']);
+      for (const col of PLAN_SOURCE_COLUMNS) {
+        const s = detectSignals(makeCells({
+          K: 1_000_000, H: 0, I: 0, J: 0, [col]: 400_000,
+        }), REF_DATE);
+        expect(s.budgetSourceMissing).toBe(false);
+      }
     });
   });
 });
@@ -925,6 +1032,45 @@ describe('Behavioral signals', () => {
         N: '30.06.2026', Q: '25.05.2026',
       }), new Date(2026, 6, 15));
       expect(s.earlyClosure).toBe(false);
+    });
+
+    // Гейт по способу 18.08.2026 (SIGNAL_VALIDATION В-9). Живой прогон по
+    // восьми книгам (E:/aemr-dumps/book-dumps, 8476 строк, дамп 18.08.2026):
+    // сигнал зажигался пять раз, все пять — ЕП. Три остаются (смена года),
+    // два гаснут (полугодовое опережение мягкой плановой даты у ЕП).
+    it('false: опережение 189 дней в одном году у ЕП — обычное исполнение, не описка (УО стр.1591: N=31.07.2026, Q=23.01.2026, K=Y=9.6)', () => {
+      const s = detectSignals(makeCells({
+        N: '31.07.2026', Q: '23.01.2026', L: 'ЕП', K: 9.6, Y: 9.6,
+      }), new Date(2026, 7, 18)); // 18.08.2026 — план уже в прошлом
+      expect(s.earlyClosure).toBe(false);
+    });
+
+    it('false: опережение 184 дня у ЕП (УО стр.1684: N=15.07.2026, Q=12.01.2026, K=Y=3.6)', () => {
+      const s = detectSignals(makeCells({
+        N: '15.07.2026', Q: '12.01.2026', L: 'ЕП', K: 3.6, Y: 3.6,
+      }), new Date(2026, 7, 18));
+      expect(s.earlyClosure).toBe(false);
+    });
+
+    it('true: смена года у ЕП гейт не снимает — перепутанный год ошибка при любом способе (УО стр.2587: N=27.07.2026, Q=27.07.2025, ровно год)', () => {
+      const s = detectSignals(makeCells({
+        N: '27.07.2026', Q: '27.07.2025', L: 'ЕП', K: 71.15, Y: 71.15,
+      }), new Date(2026, 7, 18));
+      expect(s.earlyClosure).toBe(true);
+    });
+
+    it('true: смена года у ЕП, разрыв 313 дней (УО стр.1585: N=31.10.2026, Q=22.12.2025, K=Y=125)', () => {
+      const s = detectSignals(makeCells({
+        N: '31.10.2026', Q: '22.12.2025', L: 'ЕП', K: 125, Y: 125,
+      }), new Date(2026, 7, 18));
+      expect(s.earlyClosure).toBe(true);
+    });
+
+    it('true: полугодовое опережение у конкурентного способа гейт переживает (тот же разрыв, что у УО стр.1591, но способ ЭА)', () => {
+      const s = detectSignals(makeCells({
+        N: '31.07.2026', Q: '23.01.2026', L: 'ЭА', K: 9.6, Y: 9.6,
+      }), new Date(2026, 7, 18));
+      expect(s.earlyClosure).toBe(true);
     });
 
     it('false: смена года при опережении <= 30 дней (декабрь → январь — норма)', () => {
@@ -1070,6 +1216,39 @@ describe('Behavioral signals', () => {
     it('false: ЕП but plan = 0', () => {
       const s = detectSignals(makeCells({
         L: 'ЕП', M: '', K: 0,
+      }), REF_DATE);
+      expect(s.epJustificationMissing).toBe(false);
+    });
+
+    // Маркер отсутствия = «не заполнено» (канон п.62 интервью 14.08.2026,
+    // предикат isAbsentCell). Живая сверка 19.08.2026 по восьми книгам
+    // (E:/aemr-dumps/book-dumps, 3 397 строк ЕП): пустая M ровно одна,
+    // заглушек десять — до правки замечание молчало на всех десяти, хотя
+    // читателю в карточке печаталось «Основание выбора ЕП: Х».
+    it('true: заглушка «Х» в M — это «не заполнено» (УАГЗО стр.33 № 47, план 187,47)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', M: 'Х', K: 187.47,
+      }), REF_DATE);
+      expect(s.epJustificationMissing).toBe(true);
+    });
+
+    it('true: латинская «X» — та же заглушка (УО стр.9 № 6, план 594,67)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', M: 'X', K: 594.67,
+      }), REF_DATE);
+      expect(s.epJustificationMissing).toBe(true);
+    });
+
+    it('true: строчная «х» (УКСиМП стр.361 № 354, план 4,57)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', M: 'х', K: 4.57,
+      }), REF_DATE);
+      expect(s.epJustificationMissing).toBe(true);
+    });
+
+    it('false: настоящее обоснование заглушкой не считается (УО стр.6 № 3: «Заключение с ЕП по наименьшей цене.»)', () => {
+      const s = detectSignals(makeCells({
+        L: 'ЕП', M: 'Заключение с ЕП по наименьшей цене.', K: 3_950,
       }), REF_DATE);
       expect(s.epJustificationMissing).toBe(false);
     });
@@ -1498,16 +1677,26 @@ describe('derivedFormulaBroken', () => {
 // «год = Σ кварталов» против «год = Σ + _orphan»)
 // ────────────────────────────────────────────────────────────
 
-describe('factQuarterMissing', () => {
-  it('дата факта есть, O пусто — сигнал горит', () => {
-    const s = detectSignals({ L: 'ЭА', K: 67666.68, Q: '15.03.2026', O: '' });
-    expect(s.factQuarterMissing).toBe(true);
+describe('factQuarterMissing — остаточная страховка (канон 20.08.2026: первичны N и Q)', () => {
+  it('N пуста + факт есть + O бита → первопричина «не обеспечено финансированием», не этот сигнал', () => {
+    const s = detectSignals({ L: 'ЭА', K: 67666.68, Q: '15.03.2026', N: '', O: '' });
+    expect(s.planYearMissing).toBe(true);
+    expect(s.factQuarterMissing).toBe(false);
   });
 
-  it('невалидный квартал (0, 5, текст) — горит', () => {
-    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 0 }).factQuarterMissing).toBe(true);
-    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 5 }).factQuarterMissing).toBe(true);
-    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: 'Х' }).factQuarterMissing).toBe(true);
+  it('N заполнена + O невалидна (0, 5, Х) → «сломана формула даты», не этот сигнал', () => {
+    for (const O of [0, 5, 'Х']) {
+      const s = detectSignals({ L: 'ЭА', K: 100, N: '10.02.2026', P: '2026', Q: '15.03.2026', O });
+      expect(s.derivedFormulaBroken).toBe(true);
+      expect(s.factQuarterMissing).toBe(false);
+    }
+  });
+
+  it('остаточный хвост: строка не счётная (нет способа) — первопричины молчат, страховка горит', () => {
+    const s = detectSignals({ L: '', K: 0, Q: '15.03.2026', O: '' });
+    expect(s.planYearMissing).toBe(false);
+    expect(s.derivedFormulaBroken).toBe(false);
+    expect(s.factQuarterMissing).toBe(true);
   });
 
   it('квартал проставлен (число или строка) — не горит', () => {
@@ -1521,6 +1710,6 @@ describe('factQuarterMissing', () => {
   });
 
   it('СТРАЖ п.41: «отменена» в U сигнал больше не гасит', () => {
-    expect(detectSignals({ L: 'ЭА', K: 100, Q: '15.03.2026', O: '', U: 'отменена' }).factQuarterMissing).toBe(true);
+    expect(detectSignals({ L: '', K: 0, Q: '15.03.2026', O: '', U: 'отменена' }).factQuarterMissing).toBe(true);
   });
 });

@@ -44,6 +44,11 @@ export * from './rule-book.js';
 // Re-export гигиена текста (детекторы п.98д: готовые исправления ячеек для операторов)
 export * from './text-hygiene.js';
 
+// Re-export проверку русского языка — орфография и пунктуация (продолжение п.98д):
+// словарь-эталон собран из живых книг, словоформы отсеиваются, низкая уверенность
+// не показывается. Обоснование выбора частотного подхода — в шапке модуля.
+export * from './text-language.js';
+
 // Re-export constants
 export * from './constants.js';
 
@@ -120,7 +125,24 @@ export * from './product-dictionary.js';
 // пяти источников показатель родом и совпадает ли наш счёт со счётом источника
 export * from './metric-provenance.js';
 
+// Re-export степени обоснованности ЕП (канон п.98ж, 18.08.2026): кластер причины
+// из колонки M → одна из четырёх степеней, и «сокращаемая доля» ЕП как их сумма
+export * from './ep-justification-grade.js';
+
 // Re-export all dictionaries (canonical methods, ГРБС aliases, EP reasons, legal refs, etc.)
 // See packages/shared/src/dictionaries/index.ts for full barrel.
 // Integration plan: AEMR_DICTIONARIES_PLAN.md §2.
 export * from './dictionaries/index.js';
+
+// Re-export помеченные деньги (тысячи рублей против рублей): книги ГРБС ведутся
+// в тысячах, закон и мониторинг говорят в рублях, а перепутать их однажды уже
+// удалось молча (БАГ #1 охоты 2026-08-08 — проверки лимитов 44-ФЗ не срабатывали
+// никогда). Пометка единицы делает подмену ошибкой проверки типов
+export * from './money-units.js';
+// Целостность нумерации рабочего листа (канон п.118: дубль — нарушение,
+// пропуск — информация о выведенной из плана закупке).
+export * from './sequence-integrity.js';
+// Сбитый формат ячейки даты: показано число вместо срока (разбор 19.08).
+export * from './cell-format-integrity.js';
+// Сверка зеркал книги — справочная (решение 19.08: работают с одним листом).
+export * from './mirror-integrity.js';

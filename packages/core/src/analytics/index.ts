@@ -7,8 +7,105 @@ export { benfordAnalysis, ewmaDetection, zScoreAnalysis, type BenfordResult, typ
 export { linearForecast, seasonalForecast, buildScenarios, type ForecastScenario, type ForecastResult } from './forecast.js';
 export { classifySubject, buildSubjectAnalysis, type SubjectCategory, type SubjectAnalysisReport } from './subject-classify.js';
 export {
+  matchSubjectFuzzy,
+  fuzzyIncludes,
+  normalizeRu,
+  stemRu,
+  editDistance,
+  type FuzzySubjectMatch,
+  type FuzzyMatchKind,
+} from './subject-fuzzy.js';
+export {
   findCentralizationOpportunities,
   type CentralizationOpportunity,
   type CentralizationMember,
   type CentralizationOptions,
 } from './centralization.js';
+// Нагрузка управлений (канон п.103) и три рода событий над строкой (п.105).
+// До 18.08.2026 модули считались, но наружу не выходили — их не было в барреле,
+// и ни сервер, ни экран не могли их позвать (маяк, §4, строки Г-02…Г-04).
+export {
+  deptWorkload,
+  workloadReport,
+  type DeptWorkloadInput,
+  type DeptWorkload,
+  type JournalObservability,
+  type WorkloadReport,
+} from './workload.js';
+export {
+  classifyJournalEvents,
+  sheetRowOfCell,
+  type JournalEntry,
+  type RowEvent,
+  type RowEventKind,
+  type JournalEventSummary,
+} from './journal-events.js';
+export {
+  diffSnapshots,
+  type SnapshotRow,
+  type VanishedRow,
+  type MovedRow,
+  type RowDiff,
+} from './vanished-rows.js';
+// Разбор ЕП по степеням обоснованности и динамика его сокращения (канон п.98ж).
+export {
+  buildEpJustificationDept,
+  mergeEpGradeBuckets,
+  mergeEpClusters,
+  emptyEpGradeBucket,
+  summarizeEpGrades,
+  epQuarterDynamics,
+  topClustersOfGrade,
+  epClusterLabel,
+  epPlanQuarter,
+  EP_QUARTER_KEYS,
+  type EpJustificationRow,
+  type EpJustificationDept,
+  type EpGradeBucket,
+  type EpCell,
+  type EpQuarterKey,
+  type EpGradeSlice,
+  type EpJustificationSummary,
+  type EpQuarterPoint,
+  type EpClusterSlice,
+} from './ep-justification.js';
+// Детектор подозрительных закупок: две независимые шкалы («похоже на опечатку»
+// и «похоже на подгон»), список признаков с адресом и суммой под риском.
+export {
+  detectAnomalies,
+  detectMagnitudeOutliers,
+  detectRoundAmongFractional,
+  detectYearOffByOne,
+  detectDecimalShift,
+  detectRepeatOfNeighbour,
+  detectThousandfoldEdits,
+  detectBenfordDeviation,
+  detectThresholdHugging,
+  detectSplittingWindow,
+  detectFactEqualsPlan,
+  detectRetroEdits,
+  detectZeroEconomyMass,
+  median,
+  hasKopecks,
+  hasFractionalThousands,
+  isRoundAmount,
+  powerOfTen,
+  digitSignature,
+  normalizeSubject,
+  columnOfCell,
+  sheetRowOfCell as anomalySheetRowOfCell,
+  editMoment,
+  formatMoment,
+  journalNumber,
+  subordinateKey,
+  indexRowsByAddress,
+  ANOMALY_LIMITS,
+  type AnomalyRow,
+  type AnomalyJournalEntry,
+  type AnomalyFinding,
+  type AnomalyReport,
+  type AnomalyInput,
+  type AnomalyAddress,
+  type AnomalyScale,
+  type AnomalySign,
+} from './anomaly-detection.js';

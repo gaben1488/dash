@@ -320,6 +320,64 @@ describe('buildNoiseMap', () => {
   });
 });
 
+/**
+ * Характеризационный замок ПЕРЕД упрощением C3 (SIMPLIFY_REGISTER_2026-06-05):
+ * severityRank и anomalyTypeLabel были написаны через switch при принятом в
+ * файле стиле таблицы соответствия. Обе функции внутренние, наружу видны через
+ * buildNoiseMap: подпись группы приходит от anomalyTypeLabel, порядок — от
+ * severityRank. Замок фиксирует все пять подписей и всю лестницу из четырёх
+ * степеней; после замены switch на таблицы он обязан остаться зелёным.
+ */
+describe('C3 — подписи видов и лестница степеней у карты шума', () => {
+  function noiseOf(entries: Array<{ type: string; severity: string }>) {
+    const anomalies = new Map<number, unknown[]>();
+    entries.forEach((e, i) => {
+      anomalies.set(i, [{ type: e.type, rowIndex: i, details: '', severity: e.severity }]);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return buildNoiseMap(anomalies as any);
+  }
+
+  it('каждый вид аномалии несёт свою русскую подпись', () => {
+    const labels = Object.fromEntries(
+      noiseOf([
+        { type: 'EXEC_OVER_200', severity: 'СРЕДНЯЯ' },
+        { type: 'FACT_NO_PLAN', severity: 'СРЕДНЯЯ' },
+        { type: 'NEGATIVE_PLAN', severity: 'СРЕДНЯЯ' },
+        { type: 'EXACT_MATCH', severity: 'СРЕДНЯЯ' },
+        { type: 'ZERO_ECONOMY_WITH_FACT', severity: 'СРЕДНЯЯ' },
+      ]).map(g => [g.key, g.label]),
+    );
+    expect(labels).toEqual({
+      data_EXEC_OVER_200: 'Факт > 200% плана',
+      data_FACT_NO_PLAN: 'Факт без плана',
+      data_NEGATIVE_PLAN: 'Отрицательный план',
+      data_EXACT_MATCH: 'Точное совпадение факт=план',
+      data_ZERO_ECONOMY_WITH_FACT: 'Нулевая экономия при факте',
+    });
+  });
+
+  it('порядок групп идёт от критической степени к информационной', () => {
+    const order = noiseOf([
+      { type: 'EXACT_MATCH', severity: 'ИНФОРМАЦИЯ' },
+      { type: 'NEGATIVE_PLAN', severity: 'КРИТИЧЕСКАЯ' },
+      { type: 'FACT_NO_PLAN', severity: 'СРЕДНЯЯ' },
+      { type: 'EXEC_OVER_200', severity: 'ВЫСОКАЯ' },
+    ]).map(g => g.severity);
+    expect(order).toEqual(['КРИТИЧЕСКАЯ', 'ВЫСОКАЯ', 'СРЕДНЯЯ', 'ИНФОРМАЦИЯ']);
+  });
+
+  it('внутри одной степени группа с более сильным видом поднимается по степени', () => {
+    // Две записи одного вида: степень группы растёт до худшей из встреченных.
+    const anomalies = new Map<number, unknown[]>();
+    anomalies.set(0, [{ type: 'EXACT_MATCH', rowIndex: 0, details: '', severity: 'ИНФОРМАЦИЯ' }]);
+    anomalies.set(1, [{ type: 'EXACT_MATCH', rowIndex: 1, details: '', severity: 'ВЫСОКАЯ' }]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const groups = buildNoiseMap(anomalies as any);
+    expect(groups[0].severity).toBe('ВЫСОКАЯ');
+  });
+});
+
 // ────────────────────────────────────────────────────────────
 // 9. Full Dataset Analysis (Integration)
 // ────────────────────────────────────────────────────────────

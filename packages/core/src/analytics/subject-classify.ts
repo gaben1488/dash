@@ -4,6 +4,8 @@
  * Based on procurement_report.gs subject categorization.
  */
 
+import { matchSubjectFuzzy } from './subject-fuzzy.js';
+
 export type SubjectCategory =
   | 'Канцелярия'
   | 'Мебель'
@@ -44,13 +46,19 @@ const CATEGORY_PATTERNS: [SubjectCategory, RegExp][] = [
 
 /**
  * Classify a procurement subject into a category.
+ *
+ * Порядок разбора: сначала точные образцы (быстро и без вольностей), и только
+ * если ни один не сработал — разбор с допуском на опечатку (`subject-fuzzy.ts`).
+ * Такой порядок оставляет прежние решения слово в слово прежними и трогает
+ * ровно ту долю строк, которая раньше падала в «Другое» из-за дрогнувшей руки
+ * оператора («кемонт», «теплоснбжение»).
  */
 export function classifySubject(subject: string): SubjectCategory {
   if (!subject || subject.trim().length === 0) return 'Другое';
   for (const [category, pattern] of CATEGORY_PATTERNS) {
     if (pattern.test(subject)) return category;
   }
-  return 'Другое';
+  return matchSubjectFuzzy(subject).category;
 }
 
 export interface SubjectAnalysisReport {

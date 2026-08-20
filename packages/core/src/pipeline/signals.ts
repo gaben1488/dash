@@ -15,7 +15,8 @@
  *   AC=28, AD=29 (флаг экономии), AE=30 (комм. ГРБС), AF=31 (комм. УЭР)
  */
 
-import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isAbsentCell, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+import { LAW_44FZ_THRESHOLDS, PLAN_SOURCE_COLUMNS, canonicalizeReasonEp, dayNumberOf, isAbsentCell, isProceduralMismatch, parseSheetDate } from '@aemr/shared';
+import { sheetNumber } from '../timeline/row-timeline.js';
 // parseAE снят 14.08.2026 (канон п.27 интервью): дата контракта и правовое
 // основание из комментариев (AE/AF) — машинная интерпретация свободного
 // текста, которая запрещена решением владельца.
@@ -36,15 +37,35 @@ import { LAW_44FZ_THRESHOLDS, canonicalizeReasonEp, dayNumberOf, isAbsentCell, i
  * показывается как есть. Живой урон старого чтения текста: «не заключен»
  * читался как «подписан» (баг #16 охоты 08.08, пп.40–41 интервью), «отменён»
  * гасил сигналы состоявшейся закупки.
+ *
+ * ВОСЕМЬ ВЕЧНО-ЛОЖНЫХ ПОЛЕЙ — единое объяснение (чистка 20.08.2026, зона В;
+ * у самих полей — только пометка со ссылкой сюда): planning, notDue,
+ * canceled, financeDelay, singleParticipant, stalledContract сняты каноном
+ * п.27 (признак жил только в свободном тексте, структурного эквивалента в
+ * книгах нет); tdWithProgram снят каноном п.30 (заполненная программа у ТД —
+ * норма); budgetMismatch удалён как дубль правила budget_sum_plan из
+ * RULE_BOOK. detectSignals выставляет их константой false — бейджи и
+ * состояния по ним больше не рождаются.
+ *
+ * УБРАТЬ поля из типа нельзя — старые данные читаются по этим именам:
+ *  — замечания (issues) в SQLite живут с category 'signal:stalledContract',
+ *    'signal:budgetMismatch', 'signal:financeDelay' и т.п.; trust/scorer.ts
+ *    и shared/issue-conversion читают эти категории и сегодня;
+ *  — procurement_rows.row_state старых снимков хранит состояния 'planning',
+ *    'not-due', 'canceled', 'finance-delay', выводившиеся из этих полей, —
+ *    их члены в RowState ниже держатся той же совместимостью;
+ *  — SIGNAL_LABELS (@aemr/shared) и веб (mechanism-groups, Dashboard)
+ *    подписывают исторические ключи по этим же именам.
+ * Совместимость старых снимков дороже восьми строк типа.
  */
 export interface RowSignals {
   /** Контракт заключён: дата заключения (Q) проставлена и разобрана — единственный структурный признак «подписан» (канон п.27) */
   signed: boolean;
-  /** ВСЕГДА false с 14.08.2026: статус «планирование» выводился из текста комментариев — снят каноном п.27. Поле сохранено для совместимости интерфейса. */
+  /** ВСЕГДА false — см. блок «восемь вечно-ложных полей» в шапке интерфейса. */
   planning: boolean;
-  /** ВСЕГДА false с 14.08.2026: «срок не наступил» — текст, снят каноном п.27. */
+  /** ВСЕГДА false — см. блок «восемь вечно-ложных полей» в шапке интерфейса. */
   notDue: boolean;
-  /** ВСЕГДА false с 14.08.2026: «отменена/снята/не требуется» — текст, снят каноном п.27 (п.41: «отменён» при состоявшейся закупке). Структурной отметки отмены в книгах нет. */
+  /** ВСЕГДА false — см. блок «восемь вечно-ложных полей» в шапке интерфейса. */
   canceled: boolean;
   /** Просрочена: плановая дата прошла, факта (дата или суммы) нет */
   overdue: boolean;
@@ -52,11 +73,11 @@ export interface RowSignals {
   hasFact: boolean;
   /** Плановая дата наступит в ближайшие 14 дней */
   planSoon: boolean;
-  /** ВСЕГДА false с 14.08.2026: выводился из «финансир» в комментариях — снят каноном п.27; необеспеченность финансированием живёт в planYearMissing (структурная колонка P). */
+  /** ВСЕГДА false — см. шапку интерфейса; необеспеченность финансированием живёт в planYearMissing (структурная колонка P). */
   financeDelay: boolean;
   /** Флаг экономии от уполномоченного органа: AD = «да» (канон столбца — «да»/«нет») */
   economyFlag: boolean;
-  /** Конфликт флага экономии: (а) AD="да" но факт ≥ план; (б) экономия >15% но финансовый орган не определил флаг (AD не «да» и не «нет») */
+  /** Конфликт флага экономии: (а) AD="да" но факт ≥ план; (б) экономия 15–25% но финансовый орган не определил флаг (AD не «да» и не «нет»). Выше 25% случай (б) молчит — там говорит «Высокая экономия >25%», дубль снят 18.08.2026 (В-7) */
   economyConflict: boolean;
   /** ЕП (колонка L) с суммой > 600 тыс. руб. — лимит одной закупки по п.4 ч.1 ст.93 44-ФЗ */
   epRisk: boolean;
@@ -64,13 +85,13 @@ export interface RowSignals {
   dataQuality: boolean;
   /** Формула вернула ошибку (#REF, #VALUE, #N/A и т.д.) */
   formulaBroken: boolean;
-  /** ВСЕГДА false с 14.08.2026: «1 участник» выводился из текста комментариев — снят каноном п.27. */
+  /** ВСЕГДА false — см. блок «восемь вечно-ложных полей» в шапке интерфейса. */
   singleParticipant: boolean;
   /** Высокая экономия (лимит−факт) > 25%. Внимание: это лимит−факт, НЕ НМЦ−факт. Антидемпинг по ст.37 44-ФЗ требует НМЦК, которой нет в данных */
   highEconomy: boolean;
   /** Экономия 0-2% (без точного равенства план==факт и без дубля singleParticipant) — формальная конкуренция */
   lowCompetition: boolean;
-  /** Раннее закрытие — кандидат на опечатку даты: факт в предыдущем календарном году (при опережении >30 дн) либо опережение >180 дней */
+  /** Раннее закрытие — кандидат на опечатку даты: факт в предыдущем календарном году (при опережении >30 дн) либо опережение >180 дней у конкурентного способа (у ЕП опережение мягкой плановой даты нормально, гейт 18.08.2026, В-9) */
   earlyClosure: boolean;
   /** Факт > план на >10% */
   factExceedsPlan: boolean;
@@ -84,9 +105,9 @@ export interface RowSignals {
    * и факт < план — нормальная торговая экономия.
    */
   epFactDeviation: boolean;
-  /** ВСЕГДА false с 14.08.2026: «подписан, но нет факт даты» опирался на текстовый статус «подписан»; после канона п.27 «заключено» = дата Q, и такое состояние структурно неотличимо. */
+  /** ВСЕГДА false — см. блок «восемь вечно-ложных полей» в шапке интерфейса. */
   stalledContract: boolean;
-  /** @deprecated Удалён — дублирует правило budget_sum_plan в RULE_BOOK */
+  /** @deprecated ВСЕГДА false — дубль правила budget_sum_plan (RULE_BOOK); см. шапку интерфейса. */
   budgetMismatch: boolean;
   /** Есть факт суммы но нет факт даты */
   factWithoutDate: boolean;
@@ -114,12 +135,7 @@ export interface RowSignals {
   budgetUnderallocation: boolean;
   /** Источники бюджета не указаны: H/I/J все пусты/нули, но K > 0 */
   budgetSourceMissing: boolean;
-  /**
-   * СНЯТ каноном п.30 (интервью 14.08.2026): заполненная графа программы (D)
-   * у текущей деятельности — НОРМА, а не ошибка заполнения; срез «ТД-ПМ»
-   * упразднён, такие строки — обычная ТД. Поле оставлено false для
-   * совместимости интерфейса RowSignals (старые снимки его несут).
-   */
+  /** ВСЕГДА false (канон п.30) — см. блок «восемь вечно-ложных полей» в шапке интерфейса. */
   tdWithProgram: boolean;
   /**
    * Счётная строка без года плана (P пусто). Наш движок относит её к
@@ -225,16 +241,52 @@ function textIncludes(text: string, patterns: string[]): boolean {
 }
 
 /**
+ * Пункты ч.1 ст.93 44-ФЗ, при ссылке на которые лимит одной закупки в 600 тыс.
+ * руб. неприменим: он живёт только в п.4 (и п.5 для учреждений культуры и
+ * образования). Состав множества — ровно тот, что перечислял прежний список
+ * `isLegitimateEP` строками «п.8», «п.1 ч.1», «п.6 ч.1», «п.29»; нового
+ * правового суждения здесь не вводится.
+ */
+const ART93_POINTS_WITHOUT_SUM_LIMIT = new Set([1, 6, 8, 29]);
+
+/**
+ * Ссылка на пункт ч.1 ст.93 в любой живой записи операторов:
+ * «п.6 ч. 1 ст. 93», «п. 8 ч. 1 ст. 93 44-ФЗ», «п.29 ч.1 ст.93».
+ *
+ * Прежний способ — поиск подстрок «п.8»/«п.6 ч.1» — ломался о пробел после
+ * «ч.»: живая строка УАГЗО стр.9 № 42 («Услуги оказываются в соответствии с
+ * п.6 ч. 1 ст. 93 ФЗ-44 ГАУ „Государственная экспертиза“», план 3 078,96 тыс.)
+ * получала красное «ЕП свыше 600 тыс.», хотя её основание список как раз
+ * собирался признать законным. Требование «ст. 93» рядом обязательно: без него
+ * подстрока «п.8» ловила ещё и «пп. 8, п.1 Распоряжения АЕМР № 112» —
+ * распоряжение администрации лимит 44-ФЗ не снимает.
+ *
+ * Проверено на живых книгах 19.08.2026 (E:/aemr-dumps/book-dumps, 3 885 строк
+ * восьми управлений): среди 146 строк ЕП дороже 600 тыс. правило гасит ровно
+ * одну — ту самую УАГЗО стр.9, и ни одной новой не зажигает.
+ */
+function citesUnlimitedArt93Point(text: string): boolean {
+  const re = /п\.?\s*(\d{1,2})\s*ч\.?\s*1\s*ст\.?\s*93/gu;
+  let match = re.exec(text);
+  while (match !== null) {
+    if (ART93_POINTS_WITHOUT_SUM_LIMIT.has(Number(match[1]))) return true;
+    match = re.exec(text);
+  }
+  return false;
+}
+
+/**
  * Извлекает числовое значение из ячейки.
  * Обрабатывает: number, строку с пробелами/запятыми, пустые значения.
  * Возвращает NaN если невозможно распознать число.
+ *
+ * Тонкая обёртка над единой коэрцией ядра sheetNumber (чистка 20.08.2026,
+ * зона В): семантика совпадает («мусор → null»), здесь null переводится в
+ * NaN — весь модуль исторически проверяет isNaN, переписывать десятки
+ * проверок ради формы «null» незачем.
  */
 function toNumber(val: unknown): number {
-  if (typeof val === 'number') return val;
-  if (val === null || val === undefined || val === '') return NaN;
-  // Убираем пробелы (разделители тысяч) и меняем запятую на точку
-  const cleaned = String(val).replace(/\s/g, '').replace(/,/g, '.');
-  return parseFloat(cleaned);
+  return sheetNumber(val) ?? NaN;
 }
 
 /**
@@ -381,11 +433,8 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     }
   }
 
-  // ── Финансирование ──
-  // Сигнал «задержка финансирования» выводился из подстроки «финансир» в
-  // комментариях — снят каноном п.27 (14.08.2026). Необеспеченность
-  // финансированием определяется структурно: пустой год плана P
-  // (planYearMissing ниже) — и по п.34 она же подавляет сигналы-следствия.
+  // ── Финансирование: вечно-ложное (см. шапку RowSignals). Структурная
+  // замена — planYearMissing (пустой год P) ниже. ──
   const financeDelay = false;
 
   // ── ЕП detection (used by multiple signals below) ──
@@ -397,10 +446,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const epJustification = cellText(cells, 'M');
   const isLegitimateEP = textIncludes(epJustification, [
     'монополист', 'монопол', 'естественн',           // natural monopoly (energy, water, telecom)
-    'п.8', 'п.1 ч.1', 'п.6 ч.1', 'п.29',           // specific 44-FZ articles for mandatory sole-source
     'губернатор', 'поручен',                          // Governor's orders
     'региональный оператор',                          // regional operators (waste, etc.)
-  ]);
+  ]) || citesUnlimitedArt93Point(epJustification);
 
   // ── Экономия (AD) ──
   // Канон столбца AD — «да»/«нет» (правило status_on_data_rows + calc-engine
@@ -431,7 +479,17 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
       // Порог 15%: мелкая экономия (5-15%) часто не требует флага AD,
       // а >15% без флага — реальный конфликт данных.
       const economyPct = ((planTotal - factTotal) / planTotal) * 100;
-      if (economyPct > 15) {
+      // Дедупликация 18.08.2026 (SIGNAL_VALIDATION В-7/П-6, «снять дубль карточек»).
+      // Верхняя граница — тот же порог, с которого зажигается «Высокая экономия
+      // >25%» (highEconomy ниже): выше него строка получала ДВЕ красных карточки
+      // об одном и том же. Живая проверка на восьми книгах (18.08.2026,
+      // E:/aemr-dumps/book-dumps, 8476 строк): конфликт срабатывал 33 раза, из
+      // них 23 — вместе с «Высокой экономией», и ВСЕ 23 при этом уже помечены
+      // правилом status_on_data_rows («AD пуст при существенной экономии»,
+      // rule-book.ts). Значит пробел флага виден читателю и без второй красной
+      // карточки, а размер экономии — из первой. Ниже 25% дубля нет: там
+      // «Высокая экономия» молчит, и конфликт остаётся единственным замечанием.
+      if (economyPct > 15 && economyPct <= ANTI_DUMPING_PERCENT) {
         economyConflict = true;
       }
     }
@@ -458,10 +516,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // ── Формульные ошибки ──
   const formulaBroken = hasFormulaError(cells);
 
-  // ── Единственный участник ──
-  // Снят каноном п.27 (14.08.2026): признак жил только в свободном тексте
-  // («1 участник», «ед.подавшим заявку»), структурной колонки участников в
-  // книгах нет — машинно вывести его больше не из чего.
+  // ── Единственный участник: вечно-ложное (см. шапку RowSignals). ──
   const singleParticipant = false;
 
   // ── Высокая экономия и формальная конкуренция ──
@@ -502,7 +557,20 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     const planInPast = todayDay > planDay; // now > planDate
     if (yearJump && diff > 30) {
       earlyClosure = true;
-    } else if (diff > 180 && planInPast) {
+    } else if (diff > 180 && planInPast && !isEP) {
+      // Гейт по способу закупки 18.08.2026 (SIGNAL_VALIDATION В-9, «половина
+      // ложных»). Смысл сигнала — опечатка в дате, а не претензия к сроку.
+      // У ЕП извещения и паузы нет: договор заключают, когда возникла нужда,
+      // и полугодовое опережение мягкой плановой даты — обычное исполнение,
+      // а не описка (то же основание, что у гейта !isEP на factDateBeforePlan,
+      // п.28 интервью 14.08: «плановая дата — ориентир»). Ветка смены года
+      // гейта НЕ получает: перепутанный год — ошибка при любом способе.
+      // Живая проверка (18.08.2026, восемь книг, 8476 строк): сигнал зажигался
+      // 5 раз, все пять — ЕП. Три остаются (смена года: УД/101 план 30.04.2026
+      // против факта 15.04.2025; УО/1585 план 31.10.2026 против 22.12.2025;
+      // УО/2587 план 27.07.2026 против 27.07.2025 — ровно год в год), два
+      // гаснут (УО/1591 план 31.07.2026, факт 23.01.2026; УО/1684 план
+      // 15.07.2026, факт 12.01.2026 — тот же год, ЕП, факт равен плану).
       earlyClosure = true;
     }
   }
@@ -536,21 +604,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     && !isNaN(planTotal) && planTotal > 0 && factTotal > 0
     && Math.abs(factTotal - planTotal) > planTotal * 0.005;
 
-  // ── Подвисший контракт: СНЯТ каноном п.27 (14.08.2026) ──
-  // Определение «подписан (текст), но нет факт даты» опиралось на текстовый
-  // статус; теперь «заключено» = сама дата Q, и это состояние структурно
-  // невыразимо. Поле оставлено false для совместимости интерфейса RowSignals.
+  // ── Три вечно-ложных (см. шапку RowSignals): подвисший контракт,
+  // дубль budget_sum_plan (проверка K = H+I+J живёт ТОЛЬКО в RULE_BOOK →
+  // validate.ts) и «ТД с программой». ──
   const stalledContract = false;
-
-  // ── budgetMismatch: УДАЛЁН — дублирует правило budget_sum_plan (RULE_BOOK #1a) ──
-  // Проверка K = H+I+J выполняется ТОЛЬКО через RULE_BOOK → validate.ts.
-  // Сигнал оставлен как false для обратной совместимости интерфейса RowSignals.
   const budgetMismatch = false;
-
-  // ── tdWithProgram: СНЯТ каноном п.30 (14.08.2026) ──
-  // Заполненные наименования программ у ТД — норма; срез «ТД-ПМ» упразднён,
-  // и сигнал «возможная ошибка заполнения» был претензией к нормальным
-  // строкам. Всегда false (как stalledContract/budgetMismatch выше).
   const tdWithProgram = false;
 
   // ── Счётная строка без года плана (P) — невидима для формул СВОДа ──
@@ -576,8 +634,13 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const planQuarterEmpty = planQuarterText === '' || isAbsentCell(planQuarterText);
   const factQuarterText = cellText(cells, 'R');
   const factYearText = cellText(cells, 'S');
+  // Валидность производного квартала: формула листа даёт строго 1..4, поэтому
+  // «0», «5» или текст при заполненной N — та же стёртая формула, что и пустота
+  // (канон 20.08.2026: первичны рукописные N и Q, O/P/R/S — вторичная история).
+  const planQuarterNum = Number(planQuarterText.replace(',', '.'));
+  const planQuarterValid = planQuarterNum >= 1 && planQuarterNum <= 4;
   const planDerivedPresent = !planQuarterEmpty || !planYearEmpty;
-  const planPairBroken = (planDay !== null && (planQuarterEmpty || planYearEmpty))
+  const planPairBroken = (planDay !== null && (!planQuarterValid || planYearEmpty))
     || (planDateAbsent && planDerivedPresent);
   const factDerivedPresent = (factQuarterText !== '' && !isAbsentCell(factQuarterText))
     || (factYearText !== '' && !isAbsentCell(factYearText));
@@ -586,11 +649,15 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const derivedFormulaBroken = (methodText !== '' && !isNaN(planTotal) && planTotal > 0)
     && (planPairBroken || factPairBroken);
 
-  // Факт без планового квартала (блок А п.2): дата факта проставлена, а O
-  // пуст/невалиден — строка выпадает из печатного года (Σ кварталов).
-  const planQuarterNum = Number(cellText(cells, 'O').replace(',', '.'));
-  const factQuarterMissing = hasFactDate
-    && !(planQuarterNum >= 1 && planQuarterNum <= 4);
+  // Факт без планового квартала (блок А п.2) — ОСТАТОЧНАЯ страховка.
+  // Первопричина почти всегда выше и называется своим сигналом (п.34):
+  // пустая N — «не обеспечено финансированием», N есть при битой O —
+  // «сломана формула даты». Здесь остаётся только хвост, который те не
+  // ловят: строка без способа/плана (не счётная для них), где факт есть,
+  // а квартала нет — она всё равно выпадает из печатного года (Σ кварталов
+  // по O). Живой замер 20.08.2026: 0 срабатываний на 2 979 строк с фактом.
+  const factQuarterMissing = hasFactDate && !planQuarterValid
+    && !derivedFormulaBroken && !planYearMissing;
 
   // ── Факты без дат / Даты без фактов ──
   // factWithoutDate: есть суммы факта, но нет даты — структурная неполнота.
@@ -650,8 +717,19 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // обязательного поля M — это структурный факт. Гейт «основание есть в
   // комментарии AE» (ae-parser) снят каноном п.27: правовое основание обязано
   // жить в своей колонке, комментарий показывается как есть.
+  // Маркер отсутствия считается незаполненностью — канон п.62 интервью
+  // (14.08.2026) прямо называет основание выбора ЕП и требует относить «X»,
+  // «х», «—» к «не заполнено». До правки 19.08.2026 признак сравнивал длину
+  // строки, поэтому заглушка молчала дважды: сигнал не зажигался, а кластер
+  // обоснования у неё и так EMPTY, то есть и «обоснование не распознано» не
+  // говорило ничего. Читатель при этом видел в карточке «Основание выбора ЕП:
+  // Х» — ровно тот дефект, который описан в шапке shared/absence.ts.
+  // Живые книги 19.08.2026 (E:/aemr-dumps/book-dumps, 3 397 строк ЕП): пустая
+  // M ровно одна, а заглушек десять — УАГЗО стр.33 № 47, УКСиМП стр.360-362,
+  // 397, 461, УО стр.9 № 6, стр.21 № 18 и другие; счёт замечания вырастает
+  // с 1 до 11.
   const epJustificationMissing =
-    isEP && epJustification.length === 0 && !isNaN(planTotal) && planTotal > 0;
+    isEP && isAbsentCell(epJustification) && !isNaN(planTotal) && planTotal > 0;
 
   // ── Классификация обоснования ЕП (M) по 15 каноническим кластерам (ep-reason-clusters) ──
   // Воскрешает 2 сигнала, потерянных при удалении signals-taxonomy.ts (DEADCODE_DISPOSITION_2026-06-05).
@@ -670,15 +748,16 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   const budgetUnderallocation = factTotal > 0 && (isNaN(planTotal) || planTotal === 0);
 
   // ── Источники бюджета не указаны ──
-  // H/I/J (columns 7,8,9 = ФБ/КБ/МБ план) все пусты/нули, но K (column 10 = план итого) > 0.
-  // Это значит, что итого плана есть, но разбивка по бюджетам не заполнена.
-  const planFB = toNumber(cells['H']);
-  const planKB = toNumber(cells['I']);
-  const planMB = toNumber(cells['J']);
+  // Плановые колонки источников (ФБ/КБ/МБ) все пусты/нули, но K (план итого) > 0:
+  // итого плана есть, а разбивка по бюджетам не заполнена.
+  //
+  // Колонки берутся из справочника PLAN_SOURCE_COLUMNS, а не переписаны здесь
+  // буквами (DEADCODE_DISPOSITION_2026-06-05 §W-7): справочник заведён ровно
+  // под это правило и до 18.08.2026 лежал без потребителей, пока сигнал читал
+  // 'H'/'I'/'J' от руки — добавление четвёртого источника молча прошло бы мимо.
+  const planBySource = PLAN_SOURCE_COLUMNS.map(col => toNumber(cells[col]));
   const budgetSourceMissing = !isNaN(planTotal) && planTotal > 0 &&
-    (isNaN(planFB) || planFB === 0) &&
-    (isNaN(planKB) || planKB === 0) &&
-    (isNaN(planMB) || planMB === 0);
+    planBySource.every(v => isNaN(v) || v === 0);
 
   return {
     signed,
