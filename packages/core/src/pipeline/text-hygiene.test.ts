@@ -4,9 +4,12 @@
  * приводить данные в нормальный вид».
  *
  * Правило text_hygiene — проверка УРОВНЯ ЛИСТА, как и нумерация A: находки по
- * колонкам C (подвед) и G (предмет) выходят ОДНОЙ карточкой со списком
- * «адрес → дефект → готовое исправление» (каскад п.53). Тесты идут через
- * validateData — ту же дверь, которой правило живёт в проде.
+ * колонкам C (подвед) и G (предмет) выходят ОДНОЙ карточкой (каскад п.53).
+ * ПОДАЧА — СВОДКА (канон п.122, приказ владельца 20.08): карточка называет
+ * счёт дефектов по родам и отсылает к разделу «Гигиена текста» вкладки
+ * «Контроль»; полный перечень с готовыми значениями отдаёт роут
+ * /api/text-hygiene, а не message правила. Тесты идут через validateData —
+ * ту же дверь, которой правило живёт в проде.
  *
  * Фикстура «Жар-Птица» воспроизводит живой кейс листа «ВСЕ» книги УО: канон
  * справочника «МБДОУ ДС № 3 «Жар-Птица»» в большинстве строк против пяти
@@ -49,8 +52,20 @@ describe('text_hygiene — правило есть и заведено в рее
     const check = CHECK_REGISTRY.find((c) => c.id === 'text_hygiene');
     expect(check).toBeDefined();
     expect(check!.scope).toBe('department');
-    // Канон п.98д: карточка отдаёт оператору готовое значение ячейки.
-    expect(check!.recommendation).toContain('вставить готовые значения');
+    // Канон п.122: рекомендация ведёт к разделу с готовыми значениями,
+    // а не пересказывает перечень внутри карточки.
+    expect(check!.recommendation).toContain('Гигиена текста');
+    expect(check!.recommendation).toContain('готовым значением');
+  });
+
+  it('примеры в подсказке подписаны источником и не выдаются за текущие находки (п.119)', () => {
+    const check = CHECK_REGISTRY.find((c) => c.id === 'text_hygiene');
+    // Оба примера несут имя книги-источника и оговорку «пример, не ошибка».
+    expect(check!.kbHint).toContain('в книге УО');
+    expect(check!.kbHint).toContain('в книге УКСиМП');
+    expect(check!.kbHint).toContain('НЕ текущая ошибка');
+    // Дорога к живым находкам — раздел «Гигиена текста», а не сама подсказка.
+    expect(check!.kbHint).toContain('Гигиена текста');
   });
 });
 
@@ -66,10 +81,10 @@ describe('text_hygiene — одна карточка на лист (каскад
 
   it('подмена организационной формы (МАДОУ → МБДОУ) — отступление от справочника', () => {
     const [issue] = run([row(4, 'МБДОУ ДС № 1 «Ласточка»', 'Поставка бумаги')]);
-    expect(issue.description).toContain('вставить: «МАДОУ ДС № 1 «Ласточка»»');
+    expect(issue.description).toContain('имя подведа не по справочнику — 1');
   });
 
-  it('дефекты в трёх строках дают РОВНО ОДНУ карточку со всеми адресами', () => {
+  it('дефекты в трёх строках дают РОВНО ОДНУ карточку-сводку по родам (п.122)', () => {
     const issues = run([
       row(4, ZHAR_CANON, 'Поставка  бумаги'),
       row(5, ZHAR_CANON, 'Ремонт кровли '),
@@ -77,22 +92,32 @@ describe('text_hygiene — одна карточка на лист (каскад
     ]);
     expect(issues).toHaveLength(1);
     const text = issues[0].description;
-    expect(text).toContain('G4');
-    expect(text).toContain('G5');
-    expect(text).toContain('C6');
+    expect(text).toContain('3 ячейках');
+    expect(text).toContain('двойные пробелы — 1');
+    expect(text).toContain('пробелы по краям — 1');
+    expect(text).toContain('имя подведа не по справочнику — 1');
   });
 
-  it('карточка несёт готовое исправление для каждой названной ячейки', () => {
-    const [issue] = run([row(4, ZHAR_CANON, 'Бумага ,картриджи')]);
-    expect(issue.description).toContain('вставить: «Бумага, картриджи»');
+  it('сводка не вываливает перечень: адресов и «вставить: …» в message нет (п.122)', () => {
+    const issues = run([
+      row(4, ZHAR_CANON, 'Поставка  бумаги'),
+      row(5, ZHAR_CANON, 'Ремонт кровли '),
+      row(6, ZHAR_VARIANT, 'Поставка мебели'),
+    ]);
+    const text = issues[0].description;
+    expect(text).not.toContain('вставить:');
+    expect(text).not.toContain('G5');
+    expect(text).not.toContain('C6');
+    // Вместо перечня — дорога к нему: раздел «Гигиена текста» на Контроле.
+    expect(text).toContain('Гигиена текста');
+    expect(text).toContain('Контроль');
   });
 
-  it('обе колонки одной строки попадают в карточку своими адресами', () => {
+  it('обе колонки одной строки посчитаны каждая своим родом дефекта', () => {
     const [issue] = run([row(4, 'МБУ ДО СШОР по ЛBС', 'Поставка  мебели')]);
-    expect(issue.description).toContain('C4');
-    expect(issue.description).toContain('G4');
-    expect(issue.description).toContain('вставить: «МБУ ДО СШОР по ЛВС»');
-    expect(issue.description).toContain('вставить: «Поставка мебели»');
+    expect(issue.description).toContain('2 ячейках');
+    expect(issue.description).toContain('имя подведа не по справочнику — 1');
+    expect(issue.description).toContain('двойные пробелы — 1');
   });
 
   it('служебная строка «итого» не чистится — гигиена только по счётным строкам', () => {
@@ -123,17 +148,18 @@ describe('text_hygiene — живой кейс «Жар-Птица» (лист �
     return rows;
   }
 
-  it('пять отступивших строк названы поимённо, 43 канонические молчат', () => {
+  it('пять отступивших строк посчитаны, 43 канонические молчат', () => {
     const issues = run(zharSheet());
     expect(issues).toHaveLength(1);
     const text = issues[0].description;
-    for (const r of VARIANT_ROWS) expect(text, `строка ${r}`).toContain(`C${r}`);
     expect(text).toContain('5 ячейках');
+    expect(text).toContain('имя подведа не по справочнику — 5');
   });
 
-  it('исправление — дословное имя справочника, вместе с пробелом после «№»', () => {
+  it('сводка отсылает к полному перечню, а не перечисляет адреса (п.122)', () => {
     const [issue] = run(zharSheet());
-    expect(issue.description).toContain(`вставить: «${ZHAR_CANON}»`);
+    expect(issue.description).toContain('Гигиена текста');
+    expect(issue.description).not.toContain('C2521');
   });
 
   it('карточка несёт адрес первой находки и второй адрес строки (п.98б/в)', () => {

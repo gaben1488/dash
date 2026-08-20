@@ -17,6 +17,10 @@ export * from './method-families.js';
 export * from './activity-types.js';
 export * from './budget-sources.js';
 
+// ── Языковые ─────────────────────────────────────────────────
+// Словарь-эталон правописания, собранный из живых книг (см. text-language.ts).
+export * from './corpus-words.js';
+
 // ── Правовые и аналитические ─────────────────────────────────
 export * from './legal-refs.js';
 export * from './ep-reason-clusters.js';

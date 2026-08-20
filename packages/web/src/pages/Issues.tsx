@@ -14,6 +14,8 @@ import { formatEventTime } from '../lib/selectors/event-time';
 import { groupIssuesByMechanism, type MechanismGroup } from '../lib/diagnostics/mechanism-groups';
 import { natureOf, NATURE_ORDER, NATURE_CATEGORIES, type NatureCategory } from '../lib/diagnostics/nature-categories';
 import { pluralRu } from '../lib/economy-copy';
+import { Segmented } from '../components/ui/segmented';
+import { TextHygieneSection } from '../components/text-hygiene/TextHygieneSection';
 import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -272,6 +274,13 @@ export function IssuesPage() {
   const [search, setSearch] = useState(searchQuery);
   // Sync local search from global searchQuery when navigating
   useEffect(() => { if (searchQuery) setSearch(searchQuery); }, [searchQuery]);
+  /**
+   * Раздел вкладки (канон п.122): карточки замечаний проверок либо перечень
+   * «Гигиена текста». Карточка-сводка правила text_hygiene отсылает во второй
+   * раздел — там каждый дефект набора и каждая опечатка показаны строкой
+   * таблицы с адресом, контекстом и готовым значением.
+   */
+  const [view, setView] = useState<'checks' | 'hygiene'>('checks');
   const [sevFilter, setSevFilter] = useState<Set<Severity>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -455,15 +464,52 @@ export function IssuesPage() {
     setStatusFilter(next);
   };
 
+  /**
+   * Переключатель разделов виден в ЛЮБОМ состоянии вкладки: раздел гигиены
+   * живёт своим источником (/api/text-hygiene) и обязан оставаться доступным
+   * и при пустых замечаниях, и при непрочитанных книгах дашборда.
+   */
+  const sectionToggle = (
+    <Segmented
+      legend="Раздел вкладки «Контроль»"
+      value={view}
+      onChange={setView}
+      options={[
+        {
+          value: 'checks',
+          label: 'Замечания проверок',
+          hint: 'Карточки диагноста по замечаниям проверок и сигналов — со статусами и историей',
+        },
+        {
+          value: 'hygiene',
+          label: 'Гигиена текста',
+          hint: 'Перечень дефектов набора и орфографии по всем книгам — с готовыми значениями для вставки',
+        },
+      ]}
+    />
+  );
+
+  if (view === 'hygiene') {
+    return (
+      <div className="space-y-6">
+        {sectionToggle}
+        <TextHygieneSection />
+      </div>
+    );
+  }
+
   if (!dashboardData) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="text-center max-w-md">
-          <AlertTriangle size={40} className="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
-          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Книги закупок ещё не прочитаны</p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Замечания появляются после проверки данных. Нажмите «Обновить» в шапке — система перечитает книги управлений и прогонит проверки.
-          </p>
+      <div className="space-y-6">
+        {sectionToggle}
+        <div className="flex items-center justify-center h-[50vh]">
+          <div className="text-center max-w-md">
+            <AlertTriangle size={40} className="mx-auto mb-3 text-zinc-300 dark:text-zinc-600" />
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Книги закупок ещё не прочитаны</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              Замечания появляются после проверки данных. Нажмите «Обновить» в шапке — система перечитает книги управлений и прогонит проверки.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -471,14 +517,17 @@ export function IssuesPage() {
 
   if (issues.length === 0) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="text-center max-w-md">
-          <CheckCircle2 size={40} className="mx-auto mb-3 text-emerald-400 dark:text-emerald-500" />
-          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Замечаний нет</p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            По текущему отбору шапки (управление, подведомственная организация, вид деятельности, поиск) проверки не нашли ни одного нарушения.
-            Если ожидали увидеть замечания — снимите отбор в шапке.
-          </p>
+      <div className="space-y-6">
+        {sectionToggle}
+        <div className="flex items-center justify-center h-[50vh]">
+          <div className="text-center max-w-md">
+            <CheckCircle2 size={40} className="mx-auto mb-3 text-emerald-400 dark:text-emerald-500" />
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Замечаний нет</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              По текущему отбору шапки (управление, подведомственная организация, вид деятельности, поиск) проверки не нашли ни одного нарушения.
+              Если ожидали увидеть замечания — снимите отбор в шапке.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -486,6 +535,7 @@ export function IssuesPage() {
 
   return (
     <div className="space-y-6">
+      {sectionToggle}
       {/* Summary */}
       <div className="flex flex-wrap gap-3">
         {(Object.entries(counts) as [Status, number][]).map(([status, count]) => {

@@ -132,6 +132,9 @@ describe('боевые пороги', () => {
       ['POST', '/api/sources/validate-all'],
       ['POST', '/api/sources/%D0%A3%D0%9E/validate'],
       ['GET', '/api/changes'],
+      ['GET', '/api/provenance/health'],
+      ['GET', '/api/workload'],
+      ['GET', '/api/text-hygiene'],
     ] as const;
 
     for (const [method, path] of covered) {

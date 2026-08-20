@@ -41,6 +41,34 @@ export type TextHygieneKind =
   | 'mixed_alphabet'
   | 'registry_mismatch';
 
+/**
+ * Имя РОДА дефекта — для счётчиков, фильтров и сводки карточки (канон п.122:
+ * подача структурой, а не простынёй). Отличается от `label` находки: label
+ * называет конкретный случай («пробел перед „,“»), а имя рода — класс целиком.
+ * Один словарь на правило rule-book, роут /api/text-hygiene и экран Контроля:
+ * три места обязаны называть один дефект одним словом.
+ */
+export const TEXT_HYGIENE_KIND_LABELS: Readonly<Record<TextHygieneKind, string>> = {
+  double_space: 'двойные пробелы',
+  space_before_punct: 'пробел перед знаком препинания',
+  missing_space_after_punct: 'нет пробела после знака препинания',
+  invisible_char: 'невидимые символы',
+  edge_space: 'пробелы по краям',
+  mixed_alphabet: 'латиница в кириллице',
+  registry_mismatch: 'имя подведа не по справочнику',
+};
+
+/** Устойчивый порядок родов дефектов в сводках и счётчиках. */
+export const TEXT_HYGIENE_KIND_ORDER: readonly TextHygieneKind[] = [
+  'registry_mismatch',
+  'mixed_alphabet',
+  'invisible_char',
+  'double_space',
+  'space_before_punct',
+  'missing_space_after_punct',
+  'edge_space',
+];
+
 export interface TextHygieneFinding {
   kind: TextHygieneKind;
   /** Имя дефекта для карточки — литературный русский, без жаргона. */
@@ -58,9 +86,19 @@ export interface TextHygieneFinding {
 // 2. Невидимые символы и пробелы
 // ────────────────────────────────────────────────────────────
 
-/** Символы нулевой ширины: в тексте книги им места нет — удаляются. */
-const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\uFEFF]/;
-const ZERO_WIDTH_RE_G = /[\u200B\u200C\u200D\uFEFF]/g;
+/**
+ * Символы нулевой ширины: в тексте книги им места нет — удаляются.
+ *
+ * ПОЧЕМУ ПЕРЕЧИСЛЕНИЕ, А НЕ НАБОР В СКОБКАХ. Внутри [...] эти записи читаются
+ * как подряд идущие символы, и посередине оказывается U+200D — соединитель
+ * нулевой ширины, которым склеивают составные эмодзи. Правило
+ * no-misleading-character-class справедливо видит там «склеенную последовательность»
+ * и не может знать, что мы перечисляем отдельные символы, а не
+ * описываем один составной. Перечисление через | двусмысленности не
+ * оставляет; для поиска одиночного символа это ровно то же самое.
+ */
+const ZERO_WIDTH_RE = /\u200B|\u200C|\u200D|\uFEFF/;
+const ZERO_WIDTH_RE_G = /\u200B|\u200C|\u200D|\uFEFF/g;
 
 /** Невидимые «пробелоподобные»: NBSP-семейство и табуляция → обычный пробел. */
 const NBSP_TAB_RE = /[\u00A0\u2007\u202F\t]/;
@@ -81,7 +119,12 @@ function showInvisible(s: string): string {
     .replace(ZERO_WIDTH_RE_G, '·');
 }
 
-const EXCERPT_RADIUS = 12;
+/**
+ * Радиус вырезки вокруг дефекта — ±20 символов (канон п.122: колонка «Как
+ * записано» на Контроле показывает слово с окружением, чтобы место дефекта
+ * находилось глазами без открытия книги).
+ */
+const EXCERPT_RADIUS = 20;
 
 /** Вырезка вокруг дефекта: контекст, а не вся ячейка (карточка — не простыня). */
 function excerptAround(s: string, index: number, length: number): string {
