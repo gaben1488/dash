@@ -280,13 +280,19 @@ function yearPendingKp(quarters: QuarterReports): PendingRemainder {
 function districtExecutionLines(quarters: QuarterReports, reportQuarter: Quarter): ReportBlock[] {
   return elapsed(reportQuarter).map((q) => {
     const kp = quarters[q].integralSummary.quarter.kp;
-    const deviation = kp.planCount - kp.doneCount;
+    // НЕДОБОР, а не метрика `deviation`. Ручной отчёт печатает эту величину
+    // ПОЛОЖИТЕЛЬНЫМ числом («Отклонение от плана 2 квартала – 19 процедур»),
+    // тогда как лист СВОД и метрика продукта считают её со знаком листа
+    // (факт минус план, недобор отрицателен). Числа одинаковы по модулю,
+    // формулировки — зеркальны; здесь воспроизводится формулировка эталона,
+    // поэтому величина считается на месте и отдельно называется недобором.
+    const shortfall = kp.planCount - kp.doneCount;
     // Эталон меняет формулировку: план закрыт — «Общее исполнение», иначе
     // сначала называется отклонение в процедурах, и только потом процент.
     return line(
-      deviation <= 0
+      shortfall <= 0
         ? `Общее исполнение плана ${qGen(q)} – ${pct(kp.pct)}`
-        : `Отклонение от плана ${qGen(q)} – ${num(deviation)} ${procedures(deviation)} ` +
+        : `Отклонение от плана ${qGen(q)} – ${num(shortfall)} ${procedures(shortfall)} ` +
           `(общее исполнение плана ${qGen(q)} – ${pct(kp.pct)})`,
     );
   });

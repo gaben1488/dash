@@ -21,24 +21,6 @@ vi.mock('../services/google-sheets.js', () => ({
   fetchSHDYUSheet: vi.fn(async () => { throw new Error('net off'); }),
 }));
 
-/**
- * DDL журнала правок — как в snapshot-rows.test.ts: миграции проекта ad-hoc,
- * таблицу changelog_entries тестовая БД создаёт сама.
- */
-const CHANGELOG_DDL: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS changelog_entries (
-    id TEXT PRIMARY KEY,
-    dept TEXT NOT NULL,
-    sheet TEXT NOT NULL,
-    cell TEXT NOT NULL,
-    attribute TEXT,
-    old_value TEXT,
-    new_value TEXT,
-    at_ms INTEGER NOT NULL,
-    author TEXT,
-    recorded_at TEXT NOT NULL
-  )`,
-];
 
 /** «дд.мм.гггг» из номера суток — формат ячеек N/Q двух книг из восьми. */
 function ruDateOfDay(day: number): string {
@@ -108,11 +90,11 @@ describe('/api/timeline/*', () => {
       },
     });
 
-    // Таблица журнала + записи: две правки нашей строки 4 (N и L), одна чужой
-    // строки (N5 попадает в таймлайн строки 5, не 4) и одна вне канона видов (G4).
+    // Записи журнала: две правки нашей строки 4 (N и L), одна чужой строки
+    // (N5 попадает в таймлайн строки 5, не 4) и одна вне канона видов (G4).
+    // Таблицу заводит схема проекта (db/ddl.ts); раньше её приходилось
+    // создавать здесь вручную — ровно потому, что в схеме её не было вовсе.
     const { db, schema } = await import('../db/index.js');
-    const { sql } = await import('drizzle-orm');
-    for (const statement of CHANGELOG_DDL) db.run(sql.raw(statement));
     const recordedAt = new Date().toISOString();
     const entry = (cell: string, oldValue: string, newValue: string, atMs: number) => ({
       id: `УЭР|ВСЕ|${cell}|${atMs}|test@example.ru`,
@@ -124,7 +106,9 @@ describe('/api/timeline/*', () => {
       entry('N4', ruDateOfDay(asOfDay - 60), ruDateOfDay(asOfDay - 30), Date.UTC(2026, 7, 6, 10, 0, 0)),
       entry('L4', 'ЕП', 'ЭА', Date.UTC(2026, 7, 6, 11, 0, 0)),
       entry('N5', ruDateOfDay(asOfDay + 3), ruDateOfDay(asOfDay + 10), Date.UTC(2026, 7, 7, 10, 0, 0)),
-      entry('G4', 'Старый предмет', 'Просроченная закупка', Date.UTC(2026, 7, 7, 11, 0, 0)),
+      // Правка ХВОСТА формулировки предмета — НЕ смена жильца (п.117:
+      // первые 12 знаков совпадают, отсечка истории не рождается).
+      entry('G4', 'Просроченная закупка', 'Просроченная закупка (уточнение формулировки)', Date.UTC(2026, 7, 7, 11, 0, 0)),
     ]).run();
 
     // Сохранённый снимок со строкой-атомом строки 4: другая плановая дата —
@@ -181,6 +165,8 @@ describe('/api/timeline/*', () => {
       const kinds = body.events.map((e: { kind: string }) => e.kind);
       // Журнал: правка N4 и L4 (G4 вне канона видов, N5 — чужая строка).
       expect(body.events.filter((e: { source: string }) => e.source === 'журнал')).toHaveLength(2);
+      // Правка хвоста формулировки предмета отсечку истории не породила (п.117).
+      expect(body.identityCutAt).toBeNull();
       expect(kinds).toContain('plan_date_changed');
       expect(kinds).toContain('method_changed');
       // Дифф «снимок 01.08 → живое»: плановая дата сдвинулась −60 → −30.

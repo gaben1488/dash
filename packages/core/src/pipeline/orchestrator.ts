@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -38,6 +38,20 @@ export interface PipelineInput {
    */
   officialYear?: number;
 }
+
+/**
+ * Единица и период метрики — две неизменные таблицы соответствия.
+ * SIMPLIFY_REGISTER_2026-06-05 §C1: оба литерала лежали внутри put() и
+ * putSummary() и пересобирались на каждую записанную метрику (десятки тысяч
+ * раз за прогон). Содержимое дословно прежнее, замок — orchestrator-summary.test.ts
+ * «C1 — разметка единиц и периода у метрик оркестратора».
+ */
+const METRIC_UNIT: Record<string, import('@aemr/shared').UnitType> = {
+  rub: 'rubles', count: 'count', percent: 'percent',
+};
+const METRIC_PERIOD: Record<string, import('@aemr/shared').PeriodScope> = {
+  q1: 'q1', q2: 'q2', q3: 'q3', q4: 'q4', year: 'annual',
+};
 
 /** Map Russian short names → Latin IDs used in REPORT_MAP keys.
  *  Delegates to canonical CYRILLIC_TO_LATIN from department-registry. */
@@ -84,12 +98,6 @@ function mergeRecalcIntoMetrics(
    */
   function put(key: string, value: number | null, unit: 'rub' | 'count' | 'percent', period: string): void {
     if (value === null) return;
-    const unitMap: Record<string, import('@aemr/shared').UnitType> = {
-      rub: 'rubles', count: 'count', percent: 'percent',
-    };
-    const periodMap: Record<string, import('@aemr/shared').PeriodScope> = {
-      q1: 'q1', q2: 'q2', q3: 'q3', q4: 'q4', year: 'annual',
-    };
     target.set(key, {
       metricKey: key,
       value,
@@ -98,8 +106,8 @@ function mergeRecalcIntoMetrics(
         : unit === 'rub' ? value.toLocaleString('ru-RU') + ' ₽'
         : String(Math.round(value)),
       origin: 'calculated' as const,
-      period: periodMap[period] ?? 'annual',
-      unit: unitMap[unit],
+      period: METRIC_PERIOD[period] ?? 'annual',
+      unit: METRIC_UNIT[unit],
       sourceSheet: dept,
       sourceCell: '',
       formula: null,
@@ -336,12 +344,6 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
 
   function putSummary(key: string, value: number | null, unit: 'rub' | 'count' | 'percent', period: string): void {
     if (value === null) return;
-    const unitMap: Record<string, import('@aemr/shared').UnitType> = {
-      rub: 'rubles', count: 'count', percent: 'percent',
-    };
-    const periodMap: Record<string, import('@aemr/shared').PeriodScope> = {
-      q1: 'q1', q2: 'q2', q3: 'q3', q4: 'q4', year: 'annual',
-    };
     target.set(key, {
       metricKey: key,
       value,
@@ -350,8 +352,8 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
         : unit === 'rub' ? value.toLocaleString('ru-RU') + ' ₽'
         : String(Math.round(value)),
       origin: 'calculated' as const,
-      period: periodMap[period] ?? 'annual',
-      unit: unitMap[unit],
+      period: METRIC_PERIOD[period] ?? 'annual',
+      unit: METRIC_UNIT[unit],
       sourceSheet: 'summary',
       sourceCell: '',
       formula: null,
@@ -508,7 +510,27 @@ function mergeSummaryMetrics(target: Map<string, NormalizedMetric>): void {
  * 5. Delta — сравнение official vs calculated
  * 6. Trust — вычисление скоринга доверия
  */
-export function runPipeline(input: PipelineInput): DataSnapshot {
+
+/**
+ * Снимок, каким его отдаёт ИМЕННО этот конвейер.
+ *
+ * В общем типе `DataSnapshot` поля `recalcResults` и `datasetAnalyses`
+ * объявлены как «словарь чего-то неизвестного», и это не небрежность: пакет
+ * `shared` лежит НИЖЕ ядра и о его расчётных типах знать не может — иначе
+ * зависимость пойдёт по кругу. Раньше на этом месте стоял `any`, то есть
+ * «проверять нечего»; теперь стоит `unknown` — «шаг наружу требует разбора».
+ *
+ * Здесь, внутри ядра, форма как раз известна, поэтому конвейер возвращает
+ * уточнённый тип: читатель ядра работает с настоящими `DatasetAnalysis` и
+ * `RecalculatedMetrics` без приведения типов, а внешний читатель по-прежнему
+ * видит честное «разберись сам».
+ */
+export interface PipelineSnapshot extends DataSnapshot {
+  recalcResults?: Record<string, RecalculatedMetrics>;
+  datasetAnalyses?: Record<string, DatasetAnalysis>;
+}
+
+export function runPipeline(input: PipelineInput): PipelineSnapshot {
   const pipelineStart = Date.now();
   const snapshotId = nanoid();
 
@@ -531,7 +553,7 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
 
   for (const [sheetName, rows] of Object.entries(input.sheetRows)) {
     const deptId = sheetDeptId(sheetName); // null = не-ГРБС лист (СВОД/служебный)
-    const ingested = ingestSheetRows(sheetName, rows);
+    const ingested = ingestSheetRows(rows);
     const classified = classifyRows(sheetName, ingested);
     totalRows += classified.length;
     perSheetRowCount[sheetName] = classified.length;
@@ -545,6 +567,13 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
     // аналитика честно пропускается (канон attachUnifiedGrid), а не
     // вешается на фантомный lowercase-идентификатор.
     if (sheetName !== SVOD_SHEET_NAME && deptId !== null) {
+      // Геометрия шапки проверяется ПЕРВОЙ: если столбцы съехали, все числа
+      // ниже посчитаны не из тех колонок, и об этом надо сказать прежде,
+      // чем показывать их как показатели управления (реестр багов
+      // 09.07.2026, п.11).
+      const headerIssue = headerGeometryIssue(sheetName, deptId, rows as unknown[][]);
+      if (headerIssue) allIssues.push(headerIssue);
+
       // Сигналы строк считаются ОДИН раз на лист (блок А п.3): отсюда же
       // их берёт dataset-анализ 4b — второго прогона detectSignals нет.
       const sheetSignals = detectSheetSignals(rows as unknown[][]);
@@ -648,6 +677,56 @@ export function runPipeline(input: PipelineInput): DataSnapshot {
       pipelineDurationMs: Date.now() - pipelineStart,
       perSheetRowCount,
     },
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// Геометрия шапки книги ГРБС
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Замечание о съехавшей раскладке столбцов, либо null, если якоря шапки на
+ * месте (реестр багов 09.07.2026, п.11 «позиционное чтение колонок без
+ * проверки геометрии»).
+ *
+ * Механизм: весь расчёт читает ячейки по номеру колонки. Вставили столбец —
+ * и план берётся из способа закупки, дата из бюджета, а числа при этом
+ * остаются числами, поэтому ни одна арифметическая проверка сдвига не видит.
+ * Единственный признак — подписи шапки (третья строка книги), сверенные с
+ * каноном раскладки.
+ */
+function headerGeometryIssue(
+  sheetName: string,
+  deptId: string,
+  rows: unknown[][],
+): Issue | null {
+  const mismatches = checkDeptHeaderGeometry(rows);
+  if (mismatches.length === 0) return null;
+  const shown = mismatches
+    .map(m => `«${m.expected}» ожидается в столбце ${m.column}, а стоит в ${m.foundAt}`)
+    .join('; ');
+  return {
+    id: issueIdentity(['header-geometry', sheetName]),
+    severity: 'critical',
+    origin: 'runtime_error',
+    category: 'header_geometry',
+    group: 'data_quality',
+    title: `Столбцы листа «${sheetName}» съехали: опорных подписей не на своём месте — ${mismatches.length}`,
+    description:
+      `В третьей строке листа опорные подписи стоят не в своих столбцах: ${shown}. ` +
+      'Так выглядит вставленный или удалённый столбец. Расчёт читает ячейки по номеру ' +
+      'столбца, поэтому после сдвига суммы плана берутся из соседней графы, а даты — из ' +
+      'бюджетов; числа при этом остаются правдоподобными, и арифметика подмены не замечает.',
+    sheet: sheetName,
+    departmentId: deptId,
+    recommendation:
+      'Открыть лист и вернуть столбцы в эталонный порядок (A — № п/п, C — подведомственное учреждение, ' +
+      'G — предмет контракта, K — итого плана, L — способ определения поставщика, O и P — квартал и год плана, ' +
+      'Y — итого факта, AD — учитывать в расчёте экономии). Пока раскладка не восстановлена, показатели ' +
+      'этого управления считать нельзя.',
+    status: 'open',
+    detectedAt: new Date().toISOString(),
+    detectedBy: 'pipeline:header-geometry',
   };
 }
 

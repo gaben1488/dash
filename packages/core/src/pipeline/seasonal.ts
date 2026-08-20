@@ -7,7 +7,7 @@
  * Зависимости: DEPT_COLUMNS + общий аксессор ячейки (utils/row-cells).
  * Обратной зависимости на dataset-signals нет — цикл невозможен.
  */
-import { DEPT_COLUMNS, parseSheetDate } from '@aemr/shared';
+import { DEPT_COLUMNS, isReadableDeptRow, parseSheetDate } from '@aemr/shared';
 import { strFromRow } from '../utils/row-cells.js';
 
 // ────────────────────────────────────────────────────────────
@@ -54,7 +54,8 @@ export interface SeasonalAnomaly {
   severity: 'critical' | 'high' | 'medium';
   /** Index in the rows array (-1 for aggregate signals like Q4_SPENDING_SPIKE) */
   rowIndex: number;
-  deptId?: string;
+  // Управление известно не всегда: часть признаков считается по всей книге.
+  deptId?: string | undefined;
   /** Human-readable Russian description */
   description: string;
   /** Signal-specific data */
@@ -75,7 +76,9 @@ export function detectSeasonalAnomalies(
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || row.length < 21) continue;
+    // Одна дверь длины строки (реестр багов 09.07.2026, пп.12-13): здесь стояло
+    // «не короче 21», у соседей — 25, у единой сетки — ничего.
+    if (!isReadableDeptRow(row)) continue;
 
     const subordinate = strFromRow(row, DEPT_COLUMNS.SUBORDINATE);
     const description = strFromRow(row, DEPT_COLUMNS.PROGRAM_NAME); // D=3 «графа программы» (ист. имя description)

@@ -20,6 +20,7 @@ import { inArray, sql } from 'drizzle-orm';
 import { DAYS_PER_WEEK } from '@aemr/shared';
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
+import { logSnapshotChange, logSourceProblem } from './source-log.js';
 import { productCalendarDay } from './product-calendar.js';
 
 const DAILY_WINDOW_DAYS = 7;
@@ -129,10 +130,15 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
       tx.delete(schema.procurementRows).where(inArray(schema.procurementRows.snapshotId, drop)).run();
       tx.delete(schema.snapshots).where(inArray(schema.snapshots.id, drop)).run();
     });
-    console.log(`🧹 Retention снимков: удалено ${drop.length}, осталось ${rows.length - drop.length}`);
+    logSnapshotChange(
+      `Чистка снимков по сроку хранения: удалено ${drop.length}, осталось ${rows.length - drop.length}`,
+      { removed: drop.length, kept: rows.length - drop.length },
+    );
     return drop.length;
   } catch (error) {
-    console.error('Retention снимков не выполнен (сохранение не пострадало):', error);
+    logSourceProblem('Чистка снимков по сроку хранения не выполнена (сохранение снимка не пострадало)', {
+      reason: (error as Error)?.message ?? String(error),
+    });
     return 0;
   }
 }

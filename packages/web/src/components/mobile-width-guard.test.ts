@@ -20,7 +20,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const GUARDED = [
   'competition',
   'discipline',
+  'monitoring',
+  'scorecard',
   'timeline',
+  'workload',
   'yearlong',
   'DiagnosticCards.tsx',
   'PeriodBadge.tsx',

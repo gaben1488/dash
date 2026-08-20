@@ -143,7 +143,11 @@ describe('buildIntegralSummary — четыре яруса сводки', () => 
     expect(withOfficial.remainder[2].accent).toBe('emerald');
     // Наш остаток фикстуры 3 000 против листа 2 500 — расхождение названо.
     expect(norm(withOfficial.remainderDiff!)).toContain('+500 тыс. руб.');
-    expect(withOfficial.remainderDiff!).toContain('периметры могут отличаться');
+    // Расхождение объясняется механизмом, а не отговоркой: подпись обязана
+    // назвать периметр листа (строка «Итого ЭА 2026», без ЕП) и разницу
+    // определений (лист вычитает подешевевший факт, мы берём плановые суммы).
+    expect(withOfficial.remainderDiff!).toContain('Итого ЭА 2026');
+    expect(withOfficial.remainderDiff!).toContain('единственного поставщика');
   });
 });
 
@@ -188,7 +192,9 @@ describe('buildGrbsSection — view-модель секции ГРБС', () => {
 
   it('УЭР: деньги и экономия словами продукта', () => {
     expect(norm(uer.moneyLine)).toBe('Лимит 3 500 тыс. руб., факт 2 500 тыс. руб.');
-    expect(norm(uer.economyLine!)).toBe('Экономия: 150 тыс. руб.');
+    // «Утверждённая» — различитель, а не украшение: вторая экономия района
+    // («НМЦК минус цена аукциона», книга мониторинга) считается иначе.
+    expect(norm(uer.economyLine!)).toBe('Утверждённая экономия: 150 тыс. руб.');
     expect(norm(uer.yearLine)).toBe('За год: заключено 20 из 50 (40,0%), не заключено 30');
   });
 

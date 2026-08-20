@@ -14,6 +14,7 @@ import {
   DisciplinePage, MonitoringPage, Analytics, QualityPage, SettingsPage, PageSkeleton,
 } from './pages/lazy-pages';
 import { TooltipProvider } from './components/ui/tooltip';
+import { LiveUpdateBar } from './components/live/LiveUpdateBar';
 import { setKBRegistry } from './components/ui/kb-tooltip';
 import { STANDARD_METRICS } from './lib/metrics-registry';
 
@@ -214,6 +215,10 @@ export function App() {
               </div>
             </main>
           </div>
+          {/* Полоса живого оповещения: сообщает об изменении в книгах и ждёт
+              согласия обновить. Живёт поверх страницы, вёрстку не двигает —
+              экран под ней не прыгает. */}
+          <LiveUpdateBar />
         </div>
       </ErrorBoundary>
     </TooltipProvider>

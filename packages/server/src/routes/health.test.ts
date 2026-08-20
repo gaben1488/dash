@@ -47,8 +47,11 @@ describe('до первого чтения источников', () => {
     expect(report.sources.summary).toBe('Источники ещё не читались с запуска сервера');
     expect(report.sources.lastSuccessAt).toBeNull();
 
-    // Каждая настроенная книга плюс лист СВОД.
-    expect(report.sources.items).toHaveLength(deptNames.length + 1);
+    // Каждая настроенная книга плюс два листа сводной книги: СВОД и помесячный
+    // «СВОД с месяцами». Помесячного в картине здоровья раньше не было вовсе —
+    // и «прочитаны все источники» звучало даже тогда, когда весь помесячный
+    // официал не прочитан ни разу.
+    expect(report.sources.items).toHaveLength(deptNames.length + 2);
     for (const item of report.sources.items) {
       expect(item.state).toBe('pending');
       expect(item.rowCount).toBeNull();
@@ -115,6 +118,51 @@ describe('после чтения с частичным отказом', () => {
     const { sources } = health.buildHealthReport();
     expect(sources.lastSuccessAt).not.toBeNull();
     expect(sources.lastSuccessAt! >= '2026-08-08T02:00:00.000Z').toBe(true);
+  });
+});
+
+describe('лист СВОД перестал читаться', () => {
+  it('числится непрочитанным, а не «ещё не читался»', async () => {
+    const { SVOD_SHEET_NAME } = await import('@aemr/shared');
+    // Успех был раньше (предыдущий блок положил сетку), а последняя попытка
+    // отказала. До этой правки отказ не оставлял следа вовсе: лист навсегда
+    // числился «ещё не читался с запуска сервера», и картина здоровья
+    // выглядела лучше правды.
+    snapshot.setSvodLoadFailure('источник ограничил частоту обращений');
+
+    const item = health.buildHealthReport().sources.items.find((i) => i.name === SVOD_SHEET_NAME);
+    expect(item?.state).toBe('failed');
+    expect(item?.reason).toBe('источник ограничил частоту обращений');
+    expect(item?.checkedAt).not.toBeNull();
+    // Время прежнего успеха остаётся видимым: по нему судят, насколько стары
+    // числа, собранные на этой сетке.
+    expect(item?.loadedAt).not.toBeNull();
+    // Числа строк у неудачной попытки нет — ноль означал бы «прочитан и пуст».
+    expect(item?.rowCount).toBeNull();
+  });
+
+  it('удачное чтение снимает прежний отказ', async () => {
+    const { SVOD_SHEET_NAME } = await import('@aemr/shared');
+    snapshot.setSvodGridCache([[1], [2], [3], [4]]);
+
+    const item = health.buildHealthReport().sources.items.find((i) => i.name === SVOD_SHEET_NAME);
+    expect(item?.state).toBe('ok');
+    expect(item?.rowCount).toBe(4);
+    expect(item?.reason).toBeUndefined();
+  });
+});
+
+describe('помесячный лист', () => {
+  it('стоит в списке источников и до первого чтения честно пуст', async () => {
+    const { SHDYU_MONTHLY_SHEET_NAME } = await import('@aemr/shared');
+    const item = health
+      .buildHealthReport()
+      .sources.items.find((i) => i.name === SHDYU_MONTHLY_SHEET_NAME);
+
+    expect(item).toBeDefined();
+    expect(item?.state).toBe('pending');
+    expect(item?.loadedAt).toBeNull();
+    expect(item?.rowCount).toBeNull();
   });
 });
 

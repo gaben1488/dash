@@ -7,6 +7,9 @@ import {
   checkAntiDumping,
   checkEPShareLimits,
   analyzeEPReasons,
+  buildEpJustificationDept,
+  epPlanQuarter,
+  type EpJustificationDept,
   benfordAnalysis,
   zScoreAnalysis,
   buildScenarios,
@@ -140,17 +143,33 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  /** GET /api/analytics/ep-reasons — EP reason breakdown per department */
+  /**
+   * GET /api/analytics/ep-reasons — обоснование закупок у единственного поставщика.
+   *
+   * Ответ несёт ДВА разбора одних и тех же строк, и это намеренно:
+   *   • `byDept` — прежняя рубрикация по предмету закупки (analyzeEPReasons,
+   *     колонка G): «что покупали у ЕП»;
+   *   • `justification` — степени обоснованности по колонке M через словарь
+   *     причин (канон п.98ж): «имел ли заказчик право так закупать». Здесь же
+   *     кварталы плана — из них вкладка «Конкуренция» строит динамику
+   *     снижения ЕП и особенно НЕобоснованного ЕП.
+   *
+   * Отдельного роута ради второго разбора не заводим: источник строк один и
+   * тот же лист, а два запроса за одним и тем же кэшем — лишняя работа.
+   */
   app.get('/api/analytics/ep-reasons', async (_request, reply) => {
     try {
       const deptCache = getDeptSheetValues();
       const result: Record<string, any> = {};
+      const justificationByDept: Record<string, EpJustificationDept> = {};
+      let rowsScanned = 0;
 
       for (const dept of DEPARTMENTS) {
         const rows = deptCache[dept.nameShort];
         if (!rows || rows.length === 0) continue;
 
-        const rowData = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
+        const body = rows.slice(DEPT_HEADER_ROWS);
+        const rowData = body.map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
           planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
@@ -160,9 +179,29 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         }));
 
         result[dept.id] = analyzeEPReasons(rowData);
+
+        // Причина ЕП читается СЫРОЙ: словарь ep-reason-clusters нормализует
+        // текст сам, а обрезка/приведение здесь скрыли бы часть совпадений.
+        justificationByDept[dept.id] = buildEpJustificationDept(
+          body.map((row: any) => ({
+            method: row?.[DEPT_COLUMNS.METHOD],
+            reason: row?.[DEPT_COLUMNS.EP_REASON],
+            planTotal: parseFloat(String(row?.[DEPT_COLUMNS.TOTAL_PLAN] ?? 0)) || 0,
+            quarter: epPlanQuarter(row?.[DEPT_COLUMNS.PLAN_QUARTER]),
+          })),
+        );
+        rowsScanned += body.length;
       }
 
-      return result;
+      return {
+        byDept: result,
+        justification: {
+          byDept: justificationByDept,
+          rowsScanned,
+          /** Момент чтения книг (канон п.58): число обязано называть свой срок. */
+          readAt: new Date().toISOString(),
+        },
+      };
     } catch (err) {
       app.log.error({ err }, 'Analytics ep-reasons unavailable');
       return reply.status(503).send({ error: 'Analytics unavailable - data source error' });

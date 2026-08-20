@@ -11,7 +11,7 @@ import {
   isOrgItself,
 } from '@aemr/shared';
 import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
-import { getSnapshot, getDeptSheetValues, getDeptSheetCache, setDeptSheetCache } from '../services/snapshot.js';
+import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
@@ -76,6 +76,34 @@ function rowWriteError(idx: number, deptShortName: string, display: string | num
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
   return null;
+}
+
+/**
+ * Отражение сохранённой правки в прочитанных значениях книги — чтобы следующее
+ * чтение показало то же, что уже лежит в Google Таблице.
+ *
+ * Реестр багов 09.07.2026, п.14 («кэш листа затирается параллельным обновлением
+ * при правке ячейки»). Прежде здесь после точечной правки звучало
+ * `setDeptSheetCache({ ...весь кэш })`: снимок ВСЕЙ карты книг возвращался
+ * поверх живой — параллельная перечитка, успевшая положить свежие книги,
+ * откатывалась к тому, что было до неё. Второй, более тихий вред: та же
+ * функция отмечает «книги прочитаны сейчас», хотя прочитана была одна ячейка, —
+ * продукт начинал считать все восемь книг свежими и откладывал настоящую
+ * перечитку на целое окно свежести, а момент чтения (канон п.58) врал.
+ *
+ * Правка одной ячейки и должна быть правкой одной ячейки: значения книги живут
+ * в кэше по ссылке, поэтому достаточно записать новое значение на место старого.
+ * Возвращает false, если строки в прочитанных значениях нет (правка ушла в
+ * книгу, но показать её до перечитки неоткуда).
+ */
+function reflectEditInCache(deptShortName: string, rowIndex: number, field: string, value: unknown): boolean {
+  const deptResult = getDeptSheetCache()[deptShortName];
+  if (!deptResult) return false;
+  const colIdx = COL_LETTER_INDEX[field];
+  const row = deptResult.values[rowIndex - 1];
+  if (colIdx === undefined || !row) return false;
+  (row as unknown[])[colIdx] = value;
+  return true;
 }
 
 /**
@@ -341,17 +369,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
-      // Invalidate cache for this dept so next read picks up the change
-      const fullCache = getDeptSheetCache();
-      const deptResult = fullCache[dept.nameShort];
-      if (deptResult) {
-        // Update the cached row in-place (values array)
-        const colIdx = COL_LETTER_INDEX[field];
-        if (colIdx !== undefined && deptResult.values[idx - 1]) {
-          (deptResult.values[idx - 1] as unknown[])[colIdx] = normalizedValue;
-          setDeptSheetCache({ ...fullCache });
-        }
-      }
+      // Прочитанные значения книги догоняют сохранённую правку (см. reflectEditInCache).
+      reflectEditInCache(dept.nameShort, idx, field, normalizedValue);
 
       // Audit log
       try {
@@ -531,16 +550,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
           const writeResult = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
-          // Update cache in-place
-          const batchFullCache = getDeptSheetCache();
-          const batchDeptResult = batchFullCache[dept.nameShort];
-          if (batchDeptResult) {
-            const colIdx = COL_LETTER_INDEX[field];
-            if (colIdx !== undefined && batchDeptResult.values[entry.rowIndex - 1]) {
-              (batchDeptResult.values[entry.rowIndex - 1] as unknown[])[colIdx] = normalizedValue;
-              setDeptSheetCache({ ...batchFullCache });
-            }
-          }
+          // Та же точечная правка прочитанных значений, что и в одиночном PUT.
+          reflectEditInCache(dept.nameShort, entry.rowIndex, field, normalizedValue);
 
           // Audit log
           try {
@@ -594,7 +605,16 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     const successCount = results.filter(r => r.success).length;
     const failCount = totalChanges - successCount;
 
-    return reply.send({
+    // Реестр багов 09.07.2026, п.16: пакетная правка отвечала кодом «всё
+    // хорошо» даже когда книга не приняла НИ ОДНОЙ ячейки. Разбор по ячейкам в
+    // ответе есть, но код состояния — первое, на что смотрит любой другой
+    // читатель (журнал сервера, скрипт, будущий клиент), и он не должен врать.
+    // Часть правок не сохранилась — код 207 «сохранено не всё»: это по-прежнему
+    // успешный ответ (тело с разбором дойдёт до страницы и покажет причины по
+    // каждой ячейке), но отличимый от полного успеха.
+    const statusCode = failCount === 0 ? 200 : 207;
+
+    return reply.status(statusCode).send({
       ok: failCount === 0,
       totalChanges,
       successCount,

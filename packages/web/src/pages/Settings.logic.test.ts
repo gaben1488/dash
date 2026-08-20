@@ -7,7 +7,7 @@ import {
   parseSourcesResponse, maskSecret, CELL_ADDRESS_RE,
   buildDiagnostics, maskAccessKey, summarizeDiagnostics,
   type DiagnosticsInput,
-} from './Settings';
+} from './Settings.logic';
 
 describe('parseSourcesResponse: «сервер не сообщил» — не то же, что ноль', () => {
   it('rowCount отсутствует → null, а не 0 (иначе непрочитанная книга выглядит пустой)', () => {

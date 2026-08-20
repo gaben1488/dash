@@ -56,12 +56,19 @@ export const BENFORD_LABELS: Record<
  * (composite по убыванию; ГРБС без композита — в конец).
  */
 export function selectDatasetAudit(
-  analyses: Record<string, DatasetAnalysisDTO> | null | undefined,
+  // Снимок отдаёт это поле как «словарь чего-то неизвестного»
+  // (`Record<string, unknown>` в shared/types.ts, правка ядра 20.08.2026):
+  // пакет shared лежит ниже ядра и о расчётных типах знать не может, поэтому
+  // шаг наружу требует разбора. Разбор живёт ЗДЕСЬ — в единственном месте,
+  // которое эти данные читает: проверка формы уже была в теле цикла, теперь
+  // она же объявлена и в подписи, а вызывающая страница не приводит типы.
+  analyses: Record<string, unknown> | null | undefined,
 ): DatasetAuditRow[] {
   if (!analyses) return [];
   const rows: DatasetAuditRow[] = [];
-  for (const [deptId, a] of Object.entries(analyses)) {
-    if (!a || typeof a !== 'object') continue;
+  for (const [deptId, raw] of Object.entries(analyses)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const a = raw as DatasetAnalysisDTO;
     rows.push({
       deptId,
       compositeScore: a.compositeScore?.score ?? null,

@@ -12,7 +12,7 @@
 //    как ждёт читатель, работающий без мыши.
 
 import { useRef } from 'react';
-import { ShieldCheck, GitCompare, AlertTriangle, Lightbulb, BookOpen } from 'lucide-react';
+import { ShieldCheck, GitCompare, AlertTriangle, Lightbulb, BookOpen, Gauge } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
 import { TrustPage } from './Trust';
@@ -21,13 +21,18 @@ import { IssuesPage } from './Issues';
 import { RecsPage } from './Recs';
 import { JournalPage } from './Journal';
 import { CommentAnnotationsSection } from '../components/quality/CommentAnnotationsSection';
+import { ScorecardSection } from '../components/scorecard/ScorecardSection';
+import { PageHeader } from '../components/ui/page-header';
 
-type QualityTab = 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
+type QualityTab = 'trust' | 'recon' | 'issues' | 'recs' | 'journal' | 'scorecard';
 
 const TABS: { id: QualityTab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'recon', label: 'Сверка', icon: GitCompare, description: 'Официальные числа листа СВОД против независимого пересчёта по строкам' },
   { id: 'trust', label: 'Качество заполнения', icon: ShieldCheck, description: 'Насколько полно и аккуратно заполнены книги: индекс надёжности данных по компонентам' },
   { id: 'issues', label: 'Замечания', icon: AlertTriangle, description: 'Что именно не сходится в данных, построчно' },
+  // Ярусом выше построчных замечаний: не «какая строка неверна», а «у какого
+  // управления отклонение от ожидания больше прочих» (маяк продукта, Г-06/Г-09).
+  { id: 'scorecard', label: 'Оценка управлений', icon: Gauge, description: 'Грейд за исполнение, индекс дисциплины и нарушения норм закона по каждому управлению' },
   { id: 'recs', label: 'Рекомендации', icon: Lightbulb, description: 'Что с этим делать: действия и решения' },
   { id: 'journal', label: 'Журнал', icon: BookOpen, description: 'История событий системы: чтения книг, изменения, сбои' },
 ];
@@ -57,11 +62,21 @@ export function QualityPage() {
 
   return (
     <div className="space-y-4">
+      {/* 18.08: у вкладки не было заголовка первого уровня вовсе — читатель
+          с диктором попадал в раздел без имени и не мог понять, где он.
+          Заголовок ставится общим примитивом, а не своей строкой классов. */}
+      <PageHeader
+        title="Контроль"
+        lead={activeTab.description}
+      />
+
       {/* Полоса вкладок */}
       <div
         role="tablist"
         aria-label="Разделы контроля данных"
-        className="flex items-center gap-1 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-1 shadow-sm"
+        // Шесть вкладок на смартфоне в строку не помещаются: полоса едет вбок
+        // сама, а не выталкивает вбок всю страницу (директива п.73а).
+        className="flex items-center gap-1 overflow-x-auto rounded-[var(--radius-modal)] border border-[var(--line-strong)] bg-[var(--surface-card)] p-1 shadow-[var(--elevation-1)]"
       >
         {TABS.map((tab) => {
           const isActive = qualityTab === tab.id;
@@ -78,12 +93,17 @@ export function QualityPage() {
               onClick={() => setQualityTab(tab.id)}
               onKeyDown={onKeyDown}
               title={tab.description}
+              // Краски вкладки названы ролями, а не тонами zinc/blue: раньше
+              // активная вкладка была «bg-blue-600 text-white» — то есть
+              // чистый белый на синем, оба под запретом палитры продукта, и
+              // тёмная тема о ней не знала вовсе.
               className={clsx(
-                'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex-1 justify-center',
-                'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500',
+                'ds-text-sm flex flex-1 min-w-max items-center justify-center gap-2 whitespace-nowrap',
+                'rounded-[var(--radius-card)] px-4 py-2.5 font-[var(--weight-medium)]',
+                'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-standard)]',
                 isActive
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800/50',
+                  ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
+                  : 'text-[var(--ink-muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--ink-strong)]',
               )}
             >
               <Icon size={16} strokeWidth={isActive ? 2.2 : 1.8} aria-hidden="true" />
@@ -112,6 +132,7 @@ export function QualityPage() {
             <CommentAnnotationsSection />
           </div>
         )}
+        {qualityTab === 'scorecard' && <ScorecardSection />}
         {qualityTab === 'recs' && <RecsPage />}
         {qualityTab === 'journal' && <JournalPage />}
       </div>

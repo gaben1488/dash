@@ -103,18 +103,22 @@ describe('/api/annotations/comments и /api/registry/buckets', () => {
     vi.resetModules();
   });
 
-  it('GET /api/annotations/comments: три правила доезжают карточками с механизмом, адресом и действием', async () => {
+  it('GET /api/annotations/comments: правила доезжают карточками с механизмом, адресом и действием', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/annotations/comments' });
     expect(res.statusCode).toBe(200);
     const body = res.json();
 
     expect(body.source).toBe('live');
     expect(body.rowsScanned).toBe(5); // «ИТОГО» не сканируется
-    expect(body.total).toBe(3);
+    // Правило (и) missing_procedure_ref (поручение владельца 19.08) зажигается
+    // на КАЖДОЙ конкурентной строке без номера процедуры в AG — здесь это
+    // строки 4, 7 и 8 (ЭА с пустым AG); прежний счёт «3» был до правила (и).
+    expect(body.total).toBe(6);
     expect(body.byKind).toEqual({
       stage_marker_when_signed: 1,
       past_promise_no_fact: 1,
       foreign_text_in_ag: 1,
+      missing_procedure_ref: 3,
     });
 
     const stage = body.annotations.find((a: { kind: string }) => a.kind === 'stage_marker_when_signed');

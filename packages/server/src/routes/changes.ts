@@ -18,8 +18,9 @@ import { desc, getTableColumns, gte } from 'drizzle-orm';
 import { dayNumberOf, floorToThursday, isoOfDayNumber } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
+import { logSourceProblem } from '../services/source-log.js';
 import { productCalendarDay } from '../services/product-calendar.js';
-import { getSheetDataFromSpreadsheet } from '../services/google-sheets.js';
+import { readChangelogRows } from '../services/changelog-source.js';
 import { changesSince, parseChangeLog, type ChangeRecord } from '../services/changelog.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -30,6 +31,11 @@ let cache: { at: number; records: ChangeRecord[]; failedDepts: string[] } | null
  * для страницы провенанса тихий пропуск — ложное «этот ГРБС ничего не менял»
  * (code-review 03.08). Частичный результат не кэшируется: иначе отказ живёт
  * пять минут после того, как книга ожила.
+ *
+ * Сырьё берётся из ОБЩЕГО читателя (services/changelog-source.ts): тот же лист
+ * «_ChangeLog» читает страница провенанса и сводка нагрузки, и до сих пор
+ * каждый ходил к Google своей дорогой со своим окном. Разбор остаётся здесь
+ * свой — он выбрасывает колонку «Строка», которая провенансу нужна как ключ.
  */
 async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDepts: string[]; fresh: boolean }> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
@@ -42,7 +48,7 @@ async function readAllChangeLogs(): Promise<{ records: ChangeRecord[]; failedDep
   const failedDepts: string[] = [];
   const parts = await Promise.all(entries.map(async ([dept, spreadsheetId]) => {
     try {
-      const rows = await getSheetDataFromSpreadsheet(spreadsheetId, '_ChangeLog');
+      const rows = await readChangelogRows(dept, spreadsheetId);
       return parseChangeLog(rows, dept);
     } catch {
       failedDepts.push(dept);
@@ -145,16 +151,15 @@ let dbFailureAnnounced = false;
 function announceDbFailure(error: unknown): void {
   if (dbFailureAnnounced) return;
   dbFailureAnnounced = true;
-  console.error(
-    'Журнал правок не сохраняется в БД — ответ собран живым чтением книг ' +
-    'и рестарт его не переживёт:',
-    error,
+  logSourceProblem(
+    'Журнал правок не сохраняется в базу — ответ собран живым чтением книг и рестарт его не переживёт',
+    { reason: (error as Error)?.message ?? String(error) },
   );
 }
 
 export async function changesRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { since?: string } }>('/api/changes', async (request, reply) => {
-    let sinceDay: number | null = null;
+    let sinceDay: number | null;
     if (request.query.since !== undefined) {
       sinceDay = dayNumberOf(request.query.since);
       // Формат мало проверить: Date.UTC переваливает «2026-06-31» в 1 июля

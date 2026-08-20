@@ -31,6 +31,8 @@ import { filterRowsByBudgets } from '../lib/rows-filter';
 import { collectAllPages } from '../lib/rows/collect-pages';
 import { monthOfDateValue, formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
+import { useLiveEvents } from '../hooks/useLiveEvents';
+import { changedRowKey, rowChangeHint } from '../components/live/live-text';
 import { pluralRu } from '../lib/economy-copy';
 import {
   ALL_SIGNAL_KEYS,
@@ -600,6 +602,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
     [filtered, safePage, pageSize],
   );
+
+  // Прямой эфир: строки, которые правили в книгах последние секунды. Ключ —
+  // книга и номер строки листа, ровно тот адрес, которым живёт Реестр.
+  const liveRows = useLiveEvents().recentRows;
+  const liveChangedRows = useMemo(() => {
+    const map = new Map<string, (typeof liveRows)[number]>();
+    for (const r of liveRows) map.set(changedRowKey(r.book, r.sheetRow), r);
+    return map;
+  }, [liveRows]);
 
   // Строки реестра → строки редактора при переходе на вкладку правки.
   // Берётся текущая страница реестра, а не весь загруженный реестр: строк в
@@ -1439,6 +1450,10 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 const noDate = !rowHasPeriodDate(row);
                 const noYear = !row.planYear;
                 const isCursor = i === cursor;
+                // Прямой эфир: строку только что правили в книге. Подсветка
+                // держится несколько секунд и гаснет сама — след правки, а не
+                // постоянная метка.
+                const justChanged = liveChangedRows.get(changedRowKey(row.dept, row.rowIndex ?? -1));
                 return (
                 <tr
                   key={`${row.dept}-${row.rowIndex ?? row.id}-${i}`}
@@ -1455,7 +1470,9 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                     isCursor
                       ? 'bg-blue-50/60 dark:bg-zinc-700/40 outline-none'
                       : 'hover:bg-blue-50/30 dark:hover:bg-zinc-700/30',
+                    justChanged && 'live-row-changed',
                   )}
+                  title={justChanged ? `Только что изменено — ${rowChangeHint(justChanged)}` : undefined}
                   onClick={() => { setCursor(i); setSelectedRow(row); }}
                 >
                   <td className={clsx(

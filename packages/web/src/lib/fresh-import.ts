@@ -34,7 +34,7 @@ export async function freshImport<T>(load: () => Promise<T>): Promise<T> {
     try { sessionStorage.removeItem(RELOAD_MARK); } catch { /* storage недоступен — не мешаем */ }
     return mod;
   } catch (err) {
-    let marked = false;
+    let marked: boolean;
     try { marked = sessionStorage.getItem(RELOAD_MARK) === '1'; } catch { marked = true; }
     if (isChunkLoadError(err) && !marked) {
       try { sessionStorage.setItem(RELOAD_MARK, '1'); } catch { /* без метки перезагрузку не рискуем зациклить */ }

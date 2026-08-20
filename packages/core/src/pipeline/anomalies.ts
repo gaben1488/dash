@@ -8,7 +8,7 @@
  * (severityRank, ANOMALY_SCORES, AnomalyResult). Приходит через `import type`,
  * стирается компилятором: рантайм-ребро только одно, dataset-signals -> anomalies.
  */
-import { DEPT_COLUMNS, subordinateKey } from '@aemr/shared';
+import { DEPT_COLUMNS, isReadableDeptRow, subordinateKey } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 import type { RowSignals } from './signals.js';
 import type { AnomalySeverity, BenfordResult } from './dataset-signals.js';
@@ -58,7 +58,11 @@ export function detectDataAnomalies(rows: unknown[][]): Map<number, DataAnomaly[
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || row.length < 25) continue;
+    // Длина строки — одна дверь на весь продукт: isReadableDeptRow (реестр багов
+    // 09.07.2026, пп.12-13). Прежнее «не короче 25 ячеек» выбрасывало незаключённые
+    // закупки целиком: Google Sheets обрезает хвостовые пустые ячейки, и строка с
+    // одним планом приходит длиной 16-17.
+    if (!isReadableDeptRow(row)) continue;
 
     const planTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
     const factTotal = numFromRow(row, DEPT_COLUMNS.TOTAL_FACT);
@@ -159,7 +163,7 @@ export function detectBehavioralAnomalies(
   for (let i = 0; i < maxLen; i++) {
     const curr = currentRows[i];
     const prev = previousRows[i];
-    if (!curr || !prev || curr.length < 25 || prev.length < 25) continue;
+    if (!isReadableDeptRow(curr) || !isReadableDeptRow(prev)) continue;
 
     const currPlan = numFromRow(curr, DEPT_COLUMNS.TOTAL_PLAN);
     const prevPlan = numFromRow(prev, DEPT_COLUMNS.TOTAL_PLAN);
@@ -245,7 +249,7 @@ export function detectSystemicAnomalies(
       exactMatchRows.push(idx);
     }
   }
-  const dataRowCount = rows.filter(r => r && r.length >= 25 && numFromRow(r, DEPT_COLUMNS.TOTAL_PLAN) > 0).length;
+  const dataRowCount = rows.filter(r => isReadableDeptRow(r) && numFromRow(r, DEPT_COLUMNS.TOTAL_PLAN) > 0).length;
   if (dataRowCount > 10 && exactMatchRows.length / dataRowCount > 0.15) {
     anomalies.push({
       type: 'HIGH_EXACT_MATCH_RATE',
@@ -303,7 +307,7 @@ export function detectSystemicAnomalies(
     let grandTotal = 0;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (!row || row.length < 25) continue;
+      if (!isReadableDeptRow(row)) continue;
       const plan = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
       if (plan <= 0) continue;
       grandTotal += plan;
@@ -333,7 +337,7 @@ export function detectSystemicAnomalies(
     const vagueRows: number[] = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (!row || row.length < 25) continue;
+      if (!isReadableDeptRow(row)) continue;
       const plan = numFromRow(row, DEPT_COLUMNS.TOTAL_PLAN);
       // Единицы: колонка K — тыс. руб. (канон книг ГРБС), порог «дорогая закупка»
       // = 5_000 тыс. = 5 млн руб. Свип БАГ #1 (bug-hunt 2026-08-08): литерал был

@@ -8,6 +8,9 @@ import {
 import type { WorkbookSnapshot, SheetData, CellValue } from '@aemr/shared';
 import { departmentSheetNameCandidates } from './sheet-name-candidates.js';
 import { sheetValuesRange } from './sheet-range.js';
+import { withSheetsRetry } from './sheets-retry.js';
+import { classifySourceFailure } from './source-failure.js';
+import { logSourceFailure, logSourceRead, logSourceRetry, logSourceWrite } from './source-log.js';
 
 // ============================================================
 // Google Sheets API Service — AEMR Platform
@@ -97,6 +100,60 @@ export async function withSheetsDeadline<T>(
   }
 }
 
+/**
+ * Чтение источника со сроком ожидания И повтором при временном отказе.
+ *
+ * Реестр багов 09.07.2026, PLAUSIBLE «нет повторов с задержкой при 48
+ * одновременных запросах»: сборка снимка читает книги управлений разом, и
+ * ответ Google «слишком часто» ронял ЦЕЛУЮ книгу из снимка, хотя лечился
+ * паузой в полсекунды. Порядок обёрток важен: срок ожидания стоит ВНУТРИ
+ * повтора, чтобы каждая попытка получала свой полный срок, а не делила один
+ * на всех. Что повторяется, а что отдаётся сразу — sheets-retry.ts.
+ *
+ * ЗДЕСЬ ЖЕ ЕДИНСТВЕННАЯ ТОЧКА НАБЛЮДАЕМОСТИ ЧТЕНИЙ. Каждое обращение к
+ * источнику пишет в журнал сервера строку с двумя числами — сколько строк и за
+ * сколько, — а отказ пишет причину по-русски (services/source-log.ts). Раньше
+ * этого не было вовсе: чтения молчали, отказы уходили в `console.warn` мимо
+ * журнала, и вопрос «почему число такое» упирался в пустоту.
+ *
+ * `measure` — чем меряется прочитанное («строк 673»). Число строк живёт в
+ * ответе по-разному (values / valueRanges / состав книги), поэтому его достаёт
+ * вызывающий, а время и запись в журнал — общие для всех чтений: иначе
+ * наблюдаемость снова разъедется по семи местам.
+ */
+async function readWithRetry<T>(
+  what: string,
+  run: () => Promise<T>,
+  measure?: (result: T) => number,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await withSheetsRetry(what, () => withSheetsDeadline(what, run), {
+      onRetry: ({ attempt, delayMs, error }) => {
+        logSourceRetry(what, {
+          attempt,
+          delayMs,
+          reason: classifySourceFailure((error as Error)?.message ?? String(error)),
+        });
+      },
+    });
+    logSourceRead(what, {
+      ...(measure ? { rows: measure(result) } : {}),
+      ms: Date.now() - startedAt,
+    });
+    return result;
+  } catch (err) {
+    // Причина по-русски, а не пересказ ответа Google: в его тексте бывают и
+    // адрес книги, и почта служебной учётной записи. Подробность нужна редко,
+    // а имя книги и фраза причины отвечают на вопрос «почему число такое».
+    logSourceFailure(what, {
+      ms: Date.now() - startedAt,
+      reason: classifySourceFailure((err as Error)?.message ?? String(err)),
+    });
+    throw err;
+  }
+}
+
 let sheetsApi: sheets_v4.Sheets | null = null;
 
 async function getSheetsApi(): Promise<sheets_v4.Sheets> {
@@ -152,7 +209,7 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
   const sheetNames = ALL_SHEETS as readonly string[];
   const valueRanges = sheetNames.map((s) => sheetValuesRange(s));
 
-  const [valuesResponse, formulasResponse] = await withSheetsDeadline(
+  const [valuesResponse, formulasResponse] = await readWithRetry(
     'чтение основной книги целиком',
     async () => {
       const api = await getSheetsApi();
@@ -220,39 +277,92 @@ export async function fetchWorkbook(): Promise<WorkbookSnapshot> {
 }
 
 export async function getSheetData(sheetName: string, spreadsheetId?: string): Promise<unknown[][]> {
-  const response = await withSheetsDeadline(`чтение листа «${sheetName}»`, async () => {
-    const api = await getSheetsApi();
-    return api.spreadsheets.values.get(
-      {
-        spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
-        range: sheetValuesRange(sheetName),
-        valueRenderOption: 'UNFORMATTED_VALUE',
-        dateTimeRenderOption: 'FORMATTED_STRING',
-        majorDimension: 'ROWS',
-      },
-      { timeout: SHEETS_TIMEOUT_MS },
-    );
-  });
+  const response = await readWithRetry(
+    `чтение листа «${sheetName}»`,
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get(
+        {
+          spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
+          range: sheetValuesRange(sheetName),
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => (r.data.values as unknown[][] | undefined)?.length ?? 0,
+  );
 
   return (response.data.values as unknown[][]) ?? [];
+}
+
+/**
+ * Несколько листов ОСНОВНОЙ книги одним обращением.
+ *
+ * Раньше сборка снимка читала все листы книги по отдельности
+ * (`ALL_SHEETS.map(getSheetData)`) — девять параллельных запросов в одну
+ * секунду. Параллельность их не удешевляла: дорог здесь не процесс, а квота
+ * Google, и ровно такой залп её и выжигает («слишком часто» в ответ — реестр
+ * багов 09.07.2026). Одно пакетное обращение отдаёт то же самое.
+ *
+ * Отсутствующий лист остаётся ПУСТЫМ СПИСКОМ, а не списком с пустой строкой:
+ * `[[]]` длиной единица неотличим от листа с одной строкой, и проверка
+ * «зеркало отдало строки без данных» приняла бы пустоту за поломку зеркала.
+ */
+export async function batchGetSheetValues(
+  sheetNames: readonly string[],
+  spreadsheetId?: string,
+): Promise<Record<string, unknown[][]>> {
+  if (sheetNames.length === 0) return {};
+
+  const response = await readWithRetry(
+    `чтение листов основной книги (${sheetNames.length})`,
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.batchGet(
+        {
+          spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
+          ranges: sheetNames.map((s) => sheetValuesRange(s)),
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => (r.data.valueRanges ?? []).reduce((sum, vr) => sum + (vr.values?.length ?? 0), 0),
+  );
+
+  const ranges = response.data.valueRanges ?? [];
+  const out: Record<string, unknown[][]> = {};
+  for (let i = 0; i < sheetNames.length; i++) {
+    out[sheetNames[i]] = (ranges[i]?.values as unknown[][] | undefined) ?? [];
+  }
+  return out;
 }
 
 export async function batchGetCells(
   ranges: string[],
 ): Promise<Array<{ range: string; values: unknown[][] }>> {
-  const response = await withSheetsDeadline('чтение ячеек основной книги', async () => {
-    const api = await getSheetsApi();
-    return api.spreadsheets.values.batchGet(
-      {
-        spreadsheetId: config.google.spreadsheetId,
-        ranges,
-        valueRenderOption: 'UNFORMATTED_VALUE',
-        dateTimeRenderOption: 'FORMATTED_STRING',
-        majorDimension: 'ROWS',
-      },
-      { timeout: SHEETS_TIMEOUT_MS },
-    );
-  });
+  const response = await readWithRetry(
+    'чтение ячеек основной книги',
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.batchGet(
+        {
+          spreadsheetId: config.google.spreadsheetId,
+          ranges,
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => (r.data.valueRanges ?? []).length,
+  );
 
   return (response.data.valueRanges ?? []).map((vr, i) => ({
     range: vr.range ?? ranges[i],
@@ -263,18 +373,22 @@ export async function batchGetCells(
 export async function batchGetFormulas(
   ranges: string[],
 ): Promise<Array<{ range: string; formulas: unknown[][] }>> {
-  const response = await withSheetsDeadline('чтение формул основной книги', async () => {
-    const api = await getSheetsApi();
-    return api.spreadsheets.values.batchGet(
-      {
-        spreadsheetId: config.google.spreadsheetId,
-        ranges,
-        valueRenderOption: 'FORMULA',
-        majorDimension: 'ROWS',
-      },
-      { timeout: SHEETS_TIMEOUT_MS },
-    );
-  });
+  const response = await readWithRetry(
+    'чтение формул основной книги',
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.batchGet(
+        {
+          spreadsheetId: config.google.spreadsheetId,
+          ranges,
+          valueRenderOption: 'FORMULA',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => (r.data.valueRanges ?? []).length,
+  );
 
   return (response.data.valueRanges ?? []).map((vr, i) => ({
     range: vr.range ?? ranges[i],
@@ -286,7 +400,7 @@ export async function getSpreadsheetMetadata(spreadsheetId?: string): Promise<{
   title: string;
   sheets: Array<{ name: string; rowCount: number; colCount: number }>;
 }> {
-  const response = await withSheetsDeadline('чтение состава книги', async () => {
+  const response = await readWithRetry('чтение состава книги', async () => {
     const api = await getSheetsApi();
     return api.spreadsheets.get(
       {
@@ -311,19 +425,23 @@ export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,
 ): Promise<unknown[][]> {
-  const response = await withSheetsDeadline(`чтение листа «${sheetName}»`, async () => {
-    const api = await getSheetsApi();
-    return api.spreadsheets.values.get(
-      {
-        spreadsheetId,
-        range: sheetValuesRange(sheetName),
-        valueRenderOption: 'UNFORMATTED_VALUE',
-        dateTimeRenderOption: 'FORMATTED_STRING',
-        majorDimension: 'ROWS',
-      },
-      { timeout: SHEETS_TIMEOUT_MS },
-    );
-  });
+  const response = await readWithRetry(
+    `чтение листа «${sheetName}»`,
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get(
+        {
+          spreadsheetId,
+          range: sheetValuesRange(sheetName),
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => (r.data.values as unknown[][] | undefined)?.length ?? 0,
+  );
 
   return (response.data.values as unknown[][]) ?? [];
 }
@@ -334,7 +452,7 @@ export async function getSheetDataWithFormulas(
 ): Promise<{ values: unknown[][]; formulas: unknown[][] }> {
   const range = sheetValuesRange(sheetName);
 
-  const [valResp, fmlResp] = await withSheetsDeadline(
+  const [valResp, fmlResp] = await readWithRetry(
     `чтение листа «${sheetName}»`,
     async () => {
       const api = await getSheetsApi();
@@ -401,7 +519,7 @@ export async function resolveDeptSheetName(deptName: string, ssId: string): Prom
   const candidates = departmentSheetNameCandidates(registryName, deptName);
 
   try {
-    const meta = await withSheetsDeadline(`чтение состава книги «${deptName}»`, async () => {
+    const meta = await readWithRetry(`чтение состава книги «${deptName}»`, async () => {
       const api = await getSheetsApi();
       return api.spreadsheets.get(
         {
@@ -417,10 +535,19 @@ export async function resolveDeptSheetName(deptName: string, ssId: string): Prom
     const resolved = candidates.find(c => existing.has(c)) ?? registryName;
     resolvedSheetNameCache.set(cacheKey, resolved);
     return resolved;
-  } catch {
+  } catch (err) {
     // Метаданные недоступны (rate-limit/сеть/мок в тестах) — деградация к
     // реестровому имени (поведение до фикса), НЕ валим запись. Не кэшируем,
     // чтобы следующий вызов снова попробовал резолв.
+    //
+    // Но и молчать нельзя: если реальная вкладка называется иначе, правка
+    // уйдёт в лист, которого нет, а причина останется неизвестной. Раньше
+    // здесь стоял пустой перехват — ровно тот приём, из-за которого «слишком
+    // часто» когда-то выдавалось за «листа нет».
+    logSourceFailure(`определение имени вкладки книги «${deptName}»`, {
+      ms: 0,
+      reason: classifySourceFailure((err as Error)?.message ?? String(err)),
+    });
     return registryName;
   }
 }
@@ -524,6 +651,50 @@ async function getWriteApi(): Promise<sheets_v4.Sheets> {
   return writeApi;
 }
 
+/**
+ * Запись в источник со сроком ожидания, повтором при временном отказе и записью
+ * в журнал сервера.
+ *
+ * ПОЧЕМУ ПОВТОР ЗДЕСЬ БЕЗОПАСЕН, хотя запись — не чтение. Повтор опасен там,
+ * где действие складывается с предыдущим (добавить строку, увеличить счётчик):
+ * ответ мог потеряться уже ПОСЛЕ применения, и вторая попытка сделала бы то же
+ * самое дважды. Здесь действие другое: «в ячейке L178 должно стоять вот это».
+ * Сколько раз его ни повторить, в ячейке будет ровно то, что послано, — поэтому
+ * ответ «слишком часто» лечится паузой, а не отказом сотруднику, который только
+ * что нажал «сохранить». Что повторяется, а что отдаётся сразу («доступа нет»
+ * паузой не лечится), решает тот же sheets-retry.ts, что и на чтении.
+ *
+ * До этого правка была единственным обращением к Google без повторов — и при
+ * этом самым обидным для человека: чтение можно повторить обновлением страницы,
+ * а правку он уже сделал, и она пропала.
+ */
+async function writeWithRetry<T>(
+  what: string,
+  run: () => Promise<T>,
+  measure: (result: T) => number,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await withSheetsRetry(what, () => withSheetsDeadline(what, run), {
+      onRetry: ({ attempt, delayMs, error }) => {
+        logSourceRetry(what, {
+          attempt,
+          delayMs,
+          reason: classifySourceFailure((error as Error)?.message ?? String(error)),
+        });
+      },
+    });
+    logSourceWrite(what, { cells: measure(result), ms: Date.now() - startedAt });
+    return result;
+  } catch (err) {
+    logSourceFailure(what, {
+      ms: Date.now() - startedAt,
+      reason: classifySourceFailure((err as Error)?.message ?? String(err)),
+    });
+    throw err;
+  }
+}
+
 export async function writeCellValue(
   spreadsheetId: string,
   sheetName: string,
@@ -533,18 +704,22 @@ export async function writeCellValue(
   const range = sheetValuesRange(sheetName, cell);
   const safeValue =
     typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
-  const response = await withSheetsDeadline(`запись в ячейку ${cell}`, async () => {
-    const api = await getWriteApi();
-    return api.spreadsheets.values.update(
-      {
-        spreadsheetId,
-        range,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[safeValue]] },
-      },
-      { timeout: SHEETS_TIMEOUT_MS },
-    );
-  });
+  const response = await writeWithRetry(
+    `запись в ячейку ${cell}`,
+    async () => {
+      const api = await getWriteApi();
+      return api.spreadsheets.values.update(
+        {
+          spreadsheetId,
+          range,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[safeValue]] },
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => r.data.updatedCells ?? 0,
+  );
 
   return {
     updatedRange: response.data.updatedRange ?? range,

@@ -59,7 +59,15 @@ export const STANDARD_METRICS: Record<string, KBEntry> = new Proxy(
   },
 );
 
-/** Helper: get metric entry or empty object */
+/**
+ * Запись базы знаний в форме, которую понимает подсказка интерфейса.
+ *
+ * Это не второй реестр метрик (DEADCODE_DISPOSITION_2026-06-05 §W-8 читал его
+ * так): данные целиком приходят из METRIC_KB ядра, здесь только перекладка
+ * полей в тип KBEntry, который принадлежит компоненту подсказки. Разница с
+ * ядерным getMetricKB намеренная: ядро отдаёт undefined для неизвестного
+ * ключа, интерфейсу нужна пустая запись, иначе подсказка падает на месте.
+ */
 export function getMetricKB(key: string): KBEntry {
   return toKBEntry(key);
 }

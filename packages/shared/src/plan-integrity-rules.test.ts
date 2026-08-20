@@ -20,9 +20,11 @@ import {
   JOURNAL_BLIND_MAX_ENTRIES,
   PLAN_INTEGRITY_CHECKS,
   PLAN_INTEGRITY_RULES,
+  RUBLES_ABSOLUTE_THRESHOLD,
   type BookProvenance,
   type PlanJournalEdit,
 } from './plan-integrity-rules.js';
+import { exceedsThousandRub, rub, type Rub } from './money-units.js';
 
 // ────────────────────────────────────────────────────────────
 // Строители фикстур
@@ -110,6 +112,28 @@ describe('plan_units_rubles — рубли вместо тысяч (канон �
     expect(hit!.reasons).toContain('above_district_budget');
     expect(hit!.reasons).toContain('far_above_median');
     expect(hit!.reasons).toContain('kopecks_tail');
+  });
+
+  it('единица проверки помечена типом: порог в рублях в неё не подставить', () => {
+    // Страж перевода расчётного пути на помеченные деньги. Проверка ищет
+    // рубли, набранные в тысячную колонку, — значит сама обязана считать в
+    // тысячах и ни в чём другом. Строки с `@ts-expect-error` не должны
+    // компилироваться; снимут пометку с типов — `tsc` упадёт на «ошибки не
+    // было», и подмена единицы не пройдёт молча, как в БАГЕ #1.
+    const rows = [...backgroundSheet(), buy(28, 34_975.0, { H: 34_975_002.17 })];
+    const hit = detectRublesLikeAmounts(rows).hits.find((h) => h.cell === 'H28')!;
+
+    // Порог листа объявлен в тысячах (100 000 тыс. = 100 млн руб.).
+    expect(exceedsThousandRub(hit.value, RUBLES_ABSOLUTE_THRESHOLD)).toBe(true);
+
+    // @ts-expect-error порог, записанный в рублях, к сумме листа не применяется
+    exceedsThousandRub(hit.value, rub(100_000_000));
+    // @ts-expect-error и голое число за порог тоже не сойдёт
+    exceedsThousandRub(hit.value, 100_000);
+    // @ts-expect-error сумма листа — тысячи, рублями её не подменить
+    const _asRub: Rub = hit.value;
+
+    expect(typeof _asRub).toBe('number');
   });
 
   it('обычный лист в тысячах не даёт ни одной находки', () => {

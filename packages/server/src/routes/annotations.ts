@@ -30,7 +30,7 @@ export async function annotationsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/annotations/yearlong', async (_request, reply) => {
     let overrides: Array<{
       dept: string; ppNum: string; kind: string; provisional: number; updatedAt: string | null; createdAt: string;
-    }> = [];
+    }>;
     try {
       overrides = db.select().from(schema.yearlongKindOverrides).all();
     } catch (err) {

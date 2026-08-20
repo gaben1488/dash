@@ -5,7 +5,6 @@ import {
   normalizeDate,
   normalizeStatus,
   normalizeNumber,
-  normalizeReason,
   detectFieldType,
   applyTextNormalization,
   type FieldType,
@@ -295,24 +294,5 @@ describe('applyTextNormalization', () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────
-// normalizeReason
-// ────────────────────────────────────────────────────────────
-
-describe('normalizeReason', () => {
-  it('maps known variant to template', () => {
-    const r = normalizeReason('нет предложений');
-    expect(r.normalized).toBe('отсутствие предложений');
-    expect(r.rule).toBe('reason_template');
-  });
-
-  it('returns as-is for unknown reasons', () => {
-    const r = normalizeReason('неизвестная причина');
-    expect(r.normalized).toBe('неизвестная причина');
-    expect(r.changed).toBe(false);
-  });
-
-  it('returns null for empty patterns', () => {
-    expect(normalizeReason('-').normalized).toBeNull();
-  });
-});
+// normalizeReason удалён 20.08.2026 (зона В) — см. пояснение в
+// normalizer-rules.ts: мёртвый в проде и противоречил канону п.27.

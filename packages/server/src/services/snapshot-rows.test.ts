@@ -280,34 +280,12 @@ describe('строки-атомы снимка → procurement_rows (блок Е
 });
 
 /**
- * DDL таблицы журнала. Миграции проекта ad-hoc и живут в db/index.ts, который
- * этот поток не правит: до появления там этой же DDL тестовая БД создаёт
- * таблицу сама (в проде до того же момента роут честно откатывается на живое
- * чтение и говорит об этом в лог).
+ * Таблицу журнала правок заводит схема проекта (db/ddl.ts). Раньше её
+ * приходилось создавать здесь вручную, и это было честно записано как
+ * временная мера: в схеме таблицы не было вовсе, поэтому в бою запись падала,
+ * а роут молча откатывался на живое чтение книг. Теперь схема её создаёт, и
+ * тест работает на настоящей схеме, а не на своей копии.
  */
-const CHANGELOG_DDL: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS changelog_entries (
-    id TEXT PRIMARY KEY,
-    dept TEXT NOT NULL,
-    sheet TEXT NOT NULL,
-    cell TEXT NOT NULL,
-    attribute TEXT,
-    old_value TEXT,
-    new_value TEXT,
-    at_ms INTEGER NOT NULL,
-    author TEXT,
-    recorded_at TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_changelog_entries_at ON changelog_entries(at_ms)`,
-  `CREATE INDEX IF NOT EXISTS idx_changelog_entries_dept ON changelog_entries(dept, at_ms)`,
-];
-
-/** Применить DDL журнала к тестовой БД (по одному запросу: драйвер не берёт пачку). */
-async function createChangelogTable(): Promise<void> {
-  const { db } = await import('../db/index.js');
-  const { sql } = await import('drizzle-orm');
-  for (const statement of CHANGELOG_DDL) db.run(sql.raw(statement));
-}
 
 const change = (over: Partial<{ dept: string; sheet: string; cell: string; attribute: string; oldValue: string; newValue: string; atMs: number; author: string }> = {}) => ({
   dept: 'УО',
@@ -351,7 +329,6 @@ describe('журнал правок источника → changelog_entries (б
   });
 
   it('запись → чтение из БД: журнал переживает рестарт процесса', async () => {
-    await createChangelogTable();
     const before = (await import('../db/index.js')).db;
 
     const { saveChangeLogEntries } = await import('../routes/changes.js');
@@ -376,7 +353,6 @@ describe('журнал правок источника → changelog_entries (б
   }, 60000);
 
   it('повторное чтение того же журнала не плодит дублей, новая правка добавляется', async () => {
-    await createChangelogTable();
 
     const { saveChangeLogEntries, readChangeLogEntriesSince } = await import('../routes/changes.js');
     const first = change();

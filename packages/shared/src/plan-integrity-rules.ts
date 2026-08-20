@@ -43,6 +43,15 @@ import type {
 import type { CheckRegistryEntry } from './check-registry.js';
 import { toNumber } from './rule-book.js';
 import { hasFactDate } from './fact-date.js';
+import {
+  type ThousandRub,
+  thousandRub,
+  rub,
+  toThousandRub,
+  moneyValue,
+  exceedsThousandRub,
+  shareThousandRub,
+} from './money-units.js';
 
 // ============================================================
 // Общий словарь колонок и предикатов
@@ -230,7 +239,7 @@ function readProvenance(ctx: RuleCheckContext): BookProvenance | null {
  * Годовой бюджет района меньше, поэтому такая строка — не крупная закупка,
  * а почти наверняка рубли, набранные в колонку тысяч.
  */
-export const RUBLES_ABSOLUTE_THRESHOLD = 100_000;
+export const RUBLES_ABSOLUTE_THRESHOLD: ThousandRub = thousandRub(100_000);
 
 /** Строгий множитель к медиане листа: два порядка (канон п.102 — «2-3 порядка»). */
 export const RUBLES_MEDIAN_RATIO = 100;
@@ -261,18 +270,19 @@ export interface RublesLikeHit {
   cell: string;
   rowIndex: number;
   column: string;
-  value: number;
+  /** Число, КАК ОНО НАПИСАНО в колонке: колонка тысячная, значит и единица тысячная. */
+  value: ThousandRub;
   /** Во сколько раз больше медианы листа; null — медиана не построена. */
   ratioToMedian: number | null;
-  /** Как это же число выглядело бы в тысячах. */
-  asThousands: number;
+  /** То же число, прочитанное как рубли: столько тысяч имелось в виду. */
+  asThousands: ThousandRub;
   reasons: RublesLikeReason[];
 }
 
 export interface RublesLikeReport {
   hits: RublesLikeHit[];
   /** Медиана положительных сумм листа; null — сумм слишком мало. */
-  median: number | null;
+  median: ThousandRub | null;
   /** Сколько положительных сумм участвовало в медиане. */
   sampleSize: number;
 }
@@ -284,11 +294,28 @@ function hasKopecksTail(v: number): boolean {
   return cents % 100 !== 0;
 }
 
-function median(values: number[]): number | null {
+function median(values: ThousandRub[]): ThousandRub | null {
   if (values.length === 0) return null;
   const sorted = values.slice().sort((a, b) => a - b);
   const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const value = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  // Медиана сумм листа — такая же сумма листа: единица от выбора середины не меняется.
+  return thousandRub(value);
+}
+
+/**
+ * ПЕРЕЧИТАТЬ то же самое число так, будто оно набрано в рублях, и вернуть,
+ * сколько это в тысячах. Здесь и живёт весь смысл проверки: в тысячной
+ * колонке стоит число, похожее на рубли, и читателю показывают, какая сумма
+ * имелась в виду (34 975 002,17 → 34 975,00).
+ *
+ * Перемена единицы намеренная, поэтому она записана явно — через объявление
+ * «считаем это рублями» и один канонический перевод. Голого деления на 1000
+ * здесь больше нет: именно такое деление, рассыпанное по файлам, и порождает
+ * ошибки, которые эта проверка ищет.
+ */
+function readAsIfRubles(written: ThousandRub): ThousandRub {
+  return toThousandRub(rub(moneyValue(written)));
 }
 
 /**
@@ -301,15 +328,29 @@ function median(values: number[]): number | null {
  */
 export function detectRublesLikeAmounts(rows: readonly ClassifiedRow[]): RublesLikeReport {
   const counted = countedRows(rows);
-  const population: number[] = [];
-  const candidates: Array<{ cell: string; column: string; rowIndex: number; value: number }> = [];
+  const population: ThousandRub[] = [];
+  const candidates: Array<{
+    cell: string;
+    column: string;
+    rowIndex: number;
+    value: ThousandRub;
+  }> = [];
 
   for (const r of counted) {
     for (const col of [...PLAN_MONEY_COLUMNS, ...FACT_MONEY_COLUMNS]) {
       const v = toNumber(r.cells[col]);
       if (v === null || v <= 0) continue;
-      population.push(v);
-      candidates.push({ cell: `${col}${r.rowIndex}`, column: col, rowIndex: r.rowIndex, value: v });
+      // ГРАНИЦА: голое число из ячейки объявляется тысячами — это обещание
+      // колонки (H/I/J/K, V/W/X/Y ведутся в тысячах). Дальше по расчёту
+      // единица уже помечена, и потерять её молча нельзя.
+      const amount = thousandRub(v);
+      population.push(amount);
+      candidates.push({
+        cell: `${col}${r.rowIndex}`,
+        column: col,
+        rowIndex: r.rowIndex,
+        value: amount,
+      });
     }
   }
 
@@ -319,9 +360,13 @@ export function detectRublesLikeAmounts(rows: readonly ClassifiedRow[]): RublesL
   for (const c of candidates) {
     const reasons: RublesLikeReason[] = [];
     const kopecks = hasKopecksTail(c.value);
-    const ratio = med !== null && med > 0 ? c.value / med : null;
+    const ratio = med !== null ? shareThousandRub(c.value, med) : null;
 
-    if (c.value > RUBLES_ABSOLUTE_THRESHOLD) reasons.push('above_district_budget');
+    // Порог и сумма — обе в тысячах; подпись exceedsThousandRub не даст
+    // подставить сюда порог, записанный в рублях (тот самый БАГ #1).
+    if (exceedsThousandRub(c.value, RUBLES_ABSOLUTE_THRESHOLD)) {
+      reasons.push('above_district_budget');
+    }
     if (ratio !== null) {
       const need = kopecks ? RUBLES_MEDIAN_RATIO_WITH_KOPECKS : RUBLES_MEDIAN_RATIO;
       if (ratio >= need) reasons.push('far_above_median');
@@ -336,7 +381,7 @@ export function detectRublesLikeAmounts(rows: readonly ClassifiedRow[]): RublesL
       column: c.column,
       value: c.value,
       ratioToMedian: ratio,
-      asThousands: c.value / 1000,
+      asThousands: readAsIfRubles(c.value),
       reasons,
     });
   }
@@ -441,7 +486,9 @@ export interface RetroPlanCut {
   /** Снятая сумма: было − стало. */
   removed: number;
   atMs: number;
-  author?: string;
+  // Журнал правок не всегда называет автора. «Автора нет» и «автор неизвестен»
+  // для разбора одно и то же, поэтому undefined разрешён явно.
+  author?: string | undefined;
   evidence: RetroCutEvidence;
 }
 

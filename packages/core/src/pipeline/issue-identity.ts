@@ -32,7 +32,7 @@ const MASK_64 = 0xffffffffffffffffn;
 export const SEP = '\u001f';
 
 /** FNV-1a 64-bit от UTF-16 code units строки → 16 hex-символов. */
-export function fnv1a64(input: string): string {
+function fnv1a64(input: string): string {
   let hash = FNV_OFFSET;
   for (let i = 0; i < input.length; i++) {
     hash ^= BigInt(input.charCodeAt(i));

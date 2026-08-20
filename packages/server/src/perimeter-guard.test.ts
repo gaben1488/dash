@@ -30,8 +30,22 @@ function sources(dir: string = SRC, out: string[] = []): string[] {
   return out;
 }
 
-/** Аргументы-имена листов, у которых периметра ГРБС нет: это книги СВОД и ШДЮ. */
-const NON_DEPT_SHEETS = new Set(['SVOD_SHEET_NAME', 'SHDYU_MONTHLY_SHEET_NAME', 'SHDYU_SHEET_NAME']);
+/**
+ * Аргументы-имена листов, у которых периметра ГРБС нет.
+ *
+ * СВОД и ШДЮ — другие книги. `CHANGELOG_SHEET_NAME` («_ChangeLog») — служебная
+ * вкладка журнала правок: в книге она ровно одна, агрегата «ВСЕ» и
+ * подведомственных двойников у неё нет, поэтому двойной счёт строк ей не грозит.
+ * Разрешение даётся ИМЕНИ ЛИСТА, а не файлу: общий читатель журнала
+ * (services/changelog-source.ts) заведён затем, чтобы читателей стало меньше, а
+ * не затем, чтобы список исключений рос вместе с ними.
+ */
+const NON_DEPT_SHEETS = new Set([
+  'SVOD_SHEET_NAME',
+  'SHDYU_MONTHLY_SHEET_NAME',
+  'SHDYU_SHEET_NAME',
+  'CHANGELOG_SHEET_NAME',
+]);
 
 /** Кому прямое чтение разрешено — с причиной. Список растёт только осознанно. */
 const ALLOWED: Record<string, string> = {

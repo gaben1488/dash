@@ -3,6 +3,7 @@ import {
   reconcile,
   reconcileMonthly,
   crossVerifyQuarterly,
+  type MonthlySHDYUMonth,
   SHDYU_RECON_ROOT_CAUSES,
   type OfficialMetrics,
 } from './reconcile.js';
@@ -835,7 +836,7 @@ describe('crossVerifyQuarterly', () => {
   });
 
   it('processes all 4 quarters when data exists', () => {
-    const months: Record<number, any> = {};
+    const months: Record<number, MonthlySHDYUMonth> = {};
     for (let m = 1; m <= 12; m++) {
       months[m] = { compPlanCount: 10, compFactCount: 5, epPlanCount: 2, epFactCount: 1 };
     }

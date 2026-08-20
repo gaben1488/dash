@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { KBTooltip } from './ui/kb-tooltip';
 import {
@@ -133,6 +133,16 @@ export function RatingTableV2({
   const [sortKey, setSortKey] = useState<SortKey>('execCountPct');
   const [sortAsc, setSortAsc] = useState(false);
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
+
+  /**
+   * Обработчики строк держатся неизменными между отрисовками, иначе memo на
+   * DeptRowComponent не спасает: новая стрелка на каждый проход — новые пропсы,
+   * и React перерисовывает все строки (SIMPLIFY_REGISTER_2026-06-05 §W1).
+   * Управление узнаётся по коду, который строка передаёт назад.
+   */
+  const toggleExpanded = useCallback((deptId: string) => {
+    setExpandedDept(prev => (prev === deptId ? null : deptId));
+  }, []);
 
   const sorted = useMemo(
     () =>
@@ -293,24 +303,19 @@ export function RatingTableV2({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((dept, i) => {
-            const isExpanded = expandedDept === dept.id;
-            return (
-              <DeptRowComponent
-                key={dept.id}
-                dept={dept}
-                rank={i + 1}
-                showMedals={showMedals}
-                isExpanded={isExpanded}
-                showSubordinates={showSubordinates}
-                onToggleExpand={() =>
-                  setExpandedDept(isExpanded ? null : dept.id)
-                }
-                onDeptClick={() => onDeptClick(dept.id)}
-                onDeptDetail={() => onDeptDetail(dept.id)}
-              />
-            );
-          })}
+          {sorted.map((dept, i) => (
+            <DeptRowComponent
+              key={dept.id}
+              dept={dept}
+              rank={i + 1}
+              showMedals={showMedals}
+              isExpanded={expandedDept === dept.id}
+              showSubordinates={showSubordinates}
+              onToggleExpand={toggleExpanded}
+              onDeptClick={onDeptClick}
+              onDeptDetail={onDeptDetail}
+            />
+          ))}
         </tbody>
       </table>
       <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-2">
@@ -413,7 +418,14 @@ function SubLine({ sub }: { sub: SubRow }) {
   );
 }
 
-function DeptRowComponent({
+/**
+ * Строка рейтинга. Обёрнута в memo: управлений два десятка, а внутри строки
+ * живёт кривая динамики на recharts — при сортировке или раскрытии соседа
+ * перерисовывались все строки разом (SIMPLIFY_REGISTER_2026-06-05 §W1).
+ * Обработчики принимают код управления, чтобы таблица могла держать их
+ * неизменными и memo действительно срабатывал.
+ */
+const DeptRowComponent = memo(function DeptRowComponent({
   dept,
   rank,
   showMedals,
@@ -428,9 +440,9 @@ function DeptRowComponent({
   showMedals: boolean;
   isExpanded: boolean;
   showSubordinates: boolean;
-  onToggleExpand: () => void;
-  onDeptClick: () => void;
-  onDeptDetail: () => void;
+  onToggleExpand: (deptId: string) => void;
+  onDeptClick: (deptId: string) => void;
+  onDeptDetail: (deptId: string) => void;
 }) {
   const hasTrust = dept.trustScore != null;
   const trustColor = getThresholdColor('dept_trust', dept.trustScore ?? 0);
@@ -486,8 +498,8 @@ function DeptRowComponent({
           isExpanded && 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/30 dark:border-blue-800/30',
         )}
         onClick={() => {
-          onDeptClick();
-          onToggleExpand();
+          onDeptClick(dept.id);
+          onToggleExpand(dept.id);
         }}
       >
         {/* Место в текущей сортировке */}
@@ -507,8 +519,8 @@ function DeptRowComponent({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onDeptClick();
-              onToggleExpand();
+              onDeptClick(dept.id);
+              onToggleExpand(dept.id);
             }}
             aria-expanded={isExpanded}
             title={`${dept.name} — раскрыть подробности и отфильтровать страницу по этому управлению`}
@@ -652,7 +664,7 @@ function DeptRowComponent({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onDeptDetail();
+              onDeptDetail(dept.id);
             }}
             className="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
             title={`Открыть реестр строк управления «${dept.nameShort}»`}
@@ -730,7 +742,7 @@ function DeptRowComponent({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onDeptDetail();
+                    onDeptDetail(dept.id);
                   }}
                   className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                 >
@@ -744,4 +756,4 @@ function DeptRowComponent({
       )}
     </>
   );
-}
+});

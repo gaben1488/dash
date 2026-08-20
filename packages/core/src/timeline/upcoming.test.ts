@@ -114,4 +114,16 @@ describe('buildUpcoming — риск-контекст', () => {
     const [r] = buildUpcoming(rows, { asOfDay: TODAY, days: 14 });
     expect(r.planSum).toBeCloseTo(1234.56, 2);
   });
+
+  it('мусор и пустота в сумме плана дают 0 — слагаемое, не «неизвестно» (страж консолидации 20.08)', () => {
+    // planSum считается через таймлайновую null-коэрцию + `?? 0`; страж
+    // фиксирует, что для слагаемого суммы окна мусор остаётся нулём.
+    const rows = [
+      row(4, { G: 'Мусор', L: 'ЭА', K: 'н/д', N: '01.07.2026', Q: 'Х' }),
+      row(5, { G: 'Пусто', L: 'ЭА', K: '', N: '01.07.2026', Q: 'Х' }),
+    ];
+    const got = buildUpcoming(rows, { asOfDay: TODAY, days: 14 });
+    expect(got.find((r) => r.sheetRow === 4)?.planSum).toBe(0);
+    expect(got.find((r) => r.sheetRow === 5)?.planSum).toBe(0);
+  });
 });

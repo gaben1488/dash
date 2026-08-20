@@ -111,19 +111,11 @@ export const auditLog = sqliteTable('audit_log', {
   userId: text('user_id'),
 });
 
-/**
- * Ошибки ввода — лог попыток невалидного ввода
- */
-export const inputErrors = sqliteTable('input_errors', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  departmentId: text('department_id').notNull(),
-  rowIndex: integer('row_index').notNull(),
-  field: text('field').notNull(),
-  attemptedValue: text('attempted_value'),
-  reason: text('reason').notNull(),
-  userId: text('user_id'),
-  timestamp: text('timestamp').notNull(),
-});
+// Таблица input_errors (лог попыток невалидного ввода) удалена из модели
+// 20.08.2026 (зона В): за всё время в неё никто не писал и из неё никто не
+// читал — фича «лог отвергнутого ввода» не была реализована. На базах,
+// заведённых раньше, пустая таблица остаётся лежать — это безвредно
+// (DDL её больше не создаёт, но и DROP не делаем: чужие данные не трогаем).
 
 /**
  * Оверрайды маппинга — кастомные изменения ячеек

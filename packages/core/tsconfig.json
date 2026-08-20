@@ -1,8 +1,14 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "// ИСКЛЮЧЕНИЕ src/__scan-*.ts": "Разовые прогоны по живым данным: читают выгрузку из временной папки и пишут туда же отчёт. Это не часть пакета, а инструмент разведки на один раз. Пакет core намеренно не знает про среду выполнения — в его зависимостях нет типов Node, и ни один рабочий файл не обращается к файловой системе. Чтобы такой прогон не ронял проверку типов всего пакета, имена по образцу __scan-* выведены за периметр.",
+  "// ДВА ФЛАГА ВЫКЛЮЧЕНЫ ОБРАТНО": "exactOptionalPropertyTypes и noUnusedParameters включены в tsconfig.strict.json, но здесь погашены: оставшиеся ошибки лежат в src/analytics/**, который в этой волне правит другой исполнитель. Все прочие места пакета под оба флага уже вычищены — проверяется прогоном tsconfig.probe-exactOptionalPropertyTypes.json и tsconfig.probe-noUnusedParameters.json: там должны остаться только строки из analytics. Когда их поправят, эти две строки удаляются и core встаёт на общую ступень без других правок.",
+
+  "extends": "../../tsconfig.strict.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "exactOptionalPropertyTypes": false,
+    "noUnusedParameters": false
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/__scan-*.ts"]
 }

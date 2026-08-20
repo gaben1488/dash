@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { getSnapshot, invalidateCache, setDeptSheetCache, setDeptLoadMeta, setSvodGridCache } from '../services/snapshot.js';
-import { fetchDepartmentSpreadsheets, getSheetData } from '../services/google-sheets.js';
+import { getSnapshot, invalidateCache, setSvodGridCache, getDeptLoadMeta, getDeptSheetCache } from '../services/snapshot.js';
+import { getSheetData } from '../services/google-sheets.js';
+import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
@@ -16,6 +17,96 @@ import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } fro
 const SNAPSHOT_UNAVAILABLE = {
   error: 'Данные недоступны: не удалось получить снимок из источника. Повторите позже.',
 } as const;
+
+/**
+ * Блок чисел одного периода (квартал, год или месяц) в сводке ГРБС.
+ *
+ * Один тип и один строитель на все три случая: раньше список полей был выписан
+ * отдельно для кварталов, отдельно для месяцев и отдельно для годового среза,
+ * а сами блоки объявлялись как `Record<string, any>` — состав приходилось
+ * держать совпадающим вручную, и типизация расхождения не ловила
+ * (SIMPLIFY_REGISTER_2026-06-05 §S3 и §S6).
+ * Замок: routes/dashboard-period-block.test.ts.
+ */
+type PeriodBlock = {
+  planCount: number | null;
+  factCount: number | null;
+  planTotal: number | null;
+  factTotal: number | null;
+  planFB: number | null;
+  planKB: number | null;
+  planMB: number | null;
+  factFB: number | null;
+  factKB: number | null;
+  factMB: number | null;
+  economyTotal: number | null;
+  economyFB: number | null;
+  economyKB: number | null;
+  economyMB: number | null;
+  executionPct: number | null;
+  execCountPct: number | null;
+  compExecCountPct: number | null;
+  epExecCountPct: number | null;
+  kpCount: number | null;
+  kpFactCount: number | null;
+  kpPlanTotal: number | null;
+  kpFactTotal: number | null;
+  epCount: number | null;
+  epFactCount: number | null;
+  epPlanTotal: number | null;
+  epFactTotal: number | null;
+};
+
+/**
+ * Собирает блок периода из рассчитанных метрик снимка.
+ *
+ * @param calc   рассчитанные метрики снимка
+ * @param prefix ярус ГРБС, например `grbs.uo`
+ * @param period ключ периода: `q1`…`q4`, `year` или `m1`…`m12`
+ *
+ * Доли ядро хранит долями единицы, наружу они уходят процентами с одним знаком
+ * после запятой. Отсутствие метрики остаётся пустотой, а не нулём: ноль значит
+ * «посчитано и вышло ноль», пустота — «считать было нечего».
+ */
+function buildPeriodBlock(
+  calc: Record<string, NormalizedMetric>,
+  prefix: string,
+  period: string,
+): PeriodBlock {
+  const get = (key: string): number | null => calc[key]?.numericValue ?? null;
+  const pct = (key: string): number | null => {
+    const raw = get(key);
+    return raw != null ? +(raw * 100).toFixed(1) : null;
+  };
+  return {
+    planCount: get(`${prefix}.${period}.plan_count`),
+    factCount: get(`${prefix}.${period}.fact_count`),
+    planTotal: get(`${prefix}.${period}.plan_total`),
+    factTotal: get(`${prefix}.${period}.fact_total`),
+    planFB: get(`${prefix}.${period}.fb_plan`),
+    planKB: get(`${prefix}.${period}.kb_plan`),
+    planMB: get(`${prefix}.${period}.mb_plan`),
+    factFB: get(`${prefix}.${period}.fb_fact`),
+    factKB: get(`${prefix}.${period}.kb_fact`),
+    factMB: get(`${prefix}.${period}.mb_fact`),
+    economyTotal: get(`${prefix}.${period}.economy_total`),
+    economyFB: get(`${prefix}.${period}.economy_fb`),
+    economyKB: get(`${prefix}.${period}.economy_kb`),
+    economyMB: get(`${prefix}.${period}.economy_mb`),
+    executionPct: pct(`${prefix}.${period}.execution_pct`),
+    execCountPct: pct(`${prefix}.${period}.exec_count_pct`),
+    compExecCountPct: pct(`${prefix}.${period}.comp_exec_count_pct`),
+    epExecCountPct: pct(`${prefix}.${period}.ep_exec_count_pct`),
+    kpCount: get(`${prefix}.kp.${period}.count`),
+    kpFactCount: get(`${prefix}.kp.${period}.fact`),
+    kpPlanTotal: get(`${prefix}.kp.${period}.total_plan`),
+    kpFactTotal: get(`${prefix}.kp.${period}.total_fact`),
+    epCount: get(`${prefix}.ep.${period}.count`),
+    epFactCount: get(`${prefix}.ep.${period}.fact`),
+    epPlanTotal: get(`${prefix}.ep.${period}.total_plan`),
+    epFactTotal: get(`${prefix}.ep.${period}.total_fact`),
+  };
+}
 
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
@@ -135,93 +226,24 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       const deptTrust = computeTrustScore(deptMetricsMap, deptIssues, deptDeltas, snapshot.id);
       const trustScore = deptTrust.overall;
 
-      // Build quarterly data from calculated metrics
-      const quarters: Record<string, any> = {};
+      // Кварталы, год и месяцы собираются ОДНИМ строителем (buildPeriodBlock):
+      // до 18.08.2026 список из двадцати шести полей был переписан здесь трижды,
+      // и состав месяца с кварталом приходилось держать совпадающим вручную
+      // (SIMPLIFY_REGISTER_2026-06-05 §S3).
+      const quarters: Record<string, PeriodBlock> = {};
       for (const qk of ['q1', 'q2', 'q3', 'q4', 'year'] as const) {
-        const prefix = `grbs.${dept.id}`;
-        const cGet = (key: string) => calc[key]?.numericValue ?? null;
-        quarters[qk] = {
-          planCount: cGet(`${prefix}.${qk}.plan_count`),
-          factCount: cGet(`${prefix}.${qk}.fact_count`),
-          planTotal: cGet(`${prefix}.${qk}.plan_total`),
-          factTotal: cGet(`${prefix}.${qk}.fact_total`),
-          planFB: cGet(`${prefix}.${qk}.fb_plan`),
-          planKB: cGet(`${prefix}.${qk}.kb_plan`),
-          planMB: cGet(`${prefix}.${qk}.mb_plan`),
-          factFB: cGet(`${prefix}.${qk}.fb_fact`),
-          factKB: cGet(`${prefix}.${qk}.kb_fact`),
-          factMB: cGet(`${prefix}.${qk}.mb_fact`),
-          economyTotal: cGet(`${prefix}.${qk}.economy_total`),
-          economyFB: cGet(`${prefix}.${qk}.economy_fb`),
-          economyKB: cGet(`${prefix}.${qk}.economy_kb`),
-          economyMB: cGet(`${prefix}.${qk}.economy_mb`),
-          executionPct: cGet(`${prefix}.${qk}.execution_pct`) != null
-            ? +((cGet(`${prefix}.${qk}.execution_pct`) as number) * 100).toFixed(1)
-            : null,
-          execCountPct: cGet(`${prefix}.${qk}.exec_count_pct`) != null
-            ? +((cGet(`${prefix}.${qk}.exec_count_pct`) as number) * 100).toFixed(1)
-            : null,
-          compExecCountPct: cGet(`${prefix}.${qk}.comp_exec_count_pct`) != null
-            ? +((cGet(`${prefix}.${qk}.comp_exec_count_pct`) as number) * 100).toFixed(1)
-            : null,
-          epExecCountPct: cGet(`${prefix}.${qk}.ep_exec_count_pct`) != null
-            ? +((cGet(`${prefix}.${qk}.ep_exec_count_pct`) as number) * 100).toFixed(1)
-            : null,
-          kpCount: cGet(`${prefix}.kp.${qk}.count`),
-          kpFactCount: cGet(`${prefix}.kp.${qk}.fact`),
-          kpPlanTotal: cGet(`${prefix}.kp.${qk}.total_plan`),
-          kpFactTotal: cGet(`${prefix}.kp.${qk}.total_fact`),
-          epCount: cGet(`${prefix}.ep.${qk}.count`),
-          epFactCount: cGet(`${prefix}.ep.${qk}.fact`),
-          epPlanTotal: cGet(`${prefix}.ep.${qk}.total_plan`),
-          epFactTotal: cGet(`${prefix}.ep.${qk}.total_fact`),
-        };
+        quarters[qk] = buildPeriodBlock(calc, prefix, qk);
       }
 
-      // Build monthly data (m1-m12) from calculated metrics
-      const months: Record<number, any> = {};
-      const cGetM = (key: string) => calc[key]?.numericValue ?? null;
+      // Месяц без плана и без факта не материализуется: пустой блок читался бы
+      // как «месяц посчитан, вышли нули», а не «строк этого месяца нет».
+      const months: Record<number, PeriodBlock> = {};
       for (let mi = 1; mi <= 12; mi++) {
         const mk = `m${mi}`;
-        const hasPlan = cGetM(`${prefix}.${mk}.plan_count`);
-        const hasFact = cGetM(`${prefix}.${mk}.fact_count`);
+        const hasPlan = calc[`${prefix}.${mk}.plan_count`]?.numericValue ?? null;
+        const hasFact = calc[`${prefix}.${mk}.fact_count`]?.numericValue ?? null;
         if (hasPlan != null || hasFact != null) {
-          months[mi] = {
-            planCount: cGetM(`${prefix}.${mk}.plan_count`),
-            factCount: cGetM(`${prefix}.${mk}.fact_count`),
-            planTotal: cGetM(`${prefix}.${mk}.plan_total`),
-            factTotal: cGetM(`${prefix}.${mk}.fact_total`),
-            planFB: cGetM(`${prefix}.${mk}.fb_plan`),
-            planKB: cGetM(`${prefix}.${mk}.kb_plan`),
-            planMB: cGetM(`${prefix}.${mk}.mb_plan`),
-            factFB: cGetM(`${prefix}.${mk}.fb_fact`),
-            factKB: cGetM(`${prefix}.${mk}.kb_fact`),
-            factMB: cGetM(`${prefix}.${mk}.mb_fact`),
-            economyTotal: cGetM(`${prefix}.${mk}.economy_total`),
-            economyFB: cGetM(`${prefix}.${mk}.economy_fb`),
-            economyKB: cGetM(`${prefix}.${mk}.economy_kb`),
-            economyMB: cGetM(`${prefix}.${mk}.economy_mb`),
-            executionPct: cGetM(`${prefix}.${mk}.execution_pct`) != null
-              ? +((cGetM(`${prefix}.${mk}.execution_pct`) as number) * 100).toFixed(1)
-              : null,
-            execCountPct: cGetM(`${prefix}.${mk}.exec_count_pct`) != null
-              ? +((cGetM(`${prefix}.${mk}.exec_count_pct`) as number) * 100).toFixed(1)
-              : null,
-            compExecCountPct: cGetM(`${prefix}.${mk}.comp_exec_count_pct`) != null
-              ? +((cGetM(`${prefix}.${mk}.comp_exec_count_pct`) as number) * 100).toFixed(1)
-              : null,
-            epExecCountPct: cGetM(`${prefix}.${mk}.ep_exec_count_pct`) != null
-              ? +((cGetM(`${prefix}.${mk}.ep_exec_count_pct`) as number) * 100).toFixed(1)
-              : null,
-            kpCount: cGetM(`${prefix}.kp.${mk}.count`),
-            kpFactCount: cGetM(`${prefix}.kp.${mk}.fact`),
-            kpPlanTotal: cGetM(`${prefix}.kp.${mk}.total_plan`),
-            kpFactTotal: cGetM(`${prefix}.kp.${mk}.total_fact`),
-            epCount: cGetM(`${prefix}.ep.${mk}.count`),
-            epFactCount: cGetM(`${prefix}.ep.${mk}.fact`),
-            epPlanTotal: cGetM(`${prefix}.ep.${mk}.total_plan`),
-            epFactTotal: cGetM(`${prefix}.ep.${mk}.total_fact`),
-          };
+          months[mi] = buildPeriodBlock(calc, prefix, mk);
         }
       }
 
@@ -465,41 +487,60 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const sources: SourceStatus[] = [];
     const deptRows: Record<string, unknown[][]> = {};
 
-    // Full refresh: load department spreadsheets first (they feed into pipeline recalculation)
     if (!quick) {
+      // Полная перечитка идёт через ЕДИНЫЙ цикл чтения источников
+      // (services/source-refresh), а не собственной копией. Раньше маршрут
+      // читал книги, ПОТОМ лист СВОД, всё подряд и в обход общего цикла:
+      //   • лист СВОД ждал окончания восьми книг (замер на заглушках по
+      //     150 мс: ~330 мс на цикл против ~160 мс параллельного);
+      //   • ручное «Обновить» во время автоцикла или вебхука читало все
+      //     девять книг ВТОРОЙ раз одновременно — ровно тот залп, на который
+      //     Google отвечает «слишком часто» (реестр багов 09.07.2026).
+      // Единый цикл читает книги и СВОД параллельно, склеивает одновременные
+      // вызовы (inFlight), публикует живые события и пишет итог в журнал с
+      // числами — вторую правду о чтении источников держать нельзя (п.112).
+      // Страж: routes/dashboard-refresh.test.ts.
       try {
-        const { data, errors } = await fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS);
-        setDeptSheetCache(data, Object.keys(errors));
-
-        const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
-        const now = new Date().toISOString();
-        for (const [deptName, result] of Object.entries(data)) {
-          deptRows[deptName] = result.values;
-          loadMeta[deptName] = { loadedAt: now, rowCount: result.values.length, sheetName: result.sheetName };
-          sources.push({ name: deptName, type: 'department', loaded: true, rowCount: result.values.length });
-        }
-        for (const [deptName, errMsg] of Object.entries(errors)) {
-          loadMeta[deptName] = { loadedAt: now, rowCount: 0, sheetName: deptName, error: errMsg };
-          sources.push({ name: deptName, type: 'department', loaded: false, error: errMsg });
-        }
-        setDeptLoadMeta(loadMeta);
+        await refreshAllSources(
+          {
+            info: (msg) => app.log.info(msg),
+            warn: (msg) => app.log.warn(msg),
+          },
+          'request',
+        );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.log.warn('Department sheets load failed: %s', msg);
-        for (const deptName of Object.keys(DEPARTMENT_SPREADSHEETS)) {
-          sources.push({ name: deptName, type: 'department', loaded: false, error: msg });
+        // Цикл сам не валится от отказа отдельной книги; сюда попадает только
+        // неожиданная поломка. Ответ строится из меты — что успело, то видно.
+        app.log.warn('Department sheets load failed: %s', err instanceof Error ? err.message : String(err));
+      }
+
+      // Ответ маршрута строится из меты цикла: та же правда, что у /api/health.
+      const meta = getDeptLoadMeta();
+      const cache = getDeptSheetCache();
+      for (const deptName of Object.keys(DEPARTMENT_SPREADSHEETS)) {
+        const m = meta[deptName];
+        if (m && !m.error) {
+          deptRows[deptName] = cache[deptName]?.values ?? [];
+          sources.push({ name: deptName, type: 'department', loaded: true, rowCount: m.rowCount });
+        } else {
+          sources.push({
+            name: deptName,
+            type: 'department',
+            loaded: false,
+            error: m?.error ?? 'книга не читалась в этом цикле',
+          });
         }
       }
-    }
-
-    // Load SVOD snapshot (pipeline uses cached dept data for recalculation + deltas)
-    invalidateCache();
-    // Сырой СВОД-грид — тем же refresh-циклом (full: вместе с книгами;
-    // quick: явная просьба «обнови СВОД») — сверка отчёта видит один момент.
-    try {
-      setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
-    } catch (err) {
-      app.log.warn('SVOD grid refresh failed: %s', (err as Error).message);
+      // Кэш снимка и СВОД-грид обновлены циклом; отдельное чтение СВОДа здесь
+      // было бы вторым обращением к тому же листу за один щелчок.
+    } else {
+      // Быстрый путь — явная просьба «обнови только СВОД», книги не трогаем.
+      invalidateCache();
+      try {
+        setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
+      } catch (err) {
+        app.log.warn('SVOD grid refresh failed: %s', (err as Error).message);
+      }
     }
     let snapshot;
     try {

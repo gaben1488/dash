@@ -18,6 +18,8 @@ function base(overrides: Partial<RowTimeline> = {}): RowTimeline {
     events: [],
     historySince: null,
     historyNote: 'нет истории',
+    // null — история не резалась по границе чужой закупки (канон п.117).
+    identityCutAt: null,
     ...overrides,
   };
 }

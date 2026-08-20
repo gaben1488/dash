@@ -38,20 +38,30 @@ const COERCE_HOME = 'shared/src/svod-grid.ts';
 const FMT_DEBT: Record<string, string[]> = {
   'web/src/lib/recon/format.ts': ['fmtPct'],
   'web/src/pages/SvodView.tsx': ['fmtCount', 'fmtPct', 'fmtMoney'],
+  // Шов 17 реестра швов 09.07.2026 (сверка 18.08): волны августа завели свои
+  // форматтеры мимо дома. Оба файла принадлежат живым волнам («Нагрузка
+  // управлений» и «Мониторинг») — переносить их в дом чужой рукой нельзя,
+  // поэтому копии учтены здесь поимённо. Консолидация — волной В0.
+  'web/src/components/workload/contract.ts': ['fmtCount'],
+  'web/src/lib/monitoring/format.ts': ['fmtPct', 'fmtCount'],
+  // Волна «Гигиена текстов» (20.08, п.122) — живая на момент сверки зоны В:
+  // её fmtCount учтён тем же порядком, что и два соседа выше. Консолидация
+  // всех форматтеров в дом — волной В0.
+  'web/src/components/text-hygiene/contract.ts': ['fmtCount'],
 };
 
 /** Долг: сколько самописных коэрций в файле известно. Сокращается волной В0. */
 const COERCE_DEBT: Record<string, number> = {
-  // Волна «строка во времени» (14.08, п.75): две локальные sheetNumber с РАЗНОЙ
-  // семантикой мусора — у таймлайна мусор → null (дифф не выдумывает нулей),
-  // у «близких к реализации» мусор → 0 (слагаемое суммы). Консолидация в дом
-  // коэрции — волной В0, вместе с остальными строками этого списка.
+  // Волна «строка во времени» (14.08, п.75), ужата чисткой 20.08 (зона В):
+  // sheetNumber (row-timeline) — ЕДИНСТВЕННАЯ null-коэрция ядра. К ней
+  // сведены копии upcoming.ts («мусор → 0» = `sheetNumber(v) ?? 0`),
+  // ingest.ts (getCellNumber удалена вместе с мёртвым grid-путём), а также
+  // normalize.ts, normalizer-rules.ts (2 шт.) и signals.ts (toNumber =
+  // `sheetNumber(v) ?? NaN`) — у всех семантика «мусор → null/NaN»
+  // совпадала. Оставшаяся единственная — до В0: дом (svod-grid) отдаёт 0
+  // и на пустоту, и на мусор, а диффу таймлайна нужен честный null;
+  // в В0 sheetNumber переезжает в дом как его null-вариант.
   'core/src/timeline/row-timeline.ts': 1,
-  'core/src/timeline/upcoming.ts': 1,
-  'core/src/pipeline/ingest.ts': 1,
-  'core/src/pipeline/normalize.ts': 1,
-  'core/src/pipeline/normalizer-rules.ts': 2,
-  'core/src/pipeline/signals.ts': 1,
   'server/src/routes/reconciliation.ts': 1,
   'server/src/routes/rows.ts': 2,
   'server/src/services/rows-dto.ts': 1,
@@ -73,6 +83,21 @@ const COERCE_DEBT: Record<string, number> = {
   // волной В0, но только вместе с введением в доме варианта, дающего null.
   'core/src/provenance/plan-provenance.ts': 1,
   'server/src/routes/provenance.ts': 1,
+  // Шов 17 реестра швов 09.07.2026 (сверка 18.08): четыре коэрции волн августа
+  // мимо дома. У каждой семантика расходится с домом (svod-grid отдаёт 0 и на
+  // пустоту, и на мусор), поэтому механически перевести нельзя:
+  //  — journalNumber (журнал правок): пусто и «(пусто)» → null — журнал пишет
+  //    и числом, и текстом, и «684.0» рядом с 684;
+  //  — num (контракт мониторинга): ноль — значение, а не пустота; мусор → null;
+  //  — hasFactMoney (согласованность комментариев): не коэрция-значение, а
+  //    предикат «есть ли деньги хоть в одной из V/W/X/Y» — мусор просто false.
+  // Все четыре файла принадлежат живым волнам (аналитика, мониторинг,
+  // согласованность комментариев). Консолидация — волной В0, после появления
+  // в доме варианта с null-семантикой (см. запись про plan-provenance выше).
+  'core/src/analytics/anomaly-detection.ts': 1,
+  'core/src/monitoring/cells.ts': 1,
+  'core/src/pipeline/comment-consistency.ts': 1,
+  'web/src/lib/monitoring/contract.ts': 1,
 };
 
 const FMT_DECL = /^\s*(?:export\s+)?(?:async\s+)?(?:function|const)\s+(fmtPct|fmtMoney|fmtCount|fmtThousands)\b/;

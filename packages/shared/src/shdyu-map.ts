@@ -383,10 +383,12 @@ export interface SHDYUDeptData {
    * `Record<label, entry>` затирал КП-кварталы ЕП-кварталами — район
    * показывал 381 736 тыс. руб. вместо 1 173 035 (32,5 % правды).
    */
-  quarterly?: {
-    comp: Record<string, SHDYUQuarterlyEntry>;
-    ep: Record<string, SHDYUQuarterlyEntry>;
-  };
+  quarterly?:
+    | {
+        comp: Record<string, SHDYUQuarterlyEntry>;
+        ep: Record<string, SHDYUQuarterlyEntry>;
+      }
+    | undefined;
 }
 
 export const SHDYU_SHEET_NAME = 'ШДЮ';

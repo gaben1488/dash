@@ -8,6 +8,7 @@ import {
   matchesActivityScope,
   parseActivityScope,
 } from './activity-scope';
+import * as dictionary from './dictionaries/activity-types.js';
 
 describe('activity-scope', () => {
   it('срезов ровно три: ВСЕ/ПМ/ТД — срез «ТД-ПМ» упразднён (канон п.30, 14.08.2026)', () => {
@@ -127,6 +128,35 @@ describe('classifyActivity — единый дом категории строк
     for (const [f, d] of cases) {
       expect(classifyActivity(f, d) === 'program').toBe(matchesActivityScope('pm', f, d));
       expect(classifyActivity(f, d) === 'current_non_program').toBe(matchesActivityScope('td', f, d));
+    }
+  });
+});
+
+/**
+ * Страж единственного дома классификации (DEADCODE_DISPOSITION §W-6).
+ *
+ * Справочник dictionaries/activity-types.ts до 18.08.2026 держал второй,
+ * мёртвый разбор колонки F (normalizeActivityType + таблица написаний).
+ * Разбор удалён; страж не даёт завести его снова где-нибудь рядом:
+ * классификация живёт здесь, справочник хранит только список видов,
+ * их подписи и канонические формулировки колонки.
+ */
+describe('единственный дом классификации вида', () => {
+  it('справочник видов не экспортирует собственный разбор колонки F', () => {
+    const names = Object.keys(dictionary);
+    expect(names).not.toContain('normalizeActivityType');
+    expect(names).not.toContain('ACTIVITY_TYPE_RAW_MAP');
+  });
+
+  it('справочник по-прежнему даёт список видов и их подписи', () => {
+    expect(dictionary.ACTIVITY_TYPES).toEqual(['program', 'current_program', 'current_non_program']);
+    expect(dictionary.ACTIVITY_TYPE_META.program.abbr).toBe('ПМ');
+    expect(dictionary.ACTIVITY_TYPE_META.current_non_program.abbr).toBe('ТД');
+  });
+
+  it('канонические формулировки колонки F распознаются живой классификацией', () => {
+    for (const raw of dictionary.VALID_ACTIVITY_TYPES_RAW) {
+      expect(classifyActivity(raw, '')).not.toBeNull();
     }
   });
 });

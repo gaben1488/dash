@@ -19,9 +19,15 @@
  * там null, а не ноль и не время попытки, выданное за успех.
  */
 import type { FastifyInstance } from 'fastify';
-import { SVOD_SHEET_NAME } from '@aemr/shared';
+import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptLoadMeta, getSvodGridCache } from '../services/snapshot.js';
+import {
+  getDeptLoadMeta,
+  getSvodGridCache,
+  getSvodLoadFailure,
+  getSHDYULoadMeta,
+} from '../services/snapshot.js';
+import { classifySourceFailure } from '../services/source-failure.js';
 
 /** Состояние одного источника: прочитан, не прочитан, ещё не читался. */
 export type SourceState = 'ok' | 'failed' | 'pending';
@@ -63,32 +69,33 @@ export interface HealthReport {
  * Причина отказа источника русской фразой. Наружу идёт только результат этой
  * классификации: исходный текст Google несёт и адрес книги, и почту учётной
  * записи, а маршрут публичный. Подробность остаётся в журнале сервера.
+ *
+ * Сама классификация живёт в services/source-failure.ts и используется ещё и
+ * журналом сервера. Здесь она ТОЛЬКО переизлучается: две одинаковые копии
+ * (а именно так и было — байт в байт) означают две правды о том, что такое
+ * «403», и расходятся они молча, при первой же правке одной из них.
  */
-export function classifySourceFailure(raw: string): string {
-  const text = raw.toLowerCase();
-  if (/не ответил|timeout|timedout|etimedout|deadline/.test(text)) {
-    return 'источник не ответил вовремя';
-  }
-  if (/\b429\b|quota|rate.?limit|too many requests/.test(text)) {
-    return 'источник ограничил частоту обращений';
-  }
-  if (/\b403\b|permission|forbidden|does not have access|insufficient/.test(text)) {
-    return 'нет доступа к книге';
-  }
-  if (/enotfound|eai_again|econnrefused|econnreset|socket hang up|network/.test(text)) {
-    return 'нет связи с источником';
-  }
-  if (/\b5\d\d\b|internal error|backend error|service unavailable/.test(text)) {
-    return 'источник временно недоступен';
-  }
-  if (/\b404\b|not found|no readable sheet|unable to parse range/.test(text)) {
-    return 'нужный лист в книге не найден';
-  }
-  return 'книга не прочитана';
-}
+export { classifySourceFailure };
 
 function svodItem(): SourceHealthItem {
   const grid = getSvodGridCache();
+  const failure = getSvodLoadFailure();
+
+  // Отказ в последнем цикле важнее прежнего успеха: лист, который сегодня не
+  // читается, обязан числиться непрочитанным, даже если вчера прочитался. Ради
+  // честности время прошлого успеха остаётся видимым — оно и говорит, насколько
+  // стары числа, собранные на этой сетке.
+  if (failure) {
+    return {
+      name: SVOD_SHEET_NAME,
+      state: 'failed',
+      loadedAt: grid?.loadedAt ?? null,
+      checkedAt: failure.checkedAt,
+      rowCount: null,
+      reason: failure.error,
+    };
+  }
+
   if (!grid) {
     return {
       name: SVOD_SHEET_NAME,
@@ -105,6 +112,44 @@ function svodItem(): SourceHealthItem {
     loadedAt: grid.loadedAt,
     checkedAt: grid.loadedAt,
     rowCount: grid.values.length,
+  };
+}
+
+/**
+ * Помесячный лист «СВОД с месяцами» — третий источник наравне с книгами и
+ * листом СВОД. В картине здоровья его не было вовсе, и фраза «прочитаны все
+ * источники» звучала даже тогда, когда весь помесячный официал не прочитан.
+ */
+function monthlyItem(): SourceHealthItem {
+  const meta = getSHDYULoadMeta();
+  if (meta.error) {
+    return {
+      name: SHDYU_MONTHLY_SHEET_NAME,
+      state: 'failed',
+      loadedAt: meta.loadedAt,
+      checkedAt: meta.checkedAt,
+      rowCount: null,
+      // Причина классифицируется здесь же: сохранённый текст отказа несёт
+      // сообщение Google, а маршрут публичный.
+      reason: classifySourceFailure(meta.error),
+    };
+  }
+  if (!meta.loadedAt) {
+    return {
+      name: SHDYU_MONTHLY_SHEET_NAME,
+      state: 'pending',
+      loadedAt: null,
+      checkedAt: meta.checkedAt,
+      rowCount: null,
+      reason: 'ещё не читался с запуска сервера',
+    };
+  }
+  return {
+    name: SHDYU_MONTHLY_SHEET_NAME,
+    state: 'ok',
+    loadedAt: meta.loadedAt,
+    checkedAt: meta.checkedAt,
+    rowCount: meta.rowCount,
   };
 }
 
@@ -184,7 +229,7 @@ function summarize(items: readonly SourceHealthItem[]): SourcesHealth {
 export function buildHealthReport(now: Date = new Date()): HealthReport {
   let sources: SourcesHealth;
   try {
-    sources = summarize([svodItem(), ...departmentItems()]);
+    sources = summarize([svodItem(), monthlyItem(), ...departmentItems()]);
   } catch {
     sources = {
       state: 'unknown',

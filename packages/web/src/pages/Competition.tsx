@@ -8,7 +8,10 @@
 //   2. «Кандидаты на объединение» — группы одинаковых предметов у разных
 //      заказчиков, ВКЛЮЧАЯ ЕП (страж §5.2), раскрытие до строк с адресами;
 //   3. «Доля ЕП» — счётная и денежная рядом, обе подписаны (канон п. 36),
-//      динамика по кварталам.
+//      динамика по кварталам;
+//   4. «Из чего состоит ЕП» — тот же объём без торгов, разложенный на четыре
+//      степени обоснованности, с отдельно названным сокращаемым ЕП и
+//      динамикой его снижения по кварталам (канон п. 98ж).
 //
 // Счёт ЕП/КП за периметр делается ОДИН раз (sumEpKp) и раздаётся блокам 1
 // и 3: цена отказа и доля ЕП обязаны стоять на одном объёме ЕП, иначе два
@@ -20,7 +23,9 @@ import { useFilteredData } from '../hooks/useFilteredData';
 import { CostOfRefusal } from '../components/competition/CostOfRefusal';
 import { MergeCandidates } from '../components/competition/MergeCandidates';
 import { EpShare } from '../components/competition/EpShare';
+import { EpJustification } from '../components/competition/EpJustification';
 import { sumEpKp } from '../components/competition/primitives';
+import { PageHeader } from '../components/ui/page-header';
 
 export function CompetitionPage() {
   const fd = useFilteredData();
@@ -39,18 +44,19 @@ export function CompetitionPage() {
 
   return (
     <div className="space-y-3">
-      <div>
-        <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">Конкуренция</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-2xl mt-0.5">
-          Сколько стоит отказ от конкурса и где объединение закупок разных
-          управлений позволит провести общие торги вместо закупок у единственного
-          поставщика.
-        </p>
-      </div>
+      {/* 18.08: шапка переведена на общий примитив. Было — четыре копии одной
+          строки классов по четырём страницам и двенадцать вкладок вовсе без
+          заголовка первого уровня. Стало — один дом, кегль и краски из
+          токенов, обе темы правятся в одном месте. */}
+      <PageHeader
+        title="Конкуренция"
+        lead="Сколько стоит отказ от конкурса и где объединение закупок разных управлений позволит провести общие торги вместо закупок у единственного поставщика."
+      />
 
       <CostOfRefusal epPlan={epKpTotals.epPlan} epHasData={epKpTotals.hasData && epKpTotals.epPlan > 0} />
       <MergeCandidates />
       <EpShare totals={epKpTotals} />
+      <EpJustification />
     </div>
   );
 }

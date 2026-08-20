@@ -24,6 +24,15 @@ export function parseBody<T extends z.ZodTypeAny>(
 /**
  * Validate request query against a Zod schema.
  * Returns parsed data on success, sends 400 on failure.
+ *
+ * Потребителей на 18.08.2026 нет (проверено по всему серверу): роуты читают
+ * строку запроса вручную через `request.query as Record<string, string>`.
+ * SIMPLIFY_REGISTER_2026-06-05 §S5 предписывал принять эту дверь, и функция
+ * оставлена именно под это — она парная к живому parseBody и держит тот же
+ * русский отказ. Принимать её нужно роут за роутом с inject-тестом: сегодня
+ * кривой параметр молча берёт значение по умолчанию, а через parseQuery
+ * получит 400 — это видимое снаружи изменение поведения, и делать его
+ * походя, «заодно с уборкой», нельзя.
  */
 export function parseQuery<T extends z.ZodTypeAny>(
   schema: T,

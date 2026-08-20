@@ -25,14 +25,15 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
     id: 'issue-1',
     title: 'Test issue',
     description: 'Test',
-    severity: 'warning' as any,
-    category: 'type_drift' as any,
-    status: 'open' as any,
-    origin: 'bi_heuristic' as any,
+    severity: 'warning',
+    category: 'type_drift',
+    status: 'open',
+    origin: 'bi_heuristic',
     metricKey: 'test',
-    createdAt: new Date().toISOString(),
+    detectedAt: new Date().toISOString(),
+    detectedBy: 'test',
     ...overrides,
-  } as Issue;
+  };
 }
 
 describe('computeTrustScore', () => {
@@ -68,7 +69,7 @@ describe('computeTrustScore', () => {
   it('critical formula issues reduce score', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const issues = Array.from({ length: 10 }, (_, i) =>
-      makeIssue({ id: `f${i}`, category: 'formula_continuity' as any, severity: 'critical' as any })
+      makeIssue({ id: `f${i}`, category: 'formula_continuity', severity: 'critical' })
     );
     const result = computeTrustScore(metrics, issues, [], 'snap-1');
     // With 10 critical formula issues, score should be well below A
@@ -79,16 +80,16 @@ describe('computeTrustScore', () => {
     const metrics = new Map([['m1', makeMetric('m1', 100)]]);
     const issues = [
       ...Array.from({ length: 3 }, (_, i) =>
-        makeIssue({ id: `dq${i}`, category: 'signal:dataQuality' as any, severity: 'critical' as any })
+        makeIssue({ id: `dq${i}`, category: 'signal:dataQuality', severity: 'critical' })
       ),
       ...Array.from({ length: 3 }, (_, i) =>
-        makeIssue({ id: `fi${i}`, category: 'formula_continuity' as any, severity: 'critical' as any })
+        makeIssue({ id: `fi${i}`, category: 'formula_continuity', severity: 'critical' })
       ),
       ...Array.from({ length: 2 }, (_, i) =>
-        makeIssue({ id: `rc${i}`, origin: 'spreadsheet_rule' as any, severity: 'critical' as any })
+        makeIssue({ id: `rc${i}`, origin: 'spreadsheet_rule', severity: 'critical' })
       ),
       ...Array.from({ length: 2 }, (_, i) =>
-        makeIssue({ id: `or${i}`, category: 'signal:overdue' as any, severity: 'critical' as any })
+        makeIssue({ id: `or${i}`, category: 'signal:overdue', severity: 'critical' })
       ),
     ];
     const result = computeTrustScore(metrics, issues, [], 'snap-1');

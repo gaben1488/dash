@@ -156,7 +156,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                                 title={`Открыть ячейку ${delta.sourceCell} в Google Sheets`}
                                 aria-label={`Открыть ячейку ${delta.sourceCell} листа СВОД в Google Sheets`}
                                 className="p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-                                onClick={() => window.open(buildSheetUrl(SVOD_SPREADSHEET_ID, delta.sourceCell), '_blank')}
+                                onClick={() => window.open(buildSheetUrl(SVOD_SPREADSHEET_ID, delta.sourceCell), '_blank', 'noopener,noreferrer')}
                               >
                                 <ExternalLink size={11} className="text-blue-500" aria-hidden="true" />
                               </button>
@@ -214,7 +214,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                                       title="Открыть в Google Sheets"
                                       aria-label={`Открыть ячейку ${delta.sourceCell} листа СВОД в Google Sheets`}
                                       className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-                                      onClick={() => window.open(buildSheetUrl(SVOD_SPREADSHEET_ID, delta.sourceCell), '_blank')}
+                                      onClick={() => window.open(buildSheetUrl(SVOD_SPREADSHEET_ID, delta.sourceCell), '_blank', 'noopener,noreferrer')}
                                     >
                                       <ExternalLink size={11} className="text-blue-500" aria-hidden="true" />
                                     </button>

@@ -4,6 +4,7 @@
 
 import type { UnifiedGrid, SvodReconRow } from './unified-svod.js';
 import type { SvodGridBlock } from './svod-grid.js';
+import type { SHDYUDeptData } from './shdyu-map.js';
 
 // ────────────────────────────────────────────────────────────
 // 1. Domain literal unions
@@ -215,28 +216,32 @@ export interface Issue {
   category: string;
   title: string;
   description: string;
-  sheet?: string;
-  cell?: string;
-  row?: number;
+  // Все необязательные поля ниже описывают ОДИН случай: обстоятельство не
+  // установлено. Проверка может не знать ни листа, ни ячейки, ни управления —
+  // и тогда пишет undefined. Поэтому «поля нет» и «поле undefined» здесь
+  // равнозначны, и undefined разрешён явно, а не по недосмотру.
+  sheet?: string | undefined;
+  cell?: string | undefined;
+  row?: number | undefined;
   /** «№ п/п» из колонки A на момент проверки. Позиционный row устаревает —
    *  лист живёт, строки двигаются (п.98б: «Опрессовка» была в 534, стала 155);
    *  № п/п — стабильный человекочитаемый второй адрес строки. */
-  rowSeq?: string;
-  metricKey?: string;
-  departmentId?: string;
+  rowSeq?: string | undefined;
+  metricKey?: string | undefined;
+  departmentId?: string | undefined;
   /** Subordinate org name from col C ("_org_itself" when col C is empty) */
-  subordinateId?: string;
-  recommendation?: string;
+  subordinateId?: string | undefined;
+  recommendation?: string | undefined;
   /** Activity type derived from row column F (TYPE) */
-  activityType?: 'program' | 'current_program' | 'current_non_program';
+  activityType?: 'program' | 'current_program' | 'current_non_program' | undefined;
   /** Signal key from detectSignals() (overdue, stalledContract, factExceedsPlan, etc.) */
-  signal?: string;
+  signal?: string | undefined;
   /** Issue group from unified class system (data_integrity, temporal, financial, etc.) */
-  group?: string;
+  group?: string | undefined;
   /** Check ID from CHECK_REGISTRY (budget_sum_plan, overdue, etc.) */
-  checkId?: string;
+  checkId?: string | undefined;
   /** KB hint from CHECK_REGISTRY for UI tooltips */
-  kbHint?: string;
+  kbHint?: string | undefined;
   status: IssueStatus;
   detectedAt: string;
   detectedBy: string;
@@ -273,7 +278,9 @@ export interface TrustScore {
 /** Ячейка листа: v = значение, f = формула (опционально) */
 export interface CellValue {
   v: unknown;
-  f?: string;
+  // Формулы у ячейки может не быть вовсе, а разбор снимка отдаёт на её месте
+  // undefined. Для читателя это один и тот же случай — «формулы нет».
+  f?: string | undefined;
 }
 
 /** Данные одного листа: ключ = адрес ячейки (напр. "D14") */
@@ -437,15 +444,19 @@ export interface DataSnapshot {
   trust: TrustScore;
   rowCount: number;
   /** Per-department recalculation results (keyed by deptId: uer, uio, etc.) */
-  recalcResults?: Record<string, any>;
-  /** ШДЮ monthly dynamics data (keyed by grbsId) */
-  shdyuData?: Record<string, any>;
+  recalcResults?: Record<string, unknown>;
+  /**
+   * ШДЮ monthly dynamics data (keyed by grbsId). Тип настоящий, а не
+   * unknown: SHDYUDeptData живёт в этом же пакете (shdyu-map), круга
+   * зависимостей нет — читателю не нужно разбирать словарь заново.
+   */
+  shdyuData?: Record<string, SHDYUDeptData>;
   /** Единая сетка СВОД (ГРБС × активность(4) × метод × период), CalcEngine из атомов. */
   unifiedGrid?: UnifiedGrid;
   /** Сверка среза ВСЕ единой сетки против ячеек листа СВОД ТД-ПМ. */
   unifiedReconciliation?: SvodReconRow[];
   /** Dataset-level analysis per department: Benford, Z-score, composite score, noise map (keyed by deptId) */
-  datasetAnalyses?: Record<string, any>;
+  datasetAnalyses?: Record<string, unknown>;
   /**
    * Строки-атомы книг ГРБС на момент снимка — БЕЗ шапки (DEPT_HEADER_ROWS
    * срезаны), ключ — кириллическое короткое имя («УЭР»…). Фундамент честной

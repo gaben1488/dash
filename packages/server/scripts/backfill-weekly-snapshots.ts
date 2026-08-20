@@ -22,7 +22,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { read as readXlsx, utils as xlsxUtils } from 'xlsx';
-import { dayNumberOf, findDept, isoOfDayNumber, parseSvodGrid, type SvodGridBlock } from '@aemr/shared';
+import { findDept, isoOfDayNumber, parseSvodGrid, type SvodGridBlock } from '@aemr/shared';
 import {
   buildBackfillSnapshot,
   parseFolderDate,

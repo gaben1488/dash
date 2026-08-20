@@ -78,7 +78,7 @@ export const FORMULA_COLUMNS: ColumnLetter[] = [
 
 /** Столбцы с правилами валидации данных */
 export const RULE_COLUMNS = {
-  /** F (5) — Отклонение: должно быть = D - E */
+  /** F (5) — Отклонение: формула листа `=E-D`, факт минус план (недобор < 0) */
   F: SVOD_COLUMNS.F,
   /** L (11) — ФБ факт: проверка целостности */
   L: SVOD_COLUMNS.L,

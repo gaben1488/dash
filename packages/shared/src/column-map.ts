@@ -151,6 +151,109 @@ export function buildCellDict(row: unknown[]): Record<string, unknown> {
   return cells;
 }
 
+/** Индекс колонки → буква (AH → 33 развёрнуто обратно). */
+const INDEX_TO_LETTER: Readonly<Record<number, string>> = Object.fromEntries(
+  COL_ENTRIES.map(([letter, idx]) => [idx, letter]),
+);
+
+/**
+ * Наименьшая длина строки книги ГРБС, при которой строку вообще есть смысл
+ * читать: до колонки K («ИТОГО 1») включительно. Всё, что правее, читается
+ * снисходительными аксессорами (`numFromRow`/`strFromRow`): пустая ячейка = 0
+ * или пустая строка.
+ *
+ * ПОЧЕМУ это одно число на весь продукт (реестр багов 09.07.2026, пп.12–13
+ * «несогласованные ограничения длины строки»). Google Sheets отдаёт строку
+ * БЕЗ хвостовых пустых ячеек: у закупки, которая ещё не заключена, ячейки
+ * правее плана пусты, и строка приходит длиной 16–17, а не 34. Разные места
+ * продукта требовали при этом разной длины — 25 в поиске дроблений и
+ * аномалий, 21 в сезонных, ничего в единой сетке, — и требование «не короче
+ * 25» выбрасывало из поиска дроблений и из проверки Бенфорда ровно те
+ * незаключённые закупки, ради которых обе проверки и существуют. Теперь
+ * дверь одна, и порог назван по колонке, а не числом из воздуха.
+ */
+export const DEPT_MIN_ROW_LENGTH = DEPT_COLUMNS.TOTAL_PLAN + 1;
+
+/** Строка книги ГРБС достаточно длинна, чтобы её читать (см. DEPT_MIN_ROW_LENGTH). */
+export function isReadableDeptRow(row: unknown[] | null | undefined): row is unknown[] {
+  return Array.isArray(row) && row.length >= DEPT_MIN_ROW_LENGTH;
+}
+
+/** Съехавшая колонка: где подпись стоит по канону и где она оказалась. */
+export interface HeaderGeometryMismatch {
+  /** Буква колонки по канону раскладки. */
+  column: string;
+  /** Опорный кусок подписи, по которому колонка узнаётся. */
+  expected: string;
+  /** Буква колонки, в которой эта подпись стоит на самом деле. */
+  foundAt: string;
+}
+
+/** Сравнение подписей: регистр, ё/е и пробельные переносы значения не имеют. */
+function normHeader(value: unknown): string {
+  return String(value ?? '').replace(/ё/gi, 'е').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Опорные колонки шапки: по ним проверяется, что раскладка книги не съехала.
+ *
+ * Взяты те, чей смысл нельзя перепутать и на которых стоит весь расчёт:
+ * номер, подвед, вид деятельности, предмет, итог плана, способ, квартал и год
+ * плана, итог факта, гейт экономии. Опорный кусок у каждой — такой, который
+ * встречается в шапке ровно один раз («итого 1», а не «итого»: последнее
+ * стоит и у плана, и у факта, и у экономии).
+ */
+const HEADER_ANCHORS: ReadonlyArray<{ index: number; probe: string }> = [
+  { index: DEPT_COLUMNS.ID, probe: '№ п/п' },
+  { index: DEPT_COLUMNS.SUBORDINATE, probe: 'подведомственного учреждения' },
+  { index: DEPT_COLUMNS.TYPE, probe: 'текущая деятельность' },
+  { index: DEPT_COLUMNS.SUBJECT, probe: 'предмета контракта' },
+  { index: DEPT_COLUMNS.TOTAL_PLAN, probe: 'итого 1' },
+  { index: DEPT_COLUMNS.METHOD, probe: 'способ определения поставщика' },
+  { index: DEPT_COLUMNS.PLAN_QUARTER, probe: 'квартал (план)' },
+  { index: DEPT_COLUMNS.PLAN_YEAR, probe: 'год (план)' },
+  { index: DEPT_COLUMNS.TOTAL_FACT, probe: 'итого 2' },
+  { index: DEPT_COLUMNS.FLAG, probe: 'учитывать в расчете экономии' },
+];
+
+/**
+ * Проверка якорей шапки книги ГРБС (реестр багов 09.07.2026, п.11
+ * «позиционное чтение колонок без проверки геометрии»).
+ *
+ * МЕХАНИЗМ. Весь расчёт читает ячейки по номеру колонки. Стоит вставить или
+ * удалить столбец — и суммы плана начинают браться из способа закупки, а даты
+ * из бюджетов. Числа при этом остаются числами, поэтому арифметические
+ * проверки подмены не видят: единственный след сдвига — подписи шапки
+ * (третья строка книги).
+ *
+ * ЧТО ИМЕННО СЧИТАЕТСЯ ПОЛОМКОЙ. Не «подпись не дословно та» — формулировки у
+ * восьми книг расходятся в скобках и переносах, и требовать побуквенного
+ * совпадения значило бы ругаться на живые книги каждую неделю. Поломка — это
+ * когда опорная подпись в шапке ЕСТЬ, но стоит не в своей колонке. Подписи,
+ * которой в шапке нет вовсе, проверка молчит: это чужой лист или иная
+ * редакция шаблона, а не сдвиг.
+ *
+ * @param rows строки листа ВМЕСТЕ с шапкой (шапка — DEPT_HEADER_ROWS строк).
+ * @returns список съехавших колонок; пустой — раскладка на месте.
+ */
+export function checkDeptHeaderGeometry(rows: unknown[][]): HeaderGeometryMismatch[] {
+  const header = rows[DEPT_HEADER_ROWS - 1];
+  if (!Array.isArray(header)) return [];
+  const normalized = header.map(normHeader);
+  const mismatches: HeaderGeometryMismatch[] = [];
+  for (const anchor of HEADER_ANCHORS) {
+    const probe = normHeader(anchor.probe);
+    const at = normalized.findIndex(cell => cell.includes(probe));
+    if (at === -1 || at === anchor.index) continue;
+    mismatches.push({
+      column: INDEX_TO_LETTER[anchor.index] ?? String(anchor.index),
+      expected: anchor.probe,
+      foundAt: INDEX_TO_LETTER[at] ?? String(at),
+    });
+  }
+  return mismatches;
+}
+
 /**
  * Служебная строка листа — итог, раздел или заголовок: «Итого по разделу»,
  * «ВСЕГО», «Раздел 2», «Наименование мероприятия…» (текст шапки).

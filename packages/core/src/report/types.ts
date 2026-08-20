@@ -125,17 +125,22 @@ export interface GrbsQuarterSlice {
     ep: { plan: BudgetMoney; fact: BudgetMoney };
   };
   /** Официальные счётчики того же квартала из листа СВОД (если лист передан). */
-  svod?: MethodSplit;
+  // undefined разрешён явно: лист СВОД может быть не передан, а если передан —
+  // скоупа этого управления на нём может не оказаться. Оба случая означают
+  // одно — официальной стороны сверки нет.
+  svod?: MethodSplit | undefined;
   /**
    * Провенанс официальных чисел — адреса ячеек листа СВОД в нотации A1
    * («D268»/«E268»). Читатель видит, откуда взято число, и открывает ту
    * самую ячейку в живой книге. Есть ровно тогда, когда есть svod.
    */
-  svodCells?: {
-    /** Половина способа отсутствует, если её блока нет на листе (Д15). */
-    kp?: { plan: string; fact: string };
-    ep?: { plan: string; fact: string };
-  };
+  svodCells?:
+    | {
+        /** Половина способа отсутствует, если её блока нет на листе (Д15). */
+        kp?: { plan: string; fact: string } | undefined;
+        ep?: { plan: string; fact: string } | undefined;
+      }
+    | undefined;
   /**
    * ТОТ ЖЕ расчёт без гейта среза — «как в СВОДе, на сейчас».
    *
@@ -259,12 +264,14 @@ export interface GrbsReportBlock {
    * может расходиться с листом (например, из-за счётных строк без года
    * плана — SUMIFS листа их не видят), и читатель обязан видеть обе стороны.
    */
-  svodYearMoney?: {
-    plan: BudgetMoney;
-    fact: BudgetMoney;
-    economy: BudgetMoney;
-    cells: { plan: string; fact: string; economy: string };
-  };
+  svodYearMoney?:
+    | {
+        plan: BudgetMoney;
+        fact: BudgetMoney;
+        economy: BudgetMoney;
+        cells: { plan: string; fact: string; economy: string };
+      }
+    | undefined;
   /**
    * Счётные строки книги без года плана (P пусто) — «без подтверждённого
    * финансирования». С консолидации 07.08 они ВЫНЕСЕНЫ из счёта отчёта
@@ -272,7 +279,7 @@ export interface GrbsReportBlock {
    * calc-лимит сходится с листом по построению. Поле показывает, сколько и
    * на какую сумму вынесено у этого ГРБС; count = 0 — поле опущено.
    */
-  noYearRows?: { count: number; total: number };
+  noYearRows?: { count: number; total: number } | undefined;
   /** Топ-сигналы ГРБС по критичности (свёрнуто из issues снапшота). */
   signals: ReportSignal[];
 }
@@ -294,7 +301,7 @@ export interface IntegralSummary {
     ep: { plan: BudgetMoney; fact: BudgetMoney };
   };
   /** Официальный интеграл квартала — блоки scope «ВСЕ» листа СВОД (если передан). */
-  svodQuarter?: MethodSplit;
+  svodQuarter?: MethodSplit | undefined;
 }
 
 /** Отчётный период. Никакого Date.now — детерминизм задаётся параметрами. */
@@ -320,18 +327,21 @@ export interface Report {
    * видит обе стороны и сам судит о расхождении. Ярус не передан — поля нет
    * (честная пустота, а не ноль, которого на листе никто не писал).
    */
+  // undefined разрешён явно: ярус СВОД может быть передан, но скоупа «ВСЕ»
+  // на нём не найтись — тогда официальной стороны нет, как если бы яруса не
+  // передали вовсе.
   official?: {
     /** «Остаток к заключ.» из шапки листа (строка 2, колонки L/M/N/O). */
-    remainderToConclude?: SvodMoneyRow;
+    remainderToConclude?: SvodMoneyRow | undefined;
     /** «Расч. экономия» района (скоуп «ВСЕ») — строка ручного отчёта. */
-    calcEconomy?: SvodMoneyRow;
+    calcEconomy?: SvodMoneyRow | undefined;
     /**
      * Деньги плана-года района — строка «ИТОГО 2026:» скоупа «ВСЕ» листа,
      * с ячейкой каждой суммы. Решение пользователя 07.08: лимиты продукта —
      * официальные, как на листе СВОД; наш пересчёт остаётся стороной сверки.
      */
-    yearMoney?: { plan: SvodMoneyRow; fact: SvodMoneyRow; economy: SvodMoneyRow };
-  };
+    yearMoney?: { plan: SvodMoneyRow; fact: SvodMoneyRow; economy: SvodMoneyRow } | undefined;
+  } | undefined;
   /** Честные плашки (русские фразы): чего в отчёте нет и почему. */
   notes: string[];
   /**

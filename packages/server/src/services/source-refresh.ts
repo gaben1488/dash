@@ -11,8 +11,19 @@
 
 import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { fetchDepartmentSpreadsheets, getSheetData } from './google-sheets.js';
-import { setDeptSheetCache, setDeptLoadMeta, setSvodGridCache, invalidateCache } from './snapshot.js';
+import {
+  setDeptSheetCache,
+  setDeptLoadMeta,
+  setSvodGridCache,
+  setSvodLoadFailure,
+  invalidateCache,
+  getDeptSheetCache,
+} from './snapshot.js';
 import { SVOD_SHEET_NAME } from '@aemr/shared';
+import { publishLiveEvent, type RefreshOrigin } from './event-bus.js';
+import { diffBook, isSilent } from './live-diff.js';
+import { classifySourceFailure } from './source-failure.js';
+import { logSnapshotChange } from './source-log.js';
 
 export interface SourceRefreshResult {
   loaded: string[];
@@ -25,6 +36,34 @@ export interface SourceRefreshResult {
 let inFlight: Promise<SourceRefreshResult> | null = null;
 
 /**
+ * Объявить в прямом эфире, что изменилось в книгах за этот цикл.
+ *
+ * Молчание — законный итог: книги перечитаны, всё совпало — событий нет.
+ * Раньше эфир не отличался от тишины вовсе (числа менялись только после того,
+ * как читатель сам обновит страницу), и это ровно то, что здесь чинится.
+ */
+function publishBookChanges(
+  before: Record<string, { values: unknown[][] }>,
+  after: Record<string, { values: unknown[][] }>,
+  origin: RefreshOrigin,
+): void {
+  for (const [book, reading] of Object.entries(after)) {
+    const diff = diffBook(book, before[book], reading);
+    if (isSilent(diff)) continue;
+    publishLiveEvent({
+      kind: 'book-updated',
+      book,
+      changedRows: diff.changedRows,
+      addedRows: diff.addedRows,
+      removedRows: diff.removedRows,
+      rowsTotal: diff.rowsTotal,
+      origin,
+    });
+    for (const row of diff.rows) publishLiveEvent(row);
+  }
+}
+
+/**
  * Прочитать книги ГРБС и лист СВОД одним циклом и обновить кэши.
  * Ошибка отдельной книги не валит цикл: упавшая книга УДАЛЯЕТСЯ из кэша, а не
  * остаётся под видом свежих данных.
@@ -32,20 +71,40 @@ let inFlight: Promise<SourceRefreshResult> | null = null;
 export function refreshAllSources(log?: {
   info: (msg: string) => void;
   warn: (msg: string) => void;
-}): Promise<SourceRefreshResult> {
+}, origin: RefreshOrigin = 'cycle'): Promise<SourceRefreshResult> {
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
-    const { data, errors } = await fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS);
-    setDeptSheetCache(data, Object.keys(errors));
+    // Прежнее чтение книг — материал для ответа «что именно поменялось»
+    // (шина живых событий). Ссылка снимается ДО записи нового кэша: запись
+    // подставляет новый объект, прежний остаётся целым.
+    const before = getDeptSheetCache();
 
-    let svodOk = false;
-    try {
-      setSvodGridCache(await getSheetData(SVOD_SHEET_NAME));
-      svodOk = true;
-    } catch (err) {
-      log?.warn(`Лист СВОД не прочитан в этом цикле: ${(err as Error).message}`);
-    }
+    // Книги управлений и лист СВОД читаются ОДНОВРЕМЕННО, а не одно за другим.
+    // Дело не только в скорости цикла (лист СВОД перестал ждать окончания
+    // восьми книг): читать их подряд значит разносить стороны сверки во
+    // времени ровно на длительность чтения книг, а канон п.66 требует
+    // обратного — обе стороны из одного момента. Отказ одной стороны не должен
+    // уносить другую, поэтому лист СВОД ловит свой отказ внутри себя.
+    const startedAt = Date.now();
+    const [{ data, errors }, svodOk] = await Promise.all([
+      fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS),
+      getSheetData(SVOD_SHEET_NAME)
+        .then((values) => {
+          setSvodGridCache(values);
+          return true;
+        })
+        .catch((err: unknown) => {
+          const reason = classifySourceFailure((err as Error)?.message ?? String(err));
+          // След отказа переживает цикл: без него маршрут здоровья не отличал
+          // «читали и не смогли» от «ещё не читали».
+          setSvodLoadFailure(reason);
+          log?.warn(`Лист СВОД не прочитан в этом цикле: ${reason}`);
+          return false;
+        }),
+    ]);
+    setDeptSheetCache(data, Object.keys(errors));
+    publishBookChanges(before, data, origin);
 
     const at = new Date().toISOString();
     const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
@@ -56,6 +115,25 @@ export function refreshAllSources(log?: {
       loadMeta[name] = { loadedAt: at, rowCount: 0, sheetName: name, error: errMsg };
     }
     setDeptLoadMeta(loadMeta);
+
+    // Итог цикла в журнал сервера — с числами, а не «источники обновлены».
+    // Вопрос «почему в отчёте столько закупок» решается сложением строк по
+    // книгам, а вопрос «почему меньше, чем вчера» — списком не ответивших.
+    const rowsTotal = Object.values(data).reduce((sum, r) => sum + r.values.length, 0);
+    logSnapshotChange(
+      `Цикл чтения источников за ${Date.now() - startedAt} мс: книг прочитано ${Object.keys(data).length}`
+      + ` (строк ${rowsTotal})`
+      + (Object.keys(errors).length > 0 ? `, не прочитано: ${Object.keys(errors).join(', ')}` : '')
+      + (svodOk ? ', лист СВОД прочитан' : ', лист СВОД не прочитан'),
+      {
+        ms: Date.now() - startedAt,
+        books: Object.keys(data).length,
+        rows: rowsTotal,
+        failed: Object.keys(errors).length,
+        svodOk,
+        origin,
+      },
+    );
 
     // П.98б («внесла данные, из красного не ушло»): свежие книги обязаны сразу
     // попасть в снимок — без сброса кэш снимка (TTL 300 с) держал старые

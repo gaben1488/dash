@@ -65,7 +65,10 @@ beforeAll(async () => {
 
   app = await build({ logger: false });
   await app.ready();
-}, 60_000);
+}, /* Шов 18 реестра швов (сверка 18.08.2026): холодная сборка всего графа
+   сервера ради этой проверки укладывалась в 64 секунды при пределе в 60 — набор
+   падал на подготовке, а не на существе. Предел поднят с запасом; сокращать его
+   имеет смысл только вместе с отказом поднимать приложение целиком. */ 120_000);
 
 afterAll(async () => {
   await app?.close();
@@ -119,7 +122,10 @@ describe('POST /api/data/rows (batch) — та же верхняя границ�
         payload: { rows: [{ deptId: 'uo', rowIndex: 99999, changes: { G: 'мимо' } }] },
       });
 
-      expect(res.statusCode).toBe(200); // batch отвечает поштучно
+      // Разбор пакета — поштучный, но код ответа отличает «сохранено всё» от
+      // «сохранено не всё» (реестр багов 09.07.2026, п.16): раньше здесь
+      // стояло 200 и ответ не отличался от полного успеха.
+      expect(res.statusCode).toBe(207);
       const body = res.json<{ results: Array<{ success: boolean; error?: string }> }>();
       expect(body.results[0].success).toBe(false);
       expect(writeCellValue).not.toHaveBeenCalled();

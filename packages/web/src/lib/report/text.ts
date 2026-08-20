@@ -36,7 +36,7 @@ export function generateReportText(report: Report, asOfDate: string): string {
     `${q} квартал: ${scopeLine(integralSummary.quarter)}`,
     `Деньги за год: лимит ${fmtThousands(integralSummary.money.plan.total)} тыс. руб., ` +
       `факт ${fmtThousands(integralSummary.money.fact.total)} тыс. руб., ` +
-      `экономия ${fmtThousands(integralSummary.money.economy.total)} тыс. руб.`,
+      `утверждённая экономия ${fmtThousands(integralSummary.money.economy.total)} тыс. руб.`,
   ];
 
   for (const block of grbsBlocks) {

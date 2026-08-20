@@ -24,12 +24,52 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** POST /api/settings/env — перезаписать .env файл */
+  //
+  // Реестр безопасности 05.06.2026, S-C1 («.env-инъекция»): поля попадали в
+  // файл настроек сырьём, а закрытый ключ вдобавок оборачивался в кавычки. Одна
+  // кавычка внутри присланного значения закрывала строку раньше времени, и всё,
+  // что шло дальше, файл настроек читал как новые собственные строки — включая
+  // AEMR_API_KEY, то есть ключ доступа ко всему продукту. Защита стояла только
+  // снаружи (режим разработки плюс отдельный заголовок), сама запись не
+  // проверяла ничего.
+  //
+  // Теперь у каждого поля есть форма, и всё, что в неё не укладывается,
+  // отклоняется до записи. Однострочным полям кавычки и переводы строк
+  // запрещены прямо; закрытый ключ обязан быть настоящим PEM — а значит,
+  // кавычке в нём взяться неоткуда.
+
+  /** Опознаватель книги Google: только буквы, цифры, дефис и подчёркивание. */
+  const SPREADSHEET_ID_RE = /^[A-Za-z0-9_-]{20,120}$/;
+  /** Имя или адрес узла: без пробелов, кавычек и переводов строк. */
+  const HOST_RE = /^[A-Za-z0-9._-]{1,64}$/;
+  /**
+   * Закрытый ключ в конверте PEM. Внутри допускаются как настоящие переводы
+   * строк, так и их запись двумя знаками (`\n`) — обе формы выдаёт консоль
+   * Google, обе умеет прочитать `config.ts`.
+   */
+  const PRIVATE_KEY_RE =
+    /^-----BEGIN (?:RSA |EC )?PRIVATE KEY-----(?:[A-Za-z0-9+/=\s]|\\n)+-----END (?:RSA |EC )?PRIVATE KEY-----\s*$/;
+
   const EnvUpdateSchema = z.object({
-    spreadsheetId: z.string().optional().default(''),
+    spreadsheetId: z
+      .string()
+      .optional()
+      .default('')
+      .refine((v) => v === '' || SPREADSHEET_ID_RE.test(v), 'Опознаватель книги Google указан неверно'),
     serviceAccountEmail: z.string().email('Некорректный email сервисного аккаунта'),
-    privateKey: z.string().min(10, 'Private key слишком короткий'),
-    port: z.string().optional().default('3000'),
-    host: z.string().optional().default('0.0.0.0'),
+    privateKey: z
+      .string()
+      .regex(PRIVATE_KEY_RE, 'Закрытый ключ должен быть цельным PEM: от строки BEGIN до строки END'),
+    port: z
+      .string()
+      .optional()
+      .default('3000')
+      .refine((v) => /^\d{1,5}$/.test(v) && Number(v) >= 1 && Number(v) <= 65535, 'Номер порта вне допустимого диапазона'),
+    host: z
+      .string()
+      .optional()
+      .default('0.0.0.0')
+      .refine((v) => HOST_RE.test(v), 'Адрес узла содержит недопустимые знаки'),
   });
 
   app.post('/api/settings/env', async (request, reply) => {
@@ -47,6 +87,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     const body = parseBody(EnvUpdateSchema, request, reply);
     if (!body) return;
+
+    // Второй рубеж на случай, если форму полей когда-нибудь ослабят: ни одно
+    // значение, уходящее в файл настроек, не имеет права нести кавычку или
+    // перевод строки — именно ими и вырывались из своей строки.
+    const singleLine = [body.spreadsheetId, body.serviceAccountEmail, body.port, body.host];
+    if (singleLine.some((v) => /["\r\n]/.test(v)) || body.privateKey.includes('"')) {
+      return reply
+        .status(400)
+        .send({ error: 'Значение содержит знаки, недопустимые в файле настроек' });
+    }
 
     const envContent = `# Google Sheets API
 GOOGLE_SHEETS_SPREADSHEET_ID=${body.spreadsheetId}

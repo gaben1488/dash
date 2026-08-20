@@ -1,6 +1,6 @@
-import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow } from '@aemr/core';
+import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow, type PipelineSnapshot } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
-import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow } from '@aemr/shared';
+import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow, SHDYUDeptData } from '@aemr/shared';
 import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
@@ -11,9 +11,12 @@ import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
 import type { DeptSheetResult } from './google-sheets.js';
+import { publishLiveEvent } from './event-bus.js';
+import { classifySourceFailure } from './source-failure.js';
+import { logSnapshotChange, logSourceFailure, logSourceProblem } from './source-log.js';
 
 /** Per-year snapshot cache: key is targetYear (number) */
-const cachedSnapshots = new Map<number, { snapshot: DataSnapshot; timestamp: number }>();
+const cachedSnapshots = new Map<number, { snapshot: PipelineSnapshot; timestamp: number }>();
 
 /**
  * In-flight load memo per cache key (targetYear/0). Без него параллельные
@@ -21,7 +24,7 @@ const cachedSnapshots = new Map<number, { snapshot: DataSnapshot; timestamp: num
  * createSnapshot() — TOCTOU-гонка, дублирующая полную перечитку всех 8
  * листов ГРБС + СВОД (B-9).
  */
-const inFlightLoads = new Map<number, Promise<DataSnapshot>>();
+const inFlightLoads = new Map<number, Promise<PipelineSnapshot>>();
 
 let cachedDeptSheetData: Record<string, DeptSheetResult> = {};
 
@@ -81,7 +84,10 @@ async function ensureSourcesFresh(): Promise<void> {
   try {
     await sourceRefresher();
   } catch (err) {
-    console.warn('Не удалось перечитать книги перед сборкой снимка:', (err as Error).message);
+    logSourceFailure('перечитка книг перед сборкой снимка', {
+      ms: 0,
+      reason: classifySourceFailure((err as Error)?.message ?? String(err)),
+    });
   }
 }
 
@@ -98,8 +104,28 @@ export function getDeptSheetCache(): Record<string, DeptSheetResult> {
  */
 let cachedSvodGrid: { values: unknown[][]; loadedAt: string } | null = null;
 
+/**
+ * Неудачная попытка прочитать лист СВОД: когда пробовали и что ответил источник.
+ *
+ * Без этой записи маршрут здоровья не отличал «ещё не читали» от «читали и не
+ * смогли»: успех клал сетку в кэш, а отказ не оставлял НИЧЕГО, и лист навсегда
+ * числился «ещё не читался с запуска сервера». Молчащий источник обязан
+ * называться молчащим — иначе картина здоровья выглядит лучше правды.
+ */
+let svodLoadFailure: { checkedAt: string; error: string } | null = null;
+
 export function setSvodGridCache(values: unknown[][]): void {
   cachedSvodGrid = { values, loadedAt: new Date().toISOString() };
+  // Удачное чтение снимает прежний отказ: он больше не описывает состояние.
+  svodLoadFailure = null;
+}
+
+export function setSvodLoadFailure(error: string): void {
+  svodLoadFailure = { checkedAt: new Date().toISOString(), error };
+}
+
+export function getSvodLoadFailure(): { checkedAt: string; error: string } | null {
+  return svodLoadFailure;
 }
 
 export function getSvodGridCache(): { values: unknown[][]; loadedAt: string } | null {
@@ -161,12 +187,16 @@ export function getDeptLoadMeta(): Record<string, DeptLoadMeta> {
 }
 
 /** Cached monthly data from «СВОД с месяцами». Kept under old variable names for API compatibility. */
-let cachedSHDYUData: Record<string, any> | null = null;
+let cachedSHDYUData: Record<string, SHDYUDeptData> | null = null;
 let cachedSHDYURawRowCount = 0;
 let cachedSHDYULoadError: string | null = null;
 let cachedSHDYUOfficialYear: number | null = null;
+/** Момент последнего УСПЕШНОГО чтения помесячного листа; null — успеха не было. */
+let cachedSHDYULoadedAt: string | null = null;
+/** Момент последней ПОПЫТКИ — есть и у неудачной. */
+let cachedSHDYUCheckedAt: string | null = null;
 
-export function getSHDYUCache(): Record<string, any> | null {
+export function getSHDYUCache(): Record<string, SHDYUDeptData> | null {
   return cachedSHDYUData;
 }
 
@@ -188,7 +218,31 @@ export function getSHDYULoadError(): string | null {
   return cachedSHDYULoadError;
 }
 
-export function setSHDYUCache(data: Record<string, any>): void {
+/**
+ * Состояние помесячного листа «СВОД с месяцами» для маршрута здоровья.
+ *
+ * Лист — такой же источник, как книги управлений и лист СВОД: на нём стоит
+ * весь помесячный официал, и его молчание меняет числа продукта. В картине
+ * здоровья его не было вовсе, поэтому «прочитаны все источники» звучало и
+ * тогда, когда помесячный слой не прочитан ни разу.
+ */
+export function getSHDYULoadMeta(): {
+  loadedAt: string | null;
+  checkedAt: string | null;
+  rowCount: number | null;
+  error: string | null;
+} {
+  return {
+    loadedAt: cachedSHDYULoadedAt,
+    checkedAt: cachedSHDYUCheckedAt,
+    // Число строк известно только у прочитанного листа: ноль здесь означал бы
+    // «прочитан и пуст», а это другое утверждение.
+    rowCount: cachedSHDYULoadedAt ? cachedSHDYURawRowCount : null,
+    error: cachedSHDYULoadError,
+  };
+}
+
+export function setSHDYUCache(data: Record<string, SHDYUDeptData>): void {
   cachedSHDYUData = data;
 }
 
@@ -213,7 +267,46 @@ export function attachUnifiedGrid(
   snapshot.unifiedReconciliation = reconcileUnified(grid, snapshot.officialMetrics) as SvodReconRow[];
 }
 
-export async function getSnapshot(force = false, targetYear?: number): Promise<DataSnapshot> {
+/**
+ * Сколько замечаний было в прошлый раз — по ключу кэша (год или «все годы»).
+ * Нужно, чтобы объявлять в эфир ПРИРОСТ, а не текущий счёт: «замечаний 214»
+ * читателю ничего не сообщает, «появилось 3 новых» — сообщает.
+ */
+const lastAnnouncedIssues = new Map<number, number>();
+
+/**
+ * Объявить пересборку снимка в прямом эфире. Событий два и они разные:
+ * «снимок пересобран» — числа на экране устарели, «появились замечания» —
+ * есть на что посмотреть в Контроле. Первая сборка за жизнь процесса приросты
+ * не объявляет: тогда «новыми» оказались бы все замечания разом.
+ */
+function announceSnapshot(snapshot: DataSnapshot, year: number | null): void {
+  const key = year ?? 0;
+  const issues = snapshot.issues ?? [];
+  const rows = snapshot.rowCount ?? 0;
+
+  publishLiveEvent({ kind: 'snapshot-rebuilt', rows, issues: issues.length, year });
+
+  const previous = lastAnnouncedIssues.get(key);
+  lastAnnouncedIssues.set(key, issues.length);
+  if (previous === undefined || issues.length <= previous) return;
+
+  // Разбивка прироста по строгости: сам список замечаний пересобирается
+  // целиком, поэтому «какие именно новые» честно назвать нельзя — называем
+  // строгость тех, что есть сейчас, в доле прироста.
+  const bySeverity: Record<string, number> = {};
+  for (const issue of issues) {
+    bySeverity[issue.severity] = (bySeverity[issue.severity] ?? 0) + 1;
+  }
+  publishLiveEvent({
+    kind: 'issues-appeared',
+    added: issues.length - previous,
+    total: issues.length,
+    bySeverity,
+  });
+}
+
+export async function getSnapshot(force = false, targetYear?: number): Promise<PipelineSnapshot> {
   // Год: валидный → этот год; иначе undefined = ВСЕ ГОДЫ (базовый вид = сумма за все
   // годы, req 4). НЕ коэрсим в currentYear — запрос без года агрегирует все годы.
   const year = Number.isInteger(targetYear) && (targetYear as number) >= 2020 && (targetYear as number) <= 2100
@@ -243,6 +336,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
       if (!snapshot.id.startsWith('demo-')) {
         cachedSnapshots.set(cacheKey, { snapshot, timestamp: now });
       }
+      announceSnapshot(snapshot, year ?? null);
       return snapshot;
     } finally {
       inFlightLoads.delete(cacheKey);
@@ -256,7 +350,7 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<D
 /**
  * Создаёт новый снимок: читает данные из Google Sheets и прогоняет пайплайн
  */
-async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
+async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
   try {
     // Один момент для обеих сторон сверки: официальные ячейки читаются здесь и
     // сейчас, поэтому устаревшие книги обновляются ДО чтения, а не после.
@@ -279,12 +373,21 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
         const rows = await getSheetData(sheetName);
         sheetRows[sheetName] = rows;
       } catch (error) {
-        console.warn(`Не удалось прочитать лист "${sheetName}":`, error);
+        // В журнал сервера, а не в консоль: у строки должны быть уровень,
+        // время и поля, иначе её не отфильтровать и не сопоставить с запросом.
+        // Причина — русской фразой из закрытого списка: текст Google несёт и
+        // адрес книги, и почту служебной учётной записи.
+        logSourceFailure(`чтение листа «${sheetName}» сводной книги`, {
+          ms: 0,
+          reason: classifySourceFailure((error as Error)?.message ?? String(error)),
+        });
       }
     });
 
+    const monthlyStartedAt = Date.now();
     const monthlyPromise = fetchSHDYUSheet(SHDYU_SPREADSHEET_ID).then((result) => {
       const sourceLabel = result.sheetName;
+      cachedSHDYUCheckedAt = new Date().toISOString();
       if (result.values.length > 0) {
         const parsed = parseSHDYUSheet(result.values, result.formulas);
         cachedSHDYUData = parsed;
@@ -293,13 +396,33 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
         const ao4 = Number(result.values[3]?.[40]);
         cachedSHDYUOfficialYear = Number.isInteger(ao4) && ao4 >= 2020 && ao4 <= 2100 ? ao4 : null;
         cachedSHDYULoadError = null;
-        console.log(`📊 ${sourceLabel}: ${result.values.length} строк (${result.formulas.length} с формулами), ${Object.keys(parsed).length} ГРБС`);
+        cachedSHDYULoadedAt = cachedSHDYUCheckedAt;
+        logSnapshotChange(
+          `Помесячный лист «${sourceLabel}» прочитан: строк ${result.values.length},`
+          + ` из них с формулами ${result.formulas.length}, управлений ${Object.keys(parsed).length},`
+          + ` за ${Date.now() - monthlyStartedAt} мс`,
+          {
+            sheet: sourceLabel,
+            rows: result.values.length,
+            formulaRows: result.formulas.length,
+            depts: Object.keys(parsed).length,
+            ms: Date.now() - monthlyStartedAt,
+          },
+        );
       } else {
         cachedSHDYULoadError = `Лист «${sourceLabel}» прочитан, но пуст (0 строк): помесячная динамика в источнике не заполнена за выбранный период.`;
+        logSourceFailure(`чтение помесячного листа «${sourceLabel}»`, {
+          ms: Date.now() - monthlyStartedAt,
+          reason: 'лист прочитан, но пуст',
+        });
       }
     }).catch((err: unknown) => {
+      cachedSHDYUCheckedAt = new Date().toISOString();
       cachedSHDYULoadError = `Не удалось прочитать лист «${SHDYU_MONTHLY_SHEET_NAME}»: ${err instanceof Error ? err.message : String(err)}`;
-      console.warn(`Не удалось загрузить ${SHDYU_MONTHLY_SHEET_NAME}:`, err);
+      logSourceFailure(`чтение помесячного листа «${SHDYU_MONTHLY_SHEET_NAME}»`, {
+        ms: Date.now() - monthlyStartedAt,
+        reason: classifySourceFailure((err as Error)?.message ?? String(err)),
+      });
     });
 
     await Promise.all([...sheetReadPromises, monthlyPromise]);
@@ -313,19 +436,36 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
     // Сломанные зеркала по-прежнему оставляют след: «источник сломан»
     // не должен быть неотличим от «данных нет» (см. hasNoMeaningfulRows).
     const brokenMirrors: Array<{ dept: string; got: number; used: number }> = [];
+    /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
+    const perimeter: Array<{ dept: string; rows: number }> = [];
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
       const mirror = sheetRows[deptName];
       if (deptResult.values.length === 0) continue;
       if (mirror && mirror.length > 0 && hasNoMeaningfulRows(mirror)) {
         brokenMirrors.push({ dept: deptName, got: mirror.length, used: deptResult.values.length });
-        console.warn(
-          `⚠️ Лист "${deptName}" в сводной книге отдал ${mirror.length} строк без данных` +
-          ` (ошибка формул/зеркала) — использован кэш собственной книги: ${deptResult.values.length} строк`,
+        logSourceProblem(
+          `Зеркало листа «${deptName}» в сводной книге отдало ${mirror.length} строк без данных`
+          + ` (ошибка формул) — взят кэш собственной книги: ${deptResult.values.length} строк`,
+          { dept: deptName, mirrorRows: mirror.length, usedRows: deptResult.values.length },
         );
-      } else {
-        console.log(`📋 Лист "${deptName}": ${deptResult.values.length} строк из кэша собственной книги (канонический периметр)`);
       }
+      perimeter.push({ dept: deptName, rows: deptResult.values.length });
       sheetRows[deptName] = deptResult.values;
+    }
+
+    // ОДНА строка на весь периметр вместо восьми поштучных: вопрос «почему в
+    // отчёте столько закупок» решается суммой по книгам, а не сбором восьми
+    // разрозненных сообщений из ленты журнала.
+    if (perimeter.length > 0) {
+      logSnapshotChange(
+        `Периметр строк собран из собственных книг: ${perimeter.map((p) => `${p.dept} ${p.rows}`).join(', ')}`
+        + ` — всего ${perimeter.reduce((sum, p) => sum + p.rows, 0)}`,
+        {
+          books: perimeter.length,
+          rowsTotal: perimeter.reduce((sum, p) => sum + p.rows, 0),
+          brokenMirrors: brokenMirrors.length,
+        },
+      );
     }
 
     const pipelineInput: PipelineInput = {
@@ -382,15 +522,23 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
     if (!isDemoMode) {
       const last = loadLatestSavedSnapshot();
       if (last) {
-        console.error('❌ Ошибка получения снимка — отдан последний сохранённый из SQL:', error);
+        logSourceProblem('Снимок не собран — отдан последний сохранённый из базы', {
+          reason: classifySourceFailure((error as Error)?.message ?? String(error)),
+          snapshotId: last.id,
+          createdAt: last.createdAt,
+        });
         return last;
       }
       throw error;
     }
-    console.error('❌ Google Sheets недоступны и креды не настроены — демо-снимок:', error);
+    logSourceProblem('Таблицы недоступны и доступ не настроен — отдан демонстрационный снимок', {
+      reason: classifySourceFailure((error as Error)?.message ?? String(error)),
+    });
     const demo = createDemoSnapshot();
     demo.id = `demo-${demo.id}`;
-    return demo;
+    // Демо-генератор собирает снимок в общей форме DataSnapshot; его расчётные
+    // словари по построению совместимы с уточнённым PipelineSnapshot.
+    return demo as PipelineSnapshot;
   }
 }
 
@@ -401,7 +549,7 @@ async function createSnapshot(targetYear?: number): Promise<DataSnapshot> {
  * не совпадать с запрошенным годом — это устаревшие, но НАСТОЯЩИЕ данные, в
  * отличие от демо-генератора.
  */
-function loadLatestSavedSnapshot(): DataSnapshot | null {
+function loadLatestSavedSnapshot(): PipelineSnapshot | null {
   try {
     const rows = db.select({ data: schema.snapshots.data })
       .from(schema.snapshots)
@@ -411,7 +559,7 @@ function loadLatestSavedSnapshot(): DataSnapshot | null {
     for (const row of rows) {
       if (!row.data) continue;
       try {
-        const snapshot = JSON.parse(row.data) as DataSnapshot;
+        const snapshot = JSON.parse(row.data) as PipelineSnapshot;
         if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
       } catch {
         // Повреждённый data-JSON — пробуем снимок старше.
@@ -575,9 +723,17 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
       JSON.stringify({ rowsByDept: snapshot.rowsByDept, svodGrid: snapshot.svodGrid }),
       'utf8',
     );
-    console.log(
-      `💾 Снимок ${snapshot.id}: data-JSON ${mb(Buffer.byteLength(dataJson, 'utf8'))} МБ` +
-      ` (строки-атомы и сетка СВОД: ${mb(atomsBytes)} МБ)`,
+    logSnapshotChange(
+      `Снимок сохраняется: данные ${mb(Buffer.byteLength(dataJson, 'utf8'))} МБ`
+      + ` (строки-атомы и сетка СВОД: ${mb(atomsBytes)} МБ), строк ${snapshot.rowCount},`
+      + ` замечаний ${snapshot.issues.length}`,
+      {
+        snapshotId: snapshot.id,
+        bytes: Buffer.byteLength(dataJson, 'utf8'),
+        atomBytes: atomsBytes,
+        rows: snapshot.rowCount,
+        issues: snapshot.issues.length,
+      },
     );
 
     db.transaction((tx) => {
@@ -629,7 +785,7 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
       // откатывает всё, а не оставляет снимок без строк.
       const savedRows = saveSnapshotRows(snapshot);
       if (savedRows > 0) {
-        console.log(`🧱 Строки-атомы снимка ${snapshot.id}: записано ${savedRows}`);
+        logSnapshotChange(`Строки-атомы снимка записаны: ${savedRows}`, { snapshotId: snapshot.id, rows: savedRows });
       }
 
       // Retention-канон (пользователь, 24.07): ежедневные снимки — последняя
@@ -643,7 +799,9 @@ export async function saveSnapshot(snapshot: DataSnapshot): Promise<boolean> {
 
     return true;
   } catch (error) {
-    console.error('Ошибка сохранения снимка:', error);
+    logSourceProblem('Снимок не сохранён в базу', {
+      reason: (error as Error)?.message ?? String(error),
+    });
     return false;
   }
 }
@@ -681,7 +839,7 @@ const productDayEndIso = (day: number, utcOffsetHours: number): string =>
  * разбор ниже перепроверяет непустоту rowsByDept (маркер может стоять и у
  * пустого объекта).
  */
-export function getSnapshotAtOrBefore(day: number): DataSnapshot | null {
+export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
   const rows = db.select({ data: schema.snapshots.data })
     .from(schema.snapshots)
     .where(and(
@@ -695,7 +853,7 @@ export function getSnapshotAtOrBefore(day: number): DataSnapshot | null {
   for (const row of rows) {
     if (!row.data) continue;
     try {
-      const snapshot = JSON.parse(row.data) as DataSnapshot;
+      const snapshot = JSON.parse(row.data) as PipelineSnapshot;
       if (snapshot.rowsByDept && Object.keys(snapshot.rowsByDept).length > 0) {
         return snapshot;
       }

@@ -11,6 +11,8 @@
  * Каждая нормализация сохраняет: originalValue + normalizedValue + ruleApplied
  */
 
+import { sheetNumber } from '../timeline/row-timeline.js';
+
 export interface NormalizationResult {
   /** Исходное значение */
   original: unknown;
@@ -38,17 +40,6 @@ const STATUS_DICTIONARY: Record<string, string[]> = {
   'в процессе': ['в процессе', 'выполняется', 'на исполнении', 'в работе', 'идет исполнение'],
   'завершена': ['завершена', 'завершён', 'выполнена', 'выполнен', 'закрыта', 'закрыт'],
   'приостановлена': ['приостановлена', 'приостановлен', 'на паузе', 'заморожена'],
-};
-
-/**
- * Словарь нормализации причин/обоснований.
- */
-const REASON_TEMPLATES: Record<string, string[]> = {
-  'отсутствие предложений': ['нет предложений', 'отсутствие предложений', 'не поступило предложений', 'заявки не поступили'],
-  'недостаточное финансирование': ['недостаточно средств', 'нет финансирования', 'недостаток финансир', 'отсутствие финансир'],
-  'перенос финансирования': ['перенос финансир', 'финансирование перенесено', 'средства перенесены'],
-  'изменение потребности': ['изменение потребности', 'потребность отпала', 'не требуется', 'отпала необходимость'],
-  'техническая ошибка': ['техническая ошибка', 'ошибка в документации', 'некорректные данные'],
 };
 
 /** Паттерны пустых значений */
@@ -123,14 +114,11 @@ export function normalizeMoney(value: unknown): NormalizationResult {
     str = str.replace(/\s*тыс\.?\s*/gi, '');
   }
 
-  // Убираем пробелы (разделители тысяч)
-  str = str.replace(/\s/g, '');
-
-  // Запятая → точка
-  str = str.replace(/,/g, '.');
-
-  const num = parseFloat(str);
-  if (isNaN(num)) {
+  // Числовой остаток (пробелы тысяч, запятая-десятичная) — единой коэрцией
+  // ядра sheetNumber (чистка 20.08.2026, зона В): семантика совпадает,
+  // «мусор → null», своя копия parseFloat не нужна.
+  const num = sheetNumber(str);
+  if (num === null) {
     return { original, normalized: null, changed: true, rule: 'invalid_money', fieldType: 'money' };
   }
 
@@ -243,32 +231,11 @@ export function normalizeStatus(value: unknown): NormalizationResult {
   return { original, normalized: String(value).trim(), changed: false, rule: null, fieldType: 'status' };
 }
 
-/**
- * Нормализовать причину/обоснование.
- */
-export function normalizeReason(value: unknown): NormalizationResult {
-  const original = value;
-
-  if (value === null || value === undefined) {
-    return { original, normalized: null, changed: false, rule: null, fieldType: 'text' };
-  }
-
-  const str = String(value).trim().toLowerCase();
-
-  if (EMPTY_PATTERNS.includes(str)) {
-    return { original, normalized: null, changed: true, rule: 'empty_to_null', fieldType: 'text' };
-  }
-
-  for (const [template, variants] of Object.entries(REASON_TEMPLATES)) {
-    for (const variant of variants) {
-      if (str.includes(variant)) {
-        return { original, normalized: template, changed: true, rule: 'reason_template', fieldType: 'text' };
-      }
-    }
-  }
-
-  return { original, normalized: String(value).trim(), changed: false, rule: null, fieldType: 'text' };
-}
+// normalizeReason удалён 20.08.2026 (зона В): нормализатор свободного текста
+// причин в «шаблоны» не вызывался нигде, кроме собственных тестов, а живой
+// словарь причин — @aemr/shared (matchDeviationReason, canonicalizeReasonEp).
+// Вдобавок само сведение свободного текста к шаблону — то самое машинное
+// чтение комментариев, которое канон п.27 запретил (14.08.2026).
 
 /**
  * Нормализовать число.
@@ -298,8 +265,9 @@ export function normalizeNumber(value: unknown): NormalizationResult {
     }
   }
 
-  const num = parseFloat(str.replace(/\s/g, '').replace(/,/g, '.'));
-  if (!isNaN(num)) {
+  // Единая коэрция ядра (см. normalizeMoney выше): «мусор → null».
+  const num = sheetNumber(str);
+  if (num !== null) {
     return { original, normalized: num, changed: num !== value, rule: 'number_parse', fieldType: 'number' };
   }
 

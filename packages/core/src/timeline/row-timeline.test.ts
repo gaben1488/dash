@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { dayNumberOf } from '@aemr/shared';
-import { buildRowTimeline, type RowObservation } from './row-timeline.js';
+import { buildRowTimeline, sheetNumber, type RowObservation } from './row-timeline.js';
 
 const DAY_2026_06_10 = dayNumberOf('10.06.2026')!;
 
@@ -23,6 +23,10 @@ describe('buildRowTimeline — журнал правок', () => {
       rowKey: 'УЭР:4',
       sheetRow: 4,
       journal: [
+        // Смена предмета РАНЬШЕ всех правок: с п.117 она режет историю до
+        // себя; правки ниже — уже эпоха текущего жильца строки. Заодно
+        // проверяется, что буква G сама вида события не порождает.
+        { cell: 'G4', oldValue: 'Столы', newValue: 'Стулья', atMs: Date.UTC(2026, 7, 6, 9, 0, 0) },
         { cell: 'N4', oldValue: '01.06.2026', newValue: '15.06.2026', atMs: Date.UTC(2026, 7, 6, 10, 0, 0) },
         { cell: 'Q4', oldValue: 'Х', newValue: '20.06.2026', atMs: Date.UTC(2026, 7, 6, 11, 0, 0) },
         { cell: 'L4', oldValue: 'ЭА', newValue: 'ЕП', atMs: Date.UTC(2026, 7, 6, 12, 0, 0) },
@@ -30,8 +34,6 @@ describe('buildRowTimeline — журнал правок', () => {
         { cell: 'AF4', oldValue: '', newValue: 'журнал исполнения', atMs: Date.UTC(2026, 7, 6, 14, 0, 0) },
         // Чужая строка листа — не наш таймлайн.
         { cell: 'N5', oldValue: 'a', newValue: 'b', atMs: Date.UTC(2026, 7, 6, 15, 0, 0) },
-        // Буква вне канона видов (предмет) — вид не выдумывается.
-        { cell: 'G4', oldValue: 'Столы', newValue: 'Стулья', atMs: Date.UTC(2026, 7, 6, 16, 0, 0) },
       ],
       observations: [],
       asOfDay: DAY_2026_06_10,
@@ -211,5 +213,113 @@ describe('buildRowTimeline — порядок, дедуп, честная глу
       asOfDay: 0,
     });
     expect(t.plannedDate).toBe('2026-09-15');
+  });
+});
+
+describe('buildRowTimeline — отсечка чужой истории (п.117)', () => {
+  const cut = Date.parse('2026-08-10T12:00:00.000Z');
+
+  it('правки до смены предмета на строке — чужие: в таймлайн не входят, отсечка названа', () => {
+    const t = buildRowTimeline({
+      rowKey: 'УО:178',
+      sheetRow: 178,
+      journal: [
+        // Эпоха прежнего жильца строки: правка плановой даты чужой закупки.
+        { cell: 'N178', oldValue: '01.07.2026', newValue: '10.07.2026', atMs: cut - 86_400_000 },
+        // Смена жильца: предмет строки сменился целиком.
+        { cell: 'G178', oldValue: 'Поставка угля для котельной', newValue: 'Ремонт кровли школы № 7', atMs: cut },
+        // Наша эпоха: правка плановой даты текущей закупки.
+        { cell: 'N178', oldValue: '10.08.2026', newValue: '30.08.2026', atMs: cut + 86_400_000 },
+      ],
+      observations: [],
+      asOfDay: 0,
+    });
+    expect(t.identityCutAt).toBe('2026-08-10T12:00:00.000Z');
+    const planEdits = t.events.filter((e) => e.kind === 'plan_date_changed');
+    expect(planEdits).toHaveLength(1);
+    expect(planEdits[0].to).toBe('2026-08-30');
+    expect(t.historyNote).toContain('другая закупка');
+    expect(t.historyNote).toContain('Поставка угля');
+  });
+
+  it('правка хвоста формулировки предмета — НЕ смена жильца: история цела', () => {
+    const t = buildRowTimeline({
+      rowKey: 'УО:20',
+      sheetRow: 20,
+      journal: [
+        { cell: 'N20', oldValue: '01.07.2026', newValue: '10.07.2026', atMs: cut - 86_400_000 },
+        { cell: 'G20', oldValue: 'Ремонт кровли школы №7', newValue: 'Ремонт кровли школы № 7 (корпус Б)', atMs: cut },
+      ],
+      observations: [],
+      asOfDay: 0,
+    });
+    expect(t.identityCutAt).toBeNull();
+    expect(t.events.filter((e) => e.kind === 'plan_date_changed')).toHaveLength(1);
+  });
+
+  it('наблюдения до отсечки — чужие: дифф через границу смены жильца не строится', () => {
+    const t = buildRowTimeline({
+      rowKey: 'УО:30',
+      sheetRow: 30,
+      journal: [
+        { cell: 'G30', oldValue: 'Поставка мебели', newValue: 'Приобретение автобуса', atMs: cut },
+      ],
+      observations: [
+        obs('2026-08-01T00:00:00.000Z', { K: '5 000,0' }),
+        obs('2026-08-14T00:00:00.000Z', { K: '12 000,0' }),
+      ],
+      asOfDay: 0,
+    });
+    // Дифф «5 000 → 12 000» был бы сравнением двух РАЗНЫХ закупок.
+    expect(t.events.filter((e) => e.kind === 'sum_changed')).toHaveLength(0);
+  });
+
+  it('пустая сторона правки предмета не режет: резать можно только по увиденной смене', () => {
+    const t = buildRowTimeline({
+      rowKey: 'УО:40',
+      sheetRow: 40,
+      journal: [
+        { cell: 'N40', oldValue: '01.07.2026', newValue: '10.07.2026', atMs: cut - 86_400_000 },
+        // Предмет ВПИСАН в пустую ячейку — это заполнение, не смена жильца.
+        { cell: 'G40', oldValue: '', newValue: 'Поставка бумаги', atMs: cut },
+      ],
+      observations: [],
+      asOfDay: 0,
+    });
+    expect(t.identityCutAt).toBeNull();
+    expect(t.events.filter((e) => e.kind === 'plan_date_changed')).toHaveLength(1);
+  });
+});
+
+describe('sheetNumber — единая null-коэрция ядра (чистка 20.08.2026, зона В)', () => {
+  // К этой функции сведены копии normalize.ts, normalizer-rules.ts и
+  // signals.ts (toNumber = sheetNumber(v) ?? NaN) — контракт ниже держит
+  // всех четверых потребителей разом. Семантика: «мусор -> null», не ноль.
+  it('операторский формат: пробелы тысяч и запятая-десятичная', () => {
+    expect(sheetNumber('2 250 000,00')).toBe(2250000);
+    expect(sheetNumber('1 234,56')).toBe(1234.56); // неразрывный пробел листа
+    expect(sheetNumber('100,5')).toBe(100.5);
+  });
+
+  it('числа проходят как есть, нефинитное -> null', () => {
+    expect(sheetNumber(684)).toBe(684);
+    expect(sheetNumber(0)).toBe(0);
+    expect(sheetNumber(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(sheetNumber(Number.NaN)).toBeNull();
+  });
+
+  it('пустота и мусор -> null (НЕ ноль: «пусто» и «0» — разные факты)', () => {
+    expect(sheetNumber('')).toBeNull();
+    expect(sheetNumber('   ')).toBeNull();
+    expect(sheetNumber(null)).toBeNull();
+    expect(sheetNumber(undefined)).toBeNull();
+    expect(sheetNumber('Х')).toBeNull(); //плейсхолдер операторов
+    expect(sheetNumber('по мере необходимости')).toBeNull();
+  });
+
+  it('характеризация parseFloat: числовой ПРЕФИКС читается (наследие всех копий)', () => {
+    // Так вели себя ВСЕ исходные копии (parseFloat): «684.0 руб» -> 684.
+    // Фиксируем как контракт, чтобы смена реализации не изменила поведение молча.
+    expect(sheetNumber('684.0 руб')).toBe(684);
   });
 });

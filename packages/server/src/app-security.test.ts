@@ -14,6 +14,14 @@ async function withServerEnv(env: Record<string, string | undefined>): Promise<F
     ...env,
   };
 
+  // Переменная, названная в вызове как отсутствующая, именно удаляется:
+  // присваивание process.env превращает undefined в строку «undefined», а
+  // проверять надо настоящий случай — переменной нет вовсе.
+  for (const [name, value] of Object.entries(env)) {
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- снять переменную можно только delete: присваивание undefined даёт строку «undefined»
+    if (value === undefined) delete process.env[name];
+  }
+
   const { createApp } = await import('./app.js');
   return createApp({ logger: false });
 }
@@ -100,6 +108,23 @@ describe('server security routes in production', () => {
     expect(rightToken.statusCode).toBe(200);
   });
 
+  it('отклоняет тело запроса сверх названного потолка', async () => {
+    // Реестр безопасности 05.06.2026, S-M2: потолок тела держался на умолчании
+    // библиотеки — не назван в коде и не проверен ничем. Теперь он объявлен в
+    // app.ts как BODY_LIMIT_BYTES, а этот случай следит, что он в силе: тело
+    // сверх мегабайта отклоняется до разбора и до любой записи в книгу.
+    // Число здесь повторяет объявленное намеренно — поднимут потолок, и случай
+    // покраснеет, потребовав объяснить, зачем продукту тело крупнее.
+    const oversized = await app!.inject({
+      method: 'POST',
+      url: '/api/data/rows',
+      headers: { Authorization: 'Bearer secret-key', 'content-type': 'application/json' },
+      payload: `{"rows":[{"pad":"${'a'.repeat(1_048_576)}"}]}`,
+    });
+
+    expect(oversized.statusCode).toBe(413);
+  });
+
   it('does not register the sheets debug endpoint in production', async () => {
     const res = await app!.inject({
       method: 'GET',
@@ -142,12 +167,58 @@ describe('server security routes in production', () => {
     expect(rangeField.json<{ error: string }>().error).toContain('столбца');
     expect(invalidRow.statusCode).toBe(400);
     expect(invalidRow.json<{ error: string }>().error).toContain('Номер строки');
-    expect(batch.statusCode).toBe(200);
+    // Ни одна правка пакета не принята → код «сохранено не всё» (реестр багов
+    // 09.07.2026, п.16); прежде пакет отвечал 200 и при полном провале.
+    expect(batch.statusCode).toBe(207);
     expect(batch.json<{ results: Array<{ success: boolean; error?: string }> }>().results).toEqual([
       expect.objectContaining({ success: false, error: expect.stringContaining('столбца') }),
       // Строка 1 — заголовок. Отклоняется тем же guard'ом границ (rowWriteError), что и запись
       // за пределами листа; сообщение теперь точное, а не слитное «колонка ... или строка ...».
       expect.objectContaining({ success: false, error: expect.stringContaining('Номер строки') }),
     ]);
+  });
+});
+
+describe('server security surface when NODE_ENV is not declared', () => {
+  // Реестр безопасности 05.06.2026, S-H2, продолжение: послабления решались
+  // условием «NODE_ENV не равен production», поэтому запуск без переменной —
+  // `node dist/index.js` на голой машине, юнит systemd, чужой контейнер —
+  // получал и стек в ответе, и отладочное чтение книги. Здесь среда не названа
+  // вовсе, и обе двери должны быть закрыты.
+  let app: FastifyInstance | undefined;
+
+  beforeAll(async () => {
+    app = await withServerEnv({ NODE_ENV: undefined, AEMR_API_KEY: 'secret-key' });
+    app.get('/api/__throw-for-test', async () => {
+      throw new Error('внутренняя подробность: /srv/aemr/packages/server/src/secret-path.ts');
+    });
+  }, 120_000);
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  it('не отдаёт стек и внутренний текст ошибки', async () => {
+    const res = await app!.inject({
+      method: 'GET',
+      url: '/api/__throw-for-test',
+      headers: { Authorization: 'Bearer secret-key' },
+    });
+    const body = res.json<Record<string, unknown>>();
+
+    expect(res.statusCode).toBe(500);
+    expect(body).not.toHaveProperty('stack');
+    expect(body.message).toBe('Internal server error');
+    expect(JSON.stringify(body)).not.toContain('secret-path.ts');
+  });
+
+  it('не регистрирует отладочное чтение книги', async () => {
+    const res = await app!.inject({
+      method: 'GET',
+      url: '/api/debug/sheets',
+      headers: { Authorization: 'Bearer secret-key' },
+    });
+
+    expect(res.statusCode).toBe(404);
   });
 });

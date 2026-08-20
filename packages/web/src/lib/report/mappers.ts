@@ -303,7 +303,7 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
         ? `Сумма плановых колонок листов ГРБС (итог — ${COL.planTotal}) по строкам плана года.`
         : metricKey === 'fact_total'
           ? `Сумма фактических колонок (итог — ${COL.factTotal}) по строкам с датой заключения.`
-          : 'Сумма экономии по строкам с датой факта и флагом «учитывать» = «да».',
+          : 'Сумма экономии по строкам с датой факта и флагом «учитывать» = «да» — то есть УТВЕРЖДЁННАЯ финансовым органом, в тысячах рублей. Экономия торгов «НМЦК минус цена аукциона» из книги мониторинга считается иначе и здесь не участвует.',
     ),
   });
 
@@ -366,24 +366,40 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
   }
   if (official?.remainderToConclude) {
     const r = official.remainderToConclude;
+    // Периметр яруса уже, чем кажется: формулы `L2 =H14-L14` … `O2 =K14-O14`
+    // берут обе стороны из строки 14 листа — «Итого ЭА 2026». Значит остаток
+    // считается только по конкурентным процедурам и только за год этой строки;
+    // единственный поставщик в него не входит вовсе. Подпись обязана это
+    // назвать, иначе строка читается как остаток всего плана (карта метрик
+    // 18.08.2026, расхождение №4).
     remainder.push({
-      metricKey: 'pending_total',
-      label: 'Официальный лист СВОД',
-      hint: [{ text: 'ярус «Остаток к заключ.» шапки листа' }],
+      metricKey: 'remainder_to_conclude',
+      label: 'Официальный лист СВОД — только ЭА',
+      hint: [{ text: 'ярус «Остаток к заключ.» шапки листа: строка «Итого ЭА 2026», без ЕП' }],
       value: fmtThousands(r.total),
       budget: { fb: r.fb, kb: r.kb, mb: r.mb },
       budgetPrefix: 'pending',
       source: 'svod',
       cell: r.cell,
-      live: liveMoney(r, `Ячейка ${r.cell} листа СВОД ТД-ПМ (строка ${r.row}) — как есть, без пересчёта.`),
+      live: liveMoney(
+        r,
+        `Ячейка ${r.cell} листа СВОД ТД-ПМ (строка ${r.row}) — как есть, без пересчёта.\n` +
+        'Лист вычитает факт из плана строки «Итого ЭА 2026»: это остаток ТОЛЬКО по конкурентным ' +
+        'процедурам и только за год этой строки. Наш пересчёт выше идёт по всем способам, ' +
+        'включая единственного поставщика, — периметры разные.',
+      ),
     });
   }
   if (official?.calcEconomy) {
     const e = official.calcEconomy;
+    // НЕ economy_total: это ПРОГНОЗ листа по ещё не заключённым процедурам, а
+    // не утверждённая финорганом экономия. Под ключом economy_total карточка
+    // объясняла читателю не то число, на которое он смотрит (карта метрик
+    // 18.08.2026, расхождение №5 — «две экономии под одним словом»).
     remainder.push({
-      metricKey: 'economy_total',
-      label: 'Расчётная экономия по остатку',
-      hint: [{ text: 'та самая строка ручного отчёта' }],
+      metricKey: 'calc_economy_remainder',
+      label: 'Расчётная экономия по остатку — прогноз листа',
+      hint: [{ text: 'та самая строка ручного отчёта: экономия по ещё не заключённым' }],
       value: fmtThousands(e.total),
       budget: { fb: e.fb, kb: e.kb, mb: e.mb },
       budgetPrefix: 'economy',
@@ -396,10 +412,19 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
 
   const officialTotal = official?.remainderToConclude?.total ?? 0;
   const delta = official?.remainderToConclude ? pending.total - officialTotal : null;
+  // Расхождение здесь не дефект счёта, а разница периметров и определений, и
+  // подпись обязана назвать обе причины поимённо (канон п.53: механизм, адрес,
+  // действие). Периметр: лист берёт строку «Итого ЭА 2026» — только
+  // конкурентные, только год строки; мы считаем по всем способам. Определение:
+  // лист вычитает подешевевшую цену контракта и потому занижает объём
+  // оставшейся работы ровно на величину экономии, а наш остаток складывает
+  // ПЛАНОВЫЕ суммы строк без даты заключения.
   const remainderDiff = delta !== null && officialTotal > 0 && Math.abs(delta) >= 1
     ? `Расхождение с официальным листом: ${delta > 0 ? '+' : '−'}${fmtThousands(Math.abs(delta))} тыс. руб. ` +
-      `(${fmtPct((Math.abs(delta) / officialTotal) * 100)}). Обе стороны показаны как есть: наш пересчёт идёт ` +
-      'по строкам книг, лист считает свой ярус — периметры могут отличаться.'
+      `(${fmtPct((Math.abs(delta) / officialTotal) * 100)}). Это не спор о числе, а две разные величины: ` +
+      'лист считает остаток по строке «Итого ЭА 2026» — только конкурентные процедуры, без единственного ' +
+      'поставщика, — и вычитает из плана уже подешевевший факт; наш пересчёт берёт плановые суммы всех ' +
+      'строк без даты заключения. Обе стороны показаны как есть, ни одна не подгоняется под другую.'
     : null;
 
   return {
@@ -527,7 +552,7 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     ? [
         { metricKey: 'plan_total', label: 'Лимит 2026, тыс. руб.', fmt: 'money', calc: block.money.plan.total, svod: sv.plan.total, svodCell: sv.cells.plan },
         { metricKey: 'fact_total', label: 'Факт, тыс. руб.', fmt: 'money', calc: block.money.fact.total, svod: sv.fact.total, svodCell: sv.cells.fact },
-        { metricKey: 'economy_total', label: 'Экономия, тыс. руб.', fmt: 'money', calc: block.economy.total, svod: sv.economy.total, svodCell: sv.cells.economy },
+        { metricKey: 'economy_total', label: 'Утверждённая экономия, тыс. руб.', fmt: 'money', calc: block.economy.total, svod: sv.economy.total, svodCell: sv.cells.economy },
       ]
     : [];
   const svodPairs: SvodPairVM[] | null =
@@ -579,7 +604,7 @@ export function buildGrbsSection(block: GrbsReportBlock): GrbsSectionVM {
     moneyLine: `Лимит ${fmtThousands(block.money.plan.total)} тыс. руб., факт ${fmtThousands(block.money.fact.total)} тыс. руб.`,
     money: block.money,
     economyLine: block.economy.total > 0
-      ? `Экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
+      ? `Утверждённая экономия: ${fmtThousands(block.economy.total)} тыс. руб.`
       : null,
     pendingPositions: block.quarter.pendingPositions,
     lifecycle: block.lifecycle,

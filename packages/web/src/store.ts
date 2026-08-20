@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type DashboardData } from '@aemr/shared';
+import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
 import { mergeSubordinates } from './lib/subordinates';
 import { setOfficialProvenance } from './lib/provenance-registry';
@@ -37,8 +37,12 @@ export type MoneyUnit = 'тыс' | 'млн' | 'млрд';
 /** Тип закупки (legacy single-select aliases kept for navigateTo compatibility) */
 export type ProcurementFilter = 'all' | 'competitive' | 'single';
 
-/** Вид деятельности (legacy single-select aliases kept for navigateTo compatibility) */
-export type ActivityFilter = 'all' | 'program' | 'current_program' | 'current_non_program';
+/**
+ * Вид деятельности. Набор значений идёт от канонического ACTIVITY_TYPES
+ * (@aemr/shared), а не переписан литералом (DEADCODE_DISPOSITION §W-6);
+ * 'all' — только состояние фильтра «не сужать», видом деятельности не является.
+ */
+export type ActivityFilter = 'all' | ActivityType;
 
 /** Тип бюджета */
 export type BudgetType = 'fb' | 'kb' | 'mb';
@@ -186,8 +190,15 @@ export interface AppState {
   // Навигация
   page: Page;
   setPage: (page: Page) => void;
-  sidebarCollapsed: boolean;
-  toggleSidebar: () => void;
+  /*
+   * Полей `sidebarCollapsed` / `toggleSidebar` здесь больше нет: боковая
+   * панель удалена вместе с компонентом Sidebar.tsx, а поля продолжали
+   * висеть в состоянии и попадать в каждый снимок хранилища
+   * (DEADCODE_DISPOSITION_2026-06-05, раздел «мёртвые поля хранилища»;
+   * инвентарь долга 18.08.2026, раздел «а»). Проверено по всем пакетам:
+   * ни одного обращения к ним не осталось. Страж — сборка типов: попытка
+   * прочитать поле из состояния теперь не проходит `pnpm typecheck`.
+   */
 
   // Глобальные фильтры
   year: YearFilter;
@@ -229,8 +240,8 @@ export interface AppState {
   searchQueryDebounced: string;
   setSearchQuery: (q: string) => void;
   /** Активная вкладка Quality страницы */
-  qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
-  setQualityTab: (tab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal') => void;
+  qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal' | 'scorecard';
+  setQualityTab: (tab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal' | 'scorecard') => void;
   /** Сброс всех фильтров */
   resetAllFilters: () => void;
   /** Навигация с предзаполненными фильтрами */
@@ -244,7 +255,7 @@ export interface AppState {
     search: string;
     months: number[];
     category: string;
-    qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal';
+    qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal' | 'scorecard';
     /** Ключи признаков строк для фильтра Реестра (готовый фильтр «Дисциплины»). */
     signals: string[];
   }>) => void;
@@ -369,8 +380,6 @@ export const useStore = create<AppState>((set, get) => ({
       set({ page });
     }
   },
-  sidebarCollapsed: false,
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   // Фильтры — default year: current year if in AVAILABLE_YEARS, else last available
   year: (AVAILABLE_YEARS.includes(new Date().getFullYear())

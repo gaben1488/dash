@@ -237,7 +237,7 @@ const ROW_KEY_SEPARATOR = '·';
 export function parseJournalRowKey(raw: unknown): ParsedJournalRowKey {
   // Неразрывные пробелы приходят из Google-ячеек и ломают любые regexp.
   const text = String(raw ?? '')
-    .replace(/ /g, ' ')
+    .replace(/\u00a0/g, ' ')
     .trim();
 
   const empty: ParsedJournalRowKey = { ordinal: null, subject: null, truncated: false, raw: text };
@@ -317,7 +317,7 @@ function readCellState(raw: unknown): CellState {
     return Number.isFinite(raw) ? { known: true, value: raw } : UNKNOWN_STATE;
   }
   const s = String(raw ?? '')
-    .replace(/ /g, ' ')
+    .replace(/\u00a0/g, ' ')
     .trim();
   if (s === '') return EMPTY_STATE;
   if (EMPTY_MARKERS.has(s.toLowerCase())) return EMPTY_STATE;

@@ -28,13 +28,48 @@ import { annotationsRoutes } from './routes/annotations.js';
 import { commentAnnotationsRoutes } from './routes/comment-annotations.js';
 import { registryBucketsRoutes } from './routes/registry-buckets.js';
 import { monitoringRoutes } from './routes/monitoring.js';
+import { workloadRoutes } from './routes/workload.js';
+import { textHygieneRoutes } from './routes/text-hygiene.js';
+import { eventsRoutes } from './routes/events.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
+import { setSourceLogger } from './services/source-log.js';
 import { startDriveWatch } from './services/drive-watch.js';
+import { setChangeAuthorResolver } from './services/live-diff.js';
+import { findChangeAuthor } from './services/changelog-authors.js';
 import { startWeeklySnapshotCron } from './services/weekly-snapshot-cron.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
 import { installProcessGuards } from './plugins/process-guards.js';
+import { registerDemoMarker } from './plugins/demo-marker.js';
+
+/**
+ * Потолок тела запроса, один мегабайт. Величина выбрана как заведомо больший
+ * запас над самым тяжёлым честным обращением продукта (пакетная правка строк и
+ * загрузка соответствия колонок) и одновременно как граница, за которой тело
+ * перестаёт быть правкой человека и становится наливом.
+ */
+export const BODY_LIMIT_BYTES = 1_048_576;
+
+/**
+ * Среда, названная своим именем.
+ *
+ * Реестр безопасности 05.06.2026, S-H2 («утечка внутренностей»), продолжение:
+ * и подсказка со стеком в ответе, и отладочный маршрут решались условием
+ * «NODE_ENV не равен production». Незаданная переменная означала для этого
+ * условия «показывать всё», а запуск без NODE_ENV — обычное дело: `node
+ * dist/index.js` на голой машине, юнит systemd, чужой контейнер. Такой запуск
+ * молча выносил наружу внутренности продукта.
+ *
+ * Правило перевёрнуто в ту же сторону, в какую его уже развернула запись файла
+ * настроек (`routes/settings.ts`): послабления действуют только там, где среда
+ * названа явно, всё остальное — включая незаданную переменную — считается
+ * боевым.
+ */
+export function isDeclaredDevRuntime(): boolean {
+  const mode = process.env.NODE_ENV;
+  return mode === 'development' || mode === 'test';
+}
 
 export interface CreateAppOptions {
   logger?: FastifyServerOptions['logger'];
@@ -44,6 +79,15 @@ export interface CreateAppOptions {
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
+    // Потолок тела запроса назван явно (реестр безопасности 05.06.2026, S-M2:
+    // «нет bodyLimit»). Раньше он держался на умолчании библиотеки, то есть на
+    // чужом решении, которое могло измениться при обновлении и которое никто не
+    // проверял. Теперь величина записана здесь, за ней следит страж
+    // `app-body-limit.test.ts`, и поднять её можно только осознанно.
+    // Остаток того же пункта — счёт правок в пакетной записи `body.rows[]`
+    // (`routes/rows.ts:442` принимает список любой длины): один мегабайт тела
+    // всё ещё разворачивается в тысячи обращений к Google-таблицам.
+    bodyLimit: BODY_LIMIT_BYTES,
     logger: options.logger ?? {
       level: config.server.logLevel,
       transport: {
@@ -91,6 +135,23 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
   installProcessGuards(app.log);
 
+  // Журнал обращений к таблицам-источникам — в журнал приложения.
+  //
+  // Приёмник в services/source-log.ts заведён именно затем, чтобы чтения книг
+  // писались через pino, а не через console: у строки должны быть уровень,
+  // время и поля, иначе её нельзя ни отфильтровать, ни сопоставить с запросом.
+  // Подмена приёмника была описана в самом модуле как «одна строка при старте»
+  // — и этой строки нигде не было: весь журнал источников (сколько строк,
+  // откуда, за сколько, почему отказ) сыпался в консоль мимо pino. Ставится
+  // рядом с процессными стражами, до регистрации маршрутов: чтения начинаются
+  // с первого же запроса.
+  setSourceLogger(app.log);
+  // При закрытии приёмник возвращается к консоли: держать ссылку на журнал
+  // закрытого приложения незачем, а чтения бывают и после (разовые скрипты).
+  app.addHook('onClose', async () => {
+    setSourceLogger(null);
+  });
+
   app.setErrorHandler((error: Error & { statusCode?: number; expose?: boolean }, request, reply) => {
     const statusCode = error.statusCode ?? 500;
     app.log.error({ err: error, url: request.url, method: request.method }, 'Request error');
@@ -106,7 +167,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       error: error.name ?? 'InternalServerError',
       message: showOwnMessage ? error.message : 'Internal server error',
       statusCode,
-      ...(process.env.NODE_ENV !== 'production' && { stack: error.stack }),
+      // Стек — только в явно названной среде разработки: при незаданной
+      // NODE_ENV он раньше уходил читателю вместе с путями файлов продукта.
+      ...(isDeclaredDevRuntime() && { stack: error.stack }),
     });
   });
 
@@ -114,6 +177,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // После проверки ключа: обращение без ключа отсекается дешевле и не тратит
   // окно частоты, отведённое настоящим читателям.
   registerHeavyRouteRateLimit(app, options.rateLimitRules);
+  // Признак показательных данных во всех ответах сразу (реестр 09.07.2026, п.8).
+  registerDemoMarker(app);
 
   await app.register(dashboardRoutes);
   await app.register(metricsRoutes);
@@ -137,8 +202,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(commentAnnotationsRoutes);
   await app.register(registryBucketsRoutes);
   await app.register(monitoringRoutes);
+  await app.register(workloadRoutes);
+  await app.register(textHygieneRoutes);
+  await app.register(eventsRoutes);
 
-  if (process.env.NODE_ENV !== 'production') {
+  // Отладочное чтение книги регистрируется только в явно названной среде
+  // разработки (прежде — при любой, кроме production, включая незаданную).
+  if (isDeclaredDevRuntime()) {
     app.get('/api/debug/sheets', async () => {
       try {
         const { batchGetCells } = await import('./services/google-sheets.js');
@@ -238,11 +308,16 @@ export function preloadData(app: FastifyInstance): void {
   // Снимок умеет сам перечитать устаревшие книги перед сборкой — без этого
   // официальные ячейки читались свежими, а строки брались из кэша от старта
   // (канон п.66: обе стороны сверки — из одного момента).
+  // Подпись автора под живым событием «строка изменилась» — из журнала правок,
+  // уже осевшего в базе. Резолвер задаётся здесь, а не внутри сравнения книг:
+  // модуль сравнения не должен тянуть за собой базу.
+  setChangeAuthorResolver((book, cell) => findChangeAuthor(book, cell));
+
   setSourceRefresher(async () => {
     await refreshAllSources({
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
-    });
+    }, 'request');
   });
 
   void (async () => {
@@ -251,7 +326,7 @@ export function preloadData(app: FastifyInstance): void {
       const r = await refreshAllSources({
         info: (m) => app.log.info(m),
         warn: (m) => app.log.warn(m),
-      });
+      }, 'startup');
       app.log.info(
         `Departments loaded: ${r.loaded.length}${r.failed.length > 0 ? `, failed: ${r.failed.join(', ')}` : ''}`,
       );

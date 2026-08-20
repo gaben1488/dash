@@ -43,11 +43,13 @@ export interface TimelineEvent {
   /** Момент события: ISO-инстант (журнал/снимок) либо ISO-дата (срез, просрочка). */
   at: string;
   kind: TimelineEventKind;
-  from?: string;
-  to?: string;
+  // Прежнее и новое значение известны не у всякого события: у наблюдения по
+  // снимку прежнего значения может не быть. undefined разрешён явно.
+  from?: string | undefined;
+  to?: string | undefined;
   source: TimelineSource;
   /** Адрес ячейки листа («N178») — там правку видно в самой книге. */
-  cell?: string;
+  cell?: string | undefined;
 }
 
 export interface RowTimeline {
@@ -61,6 +63,12 @@ export interface RowTimeline {
   historySince: string | null;
   /** Честная фраза о глубине истории — готовая для читателя. */
   historyNote: string;
+  /**
+   * Момент, ДО которого история отсечена как чужая (п.117): журнал адресует
+   * правки номером строки, а строку раньше занимала другая закупка — смена
+   * предмета (G) в журнале выдаёт момент смены жильца. null — отсечки нет.
+   */
+  identityCutAt: string | null;
 }
 
 /** Правка ячейки из журнала «_ChangeLog» (уже отфильтрованная по книге). */
@@ -128,8 +136,16 @@ const SUM_LETTERS = new Set(['H', 'I', 'J', 'K', 'V', 'W', 'X', 'Y', 'Z', 'AA', 
  * Число из ячейки листа: «1 234,56» операторского формата. Канон совпадает с
  * server/services/rows-dto.toNumber; нечисло → null (не ноль: «пусто» и «0»
  * в диффе денег — разные состояния).
+ *
+ * Экспортировано как ЕДИНСТВЕННАЯ null-коэрция ядра (чистка 20.08.2026,
+ * зона В): к ней сведены прежние копии upcoming.ts («мусор → 0» =
+ * `sheetNumber(v) ?? 0`), pipeline/normalize.ts, pipeline/normalizer-rules.ts
+ * и pipeline/signals.ts (toNumber = `sheetNumber(v) ?? NaN`). Дом коэрции
+ * монорепы — shared/svod-grid (см. страж canon-homes.test.ts); туда эта
+ * функция переедет волной В0, когда в доме появится вариант с
+ * null-семантикой — дом сейчас отдаёт 0 и на пустоту, и на мусор.
  */
-function sheetNumber(val: unknown): number | null {
+export function sheetNumber(val: unknown): number | null {
   if (typeof val === 'number') return Number.isFinite(val) ? val : null;
   const s = String(val ?? '').trim();
   if (s === '') return null;
@@ -173,14 +189,67 @@ function atMsOf(event: TimelineEvent): number {
  * Строит таймлайн строки из трёх источников. Чистая функция: никаких чтений
  * БД/сети — вызывающий (роут) сам собирает журнал, наблюдения и срезы.
  */
+/**
+ * Подпись строки — предмет закупки (G), приведённый к сравнимому виду.
+ * № п/п (A) подписью НЕ служит: перенумерация — законное движение книги
+ * (п.118: номера идут вперёд, дыры — норма), а вот смена ПРЕДМЕТА на строке
+ * означает смену жильца — прежние правки принадлежат другой закупке (п.117).
+ */
+function subjectSignature(val: unknown): string {
+  return String(val ?? '')
+    .replace(/[«»"„“”]/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Один ли это предмет. Пустая сторона — «не знаем», считаем совпадением
+ * (осторожность: резать историю можно только по УВИДЕННОЙ смене предмета).
+ * Совпадение первых 12 знаков — правка хвоста формулировки, не смена жильца.
+ */
+function sameSubject(a: string, b: string): boolean {
+  if (a === '' || b === '') return true;
+  if (a === b) return true;
+  return a.slice(0, 12) === b.slice(0, 12);
+}
+
 export function buildRowTimeline(input: RowTimelineInput): RowTimeline {
   const events: TimelineEvent[] = [];
 
+  // ── 0. Отсечка чужой истории (п.117) ──
+  // Журнал адресует правку НОМЕРОМ строки. Если на строке в журнале видна
+  // смена предмета (G: один непустой предмет → другой), значит до этого
+  // момента строку занимала другая закупка — её правки в таймлайн текущей
+  // не включаются, и об этом сказано вслух (historyNote), а не молчком.
+  const rowJournal = input.journal.filter((change) => {
+    const addr = parseCellAddress(change.cell);
+    return addr !== null && addr.row === input.sheetRow;
+  });
+  let identityCutMs: number | null = null;
+  let foreignSubject: string | null = null;
+  for (const change of rowJournal) {
+    const addr = parseCellAddress(change.cell);
+    if (addr === null || addr.letter !== 'G') continue;
+    const oldSig = subjectSignature(change.oldValue);
+    const newSig = subjectSignature(change.newValue);
+    if (sameSubject(oldSig, newSig)) continue;
+    if (identityCutMs === null || change.atMs > identityCutMs) {
+      identityCutMs = change.atMs;
+      foreignSubject = String(change.oldValue ?? '').trim();
+    }
+  }
+
   // ── 1. Журнал правок: ячейка, было→стало, момент ──
   let journalSinceMs: number | null = null;
-  for (const change of input.journal) {
+  let foreignDropped = 0;
+  for (const change of rowJournal) {
     const addr = parseCellAddress(change.cell);
-    if (!addr || addr.row !== input.sheetRow) continue;
+    if (!addr) continue;
+    if (identityCutMs !== null && change.atMs < identityCutMs) {
+      foreignDropped += 1;
+      continue; // правка эпохи прежнего жильца строки — не наша история
+    }
     if (journalSinceMs === null || change.atMs < journalSinceMs) journalSinceMs = change.atMs;
     const kind = LETTER_KIND[addr.letter];
     if (!kind) continue; // буква вне канона видов — не выдумываем вид
@@ -195,9 +264,11 @@ export function buildRowTimeline(input: RowTimelineInput): RowTimeline {
   }
 
   // ── 2. Наблюдения (снимки + срезы недель): сам факт наблюдения + дифф соседей ──
-  const observations = [...input.observations].sort(
-    (a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0),
-  );
+  // Наблюдения до отсечки — тоже чужие: дифф через границу смены жильца
+  // выдал бы «правки», которых не было (сравнение двух разных закупок).
+  const observations = [...input.observations]
+    .sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0))
+    .filter((obs) => identityCutMs === null || (Date.parse(obs.at) || 0) >= identityCutMs);
   for (const obs of observations) {
     events.push({ at: obs.at, kind: 'snapshot_observed', source: obs.source });
   }
@@ -278,11 +349,21 @@ export function buildRowTimeline(input: RowTimelineInput): RowTimeline {
 
   const sliceCount = observations.filter((o) => o.source === 'срез недели').length;
   const snapshotCount = observations.filter((o) => o.source === 'снимок').length;
-  const historyNote = historySince !== null
+  let historyNote = historySince !== null
     ? `История ведётся с ${historySince.slice(0, 10)}: ` +
       `журнал правок — ${journalSince !== null ? `с ${journalSince.slice(0, 10)}` : 'молчит'}, ` +
       `снимков — ${snapshotCount}, срезов недель — ${sliceCount}.`
     : 'Истории по этой строке нет: журнал правок молчит, архивных снимков и срезов недель для неё не найдено. Показано только текущее состояние.';
+
+  const identityCutAt = identityCutMs !== null ? new Date(identityCutMs).toISOString() : null;
+  if (identityCutAt !== null && (foreignDropped > 0 || foreignSubject !== null)) {
+    const was = foreignSubject !== null && foreignSubject !== ''
+      ? ` (предмет тогда был «${foreignSubject.slice(0, 60)}»)`
+      : '';
+    historyNote += ` Правки до ${identityCutAt.slice(0, 10)} в таймлайн не включены: `
+      + `строку тогда занимала другая закупка${was} — журнал адресует правки `
+      + `номером строки, и при сдвигах листа истории склеивались бы из чужих закупок (п.117).`;
+  }
 
   return {
     rowKey: input.rowKey,
@@ -290,5 +371,6 @@ export function buildRowTimeline(input: RowTimelineInput): RowTimeline {
     events: deduped,
     historySince,
     historyNote,
+    identityCutAt,
   };
 }

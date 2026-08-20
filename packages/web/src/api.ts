@@ -1,5 +1,6 @@
 import type { DashboardData } from '@aemr/shared';
 import type {
+  EpJustificationDept,
   MetricDelta, MonitoringAggregates, MonitoringProcedure, Report, RowTimeline,
   UnparsedCodeRef, UpcomingRiskRow,
 } from '@aemr/core';
@@ -16,6 +17,23 @@ import {
 } from '@aemr/shared';
 
 const API_BASE = '/api';
+
+/**
+ * Ответ GET /api/analytics/ep-reasons. Два разбора одних и тех же строк ЕП:
+ * `byDept` — прежняя рубрикация по предмету закупки (что покупали), а
+ * `justification` — степени обоснованности по колонке M и кварталы плана
+ * (канон п.98ж: имел ли заказчик право так закупать и как это меняется).
+ */
+export interface EpReasonsResponse {
+  byDept: Record<string, unknown>;
+  justification: {
+    byDept: Record<string, EpJustificationDept>;
+    /** Сколько строк книг прочитано — знаменатель честности разбора. */
+    rowsScanned: number;
+    /** Момент чтения книг (канон п.58). */
+    readAt: string;
+  };
+}
 
 /**
  * Ответ GET /api/report: проекция Report плюс серверная обвязка страницы —
@@ -482,7 +500,7 @@ export const api = {
     fetchJSON<any>('/analytics/compliance'),
 
   getAnalyticsEPReasons: () =>
-    fetchJSON<any>('/analytics/ep-reasons'),
+    fetchJSON<EpReasonsResponse>('/analytics/ep-reasons'),
 
   getAnalyticsAnomalies: () =>
     fetchJSON<any>('/analytics/anomalies'),

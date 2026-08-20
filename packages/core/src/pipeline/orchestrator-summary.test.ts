@@ -9,7 +9,7 @@
  * из слитых счётчиков, а не усредняются.
  */
 import { describe, expect, it } from 'vitest';
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { CYRILLIC_TO_LATIN, DEPT_COLUMNS } from '@aemr/shared';
 import { runPipeline } from './orchestrator.js';
 
 const COL = DEPT_COLUMNS;
@@ -134,5 +134,46 @@ describe('mergeSummaryMetrics — помесячный свод (gap №3 пир
     const m2 = metric(snap, 'competitive.m2.total_plan') ?? 0;
     const m3 = metric(snap, 'competitive.m3.total_plan') ?? 0;
     expect(m1 + m2 + m3).toBe(metric(snap, 'competitive.q1.total_plan'));
+  });
+});
+
+/**
+ * Характеризационный замок ПЕРЕД упрощением C1 (SIMPLIFY_REGISTER_2026-06-05):
+ * два одинаковых литерала `unitMap`/`periodMap` пересобирались на каждый вызов
+ * `put()` и `putSummary()`. Вынос в константы модуля обязан оставить разметку
+ * метрик прежней — единицу, период и печатное представление.
+ */
+describe('C1 — разметка единиц и периода у метрик оркестратора', () => {
+  const snap = runOn(SHEETS);
+  const uo = CYRILLIC_TO_LATIN['УО'];
+
+  it('ярус ГРБС: счёт, деньги и доля получают свою единицу', () => {
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.count`]?.unit).toBe('count');
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.total_plan`]?.unit).toBe('rubles');
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.percent`]?.unit).toBe('percent');
+  });
+
+  it('ярус ГРБС: квартал остаётся кварталом, год становится «annual»', () => {
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.count`]?.period).toBe('q1');
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.year.count`]?.period).toBe('annual');
+  });
+
+  it('ярус ГРБС: печатное представление зависит от единицы', () => {
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.total_plan`]?.displayValue).toContain('₽');
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.percent`]?.displayValue).toContain('%');
+    expect(snap.calculatedMetrics[`grbs.${uo}.kp.q1.count`]?.displayValue).toBe('2');
+  });
+
+  it('ярус района: та же разметка на своде', () => {
+    expect(snap.calculatedMetrics['competitive.q1.count']?.unit).toBe('count');
+    expect(snap.calculatedMetrics['competitive.q1.count']?.period).toBe('q1');
+    expect(snap.calculatedMetrics['competitive.q1.total_plan']?.unit).toBe('rubles');
+    expect(snap.calculatedMetrics['competitive.year.count']?.period).toBe('annual');
+  });
+
+  it('месяц периодом не считается: в карте нет месяцев, поэтому «annual»', () => {
+    // Не улучшение, а фиксация текущего поведения: месячные ключи различимы
+    // по имени метрики, а поле period у них общерайонное «annual».
+    expect(snap.calculatedMetrics['competitive.m1.count']?.period).toBe('annual');
   });
 });

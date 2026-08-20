@@ -1,38 +1,60 @@
-import { describe, expect, it } from 'vitest';
+/**
+ * Страж демонстрационного режима: числа демо обязаны считаться теми же
+ * формулами, что и живые.
+ *
+ * Реестр багов 09.07.2026, пп.4–5. П.4 (знак отклонения: в одном месте
+ * план−факт, в другом факт−план) закрыт волной «правда о числах» — обе
+ * ветки демо теперь считают отклонение как факт−план, по-листовому. Осталась
+ * та же болезнь в соседней колонке: поле spentPct считалось как
+ * (план − факт) / план, а отдавалось под ключом savings_pct, который движок
+ * определяет ровно наоборот — факт / план («Законтрактовано, %», колонка Q
+ * листа СВОД). Законтрактованные 96 % показывались в демо как 4 %.
+ */
+import { describe, it, expect } from 'vitest';
 import { createDemoSnapshot } from './demo-data.js';
 
-/**
- * B-7: demoFinalize (aggregate СВОД cells, e.g. competitive.year) computed
- * amountDeviation as planTotal - factTotal, while demoGenRow (per-dept
- * cells, e.g. grbs.uer.kp.year) and the core invariant (amount_deviation =
- * fact_total - plan_total, packages/core/src/pipeline/calc-engine.ts:355,
- * pinned by exec-count-pct.test.ts) both use factTotal - planTotal.
- *
- * Every DEMO_DEPTS entry has kpExec < 1 (under-execution for the
- * competitive/'kp' method), so every per-dept amount_dev cell that is
- * summed into the 'competitive.year' aggregate is negative (недоосвоение).
- * The aggregate, built by accumulating those same rows, must therefore
- * also be negative. The bug flips its sign to positive.
- */
-describe('createDemoSnapshot amount_dev sign consistency (B-7)', () => {
-  it('aggregate competitive.year.amount_dev has the same (negative) sign as the per-dept grbs.*.kp.year.amount_dev cells it sums', () => {
-    const snapshot = createDemoSnapshot();
-    const m = snapshot.officialMetrics;
+const snapshot = createDemoSnapshot();
+const cells = snapshot.officialMetrics;
 
-    const deptValue = m['grbs.uer.kp.year.amount_dev']?.numericValue;
-    const aggValue = m['competitive.year.amount_dev']?.numericValue;
+/** Числовое значение демо-ячейки по ключу REPORT_MAP. */
+function value(key: string): number {
+  const metric = cells[key];
+  expect(metric, `в демо-сетке нет ключа ${key}`).toBeDefined();
+  return metric.numericValue ?? 0;
+}
 
-    expect(deptValue).toBeDefined();
-    expect(aggValue).toBeDefined();
+const BLOCKS = [
+  'competitive.year', 'sole.year', 'competitive.q1',
+  'grbs.uo.kp.year', 'grbs.uo.ep.year',
+  'grbs.uksimp.kp.year', 'grbs.ud.kp.q1',
+];
 
-    // Synthetic УЭР 'kp' (kpExec: 0.70 < 1) is under-execution: fact < plan,
-    // so per-dept amount_dev must be negative under the fact-plan convention.
-    expect(deptValue!).toBeLessThan(0);
+describe('демо-сетка СВОД — знак и смысл колонок совпадают с живым расчётом', () => {
+  it.each(BLOCKS)('%s: «Законтрактовано, %%» = факт / план, а не наоборот', (prefix) => {
+    const plan = value(`${prefix}.total_plan`);
+    const fact = value(`${prefix}.total_fact`);
+    expect(plan).toBeGreaterThan(0);
+    expect(value(`${prefix}.savings_pct`)).toBeCloseTo(fact / plan, 9);
+  });
 
-    // competitive.year sums all 8 depts' kp rows, every one under-execution
-    // (all DEMO_DEPTS.kpExec < 1) -> the aggregate must also be negative.
-    // FAILS on current HEAD: demoFinalize computes planTotal - factTotal,
-    // which is positive here, opposite the per-dept cells composing it.
-    expect(aggValue!).toBeLessThan(0);
+  it.each(BLOCKS)('%s: отклонение в рублях = факт − план (знак листа)', (prefix) => {
+    const plan = value(`${prefix}.total_plan`);
+    const fact = value(`${prefix}.total_fact`);
+    expect(value(`${prefix}.amount_dev`)).toBeCloseTo(fact - plan, 9);
+  });
+
+  it('недоосвоение показывается недоосвоением: доля меньше единицы, отклонение отрицательно', () => {
+    // Демо строится с исполнением заведомо ниже плана; перевёрнутая дробь
+    // давала бы долю близко к нулю и «перевыполнение» вместо недобора.
+    expect(value('competitive.year.savings_pct')).toBeGreaterThan(0.5);
+    expect(value('competitive.year.savings_pct')).toBeLessThan(1);
+    expect(value('competitive.year.amount_dev')).toBeLessThan(0);
+  });
+
+  it('итог сводного блока равен сумме управлений: агрегат и строки считаются одинаково', () => {
+    const depts = ['uo', 'uksimp', 'ud', 'udtx', 'uagzo', 'uio', 'ufbp', 'uer'];
+    const sum = depts.reduce((acc, id) => acc + (cells[`grbs.${id}.kp.year.total_fact`]?.numericValue ?? 0), 0);
+    expect(sum).toBeGreaterThan(0);
+    expect(value('competitive.year.total_fact')).toBeCloseTo(sum, 6);
   });
 });

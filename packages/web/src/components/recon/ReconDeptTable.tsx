@@ -259,7 +259,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                                             aria-label={`Открыть ячейку ${cell} листа СВОД в Google Sheets`}
                                             title={`Открыть ячейку ${cell} в Google Sheets`}
                                             className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-                                            onClick={() => window.open(buildSheetUrl(SVOD_SPREADSHEET_ID, cell as string), '_blank')}
+                                            onClick={() => window.open(buildSheetUrl(SVOD_SPREADSHEET_ID, cell as string), '_blank', 'noopener,noreferrer')}
                                           >
                                             <ExternalLink size={9} className="text-blue-500" aria-hidden="true" />
                                           </button>

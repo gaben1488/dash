@@ -6,6 +6,19 @@ describe('useStore navigation filters', () => {
     expect(useStore.getState().qualityTab).toBe('recon');
   });
 
+  /**
+   * Мёртвые поля боковой панели сняты 18.08.2026 (DEADCODE_DISPOSITION,
+   * «мёртвые поля хранилища»): компонента Sidebar в дереве нет, а поля
+   * продолжали жить в состоянии и попадать в каждый снимок хранилища.
+   * Сторож ловит возврат полей без компонента, который бы их читал.
+   */
+  it('не держит в состоянии полей исчезнувшей боковой панели', () => {
+    const state = useStore.getState() as unknown as Record<string, unknown>;
+
+    expect('sidebarCollapsed' in state).toBe(false);
+    expect('toggleSidebar' in state).toBe(false);
+  });
+
   it('syncs navigateTo activity filter into selectedActivities used by useFilteredData', () => {
     useStore.getState().resetAllFilters();
 

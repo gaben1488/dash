@@ -35,6 +35,7 @@ import {
   normalizeMethod,
   PROCUREMENT_METHODS,
   hasFactDate,
+  isReadableDeptRow,
   type ActivityScope,
   type SvodMethod,
   type SvodPeriodKey,
@@ -212,7 +213,11 @@ export function computeUnifiedGrid(
     const rows = deptRows[grbsId] ?? [];
 
     for (const row of rows) {
-      if (!row) continue;
+      // Одна дверь длины строки (реестр багов 09.07.2026, п.13 «расчёт сводной
+      // сетки без проверки длины строки»). Обрубок короче колонки K не может
+      // быть закупкой: раньше он проходил дальше и добавлял в сетку плановую
+      // процедуру с нулевыми суммами — счёт рос, деньги нет.
+      if (!isReadableDeptRow(row)) continue;
 
       // Отсев шапок/итогов и не-данных (как recalculate.ts) — защита от сырых строк.
       if (isSummaryRow(row)) continue;

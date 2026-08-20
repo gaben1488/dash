@@ -7,7 +7,7 @@
  *
  * Порог берётся из канона @aemr/shared, не литералом. Обратных зависимостей нет.
  */
-import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS, subordinateKey } from '@aemr/shared';
+import { DEPT_COLUMNS, LAW_44FZ_THRESHOLDS, isReadableDeptRow, subordinateKey } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 
 /** Result of suspicious splitting detection (44-ФЗ anti-splitting) */
@@ -48,7 +48,10 @@ export function detectSuspiciousSplitting(rows: unknown[][]): SplittingGroup[] {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || row.length < 25) continue;
+    // Одна дверь длины строки (реестр багов 09.07.2026, пп.12-13). Порог «не
+    // короче 25 ячеек» обессмысливал сам поиск дроблений: незаключённая закупка
+    // приходит короткой строкой, а искать дробление надо именно среди таких.
+    if (!isReadableDeptRow(row)) continue;
 
     const method = String(row[DEPT_COLUMNS.METHOD] ?? '').trim().toLowerCase();
     if (!method.includes('еп') && !method.includes('единствен')) continue;

@@ -29,6 +29,7 @@ import {
   type DeviationReasonId,
   type DeviationReasonKind,
 } from '@aemr/shared';
+import { sheetNumber } from './row-timeline.js';
 
 /** Строка книги на входе: ключ + ячейки по буквам колонок. */
 export interface UpcomingInputRow {
@@ -86,15 +87,6 @@ export interface UpcomingRiskRow {
   monitoringStage: string | null;
 }
 
-/** Число из ячейки листа (формат оператора «1 234,56»); мусор → 0. */
-function sheetNumber(val: unknown): number {
-  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
-  const s = String(val ?? '').trim();
-  if (s === '') return 0;
-  const parsed = parseFloat(s.replace(/\s/g, '').replace(/,/g, '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 /**
  * Ячейки-кандидаты причины в порядке приоритета: U — колонка «Причина
  * отклонения» по шапке; AE/AF — где причины реально размазаны у операторов
@@ -148,7 +140,9 @@ export function buildUpcoming(
       sheetRow: row.sheetRow,
       subject: String(row.cells['G'] ?? '').trim(),
       method: String(row.cells['L'] ?? '').trim(),
-      planSum: sheetNumber(row.cells['K']),
+      // Плановая сумма — слагаемое: мусор/пусто здесь → 0 (не null),
+      // сумма окна не должна становиться «неизвестной» из-за одной ячейки.
+      planSum: sheetNumber(row.cells['K']) ?? 0,
       plannedDate: isoOfDayNumber(planDay),
       daysToPlan: planDay - options.asOfDay,
       overdue: planDay < options.asOfDay,

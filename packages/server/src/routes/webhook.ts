@@ -14,6 +14,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
+import { safeCompare } from '../middleware/auth.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { invalidateMonitoringCache } from '../services/monitoring.js';
 
@@ -32,7 +33,9 @@ function scheduleRefresh(log: { info: (m: string) => void; warn: (m: string) => 
     // запрос /api/monitoring перечитает книгу, а не отдаст правку с опозданием
     // до TTL (п.66 «прямой эфир»).
     invalidateMonitoringCache();
-    void refreshAllSources(log)
+    // Происхождение перечитки едет в живые события: читателю на экране важно
+    // отличать «правку заметили сразу» от планового цикла опроса.
+    void refreshAllSources(log, 'webhook')
       .then((r) => log.info(
         `Вебхук: источники перечитаны (книг ${r.loaded.length}${r.failed.length ? `, не прочитано: ${r.failed.join(', ')}` : ''})`,
       ))
@@ -54,8 +57,14 @@ export function webhookRoutes(app: FastifyInstance): void {
       // Вебхук не настроен — маршрут закрыт наглухо, а не «открыт по умолчанию».
       return reply.status(404).send();
     }
-    const token = request.headers['x-goog-channel-token'];
-    if (token !== secret) {
+    // Секрет канала сверяется за постоянное время — тем же сравнением, что и
+    // ключ доступа (реестр безопасности 05.06.2026, LOW-1). Маршрут открыт без
+    // ключа, значит подбирать секрет по времени ответа можно было снаружи: при
+    // прямом `!==` строки расходятся на первом несовпавшем знаке. Заголовок
+    // приводится к строке — Fastify отдаёт список, если Google пришлёт
+    // заголовок дважды, и такой список никогда не совпал бы с секретом.
+    const token = String(request.headers['x-goog-channel-token'] ?? '');
+    if (!safeCompare(token, secret)) {
       request.log.warn('Вебхук: уведомление с неверным токеном канала отклонено');
       return reply.status(403).send();
     }

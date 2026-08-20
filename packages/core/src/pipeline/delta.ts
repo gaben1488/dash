@@ -5,12 +5,12 @@ export interface DeltaScope {
    * Год, по которому построен расчёт. `undefined` = расчёт идёт по всем
    * годам книги (базовый вид продукта, решение req 4).
    */
-  calcYear?: number;
+  calcYear?: number | undefined;
   /**
    * Год официального листа. Лист СВОД считает свой год строго; если он
    * известен и не совпадает с периметром расчёта, стороны несравнимы.
    */
-  officialYear?: number;
+  officialYear?: number | undefined;
 }
 
 /**

@@ -147,10 +147,16 @@ describe('карта происхождения: зафиксированные 
   // расхождения. Если кто-то «починит» их, не поговорив с владельцем, тест
   // напомнит, что число меняется у начальства на экране.
 
-  it('знак «Отклонения» разъезжается с листом и назван вслух', () => {
+  it('знак «Отклонения» сведён к листовому, а история расхождения записана', () => {
+    // Расхождение №1 карты закрыто 18.08.2026: движок считает `fact − plan`,
+    // как лист. Запись остаётся `exact`, но note обязана помнить, что до этой
+    // даты внутри продукта жили две противоположные конвенции, — иначе через
+    // месяц кто-нибудь «починит» знак обратно по словам еженедельного отчёта.
     const dev = METRIC_PROVENANCE.deviation;
-    expect(dev.match).toBe('divergent');
+    expect(dev.match).toBe('exact');
     expect(dev.howSourceCounts).toContain('=E43-D43');
+    expect(dev.note ?? '').toContain('fact_count − plan_count');
+    expect(METRIC_PROVENANCE.amount_deviation.match).toBe('exact');
   });
 
   it('доля ЕП: у нас штуки, у листа деньги', () => {
@@ -158,15 +164,23 @@ describe('карта происхождения: зафиксированные 
     expect(METRIC_PROVENANCE.share_ep_money.source).toBe('svod');
   });
 
-  it('«% исполнения» и «Законтрактовано, %» — одна колонка листа', () => {
+  it('«% исполнения» и «Законтрактовано, %» — одна колонка листа, дубль назван вслух', () => {
+    // Расхождение №2: два ключа на одну колонку Q. Ключи оставлены (записаны в
+    // персистентных снимках), но обе записи обязаны называть дубль и колонку.
     expect(METRIC_PROVENANCE.execution_pct.sheetRef).toContain('Q');
     expect(METRIC_PROVENANCE.savings_pct.sheetRef).toContain('Q');
-    expect(METRIC_PROVENANCE.execution_pct.match).toBe('divergent');
+    expect(METRIC_PROVENANCE.execution_pct.match).toBe('exact');
+    expect(METRIC_PROVENANCE.execution_pct.note ?? '').toContain('savings_pct');
   });
 
-  it('две экономии района разведены по разным книгам', () => {
+  it('две экономии района разведены по разным книгам и по разным именам', () => {
     expect(METRIC_PROVENANCE.economy_total.source).toBe('svod');
     expect(METRIC_PROVENANCE.monitoring_auction_savings.source).toBe('monitoring');
+    // Главная находка карты: одно слово на два числа. Запись обязана помнить,
+    // что подписи разведены, иначе экран и записка руководителю снова сойдутся
+    // в одном слове с разными цифрами.
+    expect(METRIC_PROVENANCE.economy_total.note ?? '').toContain('Утверждённая экономия');
+    expect(METRIC_PROVENANCE.economy_total.note ?? '').toContain('Экономия на торгах');
   });
 
   it('остаток к заключению на листе — только ЭА и только 2026', () => {

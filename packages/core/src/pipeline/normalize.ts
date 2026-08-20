@@ -1,4 +1,5 @@
 import type { RawCellValue, ReportMapEntry, NormalizedMetric } from '@aemr/shared';
+import { sheetNumber } from '../timeline/row-timeline.js';
 
 /**
  * Нормализует сырые значения ячеек в типизированные метрики
@@ -86,9 +87,10 @@ function normalizeOne(entry: ReportMapEntry, raw: RawCellValue | undefined): Nor
       }
     }
   } else if (typeof rawVal === 'string') {
-    // Попытка распарсить число из строки
-    const cleaned = rawVal.replace(/\s/g, '').replace(/,/g, '.').replace('%', '');
-    const parsed = parseFloat(cleaned);
+    // Попытка распарсить число из строки — единой коэрцией ядра sheetNumber
+    // (чистка 20.08.2026, зона В): семантика совпадает («мусор → null»),
+    // знак процента срезается до коэрции, как и раньше.
+    const parsed = sheetNumber(rawVal.replace('%', '')) ?? NaN;
     if (!isNaN(parsed)) {
       numericValue = parsed;
       value = parsed;

@@ -1,4 +1,4 @@
-export { runPipeline, type PipelineInput } from './pipeline/orchestrator.js';
+export { runPipeline, type PipelineInput, type PipelineSnapshot } from './pipeline/orchestrator.js';
 export { ingestBatchGetResponse, ingestSheetRows } from './pipeline/ingest.js';
 export { normalizeMetrics } from './pipeline/normalize.js';
 export { classifyRows } from './pipeline/classify.js';
@@ -73,10 +73,76 @@ export {
   MONITORING_DEPT_SHEETS, PROCEDURE_STAGE_LABELS,
   aggregateMonitoring, monitoringNumber, parseMonitoringProcedures, procedureStage,
 } from './monitoring/procedures.js';
-export type {
-  MonitoringAggregates, MonitoringProcedure, MonitoringRegistry,
-  ProcedureStage, UnparsedCodeRef,
+export {
+  MONITORING_DATA_SHEETS, MONITORING_DEPT_COLUMNS, MONITORING_DEPT_HEADER_LABELS,
+  MONITORING_DIRECTORY_SHEET, MONITORING_JOURNAL_SHEET, MONITORING_SVOD_SHEET,
+  PROCEDURE_STAGE_ORDER, normalizeCustomer,
 } from './monitoring/procedures.js';
+export type {
+  MonitoringAggregates, MonitoringDefect, MonitoringDefectKind, MonitoringProcedure,
+  MonitoringRegistry, ProcedureDurations, ProcedureStage, UnparsedCodeRef,
+} from './monitoring/procedures.js';
+// Ячейки книги: адреса, даты, суммы-текстом (общий словарь дефектов)
+export {
+  MONITORING_MONEY_UNIT, cellAddress, daysBetween, isoMonth, isoQuarter,
+} from './monitoring/cells.js';
+export type { MonitoringDate } from './monitoring/cells.js';
+// Победитель: имя, ИНН, исход — разрез «по победителю» ведётся по ИНН
+export {
+  WINNER_OUTCOME_LABELS, normalizeSupplierName, parseWinnerCell, supplierKey,
+} from './monitoring/winner.js';
+export type { ParsedWinner, WinnerOutcome } from './monitoring/winner.js';
+// Свод книги + пара «как считает книга ↔ как считает продукт»
+export {
+  MONITORING_SVOD_DEPT_NAMES, SVOD_CONTROL_ADDRESS, compareSvodWithProduct,
+  parseMonitoringSvod, productTotalsByDept,
+} from './monitoring/svod.js';
+export type {
+  MonitoringSvod, MonitoringSvodRow, ProductSideTotals, SvodComparison, SvodComparisonRow,
+} from './monitoring/svod.js';
+// Переходящий реестр «25-26»: судьба процедуры и родословная переобъявлений
+export {
+  JOURNAL_FILTER_LAST_ROW, PROCEDURE_FATE_LABELS, buildLineageChains, classifyFate,
+  parseMonitoringJournal,
+} from './monitoring/journal.js';
+export type {
+  LineageChain, LineageEdge, MonitoringJournal, MonitoringJournalRow, ProcedureFate,
+} from './monitoring/journal.js';
+// Справочник учреждений + листы-предки (память о полях, которых форме не хватает)
+export {
+  MONITORING_ANCESTOR_SHEETS, MONITORING_DIRECTORY_HEADER, MONITORING_MISSING_FIELDS,
+  parseMonitoringDirectory,
+} from './monitoring/directory.js';
+export type {
+  CustomerOutsideDirectory, DirectoryEntry, DirectoryUsageRow, MonitoringDirectory,
+} from './monitoring/directory.js';
+// Аналитика вкладки: воронка, три коэффициента снижения, поставщики, сроки, сезонность
+export {
+  deptComparison, detectAnomalies, discountBucketOf, discountHistogram, median,
+  monitoringAnalytics, nmckBucketOf, nmckBuckets, quantile, reductionCoefficients,
+  seasonality, stageDurations, stageFunnel, supplierCustomerPairs, supplierProfile,
+  unsuccessfulProcedures,
+} from './monitoring/analytics.js';
+export type {
+  AnomalyGroup, AnomalyKind, AnomalyRef, DeptComparisonRow, DiscountBucket,
+  DiscountBucketKey, DurationOutlier, DurationStageKey, DurationStats, FunnelStep,
+  FunnelStepKey, MonitoringAnalytics, MonitoringAnalyticsOptions, NmckBucket,
+  NmckBucketKey, ReductionCoefficients, SeasonBasis, SeasonPoint, Seasonality,
+  StageFunnel, SupplierConcentration, SupplierCustomerPair, SupplierProfile, SupplierRow,
+  UnsuccessfulProcedures,
+} from './monitoring/analytics.js';
+// Сверка: книги ГРБС построчно + внутренняя «лист ↔ 25-26»
+export {
+  CROSS_CHECK_UNITS, bookRowsForMatch, internalDiff, procedureRowsForMatch, summarizeMatch,
+} from './monitoring/cross-check.js';
+export type {
+  InternalDiff, InternalDiffKind, InternalDiffRow, InternalSideRow, MatchSummary,
+} from './monitoring/cross-check.js';
+// Сигналы вкладки — карточки диагноста с адресами (п.53)
+export { buildMonitoringSignals, mappingSignals } from './monitoring/signals.js';
+export type {
+  MonitoringSignal, MonitoringSignalAddress, MonitoringSignalKind, MonitoringSignalSeverity,
+} from './monitoring/signals.js';
 
 // History — snapshot-diff (слой 1 фичи «История изменений»)
 export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';

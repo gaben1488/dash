@@ -431,6 +431,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
    *   - severity: фильтр по серьёзности
    *   - status: фильтр по статусу
    *   - deptId: фильтр по отделу
+   *   - category: фильтр по виду замечания
    */
   app.get('/api/export/issues', async (request, reply) => {
     const query = request.query as Record<string, string>;
@@ -459,6 +460,11 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     if (query.severity) issues = issues.filter(i => i.severity === query.severity);
     if (query.status) issues = issues.filter(i => i.status === query.status);
     if (query.deptId) issues = issues.filter(i => i.departmentId === query.deptId || i.sheet === query.deptId);
+    // Отбор по виду замечания был у списка (GET /api/issues), но не у выгрузки:
+    // человек сужал список до одного вида, нажимал «Выгрузить» — и получал файл
+    // со ВСЕМИ замечаниями (реестр 09.07.2026, PLAUSIBLE «экспорт замечаний
+    // игнорирует фильтры»). Набор отборов выгрузки обязан совпадать со списком.
+    if (query.category) issues = issues.filter(i => i.category === query.category);
 
     // CSV header
     const SEVERITY_RU: Record<string, string> = {

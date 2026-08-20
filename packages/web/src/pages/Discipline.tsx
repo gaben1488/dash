@@ -23,7 +23,9 @@ import { KBTooltip } from '../components/ui/kb-tooltip';
 import { GROUP3_KB_ADDITIONS, kbCardProps } from './kb-additions';
 import { ActionCard } from '../components/discipline/ActionCard';
 import { UpcomingSection } from '../components/timeline/UpcomingSection';
+import { WorkloadSection } from '../components/workload/WorkloadSection';
 import { DisciplinePeriodBadge } from '../components/discipline/DisciplinePeriodBadge';
+import { PageHeader } from '../components/ui/page-header';
 import { useDisciplineRows } from '../components/discipline/useDisciplineRows';
 import {
   buildDisciplineActions,
@@ -79,17 +81,15 @@ export function DisciplinePage() {
 
   return (
     <div className="space-y-5">
-      {/* ── Шапка раздела: заголовок + выбор управления + подпись периода ── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">Дисциплина</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-2xl mt-0.5">
-            Список дел по книгам управлений: что заполнить, сколько денег это вернёт
-            в план и какие строки закрывает. Не рейтинг и не упрёк — рабочий список.
-          </p>
-        </div>
-        <DisciplinePeriodBadge />
-      </div>
+      {/* ── Шапка раздела: заголовок + выбор управления + подпись периода ──
+           18.08: собственная вёрстка шапки заменена общим примитивом.
+           Плашка периода отдана в `actions` — раньше она держалась
+           на соседстве во flex-контейнере, теперь на роли. */}
+      <PageHeader
+        title="Дисциплина"
+        lead="Список дел по книгам управлений: что заполнить, сколько денег это вернёт в план и какие строки закрывает. Не рейтинг и не упрёк — рабочий список."
+        actions={<DisciplinePeriodBadge />}
+      />
 
       <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Выбор управления">
         <button
@@ -254,6 +254,16 @@ export function DisciplinePage() {
           )}
         </>
       )}
+
+      {/* ── Нагрузка управлений и три рода событий (канон п.103/п.105) ──
+            Секция живёт своим запросом /api/workload и своим периметром: она
+            меряет книги целиком и не подчиняется ни выбору управлений выше, ни
+            периоду в шапке. Стоит она здесь, а не отдельной вкладкой, потому
+            что отвечает на вопрос, который порождает список дел: почему у
+            одного управления дел вдесятеро больше. Показывается всегда — в том
+            числе когда строк для дел не прочиталось: собственную пустоту
+            секция объясняет сама. ── */}
+      <WorkloadSection />
     </div>
   );
 }

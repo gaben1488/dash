@@ -68,6 +68,20 @@ describe('POST /api/webhook/drive', () => {
     expect(refreshAllSources).not.toHaveBeenCalled();
   });
 
+  it('секрет канала сверяется целиком: ни общее начало, ни отсутствие заголовка не проходят', async () => {
+    // Реестр безопасности 05.06.2026, LOW-1: маршрут открыт без ключа доступа,
+    // поэтому сверка секрета сравнением строк подсказывала подбирающему, где
+    // расходится первый знак. Теперь сверка идёт за постоянное время; здесь
+    // проверяется её итог — отказ во всех трёх случаях.
+    webhookConfig.secret = 'верный-секрет';
+    const prefix = await post({ 'x-goog-channel-token': 'верный', 'x-goog-resource-state': 'update' });
+    const longer = await post({ 'x-goog-channel-token': 'верный-секрет-хвост', 'x-goog-resource-state': 'update' });
+    const missing = await post({ 'x-goog-resource-state': 'update' });
+
+    expect([prefix.statusCode, longer.statusCode, missing.statusCode]).toEqual([403, 403, 403]);
+    expect(refreshAllSources).not.toHaveBeenCalled();
+  });
+
   it('подтверждение канала (sync) принимается без перечитки', async () => {
     webhookConfig.secret = 'верный-секрет';
     const res = await post({ 'x-goog-channel-token': 'верный-секрет', 'x-goog-resource-state': 'sync' });

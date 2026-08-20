@@ -39,13 +39,20 @@
  * это 33 724 строки, а страница провенанса открывается на каждую закупку.
  * Отличие одно: окно держится ПОКНИЖНО, поэтому одна молчащая книга не
  * заставляет перечитывать семь живых и не выдаёт себя за «правок не было».
+ *
+ * СЫРЬЁ БЕРЁТСЯ ИЗ ОБЩЕГО ЧИТАТЕЛЯ (changelog-source.ts). Здесь остаётся кэш
+ * РАЗОБРАННОГО журнала — разбор 33 тыс. строк на каждое открытие карточки
+ * закупки стоит дорого и сам по себе. А вот обращение к Google теперь одно на
+ * всех: раньше страница провенанса и журнал правок читали один и тот же лист
+ * каждый в своё окно, и при одновременной работе двух вкладок книга читалась
+ * дважды за пять минут.
  */
 import type { JournalRecord } from '@aemr/core';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getSheetDataFromSpreadsheet } from './google-sheets.js';
+import { CHANGELOG_SHEET_NAME, readChangelogRows, resetChangelogSource } from './changelog-source.js';
 
 /** Имя скрытого листа журнала правок — одно во всех восьми книгах. */
-export const CHANGELOG_SHEET_NAME = '_ChangeLog';
+export { CHANGELOG_SHEET_NAME };
 
 /** Пять минут — как у /api/changes: журналы велики, страница открывается часто. */
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -134,9 +141,14 @@ export function parseProvenanceJournal(rows: readonly unknown[][]): {
 /** Покнижное окно кэша. Отказы не кэшируются: ожившая книга видна сразу. */
 const cache = new Map<string, BookJournal>();
 
-/** Сбрасывает окно кэша — нужен тестам и ручной перечитке. */
+/**
+ * Сбрасывает окно кэша — нужен тестам и ручной перечитке. Сбрасывается И общий
+ * читатель: иначе разобранный журнал ушёл бы, а сырьё осталось, и «перечитка»
+ * вернула бы те же строки.
+ */
 export function resetProvenanceJournalCache(): void {
   cache.clear();
+  resetChangelogSource();
 }
 
 /**
@@ -153,7 +165,7 @@ export async function readBookJournal(
   if (cached && now - cached.readAt < CACHE_TTL_MS) return cached;
 
   try {
-    const rows = await getSheetDataFromSpreadsheet(spreadsheetId, CHANGELOG_SHEET_NAME);
+    const rows = await readChangelogRows(dept, spreadsheetId, now);
     const { records, rowKeyless } = parseProvenanceJournal(rows);
     const journal: BookJournal = {
       dept,

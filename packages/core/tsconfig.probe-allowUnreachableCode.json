@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "allowUnreachableCode": false, "noEmit": true }
+}

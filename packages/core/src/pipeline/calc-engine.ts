@@ -420,10 +420,13 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   { key: 'fact_mb', label: 'Факт МБ', unit: 'currency', source: { column: COL.MB_FACT, aggregation: 'sum' }, gates: [GATE_HAS_FACT] },
   { key: 'fact_total', label: 'Факт ИТОГО', unit: 'currency', source: { column: COL.TOTAL_FACT, aggregation: 'sum', fallbackColumns: [COL.FB_FACT, COL.KB_FACT, COL.MB_FACT] }, gates: [GATE_HAS_FACT] },
 
-  // R-U: Economy (from dept Z/AA/AB) — gated on AD="да" AND fact date
-  { key: 'economy_fb', label: 'Экономия ФБ', unit: 'currency', source: { column: COL.ECONOMY_FB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
-  { key: 'economy_kb', label: 'Экономия КБ', unit: 'currency', source: { column: COL.ECONOMY_KB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
-  { key: 'economy_mb', label: 'Экономия МБ', unit: 'currency', source: { column: COL.ECONOMY_MB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  // R-U листа СВОД (источник — Z/AA/AB книг ГРБС) под гейтом AD="да" + дата факта.
+  // Имя с прилагательным «утверждённая» обязательно: вторая экономия района —
+  // «НМЦК минус цена аукциона» книги мониторинга, в рублях, — считается иначе,
+  // отбирается иначе и живёт в другой книге (см. economy_total ниже).
+  { key: 'economy_fb', label: 'Утверждённая экономия ФБ', unit: 'currency', source: { column: COL.ECONOMY_FB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_kb', label: 'Утверждённая экономия КБ', unit: 'currency', source: { column: COL.ECONOMY_KB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
+  { key: 'economy_mb', label: 'Утверждённая экономия МБ', unit: 'currency', source: { column: COL.ECONOMY_MB, aggregation: 'sum' }, gates: [GATE_HAS_FACT, GATE_ECONOMY_APPROVED] },
 
   // Compound-gate counts for G-column СВОД: comp_fact_count = КП with fact, ep_fact_count = ЕП with fact
   { key: 'comp_fact_count', label: 'Факт КП (кол-во)', unit: 'count', source: { aggregation: 'count' }, gates: [GATE_HAS_FACT, GATE_METHOD_COMPETITIVE] },
@@ -436,24 +439,47 @@ export const STANDARD_METRICS: MetricDefinition[] = [
 
 /** Derived metrics computed from accumulated values. */
 export const STANDARD_DERIVED: DerivedMetricDefinition[] = [
-  // F: Deviation = plan_count - fact_count
-  { key: 'deviation', label: 'Отклонение', unit: 'count', formula: { op: 'diff', a: 'plan_count', b: 'fact_count' } },
-  // G: Execution % = fact_total / plan_total (decimal: 0.316 = 31.6%)
-  { key: 'execution_pct', label: '% исполнения', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
-  // P: Amount deviation = fact_total - plan_total (как лист СВОД, недоосвоение < 0)
-  { key: 'amount_deviation', label: 'Отклонение сумм', unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
-  // Q листа СВОД: fact_total / plan_total — та же дробь, что и у execution_pct
-  // выше. Дубль намеренный: у столбца Q своё имя в отчёте, а ключ savings_pct
-  // записан в сохранённых снимках и переименованию не подлежит.
-  // Экономией это не является: утверждённая экономия — economy_total (Z+AA+AB
-  // под гейтом AD='да'), разница лимит−факт — amount_deviation. Прежний
-  // комментарий описывал здесь формулу (plan−fact)/plan, которой в коде нет
-  // (реестр багов 09.07.2026, п.5 «savings_pct = копия execution_pct»:
-  // мислейбл снят переименованием 18.08.2026, ложное описание осталось).
+  // F листа СВОД: `=E43-D43` — ФАКТ минус ПЛАН (дамп 18.08.2026: F14 = −49 при
+  // плане 333 и факте 284). Недобор отрицателен.
+  //
+  // До 18.08.2026 здесь стояло `plan_count − fact_count`, и внутри продукта жили
+  // ДВЕ противоположные конвенции под одним словом «Отклонение»: соседний
+  // amount_deviation (P = O−K), orchestrator (`fact − plan`), unified-svod и
+  // вкладка «Свод» считали по-листовому, а этот ключ — против. Карта метрик
+  // назвала это расхождением №1; конвенция сведена к листовой.
+  //
+  // Ключ метрики НЕ меняется — он записан в персистентных снимках. Меняется
+  // только знак и подпись; словесная формулировка еженедельного отчёта
+  // («Отклонение от плана 2 квартала – 19 процедур», положительный недобор)
+  // живёт отдельной величиной в docx-сборщике и от этого ключа не зависит.
+  { key: 'deviation', label: 'Отклонение, единиц', unit: 'count', formula: { op: 'diff', a: 'fact_count', b: 'plan_count' } },
+  // Q листа СВОД: fact_total / plan_total. ОДНА колонка листа — два ключа
+  // продукта (execution_pct и savings_pct ниже). Дубль наследственный: оба
+  // ключа записаны в персистентных снимках, поэтому не сливаются, но обе
+  // карточки БЗ обязаны называть друг друга и колонку Q.
+  { key: 'execution_pct', label: 'Исполнение (сумма), %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
+  // P листа СВОД: `=O43-K43` — факт минус план, недоосвоение < 0. Тот же знак,
+  // что и у счётного deviation выше.
+  { key: 'amount_deviation', label: 'Отклонение, тыс. руб.', unit: 'currency', formula: { op: 'diff', a: 'fact_total', b: 'plan_total' } },
+  // Та же дробь колонки Q, что и у execution_pct выше, — но под ИМЕНЕМ ЛИСТА.
+  // Оба ключа записаны в сохранённых снимках и переименованию не подлежат;
+  // разница между ними чисто именная, и обе карточки БЗ это говорят прямо.
+  // Экономией это не является: утверждённая финорганом экономия — economy_total
+  // (Z+AA+AB книг ГРБС под гейтом AD='да'), разница лимит−факт —
+  // amount_deviation. Прежний комментарий описывал здесь формулу
+  // (plan−fact)/plan, которой в коде нет (реестр багов 09.07.2026, п.5
+  // «savings_pct = копия execution_pct»: мислейбл снят переименованием
+  // 18.08.2026, ложное описание осталось).
   // Имя листа СВОД после переименования владельцем 18.08.2026 (было «Потрачено, %»).
   { key: 'savings_pct', label: 'Законтрактовано, %', unit: 'percent', formula: { op: 'pct', numerator: 'fact_total', denominator: 'plan_total' } },
-  // U: Economy total = economy_fb + economy_kb + economy_mb
-  { key: 'economy_total', label: 'Экономия ИТОГО', unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
+  // U: Economy total = economy_fb + economy_kb + economy_mb.
+  // «Утверждённая» в имени — не украшение: в районе живут ДВЕ экономии.
+  // Эта — утверждённая финансовым органом (флаг AD книг ГРБС), в ТЫСЯЧАХ рублей,
+  // колонки R–U листа СВОД. Вторая — экономия торгов «НМЦК минус цена аукциона»
+  // в РУБЛЯХ из книги «Ежедневный мониторинг» (та самая, что стоит в записке
+  // руководителю: 293 аукциона, 57 743 709,89 руб.). Числа разные, единицы
+  // разные — одним словом называться не должны.
+  { key: 'economy_total', label: 'Утверждённая экономия, ИТОГО', unit: 'currency', formula: { op: 'sum', operands: ['economy_fb', 'economy_kb', 'economy_mb'] } },
   // Total procedures and EP share
   { key: 'total_procedures', label: 'Всего процедур', unit: 'count', formula: { op: 'sum', operands: ['competitive_count', 'ep_count'] } },
   { key: 'ep_share_pct', label: 'Доля ЕП %', unit: 'percent', formula: { op: 'pct', numerator: 'ep_count', denominator: 'total_procedures' } },
@@ -506,8 +532,12 @@ export class CalcEngine {
        * если дата заключения не позже среза: отчёт «на четверг» перестаёт
        * мутировать от пятничных строк. Не задан — весь факт как есть
        * (Пульт, Реестр и прочие «живые» виды).
+       *
+       * undefined разрешён явно: вызывающие метрики прокидывают свой
+       * необязательный срез напрямую, и «поля нет» здесь значит ровно то же,
+       * что «срез не задан».
        */
-      asOfDay?: number;
+      asOfDay?: number | undefined;
       /**
        * Мультигодовой скоуп (Фаза 2): строка проходит, если её год плана
        * входит в список (пустой год — по emptyYearPolicy). Задан вместе с
@@ -935,6 +965,12 @@ export function getValue(results: GroupedResults, metricKey: string, group?: str
  * Чтение производной доли: `null` = знаменателя не было (лист печатает в
  * такой ячейке прочерк). Отличается от `getValue` именно тем, что не
  * подменяет «нет базы» нулём (реестр расхождений 08.08 §2).
+ *
+ * Вызовов пока нет — и это НЕ мёртвый код (сверка зоны В 20.08.2026):
+ * контракт getValue выше прямо запрещает читать `*_pct`/`ratio` через себя
+ * и адресует сюда. Убрать функцию — значит оставить контракту дверь,
+ * которой нет, и первый же читатель долей снова возьмёт `?? 0` с тем самым
+ * враньём нуля, ради снятия которого правило заводилось.
  */
 export function getRatio(results: GroupedResults, metricKey: string, group?: string): number | null {
   return groupOf(results, group)?.get(metricKey)?.value ?? null;

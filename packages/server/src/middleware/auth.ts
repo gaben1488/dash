@@ -1,11 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
-import { timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 
-/** Constant-time string comparison to prevent timing attacks */
-function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+/**
+ * Сравнение ключей за постоянное время.
+ *
+ * Реестр безопасности 05.06.2026, раздел LOW: здесь стоял ранний выход
+ * `a.length !== b.length` — он отвечал мгновенно на любую неверную длину и
+ * медленнее на верную, то есть по времени ответа сообщал длину настоящего
+ * ключа. Теперь сравниваются свёртки постоянной длины: время не зависит ни от
+ * длины присланного ключа, ни от того, на каком знаке он разошёлся.
+ */
+export function safeCompare(a: string, b: string): boolean {
+  const left = createHash('sha256').update(a, 'utf8').digest();
+  const right = createHash('sha256').update(b, 'utf8').digest();
+  return timingSafeEqual(left, right);
 }
 
 /**
