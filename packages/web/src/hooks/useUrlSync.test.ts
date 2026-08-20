@@ -6,7 +6,8 @@
  * и monthsByYear; легаси-формат без года читается и приписывается году URL.
  */
 import { describe, expect, it } from 'vitest';
-import { serializeMonthsParam, parseMonthsParam } from './useUrlSync';
+import { ACTIVITY_TYPES } from '@aemr/shared';
+import { serializeMonthsParam, parseMonthsParam, VALID_ACTIVITIES } from './useUrlSync';
 
 describe('serializeMonthsParam', () => {
   it('однолетний выбор — с годом (чтобы восстановился барабан)', () => {
@@ -70,5 +71,22 @@ describe('parseMonthsParam', () => {
     expect([...p.monthsByYear[2025]]).toEqual([1, 2]);
     expect([...p.monthsByYear[2026]]).toEqual([7, 8]);
     expect(p.year).toBe(2026);
+  });
+});
+
+/**
+ * Страж словаря вида деятельности (DEADCODE_DISPOSITION §W-6): ссылка
+ * разбирается по каноническому списку из @aemr/shared, а не по литералу,
+ * переписанному от руки. Второе утверждение замораживает сегодняшний состав:
+ * если справочник пополнится, страж заставит признать это осознанно —
+ * ссылка начнёт принимать новое значение фильтра.
+ */
+describe('словарь параметра activity', () => {
+  it('состоит из «все» и канонических видов деятельности', () => {
+    expect(VALID_ACTIVITIES).toEqual(['all', ...ACTIVITY_TYPES]);
+  });
+
+  it('сегодняшний состав: программное мероприятие и две формы текущей', () => {
+    expect(VALID_ACTIVITIES).toEqual(['all', 'program', 'current_program', 'current_non_program']);
   });
 });

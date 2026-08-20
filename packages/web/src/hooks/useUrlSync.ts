@@ -1,12 +1,21 @@
 import { useEffect, useRef } from 'react';
+import { ACTIVITY_TYPES } from '@aemr/shared';
 import { useStore } from '../store';
 import type { PeriodScope, ProcurementFilter, ActivityFilter, BudgetType } from '../store';
 
 const VALID_PERIODS: PeriodScope[] = ['year', 'q1', 'q2', 'q3', 'q4'];
 const VALID_METHODS: ProcurementFilter[] = ['all', 'competitive', 'single'];
-const VALID_ACTIVITIES: ActivityFilter[] = ['all', 'program', 'current_program', 'current_non_program'];
+/**
+ * Словарь параметра `activity` — производная канонического списка видов
+ * деятельности из @aemr/shared, а не собственный литерал рядом с ним.
+ * DEADCODE_DISPOSITION_2026-06-05 §W-6: справочник видов лежал мёртвым,
+ * пока ссылка разбиралась по трём строкам, переписанным здесь от руки —
+ * новый вид в справочнике молча не попадал бы в разбор ссылки.
+ * Экспортирован ради стража useUrlSync.test.ts.
+ */
+export const VALID_ACTIVITIES: ActivityFilter[] = ['all', ...ACTIVITY_TYPES];
 const VALID_METHOD_SET = new Set(['competitive', 'single']);
-const VALID_ACTIVITY_SET = new Set(['program', 'current_program', 'current_non_program']);
+const VALID_ACTIVITY_SET = new Set<string>(ACTIVITY_TYPES);
 const VALID_BUDGET_SET = new Set<BudgetType>(['fb', 'kb', 'mb']);
 
 const DEFAULT_YEAR = new Date().getFullYear();
