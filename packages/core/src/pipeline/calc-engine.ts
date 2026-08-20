@@ -608,7 +608,7 @@ export class CalcEngine {
       // Пустой слот и строка без единого значения — не «отвергнутые данные»,
       // а простыня листа (диапазон дочитан до последней заполненной ячейки
       // где-то в далёкой колонке). Вопрос владельца 20.08: «925 из 994» УАГЗО.
-      if (!row || row.every((c) => c === null || c === undefined || String(c).trim() === '')) {
+      if (!row || isSheetFiller(row)) {
         result.emptyRows++;
         continue;
       }
@@ -905,6 +905,45 @@ const ALL_METHODS = new Set<string>(PROCUREMENT_METHODS);
  *
  * Threshold: score >= 3 qualifies as a data row.
  */
+/**
+ * Простыня листа — строка без содержания, даже если формулы напечатали в ней нули.
+ *
+ * Прод-баг, показанный владельцем 21.08.2026: реестр проверок кричал «Строки
+ * листа УФБП не попали в расчёт: 932 из 978 — колонки сдвинуты, показатели
+ * управления считать нельзя». Колонки были в порядке. В книгах формулы
+ * протянуты до конца сетки, и на пустых строках они печатают нули: K = 0
+ * (сложение пустых ячеек), Y, Z, AA, AB, AC = 0, а O, P, R, S, T возвращают
+ * пустую строку. Прежняя проверка требовала пустоты КАЖДОЙ ячейки — ноль от
+ * формулы её проваливал, строка объявлялась отвергнутой, и продукт врал о
+ * сдвинутых колонках на пяти управлениях сразу.
+ *
+ * Признак содержания: номер, предмет, подвед, способ, любая непустая дата или
+ * ХОТЬ ОДНО ненулевое число. Всё остальное — простыня, и она считается
+ * отдельно от настоящих отвергнутых строк (`emptyRows` против `droppedRows`).
+ */
+export function isSheetFiller(row: RawRow): boolean {
+  const textual = [COL.ID, COL.SUBJECT, COL.SUBORDINATE, COL.METHOD, COL.TYPE, COL.PROGRAM_NAME, COL.SUBPROGRAM,
+    COL.PLAN_DATE, COL.FACT_DATE];
+  for (const c of textual) {
+    if (String(row[c] ?? '').trim() !== '') return false;
+  }
+  // Число считается содержанием, только если оно ненулевое: ноль здесь —
+  // отпечаток протянутой формулы, а не заявленные деньги.
+  for (let c = 0; c < row.length; c++) {
+    const raw = row[c];
+    if (raw === null || raw === undefined) continue;
+    const s = String(raw).trim();
+    if (s === '') continue;
+    // Любая буква в ячейке — содержание: комментарий, маркер, пометка.
+    // Проверяется до чисел, потому что `num` на тексте даёт ноль, а не NaN,
+    // и «перенесено на четвёртый квартал» без этой ветви сошло бы за простыню.
+    if (/\p{L}/u.test(s)) return false;
+    const n = num(raw);
+    if (n !== 0) return false;
+  }
+  return true;
+}
+
 export function standardRowFilter(row: RawRow): boolean {
   // Must have ID or subject
   if (!cellPresent(row[COL.ID]) && !cellPresent(row[COL.SUBJECT])) return false;

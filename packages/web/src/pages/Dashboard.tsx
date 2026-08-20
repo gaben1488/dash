@@ -27,6 +27,7 @@ import { formatPercent, formatMetricValue } from '../components/HeroKPICard';
 import { buildPerimeter, type Perimeter } from '../lib/perimeter';
 import { useOrgScope, type OrgScope } from '../lib/selectors/org-scope';
 import { DeptPortrait } from '../components/dashboard/DeptPortrait';
+import { CARD, RULE_HEAD } from '../components/dashboard/surfaces';
 import type { DeptMetrics } from '../hooks/useMultiDimMetrics';
 import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
@@ -125,8 +126,11 @@ function StatusLine({ data, fd }: { data: StatusLineData; fd: ReturnType<typeof 
     activeMonths,
   });
 
+  // Строка состояния — поверхность в потоке страницы, а не окно поверх неё:
+  // в тёмной теме её отделяет светлота (zinc-800/70 против zinc-950 — 1,20:1),
+  // и обводка ей не нужна (канон п.129).
   return (
-    <div className="flex items-center gap-3 text-xs bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/60 dark:border-zinc-800/60 flex-wrap">
+    <div className="flex items-center gap-3 text-xs bg-white/80 dark:bg-zinc-800/70 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/60 dark:border-transparent flex-wrap">
       {/* Живой срез: пульс + слово (закон 6 — текстовый дубль визуального) */}
       <span className="flex items-center gap-1.5" title="Эфир: числа считаются по текущему состоянию книг, а не по архивному срезу недели">
         <span className="relative flex h-2 w-2" aria-hidden="true">
@@ -395,9 +399,11 @@ export function Dashboard() {
 
   // Заголовок ошибки — по-русски и о деле; технический текст сервера остаётся,
   // но мелким и отдельной строкой, чтобы не подменять собой объяснение.
+  // Красный край карточки остаётся в обеих темах: здесь обводка — сам сигнал
+  // тревоги, а не хром. Светлота поверхности — как у прочих карточек.
   if (error) {
     return (
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg border border-red-200/60 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8" role="alert">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-2xl shadow-lg dark:shadow-none border border-red-200/60 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8" role="alert">
         <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="text-red-500" size={28} aria-hidden="true" />
         </div>
@@ -423,7 +429,7 @@ export function Dashboard() {
   // слова и без способа что-то сделать.
   if (!dashboardData) {
     return (
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 max-w-lg mx-auto mt-12 text-center p-8">
+      <div className={`${CARD} rounded-2xl shadow-sm dark:shadow-none max-w-lg mx-auto mt-12 text-center p-8`}>
         <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mx-auto mb-4">
           <Info className="text-zinc-400" size={28} aria-hidden="true" />
         </div>
@@ -452,16 +458,11 @@ export function Dashboard() {
           выбранные управления/способ/период молча резали все числа страницы. */}
       <FilterBreadcrumb />
 
-      {/* 3. Полоса замечаний — раскрывается в список по управлениям.
-          Обрезку списка делает сама полоса: она же считает, сколько записей не
-          показано, и говорит об этом вслух. Прежняя обрезка здесь, до передачи,
-          лишала её этого счёта — семьдесят скрытых замечаний исчезали молча. */}
-      <CriticalBannerV2
-        criticalCount={fd.criticalIssues.length}
-        warningCount={fd.warningIssues.length}
-        issues={bannerIssues}
-        onNavigate={() => navigateTo('quality', { qualityTab: 'issues' })}
-      />
+      {/* Полоса замечаний ПЕРЕЕХАЛА в раздел «Сигналы проверок» (канон п.132):
+          на одном экране она стояла третьим домом одного факта — рядом с
+          плиткой «Критические замечания» (снята) и разделом сигналов.
+          Теперь замечания живут в одном месте, и оттуда же открываются
+          адреса строк. */}
 
       {/* Год выбранный и год данных не совпали */}
       {fd.yearMismatch && (
@@ -515,7 +516,7 @@ export function Dashboard() {
       {/* 5. Рейтинг управлений — главный элемент страницы.
           Секция рисуется ВСЕГДА: раньше при пустой выборке она молча исчезала,
           и пользователь не мог понять, фильтры это или сбой чтения. */}
-      <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
+      <section className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5 hover:shadow-lg transition-shadow duration-300`}>
         {/* flex-wrap: на 360–430px плашка периода уходит на свою строку,
             а не сплющивает заголовок (п.73а). */}
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -575,7 +576,7 @@ export function Dashboard() {
 
       {/* 6. План против факта по кварталам */}
       {planFactData.some(d => d.plan > 0 || d.fact > 0) ? (
-        <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
+        <section className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5 hover:shadow-lg transition-shadow duration-300`}>
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <KBTooltip metric="plan_fact_quarterly">
               <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
@@ -660,7 +661,7 @@ export function Dashboard() {
           </div>
         </section>
       ) : (
-        <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5">
+        <section className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5`}>
           <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
             План против факта по кварталам
           </h3>
@@ -675,7 +676,7 @@ export function Dashboard() {
           Сетка отдаёт две трети ширины столбцам и треть — кругу. */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Исполнение по управлениям */}
-        <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300">
+        <div className={`lg:col-span-2 ${CARD} rounded-2xl shadow-sm dark:shadow-none p-5 hover:shadow-lg transition-shadow duration-300`}>
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <KBTooltip metric="execution_by_dept">
               <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
@@ -749,10 +750,16 @@ export function Dashboard() {
         />
       </section>
 
-      {/* 8. Blind Spots — signal cards */}
+      {/* Единственный дом замечаний и сигналов на Пульсе (канон п.132):
+          сводка с раскрытием адресов по управлениям — бывшая полоса — и
+          плитки по родам сигналов. */}
       <BlindSpotsWidget
         issues={issues ?? []}
         signalCounts={fd.signalCounts}
+        criticalCount={fd.criticalIssues.length}
+        warningCount={fd.warningIssues.length}
+        bannerIssues={bannerIssues}
+        onOpenIssues={() => navigateTo('quality', { qualityTab: 'issues' })}
         onNavigate={(category, search) => navigateTo('quality', { category, search })}
       />
     </div>
@@ -878,22 +885,14 @@ function buildHeroKPIs(fd: ReturnType<typeof useFilteredData>, perimeter: Perime
     });
   }
 
-  // 2. Критические замечания — счётная величина, знаменателя у неё нет.
-  const critCount = fd.criticalIssues.length;
-  kpis.push({
-    metricKey: 'critical_issues',
-    label: 'Критические замечания',
-    figure: figure({
-      value: critCount,
-      unit: 'шт',
-      perimeter,
-      provenance: { engine: 'движок: сигналы уровня «критично» по строкам книг' },
-    }),
-    value: critCount,
-    unit: 'шт.',
-    status: critCount > 3 ? 'critical' : critCount > 0 ? 'warning' : 'normal',
-    invertDelta: true,
-  });
+  // Плитка «Критические замечания» СНЯТА 21.08.2026 (канон п.132: «сносы
+  // дублей подтверждаю»). Она показывала то же число, что полоса замечаний
+  // строкой ниже и что раздел «Сигналы проверок», — три дома одного факта на
+  // одном экране. Владелец: «вижу карточку критические замечания,
+  // неинформативную и дублирующую частично карточку N замечаний требуют
+  // решения». Единственный дом замечаний на Пульсе — раздел «Сигналы
+  // проверок», куда переехала и полоса. Ряд показателей остаётся про деньги и
+  // исполнение: счётная величина без знаменателя ему чужда.
 
   // 3. Экономия. Плитка рисуется ВСЕГДА: раньше при нулевом плане она молча
   //    исчезала, и ряд показателей менял состав без единого слова.
@@ -1186,7 +1185,9 @@ function KPIExpandPanel({
       ))}
 
       {/* Переход на страницу с полным разбором */}
-      <div className="flex justify-end pt-2 border-t border-zinc-100 dark:border-zinc-800">
+      {/* Линейка перед действием карточки — разделитель, а не рамка: остаётся
+          в обеих темах, но тише текста (канон п.129). */}
+      <div className={`flex justify-end pt-2 border-t ${RULE_HEAD}`}>
         <button
           type="button"
           onClick={(e) => {
@@ -1217,9 +1218,25 @@ function signalLabel(signal: string): string {
   return untranslated ? 'Сигнал без подписи в словаре' : label;
 }
 
-function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }: {
+function BlindSpotsWidget({
+  issues,
+  signalCounts: apiSignalCounts,
+  criticalCount,
+  warningCount,
+  bannerIssues,
+  onOpenIssues,
+  onNavigate,
+}: {
   issues: any[];
   signalCounts?: Record<string, number>;
+  /** Счёт критических замечаний — для сводки, переехавшей из полосы. */
+  criticalCount: number;
+  /** Счёт предупреждений — там же. */
+  warningCount: number;
+  /** Замечания для раскрытия по управлениям (бывшая полоса). */
+  bannerIssues: any[];
+  /** Переход на страницу «Контроль», раздел «Замечания». */
+  onOpenIssues: () => void;
   onNavigate: (category: string, search?: string) => void;
 }) {
   const signalCounts = useMemo(() => {
@@ -1303,15 +1320,15 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
   }>;
 
   const colorMap: Record<string, { bg: string; border: string; text: string; number: string; glow: string }> = {
-    red:    { bg: 'bg-red-500/8', border: 'border-red-500/15 hover:border-red-500/30', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
-    rose:   { bg: 'bg-rose-500/8', border: 'border-rose-500/15 hover:border-rose-500/30', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
-    orange: { bg: 'bg-orange-500/8', border: 'border-orange-500/15 hover:border-orange-500/30', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
-    amber:  { bg: 'bg-amber-500/8', border: 'border-amber-500/15 hover:border-amber-500/30', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
-    purple: { bg: 'bg-purple-500/8', border: 'border-purple-500/15 hover:border-purple-500/30', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
-    cyan:   { bg: 'bg-cyan-500/8', border: 'border-cyan-500/15 hover:border-cyan-500/30', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
-    blue:   { bg: 'bg-blue-500/8', border: 'border-blue-500/15 hover:border-blue-500/30', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
-    indigo: { bg: 'bg-indigo-500/8', border: 'border-indigo-500/15 hover:border-indigo-500/30', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
-    teal:   { bg: 'bg-teal-500/8', border: 'border-teal-500/15 hover:border-teal-500/30', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
+    red:    { bg: 'bg-red-500/8 dark:bg-white/[0.045]', border: 'border-red-500/15 dark:border-transparent hover:border-red-500/30 dark:hover:border-red-500/25', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
+    rose:   { bg: 'bg-rose-500/8 dark:bg-white/[0.045]', border: 'border-rose-500/15 dark:border-transparent hover:border-rose-500/30 dark:hover:border-rose-500/25', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
+    orange: { bg: 'bg-orange-500/8 dark:bg-white/[0.045]', border: 'border-orange-500/15 dark:border-transparent hover:border-orange-500/30 dark:hover:border-orange-500/25', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
+    amber:  { bg: 'bg-amber-500/8 dark:bg-white/[0.045]', border: 'border-amber-500/15 dark:border-transparent hover:border-amber-500/30 dark:hover:border-amber-500/25', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
+    purple: { bg: 'bg-purple-500/8 dark:bg-white/[0.045]', border: 'border-purple-500/15 dark:border-transparent hover:border-purple-500/30 dark:hover:border-purple-500/25', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
+    cyan:   { bg: 'bg-cyan-500/8 dark:bg-white/[0.045]', border: 'border-cyan-500/15 dark:border-transparent hover:border-cyan-500/30 dark:hover:border-cyan-500/25', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
+    blue:   { bg: 'bg-blue-500/8 dark:bg-white/[0.045]', border: 'border-blue-500/15 dark:border-transparent hover:border-blue-500/30 dark:hover:border-blue-500/25', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
+    indigo: { bg: 'bg-indigo-500/8 dark:bg-white/[0.045]', border: 'border-indigo-500/15 dark:border-transparent hover:border-indigo-500/30 dark:hover:border-indigo-500/25', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
+    teal:   { bg: 'bg-teal-500/8 dark:bg-white/[0.045]', border: 'border-teal-500/15 dark:border-transparent hover:border-teal-500/30 dark:hover:border-teal-500/25', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
   };
 
   const totalSpots = spots.reduce((s, c) => s + (signalCounts[c.signal] || 0), 0);
@@ -1329,7 +1346,7 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       : '';
 
   return (
-    <section className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5">
+    <section className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5`}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <KBTooltip
@@ -1356,9 +1373,22 @@ function BlindSpotsWidget({ issues, signalCounts: apiSignalCounts, onNavigate }:
       <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-2">
         Проверки всех строк книг · на момент последнего чтения · выбор периода в шапке на сигналы не действует
       </p>
-      <p className={`text-xs font-medium mb-4 ${totalSpots === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-600 dark:text-zinc-300'}`}>
+      <p className={`text-xs font-medium mb-3 ${totalSpots === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-600 dark:text-zinc-300'}`}>
         {assertion}
       </p>
+
+      {/* Сводка замечаний — бывшая отдельная полоса над страницей. Стоит
+          внутри раздела, потому что говорит о том же: сколько строк книг
+          требуют решения и каких. Раскрытие по управлениям и переход в
+          «Контроль» живут прямо здесь. */}
+      <div className="mb-4">
+        <CriticalBannerV2
+          criticalCount={criticalCount}
+          warningCount={warningCount}
+          issues={bannerIssues}
+          onNavigate={onOpenIssues}
+        />
+      </div>
       {/* Девять карточек; подписи из словаря длиннее прежних сокращений —
           сетка расширена по ширине экрана. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
