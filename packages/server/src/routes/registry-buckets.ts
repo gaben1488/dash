@@ -24,6 +24,18 @@ interface BucketTotals {
   planSum: number;
 }
 
+/**
+ * Объявленной формы ответа у этого маршрута намеренно нет.
+ *
+ * Соблазн её объявить понятен: тело короткое, состав известен, а
+ * `additionalProperties: false` превращает соглашение с вебом в проверяемое.
+ * Но у строгой сборки есть и обратная сторона: поле, добавленное в ответ и
+ * забытое в объявлении, ВЫРЕЗАЕТСЯ молча — и обнаружит это не прогон, а
+ * читатель с пустым счётчиком на кнопке навигации. Такой размен оправдан там,
+ * где строгость закрывает дверь наружу (публичный /api/health), и не оправдан
+ * здесь, где маршрут за ключом доступа, а выигрыша в скорости объявленная форма
+ * на этой сборке Node не даёт вовсе (замер: routes/changes-serialization.test.ts).
+ */
 export async function registryBucketsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/registry/buckets', async (_request, reply) => {
     const reading = await readDeptRows();
@@ -33,6 +45,7 @@ export async function registryBucketsRoutes(app: FastifyInstance): Promise<void>
         message:
           'Книги ГРБС не прочитаны и сохранённого снимка нет — считать корзины не по чему. Обновите данные и повторите.',
         statusCode: 503,
+        code: 'SERVICE_UNAVAILABLE',
       });
     }
 

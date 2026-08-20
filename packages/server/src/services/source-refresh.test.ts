@@ -91,6 +91,30 @@ describe('перечитка источников одним циклом', () =
     expect(a.at).toBe(b.at);
   });
 
+  it('уведомление во время идущего цикла получает НОВОЕ чтение, а не хвост текущего', async () => {
+    // Присоединиться к уже идущему циклу дешевле, но для вебхука это потеря
+    // правки: цикл мог прочитать книгу за секунду до того, как в ней что-то
+    // поменяли, и его результат честно не содержит правки, о которой нас
+    // только что известили.
+    let release: (() => void) | undefined;
+    fetchDepartmentSpreadsheets.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return { data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' } }, errors: {} };
+    });
+
+    const { refreshAllSources } = await import('./source-refresh.js');
+    const cycle = refreshAllSources(log);
+    const first = refreshAllSources(log, 'webhook', { fresh: true });
+    const second = refreshAllSources(log, 'webhook', { fresh: true });
+    // Серия уведомлений назначает ОДИН следующий цикл, а не по циклу на каждое.
+    expect(first).toBe(second);
+
+    release?.();
+    await Promise.all([cycle, first, second]);
+
+    expect(fetchDepartmentSpreadsheets).toHaveBeenCalledTimes(2);
+  });
+
   it('упавшая книга удаляется из кэша, а не остаётся под видом свежей', async () => {
     fetchDepartmentSpreadsheets.mockResolvedValueOnce({
       data: { 'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' } },

@@ -29,8 +29,22 @@ interface FakeDeptResult {
 }
 type FetchResult = { data: Record<string, FakeDeptResult>; errors: Record<string, string> };
 
+/**
+ * Отрезки времени, занятые чтением источников. Параллельность проверяется
+ * НАЛОЖЕНИЕМ отрезков, а не длительностью цикла: часы меряют загрузку
+ * машины (страж падал на общем прогоне 75 файлов и проходил в одиночку),
+ * а пересечение отрезков — само устройство кода.
+ */
+const spans: Array<{ who: 'books' | 'svod'; from: number; to: number }> = [];
+
+function overlap(a: { from: number; to: number }, b: { from: number; to: number }): number {
+  return Math.min(a.to, b.to) - Math.max(a.from, b.from);
+}
+
 const fetchDepartmentSpreadsheets = vi.fn<() => Promise<FetchResult>>(async () => {
+  const from = Date.now();
   await sleep(SOURCE_DELAY_MS);
+  spans.push({ who: 'books', from, to: Date.now() });
   return {
     data: {
       'УО': { values: [[1], [2], [3]], formulas: [], sheetName: 'ВСЕ' },
@@ -40,7 +54,9 @@ const fetchDepartmentSpreadsheets = vi.fn<() => Promise<FetchResult>>(async () =
   };
 });
 const getSheetData = vi.fn(async () => {
+  const from = Date.now();
   await sleep(SOURCE_DELAY_MS);
+  spans.push({ who: 'svod', from, to: Date.now() });
   return [['СВОД']];
 });
 
@@ -105,21 +121,27 @@ beforeEach(() => {
   getSheetData.mockClear();
   deptSheetCache = {};
   deptLoadMeta = {};
+  spans.length = 0;
 });
 
 const refresh = (qs = '') => app.inject({ method: 'POST', url: `/api/refresh${qs}` });
 
 describe('POST /api/refresh — полный цикл', () => {
   it('книги и лист СВОД читаются ПАРАЛЛЕЛЬНО, а не одно за другим', async () => {
-    const startedAt = Date.now();
     const res = await refresh();
-    const elapsed = Date.now() - startedAt;
-
     expect(res.statusCode).toBe(200);
-    // Последовательное чтение стоило бы не меньше двух задержек (books + СВОД);
-    // параллельное — около одной. Порог с запасом на дрожание таймеров Windows.
-    console.log(`/api/refresh полный цикл: ${elapsed} мс при задержке источника ${SOURCE_DELAY_MS} мс`);
-    expect(elapsed).toBeLessThan(SOURCE_DELAY_MS * 2 - 30);
+
+    const books = spans.find((s) => s.who === 'books');
+    const svod = spans.find((s) => s.who === 'svod');
+    expect(books, 'книги не читались вовсе').toBeDefined();
+    expect(svod, 'лист СВОД не читался вовсе').toBeDefined();
+
+    // Последовательное чтение даёт непересекающиеся отрезки; параллельное —
+    // наложение почти во всю длину. Требуем перекрытия хотя бы наполовину:
+    // запас покрывает и дрожание таймеров, и занятую машину.
+    const shared = overlap(books!, svod!);
+    console.log(`наложение чтений: ${shared} мс из ${SOURCE_DELAY_MS} мс задержки источника`);
+    expect(shared).toBeGreaterThan(SOURCE_DELAY_MS / 2);
   });
 
   it('одновременный второй вызов НЕ читает книги второй раз (склейка циклов)', async () => {

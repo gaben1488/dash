@@ -34,6 +34,21 @@ export interface SourceRefreshResult {
 
 /** Идёт ли перечитка прямо сейчас — параллельные вызовы ждут общий промис. */
 let inFlight: Promise<SourceRefreshResult> | null = null;
+/** Обещанный НОВЫЙ цикл, назначенный на конец текущего (см. `fresh`). */
+let queuedFresh: Promise<SourceRefreshResult> | null = null;
+
+export interface RefreshOptions {
+  /**
+   * Требуется чтение ПОСЛЕ этого мгновения, а не любое идущее.
+   *
+   * Обычный вызов присоединяется к текущему циклу — это бережёт квоту. Но для
+   * уведомления Drive присоединиться значит потерять правку: цикл мог прочитать
+   * книгу за секунду до того, как в ней что-то поменяли, и его результат честно
+   * не содержит правки, о которой нас только что известили. С `fresh` вызов
+   * ждёт окончания текущего цикла и запускает следующий.
+   */
+  fresh?: boolean;
+}
 
 /**
  * Объявить в прямом эфире, что изменилось в книгах за этот цикл.
@@ -71,8 +86,19 @@ function publishBookChanges(
 export function refreshAllSources(log?: {
   info: (msg: string) => void;
   warn: (msg: string) => void;
-}, origin: RefreshOrigin = 'cycle'): Promise<SourceRefreshResult> {
-  if (inFlight) return inFlight;
+}, origin: RefreshOrigin = 'cycle', options: RefreshOptions = {}): Promise<SourceRefreshResult> {
+  if (inFlight) {
+    if (!options.fresh) return inFlight;
+    // Один хвост на всю серию: пять уведомлений, пришедших во время цикла,
+    // назначают ОДИН следующий цикл, а не пять подряд.
+    queuedFresh ??= inFlight
+      .catch(() => undefined)
+      .then(() => {
+        queuedFresh = null;
+        return refreshAllSources(log, origin, options);
+      });
+    return queuedFresh;
+  }
 
   inFlight = (async () => {
     // Прежнее чтение книг — материал для ответа «что именно поменялось»

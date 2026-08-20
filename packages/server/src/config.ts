@@ -57,6 +57,13 @@ const envSchema = z.object({
   WEBHOOK_PUBLIC_URL: z.string().optional(),
   /** Секрет каналов Drive: кладётся в token при регистрации, сверяется на каждом уведомлении. */
   WEBHOOK_SECRET: z.string().optional(),
+  /** Задержка склейки серии уведомлений в одну перечитку, секунды. */
+  WEBHOOK_DEBOUNCE_SECONDS: z.coerce.number().int().positive().max(600).default(15),
+  /**
+   * Срок, который запрашиваем у Drive для канала, часы. Google вправе выдать
+   * меньше — тогда работает назначенный им срок из ответа watch, а не этот.
+   */
+  WEBHOOK_CHANNEL_TTL_HOURS: z.coerce.number().int().positive().max(24).default(24),
 
   // Четверг-cron еженедельного снимка
   NODE_ENV: z.string().optional(),
@@ -222,3 +229,20 @@ export const config: AppConfig = {
     utcOffsetHours: env.PRODUCT_TZ_OFFSET_HOURS,
   },
 };
+
+/**
+ * Настройки приёмника push-уведомлений Drive.
+ *
+ * Держатся отдельно от `config.webhook` (адрес и секрет) намеренно: там —
+ * «включён ли push вообще», здесь — «как он себя ведёт». Оба числа выведены
+ * наружу через окружение, потому что подбираются на живом продукте: задержка
+ * склейки — компромисс между «правка видна сразу» и «серия правок не жжёт
+ * квоту», а запрошенный срок канала имеет смысл укоротить, если однажды
+ * понадобится чаще проверять, что наблюдение живо.
+ */
+export const webhookTuning = {
+  /** Задержка склейки серии уведомлений в одну перечитку. */
+  debounceMs: env.WEBHOOK_DEBOUNCE_SECONDS * 1000,
+  /** Срок канала, который запрашиваем у Drive (он вправе выдать меньше). */
+  channelTtlMs: env.WEBHOOK_CHANNEL_TTL_HOURS * 60 * 60 * 1000,
+} as const;

@@ -18,7 +18,7 @@
  * Честная пустота: у непрочитанного источника нет ни времени, ни числа строк —
  * там null, а не ноль и не время попытки, выданное за успех.
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { SVOD_SHEET_NAME, SHDYU_MONTHLY_SHEET_NAME } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import {
@@ -250,6 +250,114 @@ export function buildHealthReport(now: Date = new Date()): HealthReport {
   };
 }
 
+/**
+ * Готовность принимать работу — не то же самое, что живость.
+ *
+ * Различие взято из практики оркестраторов и нужно здесь буквально: процесс
+ * поднимается за доли секунды, а книги управлений читаются с Google десятки
+ * секунд. В это окно сервер ЖИВ (перезапускать его нечего) и при этом ещё НЕ
+ * ГОТОВ (числа показывать не из чего). Единственная прежняя проверка отвечала
+ * `status: 'ok'` уже в первую секунду, поэтому связка объявляла версию
+ * работающей и пускала на неё читателей на пустой продукт.
+ *
+ * Граница проведена по числу прочитанных источников: прочитан хотя бы один —
+ * продукту есть что показать; ни одного — 503 с причиной. Отказ отдельной
+ * книги готовности не отменяет: восемь управлений из девяти это рабочее
+ * состояние, а не повод убрать сервер из выдачи.
+ */
+export interface ReadinessReport {
+  status: 'ready' | 'not_ready';
+  timestamp: string;
+  /** Та же фраза, что и в /api/health: сколько прочитано и что молчит. */
+  summary: string;
+  loaded: number;
+  total: number;
+}
+
+export function buildReadinessReport(now: Date = new Date()): ReadinessReport {
+  const { sources } = buildHealthReport(now);
+  return {
+    status: sources.loaded > 0 ? 'ready' : 'not_ready',
+    timestamp: now.toISOString(),
+    summary: sources.summary,
+    loaded: sources.loaded,
+    total: sources.total,
+  };
+}
+
+/**
+ * Объявленная форма ответа о здоровье.
+ *
+ * Здесь она не про скорость, а про закрытую дверь. Маршрут ПУБЛИЧНЫЙ, и всё,
+ * что случайно окажется в объекте — идентификатор книги, адрес, почта служебной
+ * учётной записи, сырой текст отказа Google, — уйдёт в мир без единого вопроса.
+ * Объявленная схема отдаёт наружу ровно перечисленные поля и вырезает любое
+ * другое: документация Fastify (Guides/Getting-Started.md, «Serialize your
+ * data») называет это второй, помимо скорости, причиной объявлять форму ответа.
+ *
+ * Состав повторяет интерфейсы выше буква в букву. Разошлись — вырежется поле,
+ * и это увидит страж routes/health.test.ts.
+ */
+const SOURCE_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string' },
+    state: { type: 'string' },
+    loadedAt: { type: ['string', 'null'] },
+    checkedAt: { type: ['string', 'null'] },
+    rowCount: { type: ['number', 'null'] },
+    reason: { type: 'string' },
+  },
+} as const;
+
+export const HEALTH_RESPONSE_SCHEMA = {
+  200: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      status: { type: 'string' },
+      timestamp: { type: 'string' },
+      service: { type: 'string' },
+      sources: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          state: { type: 'string' },
+          summary: { type: 'string' },
+          total: { type: 'number' },
+          loaded: { type: 'number' },
+          failed: { type: 'number' },
+          lastSuccessAt: { type: ['string', 'null'] },
+          items: { type: 'array', items: SOURCE_ITEM_SCHEMA },
+        },
+      },
+    },
+  },
+} as const;
+
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/health', async () => buildHealthReport());
+  app.get('/api/health', { schema: { response: HEALTH_RESPONSE_SCHEMA } }, async () =>
+    buildHealthReport(),
+  );
+
+  /**
+   * Живость: отвечает ли процесс вообще. Ничего не читает и не считает —
+   * значит, не может ни подвиснуть на источнике, ни соврать из-за него.
+   */
+  const live = async () => ({ status: 'ok' as const, service: 'aemr-server' as const });
+
+  const ready = async (_request: FastifyRequest, reply: FastifyReply) => {
+    const report = buildReadinessReport();
+    return reply.status(report.status === 'ready' ? 200 : 503).send(report);
+  };
+
+  // Адреса ВНЕ /api: проверка ключа доступа охраняет только /api/*, а
+  // оркестратору (healthcheck связки, балансировщик) ключа не выдают. Под /api
+  // те же проверки заведены рядом — их дёргает вкладка «Подключение», у
+  // которой ключ есть.
+  app.get('/health/live', live);
+  app.get('/health/ready', ready);
+  app.get('/api/health/live', live);
+  app.get('/api/health/ready', ready);
 }

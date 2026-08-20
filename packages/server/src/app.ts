@@ -29,6 +29,8 @@ import { commentAnnotationsRoutes } from './routes/comment-annotations.js';
 import { registryBucketsRoutes } from './routes/registry-buckets.js';
 import { monitoringRoutes } from './routes/monitoring.js';
 import { workloadRoutes } from './routes/workload.js';
+import { anomaliesRoutes } from './routes/anomalies.js';
+import { integrityRoutes } from './routes/integrity.js';
 import { textHygieneRoutes } from './routes/text-hygiene.js';
 import { eventsRoutes } from './routes/events.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
@@ -42,6 +44,14 @@ import { registerAuthHook } from './middleware/auth.js';
 import { registerHeavyRouteRateLimit, type HeavyRouteRule } from './plugins/rate-limit.js';
 import { installProcessGuards } from './plugins/process-guards.js';
 import { registerDemoMarker } from './plugins/demo-marker.js';
+import { registerErrorShape, sendNotFound } from './plugins/error-shape.js';
+import { registerHttpCache } from './plugins/http-cache.js';
+import { registerCompression } from './plugins/compression.js';
+import {
+  installGracefulShutdown,
+  registerShutdownGuard,
+  type ShutdownGuard,
+} from './plugins/graceful-shutdown.js';
 
 /**
  * Потолок тела запроса, один мегабайт. Величина выбрана как заведомо больший
@@ -71,6 +81,14 @@ export function isDeclaredDevRuntime(): boolean {
   return mode === 'development' || mode === 'test';
 }
 
+/**
+ * Заслон прощания каждого приложения. Слабые ссылки: приложение закрылось —
+ * запись уходит сама, держать закрытые экземпляры незачем. Нужен затем, что
+ * заслон ставится при сборке приложения (он нужен и прогонам), а подписка на
+ * сигналы процесса — только при настоящем запуске, в `startServer`.
+ */
+const shutdownGuards = new WeakMap<FastifyInstance, ShutdownGuard>();
+
 export interface CreateAppOptions {
   logger?: FastifyServerOptions['logger'];
   /** Пороги частоты для тяжёлых маршрутов; свои — только в тестах. */
@@ -90,6 +108,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     bodyLimit: BODY_LIMIT_BYTES,
     logger: options.logger ?? {
       level: config.server.logLevel,
+      // Журнал не должен становиться вторым местом утечки ключа. Pino пишет
+      // объект запроса при каждой ошибке, а в заголовках лежит `Authorization:
+      // Bearer <ключ>` — ровно тот ключ, ради которого заведена проверка
+      // доступа. Файл журнала переживает и грепается легче, чем память
+      // процесса, поэтому названные заголовки затираются на месте.
+      redact: {
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'request.headers.authorization',
+          'headers.authorization',
+        ],
+        censor: '[скрыто]',
+      },
       transport: {
         target: 'pino-pretty',
         options: { colorize: true },
@@ -152,26 +184,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     setSourceLogger(null);
   });
 
-  app.setErrorHandler((error: Error & { statusCode?: number; expose?: boolean }, request, reply) => {
-    const statusCode = error.statusCode ?? 500;
-    app.log.error({ err: error, url: request.url, method: request.method }, 'Request error');
+  // Общий вид отказа: `{error, message, statusCode}` как прежде, плюс `code`
+  // (устойчивое слово для ветвления) и `requestId` (строка журнала без
+  // пересказа её содержимого). Стек — только в явно названной среде разработки:
+  // при незаданной NODE_ENV он раньше уходил читателю вместе с путями файлов.
+  registerErrorShape(app, { exposeStack: isDeclaredDevRuntime() });
 
-    // Молчащий источник — не поломка продукта. Ошибка, которая сама объявила
-    // себя показываемой (expose), несёт русский текст с действием: подменять
-    // его на «Internal server error» значит прятать от читателя единственное
-    // объяснение, которое у него было. Всё остальное 5xx по-прежнему
-    // обезличено — внутренности наружу не выносим.
-    const showOwnMessage = error.expose === true || statusCode < 500;
-
-    reply.status(statusCode).send({
-      error: error.name ?? 'InternalServerError',
-      message: showOwnMessage ? error.message : 'Internal server error',
-      statusCode,
-      // Стек — только в явно названной среде разработки: при незаданной
-      // NODE_ENV он раньше уходил читателю вместе с путями файлов продукта.
-      ...(isDeclaredDevRuntime() && { stack: error.stack }),
-    });
-  });
+  // Заслон прощания — САМЫМ ПЕРВЫМ хуком запроса: закрывающийся сервер не
+  // должен ни проверять ключ, ни тратить окно частоты, ни считать отпечаток.
+  const shutdownGuard = registerShutdownGuard(app);
+  shutdownGuards.set(app, shutdownGuard);
 
   registerAuthHook(app);
   // После проверки ключа: обращение без ключа отсекается дешевле и не тратит
@@ -179,6 +201,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   registerHeavyRouteRateLimit(app, options.rateLimitRules);
   // Признак показательных данных во всех ответах сразу (реестр 09.07.2026, п.8).
   registerDemoMarker(app);
+
+  // Порядок этих двух — не вкусовщина. Хуки отправки выполняются в порядке
+  // регистрации (Fastify, Reference/Hooks.md): отпечаток обязан считаться с
+  // ИСХОДНОГО тела, иначе два читателя с разной поддержкой сжатия получат
+  // разные подписи одного и того же содержимого. Сжатие идёт следом и дописывает
+  // к подписи название кодировки — так же, как это делает nginx.
+  registerHttpCache(app);
+  registerCompression(app);
 
   await app.register(dashboardRoutes);
   await app.register(metricsRoutes);
@@ -203,6 +233,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(registryBucketsRoutes);
   await app.register(monitoringRoutes);
   await app.register(workloadRoutes);
+  await app.register(anomaliesRoutes);
+  await app.register(integrityRoutes);
   await app.register(textHygieneRoutes);
   await app.register(eventsRoutes);
 
@@ -230,58 +262,38 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   }
 
   const publicDir = resolve(process.cwd(), 'public');
-  if (existsSync(publicDir)) {
+  const hasStatic = existsSync(publicDir);
+  if (hasStatic) {
     await app.register(fastifyStatic, {
       root: publicDir,
       prefix: '/',
       wildcard: false,
     });
-
-    app.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith('/api/')) {
-        return reply.status(404).send({ error: 'Not found' });
-      }
-      return reply.sendFile('index.html');
-    });
   }
+
+  // Обработчик «нет такого адреса» ставится ВСЕГДА, а не только при собранной
+  // странице. Без него ответ собирал Fastify по умолчанию и пересказывал
+  // клиенту разобранный маршрут («Route GET:/api/… not found»), да ещё в форме,
+  // не совпадающей ни с одним другим отказом сервера. Теперь форма общая
+  // (plugins/error-shape.ts), а обращения не к /api при собранной странице
+  // по-прежнему получают саму страницу — маршрутизацию внутри неё ведёт
+  // приложение в браузере.
+  app.setNotFoundHandler(async (request, reply) => {
+    if (!hasStatic || request.url.startsWith('/api/')) {
+      return sendNotFound(request, reply);
+    }
+    return reply.sendFile('index.html');
+  });
 
   return app;
 }
 
-/**
- * Остановка по сигналу: `docker compose down` и перезапуск шлют SIGTERM, и без
- * обработчика процесс умирает прямо посреди запроса — читатель получает
- * оборванное соединение, а незакрытая база остаётся с открытым дескриптором.
- * Закрываемся штатно, но не бесконечно: если что-то держит закрытие, через
- * названный срок выходим всё равно.
- */
-const SHUTDOWN_DEADLINE_MS = 10_000;
-
-function installGracefulShutdown(app: FastifyInstance): void {
-  let closing = false;
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.once(signal, () => {
-      if (closing) return;
-      closing = true;
-      app.log.info(`Получен сигнал ${signal}: закрываем сервер`);
-      const forceExit = setTimeout(() => {
-        app.log.warn('Закрытие затянулось — выходим принудительно');
-        process.exit(0);
-      }, SHUTDOWN_DEADLINE_MS);
-      forceExit.unref();
-      void app
-        .close()
-        .then(() => process.exit(0))
-        .catch((err: unknown) => {
-          app.log.error({ err }, 'Ошибка при закрытии сервера');
-          process.exit(0);
-        });
-    });
-  }
-}
-
 export async function startServer(app: FastifyInstance, port: number, maxRetries = 3): Promise<void> {
-  installGracefulShutdown(app);
+  // Механика прощания живёт в plugins/graceful-shutdown.ts; здесь только
+  // подписка на сигналы — она нужна настоящему запуску, а не прогонам.
+  // Заслон (503 на новые обращения, пока идёт закрытие) уже стоит с createApp.
+  const guard = shutdownGuards.get(app) ?? registerShutdownGuard(app);
+  installGracefulShutdown(app, guard);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const actualPort = port + attempt;
