@@ -278,7 +278,7 @@ export function UpcomingSection() {
   return (
     <section
       aria-label="Близкие к плановой дате"
-      className="rounded-xl border border-[var(--line-soft)] bg-[var(--surface-card)] p-5 shadow-sm"
+      className="rounded-xl border border-[var(--line-card)] bg-[var(--surface-card)] p-5 shadow-sm"
     >
       {/* ── Шапка: заголовок + собственная подпись периметра (канон п.58а) ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

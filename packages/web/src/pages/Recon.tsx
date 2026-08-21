@@ -212,7 +212,7 @@ export function ReconPage() {
 
       {/* Ошибка запроса — это не «нет данных», и говорится об этом прямо */}
       {yearLevelView && reconError && !reconLoading && (
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-red-800/50 p-10 text-center">
+        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-transparent p-10 text-center">
           <AlertTriangle className="mx-auto text-red-400 dark:text-red-500 mb-3" size={36} />
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Сверка не загрузилась: сервер не ответил</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4 max-w-lg mx-auto">
@@ -242,7 +242,7 @@ export function ReconPage() {
 
       {/* Совсем нечего сверять: ни управлений, ни показателей */}
       {yearLevelView && nothingLoaded && !reconLoading && !reconError && (
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-amber-200 dark:border-amber-700/50 p-10 text-center">
+        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-amber-200 dark:border-transparent p-10 text-center">
           <GitCompare className="mx-auto text-amber-400 dark:text-amber-500 mb-3" size={36} />
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Сверять пока не с чем</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4 max-w-lg mx-auto">

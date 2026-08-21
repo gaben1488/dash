@@ -47,9 +47,11 @@ export function Card({ children, tone = 'raised', bare = false, className, ...re
         {...rest}
         className={clsx(
           'rounded-[var(--radius-card)] border',
+          // Граница поверхности берётся из карточного токена: в светлой теме
+          // это тонкая линия, в тёмной — прозрачность (канон п.129).
           effective === 'sunken'
-            ? 'bg-[var(--surface-sunken)] border-[var(--line-soft)]'
-            : 'bg-[var(--surface-card)] border-[var(--line-strong)]',
+            ? 'bg-[var(--surface-sunken)] border-[var(--line-card)]'
+            : 'bg-[var(--surface-card)] border-[var(--line-card)]',
           effective === 'raised' && 'shadow-[var(--elevation-1)]',
           !bare && 'p-[var(--card-pad)]',
           className,

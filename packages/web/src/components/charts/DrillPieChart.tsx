@@ -651,7 +651,7 @@ export function DrillPieChart({
   }, [series]);
 
   return (
-    <div className="rounded-2xl border border-[var(--line-soft)] bg-[var(--surface-card)] p-5 shadow-sm transition-shadow duration-300 hover:shadow-lg">
+    <div className="rounded-2xl border border-[var(--line-card)] bg-[var(--surface-card)] p-5 shadow-sm transition-shadow duration-300 hover:shadow-lg">
       <PatternDefs series={series} ink={patternInk} />
 
       {/* Заголовок + период. flex-wrap: на 360–430px плашка периода переносится

@@ -174,7 +174,7 @@ function IssueTimeline({ issueId }: { issueId: string }) {
       <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 mb-3">История и комментарии</p>
 
       {loadError ? (
-        <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
+        <div className="mb-4 rounded-lg border border-amber-200 dark:border-transparent bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
           <p className="text-[11px] text-amber-800 dark:text-amber-300">
             История замечания не прочитана — записи могут быть, но сейчас их не видно. Повторите попытку.
           </p>
@@ -726,7 +726,7 @@ export function IssuesPage() {
             const error = statusError[iss.id];
 
             return (
-              <div key={iss.id} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden transition', expanded ? 'border-blue-200 dark:border-blue-500/30' : 'border-zinc-100 dark:border-transparent')}>
+              <div key={iss.id} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden transition', expanded ? 'border-blue-200 dark:border-transparent' : 'border-zinc-100 dark:border-transparent')}>
                 {/*
                   Заголовок — настоящая кнопка: раскрытие карточки должно
                   работать с клавиатуры. Внутрь кнопки вложенных кнопок нет

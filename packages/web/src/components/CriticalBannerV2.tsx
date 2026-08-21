@@ -68,7 +68,7 @@ export function CriticalBannerV2({
         className={cn(
           'inline-flex items-center gap-2 px-3.5 py-2 rounded-full',
           'bg-emerald-50 dark:bg-emerald-950/30',
-          'border border-emerald-200/70 dark:border-emerald-800/50',
+          'border border-emerald-200/70 dark:border-transparent',
           'text-emerald-700 dark:text-emerald-300',
           'select-none cursor-default',
         )}
@@ -169,8 +169,8 @@ export function CriticalBannerV2({
           className={cn(
             'rounded-2xl border bg-white dark:bg-zinc-900 shadow-lg p-5 animate-in slide-in-from-top-2 fade-in-0 duration-200 outline-none',
             isCritical
-              ? 'border-red-200/60 dark:border-red-700/30 shadow-red-500/5'
-              : 'border-amber-200/60 dark:border-amber-700/30 shadow-amber-500/5',
+              ? 'border-red-200/60 dark:border-transparent shadow-red-500/5'
+              : 'border-amber-200/60 dark:border-transparent shadow-amber-500/5',
           )}
         >
           {/* Периметр панели — собственной подписью (канон п.58): замечания

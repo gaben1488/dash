@@ -1676,7 +1676,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
                 signalFilter.length > 0
-                  ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
+                  ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-transparent'
                   : `text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 ${CONTROL_EDGE} hover:bg-zinc-50 dark:hover:bg-zinc-700/30`,
               )}
             >
@@ -1851,7 +1851,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             className={clsx(
               'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
               hotkeysOpen
-                ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
+                ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-transparent'
                 : `text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 ${CONTROL_EDGE} hover:bg-zinc-50 dark:hover:bg-zinc-700/30`,
             )}
           >

@@ -881,7 +881,7 @@ export function TableEditor({
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-40',
                 hiddenCount > 0
-                  ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
+                  ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-transparent'
                   : 'text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
               )}
             >
@@ -962,7 +962,7 @@ export function TableEditor({
 
       {/* Отказы записи — над таблицей, чтобы их нельзя было пропустить */}
       {failedCount > 0 && (
-        <div className="px-3 py-2 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 text-xs space-y-1" role="alert">
+        <div className="px-3 py-2 rounded-lg border border-red-200 dark:border-transparent bg-red-50 dark:bg-red-950/30 text-xs space-y-1" role="alert">
           <p className="font-medium text-red-700 dark:text-red-300">
             Книга не приняла {failedCount} {pluralRu(failedCount, 'правку', 'правки', 'правок')} — они остались только на экране
           </p>

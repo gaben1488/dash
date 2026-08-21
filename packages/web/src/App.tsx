@@ -70,7 +70,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       return (
         <div
           role="alert"
-          className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8"
+          className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-red-200 dark:border-transparent max-w-lg mx-auto mt-12 text-center p-8"
         >
           {/* Заголовок — утверждение о том, что случилось с данными читателя,
               а не «произошла ошибка в модуле»: слово «модуль» ничего не

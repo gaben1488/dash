@@ -24,9 +24,9 @@ type RecSeverity = 'critical' | 'significant' | 'warning' | 'info';
 const SEVERITY_ORDER: readonly RecSeverity[] = ['critical', 'significant', 'warning', 'info'];
 
 const SEV_CONFIG: Record<RecSeverity, { label: string; bg: string; text: string; border: string; icon: typeof AlertTriangle }> = {
-  critical: { label: SEVERITY_LABELS.critical.label, bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-red-800', icon: AlertTriangle },
-  significant: { label: SEVERITY_LABELS.significant.label, bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-800', icon: AlertTriangle },
-  warning: { label: SEVERITY_LABELS.warning.label, bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800', icon: AlertTriangle },
+  critical: { label: SEVERITY_LABELS.critical.label, bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-transparent', icon: AlertTriangle },
+  significant: { label: SEVERITY_LABELS.significant.label, bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-transparent', icon: AlertTriangle },
+  warning: { label: SEVERITY_LABELS.warning.label, bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-transparent', icon: AlertTriangle },
   info: { label: SEVERITY_LABELS.info.label, bg: 'bg-zinc-50 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400', border: 'border-zinc-200 dark:border-transparent', icon: Info },
 };
 
@@ -211,7 +211,7 @@ export function RecsPage() {
           const label = deptLabel(dept);
           const panelId = `recs-dept-${dept || 'unknown'}`;
           return (
-            <div key={dept || 'unknown'} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden', criticalCount > 0 ? 'border-red-200 dark:border-red-500/30' : 'border-zinc-100 dark:border-transparent')}>
+            <div key={dept || 'unknown'} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden', criticalCount > 0 ? 'border-red-200 dark:border-transparent' : 'border-zinc-100 dark:border-transparent')}>
               <button
                 onClick={() => toggleDept(dept)}
                 aria-expanded={open}

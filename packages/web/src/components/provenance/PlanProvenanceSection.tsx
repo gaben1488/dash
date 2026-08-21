@@ -123,7 +123,7 @@ export function PlanProvenanceSection({
                    месте листа, поэтому её показываем как есть. Кнопки «ещё
                    раз» здесь нет намеренно: повтор ничего не изменит. */
                 <div
-                  className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/50 rounded-lg px-3 py-2.5"
+                  className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-transparent rounded-lg px-3 py-2.5"
                   role="note"
                 >
                   <SearchX
@@ -141,7 +141,7 @@ export function PlanProvenanceSection({
                   </div>
                 </div>
               ) : error ? (
-                <div className="text-xs bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg px-3 py-2.5">
+                <div className="text-xs bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-transparent rounded-lg px-3 py-2.5">
                   <p className="text-red-700 dark:text-red-300">
                     История плановой суммы не загрузилась. {error}
                   </p>

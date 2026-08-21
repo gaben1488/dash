@@ -821,7 +821,7 @@ export function Header() {
               // иначе строку приходится вычищать по символу.
               onKeyDown={(e) => { if (e.key === 'Escape' && searchQuery) { e.preventDefault(); setSearchQuery(''); } }}
               className={clsx('w-full pl-5 pr-5 py-[3px] rounded-md text-[10px] border transition-all bg-transparent',
-                searchQuery ? 'border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/20'
+                searchQuery ? 'border-blue-300 dark:border-transparent text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/20'
                 : 'border-zinc-200/60 dark:border-transparent text-zinc-600 dark:text-zinc-300 focus:border-blue-400')} />
             {searchQuery && (
               <button type="button" onClick={() => setSearchQuery('')}

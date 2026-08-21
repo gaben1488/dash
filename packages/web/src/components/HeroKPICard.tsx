@@ -136,14 +136,18 @@ const STATUS_CONFIG = {
     statusWord: 'в норме',
   },
   warning: {
-    border: 'border-amber-200/60 dark:border-amber-700/40',
+    // В тёмной теме рамка состояния гаснет: янтарная обводка вокруг всей
+    // плитки и была тем «коричневым» частоколом, на который владелец
+    // жаловался четырежды (канон п.129). Состояние несут полоска-акцент,
+    // цвет числа и словесный дубль — обводка для этого не нужна.
+    border: 'border-amber-200/60 dark:border-transparent',
     glow: 'shadow-amber-500/5',
     accent: 'bg-amber-500',
     bgGradient: 'bg-gradient-to-br from-amber-50/40 to-transparent dark:from-amber-950/10 dark:to-transparent',
     statusWord: 'требует внимания',
   },
   critical: {
-    border: 'border-red-200/60 dark:border-red-700/40',
+    border: 'border-red-200/60 dark:border-transparent',
     glow: 'shadow-red-500/5',
     accent: 'bg-red-500',
     bgGradient: 'bg-gradient-to-br from-red-50/40 to-transparent dark:from-red-950/10 dark:to-transparent',
@@ -674,7 +678,7 @@ export function HeroKPICard({
           role="region"
           aria-label={`Подробности показателя «${label}»`}
           className={cn(
-            'mt-1.5 rounded-2xl border border-blue-200/60 dark:border-blue-700/40',
+            'mt-1.5 rounded-2xl border border-blue-200/60 dark:border-transparent',
             'bg-white dark:bg-zinc-900 shadow-lg shadow-blue-500/5 p-5',
             'animate-in slide-in-from-top-2 fade-in-0 duration-200',
           )}

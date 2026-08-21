@@ -1266,8 +1266,8 @@ function StatePanel({
   // здесь — сам сигнал, а не хром. Спокойная панель — обычная поверхность:
   // в тёмной теме её отделяет светлота карточки, а не рамка (канон п.129).
   const border =
-    tone === 'error' ? 'border-red-200 dark:border-red-700/50'
-      : tone === 'warning' ? 'border-amber-200 dark:border-amber-700/50'
+    tone === 'error' ? 'border-red-200 dark:border-transparent'
+      : tone === 'warning' ? 'border-amber-200 dark:border-transparent'
         : 'border-zinc-100 dark:border-transparent';
   return (
     <div

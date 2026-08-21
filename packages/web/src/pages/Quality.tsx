@@ -77,7 +77,7 @@ export function QualityPage() {
         aria-label="Разделы контроля данных"
         // Шесть вкладок на смартфоне в строку не помещаются: полоса едет вбок
         // сама, а не выталкивает вбок всю страницу (директива п.73а).
-        className="flex items-center gap-1 overflow-x-auto rounded-[var(--radius-modal)] border border-[var(--line-strong)] bg-[var(--surface-card)] p-1 shadow-[var(--elevation-1)]"
+        className="flex items-center gap-1 overflow-x-auto rounded-[var(--radius-modal)] border border-[var(--line-card)] bg-[var(--surface-card)] p-1 shadow-[var(--elevation-1)]"
       >
         {TABS.map((tab) => {
           const isActive = qualityTab === tab.id;

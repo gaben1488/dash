@@ -495,7 +495,7 @@ const DeptRowComponent = memo(function DeptRowComponent({
         className={cn(
           'border-b border-zinc-100 dark:border-zinc-800/50 cursor-pointer transition-all duration-200 group',
           'hover:bg-blue-50/40 dark:hover:bg-blue-950/10',
-          isExpanded && 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/30 dark:border-blue-800/30',
+          isExpanded && 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/30 dark:border-transparent',
         )}
         onClick={() => {
           onDeptClick(dept.id);

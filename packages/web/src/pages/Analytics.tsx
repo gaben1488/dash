@@ -1374,7 +1374,7 @@ export function Analytics() {
                       if (!active || !payload?.[0]) return null;
                       const d = payload[0].payload;
                       return (
-                        <div className="max-w-xs rounded-lg border border-[var(--line-soft)] bg-[var(--surface-overlay)] p-3 text-xs shadow-lg">
+                        <div className="max-w-xs rounded-lg border border-[var(--line-card)] bg-[var(--surface-overlay)] p-3 text-xs shadow-lg">
                           <div className="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">{d.subject}</div>
                           <div className="text-zinc-500">{d.department} · {d.procurementType}</div>
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">

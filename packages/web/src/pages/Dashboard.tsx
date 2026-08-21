@@ -403,7 +403,7 @@ export function Dashboard() {
   // тревоги, а не хром. Светлота поверхности — как у прочих карточек.
   if (error) {
     return (
-      <div className={`${CARD_SURFACE} rounded-2xl shadow-lg dark:shadow-none border border-red-200/60 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8`} role="alert">
+      <div className={`${CARD_SURFACE} rounded-2xl shadow-lg dark:shadow-none border border-red-200/60 dark:border-transparent max-w-lg mx-auto mt-12 text-center p-8`} role="alert">
         <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="text-red-500" size={28} aria-hidden="true" />
         </div>
