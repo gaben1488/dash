@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { SEVERITY_LABELS, productLabel } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
@@ -16,7 +16,7 @@ import { natureOf, NATURE_ORDER, NATURE_CATEGORIES, type NatureCategory } from '
 import { pluralRu } from '../lib/economy-copy';
 import { Segmented } from '../components/ui/segmented';
 import { TextHygieneSection } from '../components/text-hygiene/TextHygieneSection';
-import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw, X } from 'lucide-react';
 import clsx from 'clsx';
 
 type Severity = 'critical' | 'significant' | 'warning' | 'info';
@@ -350,6 +350,25 @@ export function IssuesPage() {
   const deadAxes = useMemo(() => issueAxesWithoutData(fd.issues), [fd.issues]);
 
   // Local search (on top of global search from useFilteredData)
+  // Отбор по слагаемому доверия — приход с Пульса. Читается ОДИН раз при
+  // открытии и очищается в состоянии: иначе отбор пережил бы уход со
+  // страницы и включился сам собой при следующем заходе (канон п.134).
+  // Чип отбора виден всегда, пока отбор действует, — молчаливого сужения
+  // экрана не бывает.
+  const [trustSeed] = useState(() => useStore.getState().trustComponentSeed);
+  useEffect(() => {
+    if (useStore.getState().trustComponentSeed) useStore.getState().clearTrustComponentSeed();
+  }, []);
+  const [trustFilterOn, setTrustFilterOn] = useState(() => !!useStore.getState().trustComponentSeed);
+
+  /** Ключи проверок, из которых сложено слагаемое доверия. */
+  const trustCheckIds = useMemo(() => {
+    if (!trustSeed) return null;
+    return new Set(
+      CHECK_REGISTRY.filter((c) => c.trustComponent === trustSeed.id).map((c) => c.id),
+    );
+  }, [trustSeed]);
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return issues.filter(iss => {
@@ -359,9 +378,10 @@ export function IssuesPage() {
       }
       if (sevFilter.size > 0 && !sevFilter.has(iss.severity)) return false;
       if (statusFilter.size > 0 && !statusFilter.has(iss.status)) return false;
+      if (trustFilterOn && trustCheckIds && !trustCheckIds.has(String(iss.checkId ?? ''))) return false;
       return true;
     });
-  }, [issues, search, sevFilter, statusFilter]);
+  }, [issues, search, sevFilter, statusFilter, trustFilterOn, trustCheckIds]);
 
   // Карточки диагноста (канон п.53): одна группа = один механизм проверки.
   // Простыня «строка N: предмет» удалена решением владельца (п.69д) — список
@@ -577,6 +597,24 @@ export function IssuesPage() {
       {/* Filters */}
       <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-4">
         <div className="flex flex-wrap items-center gap-3">
+          {/* Чип отбора по слагаемому доверия: пока он горит, список сужен, и
+              это сказано вслух с числом. Молчаливое сужение экрана запрещено
+              (канон п.134); крестик возвращает полный список. */}
+          {trustSeed && trustFilterOn && (
+            <button
+              type="button"
+              onClick={() => setTrustFilterOn(false)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+              title="Снять отбор и показать все замечания"
+              aria-label={`Отбор: слагаемое доверия «${trustSeed.label}». Снять отбор`}
+            >
+              Слагаемое доверия: {trustSeed.label}
+              <span className="text-blue-500/70 dark:text-blue-400/70 tabular-nums">
+                {trustCheckIds?.size ?? 0} {pluralRu(trustCheckIds?.size ?? 0, 'проверка', 'проверки', 'проверок')}
+              </span>
+              <X size={12} aria-hidden="true" />
+            </button>
+          )}
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden="true" />
             <label htmlFor="issues-search" className="sr-only">Поиск по замечаниям</label>

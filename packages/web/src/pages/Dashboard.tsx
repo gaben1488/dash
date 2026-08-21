@@ -1179,12 +1179,19 @@ function KPIExpandPanel({
       {showTrust && (trust ? (
         <TrustComponents
           components={[
-            { label: 'Качество данных', score: trust.dataQuality ?? trust.data_quality ?? 0, weight: '30 %', metricKey: 'trust_data_quality' },
-            { label: 'Целостность формул', score: trust.formulaIntegrity ?? trust.formula_integrity ?? 0, weight: '25 %', metricKey: 'trust_formula_integrity' },
-            { label: 'Соответствие правилам', score: trust.ruleCompliance ?? trust.rule_compliance ?? 0, weight: '20 %', metricKey: 'trust_rule_compliance' },
-            { label: 'Согласованность сопоставлений', score: trust.mappingConsistency ?? trust.mapping_consistency ?? 0, weight: '15 %', metricKey: 'trust_mapping_consistency' },
-            { label: 'Операционные риски', score: trust.operationalRisk ?? trust.operational_risk ?? 0, weight: '10 %', metricKey: 'trust_operational_risk' },
+            { label: 'Качество данных', score: trust.dataQuality ?? trust.data_quality ?? 0, weight: '30 %', metricKey: 'trust_data_quality', componentId: 'data_quality' },
+            { label: 'Целостность формул', score: trust.formulaIntegrity ?? trust.formula_integrity ?? 0, weight: '25 %', metricKey: 'trust_formula_integrity', componentId: 'formula_integrity' },
+            { label: 'Соответствие правилам', score: trust.ruleCompliance ?? trust.rule_compliance ?? 0, weight: '20 %', metricKey: 'trust_rule_compliance', componentId: 'rule_compliance' },
+            { label: 'Согласованность сопоставлений', score: trust.mappingConsistency ?? trust.mapping_consistency ?? 0, weight: '15 %', metricKey: 'trust_mapping_consistency', componentId: 'mapping_consistency' },
+            { label: 'Операционные риски', score: trust.operationalRisk ?? trust.operational_risk ?? 0, weight: '10 %', metricKey: 'trust_operational_risk', componentId: 'operational_risk' },
           ]}
+          // Дверь к строкам-основаниям: слагаемое ведёт в «Контроль» с отбором
+          // тех проверок, из которых оно сложено (поле trustComponent реестра
+          // проверок). Без двери балл нельзя проверить — карточка остаётся
+          // табличкой с числом (требование владельца 22.08).
+          onOpenComponent={(componentId, componentLabel) => {
+            navigateTo('quality', { qualityTab: 'issues', trustComponent: componentId, trustComponentLabel: componentLabel });
+          }}
         />
       ) : (
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -1266,6 +1273,13 @@ function BlindSpotsWidget({
   // Тексты подсказок — без псевдо-кода и без букв колонок листа: колонка
   // называется своим именем из шапки книги («Способ определения поставщика»,
   // «Год (план)»), а не буквой. Буква допустима только в адресе ячейки.
+  // Классы, перечисленные поимённо ниже: у них свой цвет, свой порядок и своя
+  // карточка базы знаний. Остальные сработавшие классы добираются из данных.
+  const NAMED_SPOT_SIGNALS = new Set([
+    'overdue', 'economyConflict', 'highEconomy', 'earlyClosure', 'factWithoutDate',
+    'dateWithoutFact', 'planYearMissing', 'factExceedsPlan', 'factDateBeforePlan',
+  ]);
+
   const spots = [
     { signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red' },
     { signal: 'economyConflict', search: 'флаг эконом', metricKey: 'signal_economy_conflict', color: 'rose' },
@@ -1313,6 +1327,17 @@ function BlindSpotsWidget({
     // вместе с воскрешением проверки в ядре.
     { signal: 'factExceedsPlan', search: 'факт превыш', metricKey: 'signal_fact_exceeds_plan', color: 'indigo' },
     { signal: 'factDateBeforePlan', search: 'факт дата раньше', metricKey: 'signal_fact_date_before_plan', color: 'teal' },
+    // Всё остальное, что СРАБОТАЛО в книгах, но не перечислено выше поимённо.
+    // Прежде карточка знала ровно эти девять классов из ста семидесяти
+    // четырёх живых, и владелец справедливо говорил «не вижу всех сигналов»:
+    // сколько ни обновляй, остальные для неё не существовали. Теперь список
+    // достраивается из фактических срабатываний, а поимённый перечень выше
+    // задаёт только ПОРЯДОК и цвет знакомых классов.
+    ...Object.keys(signalCounts)
+      .filter((key) => (signalCounts[key] ?? 0) > 0)
+      .filter((key) => !NAMED_SPOT_SIGNALS.has(key))
+      .sort((a, b) => (signalCounts[b] ?? 0) - (signalCounts[a] ?? 0))
+      .map((key) => ({ signal: key, search: '', color: 'zinc' })),
   ].map(spot => ({
     ...spot,
     // Подпись словаря продукта; локальная — только если словарь ключ не знает.
@@ -1335,16 +1360,21 @@ function BlindSpotsWidget({
   // не как постоянная рамка (канон п.129). В светлой теме тонкая цветная линия
   // остаётся: на белом фоне разница светлот не читается.
   const colorMap: Record<string, { bg: string; border: string; text: string; number: string; glow: string }> = {
-    red:    { bg: 'bg-red-500/8 dark:bg-white/[0.05]', border: 'border-red-500/15 dark:border-transparent hover:border-red-500/30 dark:hover:border-red-500/25', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
-    rose:   { bg: 'bg-rose-500/8 dark:bg-white/[0.05]', border: 'border-rose-500/15 dark:border-transparent hover:border-rose-500/30 dark:hover:border-rose-500/25', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
-    orange: { bg: 'bg-orange-500/8 dark:bg-white/[0.05]', border: 'border-orange-500/15 dark:border-transparent hover:border-orange-500/30 dark:hover:border-orange-500/25', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
-    amber:  { bg: 'bg-amber-500/8 dark:bg-white/[0.05]', border: 'border-amber-500/15 dark:border-transparent hover:border-amber-500/30 dark:hover:border-amber-500/25', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
-    purple: { bg: 'bg-purple-500/8 dark:bg-white/[0.05]', border: 'border-purple-500/15 dark:border-transparent hover:border-purple-500/30 dark:hover:border-purple-500/25', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
-    cyan:   { bg: 'bg-cyan-500/8 dark:bg-white/[0.05]', border: 'border-cyan-500/15 dark:border-transparent hover:border-cyan-500/30 dark:hover:border-cyan-500/25', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
-    blue:   { bg: 'bg-blue-500/8 dark:bg-white/[0.05]', border: 'border-blue-500/15 dark:border-transparent hover:border-blue-500/30 dark:hover:border-blue-500/25', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
-    indigo: { bg: 'bg-indigo-500/8 dark:bg-white/[0.05]', border: 'border-indigo-500/15 dark:border-transparent hover:border-indigo-500/30 dark:hover:border-indigo-500/25', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
-    teal:   { bg: 'bg-teal-500/8 dark:bg-white/[0.05]', border: 'border-teal-500/15 dark:border-transparent hover:border-teal-500/30 dark:hover:border-teal-500/25', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
+    red:    { bg: 'bg-red-500/8 dark:bg-white/[0.05]', border: 'border-red-500/15 dark:border-transparent hover:border-red-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
+    rose:   { bg: 'bg-rose-500/8 dark:bg-white/[0.05]', border: 'border-rose-500/15 dark:border-transparent hover:border-rose-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
+    orange: { bg: 'bg-orange-500/8 dark:bg-white/[0.05]', border: 'border-orange-500/15 dark:border-transparent hover:border-orange-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
+    amber:  { bg: 'bg-amber-500/8 dark:bg-white/[0.05]', border: 'border-amber-500/15 dark:border-transparent hover:border-amber-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
+    purple: { bg: 'bg-purple-500/8 dark:bg-white/[0.05]', border: 'border-purple-500/15 dark:border-transparent hover:border-purple-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
+    cyan:   { bg: 'bg-cyan-500/8 dark:bg-white/[0.05]', border: 'border-cyan-500/15 dark:border-transparent hover:border-cyan-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
+    blue:   { bg: 'bg-blue-500/8 dark:bg-white/[0.05]', border: 'border-blue-500/15 dark:border-transparent hover:border-blue-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
+    indigo: { bg: 'bg-indigo-500/8 dark:bg-white/[0.05]', border: 'border-indigo-500/15 dark:border-transparent hover:border-indigo-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
+    teal:   { bg: 'bg-teal-500/8 dark:bg-white/[0.05]', border: 'border-teal-500/15 dark:border-transparent hover:border-teal-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
   };
+
+  // Сработавшие и молчащие разведены: первые рисуются плитками, вторые —
+  // строкой под ними. Дыра в ряду ничего не сообщает, а строка сообщает.
+  const firedSpots = spots.filter((s) => (signalCounts[s.signal] || 0) > 0);
+  const quietSpots = spots.filter((s) => (signalCounts[s.signal] || 0) === 0);
 
   const totalSpots = spots.reduce((s, c) => s + (signalCounts[c.signal] || 0), 0);
 
@@ -1404,10 +1434,11 @@ function BlindSpotsWidget({
           onNavigate={onOpenIssues}
         />
       </div>
-      {/* Девять карточек; подписи из словаря длиннее прежних сокращений —
-          сетка расширена по ширине экрана. */}
+      {/* Плитки сработавших классов. Молчащие классы НЕ показываются дырами
+          (владелец 22.08: «вижу пустоты»): они собраны под раскрытием ниже,
+          где сказано словами, что в книгах таких строк сейчас нет. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
-        {spots.map(spot => {
+        {firedSpots.map(spot => {
           const count = signalCounts[spot.signal] || 0;
           const colors = colorMap[spot.color] ?? colorMap.blue;
           const isActive = count > 0;
@@ -1456,6 +1487,20 @@ function BlindSpotsWidget({
           );
         })}
       </div>
+
+      {/* Молчащие классы — строкой, а не дырами в ряду. Молчание тоже факт:
+          читатель должен знать, что проверка работала и ничего не нашла. */}
+      {quietSpots.length > 0 && (
+        <details className="mt-3 group/quiet">
+          <summary className="cursor-pointer list-none text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors">
+            Молчат {quietSpots.length} {pluralRu(quietSpots.length, 'проверка', 'проверки', 'проверок')} — в книгах таких строк сейчас нет
+            <span className="ml-1 text-zinc-400 dark:text-zinc-600 group-open/quiet:hidden">· показать</span>
+          </summary>
+          <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+            {quietSpots.map((s) => s.label).join(' · ')}
+          </p>
+        </details>
+      )}
     </section>
   );
 }

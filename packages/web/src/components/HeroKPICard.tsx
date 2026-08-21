@@ -345,11 +345,14 @@ export function HeroKPICard({
             config.bgGradient,
             'hover:shadow-xl hover:shadow-zinc-900/5 dark:hover:shadow-black/20',
             'hover:scale-[1.01] active:scale-[0.995]',
-            'hover:border-blue-300/60 dark:hover:border-blue-600/40',
+            // Наведение: в светлой теме тонкая синяя линия, в тёмной —
+            // подъём светлоты подложки. Обводка на поверхности запрещена.
+            'hover:border-blue-300/60 dark:hover:border-transparent dark:hover:bg-zinc-800',
             // Плитка — кнопка, и с клавиатуры до неё доходят. Без видимой рамки
             // фокуса идущий по табуляции не понимал, на какой плитке стоит.
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900',
-            isExpanded && 'ring-2 ring-blue-500/20 border-blue-300/60 dark:border-blue-600/40 shadow-xl shadow-blue-500/5',
+            // Раскрытая плитка отличается светлотой и тенью, а не рамкой.
+            isExpanded && 'ring-2 ring-blue-500/20 border-blue-300/60 dark:border-transparent bg-blue-50/40 dark:bg-zinc-800 shadow-xl shadow-blue-500/5',
             config.glow,
           )}
         >
@@ -904,11 +907,20 @@ interface TrustComponentsProps {
     score: number;
     weight: string;
     metricKey?: string;
+    /** Слагаемое реестра проверок: по нему открывается список замечаний. */
+    componentId?: string;
   }>;
+  /**
+   * Дверь к строкам-основаниям. Без неё слагаемое остаётся цифрой, которую
+   * нельзя проверить: владелец 22.08 — «почему ты не сделал её реально
+   * функциональной и удобной». Каждое слагаемое ведёт в «Контроль» с
+   * отбором проверок, из которых оно сложено.
+   */
+  onOpenComponent?: (componentId: string, label: string) => void;
 }
 
 /** Пять слагаемых доверия к данным — полосы с весом и баллом из ста. */
-export function TrustComponents({ components }: TrustComponentsProps) {
+export function TrustComponents({ components, onOpenComponent }: TrustComponentsProps) {
   return (
     <div className="space-y-3">
       <h4 className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
@@ -916,6 +928,7 @@ export function TrustComponents({ components }: TrustComponentsProps) {
       </h4>
       <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-snug">
         Каждое слагаемое — балл от 0 до 100; в скобках его вес в общей оценке.
+        {onOpenComponent ? ' Щелчок по слагаемому открывает замечания, из которых оно сложено.' : ''}
       </p>
       <div className="space-y-2.5">
         {components.map(c => {
@@ -925,9 +938,28 @@ export function TrustComponents({ components }: TrustComponentsProps) {
             : 'from-red-500 to-red-400';
           return (
             <KBTooltip key={c.label} metric={c.metricKey}>
-              <div
-                className="flex items-center gap-3 w-full group/trust"
-                title={`${c.label}: ${formatMetricValue(c.score)} из 100, вес ${c.weight}`}
+              {/* Слагаемое — кнопка, когда есть куда вести: балл без двери
+                  проверить нельзя, а с дверью он становится вопросом «какие
+                  именно замечания его уронили» с готовым ответом. */}
+              {(() => {
+                const canOpen = !!onOpenComponent && !!c.componentId;
+                const Tag = (canOpen ? 'button' : 'div') as 'button' | 'div';
+                return (
+              <Tag
+                {...(canOpen
+                  ? {
+                      type: 'button' as const,
+                      onClick: () => onOpenComponent!(c.componentId!, c.label),
+                      'aria-label': `${c.label}: ${formatMetricValue(c.score)} из 100. Открыть замечания этого слагаемого`,
+                    }
+                  : {})}
+                className={cn(
+                  'flex items-center gap-3 w-full text-left group/trust rounded-lg',
+                  canOpen && 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/[0.04] -mx-1 px-1 py-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
+                )}
+                title={canOpen
+                  ? `${c.label}: ${formatMetricValue(c.score)} из 100, вес ${c.weight}. Открыть замечания`
+                  : `${c.label}: ${formatMetricValue(c.score)} из 100, вес ${c.weight}`}
               >
                 <span className="text-[11px] text-zinc-500 dark:text-zinc-400 w-32 shrink-0 truncate group-hover/trust:text-zinc-700 dark:group-hover/trust:text-zinc-200 transition-colors">
                   {c.label}
@@ -942,7 +974,9 @@ export function TrustComponents({ components }: TrustComponentsProps) {
                 <span className="text-xs font-bold tabular-nums w-8 text-right text-zinc-700 dark:text-zinc-200">
                   {formatMetricValue(c.score)}
                 </span>
-              </div>
+              </Tag>
+                );
+              })()}
             </KBTooltip>
           );
         })}

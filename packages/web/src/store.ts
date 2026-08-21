@@ -258,6 +258,14 @@ export interface AppState {
     qualityTab: 'trust' | 'recon' | 'issues' | 'recs' | 'journal' | 'scorecard';
     /** Ключи признаков строк для фильтра Реестра (готовый фильтр «Дисциплины»). */
     signals: string[];
+    /**
+     * Слагаемое доверия, из которого пришёл читатель: «Контроль» открывает
+     * замечания, отобранные по этому слагаемому реестра проверок. Дверь от
+     * балла к его основаниям — без неё балл нельзя проверить.
+     */
+    trustComponent: string;
+    /** Человеческое имя слагаемого — для чипа отбора на «Контроле». */
+    trustComponentLabel: string;
   }>) => void;
   /**
    * Затравка фильтра признаков для Реестра: navigateTo('data', { signals })
@@ -267,6 +275,14 @@ export interface AppState {
    */
   registrySignalSeed: string[];
   clearRegistrySignalSeed: () => void;
+  /**
+   * Затравка отбора по слагаемому доверия: Пульс кладёт сюда слагаемое, с
+   * которого щёлкнули, «Контроль» читает один раз при открытии и очищает.
+   * Живёт по тем же правилам, что затравка признаков (п.134): переход без
+   * слагаемого её обнуляет, чтобы отбор не включался сам собой.
+   */
+  trustComponentSeed: { id: string; label: string } | null;
+  clearTrustComponentSeed: () => void;
   /** Выбранные отделы (пустой Set = все) */
   selectedDepartments: Set<string>;
   toggleDepartment: (deptId: string) => void;
@@ -493,6 +509,8 @@ export const useStore = create<AppState>((set, get) => ({
   setQualityTab: (qualityTab) => set({ qualityTab }),
   registrySignalSeed: [],
   clearRegistrySignalSeed: () => set({ registrySignalSeed: [] }),
+  trustComponentSeed: null,
+  clearTrustComponentSeed: () => set({ trustComponentSeed: null }),
   resetAllFilters: () => {
     // Сброс должен быть мгновенным и окончательным: отложенный пересчёт,
     // поставленный последней набранной буквой, вернул бы поиск после сброса.
@@ -531,13 +549,18 @@ export const useStore = create<AppState>((set, get) => ({
       'selectedMethods' | 'selectedActivities' |
       'selectedDepartments' | 'selectedSubordinates' | 'year' |
       'searchQuery' | 'searchQueryDebounced' | 'activeMonths' | 'qualityTab' |
-      'periodMode' | 'monthsByYear' | 'registrySignalSeed'
+      'periodMode' | 'monthsByYear' | 'registrySignalSeed' | 'trustComponentSeed'
     >> = { page };
     // Затравка ПЕРЕЗАПИСЫВАЕТСЯ на каждом переходе, а не дописывается: переход
     // без признаков обязан обнулить прежнюю затравку (п.134). Иначе затравка,
     // положенная «Дисциплиной» и не потреблённая Реестром, доживала до
     // следующего входа и включала фильтр признаков, которого никто не просил.
     updates.registrySignalSeed = filters?.signals ?? [];
+    // Слагаемое доверия — по тем же правилам: перезаписывается всегда, чтобы
+    // отбор не пережил переход, которого о нём не просили.
+    updates.trustComponentSeed = filters?.trustComponent
+      ? { id: filters.trustComponent, label: filters.trustComponentLabel ?? filters.trustComponent }
+      : null;
     // Период — АТОМАРНО (фильтр-спека 16.07, Б1-Б3): период/месяцы/режим меняются
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.
