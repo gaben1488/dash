@@ -1,0 +1,302 @@
+<title>Облик: база, сегодня, предложение</title>
+<style>
+  :root {
+    --page: #0a0a0b;
+    --sunken: #0f0f10;
+    --card: #151516;
+    --raised: #1d1d1f;
+    --line: #26262a;
+    --ink-strong: #f4f4f5;
+    --ink: #d9d9db;
+    --ink-muted: #a0a0a3;
+    --ink-faint: #757578;
+    --brass: #e5d3a9;
+    --brass-deep: #d6bf85;
+    --act: #60a5fa;
+    --act-deep: #3b82f6;
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --fb: #60a5fa;
+    --kb: #34d399;
+    --mb: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    letter-spacing: -0.011em;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 24px 96px; }
+
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink-strong); margin: 0 0 6px; }
+  .lede { color: var(--ink-muted); font-size: 14px; max-width: 68ch; margin: 0 0 40px; }
+
+  h2 {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-faint); margin: 44px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .note { color: var(--ink-muted); font-size: 12.5px; margin: 0 0 16px; max-width: 72ch; }
+  .verdict { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+  .v-bad { color: var(--bad); }
+  .v-good { color: var(--good); }
+  .v-was { color: var(--ink-faint); }
+
+  .panel {
+    background: var(--card); border-radius: 14px; padding: 14px 16px 16px; margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.18);
+  }
+  .panel-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .panel-title { font-size: 12.5px; font-weight: 600; color: var(--ink-strong); }
+
+  /* ── верхняя линейка ── */
+  .rail { display: flex; align-items: center; gap: 6px; padding: 4px 10px; min-height: 42px;
+          background: var(--sunken); border-radius: 10px; }
+  .rail-wrap { flex-wrap: wrap; }
+  .shield { width: 26px; height: 30px; flex: none; border-radius: 4px 4px 9px 9px;
+            background: linear-gradient(180deg, #2a2723 0%, #17150f 100%);
+            border: 1px solid rgba(229,211,169,.22); display: grid; place-items: center;
+            font-size: 9px; color: var(--brass); font-weight: 600; }
+  .pills { display: grid; grid-template-columns: repeat(3, auto); gap: 3px; }
+  .pill { font-size: 9px; font-weight: 600; letter-spacing: .01em; padding: 4px 8px; border-radius: 8px;
+          background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+          color: rgba(212,212,216,.72); white-space: nowrap; }
+  .pill-on { background: var(--brass); color: #1b170f; border-color: transparent; }
+  .drum { display: flex; flex-direction: column; gap: 1px; padding: 3px 5px; border-radius: 14px;
+          background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.01));
+          border: 1px solid rgba(255,255,255,.09); }
+  .drow { display: flex; align-items: center; gap: 3px; height: 20px; }
+  .yr { width: 34px; height: 18px; border-radius: 6px; font-size: 10px; font-weight: 600;
+        display: grid; place-items: center; color: rgba(161,161,170,.5); }
+  .yr-part { color: rgba(229,211,169,.72); }
+  .yr-full { color: #1b170f; background: linear-gradient(135deg, var(--brass), var(--brass-deep)); }
+  .mo { min-width: 22px; height: 17px; border-radius: 5px; font-size: 9px; font-weight: 600;
+        display: grid; place-items: center; color: rgba(161,161,170,.42); padding: 0 3px; position: relative; }
+  .mo-on { color: #1b170f; background: linear-gradient(180deg, var(--brass), var(--brass-deep)); }
+  .mo-now::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+        width: 3px; height: 3px; border-radius: 50%; background: var(--brass-deep); }
+  .mo-focus { box-shadow: 0 0 0 1.5px rgba(96,165,250,.5); color: var(--act); }
+  .chips { display: flex; gap: 3px; padding: 2px; border-radius: 10px;
+           background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.01));
+           border: 1px solid rgba(255,255,255,.08); }
+  .chip { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 7px;
+          color: rgba(161,161,170,.6); }
+  .chip-fb { color: #1b170f; background: var(--fb); }
+  .chip-kb { color: #10321f; background: var(--kb); }
+  .chip-mb { color: #33230a; background: var(--mb); }
+  .chip-act { color: #0b1f36; background: var(--act); }
+  .grp { display: flex; align-items: center; gap: 3px; padding: 2px 4px; border-radius: 9px;
+         background: rgba(255,255,255,.025); }
+  .grp-cap { font-size: 8px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-faint); padding-right: 2px; }
+  .more { font-size: 9px; font-weight: 600; padding: 4px 7px; border-radius: 8px; color: var(--ink-muted);
+          border: 1px solid rgba(255,255,255,.09); }
+
+  /* ── палитра ── */
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sw { width: 92px; }
+  .sw i { display: block; height: 44px; border-radius: 8px; border: 1px solid rgba(255,255,255,.07); }
+  .sw b { display: block; font-size: 10.5px; font-weight: 600; margin-top: 6px; color: var(--ink); }
+  .sw span { display: block; font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+  /* ── карточка Пульса ── */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+  .kpi { font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: var(--ink-strong);
+         font-variant-numeric: tabular-nums; }
+  .kpi-cap { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+             color: var(--ink-faint); margin-bottom: 4px; }
+  .tiny { font-size: 10px; color: var(--ink-faint); line-height: 1.5; }
+  .bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden; display: flex; }
+  .bar i { display: block; height: 100%; }
+  .seg-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .axes { display: flex; gap: 3px; margin: 12px 0 4px; }
+  .axis { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 7px;
+          color: var(--ink-muted); background: rgba(255,255,255,.04); }
+  .axis-on { color: #0b1f36; background: var(--act); }
+  .mini { display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-top: 10px; }
+  .mini i { flex: 1; border-radius: 2px 2px 0 0; background: rgba(96,165,250,.32); }
+  .mini i.hi { background: var(--act); }
+  .ledger { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .lrow { display: flex; justify-content: space-between; font-size: 11.5px; padding: 3px 0;
+          font-variant-numeric: tabular-nums; }
+  .lrow span:last-child { color: var(--ink-strong); font-weight: 600; }
+  .pile { font-size: 10px; color: var(--ink-faint); margin-top: 6px; }
+
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line);
+           font-size: 11.5px; color: var(--ink-faint); }
+</style>
+
+<div class="wrap">
+
+<h1>Облик: база, сегодня, предложение</h1>
+<p class="lede">Макет к разбору <b>2026-08-22-design-baseline.md</b>. Показаны три состояния каждого узла: как было 8 августа (коммит d317d57), как стало 21 августа (a257d23), и что предлагается. Цвета взяты из кода буквально, ничего не подобрано на глаз. Тёмная тема — основная.</p>
+
+<h2>1. Верхняя линейка</h2>
+<p class="note">Барабан времени, барабан недели и щит не менялись и меняться не должны — это эталон. Менялось окружение: вкладок стало 13 вместо 8, сетка осталась на 6 мест, непрерывная строка распалась на перенос.</p>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">База, 8 августа</span><span class="verdict v-was">одна строка · 8 вкладок · синий = действие</span></div>
+  <div class="rail">
+    <div class="shield">СВД</div>
+    <div class="pills">
+      <div class="pill pill-on">Пульт</div><div class="pill">Отчёт</div><div class="pill">Свод</div>
+      <div class="pill">Реестр</div><div class="pill">Экономия</div><div class="pill">Контроль</div>
+    </div>
+    <div class="drum">
+      <div class="drow"><div class="yr">2025</div><div class="mo">я</div><div class="mo">ф</div><div class="mo">м</div><div class="mo">а</div></div>
+      <div class="drow"><div class="yr yr-full">2026</div><div class="mo mo-on">я</div><div class="mo">ф</div><div class="mo mo-focus">м</div><div class="mo mo-now">а</div></div>
+    </div>
+    <div class="chips">
+      <div class="chip chip-act">Все</div><div class="chip chip-fb">ФБ</div><div class="chip chip-kb">КБ</div><div class="chip chip-mb">МБ</div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Сегодня, 21 августа</span><span class="verdict v-bad">пять рядов · 13 вкладок · цвет действия исчез</span></div>
+  <div class="rail rail-wrap">
+    <div class="shield">СВД</div>
+    <div class="pills">
+      <div class="pill pill-on">Пульт</div><div class="pill">Отчёт</div><div class="pill">Свод</div>
+      <div class="pill">Реестр</div><div class="pill">Не обеспеченные</div><div class="pill">В течение года</div>
+      <div class="pill">Мониторинг</div><div class="pill">Экономия</div><div class="pill">Конкуренция</div>
+      <div class="pill">Дисциплина</div><div class="pill">Контроль</div><div class="pill">Аналитика</div>
+      <div class="pill">Система</div>
+    </div>
+    <div class="drum">
+      <div class="drow"><div class="yr">2025</div><div class="mo">я</div><div class="mo">ф</div><div class="mo">м</div><div class="mo">а</div></div>
+      <div class="drow"><div class="yr yr-full">2026</div><div class="mo mo-on">я</div><div class="mo">ф</div><div class="mo">м</div><div class="mo mo-now">а</div></div>
+    </div>
+    <div class="chips">
+      <div class="chip" style="color:#1b170f;background:var(--brass)">Все</div>
+      <div class="chip" style="color:#1b170f;background:var(--brass-deep)">ФБ</div>
+      <div class="chip chip-kb">КБ</div><div class="chip chip-mb">МБ</div>
+    </div>
+  </div>
+  <p class="tiny" style="margin-top:10px">Два дефекта видны прямо здесь: кнопка «ФБ» кремовая, хотя федеральный бюджет везде синий (<b>--data-fb: #3b82f6</b>); кольцо связи недели и месяца погасло вместе с синим.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Предложение</span><span class="verdict v-good">одна строка · три группы · корзины внутрь Реестра</span></div>
+  <div class="rail">
+    <div class="shield">СВД</div>
+    <div class="grp"><span class="grp-cap">Свод</span>
+      <div class="pill pill-on">Пульт</div><div class="pill">Отчёт</div><div class="pill">Свод</div></div>
+    <div class="grp"><span class="grp-cap">Данные</span>
+      <div class="pill">Реестр</div><div class="pill">Мониторинг</div></div>
+    <div class="grp"><span class="grp-cap">Разборы</span>
+      <div class="pill">Экономия</div><div class="pill">Контроль</div><div class="more">ещё 3</div></div>
+    <div class="drum">
+      <div class="drow"><div class="yr">2025</div><div class="mo">я</div><div class="mo">ф</div><div class="mo">м</div><div class="mo">а</div></div>
+      <div class="drow"><div class="yr yr-full">2026</div><div class="mo mo-on">я</div><div class="mo">ф</div><div class="mo mo-focus">м</div><div class="mo mo-now">а</div></div>
+    </div>
+    <div class="chips">
+      <div class="chip chip-act">Все</div><div class="chip chip-fb">ФБ</div><div class="chip chip-kb">КБ</div><div class="chip chip-mb">МБ</div>
+    </div>
+  </div>
+  <p class="tiny" style="margin-top:10px">Тринадцать разделов уложены в одну строку: три группы с надписью, редкие — за «ещё 3», корзины «Не обеспеченные» и «В течение года» уехали внутрь Реестра как его разрезы. Латунь снова только у щита и активной вкладки, синий вернулся действию: кольцо связи, выделение «Все», федеральный бюджет.</p>
+</div>
+
+<h2>2. Палитра</h2>
+<p class="note">Слева — то, что база держала как две разные роли. Справа — что с этими ролями стало.</p>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Две роли базы</span><span class="verdict v-was">латунь = продукт, синий = действие</span></div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#bfa161"></i><b>Хром</b><span>#bfa161</span></div>
+    <div class="sw"><i style="background:#1b170f"></i><b>Хром тёмный</b><span>#1b170f</span></div>
+    <div class="sw"><i style="background:#3b82f6"></i><b>Действие</b><span>#3b82f6</span></div>
+    <div class="sw"><i style="background:#60a5fa"></i><b>Фокус</b><span>blue-500/40</span></div>
+    <div class="sw"><i style="background:#fafafa"></i><b>Полотно свет</b><span>zinc-50</span></div>
+    <div class="sw"><i style="background:#09090b"></i><b>Полотно тьма</b><span>zinc-950</span></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Сегодня</span><span class="verdict v-bad">одна роль на два смысла · тёплое полотно в свету</span></div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#e5d3a9"></i><b>Акцент тьма</b><span>#e5d3a9</span></div>
+    <div class="sw"><i style="background:#8f7549"></i><b>Акцент свет</b><span>#8f7549</span></div>
+    <div class="sw"><i style="background:#faf8f3"></i><b>Полотно свет</b><span>#faf8f3</span></div>
+    <div class="sw"><i style="background:#ece5d6"></i><b>Приподнятое</b><span>#ece5d6</span></div>
+    <div class="sw"><i style="background:#1a1714"></i><b>Подсказка тьма</b><span>#1a1714</span></div>
+    <div class="sw"><i style="background:#262320"></i><b>Сетка тьма</b><span>#262320</span></div>
+  </div>
+  <p class="tiny" style="margin-top:10px">Два правых образца — недоделанный откат: поверхности тёмной темы вернули к нейтральным (#0a0a0b), а части графика остались тёплыми.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Предложение</span><span class="verdict v-good">роли разведены обратно, тепло только в хроме</span></div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#e5d3a9"></i><b>Хром тьма</b><span>#e5d3a9</span></div>
+    <div class="sw"><i style="background:#1b170f"></i><b>Хром свет</b><span>#1b170f</span></div>
+    <div class="sw"><i style="background:#3b82f6"></i><b>Действие свет</b><span>#3b82f6</span></div>
+    <div class="sw"><i style="background:#60a5fa"></i><b>Действие тьма</b><span>#60a5fa</span></div>
+    <div class="sw"><i style="background:#fafafa"></i><b>Полотно свет</b><span>zinc-50</span></div>
+    <div class="sw"><i style="background:#0a0a0b"></i><b>Полотно тьма</b><span>#0a0a0b</span></div>
+  </div>
+  <p class="tiny" style="margin-top:10px">Ступень поверхностей 1,182:1, измеренная в кремовой волне, сохраняется — контраст держится светлотой и от подтона не зависит.</p>
+</div>
+
+<h2>3. Карточка Пульса: приписка против предмета</h2>
+<p class="note">Одна и та же карточка. Слева — сегодняшний способ: знание дописано абзацем в десять пикселей. Справа — способ базы: то же знание обыграно предметом, с переключением разреза внутри карточки и без ухода со вкладки.</p>
+
+<div class="two">
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">Сегодня</span><span class="verdict v-bad">пять приписок</span></div>
+    <div class="kpi-cap">Исполнение плана</div>
+    <div class="kpi">88,6 %</div>
+    <p class="tiny" style="margin:6px 0 0">за 2026 год · данные на 21.08 12:40</p>
+    <p class="tiny" style="margin:2px 0 0">расчёт по колонкам N и Q книг ГРБС</p>
+    <p class="tiny" style="margin:2px 0 0">может расходиться со Сводом на 0,4 п. п.</p>
+    <p class="tiny" style="margin:2px 0 0">закупки без финансирования в счёт не входят</p>
+    <div class="bar" style="margin-top:12px"><i style="width:88.6%;background:var(--brass-deep)"></i></div>
+    <p class="tiny" style="margin:8px 0 0">Разрезы: перейдите на вкладку «Аналитика», чтобы посмотреть по управлениям.</p>
+    <p class="pile">↑ Знание есть, предмета нет: пять строк подряд одинаковым кеглем, разрез вынесен на другую вкладку.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">Предложение</span><span class="verdict v-good">один предмет, разрезы внутри</span></div>
+    <div class="kpi-cap">Исполнение плана</div>
+    <div class="kpi">88,6 <span style="font-size:18px;color:var(--ink-muted)">%</span></div>
+    <div class="axes">
+      <div class="axis axis-on">Управления</div><div class="axis">Способы</div><div class="axis">Бюджеты</div><div class="axis">Время</div>
+    </div>
+    <div class="mini">
+      <i style="height:52%"></i><i style="height:71%"></i><i class="hi" style="height:96%"></i><i style="height:44%"></i>
+      <i style="height:63%"></i><i style="height:38%"></i><i style="height:80%"></i><i style="height:57%"></i>
+      <i style="height:24%"></i><i style="height:69%"></i><i style="height:47%"></i><i style="height:88%"></i>
+    </div>
+    <div class="seg-row">
+      <span class="dot" style="background:var(--act)"></span>
+      <span style="color:var(--ink-muted)">УЖКХ — <b style="color:var(--ink-strong)">96,1 %</b>, выше района на 7,5 п. п.</span>
+    </div>
+    <div class="ledger">
+      <div class="lrow"><span style="color:var(--ink-muted)">План года</span><span>1 284,7 млн</span></div>
+      <div class="lrow"><span style="color:var(--ink-muted)">Исполнено</span><span>1 138,2 млн</span></div>
+      <div class="lrow"><span style="color:var(--ink-muted)">Без финансирования, вне счёта</span><span>46,3 млн</span></div>
+    </div>
+    <p class="tiny" style="margin-top:8px">Книги ГРБС, колонки N и Q · на 21.08 12:40 · <span style="color:var(--act)">почему расходится со Сводом</span></p>
+    <p class="pile">↑ Четыре оси переключаются на месте, столбец наведения объясняет себя фразой, остаток разложен таблицей, оговорка про Свод стала дверью, а не абзацем.</p>
+  </div>
+</div>
+
+<h2>4. Что этот макет предъявляет к согласованию</h2>
+<p class="note">Три развилки, каждая — отдельное «да» или «нет».</p>
+<div class="panel">
+  <div class="lrow"><span>Вернуть синему роль действия, латунь оставить хрому</span><span style="color:var(--act)">развилка 1</span></div>
+  <div class="lrow"><span>Вернуть нейтральное полотно светлой темы, ступень 1,182:1 сохранить</span><span style="color:var(--act)">развилка 2</span></div>
+  <div class="lrow"><span>Собрать тринадцать вкладок в три группы, корзины убрать внутрь Реестра</span><span style="color:var(--act)">развилка 3</span></div>
+</div>
+
+<footer>
+  Макет статический, код продукта не тронут. Разбор с адресами — <b>docs/superpowers/audits/2026-08-22-design-baseline.md</b>. База: d317d57, голова: a257d23.
+</footer>
+
+</div>

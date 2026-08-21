@@ -1360,15 +1360,15 @@ function BlindSpotsWidget({
   // не как постоянная рамка (канон п.129). В светлой теме тонкая цветная линия
   // остаётся: на белом фоне разница светлот не читается.
   const colorMap: Record<string, { bg: string; border: string; text: string; number: string; glow: string }> = {
-    red:    { bg: 'bg-red-500/8 dark:bg-white/[0.05]', border: 'border-red-500/15 dark:border-transparent hover:border-red-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
-    rose:   { bg: 'bg-rose-500/8 dark:bg-white/[0.05]', border: 'border-rose-500/15 dark:border-transparent hover:border-rose-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
-    orange: { bg: 'bg-orange-500/8 dark:bg-white/[0.05]', border: 'border-orange-500/15 dark:border-transparent hover:border-orange-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
-    amber:  { bg: 'bg-amber-500/8 dark:bg-white/[0.05]', border: 'border-amber-500/15 dark:border-transparent hover:border-amber-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
-    purple: { bg: 'bg-purple-500/8 dark:bg-white/[0.05]', border: 'border-purple-500/15 dark:border-transparent hover:border-purple-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
-    cyan:   { bg: 'bg-cyan-500/8 dark:bg-white/[0.05]', border: 'border-cyan-500/15 dark:border-transparent hover:border-cyan-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
-    blue:   { bg: 'bg-blue-500/8 dark:bg-white/[0.05]', border: 'border-blue-500/15 dark:border-transparent hover:border-blue-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
-    indigo: { bg: 'bg-indigo-500/8 dark:bg-white/[0.05]', border: 'border-indigo-500/15 dark:border-transparent hover:border-indigo-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
-    teal:   { bg: 'bg-teal-500/8 dark:bg-white/[0.05]', border: 'border-teal-500/15 dark:border-transparent hover:border-teal-500/30 dark:hover:border-transparent dark:hover:bg-white/[0.08]', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
+    red:    { bg: 'bg-red-500/8', border: 'border-red-500/15 hover:border-red-500/30', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
+    rose:   { bg: 'bg-rose-500/8', border: 'border-rose-500/15 hover:border-rose-500/30', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
+    orange: { bg: 'bg-orange-500/8', border: 'border-orange-500/15 hover:border-orange-500/30', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
+    amber:  { bg: 'bg-amber-500/8', border: 'border-amber-500/15 hover:border-amber-500/30', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
+    purple: { bg: 'bg-purple-500/8', border: 'border-purple-500/15 hover:border-purple-500/30', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
+    cyan:   { bg: 'bg-cyan-500/8', border: 'border-cyan-500/15 hover:border-cyan-500/30', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
+    blue:   { bg: 'bg-blue-500/8', border: 'border-blue-500/15 hover:border-blue-500/30', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
+    indigo: { bg: 'bg-indigo-500/8', border: 'border-indigo-500/15 hover:border-indigo-500/30', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
+    teal:   { bg: 'bg-teal-500/8', border: 'border-teal-500/15 hover:border-teal-500/30', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
   };
 
   // Сработавшие и молчащие разведены: первые рисуются плитками, вторые —

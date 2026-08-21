@@ -345,14 +345,11 @@ export function HeroKPICard({
             config.bgGradient,
             'hover:shadow-xl hover:shadow-zinc-900/5 dark:hover:shadow-black/20',
             'hover:scale-[1.01] active:scale-[0.995]',
-            // Наведение: в светлой теме тонкая синяя линия, в тёмной —
-            // подъём светлоты подложки. Обводка на поверхности запрещена.
-            'hover:border-blue-300/60 dark:hover:border-transparent dark:hover:bg-zinc-800',
+            'hover:border-blue-300/60 dark:hover:border-blue-600/40',
             // Плитка — кнопка, и с клавиатуры до неё доходят. Без видимой рамки
             // фокуса идущий по табуляции не понимал, на какой плитке стоит.
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900',
-            // Раскрытая плитка отличается светлотой и тенью, а не рамкой.
-            isExpanded && 'ring-2 ring-blue-500/20 border-blue-300/60 dark:border-transparent bg-blue-50/40 dark:bg-zinc-800 shadow-xl shadow-blue-500/5',
+            isExpanded && 'ring-2 ring-blue-500/20 border-blue-300/60 dark:border-blue-600/40 shadow-xl shadow-blue-500/5',
             config.glow,
           )}
         >

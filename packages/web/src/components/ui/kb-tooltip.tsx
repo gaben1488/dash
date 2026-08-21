@@ -456,6 +456,7 @@ export function KBTooltip({
               {showIcon && (
                 <Info size={11} className="text-zinc-500 dark:text-zinc-400 shrink-0" />
               )}
+              {mark}
             </span>
           </PopoverPrimitive.Trigger>
           <PopoverPrimitive.Portal>
@@ -471,7 +472,6 @@ export function KBTooltip({
             </PopoverPrimitive.Content>
           </PopoverPrimitive.Portal>
         </PopoverPrimitive.Root>
-        {mark}
       </>
     );
   }
@@ -485,6 +485,12 @@ export function KBTooltip({
             {showIcon && (
               <Info size={11} className="text-zinc-400 dark:text-zinc-500 opacity-0 group-hover/kb:opacity-100 transition-opacity shrink-0" />
             )}
+            {/* Значок расхождения живёт ВНУТРИ обёртки, а не рядом с ней.
+                Прежде подсказка возвращала фрагмент «обёртка + значок», и в
+                сетке значок становился ОТДЕЛЬНОЙ КЛЕТКОЙ: между плитками
+                зияла пустота с одиноким треугольником (жалоба владельца
+                22.08). Компонент обязан отдавать ровно один элемент. */}
+            {mark}
           </span>
         </TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal>
@@ -502,7 +508,6 @@ export function KBTooltip({
           </TooltipPrimitive.Content>
         </TooltipPrimitive.Portal>
       </TooltipPrimitive.Root>
-      {mark}
     </>
   );
 }

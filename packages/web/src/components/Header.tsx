@@ -80,7 +80,7 @@ const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
 // тёмной), поэтому оба набора обязаны давать не меньше 4,5:1 к своей подписи
 // и не меньше 3:1 к фону своей страницы. Замер держит страж `nav-contrast.test.ts`.
 export const NAV_ITEMS: { id: Page; label: string; icon: typeof Gauge; color: string; colorLight: string; title?: string }[] = [
-  { id: 'dashboard', label: 'Пульт',     icon: Gauge,           color: '#e5d3a9', colorLight: '#7a5f33' },  // Cream (чёрный дэш + кремовый хром, 07.08)
+  { id: 'dashboard', label: 'Пульс',     icon: Gauge,           color: '#e5d3a9', colorLight: '#7a5f33' },  // Cream (чёрный дэш + кремовый хром, 07.08)
   { id: 'report',    label: 'Отчёт',      icon: FileText,        color: '#f59e0b', colorLight: '#a25a06' },  // Amber — еженедельный отчёт
   { id: 'svod',      label: 'Свод',       icon: FileSpreadsheet, color: '#0891b2', colorLight: '#0e6d85' },  // Cyan — источник истины
   { id: 'data',      label: 'Реестр',     icon: Table2,      color: '#0ea5e9', colorLight: '#0b6f96' },  // Sky Teal

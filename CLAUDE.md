@@ -35,6 +35,16 @@ pnpm audit --audit-level moderate
 - Keep documentation factual. If a command, route, script, deploy path, or table is not present in the repo, do not document it as implemented.
 - Prefer `@aemr/shared` constants and `@aemr/core` calculations over duplicating legal/procurement thresholds in UI or server code.
 - Keep `docs/REVIEW.md` updated when security posture or verification commands change.
+- **МАНДАТ ВЕДЕНИЯ ПРОЕКТА — `docs/superpowers/specs/2026-08-22-mandate.md`.**
+  Читается ПЕРВЫМ, перед любой работой. Главное в нём: инцидент — это всегда
+  КЛАСС дефектов, а не случай (локализация → формулировка класса → перепись
+  всех носителей → матрица покрытия → правка класса → страж → канон);
+  работа сделана не когда закоммичено, а когда владелец увидел на проде;
+  план показывается ДО правки; свежий дамп всегда; о гибели агента сообщает
+  исполнитель. Язык всех артефактов — русский, без единого английского слова
+  в интерфейсе и базе знаний.
+- Живая матрица корректности метрик — `docs/superpowers/audits/2026-08-22-metrics-matrix.md`.
+  Единственное место, где видно, что закрыто, а что нет. Не переписка.
 - Определение готовности карточки — `docs/superpowers/specs/2026-08-21-card-done-definition.md`
   (канон пп. 53, 58, 104, 119, 127, 129, 131, 132, 135, 139). Любая работа над
   экраном читает этот список ДО начала и предъявляется по нему. Частично
