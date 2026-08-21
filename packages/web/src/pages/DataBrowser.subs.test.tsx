@@ -18,7 +18,7 @@
  *      без единой подходящей строки гаснет, а не притворяется доступным.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { ECONOMY_FLAG_CANON } from '@aemr/shared';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { useStore } from '../store';
@@ -69,6 +69,7 @@ const ROWS = [
     planSum: 1200,
     factSum: 900,
     economy: 300,
+    status: 'Подписан',
     signals: [],
   },
   {
@@ -83,6 +84,7 @@ const ROWS = [
     // листа заполняет их только после отметки «да» в графе «Статус», а её
     // тут и нет — ровно поэтому срез читает экономию как план минус факт.
     economy: 0,
+    status: 'Просрочен',
     signals: [ECONOMY_FLAG_CANON.signal],
   },
 ];
@@ -177,7 +179,11 @@ describe('Реестр: пресет-срезы', () => {
     renderPage();
 
     await screen.findByText(/Ремонт кровли/);
-    const slice = screen.getByRole('button', { name: /Экономия без отметки/ });
+    // Отбор по группе срезов, а не по всему экрану: с 21.08.2026 чип признака
+    // в строке — тоже кнопка (щелчок добавляет признак в фильтр), и одно имя
+    // носят два разных элемента.
+    const slices = within(screen.getByRole('group', { name: 'Готовые срезы строк' }));
+    const slice = slices.getByRole('button', { name: /Экономия без отметки/ });
     // Ровно одна загруженная строка несёт признак — счёт кнопки её и называет.
     expect(slice.textContent).toContain('1');
     expect(slice.getAttribute('aria-pressed')).toBe('false');
@@ -190,7 +196,9 @@ describe('Реестр: пресет-срезы', () => {
     useStore.setState({ registrySignalSeed: [ECONOMY_FLAG_CANON.signal] });
     renderPage();
 
-    const slice = await screen.findByRole('button', { name: /Экономия без отметки/ });
+    await screen.findByText(/Поставка учебников/);
+    const slices = within(screen.getByRole('group', { name: 'Готовые срезы строк' }));
+    const slice = slices.getByRole('button', { name: /Экономия без отметки/ });
     expect(slice.getAttribute('aria-pressed')).toBe('true');
     // В таблице осталась только строка класса — вторая ушла из выборки.
     expect(flat()).toContain('Поставка учебников');
@@ -219,5 +227,39 @@ describe('Реестр: пресет-срезы', () => {
     const critical = screen.getByRole('button', { name: /Требуют разбора/ });
     expect(critical.hasAttribute('disabled')).toBe(true);
     expect(critical.getAttribute('title') ?? '').toContain('Среди загруженных строк');
+  });
+
+  it('отбор по состоянию строки предлагает только встреченные состояния и сужает выборку', async () => {
+    renderPage();
+
+    await screen.findByText(/Ремонт кровли/);
+    const select = screen.getByLabelText('Состояние') as HTMLSelectElement;
+    // Варианты собраны по загруженным строкам, со счётом каждого.
+    const options = [...select.options].map((o) => o.textContent);
+    expect(options).toContain('Подписан (1)');
+    expect(options).toContain('Просрочен (1)');
+    // Состояния, которого в строках нет, в списке тоже нет: недостижимых
+    // вариантов отбор не обещает.
+    expect(options.some((o) => (o ?? '').startsWith('Отменён'))).toBe(false);
+
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'Просрочен' } });
+    });
+    expect(flat()).toContain('Поставка учебников');
+    expect(flat()).not.toContain('Ремонт кровли');
+    // Отбор назван в подписи счёта наравне с прочими фильтрами экрана.
+    expect(flat()).toContain('состояние «Просрочен»');
+  });
+
+  it('сводка выборки несёт паспорт периметра, а не один бейдж периода', async () => {
+    renderPage();
+
+    await screen.findByText(/Ремонт кровли/);
+    // Пять осей паспорта: год, период, органы, срез и момент чтения книг.
+    // Момент сервер в тесте не называл — и паспорт говорит незнание, а не
+    // выдаёт молчание за свежесть.
+    expect(flat()).toContain('2026');
+    expect(flat()).toContain('УО');
+    expect(flat()).toContain('момент чтения неизвестен');
   });
 });

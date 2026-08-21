@@ -894,7 +894,7 @@ export function TableEditor({
               )}
             </button>
             {columnsMenuOpen && (
-              <div className="absolute top-full right-0 mt-1 z-50 w-64 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg py-1">
+              <div className="absolute top-full right-0 mt-1 z-50 w-64 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-transparent rounded-lg shadow-lg py-1">
                 <p className="px-3 py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700">
                   Снятый столбец только прячется с экрана: значения в книге остаются, а его фильтр
                   снимается вместе с ним. Выбор и ширины столбцов сохраняются в этом браузере.
@@ -954,7 +954,7 @@ export function TableEditor({
 
       {/* Границы редактора — честная оговорка, а не молчание */}
       {notice && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/70 dark:border-zinc-700/50 text-[11px] text-zinc-600 dark:text-zinc-300">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/70 dark:border-transparent text-[11px] text-zinc-600 dark:text-zinc-300">
           <Info size={13} className="mt-px flex-shrink-0 text-zinc-400" aria-hidden="true" />
           <span>{notice}</span>
         </div>
@@ -974,7 +974,7 @@ export function TableEditor({
 
       {/* Диалог добавления столбца */}
       {showAddColumn && (
-        <div className="bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 rounded-lg p-4 space-y-3">
+        <div className="bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-transparent rounded-lg p-4 space-y-3">
           <div className="flex items-end gap-3">
             <div className="flex-1">
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1" htmlFor="new-column-label">
@@ -998,7 +998,7 @@ export function TableEditor({
                 id="new-column-type"
                 value={newColType}
                 onChange={e => setNewColType(e.target.value as CellType)}
-                className="px-3 py-1.5 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+                className="px-3 py-1.5 text-sm border border-zinc-200 dark:border-transparent rounded-lg bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
               >
                 <option value="text">Текст</option>
                 <option value="number">Число</option>
@@ -1031,7 +1031,7 @@ export function TableEditor({
       )}
 
       {/* Таблица */}
-      <div className="relative bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+      <div className="relative bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent overflow-hidden">
         {/* Прокрутка живёт здесь: прилипшая шапка держится только за собственную
             прокручиваемую область, а не за прокрутку страницы. */}
         <div ref={scrollRef} className={TABLE_SCROLL_AREA} onKeyDown={handleKeyDown}>

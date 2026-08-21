@@ -220,7 +220,7 @@ function IssueTimeline({ issueId }: { issueId: string }) {
                     </p>
                   )}
                   {isComment && entry.text && (
-                    <p className="text-zinc-600 dark:text-zinc-300 mt-0.5 bg-white dark:bg-zinc-800/60 rounded-lg px-3 py-2 border border-zinc-100 dark:border-zinc-700/50">{entry.text}</p>
+                    <p className="text-zinc-600 dark:text-zinc-300 mt-0.5 bg-white dark:bg-zinc-800/60 rounded-lg px-3 py-2 border border-zinc-100 dark:border-transparent">{entry.text}</p>
                   )}
                 </div>
               </div>
@@ -562,7 +562,7 @@ export function IssuesPage() {
 
       {/* Какие оси шапки здесь работают, а какие нечем применить */}
       {deadAxes.length > 0 && (
-        <div className="flex items-start gap-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
+        <div className="flex items-start gap-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent px-5 py-3">
           <Info size={14} className="text-zinc-400 mt-px shrink-0" />
           <p className="text-zinc-500 dark:text-zinc-400">
             Здесь работают фильтры управления, подведомственной организации, вида деятельности и поиска.{' '}
@@ -575,7 +575,7 @@ export function IssuesPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-4">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden="true" />
@@ -632,7 +632,7 @@ export function IssuesPage() {
 
       {/* Issues list */}
       {filtered.length === 0 ? (
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-12 text-center">
+        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-12 text-center">
           <Search className="mx-auto text-zinc-300 dark:text-zinc-600 mb-4" size={40} aria-hidden="true" />
           <h2 className="text-base font-semibold text-zinc-600 dark:text-zinc-300 mb-2">
             Под отбор страницы не подошло ни одно замечание
@@ -677,7 +677,7 @@ export function IssuesPage() {
               <section
                 key={group.key}
                 aria-label={`${group.label}: ${group.count} ${issuesWord(group.count)}`}
-                className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden"
+                className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent overflow-hidden"
               >
                 {/* Заголовок карточки диагноста: механизм + счёт + действие (п.53) */}
                 <button
@@ -726,7 +726,7 @@ export function IssuesPage() {
             const error = statusError[iss.id];
 
             return (
-              <div key={iss.id} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden transition', expanded ? 'border-blue-200 dark:border-blue-500/30' : 'border-zinc-100 dark:border-zinc-700/50')}>
+              <div key={iss.id} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden transition', expanded ? 'border-blue-200 dark:border-blue-500/30' : 'border-zinc-100 dark:border-transparent')}>
                 {/*
                   Заголовок — настоящая кнопка: раскрытие карточки должно
                   работать с клавиатуры. Внутрь кнопки вложенных кнопок нет
@@ -833,7 +833,7 @@ export function IssuesPage() {
                         )}
 
                         {draft && (
-                          <div className="mt-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 p-3">
+                          <div className="mt-3 rounded-lg border border-zinc-200 dark:border-transparent bg-white dark:bg-zinc-800/60 p-3">
                             <label htmlFor={`reason-${iss.id}`} className="block text-[11px] font-medium text-zinc-600 dark:text-zinc-300 mb-1">
                               Причина перевода в «{issueStatusLabel(draft.target)}»
                             </label>

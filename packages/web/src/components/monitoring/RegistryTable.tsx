@@ -39,8 +39,9 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type {
-  JournalRow, LineageChain, MatchRow, RegistryProcedure,
+  JournalRow, LineageChain, RegistryProcedure,
 } from '../../lib/monitoring/contract';
+import type { MatchIndex } from '../../lib/monitoring/match-rows';
 import type { SortDir, SortKey } from '../../lib/monitoring/slices';
 import { procedureDefects } from '../../lib/monitoring/slices';
 import { KBTooltip } from '../ui/kb-tooltip';
@@ -48,6 +49,8 @@ import { MONITORING_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
 import { fmtCount, fmtDate, fmtDays, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
 import { methodLabel, stageBadgeClass, stageMeaning, stageShort } from '../../lib/monitoring/stage-labels';
 import { ProcedureCard } from './ProcedureCard';
+import { MonitoringPerimeterCaption } from './PerimeterProvider';
+import { CARD, CONTROL, RULE_COL, RULE_COL_HEAD, RULE_HEAD, RULE_ROW } from './surfaces';
 
 /** Сколько строк показывается сразу; остальное — по кнопке. */
 const CHUNK = 200;
@@ -207,15 +210,32 @@ export interface RegistryTableProps {
   /** Родословная по коду процедуры — приходит с листа «25-26». */
   lineageByCode?: ReadonlyMap<string, LineageChain>;
   journalByCode?: ReadonlyMap<string, JournalRow>;
-  matchByCode?: ReadonlyMap<string, MatchRow>;
+  /**
+   * Сверка со строкой книги управления. Указатель и его СОСТОЯНИЕ идут
+   * вместе: без состояния отсутствие пары в карточке читается одинаково и при
+   * неподнятой сверке, и при непрочитанных книгах управлений, и при честно не
+   * найденной строке — три разные новости под одной фразой (п.36).
+   */
+  matchIndex?: MatchIndex | null;
+  /** Момент чтения книги словами — вторая половина требования п.58. */
+  readAtLabel?: string;
+  /** Откуда строки: листы управлений либо назван срез шапки. */
+  sourceLabel?: string;
   onOpenCode?: (code: string) => void;
   /** Код, чья карточка должна быть раскрыта извне (переход по родословной). */
   openCode?: string | null;
+  /**
+   * Снять внешнее раскрытие. Без этого карточка, открытая переходом по
+   * родословной, не закрывалась кликом вовсе: `isOpen` держался на `openCode`,
+   * а клик менял только местное состояние строки.
+   */
+  onCloseOpenCode?: () => void;
 }
 
 export function RegistryTable({
   rows, sortKey, sortDir, onSort,
-  lineageByCode, journalByCode, matchByCode, onOpenCode, openCode = null,
+  lineageByCode, journalByCode, matchIndex, readAtLabel, sourceLabel,
+  onOpenCode, openCode = null, onCloseOpenCode,
 }: RegistryTableProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [limit, setLimit] = useState(CHUNK);
@@ -239,23 +259,49 @@ export function RegistryTable({
   const isOpen = (p: RegistryProcedure): boolean =>
     expanded === idOf(p) || (openCode !== null && p.code === openCode);
 
+  /**
+   * Закрыть карточку, открытую ИЗВНЕ (переход по родословной). Раньше клик
+   * по такой строке менял только `expanded`, а `isOpen` держался на `openCode`
+   * — карточка не закрывалась ничем, кроме смены разрезов. Управление, которое
+   * не отвечает на нажатие, читатель считает сломанным экраном.
+   */
+  const toggleRow = (p: RegistryProcedure, open: boolean): void => {
+    if (open && openCode !== null && p.code === openCode) onCloseOpenCode?.();
+    setExpanded(open ? null : idOf(p));
+  };
+
   const cardFor = (p: RegistryProcedure) => (
     <ProcedureCard
       p={p}
       lineage={p.code !== null ? lineageByCode?.get(p.code) ?? null : null}
       journalRow={p.code !== null ? journalByCode?.get(p.code) ?? null : null}
-      match={p.code !== null ? matchByCode?.get(p.code) ?? null : null}
+      match={p.code !== null ? matchIndex?.byCode.get(p.code) ?? null : null}
+      matchIndex={matchIndex ?? null}
       onOpenCode={onOpenCode}
     />
   );
 
   return (
     <section aria-label="Реестр процедур" className="space-y-2">
+      {/* ── Провенанс таблицы: откуда каждое число этих строк и на какой
+          момент книга прочитана. У портрета над таблицей паспорт был, а у
+          самой таблицы — ни источника, ни момента, хотя чисел в ней больше,
+          чем во всей остальной вкладке. Единица денег названа здесь же:
+          книги управлений ведутся в тысячах, и перепутать их с рублями книги
+          мониторинга значит ошибиться ровно в тысячу раз. ── */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+          Источник: {sourceLabel ?? 'книга «Ежедневный мониторинг» · листы управлений'}; деньги —
+          рубли книги{readAtLabel !== undefined && `; ${readAtLabel}`}
+        </p>
+        <MonitoringPerimeterCaption scope="registry" className="text-right" />
+      </div>
+
       {/* ── Широкий экран: форма книги ── */}
-      <div className="hidden sm:block bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 overflow-x-auto">
+      <div className={`hidden sm:block ${CARD} overflow-x-auto`}>
         <table className="w-full text-xs">
           <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
-            <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
+            <tr className={RULE_HEAD}>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Адрес</th>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">
                 <SortButton label="Код" sortKey="code" active={sortKey === 'code'} dir={sortDir} onSort={onSort} />
@@ -268,7 +314,7 @@ export function RegistryTable({
                 <SortButton label="НМЦК, руб." sortKey="nmck" active={sortKey === 'nmck'} dir={sortDir} onSort={onSort} align="right" />
               </th>
               {datesOpen ? (
-                <th colSpan={4} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
+                <th colSpan={4} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
                   <FoldButton
                     open
                     onToggle={toggleDates}
@@ -277,7 +323,7 @@ export function RegistryTable({
                   />
                 </th>
               ) : (
-                <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom border-l border-zinc-100 dark:border-zinc-700/50">
+                <th rowSpan={2} className={`px-2 py-1.5 text-left font-medium align-bottom ${RULE_COL_HEAD}`}>
                   <FoldButton
                     open={false}
                     onToggle={toggleDates}
@@ -286,10 +332,10 @@ export function RegistryTable({
                   />
                 </th>
               )}
-              <th colSpan={2} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
+              <th colSpan={2} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
                 Итог торгов
               </th>
-              <th colSpan={budgetsOpen ? 5 : 2} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
+              <th colSpan={budgetsOpen ? 5 : 2} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
                 <span className="inline-flex items-center gap-1.5">
                   Экономия, руб.
                   <FoldButton
@@ -300,15 +346,15 @@ export function RegistryTable({
                   />
                 </span>
               </th>
-              <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom border-l border-zinc-100 dark:border-zinc-700/50">
+              <th rowSpan={2} className={`px-2 py-1.5 text-left font-medium align-bottom ${RULE_COL_HEAD}`}>
                 Победитель
               </th>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Стадия</th>
             </tr>
-            <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
+            <tr className={RULE_HEAD}>
               {datesOpen && (
                 <>
-                  <th className="px-2 py-1 text-left font-normal border-l border-zinc-100 dark:border-zinc-700/50">заявка</th>
+                  <th className={`px-2 py-1 text-left font-normal ${RULE_COL_HEAD}`}>заявка</th>
                   <th className="px-2 py-1 text-left font-normal">
                     <SortButton label="публикация" sortKey="publicationDate" active={sortKey === 'publicationDate'} dir={sortDir} onSort={onSort} />
                   </th>
@@ -318,13 +364,13 @@ export function RegistryTable({
                   </th>
                 </>
               )}
-              <th className="px-2 py-1 text-right font-normal border-l border-zinc-100 dark:border-zinc-700/50">
+              <th className={`px-2 py-1 text-right font-normal ${RULE_COL_HEAD}`}>
                 <SortButton label="цена, руб." sortKey="auctionPrice" active={sortKey === 'auctionPrice'} dir={sortDir} onSort={onSort} align="right" />
               </th>
               <th className="px-2 py-1 text-right font-normal">
                 <SortButton label="снижение" sortKey="reductionPct" active={sortKey === 'reductionPct'} dir={sortDir} onSort={onSort} align="right" />
               </th>
-              <th className="px-2 py-1 text-right font-normal border-l border-zinc-100 dark:border-zinc-700/50">
+              <th className={`px-2 py-1 text-right font-normal ${RULE_COL_HEAD}`}>
                 <SortButton label="ВСЕГО" sortKey="savingsTotal" active={sortKey === 'savingsTotal'} dir={sortDir} onSort={onSort} align="right" />
               </th>
               <th className="px-2 py-1 text-center font-normal">
@@ -349,13 +395,17 @@ export function RegistryTable({
               const defects = procedureDefects(p);
               // Тихая полосатость чётных строк (п.129): строки разводит
               // светлота, а не рамки — рамка между строками и так самая тонкая.
-              const stripe = i % 2 === 1 ? 'bg-zinc-50/60 dark:bg-zinc-900/25' : '';
+              // В тёмной теме полоса ПОДНИМАЕТ светлоту, а не опускает:
+              // `zinc-900/25` поверх карточки `zinc-800/60` давал разницу
+              // порядка сотой доли — полосатости не было видно вовсе, и
+              // строки на деле разводила одна рамка.
+              const stripe = i % 2 === 1 ? 'bg-zinc-50/60 dark:bg-white/[0.03]' : '';
               return [
                 <tr
                   key={idOf(p)}
-                  onClick={() => setExpanded(open ? null : idOf(p))}
+                  onClick={() => toggleRow(p, open)}
                   aria-expanded={open}
-                  className={`border-b border-zinc-50 dark:border-zinc-700/30 align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
+                  className={`${RULE_ROW} align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
                 >
                   <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
                     <ChevronDown
@@ -386,7 +436,7 @@ export function RegistryTable({
                   </td>
                   {datesOpen ? (
                     <>
-                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400 border-l border-zinc-50 dark:border-zinc-700/30">
+                      <td className={`px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400 ${RULE_COL}`}>
                         {fmtDate(p.applicationDate)}
                       </td>
                       <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
@@ -400,12 +450,12 @@ export function RegistryTable({
                       </td>
                     </>
                   ) : (
-                    <td className="px-2 py-1.5 whitespace-nowrap border-l border-zinc-50 dark:border-zinc-700/30">
+                    <td className={`px-2 py-1.5 whitespace-nowrap ${RULE_COL}`}>
                       <DatesFoldedCell p={p} />
                     </td>
                   )}
                   <td
-                    className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100 border-l border-zinc-50 dark:border-zinc-700/30"
+                    className={`px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100 ${RULE_COL}`}
                     title={p.auctionPrice === 0 ? 'Ноль — содержательный исход: торги прошли без результата' : undefined}
                   >
                     {fmtRub(p.auctionPrice)}
@@ -418,7 +468,7 @@ export function RegistryTable({
                       {fmtPct(p.reductionPct)}
                     </span>
                   </td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-700 dark:text-zinc-200 border-l border-zinc-50 dark:border-zinc-700/30">
+                  <td className={`px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-700 dark:text-zinc-200 ${RULE_COL}`}>
                     {fmtRub(p.savingsTotal)}
                     {p.savingsManual && (
                       <span className="ml-0.5 text-amber-600 dark:text-amber-400" title="Внесено числом, а не формулой: связь с ценой разорвана">
@@ -434,7 +484,7 @@ export function RegistryTable({
                       <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsFb)}</td>
                     </>
                   )}
-                  <td className="px-2 py-1.5 max-w-[14rem] border-l border-zinc-50 dark:border-zinc-700/30" title={p.winner ?? undefined}>
+                  <td className={`px-2 py-1.5 max-w-[14rem] ${RULE_COL}`} title={p.winner ?? undefined}>
                     <span className="block truncate text-zinc-600 dark:text-zinc-300">
                       {p.winnerName ?? p.outcome ?? '—'}
                     </span>
@@ -449,8 +499,10 @@ export function RegistryTable({
                   </td>
                 </tr>,
                 open && (
-                  <tr key={`${idOf(p)}:card`} className="border-b border-zinc-100 dark:border-zinc-700/40">
-                    <td colSpan={columnCount} className="p-2 bg-zinc-50/60 dark:bg-zinc-900/30">
+                  <tr key={`${idOf(p)}:card`} className={RULE_HEAD}>
+                    {/* Раскрытая карточка — вложенная поверхность, и в тёмной
+                        теме она светлее таблицы, а не темнее (п.129). */}
+                    <td colSpan={columnCount} className="p-2 bg-zinc-50/60 dark:bg-white/[0.05]">
                       {cardFor(p)}
                     </td>
                   </tr>
@@ -466,10 +518,10 @@ export function RegistryTable({
         {shown.map((p) => {
           const open = isOpen(p);
           return (
-            <li key={idOf(p)} className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3">
+            <li key={idOf(p)} className={`${CARD} p-3`}>
               <button
                 type="button"
-                onClick={() => setExpanded(open ? null : idOf(p))}
+                onClick={() => toggleRow(p, open)}
                 aria-expanded={open}
                 className="w-full text-left"
               >
@@ -504,7 +556,7 @@ export function RegistryTable({
           <button
             type="button"
             onClick={() => setLimit((v) => v + CHUNK)}
-            className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
+            className={`${CONTROL} px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
           >
             Показано {fmtCount(limit)} из {fmtCount(rows.length)} — показать ещё {fmtCount(Math.min(CHUNK, rows.length - limit))}
           </button>

@@ -28,13 +28,22 @@ import {
 } from '../../lib/chart-colors';
 import { useTheme } from '../ThemeProvider';
 import { AnalyticsCard, CardEmpty, CardToggle } from './AnalyticsCard';
+import { buildDrill } from '../../lib/drill';
+import { RULE_ROW_TOP } from './surfaces';
 
 export interface DeptCompareProps {
   depts: DeptComparisonRow[];
   periodLabel: string;
+  /**
+   * Провал по управлению. Цель перехода строит `lib/drill.ts` (механизм М14),
+   * а не место клика: пока цель собиралась руками, каждое место помнило про
+   * свою ось и молча теряло остальные. Здесь ось одна — управление, — но
+   * доехать она обязана вместе с рассказом о том, ЧЕГО в цели не будет.
+   */
+  onPickDept?: (dept: string) => void;
 }
 
-export function DeptCompare({ depts, periodLabel }: DeptCompareProps) {
+export function DeptCompare({ depts, periodLabel, onPickDept }: DeptCompareProps) {
   const isDark = useTheme((s) => s.theme) === 'dark';
   const [metricKey, setMetricKey] = useState<DeptMetricKey>('reductionPct');
   const metric = DEPT_METRICS.find((m) => m.key === metricKey) ?? DEPT_METRICS[0]!;
@@ -102,9 +111,18 @@ export function DeptCompare({ depts, periodLabel }: DeptCompareProps) {
               </thead>
               <tbody className="text-zinc-700 dark:text-zinc-200">
                 {rows.map((r) => (
-                  <tr key={r.dept} className="border-t border-zinc-100 dark:border-zinc-700/50">
+                  <tr key={r.dept} className={RULE_ROW_TOP}>
                     <td className="py-1 pr-2">
-                      {r.dept}
+                      {onPickDept === undefined ? r.dept : (
+                        <button
+                          type="button"
+                          onClick={() => onPickDept(r.dept)}
+                          title={drillHintFor(r.dept)}
+                          className="text-left font-medium hover:underline"
+                        >
+                          {r.dept}
+                        </button>
+                      )}
                       <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">
                         лист «{r.sheet}»
                       </span>
@@ -123,4 +141,18 @@ export function DeptCompare({ depts, periodLabel }: DeptCompareProps) {
       )}
     </AnalyticsCard>
   );
+}
+
+/**
+ * Подсказка провала одной фразой: что откроется и чего в цели не будет.
+ * Считает её `buildDrill`, а не эта кнопка: у перехода в Мониторинг свои
+ * правила — год, квартал и способ едут МЕСТНЫМ отбором вкладки, а не отбором
+ * шапки, — и знать их месту клика не нужно и вредно (второе знание разошлось
+ * бы с первым).
+ */
+function drillHintFor(dept: string): string {
+  const target = buildDrill({ dept }, 'monitoring');
+  return target.warning === ''
+    ? `Показать только это управление. ${target.summary}`
+    : `Показать только это управление. ${target.summary} ${target.warning}`;
 }

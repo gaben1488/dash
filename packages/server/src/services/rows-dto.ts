@@ -63,6 +63,11 @@ const STATE_STATUS_RU: Record<RowState, string> = {
   'not-due': SIGNAL_LABELS.notDue,              // Срок не наступил
   'finance-delay': SIGNAL_LABELS.financeDelay,  // Задержка финансирования
   'near-plan': SIGNAL_LABELS.planSoon,          // Скоро срок
+  // Стадия «в течение года» и класс «не обеспечена финансированием» названы в
+  // оси состояния 21.08.2026 (спека консолидации §6). Подписи берутся из дома
+  // имён — своих строк здесь нет, разъехаться формам негде.
+  'yearlong': SIGNAL_LABELS.factWithoutDate,    // Закупка, проводимая в течение года
+  'unfunded': SIGNAL_LABELS.planYearMissing,    // Не обеспечено финансированием
   'has-fact': 'Исполнение',
   'open': 'Открыт',
   'error': 'Ошибка',

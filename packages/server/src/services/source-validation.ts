@@ -7,6 +7,8 @@ import {
   SHDYU_MONTHLY_SHEET_NAME,
   CHECK_REGISTRY,
   LEGACY_SIGNAL_TO_CHECK,
+  issueSuppressedByRowClass,
+  epRiskStrictnessOfReason,
 } from '@aemr/shared';
 import { getSheetData } from './google-sheets.js';
 import { readDeptSheet } from './google-sheets.js';
@@ -92,10 +94,18 @@ export function validateRows(rawRows: unknown[][]): Pick<SourceValidationResult,
       if (active !== true) continue;
       const checkId = (LEGACY_SIGNAL_TO_CHECK as Record<string, string>)[signalKey];
       if (!checkId) continue; // сигнал не конвертируется в замечание (бейдж-only) — не шумим
+      // Класс строки может гасить претензию по другому её признаку (канон
+      // @aemr/shared): инициативная заявка в риск-списки не идёт, п.137(3).
+      if (issueSuppressedByRowClass(signalKey, signals as unknown as Record<string, boolean>)) continue;
       issues.push({
         row: rowNo,
         type: 'signal',
-        severity: severityOf(checkId),
+        // ЕП-риск судится по степени обоснованности строки, а не по ключу
+        // (п.137(2)): дом развилки — @aemr/shared, чтобы проверка источника,
+        // конвейер и чип Реестра не разошлись в оценке одной строки.
+        severity: signalKey === 'epRisk'
+          ? epRiskStrictnessOfReason(cells['M'])
+          : severityOf(checkId),
         message: titleOf(checkId, signalKey),
       });
     }

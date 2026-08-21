@@ -53,7 +53,7 @@ export function ExpandableRows<T>(props: {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Поиск по ${props.noun} (${props.rows.length})`}
-          className="mb-2 w-full max-w-xs rounded border border-zinc-200 bg-white px-2 py-1 text-[12px] text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+          className="mb-2 w-full max-w-xs rounded border border-zinc-200 bg-white px-2 py-1 text-[12px] text-zinc-700 placeholder:text-zinc-400 dark:border-transparent dark:bg-zinc-900 dark:text-zinc-300"
         />
       )}
       <div className="space-y-1">

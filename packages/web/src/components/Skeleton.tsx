@@ -27,7 +27,7 @@ function Shimmer({ className }: { className?: string }) {
 
 export function SkeletonCard({ className = '' }: { className?: string }) {
   return (
-    <div className={cn('relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-5', className)}>
+    <div className={cn('relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-transparent bg-white dark:bg-zinc-900 p-5', className)}>
       <Shimmer />
       <div className="h-2.5 w-20 bg-zinc-200/80 dark:bg-zinc-700/60 rounded-md mb-4" />
       <div className="h-8 w-24 bg-zinc-200/80 dark:bg-zinc-700/60 rounded-lg mb-3" />
@@ -52,7 +52,7 @@ export function SkeletonKPIRow({ count = 4 }: { count?: number }) {
 
 export function SkeletonChart() {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-5">
+    <div className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-transparent bg-white dark:bg-zinc-900 p-5">
       <Shimmer />
       <div className="h-2.5 w-32 bg-zinc-200/80 dark:bg-zinc-700/60 rounded-md mb-5" />
       <div className="h-52 bg-zinc-50 dark:bg-zinc-800/30 rounded-xl flex items-end gap-2 p-4">
@@ -76,7 +76,7 @@ export function SkeletonChart() {
  */
 export function SkeletonStatusPanel({ className = '' }: { className?: string }) {
   return (
-    <div className={cn('relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-4', className)}>
+    <div className={cn('relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-transparent bg-white dark:bg-zinc-900 p-4', className)}>
       <Shimmer />
       <div className="flex items-start gap-3">
         <div className="h-5 w-5 flex-shrink-0 rounded-md bg-zinc-200/80 dark:bg-zinc-700/60" />
@@ -95,7 +95,7 @@ export function SkeletonStatusPanel({ className = '' }: { className?: string }) 
 
 export function SkeletonTable({ rows = 8 }: { rows?: number }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-5">
+    <div className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-transparent bg-white dark:bg-zinc-900 p-5">
       <Shimmer />
       <div className="h-2.5 w-36 bg-zinc-200/80 dark:bg-zinc-700/60 rounded-md mb-4" />
       {/* Строка заголовков — та же сетка колонок, что у настоящей таблицы */}
@@ -124,7 +124,7 @@ export function SkeletonDeptGrid({ count = 8 }: { count?: number }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-4">
+        <div key={i} className="relative overflow-hidden rounded-2xl border border-zinc-200/60 dark:border-transparent bg-white dark:bg-zinc-900 p-4">
           <Shimmer />
           <div className="flex items-center gap-2 mb-3">
             <div className="w-4 h-4 bg-zinc-200/80 dark:bg-zinc-700/60 rounded" />

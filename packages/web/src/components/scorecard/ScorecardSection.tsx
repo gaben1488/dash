@@ -24,6 +24,7 @@
  *      простынёй «строка N».
  */
 import { useMemo } from 'react';
+import clsx from 'clsx';
 import { AlertTriangle, Clock, RotateCcw, Scale } from 'lucide-react';
 import { useStore } from '../../store';
 import { deptScopeOf, filterByDeptScope } from '../../lib/selectors/dept-isolation';
@@ -42,6 +43,7 @@ import {
   toDiagnosticIssues,
 } from './contract';
 import { useScorecard } from './useScorecard';
+import { NOTE, PLATE } from '../control/surfaces';
 
 /** Плашка периода данных секции: момент чтения плюс честная оговорка. */
 function ScorecardPeriodBadge({ readAt }: { readAt: string }) {
@@ -72,7 +74,7 @@ function FailurePlate({
   onRetry: () => void;
 }) {
   return (
-    <div className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
+    <div className={clsx('flex items-start gap-2 rounded-xl border px-4 py-3 text-xs', NOTE.amber)}>
       <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 mt-px shrink-0" aria-hidden="true" />
       <div className="text-amber-800 dark:text-amber-300">
         <p>
@@ -130,7 +132,7 @@ export function ScorecardSection() {
         </div>
 
         {/* Оговорка стоит ДО чисел: прочитанная после букв, она уже не работает. */}
-        <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-700/60 rounded-xl px-4 py-3">
+        <p className={`text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 rounded-xl px-4 py-3 ${PLATE}`}>
           {BASELINE_CAVEAT}
         </p>
 

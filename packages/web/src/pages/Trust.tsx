@@ -12,7 +12,7 @@
 //    плюс подстановка ЖИВЫХ чисел этого экрана. Латинская отметка A–F
 //    заменена русским словом: школьная шкала США читателю ничего не говорит.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Info, RefreshCw } from 'lucide-react';
@@ -22,6 +22,10 @@ import type { TrustComponentId, TrustComponent } from '@aemr/shared';
 import { buildTrustViewModel } from '../lib/trust-metrics';
 import { kbFor } from '../lib/kb/metric-kb';
 import { natureOf } from '../lib/diagnostics/nature-categories';
+import { CARD, HEAD_STRIP, NOTE, RULE_DIVIDE, RULE_HEAD, TILE } from '../components/control/surfaces';
+import { Button } from '../components/ui/button';
+import { perimeterFromFilters, perimeterHint, perimeterLabel, type Perimeter } from '../lib/perimeter';
+import { stateColor, trustState, STATE_LABELS } from '../lib/semantic-color';
 
 // ── Локальные view-model типы для данных доверия (источники из useFilteredData — any[]).
 interface TrustIssue {
@@ -220,7 +224,7 @@ export function TrustPage() {
 
   if (!dashboardData) {
     return (
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-amber-200 dark:border-amber-700/50 p-12 text-center">
+      <div className={clsx('rounded-xl border p-12 text-center shadow-sm dark:shadow-none', NOTE.amber)}>
         <ShieldCheck size={40} className="mx-auto text-amber-400 dark:text-amber-500 mb-3" />
         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Надёжность не оценена — данные не прочитаны</p>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4 max-w-md mx-auto">
@@ -295,7 +299,7 @@ export function TrustPage() {
       {/* Главный индекс + компоненты */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Индекс */}
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-6 flex flex-col items-center justify-center">
+        <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none p-6 flex flex-col items-center justify-center')}>
           <div className="relative w-48 h-24 mb-4">
             <svg viewBox="0 0 200 100" className="w-full h-full" role="img" aria-label={`Надёжность данных: ${overallScore} из 100, оценка «${verdict.label}»`}>
               <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth="14" strokeLinecap="round" />
@@ -358,7 +362,7 @@ export function TrustPage() {
         </div>
 
         {/* Пять компонентов с раскрытием */}
-        <div className="lg:col-span-2 bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-6">
+        <div className={clsx('lg:col-span-2', CARD, 'rounded-xl shadow-sm dark:shadow-none p-6')}>
           <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-1">
             {weakest
               ? `Слабое место — «${weakest.label}»: ${weakest.score} из 100`
@@ -368,7 +372,7 @@ export function TrustPage() {
             Раскройте строку, чтобы увидеть, что проверяет компонент и какие замечания его роняют.
           </p>
           {components.length === 0 ? (
-            <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-950/20 p-4">
+            <div className={clsx('rounded-lg border p-4', NOTE.amber)}>
               <p className="text-xs text-zinc-700 dark:text-zinc-200 font-medium mb-1">Компоненты надёжности не рассчитаны</p>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                 {scopedToFilter
@@ -387,7 +391,7 @@ export function TrustPage() {
                 const panelId = `trust-component-${c.name}`;
 
                 return (
-                  <div key={c.name} className="rounded-lg border border-zinc-100 dark:border-zinc-700/40 overflow-hidden">
+                  <div key={c.name} className={clsx(TILE, 'overflow-hidden')}>
                     <button
                       onClick={() => setExpandedComponent(isExpanded ? null : c.name)}
                       aria-expanded={isExpanded}
@@ -427,7 +431,7 @@ export function TrustPage() {
                     </button>
 
                     {isExpanded && (
-                      <div id={panelId} className="px-4 pb-4 border-t border-zinc-100 dark:border-zinc-700/40">
+                      <div id={panelId} className={clsx('px-4 pb-4 border-t', RULE_HEAD)}>
                         {/* Живая подстановка: вклад ИМЕННО этого балла в итог */}
                         <div className="mt-3 ml-5 mb-3 text-[11px] font-mono text-zinc-700 dark:text-zinc-200">
                           {c.score} × {c.weight} ÷ {totalWeight} = {NUM1.format(contribution)} —
@@ -531,8 +535,8 @@ export function TrustPage() {
       </div>
 
       {/* Разрез по управлениям */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
-        <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
+      <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none overflow-hidden')}>
+        <div className={clsx('px-5 py-3 border-b', RULE_HEAD)}>
           <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
             {worstDept
               ? `Слабее всех данные у «${worstDept.department?.nameShort ?? worstDept.department?.name ?? 'управления без названия'}»: ${worstDept.trustScore ?? 0} из 100`
@@ -556,7 +560,7 @@ export function TrustPage() {
             <table className="w-full text-sm">
               <caption className="sr-only">Надёжность данных по управлениям и по пяти компонентам</caption>
               <thead>
-                <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                <tr className={clsx(HEAD_STRIP, 'text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider')}>
                   <th scope="col" className="px-5 py-3 text-left">Управление</th>
                   <th scope="col" className="px-3 py-3 text-center">Общий</th>
                   {components.map((c: TrustComponent) => (
@@ -568,7 +572,7 @@ export function TrustPage() {
                   <th scope="col" className="px-3 py-3 text-center">Из них критических</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+              <tbody className={RULE_DIVIDE}>
                 {deptSummaries.map((d: TrustDept) => {
                   const score = d.trustScore ?? 0;
                   const deptComponents = d.trustComponents ?? [];
@@ -627,7 +631,7 @@ export function TrustPage() {
       </div>
 
       {/* Факторы снижения */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5">
+      <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none p-5')}>
         <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-4 flex items-center gap-2">
           <TrendingDown size={16} className="text-red-500" />
           {factors.length > 0

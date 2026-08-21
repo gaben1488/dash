@@ -24,6 +24,7 @@ import type { MatchViewPayload } from '../../lib/monitoring/analytics-contract';
 import { matchClasses, matchDisagreements } from '../../lib/monitoring/charts';
 import { fmtCount, fmtPct, fmtRub, fmtRubExact, pluralCount } from '../../lib/monitoring/format';
 import { AnalyticsCard, CardEmpty } from './AnalyticsCard';
+import { RULE_ROW_TOP, TILE } from './surfaces';
 
 export interface MatchPanelProps {
   /** null — сверка не получена: роут не поднят либо книги не прочитаны. */
@@ -41,6 +42,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
         kicker="Сверка с книгами управлений"
         title="Сверка сейчас не получена"
         periodLabel={periodLabel}
+        source="книга «Ежедневный мониторинг» и восемь книг управлений — обе стороны сверки"
         method="Сверка идёт отдельным запросом: она читает восемь книг управлений и книгу мониторинга сразу. Её отказ не влияет на остальную аналитику."
       >
         <CardEmpty>
@@ -65,6 +67,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
   return (
     <AnalyticsCard
       kicker="Сверка с книгами управлений"
+      source="книга «Ежедневный мониторинг» и восемь книг управлений — обе стороны сверки"
       title={
         s.coveragePct === null
           ? 'Связка реестра с книгами управлений'
@@ -135,7 +138,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
               {disagreements.map((d) => (
                 <tr
                   key={`${d.code}:${d.field}`}
-                  className="border-t border-zinc-100 dark:border-zinc-700/50 align-top"
+                  className={`${RULE_ROW_TOP} align-top`}
                 >
                   <td className="py-1 pr-2">
                     <span className="font-medium">{d.code}</span>
@@ -181,7 +184,7 @@ function SumsVerdict({
   title, agree, disagree, noComparison,
 }: { title: string; agree: number; disagree: number; noComparison: number }) {
   return (
-    <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 bg-zinc-50/60 dark:bg-zinc-900/30 p-3">
+    <div className={`${TILE} p-3`}>
       <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{title}</p>
       <p className="mt-0.5 text-[11px] tabular-nums text-zinc-700 dark:text-zinc-200">
         сошлось {fmtCount(agree)} · разошлось {fmtCount(disagree)} · сравнивать нечего {fmtCount(noComparison)}
@@ -196,7 +199,7 @@ function SumsVerdict({
 function MatchClassCard({ row }: { row: ReturnType<typeof matchClasses>[number] }) {
   const [open, setOpen] = useState(false);
   return (
-    <li className="rounded-lg border border-zinc-200 dark:border-zinc-700 p-3">
+    <li className={`${TILE} p-3`}>
       <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">
         {row.title}
         <span className="ml-1.5 text-[10px] font-normal tabular-nums text-zinc-400 dark:text-zinc-500">
@@ -271,7 +274,7 @@ function InternalDiffBlock({ match }: { match: MatchViewPayload }) {
             </thead>
             <tbody className="text-zinc-700 dark:text-zinc-200">
               {rows.slice(0, 25).map((r) => (
-                <tr key={r.code} className="border-t border-zinc-100 dark:border-zinc-700/50 align-top">
+                <tr key={r.code} className={`${RULE_ROW_TOP} align-top`}>
                   <td className="py-1 pr-2">
                     <span className="font-medium">{r.code}</span>
                     <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">

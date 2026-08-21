@@ -2,10 +2,13 @@
 /**
  * Стражи полосы живого оповещения.
  *
- * Полоса — единственное место, где продукт сам заговаривает с читателем не по
- * его запросу. Поэтому у неё жёсткие обязанности: молчать, когда новостей нет;
- * называть механизм («книга УО обновилась: 3 строки»), а не тревожить; обновлять
- * данные мягко, без перезагрузки страницы; уметь закрыться, ничего не обновив.
+ * С 21.08.2026 полоса — не выключатель свежих чисел, а предупреждение. Числа
+ * подтягиваются сами (hooks/useSeamlessRefresh.ts), и полоса обязана:
+ *   • молчать, когда подмена прошла тихо, — иначе она шум, а не забота;
+ *   • появляться, когда подменить сейчас нельзя, и НАЗЫВАТЬ причину;
+ *   • появляться, когда обновить не вышло, и честно говорить, что на экране
+ *     прежние числа;
+ *   • уметь закрыться, ничего не обновляя.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -25,13 +28,22 @@ vi.mock('../../hooks/useLiveEvents', async (importOriginal) => {
   };
 });
 
-const quickRefresh = vi.fn(async () => {});
-vi.mock('../../store', () => ({
-  useStore: Object.assign(
-    (selector: (s: { loading: boolean }) => unknown) => selector({ loading: false }),
-    { getState: () => ({ quickRefresh }) },
-  ),
+/**
+ * Бесшовное обновление у полосы заглушено: у него свои стражи
+ * (hooks/useSeamlessRefresh.test.tsx), а здесь проверяется РЕЧЬ полосы в
+ * каждом из его исходов.
+ */
+const applyNow = vi.hoisted(() => vi.fn());
+const seamless = vi.hoisted(() => ({
+  current: { updating: false, waitingBecause: null as string | null, failed: false },
 }));
+vi.mock('../../hooks/useSeamlessRefresh', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useSeamlessRefresh')>();
+  return {
+    ...actual,
+    useSeamlessRefresh: () => ({ ...seamless.current, applyNow }),
+  };
+});
 
 const EMPTY: LiveState = {
   connected: true,
@@ -50,12 +62,21 @@ function setLive(state: LiveState) {
   };
 }
 
+/** Новость об обновлении книги УО — материал всех проверок ниже. */
+function bookNews(changedRows = 2): LiveState {
+  return reduceLive(EMPTY, {
+    kind: 'book-updated', book: 'УО', changedRows, addedRows: 0, removedRows: 0,
+    rowsTotal: 512, origin: 'webhook', at: new Date().toISOString(),
+  });
+}
+
 afterEach(() => {
   cleanup();
   resetLiveEvents();
   closeLiveEvents();
-  quickRefresh.mockClear();
+  applyNow.mockClear();
   acknowledge.mockClear();
+  seamless.current = { updating: false, waitingBecause: null, failed: false };
 });
 
 describe('полоса живого оповещения', () => {
@@ -65,19 +86,24 @@ describe('полоса живого оповещения', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('называет книгу и что в ней изменилось, по-русски и без тревоги', () => {
-    setLive(reduceLive(EMPTY, {
-      kind: 'book-updated', book: 'УО', changedRows: 3, addedRows: 0, removedRows: 0,
-      rowsTotal: 512, origin: 'webhook', at: new Date().toISOString(),
-    }));
+  it('подмена прошла тихо — полоса молчит: удачное обновление не объявляют', () => {
+    setLive(bookNews());
+    const { container } = render(<LiveUpdateBar />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('подменить сейчас нельзя — полоса называет книгу и причину ожидания', () => {
+    seamless.current = { updating: false, waitingBecause: 'ввод', failed: false };
+    setLive(bookNews(3));
     render(<LiveUpdateBar />);
 
     expect(screen.getByText('Книга УО обновилась')).toBeTruthy();
     expect(screen.getByText(/3 строки/)).toBeTruthy();
-    expect(screen.getByText(/изменение замечено сразу/)).toBeTruthy();
+    expect(screen.getByText(/вы сейчас что-то вводите/)).toBeTruthy();
   });
 
   it('замечания названы вместе со строками', () => {
+    seamless.current = { updating: false, waitingBecause: 'выделение', failed: false };
     const withBook = reduceLive(EMPTY, {
       kind: 'book-updated', book: 'УО', changedRows: 1, addedRows: 0, removedRows: 0,
       rowsTotal: 512, origin: 'cycle', at: new Date().toISOString(),
@@ -88,20 +114,28 @@ describe('полоса живого оповещения', () => {
     expect(screen.getByText(/1 строка, новых замечаний 1/)).toBeTruthy();
   });
 
-  it('кнопка обновляет данные мягко: перечитка снимка, страница на месте', async () => {
-    setLive(reduceLive(EMPTY, {
-      kind: 'book-updated', book: 'УО', changedRows: 2, addedRows: 0, removedRows: 0,
-      rowsTotal: 512, origin: 'webhook', at: new Date().toISOString(),
-    }));
+  it('«показать сейчас» применяет числа поверх помехи — по воле человека', async () => {
+    seamless.current = { updating: false, waitingBecause: 'ввод', failed: false };
+    setLive(bookNews());
     render(<LiveUpdateBar />);
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Обновить/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Показать сейчас/ })); });
 
-    await waitFor(() => expect(quickRefresh).toHaveBeenCalledTimes(1));
-    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(applyNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('обновить не вышло — сказано прямо, что на экране прежние числа', () => {
+    seamless.current = { updating: false, waitingBecause: null, failed: true };
+    setLive(bookNews());
+    render(<LiveUpdateBar />);
+
+    expect(screen.getByText('Новые числа есть, показать не вышло')).toBeTruthy();
+    expect(screen.getByText(/на экране прежние числа/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Повторить/ })).toBeTruthy();
   });
 
   it('полосу можно закрыть, ничего не обновляя, — это законный выбор', async () => {
+    seamless.current = { updating: false, waitingBecause: 'диалог', failed: false };
     setLive(reduceLive(EMPTY, {
       kind: 'book-updated', book: 'УО', changedRows: 2, addedRows: 0, removedRows: 0,
       rowsTotal: 512, origin: 'webhook', at: '2026-08-18T04:00:00.000Z',
@@ -111,14 +145,12 @@ describe('полоса живого оповещения', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Скрыть оповещение/ })); });
 
     await waitFor(() => expect(container.querySelector('[role="status"]')).toBeNull());
-    expect(quickRefresh).not.toHaveBeenCalled();
+    expect(applyNow).not.toHaveBeenCalled();
   });
 
   it('оповещение объявлено вежливо: role=status и aria-live=polite, не alert', () => {
-    setLive(reduceLive(EMPTY, {
-      kind: 'book-updated', book: 'УО', changedRows: 1, addedRows: 0, removedRows: 0,
-      rowsTotal: 512, origin: 'webhook', at: new Date().toISOString(),
-    }));
+    seamless.current = { updating: false, waitingBecause: 'вкладка-скрыта', failed: false };
+    setLive(bookNews(1));
     render(<LiveUpdateBar />);
 
     const bar = screen.getByRole('status');

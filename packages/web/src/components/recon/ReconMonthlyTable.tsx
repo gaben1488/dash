@@ -31,6 +31,7 @@ import {
   monthlyDeltaClass,
 } from '../../lib/recon/monthly';
 import { SkeletonTable } from '../Skeleton';
+import { CARD, HEAD_STRIP, NOTE, RULE_DIVIDE } from '../control/surfaces';
 
 interface ReconMonthlyTableProps {
   data: ReconMonthlyData | null;
@@ -91,7 +92,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
       )}
 
       {error && !loading && (
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl border border-red-200 dark:border-red-800 p-8 text-center">
+        <div className={clsx('rounded-xl border p-8 text-center', NOTE.red)}>
           <AlertTriangle className="mx-auto text-red-500 mb-2" size={28} aria-hidden="true" />
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Помесячная сверка не загрузилась: сервер не ответил</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-lg mx-auto">
@@ -103,14 +104,14 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
       )}
 
       {data?.warning && (
-        <div className="bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800 p-5 text-center">
+        <div className={clsx('rounded-xl border p-5 text-center', NOTE.amber)}>
           <AlertTriangle className="mx-auto text-amber-500 mb-2" size={28} aria-hidden="true" />
           <p className="text-sm text-amber-700 dark:text-amber-400">{data.warning}</p>
         </div>
       )}
 
       {showEmpty && !data?.warning && (
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-200 dark:border-zinc-700/50 p-10 text-center">
+        <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none p-10 text-center')}>
           <Inbox className="mx-auto text-zinc-300 dark:text-zinc-600 mb-3" size={32} aria-hidden="true" />
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Помесячной сверки показывать нечего</p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-lg mx-auto">{emptyReason}</p>
@@ -133,14 +134,14 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
               </span>
             </div>
           </div>
-          <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+          <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none overflow-hidden')}>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <caption className="sr-only">
                   Помесячная сверка: официальные числа листа «СВОД с месяцами» против пересчёта по строкам
                 </caption>
                 <thead>
-                  <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  <tr className={clsx(HEAD_STRIP, 'text-left font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider')}>
                     <th scope="col" className="px-3 py-2.5">Управление</th>
                     <th scope="col" className="px-3 py-2.5 text-center">Месяц</th>
                     <th scope="col" className="px-3 py-2.5 text-right" colSpan={2} title="Конкурентные процедуры — план">КП план</th>
@@ -148,7 +149,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                     <th scope="col" className="px-3 py-2.5 text-right" colSpan={2} title="Закупки у единственного поставщика — план">ЕП план</th>
                     <th scope="col" className="px-3 py-2.5 text-right" colSpan={2} title="Закупки у единственного поставщика — факт">ЕП факт</th>
                   </tr>
-                  <tr className="bg-zinc-50/50 dark:bg-zinc-900/30 text-[10px] text-zinc-400 dark:text-zinc-500">
+                  <tr className="bg-zinc-50/50 dark:bg-white/[0.05] text-[10px] text-zinc-400 dark:text-zinc-500">
                     <th></th>
                     <th></th>
                     <th scope="col" className="px-2 py-1 text-right">Официально</th>
@@ -161,7 +162,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                     <th scope="col" className="px-2 py-1 text-right">Пересчёт</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+                <tbody className={RULE_DIVIDE}>
                   {rows.map((r: ReconMonthlyRow, i: number) => {
                     const rowKey = `${r.deptId}-${r.month}`;
                     const isOpen = expandedKey === rowKey;
@@ -206,7 +207,7 @@ export function ReconMonthlyTable({ data, loading, error, expandedKey, onToggleR
                         <td className={monthlyCellClass(r.epFact)} title={cellTitle(r.epFact)}>{fmtNum(r.epFact?.calc ?? 0)}</td>
                       </tr>
                       {isOpen && (
-                        <tr className="bg-zinc-50/80 dark:bg-zinc-900/40">
+                        <tr className="bg-zinc-50/80 dark:bg-white/[0.05]">
                           <td colSpan={10} className="px-5 py-4" id={panelId}>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
                               <div className="space-y-2">

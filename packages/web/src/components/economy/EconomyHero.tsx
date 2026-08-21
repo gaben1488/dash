@@ -51,12 +51,31 @@ export interface EconomyHeroProps {
   onToggleDepartment: (deptId: string) => void;
   /** Не null — правая панель живёт в режиме подведов (см. HeroSubScope). */
   subScope?: HeroSubScope | null;
+  /**
+   * Периметр шапки сужен, а спарклайн и дельта его не знают — они всегда
+   * считаются по ВСЕМ кварталам года (`economySpark`/`quarterDeltas`). Тогда
+   * плитка несёт два периметра сразу, и второй обязан быть подписан внутри неё
+   * же (канон п.58г): оговорка под графиками эту разницу не покрывает, она
+   * говорит о другом блоке. Строка вроде «за 2 кв» — что показывает КРУПНОЕ
+   * число; спарклайн подписывается годом рядом.
+   */
+  narrowedSpanLabel?: string | null;
 }
 
 export function EconomyHero({
   rows, totals, economySpark, pctSpark, deltas,
   heroMetric, onHeroMetric, formatMoney, onToggleDepartment, subScope,
+  narrowedSpanLabel,
 }: EconomyHeroProps) {
+  // Подпись второго периметра плитки. Показывается только когда периметры
+  // РАЗОШЛИСЬ: при годовой шапке спарклайн считает ровно то же, что число над
+  // ним, и лишняя строка была бы платой без новости.
+  const sparkScopeNote = narrowedSpanLabel
+    ? `число — за ${narrowedSpanLabel}, динамика — за год`
+    : null;
+  const sparkScopeHint = narrowedSpanLabel
+    ? `Крупное число посчитано за ${narrowedSpanLabel}. Спарклайн и дельта рядом показывают все кварталы года: строки экономии размечены не точнее квартала, и сузить динамику до выбранного периода не из чего.`
+    : undefined;
   // Разброс долей показываем только когда управлений с лимитом больше одного —
   // «мин 8 % / макс 8 %» по единственной строке смысла не несёт.
   const spread = totals.ratedCount > 1 && totals.pctMin !== null && totals.pctMax !== null
@@ -170,6 +189,16 @@ export function EconomyHero({
                   {m.spark && <MiniSpark data={m.spark} w={40} h={10} color={m.color.includes('red') ? '#ef4444' : '#10b981'} />}
                   <span className="text-[8px] text-zinc-500 dark:text-zinc-600 truncate" title={m.sub}>{m.sub}</span>
                 </div>
+                {/* Два периметра внутри одной плитки названы порознь (п.58г):
+                    крупное число — за период шапки, спарклайн и дельта — за год. */}
+                {sparkScopeNote && m.spark && (
+                  <div
+                    className="text-[8px] leading-tight text-amber-700 dark:text-amber-400 truncate mt-px"
+                    title={sparkScopeHint}
+                  >
+                    {sparkScopeNote}
+                  </div>
+                )}
               </div>
             );
             return (

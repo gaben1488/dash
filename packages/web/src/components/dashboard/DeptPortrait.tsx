@@ -28,6 +28,7 @@ import { PeriodBadge } from '../PeriodBadge';
 import { formatPercent } from '../HeroKPICard';
 import { getThresholdColor } from '../../lib/metrics-registry';
 import { pluralRu } from '../../lib/economy-copy';
+import { CARD, TILE, RULE_HEAD } from './surfaces';
 
 const QUARTER_LABELS = [1, 2, 3, 4].map(quarterLabel);
 
@@ -95,7 +96,7 @@ function ExecFigure({ label, pct, detail, metricKey }: {
 }) {
   const color = pct != null ? getThresholdColor(metricKey, pct) : '';
   return (
-    <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3">
+    <div className={`${TILE} rounded-xl px-4 py-3`}>
       <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-medium">{label}</div>
       {pct != null ? (
         <div className={`text-2xl font-bold tabular-nums leading-tight mt-1 ${color || 'text-zinc-800 dark:text-zinc-100'}`}>
@@ -174,7 +175,7 @@ export function DeptPortrait({ dm, scope, issues, lastRefreshed, formatMoney, na
   return (
     <section
       aria-label={`Портрет управления ${dm.dept}`}
-      className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-5 hover:shadow-lg transition-shadow duration-300"
+      className={`${CARD} rounded-2xl shadow-sm dark:shadow-none p-5 hover:shadow-lg transition-shadow duration-300`}
     >
       {/* Шапка портрета: имя, режим подведов, период и свежесть */}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
@@ -363,7 +364,7 @@ export function DeptPortrait({ dm, scope, issues, lastRefreshed, formatMoney, na
       </div>
 
       {/* Переходы к строкам-основаниям */}
-      <div className="flex items-center justify-end gap-4 pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-800">
+      <div className={`flex items-center justify-end gap-4 pt-3 mt-3 border-t ${RULE_HEAD}`}>
         <button
           type="button"
           onClick={() => navigateTo('data', { department: dm.deptId })}

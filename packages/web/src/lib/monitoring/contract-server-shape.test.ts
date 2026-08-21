@@ -98,3 +98,40 @@ describe('normalizeMonitoring — форма живого ответа серв�
     expect(p.directory!.unmatchedCustomers[0].name).toBe('МБДОУ «Жар Птица»');
   });
 });
+
+/**
+ * Страж третьей пустоты (п.36): «раздел пришёл, а строк ноль» и «раздела нет»
+ * — разные новости с разными действиями. Пока маппер схлопывал первое во
+ * второе, вкладка отправляла читателя чинить трубу чтения там, где чинить
+ * нечего: чтение прошло, и его результат — пустой лист.
+ */
+describe('прочитанный, но пустой лист не выдаётся за неотданный', () => {
+  const EMPTY_SHAPED = {
+    source: {
+      bookName: 'Ежедневный мониторинг',
+      readAt: '2026-08-20T04:24:58.000Z',
+      moneyUnit: 'руб',
+      sheetsRead: ['25-26', 'Перечень ГРБС'],
+      sheetsFailed: {},
+    },
+    procedures: [],
+    journal: { rows: [], lineage: [], notes: [] },
+    directory: { entries: [], customersOutside: [], notes: [] },
+    signals: [],
+    notes: [],
+  };
+
+  it('пустой «25-26» и пустой справочник остаются разделами, а не null', () => {
+    const p = normalizeMonitoring(EMPTY_SHAPED);
+    expect(p.journal).not.toBeNull();
+    expect(p.journal!.rows).toHaveLength(0);
+    expect(p.directory).not.toBeNull();
+    expect(p.directory!.rows).toHaveLength(0);
+  });
+
+  it('отсутствующий раздел по-прежнему null — вторая новость не потеряна', () => {
+    const p = normalizeMonitoring({ ...EMPTY_SHAPED, journal: null, directory: undefined });
+    expect(p.journal).toBeNull();
+    expect(p.directory).toBeNull();
+  });
+});

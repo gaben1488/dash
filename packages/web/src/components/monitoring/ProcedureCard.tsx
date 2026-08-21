@@ -18,13 +18,15 @@
  */
 import { AlertTriangle, ArrowRight, Copy, Link2 } from 'lucide-react';
 import type {
-  JournalRow, LineageChain, MatchRow, RegistryProcedure,
+  JournalRow, LineageChain, RegistryProcedure,
 } from '../../lib/monitoring/contract';
+import type { MatchIndex, RowMatch } from '../../lib/monitoring/match-rows';
 import { procedureDefects } from '../../lib/monitoring/slices';
 import {
   fmtDate, fmtDays, fmtPct, fmtRubExact, rowAddress,
 } from '../../lib/monitoring/format';
 import { methodLabel, stageBadgeClass, stageLabel, stageMeaning } from '../../lib/monitoring/stage-labels';
+import { RULE_SECTION, TILE } from './surfaces';
 
 function Band({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -85,18 +87,27 @@ export interface ProcedureCardProps {
   lineage?: LineageChain | null;
   /** Строка того же кода на листе «25-26» — судьба и победитель оттуда. */
   journalRow?: JournalRow | null;
-  /** Строка сверки с книгой ГРБС; null — сверка ещё не подключена. */
-  match?: MatchRow | null;
+  /** Встречная сторона книги управления по коду этой строки; null — пары нет. */
+  match?: RowMatch | null;
+  /**
+   * Состояние самой сверки: какие книги управлений прочитаны и на какой
+   * момент. Без него отсутствие пары читается одинаково в трёх разных случаях
+   * («роут не поднят», «книги не прочитаны», «строки с кодом нет») — а это три
+   * разные новости с тремя разными действиями (п.36).
+   */
+  matchIndex?: MatchIndex | null;
   /** Нажатие на код в родословной — открыть соседнюю процедуру. */
   onOpenCode?: (code: string) => void;
 }
 
-export function ProcedureCard({ p, lineage, journalRow, match, onOpenCode }: ProcedureCardProps) {
+export function ProcedureCard({
+  p, lineage, journalRow, match, matchIndex, onOpenCode,
+}: ProcedureCardProps) {
   const defects = procedureDefects(p);
   const d = p.durations;
 
   return (
-    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4 space-y-4">
+    <div className={`${TILE} p-3 sm:p-4 space-y-4`}>
       {/* ── Шапка карточки: код, способ, стадия, адрес в книге ── */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
@@ -167,7 +178,7 @@ export function ProcedureCard({ p, lineage, journalRow, match, onOpenCode }: Pro
               : `${fmtRubExact(p.reductionRub)} · ${fmtPct(p.reductionPct)}`}
             tone={p.reductionRub !== null && p.reductionRub > 0 ? 'good' : 'plain'}
           />
-          <div className="pt-1 border-t border-zinc-200/60 dark:border-zinc-700/50">
+          <div className={`pt-1 ${RULE_SECTION}`}>
             <Line label="Экономия ВСЕГО (книга)" value={fmtRubExact(p.savingsTotal)} />
             <Line label="в том числе МБ" value={fmtRubExact(p.savingsMb)} />
             <Line label="КБ" value={fmtRubExact(p.savingsKb)} />
@@ -235,7 +246,7 @@ export function ProcedureCard({ p, lineage, journalRow, match, onOpenCode }: Pro
 
       {/* ── Родословная переобъявлений ── */}
       {lineage && lineage.codes.length > 1 && (
-        <div className="border-t border-zinc-200/60 dark:border-zinc-700/50 pt-3">
+        <div className={`${RULE_SECTION} pt-3`}>
           <h4 className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
             Родословная процедуры
           </h4>
@@ -267,38 +278,87 @@ export function ProcedureCard({ p, lineage, journalRow, match, onOpenCode }: Pro
       )}
 
       {/* ── Сверка со строкой книги ГРБС ── */}
-      <div className="border-t border-zinc-200/60 dark:border-zinc-700/50 pt-3">
+      <div className={`${RULE_SECTION} pt-3`}>
         <h4 className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
           Сверка со строкой книги управления
         </h4>
         {match ? (
           <div className="mt-1.5 space-y-1">
-            <p className="text-[11px] text-zinc-600 dark:text-zinc-300 inline-flex items-center gap-1">
-              <Link2 size={11} aria-hidden="true" />
-              {match.bookDept !== null && match.bookRow !== null
-                ? `Книга ${match.bookDept}, строка ${match.bookRow}`
-                : 'Пара в книгах управлений не найдена'}
+            <p className="text-[11px] text-zinc-600 dark:text-zinc-300 inline-flex items-start gap-1">
+              <Link2 size={11} aria-hidden="true" className="mt-0.5 shrink-0" />
+              <span>{match.summary}</span>
             </p>
-            <Line label="План книги, руб." value={fmtRubExact(match.planRub)} />
-            <Line label="Факт книги, руб." value={fmtRubExact(match.factRub)} />
-            <Line label="Дата договора" value={fmtDate(match.contractDate)} />
-            {match.verdicts.length > 0 && (
-              <ul className="space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
-                {match.verdicts.map((v) => <li key={v}>{v}</li>)}
-              </ul>
+            {match.kind === 'matched' && (
+              <>
+                <Line label="Начальная цена, книга, руб." value={fmtRubExact(match.nmck?.bookRub ?? null)} />
+                <Line label="Начальная цена, мониторинг, руб." value={fmtRubExact(match.nmck?.monitoringRub ?? null)} />
+                <Line
+                  label="Факт книги, руб."
+                  value={fmtRubExact(match.fact?.bookRub ?? null)}
+                  tone={match.fact?.agrees === false ? 'warn' : 'plain'}
+                />
+                <Line label="Цена победителя, руб." value={fmtRubExact(match.fact?.monitoringRub ?? null)} />
+              </>
             )}
+            <ul className="space-y-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              {match.verdicts.map((v) => <li key={v}>{v}</li>)}
+            </ul>
+            {/* Провенанс обеих сторон: адрес книги управления и адрес строки
+                мониторинга. Без адресов вердикт остаётся мнением — проверить
+                его читатель не может (требование владельца о числе и его
+                источнике). */}
+            <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+              Источник:{' '}
+              {match.bookRowKey !== null ? `книга управления ${match.bookRowKey}` : 'книги управлений (колонка AG)'}
+              {' ↔ '}
+              {match.sheetRowKey ?? `${p.sheet} · строка ${p.row}`}
+              {matchIndex !== null && matchIndex !== undefined
+                && `; книги управлений в сверке: ${matchIndex.booksRead.join(', ') || 'ни одной'}`}
+              . Книги управлений ведутся в тысячах — обе стороны приведены к рублям сервером.
+            </p>
           </div>
         ) : (
-          <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+          // ЧЕТЫРЕ РАЗНЫЕ ПРИЧИНЫ ОТСУТСТВИЯ ПАРЫ, И ОДНА НЕ ЗАМЕНЯЕТ ДРУГУЮ.
+          // Прежний текст называл сразу две («либо сверка не подключена, либо
+          // строки нет») — то есть не называл ни одной: действие у них разное.
+          <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             {p.code === null
               ? 'Сверять нечем: код процедуры в строке не разобран, а связь с книгой управления строится по коду.'
-              : 'Пары в книгах управлений по этому коду пока нет: либо сверка ещё не подключена на сервере, либо строки с таким кодом в книге управления не нашлось.'}
+              : matchIndex === null || matchIndex === undefined
+                ? 'Сверка с книгами управлений сейчас не отвечает: это отказ чтения, а не отсутствие пары — числа книги не потеряны.'
+                : matchIndex.booksRead.length === 0
+                  ? 'Книги управлений не прочитаны — сверять было не с чем. Это состояние источника, а не расхождение: отсутствие пары здесь ничего не значит.'
+                  : `Строки с этим кодом в прочитанных книгах управлений (${matchIndex.booksRead.join(', ')}) не нашлось: сверено ${matchIndex.bookRowsWithCode} строк с кодом в колонке AG.`}
           </p>
         )}
+
+        {/* ── Внутренняя сверка «лист управления ↔ 25-26» ──
+            Вторая запись той же процедуры живёт в самой книге, и расхождение
+            между ними — не то же самое, что расхождение с книгой управления.
+            Показывать их в одной строке значило бы смешать две разные сверки. */}
+        {p.code !== null && matchIndex?.internalByCode.get(p.code) !== undefined && (() => {
+          const d = matchIndex.internalByCode.get(p.code as string);
+          if (d === undefined) return null;
+          return (
+            <div className="mt-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                Внутри книги: лист управления против «25-26»
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                {d.note}
+              </p>
+              <p className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                Начальная цена расходится на {fmtRubExact(d.nmckDeltaRub)} руб., цена — на{' '}
+                {fmtRubExact(d.priceDeltaRub)} руб.
+                {d.joint && ' Строка помечена совместной: доли управлений против целого в журнале.'}
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Сигналы строки: карточки диагноста с адресами ── */}
-      <div className="border-t border-zinc-200/60 dark:border-zinc-700/50 pt-3">
+      <div className={`${RULE_SECTION} pt-3`}>
         <h4 className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
           Сигналы строки
         </h4>

@@ -27,7 +27,7 @@ const SEV_CONFIG: Record<RecSeverity, { label: string; bg: string; text: string;
   critical: { label: SEVERITY_LABELS.critical.label, bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-red-800', icon: AlertTriangle },
   significant: { label: SEVERITY_LABELS.significant.label, bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-800', icon: AlertTriangle },
   warning: { label: SEVERITY_LABELS.warning.label, bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800', icon: AlertTriangle },
-  info: { label: SEVERITY_LABELS.info.label, bg: 'bg-zinc-50 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400', border: 'border-zinc-200 dark:border-zinc-700', icon: Info },
+  info: { label: SEVERITY_LABELS.info.label, bg: 'bg-zinc-50 dark:bg-zinc-700/50', text: 'text-zinc-600 dark:text-zinc-400', border: 'border-zinc-200 dark:border-transparent', icon: Info },
 };
 
 /** Серьёзность конвейера → шкала показа ('error' лечится как критическое). */
@@ -146,7 +146,7 @@ export function RecsPage() {
     const hiddenByFilters = allIssues.length > 0;
     return (
       <div className="space-y-6">
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-12 text-center">
+        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-12 text-center">
           <Inbox className="mx-auto text-zinc-300 dark:text-zinc-600 mb-4" size={48} aria-hidden="true" />
           <h2 className="text-lg font-semibold text-zinc-600 dark:text-zinc-300 mb-2">
             {!dashboardData
@@ -171,7 +171,7 @@ export function RecsPage() {
   return (
     <div className="space-y-6">
       {/* Summary — заголовок говорит о данных, а не называет витрину */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-start gap-3">
             <Lightbulb className="text-amber-500 mt-0.5" size={22} aria-hidden="true" />
@@ -211,7 +211,7 @@ export function RecsPage() {
           const label = deptLabel(dept);
           const panelId = `recs-dept-${dept || 'unknown'}`;
           return (
-            <div key={dept || 'unknown'} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden', criticalCount > 0 ? 'border-red-200 dark:border-red-500/30' : 'border-zinc-100 dark:border-zinc-700/50')}>
+            <div key={dept || 'unknown'} className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border overflow-hidden', criticalCount > 0 ? 'border-red-200 dark:border-red-500/30' : 'border-zinc-100 dark:border-transparent')}>
               <button
                 onClick={() => toggleDept(dept)}
                 aria-expanded={open}
@@ -261,7 +261,7 @@ export function RecsPage() {
                               <span>Нашла проверка: <strong className="text-zinc-600 dark:text-zinc-300">{rec.source}</strong></span>
                               {rec.where && <span>Место в книге: <strong className="text-zinc-600 dark:text-zinc-300">{rec.where}</strong></span>}
                             </div>
-                            <div className="mt-2 px-3 py-2 bg-white/60 dark:bg-zinc-900/30 rounded-lg border border-zinc-200/50 dark:border-zinc-700/50">
+                            <div className="mt-2 px-3 py-2 bg-white/60 dark:bg-zinc-900/30 rounded-lg border border-zinc-200/50 dark:border-transparent">
                               {rec.action ? (
                                 <p className="text-xs text-zinc-700 dark:text-zinc-200">
                                   <strong className="text-blue-600 dark:text-blue-400">Что сделать:</strong> {rec.action}
@@ -352,7 +352,7 @@ function NormalizationSection() {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-6">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-6">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Сверяем предметы закупок между управлениями…</p>
       </div>
     );
@@ -360,7 +360,7 @@ function NormalizationSection() {
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-6">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-6">
         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
           Сверка предметов закупок не выполнена
         </p>
@@ -375,7 +375,7 @@ function NormalizationSection() {
   if (multiDept.length === 0 && similar.length === 0) return null;
 
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent overflow-hidden">
       <button
         onClick={() => setExpanded(v => !v)}
         aria-expanded={expanded}

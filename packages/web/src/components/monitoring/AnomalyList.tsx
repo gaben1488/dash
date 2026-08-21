@@ -24,6 +24,7 @@ import type {
 import { anomalyOrder, refAddress } from '../../lib/monitoring/charts';
 import { fmtCount, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
 import { AnalyticsCard, CardEmpty } from './AnalyticsCard';
+import { TILE } from './surfaces';
 
 export interface AnomalyListProps {
   anomalies: AnomalyGroup[];
@@ -53,7 +54,7 @@ export function AnomalyList({ anomalies, unsuccessful, periodLabel }: AnomalyLis
       )}
     >
       {/* ── Несостоявшиеся ── */}
-      <div className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 bg-zinc-50/60 dark:bg-zinc-900/30 p-3">
+      <div className={`${TILE} p-3`}>
         <p className="text-[11px] text-zinc-700 dark:text-zinc-200">
           {unsuccessful.count === 0
             ? 'Ни одна процедура среза не закончилась без результата.'
@@ -116,7 +117,7 @@ export function AnomalyList({ anomalies, unsuccessful, periodLabel }: AnomalyLis
 function AnomalyCard({ group }: { group: AnomalyGroup }) {
   const [open, setOpen] = useState(false);
   return (
-    <li className="rounded-lg border border-zinc-200 dark:border-zinc-700 p-3">
+    <li className={`${TILE} p-3`}>
       <div className="flex items-start gap-2">
         <AlertTriangle
           size={13}

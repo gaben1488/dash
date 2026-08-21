@@ -7,7 +7,7 @@
  * Подписи метрик страница берёт через productLabel по metricKey из этих
  * view-моделей — свободного текста подписей здесь нет.
  */
-import type { BudgetMoney, GrbsReportBlock, LifecycleBreakdown, PendingPosition, ReasonBreakdown, Report, ReportSignal } from '@aemr/core';
+import type { BudgetMoney, GrbsReportBlock, LifecycleBreakdown, PendingPosition, PendingRemainder, ReasonBreakdown, Report, ReportSignal } from '@aemr/core';
 import { DEPT_COLUMNS, isoOfDayNumber, quarterLabel } from '@aemr/shared';
 import { formatDateCell } from '../sheet-date';
 import { officialAnalogKey, type KpiScope } from './kpi-delta';
@@ -259,6 +259,58 @@ export interface RemainderRowVM {
   accent?: 'neutral' | 'emerald';
 }
 
+/**
+ * Остаток отчётного квартала в разрезе способа — КП и ЕП отдельно.
+ *
+ * Дословная просьба владельца (канон п.26): «я вручную высчитываю, сколько
+ * осталось по конкурентным и сколько по единственному поставщику». Ядро эти
+ * числа считает давно (`quarter.pendingByMethod` у каждого блока ГРБС), но
+ * до 21.08 они доходили только до выгрузки в Word — на экране остатка их не
+ * было.
+ *
+ * Периметр здесь УЖЕ, чем у леджера остатка: ядро знает разрез по способу
+ * только для отчётного КВАРТАЛА, а леджер стоит на годовом остатке. Поэтому
+ * разрез объявляется собственной подписью «отчётный квартал», а не молча
+ * подкладывается под годовое число — иначе экран показал бы квартальные КП и
+ * ЕП как слагаемые года (правило (а) периметра: подпись строится из данных,
+ * по которым посчитано число).
+ */
+export interface RemainderByMethodVM {
+  /** Номер отчётного квартала — он же периметр этих двух чисел. */
+  quarter: number;
+  kp: PendingRemainder;
+  ep: PendingRemainder;
+  /** Сумма КП и ЕП — та же величина, что районный остаток квартала. */
+  total: PendingRemainder;
+}
+
+const EMPTY_PENDING: PendingRemainder = { count: 0, fb: 0, kb: 0, mb: 0, total: 0 };
+
+const addPending = (a: PendingRemainder, b: PendingRemainder): PendingRemainder => ({
+  count: a.count + b.count,
+  fb: a.fb + b.fb,
+  kb: a.kb + b.kb,
+  mb: a.mb + b.mb,
+  total: a.total + b.total,
+});
+
+/**
+ * Районный остаток квартала по способам — сумма блоков ГРБС. Блоков нет либо
+ * остаток пуст — возвращается null: пустой разрез рисовать нечем, и нули на
+ * экране читались бы как «по ЕП всё заключено», чего мы не знаем.
+ */
+export function buildRemainderByMethod(report: Report): RemainderByMethodVM | null {
+  let kp = EMPTY_PENDING;
+  let ep = EMPTY_PENDING;
+  for (const block of report.grbsBlocks) {
+    kp = addPending(kp, block.quarter.pendingByMethod.kp);
+    ep = addPending(ep, block.quarter.pendingByMethod.ep);
+  }
+  const total = addPending(kp, ep);
+  if (total.count === 0 && total.total === 0) return null;
+  return { quarter: report.period.quarter, kp, ep, total };
+}
+
 /** Интегральная сводка целиком: четыре яруса вместо ряда равных плиток. */
 export interface IntegralSummaryVM {
   /** Год и отчётный квартал — главные проценты. */
@@ -275,6 +327,11 @@ export interface IntegralSummaryVM {
    * не подгоняет свой пересчёт под лист и не молчит о разнице.
    */
   remainderDiff: string | null;
+  /**
+   * Остаток отчётного квартала по способам (п.26). null — разрез пуст либо
+   * блоков ГРБС нет; периметр у него свой и объявляется на экране словами.
+   */
+  remainderByMethod: RemainderByMethodVM | null;
 }
 
 export function buildIntegralSummary(report: Report): IntegralSummaryVM {
@@ -451,6 +508,7 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
         ],
     remainder,
     remainderDiff,
+    remainderByMethod: buildRemainderByMethod(report),
   };
 }
 

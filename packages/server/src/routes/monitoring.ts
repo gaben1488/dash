@@ -13,13 +13,15 @@
  *                                   коэффициента снижения, поставщики и
  *                                   концентрация, сроки, сезонность, аномалии;
  *   GET /api/monitoring/match     — сверка с книгами ГРБС построчно и
- *                                   внутренняя сверка «лист ↔ 25-26».
+ *                                   внутренняя сверка «лист ↔ 25-26»;
+ *   GET /api/monitoring/triple    — тройная сверка одной закупки: книга ГРБС
+ *                                   ↔ лист управления ↔ переходящий реестр.
  *
  * Роуты — тонкие адаптеры: чтение листов — services/monitoring.ts (кэш,
  * дедупликация, честные отказы по листам), разбор и счёт — @aemr/core
  * (чистые функции под юнит-тестами). Собственной счётной семантики здесь нет.
  *
- * Правила ответа, общие для всех трёх:
+ * Правила ответа, общие для всех четырёх:
  *  - деньги — РУБЛИ (решение владельца 18.08; книги ГРБС — тысячи), и ответ
  *    называет единицу прямо в source.moneyUnit — экран обязан её подписать;
  *  - момент чтения книги едет в source.readAt — плашка периода данных (п.58);
@@ -33,25 +35,19 @@ import { collectRowsByDept } from '@aemr/shared';
 import {
   MONITORING_ANCESTOR_SHEETS,
   MONITORING_DATA_SHEETS,
-  MONITORING_DIRECTORY_SHEET,
-  MONITORING_JOURNAL_SHEET,
   MONITORING_MISSING_FIELDS,
-  MONITORING_SVOD_SHEET,
-  aggregateMonitoring,
   bookRowsForMatch,
+  bookSide,
   buildMonitoringSignals,
-  compareSvodWithProduct,
   internalDiff,
+  journalSide,
   mappingSignals,
   matchMonitoring,
   monitoringAnalytics,
-  parseMonitoringDirectory,
-  parseMonitoringJournal,
-  parseMonitoringProcedures,
-  parseMonitoringSvod,
   procedureRowsForMatch,
-  productTotalsByDept,
+  sheetSide,
   summarizeMatch,
+  tripleCheck,
   type MonitoringAggregates,
   type MonitoringAnalytics,
   type MonitoringDirectory,
@@ -64,6 +60,7 @@ import {
   type UnparsedCodeRef,
 } from '@aemr/core';
 import { getMonitoringBook, type MonitoringBookSnapshot } from '../services/monitoring.js';
+import { parsedMonitoringBook, type ParsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { getDeptSheetValues } from '../services/snapshot.js';
 
 /** Плашка периметра: откуда числа, на какой момент и в чём измерены. */
@@ -110,25 +107,17 @@ export interface MonitoringAnalyticsPayload {
   notes: string[];
 }
 
-/** Разбор книги целиком — общая часть трёх роутов. */
-function parseBook(book: MonitoringBookSnapshot): {
-  registry: ReturnType<typeof parseMonitoringProcedures>;
-  journal: MonitoringJournal;
-  svod: MonitoringSvod;
-  directory: MonitoringDirectory;
-} {
-  const registry = parseMonitoringProcedures(book.sheets);
-  const journal = parseMonitoringJournal(book.sheets[MONITORING_JOURNAL_SHEET]);
-  const svod = parseMonitoringSvod(book.sheets[MONITORING_SVOD_SHEET]);
-  const directory = parseMonitoringDirectory(
-    book.sheets[MONITORING_DIRECTORY_SHEET],
-    registry.procedures.map((p) => ({
-      customer: p.customer,
-      customerNormalized: p.customerNormalized,
-      dept: p.dept,
-    })),
-  );
-  return { registry, journal, svod, directory };
+/**
+ * Разбор книги целиком — общая часть четырёх роутов.
+ *
+ * Сам разбор живёт в services/monitoring-parsed.ts и привязан к номеру
+ * содержимого книги: четыре маршрута вкладки, открытые подряд, разбирают одну
+ * и ту же книгу ОДИН раз, а не четыре. Замер 21.08.2026: разбор живой книги —
+ * 95,3 мс, то есть 381 мс на открытие вкладки уходило на повторение уже
+ * сделанной работы.
+ */
+function parseBook(book: MonitoringBookSnapshot): ParsedMonitoringBook {
+  return parsedMonitoringBook(book);
 }
 
 /** Плашка периметра из снимка книги. Порядок листов — канонический, не сетевой. */
@@ -173,9 +162,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send(BOOK_UNAVAILABLE);
     }
 
-    const { registry, journal, svod, directory } = parseBook(book);
-    const aggregates = aggregateMonitoring(registry);
-    const comparison = compareSvodWithProduct(svod, productTotalsByDept(registry.procedures));
+    const { registry, journal, svod, directory, aggregates, comparison } = parseBook(book);
     const signals = buildMonitoringSignals({
       procedures: registry.procedures,
       journal,
@@ -312,6 +299,63 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       listCells: result.listCells,
       internal,
       signals: mappingSignals(result),
+      notes,
+    };
+  });
+
+  /**
+   * Тройная сверка одной закупки (требование владельца 21.08.2026: сверять
+   * не только движок против листа, а данные по закупкам). Три независимые
+   * записи одной процедуры — строка книги ГРБС, строка листа управления и
+   * строка переходящего реестра «25-26» — сводятся по коду процедуры, три
+   * величины (начальная цена, факт против цены победителя, экономия)
+   * сравниваются попарно.
+   *
+   * Ради чего третья запись: двусторонняя сверка умеет сказать «не сходится»,
+   * но не умеет сказать, КТО отстал. Когда две записи держат одно число, а
+   * третья — другое, ответ виден (поле outlier). Правой стороны продукт всё
+   * равно не выбирает — он показывает большинство и адреса всех сторон.
+   */
+  app.get<{ Querystring: { refresh?: string } }>('/api/monitoring/triple', async (request, reply) => {
+    const book = await getMonitoringBook(request.query.refresh === 'true');
+    if (Object.keys(book.sheets).length === 0) {
+      return reply.status(503).send(BOOK_UNAVAILABLE);
+    }
+
+    const { registry, journal } = parseBook(book);
+    const rowsByBook = collectRowsByDept(getDeptSheetValues());
+    const booksRead = Object.keys(rowsByBook).sort();
+    const result = tripleCheck({
+      readAt: book.readAt,
+      bookRows: bookSide(rowsByBook),
+      sheetRows: sheetSide(registry.procedures),
+      journalRows: journalSide(journal.rows),
+    });
+
+    const notes = commonNotes(book);
+    notes.push(
+      'Стороны сверки три: книга ГРБС (тысячи рублей), лист управления книги мониторинга и переходящий реестр «25-26» (рубли). Перед сравнением план, факт и экономия книги ГРБС умножены на тысячу.',
+    );
+    notes.push(
+      'Допуск сравнения разный по природе хранения: пары с книгой ГРБС терпят десять рублей или один процент (книга держит тысячи с двумя знаками), пара «лист ↔ переходящий реестр» — полкопейки.',
+    );
+    if (booksRead.length === 0) {
+      notes.push(
+        'Книги управлений не прочитаны — третьей стороны в сверке нет. Это состояние источника, а не отсутствие расхождений.',
+      );
+    } else {
+      notes.push(`Книги управлений в сверке: ${booksRead.join(', ')}.`);
+    }
+    notes.push(
+      'Код, набранный с опечаткой, к паре не приводится: догадка показывается рядом со строкой, но мост по ней не строится. Предмет служит вторым ключом — он подтверждает пару и подсказывает кандидата, но не соединяет вместо кода.',
+    );
+
+    return {
+      source: sourceOf(book),
+      books: { read: booksRead },
+      summary: result.summary,
+      rows: result.rows,
+      orphans: result.orphans,
       notes,
     };
   });

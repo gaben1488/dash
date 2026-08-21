@@ -378,12 +378,29 @@ describe('вкладка «Реестр процедур определения 
     });
   });
 
+  describe('GET /api/monitoring/triple', () => {
+    it('сводит закупку из трёх записей и называет отставшую сторону', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/monitoring/triple' });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+
+      expect(body.summary.codesTotal).toBeGreaterThan(0);
+      expect(body.notes.join(' ')).toContain('Стороны сверки три');
+      // Расхождение «лист ↔ переходящий реестр» видно и в тройной сверке:
+      // сторона книги ГРБС по этому коду пуста, но две записи мониторинга
+      // сравниваются между собой.
+      const row = body.rows.find((r: { code: string }) => r.code === 'ЭА20-26');
+      expect(row.fact.agrees).toBe(false);
+      expect(row.fact.sidesPresent).toEqual(['sheet', 'journal']);
+    });
+  });
+
   describe('отказ источника', () => {
-    it('полный отказ книги — 503 с русской причиной на всех трёх роутах', async () => {
+    it('полный отказ книги — 503 с русской причиной на всех четырёх роутах', async () => {
       GRIDS.clear();
       invalidateMonitoringCache();
 
-      for (const url of ['/api/monitoring', '/api/monitoring/analytics', '/api/monitoring/match']) {
+      for (const url of ['/api/monitoring', '/api/monitoring/analytics', '/api/monitoring/match', '/api/monitoring/triple']) {
         const res = await app.inject({ method: 'GET', url });
         expect(res.statusCode, url).toBe(503);
         expect(res.json().message).toContain('Ежедневный мониторинг');

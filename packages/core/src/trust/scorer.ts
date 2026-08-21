@@ -25,8 +25,12 @@ function issuesForComponent(issues: Issue[], componentId: TrustComponentId): Iss
 function matchLegacyCategory(i: Issue, componentId: TrustComponentId): boolean {
   switch (componentId) {
     case 'data_quality':
+      // 'signal:factWithoutDate' СНЯТ 21.08.2026 — решение владельца п.137(1),
+      // дословно: «закупка в течение года — ТОЛЬКО СТАДИЯ». Класс ушёл из
+      // счёта качества; новых замечаний по нему не рождается, а исторические
+      // из старых снимков сюда больше не попадают — иначе управление
+      // продолжало бы платить баллом за законную стадию до конца года.
       return i.category === 'signal:dataQuality' ||
-        i.category === 'signal:factWithoutDate' ||
         i.category === 'signal:dateWithoutFact' ||
         i.category === 'signal:formulaBroken' ||
         i.origin === 'runtime_error';

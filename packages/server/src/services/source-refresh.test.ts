@@ -32,9 +32,38 @@ vi.mock('./snapshot.js', () => ({
   setSvodLoadFailure: (...a: unknown[]) => setSvodLoadFailure(...a),
   invalidateCache: (...a: unknown[]) => invalidateCache(...a),
   getDeptSheetCache: () => getDeptSheetCache(),
+  // Адресный цикл может не читать лист СВОД вовсе; в этом случае его состояние
+  // берётся из прошлого следа отказа, а не выдумывается «всё хорошо».
+  getSvodLoadFailure: () => null,
+}));
+
+// Ступень отсева у Drive (services/file-revision.ts) в стражах цикла заглушена:
+// без заглушки каждый вопрос уходит в настоящий Google и упирается в срок
+// ожидания, а проверять здесь надо цикл, а не сеть. «Не знаю» — это прежнее
+// поведение цикла: читать всё, ничего не пропуская.
+const checkFileChanged = vi.fn(async () => 'unknown' as const);
+const forgetRevision = vi.fn();
+
+vi.mock('./file-revision.js', () => ({
+  checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [])),
+  forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [])),
 }));
 
 const log = { info: vi.fn(), warn: vi.fn() };
+
+/**
+ * Дождаться условия. Нужно с тех пор, как перед чтением книг встал вопрос
+ * Drive «а файл вообще менялся»: чтение начинается не в том же такте, в
+ * котором вызвали цикл, и хвататься за его внутренности сразу после вызова
+ * больше нельзя.
+ */
+async function waitFor(condition: () => boolean, limitMs = 2_000): Promise<void> {
+  const deadline = Date.now() + limitMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('условие не наступило за отведённый срок');
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
 
 // Первый импорт тянет за собой расчётное ядро и базу — почти пять секунд на
 // холодную. Без прогрева эта цена доставалась ПЕРВОЙ проверке файла, и она
@@ -46,6 +75,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  checkFileChanged.mockResolvedValue('unknown' as const);
   fetchDepartmentSpreadsheets.mockResolvedValue({
     data: {
       'УКСиМП': { values: [[1], [2]], formulas: [], sheetName: 'ВСЕ' },
@@ -74,13 +104,59 @@ describe('перечитка источников одним циклом', () =
     expect(r.svodOk).toBe(true);
   });
 
-  it('СТРАЖ п.98б: после перечитки кэш снимка сброшен — замечания не живут старыми до 5 минут', async () => {
+  it('СТРАЖ п.98б: после перечитки С ИЗМЕНЕНИЕМ кэш снимка сброшен — замечания не живут старыми до 5 минут', async () => {
     // Прецедент 18.08: refreshAllSources обновлял кэш книг, но снимок с TTL 300 с
     // не инвалидировал — «внесла данные, из красного не ушло».
     const { refreshAllSources } = await import('./source-refresh.js');
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: { 'УО': { values: [[1], [2], [3]], formulas: [], sheetName: 'ВСЕ' } },
+      errors: {},
+    });
     await refreshAllSources(log);
 
     expect(invalidateCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('СТРАЖ: перечитка без единого изменения снимок НЕ пересобирает', async () => {
+    // Drive шлёт уведомление и на правку, не тронувшую ни одной ячейки
+    // (открыли книгу, поменяли ширину колонки). Раньше такая правка стоила
+    // полного сброса кэша и пересборки снимка со всеми проверками.
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log); // первое чтение — отпечатки записаны
+    vi.clearAllMocks();
+
+    const r = await refreshAllSources(log); // те же данные
+
+    expect(r.changedBooks).toEqual([]);
+    expect(r.svodChanged).toBe(false);
+    expect(invalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('СТРАЖ: адресная перечитка читает названную книгу, а не все восемь', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    await refreshAllSources(log, 'webhook', { books: ['УО'], svod: false });
+
+    expect(fetchDepartmentSpreadsheets).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ only: ['УО'] }),
+    );
+    // Лист СВОД не входил в цель — обращения к нему нет вовсе.
+    expect(getSheetData).not.toHaveBeenCalled();
+  });
+
+  it('СТРАЖ: адресная перечитка не выбрасывает из кэша книги, которых не читала', async () => {
+    const { refreshAllSources } = await import('./source-refresh.js');
+    fetchDepartmentSpreadsheets.mockResolvedValueOnce({
+      data: { 'УО': { values: [[9]], formulas: [], sheetName: 'ВСЕ' } },
+      errors: {},
+    });
+
+    await refreshAllSources(log, 'webhook', { books: ['УО'] });
+
+    // Второй аргумент setDeptSheetCache — список УПАВШИХ книг; непрочитанные
+    // адресным циклом в него попадать не имеют права, иначе перечитка одной
+    // книги стирала бы из продукта остальные семь.
+    expect(setDeptSheetCache).toHaveBeenCalledWith(expect.anything(), []);
   });
 
   it('параллельные вызовы разделяют один цикл, а не читают книги дважды', async () => {
@@ -109,6 +185,7 @@ describe('перечитка источников одним циклом', () =
     // Серия уведомлений назначает ОДИН следующий цикл, а не по циклу на каждое.
     expect(first).toBe(second);
 
+    await waitFor(() => release !== undefined);
     release?.();
     await Promise.all([cycle, first, second]);
 

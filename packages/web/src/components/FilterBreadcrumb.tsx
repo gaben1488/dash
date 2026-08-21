@@ -99,7 +99,7 @@ export function FilterBreadcrumb({ variant = 'panel' }: { variant?: 'panel' | 'i
         'flex items-center text-xs',
         isInline
           ? 'gap-1 ml-auto flex-nowrap overflow-hidden'
-          : 'flex-wrap gap-1.5 bg-zinc-50/80 dark:bg-zinc-800/30 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/40 dark:border-zinc-700/40'
+          : 'flex-wrap gap-1.5 bg-zinc-50/80 dark:bg-zinc-800/30 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-zinc-200/40 dark:border-transparent'
       )}
     >
       <Filter size={isInline ? 10 : 12} className="text-zinc-400 shrink-0" />

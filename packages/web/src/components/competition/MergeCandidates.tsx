@@ -18,6 +18,8 @@ import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
+import { buildDrill, type DrillFilters } from '../../lib/drill';
+import type { MethodFamily } from '../../lib/filter-context';
 import type { OrgScope } from '../../lib/selectors/org-scope';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import {
@@ -55,11 +57,55 @@ const MEMBERS_VISIBLE_LIMIT = 50;
 const deptsWord = (n: number) => pluralRu(n, 'управление', 'управления', 'управлений');
 const rowsWord = (n: number) => pluralRu(n, 'закупка', 'закупки', 'закупок');
 
+/**
+ * Строка группы — дверь в саму закупку (канон п.119: по каждому числу видно,
+ * какая строка за ним стоит и что в ней). Прежде строки раскрытия не кликались:
+ * читатель видел предмет и адрес управления, а дойти до строки не мог.
+ *
+ * Цель собирает `buildDrill` (механизм М14): управление, способ и предмет едут
+ * вместе. Период НЕ едет намеренно — блок ищет кандидатов по книгам всего года,
+ * и подставить в цель квартал шапки значило бы сузить строки периметром,
+ * которого у этого числа нет.
+ */
+function MemberLink({ member, onNavigate }: {
+  member: MemberDTO;
+  onNavigate: (page: 'data', filters: DrillFilters) => void;
+}) {
+  const method: MethodFamily | null = member.method === 'ЕП' || member.method === 'КП'
+    ? member.method
+    : null;
+  const target = buildDrill(
+    {
+      dept: member.grbsId,
+      ...(method ? { method } : {}),
+      search: member.subject,
+    },
+    'data',
+  );
+  const hint = target.warning === ''
+    ? `${target.summary}. ${member.subject}`
+    : `${target.summary}. ${target.warning}`;
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate('data', target.filters)}
+      title={hint}
+      className={clsx(
+        'text-left line-clamp-2 hover:text-blue-600 dark:hover:text-blue-400 hover:underline rounded-sm',
+        FOCUS_RING,
+      )}
+    >
+      {member.subject}
+    </button>
+  );
+}
+
 export function MergeCandidates({ orgScope }: {
   /** Режим подведов страницы (org-scope): здесь — только честная оговорка. */
   orgScope: OrgScope;
 }) {
   const formatMoney = useStore((s) => s.formatMoney);
+  const navigateTo = useStore((s) => s.navigateTo);
   const fd = useFilteredData();
 
   const [data, setData] = useState<CentralizationResponse | null>(null);
@@ -117,6 +163,10 @@ export function MergeCandidates({ orgScope }: {
       icon={Layers}
       caveats={caveats}
       kb={GROUP3_KB_ADDITIONS.merge_candidates}
+      // Числа блока — весь год и все управления ВСЕГДА: /api/analytics/centralization
+      // ищет пересечения категорий по всем книгам года. Бейдж шапки здесь был
+      // унаследованным и спорил с собственными оговорками карточки (канон п.58б).
+      ownPerimeter="весь год · все управления"
     >
       {loading ? (
         <div className="flex items-center gap-2 py-8 justify-center text-xs text-zinc-500 dark:text-zinc-400">
@@ -216,7 +266,7 @@ export function MergeCandidates({ orgScope }: {
                                 {productLabel(m.grbsId)}
                               </td>
                               <td className="py-1.5 pr-3 text-zinc-700 dark:text-zinc-200 max-w-[420px]">
-                                <span className="line-clamp-2" title={m.subject}>{m.subject}</span>
+                                <MemberLink member={m} onNavigate={navigateTo} />
                               </td>
                               <td className={clsx(
                                 'py-1.5 pr-3 whitespace-nowrap',

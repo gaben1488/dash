@@ -21,6 +21,36 @@ import type { PerDeptSeries, TrendChartPoint } from '../../lib/economy/quarterly
 /** Подпись ряда доли — одна строка на оба графика, чтобы не разъезжалась. */
 const SHARE_SERIES = 'Доля экономии';
 
+/**
+ * Краска серии «Доля экономии» — ОДНА на оба графика страницы.
+ *
+ * Прежде та же величина рисовалась фиолетовым на бар-чарте и золотым на
+ * соседнем тренде: одна величина, два цвета на одном экране — легенда,
+ * которая наполовину врёт. Дом краски теперь один, и разойтись им негде.
+ */
+const SHARE_COLOR = '#a855f7';
+
+/**
+ * Легенда пунктирной линии доли — подпись рядом с графиком, а не только в
+ * тултипе: цвет сам по себе ничего не называет, а до наведения читатель может
+ * и не дойти (тот же приём, что у легенды бюджетов слева).
+ */
+function ShareLegend() {
+  return (
+    <span
+      className="flex items-center gap-1 text-[9px] text-zinc-500 whitespace-nowrap"
+      title="Доля экономии от лимита — правая ось графика"
+    >
+      <span
+        className="w-3 h-px shrink-0"
+        style={{ backgroundImage: `repeating-linear-gradient(to right, ${SHARE_COLOR} 0 4px, transparent 4px 6px)` }}
+        aria-hidden="true"
+      />
+      {SHARE_SERIES}
+    </span>
+  );
+}
+
 /** Тултип бар-чарта: бюджеты + итог + разрез «аппарат / подведомственные». */
 function EconomyChartTooltip({ active, payload, formatMoney: fmt }: {
   active?: boolean; payload?: Array<{ payload?: EconomyBarDatum }>; label?: string; formatMoney: (v: number) => string;
@@ -162,6 +192,7 @@ export function EconomyCharts({
                   {BT[k].label}
                 </span>
               ))}
+              <ShareLegend />
               <span className="text-[8px] text-zinc-400 dark:text-zinc-700">{barClickHint}</span>
             </div>
           }
@@ -188,7 +219,7 @@ export function EconomyCharts({
               <Bar yAxisId="left" dataKey="fb" name="ФБ" stackId="eco" fill={BT.fb.fill} radius={[0, 0, 0, 0]} />
               <Bar yAxisId="left" dataKey="kb" name="КБ" stackId="eco" fill={BT.kb.fill} radius={[0, 0, 0, 0]} />
               <Bar yAxisId="left" dataKey="mb" name="МБ" stackId="eco" fill={BT.mb.fill} radius={[2, 2, 0, 0]} />
-              <Line yAxisId="right" type="monotone" dataKey="pct" name={SHARE_SERIES} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2, fill: '#a855f7', strokeWidth: 0 }} />
+              <Line yAxisId="right" type="monotone" dataKey="pct" name={SHARE_SERIES} stroke={SHARE_COLOR} strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2, fill: SHARE_COLOR, strokeWidth: 0 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -201,6 +232,8 @@ export function EconomyCharts({
           title={trendTitle}
           hint={overlayNote}
           right={
+            <div className="flex items-center gap-2 shrink-0">
+            <ShareLegend />
             <button
               type="button"
               onClick={onToggleBudgetBreakdown}
@@ -216,6 +249,7 @@ export function EconomyCharts({
             >
               ФБ/КБ/МБ
             </button>
+            </div>
           }
         />
         <div className="p-3 h-48">
@@ -247,7 +281,7 @@ export function EconomyCharts({
                   stroke={dept.color} strokeWidth={1.2} strokeDasharray="3 2"
                   dot={{ r: 2, fill: dept.color, strokeWidth: 0 }} />
               ))}
-              <Line yAxisId="right" type="monotone" dataKey="pct" name={SHARE_SERIES} stroke="#bfa161" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2.5, fill: '#bfa161', strokeWidth: 0 }} />
+              <Line yAxisId="right" type="monotone" dataKey="pct" name={SHARE_SERIES} stroke={SHARE_COLOR} strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2.5, fill: SHARE_COLOR, strokeWidth: 0 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

@@ -43,6 +43,7 @@ import { HelpButton } from '../lib/help/HelpButton';
 import { KBTooltip } from '../components/ui/kb-tooltip';
 import { kbCardProps } from './kb-additions';
 import { SYSTEM_KB_ADDITIONS } from './kb-additions-control';
+import { CARD, CONTROL, HEAD_STRIP, NOTE, RULE_DIVIDE, RULE_HEAD, TILE_SKIN } from '../components/control/surfaces';
 
 import {
   CELL_ADDRESS_RE, KEY_ON_SERVER, buildDiagnostics, engineDetail,
@@ -51,6 +52,17 @@ import {
   type DiagnosticTone, type Feedback, type MappingEntry,
   type RefreshPassport, type SheetSource, type SourceStatus, type TabId,
 } from './Settings.logic';
+
+/**
+ * Поле файла .env — один облик на все поля вкладки «Подключение». Обводка у
+ * поля живёт в обеих темах (`CONTROL`): снятая, она превратила бы поле ввода
+ * в обычный текст, а правило п.129 гасит рамки поверхностей, не управлений.
+ */
+const ENV_FIELD = clsx(
+  'w-full px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 bg-white dark:bg-zinc-900/50 rounded-lg font-mono transition',
+  CONTROL,
+  'focus:outline-none focus:ring-2 focus:ring-blue-500',
+);
 
 /*
  * Правила страницы (разбор ответов сервера, маскирование ключей, сборка
@@ -554,9 +566,9 @@ SQLITE_PATH=./data/aemr.db
           того, как начнёт разбирать список. */}
       <section
         aria-labelledby="diagnostics-title"
-        className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-200/60 dark:border-zinc-700/50"
+        className={clsx(CARD, 'rounded-xl')}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
+        <div className={clsx('flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b', RULE_HEAD)}>
           <div className="flex items-center gap-2 min-w-0">
             <span
               className={clsx('w-2 h-2 rounded-full flex-shrink-0',
@@ -578,7 +590,7 @@ SQLITE_PATH=./data/aemr.db
           />
         </div>
 
-        <dl className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+        <dl className={RULE_DIVIDE}>
           {diagnostics.map(line => (
             <div key={line.subject} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-2.5 text-xs">
               <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0 self-center', TONE_DOT[line.tone])} aria-hidden="true" />
@@ -605,8 +617,8 @@ SQLITE_PATH=./data/aemr.db
           className={clsx(
             'flex flex-wrap items-center justify-between gap-3 px-5 py-3 rounded-xl border text-sm',
             issuesFound > 0
-              ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-              : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+              ? clsx(NOTE.amber, 'text-amber-800 dark:text-amber-300')
+              : clsx(NOTE.emerald, 'text-emerald-800 dark:text-emerald-300')
           )}
           aria-live="polite"
         >
@@ -627,9 +639,9 @@ SQLITE_PATH=./data/aemr.db
         </div>
       )}
 
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
+      <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none')}>
         {/* ── Вкладки ──────────────────────────────────────── */}
-        <div className="flex items-center border-b border-zinc-100 dark:border-zinc-700/50">
+        <div className={clsx('flex items-center border-b', RULE_HEAD)}>
           {/* Кнопки действий держим ВНЕ tablist: внутри него по договорённости
               о ролях могут жить только сами вкладки, иначе диктор считает
               кнопку «Обновить» четвёртой вкладкой. */}
@@ -736,7 +748,7 @@ SQLITE_PATH=./data/aemr.db
                        канал уведомлений — в одном месте, а не по трём вкладкам ── */}
                 <section
                   aria-label="Паспорт данных"
-                  className="mb-4 rounded-xl border border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/60 dark:bg-zinc-900/30 px-4 py-3"
+                  className={clsx('mb-4 rounded-xl border px-4 py-3', TILE_SKIN)}
                 >
                   <h4 className="text-xs font-bold text-zinc-700 dark:text-zinc-200 mb-2">Паспорт данных</h4>
                   <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-[11px]">
@@ -836,9 +848,12 @@ SQLITE_PATH=./data/aemr.db
                     return (
                       <div key={src.id} className={clsx(
                         'rounded-xl border p-4 transition-all duration-200 hover:shadow-md',
-                        src.status === 'error' ? 'border-red-200 dark:border-red-500/30 bg-red-50/30 dark:bg-red-500/5' :
-                        src.status === 'warning' ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50/20 dark:bg-amber-500/5' :
-                        'border-zinc-200 dark:border-zinc-700/50 hover:border-zinc-300 dark:hover:border-zinc-600'
+                        src.status === 'error' ? NOTE.red :
+                        src.status === 'warning' ? NOTE.amber :
+                        // Спокойный источник — обычная плитка карточки: в тёмной
+                        // теме её отделяет светлота, а не рамка (п.129), поэтому
+                        // и подсветка наведения там идёт фоном, а не обводкой.
+                        clsx(TILE_SKIN, 'hover:border-zinc-300 dark:hover:bg-white/[0.07]')
                       )}>
                         <div className="flex items-start justify-between gap-2 mb-3">
                           <h4 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{src.name}</h4>
@@ -990,7 +1005,7 @@ SQLITE_PATH=./data/aemr.db
                           </p>
                         )}
 
-                        <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-700/50">
+                        <div className={clsx('flex gap-2 mt-3 pt-3 border-t', RULE_HEAD)}>
                           <button
                             onClick={() => void handleTestSource(src.name)}
                             disabled={test?.loading}
@@ -1033,7 +1048,7 @@ SQLITE_PATH=./data/aemr.db
         {/* ── Вкладка «Соответствие ячеек» ──────────────────── */}
         {activeTab === 'mapping' && (
           <div role="tabpanel" id="settings-panel-mapping" aria-labelledby="settings-tab-mapping" tabIndex={-1}>
-            <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
+            <div className={clsx('px-5 py-3 border-b', RULE_HEAD)}>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
                 Каждый официальный показатель отчёта берётся из конкретной ячейки книги СВОД. Здесь видно, из какой именно,
                 и сюда же вносится правка, если в книге показатель переехал.
@@ -1045,7 +1060,7 @@ SQLITE_PATH=./data/aemr.db
                   value={mappingSearch}
                   onChange={e => setMappingSearch(e.target.value)}
                   aria-label="Поиск по названию показателя"
-                  className="px-3 py-1.5 text-xs border border-zinc-200 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900/50 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+                  className={clsx('px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-zinc-900/50 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64', CONTROL)}
                 />
                 <button
                   onClick={() => void handleCheckCells()}
@@ -1149,7 +1164,7 @@ SQLITE_PATH=./data/aemr.db
                       Показатели отчёта и ячейки книги СВОД, из которых они читаются
                     </caption>
                     <thead>
-                      <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                      <tr className={clsx(HEAD_STRIP, 'text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider')}>
                         <th scope="col" className="px-5 py-3 text-left">Показатель</th>
                         <th scope="col" className="px-4 py-3 text-left">Лист</th>
                         <th scope="col" className="px-4 py-3 text-left">Ячейка</th>
@@ -1158,7 +1173,7 @@ SQLITE_PATH=./data/aemr.db
                         <th scope="col" className="px-4 py-3 text-center w-24">Действие</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+                    <tbody className={RULE_DIVIDE}>
                       {groups.map(group => {
                         const items = filtered.filter(m => m.group === group);
                         return [
@@ -1294,10 +1309,12 @@ SQLITE_PATH=./data/aemr.db
               <div className={clsx(
                 'flex items-start gap-3 p-4 rounded-xl border transition-all',
                 serverStatus.online && serverStatus.configured
-                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
+                  ? NOTE.emerald
                   : serverStatus.online
-                    ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
-                    : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
+                    ? NOTE.amber
+                    // Спокойное состояние цвета не несёт, поэтому в тёмной теме
+                    // держится светлотой: рамка осталась бы хромом ни о чём.
+                    : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-transparent'
               )}>
                 {serverStatus.online
                   ? <Wifi size={18} className={clsx('mt-0.5', serverStatus.configured ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')} aria-hidden="true" />
@@ -1348,9 +1365,9 @@ SQLITE_PATH=./data/aemr.db
                 aria-live="polite"
                 className={clsx(
                   'flex items-start gap-2 p-3 rounded-lg border',
-                  sheetsTestFeedback.state === 'loading' ? 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700' :
-                  sheetsTestFeedback.state === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' :
-                  'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'
+                  sheetsTestFeedback.state === 'loading' ? 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-transparent' :
+                  sheetsTestFeedback.state === 'success' ? NOTE.emerald :
+                  NOTE.red
                 )}
               >
                 {sheetsTestFeedback.state === 'loading' ? <Loader2 size={16} className="text-blue-500 animate-spin mt-0.5" aria-hidden="true" />
@@ -1367,7 +1384,7 @@ SQLITE_PATH=./data/aemr.db
             )}
 
             {/* Пошаговая инструкция */}
-            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-5">
+            <div className={clsx('rounded-xl border p-5', NOTE.blue)}>
               <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-2 mb-3">
                 <HelpCircle size={16} aria-hidden="true" />
                 Как выдать приложению доступ к Google Таблицам
@@ -1409,7 +1426,7 @@ SQLITE_PATH=./data/aemr.db
                   value={connForm.spreadsheetId}
                   onChange={e => setConnForm(f => ({ ...f, spreadsheetId: e.target.value }))}
                   placeholder={SVOD_SPREADSHEET_ID}
-                  className="w-full px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  className={ENV_FIELD}
                 />
                 <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">
                   Берётся из адреса книги: docs.google.com/spreadsheets/d/<strong>вот эта часть</strong>/edit
@@ -1426,7 +1443,7 @@ SQLITE_PATH=./data/aemr.db
                   value={connForm.serviceAccountEmail}
                   onChange={e => setConnForm(f => ({ ...f, serviceAccountEmail: e.target.value }))}
                   placeholder="aemr-reader@имя-проекта.iam.gserviceaccount.com"
-                  className="w-full px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  className={ENV_FIELD}
                 />
                 <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">
                   Поле <code>client_email</code> из скачанного файла ключа
@@ -1450,7 +1467,8 @@ SQLITE_PATH=./data/aemr.db
                     rows={4}
                     aria-describedby="conn-key-hint"
                     className={clsx(
-                      'w-full px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition',
+                      ENV_FIELD,
+                      'resize-none',
                       connForm.privateKey && 'text-transparent selection:text-transparent'
                     )}
                     style={connForm.privateKey ? { caretColor: 'transparent' } : undefined}
@@ -1509,7 +1527,7 @@ SQLITE_PATH=./data/aemr.db
                     inputMode="numeric"
                     value={connForm.port}
                     onChange={e => setConnForm(f => ({ ...f, port: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    className={ENV_FIELD}
                   />
                   <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">На каком порте сервер принимает запросы</p>
                 </div>
@@ -1520,7 +1538,7 @@ SQLITE_PATH=./data/aemr.db
                     type="text"
                     value={connForm.host}
                     onChange={e => setConnForm(f => ({ ...f, host: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    className={ENV_FIELD}
                   />
                   <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">
                     0.0.0.0 — принимать подключения со всех адресов, 127.0.0.1 — только с этой машины
@@ -1534,9 +1552,9 @@ SQLITE_PATH=./data/aemr.db
                   aria-live="polite"
                   className={clsx(
                     'flex items-start gap-2 p-3 rounded-lg border',
-                    saveEnvFeedback.state === 'loading' ? 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700' :
-                    saveEnvFeedback.state === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' :
-                    'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'
+                    saveEnvFeedback.state === 'loading' ? 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-transparent' :
+                    saveEnvFeedback.state === 'success' ? NOTE.emerald :
+                    NOTE.red
                   )}
                 >
                   {saveEnvFeedback.state === 'loading' ? <Loader2 size={16} className="text-blue-500 animate-spin mt-0.5" aria-hidden="true" />
@@ -1612,7 +1630,11 @@ SQLITE_PATH=./data/aemr.db
             {/* Как будет выглядеть файл */}
             <div>
               <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-2">Как будет выглядеть файл .env</h3>
-              <pre className="bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 text-xs p-4 rounded-xl overflow-x-auto font-mono leading-relaxed border border-zinc-200 dark:border-zinc-700">
+              {/* Врезка с текстом файла — единственная поверхность страницы,
+                  которая уходит ВНИЗ по светлоте: так читается «содержимое
+                  файла», а не ещё одна карточка. Обводка в тёмной теме ей уже
+                  не нужна — от карточки её отделяет та же светлота (п.129). */}
+              <pre className="bg-zinc-100 dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 text-xs p-4 rounded-xl overflow-x-auto font-mono leading-relaxed border border-zinc-200 dark:border-transparent">
 {`# Google Таблицы
 GOOGLE_SHEETS_SPREADSHEET_ID=${connForm.spreadsheetId}
 GOOGLE_SERVICE_ACCOUNT_EMAIL=${connForm.serviceAccountEmail || '<почта сервисного аккаунта>'}
@@ -1634,7 +1656,7 @@ SQLITE_PATH=./data/aemr.db
             </div>
 
             {/* Запуск */}
-            <div className="bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-700/50 rounded-xl p-5">
+            <div className={clsx('border rounded-xl p-5', TILE_SKIN)}>
               <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-3">Запуск после настройки .env</h3>
               <ol className="space-y-3">
                 {[

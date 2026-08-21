@@ -28,7 +28,7 @@ export function ActionCard({ action, formatMoney, onOpen, showDeptShares }: Acti
   return (
     <article
       aria-labelledby={headingId}
-      className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5"
+      className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-5"
     >
       <div className="flex items-start justify-between gap-6 flex-wrap">
         <div className="flex-1 min-w-[16rem]">

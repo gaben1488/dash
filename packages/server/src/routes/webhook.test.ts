@@ -36,9 +36,16 @@ vi.mock('../config.js', () => ({
 // Книга «Ежедневный мониторинг» живёт вне цикла refreshAllSources, поэтому
 // вебхук сбрасывает её кэш отдельно. В тесте сервис заглушён: настоящий при
 // импорте тянет полный config (здесь он подменён огрызком) и клиент Google.
-const invalidateMonitoringCache = vi.fn();
+// Вебхук больше не «сбрасывает кэш и ждёт запроса»: он ПЕРЕЧИТЫВАЕТ книгу и
+// объявляет изменившиеся листы в эфир. Заглушка обязана отдавать тот же итог,
+// что настоящая перечитка, иначе маршрут падает на первом же уведомлении.
+const refreshMonitoringBook = vi.fn(async () => ({
+  read: true,
+  changed: ['УО'],
+  version: 2,
+}));
 vi.mock('../services/monitoring.js', () => ({
-  invalidateMonitoringCache: () => invalidateMonitoringCache(),
+  refreshMonitoringBook: () => refreshMonitoringBook(),
   MONITORING_SPREADSHEET_ID: 'file-monitoring',
 }));
 
@@ -70,7 +77,7 @@ afterEach(async () => {
   cancelPendingWebhookRefresh();
   resetWebhookChannelState();
   refreshAllSources.mockClear();
-  invalidateMonitoringCache.mockClear();
+  refreshMonitoringBook.mockClear();
   vi.useRealTimers();
 });
 
@@ -207,8 +214,10 @@ describe('POST /api/webhook/drive', () => {
     expect(refreshAllSources).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(15_000);
     expect(refreshAllSources).toHaveBeenCalledTimes(1);
-    // Книга мониторинга живёт вне цикла — её кэш сбрасывается отдельно.
-    expect(invalidateMonitoringCache).toHaveBeenCalledTimes(1);
+    // Правка в книге УО не трогает книгу мониторинга: это другой файл, и
+    // Drive назвал не его. Раньше сброс шёл на любое уведомление, и правка в
+    // одной книге стоила перечитывания одиннадцати чужих листов.
+    expect(refreshMonitoringBook).not.toHaveBeenCalled();
   });
 
   it('перечитка требует чтения ПОСЛЕ уведомления, а не любого идущего цикла', async () => {
@@ -220,8 +229,70 @@ describe('POST /api/webhook/drive', () => {
     expect(refreshAllSources).toHaveBeenCalledWith(
       expect.anything(),
       'webhook',
-      { fresh: true },
+      expect.objectContaining({ fresh: true }),
     );
+  });
+
+  it('СТРАЖ адресности: правка книги УО перечитывает только её, без листа СВОД и чужих книг', async () => {
+    vi.useFakeTimers();
+    webhookConfig.secret = 'верный-секрет';
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(refreshAllSources).toHaveBeenCalledWith(
+      expect.anything(),
+      'webhook',
+      { fresh: true, books: ['УО'], svod: false },
+    );
+  });
+
+  it('СТРАЖ адресности: правки в двух книгах за одно окно склейки едут одним циклом обеими книгами', async () => {
+    vi.useFakeTimers();
+    webhookConfig.secret = 'верный-секрет';
+    await post(notification({ 'x-goog-message-number': '20' }));
+    await post(notification({
+      'x-goog-channel-id': 'канал-2',
+      'x-goog-message-number': '21',
+      'x-goog-resource-uri': 'https://www.googleapis.com/drive/v3/files/file-uksimp?alt=json',
+    }));
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    const call = refreshAllSources.mock.calls[0] as unknown[];
+    const options = call[2] as { books?: string[] };
+    expect(options.books?.slice().sort()).toEqual(['УКСиМП', 'УО']);
+  });
+
+  it('СТРАЖ адресности: правка книги мониторинга не гоняет цикл источников', async () => {
+    vi.useFakeTimers();
+    webhookConfig.secret = 'верный-секрет';
+    await post(notification({
+      'x-goog-message-number': '40',
+      'x-goog-resource-uri': 'https://www.googleapis.com/drive/v3/files/file-monitoring?alt=json',
+    }));
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(refreshMonitoringBook).toHaveBeenCalledTimes(1);
+    // Книги ГРБС и лист СВОД к этой правке отношения не имеют — читать их
+    // значит платить за чужое изменение.
+    expect(refreshAllSources).not.toHaveBeenCalled();
+  });
+
+  it('СТРАЖ адресности: неизвестный файл читается полностью — пропустить правку хуже, чем прочитать лишнее', async () => {
+    vi.useFakeTimers();
+    webhookConfig.secret = 'верный-секрет';
+    await post(notification({
+      'x-goog-message-number': '30',
+      'x-goog-resource-uri': 'https://www.googleapis.com/drive/v3/files/чужой-файл?alt=json',
+    }));
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(refreshAllSources).toHaveBeenCalledWith(
+      expect.anything(),
+      'webhook',
+      { fresh: true, books: undefined, svod: true },
+    );
+    expect(refreshMonitoringBook).toHaveBeenCalledTimes(1);
   });
 
   it('повтор доставки того же сообщения не заводит вторую перечитку', async () => {

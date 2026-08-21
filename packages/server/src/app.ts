@@ -20,6 +20,7 @@ import { historyRoutes } from './routes/history.js';
 import { reconciliationRoutes } from './routes/reconciliation.js';
 import { reportRoutes } from './routes/report.js';
 import { changesRoutes } from './routes/changes.js';
+import { changeStoryRoutes } from './routes/change-story.js';
 import { healthRoutes } from './routes/health.js';
 import { webhookRoutes } from './routes/webhook.js';
 import { timelineRoutes } from './routes/timeline.js';
@@ -215,6 +216,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(auditRoutes);
   await app.register(rowsRoutes);
   await app.register(changesRoutes);
+  await app.register(changeStoryRoutes);
   await app.register(issuesRoutes);
   await app.register(mappingRoutes);
   await app.register(journalRoutes);

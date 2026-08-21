@@ -20,6 +20,8 @@
 import type { DirectoryPayload } from '../../lib/monitoring/contract';
 import { fmtCount, pluralCount } from '../../lib/monitoring/format';
 import { BookPeriodBadge } from './BookPeriodBadge';
+import { MonitoringPerimeterCaption } from './PerimeterProvider';
+import { CARD, RULE_HEAD, RULE_ROW } from './surfaces';
 
 export interface DirectoryTableProps {
   directory: DirectoryPayload;
@@ -36,7 +38,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
     <div className="space-y-3">
       <section
         aria-label="Справочник учреждений"
-        className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4 space-y-3"
+        className={`${CARD} p-3 sm:p-4 space-y-3`}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -47,13 +49,19 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
               повторяет полное, а на {fmtCount(unused)} не ссылается ни одна строка реестра.
             </p>
           </div>
-          <BookPeriodBadge label={readAtLabel} note="справочник живёт отдельно от реестра и обновляется реже" />
+          <div className="shrink-0 text-right">
+            <BookPeriodBadge label={readAtLabel} note="справочник живёт отдельно от реестра и обновляется реже" />
+            <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+              Источник: лист «Перечень ГРБС» книги «Ежедневный мониторинг»
+            </p>
+            <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs min-w-[40rem]">
             <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
-              <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
+              <tr className={RULE_HEAD}>
                 <th className="px-2 py-1.5 text-left font-medium">№</th>
                 <th className="px-2 py-1.5 text-left font-medium">ГРБС-владелец</th>
                 <th className="px-2 py-1.5 text-left font-medium">Полное наименование</th>
@@ -63,7 +71,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
             </thead>
             <tbody>
               {directory.rows.map((r, i) => (
-                <tr key={`${r.num ?? i}:${r.fullName ?? i}`} className="border-b border-zinc-50 dark:border-zinc-700/30 align-top">
+                <tr key={`${r.num ?? i}:${r.fullName ?? i}`} className={`${RULE_ROW} align-top`}>
                   <td className="px-2 py-1.5 tabular-nums text-zinc-400 dark:text-zinc-500">{r.num ?? '—'}</td>
                   <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-300">{r.grbs ?? '—'}</td>
                   <td className="px-2 py-1.5 max-w-[24rem] text-zinc-700 dark:text-zinc-200">{r.fullName ?? '—'}</td>
@@ -93,7 +101,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
       {directory.unmatchedCustomers.length > 0 && (
         <section
           aria-label="Написания заказчика вне справочника"
-          className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4"
+          className={`${CARD} p-3 sm:p-4`}
         >
           <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
             Написания заказчика, которых в справочнике нет —{' '}

@@ -144,7 +144,7 @@ export function PlanProvenanceView({ provenance }: { provenance: RowProvenanceRe
           'rounded-lg px-3 py-2.5 border',
           headline.present
             ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50'
-            : 'bg-zinc-50 dark:bg-zinc-900/40 border-zinc-200 dark:border-zinc-700/60',
+            : 'bg-zinc-50 dark:bg-zinc-900/40 border-zinc-200 dark:border-transparent',
         )}
       >
         <p

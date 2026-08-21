@@ -16,10 +16,12 @@ const batchGetCells = vi.fn(async () => {
 });
 const batchGetFormulas = vi.fn(async () => []);
 const getSheetData = vi.fn(async () => []);
+const batchGetSheetValues = vi.fn(async () => ({}));
 
 vi.mock('./google-sheets.js', () => ({
   batchGetCells,
   batchGetFormulas,
+  batchGetSheetValues,
   getSheetData,
   fetchSHDYUSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'monthly' })),
 }));
@@ -28,6 +30,7 @@ beforeEach(() => {
   batchGetCells.mockClear();
   batchGetFormulas.mockClear();
   getSheetData.mockClear();
+  batchGetSheetValues.mockClear();
   process.env = {
     ...ORIGINAL_ENV,
     NODE_ENV: 'test',

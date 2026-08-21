@@ -108,6 +108,14 @@ describe('затравка перехода в Реестр', () => {
     });
   });
 
+  it('«Период не проверял» берёт строки без обеих дат — тем же правилом, что и оговорка', () => {
+    const preset = findSlicePreset('no_period_date');
+    expect(preset).not.toBeNull();
+    expect(preset!.predicate({ planDate: null, factDate: null })).toBe(true);
+    expect(preset!.predicate({ planDate: '15.03.2026', factDate: null })).toBe(false);
+    expect(preset!.predicate({ planDate: null, factDate: '20.04.2026' })).toBe(false);
+  });
+
   it('ключ без среза остаётся обычным фильтром признаков', () => {
     expect(splitRegistrySeed(['planYearMissing'])).toEqual({
       slicePresetId: null,

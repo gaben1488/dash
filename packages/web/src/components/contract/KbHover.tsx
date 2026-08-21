@@ -70,7 +70,7 @@ function KbParagraph({ label, text, mono = false }: { label: string; text: strin
 const TRIGGER_CLASS =
   'cursor-help underline decoration-dotted decoration-zinc-300 dark:decoration-zinc-600 underline-offset-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500';
 const PANEL_CLASS =
-  'z-50 w-[min(380px,calc(100vw-16px))] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto';
+  'z-50 w-[min(380px,calc(100vw-16px))] rounded-lg border border-zinc-200 dark:border-transparent bg-white dark:bg-zinc-800 shadow-lg px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto';
 
 export function KbHover({ metricKey, live, title, children }: KbHoverProps) {
   const kb = kbFor(metricKey);

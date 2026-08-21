@@ -15,6 +15,7 @@
  * стоит на месте.
  */
 import { SHEET_MODES, type SheetMode } from '../../lib/monitoring/modes';
+import { CONTROL_EDGE } from './surfaces';
 
 export interface SheetModeTabsProps {
   activeId: string;
@@ -49,7 +50,7 @@ export function SheetModeTabs({ activeId, onSelect, pendingIds = [], counts = {}
               'shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition',
               active
                 ? 'bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                : 'border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40',
+                : `${CONTROL_EDGE} bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`,
             ].join(' ')}
           >
             {mode.label}

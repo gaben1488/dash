@@ -35,6 +35,10 @@ pnpm audit --audit-level moderate
 - Keep documentation factual. If a command, route, script, deploy path, or table is not present in the repo, do not document it as implemented.
 - Prefer `@aemr/shared` constants and `@aemr/core` calculations over duplicating legal/procurement thresholds in UI or server code.
 - Keep `docs/REVIEW.md` updated when security posture or verification commands change.
+- Определение готовности карточки — `docs/superpowers/specs/2026-08-21-card-done-definition.md`
+  (канон пп. 53, 58, 104, 119, 127, 129, 131, 132, 135, 139). Любая работа над
+  экраном читает этот список ДО начала и предъявляется по нему. Частично
+  выполненный список не считается: карточка либо доведена, либо нет.
 - Атлас продукта `docs/superpowers/audits/2026-08-20-cards-map/` — живой артефакт
   (требование владельца 20.08.2026): любая волна, меняющая UI вкладки, обязана
   обновить карту этой вкладки (инвентарь карточек, источники цифр до файла:строки,

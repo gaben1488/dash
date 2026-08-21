@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -879,12 +879,26 @@ function detectSignalsToIssues(
 
     for (const [signalKey, meta] of Object.entries(SIGNAL_ISSUE_MAP)) {
       if (signals[signalKey as keyof RowSignals] !== true) continue;
+      // Класс самой строки может гасить претензию по другому её признаку —
+      // канон живёт в @aemr/shared (issueSuppressedByRowClass), а не здесь:
+      // замечания рождаются ещё и на сервере, и второе место обязано судить
+      // тем же правилом. Сегодня правило одно — инициативная заявка не идёт
+      // в риск-списки (решение владельца п.137(3) от 21.08.2026).
+      if (issueSuppressedByRowClass(signalKey, signals as unknown as Record<string, boolean>)) continue;
 
       // Стабильный id: содержимое строки-якоря (A/B/G/K + подвед C), не её номер.
       const idBase = ['signal', meta.checkId, sheetName, String(cells['C'] ?? ''), String(cells['A'] ?? ''), String(cells['B'] ?? ''), String(cells['G'] ?? ''), String(cells['K'] ?? '')] as const;
+      // Строгость ЕП-риска — свойство СТРОКИ, а не ключа: развилка по степени
+      // обоснованности (решение владельца п.137(2) от 21.08.2026). Дом правила
+      // один и лежит в @aemr/shared: замечание конвейера, чип Реестра и
+      // проверка источника на сервере обязаны звать одну функцию, иначе список
+      // критических разойдётся с цветом чипов на экране.
+      const severity: Issue['severity'] = signalKey === 'epRisk'
+        ? epRiskStrictnessOfReason(cells['M'])
+        : meta.severity;
       issues.push({
         id: issueIdentity([...idBase, nextOccurrence(signalOcc, idBase.join(SEP))]),
-        severity: meta.severity,
+        severity,
         origin: 'bi_heuristic',
         category: `signal:${signalKey}`,
         signal: signalKey,

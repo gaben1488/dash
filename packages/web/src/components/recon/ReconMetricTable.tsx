@@ -18,6 +18,7 @@ import { SVOD_SPREADSHEET_ID } from '@aemr/shared';
 import type { MetricAssessment, MetricReconRow, ReconMetricDelta } from '../../lib/recon/types';
 import { fmtNum, fmtPct, isZero } from '../../lib/recon/format';
 import { buildSheetUrl } from '../../lib/recon/sheet-links';
+import { CARD, HEAD_STRIP, RULE_DIVIDE } from '../control/surfaces';
 
 const METRIC_ASSESS_CONFIG: Record<MetricAssessment, { label: string; bg: string; text: string; icon: typeof CheckCircle2 }> = {
   ok:       { label: 'Совпадает',    bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-400', icon: CheckCircle2 },
@@ -99,12 +100,12 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
       </div>
 
       {/* Metric table */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+      <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none overflow-hidden')}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <caption className="sr-only">Сверка отдельных показателей: официальное число листа СВОД против пересчёта по строкам</caption>
             <thead>
-              <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <tr className={clsx(HEAD_STRIP, 'text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider')}>
                 <th scope="col" className="px-5 py-3">Показатель</th>
                 <th scope="col" className="px-4 py-3 text-right" title="Число, посчитанное самой книгой на листе СВОД ТД-ПМ">Официально</th>
                 <th scope="col" className="px-4 py-3 text-right" title="Независимый пересчёт по строкам листов управлений">Пересчёт</th>
@@ -113,7 +114,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                 <th scope="col" className="px-4 py-3 text-center">Оценка</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+            <tbody className={RULE_DIVIDE}>
               {rows.map((row) => {
                 const cfg = METRIC_ASSESS_CONFIG[row.assessment];
                 const Icon = cfg.icon;
@@ -131,7 +132,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                       className={clsx(
                         'transition',
                         row.assessment === 'critical' && 'bg-red-50/30 dark:bg-red-950/20',
-                        row.assessment === 'warning' && 'bg-amber-50/20 dark:bg-amber-950/15',
+                        row.assessment === 'warning' && 'bg-amber-50/20 dark:bg-amber-950/20',
                         isExpanded ? 'bg-blue-50/30 dark:bg-blue-950/20' : 'hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
                       )}
                     >
@@ -197,7 +198,7 @@ export function ReconMetricTable({ rows, deltas, counts, expandedMetric, onToggl
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="bg-zinc-50/80 dark:bg-zinc-900/40">
+                      <tr className="bg-zinc-50/80 dark:bg-white/[0.05]">
                         <td colSpan={6} className="px-5 py-4" id={panelId}>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                             <div className="space-y-2">

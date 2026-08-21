@@ -79,7 +79,7 @@ export function HelpPanel({ open, onClose }: Props) {
         aria-modal="true"
         aria-labelledby="help-panel-title"
         onClick={event => event.stopPropagation()}
-        className="my-8 w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="my-8 w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-transparent dark:bg-zinc-900"
       >
         <div className="flex items-start gap-3 border-b border-zinc-100 px-6 py-5 dark:border-zinc-800">
           <BookOpen size={18} className="mt-0.5 flex-shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden="true" />

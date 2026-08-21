@@ -15,6 +15,7 @@
 import type { SupplierCustomerPair } from '../../lib/monitoring/analytics-contract';
 import { fmtCount, fmtRub, pluralCount } from '../../lib/monitoring/format';
 import { AnalyticsCard, CardEmpty } from './AnalyticsCard';
+import { RULE_ROW_TOP } from './surfaces';
 
 export interface SupplierPairsProps {
   pairs: SupplierCustomerPair[];
@@ -62,7 +63,7 @@ export function SupplierPairs({ pairs, periodLabel }: SupplierPairsProps) {
               {top.map((p) => (
                 <tr
                   key={`${p.supplierKey}|${p.customer}`}
-                  className="border-t border-zinc-100 dark:border-zinc-700/50 align-top"
+                  className={`${RULE_ROW_TOP} align-top`}
                 >
                   <td className="py-1 pr-2">
                     <span className="font-medium">{p.supplierName}</span>

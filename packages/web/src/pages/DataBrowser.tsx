@@ -1,19 +1,28 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BUDGET_SOURCE_META,
+  ECONOMY_FLAG_CANON,
+  YEARLONG_KIND_BY_ID,
   isInitiativeMarker,
   isOrgItself,
   isYearlongStageRow,
   productLabel,
+  resolveYearlongKind,
   subordinateKey,
   sumInitiativeRows,
+  type YearlongKindId,
 } from '@aemr/shared';
 import { YearlongBadge } from '../components/yearlong/YearlongBadge';
+import { useYearlongKinds } from '../components/yearlong/useYearlongKinds';
 import { useStore } from '../store';
 import { api, humanizeRequestError } from '../api';
-import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, XCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye, Keyboard, MapPin, ArrowUpToLine } from 'lucide-react';
+import { Table2, Download, ChevronLeft, ChevronRight, AlertCircle, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Edit3, Eye, Keyboard, MapPin, ArrowUpToLine } from 'lucide-react';
 import clsx from 'clsx';
 import { RowDetailCard } from '../components/RowDetailCard';
+import { RowStatusChip } from '../components/rows/RowStatusChip';
+import { SignalChip } from '../components/rows/SignalChip';
+import { PerimeterCaption } from '../components/FigureView';
+import { useRegistryPerimeter } from '../lib/rows/registry-perimeter';
 import { PeriodBadge } from '../components/PeriodBadge';
 import { PlanSemanticsNote, planSemanticsHoverText, usePlanSemantics } from '../components/PlanSemanticsNote';
 import {
@@ -46,7 +55,6 @@ import { pluralRu } from '../lib/economy-copy';
 import { formatPct } from '../lib/economy/format';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { subordinateLabel } from '../lib/subordinate-label';
-import { readingMoment } from '../lib/reading-moment';
 import {
   REGISTRY_SLICE_PRESETS,
   findSlicePreset,
@@ -62,13 +70,17 @@ import {
   countUncheckedByPeriod,
   describeRegistryCounts,
   describeUncheckedByPeriod,
+  featureSignals,
+  isStateSignal,
   requestFilterNames,
   rowHasPeriodDate,
   screenFilterNames,
   signalChipText,
   signalOccurrences,
   signalTone,
+  stateSignals,
 } from '../lib/rows/registry-view';
+import { CARD, CHECKBOX, CONTROL, CONTROL_EDGE, OVERLAY, RULE_DIVIDE, RULE_HEAD, RULE_SECTION, SURFACE } from '../components/monitoring/surfaces';
 
 type ViewMode = 'browse' | 'editor';
 
@@ -106,11 +118,40 @@ const SORT_PRESETS: { id: string; label: string; hint: string; key: SortKey; dir
   },
 ];
 
+/**
+ * Ключ доли «вид не размечен» в разрезе класса «в течение года». Не вид, а его
+ * отсутствие: собственного идентификатора у него в словаре нет и быть не
+ * должно, поэтому ключ заведён здесь и намеренно не похож на идентификаторы
+ * видов.
+ */
+const UNMARKED_YEARLONG_KIND = 'unmarked';
+
 /** Строк на один запрос к серверу — его же потолок (rows.ts: min(1000, limit)). */
 const ROWS_PER_REQUEST = 1000;
 
 /** Доступные размеры страницы; последний — «все строки» без листания. */
 const PAGE_SIZES = [25, 50, 100, 500, 1000000] as const;
+
+/**
+ * Два рода записей в выпадающем отборе признаков. Деление проходит по той же
+ * границе, по которой строится колонка замечаний (registry-view: находка
+ * проверки против состояния строки) — второго правила здесь не заводится,
+ * иначе список и колонка разошлись бы молча.
+ */
+const SIGNAL_GROUPS: readonly { id: string; title: string; hint: string; states: boolean }[] = [
+  {
+    id: 'findings',
+    title: 'Замечания проверок',
+    hint: 'Находки проверок: то, что в строке требует разбора или объяснения.',
+    states: false,
+  },
+  {
+    id: 'states',
+    title: 'Состояния строки',
+    hint: 'Не замечания, а положение дел по строке: подписан, есть факт, отмечена экономия. Отбирать по ним можно, но правки книги они не требуют.',
+    states: true,
+  },
+];
 
 /**
  * Столбцы реестра в режиме просмотра. Один дом для трёх нужд: отпечаток набора
@@ -173,33 +214,6 @@ const HOTKEYS: { keys: string; what: string }[] = [
  */
 function rowSubordinateKey(row: Record<string, unknown>): string {
   return subordinateKey(row.subordinate);
-}
-
-/**
- * Момент чтения книг у чисел выборки (канон п.58: у числа виден не только
- * период, но и момент, на который оно верно).
- *
- * Фразу собирает единственный дом продукта — `lib/reading-moment`: там же
- * закреплено правило «незнание момента — не свежесть», поэтому молчание
- * сервера здесь не превращается в бодрое «на сейчас». Своей формулировки в
- * странице нет намеренно: вторая копия подписи разошлась бы с первой молча.
- */
-function ReadMomentNote() {
-  const lastRefreshed = useStore((s) => s.lastRefreshed);
-  const moment = readingMoment({ readAt: lastRefreshed });
-  return (
-    <span
-      title={moment.phrase}
-      className={clsx(
-        'text-[10px]',
-        // Остывшие числа говорят об этом сами: до подсказки читатель может и
-        // не добраться.
-        moment.stale ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-500',
-      )}
-    >
-      {moment.label}
-    </span>
-  );
 }
 
 /** Имя управления для глаз: латинский идентификатор книги до экрана не доходит. */
@@ -368,6 +382,22 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // Фильтр «только инициативные заявки» (п.76б): строки, где примечание AF
   // ЦЕЛИКОМ равно маркеру словаря «хотелки» — структурное чтение, не парсинг.
   const [initiativeOnly, setInitiativeOnly] = useState(false);
+  /**
+   * Отбор по состоянию строки. Состояние было видно и сортировалось, а
+   * спросить «покажи только просроченные» было нечем: приходилось искать
+   * признак, из которого состояние выведено, — а это разные вещи (у строки
+   * признаков несколько, состояние одно, по лестнице приоритетов
+   * classifyRowState). Отбор экранный: строки уже загружены, и сервер о нём не
+   * спрашивается — иначе смена состояния перечитывала бы все книги.
+   */
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  /**
+   * Отбор по виду разметки внутри класса «в течение года». Живёт только на этой
+   * корзине: за её пределами вид не определён у большинства строк, и отбор
+   * молча опустошал бы экран. Значение — идентификатор вида либо ключ
+   * «вид не размечен».
+   */
+  const [yearlongKindFilter, setYearlongKindFilter] = useState<string | null>(null);
   // Пресет-срез: именованный отбор строк в один щелчок. Одновременно активен
   // ровно один — срезы отвечают на разные вопросы, а не складываются.
   // Список срезов живёт в lib/rows/slice-presets.
@@ -379,6 +409,18 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // строке книги (колонка C), делить готовые итоги ничем не приходится.
   // Здесь берётся только режим; сама разбивка собирается ниже, по выборке.
   const orgMode = useOrgScope();
+  /**
+   * Разметка видов «в течение года» — общий кэш приложения: Реестр, карточка
+   * строки и «Конкуренция» читают одну и ту же разметку, а не три копии.
+   */
+  const yearlongKinds = useYearlongKinds();
+  /**
+   * Паспорт периметра вкладки (канон п.58, механизм М1 атласа): год, период,
+   * органы, срез и момент чтения книг — собранные из тех же данных, по
+   * которым посчитаны числа. Дом сборки один на продукт (lib/perimeter);
+   * заявление Реестра о применимости осей — в lib/rows/registry-perimeter.
+   */
+  const perimeter = useRegistryPerimeter();
   /**
    * Фокус на одной организации управления — щелчок по строке разбивки.
    *
@@ -585,7 +627,12 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Смена фильтров возвращает на первую страницу
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, initiativeOnly, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
+  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
+
+  // Отбор по виду разметки живёт только на корзине «в течение года»: за её
+  // пределами вид у большинства строк не определён, и оставленный отбор
+  // опустошал бы экран без видимой причины.
+  useEffect(() => { if (bucket !== 'yearlong') setYearlongKindFilter(null); }, [bucket]);
 
   // Смена управления (или выход из режима «с подведомственными») снимает фокус
   // на организации: чужой ключ пережил бы переключение и молча оставил бы
@@ -685,6 +732,19 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
         return signalFilter.some(s => sigs.includes(s));
       });
     }
+    // Состояние строки: подпись, пришедшая в DTO, сравнивается целиком —
+    // своего разбора состояний экран не заводит.
+    if (statusFilter !== null) {
+      data = data.filter(r => String(r.status ?? '').trim() === statusFilter);
+    }
+    // Вид разметки «в течение года»: вид берётся тем же домом, что и разрез на
+    // плашке класса, — доля и состав отбора обязаны сходиться до строки.
+    if (yearlongKindFilter !== null) {
+      data = data.filter((r) => {
+        const kind = resolveYearlongKind(String(r.dept ?? ''), r.id, yearlongKinds.overrides);
+        return (kind ?? UNMARKED_YEARLONG_KIND) === yearlongKindFilter;
+      });
+    }
     // Инициативные заявки (п.76): примечание AF целиком равно маркеру словаря
     // «хотелки» — структурный код, не интерпретация свободного текста (п.27).
     if (initiativeOnly) {
@@ -693,8 +753,14 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     // Источники финансирования: строка проходит, если имеет план ИЛИ факт в выбранном
     data = filterRowsByBudgets(data, selectedBudgets);
     // «По числу дел» — производный ключ: замечаний у строки, а не колонка.
+    // Считаются только НАХОДКИ: до правки в счёт шли и благополучные признаки,
+    // и подписанная строка с фактом и отмеченной экономией собирала три «дела»
+    // и всплывала выше просроченной — порядок обещал разбор, а показывал
+    // благополучие.
     const sortValue = (r: Record<string, unknown>) =>
-      sortKey === 'signals' ? (Array.isArray(r.signals) ? r.signals.length : 0) : r[sortKey];
+      sortKey === 'signals'
+        ? featureSignals(Array.isArray(r.signals) ? (r.signals as string[]) : []).length
+        : r[sortKey];
     data.sort((a, b) => {
       const av = sortValue(a), bv = sortValue(b);
       if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
@@ -702,7 +768,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       return sortDir === 'asc' ? as.localeCompare(bs, 'ru') : bs.localeCompare(as, 'ru');
     });
     return data;
-  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, initiativeOnly, selectedBudgets, bucket, orgMode.mode, slicePreset]);
+  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, statusFilter, yearlongKindFilter, yearlongKinds.overrides, initiativeOnly, selectedBudgets, bucket, orgMode.mode, slicePreset]);
 
   /**
    * Итоговая выборка таблицы: та же, плюс фокус на одной организации, если он
@@ -850,7 +916,10 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       formatDateCell(cursorRow.planDate),
       formatDateCell(cursorRow.factDate),
       cursorRow.status ?? '',
-      (cursorRow.signals ?? []).map((s: string) => signalChipText(s).text).join(', '),
+      // В буфер уходит тот же столбец, что стоит на экране: только замечания.
+      // Благополучные признаки строки читаются из соседних значений — состояния,
+      // факта и экономии, — и второй раз словами не пересказываются.
+      featureSignals(cursorRow.signals).map((s: string) => signalChipText(s).text).join(', '),
     ]), 'Строка скопирована — суммы в тысячах рублей.');
   }, [cursorRow, report]);
 
@@ -966,6 +1035,31 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // «В т.ч. инициативные заявки» (п.76б): счёт по ЗАГРУЖЕННЫМ строкам — как
   // счётчики признаков рядом, чтобы подпись фильтра не зависела от него самого.
   const initiativeTotals = useMemo(() => sumInitiativeRows(rows), [rows]);
+  /**
+   * Какие состояния вообще встречаются в загруженных строках и сколько их.
+   * Список собирается по данным, а не по словарю: предлагать «Отменён», когда
+   * ни одной отменённой строки не загружено, значило бы обещать отбор, который
+   * вернёт пустой экран. Счёт — по загруженным строкам, как у признаков рядом,
+   * чтобы подпись не зависела от самого отбора.
+   */
+  const statusOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const label = String(r.status ?? '').trim();
+      if (label === '') continue;
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([label, found]) => ({ label, found }))
+      .sort((a, b) => b.found - a.found || a.label.localeCompare(b.label, 'ru'));
+  }, [rows]);
+  // Сохранённый отбор по состоянию не должен переживать смену загрузки, после
+  // которой такого состояния в строках нет: иначе таблица молча опустеет.
+  useEffect(() => {
+    if (statusFilter !== null && !statusOptions.some((o) => o.label === statusFilter)) {
+      setStatusFilter(null);
+    }
+  }, [statusOptions, statusFilter]);
   const unchecked = useMemo(() => countUncheckedByPeriod(filtered), [filtered]);
 
   const requestFilters = useMemo(() => requestFilterNames({
@@ -989,11 +1083,17 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       budgets: selectedBudgets.size,
       initiative: initiativeOnly,
     });
+    if (statusFilter !== null) names.push(`состояние «${statusFilter}»`);
+    if (yearlongKindFilter !== null) {
+      names.push(`вид разметки «${yearlongKindFilter === UNMARKED_YEARLONG_KIND
+        ? 'вид не размечен'
+        : YEARLONG_KIND_BY_ID.get(yearlongKindFilter as YearlongKindId)?.label ?? yearlongKindFilter}»`);
+    }
     if (orgMode.mode === 'grbs') names.push('только аппарат управления, без учреждений');
     if (slicePreset) names.push(`срез «${slicePreset.label}»`);
     if (subFocusLabel) names.push(`организация «${subFocusLabel}»`);
     return names;
-  }, [period, activeMonths.size, searchQuery, signalFilter.length, selectedBudgets.size, initiativeOnly, orgMode.mode, slicePreset, subFocusLabel]);
+  }, [period, activeMonths.size, searchQuery, signalFilter.length, selectedBudgets.size, initiativeOnly, statusFilter, yearlongKindFilter, orgMode.mode, slicePreset, subFocusLabel]);
 
   const counts = describeRegistryCounts({
     shown: paged.length,
@@ -1013,6 +1113,37 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // (канон п.102) — уходит и в подсказку показателя, и в сноску рядом с числом.
   const planSemantics = usePlanSemantics();
   const factTotal = useMemo(() => filtered.reduce((s: number, r: { factSum?: number }) => s + (r.factSum || 0), 0), [filtered]);
+  /**
+   * Экономия выборки — третье число сводки. Колонка экономии в таблице была, а
+   * итога по ней не было вовсе: читатель складывал столбец глазами.
+   *
+   * Складывается ровно то, что стоит в графах экономии книги (Z+AA+AB, уже
+   * сведённые в DTO), — своего вычитания «план минус факт» здесь нет: экономия
+   * в книге отмечается признаком AD, и подменять отметку арифметикой значило бы
+   * выдать за экономию любое недоосвоение. Поэтому рядом с суммой считаются
+   * два молчания: строки, где факт ниже плана, а отметка не проставлена, и
+   * строки, где экономия ушла в минус (факт превысил план). Оба числа — часть
+   * ответа, а не сноска: без них Σ читается как «вся экономия выборки».
+   *
+   * Первое молчание считается НЕ своим условием, а тем же признаком канона
+   * (@aemr/shared economy-flag), которым живёт срез «Экономия без отметки»:
+   * названное число обязано открываться теми же строками, иначе щелчок по нему
+   * приведёт в список другого размера.
+   */
+  const economySummary = useMemo(() => {
+    let total = 0;
+    let marked = 0;
+    let negative = 0;
+    let factWithoutMark = 0;
+    for (const r of filtered as Array<{ economy?: number; signals?: string[] }>) {
+      const value = typeof r.economy === 'number' ? r.economy : 0;
+      total += value;
+      if (value > 0) marked += 1;
+      else if (value < 0) negative += 1;
+      if ((r.signals ?? []).includes(ECONOMY_FLAG_CANON.signal)) factWithoutMark += 1;
+    }
+    return { total, marked, negative, factWithoutMark };
+  }, [filtered]);
 
   /**
    * Деньги каждой организации управления. Складываются те же поля строк, что
@@ -1036,7 +1167,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
   const downloadTable = useCallback(() => {
     if (filtered.length === 0) return;
-    const headers = ['№', 'Предмет закупки', 'Управление', 'Вид деятельности', 'Способ', 'План, тыс. ₽', 'Факт, тыс. ₽', 'Экономия, тыс. ₽', 'Дата плана', 'Дата факта', 'Статус', 'Признаки'];
+    const headers = ['№', 'Предмет закупки', 'Управление', 'Вид деятельности', 'Способ', 'План, тыс. ₽', 'Факт, тыс. ₽', 'Экономия, тыс. ₽', 'Дата плана', 'Дата факта', 'Статус', 'Замечания'];
     // Десятичная запятая, как в буфере обмена рядом: разделитель полей — «;»,
     // и точка в числе заставляла русский Excel читать «1234.5» текстом, а то и
     // резать его на две ячейки. Столбцы подписаны в тысячах рублей — масштаб
@@ -1055,7 +1186,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       formatDateCell(r.planDate),
       formatDateCell(r.factDate),
       r.status ?? '',
-      `"${(r.signals ?? []).map((s: string) => signalChipText(s).text).join(', ')}"`,
+      `"${featureSignals(r.signals).map((s: string) => signalChipText(s).text).join(', ')}"`,
     ].join(';'));
     const bom = '\uFEFF';
     const csv = bom + headers.join(';') + '\n' + csvRows.join('\n');
@@ -1118,17 +1249,78 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // счёт честный: «в классе всего» считается по загруженным строкам ДО
   // фильтров страницы, чтобы отличать «класс пуст» от «фильтры всё срезали».
   const bucketMeta = bucket ? BUCKET_META[bucket] : null;
-  const bucketClassTotal = useMemo(
-    () => (bucket ? rows.filter(BUCKET_META[bucket].predicate).length : 0),
-    [rows, bucket],
-  );
+  /**
+   * Счёт класса и его деньги — одним проходом и в ОДНОМ периметре: обе цифры
+   * считаются по загруженным строкам до фильтров экрана. Взять сумму класса с
+   * сервера (/api/registry/buckets её уже считает) было бы соблазнительно, но
+   * там она за весь год и по всем управлениям — рядом со счётом строк текущей
+   * загрузки получилась бы пара чисел из разных миров под одной подписью.
+   */
+  const bucketClass = useMemo(() => {
+    if (!bucket) return { rows: 0, planSum: 0 };
+    const list = rows.filter(BUCKET_META[bucket].predicate);
+    return {
+      rows: list.length,
+      planSum: list.reduce((sum, r) => sum + (typeof r.planSum === 'number' ? r.planSum : 0), 0),
+    };
+  }, [rows, bucket]);
+  const bucketClassTotal = bucketClass.rows;
+  /**
+   * Разрез класса «в течение года» по видам разметки (канон п.83).
+   *
+   * Класс собран одним предикатом, но внутри он неоднороден: серия мелких
+   * контрактов, выплаты физическим лицам и разовое дооснащение разбираются
+   * по-разному. Вид строки не вычисляется здесь заново — его отдаёт общий дом
+   * разметки (@aemr/shared resolveYearlongKind поверх оверрайдов владельца),
+   * тот же, которым подписан бейдж на строке и выпадающий список в карточке.
+   *
+   * Неразмеченное молчание названо вслух отдельной долей: «вид не размечен» —
+   * это работа владельца, а не ошибка, и прятать её в «прочее» нельзя.
+   */
+  const yearlongKindGroups = useMemo(() => {
+    if (bucket !== 'yearlong') return [];
+    const counts = new Map<string, number>();
+    for (const r of rows.filter(BUCKET_META.yearlong.predicate)) {
+      const kind = resolveYearlongKind(String(r.dept ?? ''), r.id, yearlongKinds.overrides);
+      const key = kind ?? UNMARKED_YEARLONG_KIND;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([id, found]) => ({
+        id,
+        found,
+        label: id === UNMARKED_YEARLONG_KIND
+          ? 'вид не размечен'
+          : YEARLONG_KIND_BY_ID.get(id as YearlongKindId)?.label ?? id,
+        hint: id === UNMARKED_YEARLONG_KIND
+          ? 'Ни стартовая разметка, ни выбор владельца этим строкам вид не назначили. Вид ставится в карточке строки.'
+          : YEARLONG_KIND_BY_ID.get(id as YearlongKindId)?.essence ?? '',
+      }))
+      // Неразмеченное — последним: это остаток, а не вид.
+      .sort((a, b) => {
+        if (a.id === UNMARKED_YEARLONG_KIND) return 1;
+        if (b.id === UNMARKED_YEARLONG_KIND) return -1;
+        return b.found - a.found || a.label.localeCompare(b.label, 'ru');
+      });
+  }, [rows, bucket, yearlongKinds.overrides]);
+  /**
+   * Сужен ли ЗАПРОС к серверу. Пока сужен, счётчик на кнопке навигации (весь
+   * год, все управления) и счёт класса на этой плашке законно разные — и
+   * читателю это говорится словами: молчащее расхождение двух чисел одного
+   * имени на одном экране читается как ошибка одного из них.
+   */
+  const requestNarrowed = selectedDepartments.size > 0
+    || selectedSubordinates.size > 0
+    || activityFilter !== 'all'
+    || procurementFilter !== 'all'
+    || typeof year === 'number';
 
   return (
     <div className="space-y-4">
       {bucketMeta && (
         <section
           aria-label={bucketMeta.title}
-          className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200/60 dark:border-zinc-800/60 p-4"
+          className={`bg-white dark:bg-zinc-900 rounded-2xl shadow-sm dark:shadow-none border border-zinc-200/70 dark:border-transparent p-4`}
         >
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
@@ -1147,7 +1339,9 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               </p>
             </div>
             {/* Подпись периметра (канон п.58): числа корзины подчиняются
-                фильтрам шапки — плашка периода здесь не лжёт. */}
+                фильтрам шапки — плашка периода здесь не лжёт. Рядом — момент
+                чтения книг: период без момента отвечает только на половину
+                вопроса «чему эти числа верны». */}
             <PeriodBadge />
           </div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 tabular-nums">
@@ -1163,7 +1357,16 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                   {bucketClassTotal} {pluralRu(bucketClassTotal, 'строка', 'строки', 'строк')}
                 </span>
               </KbHover>{' '}
-              из загруженных книг;
+              из загруженных книг{' '}
+              {/* Деньги класса — второй вопрос читателя после «сколько строк».
+                  Сумма плановых итогов (графа K) тех же строк, в том же
+                  периметре, теми же единицами, что и вся страница. */}
+              <span
+                className="font-medium text-zinc-700 dark:text-zinc-300"
+                title={`Сумма плановых итогов (графа K) строк класса — тех же ${bucketClassTotal}, что слева. Единица — как в шапке экрана.`}
+              >
+                на {formatMoney(bucketClass.planSum)} {moneyUnit} ₽
+              </span>;
               под текущий отбор {pluralRu(filtered.length, 'подходит', 'подходят', 'подходят')} {filtered.length}.</>
             ) : loadingRows ? (
               'Строки книг ещё загружаются…'
@@ -1171,6 +1374,58 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               bucketMeta.emptyReason
             )}
           </p>
+          {/* Паспорт периметра класса: за какой год и период посчитаны эти
+              строки, по каким управлениям и на какой момент прочитаны книги. */}
+          <PerimeterCaption perimeter={perimeter} />
+          {/* Расхождение с кнопкой навигации: два честных числа одного имени
+              в разных периметрах. Пока отбор шапки сужает запрос, разницу
+              объясняем прямо — иначе она читается как ошибка одного из них. */}
+          {requestNarrowed && !loadingRows && (
+            <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 leading-relaxed">
+              На кнопке навигации стоит другое число: там класс посчитан за весь год и по всем
+              управлениям на момент чтения книг, здесь — только по строкам, отобранным шапкой экрана.
+            </p>
+          )}
+          {/* Разрез класса по видам разметки: класс собран одним правилом, но
+              внутри он неоднороден, и разбирают эти строки по-разному. Каждая
+              доля — дверь: щелчок оставляет на экране только её строки. */}
+          {bucket === 'yearlong' && yearlongKindGroups.length > 0 && (
+            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">Виды разметки:</span>
+              {yearlongKindGroups.map((group) => {
+                const picked = yearlongKindFilter === group.id;
+                const unmarked = group.id === UNMARKED_YEARLONG_KIND;
+                return (
+                  <button
+                    key={group.id}
+                    type="button"
+                    aria-pressed={picked}
+                    title={`${group.hint}\n\n${picked
+                      ? 'Щелчок — вернуть на экран весь класс.'
+                      : 'Щелчок — оставить на экране только строки этого вида.'}`}
+                    onClick={() => setYearlongKindFilter(picked ? null : group.id)}
+                    className={clsx(
+                      // Обводки в тёмной теме не рисуются (канон п.129): выбор
+                      // отличается заливкой и насыщенностью, а не рамкой.
+                      'px-2 py-0.5 rounded text-[11px] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
+                      picked
+                        ? 'bg-blue-100 dark:bg-blue-500/25 text-blue-800 dark:text-blue-200 font-medium'
+                        : unmarked
+                          ? 'bg-amber-50 dark:bg-amber-400/15 text-amber-700 dark:text-amber-300 hover:brightness-95 dark:hover:brightness-125'
+                          : 'bg-zinc-100 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:brightness-95 dark:hover:brightness-125',
+                    )}
+                  >
+                    {group.label} <span className="tabular-nums opacity-70">{group.found}</span>
+                  </button>
+                );
+              })}
+              {yearlongKinds.error !== null && (
+                <span className="text-[11px] text-amber-600 dark:text-amber-400" title={yearlongKinds.error}>
+                  разметка владельца не прочиталась — показана стартовая
+                </span>
+              )}
+            </div>
+          )}
         </section>
       )}
       {/* Переключение режимов */}
@@ -1240,7 +1495,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 id="editor-rows-per-page"
                 value={pageSize}
                 onChange={e => { setPageSize(Number(e.target.value)); setPageNum(1); }}
-                className="px-3 py-1.5 text-xs border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800/60 text-zinc-800 dark:text-zinc-200"
+                className={`px-3 py-1.5 text-xs ${CONTROL} bg-white dark:bg-zinc-800/60 text-zinc-800 dark:text-zinc-200`}
               >
                 {PAGE_SIZES.map(size => (
                   <option key={size} value={size}>
@@ -1371,7 +1626,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             id="rows-per-page"
             value={pageSize}
             onChange={e => { setPageSize(Number(e.target.value)); setPageNum(1); }}
-            className="px-3 py-1.5 text-xs border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800/60 text-zinc-800 dark:text-zinc-200"
+            className={`px-3 py-1.5 text-xs ${CONTROL} bg-white dark:bg-zinc-800/60 text-zinc-800 dark:text-zinc-200`}
           >
             {PAGE_SIZES.map(size => (
               <option key={size} value={size}>
@@ -1422,7 +1677,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
                 signalFilter.length > 0
                   ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
-                  : 'text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
+                  : `text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 ${CONTROL_EDGE} hover:bg-zinc-50 dark:hover:bg-zinc-700/30`,
               )}
             >
               <Filter size={13} aria-hidden="true" />
@@ -1434,52 +1689,70 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               )}
             </button>
             {signalDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 z-50 w-72 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg py-1">
-                <p className="px-3 py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-700">
+              <div className={`absolute top-full left-0 mt-1 z-50 w-72 ${OVERLAY} py-1`}>
+                <p className={`px-3 py-1.5 text-[10px] text-zinc-500 dark:text-zinc-400 ${RULE_HEAD}`}>
                   {loadingRows
                     ? 'Книги ещё читаются — счёт по признакам появится после загрузки.'
                     : 'Рядом — сколько загруженных строк несёт признак. Признаки, которых в загруженных строках нет, выбрать нельзя.'}
                 </p>
                 <div className="max-h-64 overflow-y-auto">
-                  {ALL_SIGNAL_KEYS.map((key) => {
-                    const found = occurrences[key] ?? 0;
-                    const checked = signalFilter.includes(key);
-                    const unavailable = found === 0 && !checked;
-                    const chip = signalChipText(key);
-                    const tone = signalTone(key);
+                  {/* Два рода признаков названы по отдельности: находка проверки
+                      и состояние строки — разные вещи, и общий список выдавал
+                      «Подписан» за замечание. Отбирать можно и по состоянию —
+                      просто теперь читателю сказано, чем он отбирает. */}
+                  {SIGNAL_GROUPS.map((group) => {
+                    const keys = ALL_SIGNAL_KEYS.filter((key) => isStateSignal(key) === group.states);
+                    if (keys.length === 0) return null;
                     return (
-                      <label
-                        key={key}
-                        title={unavailable ? 'В загруженных строках такого признака нет' : chip.hint}
-                        className={clsx(
-                          'flex items-center gap-2 px-3 py-1.5 text-xs transition',
-                          unavailable
-                            ? 'opacity-45 cursor-not-allowed'
-                            : 'text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/40 cursor-pointer',
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={unavailable}
-                          onChange={() => {
-                            setSignalFilter(prev =>
-                              prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key]
-                            );
-                          }}
-                          className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', tone.bg, tone.text)}>
-                          {chip.text}
-                        </span>
-                        <span className="ml-auto tabular-nums text-[10px] text-zinc-400 dark:text-zinc-500">{found}</span>
-                      </label>
+                      <div key={group.id}>
+                        <p
+                          title={group.hint}
+                          className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500"
+                        >
+                          {group.title}
+                        </p>
+                        {keys.map((key) => {
+                          const found = occurrences[key] ?? 0;
+                          const checked = signalFilter.includes(key);
+                          const unavailable = found === 0 && !checked;
+                          const chip = signalChipText(key);
+                          const tone = signalTone(key);
+                          return (
+                            <label
+                              key={key}
+                              title={unavailable ? 'В загруженных строках такого признака нет' : chip.hint}
+                              className={clsx(
+                                'flex items-center gap-2 px-3 py-1.5 text-xs transition',
+                                unavailable
+                                  ? 'opacity-45 cursor-not-allowed'
+                                  : 'text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/40 cursor-pointer',
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={unavailable}
+                                onChange={() => {
+                                  setSignalFilter(prev =>
+                                    prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key]
+                                  );
+                                }}
+                                className={`${CHECKBOX} text-blue-600 focus:ring-blue-500`}
+                              />
+                              <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', tone.bg, tone.text)}>
+                                {chip.text}
+                              </span>
+                              <span className="ml-auto tabular-nums text-[10px] text-zinc-400 dark:text-zinc-500">{found}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     );
                   })}
                 </div>
                 {/* Инициативные заявки (п.76б): отдельная секция — это стадия
                     по маркеру словаря, а не признак-сигнал движка. */}
-                <div className="border-t border-zinc-100 dark:border-zinc-700 mt-1 pt-1">
+                <div className={`${RULE_SECTION} mt-1 pt-1`}>
                   <label
                     title={initiativeTotals.rows === 0 && !initiativeOnly
                       ? 'В загруженных строках нет ни одной ячейки примечания, целиком равной маркеру «хотелки»'
@@ -1496,7 +1769,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                       checked={initiativeOnly}
                       disabled={initiativeTotals.rows === 0 && !initiativeOnly}
                       onChange={() => setInitiativeOnly(v => !v)}
-                      className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                      className={`${CHECKBOX} text-blue-600 focus:ring-blue-500`}
                     />
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400">
                       инициативные заявки
@@ -1514,7 +1787,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                   )}
                 </div>
                 {(signalFilter.length > 0 || initiativeOnly) && (
-                  <div className="border-t border-zinc-100 dark:border-zinc-700 mt-1 pt-1 px-3 pb-1">
+                  <div className={`${RULE_SECTION} mt-1 pt-1 px-3 pb-1`}>
                     <button
                       type="button"
                       onClick={() => { setSignalFilter([]); setInitiativeOnly(false); setSignalDropdownOpen(false); }}
@@ -1529,6 +1802,33 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
           </div>
         </div>
 
+        {/* Отбор по состоянию строки (работа 6.14 плана переплавки). Список
+            состояний собран по загруженным строкам: недостижимого варианта в
+            нём нет, а если состояний не встретилось вовсе — контрол честно
+            говорит об этом вместо пустого списка. */}
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="registry-status-filter" className="text-xs text-zinc-500 dark:text-zinc-400">
+            Состояние
+          </label>
+          <select
+            id="registry-status-filter"
+            value={statusFilter ?? ''}
+            disabled={statusOptions.length === 0}
+            title={statusOptions.length === 0
+              ? (loadingRows
+                ? 'Книги ещё читаются — состояния появятся после загрузки'
+                : 'Ни у одной загруженной строки состояние не рассчитано: отбирать не по чему')
+              : 'Состояние строки — одно на строку, по лестнице приоритетов расчёта. Рядом с каждым вариантом — сколько таких строк среди загруженных.'}
+            onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
+            className={`px-2 py-1.5 text-xs text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800/60 ${CONTROL} disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500`}
+          >
+            <option value="">любое</option>
+            {statusOptions.map((o) => (
+              <option key={o.label} value={o.label}>{o.label} ({o.found})</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1537,7 +1837,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             title={cursorRow
               ? 'Скопировать адрес строки — лист управления и номер строки в книге'
               : 'Сначала выберите строку — щелчком или стрелками'}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 ${CONTROL} hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500`}
           >
             <MapPin size={13} aria-hidden="true" /> Скопировать адрес строки
           </button>
@@ -1552,7 +1852,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500',
               hotkeysOpen
                 ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
-                : 'text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
+                : `text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 ${CONTROL_EDGE} hover:bg-zinc-50 dark:hover:bg-zinc-700/30`,
             )}
           >
             <Keyboard size={13} aria-hidden="true" /> Клавиши
@@ -1563,7 +1863,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             onClick={downloadTable}
             disabled={filtered.length === 0}
             title="Файл в формате CSV с текущей выборкой — открывается в Excel и Р7-Офис"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800/60 ${CONTROL} hover:bg-zinc-50 dark:hover:bg-zinc-700/30 disabled:opacity-40 disabled:cursor-not-allowed transition`}
           >
             <Download size={13} aria-hidden="true" /> Выгрузить таблицу
           </button>
@@ -1597,7 +1897,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
       {/* Сводка по выборке — утверждение, затем деньги */}
       {!loadingRows && filtered.length > 0 && (
-        <div className="flex items-center gap-4 px-4 py-2.5 bg-white dark:bg-zinc-800/60 rounded-lg border border-zinc-200/60 dark:border-zinc-700/50 text-xs flex-wrap">
+        <div className={`flex items-center gap-4 px-4 py-2.5 ${SURFACE} rounded-lg text-xs flex-wrap`}>
           <span className={clsx(
             'font-medium',
             severity.critical > 0
@@ -1635,6 +1935,45 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               <span className="font-medium text-zinc-700 dark:text-zinc-300 tabular-nums">{formatMoney(factTotal)}</span>
             </KbHover>
           </span>
+          <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
+          {/* Экономия выборки — то, что отмечено в книге признаком экономии, а
+              не разница плана и факта. Молчание граф названо рядом числом, а не
+              оставлено читателю на догадки. */}
+          <span className="text-zinc-500 dark:text-zinc-400">
+            Экономия:{' '}
+            <KbHover
+              metricKey="economy_total"
+              live={`${formatMoney(economySummary.total)} — сумма граф экономии (Z+AA+AB) по строкам текущей выборки (их ${filtered.length}).`
+                + `\nЭто отмеченная в книге экономия, а не разница плана и факта: без признака экономии (графа AD) строка сюда не идёт.`
+                + `\nОтмечена у ${economySummary.marked} ${pluralRu(economySummary.marked, 'строки', 'строк', 'строк')}.`
+                + (economySummary.factWithoutMark > 0
+                  ? `\nЕщё у ${economySummary.factWithoutMark} ${pluralRu(economySummary.factWithoutMark, 'строки', 'строк', 'строк')} факт ниже плана, а отметка не проставлена — в сумму они не входят.`
+                  : '')
+                + (economySummary.negative > 0
+                  ? `\nУ ${economySummary.negative} ${pluralRu(economySummary.negative, 'строки', 'строк', 'строк')} экономия отрицательная (факт превысил план) — сумму она снижает.`
+                  : '')}
+            >
+              <span className="font-medium text-zinc-700 dark:text-zinc-300 tabular-nums">{formatMoney(economySummary.total)}</span>
+            </KbHover>
+            {economySummary.factWithoutMark > 0 && (
+              // Названное — достижимо: число открывает тот самый срез, которым
+              // и посчитано. Уже открытый срез второй раз не предлагается.
+              slicePresetId === ECONOMY_FLAG_CANON.signal ? (
+                <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
+                  без отметки: {economySummary.factWithoutMark}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setSlicePresetId(ECONOMY_FLAG_CANON.signal)}
+                  title="У этих строк факт ниже плана, а отметка экономии (графа AD) не проставлена: в сумме слева их нет. Щелчок — оставить на экране только эти строки."
+                  className="ml-1 text-[10px] text-amber-600 dark:text-amber-400 underline underline-offset-2 hover:text-amber-700 dark:hover:text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded"
+                >
+                  без отметки: {economySummary.factWithoutMark}
+                </button>
+              )
+            )}
+          </span>
           {severity.critical > 0 && severity.warning > 0 && (
             <>
               <span className="w-px h-4 bg-zinc-200 dark:bg-zinc-700" />
@@ -1662,9 +2001,14 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 фильтрам периода из шапки — плашка честная. Рядом момент, на
                 который эти числа верны: книги живут, и без него читатель не
                 отличит «сегодня так» от «так было во вторник». */}
-            <ReadMomentNote />
             <PeriodBadge />
           </span>
+          {/* Паспорт периметра выборки на отдельной строке: пять осей длиннее
+              бейджа и в один ряд с числами не помещаются. Момент чтения книг —
+              его часть, поэтому отдельной подписи о моменте здесь больше нет. */}
+          <div className="w-full">
+            <PerimeterCaption perimeter={perimeter} />
+          </div>
         </div>
       )}
 
@@ -1677,7 +2021,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       {!loadingRows && orgMode.mode !== 'district' && (
         <section
           aria-label="Организации управления"
-          className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-200/60 dark:border-zinc-700/50 p-4 space-y-2"
+          className={`${CARD} shadow-sm dark:shadow-none p-4 space-y-2`}
         >
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
@@ -1700,6 +2044,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 выборке, что и таблица, — период у неё общий с шапкой. */}
             <PeriodBadge />
           </div>
+          <PerimeterCaption perimeter={perimeter} className="mt-0" />
 
           {orgMode.mode === 'grbs' ? (
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
@@ -1728,7 +2073,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                       <th scope="col" className="py-1.5 pl-2 font-medium text-right">Экономия, {moneyUnit} ₽</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+                  <tbody className={RULE_DIVIDE}>
                     {orgGroups.map((group) => {
                       const focused = subFocus === group.key;
                       return (
@@ -1769,8 +2114,32 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                               <td className="py-1.5 px-2 text-right tabular-nums text-zinc-500 dark:text-zinc-400">{group.rows}</td>
                               <td className="py-1.5 px-2 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{formatMoney(group.plan)}</td>
                               <td className="py-1.5 px-2 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{formatMoney(group.fact)}</td>
-                              <td className="py-1.5 pl-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">
-                                {group.economy > 0 ? formatMoney(group.economy) : <span className="text-zinc-400 dark:text-zinc-500">нет</span>}
+                              {/* Отрицательная экономия не прячется за словом
+                                  «нет»: минус означает, что факт организации
+                                  превысил план, и это ровно тот случай, ради
+                                  которого разбивку и открывают. Таблица строк
+                                  рядом показывает его красным — здесь так же. */}
+                              <td className={clsx(
+                                'py-1.5 pl-2 text-right tabular-nums',
+                                group.economy < 0
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-emerald-700 dark:text-emerald-400',
+                              )}>
+                                {group.economy !== 0 ? (
+                                  <span title={group.economy < 0
+                                    ? 'Экономия отрицательная: сумма фактов организации превысила сумму планов. Смотрите строки организации — либо план занижен правкой задним числом, либо в факт попала не та сумма.'
+                                    : 'Сумма граф экономии (Z+AA+AB) по строкам этой организации в текущей выборке'}
+                                  >
+                                    {formatMoney(group.economy)}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="text-zinc-400 dark:text-zinc-500"
+                                    title="Ни у одной строки этой организации экономия не отмечена: графы экономии пусты или не проставлен признак экономии (графа AD)"
+                                  >
+                                    нет
+                                  </span>
+                                )}
                               </td>
                             </>
                           )}
@@ -1803,7 +2172,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       )}
 
       {/* Таблица */}
-      <div className="relative bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+      <div className={`relative ${CARD} shadow-sm dark:shadow-none overflow-hidden`}>
         {/* Прокрутка живёт здесь: прилипшая шапка держится только за собственную
             прокручиваемую область, а не за прокрутку страницы. */}
         <div ref={scrollRef} className={TABLE_SCROLL_AREA}>
@@ -1833,6 +2202,13 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                     'text-right',
                   ],
                   ['status', 'Статус', 'px-3 py-3 w-28', ''],
+                  // Столбец замечаний сортируется наравне с остальными: пресет
+                  // «По числу дел» сортирует ровно по нему, а стрелка состояния
+                  // на столбце не появлялась — порядок был, а признака порядка
+                  // не было. Имя столбца — «Замечания»: благополучные признаки
+                  // строки переехали в свои столбцы, и «Признаки строки»
+                  // обещало здесь больше, чем столбец теперь показывает.
+                  ['signals', 'Замечания', 'px-3 py-3', ''],
                 ] as [SortKey, string, string, string][]).map(([key, label, cls, align], colIdx) => (
                   <th
                     key={key}
@@ -1861,12 +2237,9 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                     </button>
                   </th>
                 ))}
-                <th scope="col" className="px-3 py-3 sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-900">
-                  Признаки строки
-                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+            <tbody className={RULE_DIVIDE}>
               {!loadingRows && paged.map((row, i) => {
                 const noDate = !rowHasPeriodDate(row);
                 const noYear = !row.planYear;
@@ -1886,6 +2259,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 const economyShare = slicePreset?.economyByNumbers === true && row.planSum > 0
                   ? (row.economy / row.planSum) * 100
                   : null;
+                // Признаки строки делятся надвое: находки проверок идут в
+                // колонку замечаний, благополучные состояния — в подсказку её
+                // пустоты. Правило деления одно на продукт (registry-view).
+                const rowFeatures = featureSignals(row.signals);
+                const rowStates = stateSignals(row.signals);
                 return (
                 <tr
                   key={`${row.dept}-${row.rowIndex ?? row.id}-${i}`}
@@ -2041,25 +2419,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                     )}
                   </td>
                   <td className="px-3 py-3">
+                    {/* Тон, значок и объяснение — из общего дома состояний
+                        (lib/rows/row-status): карточка строки рисует состояние
+                        тем же компонентом, разъехаться формам негде. */}
                     {row.status ? (
-                      <span className={clsx(
-                        'inline-flex items-center gap-1 text-xs font-medium',
-                        row.status === 'Подписан' && 'text-emerald-600 dark:text-emerald-400',
-                        row.status === 'Отменён' && 'text-zinc-400 dark:text-zinc-500',
-                        row.status === 'Планирование' && 'text-blue-600 dark:text-blue-400',
-                        row.status === 'Исполнение' && 'text-amber-600 dark:text-amber-400',
-                        row.status === 'Просрочен' && 'text-red-600 dark:text-red-400',
-                        row.status === 'Скоро срок' && 'text-yellow-600 dark:text-yellow-400',
-                        row.status === 'Ошибка' && 'text-red-600 dark:text-red-400',
-                        row.status === 'Открыт' && 'text-zinc-500 dark:text-zinc-400',
-                      )}>
-                        {row.status === 'Подписан' && <CheckCircle2 size={13} aria-hidden="true" />}
-                        {row.status === 'Отменён' && <XCircle size={13} aria-hidden="true" />}
-                        {row.status === 'Планирование' && <Clock size={13} aria-hidden="true" />}
-                        {row.status === 'Просрочен' && <AlertCircle size={13} aria-hidden="true" />}
-                        {row.status === 'Ошибка' && <AlertCircle size={13} aria-hidden="true" />}
-                        {row.status}
-                      </span>
+                      <RowStatusChip status={row.status} />
                     ) : (
                       <span className="text-xs text-zinc-400 dark:text-zinc-500" title="Состояние не рассчитано: в строке нет ни сроков, ни сумм">
                         не рассчитан
@@ -2067,25 +2431,34 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                     )}
                   </td>
                   <td className="px-3 py-3">
+                    {/* В колонке замечаний стоят только НАХОДКИ. Благополучные
+                        признаки («Подписан», «Есть факт», «Экономия») — это
+                        состояние строки, а не замечание к ней: до правки они
+                        стояли здесь же, и колонка выглядела заполненной у 2 461
+                        строки, к которым у проверок нет ни одного вопроса. Свои
+                        колонки у них рядом: состояние, факт, экономия. */}
                     <div className="flex flex-wrap gap-1">
-                      {(row.signals ?? []).length === 0 && (
-                        <span className="text-[10px] text-zinc-400 dark:text-zinc-500" title="Проверки к этой строке замечаний не нашли">
+                      {rowFeatures.length === 0 && (
+                        <span
+                          className="text-[10px] text-zinc-400 dark:text-zinc-500"
+                          title={rowStates.length === 0
+                            ? 'Проверки к этой строке замечаний не нашли'
+                            : `Проверки к этой строке замечаний не нашли. Благополучные признаки строки (${rowStates.map((s: string) => signalChipText(s).text).join(', ')}) стоят в своих колонках — состояние, факт, экономия.`}
+                        >
                           замечаний нет
                         </span>
                       )}
-                      {(row.signals ?? []).map((sig: string) => {
-                        const chip = signalChipText(sig);
-                        const tone = signalTone(sig);
-                        return (
-                          <span
-                            key={sig}
-                            title={chip.hint}
-                            className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', tone.bg, tone.text)}
-                          >
-                            {chip.text}
-                          </span>
-                        );
-                      })}
+                      {rowFeatures.map((sig: string) => (
+                        <SignalChip
+                          key={sig}
+                          signal={sig}
+                          row={row}
+                          picked={signalFilter.includes(sig)}
+                          onToggle={(key) => setSignalFilter((prev) =>
+                            prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key],
+                          )}
+                        />
+                      ))}
                     </div>
                   </td>
                 </tr>
@@ -2178,7 +2551,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
           <button
             type="button"
             onClick={scrollToTop}
-            className="absolute bottom-3 right-4 z-40 flex items-center justify-center w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+            className={`absolute bottom-3 right-4 z-40 flex items-center justify-center w-9 h-9 rounded-full bg-white dark:bg-zinc-800 ${CONTROL_EDGE} text-zinc-600 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500`}
             title="В начало реестра"
             aria-label="Прокрутить реестр в начало"
           >
@@ -2202,7 +2575,24 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               исчезающая строка меняла бы высоту страницы, а та — сам счёт. */}
           <div className="text-zinc-400 dark:text-zinc-500 tabular-nums min-h-4">{rowsBelowNote}</div>
           {uncheckedNote && (
-            <div className="text-amber-600 dark:text-amber-400">{uncheckedNote}</div>
+            <div className="text-amber-600 dark:text-amber-400">
+              {uncheckedNote}
+              {/* Названное — достижимо. Оговорка считала строки без даты и
+                  оставляла читателя искать их глазами по бейджам; теперь она
+                  ведёт в срез, собранный тем же правилом, которым и посчитана. */}
+              {unchecked.noDate > 0 && slicePresetId !== 'no_period_date' && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    onClick={() => setSlicePresetId('no_period_date')}
+                    className="underline underline-offset-2 hover:text-amber-700 dark:hover:text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded"
+                  >
+                    показать эти строки
+                  </button>
+                </>
+              )}
+            </div>
           )}
           <div aria-live="polite" className={clsx(copyNote === COPY_REFUSED_NOTE && 'text-amber-600 dark:text-amber-400')}>
             {copyNote}

@@ -20,6 +20,7 @@ import { useFilteredData } from '../../hooks/useFilteredData';
 import { EmptyState } from '../EmptyState';
 import { pluralRu } from '../../lib/economy-copy';
 import { fmtThousands } from '../../lib/report/mappers';
+import { buildDrill, type DrillFilters } from '../../lib/drill';
 import type { OrgScope } from '../../lib/selectors/org-scope';
 import { GROUP3_KB_ADDITIONS } from '../../pages/kb-additions';
 import {
@@ -55,6 +56,48 @@ function parseQuarter(raw: unknown): number | null {
   return m ? Number(m[0]) : null;
 }
 
+/**
+ * Строка расчёта — дверь в свои основания (канон п.119: по каждому числу видно,
+ * какая строка за ним стоит). Прежде строки раскрытия не кликались вовсе:
+ * читатель видел предмет закупки и не мог дойти до самой закупки.
+ *
+ * Цель перехода собирает `buildDrill` (механизм М14), а не это место клика:
+ * иначе каждая кнопка помнила бы про свою ось и роняла остальные. Подсказка
+ * приходит оттуда же — она честно называет и то, что откроется, и то, чего в
+ * цели не будет.
+ */
+function RowLink({ point, onNavigate }: {
+  point: ScatterPoint;
+  onNavigate: (page: 'data', filters: DrillFilters) => void;
+}) {
+  const quarter = parseQuarter(point.quarter);
+  const target = buildDrill(
+    {
+      dept: point.department,
+      ...(quarter !== null ? { quarter } : {}),
+      method: 'КП',
+      search: point.subject,
+    },
+    'data',
+  );
+  const hint = target.warning === ''
+    ? `${target.summary}. ${point.subject}`
+    : `${target.summary}. ${target.warning}`;
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate('data', target.filters)}
+      title={hint}
+      className={clsx(
+        'text-left line-clamp-2 hover:text-blue-600 dark:hover:text-blue-400 hover:underline rounded-sm',
+        FOCUS_RING,
+      )}
+    >
+      {point.subject}
+    </button>
+  );
+}
+
 export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
   /** Плановый объём ЕП за периметр шапки, тыс. ₽ (счёт — sumEpKp). */
   epPlan: number;
@@ -64,6 +107,7 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
 }) {
   const formatMoney = useStore((s) => s.formatMoney);
   const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const selectedSubordinates = useStore((s) => s.selectedSubordinates);
   const navigateTo = useStore((s) => s.navigateTo);
   const fd = useFilteredData();
 
@@ -162,6 +206,15 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
       'Выбор месяцев сужает торги только до кварталов: точнее квартала строка торгов к месяцу не привязана.',
     );
   }
+  // Периметры двух множителей разошлись (канон п.58б): объём ЕП сужен отбором
+  // учреждений (fd.depts), а облако торгов — нет: запрос /api/rows/scatter
+  // принимает только адрес управления, колонки учреждения у строки торгов нет.
+  // Молчаливое произведение двух разных периметров и есть запрещённый случай.
+  if (selectedSubordinates.size > 0) {
+    caveats.push(
+      'Отбор учреждений сужает плановый объём ЕП, но не статистику торгов: строка торгов приходит с адресом управления — среднее снижение посчитано по управлению целиком.',
+    );
+  }
 
   const detailId = 'cost-of-refusal-rows';
 
@@ -190,11 +243,31 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
           action={{ label: 'Повторить запрос', onClick: retry }}
         />
       ) : rows.length === 0 ? (
-        <EmptyState
-          size="compact"
-          title="Состоявшихся конкурентных торгов за периметр нет"
-          description="В выбранный период и отбор управлений не попало ни одного заключённого контракта по конкурентной процедуре — среднее снижение считать не из чего. Расширьте период до года или снимите отбор управлений в шапке."
-        />
+        // Пустота трёх родов, а не одна на все случаи (канон п.53): «книги не
+        // прочитаны» лечится обновлением, «отфильтровано в ноль» — снятием
+        // фильтра, «торгов нет» не лечится ничем и требует другого разговора.
+        // Прежде все три случая говорили одну фразу про фильтры, и читатель
+        // непрочитанных книг снимал фильтры впустую.
+        (resp?.points.length ?? 0) === 0 && (resp?.unreadDepartments.length ?? 0) > 0 ? (
+          <EmptyState
+            tone="problem"
+            size="compact"
+            title="Книги, по которым считается снижение, не прочитаны"
+            description={`Строк торгов нет ни одной, а книги не прочитаны у: ${resp?.unreadDepartments.map((u) => u.department).join(', ')}. Запустите обновление на странице «Система» — до этого среднее снижение считать не из чего.`}
+          />
+        ) : (resp?.points.length ?? 0) > 0 ? (
+          <EmptyState
+            size="compact"
+            title="За выбранный период состоявшихся торгов нет"
+            description={`Заключённые контракты по конкурентным процедурам в книгах есть (${resp?.points.length}), но ни один не попал в выбранный период. Расширьте период до года в шапке — числа вернутся.`}
+          />
+        ) : (
+          <EmptyState
+            size="compact"
+            title="Состоявшихся конкурентных торгов нет"
+            description="В книгах выбранных управлений нет ни одного заключённого контракта по конкурентной процедуре — считать среднее снижение не из чего. Снимите отбор управлений в шапке, чтобы посмотреть по району целиком."
+          />
+        )
       ) : (
         <>
           {/* Три числа расчёта: множители и произведение. Цвет — только у данных. */}
@@ -296,7 +369,12 @@ export function CostOfRefusal({ epPlan, epHasData, orgScope }: {
                     <tr key={i} className={clsx(RULE_ROW, 'align-top')}>
                       <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-600 dark:text-zinc-300">{p.department}</td>
                       <td className="py-1.5 pr-3 text-zinc-700 dark:text-zinc-200 max-w-[380px]">
-                        <span className="line-clamp-2" title={p.subject}>{p.subject}</span>
+                        {/* Из числа — в строки-основания (канон п.119). Цель
+                            собирает `buildDrill` (М14): управление, квартал
+                            строки, способ и предмет едут вместе, а ось, которую
+                            Реестр принять не умеет, названа в подсказке, а не
+                            потеряна молча. */}
+                        <RowLink point={p} onNavigate={navigateTo} />
                       </td>
                       <td className="py-1.5 pr-3 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
                         {fmtThousands(p.planTotal)}

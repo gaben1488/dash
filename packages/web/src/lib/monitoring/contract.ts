@@ -39,6 +39,14 @@ export interface MonitoringSource {
   sheetsRead: string[];
   /** Лист → русская причина отказа. Пусто — прочитано всё. */
   sheetsFailed: Record<string, string>;
+  /**
+   * Сколько листов книги продукт читает ДАННЫМИ — знаменатель полноты чтения,
+   * названный сервером. Считать его на экране значило бы завести второй ответ
+   * на вопрос «сколько всего листов», и он однажды разошёлся бы с первым:
+   * состав `MONITORING_DATA_SHEETS` живёт в ядре и меняется там.
+   * `null` — сервер знаменателя не назвал (старый ответ).
+   */
+  sheetsExpected: number | null;
 }
 
 // ── Строка реестра ───────────────────────────────────────────────────
@@ -302,58 +310,18 @@ export interface MonitoringSignal {
 }
 
 // ── Сверка с книгами ГРБС ────────────────────────────────────────────
-
-export type MatchOutcomeKind =
-  | 'matched'
-  | 'code-in-book-not-in-monitoring'
-  | 'monitoring-without-book-row'
-  | 'ambiguous-multi-book'
-  | 'ambiguous-same-book'
-  | 'listCell'
-  | string;
-
-export interface MatchOutcomeGroup {
-  kind: MatchOutcomeKind;
-  count: number;
-  addresses: string[];
-}
-
-/** Сверка одной процедуры со строкой книги ГРБС — три сравнения. */
-export interface MatchRow {
-  code: string;
-  kind: MatchOutcomeKind;
-  /** Книга ГРБС и её строка — адрес встречной стороны. */
-  bookDept: string | null;
-  bookRow: number | null;
-  /** План книги (колонка K × 1000), руб. */
-  planRub: number | null;
-  /** Факт книги (колонка Y × 1000), руб. */
-  factRub: number | null;
-  /** Дата заключения договора книги. */
-  contractDate: string | null;
-  /** Вердикт по каждой из трёх сверок — короткая фраза для читателя. */
-  verdicts: string[];
-}
-
-/** Расхождение «лист управления ↔ 25-26» внутри самой книги. */
-export interface InternalDiffRow {
-  code: string;
-  /** Что расходится: «НМЦК», «цена», «даты». */
-  field: string;
-  sheetSide: number | null;
-  journalSide: number | null;
-  note: string | null;
-}
-
-export interface MatchPayload {
-  readAt: string;
-  /** Доля строк, нашедших пару, %. null — покрытие не измерялось. */
-  coveragePct: number | null;
-  outcomes: MatchOutcomeGroup[];
-  rows: MatchRow[];
-  internalDiff: InternalDiffRow[];
-  notes: string[];
-}
+//
+// ЗДЕСЬ ЕЁ БОЛЬШЕ НЕТ, И ЭТО НЕ ПОТЕРЯ. Роут `/api/monitoring/match` отдаёт
+// форму `{summary, matched, bookOnly, monitoringOnly, ambiguous, listCells,
+// internal}`; читалка, стоявшая на этом месте, ждала выдуманной формы
+// `{coveragePct, outcomes, rows, internalDiff}` — ни одного поля из живого
+// ответа. Она молча возвращала `null` на КАЖДОМ ответе, и полоса «Сверка со
+// строкой книги управления» в карточке каждой процедуры писала «сверка не
+// подключена» при работающем сервере. Второй дом одного сигнала (п.132) —
+// не запасной, а расходящийся: он врал ровно потому, что был второй.
+//
+// Живой ответ читает `analytics-contract.ts` (`normalizeMatchView`), а
+// указатель «код процедуры → встречная сторона» строит `match-rows.ts`.
 
 // ── Целый ответ ──────────────────────────────────────────────────────
 
@@ -367,6 +335,12 @@ export interface MonitoringPayload {
   journal: JournalPayload | null;
   directory: DirectoryPayload | null;
   signals: MonitoringSignal[] | null;
+  /**
+   * Скрытые листы-предки, названные сервером. `null` — сервер их не назвал, и
+   * экран берёт запасной список; но берёт ОСОЗНАННО, а не молча считая копию
+   * на клиенте истиной.
+   */
+  ancestors: AncestorsPayload | null;
   notes: string[];
 }
 
@@ -726,7 +700,10 @@ function readJournal(raw: unknown): JournalPayload | null {
       outsideFilter: bool(j.outsideFilter),
     };
   });
-  if (rows.length === 0) return null;
+  // Прочитанный, но пустой лист — НЕ «сервер лист не отдаёт» (п.36, три рода
+  // пустоты). Схлопывая ноль строк в null, маппер отправлял читателя чинить
+  // трубу чтения там, где чинить нечего: лист прочитан, и это ответ. Пустой
+  // раздел доезжает до экрана как есть, а словами о нём говорит вкладка.
   const lineage = arr(r.lineage).map((x): LineageChain => {
     const l = rec(x);
     return { codes: strList(l.codes), notes: strList(l.notes) };
@@ -752,7 +729,10 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
         usedInBook: num(d.usageCount),
       };
     });
-    if (entries.length === 0) return null;
+  // Прочитанный, но пустой лист — НЕ «сервер лист не отдаёт» (п.36, три рода
+  // пустоты). Схлопывая ноль строк в null, маппер отправлял читателя чинить
+  // трубу чтения там, где чинить нечего: лист прочитан, и это ответ. Пустой
+  // раздел доезжает до экрана как есть, а словами о нём говорит вкладка.
     const outside = arr(r.customersOutside).map((x) => {
       const u = rec(x);
       return { name: text(u.name), count: count(u.count) };
@@ -776,7 +756,10 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
       usedInBook: num(d.usedInBook),
     };
   });
-  if (rows.length === 0) return null;
+  // Прочитанный, но пустой лист — НЕ «сервер лист не отдаёт» (п.36, три рода
+  // пустоты). Схлопывая ноль строк в null, маппер отправлял читателя чинить
+  // трубу чтения там, где чинить нечего: лист прочитан, и это ответ. Пустой
+  // раздел доезжает до экрана как есть, а словами о нём говорит вкладка.
   const unmatched = arr(r.unmatchedCustomers).map((x) => {
     const u = rec(x);
     return { name: text(u.name), count: count(u.count) };
@@ -834,6 +817,7 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
       moneyUnit: str(src.moneyUnit) ?? 'руб',
       sheetsRead: strList(src.sheetsRead),
       sheetsFailed: recordOfStrings(src.sheetsFailed),
+      sheetsExpected: num(src.sheetsExpected),
     },
     procedures: arr(r.procedures).map(readProcedure),
     aggregates: readAggregates(r.aggregates),
@@ -851,48 +835,7 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
     journal: readJournal(r.journal),
     directory: readDirectory(r.directory),
     signals: readSignals(r.signals),
-    notes: strList(r.notes),
-  };
-}
-
-export function normalizeMatch(raw: unknown): MatchPayload | null {
-  if (raw === null || raw === undefined) return null;
-  const r = rec(raw);
-  const outcomes = arr(r.outcomes).map((x): MatchOutcomeGroup => {
-    const o = rec(x);
-    const addresses = strList(o.addresses);
-    return { kind: text(o.kind), count: num(o.count) ?? addresses.length, addresses };
-  }).filter((o) => o.kind !== '');
-  const rows = arr(r.rows).map((x): MatchRow => {
-    const m = rec(x);
-    return {
-      code: text(m.code),
-      kind: text(m.kind),
-      bookDept: str(m.bookDept),
-      bookRow: num(m.bookRow),
-      planRub: num(m.planRub),
-      factRub: num(m.factRub),
-      contractDate: str(m.contractDate),
-      verdicts: strList(m.verdicts),
-    };
-  }).filter((m) => m.code !== '');
-  const internalDiff = arr(r.internalDiff).map((x): InternalDiffRow => {
-    const d = rec(x);
-    return {
-      code: text(d.code),
-      field: text(d.field),
-      sheetSide: num(d.sheetSide),
-      journalSide: num(d.journalSide),
-      note: str(d.note),
-    };
-  }).filter((d) => d.code !== '');
-  if (outcomes.length === 0 && rows.length === 0 && internalDiff.length === 0) return null;
-  return {
-    readAt: text(r.readAt),
-    coveragePct: num(r.coveragePct),
-    outcomes,
-    rows,
-    internalDiff,
+    ancestors: readAncestors(r.ancestors),
     notes: strList(r.notes),
   };
 }
@@ -903,18 +846,6 @@ export function normalizeMatch(raw: unknown): MatchPayload | null {
 export async function fetchMonitoring(refresh = false): Promise<MonitoringPayload> {
   const raw = await fetchJSON<unknown>(`/monitoring${refresh ? '?refresh=true' : ''}`);
   return normalizeMonitoring(raw);
-}
-
-/**
- * Сверка с книгами ГРБС. Роут может быть ещё не поднят — тогда возвращается
- * null, и экран говорит «сверка ещё не подключена», а не молчит.
- */
-export async function fetchMonitoringMatch(): Promise<MatchPayload | null> {
-  try {
-    return normalizeMatch(await fetchJSON<unknown>('/monitoring/match'));
-  } catch {
-    return null;
-  }
 }
 
 // ── Форма листов-предков (§2.5): память о полях, а не данные ─────────
@@ -944,8 +875,47 @@ export const ANCESTOR_SHEET_COLUMNS: readonly string[] = [
   'Победитель',
 ];
 
-/** Имена скрытых листов-предков — показываются формой, не данными. */
-export const ANCESTOR_SHEET_NAMES: readonly string[] = ['Отчет по процедурам Свод', 'СВОД'];
+/**
+ * Имена скрытых листов-предков — ЗАПАСНОЙ список на случай, когда сервер их не
+ * назвал. Правда о предках живёт в ядре (`MONITORING_ANCESTOR_SHEETS`, три
+ * листа: «Отчет по процедурам Свод», «СВОД», «ГРБС») и приезжает разделом
+ * `ancestors` ответа. Копия на клиенте была третьим листом короче — экран
+ * писал «3 листа скрыты» только благодаря «+1» в формуле полосы состояния,
+ * а называл два. Копия остаётся запасом, а не источником.
+ */
+export const ANCESTOR_SHEET_NAMES: readonly string[] = [
+  'Отчет по процедурам Свод', 'СВОД', 'ГРБС',
+];
+
+/** Лист-предок, как его называет ядро: имя, род и что на нём есть. */
+export interface AncestorSheet {
+  sheet: string;
+  /** 'form' — только шапка; 'copy' — копия другого листа. */
+  kind: string;
+  note: string;
+  header: string[];
+}
+
+export interface AncestorsPayload {
+  sheets: AncestorSheet[];
+  missingFields: string[];
+}
+
+function readAncestors(raw: unknown): AncestorsPayload | null {
+  if (raw === null || raw === undefined) return null;
+  const r = rec(raw);
+  const sheets = arr(r.sheets).map((x): AncestorSheet => {
+    const s = rec(x);
+    return {
+      sheet: text(s.sheet),
+      kind: str(s.kind) ?? 'form',
+      note: text(s.note),
+      header: strList(s.header),
+    };
+  }).filter((s) => s.sheet !== '');
+  if (sheets.length === 0) return null;
+  return { sheets, missingFields: strList(r.missingFields) };
+}
 
 /**
  * Поля, которых рабочей форме книги не хватает, и что каждое дало бы продукту.

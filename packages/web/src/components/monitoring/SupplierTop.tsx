@@ -32,10 +32,22 @@ import {
 } from '../../lib/chart-colors';
 import { useTheme } from '../ThemeProvider';
 import { AnalyticsCard, CardEmpty, CardToggle } from './AnalyticsCard';
+import { RULE_ROW_TOP } from './surfaces';
 
 export interface SupplierTopProps {
   profile: SupplierProfile;
   periodLabel: string;
+  /**
+   * От числа — к строкам-основаниям (п.119). Клик по поставщику показывает
+   * ЕГО процедуры в реестре выше: разрез по ИНН у вкладки уже есть, и без
+   * этой кнопки он оставался доступен только через панель разрезов, то есть
+   * читателю, который заранее знает ИНН наизусть.
+   *
+   * ИНН передаётся первым, потому что группировка ведётся по нему: имя —
+   * запасной ключ для побед, где ИНН в книге не проставлен, и разрез по имени
+   * менее надёжен (одно общество, записанное дважды, разойдётся).
+   */
+  onPickSupplier?: (inn: string | null, name: string) => void;
 }
 
 /** Короткое имя для оси: длинное наименование съедает всю ширину графика. */
@@ -43,7 +55,7 @@ function shortName(name: string): string {
   return name.length > 28 ? `${name.slice(0, 27)}…` : name;
 }
 
-export function SupplierTop({ profile, periodLabel }: SupplierTopProps) {
+export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTopProps) {
   const isDark = useTheme((s) => s.theme) === 'dark';
   const [by, setBy] = useState<SupplierSortKey>('money');
   const rows = supplierTop(profile, by, 10);
@@ -135,9 +147,22 @@ export function SupplierTop({ profile, periodLabel }: SupplierTopProps) {
               </thead>
               <tbody className="text-zinc-700 dark:text-zinc-200">
                 {rows.map((r) => (
-                  <tr key={r.key} className="border-t border-zinc-100 dark:border-zinc-700/50 align-top">
+                  <tr key={r.key} className={`${RULE_ROW_TOP} align-top`}>
                     <td className="py-1 pr-2">
-                      <span className="font-medium">{r.name}</span>
+                      {onPickSupplier === undefined ? (
+                        <span className="font-medium">{r.name}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onPickSupplier(r.inn, r.name)}
+                          title={r.inn === null
+                            ? 'Показать процедуры этого поставщика в реестре. ИНН в книге не указан — отбор пойдёт по написанию имени и может не собрать все победы.'
+                            : `Показать процедуры этого поставщика в реестре — отбор по ИНН ${r.inn}`}
+                          className="text-left font-medium hover:underline"
+                        >
+                          {r.name}
+                        </button>
+                      )}
                       <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">
                         {r.inn === null ? 'ИНН в книге не указан' : `ИНН ${r.inn}`}
                       </span>
@@ -145,6 +170,19 @@ export function SupplierTop({ profile, periodLabel }: SupplierTopProps) {
                         <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
                           заказчики: {r.customers.slice(0, 3).join('; ')}
                           {r.customers.length > 3 && ` и ещё ${r.customers.length - 3}`}
+                        </div>
+                      )}
+                      {/* УПРАВЛЕНИЯ ПОСТАВЩИКА — ЯДРО ИХ СЧИТАЕТ, ЭКРАН ИХ
+                          ТЕРЯЛ. Один поставщик у восьми управлений и один у
+                          одного — это разные факты о рынке: первый работает с
+                          районом, второй сидит на одном заказчике. Без этой
+                          строки концентрация читалась только числом сверху,
+                          а механизма за ней видно не было (п.104). */}
+                      {r.depts.length > 0 && (
+                        <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                          {r.depts.length === 1
+                            ? `лист управления: ${r.depts[0]}`
+                            : `листы ${fmtCount(r.depts.length)} управлений: ${r.depts.join('; ')}`}
                         </div>
                       )}
                     </td>

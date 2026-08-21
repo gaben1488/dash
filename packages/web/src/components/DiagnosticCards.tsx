@@ -68,7 +68,7 @@ function DiagnosticCard({ group }: { group: MechanismGroup }) {
   const hidden = group.addresses.length - shown.length;
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-900">
+    <div className="rounded-xl border border-zinc-200 dark:border-transparent bg-white dark:bg-zinc-900">
       {/* Заголовок-механизм: раскрытие адресов — настоящая кнопка (клавиатура). */}
       <button
         type="button"

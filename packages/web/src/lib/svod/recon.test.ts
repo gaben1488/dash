@@ -3,6 +3,7 @@ import {
   isCountMetric,
   reconAvailability,
   reconBadges,
+  reconDiagnosis,
   reconKeyLabel,
   reconMismatches,
   type ReconRow,
@@ -117,5 +118,53 @@ describe('расхождения и подписи', () => {
   it('количество отличается от денег — формат числа зависит от этого', () => {
     expect(isCountMetric('competitive.q1.count')).toBe(true);
     expect(isCountMetric('competitive.q1.total_plan')).toBe(false);
+  });
+});
+
+describe('карточка диагноста расхождения (п.53)', () => {
+  it('адрес ячейки листа берётся из карты официальных метрик, а не сочиняется', () => {
+    const d = reconDiagnosis({
+      key: 'competitive.q1.total_plan', calc: 1234, official: 1200, deltaPct: 2.8, status: 'warning',
+    });
+    expect(d.cell).toBe('K9');
+    expect(d.sheet).toBe('СВОД ТД-ПМ');
+    expect(d.officialLabel).toContain('КП 1 кв');
+  });
+
+  it('расчёт выше листа — адресат лист: обновить ячейку', () => {
+    const d = reconDiagnosis({
+      key: 'competitive.q1.total_plan', calc: 1234, official: 1200, deltaPct: 2.8, status: 'warning',
+    });
+    expect(d.direction).toBe('calc-higher');
+    expect(d.owner).toBe('sheet');
+    expect(d.action).toContain('K9');
+    expect(d.action).toContain('УЭР');
+  });
+
+  it('расчёт ниже листа — адресат книга: искать строки без года плана', () => {
+    const d = reconDiagnosis({
+      key: 'sole.year.total_fact', calc: 900, official: 1000, deltaPct: -10, status: 'high',
+    });
+    expect(d.direction).toBe('calc-lower');
+    expect(d.owner).toBe('books');
+    expect(d.action).toContain('Реестре');
+    expect(d.why).toContain('года плана');
+  });
+
+  it('ключ вне карты не роняет карточку и не протекает латиницей', () => {
+    const d = reconDiagnosis({
+      key: 'unknown.year.mystery', calc: 1, official: 2, deltaPct: -50, status: 'high',
+    });
+    expect(d.cell).toBe('');
+    expect(d.what).toContain('сводной ячейке официального листа');
+    expect(d.what).not.toContain('листа официального листа');
+    expect(/[a-z]/i.test(d.officialLabel)).toBe(false);
+  });
+
+  it('равные числа не считаются «лист отстаёт» в обратную сторону', () => {
+    const d = reconDiagnosis({
+      key: 'competitive.q1.count', calc: 50, official: 50, deltaPct: 0, status: 'ok',
+    });
+    expect(d.direction).toBe('calc-higher');
   });
 });

@@ -26,6 +26,7 @@ import {
   subordinateExecCountPct,
   subordinateExecutionPct,
 } from '../../lib/recon/subordinates';
+import { CARD, HEAD_STRIP, RULE_DIVIDE, RULE_HEAD } from '../control/surfaces';
 
 const COLS = 10;
 
@@ -90,12 +91,12 @@ interface ReconSubordinatesTableProps {
 
 export function ReconSubordinatesTable({ depts, formatMoney, onOpenSubordinate }: ReconSubordinatesTableProps) {
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+    <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none overflow-hidden')}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <caption className="sr-only">План, факт и экономия подведомственных организаций, сгруппированные по управлениям</caption>
           <thead>
-            <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+            <tr className={clsx(HEAD_STRIP, 'text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider')}>
               <th scope="col" className="px-5 py-3">Управление</th>
               <th scope="col" className="px-4 py-3">Подведомственная организация</th>
               <th scope="col" className="px-4 py-3 text-right" title="Сколько строк организации попало в выборку">Строк</th>
@@ -108,7 +109,7 @@ export function ReconSubordinatesTable({ depts, formatMoney, onOpenSubordinate }
               <th scope="col" className="px-4 py-3 text-right" title="Снижение цены по итогам процедур">Экономия, тыс. ₽</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+          <tbody className={RULE_DIVIDE}>
             {depts.map((dept: ReconDeptNode) => {
               const subs: ReconSubordinate[] = dept.subordinates ?? [];
               if (subs.length === 0) return null;
@@ -120,7 +121,7 @@ export function ReconSubordinatesTable({ depts, formatMoney, onOpenSubordinate }
               return (
                 <React.Fragment key={deptKey}>
                   {/* Шапка управления */}
-                  <tr className="bg-zinc-100/70 dark:bg-zinc-900/50">
+                  <tr className="bg-zinc-100/70 dark:bg-white/[0.06]">
                     <th scope="colgroup" colSpan={COLS} className="px-5 py-2.5 text-left">
                       <span className="flex items-center gap-2">
                         <Building2 size={14} className="text-blue-500" aria-hidden="true" />
@@ -173,7 +174,7 @@ export function ReconSubordinatesTable({ depts, formatMoney, onOpenSubordinate }
                   })}
 
                   {/* Итого по управлению */}
-                  <tr className="bg-zinc-50/80 dark:bg-zinc-800/80 border-t border-zinc-200 dark:border-zinc-600">
+                  <tr className={clsx('bg-zinc-50/80 dark:bg-white/[0.05] border-t', RULE_HEAD)}>
                     <td className="px-5 py-2.5"></td>
                     <th scope="row" className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400">Итого {deptName}</th>
                     <NumCell value={totals.rowCount} bold />

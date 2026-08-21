@@ -133,6 +133,10 @@ export * from './metric-provenance.js';
 // из колонки M → одна из четырёх степеней, и «сокращаемая доля» ЕП как их сумма
 export * from './ep-justification-grade.js';
 
+// Re-export одну шкалу букв на продукт (решение владельца п.137(9), 21.08.2026):
+// число везде штрафное — меньше значит лучше, буква A везде лучшая
+export * from './grade-scale.js';
+
 // Re-export all dictionaries (canonical methods, ГРБС aliases, EP reasons, legal refs, etc.)
 // See packages/shared/src/dictionaries/index.ts for full barrel.
 // Integration plan: AEMR_DICTIONARIES_PLAN.md §2.

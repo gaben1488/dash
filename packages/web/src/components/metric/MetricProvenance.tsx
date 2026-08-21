@@ -54,7 +54,7 @@ const CAPTION: Readonly<Record<ProvenanceTone, string>> = {
 
 /** Разделитель, отбивающий родословную от записи базы знаний. */
 const DIVIDER: Readonly<Record<ProvenanceTone, string>> = {
-  themed: 'border-zinc-200 dark:border-zinc-700',
+  themed: 'border-zinc-200 dark:border-transparent',
   dark: 'border-white/[0.08]',
 };
 

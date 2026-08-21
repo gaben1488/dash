@@ -81,7 +81,7 @@ function scopeMonthlyToDepartments(
 /** Пустое состояние: причина + что сделать. Прочерков без объяснения не бывает. */
 function EmptyView({ title, reason, hint }: { title: string; reason: string; hint?: string }) {
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-200 dark:border-zinc-700/50 p-10 text-center">
+    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-200 dark:border-transparent p-10 text-center">
       <GitCompare className="mx-auto text-zinc-300 dark:text-zinc-600 mb-3" size={32} />
       <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">{title}</p>
       <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-lg mx-auto">{reason}</p>
@@ -332,7 +332,7 @@ export function ReconPage() {
 
       {/* Паспорт снимка: откуда взяты числа на этой странице */}
       {snapshot && (
-        <div className="flex flex-wrap gap-6 text-xs text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
+        <div className="flex flex-wrap gap-6 text-xs text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent px-5 py-3">
           <span>Числа на странице — из снимка книг за {year === 'all' ? 'все годы' : year}</span>
           {typeof snapshot.cellsRead === 'number' && (
             <span>Прочитано ячеек: <strong className="text-zinc-700 dark:text-zinc-200 tabular-nums">{snapshot.cellsRead.toLocaleString('ru-RU')}</strong></span>

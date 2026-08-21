@@ -22,6 +22,8 @@ import { ArrowRight, EyeOff, Filter } from 'lucide-react';
 import type { JournalPayload } from '../../lib/monitoring/contract';
 import { fmtCount, fmtDate, fmtRub, pluralCount } from '../../lib/monitoring/format';
 import { BookPeriodBadge } from './BookPeriodBadge';
+import { MonitoringPerimeterCaption } from './PerimeterProvider';
+import { CARD, CHECKBOX, RULE_HEAD, RULE_ROW, RULE_SECTION } from './surfaces';
 
 export interface JournalTableProps {
   journal: JournalPayload;
@@ -50,7 +52,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
       {journal.lineage.length > 0 && (
         <section
           aria-label="Родословная процедур"
-          className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4"
+          className={`${CARD} p-3 sm:p-4`}
         >
           <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
             Цепочки переобъявлений — {pluralCount(journal.lineage.length, 'цепочка', 'цепочки', 'цепочек')}
@@ -81,7 +83,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
 
       <section
         aria-label="Переходящий реестр 25-26"
-        className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4 space-y-3"
+        className={`${CARD} p-3 sm:p-4 space-y-3`}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -91,7 +93,13 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
               победители с ИНН и судьба каждой процедуры.
             </p>
           </div>
-          <BookPeriodBadge label={readAtLabel} kind="period" note="лист переходящий: в нём соседствуют 2025 и 2026 годы" />
+          <div className="shrink-0 text-right">
+            <BookPeriodBadge label={readAtLabel} kind="period" note="лист переходящий: в нём соседствуют 2025 и 2026 годы" />
+            <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+              Источник: лист «25-26» книги «Ежедневный мониторинг»
+            </p>
+            <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -100,7 +108,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
               type="checkbox"
               checked={showHidden}
               onChange={(e) => setShowHidden(e.target.checked)}
-              className="rounded border-zinc-300 dark:border-zinc-600"
+              className={CHECKBOX}
             />
             Показывать строки, спрятанные в книге
             <span className="tabular-nums">({fmtCount(hiddenCount)})</span>
@@ -117,7 +125,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
         <div className="overflow-x-auto">
           <table className="w-full text-xs min-w-[52rem]">
             <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
-              <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
+              <tr className={RULE_HEAD}>
                 <th className="px-2 py-1.5 text-left font-medium">Строка</th>
                 <th className="px-2 py-1.5 text-left font-medium">Судьба</th>
                 <th className="px-2 py-1.5 text-left font-medium">Связь</th>
@@ -134,7 +142,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.row} className="border-b border-zinc-50 dark:border-zinc-700/30 align-top">
+                <tr key={r.row} className={`${RULE_ROW} align-top`}>
                   <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
                     {r.row}
                     {r.hiddenInBook && (
@@ -196,7 +204,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
         )}
 
         {journal.notes.length > 0 && (
-          <div className="space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 border-t border-zinc-100 dark:border-zinc-700/50 pt-2">
+          <div className={`space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 ${RULE_SECTION} pt-2`}>
             {journal.notes.map((n) => <p key={n}>{n}</p>)}
           </div>
         )}

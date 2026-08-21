@@ -30,9 +30,11 @@ import { ORG_ITSELF } from '../lib/economy/types';
 import type { SortDir, SortField } from '../lib/economy/types';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { readingMoment } from '../lib/reading-moment';
+import { periodScopePhrase } from '../lib/period-label';
 import { ORG_ITSELF_LABEL } from '../lib/subordinate-label';
 import { CHROME_BOX, Card, FOCUS_RING } from '../components/economy/primitives';
 import { PeriodBadge } from '../components/PeriodBadge';
+import { PageHeader } from '../components/ui/page-header';
 import { EconomyHero } from '../components/economy/EconomyHero';
 import type { HeroMetric } from '../components/economy/EconomyHero';
 import { EconomyCharts } from '../components/economy/EconomyCharts';
@@ -91,7 +93,7 @@ function EconomyNotice({ icon, title, body, detail, tone = 'neutral' }: {
 
 export function EconomyPage() {
   const { formatMoney, toggleDepartment, toggleSubordinate, navigateTo,
-    selectedBudgets, selectedMethods, deptOnlyMode, selectedDepartments,
+    selectedBudgets, selectedMethods, selectedActivities, deptOnlyMode, selectedDepartments,
     loading, error, dashboardData } = useStore();
   const fd = useFilteredData();
   const summaries = fd.depts as DepartmentSummary[];
@@ -145,15 +147,27 @@ export function EconomyPage() {
 
   const budgets = useMemo(() => budgetSelection(selectedBudgets), [selectedBudgets]);
 
-  // ── Способ закупки — только для суффикса баннера ──
+  // ── Оси шапки, которыми экономия НЕ сужается ──
+  //
+  //    Правило (ж) паспорта периметра (lib/perimeter.ts, канон п.58б): выбор в
+  //    шапке, к числу не применимый, объявляется словами. Прежде страница
+  //    подписывала способ закупки суффиксом баннера («способ конкурентные
+  //    процедуры»), хотя `buildDeptEconomy` о `selectedMethods` не знает вовсе:
+  //    подпись читалась как «сумма посчитана по этому способу» и врала.
   const isMethodFiltered = selectedMethods.size > 0;
-  const mKP = !isMethodFiltered || selectedMethods.has('competitive');
-  const mEP = !isMethodFiltered || selectedMethods.has('single');
+  const isActivityFiltered = selectedActivities.size > 0;
 
   // Период берём канонический — тот же, которым считает весь остальной дашборд
   // (hooks/useFilteredData → resolvePeriodSelection). Собственный вывод периода
   // на этой странице давал расхождение с прочими экранами и удалён.
   const periodKey = fd.periodKey;
+  // Месяцы шапки выбраны, а строки экономии размечены не точнее квартала:
+  // `buildDeptEconomy` читает ровно `quarters[periodKey]`. Молчать об этом
+  // нельзя — при выборе месяцев число вкладки шире выбора читателя.
+  const hasActiveMonths = fd.periodResolution.hasActiveMonths;
+  // Фраза периода — из общего дома подписей (`period-label`), а не своя копия:
+  // вторая формулировка того же периода на соседних экранах расходится молча.
+  const effectiveSpan = periodScopePhrase(periodKey, new Set<number>());
 
   // ── Данные: строки управлений → сортировка → агрегаты → ряды графиков ──
   const deptEconomy = useMemo(
@@ -328,9 +342,27 @@ export function EconomyPage() {
   const budgetTag = budgets.filtered
     ? `, бюджеты ${[budgets.fb && 'ФБ', budgets.kb && 'КБ', budgets.mb && 'МБ'].filter(Boolean).join(', ')}`
     : '';
-  const methodTag = isMethodFiltered
-    ? `, способ ${[mKP && 'конкурентные процедуры', mEP && 'единственный поставщик'].filter(Boolean).join(' и ')}`
-    : '';
+  // ── Оси шапки, к экономии НЕ применимые, — словами, а не молчанием ──
+  //
+  //    Формулировки одной конструкции: «фильтр … экономию не сужает: <почему> —
+  //    <как посчитано на самом деле>». Читатель, встретив такую фразу на второй
+  //    вкладке, узнаёт её не перечитывая (правило «ж» паспорта периметра).
+  const perimeterNotes: string[] = [];
+  if (hasActiveMonths) {
+    perimeterNotes.push(
+      `Выбранные месяцы экономию не сужают: утверждённая экономия размечена не точнее квартала — числа выше посчитаны за ${effectiveSpan}.`,
+    );
+  }
+  if (isMethodFiltered) {
+    perimeterNotes.push(
+      'Фильтр способа закупки экономию не сужает: утверждённая экономия способом в книгах не размечена — числа выше по всем способам.',
+    );
+  }
+  if (isActivityFiltered) {
+    perimeterNotes.push(
+      'Фильтр вида деятельности экономию не сужает: строки утверждённой экономии видом деятельности не размечены.',
+    );
+  }
   // Режим «только ГРБС» математики вычитания не имеет (маркер UI): итоги
   // по-прежнему считаются по книге целиком — подпись обязана сказать правду,
   // а не обещать «без подведомственных».
@@ -352,34 +384,38 @@ export function EconomyPage() {
             (канон п.58а: каждая карточка объявляет периметр; здесь — общий
             для баннера и hero-полосы, у блоков с иным периметром — своя
             оговорка на месте). ── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">Экономия</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-2xl mt-0.5">
-            Утверждённая экономия торгов: где она возникла, из каких бюджетов и
-            у каких управлений. Разница «план минус факт» экономией не считается.
-          </p>
-        </div>
-        {/* Скоуп числа и момент его чтения стоят вместе: период отвечает на
-            «за что посчитано», момент — на «когда это было верно» (п.58).
-            Тот же порядок, что на соседней вкладке «Конкуренция». */}
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <PeriodBadge />
-          <span
-            title={readMoment.phrase}
-            className={clsx(
-              'text-[9px] leading-tight text-right',
-              // Остывшие числа говорят об этом сами: до подсказки читатель
-              // может и не добраться.
-              readMoment.stale
-                ? 'text-amber-700 dark:text-amber-400'
-                : 'text-zinc-500 dark:text-zinc-400',
-            )}
-          >
-            {readMoment.label}
-          </span>
-        </div>
-      </div>
+      {/* 21.08: шапка переведена на общий примитив `PageHeader` — тот же, что
+          на остальных пяти страницах. Прежде «Экономия» держала собственную
+          разметку заголовка первого уровня: пятая копия одного решения, кегль и
+          краски правились отдельно от всех. */}
+      <PageHeader
+        title="Экономия"
+        lead={
+          'Утверждённая экономия торгов: где она возникла, из каких бюджетов и '
+          + 'у каких управлений. Разница «план минус факт» экономией не считается.'
+        }
+        actions={
+          // Скоуп числа и момент его чтения стоят вместе: период отвечает на
+          // «за что посчитано», момент — на «когда это было верно» (п.58).
+          // Тот же порядок, что на соседней вкладке «Конкуренция».
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <PeriodBadge />
+            <span
+              title={readMoment.phrase}
+              className={clsx(
+                'text-[9px] leading-tight text-right',
+                // Остывшие числа говорят об этом сами: до подсказки читатель
+                // может и не добраться.
+                readMoment.stale
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-zinc-500 dark:text-zinc-400',
+              )}
+            >
+              {readMoment.label}
+            </span>
+          </div>
+        }
+      />
 
       {error && (
         <div
@@ -407,8 +443,25 @@ export function EconomyPage() {
             : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-transparent text-amber-700 dark:text-amber-300',
         )}
       >
-        {formatMoney(totals.economy)} экономии{budgetTag}{methodTag}{deptOnlyTag} • {bannerStatus.label}
+        {formatMoney(totals.economy)} экономии{budgetTag}{deptOnlyTag} • {bannerStatus.label}
       </div>
+
+      {/* ── Чем число баннера НЕ сужено вопреки шапке (канон п.58б, правило «ж»
+            паспорта периметра). Оговорки стоят под самим числом, а не в
+            тултипе: до подсказки читатель может и не добраться. ── */}
+      {perimeterNotes.length > 0 && (
+        <ul className="px-1 space-y-0.5" aria-label="Чем числа страницы не сужены">
+          {perimeterNotes.map(note => (
+            <li
+              key={note}
+              className="flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-700 dark:text-amber-400"
+            >
+              <AlertTriangle size={10} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>{note}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <EconomyHero
         rows={deptEconomy}
@@ -421,6 +474,10 @@ export function EconomyPage() {
         formatMoney={formatMoney}
         onToggleDepartment={toggleDepartment}
         subScope={heroSubScope}
+        // Спарклайн и дельта плиток считаются по всем кварталам года. При
+        // суженной шапке плитка несёт два периметра сразу — и оба обязаны быть
+        // названы внутри неё (канон п.58г).
+        narrowedSpanLabel={periodKey !== 'year' || hasActiveMonths ? effectiveSpan : null}
       />
 
       {/* Подпись методики — у чисел hero-полосы и баннера (директива группы:
@@ -464,10 +521,14 @@ export function EconomyPage() {
       {/* Квартальный график живёт своим периметром — весь год по кварталам.
           При суженном периоде шапки об этом сказано вслух (канон п.58б/г):
           унаследованный бейдж здесь был бы ложью. */}
-      {periodKey !== 'year' && (
+      {/* Условие включает и месяцы: при выборе месяцев из двух кварталов
+          `periodKey` остаётся 'year' (period-resolution.ts), и прежняя проверка
+          `periodKey !== 'year'` оговорку не показывала — графики молча
+          притворялись подчинёнными шапке. */}
+      {(periodKey !== 'year' || hasActiveMonths) && (
         <p className="px-1 text-[10px] text-amber-700 dark:text-amber-400 leading-relaxed">
           Графики ниже показывают все кварталы года — выбор периода в шапке их не
-          сужает. Итоги выше посчитаны за выбранный период.
+          сужает. Итоги выше посчитаны за {effectiveSpan}.
         </p>
       )}
 

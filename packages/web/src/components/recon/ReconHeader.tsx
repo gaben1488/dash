@@ -10,6 +10,7 @@
 import React from 'react';
 import clsx from 'clsx';
 import { Building2, Clock, Download, FileSpreadsheet, GitCompare, Users } from 'lucide-react';
+import { CARD } from '../control/surfaces';
 
 export type ReconView = 'departments' | 'metrics' | 'monthly' | 'subordinates';
 
@@ -28,7 +29,7 @@ const VIEW_BUTTONS: Array<{ view: ReconView; icon: typeof Building2; label: stri
 
 export function ReconHeader({ view, onViewChange, csvUrl }: ReconHeaderProps) {
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5">
+    <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none p-5')}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <GitCompare className="text-blue-500" size={22} />

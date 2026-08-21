@@ -15,6 +15,7 @@ import type { ReasonBucket } from '@aemr/core';
 import { fmtCount } from '../../lib/report/mappers';
 import { ExpandableRows } from '../contract/ExpandableRows';
 import { KbHover } from '../contract/KbHover';
+import { TILE } from '../dashboard/surfaces';
 
 /** Кто устраняет причину — цвет и слово; цвет всегда с подписью. */
 const OWNER_TONE: Record<string, string> = {
@@ -61,10 +62,11 @@ function ReasonRow({ b, total, kind }: { b: ReasonBucket; total: number; kind: '
   );
 }
 
-function Block({ title, buckets, kind, note }: {
+function Block({ title, buckets, kind, note, emptyNote }: {
   title: string; buckets: ReasonBucket[]; kind: 'ep' | 'dev'; note: string;
+  /** Что значит пустой блок — своими словами для каждого рода строк. */
+  emptyNote: string;
 }) {
-  if (buckets.length === 0) return null;
   const total = buckets.reduce((s, b) => s + b.count, 0);
   return (
     <div>
@@ -72,6 +74,15 @@ function Block({ title, buckets, kind, note }: {
         <span className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{title}</span>
         <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{note}</span>
       </div>
+      {/* Честная пустота первого рода (данных нет): блок не исчезает молча —
+          пустая колонка листа сама по себе сведение о качестве заполнения,
+          ровно тот же довод, по которому ниже стоит кластер «формулировка не
+          распознана». Раньше `return null` прятал этот факт. */}
+      {buckets.length === 0 ? (
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          {emptyNote}
+        </p>
+      ) : (
       <ExpandableRows
         rows={buckets}
         top={4}
@@ -80,31 +91,68 @@ function Block({ title, buckets, kind, note }: {
       >
         {(b) => <ReasonRow key={b.cluster} b={b} total={total} kind={kind} />}
       </ExpandableRows>
+      )}
     </div>
   );
 }
 
-export function ReasonsPanel({ epReasons, deviations }: { epReasons: ReasonBucket[]; deviations: ReasonBucket[] }) {
-  if (epReasons.length === 0 && deviations.length === 0) return null;
+export function ReasonsPanel({ epReasons, deviations, year, quarter }: {
+  epReasons: ReasonBucket[];
+  deviations: ReasonBucket[];
+  /** Год, за который ядро собрало кластеры (`reasonsOf`, build-report.ts:519). */
+  year: number;
+  /** Квартал секции — называется, чтобы сказать вслух, что он тут НЕ применён. */
+  quarter: number;
+}) {
   return (
-    // Тихая рамка (п.129): в тёмной теме панель отделяет светлота поверхности
-    // (утопленный тон + едва заметный край white/5), а не обводка zinc-700.
-    <div className="space-y-3 rounded-lg border border-zinc-200/70 bg-zinc-50/60 px-3 py-2.5 dark:border-white/5 dark:bg-zinc-900/25">
+    // Плитка внутри карточки отчёта (канон п.129): в тёмной теме её
+    // отделяет светлота, а не край. Раньше фон плитки был ТЕМНЕЕ карточки
+    // (1,01:1 — границы не видно), и всю работу делала обводка.
+    <div className={`${TILE} space-y-3 px-3 py-2.5`}>
       <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
         Чем управление объясняет свои решения
       </span>
+      {/* Паспорт периметра блока (канон п.58а, работа P0-3 карты «Отчёт+Свод»
+          20.08). Ядро собирает кластеры по ВСЕМ строкам года
+          (`reasonsOf` — фильтр по PLAN_YEAR, build-report.ts:519), а блок
+          стоит внутри квартальной секции — без подписи его читали как
+          квартальный. Применимость каждой оси называется вслух: год —
+          применён, квартал — нет. */}
+      <p className="text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">
+        Периметр блока: {year} год целиком, все строки книги управления.
+        {' '}Выбранный {quarter} квартал к этим кластерам не применяется —
+        основания и причины считаются по году, а не по кварталу.
+        {' '}Момент чтения — тот же, что у отчёта (шапка страницы).
+      </p>
       <Block
         title="Основания выбора единственного поставщика"
         buckets={epReasons}
         kind="ep"
         note="колонка M листа, сведено справочником"
+        emptyNote={`Строк с единственным поставщиком за ${year} год в книге нет либо колонка M у них пуста — оснований, которые можно было бы свести, справочник не нашёл.`}
       />
       <Block
         title="Причины отклонения сроков"
         buckets={deviations}
         kind="dev"
         note="колонка U листа, сведено справочником"
+        emptyNote={`За ${year} год колонка U в книге не заполнена: причин отклонения сроков исполнитель не указал — ни одной строки, которую можно было бы отнести к кластеру.`}
       />
+      {/* Честное отсутствие двери к строкам (канон «ложная дверь хуже
+          отсутствующей», `lib/kb/rows-door.ts`). Соседняя полоса этапности
+          строки кластера открывает, здесь кнопки нет — и молчать об этом
+          нельзя: читатель вправе считать, что дверь просто забыли.
+          Механизм: Реестр ищет по предмету, способу, статусу, управлению и
+          учреждению (`server/src/services/rows-filters.ts`, SEARCH_FIELDS);
+          свободного текста колонок M и U в этом перечне нет, поэтому переход
+          с формулировкой в поиске открыл бы ПУСТОЙ Реестр. Пока поиск не
+          знает этих колонок, проверка идёт по живому образцу рядом. */}
+      <p className="text-[10px] leading-snug text-zinc-400 dark:text-zinc-500">
+        Строки кластера отдельной кнопкой не открываются: поиск Реестра идёт по предмету,
+        способу и учреждению, а основание из колонки M и причину из колонки U он не читает —
+        переход открыл бы пустой список. Проверить формулировку можно по живому образцу,
+        он показан под каждым кластером как есть.
+      </p>
     </div>
   );
 }

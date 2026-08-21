@@ -78,7 +78,7 @@ export function ProofOverlay({ proof, onClose }: Props) {
       role="presentation"
     >
       <div
-        className="mt-12 w-full max-w-3xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="mt-12 w-full max-w-3xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-transparent dark:bg-zinc-900"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -134,7 +134,7 @@ export function ProofOverlay({ proof, onClose }: Props) {
                   'Строк-слагаемых нет: число взято с официального листа целиком, без пересчёта по строкам.'}
               </p>
             ) : (
-              <div className="max-h-72 overflow-y-auto rounded border border-zinc-100 dark:border-zinc-700/60">
+              <div className="max-h-72 overflow-y-auto rounded border border-zinc-100 dark:border-transparent">
                 <table className="w-full text-[11px]">
                   <thead className="sticky top-0 bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-400 dark:bg-zinc-800">
                     <tr>

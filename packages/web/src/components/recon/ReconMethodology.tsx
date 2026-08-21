@@ -17,6 +17,7 @@
 import React from 'react';
 import { ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { DEPARTMENT_REGISTRY, DEPARTMENT_ROWS, SUMMARY_ROWS } from '@aemr/shared';
+import { CARD, RULE_DIVIDE, RULE_HEAD } from '../control/surfaces';
 
 interface ReconMethodologyProps {
   open: boolean;
@@ -60,7 +61,7 @@ function CellRef({ cell }: { cell: string | null }) {
 
 export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
+    <div className={`${CARD} rounded-xl shadow-sm dark:shadow-none`}>
       <button
         onClick={onToggle}
         aria-expanded={open}
@@ -71,7 +72,7 @@ export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
         {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
       </button>
       {open && (
-        <div id="recon-methodology-panel" className="px-5 pb-5 text-xs text-zinc-600 dark:text-zinc-300 space-y-4 border-t border-zinc-100 dark:border-zinc-700/50 pt-4">
+        <div id="recon-methodology-panel" className={`px-5 pb-5 text-xs text-zinc-600 dark:text-zinc-300 space-y-4 border-t ${RULE_HEAD} pt-4`}>
           <p>
             <strong>Смысл сверки</strong>: одно и то же считается двумя независимыми способами.
             Если способы сходятся — числу можно верить; если расходятся — либо в книге сломана
@@ -129,7 +130,7 @@ export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
                   <th scope="col" className="px-2 py-1.5 text-left font-medium">Как получается в пересчёте</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+              <tbody className={RULE_DIVIDE}>
                 {METRIC_EXPLANATIONS.map((row) => (
                   <tr key={row.metric}>
                     <th scope="row" className="px-2 py-1 text-left font-medium text-zinc-700 dark:text-zinc-200">{row.metric}</th>
@@ -157,7 +158,7 @@ export function ReconMethodology({ open, onToggle }: ReconMethodologyProps) {
                   <th scope="col" className="px-2 py-1.5 text-center font-medium">Экономия ЕП</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+              <tbody className={RULE_DIVIDE}>
                 {DEPT_ANCHORS.map((d) => (
                   <tr key={d.name}>
                     <th scope="row" className="px-2 py-1 text-left font-medium text-zinc-700 dark:text-zinc-200">{d.name}</th>

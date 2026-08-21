@@ -22,7 +22,7 @@ import {
   firstSignificantDigit,
   BENFORD_EXPECTED as BENFORD_EXPECTED_SHARED,
 } from '../utils/statistics.js';
-import { DEPT_COLUMNS, SIGNAL_LABELS, isReadableDeptRow } from '@aemr/shared';
+import { DEPT_COLUMNS, SIGNAL_LABELS, compositeGradeOfPenalty, isReadableDeptRow } from '@aemr/shared';
 import { numFromRow } from '../utils/row-cells.js';
 import { detectSeasonalAnomalies } from './seasonal.js';
 import { detectSuspiciousSplitting } from './splitting.js';
@@ -423,13 +423,11 @@ export function computeCompositeScore(
       anomalyRaw * COMPOSITE_WEIGHTS.anomaly +
       complianceRaw * COMPOSITE_WEIGHTS.compliance) / presentWeight;
 
-  // Grade: A-F (inverted: A = best = lowest score)
-  let grade: CompositeScore['grade'];
-  if (score < 10) grade = 'A';
-  else if (score < 25) grade = 'B';
-  else if (score < 40) grade = 'C';
-  else if (score < 60) grade = 'D';
-  else grade = 'F';
+  // Буква по штрафу: A — лучшая, число меньше — лучше. Пороги переехали в
+  // общий дом шкалы (@aemr/shared grade-scale.ts) 21.08.2026: та же карта
+  // обслуживает и оценку управлений, чтобы две соседние вкладки не сообщали
+  // одинаковыми буквами противоположный смысл (решение владельца п.137(9)).
+  const grade: CompositeScore['grade'] = compositeGradeOfPenalty(score);
 
   return {
     score,

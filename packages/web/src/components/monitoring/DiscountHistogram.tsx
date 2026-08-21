@@ -40,6 +40,7 @@ import {
 } from '../../lib/chart-colors';
 import { useTheme } from '../ThemeProvider';
 import { AnalyticsCard, CardEmpty } from './AnalyticsCard';
+import { RULE_ROW_TOP, TILE } from './surfaces';
 
 export interface DiscountHistogramProps {
   reduction: ReductionCoefficients;
@@ -89,7 +90,7 @@ export function DiscountHistogram({
         {methods.map((m) => (
           <div
             key={m.id}
-            className="rounded-lg border border-zinc-100 dark:border-zinc-700/50 bg-zinc-50/60 dark:bg-zinc-900/30 p-3"
+            className={`${TILE} p-3`}
           >
             <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{m.title}</p>
             <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
@@ -184,7 +185,7 @@ export function DiscountHistogram({
               </thead>
               <tbody className="text-zinc-700 dark:text-zinc-200">
                 {bars.map((b) => (
-                  <tr key={b.key} className="border-t border-zinc-100 dark:border-zinc-700/50">
+                  <tr key={b.key} className={RULE_ROW_TOP}>
                     <td className="py-1 pr-2">{b.label}</td>
                     <td className="py-1 pr-2 text-right tabular-nums">{fmtCount(b.count)}</td>
                     <td className="py-1 pr-2 text-right tabular-nums">{fmtPct(b.sharePct, 0)}</td>
@@ -223,7 +224,7 @@ export function DiscountHistogram({
             </thead>
             <tbody className="text-zinc-700 dark:text-zinc-200">
               {byMethod.map((r) => (
-                <tr key={r.method} className="border-t border-zinc-100 dark:border-zinc-700/50">
+                <tr key={r.method} className={RULE_ROW_TOP}>
                   <td className="py-1 pr-2">
                     <span className="font-medium">{r.method}</span>
                     <span className="ml-1 text-zinc-500 dark:text-zinc-400">
@@ -263,7 +264,7 @@ export function DiscountHistogram({
             </thead>
             <tbody className="text-zinc-700 dark:text-zinc-200">
               {sizes.map((b) => (
-                <tr key={b.key} className="border-t border-zinc-100 dark:border-zinc-700/50">
+                <tr key={b.key} className={RULE_ROW_TOP}>
                   <td className="py-1 pr-2">{b.label}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{fmtCount(b.count)}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{fmtRub(b.nmckRub)}</td>

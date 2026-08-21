@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { COL_LETTER_INDEX, DEPT_COLUMNS } from '@aemr/shared';
 import { formatDateCell } from '../../lib/sheet-date';
 import { api } from '../../api';
+import { toCanonicalDeptId } from '../../lib/dept-key';
 import { ExpandableRows } from '../contract/ExpandableRows';
 
 interface ChangeRecord {
@@ -123,7 +124,18 @@ function ChangeRow({ r }: { r: ChangeRecord }) {
   );
 }
 
-export function ChangesSection({ since }: { since?: string }) {
+export function ChangesSection({ since, depts = [] }: {
+  since?: string;
+  /**
+   * Изоляция управлений (канон п.127, работа P0-2 карты вкладки): выбрано
+   * управление — лента показывает правки ТОЛЬКО его книг. До 21.08 она
+   * оставалась районной, и под фильтром одного ГРБС читатель видел чужие
+   * правки как свои. Отчёт целиком фильтр не сужает по решению 03.08, но
+   * лента правок — не документ, а провенанс, и на неё исключение не
+   * распространяется. Пусто — все книги.
+   */
+  depts?: readonly string[];
+}) {
   const [data, setData] = useState<{ since: string; records: ChangeRecord[] } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -136,22 +148,37 @@ export function ChangesSection({ since }: { since?: string }) {
     return () => { cancelled = true; };
   }, [since]);
 
+  // Срез по выбранным книгам — до всякой группировки и счёта: иначе шапка
+  // ленты («всего: N») продолжала бы называть районное число под срезом
+  // одного управления. Обе стороны сводятся к канону ключа: журнал приходит
+  // с именем книги, шапка держит канонический DepartmentId.
+  const deptSet = useMemo(
+    () => new Set(depts.map(toCanonicalDeptId)),
+    [depts],
+  );
+  const records = useMemo(
+    () => (deptSet.size === 0
+      ? data?.records ?? []
+      : (data?.records ?? []).filter((r) => deptSet.has(toCanonicalDeptId(r.dept)))),
+    [data, deptSet],
+  );
+
   // Группировка по управлениям: коллега спрашивает «по каждому ГРБС».
   const byDept = useMemo(() => {
     const m = new Map<string, ChangeRecord[]>();
-    for (const r of data?.records ?? []) {
+    for (const r of records) {
       const list = m.get(r.dept) ?? [];
       list.push(r);
       m.set(r.dept, list);
     }
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [data]);
+  }, [records]);
 
   // Смена способа — в самый верх ленты (прямой запрос коллеги). Фильтр
   // 37 тыс. записей — по ключу колонки и не на каждый рендер.
   const methodChanges = useMemo(
-    () => (data?.records ?? []).filter((r) => attrKeyOf(r.cell) === 'METHOD'),
-    [data],
+    () => records.filter((r) => attrKeyOf(r.cell) === 'METHOD'),
+    [records],
   );
 
   if (error) {
@@ -166,10 +193,21 @@ export function ChangesSection({ since }: { since?: string }) {
   }
 
   const sinceRu = formatDateCell(data.since);
+  // Паспорт периметра ленты: чьи книги, с какого момента и сколько правок в
+  // этом периметре (канон п.58а — подпись строится из ДАННЫХ, по которым
+  // посчитано число, а не из бейджа шапки).
+  const scopeLabel = deptSet.size === 0
+    ? 'все книги управлений'
+    : `книги: ${depts.join(', ')}`;
   return (
     <div className="space-y-4">
       <div className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-        Правки в книгах · журнал с {sinceRu} · всего: {data.records.length}
+        Правки в книгах · {scopeLabel} · журнал с {sinceRu} · всего: {records.length}
+        {deptSet.size > 0 && records.length !== data.records.length && (
+          <span className="normal-case tracking-normal">
+            {' '}(в районе за тот же срок — {data.records.length})
+          </span>
+        )}
       </div>
 
       {methodChanges.length > 0 && (
@@ -189,10 +227,22 @@ export function ChangesSection({ since }: { since?: string }) {
         </div>
       )}
 
-      {data.records.length === 0 ? (
-        <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
-          С даты среза правок в книгах не зафиксировано.
-        </p>
+      {/* Честная пустота двух родов (канон п.104): пусто, потому что правок
+          не было вовсе, — и пусто, потому что срез по выбранным книгам их
+          отсеял. Одна фраза на оба случая скрывала бы от читателя, что
+          рядом, в чужих книгах, правки есть. */}
+      {records.length === 0 ? (
+        deptSet.size > 0 && data.records.length > 0 ? (
+          <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+            В выбранных книгах ({depts.join(', ')}) правок с даты среза нет.
+            В остальных книгах района за тот же срок — {data.records.length}:
+            снимите фильтр управления в шапке, чтобы увидеть их.
+          </p>
+        ) : (
+          <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+            С даты среза правок в книгах не зафиксировано.
+          </p>
+        )
       ) : (
         byDept.map(([dept, records]) => (
           <div key={dept}>

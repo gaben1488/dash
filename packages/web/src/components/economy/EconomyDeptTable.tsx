@@ -12,21 +12,21 @@ import { KBTooltip } from '../ui/kb-tooltip';
 import { BT, EconomyProgress, FOCUS_RING, MiniSpark, PctBadge, SortChevron, TriBar } from './primitives';
 import { formatPct } from '../../lib/economy/format';
 import { pctOf } from '../../lib/economy/dept-economy';
+import { pluralRu } from '../../lib/economy-copy';
 import { ORG_ITSELF } from '../../lib/economy/types';
 import type { DeptEconomy, SortDir, SortField, SubEconomy } from '../../lib/economy/types';
 import type { EconomyTotals } from '../../lib/economy/dept-economy';
 
 type Fmt = (v: number) => string;
 
-/** Склонение «расхождение / расхождения / расхождений». */
-function conflictWord(n: number): string {
-  const abs = Math.abs(n) % 100;
-  const d = abs % 10;
-  if (abs > 10 && abs < 20) return 'расхождений';
-  if (d === 1) return 'расхождение';
-  if (d > 1 && d < 5) return 'расхождения';
-  return 'расхождений';
-}
+/**
+ * Склонение «расхождение / расхождения / расхождений». Считает общий дом
+ * склонений продукта (`pluralRu`), а не местная копия правила: вторая копия
+ * русской грамматики расходится с первой молча и незаметно (канон п.112
+ * «брать готовое»).
+ */
+const conflictWord = (n: number): string =>
+  pluralRu(n, 'расхождение', 'расхождения', 'расхождений');
 
 /** Строка бюджета (ФБ/КБ/МБ) внутри раскрытого управления. */
 function BudgetRow({ label, plan, fact, economy, fmt, tk }: {

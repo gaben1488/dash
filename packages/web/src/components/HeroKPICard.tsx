@@ -128,7 +128,7 @@ export interface HeroKPICardProps {
  */
 const STATUS_CONFIG = {
   normal: {
-    border: 'border-zinc-200/80 dark:border-zinc-800/80',
+    border: 'border-zinc-200/80 dark:border-transparent',
     glow: '',
     accent: 'bg-emerald-500',
     bgGradient: '',

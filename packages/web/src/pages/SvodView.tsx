@@ -4,6 +4,7 @@ import { api, humanizeRequestError } from '../api';
 import {
   SVOD_SPREADSHEET_ID,
   ACTIVITY_LABEL,
+  buildSheetUrl,
   SVOD_SHEET_BLOCK_TITLES,
   SVOD_SHEET_EXTRAS,
   SVOD_SWITCH_BY_SCOPE,
@@ -31,6 +32,12 @@ import {
   isAllCats,
 } from '../lib/svod/activity';
 import { activePeriodButton, resolveSvodPeriod } from '../lib/svod/period';
+import {
+  orderDeptBlocks,
+  SVOD_ORDER_HINT,
+  SVOD_ORDER_LABEL,
+  type SvodOrder,
+} from '../lib/svod/order';
 import { collapsePeriods, hasCellsForPeriods, isGridEmpty } from '../lib/svod/grid';
 import {
   epShareByCount,
@@ -39,6 +46,7 @@ import {
   type SvodMethodShares,
   type SvodRemainder,
 } from '../lib/svod/sheet-metrics';
+import { Notice } from '../components/report/FilterNotices';
 import { PeriodBadge } from '../components/PeriodBadge';
 import { SourceBadge } from '../components/contract/SourceBadge';
 import { useOrgScope, type OrgScope } from '../lib/selectors/org-scope';
@@ -47,6 +55,7 @@ import {
   isCountMetric,
   reconAvailability,
   reconBadges,
+  reconDiagnosis,
   reconKeyLabel,
   reconMismatches,
   type ReconAvailability,
@@ -58,6 +67,19 @@ import {
   AlertTriangle, CalendarOff, Info,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { CARD, CARD_SURFACE, RULE_HEAD, RULE_ROW } from '../components/dashboard/surfaces';
+
+// Словарь линеек «Свода» (канон п.129). Поверхности в тёмной теме
+// разделяет светлота, но таблица без линеек читается хуже: границы групп
+// столбцов и разделители строк остаются, но самыми тихими тонами.
+const RULE_T = `border-t ${RULE_HEAD}`;
+const RULE_ROW_T = `border-t ${RULE_ROW}`;
+const RULE_ROW_B = `border-b ${RULE_ROW}`;
+const RULE_ROW_L = `border-l ${RULE_ROW}`;
+const RULE_HEAD_B = `border-b ${RULE_HEAD}`;
+/** Граница между группами столбцов (план / факт / экономия). */
+const COL_RULE = `border-l ${RULE_HEAD}`;
+
 
 // ── Форматирование ───────────────────────────────────────────────────
 
@@ -194,6 +216,12 @@ export function SvodView() {
   // поэтому единственное состояние, которое честно остаётся локальным.
   const [budgetFull, setBudgetFull] = useState(false);
 
+  // Порядок блоков управлений (работа 5.3 карты вкладки). Тоже раскладка, а
+  // не фильтр: ни одно число от него не меняется, меняется только строка, с
+  // которой читатель начинает. Потому и состояние местное — переносить
+  // порядок таблицы на соседние экраны было бы нечего.
+  const [deptOrder, setDeptOrder] = useState<SvodOrder>('registry');
+
   // Организационный срез (приказ владельца 20.08.2026). Свод строится по
   // главным распорядителям: ячейка единой сетки заведена на ГРБС, разреза по
   // подведомственным учреждениям в ней нет вовсе. Значит, разбивку по подведам
@@ -273,6 +301,13 @@ export function SvodView() {
     }).view;
   }, [grid, scope, cats, periodSel, budgetSet, selectedDepartments]);
 
+  // Блоки управлений в выбранном порядке. Числа не трогаются — меняется
+  // только последовательность (правила — `lib/svod/order.ts`).
+  const orderedDepartments = useMemo(
+    () => (sliced ? orderDeptBlocks(sliced.departments, deptOrder) : []),
+    [sliced, deptOrder],
+  );
+
   // ── Сверка с официальным листом ──
   const availability = useMemo(
     () => reconAvailability({
@@ -323,7 +358,7 @@ export function SvodView() {
   return (
     <div className="space-y-5">
       {/* ── Шапка: заголовок-утверждение, оси, чипы ── */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-5">
+      <div className={`${CARD} rounded-xl shadow-sm dark:shadow-none p-5`}>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 flex items-center justify-center flex-shrink-0">
@@ -435,13 +470,16 @@ export function SvodView() {
                   )}
                   title={ACTIVITY_HINT[c]}
                 >
+                  {/* Квадратик отбора — орган управления: его обводка остаётся
+                      в обеих темах (канон п.129 снимает рамку с поверхностей,
+                      не с флажков). Пустой флажок без края — пустое место. */}
                   <span
                     aria-hidden
                     className={clsx(
                       'w-3 h-3 rounded-[4px] border inline-flex items-center justify-center text-[8px] leading-none',
                       cats.has(c)
                         ? 'bg-white/90 border-white/90 text-cyan-700'
-                        : 'border-zinc-400 dark:border-zinc-500 text-transparent',
+                        : 'border-zinc-400 dark:border-transparent text-transparent',
                     )}
                   >
                     ✓
@@ -674,7 +712,45 @@ export function SvodView() {
         />
       ) : (
         <>
-        <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+        {/* Порядок блоков управлений (работа 5.3 карты вкладки). Это
+            РАСКЛАДКА, а не фильтр: ни одно число не меняется, из таблицы
+            ничего не исчезает — меняется только строка, с которой читатель
+            начинает. Сказано вслух рядом с кнопками, чтобы порядок не
+            приняли за отбор. Итог по управлениям порядку не подчиняется:
+            он не управление, а сумма, и стоит первым всегда. */}
+        {orderedDepartments.length > 1 && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
+            <span className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              Порядок управлений
+            </span>
+            <div className="inline-flex overflow-hidden rounded-md border border-zinc-200 dark:border-transparent">
+              {(['registry', 'execution', 'plan', 'economy'] as const).map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => setDeptOrder(o)}
+                  aria-pressed={deptOrder === o}
+                  title={SVOD_ORDER_HINT[o]}
+                  className={clsx(
+                    'border-l px-2.5 py-0.5 text-[10px] font-medium transition-colors first:border-l-0',
+                    RULE_HEAD,
+                    deptOrder === o
+                      ? 'bg-cyan-600 text-white'
+                      : 'bg-white text-zinc-500 hover:bg-zinc-50 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-700/40',
+                    FOCUS_RING,
+                  )}
+                >
+                  {SVOD_ORDER_LABEL[o]}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+              порядок строк, не отбор: числа и состав таблицы не меняются
+              {deptOrder !== 'registry' && ' · управления без плана — внизу'}
+            </span>
+          </div>
+        )}
+        <div className={`${CARD} rounded-xl shadow-sm dark:shadow-none overflow-hidden`}>
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <caption className="sr-only">
@@ -694,7 +770,7 @@ export function SvodView() {
                   onOpenRows={() => navigateTo('data')}
                   openRowsHint="Открыть Реестр с теми же фильтрами шапки: строки, из которых сложены эти итоги"
                 />
-                {sliced.departments.map((d) => (
+                {orderedDepartments.map((d) => (
                   <BlockGroup
                     key={d.id}
                     title={d.shortName}
@@ -716,9 +792,10 @@ export function SvodView() {
             mismatches={mismatches}
             fmtMoney={fmtMoney}
             periodLabel={periodSel.shortLabel}
+            onOpenRows={() => navigateTo('data')}
           />
 
-          <p className="px-4 py-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 border-t border-zinc-100 dark:border-zinc-700/50">
+          <p className={`px-4 py-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 ${RULE_T}`}>
             Числа посчитаны по строкам книг управлений, а не сняты с формул листа: лист служит
             эталоном для сверки. Как считает лист: план — по всем счётным строкам периода;
             факт и экономия — только по строкам с заполненной датой заключения, поэтому
@@ -801,7 +878,7 @@ function ExtrasCard({ title, subtitle, children }: {
   children: ReactNode;
 }) {
   return (
-    <section className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50">
+    <section className={`${CARD} rounded-xl shadow-sm dark:shadow-none`}>
       <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -817,28 +894,54 @@ function ExtrasCard({ title, subtitle, children }: {
             {subtitle}
           </p>
         </div>
-        <PeriodBadge />
+        {/* Период И момент — разные оси (канон п.58). Плашка называет, за
+            какое время посчитаны числа карточки; подпись рядом — когда книги
+            читали в последний раз. Раньше момент стоял только в шапке
+            страницы, а карточки яруса живут своим пересчётом и от шапки
+            прокручиваются далеко: читатель их видел без момента вовсе. */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <ReadMomentNote />
+          <PeriodBadge />
+        </div>
       </header>
       <div className="px-5 pb-5">{children}</div>
     </section>
   );
 }
 
-/** Одно число яруса: подпись сверху, значение снизу — как в чипах шапки. */
-function ExtrasValue({ label, value, valueClass, hint }: {
+/**
+ * Одно число яруса: подпись сверху, значение снизу — как в чипах шапки.
+ *
+ * Число объясняет себя записью базы знаний, а не одним лишь атрибутом
+ * `title` (работа P1-3 карты вкладки). Всплывающая подсказка браузера с
+ * пальца недоступна вовсе — на планшете эти два числа оставались без
+ * объяснения (канон п.73а: объяснение открывается и по нажатию). `KbHover`
+ * открывается и по наведению, и по фокусу, и по касанию, и несёт ярус
+ * происхождения — откуда число родом и по какому адресу лежит первоисточник.
+ */
+function ExtrasValue({ label, value, valueClass, hint, metricKey }: {
   label: string;
   value: string;
   valueClass?: string;
   hint?: string;
+  /** Ключ записи БЗ; без него число остаётся с одной лишь подсказкой. */
+  metricKey?: string;
 }) {
+  const number = (
+    <div className={clsx('text-sm font-semibold tabular-nums mt-0.5', valueClass ?? 'text-zinc-800 dark:text-zinc-100')}>
+      {value}
+    </div>
+  );
   return (
     // Обводки у плитки нет (канон п.129): от карточки её отделяет светлота
     // поверхности, а не рамка — иначе на экране вырастает частокол.
-    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2" title={hint}>
+    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2" title={metricKey === undefined ? hint : undefined}>
       <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate">{label}</div>
-      <div className={clsx('text-sm font-semibold tabular-nums mt-0.5', valueClass ?? 'text-zinc-800 dark:text-zinc-100')}>
-        {value}
-      </div>
+      {metricKey === undefined ? number : (
+        <KbHover metricKey={metricKey} title={label} {...(hint ? { live: hint } : {})}>
+          {number}
+        </KbHover>
+      )}
     </div>
   );
 }
@@ -872,9 +975,14 @@ function RemainderCard({ remainder, budgets, fmtMoney, moneyLabel }: {
       <ExtrasValue
         key={key}
         label={label}
+        metricKey="remainder_to_conclude"
         value={value === null ? NO_DATA : `${fmtMoney(value)} ${moneyLabel}`}
         valueClass={value !== null && value < 0 ? 'text-violet-700 dark:text-violet-300' : undefined}
-        hint={`${label}: план минус факт. Отрицательное значение — факт превысил план.`}
+        hint={`${label}: план минус факт по видимому срезу. ${
+          value === null
+            ? 'Строк под выбранные условия нет — величины нет.'
+            : `Сейчас ${fmtMoney(value)} ${moneyLabel}.`
+        } Отрицательное значение — факт превысил план. На листе тот же остаток посчитан только по конкурентным процедурам за год.`}
       />
     );
   };
@@ -894,13 +1002,35 @@ function RemainderCard({ remainder, budgets, fmtMoney, moneyLabel }: {
           {cell('mb', UI_LABELS['budget.mb'], remainder.mb)}
           <ExtrasValue
             label={UI_LABELS['budget.total']}
+            metricKey="remainder_to_conclude"
             value={remainder.total === null ? NO_DATA : `${fmtMoney(remainder.total)} ${moneyLabel}`}
             valueClass="text-blue-700 dark:text-blue-300"
-            hint="Итог: сумма остатков по трём источникам. Та же величина, что «Отклонение, тыс. руб» в таблице, с обратным знаком."
+            hint={`Итог — сумма остатков по трём источникам${
+              remainder.total === null ? '' : `: сейчас ${fmtMoney(remainder.total)} ${moneyLabel}`
+            }. Та же величина, что «Отклонение, тыс. руб» в таблице, с обратным знаком.`}
           />
         </div>
       )}
     </ExtrasCard>
+  );
+}
+
+/**
+ * Значение доли, объясняющее себя (работа P1-3 карты вкладки). Долю ЕП по
+ * деньгам и по штукам продукт когда-то называл одним словом, поэтому именно
+ * здесь объяснение обязательно: подстановка живых чисел прямо говорит, что
+ * стоит в знаменателе — суммы или процедуры.
+ */
+function ShareValue({ metricKey, label, live, text }: {
+  metricKey: string;
+  label: string;
+  live: string;
+  text: string;
+}) {
+  return (
+    <KbHover metricKey={metricKey} title={label} live={live}>
+      <span>{text}</span>
+    </KbHover>
   );
 }
 
@@ -941,7 +1071,7 @@ function SharesCard({ shares, epByCount, methodFiltered }: {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-t border-zinc-100 dark:border-zinc-800/60">
+              <tr className={RULE_ROW_T}>
                 <th scope="row" className="px-2.5 py-1.5 text-left font-normal text-zinc-600 dark:text-zinc-300">
                   <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold', SECTION_META.kp.tagClass)} title={SECTION_META.kp.hint}>
                     {SECTION_META.kp.label}
@@ -950,10 +1080,24 @@ function SharesCard({ shares, epByCount, methodFiltered }: {
                     {SVOD_SHEET_EXTRAS.shareKp.replace(/:$/, '')}
                   </span>
                 </th>
-                <td className={clsx(cellCls, 'text-blue-700 dark:text-blue-300')}>{pctText(shares.kp.fact)}</td>
-                <td className={clsx(cellCls, 'text-blue-700 dark:text-blue-300')}>{pctText(shares.kp.plan)}</td>
+                <td className={clsx(cellCls, 'text-blue-700 dark:text-blue-300')}>
+                  <ShareValue
+                    metricKey="ep_share_pct"
+                    label={`${SVOD_SHEET_EXTRAS.shareKp.replace(/:$/, '')} · ${SVOD_SHEET_EXTRAS.shareFact}`}
+                    live={`${pctText(shares.kp.fact)} — фактические суммы конкурентных процедур, делённые на фактическую сумму «${SVOD_SHEET_EXTRAS.totalYear}» видимого среза. Доля считается ПО ДЕНЬГАМ, не по числу процедур.`}
+                    text={pctText(shares.kp.fact)}
+                  />
+                </td>
+                <td className={clsx(cellCls, 'text-blue-700 dark:text-blue-300')}>
+                  <ShareValue
+                    metricKey="ep_share_pct"
+                    label={`${SVOD_SHEET_EXTRAS.shareKp.replace(/:$/, '')} · ${SVOD_SHEET_EXTRAS.sharePlan}`}
+                    live={`${pctText(shares.kp.plan)} — плановые суммы конкурентных процедур, делённые на плановую сумму «${SVOD_SHEET_EXTRAS.totalYear}» видимого среза.`}
+                    text={pctText(shares.kp.plan)}
+                  />
+                </td>
               </tr>
-              <tr className="border-t border-zinc-100 dark:border-zinc-800/60">
+              <tr className={RULE_ROW_T}>
                 <th scope="row" className="px-2.5 py-1.5 text-left font-normal text-zinc-600 dark:text-zinc-300">
                   <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold', SECTION_META.ep.tagClass)} title={SECTION_META.ep.hint}>
                     {SECTION_META.ep.label}
@@ -962,15 +1106,35 @@ function SharesCard({ shares, epByCount, methodFiltered }: {
                     {SVOD_SHEET_EXTRAS.shareEp.replace(/:$/, '')}
                   </span>
                 </th>
-                <td className={clsx(cellCls, 'text-amber-700 dark:text-amber-300')}>{pctText(shares.ep.fact)}</td>
-                <td className={clsx(cellCls, 'text-amber-700 dark:text-amber-300')}>{pctText(shares.ep.plan)}</td>
+                <td className={clsx(cellCls, 'text-amber-700 dark:text-amber-300')}>
+                  <ShareValue
+                    metricKey="ep_share_pct"
+                    label={`${SVOD_SHEET_EXTRAS.shareEp.replace(/:$/, '')} · ${SVOD_SHEET_EXTRAS.shareFact}`}
+                    live={`${pctText(shares.ep.fact)} — фактические суммы единственного поставщика, делённые на фактическую сумму «${SVOD_SHEET_EXTRAS.totalYear}» видимого среза. По штукам эта доля другая — она названа отдельной строкой ниже.`}
+                    text={pctText(shares.ep.fact)}
+                  />
+                </td>
+                <td className={clsx(cellCls, 'text-amber-700 dark:text-amber-300')}>
+                  <ShareValue
+                    metricKey="ep_share_pct"
+                    label={`${SVOD_SHEET_EXTRAS.shareEp.replace(/:$/, '')} · ${SVOD_SHEET_EXTRAS.sharePlan}`}
+                    live={`${pctText(shares.ep.plan)} — плановые суммы единственного поставщика, делённые на плановую сумму «${SVOD_SHEET_EXTRAS.totalYear}» видимого среза.`}
+                    text={pctText(shares.ep.plan)}
+                  />
+                </td>
               </tr>
             </tbody>
           </table>
           {/* Доля ЕП по штукам — наше число, не листовое. Названо иначе, чтобы
               его больше не путали с долей по деньгам. */}
           <p className="mt-3 text-[11px] text-zinc-500 dark:text-zinc-400">
-            Доля ЕП по числу процедур — {pctText(epByCount)}. Это отдельный показатель:
+            Доля ЕП по числу процедур —{' '}
+            <ShareValue
+              metricKey="ep_share_pct"
+              label="Доля ЕП по числу процедур"
+              live={`${pctText(epByCount)} — число закупок у единственного поставщика, делённое на общее число закупок видимого среза. База ШТУКИ, а не деньги: денежная доля ЕП выше в таблице и обычно отличается.`}
+              text={pctText(epByCount)}
+            />. Это отдельный показатель:
             на листе долей по количеству нет, там обе доли только денежные.
           </p>
           {/* Лист печатает доли и под каждым блоком ГРБС. Здесь они получаются
@@ -1083,23 +1247,10 @@ function ReadMomentNote() {
   );
 }
 
-/** Строка-пояснение под осями: что именно сейчас с числами делает фильтр. */
-function Notice({ tone, children }: { tone: 'info' | 'muted'; children: ReactNode }) {
-  return (
-    <p
-      className={clsx(
-        // Рамки нет (канон п.129): плашку от карточки отделяет тон заливки.
-        'mt-3 flex items-start gap-2 text-[11px] leading-snug rounded-lg px-3 py-2',
-        tone === 'info'
-          ? 'text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30'
-          : 'text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900/40',
-      )}
-    >
-      <Info size={13} className="mt-px flex-shrink-0" aria-hidden />
-      <span>{children}</span>
-    </p>
-  );
-}
+// Плашка «Notice» переехала в общий дом зоны «Отчёт + Свод»
+// (`components/report/FilterNotices.tsx`, 21.08): у «Отчёта» появились свои
+// плашки о неприменяемых фильтрах, и вторая редакция одной фразы на соседнем
+// экране означала бы два разных тона у одного смысла (канон п.112).
 
 function StatePanel({
   tone, icon, title, text, detail,
@@ -1111,14 +1262,17 @@ function StatePanel({
   /** Технический текст — мелким и в скобках, не в заголовке. */
   detail?: string;
 }) {
+  // Тревога и предупреждение оставляют свою обводку в обеих темах: цвет края
+  // здесь — сам сигнал, а не хром. Спокойная панель — обычная поверхность:
+  // в тёмной теме её отделяет светлота карточки, а не рамка (канон п.129).
   const border =
     tone === 'error' ? 'border-red-200 dark:border-red-700/50'
       : tone === 'warning' ? 'border-amber-200 dark:border-amber-700/50'
-        : 'border-zinc-100 dark:border-zinc-700/50';
+        : 'border-zinc-100 dark:border-transparent';
   return (
     <div
       role={tone === 'error' ? 'alert' : undefined}
-      className={clsx('bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border p-12 text-center', border)}
+      className={clsx(CARD_SURFACE, 'rounded-xl shadow-sm dark:shadow-none border p-12 text-center', border)}
     >
       {icon}
       <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">{title}</p>
@@ -1200,11 +1354,11 @@ function ReconBadgeTag({ badge }: { badge: ReconBadge }) {
 
 function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyLabel: string }) {
   const moneySpan = budgetFull ? 4 : 1;
-  const th = 'px-2.5 py-2 font-semibold text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-700';
-  const sub = 'px-2.5 py-1.5 font-medium text-[10px] text-zinc-400 dark:text-zinc-500 border-b border-zinc-200 dark:border-zinc-700 text-right';
+  const th = `px-2.5 py-2 font-semibold text-zinc-500 dark:text-zinc-400 ${RULE_HEAD_B}`;
+  const sub = `px-2.5 py-1.5 font-medium text-[10px] text-zinc-400 dark:text-zinc-500 ${RULE_HEAD_B} text-right`;
   const budgetHeads = (
     <>
-      <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700')} title={UI_LABELS['budget.fb']}>ФБ</th>
+      <th scope="col" className={clsx(sub, COL_RULE)} title={UI_LABELS['budget.fb']}>ФБ</th>
       <th scope="col" className={sub} title={UI_LABELS['budget.kb']}>КБ</th>
       <th scope="col" className={sub} title={UI_LABELS['budget.mb']}>МБ</th>
       <th scope="col" className={clsx(sub, 'font-semibold text-zinc-500')}>Итого</th>
@@ -1216,14 +1370,14 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         <th scope="col" className={clsx(th, 'text-left sticky left-0 bg-zinc-50 dark:bg-zinc-900/80')} rowSpan={2}>
           Управление · раздел
         </th>
-        <th scope="colgroup" className={clsx(th, 'text-center border-l border-zinc-200 dark:border-zinc-700')} colSpan={4}>
+        <th scope="colgroup" className={clsx(th, 'text-center', COL_RULE)} colSpan={4}>
           Количество, ед.
         </th>
         {/* Подписи «как считает лист» (задание группы): по наведению на группу
             столбцов видно правило формул официального листа — с ним и сверяемся. */}
         <th
           scope="colgroup"
-          className={clsx(th, GROUP_HEAD.plan, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
+          className={clsx(th, GROUP_HEAD.plan, 'text-center', COL_RULE)}
           colSpan={moneySpan}
           title="Как считает лист: плановые деньги суммируются по всем счётным строкам периода — условия по дате заключения у формул плана нет, поэтому «закупки, проводимые в течение года» в план входят."
         >
@@ -1231,7 +1385,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         </th>
         <th
           scope="colgroup"
-          className={clsx(th, GROUP_HEAD.fact, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
+          className={clsx(th, GROUP_HEAD.fact, 'text-center', COL_RULE)}
           colSpan={moneySpan}
           title="Как считает лист: фактические деньги суммируются только по строкам с заполненной датой заключения — строки без даты (стадия «в течение года») в факт листа не попадают."
         >
@@ -1241,7 +1395,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
             здесь та же геометрия — rowSpan, а не выдуманное имя группы. */}
         <th
           scope="col"
-          className={clsx(th, 'text-right border-l border-zinc-200 dark:border-zinc-700 normal-case')}
+          className={clsx(th, 'text-right', COL_RULE, 'normal-case')}
           rowSpan={2}
           title={`Столбец P листа «${svodSheetName('amountDeviation')}»: факт минус план в деньгах. Отрицательное значение — план не выбран.`}
         >
@@ -1249,7 +1403,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         </th>
         <th
           scope="col"
-          className={clsx(th, GROUP_HEAD.fact, 'text-right border-l border-zinc-200 dark:border-zinc-700 normal-case')}
+          className={clsx(th, GROUP_HEAD.fact, 'text-right', COL_RULE, 'normal-case')}
           rowSpan={2}
           title={`Столбец Q листа «${svodSheetName('spentPct')}»: факт ÷ план в деньгах. Считается по тем же строкам, что и факт, — только при заполненной дате заключения.`}
         >
@@ -1257,7 +1411,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
         </th>
         <th
           scope="colgroup"
-          className={clsx(th, GROUP_HEAD.eco, 'text-center border-l border-zinc-200 dark:border-zinc-700')}
+          className={clsx(th, GROUP_HEAD.eco, 'text-center', COL_RULE)}
           colSpan={moneySpan}
           title="Как считает лист: экономия суммируется по тем же строкам, что и факт, — только при заполненной дате заключения. Экономии без заключения не бывает."
         >
@@ -1266,7 +1420,7 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
       </tr>
       <tr>
         {/* Подписи счётной группы — дословно из шапки листа (столбцы D–G). */}
-        <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700 normal-case')}>
+        <th scope="col" className={clsx(sub, COL_RULE, 'normal-case')}>
           {svodSheetName('planCount')}
         </th>
         <th scope="col" className={clsx(sub, 'normal-case')}>{svodSheetName('factCount')}</th>
@@ -1292,9 +1446,9 @@ function SvodTableHead({ budgetFull, moneyLabel }: { budgetFull: boolean; moneyL
           </>
         ) : (
           <>
-            <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700')}>Итого</th>
-            <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700')}>Итого</th>
-            <th scope="col" className={clsx(sub, 'border-l border-zinc-200 dark:border-zinc-700')}>Итого</th>
+            <th scope="col" className={clsx(sub, COL_RULE)}>Итого</th>
+            <th scope="col" className={clsx(sub, COL_RULE)}>Итого</th>
+            <th scope="col" className={clsx(sub, COL_RULE)}>Итого</th>
           </>
         )}
       </tr>
@@ -1390,7 +1544,7 @@ function SvodDataRow({
   return (
     <tr
       className={clsx(
-        'border-b border-zinc-100 dark:border-zinc-800/60 transition',
+        RULE_ROW_B, 'transition',
         isTotal
           ? 'bg-zinc-50/80 dark:bg-zinc-900/40 font-semibold'
           : 'hover:bg-zinc-50 dark:hover:bg-zinc-700/20',
@@ -1408,51 +1562,51 @@ function SvodDataRow({
         </span>
       </th>
 
-      <td className={clsx(numMuted, 'border-l border-zinc-100 dark:border-zinc-800/60')}>{countText(row.planCount)}</td>
+      <td className={clsx(numMuted, RULE_ROW_L)}>{countText(row.planCount)}</td>
       <td className={numMuted}>{countText(row.factCount)}</td>
       <td className={clsx(num, deviationColor(row.deviationCount))}>{countText(row.deviationCount)}</td>
       <td className={clsx(num, 'font-semibold', execColorClass(row.executionPct))}>{pctText(row.executionPct)}</td>
 
       {budgetFull ? (
         <>
-          <td className={clsx(numMuted, GROUP_CELL.plan, 'border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.planFB)}</td>
+          <td className={clsx(numMuted, GROUP_CELL.plan, COL_RULE)}>{fmtMoney(row.planFB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.plan)}>{fmtMoney(row.planKB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.plan)}>{fmtMoney(row.planMB)}</td>
           <td className={clsx(num, GROUP_CELL.plan, 'font-semibold text-blue-700 dark:text-blue-300')}>{fmtMoney(row.planTotal)}</td>
         </>
       ) : (
-        <td className={clsx(num, GROUP_CELL.plan, 'font-medium text-blue-700 dark:text-blue-300 border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.planTotal)}</td>
+        <td className={clsx(num, GROUP_CELL.plan, 'font-medium text-blue-700 dark:text-blue-300', COL_RULE)}>{fmtMoney(row.planTotal)}</td>
       )}
 
       {budgetFull ? (
         <>
-          <td className={clsx(numMuted, GROUP_CELL.fact, 'border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.factFB)}</td>
+          <td className={clsx(numMuted, GROUP_CELL.fact, COL_RULE)}>{fmtMoney(row.factFB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.fact)}>{fmtMoney(row.factKB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.fact)}>{fmtMoney(row.factMB)}</td>
           <td className={clsx(num, GROUP_CELL.fact, 'font-semibold text-violet-800 dark:text-violet-200')}>{fmtMoney(row.factTotal)}</td>
         </>
       ) : (
-        <td className={clsx(num, GROUP_CELL.fact, 'font-medium text-violet-800 dark:text-violet-200 border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.factTotal)}</td>
+        <td className={clsx(num, GROUP_CELL.fact, 'font-medium text-violet-800 dark:text-violet-200', COL_RULE)}>{fmtMoney(row.factTotal)}</td>
       )}
 
       {/* Столбцы P и Q листа: до сверки 18.08.2026 вкладка их не рисовала,
           хотя оба числа модель уже держала. */}
-      <td className={clsx(num, deviationColor(row.amountDeviation), 'border-l border-zinc-200 dark:border-zinc-700')}>
+      <td className={clsx(num, deviationColor(row.amountDeviation), COL_RULE)}>
         {fmtMoney(row.amountDeviation)}
       </td>
-      <td className={clsx(num, GROUP_CELL.fact, 'font-semibold border-l border-zinc-200 dark:border-zinc-700', execColorClass(row.spentPct))}>
+      <td className={clsx(num, GROUP_CELL.fact, 'font-semibold', COL_RULE, execColorClass(row.spentPct))}>
         {pctText(row.spentPct)}
       </td>
 
       {budgetFull ? (
         <>
-          <td className={clsx(numMuted, GROUP_CELL.eco, 'border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.economyFB)}</td>
+          <td className={clsx(numMuted, GROUP_CELL.eco, COL_RULE)}>{fmtMoney(row.economyFB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.eco)}>{fmtMoney(row.economyKB)}</td>
           <td className={clsx(numMuted, GROUP_CELL.eco)}>{fmtMoney(row.economyMB)}</td>
           <td className={clsx(num, GROUP_CELL.eco, 'font-semibold text-emerald-700 dark:text-emerald-300')}>{fmtMoney(row.economyTotal)}</td>
         </>
       ) : (
-        <td className={clsx(num, GROUP_CELL.eco, 'font-medium text-emerald-700 dark:text-emerald-300 border-l border-zinc-200 dark:border-zinc-700')}>{fmtMoney(row.economyTotal)}</td>
+        <td className={clsx(num, GROUP_CELL.eco, 'font-medium text-emerald-700 dark:text-emerald-300', COL_RULE)}>{fmtMoney(row.economyTotal)}</td>
       )}
     </tr>
   );
@@ -1460,16 +1614,18 @@ function SvodDataRow({
 
 /** Итог сверки под таблицей: доступна ли она, и что именно разошлось. */
 function ReconFooter({
-  availability, mismatches, fmtMoney, periodLabel,
+  availability, mismatches, fmtMoney, periodLabel, onOpenRows,
 }: {
   availability: ReconAvailability;
   mismatches: ReconRow[];
   fmtMoney: (n: number | null) => string;
   periodLabel: string;
+  /** Дверь к строкам-основаниям расчёта — с периметром шапки (п.119). */
+  onOpenRows?: () => void;
 }) {
   if (!availability.available) {
     return (
-      <div className="px-4 py-2.5 border-t border-zinc-100 dark:border-zinc-700/50 flex items-start gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+      <div className={`px-4 py-2.5 ${RULE_T} flex items-start gap-2 text-[11px] text-zinc-500 dark:text-zinc-400`}>
         <ShieldOff size={12} className="mt-px flex-shrink-0 text-zinc-400" aria-hidden />
         <span>Сверка с официальным листом не выполнена. {availability.reason}</span>
       </div>
@@ -1477,19 +1633,31 @@ function ReconFooter({
   }
   if (mismatches.length === 0) {
     return (
-      <div className="px-4 py-2.5 border-t border-emerald-100 dark:border-emerald-900/40 flex items-start gap-2 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20">
+      /* Полосу «сверка чиста» в тёмной теме отделяет от карточки заливка:
+         прежняя пара «emerald-950/20 плюс край emerald-900/40» давала 1,018:1 —
+         полосы фактически не было видно, границу рисовал только край. Зелень на
+         десятую даёт 1,159:1 при пороге 1,12:1 (канон п.129: не хватает
+         разделения — поднимай светлоту, а не возвращай рамку). */
+      <div className="px-4 py-2.5 border-t border-emerald-100 dark:border-transparent flex items-start gap-2 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-500/10">
         <ShieldCheck size={12} className="mt-px flex-shrink-0" aria-hidden />
         <span>Расчёт полностью сходится с официальным листом за {periodLabel}: расхождение меньше 1 %.</span>
       </div>
     );
   }
   return (
-    <div className="p-4 border-t border-zinc-100 dark:border-zinc-700/50 space-y-1.5">
+    <div className={`p-4 ${RULE_T} space-y-1.5`}>
       <div className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
         <ShieldAlert size={13} className="text-amber-500" aria-hidden />
         Расчёт и официальный лист разошлись за {periodLabel}:
       </div>
-      {mismatches.map((r) => (
+      {/* Карточка диагноста целиком (канон п.53, работа P0-4): какая строка,
+          что в ней, почему — и что сделать, с адресатом. Раньше здесь были
+          только два числа, и читатель оставался с вопросом «и куда мне
+          теперь смотреть». Адрес ячейки берётся из карты официальных метрик,
+          а не сочиняется экраном. */}
+      {mismatches.map((r) => {
+        const d = reconDiagnosis(r);
+        return (
         <div key={r.key} className="flex items-start gap-2 text-[11px]">
           <span
             className={clsx(
@@ -1501,14 +1669,48 @@ function ReconFooter({
           >
             {r.deltaPct > 0 ? '+' : ''}{pctText(r.deltaPct / 100)}
           </span>
-          <span className="text-zinc-700 dark:text-zinc-300">
+          <span className="min-w-0 text-zinc-700 dark:text-zinc-300">
             {reconKeyLabel(r.key)}
             <span className="text-zinc-400 dark:text-zinc-500">
               {' · '}расчёт {reconValue(r.key, r.calc, fmtMoney)} против листа {reconValue(r.key, r.official, fmtMoney)}
+              {d.cell !== '' && (
+                <>
+                  {' · '}
+                  <a
+                    href={buildSheetUrl(SVOD_SPREADSHEET_ID, d.cell, d.sheet)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Открыть ${d.officialLabel} — лист «${d.sheet}», ячейка ${d.cell}`}
+                    className={clsx('font-mono text-cyan-700 dark:text-cyan-300 hover:underline', FOCUS_RING)}
+                  >
+                    {d.sheet !== '' ? `${d.sheet} · ${d.cell}` : d.cell}
+                  </a>
+                </>
+              )}
+            </span>
+            <span className="mt-0.5 block text-zinc-500 dark:text-zinc-400">
+              {d.what} {d.why}
+            </span>
+            <span className="mt-0.5 block text-zinc-600 dark:text-zinc-300">
+              Что сделать: {d.action}
+              {d.owner === 'books' && onOpenRows && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={onOpenRows}
+                    title="Открыть Реестр с фильтрами шапки — строки, из которых собран расчёт этой стороны сверки"
+                    className={clsx('font-medium text-cyan-700 dark:text-cyan-300 hover:underline', FOCUS_RING)}
+                  >
+                    строки в Реестре
+                  </button>
+                </>
+              )}
             </span>
           </span>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

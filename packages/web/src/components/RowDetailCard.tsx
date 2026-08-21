@@ -1,7 +1,7 @@
-import { useEffect, useCallback, useId, useRef } from 'react';
-import { BUDGET_SOURCE_META, isYearlongStageRow, productLabel } from '@aemr/shared';
+import { useEffect, useCallback, useId, useRef, useState } from 'react';
+import { BUDGET_SOURCE_META, cellTextOrNull, isYearlongStageRow, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
-import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
+import { X, Clock, AlertTriangle, MapPin } from 'lucide-react';
 import clsx from 'clsx';
 import { KbHover } from './contract/KbHover';
 import { formatDateCell } from '../lib/sheet-date';
@@ -13,6 +13,8 @@ import { PlanProvenanceSection } from './provenance/PlanProvenanceSection';
 import { toRowSeq } from '../hooks/useRowProvenance';
 import { YearlongBadge } from './yearlong/YearlongBadge';
 import { YearlongKindSelect } from './yearlong/YearlongKindSelect';
+import { RowStatusChip } from './rows/RowStatusChip';
+import { COPY_REFUSED_NOTE, copyText, formatRowAddress } from './TableEditor';
 
 /**
  * Карточка строки реестра — «доказательство числа» для одной закупки.
@@ -143,13 +145,40 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
   const planDate = formatDateCell(row.planDate);
   const factDate = formatDateCell(row.factDate);
   const planYear = Number(row.planYear ?? 0);
-  const epReason = text(row.epReason);
+  /**
+   * Основание ЕП — три разных состояния графы M, а не два.
+   *
+   * Канон маркера отсутствия (@aemr/shared absence.ts, интервью п.62): «Х»,
+   * «X», тире в текстовой графе — не содержимое, а осознанно проставленное
+   * «здесь этого нет». До правки карточка печатала маркер как текст, и на
+   * проде выходило дословно «Основание выбора ЕП: X» (случай 6 разбора
+   * скриншотов владельца 20.08.2026). Теперь: содержимое показывается,
+   * заглушка называется заглушкой, пустая ячейка — пустой.
+   */
+  const epReasonRaw = text(row.epReason);
+  const epReason = cellTextOrNull(row.epReason);
+  const epReasonPlaceholder = epReasonRaw !== null && epReason === null ? epReasonRaw : null;
+  // Тот же канон для комментариев: «х» в примечании — не комментарий.
   const comments: Array<{ label: string; value: string | null }> = [
-    { label: 'Комментарий управления', value: text(row.commentGRBS) },
-    { label: 'Комментарий отдела экономики', value: text(row.commentExtra) },
-    { label: 'Комментарий финансового управления', value: text(row.commentUFBP) },
+    { label: 'Комментарий управления', value: cellTextOrNull(row.commentGRBS) },
+    { label: 'Комментарий отдела экономики', value: cellTextOrNull(row.commentExtra) },
+    { label: 'Комментарий финансового управления', value: cellTextOrNull(row.commentUFBP) },
   ];
   const filledComments = comments.filter(c => c.value);
+
+  /**
+   * Адрес строки и его копирование. Формат адреса — общий с панелью списка
+   * (formatRowAddress): второй записи «как выглядит адрес» в продукте нет,
+   * иначе скопированное из карточки и скопированное из списка отличались бы
+   * пробелом. Отказ буфера не проглатывается: казённый контур открывают и по
+   * http, где доступа к буферу нет вовсе.
+   */
+  const rowAddress = formatRowAddress(deptName, rowIndex);
+  const [copyNote, setCopyNote] = useState('');
+  const copyAddress = useCallback(async () => {
+    if (rowAddress === null) return;
+    setCopyNote(await copyText(rowAddress) ? 'Адрес скопирован' : COPY_REFUSED_NOTE);
+  }, [rowAddress]);
 
   return (
     <div
@@ -234,20 +263,12 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
               <div>
                 <div className="text-[10px] text-zinc-400 dark:text-zinc-500">Состояние</div>
                 <div>
+                  {/* Общий дом состояний — тот же компонент, что в таблице
+                      Реестра: до 21.08.2026 карточка знала пять подписей из
+                      тринадцати, и «Скоро срок», «Ошибка», «Открыт», «Срок не
+                      наступил», «Исполнение» выходили серыми без значка. */}
                   {text(row.status) ? (
-                    <span className={clsx(
-                      'inline-flex items-center gap-1 text-xs font-medium',
-                      row.status === 'Подписан' && 'text-emerald-600 dark:text-emerald-400',
-                      row.status === 'Отменён' && 'text-zinc-400 dark:text-zinc-500',
-                      row.status === 'Планирование' && 'text-blue-600 dark:text-blue-400',
-                      row.status === 'Исполнение' && 'text-amber-600 dark:text-amber-400',
-                      row.status === 'Просрочен' && 'text-red-600 dark:text-red-400',
-                    )}>
-                      {row.status === 'Подписан' && <CheckCircle2 size={13} aria-hidden="true" />}
-                      {row.status === 'Отменён' && <XCircle size={13} aria-hidden="true" />}
-                      {row.status === 'Планирование' && <Clock size={13} aria-hidden="true" />}
-                      {row.status}
-                    </span>
+                    <RowStatusChip status={row.status} />
                   ) : (
                     <span className="text-xs text-zinc-400 dark:text-zinc-500">не рассчитано: нет ни сроков, ни сумм</span>
                   )}
@@ -414,6 +435,11 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
                   {epReason}
                   <span className="text-zinc-400 dark:text-zinc-500"> (ячейка {cell('M')})</span>
                 </p>
+              ) : epReasonPlaceholder ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  В ячейке {cell('M')} стоит заглушка «{epReasonPlaceholder}» — основание не заполнено,
+                  хотя способ закупки единственный поставщик.
+                </p>
               ) : (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Основание не заполнено, хотя способ — единственный поставщик (ячейка {cell('M')} пуста)
@@ -545,6 +571,31 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
             {' '}Фильтры периода и способа из шапки на карточку не действуют: строка показана
             целиком, как записана в книге на момент её последнего чтения.
           </p>
+          {/* Адрес — дверь, а не текст (механизм М5 атласа). Адрес строки был
+              напечатан в подвале и копировался только из панели списка: читатель
+              с открытой карточкой переписывал «лист · строка N» руками. */}
+          {rowAddress !== null && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={copyAddress}
+                className="inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 rounded"
+              >
+                <MapPin size={11} aria-hidden="true" /> Скопировать адрес строки
+              </button>
+              <span
+                aria-live="polite"
+                className={clsx(
+                  'text-[10px]',
+                  copyNote === COPY_REFUSED_NOTE
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-zinc-400 dark:text-zinc-500',
+                )}
+              >
+                {copyNote}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

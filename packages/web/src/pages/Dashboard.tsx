@@ -27,7 +27,7 @@ import { formatPercent, formatMetricValue } from '../components/HeroKPICard';
 import { buildPerimeter, type Perimeter } from '../lib/perimeter';
 import { useOrgScope, type OrgScope } from '../lib/selectors/org-scope';
 import { DeptPortrait } from '../components/dashboard/DeptPortrait';
-import { CARD, RULE_HEAD } from '../components/dashboard/surfaces';
+import { CARD, CARD_SURFACE, RULE_HEAD } from '../components/dashboard/surfaces';
 import type { DeptMetrics } from '../hooks/useMultiDimMetrics';
 import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
@@ -403,7 +403,7 @@ export function Dashboard() {
   // тревоги, а не хром. Светлота поверхности — как у прочих карточек.
   if (error) {
     return (
-      <div className="bg-white dark:bg-zinc-800/60 rounded-2xl shadow-lg dark:shadow-none border border-red-200/60 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8" role="alert">
+      <div className={`${CARD_SURFACE} rounded-2xl shadow-lg dark:shadow-none border border-red-200/60 dark:border-red-500/30 max-w-lg mx-auto mt-12 text-center p-8`} role="alert">
         <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="text-red-500" size={28} aria-hidden="true" />
         </div>
@@ -466,7 +466,13 @@ export function Dashboard() {
 
       {/* Год выбранный и год данных не совпали */}
       {fd.yearMismatch && (
-        <div role="status" className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+        /* Полосу оговорки в тёмной теме держит ЗАЛИВКА, а не коричневый край:
+           прежняя пара «amber-950/30 плюс рамка amber-800» давала к фону
+           1,055:1 — сама заливка не читалась, и всю работу делала та самая
+           коричневая рамка, на которую жаловался владелец. Янтарь на десятую
+           даёт 1,135:1 при пороге 1,12:1, текст на нём — 10:1. В светлой теме
+           тонкая линия остаётся: на белом разница светлот не читается. */
+        <div role="status" className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-transparent rounded-xl text-sm text-amber-700 dark:text-amber-400">
           <Info size={16} aria-hidden="true" />
           <span>Все числа ниже посчитаны за <strong>{fd.dataYear}</strong> год: данных за <strong>{fd.year}</strong> год в прочитанных книгах пока нет.</span>
         </div>
@@ -611,7 +617,10 @@ export function Dashboard() {
                       <p className="font-semibold mb-1">{label}</p>
                       <p>План конкурентных: <strong>{formatMoney(d.kpPlan)}</strong></p>
                       <p>План у единственного поставщика: <strong>{formatMoney(d.epPlan)}</strong></p>
-                      <p className="border-t border-zinc-200 dark:border-zinc-600 mt-1 pt-1">План всего: <strong>{formatMoney(d.plan)}</strong></p>
+                      {/* Черта перед итогом — линейка внутри подсказки, а не
+                          обводка поверхности: цвет берём из словаря зоны, чтобы
+                          в тёмной теме она была тише текста (канон п.129). */}
+                      <p className={`border-t ${RULE_HEAD} mt-1 pt-1`}>План всего: <strong>{formatMoney(d.plan)}</strong></p>
                       <p className="mt-1">Факт: <strong>{formatMoney(d.fact)}</strong></p>
                     </div>
                   );
@@ -698,7 +707,7 @@ export function Dashboard() {
                     // Явный цвет текста обязателен: тултип рендерится в обёртке
                     // recharts и наследует цвет страницы — в тёмной теме это
                     // тёмный текст на тёмной подложке (жалоба п.24-25 интервью)
-                    <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 shadow-lg text-xs text-zinc-700 dark:text-zinc-100">
+                    <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-transparent rounded-lg p-3 shadow-lg text-xs text-zinc-700 dark:text-zinc-100">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-100 mb-1">{d.name}</p>
                       {d.pct != null
                         ? <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
@@ -1319,16 +1328,22 @@ function BlindSpotsWidget({
     kbFallback?: ReturnType<typeof kbCardProps>;
   }>;
 
+  // Плитки сигналов. В тёмной теме их отделяет от карточки светлота той же
+  // ступени, что и у словаря поверхностей (surfaces.ts, TILE — white/[0.05],
+  // контраст к карточке 1,144:1); собственная обводка в тёмной теме погашена, и
+  // цветная линия возвращается только под курсором — как отклик на наведение, а
+  // не как постоянная рамка (канон п.129). В светлой теме тонкая цветная линия
+  // остаётся: на белом фоне разница светлот не читается.
   const colorMap: Record<string, { bg: string; border: string; text: string; number: string; glow: string }> = {
-    red:    { bg: 'bg-red-500/8 dark:bg-white/[0.045]', border: 'border-red-500/15 dark:border-transparent hover:border-red-500/30 dark:hover:border-red-500/25', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
-    rose:   { bg: 'bg-rose-500/8 dark:bg-white/[0.045]', border: 'border-rose-500/15 dark:border-transparent hover:border-rose-500/30 dark:hover:border-rose-500/25', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
-    orange: { bg: 'bg-orange-500/8 dark:bg-white/[0.045]', border: 'border-orange-500/15 dark:border-transparent hover:border-orange-500/30 dark:hover:border-orange-500/25', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
-    amber:  { bg: 'bg-amber-500/8 dark:bg-white/[0.045]', border: 'border-amber-500/15 dark:border-transparent hover:border-amber-500/30 dark:hover:border-amber-500/25', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
-    purple: { bg: 'bg-purple-500/8 dark:bg-white/[0.045]', border: 'border-purple-500/15 dark:border-transparent hover:border-purple-500/30 dark:hover:border-purple-500/25', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
-    cyan:   { bg: 'bg-cyan-500/8 dark:bg-white/[0.045]', border: 'border-cyan-500/15 dark:border-transparent hover:border-cyan-500/30 dark:hover:border-cyan-500/25', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
-    blue:   { bg: 'bg-blue-500/8 dark:bg-white/[0.045]', border: 'border-blue-500/15 dark:border-transparent hover:border-blue-500/30 dark:hover:border-blue-500/25', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
-    indigo: { bg: 'bg-indigo-500/8 dark:bg-white/[0.045]', border: 'border-indigo-500/15 dark:border-transparent hover:border-indigo-500/30 dark:hover:border-indigo-500/25', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
-    teal:   { bg: 'bg-teal-500/8 dark:bg-white/[0.045]', border: 'border-teal-500/15 dark:border-transparent hover:border-teal-500/30 dark:hover:border-teal-500/25', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
+    red:    { bg: 'bg-red-500/8 dark:bg-white/[0.05]', border: 'border-red-500/15 dark:border-transparent hover:border-red-500/30 dark:hover:border-red-500/25', text: 'text-red-500/80', number: 'text-red-500', glow: 'hover:shadow-red-500/10' },
+    rose:   { bg: 'bg-rose-500/8 dark:bg-white/[0.05]', border: 'border-rose-500/15 dark:border-transparent hover:border-rose-500/30 dark:hover:border-rose-500/25', text: 'text-rose-500/80', number: 'text-rose-500', glow: 'hover:shadow-rose-500/10' },
+    orange: { bg: 'bg-orange-500/8 dark:bg-white/[0.05]', border: 'border-orange-500/15 dark:border-transparent hover:border-orange-500/30 dark:hover:border-orange-500/25', text: 'text-orange-500/80', number: 'text-orange-500', glow: 'hover:shadow-orange-500/10' },
+    amber:  { bg: 'bg-amber-500/8 dark:bg-white/[0.05]', border: 'border-amber-500/15 dark:border-transparent hover:border-amber-500/30 dark:hover:border-amber-500/25', text: 'text-amber-500/80', number: 'text-amber-500', glow: 'hover:shadow-amber-500/10' },
+    purple: { bg: 'bg-purple-500/8 dark:bg-white/[0.05]', border: 'border-purple-500/15 dark:border-transparent hover:border-purple-500/30 dark:hover:border-purple-500/25', text: 'text-purple-500/80', number: 'text-purple-500', glow: 'hover:shadow-purple-500/10' },
+    cyan:   { bg: 'bg-cyan-500/8 dark:bg-white/[0.05]', border: 'border-cyan-500/15 dark:border-transparent hover:border-cyan-500/30 dark:hover:border-cyan-500/25', text: 'text-cyan-500/80', number: 'text-cyan-500', glow: 'hover:shadow-cyan-500/10' },
+    blue:   { bg: 'bg-blue-500/8 dark:bg-white/[0.05]', border: 'border-blue-500/15 dark:border-transparent hover:border-blue-500/30 dark:hover:border-blue-500/25', text: 'text-blue-500/80', number: 'text-blue-500', glow: 'hover:shadow-blue-500/10' },
+    indigo: { bg: 'bg-indigo-500/8 dark:bg-white/[0.05]', border: 'border-indigo-500/15 dark:border-transparent hover:border-indigo-500/30 dark:hover:border-indigo-500/25', text: 'text-indigo-500/80', number: 'text-indigo-500', glow: 'hover:shadow-indigo-500/10' },
+    teal:   { bg: 'bg-teal-500/8 dark:bg-white/[0.05]', border: 'border-teal-500/15 dark:border-transparent hover:border-teal-500/30 dark:hover:border-teal-500/25', text: 'text-teal-500/80', number: 'text-teal-500', glow: 'hover:shadow-teal-500/10' },
   };
 
   const totalSpots = spots.reduce((s, c) => s + (signalCounts[c.signal] || 0), 0);

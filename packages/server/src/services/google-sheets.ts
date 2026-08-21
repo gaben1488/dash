@@ -552,9 +552,29 @@ export async function resolveDeptSheetName(deptName: string, ssId: string): Prom
   }
 }
 
+/**
+ * Формулы книги ГРБС продукту не нужны.
+ *
+ * Замер 21.08.2026: `getSheetDataWithFormulas` делает ДВА обращения к Google на
+ * один лист — одно за значениями, одно за формулами. Восемь книг управлений
+ * стоили шестнадцати запросов за цикл, при этом поле `formulas` из
+ * `fetchDepartmentSpreadsheets` не читал НИКТО: сквозной поиск по серверу и
+ * ядру нашёл потребителей формул только у листа ШДЮ (снимок) и у сверки
+ * (routes/reconciliation.ts) — и оба берут их своими вызовами. Половина
+ * запросов к квоте Google уходила в мусорное ведро.
+ *
+ * Формулы остались параметром, а не удалены: понадобятся — включаются одним
+ * флагом, и это будет осознанная плата, а не тихая привычка.
+ */
+export interface DeptReadOptions {
+  /** Читать ли формулы листа (второе обращение к Google). По умолчанию нет. */
+  withFormulas?: boolean;
+}
+
 export async function readDeptSheet(
   deptName: string,
   ssId: string,
+  options: DeptReadOptions = {},
 ): Promise<{ values: unknown[][]; formulas: unknown[][]; sheetName: string }> {
   const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
     DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
@@ -564,7 +584,9 @@ export async function readDeptSheet(
   let lastError: unknown;
   for (const candidate of candidates) {
     try {
-      const result = await getSheetDataWithFormulas(ssId, candidate);
+      const result = options.withFormulas
+        ? await getSheetDataWithFormulas(ssId, candidate)
+        : { values: await getSheetDataFromSpreadsheet(ssId, candidate), formulas: [] as unknown[][] };
       if (result.values.length > 0) {
         return { ...result, sheetName: candidate };
       }
@@ -585,16 +607,28 @@ export async function readDeptSheet(
   );
 }
 
+/**
+ * Прочитать книги ГРБС. `only` сужает список до названных книг — уведомление
+ * Drive точно называет файл, и правка в книге УО не имеет права стоить чтения
+ * остальных семи (см. services/refresh-targets.ts). Пустой или неназванный
+ * `only` означает «все книги», как было раньше.
+ */
+export interface FetchDeptOptions extends DeptReadOptions {
+  only?: readonly string[];
+}
+
 export async function fetchDepartmentSpreadsheets(
   deptSpreadsheets: Record<string, string>,
+  options: FetchDeptOptions = {},
 ): Promise<{ data: Record<string, DeptSheetResult>; errors: Record<string, string> }> {
   const data: Record<string, DeptSheetResult> = {};
   const errors: Record<string, string> = {};
 
-  const entries = Object.entries(deptSpreadsheets);
+  const wanted = options.only && options.only.length > 0 ? new Set(options.only) : null;
+  const entries = Object.entries(deptSpreadsheets).filter(([name]) => !wanted || wanted.has(name));
   const results = await Promise.allSettled(
     entries.map(async ([deptName, ssId]) => {
-      const result = await readDeptSheet(deptName, ssId);
+      const result = await readDeptSheet(deptName, ssId, options);
       return { deptName, ...result };
     }),
   );

@@ -393,16 +393,14 @@ export function TextHygieneSection() {
         )}
       </div>
 
-      {/* Отказ сервера: прежний ответ не стирается, момент назван в плашке. */}
+      {/* Отказ сервера: прежний ответ не стирается, момент назван в плашке.
+          Плита держится ЗАЛИВКОЙ, а не ободком (канон п.129): обводка в 38 %
+          янтаря отличалась от страницы на 2,52 : 1 — тот самый «коричневый
+          прямоугольник», — тогда как сама заливка даёт 1,165 : 1 и о
+          предупреждении говорит уже она. В светлой теме ободок остаётся: на
+          белом фоне 10 % заливки почти не читаются. */}
       {error && (
-        <div
-          className="flex items-start gap-2 rounded-[var(--radius-card)] border px-4 py-3 ds-text-xs"
-          style={{
-            borderColor: 'color-mix(in srgb, var(--data-warn) 38%, transparent)',
-            backgroundColor: 'color-mix(in srgb, var(--data-warn) 10%, transparent)',
-            color: 'var(--data-warn)',
-          }}
-        >
+        <div className="flex items-start gap-2 rounded-[var(--radius-card)] border border-[color-mix(in_srgb,var(--data-warn)_38%,transparent)] bg-[color-mix(in_srgb,var(--data-warn)_10%,transparent)] px-4 py-3 ds-text-xs text-[var(--data-warn)] dark:border-transparent">
           <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden="true" />
           <div>
             <p>

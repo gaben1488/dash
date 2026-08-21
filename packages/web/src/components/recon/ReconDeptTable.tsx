@@ -22,6 +22,7 @@ import { fmtNum, fmtPct, isZero } from '../../lib/recon/format';
 import { diagnoseDelta } from '../../lib/recon/diagnose';
 import { buildSheetUrl, DEPT_SVOD_CELLS } from '../../lib/recon/sheet-links';
 import { RootCauseList } from './RootCauseCard';
+import { CARD, HEAD_STRIP, RULE_DIVIDE, RULE_HEAD } from '../control/surfaces';
 
 /** Цвет и значок вердикта. Подпись приходит из ядра — здесь её нет намеренно. */
 const KIND_CONFIG = {
@@ -107,12 +108,12 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
       </div>
 
       {/* Department reconciliation table */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+      <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none overflow-hidden')}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <caption className="sr-only">Годовая сверка по управлениям: официальные числа листа СВОД против пересчёта по строкам</caption>
             <thead>
-              <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <tr className={clsx(HEAD_STRIP, 'text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider')}>
                 <th scope="col" className="px-5 py-3">Управление</th>
                 <th scope="col" className="px-4 py-3 text-right" title="План года по листу СВОД ТД-ПМ, тыс. ₽">План, официально</th>
                 <th scope="col" className="px-4 py-3 text-right" title="План года по пересчёту строк, тыс. ₽">План, пересчёт</th>
@@ -124,7 +125,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                 <th scope="col" className="px-4 py-3 text-center">Вердикт</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+            <tbody className={RULE_DIVIDE}>
               {rows.map((row) => {
                 const cfg = KIND_CONFIG[row.assessment.kind];
                 const Icon = cfg.icon;
@@ -137,7 +138,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                       className={clsx(
                         'transition',
                         row.assessment.kind === 'high' && 'bg-red-50/30 dark:bg-red-950/20',
-                        row.assessment.kind === 'warning' && 'bg-amber-50/20 dark:bg-amber-950/15',
+                        row.assessment.kind === 'warning' && 'bg-amber-50/20 dark:bg-amber-950/20',
                         isExpanded ? 'bg-blue-50/30 dark:bg-blue-950/20' : 'hover:bg-zinc-50 dark:hover:bg-zinc-700/30',
                       )}
                     >
@@ -213,7 +214,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                       const diag = diagnoseDelta(row);
                       const cells = DEPT_SVOD_CELLS[row.department];
                       return (
-                      <tr className="bg-zinc-50/80 dark:bg-zinc-900/40">
+                      <tr className="bg-zinc-50/80 dark:bg-white/[0.05]">
                         <td colSpan={9} className="px-5 py-4" id={panelId}>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                             {/* Diagnosis */}
@@ -227,9 +228,9 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                                   названа словом и значком выше. */}
                               <div className={clsx(
                                 'rounded-lg p-3',
-                                diag.severity === 'error' ? 'bg-red-50 dark:bg-red-950/30'
-                                : diag.severity === 'warn' ? 'bg-amber-50 dark:bg-amber-950/30'
-                                : 'bg-emerald-50 dark:bg-emerald-950/30',
+                                diag.severity === 'error' ? 'bg-red-50 dark:bg-red-500/[0.16]'
+                                : diag.severity === 'warn' ? 'bg-amber-50 dark:bg-amber-500/[0.12]'
+                                : 'bg-emerald-50 dark:bg-emerald-500/[0.12]',
                               )}>
                                 <div className={clsx('font-bold text-[11px]',
                                   diag.severity === 'error' ? 'text-red-700 dark:text-red-400'
@@ -245,7 +246,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <FileSpreadsheet size={13} className="text-blue-500" aria-hidden="true" /> Официальные ячейки листа СВОД
                               </div>
-                              <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 space-y-1">
+                              <div className="bg-blue-50 dark:bg-blue-500/[0.10] rounded-lg p-3 space-y-1">
                                 {cells ? (
                                   <>
                                     {[
@@ -283,7 +284,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                               <div className="font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
                                 <Info size={13} className="text-indigo-500" aria-hidden="true" /> Экономия за год
                               </div>
-                              <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded-lg p-3">
+                              <div className="bg-indigo-50 dark:bg-indigo-500/[0.10] rounded-lg p-3">
                                 <div className="flex justify-between text-[10px]">
                                   <span className="text-indigo-600 dark:text-indigo-400">Официально:</span>
                                   <strong className="text-indigo-800 dark:text-indigo-300 tabular-nums">{fmtNum(row.ecoTotalOfficial)}</strong>
@@ -292,7 +293,7 @@ export function ReconDeptTable({ rows, counts, expandedDept, onToggleDept }: Rec
                                   <span className="text-indigo-600 dark:text-indigo-400">Пересчёт:</span>
                                   <strong className="text-indigo-800 dark:text-indigo-300 tabular-nums">{fmtNum(row.ecoTotalCalculated)}</strong>
                                 </div>
-                                <div className="flex justify-between mt-1 pt-1 border-t border-indigo-200 dark:border-indigo-700 text-[10px]">
+                                <div className={clsx('flex justify-between mt-1 pt-1 border-t text-[10px]', RULE_HEAD)}>
                                   <span className="text-indigo-600 dark:text-indigo-400">Расхождение:</span>
                                   <strong className={clsx('tabular-nums', isZero(row.ecoDelta) ? 'text-indigo-400' : 'text-indigo-800 dark:text-indigo-300')}>
                                     {fmtNum(row.ecoDelta)}

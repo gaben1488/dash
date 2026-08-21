@@ -19,6 +19,8 @@
 import type { SvodPayload, SvodRow } from '../../lib/monitoring/contract';
 import { fmtCount, fmtRub } from '../../lib/monitoring/format';
 import { BookPeriodBadge } from './BookPeriodBadge';
+import { MonitoringPerimeterCaption } from './PerimeterProvider';
+import { CARD, RULE_COL, RULE_COL_HEAD, RULE_HEAD, RULE_ROW, RULE_SECTION, RULE_TOTAL } from './surfaces';
 
 /** Пара «книга / продукт» в одной ячейке: расходятся — показываются обе. */
 function Pair({ book, product, kind = 'money' }: {
@@ -63,8 +65,8 @@ function ControlCell({ row }: { row: SvodRow }) {
 function Row({ row, total = false }: { row: SvodRow; total?: boolean }) {
   return (
     <tr className={total
-      ? 'border-t-2 border-zinc-200 dark:border-zinc-600 font-medium'
-      : 'border-b border-zinc-50 dark:border-zinc-700/30'}
+      ? `${RULE_TOTAL} font-medium`
+      : RULE_ROW}
     >
       <td className="px-2 py-1.5 text-zinc-700 dark:text-zinc-200">
         {row.bookLabel || row.sheet}
@@ -77,13 +79,13 @@ function Row({ row, total = false }: { row: SvodRow; total?: boolean }) {
       <td className="px-2 py-1.5 text-right"><Pair book={row.book.count} product={row.product.count} kind="count" /></td>
       <td className="px-2 py-1.5 text-right"><Pair book={row.book.nmck} product={row.product.nmck} /></td>
       <td className="px-2 py-1.5 text-right"><Pair book={row.book.price} product={row.product.price} /></td>
-      <td className="px-2 py-1.5 text-right border-l border-zinc-100 dark:border-zinc-700/50">
+      <td className={`px-2 py-1.5 text-right ${RULE_COL}`}>
         <Pair book={row.book.savingsTotal} product={row.product.savingsTotal} />
       </td>
       <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.mb)}</span></td>
       <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.kb)}</span></td>
       <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.fb)}</span></td>
-      <td className="px-2 py-1.5 text-right border-l border-zinc-100 dark:border-zinc-700/50"><ControlCell row={row} /></td>
+      <td className={`px-2 py-1.5 text-right ${RULE_COL}`}><ControlCell row={row} /></td>
     </tr>
   );
 }
@@ -99,7 +101,7 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
   return (
     <section
       aria-label="Свод книги"
-      className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4 space-y-3"
+      className={`${CARD} p-3 sm:p-4 space-y-3`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -109,26 +111,34 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
             стоят два числа: сверху книжное, под ним — продуктовое. Причина разницы названа под таблицей.
           </p>
         </div>
-        <BookPeriodBadge label={readAtLabel} note="свод книги пересчитывается формулами при каждом открытии книги" />
+        <div className="shrink-0 text-right">
+          <BookPeriodBadge label={readAtLabel} note="свод книги пересчитывается формулами при каждом открытии книги" />
+          <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+            Источник: лист «СВОДНЫЙ» книги «Ежедневный мониторинг»
+          </p>
+          {/* Свод — районный лист: выбранное в шапке управление его числа не
+              сужает, и паспорт говорит это словами (п.58, п.127). */}
+          <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-xs min-w-[44rem]">
           <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
-            <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
+            <tr className={RULE_HEAD}>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Управление</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Кол-во</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">НМЦК, руб.</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Цена аукциона, руб.</th>
-              <th colSpan={4} className="px-2 py-1 text-center font-medium border-l border-zinc-100 dark:border-zinc-700/50">
+              <th colSpan={4} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
                 Экономия, руб.
               </th>
-              <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom border-l border-zinc-100 dark:border-zinc-700/50">
+              <th rowSpan={2} className={`px-2 py-1.5 text-right font-medium align-bottom ${RULE_COL_HEAD}`}>
                 Контроль
               </th>
             </tr>
-            <tr className="border-b border-zinc-100 dark:border-zinc-700/50">
-              <th className="px-2 py-1 text-right font-normal border-l border-zinc-100 dark:border-zinc-700/50">ВСЕГО</th>
+            <tr className={RULE_HEAD}>
+              <th className={`px-2 py-1 text-right font-normal ${RULE_COL_HEAD}`}>ВСЕГО</th>
               <th className="px-2 py-1 text-right font-normal">МБ</th>
               <th className="px-2 py-1 text-right font-normal">КБ</th>
               <th className="px-2 py-1 text-right font-normal">ФБ</th>
@@ -142,7 +152,7 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
       </div>
 
       {diverging.length > 0 && (
-        <div className="space-y-1 border-t border-zinc-100 dark:border-zinc-700/50 pt-2.5">
+        <div className={`space-y-1 ${RULE_SECTION} pt-2.5`}>
           <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
             Почему книга и продукт считают по-разному
           </p>
@@ -182,11 +192,19 @@ export function SheetTotalsRow({ row }: { row: SvodRow }) {
   return (
     <section
       aria-label="Итог листа"
-      className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-100 dark:border-zinc-700/50 p-3 sm:p-4"
+      className={`${CARD} p-3 sm:p-4`}
     >
       <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
         Итог листа «{row.sheet}» — что лист отдаёт своду
       </h3>
+      {/* Периметр итога НЕ равен периметру таблицы над ним: итог берётся с
+          листа целиком, а таблица выше может быть срезана разрезами панели.
+          Молчание об этом читалось бы как «итог показанных строк» — и любое
+          несовпадение суммы выглядело бы ошибкой счёта. */}
+      <p className="mt-0.5 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+        Источник: лист «{row.sheet}» и строка свода книги «Ежедневный мониторинг». Числа — за ВЕСЬ
+        лист: разрезы панели, которыми сужена таблица выше, к этому итогу не применяются.
+      </p>
       <dl className="mt-2 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
         {cells.map((c) => (
           <div key={c.label}>

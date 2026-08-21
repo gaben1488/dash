@@ -22,7 +22,7 @@ const badgeVariants = cva(
         significant:
           'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
         outline:
-          'border border-zinc-200 text-zinc-700 dark:border-zinc-700 dark:text-zinc-300',
+          'border border-zinc-200 text-zinc-700 dark:border-transparent dark:text-zinc-300',
       },
     },
     defaultVariants: {

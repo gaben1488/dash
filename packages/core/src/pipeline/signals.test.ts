@@ -1427,6 +1427,7 @@ describe('classifyRowState', () => {
       budgetUnderallocation: false,
       budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
       derivedFormulaBroken: false, factQuarterMissing: false,
+      foreignYearExecution: false, initiativeRequest: false,
       ...overrides,
     };
   }
@@ -1504,6 +1505,7 @@ describe('getSignalBadges', () => {
       budgetUnderallocation: false,
       budgetSourceMissing: false, tdWithProgram: false, planYearMissing: false,
       derivedFormulaBroken: false, factQuarterMissing: false,
+      foreignYearExecution: false, initiativeRequest: false,
       ...overrides,
     };
   }
@@ -1809,5 +1811,80 @@ describe('имена классов строк — единственный до
     for (const badge of getSignalBadges(all)) {
       expect(badge.label).not.toMatch(/[a-z]+[A-Z][a-zA-Z]*/);
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Консолидация сигналов — решения владельца п.137 от 21.08.2026
+// ────────────────────────────────────────────────────────────
+
+describe('п.137(4): исполнение по плану другого года', () => {
+  it('год факта не равен году плана при обоих заполненных — признак горит', () => {
+    // Живой случай УО: договор января 2026-го против декабрьского плана
+    // 2025-го. Деньги потрачены в 2026-м, а в годовое число 2026-го не
+    // входят — годовой срез решает по плановому году.
+    const s = detectSignals(
+      makeCells({ N: '26.12.2025', P: 2025, Q: '01.01.2026', S: 2026, Y: 148_900 }),
+      REF_DATE,
+    );
+    expect(s.foreignYearExecution).toBe(true);
+  });
+
+  it('совпадение годов признака не даёт', () => {
+    const s = detectSignals(
+      makeCells({ N: '15.03.2026', P: 2026, Q: '20.03.2026', S: 2026, Y: 900_000 }),
+      REF_DATE,
+    );
+    expect(s.foreignYearExecution).toBe(false);
+  });
+
+  it('пустой год с любой стороны признака не даёт — там свои классы', () => {
+    // Пустой год плана — это «не обеспечена финансированием», пустой год
+    // факта при живой дате — «сломана формула даты». Чужой год их не крадёт.
+    expect(detectSignals(makeCells({ P: '', S: 2026, Q: '01.02.2026' }), REF_DATE).foreignYearExecution)
+      .toBe(false);
+    expect(detectSignals(makeCells({ P: 2026, S: '', Q: '01.02.2026' }), REF_DATE).foreignYearExecution)
+      .toBe(false);
+  });
+});
+
+describe('п.137(3): инициативная заявка отмечается признаком', () => {
+  it('примечание ГРБС целиком равно маркеру «хотелки» — признак горит', () => {
+    for (const marker of ['хотелки', 'Хотелки', 'просто хотелки', '  хотелки  ']) {
+      expect(detectSignals(makeCells({ AF: marker }), REF_DATE).initiativeRequest).toBe(true);
+    }
+  });
+
+  it('маркер внутри свободного текста признака не даёт (канон п.27)', () => {
+    // Маркер читается структурно — как код, а не как слово в предложении:
+    // иначе это было бы машинное толкование свободного текста.
+    const s = detectSignals(makeCells({ AF: 'это скорее хотелки, чем потребность' }), REF_DATE);
+    expect(s.initiativeRequest).toBe(false);
+  });
+});
+
+describe('п.137(1): «в течение года» названа в оси состояния', () => {
+  it('суммы факта без даты заключения дают состояние yearlong, а не «исполнение»', () => {
+    // До 21.08.2026 стадия пряталась под подписью «Исполнение», и класс, ради
+    // которого заведена отдельная вкладка, в оси не назывался вовсе.
+    const s = detectSignals(makeCells({ Q: null, Y: 500_000 }), REF_DATE);
+    expect(s.factWithoutDate).toBe(true);
+    expect(classifyRowState(s)).toBe('yearlong');
+  });
+});
+
+describe('п.137(6): гейт ЕП у «факта раньше плановой даты» держится сознательно', () => {
+  it('конкурентный способ: опережение 1–30 дней — справка', () => {
+    const s = detectSignals(makeCells({ L: 'ЭА', N: '15.03.2026', Q: '02.03.2026' }), REF_DATE);
+    expect(s.factDateBeforePlan).toBe(true);
+  });
+
+  it('единственный поставщик: то же опережение справки НЕ даёт', () => {
+    // Разбор 21.08.2026: гейт прячет 212 строк на 31 024,11 тыс. Оставлен
+    // сознательно — у ЕП нет извещения и паузы, плановая дата мягкий
+    // ориентир, и опережение о строке не сообщает ничего. Цена умолчания
+    // названа вслух в паспорте fact_date_before_plan.
+    const s = detectSignals(makeCells({ L: 'ЕП', N: '15.03.2026', Q: '02.03.2026' }), REF_DATE);
+    expect(s.factDateBeforePlan).toBe(false);
   });
 });

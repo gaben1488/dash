@@ -10,6 +10,7 @@ import {
   fmtPct,
   fmtThousands,
   buildIntegralSummary,
+  buildRemainderByMethod,
 } from './mappers';
 import { makeReportFixture } from './fixture';
 
@@ -259,5 +260,34 @@ describe('buildGrbsSection — деньги года в сверке (кейс �
   it('официальных денег нет — денежных строк в сверке нет', () => {
     const vm = buildGrbsSection(makeReportFixture().grbsBlocks[0]);
     expect(vm.svodPairs!.every((p) => p.fmt !== 'money')).toBe(true);
+  });
+});
+
+describe('остаток по способам — канон п.26', () => {
+  const report = makeReportFixture();
+
+  it('складывает блоки ГРБС и объявляет свой период — квартал, а не год', () => {
+    const vm = buildRemainderByMethod(report)!;
+    expect(vm.quarter).toBe(report.period.quarter);
+    const kpExpected = report.grbsBlocks.reduce((n, b) => n + b.quarter.pendingByMethod.kp.count, 0);
+    const epExpected = report.grbsBlocks.reduce((n, b) => n + b.quarter.pendingByMethod.ep.count, 0);
+    expect(vm.kp.count).toBe(kpExpected);
+    expect(vm.ep.count).toBe(epExpected);
+  });
+
+  it('КП плюс ЕП сходится с районным остатком КВАРТАЛА, а не года', () => {
+    const vm = buildRemainderByMethod(report)!;
+    expect(vm.total.count).toBe(vm.kp.count + vm.ep.count);
+    expect(vm.total.total).toBeCloseTo(report.integralSummary.pending.quarter.total, 6);
+    expect(vm.total.count).toBe(report.integralSummary.pending.quarter.count);
+  });
+
+  it('пустой отчёт даёт null, а не нули — «по ЕП всё заключено» мы не знаем', () => {
+    expect(buildRemainderByMethod({ ...report, grbsBlocks: [] })).toBeNull();
+  });
+
+  it('сводка несёт разрез отдельным полем со своим периметром', () => {
+    const summary = buildIntegralSummary(report);
+    expect(summary.remainderByMethod?.quarter).toBe(report.period.quarter);
   });
 });

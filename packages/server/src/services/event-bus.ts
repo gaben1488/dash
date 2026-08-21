@@ -72,6 +72,25 @@ export interface IssuesAppearedEvent {
   bySeverity: Record<string, number>;
 }
 
+/**
+ * Книга мониторинга перечитана и отличается от прежней.
+ *
+ * Отдельное событие, а не `book-updated`: там книга ГРБС с одним листом и
+ * построчным адресом, здесь — книга из одиннадцати листов, и вопрос читателя
+ * звучит «какие листы поехали». Точность события равна точности того, что мы
+ * умеем посчитать: лист (отпечатки, sheet-fingerprint.ts). Строку внутри листа
+ * назвать нечем — Google не присылает ни листа, ни ячейки, а позиционное
+ * сравнение одиннадцати листов дало бы больше лжи, чем пользы.
+ */
+export interface MonitoringUpdatedEvent {
+  kind: 'monitoring-updated';
+  /** Листы книги, чьё содержимое отличается от прошлого чтения. */
+  sheets: string[];
+  /** Номер содержимого книги после чтения — по нему видно, что данные новые. */
+  version: number;
+  origin: RefreshOrigin;
+}
+
 /** Снимок пересобран — числа на экране устарели. */
 export interface SnapshotRebuiltEvent {
   kind: 'snapshot-rebuilt';
@@ -85,6 +104,7 @@ export type LiveEvent =
   | BookUpdatedEvent
   | RowChangedEvent
   | IssuesAppearedEvent
+  | MonitoringUpdatedEvent
   | SnapshotRebuiltEvent;
 
 /** Событие с номером и моментом (п.58: у каждого числа момент чтения). */

@@ -2,7 +2,7 @@ import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, 
 import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
 import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow, SHDYUDeptData } from '@aemr/shared';
 import { buildRowDto, isDataRow } from './rows-dto.js';
-import { batchGetCells, batchGetFormulas, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
+import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { SHDYU_SPREADSHEET_ID } from '../config.js';
 import { db, schema } from '../db/index.js';
@@ -377,6 +377,67 @@ export async function getSnapshot(force = false, targetYear?: number): Promise<P
 }
 
 /**
+ * Листы сводной книги — ОДНИМ обращением вместо девяти.
+ *
+ * Замер 21.08.2026: сборка снимка читала каждый лист своим `values.get`
+ * (`ALL_SHEETS.map(getSheetData)`) — девять запросов в одну секунду на каждую
+ * пересборку, а пересборка случается после КАЖДОГО уведомления, что-то
+ * изменившего. Параллельность их не удешевляет: дорог не процесс, а квота
+ * Google и потолок «слишком часто» — тот же урок, что у книги мониторинга.
+ * Книга одна — значит и обращение одно (`values.batchGet` со всеми
+ * диапазонами, документация Sheets, samples/reading — «Read multiple ranges»).
+ *
+ * Пакетное чтение — всё или ничего: переименованный лист роняет весь
+ * запрос. Поэтому на отказе пакета остаётся прежний путь по одному листу:
+ * частичный снимок честнее пустого, а имя не прочитанного листа едет в журнал.
+ */
+async function readMainBookSheets(): Promise<Record<string, unknown[][]>> {
+  // Лист СВОД уже прочитан циклом источников — тем же самым вызовом, с теми же
+  // настройками (services/source-refresh.ts). Читать его ещё раз значит платить
+  // за самый большой лист книги дважды И развести стороны сверки во времени,
+  // ровно против канона п.66. Берём из кэша, пока он свеж по тому же сроку,
+  // по которому цикл считает книги свежими.
+  const maxAgeMs = config.cache.sourceFreshnessSeconds * 1000;
+  const svod = cachedSvodGrid;
+  const svodFresh = svod !== null
+    && svod.values.length > 0
+    && Date.now() - Date.parse(svod.loadedAt) <= maxAgeMs;
+  const names = (ALL_SHEETS as readonly string[]).filter((n) => !svodFresh || n !== SVOD_SHEET_NAME);
+  const withSvod = (rows: Record<string, unknown[][]>): Record<string, unknown[][]> => {
+    if (svodFresh && svod) rows[SVOD_SHEET_NAME] = svod.values;
+    return rows;
+  };
+
+  try {
+    return withSvod(await batchGetSheetValues(names));
+  } catch (batchError) {
+    logSourceFailure('пакетное чтение листов сводной книги', {
+      ms: 0,
+      reason: classifySourceFailure((batchError as Error)?.message ?? String(batchError)),
+    });
+  }
+
+  const rows: Record<string, unknown[][]> = {};
+  await Promise.all(
+    names.map(async (sheetName) => {
+      try {
+        rows[sheetName] = await getSheetData(sheetName);
+      } catch (error) {
+        // В журнал сервера, а не в консоль: у строки должны быть уровень,
+        // время и поля, иначе её не отфильтровать и не сопоставить с запросом.
+        // Причина — русской фразой из закрытого списка: текст Google несёт и
+        // адрес книги, и почту служебной учётной записи.
+        logSourceFailure(`чтение листа «${sheetName}» сводной книги`, {
+          ms: 0,
+          reason: classifySourceFailure((error as Error)?.message ?? String(error)),
+        });
+      }
+    }),
+  );
+  return withSvod(rows);
+}
+
+/**
  * Создаёт новый снимок: читает данные из Google Sheets и прогоняет пайплайн
  */
 async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
@@ -397,20 +458,8 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }));
 
     const sheetRows: Record<string, unknown[][]> = {};
-    const sheetReadPromises = ALL_SHEETS.map(async (sheetName: string) => {
-      try {
-        const rows = await getSheetData(sheetName);
-        sheetRows[sheetName] = rows;
-      } catch (error) {
-        // В журнал сервера, а не в консоль: у строки должны быть уровень,
-        // время и поля, иначе её не отфильтровать и не сопоставить с запросом.
-        // Причина — русской фразой из закрытого списка: текст Google несёт и
-        // адрес книги, и почту служебной учётной записи.
-        logSourceFailure(`чтение листа «${sheetName}» сводной книги`, {
-          ms: 0,
-          reason: classifySourceFailure((error as Error)?.message ?? String(error)),
-        });
-      }
+    const sheetsPromise = readMainBookSheets().then((rows) => {
+      Object.assign(sheetRows, rows);
     });
 
     const monthlyStartedAt = Date.now();
@@ -454,7 +503,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       });
     });
 
-    await Promise.all([...sheetReadPromises, monthlyPromise]);
+    await Promise.all([sheetsPromise, monthlyPromise]);
 
     // ОДИН ПЕРИМЕТР СТРОК (аудит 30.07 №14). Первоисточник — собственные
     // книги ГРБС: зеркала в сводной — производные IMPORTRANGE, они отстают

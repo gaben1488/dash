@@ -26,7 +26,8 @@ import type { FastifyInstance } from 'fastify';
 import { config, webhookTuning } from '../config.js';
 import { safeCompare } from '../middleware/auth.js';
 import { refreshAllSources } from '../services/source-refresh.js';
-import { invalidateMonitoringCache } from '../services/monitoring.js';
+import { refreshMonitoringBook } from '../services/monitoring.js';
+import { publishLiveEvent } from '../services/event-bus.js';
 import {
   readDriveNotification,
   isWellFormed,
@@ -38,6 +39,13 @@ import {
   type DriveNotification,
   type NotificationDecision,
 } from '../services/webhook-channel.js';
+import {
+  EMPTY_PLAN,
+  describePlan,
+  mergePlans,
+  planForFile,
+  type RefreshPlan,
+} from '../services/refresh-targets.js';
 
 interface RouteLog {
   info: (msg: string) => void;
@@ -45,10 +53,65 @@ interface RouteLog {
 }
 
 let pending: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Что накопила текущая серия уведомлений. Раньше здесь был только факт
+ * «перечитка взведена», и склеенная серия всегда означала одно и то же —
+ * прочитать ВСЁ. Теперь серия помнит цели: правка в книге УО не тащит за собой
+ * ещё семь книг, лист СВОД и одиннадцать листов мониторинга.
+ */
+let pendingPlan: RefreshPlan = EMPTY_PLAN;
+
+/**
+ * Перечитать книгу мониторинга и объявить результат в эфир.
+ *
+ * Отдельной функцией, а не строкой в теле таймера: у неё три разных исхода, и
+ * каждый обязан быть назван в журнале своим словом. «Не читали» — не ошибка и
+ * не тишина, а самый дешёвый и самый частый успех.
+ */
+function refreshMonitoring(log: RouteLog): void {
+  void refreshMonitoringBook()
+    .then((r) => {
+      if (!r.read) {
+        log.info(`Вебхук: книга мониторинга не перечитана — ${r.skippedBecause ?? 'изменений нет'}`);
+        return;
+      }
+      if (r.changed.length === 0) {
+        log.info('Вебхук: книга мониторинга перечитана, содержимое прежнее — эфир молчит');
+        return;
+      }
+      publishLiveEvent({
+        kind: 'monitoring-updated',
+        sheets: r.changed,
+        version: r.version,
+        origin: 'webhook',
+      });
+      log.info(`Вебхук: книга мониторинга перечитана, изменились листы: ${r.changed.join(', ')}`);
+    })
+    .catch((err: unknown) => {
+      log.warn(`Вебхук: книга мониторинга не прочитана: ${(err as Error).message}`);
+    });
+}
 
 /** Взведена ли отложенная перечитка прямо сейчас. */
 export function isRefreshArmed(): boolean {
   return pending !== null;
+}
+
+/** Что перечитает взведённая серия — для журнала и тестов. */
+export function armedPlan(): RefreshPlan {
+  return pendingPlan;
+}
+
+/**
+ * Добавить цель к взведённой серии.
+ *
+ * Отдельно от `scheduleRefresh`, потому что цель копится и у тех уведомлений,
+ * которые уже схлопнулись с идущей серией: две правки в разных книгах за одно
+ * окно склейки — это две книги в одном цикле, а не одна книга и потерянная
+ * вторая правка.
+ */
+function noteTarget(fileId: string | null): void {
+  pendingPlan = mergePlans([pendingPlan, planForFile(fileId)]);
 }
 
 /**
@@ -63,26 +126,50 @@ function scheduleRefresh(log: RouteLog): void {
   if (pending) return;
   pending = setTimeout(() => {
     pending = null;
+    const plan = pendingPlan;
+    pendingPlan = EMPTY_PLAN;
     // Тело таймера обёрнуто целиком: исключение, вылетевшее ЗДЕСЬ, некому
     // поймать — обработчик запроса давно ответил, и необработанный отказ в
     // колбэке таймера уносит весь процесс. Одна не перечитанная книга не имеет
     // права стоить сервера.
     try {
       // Книга мониторинга под тем же наблюдением Drive, но в цикл
-      // refreshAllSources не входит — её кэш сбрасывается здесь, и следующий
-      // запрос /api/monitoring перечитает книгу, а не отдаст правку с опозданием
-      // до TTL (п.66 «прямой эфир»).
-      invalidateMonitoringCache();
+      // refreshAllSources не входит — её перечитка живёт здесь (п.66 «прямой
+      // эфир»). Три отличия от прежнего «сбросить кэш и ждать запроса»:
+      //   • книга читается СРАЗУ, а не при следующем открытии вкладки —
+      //     читателю не приходится обновлять страницу, чтобы увидеть правку;
+      //   • перед чтением спрашивается отметка версии файла у Drive: файл не
+      //     менялся — не читаем вовсе (запрос вместо мегабайтов грида);
+      //   • изменившиеся листы уходят в эфир поимённо, а не молча.
+      // Перечитка идёт ТОЛЬКО когда правка была в этой книге: раньше правка в
+      // книге УО стоила ещё и полного перечитывания одиннадцати листов.
+      if (plan.full || plan.monitoring) refreshMonitoring(log);
+
+      // Цель без единой книги и без листа СВОД (правили только мониторинг) —
+      // это законный повод не трогать цикл источников вовсе.
+      if (!plan.full && plan.books.length === 0 && !plan.svod) {
+        noteRefreshRun(true);
+        log.info(`Вебхук: перечитано адресно — ${describePlan(plan)}`);
+        return;
+      }
+
       // Происхождение перечитки едет в живые события: читателю на экране важно
       // отличать «правку заметили сразу» от планового цикла опроса. Отказ Google
       // не роняет цикл — следующее уведомление взведёт перечитку заново.
       // `fresh` — чтение ПОСЛЕ уведомления: присоединиться к уже идущему циклу
       // значит принять его результат за ответ на правку, о которой он не знал.
-      void refreshAllSources(log, 'webhook', { fresh: true })
+      void refreshAllSources(log, 'webhook', {
+        fresh: true,
+        books: plan.full ? undefined : plan.books,
+        svod: plan.full ? true : plan.svod,
+      })
         .then((r) => {
           noteRefreshRun(r.failed.length === 0);
+          const moved = [...r.changedBooks, ...(r.svodChanged ? ['лист СВОД'] : [])];
           log.info(
-            `Вебхук: источники перечитаны (книг ${r.loaded.length}${r.failed.length ? `, не прочитано: ${r.failed.join(', ')}` : ''})`,
+            `Вебхук: перечитано ${describePlan(plan)} — книг ${r.booksRead}`
+            + (r.failed.length ? `, не прочитано: ${r.failed.join(', ')}` : '')
+            + (moved.length ? `, изменилось: ${moved.join(', ')}` : ', изменений нет'),
           );
         })
         .catch((err: unknown) => {
@@ -101,6 +188,7 @@ function scheduleRefresh(log: RouteLog): void {
 export function cancelPendingWebhookRefresh(): void {
   if (pending) clearTimeout(pending);
   pending = null;
+  pendingPlan = EMPTY_PLAN;
 }
 
 /** Человеческое объяснение решения — для журнала сервера. */
@@ -197,6 +285,10 @@ export function webhookRoutes(app: FastifyInstance): void {
 
     try {
       const decision = noteNotification(notification, isRefreshArmed());
+      // Цель копится и у схлопнувшегося уведомления: «схлопнуто» означает «не
+      // назначай второй цикл», а не «забудь, какую книгу правили». Раньше
+      // разницы не было — цикл всё равно читал всё.
+      if (decision === 'refresh' || decision === 'coalesced') noteTarget(notification.fileId);
       if (decision === 'refresh') scheduleRefresh(log);
       logNotification(request, notification, book, decision);
     } catch (err) {
@@ -205,6 +297,9 @@ export function webhookRoutes(app: FastifyInstance): void {
       // повторять нечего — перечитка асинхронна. Поэтому: честная запись в
       // журнал, перечитка на всякий случай и «принято».
       request.log.warn(`Вебхук: учёт уведомления не удался: ${(err as Error).message}`);
+      // Собственный учёт сломался — цель уведомления доверия не заслуживает.
+      // Читаем всё: пропустить правку хуже, чем прочитать лишнее.
+      pendingPlan = mergePlans([pendingPlan, planForFile(null)]);
       scheduleRefresh(log);
     }
     return reply.status(200).send();

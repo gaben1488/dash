@@ -7,11 +7,16 @@ import { ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
 import { formatPct } from '../../lib/economy/format';
 import type { SortDir, SortField } from '../../lib/economy/types';
 
-/** Цветовые токены трёх бюджетов (ФБ/КБ/МБ) — единые для чартов и таблиц. */
+/**
+ * Цветовые токены трёх бюджетов (ФБ/КБ/МБ) — единые для чартов и таблиц.
+ * Поле `bg` (подложка бюджета) удалено 21.08: его не читал ни один потребитель
+ * зоны, а токен без потребителя выглядит разрешением рисовать подложку и
+ * однажды её кто-нибудь нарисует не там.
+ */
 export const BT = {
-  fb: { fill: '#3b82f6', bg: 'bg-blue-500/8', text: 'text-blue-500', dot: 'bg-blue-500', label: 'ФБ', full: 'федеральный бюджет' },
-  kb: { fill: '#10b981', bg: 'bg-emerald-500/8', text: 'text-emerald-500', dot: 'bg-emerald-500', label: 'КБ', full: 'краевой бюджет' },
-  mb: { fill: '#f59e0b', bg: 'bg-amber-500/8', text: 'text-amber-500', dot: 'bg-amber-500', label: 'МБ', full: 'муниципальный бюджет' },
+  fb: { fill: '#3b82f6', text: 'text-blue-500', dot: 'bg-blue-500', label: 'ФБ', full: 'федеральный бюджет' },
+  kb: { fill: '#10b981', text: 'text-emerald-500', dot: 'bg-emerald-500', label: 'КБ', full: 'краевой бюджет' },
+  mb: { fill: '#f59e0b', text: 'text-amber-500', dot: 'bg-amber-500', label: 'МБ', full: 'муниципальный бюджет' },
 } as const;
 
 export type BudgetTokenKey = keyof typeof BT;

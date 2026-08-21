@@ -15,11 +15,21 @@
  * Поэтому смена режима разрезов не сбрасывает, а панель разрезов стоит выше
  * ряда режимов.
  *
- * ЧЕСТНЫЕ ПУСТОТЫ — ТРИ РАЗНЫЕ (п.36). «Книга не прочитана» (отказ чтения),
- * «на прочитанных листах нет строк» (книга пуста) и «разрезы всё срезали»
- * (отбор экрана) — три разные новости с тремя разными действиями, и путать
- * их нельзя. Четвёртая пустота — «сервер этот лист ещё не отдаёт»: она про
- * незаконченную трубу чтения, а не про книгу.
+ * ЧЕСТНЫЕ ПУСТОТЫ — ПЯТЬ РАЗНЫХ, И НИ ОДНА НЕ ЗАМЕНЯЕТ ДРУГУЮ (п.36).
+ * «Книга не прочитана» (отказ чтения), «на прочитанных листах нет строк»
+ * (книга пуста), «разрезы всё срезали» (отбор экрана), «сервер этот лист ещё
+ * не отдаёт» (незаконченная труба чтения) и «лист прочитан, а строк в нём
+ * ноль» (пустота самого листа). Различает их не оттенок слов, а ДЕЙСТВИЕ:
+ * перечитать сервером, открыть книгу-источник, снять разрезы — три разных
+ * поступка, и подсунуть читателю не тот значит отправить его чинить то, что
+ * не сломано.
+ *
+ * У КАЖДОГО ЧИСЛА — ИСТОЧНИК И МОМЕНТ ЧТЕНИЯ (п.58). Момент несёт плашка,
+ * источник — строка «Источник: …», остальные оси (год, период, органы, срез)
+ * — паспорт периметра из общесистемного дома `lib/perimeter.ts`, розданный
+ * вкладке сверху через `MonitoringPerimeterProvider`. Книга мониторинга почти
+ * ничему из шапки не подчиняется, и каждое такое расхождение паспорт называет
+ * словами у самого числа, а не одной оговоркой над секцией.
  *
  * ДЕНЬГИ — РУБЛИ, и подпись единицы стоит у каждой суммы: книги управлений
  * ведутся в тысячах, перепутать эти две книги значит ошибиться в тысячу раз.
@@ -54,27 +64,45 @@ import { DirectoryTable } from '../components/monitoring/DirectoryTable';
 import { AncestorSheets } from '../components/monitoring/AncestorSheets';
 import { SignalCards } from '../components/monitoring/SignalCards';
 import { MonitoringAnalyticsSection } from '../components/monitoring/AnalyticsSection';
+import { TripleCheck } from '../components/monitoring/TripleCheck';
+import { MonitoringPerimeterProvider } from '../components/monitoring/PerimeterProvider';
 import { humanizeRequestError } from '../api';
 import { useStore } from '../store';
 import { deptScopeOf, inDeptScope } from '../lib/selectors/dept-isolation';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { scopeProcedures, scopeSignals } from '../lib/monitoring/dept-scope';
 import {
-  fetchMonitoring, fetchMonitoringMatch,
-  type JournalRow, type LineageChain, type MatchPayload, type MatchRow,
-  type MonitoringPayload,
+  fetchMonitoring,
+  type JournalRow, type LineageChain, type MonitoringPayload,
 } from '../lib/monitoring/contract';
+import {
+  fetchMonitoringMatchView, type MatchViewPayload,
+} from '../lib/monitoring/analytics-contract';
+import { buildMatchIndex } from '../lib/monitoring/match-rows';
+import {
+  fetchMonitoringTriple, type TripleState,
+} from '../lib/monitoring/triple-contract';
 import { ALL_DEPTS_MODE, deptSheetName, modeById, type SheetMode } from '../lib/monitoring/modes';
 import {
   applySlices, emptySlices, hasAnySlice, sortProcedures,
   type SliceState, type SortDir, type SortKey,
 } from '../lib/monitoring/slices';
 import { portraitFrom } from '../lib/monitoring/portrait';
-import { fmtReadAt, pluralCount } from '../lib/monitoring/format';
+import { addressKey, indexByAddress } from '../lib/monitoring/signal-answer';
+import { buildDrill } from '../lib/drill';
+import { fmtReadAt, fmtRub, pluralCount } from '../lib/monitoring/format';
+import { CARD, CONTROL } from '../components/monitoring/surfaces';
 
 export function MonitoringPage() {
   const [data, setData] = useState<MonitoringPayload | null>(null);
-  const [match, setMatch] = useState<MatchPayload | null>(null);
+  const [match, setMatch] = useState<MatchViewPayload | null>(null);
+  // Сверка трёх источников едет отдельным запросом и отдельной судьбой: её
+  // состояние — не «данные или null», а один из исходов, среди которых три
+  // РАЗНЫЕ пустоты (расхождений нет / книга не прочитана / сопоставлять
+  // нечего). Схлопнуть их в null значило бы соврать читателю о поступке.
+  // Само null означает здесь одно: ответа ещё нет, и раздел не рисуется вовсе —
+  // «идёт чтение» и «читать нечего» тоже разные новости.
+  const [triple, setTriple] = useState<TripleState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,7 +121,15 @@ export function MonitoringPage() {
       .finally(() => setLoading(false));
     // Сверка с книгами управлений едет отдельным запросом и отдельной судьбой:
     // её роут может быть ещё не поднят, и это не повод не показать реестр.
-    void fetchMonitoringMatch().then(setMatch).catch(() => setMatch(null));
+    // Читается она ТОЙ ЖЕ читалкой, что и панель сверки в аналитике: вторая,
+    // своя, ждала формы `{rows, outcomes}`, которой живой роут никогда не
+    // отдавал, — и полоса сверки в карточке КАЖДОЙ строки молча писала
+    // «сверка не подключена» при работающем сервере. Один сигнал — один дом.
+    void fetchMonitoringMatchView().then(setMatch).catch(() => setMatch(null));
+    // Тройная сверка сама разводит свои исходы и не бросает: у неё нет
+    // состояния «ошибка вкладки» — только состояние собственного раздела.
+    setTriple(null);
+    void fetchMonitoringTriple(refresh).then(setTriple);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -104,6 +140,7 @@ export function MonitoringPage() {
   // и реестр процедур, и сигналы книги — чужие листы в срез не попадают.
   // Периметр периода/года у книги по-прежнему свой: книга читается целиком.
   const selectedDepartments = useStore((s) => s.selectedDepartments);
+  const navigateTo = useStore((s) => s.navigateTo);
   const deptScope = useMemo(() => deptScopeOf(selectedDepartments), [selectedDepartments]);
 
   // Режим подведов (приказ владельца 20.08.2026). Разбивка по подведам на
@@ -154,11 +191,27 @@ export function MonitoringPage() {
     return map;
   }, [data]);
 
-  const matchByCode = useMemo(() => {
-    const map = new Map<string, MatchRow>();
-    for (const r of match?.rows ?? []) map.set(r.code, r);
-    return map;
-  }, [match]);
+  /**
+   * Четвёртый указатель — «лист + строка → процедура». Он превращает адрес
+   * сигнала из мёртвого текста в ответ: под адресом читатель видит, ЧТО в этой
+   * строке записано, и попадает в неё кнопкой, не уходя со вкладки (требование
+   * владельца «по каждому сигналу виден ответ»). Строится по ВСЕЙ книге, а не
+   * по срезу: сигналы уже срезаны `scopeSignals`, и повторный срез здесь лишь
+   * прятал бы содержимое строк, адреса которых читателю показаны.
+   */
+  const rowsByAddress = useMemo(
+    () => indexByAddress(data?.procedures ?? []),
+    [data],
+  );
+
+  /**
+   * Пятый указатель — «код процедуры → встречная сторона книги управления».
+   * Несёт не только пару, но и СОСТОЯНИЕ сверки: какие книги прочитаны и на
+   * какой момент. Без состояния отсутствие пары в карточке строки читается
+   * одинаково при неподнятом роуте, непрочитанных книгах и честно не найденной
+   * строке — три разные новости с тремя разными поступками (п.36).
+   */
+  const matchIndex = useMemo(() => buildMatchIndex(match), [match]);
 
   /**
    * Итог листа под таблицей реестра (§2.1) — когда в шапке выбрано РОВНО одно
@@ -211,6 +264,11 @@ export function MonitoringPage() {
   const scopeLabel = scopeParts.length > 0 ? scopeParts.join(' · ') : 'весь реестр книги';
 
   return (
+    // Паспорт периметра раздаётся сверху: каждое число вкладки объявляет, за
+    // какой год, период, органы и срез оно посчитано и на какой момент книга
+    // прочитана (канон п.58). Момент — момент чтения ЭТОГО ответа, а не общий
+    // `lastRefreshed` продукта: книга читается своим запросом.
+    <MonitoringPerimeterProvider readAt={data?.source.readAt ?? null}>
     <div className="space-y-4">
       {/* ── Шапка вкладки: название по п.101а, компактно в один блок (п.128-2) ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -231,7 +289,7 @@ export function MonitoringPage() {
           <button
             type="button"
             onClick={() => load(true)}
-            className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
+            className={`inline-flex items-center gap-1 ${CONTROL} px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
           >
             <RotateCcw size={12} aria-hidden="true" /> Прочитать книгу заново
           </button>
@@ -254,7 +312,15 @@ export function MonitoringPage() {
         />
       ) : (
         <>
-          <BookStatusStrip data={data} rowsTotal={procedures.length} onReload={() => load(true)} />
+          {/* Сигналы полосе отдаются СРЕЗАННЫЕ — те же, чьи карточки читатель
+              увидит ниже (п.127). Иначе полоса обещала бы двенадцать сигналов
+              там, где экран показывает три. */}
+          <BookStatusStrip
+            data={data}
+            rowsTotal={procedures.length}
+            scopedSignals={scopedSignals}
+            onReload={() => load(true)}
+          />
 
           {procedures.length === 0 ? (
             <EmptyState
@@ -330,9 +396,12 @@ export function MonitoringPage() {
                       onSort={onSort}
                       lineageByCode={lineageByCode}
                       journalByCode={journalByCode}
-                      matchByCode={matchByCode}
+                      matchIndex={matchIndex}
+                      readAtLabel={readAtLabel}
+                      sourceLabel={`книга «Ежедневный мониторинг» · ${scopeLabel}`}
                       onOpenCode={onOpenCode}
                       openCode={openCode}
+                      onCloseOpenCode={() => setOpenCode(null)}
                     />
                     {sheetTotals !== null && <SheetTotalsRow row={sheetTotals} />}
                   </>
@@ -340,19 +409,25 @@ export function MonitoringPage() {
               )}
 
               {mode.kind === 'svod' && (
-                data.svod !== null
-                  ? <SvodTable svod={data.svod} readAtLabel={readAtLabel} />
-                  : <PendingSheet name="СВОДНЫЙ" onReload={() => load(true)} />
+                data.svod === null
+                  ? <PendingSheet name="СВОДНЫЙ" onReload={() => load(true)} />
+                  : data.svod.rows.length === 0
+                    ? <ReadButEmptySheet name="СВОДНЫЙ" onReload={() => load(true)} />
+                    : <SvodTable svod={data.svod} readAtLabel={readAtLabel} />
               )}
 
               {mode.kind === 'journal' && (
-                data.journal !== null
-                  ? <JournalTable journal={data.journal} readAtLabel={readAtLabel} query={slices.query} />
-                  : <PendingSheet name="25-26" onReload={() => load(true)} />
+                data.journal === null
+                  ? <PendingSheet name="25-26" onReload={() => load(true)} />
+                  : data.journal.rows.length === 0
+                    ? <ReadButEmptySheet name="25-26" onReload={() => load(true)} />
+                    : <JournalTable journal={data.journal} readAtLabel={readAtLabel} query={slices.query} />
               )}
 
               {mode.kind === 'directory' && (
-                data.directory !== null
+                data.directory !== null && data.directory.rows.length === 0
+                  ? <ReadButEmptySheet name="Перечень ГРБС" onReload={() => load(true)} />
+                  : data.directory !== null
                   ? (
                     <DirectoryTable
                       directory={data.directory}
@@ -366,18 +441,36 @@ export function MonitoringPage() {
                   : <PendingSheet name="Перечень ГРБС" onReload={() => load(true)} />
               )}
 
-              {mode.kind === 'ancestors' && <AncestorSheets />}
+              {mode.kind === 'ancestors' && (
+                <AncestorSheets ancestors={data.ancestors} readAtLabel={readAtLabel} />
+              )}
+
+              {/* ── Сверка трёх источников (владелец 21.08.2026) ──────────
+                  Стоит НАД аналитикой намеренно: это проверка данных, а не
+                  вывод из них, и читать её надо до того, как поверишь числам
+                  ниже. Раздел живёт своим запросом и своими пустотами — отказ
+                  сверки не отнимает у вкладки реестр. */}
+              {triple !== null && (
+                <TripleCheck
+                  state={triple}
+                  deptScope={deptScope}
+                  scopeLabel={scopeLabel}
+                  onReload={() => load(true)}
+                  onOpenCode={onOpenCode}
+                />
+              )}
 
               {/* ── Аналитика книги — ниже реестра (канон п.101а, спека §3–§4).
                   Секция остаётся смонтированной при смене режима (класс hidden),
                   чтобы не перечитывать аналитику при каждом переключении листа. ── */}
               <div className={mode.kind === 'registry' ? 'space-y-3' : 'hidden'}>
-                {deptScope !== null && (
-                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                    Аналитика ниже — районная: она считается по всей книге, срез по управлению из
-                    шапки к ней пока не применяется. Числа аналитики шире показанного выше реестра.
-                  </p>
-                )}
+                {/* Прежняя янтарная строка «аналитика ниже — районная» отсюда
+                    убрана намеренно: одна фраза обещала поведение сразу девяти
+                    блокам (болезнь A1 карты «Аналитики»), а теперь то же самое
+                    говорит ПАСПОРТ КАЖДОГО блока — «фильтр управлений к этому
+                    числу не применяется — оно посчитано по всему району».
+                    Один сигнал живёт в одном доме, и дом у него теперь у самого
+                    числа, а не над секцией. */}
                 <MonitoringAnalyticsSection
                   procedures={data.procedures}
                   onPickDiscountBucket={(bucketKey) => {
@@ -388,31 +481,139 @@ export function MonitoringPage() {
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
+                  onPickSupplier={(inn, name) => {
+                    // ИНН — надёжный ключ разреза; там, где книга его не
+                    // проставила, отбор идёт поиском по написанию имени, и это
+                    // ЧЕСТНО ХУЖЕ: одно общество, записанное дважды, разойдётся.
+                    // Обе ветки ведут в один и тот же реестр выше — читатель не
+                    // уходит со вкладки и видит основания числа целиком.
+                    setSlices(inn === null
+                      ? { ...emptySlices(), query: name }
+                      : { ...emptySlices(), winnerInn: inn });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPickDept={(dept) => {
+                    // Изоляция п.127 включается ГЛОБАЛЬНЫМ фильтром шапки, а не
+                    // местным разрезом вкладки: у управления один дом отбора на
+                    // всё приложение, и второй здесь означал бы два разных
+                    // ответа на вопрос «какое управление я сейчас смотрю».
+                    // Цель перехода собирает `buildDrill` (М14) — здесь ось
+                    // одна, но правило «цель строится из точки целиком, и ни
+                    // одна ось не теряется молча» держится тем же домом.
+                    const target = buildDrill({ dept }, 'monitoring');
+                    if (target.filters.department !== undefined) {
+                      navigateTo('monitoring', { department: target.filters.department });
+                    }
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+
+                  // ── Двери разрезов витрины «где деньги · где риск · где затык» ──
+                  //
+                  // Все они ведут в ОДИН И ТОТ ЖЕ реестр выше, а не в отдельные
+                  // экраны: читатель не уходит со вкладки и видит основания
+                  // числа там, где привык (п.119). Единственное исключение —
+                  // судьба процедуры: её строки живут на переходящем реестре, и
+                  // дверь честно переключает режим листа.
+                  //
+                  // Пометки книги «25-26» отдаются целиком, а не выжимкой: разбор
+                  // рукописной пометки в класс делает ядро, и вторая копия этого
+                  // разбора на клиенте рано или поздно разошлась бы с первой.
+                  journalRows={data.journal?.rows}
+
+                  onPickCustomer={(customer) => {
+                    // Заказчик отбирается тем же написанием, каким витрина его
+                    // сложила. Нормализация здесь была бы вредна: число обещало
+                    // строки одного написания, и привести к другому их числу
+                    // значит обмануть в момент клика.
+                    setSlices({ ...emptySlices(), customer });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPickZeroReduction={() => {
+                    // Корзину «снижения не было» считает ядро с обеих сторон —
+                    // и в гистограмме, и в разрезе реестра, — разойтись нечему.
+                    setSlices({ ...emptySlices(), reductionBucket: 'zero' });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPickMethod={(method) => {
+                    setSlices({ ...emptySlices(), method });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPickYear={(procedureYear) => {
+                    // Год берётся из кода процедуры, а не из даты, — и разрез
+                    // реестра сравнивает ровно тот же суффикс.
+                    setSlices({ ...emptySlices(), procedureYear });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPickJoint={() => {
+                    // Совместные строки книга отмечает способом «совместный
+                    // аукцион»; заказчик-признак «Совместный …» ловится тем же
+                    // разрезом только частично, и это честно хуже — но общей
+                    // колонки «совместная закупка» в книге нет.
+                    setSlices({ ...emptySlices(), method: 'ЭАС' });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPickFate={(sample) => {
+                    // Единственная дверь, меняющая лист: судьба процедуры
+                    // записана в переходящем реестре, и показывать её строки на
+                    // листе управления было бы подлогом — там этой колонки нет.
+                    setModeId('journal');
+                    setSlices({ ...emptySlices(), query: sample });
+                    setOpenCode(null);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                 />
               </div>
 
               {/* ── Нераспознанные коды: сигнал с адресами, не потеря ── */}
               {data.unparsedCodes.length > 0 && (
-                <details className="rounded-xl border border-zinc-100 dark:border-zinc-700/50 bg-white dark:bg-zinc-800/60 px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">
+                <details className={`${CARD} px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300`}>
                   <summary className="cursor-pointer font-medium">
                     Код процедуры не разобран у{' '}
                     {pluralCount(data.unparsedCodes.length, 'строки', 'строк', 'строк')} — по каждой
                     сказано, что записано и на что это похоже
                   </summary>
                   <ul className="mt-2 space-y-1">
-                    {data.unparsedCodes.map((u) => (
+                    {data.unparsedCodes.map((u) => {
+                      // Ответ на месте и здесь: адрес без содержимого строки —
+                      // это задание «найди сам», а не сигнал (требование
+                      // владельца «какая строка, что в ней, почему»).
+                      const row = rowsByAddress.get(addressKey(u.sheet, u.row)) ?? null;
+                      return (
                       <li key={`${u.sheet}:${u.row}`} className="tabular-nums">
                         Лист «{u.sheet}», строка {u.row}: «{u.text}»
+                        {row !== null && (
+                          <span className="text-zinc-500 dark:text-zinc-400">
+                            {' '}— в строке: {row.customer}
+                            {row.subject !== '' && `, ${row.subject}`}
+                            {row.nmck !== null && `, НМЦК ${fmtRub(row.nmck)} руб.`}
+                          </span>
+                        )}
                         {u.guess !== null
                           ? <> — похоже на <span className="font-mono font-medium">{u.guess}</span>{u.note !== null ? ` (${u.note})` : ''}; сверка по догадке не идёт — код правится в книге.</>
                           : <> — номера процедуры в начале записи не видно; образец: ЭА152-26.</>}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </details>
               )}
 
-              {scopedSignals.length > 0 && <SignalCards signals={scopedSignals} />}
+              {scopedSignals.length > 0 && (
+                <SignalCards
+                  signals={scopedSignals}
+                  byAddress={rowsByAddress}
+                  readAtLabel={readAtLabel}
+                  scopeLabel={scopeLabel}
+                  onOpenCode={onOpenCode}
+                />
+              )}
               {deptScope !== null && (data.signals?.length ?? 0) > 0 && scopedSignals.length === 0 && (
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                   По выбранным управлениям адресных сигналов книги нет; сигналы уровня всей книги
@@ -430,6 +631,7 @@ export function MonitoringPage() {
         </>
       )}
     </div>
+    </MonitoringPerimeterProvider>
   );
 }
 
@@ -443,6 +645,23 @@ function PendingSheet({ name, onReload }: { name: string; onReload: () => void }
     <EmptyState
       title={`Лист «${name}» сервер пока не отдаёт`}
       description={`В книге этот лист есть, и в реестре он нужен — но в ответе сервера его раздела нет. Это незаконченная труба чтения, а не пустой лист: числа с него не потеряны, их просто ещё не читают.`}
+      action={{ label: 'Прочитать книгу заново', onClick: onReload }}
+    />
+  );
+}
+
+/**
+ * ПЯТАЯ ПУСТОТА, И ОНА НЕ ЧЕТВЁРТАЯ. Лист прочитан, раздел ответа пришёл — а
+ * строк в нём ноль. До этого маппер схлопывал такой ответ в «раздела нет», и
+ * читатель шёл чинить трубу чтения там, где чинить нечего: чтение прошло,
+ * и его результат — «на листе пусто». Действие здесь другое: не перечитывать
+ * сервером, а открыть книгу и посмотреть, ждали ли мы там строк вообще.
+ */
+function ReadButEmptySheet({ name, onReload }: { name: string; onReload: () => void }) {
+  return (
+    <EmptyState
+      title={`Лист «${name}» прочитан, но строк в нём нет`}
+      description={'Сервер этот лист отдал — в его разделе ответа ноль строк. Это пустота самого листа, а не отказ чтения и не незаконченная труба: если строки на нём ожидались, смотреть надо книгу-источник, а не повторное чтение.'}
       action={{ label: 'Прочитать книгу заново', onClick: onReload }}
     />
   );

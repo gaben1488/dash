@@ -35,6 +35,7 @@ import {
 import { deptSheetName } from '../../lib/monitoring/modes';
 import { METHOD_ORDER, methodLabel, stageShort, stagesPresent } from '../../lib/monitoring/stage-labels';
 import { fmtCount } from '../../lib/monitoring/format';
+import { CARD, CHECKBOX, CONTROL } from './surfaces';
 
 const MONTHS = [
   'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
@@ -69,7 +70,7 @@ function Select({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label={label}
-        className={`${wide ? 'max-w-[18rem]' : 'max-w-[11rem]'} w-full truncate rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-xs text-zinc-700 dark:text-zinc-200`}
+        className={`${wide ? 'max-w-[18rem]' : 'max-w-[11rem]'} w-full truncate ${CONTROL} bg-white dark:bg-zinc-800 px-2 py-1 text-xs text-zinc-700 dark:text-zinc-200`}
       >
         {children}
       </select>
@@ -125,14 +126,14 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
             onChange={(e) => set({ query: e.target.value })}
             placeholder="Поиск по коду, предмету, заказчику и ИНН победителя"
             aria-label="Поиск по реестру"
-            className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 pl-8 pr-2 py-1.5 text-xs text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-400"
+            className={`w-full ${CONTROL} bg-white dark:bg-zinc-800 pl-8 pr-2 py-1.5 text-xs text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-400`}
           />
         </div>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
+          className={`shrink-0 inline-flex items-center gap-1 ${CONTROL} bg-white dark:bg-zinc-800/60 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
         >
           <SlidersHorizontal size={13} aria-hidden="true" />
           Разрезы
@@ -144,7 +145,7 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
         </button>
       </div>
 
-      <div className={`${open ? 'grid' : 'hidden'} grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2 rounded-xl border border-zinc-100 dark:border-zinc-700/50 bg-white dark:bg-zinc-800/60 p-3`}>
+      <div className={`${open ? 'grid' : 'hidden'} grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2 ${CARD} p-3`}>
         <Select label="Стадия" value={opt(slices.stage)} onChange={(v) => set({ stage: v || null })}>
           <option value="">любая стадия</option>
           {options.stages.map((s) => (
@@ -227,7 +228,7 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
             type="checkbox"
             checked={slices.defectsOnly}
             onChange={(e) => set({ defectsOnly: e.target.checked })}
-            className="rounded border-zinc-300 dark:border-zinc-600"
+            className={CHECKBOX}
           />
           Только строки с дефектами
           <span className="tabular-nums text-zinc-400">({fmtCount(options.defectRows)})</span>

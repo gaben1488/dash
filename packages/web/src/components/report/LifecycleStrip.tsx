@@ -11,11 +11,24 @@
  * визуального»): доля читается и в чёрно-белой печати. Каждая доля несёт
  * подпись из канон-словаря и попап БЗ с живой подстановкой — сколько
  * строк, на какие плановые деньги и по какому признаку колонки листа.
+ *
+ * С 21.08 доля ещё и открывается: клик по ней ведёт к тем самым строкам, из
+ * которых она сложилась (работа 4.11 плана переплавки). До этого объяснение
+ * кончалось словами — читателю оставалось верить, что «просроченных 12»,
+ * и пойти проверять было некуда. Куда ведёт каждый ключ и что переход
+ * теряет по дороге, решает `lib/report/door.ts`, а не это место клика.
  */
 import type { LifecycleBucket } from '@aemr/core';
 import { productLabel } from '@aemr/shared';
+import type { Page } from '../../store';
 import { fmtCount } from '../../lib/report/mappers';
+import { reportDoor } from '../../lib/report/door';
+import type { DrillFilters } from '../../lib/drill';
 import { KbHover } from '../contract/KbHover';
+import { TILE } from '../dashboard/surfaces';
+
+/** Открыть строки-основания доли. Даёт страница — своей навигации здесь нет. */
+export type OpenLifecycleRows = (page: Page, filters: DrillFilters) => void;
 
 /** Цвет доли: смысл, а не радуга (заключено — спокойный, просрочка — тревога). */
 const TONE: Record<string, { bar: string; text: string }> = {
@@ -45,7 +58,13 @@ const RULE: Record<string, string> = {
   lifecycle_stage_unfunded: 'Плановые суммы (H–K) нулевые: позиция без денег.',
 };
 
-function Strip({ title, buckets }: { title: string; buckets: LifecycleBucket[] }) {
+function Strip({ title, buckets, dept, year, onOpenRows }: {
+  title: string;
+  buckets: LifecycleBucket[];
+  dept: string;
+  year: number;
+  onOpenRows?: OpenLifecycleRows;
+}) {
   const total = buckets.reduce((s, b) => s + b.count, 0);
   if (total === 0) return null;
   return (
@@ -61,40 +80,70 @@ function Strip({ title, buckets }: { title: string; buckets: LifecycleBucket[] }
         ))}
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
-        {buckets.map((b) => (
-          <KbHover
-            key={b.metricKey}
-            metricKey={b.metricKey}
-            live={
-              `${fmtCount(b.count)} из ${fmtCount(total)} позиций (${Math.round((b.count / total) * 100)} %), ` +
-              `плановые деньги ${fmtCount(b.planTotal)} тыс. руб.\n${RULE[b.metricKey] ?? ''}`
-            }
-          >
+        {buckets.map((b) => {
+          // Дверь к строкам доли. Периметр несёт точка клика: книга ЭТОГО
+          // управления и год полосы — не отбор шапки, который отчёт всё
+          // равно не применяет. Ключа нет в реестре дверей — двери нет
+          // вовсе: ложная увела бы к другим строкам.
+          const open = onOpenRows;
+          const door = open ? reportDoor(b.metricKey, { dept, year }) : null;
+          const share = (
             <span className="whitespace-nowrap">
               <span className={`font-medium ${TONE[b.metricKey]?.text ?? ''}`}>{productLabel(b.metricKey)}</span>
               {' '}{fmtCount(b.count)}
             </span>
-          </KbHover>
-        ))}
+          );
+          return (
+            <KbHover
+              key={b.metricKey}
+              metricKey={b.metricKey}
+              live={
+                `${fmtCount(b.count)} из ${fmtCount(total)} позиций (${Math.round((b.count / total) * 100)} %), ` +
+                `плановые деньги ${fmtCount(b.planTotal)} тыс. руб.\n${RULE[b.metricKey] ?? ''}`
+              }
+            >
+              {door
+                ? (
+                  <button
+                    type="button"
+                    onClick={() => open?.(door.page, door.filters)}
+                    title={`${door.label}. ${door.hint}`}
+                    className="rounded-sm hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    {share}
+                  </button>
+                )
+                : share}
+            </KbHover>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 export function LifecycleStrip({
-  byType, byStage, year,
-}: { byType: LifecycleBucket[]; byStage: LifecycleBucket[]; year: number }) {
+  byType, byStage, year, dept, onOpenRows,
+}: {
+  byType: LifecycleBucket[];
+  byStage: LifecycleBucket[];
+  year: number;
+  /** Книга, по строкам которой собрана полоса — она же периметр двери. */
+  dept: string;
+  onOpenRows?: OpenLifecycleRows;
+}) {
   if (byType.length === 0 && byStage.length === 0) return null;
   return (
-    // Тихая рамка (п.129): в тёмной теме панель отделяет светлота поверхности
-    // (утопленный тон + едва заметный край white/5), а не обводка zinc-700.
-    <div className="space-y-2 rounded-lg border border-zinc-200/70 bg-zinc-50/60 px-3 py-2.5 dark:border-white/5 dark:bg-zinc-900/25">
+    // Плитка внутри карточки отчёта (канон п.129): в тёмной теме её
+    // отделяет светлота, а не край. Раньше фон плитки был ТЕМНЕЕ карточки
+    // (1,01:1 — границы не видно), и всю работу делала обводка.
+    <div className={`${TILE} space-y-2 px-3 py-2.5`}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">Этапность закупок</span>
         <span className="text-[10px] text-zinc-400 dark:text-zinc-500">все строки плана {year} года</span>
       </div>
-      <Strip title="Вид деятельности" buckets={byType} />
-      <Strip title="Стадия" buckets={byStage} />
+      <Strip title="Вид деятельности" buckets={byType} dept={dept} year={year} {...(onOpenRows ? { onOpenRows } : {})} />
+      <Strip title="Стадия" buckets={byStage} dept={dept} year={year} {...(onOpenRows ? { onOpenRows } : {})} />
     </div>
   );
 }

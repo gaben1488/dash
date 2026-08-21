@@ -18,6 +18,8 @@ import { MONITORING_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
 import type { RegistryPortrait } from '../../lib/monitoring/portrait';
 import { fmtCount, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
 import { BookPeriodBadge } from './BookPeriodBadge';
+import { MonitoringPerimeterCaption } from './PerimeterProvider';
+import { CARD, RULE_SECTION, TILE } from './surfaces';
 
 /** Одно число портрета: крупная цифра, подпись и подсказка БЗ. */
 function Figure({
@@ -60,16 +62,22 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
   return (
     <section
       aria-label="Портрет реестра"
-      className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-4 sm:p-5"
+      className={`${CARD} shadow-sm dark:shadow-none p-4 sm:p-5`}
     >
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
           Портрет реестра · {scopeLabel}
         </h2>
-        <BookPeriodBadge
-          label={readAtLabel}
-          note="числа за весь показанный срез книги; период в шапке приложения их не сужает"
-        />
+        <div className="shrink-0 text-right">
+          <BookPeriodBadge
+            label={readAtLabel}
+            note="числа за весь показанный срез книги; период в шапке приложения их не сужает"
+          />
+          {/* Паспорт числа (п.58): область `registry` — строки портрета срезаны
+              выбранным в шапке управлением, а всё остальное в шапке к ним не
+              применяется, и паспорт называет это словами. */}
+          <MonitoringPerimeterCaption scope="registry" className="max-w-[18rem]" />
+        </div>
       </div>
 
       {/* Сетка два на три на телефоне (спека §6.3), в ряд — на большом экране. */}
@@ -130,7 +138,7 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
       </button>
 
       {openCoefficients && (
-        <div className="mt-3 space-y-2 border-t border-zinc-100 dark:border-zinc-700/50 pt-3">
+        <div className={`mt-3 space-y-2 ${RULE_SECTION} pt-3`}>
           <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             Коэффициенты расходятся не от ошибки счёта, а потому, что у{' '}
             {pluralCount(p.noReductionCount, 'процедуры', 'процедур', 'процедур')} из{' '}
@@ -161,7 +169,11 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
             ].map((x) => (
               <div
                 key={x.title}
-                className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2"
+                // Плитка внутри карточки — светлее карточки, а не темнее её
+                // (п.129): `zinc-900/40` на карточке `zinc-800/60` давал
+                // контраст 1,009 : 1, то есть не читался вовсе, и держался
+                // только обводкой — тем самым «частоколом».
+                className={`${TILE} px-3 py-2`}
               >
                 <dt className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{x.title}</dt>
                 <dd className="mt-0.5">

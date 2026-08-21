@@ -14,7 +14,7 @@
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Calendar } from 'lucide-react';
 import type { KBEntryData } from '@aemr/core';
 import { useStore } from '../../store';
 import { readingMoment } from '../../lib/reading-moment';
@@ -103,20 +103,79 @@ export function SubScopeNote({ mode, deptLabel, reason, grbsNote }: {
 }
 
 /**
+ * Собственная плашка периметра — для карточек, чьи числа выбору шапки НЕ
+ * подчиняются (канон п.58б, правило «б» паспорта периметра: унаследованный
+ * бейдж при неподчиняющихся числах запрещён — образец дефекта «пирог с
+ * бейджем недели, показывающий закупки года»).
+ *
+ * Плашка выглядит как обычная, но называет ФАКТИЧЕСКИЙ периметр числа
+ * («весь год · все управления»), а не выбор читателя. Тон — янтарный:
+ * расхождение с шапкой обязано быть заметно, а не притворяться нормой.
+ */
+function OwnPerimeterBadge({ label, hint }: { label: string; hint: string }) {
+  return (
+    <div
+      title={hint}
+      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-400/[0.12] text-[10px] font-medium text-amber-700 dark:text-amber-400"
+    >
+      <Calendar size={10} aria-hidden="true" />
+      <span>{label}</span>
+      <span className="sr-only">— собственный периметр карточки, выбору в шапке не подчиняется</span>
+    </div>
+  );
+}
+
+/**
+ * Оси шапки, которые НЕ применяются НИ К ОДНОМУ блоку вкладки, — они
+ * объявляются каркасом сразу, а не каждой карточкой заново.
+ *
+ * Бюджет и вид деятельности «Конкуренция» не читает: `sumEpKp` берёт
+ * epCount/kpCount/epPlanTotal/kpPlanTotal без бюджетного разреза, облако
+ * торгов и кандидаты на объединение о бюджете не знают вовсе. Соседняя
+ * «Экономия» тот же фильтр применяет — читатель, включивший «МБ», получал
+ * две вкладки с разной дисциплиной молча (болезнь Н4 атласа карточек).
+ */
+function useTabWideNotes(): string[] {
+  const selectedBudgets = useStore((s) => s.selectedBudgets);
+  const selectedActivities = useStore((s) => s.selectedActivities);
+  const notes: string[] = [];
+  if (selectedBudgets.size > 0) {
+    notes.push(
+      'Фильтр бюджета числа этой карточки не сужает: способ закупки в книгах уровнем бюджета не размечен — счёт идёт по всем бюджетам.',
+    );
+  }
+  if (selectedActivities.size > 0) {
+    notes.push(
+      'Фильтр вида деятельности числа этой карточки не сужает: срез способа закупки видом деятельности не размечен.',
+    );
+  }
+  return notes;
+}
+
+/**
  * Каркас карточки вкладки. Плашка периода стоит на каждой карточке (канон
  * п. 58): числа обязаны называть период, которому фактически подчиняются.
  * `caveats` — оговорки счёта; они янтарные и живут прямо под заголовком,
  * потому что метрика без оговорок выглядела бы точнее, чем она есть.
+ *
+ * `ownPerimeter` ставит карточка, чьи числа периоду шапки НЕ подчиняются: тогда
+ * бейдж шапки подменяется собственным. Прежде плашка стояла безусловно, и на
+ * карточке кандидатов на объединение (весь год · все управления) бейдж спорил
+ * с собственной оговоркой карточки прямо в одном заголовке.
  */
-export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], kb, children }: {
+export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], kb, ownPerimeter, children }: {
   title: string;
   subtitle?: ReactNode;
   icon?: LucideIcon;
   caveats?: string[];
   /** Карточка БЗ метрики блока (kb-additions, п.91-2): наведение/тап на заголовок. */
   kb?: KBEntryData;
+  /** Фактический периметр карточки, если он свой: «весь год · все управления». */
+  ownPerimeter?: string;
   children: ReactNode;
 }) {
+  const tabWideNotes = useTabWideNotes();
+  const allCaveats = [...caveats, ...tabWideNotes];
   const heading = <h2 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{title}</h2>;
   return (
     // Карточка — поверхность светлее страницы; в тёмной теме её и отделяет
@@ -141,13 +200,20 @@ export function CompetitionCard({ title, subtitle, icon: Icon, caveats = [], kb,
         {/* Скоуп числа и момент его чтения стоят вместе: период отвечает на
             «за что посчитано», момент — на «когда это было верно» (п.58). */}
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <PeriodBadge />
+          {ownPerimeter
+            ? (
+              <OwnPerimeterBadge
+                label={ownPerimeter}
+                hint={`Числа этой карточки посчитаны за ${ownPerimeter} — выбор периода и управлений в шапке их не сужает. Почему — сказано в оговорках карточки.`}
+              />
+            )
+            : <PeriodBadge />}
           <ReadMoment />
         </div>
       </header>
-      {caveats.length > 0 && (
+      {allCaveats.length > 0 && (
         <div className="px-5 pb-2 space-y-1">
-          {caveats.map((c, i) => (
+          {allCaveats.map((c, i) => (
             <p
               key={i}
               className="flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-700 dark:text-amber-400"

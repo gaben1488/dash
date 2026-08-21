@@ -1,17 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { SIGNAL_LABELS } from '@aemr/shared';
+import { CHECK_REGISTRY, SIGNAL_LABELS } from '@aemr/shared';
 import {
+  ALL_SIGNAL_KEYS,
   SIGNAL_SEVERITY,
+  UNREACHABLE_SIGNAL_KEYS,
   activityRowLabel,
   countBySeverity,
   countUncheckedByPeriod,
   describeRegistryCounts,
   describeUncheckedByPeriod,
+  epRiskSeverity,
+  featureSignals,
+  isStateSignal,
   requestFilterNames,
   screenFilterNames,
   signalChipText,
+  signalHint,
   signalOccurrences,
+  signalPassport,
   signalSeverity,
+  stateSignals,
 } from './registry-view';
 
 describe('словарь признаков', () => {
@@ -30,7 +38,39 @@ describe('словарь признаков', () => {
   });
 
   it('подпись признака берётся из словаря', () => {
-    expect(signalChipText('overdue')).toEqual({ text: SIGNAL_LABELS.overdue });
+    expect(signalChipText('overdue').text).toBe(SIGNAL_LABELS.overdue);
+  });
+
+  it('чип известного признака несёт механизм и действие (п.53)', () => {
+    const chip = signalChipText('planYearMissing');
+    const passport = signalPassport('planYearMissing');
+    expect(passport).not.toBeNull();
+    expect(chip.hint).toContain(passport!.description);
+    expect(chip.hint).toContain('Что сделать:');
+    expect(chip.hint).toContain(passport!.recommendation);
+  });
+
+  it('состояние строки не требует действия, а называет себя состоянием', () => {
+    const hint = signalHint('signed');
+    expect(hint).toContain('состояние строки');
+    expect(hint).not.toContain('Что сделать:');
+  });
+
+  it('признак без паспорта говорит об этом прямо, а не молчит', () => {
+    expect(signalPassport('planSoon')).toBeNull();
+    expect(signalHint('planSoon')).toContain('паспорт проверки в реестре ещё не заведён');
+  });
+
+  it('ЕП-риск не подхватывает чужой паспорт по полю legacyId', () => {
+    const passport = signalPassport('epRisk');
+    expect(passport).not.toBeNull();
+    expect(passport!.description).not.toContain('инициатив');
+  });
+
+  it('признаки-стадии берут паспорт по переводу имени, а не остаются немыми', () => {
+    for (const key of ['factWithoutDate', 'initiativeRequest', 'foreignYearExecution']) {
+      expect(signalPassport(key), key).not.toBeNull();
+    }
   });
 
   it('неописанный признак не показывает пользователю служебное имя', () => {
@@ -188,5 +228,92 @@ describe('сколько строк найдётся по признаку', () 
       {},
     ]);
     expect(counts).toEqual({ overdue: 2, planSoon: 1 });
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Консолидация сигналов — решения владельца п.137 от 21.08.2026.
+// Здесь стережётся ОДНА вещь: чип на экране и паспорт проверки говорят о
+// строгости одно и то же. Разошедшись, они и породили спор родов — читатель
+// двух вкладок получал противоположные оценки одной строки.
+// ────────────────────────────────────────────────────────────
+
+describe('строгость чипа против паспорта проверки (п.137)', () => {
+  const passport = (id: string) => CHECK_REGISTRY.find((c) => c.id === id)!;
+
+  it('п.137(6): «факт раньше плановой даты» — справка и в чипе, и в паспорте', () => {
+    // Канон п.28 сказал «это не ошибка», паспорт понизили, а чип остался
+    // жёлтым: предупреждение стояло там, где карточка обещала справку.
+    expect(signalSeverity('factDateBeforePlan')).toBe('info');
+    expect(passport('fact_date_before_plan').severity).toBe('info');
+  });
+
+  it('п.137(10): «обоснование ЕП вне справочника» — справка, а не претензия', () => {
+    expect(signalSeverity('unmappedReasonEP')).toBe('info');
+    expect(passport('unmapped_reason_ep').severity).toBe('info');
+  });
+
+  it('п.137(4) и (3): новые признаки информационные', () => {
+    expect(signalSeverity('foreignYearExecution')).toBe('info');
+    expect(signalSeverity('initiativeRequest')).toBe('info');
+  });
+
+  it('п.137(2): ЕП-риск красится по обоснованию строки, а не по ключу', () => {
+    // Монополист красным не горит: из 76 строк класса у 60 соседняя вкладка
+    // держала наготове оправдание, и красный чип обесценивал остальные.
+    expect(epRiskSeverity('Единственный поставщик тепловой энергии, естественная монополия'))
+      .toBe('info');
+    expect(epRiskSeverity('Проведение аукциона нецелесообразно')).toBe('critical');
+    expect(epRiskSeverity('')).toBe('critical');
+  });
+
+  it('п.137(2): счёт критических строк судит той же развилкой, что и чип', () => {
+    // Если счётчик и чип разойдутся, полоса «столько-то критических» перестанет
+    // сходиться с тем, что видно глазами в таблице.
+    const rows = [
+      { signals: ['epRisk'], epReason: 'Единственный поставщик тепловой энергии, естественная монополия' },
+      { signals: ['epRisk'], epReason: 'Нецелесообразно проводить аукцион' },
+    ];
+    expect(countBySeverity(rows)).toEqual({ critical: 1, warning: 0 });
+  });
+});
+
+describe('колонка признаков против колонки состояния (§3.4 спеки)', () => {
+  it('благополучные состояния не стоят в колонке замечаний', () => {
+    // Строк, у которых в колонке стояли ТОЛЬКО благополучные чипы, — 2 461:
+    // читатель видел заполненную колонку замечаний там, где замечаний ноль.
+    expect(featureSignals(['signed', 'hasFact', 'economyFlag'])).toEqual([]);
+    expect(stateSignals(['signed', 'hasFact', 'overdue'])).toEqual(['signed', 'hasFact']);
+  });
+
+  it('находки из колонки признаков никуда не деваются', () => {
+    expect(featureSignals(['overdue', 'signed', 'epRisk'])).toEqual(['overdue', 'epRisk']);
+  });
+
+  it('«есть факт» больше не спорит с бейджем стадии', () => {
+    // Канон п.71б завёл бейдж стадии ИМЕНО вместо «лживого есть факт»;
+    // заменить не вышло, их стало двое. После разделения колонок остаётся один.
+    expect(isStateSignal('hasFact')).toBe(true);
+    expect(isStateSignal('factWithoutDate')).toBe(false);
+  });
+});
+
+describe('недостижимые признаки в списке отбора', () => {
+  it('«задержка финансирования» не предлагается: расчёт её не выставляет', () => {
+    // В ядре она присвоена false навсегда (signals.ts), и строка «— 0» в
+    // списке обещала отбор, которого не будет.
+    expect(ALL_SIGNAL_KEYS).not.toContain('financeDelay');
+  });
+
+  it('но имя её остаётся в словаре — старые снимки её несут', () => {
+    expect(SIGNAL_LABELS).toHaveProperty('financeDelay');
+    expect(signalChipText('financeDelay').text).not.toBe('financeDelay');
+  });
+
+  it('всё остальное словаря отбирать по-прежнему можно', () => {
+    const lost = Object.keys(SIGNAL_LABELS)
+      .filter((key) => !UNREACHABLE_SIGNAL_KEYS.includes(key))
+      .filter((key) => !ALL_SIGNAL_KEYS.includes(key));
+    expect(lost).toEqual([]);
   });
 });

@@ -19,6 +19,7 @@ import {
   type ReconRootCauseClass,
   type RootCauseGroup,
 } from '@aemr/shared';
+import { RULE_HEAD, RULE_ROW } from '../control/surfaces';
 
 /**
  * Тон карточки по классу. Смысл, а не радуга: дефект данных — тревожный,
@@ -68,7 +69,7 @@ export function RootCauseCard({ group, previewRows = 5 }: Props) {
   const hidden = cause.rows.length - rows.length;
 
   return (
-    <div className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 p-3">
+    <div className="rounded-lg bg-zinc-50 dark:bg-white/[0.05] p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${tone.badge}`}>
@@ -109,7 +110,7 @@ export function RootCauseCard({ group, previewRows = 5 }: Props) {
           </thead>
           <tbody className="text-zinc-600 dark:text-zinc-300">
             {rows.map((r) => (
-              <tr key={`${r.sheet}:${r.cell}`} className="border-t border-zinc-100 dark:border-zinc-700/50">
+              <tr key={`${r.sheet}:${r.cell}`} className={`border-t ${RULE_ROW}`}>
                 <td className="py-0.5">{r.sheet}</td>
                 <td className="py-0.5 tabular-nums">{r.row}</td>
                 <td className="py-0.5 font-mono tabular-nums">{r.cell}</td>
@@ -138,7 +139,7 @@ export function RootCauseCard({ group, previewRows = 5 }: Props) {
       )}
 
       {/* Сверка ведёт к действию, а не к констатации. */}
-      <p className="mt-2 border-t border-zinc-100 dark:border-zinc-700/50 pt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+      <p className={`mt-2 border-t ${RULE_HEAD} pt-2 text-[11px] text-zinc-500 dark:text-zinc-400`}>
         <span className="font-medium text-zinc-600 dark:text-zinc-300">Что делать: </span>
         {ROOT_CAUSE_ACTIONS[cause.class]}
       </p>

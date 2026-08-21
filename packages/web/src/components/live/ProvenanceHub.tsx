@@ -18,11 +18,15 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { Database } from 'lucide-react';
+import { Database, ListTree } from 'lucide-react';
+import type { ChangeDigest, ChangeGap } from '@aemr/core';
 import { useStore } from '../../store';
 import { useLiveEvents } from '../../hooks/useLiveEvents';
 import { relativeMoment } from './live-text';
 import { changeLines, newIssuesLine, provenancePill, refreshModeLine } from './provenance-text';
+import { DELETION_NOTE, digestLines, emptinessLine } from './change-story-text';
+import { ChangeJournal } from './ChangeJournal';
+import { fetchChangeStory } from '../../lib/changes/change-story-client';
 import { parseRefreshPassport, type RefreshPassport } from '../../pages/Settings.logic';
 import { fetchJSON } from '../../api';
 
@@ -39,6 +43,14 @@ export function ProvenanceHub({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [passport, setPassport] = useState<RefreshPassport | null>(null);
   const [passportAsked, setPassportAsked] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
+  // Свод журнала изменений: тот же ответ, что кормит подробную глубину, но
+  // взятый с limit=1 — из него нужен только digest, а список правок остаётся
+  // на своём экране. Спрашивается ОДИН раз и только при открытии панели.
+  const [digest, setDigest] = useState<ChangeDigest | null>(null);
+  const [digestGaps, setDigestGaps] = useState<readonly ChangeGap[]>([]);
+  const [digestFailed, setDigestFailed] = useState(false);
+  const [digestAsked, setDigestAsked] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,6 +70,25 @@ export function ProvenanceHub({ className }: { className?: string }) {
       .catch(() => { /* молчание источника — честное «неизвестно» в тексте */ });
     return () => { alive = false; };
   }, [open, passportAsked]);
+
+  // Свод правок — по той же причине и тем же образцом, что паспорт режима.
+  useEffect(() => {
+    if (!open || digestAsked) return;
+    setDigestAsked(true);
+    let alive = true;
+    void fetchChangeStory({ limit: 1 })
+      .then((story) => {
+        if (!alive) return;
+        setDigest(story.digest);
+        setDigestGaps(story.gaps);
+      })
+      .catch(() => {
+        // Молчание сервера НЕ показывается как «правок не было»: панель
+        // скажет об отказе словами, а не пустотой.
+        if (alive) setDigestFailed(true);
+      });
+    return () => { alive = false; };
+  }, [open, digestAsked]);
 
   // Закрытие по щелчку вне узла и по Escape — панель не должна залипать.
   useEffect(() => {
@@ -141,23 +172,70 @@ export function ProvenanceHub({ className }: { className?: string }) {
               : 'недоступен: числа обновляются по таймеру и по кнопке'}
           />
 
+          {/* ── Краткая глубина журнала изменений (требование 21.08) ──
+              Четыре фразы вместо счётчика: сколько правок, в скольких книгах,
+              скольких закупок коснулись, каких родов, кем и когда. Полный
+              список с адресами — кнопкой ниже, на своём экране. */}
           <div className="mt-2.5 mb-1.5 text-[11px] font-medium text-[var(--ink-strong)]">
-            Что изменилось
+            Что изменилось с последнего среза
           </div>
 
-          {changes.length === 0 ? (
-            <p className="text-[10px] text-[var(--ink-faint)] leading-snug">
-              С последнего обновления книги не менялись — числа на экране совпадают с прочитанным.
+          {digestFailed ? (
+            <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-400">
+              Журнал изменений не прочитан — сервер не ответил. Это не «правок не было».
             </p>
+          ) : digest === null ? (
+            <p className="text-[10px] text-[var(--ink-faint)] leading-snug">Читаем журналы книг…</p>
           ) : (
-            <ul className="space-y-1">
-              {changes.map((c) => (
-                <li key={c.label} className="text-[10px] leading-snug">
-                  <span className="text-[var(--ink-strong)] font-medium">{c.label}</span>
-                  <span className="text-[var(--ink-muted)]"> — {c.detail}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-0.5">
+                {digestLines(digest).map((line, i) => (
+                  <li
+                    key={line}
+                    className={clsx(
+                      'text-[10px] leading-snug',
+                      i === 0 ? 'text-[var(--ink)] font-medium' : 'text-[var(--ink-muted)]',
+                    )}
+                  >
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              {emptinessLine(digest, digestGaps) !== null && (
+                <p className="mt-1 text-[10px] leading-snug text-[var(--ink-faint)]">
+                  {emptinessLine(digest, digestGaps)}
+                </p>
+              )}
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => { setJournalOpen(true); setOpen(false); }}
+            className={clsx(
+              'mt-2 w-full flex items-center justify-center gap-1.5 h-[24px] rounded-md',
+              'text-[10px] text-[var(--ink-muted)] bg-[var(--surface-raised)]',
+              'hover:text-[var(--ink)] transition-colors',
+            )}
+          >
+            <ListTree size={11} aria-hidden="true" />
+            Весь журнал изменений — с адресами и поиском
+          </button>
+
+          {changes.length > 0 && (
+            <>
+              <div className="mt-2.5 mb-1 text-[11px] font-medium text-[var(--ink-strong)]">
+                Прямо сейчас
+              </div>
+              <ul className="space-y-1">
+                {changes.map((c) => (
+                  <li key={c.label} className="text-[10px] leading-snug">
+                    <span className="text-[var(--ink-strong)] font-medium">{c.label}</span>
+                    <span className="text-[var(--ink-muted)]"> — {c.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           {issues !== null && (
@@ -190,13 +268,21 @@ export function ProvenanceHub({ className }: { className?: string }) {
               </ul>
               {live.recentRows.length > ROWS_SHOWN && (
                 <p className="mt-1 text-[10px] text-[var(--ink-faint)]">
-                  Показаны {ROWS_SHOWN} из {live.recentRows.length}; полный список правок — в журнале на вкладке «Контроль».
+                  Показаны {ROWS_SHOWN} из {live.recentRows.length}; полный список — в журнале изменений.
                 </p>
               )}
             </>
           )}
+
+          {/* Граница источника произносится вслух ВСЕГДА, а не только при
+              нулях: читатель обязан знать её до того, как сделает вывод. */}
+          <p className="mt-2.5 pt-2 border-t border-[var(--border-subtle)] text-[10px] leading-snug text-[var(--ink-faint)]">
+            {DELETION_NOTE}
+          </p>
         </div>
       )}
+
+      <ChangeJournal open={journalOpen} onClose={() => setJournalOpen(false)} />
     </div>
   );
 }

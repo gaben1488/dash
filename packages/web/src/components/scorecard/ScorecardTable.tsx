@@ -17,6 +17,7 @@
 import { Minus } from 'lucide-react';
 import clsx from 'clsx';
 import { KBTooltip } from '../ui/kb-tooltip';
+import { CARD, HEAD_STRIP, RULE_DIVIDE, RULE_HEAD } from '../control/surfaces';
 import {
   FACTOR_LABEL,
   GRADE_MEANING,
@@ -92,7 +93,7 @@ function FlagsCell({ entry }: { entry: ScorecardGraded }) {
 
 export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
   return (
-    <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+    <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none overflow-hidden')}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <caption className="sr-only">
@@ -101,7 +102,7 @@ export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
             на которые стоит посмотреть. Порядок — по индексу возрастанием.
           </caption>
           <thead>
-            <tr className="bg-zinc-50 dark:bg-zinc-900/50 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <tr className={clsx(HEAD_STRIP, 'text-left text-xs font-medium text-zinc-500 dark:text-zinc-400')}>
               <th scope="col" className="px-4 py-2.5">Управление</th>
               <th scope="col" className="px-3 py-2.5 text-center" title="Оценка исполнения закупок: A — по ожиданию и выше, D — отставание вместе с нарушениями">
                 Грейд
@@ -119,7 +120,7 @@ export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
               <th scope="col" className="px-4 py-2.5">На что посмотреть</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+          <tbody className={RULE_DIVIDE}>
             {rows.map((row) => {
               const entry = row.entry;
               const graded = isGraded(entry);
@@ -130,7 +131,7 @@ export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
                     'transition',
                     graded
                       ? 'hover:bg-zinc-50 dark:hover:bg-zinc-700/30'
-                      : 'bg-zinc-50/60 dark:bg-zinc-900/30',
+                      : 'bg-zinc-50/60 dark:bg-white/[0.05]',
                   )}
                 >
                   <th
@@ -189,7 +190,7 @@ export function ScorecardTable({ rows }: { rows: readonly ScorecardRow[] }) {
           </tbody>
         </table>
       </div>
-      <p className="px-4 py-2.5 text-[11px] text-zinc-500 dark:text-zinc-400 border-t border-zinc-100 dark:border-zinc-700/50">
+      <p className={clsx('px-4 py-2.5 text-[11px] text-zinc-500 dark:text-zinc-400 border-t', RULE_HEAD)}>
         Порядок строк — по индексу дисциплины возрастанием: наверху то управление,
         которому внимание нужнее.{' '}
         <KBTooltip

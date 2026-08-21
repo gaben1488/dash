@@ -186,7 +186,7 @@ export function JournalPage() {
         (серверный `counts.byAction`). Это сказано вслух: три числа стоят рядом
         с постраничным списком, и без оговорки их читают как счёт по странице.
       */}
-      <div className="text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
+      <div className="text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent px-5 py-3">
         <div className="flex flex-wrap gap-6">
           <div className="flex items-center gap-2">
             <BookOpen size={14} className="text-blue-500" aria-hidden="true" />
@@ -203,7 +203,7 @@ export function JournalPage() {
       </div>
 
       {/* Что делает глобальная ось на этой вкладке — и чего она здесь не делает */}
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 px-5 py-3">
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent px-5 py-3">
         <span className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
           <CalendarRange size={14} className="text-zinc-400" aria-hidden="true" />
           Период применён к дате события:{' '}
@@ -226,7 +226,7 @@ export function JournalPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 p-4">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent p-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden="true" />
@@ -275,7 +275,7 @@ export function JournalPage() {
       </div>
 
       {/* Table or Empty State */}
-      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-zinc-700/50 overflow-hidden">
+      <div className="bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent overflow-hidden">
         {loading ? (
           <div className="p-12 text-center">
             <Loader2 className="mx-auto text-blue-400 mb-3 animate-spin" size={32} aria-hidden="true" />

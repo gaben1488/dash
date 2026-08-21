@@ -295,12 +295,18 @@ export function seasonLabel(period: string): string {
   return period;
 }
 
-/** Короткая подпись оси: «мар 26». */
+/** Короткая подпись оси: «мар 26» для месяца, «I кв. 26» для квартала. */
 export function seasonShortLabel(period: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
-  if (m === null) return period;
-  const short = MONTH_SHORT[Number(m[2]) - 1];
-  return short === undefined ? period : `${short} ${m[1].slice(2)}`;
+  if (m !== null) {
+    const short = MONTH_SHORT[Number(m[2]) - 1];
+    return short === undefined ? period : `${short} ${m[1].slice(2)}`;
+  }
+  // Квартальная ось раньше падала на сырой ключ «2026-I»: подписи квартала не
+  // было, потому что кварталы на экран не доезжали вовсе.
+  const q = /^(\d{4})-(IV|I{1,3})$/.exec(period);
+  if (q !== null) return `${q[2]} кв. ${q[1].slice(2)}`;
+  return period;
 }
 
 export interface SeasonBar {

@@ -31,6 +31,7 @@ import type { MetricDelta, PendingPosition, ReportSignal } from '@aemr/core';
 import { api, type ReportResponse } from '../api';
 import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
+import { perimeterLabel, type Perimeter } from '../lib/perimeter';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { freshImport } from '../lib/fresh-import';
 import { KpiTile } from '../components/contract/KpiTile';
@@ -47,7 +48,7 @@ import {
   type KpiVM,
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
-import { LifecycleStrip } from '../components/report/LifecycleStrip';
+import { LifecycleStrip, type OpenLifecycleRows } from '../components/report/LifecycleStrip';
 import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
 import { BudgetTriple } from '../components/contract/BudgetTriple';
@@ -62,9 +63,13 @@ import {
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams, type ReportMode } from '../lib/report/request';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
+import { bookCellUrl, bookLinkHint, bookRowUrl } from '../lib/report/book-link';
+import { reportPerimeter } from '../lib/report/perimeter';
+import { activeSectionOf } from '../lib/report/active-section';
 import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
 import { ChangesSection } from '../components/report/ChangesSection';
+import { ReportFilterNotices } from '../components/report/FilterNotices';
 import { fmtMetricValue } from '../lib/delta-format';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
@@ -129,6 +134,29 @@ function errorContent(error: string): { title: string; description: string } {
     };
 }
 
+/**
+ * Адрес первички ссылкой (работа P1-2 карты вкладки): «строка 128» и
+ * «ячейка W59» перестают быть серым текстом и открывают книгу управления.
+ * Книги управления нет в реестре либо адрес непонятной формы — остаётся тот
+ * же текст, что и раньше: ссылка в никуда хуже честного текста.
+ */
+function BookAddress({ href, hint, children }: { href: string | null; hint: string; children: ReactNode }) {
+  if (href === null) {
+    return <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">{children}</span>;
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={hint}
+      className="font-mono text-[10px] text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700 dark:text-blue-400"
+    >
+      {children}
+    </a>
+  );
+}
+
 /** Открыть доказательство числа — прокидывается вглубь секций страницы. */
 type OpenProof = (proof: ProofData) => void;
 
@@ -160,7 +188,7 @@ function ProofButton({ proof, onOpen, children }: { proof: ProofData; onOpen: Op
  * слово критичности рядом с точкой, описание и адрес первички
  * (лист · ячейка) — путь к таблице от каждого пункта.
  */
-function SignalRow({ s }: { s: ReportSignal }) {
+function SignalRow({ s, dept }: { s: ReportSignal; dept: string }) {
   return (
     <div className="text-[11px] leading-relaxed">
       <div className="flex items-baseline gap-2">
@@ -177,14 +205,30 @@ function SignalRow({ s }: { s: ReportSignal }) {
         <div className="ml-3.5 text-zinc-500 dark:text-zinc-400">
           {s.description}
           {(s.sheet || s.cell) && (
-            <span className="ml-1 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
-              {' — '}{s.sheet ? `лист «${s.sheet}»` : ''}{s.sheet && s.cell ? ' · ' : ''}{s.cell ? `ячейка ${s.cell}` : ''}
+            <span className="ml-1">
+              {' — '}
+              <BookAddress
+                href={s.cell ? bookCellUrl(dept, s.cell) : null}
+                hint={bookLinkHint(dept, s.cell ? `выделение встанет на ячейку ${s.cell}` : 'адрес ячейки')}
+              >
+                {s.sheet ? `лист «${s.sheet}»` : ''}{s.sheet && s.cell ? ' · ' : ''}{s.cell ? `ячейка ${s.cell}` : ''}
+              </BookAddress>
             </span>
           )}
         </div>
       )}
-      {s.recommendation && (
+      {/* Карточка диагноста целиком (канон п.53): у сигнала виден не только
+          диагноз, но и ответ. Рекомендации нет — молчать нельзя: читатель
+          иначе решает, что действие очевидно и он один его не понимает.
+          Проверки без рекомендации остаются в ядре (работа 4.10 плана),
+          здесь экран честно говорит, чего у сигнала пока нет, и оставляет
+          дорогу к строке — она выше, адресом листа и ячейки. */}
+      {s.recommendation ? (
         <div className="ml-3.5 text-zinc-500 dark:text-zinc-400">Рекомендация: {s.recommendation}</div>
+      ) : (
+        <div className="ml-3.5 text-zinc-400 dark:text-zinc-500">
+          Рекомендации у этой проверки пока нет — что делать, видно по адресу строки выше.
+        </div>
       )}
     </div>
   );
@@ -196,7 +240,7 @@ function SignalRow({ s }: { s: ReportSignal }) {
  * подписями источника. Отсутствие пояснений — честная строка: качество
  * заполнения листа — тоже информация для читателя.
  */
-function PendingPositionRow({ p }: { p: PendingPosition }) {
+function PendingPositionRow({ p, dept }: { p: PendingPosition; dept: string }) {
   return (
     <div className="text-[11px] leading-relaxed">
       <div className="text-zinc-700 dark:text-zinc-200">
@@ -205,7 +249,13 @@ function PendingPositionRow({ p }: { p: PendingPosition }) {
           {' — '}{p.method || 'способ не указан'}
           {p.planDate && ` · план ${p.planDate}`}
           {p.planTotal > 0 && ` · ${fmtCount(p.planTotal)} тыс. руб.`}
-          <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
+          {' '}
+          <BookAddress
+            href={bookRowUrl(dept, p.sheetRow)}
+            hint={bookLinkHint(dept, `выделение встанет на строку ${p.sheetRow}`)}
+          >
+            строка {p.sheetRow}
+          </BookAddress>
         </span>
         {/* Бейдж «ожидается <дата>» удалён 14.08.2026 (канон п.27 интервью,
             пп.31/40/41): дата вынималась машинно из свободного текста
@@ -238,15 +288,20 @@ const unfundedSubKey = (p: UnfundedPositionVM): string => subordinateKey(p.subor
  * подведам не повторяется — его называет заголовок группы), способ, деньги,
  * адрес строки листа.
  */
-function UnfundedPositionRow({ p, showSubordinate = true }: { p: UnfundedPositionVM; showSubordinate?: boolean }) {
+function UnfundedPositionRow({ p, dept, showSubordinate = true }: { p: UnfundedPositionVM; dept: string; showSubordinate?: boolean }) {
   return (
     <div className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
       {p.subject || 'Без наименования'}
       <span className="text-zinc-400 dark:text-zinc-500">
         {showSubordinate && p.subordinate && ` — ${p.subordinate}`}
         {p.method && ` · ${p.method}`}
-        {` · ${fmtThousands(p.planTotal)} тыс. руб.`}
-        <span className="ml-1 font-mono text-[10px]">строка {p.sheetRow}</span>
+        {` · ${fmtThousands(p.planTotal)} тыс. руб. `}
+        <BookAddress
+          href={bookRowUrl(dept, p.sheetRow)}
+          hint={bookLinkHint(dept, `выделение встанет на строку ${p.sheetRow}`)}
+        >
+          строка {p.sheetRow}
+        </BookAddress>
       </span>
     </div>
   );
@@ -277,12 +332,12 @@ function MethodPct({ pct, pctText, bold }: { pct: number | null; pctText: string
 
 /** Секция одного ГРБС — контрактные элементы; memo: тики локального
     состояния страницы не перерисовывают 8 тяжёлых секций. */
-const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, onProof }: { vm: GrbsSectionVM; quarter: Quarter; year: number; ctx: FilterContext; onProof: OpenProof }) {
+const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, perimeter, onProof, onOpenRows }: { vm: GrbsSectionVM; quarter: Quarter; year: number; ctx: FilterContext; perimeter: Perimeter; onProof: OpenProof; onOpenRows: OpenLifecycleRows }) {
   // Доказательство остатка квартала: строки-атомы — те самые незаключённые
   // позиции, что перечислены ниже по секции. Перечня нет — кнопки нет.
   const pendingProof = useMemo(() => quarterPendingProof(vm, quarter), [vm, quarter]);
   return (
-    <SectionCard filterCtx={ctx} source={vm.source} title={vm.deptLabel} icon={Building2}>
+    <SectionCard filterCtx={ctx} source={vm.source} title={vm.deptLabel} icon={Building2} perimeter={perimeter}>
       <div className="space-y-3">
         {/* Шапка секции: жирный % и сразу разбивка по способам со строкой
             «Всего» — детальность сверху, без текстового дубля (вводная 06.08:
@@ -356,18 +411,29 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, onProof 
               noun="позиций"
               searchText={(p) => `${p.subject} ${p.method} ${p.planDate} ${p.explanations.map((e) => e.text).join(' ')}`}
             >
-              {(p) => <PendingPositionRow key={p.sheetRow} p={p} />}
+              {(p) => <PendingPositionRow key={p.sheetRow} p={p} dept={vm.dept} />}
             </ExpandableRows>
           </div>
         )}
 
         {/* Этапность: вид деятельности и стадия жизненного цикла — вводная
             04.08 «этапность в таблице есть, но не показывается» */}
-        <LifecycleStrip byType={vm.lifecycle.byType} byStage={vm.lifecycle.byStage} year={year} />
+        <LifecycleStrip
+          byType={vm.lifecycle.byType}
+          byStage={vm.lifecycle.byStage}
+          year={year}
+          dept={vm.dept}
+          onOpenRows={onOpenRows}
+        />
 
         {/* Своды объяснений исполнителя: свободный текст листа, сведённый
             справочниками — считаем по кластеру, проверяем по живому образцу */}
-        <ReasonsPanel epReasons={vm.reasons.epReasons} deviations={vm.reasons.deviations} />
+        <ReasonsPanel
+          epReasons={vm.reasons.epReasons}
+          deviations={vm.reasons.deviations}
+          year={year}
+          quarter={quarter}
+        />
 
         {/* Год, деньги (тройки ФБ/КБ/МБ — канон цвет+подпись), экономия */}
         <div className="text-[11px] text-zinc-600 dark:text-zinc-300 space-y-0.5">
@@ -466,7 +532,7 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, onProof 
             noun="сигналов"
             searchText={(s) => `${s.title} ${s.description} ${s.sheet ?? ''} ${s.cell ?? ''}`}
           >
-            {(s) => <SignalRow key={s.id} s={s} />}
+            {(s) => <SignalRow key={s.id} s={s} dept={vm.dept} />}
           </ExpandableRows>
         )}
       </div>
@@ -475,6 +541,14 @@ const GrbsSection = memo(function GrbsSection({ vm, quarter, year, ctx, onProof 
 });
 
 // ── «Что изменилось за неделю»: дельта снимков вокруг четверга среза ──
+
+/** Сколько строк дрейфа видно до раскрытия — не потолок списка, а верх. */
+/**
+ * Линия чтения для подсветки активной секции: полоса чуть ниже липкой шапки
+ * приложения. Верх окна не годится — по нему активной становилась бы секция,
+ * от которой видна одна строка.
+ */
+const READING_LINE = 140;
 
 const MAX_WEEK_DELTA_ROWS = 8;
 
@@ -529,10 +603,12 @@ function WeekDeltaBody({ state }: { state: WeekDeltaState }) {
       {note !== null ? (
         <div className="text-[11px] text-zinc-500 dark:text-zinc-400">— {note}</div>
       ) : state.kind === 'ready' && (() => {
+        // Обрезки больше нет (работа P1-4 карты вкладки): жёсткий срез в
+        // восемь строк молча прятал остальные — читатель не знал ни того,
+        // что они есть, ни их числа. Порядок прежний, показ — раскрытием.
         const significant = state.deltas
           .filter((d) => d.direction !== 'flat')
-          .sort((a, b) => weekDeltaRank(b) - weekDeltaRank(a))
-          .slice(0, MAX_WEEK_DELTA_ROWS);
+          .sort((a, b) => weekDeltaRank(b) - weekDeltaRank(a));
         return (
           <>
             <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
@@ -543,9 +619,14 @@ function WeekDeltaBody({ state }: { state: WeekDeltaState }) {
                 Значимых изменений метрик за неделю нет.
               </div>
             ) : (
-              <ul className="space-y-1">
-                {significant.map((d) => (
-                  <li key={d.metricKey} className="flex items-center gap-2 text-[11px]">
+              <ExpandableRows
+                rows={significant}
+                top={MAX_WEEK_DELTA_ROWS}
+                noun="метрик"
+                searchText={(d) => weekMetricLabel(d.metricKey)}
+              >
+                {(d) => (
+                  <div key={d.metricKey} className="flex items-center gap-2 py-0.5 text-[11px]">
                     <span className="flex-1 min-w-0 truncate text-zinc-600 dark:text-zinc-300">
                       {weekMetricLabel(d.metricKey)}
                     </span>
@@ -553,9 +634,9 @@ function WeekDeltaBody({ state }: { state: WeekDeltaState }) {
                       {fmtMetricValue(d.metricKey, d.from?.value ?? null)} → {fmtMetricValue(d.metricKey, d.to?.value ?? null)}
                     </span>
                     <DeltaBadge delta={d} />
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                )}
+              </ExpandableRows>
             )}
           </>
         );
@@ -693,13 +774,21 @@ export function ReportPage() {
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   // Режим просмотра: эфир — числа на сейчас; архив — снимок недели.
   const isLive = report?.period.live ?? false;
-  // Выгрузка в Word: какая из двух кнопок сейчас готовит файл (null — обе свободны).
-  const [saving, setSaving] = useState<'main' | 'extra' | null>(null);
+  // Выгрузка в Word: какая из двух кнопок сейчас готовит файл (null — обе
+  // свободны) и на каком она этапе. Этап показывается словами (работа 4.13
+  // плана): сборка идёт секунды и качает четыре квартала, а прежнее
+  // «Готовится…» не отличало «сервер не ответил» от «идём по плану» —
+  // читатель жал кнопку второй раз.
+  const [saving, setSaving] = useState<{ kind: 'main' | 'extra'; stage: string } | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const onDownloadDocx = async (kind: 'main' | 'extra') => {
     if (!report || asOfDate === null) return;
-    setSaving(kind);
+    setSaving({ kind, stage: 'кварталы 0/4' });
     setDownloadError(null);
+    // Счётчик готовых кварталов. Обещания разрешаются вразнобой, поэтому
+    // считается ЧИСЛО готовых, а не номер последнего пришедшего: «квартал 4
+    // из 4» при двух оставшихся в пути было бы враньём на кнопке.
+    let done = 0;
     try {
       // Библиотека грузится по требованию: 400 КБ не должны висеть на каждом
       // открытии страницы ради кнопки, которую жмут раз в неделю.
@@ -718,12 +807,18 @@ export function ReportPage() {
           // загруженного отчёта. В ЭФИРЕ пиновки нет: между открытием
           // страницы и кликом сервер мог перечитать книги, и документ
           // склеился бы из разных моментов (тот же класс, что фикс 67c131c).
-          ...QUARTERS.map((q) =>
-            q === report.period.quarter && request.asOf !== undefined
+          ...QUARTERS.map((q) => {
+            const source = q === report.period.quarter && request.asOf !== undefined
               ? Promise.resolve(report)
-              : api.getReport(request.year, q, request.asOf),
-          ),
+              : api.getReport(request.year, q, request.asOf);
+            return source.then((r) => {
+              done += 1;
+              setSaving({ kind, stage: `кварталы ${done}/4` });
+              return r;
+            });
+          }),
         ] as const);
+      setSaving({ kind, stage: 'сборка' });
       const quarters = { 1: q1, 2: q2, 3: q3, 4: q4 };
       const isMain = kind === 'main';
       const blocks = isMain
@@ -754,7 +849,52 @@ export function ReportPage() {
   );
 
   const summary = useMemo(() => (report ? buildIntegralSummary(report) : null), [report]);
+  // Паспорта периметра секций (канон п.58): один — квартальный, для сводки и
+  // блоков ГРБС; второй — годовой, для блоков, которые квартал не сужает
+  // (закупки без финансирования, лента правок). Строятся ИЗ ОТВЕТА сервера,
+  // а неприменимые оси шапки объявляются словами внутри `reportPerimeter`.
+  const quarterPerimeter = useMemo(
+    () => (report ? reportPerimeter({ report, ctx }) : null),
+    [report, ctx],
+  );
+  const yearPerimeter = useMemo(
+    () => (report ? reportPerimeter({ report, ctx, wholeYear: true }) : null),
+    [report, ctx],
+  );
   const activeQuarter: Quarter | null = report ? report.period.quarter : request.quarter ?? null;
+
+  // Подсветка секции, которую сейчас читают (работа 4.14 плана). Наблюдатель
+  // пересечений будит пересчёт, а РЕШЕНИЕ «какая секция активна» принимает
+  // `activeSectionOf` — оно проверяется тестом, а не глазом на живой
+  // странице. Слушаем сами секции, а не прокрутку окна: секции разной высоты,
+  // и считать по номеру было бы враньём при свёрнутых блоках.
+  const [activeDept, setActiveDept] = useState<string | null>(null);
+  const deptKeys = visibleBlocks.map((b) => b.dept).join('|');
+  useEffect(() => {
+    const depts = deptKeys === '' ? [] : deptKeys.split('|');
+    if (depts.length < 2) { setActiveDept(null); return; }
+    const recompute = () => {
+      const offsets = depts
+        .map((dept) => ({ dept, el: document.getElementById(`grbs-${dept}`) }))
+        .filter((x): x is { dept: string; el: HTMLElement } => x.el !== null)
+        .map(({ dept, el }) => ({ dept, top: el.getBoundingClientRect().top }));
+      setActiveDept(activeSectionOf(offsets, READING_LINE));
+    };
+    recompute();
+    // Наблюдатель — только повод пересчитать: сам он сообщает о пересечении
+    // одной секции, а ответ зависит от положения ВСЕХ. Порог 0 достаточен:
+    // каждый вход и выход секции из окна перезапускает общий счёт.
+    const io = new IntersectionObserver(recompute, { threshold: 0 });
+    for (const dept of depts) {
+      const el = document.getElementById(`grbs-${dept}`);
+      if (el) io.observe(el);
+    }
+    window.addEventListener('scroll', recompute, { passive: true });
+    return () => {
+      io.disconnect();
+      window.removeEventListener('scroll', recompute);
+    };
+  }, [deptKeys]);
 
   return (
     <div className="flex items-start gap-4">
@@ -770,25 +910,70 @@ export function ReportPage() {
           aria-label="ГРБС отчёта"
           className="sticky top-2 hidden w-28 shrink-0 flex-col gap-1 md:flex"
         >
+          {/* Паспорт колонки процентов (канон п.58, работа 4.14 плана).
+              Восемь чисел стояли здесь без единого слова о том, что они
+              значат: читатель колонки не знал ни периода, ни момента — и
+              законно принимал их за исполнение года. Подпись одна на всю
+              колонку, а не восемь одинаковых у каждой кнопки: периметр у
+              всех процентов общий, и повтор был бы шумом. Слова берутся из
+              паспорта секции — второй редакции той же фразы здесь нет. */}
+          {quarterPerimeter && (
+            <div
+              className="px-1 pb-0.5 text-[9px] leading-tight text-zinc-400 dark:text-zinc-500"
+              title={`Периметр этих процентов: ${perimeterLabel(quarterPerimeter)}`}
+            >
+              Исполнение {quarterPerimeter.span.label} · {quarterPerimeter.moment.label}
+            </div>
+          )}
           {visibleBlocks.map((vm) => (
             <button
               key={vm.dept}
               type="button"
               onClick={() => document.getElementById(`grbs-${vm.dept}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              className="flex items-center justify-between rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] text-zinc-600 hover:border-zinc-300 dark:border-zinc-700/40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/60 transition-colors"
+              aria-current={activeDept === vm.dept ? 'true' : undefined}
+              title={
+                `${vm.deptLabel} — исполнение ${quarterPerimeter?.span.label ?? 'квартала'}`
+                + `${quarterPerimeter ? `, ${quarterPerimeter.moment.label}` : ''}.`
+              }
+              className={clsx(
+                'flex items-center justify-between rounded-md border px-2 py-1 text-[11px] transition-colors',
+                // Секция, до которой докрутили, подсвечена (работа 4.14):
+                // колонка липкая, документ длинный, и без отметки читатель
+                // терял место — «где я сейчас» приходилось искать глазами по
+                // заголовкам. Цвет здесь дублируется положением метки
+                // aria-current: подсветка не единственный носитель смысла.
+                activeDept === vm.dept
+                  ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-transparent dark:bg-amber-950/40 dark:text-amber-200'
+                  : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700/60',
+              )}
             >
               <span>{vm.dept}</span>
-              <span className="tabular-nums font-medium text-zinc-800 dark:text-zinc-100">
+              <span className={clsx(
+                'tabular-nums font-medium',
+                activeDept === vm.dept ? 'text-amber-900 dark:text-amber-100' : 'text-zinc-800 dark:text-zinc-100',
+              )}>
                 {vm.executionPct}
               </span>
             </button>
           ))}
+          {/* Якорь секции закупок без финансирования (п.73в): она свёрнута и
+              стоит между блоками ГРБС и подвалом — колесом до неё далеко, а
+              именно она объясняет расхождение лимита с листом. */}
+          <button
+            type="button"
+            onClick={() => document.getElementById('report-unfunded')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            title="Секция «Закупки, не обеспеченные финансированием» — строки без года плана, из-за которых лимит расходится с листом СВОД"
+            className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-500 hover:border-zinc-400 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700/60 transition-colors"
+          >
+            <BookOpen size={11} aria-hidden="true" />
+            <span>Без денег ↓</span>
+          </button>
           {/* Якорь ленты изменений в оглавлении (п.73б): блок — в самом низу. */}
           <button
             type="button"
             onClick={() => document.getElementById('report-changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
             title="Лента «Что изменилось с последнего среза» — в самом низу страницы"
-            className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-500 hover:border-zinc-400 dark:border-zinc-600/40 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700/60 transition-colors"
+            className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-500 hover:border-zinc-400 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700/60 transition-colors"
           >
             <History size={11} aria-hidden="true" />
             <span>Изменения ↓</span>
@@ -808,8 +993,11 @@ export function ReportPage() {
             : 'Отчёт по закупкам'}
         </h2>
         {/* Переключатель режима — управление, а не подпись: читателю нужно
-            уметь ВЕРНУТЬСЯ в эфир, а не только видеть, где он находится. */}
-        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700/50 overflow-hidden">
+            уметь ВЕРНУТЬСЯ в эфир, а не только видеть, где он находится.
+            Обводка у него остаётся в ОБЕИХ темах: канон п.129 снимает рамку с
+            поверхностей, а не с органов управления — без края переключатель
+            перестаёт читаться как нажимаемый и становится просто подписью. */}
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-transparent overflow-hidden">
           <button
             onClick={() => setMode('live')}
             aria-pressed={mode === 'live'}
@@ -860,7 +1048,7 @@ export function ReportPage() {
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
-            {saving === 'main' ? 'Готовится…' : 'Отчёт в Word'}
+            {saving?.kind === 'main' ? saving.stage : 'Отчёт в Word'}
           </button>
           <button
             onClick={() => void onDownloadDocx('extra')}
@@ -869,14 +1057,16 @@ export function ReportPage() {
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
-            {saving === 'extra' ? 'Готовится…' : 'Допотчёт в Word'}
+            {saving?.kind === 'extra' ? saving.stage : 'Допотчёт в Word'}
           </button>
         </div>
       </div>
 
       {/* Ярус 2: период и служебные оговорки */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700/50 overflow-hidden">
+        {/* Выбор квартала — тот же род, что и переключатель режима выше:
+            край группы и линии между кнопками остаются в обеих темах. */}
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-transparent overflow-hidden">
           {QUARTERS.map((q) => (
             <button
               key={q}
@@ -895,7 +1085,23 @@ export function ReportPage() {
         </div>
         <span className="text-[10px] font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
           {request.year} год{activeQuarter ? ` · ${quarterLabel(activeQuarter)}` : ''}
+          {' · '}
+          {localQuarter === null ? 'квартал из шапки' : 'квартал выбран на странице'}
         </span>
+        {/* Возврат к кварталу из шапки (работа P1-6 карты вкладки): кнопки
+            выше кладут квартал в местное состояние страницы, и обратной
+            дороги к «как в шапке» не было — читателю приходилось угадывать,
+            какой квартал стоял в глобальном фильтре, и жать его руками. */}
+        {localQuarter !== null && (
+          <button
+            type="button"
+            onClick={() => setLocalQuarter(null)}
+            title="Вернуть квартал, выбранный в шапке приложения: страница перестанет держать собственный."
+            className="px-2 py-0.5 rounded text-[10px] font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+          >
+            вернуть квартал из шапки
+          </button>
+        )}
         {/* Ссылка на официальную книгу СВОД; каноническая оговорка серии — тултипом */}
         {report?.svodOnlineUrl && (
           <a
@@ -926,19 +1132,6 @@ export function ReportPage() {
             неделя из фильтра не применена
           </span>
         )}
-        {/* Выбранное управление отчёт не сужает (решение 03.08: документ по
-            всем управлениям сразу) — говорим об этом прямо, и называем, где
-            режим подведов на этой странице работает. */}
-        {orgScope.mode !== 'district' && (
-          <span
-            className="text-[10px] text-zinc-500 dark:text-zinc-400"
-            title="Отчёт — документ по всем управлениям сразу, фильтр организаций его не сужает. Разбивка по подведомственным выбранного управления есть в секции «Закупки, не обеспеченные финансированием»."
-          >
-            {orgScope.mode === 'withSubs'
-              ? 'разбивка по подведам — в секции закупок без финансирования'
-              : 'фильтр организаций отчёт не сужает'}
-          </span>
-        )}
         {/* Кнопка-якорь к ленте изменений (п.73б): блок живёт в самом низу
             страницы (п.35), и без якоря до него — вся страница колесом. */}
         {report && (
@@ -953,6 +1146,19 @@ export function ReportPage() {
           </button>
         )}
       </div>
+
+      {/* Ярус 3 — плашки о фильтрах шапки, которые отчёт НЕ применяет
+          (канон п.58б, работа P0-1 карты вкладки). До 21.08 страница молчала
+          о пяти осях сразу: управления, подведомственные, способ, бюджет,
+          поиск. Крошка фильтра при этом висела в шапке, и читатель вправе
+          был считать, что числа ниже уже сужены. Дом плашек — общий со
+          «Сводом» (`components/report/FilterNotices.tsx`). */}
+      <ReportFilterNotices
+        ctx={ctx}
+        orgMode={orgScope.mode}
+        onNavigateRows={(filters) => navigateTo('data', filters)}
+        onScrollUnfunded={() => document.getElementById('report-unfunded')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+      />
       </div>
       {downloadError && (
         <div className="text-[11px] text-red-600 dark:text-red-400">{downloadError}</div>
@@ -994,6 +1200,7 @@ export function ReportPage() {
               filterCtx={ctx}
               source={report.integralSummary.svodQuarter ? 'mixed' : 'calc'}
               title="Интегральная сводка"
+              {...(quarterPerimeter ? { perimeter: quarterPerimeter } : {})}
               collapsible={false}
             >
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1027,7 +1234,28 @@ export function ReportPage() {
                 })}
               </div>
 
-              <RemainderLedger rows={summary.remainder} diff={summary.remainderDiff} />
+              {/* Перекрёстная ссылка яруса денег (работа P1-7 карты вкладки):
+                  лимит года взят с официального листа, а расходится он с нашим
+                  пересчётом ровно на строки без года плана — они собраны в
+                  отдельной секции ниже. Без этой двери читатель видел
+                  расхождение в подсказке плитки и не знал, где смотреть. */}
+              {report.unfunded && report.unfunded.count > 0 && (
+                <p className="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+                  Лимит года — с официального листа. Наш пересчёт видит сверх него{' '}
+                  {fmtCount(report.unfunded.count)} строк на {fmtThousands(report.unfunded.total)} тыс. руб.
+                  без проставленного года плана: лист их не считает.{' '}
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('report-unfunded')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    title="Открыть секцию «Закупки, не обеспеченные финансированием» — те самые строки, с адресом каждой в листе"
+                    className="font-medium text-cyan-700 hover:underline dark:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                  >
+                    показать эти строки ↓
+                  </button>
+                </p>
+              )}
+
+              <RemainderLedger rows={summary.remainder} diff={summary.remainderDiff} byMethod={summary.remainderByMethod} />
             </SectionCard>
           )}
 
@@ -1039,7 +1267,7 @@ export function ReportPage() {
           ) : (
             visibleBlocks.map((vm) => (
               <div key={vm.dept} id={`grbs-${vm.dept}`} className="scroll-mt-4">
-                <GrbsSection vm={vm} quarter={report.period.quarter} year={report.period.year} ctx={ctx} onProof={setProof} />
+                <GrbsSection vm={vm} quarter={report.period.quarter} year={report.period.year} ctx={ctx} perimeter={quarterPerimeter!} onProof={setProof} onOpenRows={navigateTo} />
               </div>
             ))
           )}
@@ -1049,11 +1277,15 @@ export function ReportPage() {
               видны отдельно, внизу, с разбивкой по ГРБС. Эти же строки —
               причина расхождения лимита с листом СВОД. */}
           {report.unfunded && (
+            // Якорь секции (п.73в): к ней ведут плашки о фильтрах из шапки и
+            // плитка лимита — без якоря дорога сюда была только колесом.
+            <div id="report-unfunded" className="scroll-mt-2">
             <SectionCard
               filterCtx={ctx}
               source="calc"
               title="Закупки, не обеспеченные финансированием"
               icon={Building2}
+              {...(yearPerimeter ? { perimeter: yearPerimeter } : {})}
               defaultOpen={false}
             >
               <div className="space-y-3">
@@ -1140,7 +1372,7 @@ export function ReportPage() {
                               noun="позиций"
                               searchText={(p) => `${p.subject} ${p.method}`}
                             >
-                              {(p) => <UnfundedPositionRow key={p.sheetRow} p={p} showSubordinate={false} />}
+                              {(p) => <UnfundedPositionRow key={p.sheetRow} p={p} dept={d.dept} showSubordinate={false} />}
                             </ExpandableRows>
                           </div>
                         ))}
@@ -1161,7 +1393,7 @@ export function ReportPage() {
                         noun="позиций"
                         searchText={(p) => `${p.subject} ${p.subordinate} ${p.method}`}
                       >
-                        {(p) => <UnfundedPositionRow key={p.sheetRow} p={p} />}
+                        {(p) => <UnfundedPositionRow key={p.sheetRow} p={p} dept={d.dept} />}
                       </ExpandableRows>
                     )}
                     {/* Оговорки режима — словами, не молчанием (канон org-scope):
@@ -1181,6 +1413,7 @@ export function ReportPage() {
                 })}
               </div>
             </SectionCard>
+            </div>
           )}
 
           {/* Честные плашки: чего в отчёте нет и почему */}
@@ -1218,10 +1451,13 @@ export function ReportPage() {
               система, источник — деталь реализации. Кнопка-якорь к блоку
               живёт в шапке страницы (п.73б). */}
           <div id="report-changes" className="scroll-mt-4">
-            <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History}>
+            <SectionCard filterCtx={ctx} source="mixed" title="Что изменилось с последнего среза" icon={History} {...(yearPerimeter ? { perimeter: yearPerimeter } : {})}>
               <div className="space-y-5">
                 <WeekDeltaBody state={weekDelta} />
-                <ChangesSection since={request.asOf} />
+                {/* Изоляция управлений (п.127): под выбранным ГРБС лента
+                    показывает правки только его книг. Отчёт-документ фильтр
+                    не сужает, но провенанс правок — не документ. */}
+                <ChangesSection since={request.asOf} depts={ctx.grbs} />
                 {/* Обратный якорь (шов п.91): вниз читателя привела кнопка
                     «Что изменилось ↓» из шапки — обратно наверх без него
                     пришлось бы крутить всю страницу колесом. */}

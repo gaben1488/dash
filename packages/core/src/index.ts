@@ -142,11 +142,34 @@ export {
 export type {
   InternalDiff, InternalDiffKind, InternalDiffRow, InternalSideRow, MatchSummary,
 } from './monitoring/cross-check.js';
+// Тройная сверка: книга ГРБС ↔ лист управления ↔ переходящий реестр «25-26»
+export {
+  SUBJECT_MATCH_THRESHOLD, TRIPLE_FINDING_LABELS, TRIPLE_SIDE_LABELS, TRIPLE_TOLERANCE,
+  bookSide, compareTriple, journalSide, sheetSide, subjectSimilarity, subjectTokens, tripleCheck,
+} from './monitoring/triple-check.js';
+export type {
+  TripleBookRow, TripleCheckResult, TripleFinding, TripleFindingKind, TripleMoney,
+  TripleMonitoringRow, TripleOrphan, TriplePair, TripleRow, TripleSide, TripleSummary,
+} from './monitoring/triple-check.js';
 // Сигналы вкладки — карточки диагноста с адресами (п.53)
 export { buildMonitoringSignals, mappingSignals } from './monitoring/signals.js';
 export type {
   MonitoringSignal, MonitoringSignalAddress, MonitoringSignalKind, MonitoringSignalSeverity,
 } from './monitoring/signals.js';
+
+// Журнал изменений двух глубин (требование владельца 21.08): один рассказ из
+// журнала книги, живого потока и сравнения снимков — с адресом по № п/п и
+// честной пустотой «правок не было» / «журнал не прочитан».
+export {
+  CHANGE_KIND_LABELS, CHANGE_KIND_ORDER, CHANGE_ORIGIN_LABELS, ROW_EVENT_CELLS,
+  authorTally, bookTally, buildChangeStory, changeKindOfColumn, columnLabelOf,
+  columnLetterOf, compareEntries, entriesFromBookJournal, entriesFromRowDiff,
+  filterChangeEntries, foldRowEvents, orderingMsOf, sheetRowOfAddress, summarizeChanges,
+} from './changes/change-story.js';
+export type {
+  ChangeDigest, ChangeEntry, ChangeFilter, ChangeGap, ChangeKind, ChangeOrigin,
+  ChangeStory, ChangeStoryInput,
+} from './changes/change-story.js';
 
 // History — snapshot-diff (слой 1 фичи «История изменений»)
 export { diffMetrics, sentimentFor } from './history/snapshot-diff.js';

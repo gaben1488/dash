@@ -6,6 +6,8 @@ import { useTheme } from '../components/ThemeProvider';
 import { getChartColors, getTooltipStyle, getGridColor, getAxisColor, getSeverityColor, getExecutionHeatBg, getExecutionHeatText, getPositiveColor, getNegativeColor, getChartColor } from '../lib/chart-colors';
 import { subordinateLabel, ORG_ITSELF_LABEL } from '../lib/subordinate-label';
 import { PeriodBadge, usePeriodBadge } from '../components/PeriodBadge';
+import { perimeterBadge, perimeterHint, type Perimeter } from '../lib/perimeter';
+import { useAnalyticsPerimeters } from '../lib/analytics/analytics-perimeter';
 import { EmptyState } from '../components/EmptyState';
 import { selectDatasetAudit, BENFORD_LABELS, type DatasetAuditRow } from '../lib/dataset-analyses';
 import {
@@ -113,12 +115,13 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
   defaultOpen?: boolean;
   source?: 'calculated' | 'official' | 'hybrid';
   /**
-   * Собственная подпись периметра для карточек, чей расчёт НЕ подчиняется
-   * периоду шапки (канон п.58б: бейдж, унаследованный от фильтра, которому
-   * числа не подчиняются, — запрещён). Если задана — рисуется вместо общей
-   * плашки периода.
+   * Паспорт периметра КАРТОЧКИ — год данных, период, органы, срез и
+   * момент чтения книг (канон п.58). Строит его `lib/analytics/analytics-perimeter`,
+   * подпись — единственные на систему `perimeterBadge`/`perimeterHint`. Собственной
+   * строки-хардкода здесь быть не может: вмороженный в текст год начнёт
+   * врать 1 января, а органы и момент чтения такая строка не называет вовсе.
    */
-  perimeter?: string;
+  perimeter?: Perimeter;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const sourceLabel = source === 'official' ? 'СВОД' : source === 'hybrid' ? 'Комби' : 'Расчёт';
@@ -144,10 +147,30 @@ function AnalyticsCard({ title, icon: Icon, children, defaultOpen = true, source
       >
         {Icon && <Icon size={15} className="shrink-0 text-[var(--ink-faint)] transition-colors group-hover:text-[var(--accent)]" aria-hidden="true" />}
         <h3 className="text-[13px] font-semibold text-[var(--ink-strong)] flex-1">{title}</h3>
-        {/* Канон п.58: каждая карточка объявляет период своих ДАННЫХ сама.
-            Карточки, не подчиняющиеся периоду шапки, несут собственную подпись. */}
+        {/* Канон п.58: карточка объявляет свой периметр сама — все пять осей в
+            подсказке, сужающие — в бейдже, расхождения с шапкой — отдельной
+            янтарной пометкой (п.58б: бейдж, унаследованный от фильтра, которому
+            числа не подчиняются, — запрещён дословно). */}
         {perimeter
-          ? <span className="shrink-0 rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-muted)]">{perimeter}</span>
+          ? (
+            <span className="flex shrink-0 items-center gap-1">
+              <span
+                className="rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-muted)]"
+                title={perimeterHint(perimeter)}
+                aria-label={perimeterHint(perimeter)}
+              >
+                {perimeterBadge(perimeter)}
+              </span>
+              {perimeter.notes.length > 0 && (
+                <span
+                  className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                  title={perimeterHint(perimeter)}
+                >
+                  {perimeter.notes.join('; ')}
+                </span>
+              )}
+            </span>
+          )
           : <PeriodBadge />}
         {source && (
           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium ${sourceCls}`} title={sourceTitle}>
@@ -367,6 +390,10 @@ export function Analytics() {
   // учреждениям; «только ГРБС» — разбивки нет, и об этом сказано словами.
   const orgScope = useOrgScope();
   const { periodLabel: dataPeriodLabel } = usePeriodBadge();
+  // Паспорта периметра всех карточек сразу: год данных, период, органы,
+  // срез и момент чтения книг — из одного состояния, чтобы подписи соседних
+  // карточек одного экрана не разъехались по одной (канон п.58).
+  const perimeters = useAnalyticsPerimeters();
   const isDark = useTheme(s => s.theme) === 'dark';
   const chartColors = getChartColors(isDark);
   const { contentStyle: tooltipStyle, itemStyle: tooltipItemStyle, labelStyle: tooltipLabelStyle } = getTooltipStyle(isDark);
@@ -802,7 +829,7 @@ export function Analytics() {
 
       {/* Row 1: Quarterly procurement trend + Execution trend line */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated" perimeter="2026 · все кварталы">
+        <AnalyticsCard title={epSharePct > 30 ? `ЕП занимает ${epSharePct.toFixed(0)}% закупок — превышает норму` : epSharePct > 0 ? `ЕП доля: ${epSharePct.toFixed(0)}% (${epTotal} из ${epTotal + kpTotal})` : 'Динамика закупок по кварталам: конкурентные и единственный поставщик'} icon={BarChart3} source="calculated" perimeter={perimeters.quarterlyTrend}>
           {quarterlyTrend.some(q => q.kp > 0 || q.ep > 0) ? (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={quarterlyTrend} barCategoryGap="20%">
@@ -828,7 +855,7 @@ export function Analytics() {
           )}
         </AnalyticsCard>
 
-        <AnalyticsCard title={execTrendClaim} icon={LineChartIcon} source="calculated" perimeter="2026 · по кварталам">
+        <AnalyticsCard title={execTrendClaim} icon={LineChartIcon} source="calculated" perimeter={perimeters.execTrend}>
           {execTrend.length > 0 && deptNames.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={execTrend}>
@@ -1129,7 +1156,7 @@ export function Analytics() {
       {/* Execution velocity — cumulative fact as % of year plan */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {(
-          <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated" perimeter="2026 · нарастающим итогом">
+          <AnalyticsCard title="Скорость исполнения (кумулятивно, % годового плана)" icon={TrendingUp} source="calculated" perimeter={perimeters.velocity}>
             {velocityData.length === 0 ? (
               <CardEmpty
                 title="Скорость исполнения не построена"
@@ -1164,7 +1191,7 @@ export function Analytics() {
           <AnalyticsCard
             icon={Building2}
             source="calculated"
-            perimeter={orgScope.mode === 'withSubs' ? `${dataPeriodLabel} · все организации` : '2026 · весь год'}
+            perimeter={orgScope.mode === 'withSubs' ? perimeters.orgsWithSubs : perimeters.orgsDistrict}
             title={orgScope.mode === 'withSubs'
               ? `Организации управления ${orgDeptLabel}: ${subTotals.withRows} из ${subBreakdown.length} ведут закупки`
               : 'Организации района: пятнадцать крупнейших по плану'}
@@ -1290,7 +1317,7 @@ export function Analytics() {
 
       {/* Forecast */}
       {filteredDepts.length > 0 && (
-        <AnalyticsCard title={forecastTitle} icon={TrendingUp} source="calculated" perimeter="2026 · прогноз до конца года">
+        <AnalyticsCard title={forecastTitle} icon={TrendingUp} source="calculated" perimeter={perimeters.forecast}>
           <ForecastCard depts={filteredDepts} isDark={isDark} formatMoney={formatMoney} onClaim={setForecastTitle} />
         </AnalyticsCard>
       )}
@@ -1523,7 +1550,7 @@ export function Analytics() {
         </AnalyticsCard>
 
         {/* Качество заполнения книг по управлениям (термин «доверие» снят — п.88/26б) */}
-        <AnalyticsCard title={avgTrust > 0 ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Качество заполнения книг'} icon={TrendingUp} source="hybrid" perimeter="2026 · вся книга">
+        <AnalyticsCard title={avgTrust > 0 ? `Качество заполнения: ${avgTrust.toFixed(0)} из 100${lowTrustCount > 0 ? ` — ${lowTrustCount} управл. ниже 60` : ''}` : 'Качество заполнения книг'} icon={TrendingUp} source="hybrid" perimeter={perimeters.fillQuality}>
           {trustData.length > 0 ? (
             <>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2">
@@ -1558,7 +1585,7 @@ export function Analytics() {
       </div>
 
       {/* Row 5: Issues by department */}
-      <AnalyticsCard title={totalIssues > 0 ? `${totalIssues} замечаний${criticalIssues > 0 ? `, ${criticalIssues} критических` : ''} по управлениям` : 'Замечания по управлениям'} icon={Info} source="hybrid" perimeter="2026 · вся книга">
+      <AnalyticsCard title={totalIssues > 0 ? `${totalIssues} замечаний${criticalIssues > 0 ? `, ${criticalIssues} критических` : ''} по управлениям` : 'Замечания по управлениям'} icon={Info} source="hybrid" perimeter={perimeters.issues}>
         {issuesByDept.length > 0 ? (
           <div>
             <ResponsiveContainer width="100%" height={Math.max(160, issuesByDept.length * 32)}>
@@ -1866,6 +1893,9 @@ function AnomalyFindings({ row, seasonal, splitting, byOrg, onOpenRows }: {
 
 /** Аудит качества данных по ГРБС: Бенфорд, композит, выбросы, сезонность, ЕП-риск. */
 function DatasetAuditCard() {
+  // Паспорт периметра — из общего дома, а не строкой: карточка считает по
+  // книгам целиком, и подпись обязана сама называть неприменимые оси.
+  const perimeters = useAnalyticsPerimeters();
   const { dashboardData, navigateTo, selectedDepartments } = useStore();
   const isDark = useTheme(s => s.theme) === 'dark';
   const orgScope = useOrgScope();
@@ -1889,7 +1919,7 @@ function DatasetAuditCard() {
     <AnalyticsCard
       icon={Microscope}
       source="calculated"
-      perimeter="2026 · вся книга"
+      perimeter={perimeters.anomalies}
       title={addressableTotal > 0
         ? `Аномалии данных: ${addressableTotal} ${pluralRu(addressableTotal, 'находка', 'находки', 'находок')} с адресами строк по ${visibleRows.length} ${pluralRu(visibleRows.length, 'управлению', 'управлениям', 'управлениям')}`
         : 'Аномалии данных по управлениям'}
@@ -2049,6 +2079,9 @@ function DatasetAuditCard() {
 }
 
 function CentralizationCard() {
+  // Тот же дом паспорта: разрез идёт по книгам целиком, период и подведы к
+  // нему не применяются, и об этом говорит подпись, а не молчание.
+  const perimeters = useAnalyticsPerimeters();
   const { navigateTo, selectedDepartments } = useStore();
   const [data, setData] = useState<{
     opportunities: CentralizationOpportunityDTO[];
@@ -2092,7 +2125,7 @@ function CentralizationCard() {
     <AnalyticsCard
       icon={Building2}
       source="calculated"
-      perimeter="2026 · весь год"
+      perimeter={perimeters.anomalies}
       title={visible.length > 0
         ? `Кандидаты на совместную закупку: ${visible.length} ${pluralRu(visible.length, 'группа', 'группы', 'групп')} на ${fmtTys(visibleAmount)}`
         : 'Централизация закупок: что можно объединить между управлениями'}

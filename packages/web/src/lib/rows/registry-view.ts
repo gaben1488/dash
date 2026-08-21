@@ -15,7 +15,14 @@
  * бюджеты). Фраза «отсеяли N из M», где M — это только доехавшие строки,
  * выдавала часть реестра за весь реестр.
  */
-import { SIGNAL_LABELS, classifyActivity, productLabel } from '@aemr/shared';
+import {
+  LEGACY_SIGNAL_TO_CHECK,
+  SIGNAL_LABELS,
+  classifyActivity,
+  epRiskStrictnessOfReason,
+  getCheckById,
+  productLabel,
+} from '@aemr/shared';
 import { pluralRu } from '../economy-copy';
 import { monthOfDateValue } from '../sheet-date';
 
@@ -51,10 +58,33 @@ export const SIGNAL_SEVERITY: Readonly<Record<string, SignalSeverity>> = {
   // ── Информационные ──
   planning: 'info',
   notDue: 'info',
+  // Канон п.28 (14.08.2026) сказал «это не ошибка», паспорт был понижен до
+  // info, а чип остался жёлтым — читатель видел предупреждение там, где
+  // карточка проверки обещала справку. Решение владельца п.137(6) от
+  // 21.08.2026: род информационный, чип приведён к паспорту.
+  factDateBeforePlan: 'info',
+  // Решение владельца п.137(10): класс остаётся сигналом, но перестаёт быть
+  // претензией к управлению — это заявка на пополнение справочника оснований.
+  // Предупреждающий тон обвинял исполнителя в том, чего он мог не совершать.
+  unmappedReasonEP: 'info',
+  // Решение владельца п.137(4): исполнение по плану другого года — норма,
+  // названная вслух, а не нарушение.
+  foreignYearExecution: 'info',
+  // Решение владельца п.137(3): инициативная заявка отмечается, но в
+  // риск-списки не идёт — тон информационный по определению класса.
+  initiativeRequest: 'info',
   // ── Снятая строка ──
   canceled: 'muted',
   // ── Критические ──
   overdue: 'critical',
+  // ЕП-риск: решение владельца п.137(2) от 21.08.2026 — развилка по
+  // обоснованию (вариант C спеки). Строгость перестала быть свойством ключа и
+  // стала свойством строки: критический при степенях «без обоснования» и
+  // «решение заказчика», информационный при «безальтернативная по закону» и
+  // «выгода подтверждена документом». Значение ниже — та строгость, которую
+  // класс получает, когда степень обоснованности неизвестна (степень считается
+  // по графе M, и без неё судить не о чем). Живая развилка считается функцией
+  // epRiskSeverity ниже; чип и паспорт читают её одну.
   epRisk: 'critical',
   highEconomy: 'critical',
   economyConflict: 'critical',
@@ -71,11 +101,9 @@ export const SIGNAL_SEVERITY: Readonly<Record<string, SignalSeverity>> = {
   planSoon: 'warning',
   lowCompetition: 'warning',
   singleParticipant: 'warning',
-  factDateBeforePlan: 'warning',
   planWithoutExecution: 'warning',
   budgetSourceMissing: 'warning',
   methodReasonMismatch: 'warning',
-  unmappedReasonEP: 'warning',
   // Канон п.98м + п.102 (18.08.2026): по ЕП план обязан равняться факту;
   // расхождение — ошибка заполнения либо «экономия», которой по ЕП не бывает.
   // Тон warning, не critical: чаще всего это ошибка ввода, а не нарушение.
@@ -104,6 +132,39 @@ export function signalSeverity(key: string): SignalSeverity {
   return SIGNAL_SEVERITY[key] ?? 'gap';
 }
 
+/**
+ * Строгость ЕП-риска по степени обоснованности — решение владельца п.137(2)
+ * от 21.08.2026 (вариант C спеки консолидации).
+ *
+ * Довод, на котором стоит развилка: из 76 красных чипов «ЕП свыше 600 тыс.»
+ * у 60 соседняя вкладка держала наготове оправдание (40 — «безальтернативная
+ * по закону», 20 — «выгода подтверждена документом»), и только по четырём
+ * строкам обе поверхности говорили одно и то же. Красный чип на монополисте —
+ * не риск, а шум, и он обесценивал остальные шестнадцать.
+ *
+ * Считает не этот файл: дом развилки — @aemr/shared (ep-justification-grade,
+ * epRiskStrictnessOfReason), потому что ту же строгость спрашивают ещё две
+ * поверхности — замечание конвейера и проверка источника на сервере. Здесь
+ * остаётся только перевод на язык чипа. Степень читается из графы M тем же
+ * словарём, что и вкладка «Конкуренция»: второго механизма законности не
+ * заводится — расхождение двух механизмов между собой остаётся вопросом
+ * владельца №5 и решается отдельно.
+ */
+export function epRiskSeverity(epReason: unknown): SignalSeverity {
+  return epRiskStrictnessOfReason(epReason);
+}
+
+/**
+ * Строгость признака НА КОНКРЕТНОЙ СТРОКЕ. Для всех классов, кроме ЕП-риска,
+ * это ровно карта SIGNAL_SEVERITY; ЕП-риск спрашивает степень обоснованности.
+ * Счёт критических признаков и оформление чипа обязаны звать одну функцию —
+ * иначе полоса «столько-то критических» разойдётся с цветом чипов на экране.
+ */
+export function rowSignalSeverity(key: string, row: { epReason?: unknown }): SignalSeverity {
+  if (key === 'epRisk') return epRiskSeverity(row.epReason);
+  return signalSeverity(key);
+}
+
 /** Классы оформления чипа по тяжести (светлая и тёмная темы). */
 export const SEVERITY_TONE: Readonly<Record<SignalSeverity, { bg: string; text: string }>> = {
   critical: { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' },
@@ -119,12 +180,79 @@ export function signalTone(key: string): { bg: string; text: string } {
   return SEVERITY_TONE[signalSeverity(key)];
 }
 
+/** Оформление чипа признака на строке: ЕП-риск красится по степени обоснованности. */
+export function rowSignalTone(key: string, row: { epReason?: unknown }): { bg: string; text: string } {
+  return SEVERITY_TONE[rowSignalSeverity(key, row)];
+}
+
 /** Подпись признака плюс подсказка, если словарь его не знает. */
 export interface SignalChipText {
   /** Русская фраза для глаз — никогда не внутренний ключ. */
   text: string;
-  /** Подсказка при наведении; есть только у неописанных признаков. */
+  /** Подсказка при наведении; есть всегда — см. signalHint. */
   hint?: string;
+}
+
+/**
+ * Ключ признака строки → идентификатор паспорта проверки в CHECK_REGISTRY.
+ *
+ * Два шага, оба проверяемые, ни одного угаданного. Первый — словарь конвейера
+ * (LEGACY_SIGNAL_TO_CHECK, @aemr/shared): он и так решает, из какого признака
+ * рождается замечание, и второй такой же словарь здесь разъехался бы с ним
+ * молча. Второй — перевод camelCase в snake_case: несколько классов носят
+ * паспорт, но замечания по решению владельца не рождают («в течение года»
+ * п.137(1), инициативная заявка п.137(3), исполнение чужого года п.137(4)),
+ * и в словаре конвейера их нет намеренно. Паспорт при этом описывает механизм
+ * и прямо говорит «действий не требуется» — ровно то, что читателю и нужно.
+ *
+ * Поле legacyId самих записей для обратного поиска НЕ годится: у паспорта
+ * инициативной заявки там стоит 'epRisk' (чужой ключ), и поиск по нему увёл
+ * бы ЕП-риск на чужое объяснение.
+ */
+function checkIdOfSignal(key: string): string {
+  const mapped = LEGACY_SIGNAL_TO_CHECK[key];
+  if (mapped !== undefined) return mapped;
+  return key.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
+}
+
+/**
+ * Паспорт признака: механизм («что произошло в книге») и действие («что с этим
+ * делать»). Дом обоих текстов — реестр проверок @aemr/shared; здесь только
+ * поиск записи, ни одной своей формулировки.
+ */
+export function signalPassport(key: string): { description: string; recommendation: string } | null {
+  const entry = getCheckById(checkIdOfSignal(key));
+  if (entry === undefined) return null;
+  return { description: entry.description, recommendation: entry.recommendation };
+}
+
+/**
+ * Подсказка чипа признака — стандарт п.53: по каждому сигналу читателю виден
+ * ответ, а не ярлык. До правки 21.08.2026 чип известного признака нёс только
+ * короткую фразу словаря: что именно нашли в строке, в какой графе и что с
+ * этим делать, спросить было негде — ни в таблице, ни в карточке строки, ни в
+ * выпадающем фильтре признаков (все трое зовут эту функцию).
+ *
+ * Три рода честного ответа:
+ *  - состояние строки (подписан, отменена, планируется) — не находка проверки,
+ *    и требовать по нему действия нельзя;
+ *  - признак с паспортом — механизм плюс «что сделать» дословно из реестра
+ *    проверок; графы книги названы внутри самих текстов паспорта;
+ *  - признак без паспорта — так и сказано: объяснение не заведено. Выдумывать
+ *    механизм на месте нельзя, а молчать после обещания «по каждому сигналу
+ *    виден ответ» — тем более.
+ */
+export function signalHint(key: string): string {
+  const label = productLabel(key);
+  const name = label === key ? key : label;
+  if (isStateSignal(key)) {
+    return `${name} — состояние строки, а не находка проверки: правки книги не требует.`;
+  }
+  const passport = signalPassport(key);
+  if (passport === null) {
+    return `${name}: паспорт проверки в реестре ещё не заведён — механизм и действие не описаны.`;
+  }
+  return `${name}. ${passport.description}\n\nЧто сделать: ${passport.recommendation}`;
 }
 
 /**
@@ -135,20 +263,22 @@ export interface SignalChipText {
  */
 export function signalChipText(key: string): SignalChipText {
   const label = productLabel(key);
-  if (label !== key) return { text: label };
+  if (label !== key) return { text: label, hint: signalHint(key) };
   return {
     text: 'Признак без описания',
     hint: `Признак ещё не описан в словаре продукта (служебное имя: ${key})`,
   };
 }
 
-/** Строка реестра глазами счётчиков: нужны только признаки и даты. */
+/** Строка реестра глазами счётчиков: нужны только признаки, даты и графа M. */
 export interface CountableRow {
   signals?: string[];
   planDate?: unknown;
   factDate?: unknown;
   date?: unknown;
   planYear?: number;
+  /** M — обоснование ЕП: от него зависит строгость ЕП-риска (п.137(2)). */
+  epReason?: unknown;
 }
 
 /** Сколько строк несёт хотя бы один критический признак и хотя бы одно предупреждение. */
@@ -160,10 +290,52 @@ export function countBySeverity(rows: readonly CountableRow[]): {
   let warning = 0;
   for (const row of rows) {
     const signals = row.signals ?? [];
-    if (signals.some((s) => signalSeverity(s) === 'critical')) critical += 1;
-    else if (signals.some((s) => signalSeverity(s) === 'warning')) warning += 1;
+    if (signals.some((s) => rowSignalSeverity(s, row) === 'critical')) critical += 1;
+    else if (signals.some((s) => rowSignalSeverity(s, row) === 'warning')) warning += 1;
   }
   return { critical, warning };
+}
+
+// ────────────────────────────────────────────────────────────
+// 1б. Признак против состояния: что стоит в колонке замечаний
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Ключи, которые описывают СОСТОЯНИЕ строки, а не находку в ней.
+ *
+ * Спека консолидации §3.4 (работа без развилок): колонка признаков строится
+ * из всех истинных полей RowSignals, включая «Подписан», «Есть факт» и
+ * «Экономия», а её пустое состояние подписано «замечаний нет». Строк, у
+ * которых в колонке стоят ТОЛЬКО благополучные чипы, — 2 461 на 973 284,86
+ * плана: читатель видел заполненную колонку замечаний там, где замечаний ноль.
+ *
+ * Отдельная примета того же спора — стадия «в течение года»: рядом стояли
+ * зелёное «Есть факт» и бейдж стадии, заведённый каноном п.71б именно ВМЕСТО
+ * «лживого „есть факт“». Заменить не вышло, их стало двое; после разделения
+ * колонок остаётся один.
+ */
+export const STATE_SIGNAL_KEYS: readonly string[] = [
+  'signed',
+  'hasFact',
+  'economyFlag',
+  'planning',
+  'notDue',
+  'canceled',
+];
+
+/** Признак ли это (находка), или состояние строки. */
+export function isStateSignal(key: string): boolean {
+  return STATE_SIGNAL_KEYS.includes(key);
+}
+
+/** Только находки — то, что вправе стоять в колонке признаков. */
+export function featureSignals(signals: readonly string[] | undefined): string[] {
+  return (signals ?? []).filter((key) => !isStateSignal(key));
+}
+
+/** Только состояния — то, что переезжает в колонку состояния. */
+export function stateSignals(signals: readonly string[] | undefined): string[] {
+  return (signals ?? []).filter((key) => isStateSignal(key));
 }
 
 // ────────────────────────────────────────────────────────────
@@ -374,5 +546,22 @@ export function signalOccurrences(rows: readonly CountableRow[]): Record<string,
   return counts;
 }
 
-/** Все ключи признаков словаря — порядок словаря, он осмысленный (от хороших к пробелам). */
-export const ALL_SIGNAL_KEYS: readonly string[] = Object.keys(SIGNAL_LABELS);
+/**
+ * Признаки, которые расчёт заведомо не выставляет ни одной строке.
+ *
+ * «Задержка финансирования» считается в ядре присваиванием `false`
+ * (@aemr/core signals.ts: `const financeDelay = false`) — источника данных под
+ * неё в книгах нет. В словаре имён она остаётся: старые снимки её несут, и
+ * подпись им нужна. А вот в списке отбора ей места нет: строка «Задержка
+ * финансирования — 0» навсегда серая обещает отбор, которого не будет никогда,
+ * и читатель ищет причину в своих фильтрах вместо того, чтобы узнать правду —
+ * такой проверки сегодня не существует.
+ */
+export const UNREACHABLE_SIGNAL_KEYS: readonly string[] = ['financeDelay'];
+
+/**
+ * Ключи признаков для отбора — порядок словаря, он осмысленный (от хороших к
+ * пробелам), без заведомо недостижимых.
+ */
+export const ALL_SIGNAL_KEYS: readonly string[] = Object.keys(SIGNAL_LABELS)
+  .filter((key) => !UNREACHABLE_SIGNAL_KEYS.includes(key));
