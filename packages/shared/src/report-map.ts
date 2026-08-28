@@ -16,6 +16,7 @@
 
 import type { ReportMapEntry, Department } from './types.js';
 import { SVOD_SHEET_NAME } from './constants.js';
+import { toNumber } from './rule-book.js';
 import {
   DEPARTMENT_REGISTRY,
   ALL_LATIN_IDS,
@@ -282,8 +283,15 @@ export function extractMetric(
   const raw = rowData[col];
   if (raw === null || raw === undefined || raw === '') return null;
 
-  const num = typeof raw === 'number' ? raw : Number(raw);
-  return Number.isFinite(num) ? num : null;
+  // Разбор — канон toNumber (пробелы-разряды, запятая-десятичная): голый
+  // Number('1 234,5') давал NaN, и метрика листа молча становилась «нет
+  // значения» (страж 29.08.2026). Гейт формы перед каноном оставлен нарочно:
+  // канон снисходителен («12 шт» → 12), а метрика отчёта обязана быть числом
+  // целиком, иначе текст засчитается за величину.
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  if (!/^[\d\s+\-.,]+$/u.test(String(raw))) return null;
+  const num = toNumber(raw);
+  return num !== null && Number.isFinite(num) ? num : null;
 }
 
 /**

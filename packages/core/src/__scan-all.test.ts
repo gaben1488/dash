@@ -1,12 +1,17 @@
 import { describe, it } from 'vitest';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { detectSignals } from './pipeline/signals.js';
 
-const BASE = 'C:/Users/filat/AppData/Local/Temp/claude/C--Users-filat-dash/1eec411b-c28e-4c56-b1ec-7d68203a79d5/scratchpad/';
+// Живой дамп всех книг: путь задаётся окружением (свежий дамп каждый прогон —
+// мандат), жёсткий путь чужой сессии удалён. Без дампа прогон честно
+// пропускается: это харнесс по живым данным, не юнит-страж.
+const DUMP = process.env.AEMR_ALL_BOOKS_DUMP
+  ?? 'C:/Users/filat/dash/packages/server/data/all-books-rows.json';
+const BASE = DUMP.slice(0, DUMP.lastIndexOf('/') + 1);
 
-describe('живой прогон сигналов по рабочим листам всех книг', () => {
+describe.skipIf(!existsSync(DUMP))('живой прогон сигналов по рабочим листам всех книг', () => {
   it('считает картину проблем', () => {
-    const books = JSON.parse(readFileSync(BASE + 'all-books-rows.json', 'utf8')) as
+    const books = JSON.parse(readFileSync(DUMP, 'utf8')) as
       Record<string, Array<{ row: number; cells: Record<string, string> }>>;
     const byKind: Record<string, { rows: number; plan: number }> = {};
     const byBook: Record<string, Record<string, number>> = {};

@@ -1,3 +1,4 @@
+import { toNumber } from '@aemr/shared';
 import type { ClassifiedRow, RowClassification } from '@aemr/shared';
 
 /**
@@ -113,17 +114,17 @@ function classifyRow(
   };
 }
 
+// Разбор «строка → число» — канон toNumber из @aemr/shared (rule-book):
+// свой разборщик здесь не знал пробелов-разрядов, и «1 234,5» читалась как
+// ничто (страж 29.08.2026). Заодно ушла вторая болезнь копии: пустая строка
+// приводилась к нулю, и пустая суммовая ячейка участвовала в эвристике
+// «малых целых»; канон на пустоту отвечает null.
+//
+// isNumeric остаётся строгим тестом ФОРМЫ (у канона он бы пропустил «5 шт»
+// как 5): только цифры с одним разделителем, но пробелы-разряды — часть
+// формы числа листа, поэтому срезаются до теста.
 function isNumeric(val: unknown): boolean {
   if (typeof val === 'number') return true;
-  if (typeof val === 'string') return /^\d+([.,]\d+)?$/.test(val.trim());
+  if (typeof val === 'string') return /^\d+([.,]\d+)?$/.test(val.replace(/\s/g, ''));
   return false;
-}
-
-function toNumber(val: unknown): number | null {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'string') {
-    const n = Number(val.trim().replace(/,/g, '.'));
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
 }

@@ -64,6 +64,11 @@ const COERCE_DEBT: Record<string, number> = {
   'core/src/timeline/row-timeline.ts': 1,
   'server/src/routes/reconciliation.ts': 1,
   'server/src/routes/rows.ts': 2,
+  // Волна линейки (29.08): num() тройной сверки мониторинга. НАРОЧНО строже
+  // канона toNumber (rule-book): Number(...) даёт NaN на «12abc», где
+  // parseFloat взял бы 12 — сверке трёх источников хвостовой мусор нельзя
+  // прощать. Сведение возможно только добавлением строгого варианта в дом.
+  'web/src/lib/monitoring/triple-contract.ts': 1,
   'server/src/services/rows-dto.ts': 1,
   'shared/src/rule-book.ts': 1,
   // Волна «Мониторинг» (18.08, п.69в/п.101а): monitoringNumber читает книгу

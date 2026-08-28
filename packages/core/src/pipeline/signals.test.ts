@@ -779,6 +779,20 @@ describe('Data quality signals', () => {
       const s = detectSignals(makeCells(), REF_DATE);
       expect(s.formulaBroken).toBe(false);
     });
+
+    // Русская локаль Google Sheets: до 29.08.2026 детектор знал только
+    // английские коды, и «#ЗНАЧ!» молча читался как текст.
+    it('true: русские коды #ЗНАЧ!, #ДЕЛ/0!, #Н/Д, #ССЫЛКА!', () => {
+      for (const v of ['#ЗНАЧ!', '#ДЕЛ/0!', '#Н/Д', '#ССЫЛКА!']) {
+        const s = detectSignals(makeCells({ K: v }), REF_DATE);
+        expect(s.formulaBroken, v).toBe(true);
+      }
+    });
+
+    it('false: упоминание кода в середине примечания — не ошибка', () => {
+      const s = detectSignals(makeCells({ AF: 'исправили #REF вчера' }), REF_DATE);
+      expect(s.formulaBroken).toBe(false);
+    });
   });
 
   describe('factWithoutDate', () => {

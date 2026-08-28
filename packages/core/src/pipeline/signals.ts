@@ -23,6 +23,7 @@ import {
   dayNumberOf,
   economyFlagVerdict,
   isAbsentCell,
+  isFormulaError,
   isInitiativeMarker,
   isProceduralMismatch,
   parseSheetDate,
@@ -269,8 +270,9 @@ const LOW_COMPETITION_PERCENT = 2;
 /** Горизонт «скоро» в днях */
 const PLAN_SOON_DAYS = 14;
 
-/** Паттерны ошибок формул */
-const FORMULA_ERROR_PATTERNS = ['#REF', '#VALUE', '#N/A', '#NAME', '#DIV/0', '#NULL', '#NUM', '#ERROR'];
+// Коды ошибок формул живут в @aemr/shared (formula-error.ts): свой список
+// здесь знал только английскую локаль, и «#ЗНАЧ!»/«#ДЕЛ/0!» русских книг
+// молча читались как текст (страж 29.08.2026).
 
 /** Обязательные столбцы для проверки качества данных.
  * D = предмет, K = план итого, L = способ закупки.
@@ -373,13 +375,11 @@ function utcYearOfDay(day: number): number {
 
 /**
  * Проверяет, содержит ли любое значение в cells формульную ошибку.
+ * Распознавание — канон @aemr/shared isFormulaError: обе локали кодов,
+ * якорное сличение (упоминание «#REF» в середине примечания — не ошибка).
  */
 function hasFormulaError(cells: Record<string, unknown>): boolean {
-  return Object.values(cells).some(v => {
-    if (v === null || v === undefined) return false;
-    const s = String(v).toUpperCase();
-    return FORMULA_ERROR_PATTERNS.some(err => s.includes(err));
-  });
+  return Object.values(cells).some(isFormulaError);
 }
 
 /**

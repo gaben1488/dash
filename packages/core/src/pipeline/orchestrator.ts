@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
 import type { DataSnapshot, NormalizedMetric, Issue, ReportMapEntry, ValidationRule } from '@aemr/shared';
-import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey } from '@aemr/shared';
+import { SVOD_SHEET_NAME, CHECK_REGISTRY, LEGACY_SIGNAL_TO_CHECK, issueSuppressedByRowClass, epRiskStrictnessOfReason, DEPT_HEADER_ROWS, buildCellDict, checkDeptHeaderGeometry, collectRowsByDept, isMetaRow, parseSvodGrid, CYRILLIC_TO_LATIN, findDept, subordinateKey, formulaErrorCells } from '@aemr/shared';
 import { ingestBatchGetResponse, ingestSheetRows } from './ingest.js';
 import { normalizeMetrics } from './normalize.js';
 import { classifyRows } from './classify.js';
@@ -906,7 +906,13 @@ function detectSignalsToIssues(
         checkId: meta.checkId,
         kbHint: meta.kbHint,
         title: `${meta.title}: ${subject || `строка ${r + 1}`}`,
-        description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}`,
+        // Ошибка формулы адресуется до ячейки: «в строке где-то #REF» не
+        // проверить, «K12 = #ЗНАЧ!» — открыл и увидел (страж 29.08.2026).
+        description: `${sheetName}, строка ${r + 1}${subject ? `: ${subject}` : ''}${
+          signalKey === 'formulaBroken'
+            ? ` — ${formulaErrorCells(cells).map(c => `${c.column}${r + 1} = ${c.value.length > 40 ? `${c.value.slice(0, 40)}…` : c.value}`).join(', ')}`
+            : ''
+        }`,
         sheet: sheetName,
         row: r + 1,
         // «№ п/п» (колонка A) — стабильный второй адрес: строки листа

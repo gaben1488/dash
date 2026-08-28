@@ -34,6 +34,7 @@ import {
   type EpJustificationGrade,
   type EpReasonCluster,
 } from '@aemr/shared';
+import { sheetNumber } from '../timeline/row-timeline.js';
 
 /** Строка книги ГРБС в том минимуме, который нужен разбору обоснований. */
 export interface EpJustificationRow {
@@ -115,16 +116,18 @@ function add(target: EpCell, sum: number): void {
   target.sum += sum;
 }
 
-/** Деньги строки: нечисло — ноль, счётчик строки всё равно засчитывается. */
+/** Деньги строки: нечисло — ноль, счётчик строки всё равно засчитывается.
+ * Разбор — единая коэрция ядра sheetNumber: прежний голый parseFloat не знал
+ * пробелов-разрядов и запятой («1 234,5» → 1 — сумма худела в тысячу раз),
+ * страж 29.08.2026. */
 function money(v: unknown): number {
-  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
-  return Number.isFinite(n) ? n : 0;
+  return sheetNumber(v) ?? 0;
 }
 
 /** Квартал плана 1..4 либо null — тем же правилом, что у расчётного движка. */
 export function epPlanQuarter(raw: unknown): number | null {
-  const n = typeof raw === 'number' ? raw : parseFloat(String(raw ?? '').replace(',', '.'));
-  return Number.isFinite(n) && n >= 1 && n <= 4 ? Math.trunc(n) : null;
+  const n = sheetNumber(raw);
+  return n !== null && n >= 1 && n <= 4 ? Math.trunc(n) : null;
 }
 
 /**

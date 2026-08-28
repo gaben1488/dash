@@ -119,6 +119,31 @@ describe('classifyRows — procurement detection', () => {
     expect(r.classification).toBe('procurement');
   });
 
+  // Класс «свой разборщик числа» (страж 29.08.2026): до переписи на канон
+  // toNumber из @aemr/shared строка «1 234,5» читалась как ничто — суммы с
+  // пробелами-разрядами не считались суммами.
+  it('видит суммы с пробелами-разрядами («1 234,5») как деньги строки', () => {
+    const r = classifySingle(5, makeCells({ A: '4', K: '1 234,5' }));
+    expect(r.classification).toBe('procurement');
+    expect(r.classificationConfidence).toBe(0.9);
+  });
+
+  it('пробел-разряд неразрывный ( ) — тоже число', () => {
+    const r = classifySingle(5, makeCells({ A: '5', K: '2 250 000,00' }));
+    expect(r.classification).toBe('procurement');
+  });
+
+  it('сумма с пробелами не путается с «малыми целыми» шапки', () => {
+    // «1 234,5» = 1234.5 > 100 — эвристика номеров столбцов не срабатывает
+    const r = classifySingle(5, makeCells({ A: '6', H: '1 234,5', G: '', L: '' }));
+    expect(r.classification).toBe('procurement');
+  });
+
+  it('дешёвая закупка с предметом и способом при пустых соседних суммах — закупка', () => {
+    const r = classifySingle(5, makeCells({ A: '7', G: 'Ремонт кровли', L: 'ЕП', H: '', K: 80 }));
+    expect(r.classification).toBe('procurement');
+  });
+
   it('classifies row with comma-decimal amounts', () => {
     const r = classifySingle(5, makeCells({ A: '2', H: '1500000,50' }));
     expect(r.classification).toBe('procurement');

@@ -41,6 +41,10 @@ export type {
 // Re-export rule-book
 export * from './rule-book.js';
 
+// Re-export канон распознавания ошибки формулы источника (#REF!/#ЗНАЧ!/#ДЕЛ/0!...):
+// один дом кодов обеих локалей, копии списков по модулям запрещены (страж 29.08.2026)
+export * from './formula-error.js';
+
 // Re-export гигиена текста (детекторы п.98д: готовые исправления ячеек для операторов)
 export * from './text-hygiene.js';
 
