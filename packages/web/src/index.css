@@ -1037,8 +1037,9 @@
      Разборы · Надзор; одобрено владельцем, проба линейки 29.08). Подпись
      группы — мелкая капитель слева, кнопки ряда — те же np-btn.
      Ширина блока ЗАЖАТА (340px — прежний след сетки 3×N): ряд из четырёх
-     кнопок не раздвигает линейку, длинные подписи ужимаются многоточием,
-     полное имя остаётся в подсказке кнопки. */
+     кнопок не раздвигает линейку; длинной подписи тесноту добирает
+     ПЕРЕНОС (§16.1: многоточие в навигации — брак вёрстки), подсказка
+     кнопки остаётся дублёром полного имени. */
   .nav-pills-wrap {
     @apply select-none flex-shrink-0;
     display: flex;
@@ -1094,8 +1095,8 @@
     background: transparent;
     overflow: hidden;
     transition: transform 100ms ease;
-    /* Кнопка умеет ужиматься внутри зажатого ряда группы: лишнее
-       срезает многоточие подписи, полное имя — в подсказке. */
+    /* Кнопка умеет ужиматься внутри зажатого ряда группы: подпись
+       не режется, а переносится (§16.1); полное имя — в подсказке. */
     min-width: 0;
     flex: 0 1 auto;
     --np-tone: var(--np-color-light, #7a5f33);
@@ -1129,11 +1130,16 @@
     border: 1px solid rgba(43, 38, 28, 0.09);
     transition: all 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
-  /* Подпись раздела ужимается многоточием, когда ряду группы тесно. */
+  /* Подпись раздела НЕ обрезается никогда (§16.1, рецепт .qoi из
+     pulse.html): когда ряду группы тесно, подпись переносится на вторую
+     строку целиком — перенос вместо многоточия. Кегль не тронут: контраст
+     и плотность хрома выверены отдельной волной (см. .np-content). */
   .np-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
+    text-align: left;
   }
   /* Значок несёт цвет своего раздела и в покое — раздельность вкладок
      видна без выбора. Тон тот же, что у заливки активной кнопки
@@ -1177,8 +1183,23 @@
     color: var(--accent-ink) !important;
     background: var(--np-tone) !important;
     border-color: transparent !important;
-    /* Заря: холодный лазурный ореол снаружи тёплой заливки — включённое
-       состояние на хроме несёт пару «тепло внутри, холод вокруг». */
+    /* Свечение включённой вкладки — её СОБСТВЕННЫМ тоном раздела (§16.2:
+       некремовые лазурь не получают — рубин светится рубином, изумруд
+       изумрудом). Берётся --np-tone, а не сырой --np-color: на светлой
+       теме светлый пастельный тон невидим на кремовом фоне (та же
+       причина, что у заливки, — см. разбор у .np-btn), тон-по-теме
+       держит семейство цвета в обеих темах. */
+    box-shadow:
+      0 0 10px color-mix(in srgb, var(--np-tone) 30%, transparent),
+      0 0 22px color-mix(in srgb, var(--np-tone) 15%, transparent);
+  }
+  /* Заря §16.2: холодный лазурный ореол — ТОЛЬКО кремовым разделам
+     (Пульс #e5d3a9 и светло-кремовая корзина «Не обеспеченные» #fde68a):
+     крем без лазури — неполная заря, остальным лазурь не положена.
+     Отбор по инлайн-переменной кнопки: краска раздела живёт только в
+     style (--np-color из NAV_ITEMS), другого носителя у кнопки нет. */
+  .np-btn[style*="#e5d3a9"].np-btn-active .np-content,
+  .np-btn[style*="#fde68a"].np-btn-active .np-content {
     box-shadow:
       0 0 10px color-mix(in srgb, var(--lazur) 24%, transparent),
       0 0 22px color-mix(in srgb, var(--lazur) 12%, transparent);
@@ -1363,13 +1384,17 @@
     min-width: 0;
     flex-wrap: wrap;
     justify-content: flex-end;
+    /* Разумная ширина на весь угол: жетоны переносятся рядами внутри неё,
+       а не растягивают линейку. Ширина сродни мини-барабану эфира (240px)
+       с запасом под два жетона в ряд. */
+    max-width: 320px;
   }
   .sel-chip {
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    height: 17px;
-    padding: 0 6px;
+    min-height: 17px;
+    padding: 1px 6px;
     border: 0;
     border-radius: 6px;
     font-size: 9.5px;
@@ -1378,6 +1403,10 @@
     white-space: nowrap;
     cursor: pointer;
     transition: transform 100ms ease;
+    /* Жетон не шире своего ряда: длинное значение переносится внутри
+       пилюли, а не вылезает из угла. */
+    max-width: 100%;
+    min-width: 0;
   }
   .sel-chip:hover {
     transform: translateY(-1px);
@@ -1385,10 +1414,15 @@
   .sel-chip:active {
     transform: scale(0.94);
   }
+  /* §16.1: подпись жетона не обрезается. Прежний предел 130px с многоточием
+     снят: ряд жетонов переносится (flex-wrap контейнера), длинная подпись
+     переносится внутри пилюли меньшей строкой; полное значение дублирует
+     title жетона (SelectionTokens ставит его всегда). */
   .sel-chip-label {
-    max-width: 130px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
+    text-align: left;
   }
   .sel-chip-x {
     opacity: 0.65;
@@ -1614,6 +1648,10 @@
   /* Currency active — subtle not full fill.
      Бронза #8f7549 на светлой подложке давала 3,9:1 — на десяти пикселях мало;
      тон уведён на ступень глубже, до 6,2:1. */
+  /* §16.2: кремовый предмет несёт лазурную пару. Переключатель единиц —
+     мелкий предмет, поэтому пара — тонкая лазурная КРОМКА, не широкий
+     ореол; в тёмной теме кромка на ступень ярче (45% против 30%, и сама
+     --lazur там светлее). */
   .vf-cur-active {
     color: #6b562d !important;
     background: rgba(191, 161, 97, 0.10) !important;
@@ -1621,12 +1659,17 @@
     text-shadow: none;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.20),
+      0 0 0 1px color-mix(in srgb, var(--lazur) 30%, transparent),
       0 0 6px rgba(191, 161, 97, 0.22) !important;
   }
   .dark .vf-cur-active {
     color: #d6bf85 !important;
     background: rgba(191, 161, 97, 0.12) !important;
     text-shadow: 0 0 8px rgba(214, 191, 133, 0.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.20),
+      0 0 0 1px color-mix(in srgb, var(--lazur) 45%, transparent),
+      0 0 6px rgba(191, 161, 97, 0.22) !important;
   }
 
   /* Tiny "Все" notch — protruding right edge */
@@ -1992,15 +2035,18 @@
     box-shadow: 0 0 6px currentColor, 0 0 12px currentColor;
   }
 
-  /* Label */
+  /* Label. Семейство os-* сейчас мёртвое: ни один компонент эти классы
+     не носит (проверено 29.08 — селектор организаций живёт в OrgStrip на
+     ob-*). Обрезание снято всё равно, чтобы класс §16.1 был закрыт в
+     корне: вернётся разметка — брак не вернётся. Кандидат на удаление. */
   .os-label {
     font-size: 10px;
     font-weight: var(--weight-strong);
     color: rgba(113, 113, 122, 0.8);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    line-height: 1.15;
   }
   .dark .os-label {
     color: rgba(161, 161, 170, 0.8);
@@ -2126,13 +2172,14 @@
     border-color: #bfa161;
   }
 
-  /* Sub name */
+  /* Sub name — мёртвый класс, как и .os-label выше: обрезание снято по
+     тому же правилу §16.1, кандидат на удаление вместе с семейством. */
   .os-sub-name {
     font-size: 9px;
     color: rgba(113, 113, 122, 0.8);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-width: 0;
     line-height: 1.2;
   }
   .dark .os-sub-name {
@@ -2451,14 +2498,19 @@
   .dark .tg-quarter-tab-partial {
     color: rgba(229, 211, 169, 0.85);
   }
+  /* §16.2: полностью выбранный квартал — кремовая подпись, значит несёт
+     лазурную пару. Предмет мелкий (18px) — пара кромкой, вписанной внутрь,
+     чтобы не толкать соседние ярлыки; в тёмной теме на ступень ярче. */
   .tg-quarter-tab-full {
     color: #6b562d;
     font-weight: var(--weight-strong);
     text-shadow: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lazur) 28%, transparent);
   }
   .dark .tg-quarter-tab-full {
     color: #e5d3a9;
     text-shadow: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lazur) 42%, transparent);
   }
 
   /* Month cell — premium micro button with glow */
@@ -4385,15 +4437,18 @@
   box-shadow: 0 0 6px currentColor;
 }
 
-/* Department name */
+/* Department name — короткое имя из словаря (dept.abbr), само по себе
+   приём §16.1; полное имя несёт title кнопки. Если и словарному имени
+   тесно — оно переносится, а не режется многоточием. */
 .ob-dept-name {
   font-size: 10px;
   font-weight: var(--weight-strong);
   color: rgba(63, 63, 70, 0.92);
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  min-width: 0;
   transition: color 0.15s ease;
 }
 .ob-dept-active .ob-dept-name {
@@ -4524,9 +4579,13 @@
      разобрать буква в букву, поэтому 0.55/0.45 альфы (2,4:1) не годятся. */
   color: #4b4b53;
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* §16.1: имя подведа не режется. Пределы ширины (88px и уже в узких
+     линейках) остались как устройство плотности, но лишнее теперь
+     ПЕРЕНОСИТСЯ второй строкой пилюли, а не срезается многоточием;
+     полное имя дублирует title чипа (OrgStrip ставит его всегда). */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
   max-width: 88px;
   transition: all 0.15s cubic-bezier(0.23, 1, 0.32, 1);
   letter-spacing: 0.01em;
