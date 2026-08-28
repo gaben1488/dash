@@ -36,7 +36,10 @@
              display:grid; place-items:center; cursor:pointer; position:relative}
   .сетка-а{display:grid; grid-template-columns:repeat(3,4px); grid-auto-rows:4px; gap:3px}
   .сетка-а i{border-radius:1px; background:var(--тихо); opacity:.42}
-  .сетка-а i.горит{background:var(--лазурь-глубь); opacity:1; box-shadow:0 0 4px rgba(66,110,179,.45)}
+  /* Краска «отобраны строки» переведена на зарю (29.08): рассветный градиент
+     лазурь #5b99f8 → бронза #9d8150 — пара «включено» из матрицы
+     2026-08-29-zarya-matrica.md; свечение-ореол снято (§21.1 п.1: ореол низложен). */
+  .сетка-а i.горит{background:linear-gradient(180deg,var(--лазурь) 0%,#9d8150 100%); opacity:1}
   .сетка-а i.режим{background:var(--бронза); opacity:.82}
 
   /* ── Б: прибор со счётом ── */
@@ -115,6 +118,7 @@
   <section class="вар">
     <h2>А. Решётка 12 ячеек (нынешний)</h2>
     <span class="вердикт в-нет">как основной канал — нет</span>
+    <span class="вердикт в-зап">исторический образец: краска «отобраны строки» переведена на зарю лазурь→бронза по матрице</span>
     <div class="сцена">
       <button class="предмет-а" title="Задано 3 фильтра. Нажмите — сбросить и показать весь 2026 год">
         <span class="сетка-а">
