@@ -41,12 +41,31 @@ vi.mock('./snapshot.js', () => ({
 // без заглушки каждый вопрос уходит в настоящий Google и упирается в срок
 // ожидания, а проверять здесь надо цикл, а не сеть. «Не знаю» — это прежнее
 // поведение цикла: читать всё, ничего не пропуская.
-const checkFileChanged = vi.fn(async () => 'unknown' as const);
+const checkFileChanged = vi.fn(async (): Promise<'unknown' | 'changed' | 'same'> => 'unknown');
 const forgetRevision = vi.fn();
+const lastKnownRevision = vi.fn((): { version: string | null; modifiedTime: string | null } | null => null);
+const seedRevision = vi.fn();
 
 vi.mock('./file-revision.js', () => ({
   checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [])),
   forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [])),
+  lastKnownRevision: (...a: unknown[]) => lastKnownRevision(...(a as [])),
+  seedRevision: (...a: unknown[]) => seedRevision(...(a as [])),
+}));
+
+// Водяной знак живёт в базе; в стражах цикла он заглушен, чтобы проверки
+// сравнения не зависели от содержимого рабочей базы разработчика. Сам знак
+// проверяет services/book-watermark.test.ts, а посев после «рестарта» —
+// отдельный страж ниже (через подмену loadWatermarks).
+const loadWatermarks = vi.fn(() => new Map<string, { fingerprint: string; parsedAt: string; driveVersion: string | null; driveModifiedTime: string | null }>());
+const saveWatermark = vi.fn((...args: unknown[]) => { void args; });
+const noteHonestGap = vi.fn((...args: unknown[]) => { void args; return true; });
+
+vi.mock('./book-watermark.js', () => ({
+  SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadWatermarks: (...a: unknown[]) => loadWatermarks(...(a as [])),
+  saveWatermark: (...a: unknown[]) => saveWatermark(...(a as [])),
+  noteHonestGap: (...a: unknown[]) => noteHonestGap(...(a as [])),
 }));
 
 const log = { info: vi.fn(), warn: vi.fn() };
@@ -318,5 +337,92 @@ describe('перечитка объявляет изменения в прямо
 
     expect(heard).toEqual([]);
     resetLiveEventBus();
+  });
+});
+
+describe('водяной знак (§2.4) и правило полноты (§2.2) проекта службы', () => {
+  it('после «рестарта» первое чтение сравнивается с довалочным отпечатком, а не с пустотой', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+
+    // «Рестарт»: память процесса пуста, знак лежит в «базе» (заглушка).
+    resetSourcePrints();
+    const uksimp = [[1], [2]];
+    const uo = [['до падения']]; // до падения книга УО выглядела иначе
+    loadWatermarks.mockReturnValueOnce(new Map([
+      ['УКСиМП', { fingerprint: sheetFingerprint(uksimp), parsedAt: 'x', driveVersion: null, driveModifiedTime: null }],
+      ['УО', { fingerprint: sheetFingerprint(uo), parsedAt: 'x', driveVersion: null, driveModifiedTime: null }],
+      ['лист СВОД', { fingerprint: sheetFingerprint([['СВОД']]), parsedAt: 'x', driveVersion: null, driveModifiedTime: null }],
+    ]));
+
+    const r = await refreshAllSources(log);
+
+    // УКСиМП совпала со знаком — не изменилась; УО разошлась — изменение
+    // видно СРАЗУ после подъёма, хотя в памяти процесса сравнивать было не с чем.
+    expect(r.changedBooks).toEqual(['УО']);
+    expect(r.svodChanged).toBe(false);
+    resetSourcePrints();
+  });
+
+  it('успешный разбор пишет водяной знак каждой книги и листа СВОД', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+
+    await refreshAllSources(log);
+
+    const books = saveWatermark.mock.calls.map((c) => c[0]).sort();
+    expect(books).toEqual(['УКСиМП', 'УО', 'лист СВОД']);
+    resetSourcePrints();
+  });
+
+  it('Drive сказал «файл менялся», содержимое молчит — в журнал уходит честный пропуск', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+
+    // Первое чтение — отпечатки и отметки версии запоминаются.
+    await refreshAllSources(log);
+    vi.clearAllMocks();
+
+    // Второе: Drive свидетельствует правку (была прежняя отметка, новая
+    // разошлась), но лист тот же самый — содержательные свидетели молчат.
+    lastKnownRevision.mockReturnValue({ version: '7', modifiedTime: '2026-08-29T01:00:00.000Z' });
+    checkFileChanged.mockResolvedValue('changed' as const);
+    fetchDepartmentSpreadsheets.mockResolvedValue({
+      data: {
+        'УКСиМП': { values: [[1], [2]], formulas: [], sheetName: 'ВСЕ' },
+        'УО': { values: [[1]], formulas: [], sheetName: 'ВСЕ' },
+      },
+      errors: {},
+    });
+    getSheetData.mockResolvedValue([['СВОД']]);
+    await refreshAllSources(log);
+
+    const gapBooks = noteHonestGap.mock.calls.map((c) => c[0]).sort();
+    expect(gapBooks).toEqual(['УКСиМП', 'УО']);
+    expect(noteHonestGap).toHaveBeenCalledWith('УО', '2026-08-29T01:00:00.000Z');
+    resetSourcePrints();
+  });
+
+  it('изменившееся содержимое пропуском не считается — есть настоящий свидетель', async () => {
+    const { refreshAllSources, resetSourcePrints } = await import('./source-refresh.js');
+    resetSourcePrints();
+    await refreshAllSources(log);
+    vi.clearAllMocks();
+
+    lastKnownRevision.mockReturnValue({ version: '8', modifiedTime: '2026-08-29T02:00:00.000Z' });
+    checkFileChanged.mockResolvedValue('changed' as const);
+    fetchDepartmentSpreadsheets.mockResolvedValue({
+      data: {
+        'УКСиМП': { values: [[1], [2], ['новая строка']], formulas: [], sheetName: 'ВСЕ' },
+        'УО': { values: [['другое']], formulas: [], sheetName: 'ВСЕ' },
+      },
+      errors: {},
+    });
+    getSheetData.mockResolvedValue([['СВОД']]);
+    const r = await refreshAllSources(log);
+
+    expect(r.changedBooks.sort()).toEqual(['УКСиМП', 'УО']);
+    expect(noteHonestGap).not.toHaveBeenCalled();
+    resetSourcePrints();
   });
 });

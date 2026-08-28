@@ -22,7 +22,13 @@ import {
   getSvodLoadFailure,
 } from './snapshot.js';
 import { sheetFingerprint } from './sheet-fingerprint.js';
-import { checkFileChanged, forgetRevision } from './file-revision.js';
+import { checkFileChanged, forgetRevision, lastKnownRevision, seedRevision } from './file-revision.js';
+import {
+  SVOD_WATERMARK_KEY,
+  loadWatermarks,
+  noteHonestGap,
+  saveWatermark,
+} from './book-watermark.js';
 import { SVOD_SHEET_NAME } from '@aemr/shared';
 import { publishLiveEvent, type RefreshOrigin } from './event-bus.js';
 import { diffBook, isSilent } from './live-diff.js';
@@ -67,6 +73,39 @@ let queuedScope: { books: Set<string> | null; svod: boolean } | null = null;
 /** Отпечатки прошлого чтения — по ним видно, изменилось ли что-нибудь. */
 const bookPrints = new Map<string, string>();
 let svodPrint: string | null = null;
+
+/**
+ * Посеян ли водяной знак из базы (§2.4 проекта службы). Раньше отпечатки жили
+ * только в памяти процесса, и после рестарта первое чтение сравнивалось с
+ * пустотой: правка, случившаяся, пока сервер лежал, выглядела как «первое
+ * чтение, изменений нет». Теперь база сравнения переживает перезапуск.
+ */
+let watermarksSeeded = false;
+
+function seedFromWatermarks(): void {
+  if (watermarksSeeded) return;
+  watermarksSeeded = true;
+  for (const [book, mark] of loadWatermarks()) {
+    if (book === SVOD_WATERMARK_KEY) {
+      svodPrint ??= mark.fingerprint;
+      continue;
+    }
+    if (!bookPrints.has(book)) bookPrints.set(book, mark.fingerprint);
+    // Отметка версии файла тоже переживает рестарт: без неё первый вопрос
+    // «а менялся ли файл» после подъёма отвечал бы «менялся» про каждую книгу.
+    const fileId = DEPARTMENT_SPREADSHEETS[book];
+    if (fileId && (mark.driveVersion !== null || mark.driveModifiedTime !== null)) {
+      seedRevision(fileId, { version: mark.driveVersion, modifiedTime: mark.driveModifiedTime });
+    }
+  }
+}
+
+/** Только для стражей: забыть посев и отпечатки. */
+export function resetSourcePrints(): void {
+  watermarksSeeded = false;
+  bookPrints.clear();
+  svodPrint = null;
+}
 
 export interface RefreshOptions {
   /**
@@ -185,11 +224,16 @@ async function gateByRevision(
   candidates: readonly string[],
   wantSvod: boolean,
   ask: boolean,
-): Promise<{ books: string[]; svod: boolean; skipped: string[] }> {
-  if (!ask) return { books: [...candidates], svod: wantSvod, skipped: [] };
+): Promise<{ books: string[]; svod: boolean; skipped: string[]; attested: string[] }> {
+  if (!ask) return { books: [...candidates], svod: wantSvod, skipped: [], attested: [] };
 
   const books: string[] = [];
   const skipped: string[] = [];
+  // Книги, про которые Drive СКАЗАЛ «файл менялся» (была прежняя отметка и
+  // новая с ней разошлась). Не то же самое, что «читаем»: читаем и по
+  // «не знаю», и впервые. Засвидетельствованное изменение при молчащем
+  // содержимом — это честный пропуск журнала (правило полноты §2.2).
+  const attested: string[] = [];
 
   const questions: Array<Promise<void>> = candidates.map(async (book) => {
     const fileId = DEPARTMENT_SPREADSHEETS[book];
@@ -197,13 +241,18 @@ async function gateByRevision(
       books.push(book);
       return;
     }
+    const hadRevision = lastKnownRevision(fileId) !== null;
     const verdict = await checkFileChanged(fileId);
-    if (verdict === 'same') skipped.push(book);
-    else books.push(book);
+    if (verdict === 'same') {
+      skipped.push(book);
+      return;
+    }
+    books.push(book);
+    if (verdict === 'changed' && hadRevision) attested.push(book);
   });
 
   await Promise.all(questions);
-  return { books: books.sort(), svod: wantSvod, skipped: skipped.sort() };
+  return { books: books.sort(), svod: wantSvod, skipped: skipped.sort(), attested: attested.sort() };
 }
 
 /**
@@ -236,6 +285,10 @@ export function refreshAllSources(log?: {
   }
 
   inFlight = (async () => {
+    // Водяной знак из базы — ДО любого сравнения: после рестарта отпечатки
+    // обязаны быть довалочными, а не пустыми (§2.4 проекта службы).
+    seedFromWatermarks();
+
     // Прежнее чтение книг — материал для ответа «что именно поменялось»
     // (шина живых событий). Ссылка снимается ДО записи нового кэша: запись
     // подставляет новый объект, прежний остаётся целым.
@@ -279,6 +332,9 @@ export function refreshAllSources(log?: {
               const first = svodPrint === null;
               const changed = !first && svodPrint !== print;
               svodPrint = print;
+              // Водяной знак листа СВОД — тем же правилом, что и у книг:
+              // успешный разбор оставляет след в базе, а не в памяти.
+              saveWatermark(SVOD_WATERMARK_KEY, print, new Date().toISOString());
               return { ok: true, changed, first };
             })
             .catch((err: unknown) => {
@@ -310,6 +366,28 @@ export function refreshAllSources(log?: {
       bookPrints.set(name, print);
       if (previous === undefined) firstReads++;
       else if (previous !== print) changedBooks.push(name);
+      // Водяной знак: момент успешного разбора, отпечаток и отметка версии
+      // файла — в базу, чтобы рестарт не обнулял базу сравнения (§2.4).
+      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      const revision = fileId ? lastKnownRevision(fileId) : null;
+      saveWatermark(name, print, new Date().toISOString(), revision ?? undefined);
+    }
+
+    // Правило полноты (§2.2): Drive засвидетельствовал «файл менялся», книга
+    // прочитана, а содержательные свидетели молчат — отпечаток листа тот же.
+    // В журнал уходит честный пропуск «изменение было, содержание не
+    // установлено», а не тишина. Один и тот же пропуск не пишется дважды.
+    for (const name of gate.attested) {
+      if (changedBooks.includes(name)) continue;
+      if (!(name in data)) continue; // чтение упало — это отказ, а не пропуск
+      const fileId = DEPARTMENT_SPREADSHEETS[name];
+      const modifiedTime = fileId ? lastKnownRevision(fileId)?.modifiedTime ?? null : null;
+      if (noteHonestGap(name, modifiedTime)) {
+        log?.warn(
+          `Журнал: по книге «${name}» изменение было, содержание не установлено`
+          + (modifiedTime ? ` (отметка файла ${modifiedTime})` : ''),
+        );
+      }
     }
     // Упавшая книга ушла из кэша — её отпечаток больше ничего не описывает.
     // Заодно забывается отметка версии файла: она снята перед чтением, которого

@@ -104,6 +104,9 @@ vi.mock('../config.js', () => ({
     cache: { autoRefreshMinutes: 0, ttlSeconds: 300, sourceFreshnessSeconds: 300 },
     weeklySnapshot: { utcOffsetHours: 12 },
     google: { spreadsheetId: 'ss-main' },
+    // Единый читатель тянет водяной знак, а тот — базу: без адреса база не
+    // откроется. В стражах она живёт в памяти.
+    database: { url: ':memory:' },
   },
 }));
 

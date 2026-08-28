@@ -55,6 +55,28 @@ vi.mock('googleapis', () => ({
   google: { drive: () => ({}), auth: { GoogleAuth: vi.fn() } },
 }));
 
+// Очередь уведомлений живёт в базе; здесь она заглушена — судьбу записей
+// проверяет собственный страж (services/webhook-queue.test.ts) и сквозной
+// (routes/webhook-queue-flow.test.ts), а этот файл отвечает за сам приём.
+const enqueueNotification = vi.fn(() => 1);
+const settleAfterRefresh = vi.fn(() => ({ done: [], kept: [] }));
+const settleMonitoring = vi.fn(() => ({ done: [], kept: [] }));
+vi.mock('../services/webhook-queue.js', () => ({
+  enqueueNotification: (...a: unknown[]) => enqueueNotification(...(a as [])),
+  noteAttemptFailed: vi.fn(),
+  pendingNotifications: vi.fn(() => []),
+  queueStats: vi.fn(() => ({ pending: 0, processed: 0, oldestPendingAt: null, failedAttempts: 0 })),
+  settleAfterRefresh: (...a: unknown[]) => settleAfterRefresh(...(a as [])),
+  settleMonitoring: (...a: unknown[]) => settleMonitoring(...(a as [])),
+}));
+
+// Комментарии-облачка читаются настоящим клиентом Drive — в стражах приёма
+// они заглушены; их разбор проверяет services/drive-comments.test.ts.
+const refreshCommentsForBooks = vi.fn(async () => []);
+vi.mock('../services/drive-comments.js', () => ({
+  refreshCommentsForBooks: (...a: unknown[]) => refreshCommentsForBooks(...(a as [])),
+}));
+
 let app: FastifyInstance;
 
 beforeAll(async () => {
@@ -78,6 +100,10 @@ afterEach(async () => {
   resetWebhookChannelState();
   refreshAllSources.mockClear();
   refreshMonitoringBook.mockClear();
+  enqueueNotification.mockClear();
+  settleAfterRefresh.mockClear();
+  settleMonitoring.mockClear();
+  refreshCommentsForBooks.mockClear();
   vi.useRealTimers();
 });
 

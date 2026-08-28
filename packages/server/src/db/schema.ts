@@ -192,6 +192,96 @@ export const yearlongKindOverrides = sqliteTable('yearlong_kind_overrides', {
 });
 
 /**
+ * Очередь уведомлений вебхука (проект «служба, а не снимок», §2.3).
+ *
+ * Вебхук НЕ обрабатывает уведомление — он кладёт запись сюда и отвечает
+ * Google мгновенно. Обработчик берёт из очереди и помечает выполненным ТОЛЬКО
+ * после успешного чтения; упавшее чтение остаётся в очереди и повторяется.
+ * Таблица, а не память процесса: уведомление, принятое за секунду до падения
+ * сервера, переживает рестарт и дочитывается.
+ */
+export const webhookQueue = sqliteTable('webhook_queue', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Человеческое название книги («УО», «Сводная книга»). */
+  book: text('book').notNull(),
+  /** Идентификатор файла Drive — по нему строится цель перечитки. */
+  fileId: text('file_id'),
+  /** Номер сообщения в канале — след дедупликации для разбора инцидентов. */
+  messageNumber: integer('message_number'),
+  channelId: text('channel_id'),
+  /** Состояние ресурса из уведомления (update/change/trash/…). */
+  resourceState: text('resource_state'),
+  /** Момент приёма уведомления (ISO). */
+  receivedAt: text('received_at').notNull(),
+  /** pending — ждёт чтения; done — чтение состоялось. */
+  state: text('state').notNull().default('pending'),
+  /** Сколько раз чтение по этой записи падало. */
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  doneAt: text('done_at'),
+});
+
+/**
+ * Водяной знак книги (проект §2.4): момент последнего успешно разобранного
+ * состояния и отпечаток содержимого — в базе, а не в памяти процесса. После
+ * рестарта первое чтение сравнивается с довалочным состоянием, а не с пустотой.
+ */
+export const bookWatermarks = sqliteTable('book_watermarks', {
+  /** Человеческое название книги; лист СВОД живёт под собственным ключом. */
+  book: text('book').primaryKey(),
+  /** Отпечаток содержимого (sheet-fingerprint) последнего успешного разбора. */
+  fingerprint: text('fingerprint').notNull(),
+  /** Момент последнего успешно разобранного состояния (ISO). */
+  parsedAt: text('parsed_at').notNull(),
+  /** Отметка версии файла Drive на момент разбора — чтобы ворота по отметке
+   *  времени переживали рестарт вместе с отпечатком. */
+  driveVersion: text('drive_version'),
+  driveModifiedTime: text('drive_modified_time'),
+});
+
+/**
+ * Честные пропуски журнала (правило полноты, проект §2.2): отметка времени
+ * файла сказала «менялся», а все содержательные свидетели молчат — пишется
+ * запись «изменение было, содержание не установлено». Пропуск фиксируется как
+ * пропуск, а не замалчивается.
+ */
+export const journalGaps = sqliteTable('journal_gaps', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  book: text('book').notNull(),
+  /** Отметка времени файла, из-за которой признан пропуск (ISO или null). */
+  fileModifiedTime: text('file_modified_time'),
+  /** Когда пропуск замечен (ISO). */
+  notedAt: text('noted_at').notNull(),
+});
+
+/**
+ * Комментарии-облачка книг (решение §17.2 и разбор
+ * docs/superpowers/audits/2026-08-22-google-api-provenance.md §4): «зачем»
+ * поменяли — причинный слой, которого нет ни в журнале правок, ни в заметках.
+ * Привязка к ячейке публичными средствами не разворачивается, поэтому здесь
+ * честно хранится цитата содержимого ячейки, а не адрес.
+ */
+export const driveComments = sqliteTable('drive_comments', {
+  /** «книга#идентификатор комментария» — идентификаторы уникальны в файле. */
+  id: text('id').primaryKey(),
+  book: text('book').notNull(),
+  commentId: text('comment_id').notNull(),
+  /** Имя автора, как его отдаёт Диск; у удалённых стёрто самим Google. */
+  author: text('author'),
+  content: text('content'),
+  /** Цитата содержимого ячейки на момент написания — единственная привязка. */
+  quoted: text('quoted'),
+  createdAtMs: integer('created_at_ms'),
+  modifiedAtMs: integer('modified_at_ms'),
+  resolved: integer('resolved').notNull().default(0),
+  deleted: integer('deleted').notNull().default(0),
+  /** Сколько ответов в ветке. */
+  replies: integer('replies').notNull().default(0),
+  /** Когда запись прочитана нами (ISO). */
+  recordedAt: text('recorded_at').notNull(),
+});
+
+/**
  * Журнал правок источника — вкладка «_ChangeLog» книг ГРБС, которую ведёт
  * Apps Script: кто, когда и что поменял. Раньше он жил пятиминутным кэшем в
  * памяти процесса и умирал вместе с ним; здесь история переживает рестарт и

@@ -36,6 +36,7 @@ import {
   noteRefreshRun,
   webhookChannelState,
   bookByFileId,
+  SVOD_BOOK_NAME,
   type DriveNotification,
   type NotificationDecision,
 } from '../services/webhook-channel.js';
@@ -46,6 +47,16 @@ import {
   planForFile,
   type RefreshPlan,
 } from '../services/refresh-targets.js';
+import {
+  enqueueNotification,
+  noteAttemptFailed,
+  pendingNotifications,
+  queueStats,
+  settleAfterRefresh,
+  settleMonitoring,
+  type QueueEntry,
+} from '../services/webhook-queue.js';
+import { refreshCommentsForBooks } from '../services/drive-comments.js';
 
 interface RouteLog {
   info: (msg: string) => void;
@@ -68,9 +79,12 @@ let pendingPlan: RefreshPlan = EMPTY_PLAN;
  * каждый обязан быть назван в журнале своим словом. «Не читали» — не ошибка и
  * не тишина, а самый дешёвый и самый частый успех.
  */
-function refreshMonitoring(log: RouteLog): void {
+function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): void {
   void refreshMonitoringBook()
     .then((r) => {
+      // «Не читали, потому что не менялась» — успех, а не отказ: цель записи
+      // очереди достигнута тем, что состояние сверено с Drive.
+      settleMonitoring(claimed, true);
       if (!r.read) {
         log.info(`Вебхук: книга мониторинга не перечитана — ${r.skippedBecause ?? 'изменений нет'}`);
         return;
@@ -88,6 +102,10 @@ function refreshMonitoring(log: RouteLog): void {
       log.info(`Вебхук: книга мониторинга перечитана, изменились листы: ${r.changed.join(', ')}`);
     })
     .catch((err: unknown) => {
+      // Упавшее чтение НЕ помечается выполненным: запись остаётся в очереди
+      // и будет повторена (проект службы §2.3).
+      settleMonitoring(claimed, false, (err as Error).message);
+      scheduleQueueRetry(log);
       log.warn(`Вебхук: книга мониторинга не прочитана: ${(err as Error).message}`);
     });
 }
@@ -115,6 +133,66 @@ function noteTarget(fileId: string | null): void {
 }
 
 /**
+ * Через сколько повторить чтение по записям, оставшимся в очереди. Отдельно от
+ * окна склейки: склейка бережёт квоту при шквале правок, повтор — отвечает за
+ * то, что упавшее чтение не потеряется (проект службы §2.3).
+ */
+export const QUEUE_RETRY_MS = 60_000;
+
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Назначить повтор по невыполненным записям очереди. Один таймер на все:
+ * пять упавших книг — один повторный цикл, а не пять. Повтор строит цель
+ * заново из самих записей — им, а не памяти процесса, ведётся счёт.
+ */
+function scheduleQueueRetry(log: RouteLog): void {
+  if (retryTimer || pending) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    try {
+      const entries = pendingNotifications();
+      if (entries.length === 0) return;
+      for (const entry of entries) noteTarget(entry.fileId);
+      log.info(`Вебхук: повтор по очереди — невыполненных записей ${entries.length}`);
+      scheduleRefresh(log);
+    } catch (err) {
+      log.warn(`Вебхук: повтор по очереди не назначен: ${(err as Error).message}`);
+    }
+  }, QUEUE_RETRY_MS);
+  retryTimer.unref?.();
+}
+
+/**
+ * Поднять невыполненные записи очереди после рестарта: уведомление, принятое
+ * прежней жизнью процесса и не дочитанное, обязано дочитаться, а не ждать
+ * планового опроса. Вызывается при старте сервера (app.ts).
+ */
+export function recoverWebhookQueue(log: RouteLog): number {
+  const entries = pendingNotifications();
+  if (entries.length === 0) return 0;
+  for (const entry of entries) noteTarget(entry.fileId);
+  log.info(`Вебхук: в очереди ${entries.length} недочитанных уведомлений прежней жизни — перечитка взведена`);
+  scheduleRefresh(log);
+  return entries.length;
+}
+
+/**
+ * Прочитать комментарии-облачка книг, задетых этим циклом (решение §17.2):
+ * уведомление о книге — повод забрать и её комментарии. Отказ не валит ничего:
+ * комментарии — причинный слой, ночной обход и ручная перечитка их доберут.
+ */
+function refreshCommentsForPlan(plan: RefreshPlan, log: RouteLog): void {
+  const targets = plan.full
+    ? ('all' as const)
+    : [...plan.books, ...(plan.svod ? [SVOD_BOOK_NAME] : [])];
+  if (targets !== 'all' && targets.length === 0) return;
+  void refreshCommentsForBooks(targets, log).catch((err: unknown) => {
+    log.warn(`Вебхук: комментарии книг не прочитаны: ${(err as Error).message}`);
+  });
+}
+
+/**
  * Взводит отложенную перечитку источников.
  *
  * Таймер НЕ перевзводится на каждом уведомлении: при непрерывной правке книги
@@ -128,6 +206,10 @@ function scheduleRefresh(log: RouteLog): void {
     pending = null;
     const plan = pendingPlan;
     pendingPlan = EMPTY_PLAN;
+    // Записи очереди, судьбу которых решает ЭТОТ цикл. Снимок берётся на
+    // старте: уведомление, пришедшее во время цикла, взведёт свой таймер и
+    // будет решено своим циклом — чужой результат ему не ответ.
+    const claimed = pendingNotifications();
     // Тело таймера обёрнуто целиком: исключение, вылетевшее ЗДЕСЬ, некому
     // поймать — обработчик запроса давно ответил, и необработанный отказ в
     // колбэке таймера уносит весь процесс. Одна не перечитанная книга не имеет
@@ -143,7 +225,7 @@ function scheduleRefresh(log: RouteLog): void {
       //   • изменившиеся листы уходят в эфир поимённо, а не молча.
       // Перечитка идёт ТОЛЬКО когда правка была в этой книге: раньше правка в
       // книге УО стоила ещё и полного перечитывания одиннадцати листов.
-      if (plan.full || plan.monitoring) refreshMonitoring(log);
+      if (plan.full || plan.monitoring) refreshMonitoring(log, claimed);
 
       // Цель без единой книги и без листа СВОД (правили только мониторинг) —
       // это законный повод не трогать цикл источников вовсе.
@@ -165,19 +247,39 @@ function scheduleRefresh(log: RouteLog): void {
       })
         .then((r) => {
           noteRefreshRun(r.failed.length === 0);
+          // Судьба записей очереди: чья цель прочитана — выполнены, чья
+          // упала — остаются и повторяются (проект службы §2.3).
+          const settled = settleAfterRefresh(claimed, { failed: r.failed, svodOk: r.svodOk });
+          if (settled.kept.length > 0) scheduleQueueRetry(log);
+          // Комментарии-облачка задетых книг — вместе с перечиткой (§17.2).
+          refreshCommentsForPlan(plan, log);
           const moved = [...r.changedBooks, ...(r.svodChanged ? ['лист СВОД'] : [])];
           log.info(
             `Вебхук: перечитано ${describePlan(plan)} — книг ${r.booksRead}`
             + (r.failed.length ? `, не прочитано: ${r.failed.join(', ')}` : '')
-            + (moved.length ? `, изменилось: ${moved.join(', ')}` : ', изменений нет'),
+            + (moved.length ? `, изменилось: ${moved.join(', ')}` : ', изменений нет')
+            + (settled.kept.length ? `, в очереди осталось ${settled.kept.length}` : ''),
           );
         })
         .catch((err: unknown) => {
           noteRefreshRun(false);
+          // Цикл упал целиком — все взятые записи (кроме мониторинговых, у
+          // них свой путь) остаются в очереди со счётом попытки.
+          noteAttemptFailed(
+            claimed
+              .filter((e) => {
+                const p = planForFile(e.fileId);
+                return p.full || !p.monitoring;
+              })
+              .map((e) => e.id),
+            (err as Error).message,
+          );
+          scheduleQueueRetry(log);
           log.warn(`Вебхук: перечитка не удалась: ${(err as Error).message}`);
         });
     } catch (err) {
       noteRefreshRun(false);
+      scheduleQueueRetry(log);
       log.warn(`Вебхук: перечитку не удалось запустить: ${(err as Error).message}`);
     }
   }, webhookTuning.debounceMs);
@@ -188,6 +290,8 @@ function scheduleRefresh(log: RouteLog): void {
 export function cancelPendingWebhookRefresh(): void {
   if (pending) clearTimeout(pending);
   pending = null;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
   pendingPlan = EMPTY_PLAN;
 }
 
@@ -288,7 +392,20 @@ export function webhookRoutes(app: FastifyInstance): void {
       // Цель копится и у схлопнувшегося уведомления: «схлопнуто» означает «не
       // назначай второй цикл», а не «забудь, какую книгу правили». Раньше
       // разницы не было — цикл всё равно читал всё.
-      if (decision === 'refresh' || decision === 'coalesced') noteTarget(notification.fileId);
+      if (decision === 'refresh' || decision === 'coalesced') {
+        noteTarget(notification.fileId);
+        // Очередь — до ответа Google: запись переживает падение процесса, и
+        // выполненной её пометит только состоявшееся чтение (проект §2.3).
+        // Отказ базы очередь ловит сама и отвечает null — уведомление всё
+        // равно принято, сетью безопасности остаётся опрос по расписанию.
+        enqueueNotification({
+          book,
+          fileId: notification.fileId,
+          messageNumber: notification.messageNumber,
+          channelId: notification.channelId,
+          resourceState: notification.resourceState,
+        });
+      }
       if (decision === 'refresh') scheduleRefresh(log);
       logNotification(request, notification, book, decision);
     } catch (err) {
@@ -298,7 +415,15 @@ export function webhookRoutes(app: FastifyInstance): void {
       // журнал, перечитка на всякий случай и «принято».
       request.log.warn(`Вебхук: учёт уведомления не удался: ${(err as Error).message}`);
       // Собственный учёт сломался — цель уведомления доверия не заслуживает.
-      // Читаем всё: пропустить правку хуже, чем прочитать лишнее.
+      // Читаем всё: пропустить правку хуже, чем прочитать лишнее. Запись в
+      // очередь — тоже, чтобы правка пережила и падение процесса.
+      enqueueNotification({
+        book,
+        fileId: notification.fileId,
+        messageNumber: notification.messageNumber,
+        channelId: notification.channelId,
+        resourceState: notification.resourceState,
+      });
       pendingPlan = mergePlans([pendingPlan, planForFile(null)]);
       scheduleRefresh(log);
     }
@@ -316,5 +441,10 @@ export function webhookRoutes(app: FastifyInstance): void {
    * ключ доступа; в публичном режиме только для чтения он открыт как обычный
    * GET — и потому не содержит ни секрета, ни идентификаторов книг.
    */
-  app.get('/api/webhook/drive/state', async () => webhookChannelState());
+  app.get('/api/webhook/drive/state', async () => ({
+    ...webhookChannelState(),
+    // Очередь уведомлений (проект §2.3): сколько ждёт чтения, с какого
+    // момента и сколько попыток упало. Идентификаторов файлов здесь нет.
+    queue: queueStats(),
+  }));
 }

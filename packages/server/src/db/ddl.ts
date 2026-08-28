@@ -157,6 +157,50 @@ export const SCHEMA_DDL = `
     recorded_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS webhook_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book TEXT NOT NULL,
+    file_id TEXT,
+    message_number INTEGER,
+    channel_id TEXT,
+    resource_state TEXT,
+    received_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    done_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS book_watermarks (
+    book TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    parsed_at TEXT NOT NULL,
+    drive_version TEXT,
+    drive_modified_time TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS journal_gaps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book TEXT NOT NULL,
+    file_modified_time TEXT,
+    noted_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS drive_comments (
+    id TEXT PRIMARY KEY,
+    book TEXT NOT NULL,
+    comment_id TEXT NOT NULL,
+    author TEXT,
+    content TEXT,
+    quoted TEXT,
+    created_at_ms INTEGER,
+    modified_at_ms INTEGER,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    replies INTEGER NOT NULL DEFAULT 0,
+    recorded_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_metric_history_key ON metric_history(metric_key);
   CREATE INDEX IF NOT EXISTS idx_metric_history_snapshot ON metric_history(snapshot_id);
   CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity);
@@ -184,6 +228,19 @@ export const SCHEMA_DDL = `
   -- управления спрашивает их же по одной книге.
   CREATE INDEX IF NOT EXISTS idx_changelog_entries_at ON changelog_entries(at_ms);
   CREATE INDEX IF NOT EXISTS idx_changelog_entries_dept ON changelog_entries(dept, at_ms);
+
+  -- Обработчик очереди берёт только невыполненные — их всегда единицы, но
+  -- перебирать ради них выполненные за месяцы было бы платой за каждую правку.
+  CREATE INDEX IF NOT EXISTS idx_webhook_queue_state ON webhook_queue(state, id);
+
+  -- Один и тот же пропуск (книга + отметка времени файла) не пишется дважды:
+  -- повторная перечитка того же немого изменения — не второй пропуск.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_gaps_unique
+    ON journal_gaps(book, IFNULL(file_modified_time, ''));
+
+  -- Комментарии спрашивают по книге; повторное чтение обновляет запись по
+  -- паре книга+идентификатор, а не плодит дубли.
+  CREATE INDEX IF NOT EXISTS idx_drive_comments_book ON drive_comments(book, created_at_ms);
 `;
 
 /**

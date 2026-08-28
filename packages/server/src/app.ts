@@ -34,6 +34,9 @@ import { anomaliesRoutes } from './routes/anomalies.js';
 import { integrityRoutes } from './routes/integrity.js';
 import { textHygieneRoutes } from './routes/text-hygiene.js';
 import { eventsRoutes } from './routes/events.js';
+import { commentsRoutes } from './routes/comments.js';
+import { recoverWebhookQueue } from './routes/webhook.js';
+import { startNightlyCommentsSweep } from './services/drive-comments.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
@@ -239,6 +242,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(integrityRoutes);
   await app.register(textHygieneRoutes);
   await app.register(eventsRoutes);
+  await app.register(commentsRoutes);
 
   // Отладочное чтение книги регистрируется только в явно названной среде
   // разработки (прежде — при любой, кроме production, включая незаданную).
@@ -258,8 +262,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   // onClose останавливает таймер — Fastify закрывается без хвостов.
   if (config.weeklySnapshot.enabled) {
     const stopWeeklySnapshotCron = startWeeklySnapshotCron(app.log);
+    // Ночной полный обход комментариев-облачков (решение §17.2): днём их
+    // добирает вебхук по задетым книгам, ночью — все книги подряд. Тот же
+    // config-флаг, что у четверг-cron: в тестах таймеры не заводятся.
+    const stopCommentsSweep = startNightlyCommentsSweep({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
     app.addHook('onClose', async () => {
       stopWeeklySnapshotCron();
+      stopCommentsSweep();
     });
   }
 
@@ -373,5 +385,17 @@ export function preloadData(app: FastifyInstance): void {
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
+
+    // Очередь уведомлений (проект службы §2.3): недочитанное прежней жизнью
+    // процесса дочитывается, а не ждёт планового опроса.
+    try {
+      recoverWebhookQueue({
+        info: (m) => app.log.info(m),
+        warn: (m) => app.log.warn(m),
+      });
+    } catch (err) {
+      app.log.warn(`Очередь уведомлений не поднята: ${(err as Error).message}`);
+    }
+
   })();
 }

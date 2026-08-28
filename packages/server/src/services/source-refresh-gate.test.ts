@@ -41,6 +41,18 @@ const forgetRevision = vi.fn();
 vi.mock('./file-revision.js', () => ({
   checkFileChanged: (...a: unknown[]) => checkFileChanged(...(a as [string])),
   forgetRevision: (...a: unknown[]) => forgetRevision(...(a as [string])),
+  // Свидетельство «была прежняя отметка» здесь не проверяется — гейт отвечает
+  // за отсев чтений; честные пропуски охраняет source-refresh.test.ts.
+  lastKnownRevision: vi.fn(() => null),
+  seedRevision: vi.fn(),
+}));
+
+// Водяной знак заглушен: гейт проверяет отсев чтений, а не память базы.
+vi.mock('./book-watermark.js', () => ({
+  SVOD_WATERMARK_KEY: 'лист СВОД',
+  loadWatermarks: vi.fn(() => new Map()),
+  saveWatermark: vi.fn(),
+  noteHonestGap: vi.fn(() => true),
 }));
 
 const log = { info: vi.fn(), warn: vi.fn() };
