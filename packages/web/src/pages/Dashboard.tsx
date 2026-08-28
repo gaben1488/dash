@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore, type Page, type PeriodScope } from '../store';
+import { api } from '../api';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { FilterBreadcrumb } from '../components/FilterBreadcrumb';
 import { periodDataLabel } from '../lib/period-label';
@@ -31,7 +32,7 @@ import { CARD, CARD_SURFACE, RULE_HEAD } from '../components/dashboard/surfaces'
 import type { DeptMetrics } from '../hooks/useMultiDimMetrics';
 import { ORG_ITSELF_SENTINEL } from '@aemr/shared';
 import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
-import { figure, ratio, toPercent, type FigureProvenance } from '../lib/figure';
+import { ratio, toPercent, type FigureProvenance } from '../lib/figure';
 import { officialProvenanceFor } from '../lib/provenance-registry';
 import { productLabel, quarterLabel } from '@aemr/shared';
 
@@ -770,6 +771,7 @@ export function Dashboard() {
         bannerIssues={bannerIssues}
         onOpenIssues={() => navigateTo('quality', { qualityTab: 'issues' })}
         onNavigate={(category, search) => navigateTo('quality', { category, search })}
+        onOpenYearlong={() => navigateTo('yearlong')}
       />
     </div>
   );
@@ -1234,6 +1236,71 @@ function signalLabel(signal: string): string {
   return untranslated ? 'Сигнал без подписи в словаре' : label;
 }
 
+/**
+ * Классы, перечисленные поимённо: у них свой цвет, свой порядок и своя
+ * карточка базы знаний. Остальные сработавшие классы добираются из данных.
+ *
+ * ЗАКОН СПИСКА (канон §18 спеки 2026-08-22-pulse-feedback-2, перепись 29.08):
+ * каждый ключ здесь обязан УМЕТЬ рождать замечание — стоять в
+ * LEGACY_SIGNAL_TO_CHECK (@aemr/shared). Ключ, вычеркнутый из генерации
+ * решением владельца, пятном стоять не может: его счётчик — вечный ноль, и
+ * пятно падает в «Молчат N проверок», что читается как «проверили — чисто»,
+ * хотя класс вообще не считается. Страж — Dashboard.spots.test.ts.
+ *
+ * Перепись вычеркнутых ключей (29.08.2026):
+ *   • factWithoutDate — вычеркнут п.137(1) («в течение года — ТОЛЬКО СТАДИЯ»);
+ *     пятно УБРАНО отсюда, стадия показывается ниже счётом строк состояния
+ *     из /api/registry/buckets — см. yearlongStageLine;
+ *   • budgetMismatch — вычеркнут (дубль правила budget_sum_plan), пятна
+ *     никогда не имел — правило живёт в сводке замечаний, не в плитках;
+ *   • singleParticipant, lowCompetition — вычеркнуты (ненадёжная текстовая
+ *     детекция / не-индикатор), пятен никогда не имели, живут чипами Реестра;
+ *   • tdWithProgram — вычеркнут каноном п.30, пятно удалено ранее;
+ *   • stalledContract — детектор ядра всегда false (канон п.27), пятно
+ *     удалено ранее; в списке ему не место до воскрешения проверки.
+ */
+export const NAMED_SPOT_SIGNALS = new Set([
+  'overdue', 'economyConflict', 'highEconomy', 'earlyClosure',
+  'dateWithoutFact', 'planYearMissing', 'factExceedsPlan', 'factDateBeforePlan',
+]);
+
+/** Корзина стадии «в течение года» — счёт строк состояния с сервера. */
+export interface YearlongBucket {
+  /** Строк в стадии (RowState 'yearlong', предикат ядра). */
+  rows: number;
+  /** Суммарный план этих строк, тыс. руб. */
+  planSum: number;
+}
+
+/**
+ * Пятно стадии «Закупки, проводимые в течение года» (канон §18 пп.1–2):
+ * считается СЧЁТОМ СТРОК СОСТОЯНИЯ из данных (/api/registry/buckets — те же
+ * предикаты, что вкладка «В течение года»), а НЕ из замечаний: замечание по
+ * классу не рождается решением владельца п.137(1), и счётчик из замечаний
+ * был бы вечным нулём — обманом «проверили — чисто».
+ *
+ *   • счёта нет (сервер не ответил) → null: отсутствие счёта не выдаётся
+ *     за ноль строк;
+ *   • строк ноль → честная фраза без двери: переходить не к чему;
+ *   • строки есть → «N строк, план M тыс. ₽» и дверь на вкладку.
+ */
+export function yearlongStageLine(
+  bucket: YearlongBucket | null,
+): { text: string; hasRows: boolean } | null {
+  if (bucket === null) return null;
+  if (bucket.rows === 0) {
+    return {
+      text: 'Закупки, проводимые в течение года: строк в этой стадии в книгах сейчас нет.',
+      hasRows: false,
+    };
+  }
+  const plan = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(bucket.planSum);
+  return {
+    text: `Закупки, проводимые в течение года — ${bucket.rows} ${pluralRu(bucket.rows, 'строка', 'строки', 'строк')}, план ${plan} тыс. ₽`,
+    hasRows: true,
+  };
+}
+
 function BlindSpotsWidget({
   issues,
   signalCounts: apiSignalCounts,
@@ -1242,6 +1309,7 @@ function BlindSpotsWidget({
   bannerIssues,
   onOpenIssues,
   onNavigate,
+  onOpenYearlong,
 }: {
   issues: any[];
   signalCounts?: Record<string, number>;
@@ -1254,6 +1322,8 @@ function BlindSpotsWidget({
   /** Переход на страницу «Контроль», раздел «Замечания». */
   onOpenIssues: () => void;
   onNavigate: (category: string, search?: string) => void;
+  /** Дверь на вкладку «В течение года» — дом стадии (канон §18 п.1). */
+  onOpenYearlong: () => void;
 }) {
   const signalCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1264,6 +1334,21 @@ function BlindSpotsWidget({
     return { ...counts, ...(apiSignalCounts ?? {}) };
   }, [apiSignalCounts, issues]);
 
+  // Счёт строк стадии «в течение года» — из данных, не из замечаний
+  // (канон §18 п.1). Ошибка сети оставляет null: пятно не рисуется,
+  // отсутствие счёта не выдаётся за ноль строк.
+  const [yearlongBucket, setYearlongBucket] = useState<YearlongBucket | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.getRegistryBuckets()
+      .then((b) => {
+        if (alive) setYearlongBucket({ rows: b.yearlong.rows, planSum: b.yearlong.planSum });
+      })
+      .catch(() => { /* счёта нет — стадия честно молчит, а не показывает ноль */ });
+    return () => { alive = false; };
+  }, []);
+  const stage = yearlongStageLine(yearlongBucket);
+
   // Подписи карточек берутся из словаря продукта (@aemr/shared): локальные
   // сокращения вроде «Факт > план» или «Факт < план дата» расходились с тем,
   // как тот же сигнал подписан в реестре строк, и читались как формулы.
@@ -1273,22 +1358,16 @@ function BlindSpotsWidget({
   // Тексты подсказок — без псевдо-кода и без букв колонок листа: колонка
   // называется своим именем из шапки книги («Способ определения поставщика»,
   // «Год (план)»), а не буквой. Буква допустима только в адресе ячейки.
-  // Классы, перечисленные поимённо ниже: у них свой цвет, свой порядок и своя
-  // карточка базы знаний. Остальные сработавшие классы добираются из данных.
-  const NAMED_SPOT_SIGNALS = new Set([
-    'overdue', 'economyConflict', 'highEconomy', 'earlyClosure', 'factWithoutDate',
-    'dateWithoutFact', 'planYearMissing', 'factExceedsPlan', 'factDateBeforePlan',
-  ]);
-
+  // Поимённый перечень классов — NAMED_SPOT_SIGNALS на уровне модуля (там же
+  // закон списка и перепись вычеркнутых ключей).
   const spots = [
     { signal: 'overdue', search: 'просрочк', metricKey: 'signal_overdue', color: 'red' },
     { signal: 'economyConflict', search: 'флаг эконом', metricKey: 'signal_economy_conflict', color: 'rose' },
     { signal: 'highEconomy', search: 'высокая экономия', metricKey: 'signal_high_economy', color: 'orange' },
-    // Карточки четырёх сигналов ниже METRIC_KB пока не знает — их база
+    // Карточки сигналов ниже METRIC_KB пока не знает — их база
     // знаний живёт объектами в kb-additions.ts рядом со страницей (п.91:
     // у каждой метрики карточка; гейт вольёт записи в METRIC_KB одним
     // проходом). Тексты согласованы с канонами интервью 14.08.2026:
-    // «факт без даты» — стадия «Закупка, проводимая в течение года» (п.71),
     // «без года плана» — класс «не обеспечено финансированием» (п.23).
     {
       signal: 'earlyClosure',
@@ -1296,12 +1375,12 @@ function BlindSpotsWidget({
       color: 'amber',
       kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_early_closure),
     },
-    {
-      signal: 'factWithoutDate',
-      search: 'факт без даты',
-      color: 'purple',
-      kbFallback: kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_fact_without_date),
-    },
+    // Пятно «факт без даты» (factWithoutDate) УБРАНО из поимённых 29.08.2026
+    // (канон §18 пп.1–2 спеки pulse-feedback-2): замечание по классу вычеркнуто
+    // решением владельца п.137(1) — «закупка в течение года — ТОЛЬКО СТАДИЯ»,
+    // счётчик из замечаний был вечным нулём, и пятно лгало из «Молчат N
+    // проверок». Стадия показывается ниже плитками не по замечаниям, а счётом
+    // строк состояния — полоса стадии под сеткой (yearlongStageLine).
     {
       signal: 'dateWithoutFact',
       search: 'факт дата без сумм',
@@ -1396,7 +1475,7 @@ function BlindSpotsWidget({
         <div className="flex items-center gap-2">
           <KBTooltip
             whatIs="Сигналы — отклонения в данных закупок, которые находит автоматическая проверка: просрочки, спорные флаги экономии, расхождения плана и факта. За каждым сигналом стоит своё правило из реестра проверок продукта."
-            thresholdsFull={'🔴 просрочки и конфликт флага экономии — критические\n🟡 факт без даты и раннее закрытие — предупреждения\n🟢 ноль сигналов — данные чистые'}
+            thresholdsFull={'🔴 просрочки и конфликт флага экономии — критические\n🟡 раннее закрытие и дата заключения без сумм — предупреждения\n🟢 ноль сигналов — данные чистые'}
             example="9 просрочек, 3 конфликта флага экономии, 1 строка с фактом выше плана"
             actions="Щелчок по карточке открывает страницу «Контроль» с отбором строк по этому сигналу."
           >
@@ -1487,6 +1566,32 @@ function BlindSpotsWidget({
           );
         })}
       </div>
+
+      {/* Полоса стадии «в течение года» (канон §18 п.1): не плитка дефекта,
+          а честная строка состояния — счёт строк из данных, подпись «стадия,
+          не дефект» и дверь на вкладку-дом. Среди плиток замечаний ей не
+          место: замечание по классу не рождается решением владельца п.137(1),
+          и плитка с нулём из замечаний была бы обманом. */}
+      {stage && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-purple-500/15 bg-purple-500/8 px-3 py-2">
+          <KBTooltip {...kbCardProps(DASHBOARD_REPORT_KB_ADDITIONS.signal_fact_without_date)}>
+            <p className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+              <span className="font-semibold text-purple-600 dark:text-purple-400">Стадия, не дефект.</span>{' '}
+              {stage.text}
+            </p>
+          </KBTooltip>
+          {stage.hasRows && (
+            <button
+              type="button"
+              onClick={onOpenYearlong}
+              className="shrink-0 text-[11px] font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 underline underline-offset-2 decoration-purple-400/40 hover:decoration-purple-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 rounded"
+              title="Открыть вкладку «В течение года» — дом стадии со всеми строками и видами"
+            >
+              Открыть «В течение года»
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Молчащие классы — строкой, а не дырами в ряду. Молчание тоже факт:
           читатель должен знать, что проверка работала и ничего не нашла. */}
