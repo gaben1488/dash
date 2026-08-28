@@ -11,6 +11,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import {
+  countStoredComments,
   listStoredComments,
   refreshCommentsForBooks,
 } from '../services/drive-comments.js';
@@ -25,7 +26,11 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
     const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 1000);
     const comments = listStoredComments(query.book || undefined, limit);
     return {
-      total: comments.length,
+      // «Всего» считает база по фильтру, а не длина ограниченной выборки:
+      // при limit=50 из двухсот осевших total обязан отвечать 200. Сколько
+      // строк реально отдано в этом ответе — отдельное поле shown.
+      total: countStoredComments(query.book || undefined),
+      shown: comments.length,
       book: query.book || null,
       comments,
     };

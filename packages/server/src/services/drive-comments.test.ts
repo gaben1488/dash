@@ -102,6 +102,50 @@ describe('чтение комментариев одной книги', () => {
     expect(r.read).toBe(false);
     expect(r.skippedBecause).toContain('учётной записи');
   });
+
+  it('чтение состоялось, а база не далась — read:true с признаком persisted:false', async () => {
+    // Находка 29.08: запись в базу шла вне страховки, и отказ базы превращал
+    // состоявшееся чтение в исключение — итог выглядел «не читали». Теперь
+    // итог честный: прочитано, но не осело; следующая перечитка доложит.
+    const { db } = await import('../db/index.js');
+    const { sql } = await import('drizzle-orm');
+    const api = { list: vi.fn(async () => ({ items: [item()], nextPageToken: null })) };
+
+    // База «ломается» переименованием таблицы; индексы уезжают вместе с ней
+    // и возвращаются обратным переименованием — соседние стражи не страдают.
+    db.run(sql`ALTER TABLE drive_comments RENAME TO drive_comments_сломана`);
+    try {
+      const r = await comments.refreshBookComments('УО', 'файл-уо', api);
+      expect(r.read).toBe(true);
+      expect(r.persisted).toBe(false);
+      expect(r.total).toBe(1);
+    } finally {
+      db.run(sql`ALTER TABLE drive_comments_сломана RENAME TO drive_comments`);
+    }
+
+    // Здоровая база — persisted:true, запись оседает.
+    const ok = await comments.refreshBookComments('УО', 'файл-уо', api);
+    expect(ok.persisted).toBe(true);
+    expect(comments.listStoredComments('УО')).toHaveLength(1);
+  });
+});
+
+describe('счёт осевших комментариев', () => {
+  it('total считает база по фильтру, а не длина ограниченной выборки', async () => {
+    const api = {
+      list: vi.fn(async () => ({
+        items: [item({ id: 'к1' }), item({ id: 'к2' }), item({ id: 'к3' })],
+        nextPageToken: null,
+      })),
+    };
+    await comments.refreshBookComments('УО', 'файл-уо', api);
+
+    // Выборка ограничена одной строкой — счёт всё равно отвечает «три».
+    expect(comments.listStoredComments('УО', 1)).toHaveLength(1);
+    expect(comments.countStoredComments('УО')).toBe(3);
+    expect(comments.countStoredComments()).toBe(3);
+    expect(comments.countStoredComments('УЭР')).toBe(0);
+  });
 });
 
 describe('обход нескольких книг', () => {
@@ -136,5 +180,78 @@ describe('расписание ночного обхода', () => {
 
     // Днём обход не идёт.
     expect(comments.sweepDueNow(new Date('2026-08-29T00:00:00.000Z'), 12, null).due).toBe(false);
+  });
+
+  it('старт в самом окне обхода запускает его сразу, а не через час', async () => {
+    // Находка 29.08: первый тик setInterval — через час после старта. Сервер,
+    // поднятый в 03:10, дождался бы тика в 04:10 — окно 03:00–04:00 молча
+    // пропущено, обход отложен на сутки. Теперь проверка идёт и при старте.
+    const { config } = await import('../config.js');
+    const off = config.weeklySnapshot.utcOffsetHours;
+    const utcHourAt3 = ((3 - off) % 24 + 24) % 24;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(Date.UTC(2026, 7, 28, utcHourAt3, 30)));
+      const sweep = vi.fn(async () => []);
+      const log = { info: () => {}, warn: () => {} };
+
+      const stop = comments.startNightlyCommentsSweep(log, sweep);
+      expect(sweep).toHaveBeenCalledTimes(1);
+
+      // Тик через час — уже 04:30, и день пройден: второго обхода нет.
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      expect(sweep).toHaveBeenCalledTimes(1);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('старт вне окна не запускает обход немедленно', async () => {
+    const { config } = await import('../config.js');
+    const off = config.weeklySnapshot.utcOffsetHours;
+    const utcHourAtNoon = ((12 - off) % 24 + 24) % 24;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(Date.UTC(2026, 7, 28, utcHourAtNoon, 30)));
+      const sweep = vi.fn(async () => []);
+      const stop = comments.startNightlyCommentsSweep({ info: () => {}, warn: () => {} }, sweep);
+      expect(sweep).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ночной обход вычищает выполненные записи очереди вебхука старше срока хранения', async () => {
+    // Единственное регулярное место уборки очереди — ночь (webhook-queue.ts,
+    // pruneProcessedNotifications): без неё done-записи росли бы вечно.
+    const queue = await import('./webhook-queue.js');
+    queue.resetWebhookQueue();
+    const id = queue.enqueueNotification({
+      book: 'УО',
+      fileId: 'файл-уо',
+      messageNumber: 1,
+      channelId: 'канал',
+      resourceState: 'update',
+    });
+    expect(id).not.toBeNull();
+    // Выполнена давным-давно — старше срока хранения.
+    queue.markProcessed([id as number], new Date('2026-08-01T00:00:00.000Z'));
+    expect(queue.queueStats().processed).toBe(1);
+
+    const { config } = await import('../config.js');
+    const off = config.weeklySnapshot.utcOffsetHours;
+    const utcHourAt3 = ((3 - off) % 24 + 24) % 24;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(Date.UTC(2026, 7, 28, utcHourAt3, 30)));
+      const stop = comments.startNightlyCommentsSweep({ info: () => {}, warn: () => {} }, vi.fn(async () => []));
+      expect(queue.queueStats().processed).toBe(0);
+      stop();
+    } finally {
+      vi.useRealTimers();
+      queue.resetWebhookQueue();
+    }
   });
 });

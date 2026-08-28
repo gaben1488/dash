@@ -135,6 +135,26 @@ describe('схема базы на пустом месте', () => {
     expect(detail).not.toContain('SCAN snapshots');
   });
 
+  it('честный пропуск журнала не пишется дважды — уникальный индекс приводит NULL к пустой строке', () => {
+    // Без уникального индекса ON CONFLICT DO NOTHING в noteHonestGap не
+    // срабатывал бы никогда и дубли пропусков росли бы молча; а без ifnull
+    // два NULL для SQLite не равны — пропуск без отметки плодился бы вечно.
+    const db = freshDatabase('journal-gaps');
+    expect(existingIndexes(db).has('idx_journal_gaps_unique')).toBe(true);
+
+    const insert = db.prepare(
+      'INSERT INTO journal_gaps (book, file_modified_time, noted_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+    );
+    insert.run('УО', '2026-08-29T01:00:00.000Z', '2026-08-29T02:00:00.000Z');
+    insert.run('УО', '2026-08-29T01:00:00.000Z', '2026-08-29T03:00:00.000Z'); // дубль
+    insert.run('УО', null, '2026-08-29T02:00:00.000Z');
+    insert.run('УО', null, '2026-08-29T03:00:00.000Z'); // дубль без отметки — тоже дубль
+
+    const n = (db.prepare('SELECT COUNT(*) AS n FROM journal_gaps').get() as { n: number }).n;
+    db.close();
+    expect(n).toBe(2);
+  });
+
   it('повторное применение схемы ничего не ломает', () => {
     // Команда выполняется на каждом запуске сервера, а не один раз при установке.
     const db = freshDatabase('idempotent');

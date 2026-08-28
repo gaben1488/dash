@@ -23,10 +23,11 @@
  * удалён», без домысливания содержания.
  */
 import { google } from 'googleapis';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { watchedBooks } from './webhook-channel.js';
+import { pruneProcessedNotifications } from './webhook-queue.js';
 
 /** Комментарий, как его отдаёт перечень Диска (нужные нам поля). */
 export interface DriveCommentItem {
@@ -101,6 +102,12 @@ export interface BookCommentsResult {
   read: boolean;
   /** Почему не читали, если не читали. */
   skippedBecause?: string;
+  /**
+   * Осело ли прочитанное в базе. Чтение состоялось, а запись не далась —
+   * это read:true и persisted:false, а не ложный полный успех: следующая
+   * перечитка (ночной обход, повтор) доложит недоехавшее.
+   */
+  persisted: boolean;
   total: number;
   open: number;
   resolvedCount: number;
@@ -128,6 +135,7 @@ export async function refreshBookComments(
       book,
       read: false,
       skippedBecause: 'нет служебной учётной записи — спросить Диск не у кого',
+      persisted: false,
       total: 0,
       open: 0,
       resolvedCount: 0,
@@ -144,6 +152,10 @@ export async function refreshBookComments(
   } while (pageToken);
 
   const recordedAt = now.toISOString();
+  // Запись в базу — под собственной страховкой: отказ базы не отменяет того,
+  // что чтение СОСТОЯЛОСЬ. Итог тогда честный — read:true, persisted:false, —
+  // а не исключение, из-за которого чтение выглядело бы не случившимся.
+  let persistFailed = 0;
   for (const item of items) {
     if (!item.id) continue;
     const values = {
@@ -160,10 +172,14 @@ export async function refreshBookComments(
       replies: item.replies,
       recordedAt,
     };
-    db.insert(schema.driveComments)
-      .values(values)
-      .onConflictDoUpdate({ target: schema.driveComments.id, set: values })
-      .run();
+    try {
+      db.insert(schema.driveComments)
+        .values(values)
+        .onConflictDoUpdate({ target: schema.driveComments.id, set: values })
+        .run();
+    } catch {
+      persistFailed += 1;
+    }
   }
 
   const deletedCount = items.filter((i) => i.deleted).length;
@@ -171,6 +187,7 @@ export async function refreshBookComments(
   return {
     book,
     read: true,
+    persisted: persistFailed === 0,
     total: items.length,
     open: items.length - resolvedCount - deletedCount,
     resolvedCount,
@@ -204,6 +221,7 @@ export async function refreshCommentsForBooks(
           book,
           read: false,
           skippedBecause: (err as Error).message,
+          persisted: false,
           total: 0,
           open: 0,
           resolvedCount: 0,
@@ -271,6 +289,21 @@ export function listStoredComments(book?: string, limit = 200): StoredComment[] 
   }
 }
 
+/**
+ * Сколько всего комментариев осело в базе по фильтру. Отдельный счёт базой,
+ * а не длина ограниченной выборки: при limit=50 из двухсот строк «всего»
+ * обязано отвечать «двести», иначе экран врёт о полноте.
+ */
+export function countStoredComments(book?: string): number {
+  try {
+    const query = db.select({ n: sql<number>`count(*)` }).from(schema.driveComments);
+    const rows = book ? query.where(eq(schema.driveComments.book, book)).all() : query.all();
+    return rows[0]?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Только для стражей: вычистить осевшие комментарии. */
 export function resetStoredComments(): void {
   try {
@@ -314,19 +347,35 @@ export function sweepDueNow(
  * Включить ночной полный обход: раз в час проверяется «а не три ли часа ночи
  * по продуктовому поясу», обход идёт один раз в сутки. Днём книги, о которых
  * говорил вебхук, уже перечитаны адресно; ночной обход добирает молчавшие.
+ *
+ * Проверка идёт и СРАЗУ при включении, а не только через час: первый тик
+ * setInterval наступает через SWEEP_TICK_MS, и сервер, поднятый в 03:10,
+ * дождался бы первого тика в 04:10 — окно 03:00–04:00 было бы молча
+ * пропущено, а обход отложен на сутки.
+ *
+ * `sweep` подменяется только стражами — по умолчанию это полный обход
+ * комментариев и чистка выполненных записей очереди вебхука старше срока
+ * хранения (webhook-queue.ts): ночь — единственное регулярное место уборки.
  */
-export function startNightlyCommentsSweep(log: CommentsLog): () => void {
+export function startNightlyCommentsSweep(
+  log: CommentsLog,
+  sweep: (log: CommentsLog) => Promise<unknown> = (l) => refreshCommentsForBooks('all', l),
+): () => void {
   if (sweepTimer) return stopNightlyCommentsSweep;
-  sweepTimer = setInterval(() => {
+  const tick = (): void => {
     const check = sweepDueNow(new Date(), config.weeklySnapshot.utcOffsetHours, lastSweepDay);
     if (!check.due) return;
     lastSweepDay = check.day;
-    void refreshCommentsForBooks('all', log).catch((err: unknown) => {
+    const pruned = pruneProcessedNotifications();
+    if (pruned > 0) log.info(`Очередь вебхука: вычищено выполненных записей старше срока — ${pruned}`);
+    void sweep(log).catch((err: unknown) => {
       log.warn(`Ночной обход комментариев не удался: ${(err as Error).message}`);
     });
-  }, SWEEP_TICK_MS);
+  };
+  sweepTimer = setInterval(tick, SWEEP_TICK_MS);
   sweepTimer.unref?.();
   log.info(`Ночной обход комментариев включён: ${NIGHT_SWEEP_HOUR}:00 по продуктовому поясу`);
+  tick(); // старт в самом окне обхода не имеет права его пропустить
   return stopNightlyCommentsSweep;
 }
 

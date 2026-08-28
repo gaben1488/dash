@@ -101,3 +101,4 @@ deploy/.last-known-good
 packages/server/harness-*.mjs
 packages/server/build-*.mjs
 packages/server/repair-basis.mjs
+scripts/out-zarya/

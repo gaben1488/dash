@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * Снимки данных (snapshots)
@@ -245,14 +246,25 @@ export const bookWatermarks = sqliteTable('book_watermarks', {
  * запись «изменение было, содержание не установлено». Пропуск фиксируется как
  * пропуск, а не замалчивается.
  */
-export const journalGaps = sqliteTable('journal_gaps', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  book: text('book').notNull(),
-  /** Отметка времени файла, из-за которой признан пропуск (ISO или null). */
-  fileModifiedTime: text('file_modified_time'),
-  /** Когда пропуск замечен (ISO). */
-  notedAt: text('noted_at').notNull(),
-});
+export const journalGaps = sqliteTable(
+  'journal_gaps',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    book: text('book').notNull(),
+    /** Отметка времени файла, из-за которой признан пропуск (ISO или null). */
+    fileModifiedTime: text('file_modified_time'),
+    /** Когда пропуск замечен (ISO). */
+    notedAt: text('noted_at').notNull(),
+  },
+  (t) => [
+    // Один и тот же пропуск (книга + отметка файла) не пишется дважды — без
+    // уникального индекса onConflictDoNothing в noteHonestGap не срабатывал бы
+    // никогда и дубли росли бы молча. NULL-отметка приводится к '' — иначе для
+    // SQLite два NULL не равны и пропуск без отметки плодился бы бесконечно.
+    // Модель обязана совпадать с ddl.ts (idx_journal_gaps_unique).
+    uniqueIndex('idx_journal_gaps_unique').on(t.book, sql`ifnull(${t.fileModifiedTime}, '')`),
+  ],
+);
 
 /**
  * Комментарии-облачка книг (решение §17.2 и разбор

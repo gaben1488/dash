@@ -173,6 +173,42 @@ describe('очередь уведомлений — сквозная дорог�
     expect(queue.pendingNotifications()).toHaveLength(0);
   });
 
+  it('в очереди книга Б, цикл читал только книгу А — запись Б осталась невыполненной', async () => {
+    // КРАСНОЕ 29.08: раньше цикл забирал ВСЕ невыполненные записи и судил их
+    // своим исходом, даже когда их книгу не читал: «в упавших не значится» —
+    // и запись УКСиМП закрывалась чтением одной УО. Теперь судьбу записи
+    // решает только цикл, чей план покрывает её цель.
+    vi.useFakeTimers();
+    // Запись книги УКСиМП лежит в очереди (осталась от прежней жизни — своих
+    // таймеров у неё нет).
+    queue.enqueueNotification({
+      book: 'УКСиМП',
+      fileId: 'file-uksimp',
+      messageNumber: 8,
+      channelId: 'канал-старый',
+      resourceState: 'update',
+    });
+
+    // Приходит уведомление о книге УО — цикл читает только её.
+    await post(notification());
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(refreshAllSources).toHaveBeenCalledTimes(1);
+    const call = refreshAllSources.mock.calls[0] as unknown[];
+    expect((call[2] as { books?: string[] }).books).toEqual(['УО']);
+
+    // Запись УКСиМП жива, счёт попыток нетронут: цикл её не читал.
+    const pending = queue.pendingNotifications();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ book: 'УКСиМП', attempts: 0 });
+
+    // Повтор (60 с) строит цель из самой записи, склейка (15 с) читает УКСиМП —
+    // и только это чтение её закрывает.
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000);
+    expect(refreshAllSources).toHaveBeenCalledTimes(2);
+    expect(queue.pendingNotifications()).toHaveLength(0);
+  });
+
   it('недочитанное прежней жизнью процесса поднимается при старте', async () => {
     vi.useFakeTimers();
     // Запись «из прошлой жизни»: в очереди есть, таймеров нет.

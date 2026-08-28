@@ -59,13 +59,14 @@ vi.mock('googleapis', () => ({
 // проверяет собственный страж (services/webhook-queue.test.ts) и сквозной
 // (routes/webhook-queue-flow.test.ts), а этот файл отвечает за сам приём.
 const enqueueNotification = vi.fn(() => 1);
-const settleAfterRefresh = vi.fn(() => ({ done: [], kept: [] }));
+const settleAfterRefresh = vi.fn(() => ({ done: [], kept: [], skipped: [] }));
 const settleMonitoring = vi.fn(() => ({ done: [], kept: [] }));
 vi.mock('../services/webhook-queue.js', () => ({
+  cycleCoversFile: vi.fn(() => true),
   enqueueNotification: (...a: unknown[]) => enqueueNotification(...(a as [])),
   noteAttemptFailed: vi.fn(),
   pendingNotifications: vi.fn(() => []),
-  queueStats: vi.fn(() => ({ pending: 0, processed: 0, oldestPendingAt: null, failedAttempts: 0 })),
+  queueStats: vi.fn(() => ({ unavailable: false, pending: 0, processed: 0, oldestPendingAt: null, failedAttempts: 0 })),
   settleAfterRefresh: (...a: unknown[]) => settleAfterRefresh(...(a as [])),
   settleMonitoring: (...a: unknown[]) => settleMonitoring(...(a as [])),
 }));

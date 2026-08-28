@@ -17,7 +17,7 @@
  * ловит свой отказ: очередь — страховка полноты, а не условие приёма
  * уведомления. Отказ очереди не имеет права стоить ответа Google.
  */
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { planForFile } from './refresh-targets.js';
 
@@ -109,25 +109,58 @@ export interface RefreshOutcomeView {
 }
 
 /**
+ * Что именно читал ЭТОТ цикл — перечень его целей. Форма повторяет RefreshPlan,
+ * но очередь берёт только нужное решению: какие книги были в плане, читался ли
+ * лист СВОД, шла ли полная перечитка.
+ */
+export interface CycleTargetsView {
+  full: boolean;
+  books: readonly string[];
+  svod: boolean;
+}
+
+/**
+ * Покрывает ли план цикла цель записи. Исход цикла, который книгу записи не
+ * читал, не имеет права её судить: «в упавших не значится» — потому что цикл
+ * о ней вовсе не знал, а не потому что чтение состоялось.
+ */
+export function cycleCoversFile(fileId: string | null, cycle: CycleTargetsView): boolean {
+  if (cycle.full) return true;
+  const plan = planForFile(fileId);
+  if (plan.full) return false; // неопознанный файл требует полной перечитки
+  if (plan.books.length > 0) return plan.books.every((b) => cycle.books.includes(b));
+  if (plan.svod) return cycle.svod;
+  return true; // цели нет — читать нечего
+}
+
+/**
  * Судьба записей после цикла чтения источников.
  *
- * Запись выполнена, когда её цель прочитана: книга ГРБС — не в списке упавших;
- * лист СВОД — прочитан; неопознанный файл (полная перечитка) — ни одна книга
- * не упала и лист СВОД жив. Записи книги мониторинга этим циклом НЕ решаются —
- * её читает отдельный путь (settleMonitoring). Невыполненные получают счёт
- * попытки и остаются ждать повтора.
+ * Судятся ТОЛЬКО записи, чью цель покрывал план ЭТОГО цикла: запись книги,
+ * которую цикл не читал, остаётся невыполненной с нетронутым счётом попыток —
+ * её дочитает свой цикл или повтор. Из покрытых запись выполнена, когда цель
+ * прочитана: книга ГРБС — не в списке упавших; лист СВОД — прочитан;
+ * неопознанный файл (полная перечитка) — ни одна книга не упала и лист СВОД
+ * жив. Записи книги мониторинга этим циклом НЕ решаются — её читает отдельный
+ * путь (settleMonitoring). Невыполненные получают счёт попытки и ждут повтора.
  */
 export function settleAfterRefresh(
   entries: readonly QueueEntry[],
   outcome: RefreshOutcomeView,
+  cycle: CycleTargetsView,
   now: Date = new Date(),
-): { done: number[]; kept: number[] } {
+): { done: number[]; kept: number[]; skipped: number[] } {
   const done: number[] = [];
   const kept: number[] = [];
+  const skipped: number[] = [];
   const failed = new Set(outcome.failed);
   for (const entry of entries) {
     const plan = planForFile(entry.fileId);
     if (!plan.full && plan.monitoring) continue; // чужой путь — книга мониторинга
+    if (!cycleCoversFile(entry.fileId, cycle)) {
+      skipped.push(entry.id); // цикл эту цель не читал — судить нечем
+      continue;
+    }
     let ok: boolean;
     if (plan.full) ok = failed.size === 0 && outcome.svodOk;
     else if (plan.books.length > 0) ok = plan.books.every((b) => !failed.has(b));
@@ -137,7 +170,7 @@ export function settleAfterRefresh(
   }
   markProcessed(done, now);
   noteAttemptFailed(kept, `цикл чтения не покрыл цель: не прочитано ${[...failed].join(', ') || 'лист СВОД'}`);
-  return { done, kept };
+  return { done, kept, skipped };
 }
 
 /** Судьба записей книги мониторинга после её собственной перечитки. */
@@ -183,6 +216,8 @@ export function noteAttemptFailed(ids: readonly number[], error: string): void {
 
 /** Снимок очереди для маршрута состояния — счётчики, без идентификаторов файлов. */
 export interface QueueStats {
+  /** База не далась — счётчики ниже ничего не значат, а не «нулевые». */
+  unavailable: boolean;
   pending: number;
   processed: number;
   /** Момент самой старой невыполненной записи; null — очередь чиста. */
@@ -202,19 +237,50 @@ export function queueStats(): QueueStats {
       .where(eq(schema.webhookQueue.state, 'pending'))
       .orderBy(asc(schema.webhookQueue.id))
       .all();
+    // Выполненных записей за месяцы копится много — их СЧИТАЕТ база, а не
+    // выборка всех строк в память ради .length.
     const processed = db
-      .select({ id: schema.webhookQueue.id })
+      .select({ n: sql<number>`count(*)` })
       .from(schema.webhookQueue)
       .where(eq(schema.webhookQueue.state, 'done'))
-      .all().length;
+      .all()[0]?.n ?? 0;
     return {
+      unavailable: false,
       pending: pending.length,
       processed,
       oldestPendingAt: pending[0]?.receivedAt ?? null,
       failedAttempts: pending.reduce((sum, p) => sum + p.attempts, 0),
     };
   } catch {
-    return { pending: 0, processed: 0, oldestPendingAt: null, failedAttempts: 0 };
+    // Недоступная база — не «пустая очередь»: нули были бы ложью о здоровье.
+    return { unavailable: true, pending: 0, processed: 0, oldestPendingAt: null, failedAttempts: 0 };
+  }
+}
+
+/** Сколько дней выполненные записи хранятся для диагностики, прежде чем уйти. */
+export const DONE_RETENTION_DAYS = 14;
+
+/**
+ * Чистка выполненных записей старше срока хранения. Невыполненные не трогаются
+ * никогда — их судьба решается только чтением. Вызывается ночным обходом
+ * (drive-comments.ts): очередь без чистки росла бы на каждой правке вечно.
+ */
+export function pruneProcessedNotifications(now: Date = new Date()): number {
+  try {
+    const cutoff = new Date(now.getTime() - DONE_RETENTION_DAYS * 86_400_000).toISOString();
+    const result = db
+      .delete(schema.webhookQueue)
+      .where(
+        and(
+          eq(schema.webhookQueue.state, 'done'),
+          isNotNull(schema.webhookQueue.doneAt),
+          lt(schema.webhookQueue.doneAt, cutoff),
+        ),
+      )
+      .run();
+    return result.changes;
+  } catch {
+    return 0; // базы нет — чистить нечего
   }
 }
 

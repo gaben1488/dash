@@ -48,6 +48,7 @@ import {
   type RefreshPlan,
 } from '../services/refresh-targets.js';
 import {
+  cycleCoversFile,
   enqueueNotification,
   noteAttemptFailed,
   pendingNotifications,
@@ -248,9 +249,11 @@ function scheduleRefresh(log: RouteLog): void {
         .then((r) => {
           noteRefreshRun(r.failed.length === 0);
           // Судьба записей очереди: чья цель прочитана — выполнены, чья
-          // упала — остаются и повторяются (проект службы §2.3).
-          const settled = settleAfterRefresh(claimed, { failed: r.failed, svodOk: r.svodOk });
-          if (settled.kept.length > 0) scheduleQueueRetry(log);
+          // упала — остаются и повторяются (проект службы §2.3). Судит только
+          // план ЭТОГО цикла: запись книги, которую цикл не читал, исходом
+          // цикла не решается — остаётся ждать своего чтения.
+          const settled = settleAfterRefresh(claimed, { failed: r.failed, svodOk: r.svodOk }, plan);
+          if (settled.kept.length > 0 || settled.skipped.length > 0) scheduleQueueRetry(log);
           // Комментарии-облачка задетых книг — вместе с перечиткой (§17.2).
           refreshCommentsForPlan(plan, log);
           const moved = [...r.changedBooks, ...(r.svodChanged ? ['лист СВОД'] : [])];
@@ -263,13 +266,15 @@ function scheduleRefresh(log: RouteLog): void {
         })
         .catch((err: unknown) => {
           noteRefreshRun(false);
-          // Цикл упал целиком — все взятые записи (кроме мониторинговых, у
-          // них свой путь) остаются в очереди со счётом попытки.
+          // Цикл упал целиком — счёт попытки идёт только записям, чью цель
+          // этот цикл ЧИТАЛ (кроме мониторинговых, у них свой путь): запись
+          // книги вне плана цикла его падением не наказывается.
           noteAttemptFailed(
             claimed
               .filter((e) => {
                 const p = planForFile(e.fileId);
-                return p.full || !p.monitoring;
+                if (!p.full && p.monitoring) return false;
+                return cycleCoversFile(e.fileId, plan);
               })
               .map((e) => e.id),
             (err as Error).message,
@@ -387,6 +392,25 @@ export function webhookRoutes(app: FastifyInstance): void {
     const book = bookByFileId(notification.fileId) ?? 'книга вне списка наблюдения';
     const log: RouteLog = { info: (m) => request.log.info(m), warn: (m) => request.log.warn(m) };
 
+    // Легла ли запись этого сообщения в очередь. Исключение МЕЖДУ вкладом и
+    // концом учёта не имеет права класть второй экземпляр того же сообщения
+    // из catch — иначе одна правка читалась бы и считалась дважды.
+    let enqueued = false;
+    const enqueueOnce = (): void => {
+      if (enqueued) return;
+      enqueued = true;
+      // Очередь — до ответа Google: запись переживает падение процесса, и
+      // выполненной её пометит только состоявшееся чтение (проект §2.3).
+      // Отказ базы очередь ловит сама и отвечает null — уведомление всё
+      // равно принято, сетью безопасности остаётся опрос по расписанию.
+      enqueueNotification({
+        book,
+        fileId: notification.fileId,
+        messageNumber: notification.messageNumber,
+        channelId: notification.channelId,
+        resourceState: notification.resourceState,
+      });
+    };
     try {
       const decision = noteNotification(notification, isRefreshArmed());
       // Цель копится и у схлопнувшегося уведомления: «схлопнуто» означает «не
@@ -394,17 +418,7 @@ export function webhookRoutes(app: FastifyInstance): void {
       // разницы не было — цикл всё равно читал всё.
       if (decision === 'refresh' || decision === 'coalesced') {
         noteTarget(notification.fileId);
-        // Очередь — до ответа Google: запись переживает падение процесса, и
-        // выполненной её пометит только состоявшееся чтение (проект §2.3).
-        // Отказ базы очередь ловит сама и отвечает null — уведомление всё
-        // равно принято, сетью безопасности остаётся опрос по расписанию.
-        enqueueNotification({
-          book,
-          fileId: notification.fileId,
-          messageNumber: notification.messageNumber,
-          channelId: notification.channelId,
-          resourceState: notification.resourceState,
-        });
+        enqueueOnce();
       }
       if (decision === 'refresh') scheduleRefresh(log);
       logNotification(request, notification, book, decision);
@@ -416,14 +430,9 @@ export function webhookRoutes(app: FastifyInstance): void {
       request.log.warn(`Вебхук: учёт уведомления не удался: ${(err as Error).message}`);
       // Собственный учёт сломался — цель уведомления доверия не заслуживает.
       // Читаем всё: пропустить правку хуже, чем прочитать лишнее. Запись в
-      // очередь — тоже, чтобы правка пережила и падение процесса.
-      enqueueNotification({
-        book,
-        fileId: notification.fileId,
-        messageNumber: notification.messageNumber,
-        channelId: notification.channelId,
-        resourceState: notification.resourceState,
-      });
+      // очередь — тоже, чтобы правка пережила падение процесса, но ОДНА:
+      // если она легла до исключения, второй экземпляр не кладётся.
+      enqueueOnce();
       pendingPlan = mergePlans([pendingPlan, planForFile(null)]);
       scheduleRefresh(log);
     }

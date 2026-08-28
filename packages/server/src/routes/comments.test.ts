@@ -39,9 +39,12 @@ const listStoredComments = vi.fn(() => [
   },
 ]);
 
+const countStoredComments = vi.fn(() => 200);
+
 vi.mock('../services/drive-comments.js', () => ({
   refreshCommentsForBooks: (...a: unknown[]) => refreshCommentsForBooks(...(a as [unknown])),
   listStoredComments: (...a: unknown[]) => listStoredComments(...(a as [])),
+  countStoredComments: (...a: unknown[]) => countStoredComments(...(a as [])),
 }));
 
 let app: FastifyInstance;
@@ -60,6 +63,7 @@ afterAll(async () => {
 afterEach(() => {
   refreshCommentsForBooks.mockClear();
   listStoredComments.mockClear();
+  countStoredComments.mockClear();
 });
 
 describe('POST /api/comments/refresh', () => {
@@ -99,7 +103,19 @@ describe('GET /api/comments', () => {
     expect(res.statusCode).toBe(200);
     expect(listStoredComments).toHaveBeenCalledWith('УО', 50);
     const body = res.json();
-    expect(body.total).toBe(1);
     expect(body.comments[0]).toMatchObject({ book: 'УО', quoted: 'ЭА', resolved: false });
+  });
+
+  it('total — счёт базы по фильтру, а не длина ограниченной выборки; отданное — shown', async () => {
+    // Находка 29.08: total равнялся длине среза (limit) — при двухстах осевших
+    // и limit=50 экран получал «всего 50». Теперь всего считает база, а
+    // сколько строк реально в ответе — отдельное поле shown.
+    const res = await app.inject({ method: 'GET', url: '/api/comments?book=УО&limit=50' });
+
+    expect(res.statusCode).toBe(200);
+    expect(countStoredComments).toHaveBeenCalledWith('УО');
+    const body = res.json();
+    expect(body.total).toBe(200);
+    expect(body.shown).toBe(1);
   });
 });
