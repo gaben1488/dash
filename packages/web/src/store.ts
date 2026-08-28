@@ -5,6 +5,7 @@ import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
 import { setOfficialProvenance } from './lib/provenance-registry';
 import { toCanonicalDeptId } from './lib/dept-key';
+import { productDayParts } from './lib/period-coverage';
 
 /** СВОД — 6 страниц + legacy aliases */
 export type Page =
@@ -48,6 +49,51 @@ export type StavkaMode = 'norm' | 'live';
 
 /** Норматив района, которым посчитаны формулы книг, % снижения. */
 export const STAVKA_NORM_PCT = 8;
+
+/**
+ * Зона действия ставки — честное слово в подсказках (разведка 29.08.2026:
+ * единственные числа клиента, зависящие от stavkaMode, — суммы ожидаемой
+ * экономии Отчёта; других зависимых чисел на вкладках нет). Переключатель при
+ * этом глобален намеренно (канон п.144: режим счёта, как тыс/млн) — но врать
+ * «действует везде» подсказка не смеет.
+ */
+export const STAVKA_SCOPE_NOTE =
+  'Сейчас от ставки зависят суммы ожидаемой экономии Отчёта; на остальных вкладках зависимых чисел пока нет.';
+
+/** Копейка в тысячах рублей — порог, ниже которого разница сумм не существует. */
+const KOPECK_TYS = 0.00001;
+
+/**
+ * Паспорт разницы двух ставок: обе суммы ожидаемой экономии от плана года и
+ * разница в рублях. ЕДИНСТВЕННЫЙ строитель этой фразы — им пользуются и
+ * подсказки барабана ставки (Header), и жетон «живой N %» в углу
+ * (SelectionTokens): два дома паспорта разошлись бы при первой правке.
+ *
+ * @param planTys план года в тысячах рублей (сумма планов восьми ГРБС)
+ * @param livePct живой коэффициент, % (null — замера нет)
+ * @param formatMoney форматирование сумм текущей единицей (store.formatMoney)
+ */
+export function buildStavkaSumsLine(
+  planTys: number,
+  livePct: number | null,
+  formatMoney: (value: number) => string,
+): string {
+  if (planTys <= 0) return 'План года ещё не загружен — суммы ожидаемой экономии появятся с данными.';
+  const normSum = planTys * (STAVKA_NORM_PCT / 100);
+  if (livePct === null) {
+    return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}; живого коэффициента нет.`;
+  }
+  const liveSum = planTys * (livePct / 100);
+  const diff = liveSum - normSum;
+  const pct = livePct.toFixed(2).replace('.', ',');
+  // |разница| меньше копейки — сумм две, а деньги одни: честнее сказать
+  // «совпадает», чем печатать «на 0 ₽ больше норматива».
+  const diffLine = Math.abs(diff) < KOPECK_TYS
+    ? 'совпадает с нормативом'
+    : `на ${formatMoney(Math.abs(diff))} ${diff >= 0 ? 'больше' : 'меньше'} норматива`;
+  return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу ${STAVKA_NORM_PCT} % — ${formatMoney(normSum)}, ` +
+    `по живой ставке ${pct} % — ${formatMoney(liveSum)}: ${diffLine}.`;
+}
 
 /**
  * Живой коэффициент снижения с клиентской стороны: снят с роута
@@ -104,6 +150,85 @@ export function hasExplicitPeriodFilter(
   return Object.values(monthsByYear).some((months) => months.size > 0);
 }
 
+/**
+ * Оси фильтров шапки. Дом — здесь, а не в Header.tsx: жетонам угла
+ * (SelectionTokens) нужна та же карта «страница → действующие оси», а импорт
+ * из Header дал бы кольцо (Header сам рендерит SelectionTokens).
+ */
+export type FilterGroup =
+  | 'period' | 'currency' | 'procurement' | 'activity'
+  | 'budget' | 'department' | 'subordinate' | 'search';
+
+/**
+ * Какие оси отбора ДЕЙСТВУЮТ на каждой вкладке. Это карта честности: ось,
+ * которой нет в списке, на вкладке не применяется — ни барабан шапки, ни
+ * жетон угла не смеют её обещать (канон п.134: невидимый или ложный отбор
+ * запрещён в обе стороны).
+ *
+ * Организации ('department'/'subordinate') вписаны по фактическим потребителям:
+ * useFilteredData (Пульс, Экономия, Конкуренция, Контроль, Аналитика) и
+ * страницы с собственным применением (Реестр и корзины, Отчёт, Свод, Журнал).
+ * Мониторинг применяет только управления (канон п.127: выбранный ГРБС сужает
+ * реестр процедур; подведы к книге мониторинга строково не сопоставимы) —
+ * поэтому 'department' есть, 'subordinate' нет. Дисциплина — тоже только
+ * управления (свой фильтр deptScope).
+ */
+export const PAGE_FILTERS: Record<string, FilterGroup[]> = {
+  dashboard:  ['period', 'currency', 'procurement', 'activity', 'budget', 'department', 'subordinate'],
+  report:     ['period', 'department', 'subordinate'],
+  svod:       ['currency', 'procurement', 'budget', 'department', 'subordinate'],
+  data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'department', 'subordinate', 'search'],
+  // Корзины Реестра (п.73в): та же страница построчных данных, фильтр класса
+  // зафиксирован. У «В течение года» способ всегда ЕП — кнопки КП/ЕП там
+  // дезориентировали бы (класс определяется способом, фильтр не работает).
+  unfunded:   ['period', 'currency', 'procurement', 'activity', 'budget', 'department', 'subordinate', 'search'],
+  yearlong:   ['period', 'currency', 'activity', 'budget', 'department', 'subordinate', 'search'],
+  // Мониторинг — другая книга (процедуры, деньги в рублях): период/способ/
+  // бюджет/поиск книг ГРБС к ней не применяются — показывать их значило бы
+  // обещать отбор, которого нет. Управления применяются (п.127, только ГРБС).
+  monitoring: ['department'],
+  economy:    ['period', 'currency', 'procurement', 'activity', 'budget', 'department', 'subordinate'],
+  // Конкуренция — сравнение ЕП против конкурентных встроено в сами блоки:
+  // фильтр способа закупки здесь дезориентировал бы (блоки его не применяют).
+  competition: ['period', 'currency', 'department', 'subordinate'],
+  // Дисциплина — список дел за весь год: барабан нужен ради выбора года,
+  // сужение до квартала/месяца страница честно оговаривает бейджем периода.
+  discipline: ['period', 'currency', 'department'],
+  analytics:  ['period', 'currency', 'procurement', 'activity', 'budget', 'department', 'subordinate'],
+  quality:    ['period', 'procurement', 'activity', 'department', 'subordinate'],
+  recon:      ['period', 'procurement', 'activity', 'department', 'subordinate'],
+  trust:      ['period', 'procurement', 'activity', 'department', 'subordinate'],
+  issues:     ['period', 'procurement', 'activity', 'department', 'subordinate', 'search'],
+  recs:       ['period', 'procurement', 'activity', 'department', 'subordinate'],
+  journal:    ['period', 'procurement', 'activity', 'department', 'subordinate'],
+  settings:   [],
+};
+
+/**
+ * Текущий понедельник по ПРОДУКТОВОМУ времени (календарь Камчатки, UTC+12):
+ * граница «эта неделя / срез» у продукта одна на всех зрителей, как и
+ * граница «наступил / не наступил» у месяцев (lib/period-coverage).
+ */
+export function getProductMonday(now: Date = new Date()): Date {
+  const t = productDayParts(now);
+  return getMondayOfWeek(new Date(t.y, t.m - 1, t.d));
+}
+
+/**
+ * Срез недели включён? ЕДИНСТВЕННЫЙ предикат для жетона угла и счётчика
+ * активных фильтров (страж схождения): в week-режиме неделя расчёта не равна
+ * текущей по продуктовому времени. В explicit-режиме барабан недель — чистая
+ * визуальная прокрутка (баг #13), срезом не считается.
+ */
+export function isWeekShifted(
+  periodMode: PeriodMode,
+  focusedWeekStart: Date,
+  now: Date = new Date(),
+): boolean {
+  return periodMode === 'week'
+    && focusedWeekStart.getTime() !== getProductMonday(now).getTime();
+}
+
 export interface ActiveFilterCountInput {
   yearChanged: boolean;
   moneyUnitChanged: boolean;
@@ -123,6 +248,14 @@ export interface ActiveFilterCountInput {
    * чтобы старые вызовы (и стражи) не переписывать: отсутствие = норматив.
    */
   stavkaChanged?: boolean;
+  /**
+   * Срез недели (isWeekShifted): в week-режиме выбрана не текущая неделя.
+   * Жетон угла этот срез показывает — счётчик обязан его видеть тем же
+   * предикатом, иначе кнопка «Сбросить» молчит про видимый отбор
+   * (обратное расхождение того же класса, что невидимый фильтр п.134).
+   * Поле необязательное по той же причине, что stavkaChanged.
+   */
+  weekShifted?: boolean;
 }
 
 export function getActiveFilterCount(input: ActiveFilterCountInput): number {
@@ -130,6 +263,7 @@ export function getActiveFilterCount(input: ActiveFilterCountInput): number {
     (input.yearChanged ? 1 : 0) +
     (input.moneyUnitChanged ? 1 : 0) +
     (input.stavkaChanged ? 1 : 0) +
+    (input.weekShifted ? 1 : 0) +
     (input.selectedMethods.size > 0 ? 1 : 0) +
     (input.selectedActivities.size > 0 ? 1 : 0) +
     (input.selectedBudgets.size > 0 ? 1 : 0) +
@@ -255,10 +389,23 @@ export interface AppState {
   /** Ставка снижения — режим счёта (см. StavkaMode): норматив 8 % или живой коэффициент. */
   stavkaMode: StavkaMode;
   setStavkaMode: (mode: StavkaMode) => void;
-  /** Живой коэффициент с роута мониторинга; null — ещё не получен. */
+  /** Живой коэффициент с роута мониторинга; null — не получен ИЛИ не существует (см. liveStavkaAbsent). */
   liveStavka: LiveStavka | null;
+  /**
+   * Отдельный исход замера: сервер ответил, и в книге мониторинга НЕТ
+   * состоявшихся торгов за скользящие двенадцать месяцев — живой коэффициент
+   * не существует. Это не «ещё не получен» (liveStavka === null при
+   * liveStavkaAbsent === false): отсутствие замера — знание, а не ожидание,
+   * и перезапрашивать его без события эфира не за чем.
+   */
+  liveStavkaAbsent: boolean;
   /** Ленивая загрузка живого коэффициента (один запрос, при ошибке — повтор при следующем вызове). */
   fetchLiveStavka: () => Promise<void>;
+  /**
+   * Замер устарел (событие monitoring-updated из эфира): сбросить оба исхода —
+   * следующий читатель (fetchLiveStavka) перезапросит книгу заново.
+   */
+  invalidateLiveStavka: () => void;
   /** Multi-select: выбранные способы закупки (empty = all) */
   selectedMethods: Set<string>;
   toggleMethod: (method: string) => void;
@@ -495,15 +642,23 @@ export const useStore = create<AppState>((set, get) => ({
   stavkaMode: 'norm' as StavkaMode,
   setStavkaMode: (stavkaMode) => set({ stavkaMode }),
   liveStavka: null,
+  liveStavkaAbsent: false,
   fetchLiveStavka: async () => {
-    // Один живой запрос на сессию: повтор — только после ошибки (замер не
-    // меняется чаще, чем книга мониторинга перечитывается сервером).
-    if (get().liveStavka !== null || liveStavkaInFlight) return;
+    // Один живой запрос на событие: повтор — после ошибки сети либо после
+    // invalidateLiveStavka (monitoring-updated). Полученный замер И знание
+    // «замера не существует» одинаково окончательны до следующего события —
+    // долбить сервер, чтобы услышать то же самое, не за чем.
+    if (get().liveStavka !== null || get().liveStavkaAbsent || liveStavkaInFlight) return;
     liveStavkaInFlight = true;
     try {
       const payload = await fetchMonitoringAnalytics();
       const r = payload.analytics.reduction;
-      if (r.portfolioPct === null) return; // состоявшихся торгов нет — замера нет
+      if (r.portfolioPct === null) {
+        // Состоявшихся торгов за 12 месяцев нет — живой коэффициент не
+        // существует. Это ответ, а не ожидание: фиксируем отдельным исходом.
+        set({ liveStavkaAbsent: true });
+        return;
+      }
       set({
         liveStavka: {
           pct: r.portfolioPct,
@@ -512,6 +667,7 @@ export const useStore = create<AppState>((set, get) => ({
           count: r.portfolio.count,
           readAt: payload.source.readAt || null,
         },
+        liveStavkaAbsent: false,
       });
     } catch {
       // Сервер не ответил — кнопка «живой» остаётся выключенной с честной
@@ -519,6 +675,12 @@ export const useStore = create<AppState>((set, get) => ({
     } finally {
       liveStavkaInFlight = false;
     }
+  },
+  invalidateLiveStavka: () => {
+    // Книга мониторинга перечитана и изменилась — прежний замер (или прежнее
+    // «замера нет») больше не факт. Сброс обоих исходов заставляет следующего
+    // читателя (эффект барабана ставки) перезапросить свежий коэффициент.
+    set({ liveStavka: null, liveStavkaAbsent: false });
   },
   // Multi-select filters (empty Set = identity = "Все")
   // When all options are selected individually → collapse to empty Set (= identity)
@@ -595,7 +757,10 @@ export const useStore = create<AppState>((set, get) => ({
     // Сброс должен быть мгновенным и окончательным: отложенный пересчёт,
     // поставленный последней набранной буквой, вернул бы поиск после сброса.
     cancelSearchDebounce();
-    const monday = getMondayOfWeek(new Date());
+    // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
     const currentYear = new Date().getFullYear();
     const defaultYear: YearFilter = AVAILABLE_YEARS.includes(currentYear)
       ? currentYear
@@ -741,19 +906,26 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } else {
       current.add(deptId);
+      // Отбор-пустышка: все 8 управлений без подведов и без deptOnly — то же
+      // множество строк, что «все». Как selectedMethods при обоих способах:
+      // полный явный выбор коллапсирует в пустое множество (identity), чтобы
+      // ни жетон, ни счётчик не обещали отбора, которого нет. Подвед или
+      // deptOnly ломают тождество — с ними коллапса нет.
+      if (
+        current.size >= ALL_DEPT_IDS.length
+        && get().selectedSubordinates.size === 0
+        && deptOnly.size === 0
+      ) {
+        current.clear();
+      }
     }
     set({ selectedDepartments: current, deptOnlyMode: deptOnly });
   },
   selectAllDepartments: () => {
-    const current = get().selectedDepartments;
-    if (current.size > 0) {
-      // Some selected → clear all (show all)
-      set({ selectedDepartments: new Set<string>(), selectedSubordinates: new Set<string>(), deptOnlyMode: new Set<string>() });
-    } else {
-      // None selected → select all explicitly
-      const allDepts = new Set<string>(ALL_DEPT_IDS);
-      set({ selectedDepartments: allDepts, deptOnlyMode: new Set<string>() });
-    }
+    // «Все» — возврат к identity целиком. Ветки «выбрать все 8 явно» больше
+    // нет: полный явный выбор — отбор-пустышка (см. toggleDepartment), то же
+    // множество строк, что пустой фильтр, но с ложным жетоном и счётом.
+    set({ selectedDepartments: new Set<string>(), selectedSubordinates: new Set<string>(), deptOnlyMode: new Set<string>() });
   },
   selectedSubordinates: new Set<string>(),
   toggleSubordinate: (sub) => {
@@ -800,7 +972,10 @@ export const useStore = create<AppState>((set, get) => ({
     // множеством, как в resetAllFilters, — запись месяцев текущей недели
     // ставила невидимый для чипов/URL фильтр месяца.
     if (next.size === 0) {
-      const monday = getMondayOfWeek(new Date());
+      // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
       // period тоже возвращается к году (п.134): осиротевший 'q2' без месяцев —
       // фильтр, которого не видит ни один чип (см. clearMonths ниже).
       set({ activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
@@ -814,7 +989,10 @@ export const useStore = create<AppState>((set, get) => ({
       ? omitYearSelection(get().monthsByYear, yr)
       : { ...get().monthsByYear };
     // Clearing months → back to week mode. Пустой Set, не месяцы недели (баг #5).
-    const monday = getMondayOfWeek(new Date());
+    // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
     set({
       activeMonths: new Set<number>(),
       monthsByYear: mby,
@@ -846,7 +1024,10 @@ export const useStore = create<AppState>((set, get) => ({
 
     // If all months cleared → back to week mode. Пустой Set, не месяцы недели (баг #5).
     if (activeForTarget.size === 0 && Object.keys(mby).length === 0) {
-      const monday = getMondayOfWeek(new Date());
+      // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
       set({ monthsByYear: mby, year: targetYear, activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: targetYear, activeMonths: new Set(activeForTarget), periodMode: 'explicit' as PeriodMode });
@@ -870,7 +1051,10 @@ export const useStore = create<AppState>((set, get) => ({
     const activeForYear = mby[yr] ?? new Set<number>();
     // If all months cleared → back to week mode. Пустой Set, не месяцы недели (баг #5).
     if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
-      const monday = getMondayOfWeek(new Date());
+      // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
       set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
@@ -889,7 +1073,10 @@ export const useStore = create<AppState>((set, get) => ({
     const activeForYear = mby[yr] ?? new Set<number>();
     // Пустой Set, не месяцы недели (баг #5).
     if (activeForYear.size === 0 && Object.keys(mby).length === 0) {
-      const monday = getMondayOfWeek(new Date());
+      // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
       set({ monthsByYear: mby, year: yr, activeMonths: new Set<number>(), period: 'year' as PeriodScope, periodMode: 'week' as PeriodMode, focusedWeekStart: monday });
     } else {
       set({ monthsByYear: mby, year: yr, activeMonths: new Set(activeForYear), periodMode: 'explicit' as PeriodMode });
@@ -900,7 +1087,10 @@ export const useStore = create<AppState>((set, get) => ({
     // Баг #5 (реестр охоты 08.08): «Сбросить период» ставил фильтр текущего
     // месяца (месяцы недели) и делал его невидимым для чипов/URL. Сброс — это
     // пустое множество, как в resetAllFilters: периметр возвращается к году.
-    const monday = getMondayOfWeek(new Date());
+    // Понедельник — по продуктовому времени (getProductMonday): предикат среза
+    // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
+    // сброшенное умолчание само считалось бы срезом у границы недель.
+    const monday = getProductMonday();
     set({
       monthsByYear: {},
       activeMonths: new Set<number>(),
@@ -910,8 +1100,9 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  // Week roller
-  focusedWeekStart: getMondayOfWeek(new Date()),
+  // Week roller. Умолчание — текущая неделя по ПРОДУКТОВОМУ времени
+  // (Камчатка): предикат среза isWeekShifted меряет тем же понедельником.
+  focusedWeekStart: getProductMonday(),
   shiftFocusedWeek: (delta) => {
     const current = get().focusedWeekStart;
     // Шаг — календарными сутками (setDate), не миллисекундами: DST-переход

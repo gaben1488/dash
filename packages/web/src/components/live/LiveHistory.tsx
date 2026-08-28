@@ -17,7 +17,12 @@
  * ЖУРНАЛ. Нажатие раскрывает панель журнала: правки «было → стало» с
  * зачёркиванием и автором — данные существующим приёмом GET /api/changes
  * (тот же, что кормит ленту правок Отчёта). Язык атрибутов — язык продукта
- * (humanAttribute из ChangesSection), не шапка оператора.
+ * (humanAttribute из ChangesSection), не шапка оператора. Журнал перечитывается
+ * ПРИ КАЖДОМ РАСКРЫТИИ (а не один раз на вкладку): вкладка живёт часами, эфир
+ * приносит новые правки, а журнал, прочитанный утром, показывал бы утро до
+ * перезагрузки страницы. Цена честная — запрос только по жесту читателя,
+ * свёрнутый угол сервер не дёргает; момент чтения назван подписью
+ * «журнал на чч:мм», чтобы возраст списка не приходилось угадывать.
  *
  * РАЗДЕЛЕНИЕ РОЛЕЙ. Нижняя полоса LiveUpdateBar эфир НЕ дублирует: с 21.08
  * она — только предупреждение о невозможной или сорвавшейся тихой подмене
@@ -67,26 +72,29 @@ export function LiveHistory() {
   const [open, setOpen] = useState(false);
   const [journal, setJournal] = useState<JournalRecord[] | null>(null);
   const [journalFailed, setJournalFailed] = useState(false);
-  const [journalAsked, setJournalAsked] = useState(false);
+  /** Момент последнего удачного чтения журнала (мс) — подпись «журнал на чч:мм». */
+  const [journalAt, setJournalAt] = useState<number | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const history = live.history ?? [];
 
-  // Журнал спрашивается ОДИН раз и только при раскрытии: свёрнутый угол
-  // кормит эфир, лишний запрос 37 тысяч записей на каждой странице — плата
-  // без пользы (образец — паспорт режима в ProvenanceHub).
+  // Журнал перечитывается при КАЖДОМ раскрытии (см. шапку файла): запрос
+  // идёт только по жесту читателя, свёрнутый угол сервер не дёргает.
+  // Прежний список на время чтения остаётся на экране — раскрытие не мигает
+  // «Читаем…» поверх уже известных правок.
   useEffect(() => {
-    if (!open || journalAsked) return;
-    setJournalAsked(true);
+    if (!open) return;
     let alive = true;
+    setJournalFailed(false);
     api.getChanges()
       .then((d) => {
         if (!alive) return;
         setJournal([...d.records].sort((a, b) => b.atMs - a.atMs).slice(0, JOURNAL_SHOWN));
+        setJournalAt(Date.now());
       })
       .catch(() => { if (alive) setJournalFailed(true); });
     return () => { alive = false; };
-  }, [open, journalAsked]);
+  }, [open]);
 
   // Закрытие по щелчку вне угла и по Escape — панель не должна залипать.
   useEffect(() => {
@@ -175,6 +183,11 @@ export function LiveHistory() {
             Что изменилось
             {journal !== null && (
               <span className="font-normal text-[var(--ink-faint)]"> · последние {journal.length}</span>
+            )}
+            {/* Возраст списка — словами: журнал перечитан при этом раскрытии,
+                и подпись называет момент чтения, а не оставляет его угадывать. */}
+            {journalAt !== null && (
+              <span className="font-normal text-[var(--ink-faint)]"> · журнал на {fmtHm(new Date(journalAt).toISOString())}</span>
             )}
           </div>
 

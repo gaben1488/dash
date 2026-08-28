@@ -6,11 +6,17 @@ import { parseSheetDate } from '@aemr/shared';
  * Слово владельца (проба линейки 22.08.2026): «недели, по которым есть данные
  * и нет данных, должны отличаться визуально. Так же периоды, месяцы и
  * кварталы». Видов ТРИ, и будущее — не пустота:
- *   - «есть данные» — по периоду есть хоть одна строка (обычный вид);
+ *   - «есть данные» — период наступил и по нему есть хоть одна строка;
  *   - «данных нет» — период прошёл или идёт, а строк нет (приглушение);
- *   - «ещё не наступило» — период в будущем и строк нет (свой вид).
- * Период в будущем СО строками (плановые даты) — это «есть данные»: план
- * на сентябрь — не пустота и не загадка, а обещание в книге.
+ *   - «ещё не наступило» — период в будущем (свой вид).
+ * БУДУЩЕЕ ПОБЕЖДАЕТ ДАННЫЕ (канон §12.3, дословно: «Это не „нет данных“,
+ * а „ещё не наступило“»): сентябрь-декабрь 2026 несут план (146/42/41/101
+ * строк), но пока не наступили — вид у них «ещё не наступило». Счёт плана
+ * при этом жив (monthCountOf и т.п.) — подпись будущего месяца вправе его
+ * показывать; побеждает только ВИД, не число.
+ *
+ * Границы «будущего» считаются по ПРОДУКТОВОМУ времени — календарю Камчатки
+ * (PRODUCT_UTC_OFFSET ниже), а не по часам зрителя.
  *
  * Дом чистый: сюда приходят уже загруженные строки (планDate/factDate из DTO
  * /api/rows), отсюда уходят счётчики по ключам периодов. Загрузку и кэш держит
@@ -33,14 +39,18 @@ export const EMPTY_COVERAGE: CoverageIndex = { weeks: {}, months: {}, years: {} 
 export const SCARCE_MAX = 3;
 
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})/;
-const RU_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
+// Хвост после года разрешён («31.12.2026 г.» — живой формат из книг),
+// но «31.12.20261» — не дата: за годом не может идти ещё цифра.
+const RU_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)/;
 
-interface DayParts { y: number; m: number; d: number }
+export interface DayParts { y: number; m: number; d: number }
 
 /**
  * Год-месяц-день значения даты. DTO отдаёт ISO «YYYY-MM-DD», но хелпер, как и
- * monthOfDateValue (lib/sheet-date.ts), понимает «дд.мм.гггг» и легаси-серийники
- * через канон parseSheetDate — чтобы чужой формат не выпадал из покрытия молча.
+ * monthOfDateValue (lib/sheet-date.ts), понимает «дд.мм.гггг» (в том числе
+ * с хвостом « г.»), а всё нераспознанное отдаёт канону parseSheetDate
+ * (@aemr/shared) — легаси-серийники и чужие формы не выпадают из покрытия
+ * молча (находка 28.08: «31.12.2026 г.» ронялась в null).
  */
 export function dayPartsOfDateValue(value: unknown): DayParts | null {
   if (value === null || value === undefined || value === '') return null;
@@ -52,11 +62,11 @@ export function dayPartsOfDateValue(value: unknown): DayParts | null {
   const ru = s.match(RU_RE);
   if (ru) return { y: Number(ru[3]), m: Number(ru[2]), d: Number(ru[1]) };
 
-  const serial = Number(s);
-  if (!isNaN(serial)) {
-    const d = parseSheetDate(s);
-    if (d) return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
-  }
+  // Фоллбэк на канон. Сюда доходят только строки, не разобранные регулярками
+  // выше, — у parseSheetDate для них остаются серийники (UTC-полночь) и общий
+  // разбор Date, поэтому чтение UTC-компонент воспроизводит календарный день.
+  const d = parseSheetDate(s);
+  if (d) return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
   return null;
 }
 
@@ -126,21 +136,47 @@ export function yearCountOf(index: CoverageIndex, year: number): number {
   return index.years[year] ?? 0;
 }
 
-/** Месяц позже сегодняшнего? Текущий месяц будущим НЕ считается. */
-export function isFutureMonth(year: number, month: number, today: Date = new Date()): boolean {
-  return year > today.getFullYear()
-    || (year === today.getFullYear() && month > today.getMonth() + 1);
+/**
+ * Продуктовое время — Камчатка, UTC+12 (часы к востоку от Гринвича). Книги
+ * закупок живут по календарю края, поэтому границу «наступил / ещё не
+ * наступило» задаёт камчатская полночь, а не часы зрителя: у смотрящего из
+ * Москвы вечером 31 августа на Камчатке уже 1 сентября — сентябрь для
+ * продукта наступил, хотя new Date() зрителя ещё в августе.
+ */
+export const PRODUCT_UTC_OFFSET = 12;
+
+const MS_PER_HOUR = 3600000;
+const MS_PER_DAY = 86400000;
+
+/** Календарные сутки «сейчас» по продуктовому времени (Камчатка, UTC+12). */
+export function productDayParts(now: Date = new Date()): DayParts {
+  const shifted = new Date(now.getTime() + PRODUCT_UTC_OFFSET * MS_PER_HOUR);
+  return { y: shifted.getUTCFullYear(), m: shifted.getUTCMonth() + 1, d: shifted.getUTCDate() };
 }
 
 /**
- * Положение недели относительно сегодня. «current» — сегодня внутри недели
- * (прямой эфир), «past» — неделя закончилась (срез), «future» — ещё не началась.
+ * Месяц позже текущего? Текущий месяц будущим НЕ считается. `now` — момент
+ * (часы зрителя любые), календарный день из него берётся по продуктовому
+ * времени Камчатки.
  */
-export function weekPosition(monday: Date, today: Date = new Date()): 'past' | 'current' | 'future' {
-  const start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate());
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
-  if (today.getTime() < start.getTime()) return 'future';
-  if (today.getTime() >= end.getTime()) return 'past';
+export function isFutureMonth(year: number, month: number, now: Date = new Date()): boolean {
+  const t = productDayParts(now);
+  return year > t.y || (year === t.y && month > t.m);
+}
+
+/**
+ * Положение недели относительно «сегодня» по продуктовому времени. «current» —
+ * камчатское сегодня внутри недели (прямой эфир), «past» — неделя закончилась
+ * (срез), «future» — ещё не началась. `monday` — локальная дата понедельника
+ * барабана (сравнение идёт по календарным дням, не по мгновениям).
+ */
+export function weekPosition(monday: Date, now: Date = new Date()): 'past' | 'current' | 'future' {
+  const t = productDayParts(now);
+  const today = Date.UTC(t.y, t.m - 1, t.d);
+  const start = Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate());
+  const end = start + 7 * MS_PER_DAY;
+  if (today < start) return 'future';
+  if (today >= end) return 'past';
   return 'current';
 }
 
@@ -151,10 +187,89 @@ export type PeriodCoverageKind = 'has-data' | 'scarce' | 'empty' | 'future' | 'u
  * Классификация периода. ready=false — индекс ещё не загружен (или загрузка
  * сорвалась): честный ответ «неизвестно», а не «данных нет» — сбой сети не
  * должен красить весь барабан в пустоту.
+ *
+ * БУДУЩЕЕ ПОБЕЖДАЕТ СЧЁТ (канон §12.3): период, который ещё не наступил, несёт
+ * вид «ещё не наступило» даже при живом плане — «Это не „нет данных“, а „ещё
+ * не наступило“». План при этом не прячется: подпись будущего месяца вправе
+ * показывать его счёт, побеждает только вид.
  */
 export function classifyPeriod(count: number, isFuture: boolean, ready: boolean): PeriodCoverageKind {
   if (!ready) return 'unknown';
+  if (isFuture) return 'future';
   if (count > SCARCE_MAX) return 'has-data';
   if (count > 0) return 'scarce';
-  return isFuture ? 'future' : 'empty';
+  return 'empty';
+}
+
+/**
+ * Вид КВАРТАЛА — агрегат трёх его месяцев (для барабана кварталов в шапке):
+ *   - все три месяца в будущем → «ещё не наступило» (даже при плановых
+ *     строках — будущее побеждает, как и у месяца);
+ *   - квартал начался → правило трёх видов по СУММЕ строк его месяцев:
+ *     «есть данные» / «почти пусто» / «данных нет» (все месяцы пустые и
+ *     прошли → «данных нет»);
+ *   - индекс не готов (ready=false) → «неизвестно».
+ */
+export function classifyQuarter(
+  year: number,
+  quarter: number,
+  index: CoverageIndex,
+  ready: boolean,
+  now: Date = new Date(),
+): PeriodCoverageKind {
+  const first = (quarter - 1) * 3 + 1;
+  const months = [first, first + 1, first + 2];
+  const total = months.reduce((sum, m) => sum + monthCountOf(index, year, m), 0);
+  const allFuture = months.every((m) => isFutureMonth(year, m, now));
+  return classifyPeriod(total, allFuture, ready);
+}
+
+// ── Честность по-книжно ──────────────────────────────────────────────
+
+/** Статусы индекса покрытия (дом типа — здесь; хук покрытия переиспользует). */
+export type CoverageStatus = 'idle' | 'loading' | 'ready' | 'partial' | 'failed';
+
+/** Итог загрузки одной книги: доехала ли ЦЕЛИКОМ и какие строки довезла. */
+export interface BookLoadResult {
+  /** true — все страницы книги доехали; false — хоть одна потерялась. */
+  ok: boolean;
+  rows: CoverageRow[];
+}
+
+/**
+ * Статус индекса по итогам всех книг (находка 28.08: отказ книги глотался как
+ * пустота — упади 7 книг из 8, статус был 'ready', и живая книга красила чужие
+ * периоды «данных нет»):
+ *   - все книги целиком и строки есть → 'ready';
+ *   - ни одной строки ниоткуда → 'failed' (сбой сети или сервера — не пустой
+ *     год; ноль строк из ВСЕХ книг даже без явных ошибок считается сбоем);
+ *   - иначе → 'partial': что доехало — в индекс, но отсутствие строк по
+ *     периоду ничем не доказано — их могла держать недоехавшая книга.
+ */
+export function summarizeBookLoads(
+  books: BookLoadResult[],
+): { status: 'ready' | 'partial' | 'failed'; rows: CoverageRow[] } {
+  const rows = books.flatMap((b) => b.rows);
+  if (rows.length === 0) return { status: 'failed', rows };
+  const allWhole = books.every((b) => b.ok);
+  return { status: allWhole ? 'ready' : 'partial', rows };
+}
+
+/**
+ * Классификация с учётом СТАТУСА индекса — для потребителей барабанов.
+ * Отличие от classifyPeriod — честность при 'partial': доехавшие строки красят
+ * период как обычно, но пустота НЕ доказана (строки могла держать недоехавшая
+ * книга) → «неизвестно», не приглушение. Будущее остаётся будущим: календарю
+ * недоезд книги не указ.
+ */
+export function classifyPeriodByStatus(
+  count: number,
+  isFuture: boolean,
+  status: CoverageStatus,
+): PeriodCoverageKind {
+  if (status === 'partial') {
+    if (isFuture) return 'future';
+    return count > 0 ? classifyPeriod(count, false, true) : 'unknown';
+  }
+  return classifyPeriod(count, isFuture, status === 'ready');
 }

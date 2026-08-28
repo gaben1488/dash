@@ -21,17 +21,33 @@ export interface PagedResponse<T> {
 /** Загрузчик одной страницы (1-based номер), как его отдаёт api.getRows. */
 export type PageFetcher<T> = (page: number) => Promise<PagedResponse<T> | T[]>;
 
+/** Дополнительные рычаги сборщика. */
+export interface CollectPagesOptions {
+  /**
+   * Зов на КАЖДУЮ проглоченную страницу (первую или хвостовую). Сборщик
+   * по-прежнему не роняет выборку, но молчать об утере не имеет права:
+   * покрытию периодов важно знать, что книга доехала НЕ целиком — иначе
+   * отказ семи книг из восьми выглядел бы как «пустой год» (находка 28.08).
+   */
+  onPageError?: (page: number, error: unknown) => void;
+}
+
 /**
  * Собрать все строки: первая страница называет число страниц, остальные
  * догружаются параллельно. Отказ ОДНОЙ страницы не рушит выборку — она
  * пропускается (частичные данные лучше пустого экрана), отказ ПЕРВОЙ
- * означает, что показывать нечего, и возвращается пустой список.
+ * означает, что показывать нечего, и возвращается пустой список. О каждом
+ * пропуске сообщается через options.onPageError.
  */
-export async function collectAllPages<T>(fetchPage: PageFetcher<T>): Promise<T[]> {
+export async function collectAllPages<T>(
+  fetchPage: PageFetcher<T>,
+  options?: CollectPagesOptions,
+): Promise<T[]> {
   let first: PagedResponse<T> | T[];
   try {
     first = await fetchPage(1);
-  } catch {
+  } catch (error) {
+    options?.onPageError?.(1, error);
     return [];
   }
   // Массив вместо конверта — старая форма ответа: страниц нет, это всё.
@@ -46,7 +62,10 @@ export async function collectAllPages<T>(fetchPage: PageFetcher<T>): Promise<T[]
       Promise.resolve()
         .then(() => fetchPage(i + 2))
         .then((r) => (Array.isArray(r) ? r : r.rows ?? []))
-        .catch(() => [] as T[]),
+        .catch((error) => {
+          options?.onPageError?.(i + 2, error);
+          return [] as T[];
+        }),
     ),
   );
   return rows.concat(...rest);

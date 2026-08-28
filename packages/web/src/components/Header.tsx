@@ -1,5 +1,8 @@
-import { useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek } from '../store';
-import type { BudgetType, Page } from '../store';
+import {
+  useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek,
+  PAGE_FILTERS, isWeekShifted, buildStavkaSumsLine, STAVKA_SCOPE_NOTE,
+} from '../store';
+import type { BudgetType, FilterGroup, Page } from '../store';
 import {
   Sun, Moon, AlertTriangle, RotateCcw, Search, X,
   Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
@@ -16,46 +19,14 @@ import { getISOWeekNumber } from '../lib/week-number';
 import { fmtPct2 } from '../lib/report/mappers';
 import { usePeriodCoverage } from '../hooks/usePeriodCoverage';
 import {
-  classifyPeriod, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf,
+  classifyPeriod, classifyQuarter, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf,
   type PeriodCoverageKind,
 } from '../lib/period-coverage';
 
-// Re-export for compatibility
-export type FilterGroup =
-  | 'period' | 'currency' | 'procurement' | 'activity'
-  | 'budget' | 'department' | 'subordinate' | 'search';
-
-const PAGE_FILTERS: Record<string, FilterGroup[]> = {
-  dashboard:  ['period', 'currency', 'procurement', 'activity', 'budget'],
-  report:     ['period'],
-  svod:       ['currency', 'procurement', 'budget'],
-  data:       ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
-  // Корзины Реестра (п.73в): та же страница построчных данных, фильтр класса
-  // зафиксирован. У «В течение года» способ всегда ЕП — кнопки КП/ЕП там
-  // дезориентировали бы (класс определяется способом, фильтр не работает).
-  unfunded:   ['period', 'currency', 'procurement', 'activity', 'budget', 'search'],
-  yearlong:   ['period', 'currency', 'activity', 'budget', 'search'],
-  // Мониторинг — другая книга (процедуры, деньги в рублях): глобальные фильтры
-  // книг ГРБС (период/способ/бюджет) к ней не применяются — показывать их
-  // значило бы обещать отбор, которого нет. Свои фильтры (стадия/заказчик) —
-  // внутри страницы.
-  monitoring: [],
-  economy:    ['period', 'currency', 'procurement', 'activity', 'budget'],
-  // Конкуренция — сравнение ЕП против конкурентных встроено в сами блоки:
-  // фильтр способа закупки здесь дезориентировал бы (блоки его не применяют).
-  competition: ['period', 'currency'],
-  // Дисциплина — список дел за весь год: барабан нужен ради выбора года,
-  // сужение до квартала/месяца страница честно оговаривает бейджем периода.
-  discipline: ['period', 'currency'],
-  analytics:  ['period', 'currency', 'procurement', 'activity', 'budget'],
-  quality:    ['period', 'procurement', 'activity'],
-  recon:      ['period', 'procurement', 'activity'],
-  trust:      ['period', 'procurement', 'activity'],
-  issues:     ['period', 'procurement', 'activity', 'search'],
-  recs:       ['period', 'procurement', 'activity'],
-  journal:    ['period', 'procurement', 'activity'],
-  settings:   [],
-};
+// Карта «страница → действующие оси» переехала в store.ts (PAGE_FILTERS):
+// она нужна и жетонам угла (SelectionTokens), а импорт из Header дал бы
+// кольцо. Тип оси re-export для прежних читателей.
+export type { FilterGroup };
 
 /**
  * Ключи текущей деятельности. Канон п.30 (интервью 14.08.2026): среза «ТД-ПМ»
@@ -331,7 +302,7 @@ function monthCoverageNote(kind: PeriodCoverageKind, count: number): string {
   }
 }
 
-function TimeDrum() {
+export function TimeDrum() {
   const { year, setYear, monthsByYear, toggleMonthInYear, toggleQuarterInYear, toggleYearFull, clearAllPeriods, focusedWeekStart } = useStore();
   const coverage = usePeriodCoverage();
   const covReady = coverage.status === 'ready';
@@ -411,13 +382,28 @@ function TimeDrum() {
               const qMonths = QUARTER_MONTHS[qKey] ?? [];
               const full = isQFull(yr, qKey);
               const partial = isQPartial(yr, qKey);
+              // Краски полноты кварталов — тем же словарём, что у месяцев
+              // (classifyQuarter: агрегат трёх месяцев, будущее побеждает
+              // счёт). Классы — существующие месячные tg-month-empty/future/
+              // scarce: правила в index.css не привязаны к .tg-month и ложатся
+              // на ярлык квартала без новых имён. На выбранном (full/partial)
+              // ярлыке гашение не вешается — как у месяцев, честность
+              // остаётся в подписи.
+              const qCount = covReady
+                ? qMonths.reduce((sum, m) => sum + monthCountOf(coverage.index, yr, m), 0)
+                : 0;
+              const qKind = classifyQuarter(yr, qi + 1, coverage.index, covReady);
+              const qNote = monthCoverageNote(qKind, qCount);
               return (
                 <div key={qKey} className={clsx('tg-quarter', full && 'tg-quarter-full', partial && 'tg-quarter-partial', !full && !partial && 'tg-quarter-idle')}>
                   <button type="button" onClick={() => toggleQuarterInYear(yr, qKey)}
                     aria-pressed={full}
-                    aria-label={`${qi + 1} квартал ${yr} года`}
-                    title={`${qi + 1} квартал ${yr}`}
-                    className={clsx('tg-quarter-tab', full && 'tg-quarter-tab-full', partial && 'tg-quarter-tab-partial', !full && !partial && 'tg-quarter-tab-idle')}>
+                    aria-label={`${qi + 1} квартал ${yr} года${qNote}`}
+                    title={`${qi + 1} квартал ${yr}${qNote}`}
+                    className={clsx('tg-quarter-tab', full && 'tg-quarter-tab-full', partial && 'tg-quarter-tab-partial', !full && !partial && 'tg-quarter-tab-idle',
+                      !full && !partial && qKind === 'empty' && 'tg-month-empty',
+                      !full && !partial && qKind === 'future' && 'tg-month-future',
+                      !full && !partial && qKind === 'scarce' && 'tg-month-scarce')}>
                     {QTR_SHORT[qi]}
                   </button>
                   {qMonths.map((monthId) => {
@@ -633,17 +619,20 @@ function CurrencyDrum({ value, onChange }: { value: string; onChange: (v: any) =
  * показ производных чисел. Паспорт разницы — в подсказках кнопок: обе суммы
  * ожидаемой экономии от плана года в рублях и их разница.
  */
-function StavkaDrum() {
+export function StavkaDrum() {
   const stavkaMode = useStore((s) => s.stavkaMode);
   const setStavkaMode = useStore((s) => s.setStavkaMode);
   const liveStavka = useStore((s) => s.liveStavka);
+  const liveStavkaAbsent = useStore((s) => s.liveStavkaAbsent);
   const fetchLiveStavka = useStore((s) => s.fetchLiveStavka);
   const dashboardData = useStore((s) => s.dashboardData);
   const formatMoney = useStore((s) => s.formatMoney);
 
-  // Замер снимается лениво при первом появлении линейки: без него кнопка
-  // «живой» честно выключена, а не притворяется рабочей.
-  useEffect(() => { void fetchLiveStavka(); }, [fetchLiveStavka]);
+  // Замер снимается лениво при первом появлении линейки, а после сброса по
+  // событию эфира (monitoring-updated → invalidateLiveStavka обнуляет оба
+  // исхода) эффект просыпается от изменения зависимостей и перезапрашивает
+  // свежий коэффициент. При заполненном исходе fetchLiveStavka выходит сразу.
+  useEffect(() => { void fetchLiveStavka(); }, [fetchLiveStavka, liveStavka, liveStavkaAbsent]);
 
   // План года — сумма планов восьми ГРБС (тыс. руб.); от него обе суммы
   // ожидаемой экономии. Данных ещё нет — подсказка живёт без сумм.
@@ -655,24 +644,23 @@ function StavkaDrum() {
     ? new Date(liveStavka.readAt).toLocaleDateString('ru-RU')
     : null;
 
-  /** Обе суммы в рублях и разница — общий хвост подсказок обеих кнопок. */
-  const sumsLine = (() => {
-    if (planTys <= 0) return 'План года ещё не загружен — суммы ожидаемой экономии появятся с данными.';
-    const normSum = planTys * 0.08;
-    if (livePct === null) {
-      return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу 8 % — ${formatMoney(normSum)}; живой коэффициент ещё не получен.`;
-    }
-    const liveSum = planTys * (livePct / 100);
-    const diff = liveSum - normSum;
-    const diffWord = diff >= 0 ? 'больше' : 'меньше';
-    return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу 8 % — ${formatMoney(normSum)}, ` +
-      `по живой ставке ${fmtPct2(livePct)} % — ${formatMoney(liveSum)}: на ${formatMoney(Math.abs(diff))} ${diffWord} норматива.`;
-  })();
+  /** Паспорт разницы — общий строитель со жетоном угла (store.buildStavkaSumsLine). */
+  const sumsLine = buildStavkaSumsLine(planTys, livePct, formatMoney);
 
-  const tail = 'Ставка — режим счёта, а не отбор строк: данные книг не меняются, пересчитываются производные числа.';
+  // Хвост подсказок: что такое ставка + честная зона действия (п.4 канона
+  // пульс-2: переключатель глобален, а зависимые числа сегодня — только суммы
+  // ожидаемой экономии Отчёта; врать «действует везде» нельзя).
+  const tail = `Ставка — режим счёта, а не отбор строк: данные книг не меняются, пересчитываются производные числа. ${STAVKA_SCOPE_NOTE}`;
 
-  const liveTitle = livePct === null
-    ? `Живой коэффициент ещё не получен из книги мониторинга — действует норматив 8 %. ${sumsLine} ${tail}`
+  // Причина недоступности «живого» — два РАЗНЫХ исхода, две разные фразы:
+  // «замер не существует» — знание из книги, «ещё не получен» — ожидание сети.
+  const noMeasure = livePct === null;
+  const absentReason = liveStavkaAbsent
+    ? 'Состоявшихся торгов за 12 месяцев нет — живой коэффициент не существует. Действует норматив 8 %.'
+    : 'Живой коэффициент ещё не получен из книги мониторинга — действует норматив 8 %.';
+
+  const liveTitle = noMeasure
+    ? `${absentReason} ${sumsLine} ${tail}`
     : `Живой коэффициент ${fmtPct2(livePct)} % — фактические снижения состоявшихся торгов за скользящие двенадцать месяцев` +
       `${measured ? ` (замер ${measured}` : ' ('}${liveStavka?.q1 != null && liveStavka?.q3 != null
         ? `, разброс ${fmtPct2(liveStavka.q1)}–${fmtPct2(liveStavka.q3)} %` : ''}` +
@@ -686,13 +674,20 @@ function StavkaDrum() {
         aria-label="Считать по нормативу восемь процентов"
         title={`Норматив 8 % — им посчитаны формулы книг. ${sumsLine} ${tail}`}
       >8 %</button>
-      <button type="button" onClick={() => setStavkaMode('live')}
-        disabled={livePct === null}
-        className={clsx('vf-btn vf-btn-sm', stavkaMode === 'live' && 'vf-btn-active', livePct === null && 'opacity-50 cursor-not-allowed')}
+      {/* Недоступность — aria-disabled, НЕ disabled: кнопка остаётся в порядке
+          обхода клавиатурой, и читалка слышит причину из aria-label, а не
+          натыкается на пропавший элемент. Нажатие при этом честно ничего
+          не делает. */}
+      <button type="button"
+        onClick={noMeasure ? undefined : () => setStavkaMode('live')}
+        aria-disabled={noMeasure || undefined}
+        className={clsx('vf-btn vf-btn-sm', stavkaMode === 'live' && 'vf-btn-active', noMeasure && 'opacity-50 cursor-not-allowed')}
         aria-pressed={stavkaMode === 'live'}
-        aria-label="Считать по живому коэффициенту снижения"
+        aria-label={noMeasure
+          ? `Живой коэффициент недоступен. ${absentReason}`
+          : 'Считать по живому коэффициенту снижения'}
         title={liveTitle}
-      >{livePct === null ? 'живой' : `живой ${fmtPct2(livePct)} %`}</button>
+      >{noMeasure ? 'живой' : `живой ${fmtPct2(livePct)} %`}</button>
     </div>
   );
 }
@@ -829,7 +824,7 @@ export function Header() {
     selectedBudgets, toggleBudget,
     searchQuery, setSearchQuery,
     resetAllFilters, selectedDepartments, selectedSubordinates,
-    activeMonths, monthsByYear, periodMode,
+    activeMonths, monthsByYear, periodMode, focusedWeekStart,
     stavkaMode,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
@@ -850,6 +845,9 @@ export function Header() {
     yearChanged: year !== new Date().getFullYear(),
     moneyUnitChanged: moneyUnit !== 'тыс',
     stavkaChanged: stavkaMode !== 'norm',
+    // Срез недели — тем же предикатом, что жетон угла (страж схождения):
+    // жетон без счёта означал бы «Сбросить» молчит про видимый отбор.
+    weekShifted: isWeekShifted(periodMode, focusedWeekStart),
     selectedMethods,
     selectedActivities,
     selectedBudgets,

@@ -50,4 +50,25 @@ describe('collectAllPages — реестр целиком, а не первая 
   it('старая форма ответа (голый массив) поддержана как есть', async () => {
     expect(await collectAllPages(() => Promise.resolve([7, 8]))).toEqual([7, 8]);
   });
+
+  it('о каждой потерянной странице сообщает onPageError — книга «не целиком» видна снаружи', async () => {
+    const lost: number[] = [];
+    const fetchPage = (page: number): Promise<PagedResponse<number>> =>
+      page === 2
+        ? Promise.reject(new Error('502'))
+        : Promise.resolve({ rows: [page], pagination: { totalPages: 3 } });
+    const rows = await collectAllPages(fetchPage, { onPageError: (page) => lost.push(page) });
+    expect(rows).toEqual([1, 3]);
+    expect(lost).toEqual([2]);
+  });
+
+  it('отказ первой страницы тоже сообщается, а не глотается молча', async () => {
+    const lost: number[] = [];
+    const rows = await collectAllPages(
+      () => Promise.reject(new Error('офлайн')),
+      { onPageError: (page) => lost.push(page) },
+    );
+    expect(rows).toEqual([]);
+    expect(lost).toEqual([1]);
+  });
 });

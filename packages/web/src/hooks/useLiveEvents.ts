@@ -23,6 +23,7 @@
  * мигание и восклицательные знаки сюда вносить нечем — и не нужно.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useStore } from '../store';
 
 /** Откуда пришла перечитка (сервер называет это в событии книги). */
 export type RefreshOrigin = 'webhook' | 'cycle' | 'request' | 'startup';
@@ -244,16 +245,36 @@ function scheduleFlashPrune(): void {
   }, FLASH_MS / 2);
 }
 
-function handleRecord(raw: string): void {
-  const event = parseStreamRecord(raw);
-  if (!event) return;
-  if (typeof event.id === 'number') lastEventId = event.id;
+/**
+ * Принять одно разобранное событие эфира: свести в состояние (reduceLive) и
+ * исполнить побочные действия, которым в чистом редьюсере не место.
+ * Экспортировано как шов для стражей: тест кормит событие сюда же, куда его
+ * кладёт поток.
+ *
+ * Побочное действие одно: monitoring-updated — книга мониторинга перечитана
+ * и изменилась, значит живой коэффициент ставки (liveStavka) снят с прежнего
+ * содержимого и больше не факт. Сбрасываем замер в хранилище; повторный
+ * запрос сделает следующий читатель (эффект барабана ставки). Без события
+ * замер НЕ перезапрашивается — и полученный коэффициент, и знание «замера
+ * не существует» окончательны до следующей правки книги.
+ */
+export function ingestLiveEvent(event: Record<string, unknown>): void {
   const next = reduceLive(state, event);
   if (next !== state) {
     state = next;
     for (const listener of [...listeners]) listener();
   }
+  if (event.kind === 'monitoring-updated') {
+    useStore.getState().invalidateLiveStavka();
+  }
   if (state.recentRows.length > 0) scheduleFlashPrune();
+}
+
+function handleRecord(raw: string): void {
+  const event = parseStreamRecord(raw);
+  if (!event) return;
+  if (typeof event.id === 'number') lastEventId = event.id;
+  ingestLiveEvent(event);
 }
 
 /** Ключ доступа — тот же, что у остальных запросов продукта. */
