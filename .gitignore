@@ -96,3 +96,8 @@ data/
 # Точка возврата выката: слепок кода работающей сборки, пишется на сервере
 # (.github/workflows/ci.yml, откат — deploy/rollback.sh). У каждого сервера свой.
 deploy/.last-known-good
+
+# Разовые скрипты правки книги СВОД (держат откатный след, в git не место)
+packages/server/harness-*.mjs
+packages/server/build-*.mjs
+packages/server/repair-basis.mjs
