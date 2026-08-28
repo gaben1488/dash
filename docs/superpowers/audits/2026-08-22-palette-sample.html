@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Заря: палитра продукта</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    background: var(--bg);
+    color: var(--ink);
+    transition: background 200ms ease, color 200ms ease;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ── темы: графит без синевы (синий канал не выше красного и зелёного) ── */
+  body.t-dark {
+    --bg: #141412;
+    --card: #1d1c19;
+    --card2: #242320;
+    --ink: #ece9e2;
+    --ink2: #b8b4a9;
+    --ink3: #8f8b80;
+    --line: #34332d;
+    --halo-a: rgba(14, 165, 233, 0.50);
+    --halo-b: rgba(125, 211, 252, 0.30);
+    --clay: #c65b47;
+    --plat: #a6a49e;
+  }
+  body.t-light {
+    --bg: #faf9f6;
+    --card: #f1efe9;
+    --card2: #e9e6de;
+    --ink: #26241f;
+    --ink2: #59564e;
+    --ink3: #7c786d;
+    --line: #dcd8cd;
+    --halo-a: rgba(14, 165, 233, 0.32);
+    --halo-b: rgba(2, 132, 199, 0.16);
+    --clay: #9e3a2b;
+    --plat: #8b887f;
+  }
+
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 36px 24px 90px; }
+
+  header.top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lead { color: var(--ink2); margin: 0 0 4px; max-width: 72ch; }
+  .meta { color: var(--ink3); font-size: 12px; margin: 26px 0 0; }
+
+  .theme-btn {
+    margin-left: auto; flex: none;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink2);
+    font: inherit; font-size: 12.5px; font-weight: 550;
+    padding: 6px 14px; cursor: pointer;
+  }
+  .theme-btn:hover { color: var(--ink); }
+
+  h2 { font-size: 19px; font-weight: 650; margin: 46px 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink2); margin: 0 0 18px; max-width: 76ch; }
+
+  /* ── карточки ролей ── */
+  .roles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  @media (max-width: 860px) { .roles { grid-template-columns: 1fr; } }
+  .role {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .role h3 { margin: 0 0 6px; font-size: 14.5px; font-weight: 650; }
+  .role p { margin: 0 0 12px; font-size: 12.5px; color: var(--ink2); }
+  .sw-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .sw {
+    width: 74px; height: 40px; border-radius: 8px; flex: none;
+    display: flex; align-items: flex-end; justify-content: flex-end;
+    padding: 4px 6px; font-size: 10px;
+  }
+  .sw .num { opacity: 0.85; }
+  .sw-name { font-size: 11px; color: var(--ink3); margin-top: 4px; text-align: center; }
+  .sw-col { display: flex; flex-direction: column; align-items: center; }
+
+  /* ── заря: крем всегда с лазурной парой ── */
+  .cream {
+    background-color: #dec997;
+    background-image: linear-gradient(180deg, #E5D3A9 0%, #D6BF85 100%);
+    color: #1b170f;
+  }
+  .z-big {
+    box-shadow:
+      0 0 0 1px rgba(14, 165, 233, 0.55),
+      0 0 14px var(--halo-a),
+      0 0 30px var(--halo-b);
+  }
+  .z-edge { border: 1px solid #0EA5E9; }
+
+  /* ── демо хрома ── */
+  .chrome-demo { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .demo-cell { display: flex; flex-direction: column; gap: 6px; }
+  .demo-cap { font-size: 11px; color: var(--ink3); }
+
+  .pill-demo {
+    position: relative; display: inline-flex; border-radius: 10px;
+  }
+  .pill-glow {
+    position: absolute; inset: -2px; border-radius: 12px; z-index: 0;
+    background: conic-gradient(
+      #e5d3a9 0%, transparent 12%, transparent 38%,
+      #7DD3FC 50%, transparent 62%, transparent 88%, #e5d3a9 100%
+    );
+    opacity: 0.65; filter: blur(3px);
+  }
+  .pill-core {
+    position: relative; z-index: 1;
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 10px; padding: 7px 16px;
+    font-size: 13px; font-weight: 650;
+  }
+
+  .btn-mini {
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 7px; padding: 4px 10px;
+    font-size: 12px; font-weight: 600;
+  }
+  .btn-ghost {
+    background: transparent; color: var(--ink2);
+    border: 1px solid var(--line);
+  }
+
+  .cell-period {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 8px; padding: 5px 12px; font-size: 12.5px; font-weight: 550;
+  }
+  .dot-live {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: #0EA5E9;
+    animation: живая 2.4s ease-in-out infinite;
+  }
+  @keyframes живая {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.78); }
+  }
+
+  /* три вида полноты периода */
+  .full-yes { background: var(--card2); color: var(--ink); border: 1px solid var(--line); }
+  .full-no  { background: transparent; color: var(--ink3); border: 1px solid var(--line); opacity: 0.55; }
+  .full-fut { background: transparent; color: var(--ink3); border: 1px dashed var(--plat); }
+
+  /* ── навигация: группы по три-четыре ── */
+  .nav-groups { display: flex; flex-direction: column; gap: 10px; }
+  .nav-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .nav-row .grp { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3); width: 84px; flex: none; }
+  .tab {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 9px; padding: 5px 12px;
+    font-size: 12.5px; font-weight: 600; white-space: nowrap;
+    background: var(--card); color: var(--ink2); border: 1px solid var(--line);
+  }
+  .tab .td { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+  /* ── таблица пар ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th {
+    text-align: left; font-weight: 550; font-size: 10.5px;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--ink3); padding: 0 10px 8px 0;
+  }
+  td { padding: 8px 10px 8px 0; vertical-align: middle; }
+  tbody tr + tr td { border-top: 1px solid var(--line); }
+  td.r, th.r { text-align: right; padding-right: 0; }
+  .tsw {
+    display: inline-block; width: 46px; height: 24px; border-radius: 6px; vertical-align: middle;
+  }
+  .tchar { color: var(--ink2); }
+
+  .notes {
+    margin: 46px 0 0; padding: 18px 20px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--line);
+  }
+  .notes h3 { margin: 0 0 10px; font-size: 14px; font-weight: 650; }
+  .notes ul { margin: 0; padding-left: 18px; color: var(--ink2); }
+  .notes li { margin-bottom: 6px; }
+  .notes b { color: var(--ink); font-weight: 650; }
+</style>
+</head>
+<body class="t-dark">
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>Заря: палитра продукта</h1>
+      <p class="lead">Заря — приём: тёплое свечение перетекает в холодное на включённых
+      предметах хрома. У Пульса пара — крем и лазурь. Каждый кремовый предмет несёт
+      лазурную пару: крупный — ореол, мелкий — тонкую кромку. Крем без лазури — неполная заря.</p>
+      <p class="lead">Прежняя проба этой страницы предлагала оранжевый акцент, орхидею в рядах
+      данных и графит с синевой — всё три запрещены решениями владельца. Страница переписана
+      под принятую зарю; наведение на любой образец показывает точное значение цвета.</p>
+    </div>
+    <button class="theme-btn" id="кнопка-темы" type="button">Свет</button>
+  </header>
+
+  <!-- ══════════ РОЛИ ══════════ -->
+  <h2>Четыре роли красок</h2>
+  <p class="sub">Роль отвечает на вопрос «что этот цвет говорит». Число под образцом —
+  посчитанный контраст тона к фону текущей темы.</p>
+
+  <div class="roles">
+    <div class="role">
+      <h3>Заря — крем и лазурь</h3>
+      <p>Включённое состояние хрома: активная вкладка, включённый фильтр, выбранный период
+      и неделя, счётчик щита. Крем — тепло выбора, лазурь — холодная кромка, вместе — заря.</p>
+      <div class="sw-row">
+        <div class="sw-col">
+          <div class="sw cream z-big" title="#E5D3A9 → #D6BF85"><span class="num" data-c data-fg="#1b170f" data-bg="#dec997"></span></div>
+          <div class="sw-name">крем, градиент</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#0EA5E9;color:#10222c;" title="#0EA5E9"><span class="num" data-c data-fg="#0EA5E9" data-bg="var"></span></div>
+          <div class="sw-name">лазурь</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#7DD3FC;color:#10222c;" title="#7DD3FC"><span class="num" data-c data-fg="#7DD3FC" data-bg="var"></span></div>
+          <div class="sw-name">лазурь светлая</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="role">
+      <h3>Глина — тревога</h3>
+      <p>Единственная горячая краска. Говорит ровно одно: «здесь неправильно». Не оранжевый
+      и не орхидея — обожжённая глина, у каждой темы своя светлота.</p>
+      <div class="sw-row">
+        <div class="sw-col">
+          <div class="sw" style="background:#c65b47;color:#2b0f08;" title="#C65B47 — тьма"><span class="num" data-c data-fg="#c65b47" data-bg="var"></span></div>
+          <div class="sw-name">глина тьмы</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#9e3a2b;color:#f7ede9;" title="#9E3A2B — свет"><span class="num" data-c data-fg="#9e3a2b" data-bg="var"></span></div>
+          <div class="sw-name">глина света</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="role">
+      <h3>Платина — металлик-нейтраль</h3>
+      <p>Невключённое, рамки, служебные подписи, металлические детали приборов.
+      Не оценивает и не зовёт — держит форму.</p>
+      <div class="sw-row">
+        <div class="sw-col">
+          <div class="sw" style="background:#a6a49e;color:#211f1b;" title="#A6A49E"><span class="num" data-c data-fg="#a6a49e" data-bg="var"></span></div>
+          <div class="sw-name">платина тьмы</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#8b887f;color:#f5f4f0;" title="#8B887F"><span class="num" data-c data-fg="#8b887f" data-bg="var"></span></div>
+          <div class="sw-name">платина света</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="role">
+      <h3>Графит — поверхности без синевы</h3>
+      <p>Фон и карточки. В каждом тоне синий канал не выше красного и зелёного:
+      графит тёплый, а не синеватый. Ступень означает вложенность, соседние различимы.</p>
+      <div class="sw-row">
+        <div class="sw-col">
+          <div class="sw" style="background:#141412;color:#8f8b80;" title="#141412"><span class="num">1</span></div>
+          <div class="sw-name">фон тьмы</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#1d1c19;color:#8f8b80;" title="#1D1C19"><span class="num">2</span></div>
+          <div class="sw-name">карточка</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#242320;color:#8f8b80;" title="#242320"><span class="num">3</span></div>
+          <div class="sw-name">вложенное</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#faf9f6;color:#7c786d;border:1px solid #dcd8cd;" title="#FAF9F6"><span class="num">1</span></div>
+          <div class="sw-name">фон света</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#f1efe9;color:#7c786d;" title="#F1EFE9"><span class="num">2</span></div>
+          <div class="sw-name">карточка</div>
+        </div>
+        <div class="sw-col">
+          <div class="sw" style="background:#e9e6de;color:#7c786d;" title="#E9E6DE"><span class="num">3</span></div>
+          <div class="sw-name">вложенное</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ЗАРЯ НА ХРОМЕ ══════════ -->
+  <h2>Заря на хроме — как пара работает по роли</h2>
+  <p class="sub">Сила лазурной пары зависит от размера предмета: крупному — ореол,
+  мелкому — кромка в один пиксель. Во тьме ореолы ярче, на свету тише. Предметы
+  некремовые лазури не получают.</p>
+
+  <div class="chrome-demo">
+    <div class="demo-cell">
+      <span class="demo-cap">активная вкладка — крупный предмет, ореол</span>
+      <span class="pill-demo">
+        <span class="pill-glow"></span>
+        <span class="pill-core cream z-big">Пульс</span>
+      </span>
+    </div>
+    <div class="demo-cell">
+      <span class="demo-cap">включённый фильтр — мелкий предмет, кромка</span>
+      <span class="sw-row">
+        <span class="btn-mini cream z-edge">ЕП</span>
+        <span class="btn-mini btn-ghost">ЭА</span>
+        <span class="btn-mini btn-ghost">ВСЕ</span>
+      </span>
+    </div>
+    <div class="demo-cell">
+      <span class="demo-cap">выбранный период — кромка</span>
+      <span class="cell-period cream z-edge">Август</span>
+    </div>
+    <div class="demo-cell">
+      <span class="demo-cap">текущая неделя — прямой эфир, живая точка</span>
+      <span class="cell-period cream z-edge"><span class="dot-live"></span>Неделя 35</span>
+    </div>
+  </div>
+
+  <h2>Три вида полноты периода</h2>
+  <p class="sub">Периоды различаются не двумя, а тремя красками: есть данные, данных нет,
+  ещё не наступило. Будущий период не оценивается — по нему нет ни нулей, ни красной зоны.</p>
+  <div class="chrome-demo">
+    <div class="demo-cell">
+      <span class="demo-cap">есть данные</span>
+      <span class="cell-period full-yes">Июль</span>
+    </div>
+    <div class="demo-cell">
+      <span class="demo-cap">данных нет</span>
+      <span class="cell-period full-no">Неделя 42 — пусто</span>
+    </div>
+    <div class="demo-cell">
+      <span class="demo-cap">ещё не наступило</span>
+      <span class="cell-period full-fut">Сентябрь — период ещё не наступил</span>
+    </div>
+  </div>
+
+  <!-- ══════════ НАВИГАЦИЯ ══════════ -->
+  <h2>Вкладки — тринадцать характеров, группы по три-четыре</h2>
+  <p class="sub">У каждой вкладки свой цвет из живого перечня навигации продукта; точка несёт
+  тон вкладки, активная — кремовая пилюля с лазурным ореолом. Подписи целиком, без обрезания.</p>
+
+  <div class="nav-groups">
+    <div class="nav-row">
+      <span class="grp">Обзор</span>
+      <span class="pill-demo">
+        <span class="pill-glow"></span>
+        <span class="pill-core cream z-big" style="font-size:12.5px;padding:5px 12px;">Пульс</span>
+      </span>
+      <span class="tab" title="#F59E0B"><span class="td" style="background:#f59e0b;"></span>Отчёт</span>
+      <span class="tab" title="#0891B2"><span class="td" style="background:#0891b2;"></span>Свод</span>
+    </div>
+    <div class="nav-row">
+      <span class="grp">Данные</span>
+      <span class="tab" title="#0EA5E9"><span class="td" style="background:#0ea5e9;"></span>Реестр</span>
+      <span class="tab" title="#FDE68A"><span class="td" style="background:#fde68a;"></span>Не обеспеченные</span>
+      <span class="tab" title="#C7D2FE"><span class="td" style="background:#c7d2fe;"></span>В течение года</span>
+      <span class="tab" title="#BAE6FD"><span class="td" style="background:#bae6fd;"></span>Мониторинг</span>
+    </div>
+    <div class="nav-row">
+      <span class="grp">Анализ</span>
+      <span class="tab" title="#10B981"><span class="td" style="background:#10b981;"></span>Экономия</span>
+      <span class="tab" title="#5EEAD4"><span class="td" style="background:#5eead4;"></span>Конкуренция</span>
+      <span class="tab" title="#FDBA74"><span class="td" style="background:#fdba74;"></span>Дисциплина</span>
+    </div>
+    <div class="nav-row">
+      <span class="grp">Служба</span>
+      <span class="tab" title="#EF4444"><span class="td" style="background:#ef4444;"></span>Контроль</span>
+      <span class="tab" title="#A78BFA"><span class="td" style="background:#a78bfa;"></span>Аналитика</span>
+      <span class="tab" title="#A1A1AA"><span class="td" style="background:#a1a1aa;"></span>Система</span>
+    </div>
+  </div>
+
+  <!-- ══════════ ТАБЛИЦА ПАР ══════════ -->
+  <h2>Заря каждой вкладки — пары и посчитанные контрасты</h2>
+  <p class="sub">Приём один, пара у каждой своя: тёплый тон дружит с холодным партнёром,
+  холодный — с латунной роднёй продукта. Контраст меряется для подписи на заливке
+  активной кнопки: во тьме заливка светлая и подпись чернильная, на свету — наоборот.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Вкладка</th>
+        <th>Тон тьмы</th>
+        <th>Тон света</th>
+        <th>Заря-партнёр</th>
+        <th class="r">Подпись во тьме</th>
+        <th class="r">Подпись на свету</th>
+        <th>Характер</th>
+      </tr>
+    </thead>
+    <tbody id="тело-пар"></tbody>
+  </table>
+
+  <!-- ══════════ ПРАВИЛА ══════════ -->
+  <div class="notes">
+    <h3>Правила, которые страница закрепляет</h3>
+    <ul>
+      <li><b>Крем без лазури — неполная заря.</b> Каждый кремовый предмет несёт лазурную
+        пару: ореол у крупного, кромка у мелкого. Во тьме ореолы ярче, на свету тише.</li>
+      <li><b>Оранжевого акцента нет.</b> Точечные тона вкладок «Отчёт» и «Дисциплина» —
+        единственные тёплые исключения, и они живут только в точках и заливках этих вкладок.</li>
+      <li><b>Орхидеи нет нигде</b> — ни в рядах данных, ни в подсветках.</li>
+      <li><b>Тревога — глина</b>, одна на весь экран, у каждой темы своя светлота.</li>
+      <li><b>Графит без синевы:</b> в любом тоне поверхности синий канал не выше красного
+        и зелёного.</li>
+      <li><b>Будущее не оценивается:</b> у периода три краски — есть данные, пусто,
+        ещё не наступило; третья не бывает красной.</li>
+      <li><b>Подпись не обрезается никогда:</b> плотность добирается размером и перестройкой,
+        многоточие в навигации и барабанах — брак.</li>
+    </ul>
+  </div>
+
+  <p class="meta">Волна 22.08.2026, переписано 29.08.2026 · кода продукта не касалась ·
+  тона вкладок взяты из перечня навигации живого продукта без изменений · наведение на
+  образец показывает значение цвета.</p>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  function лин(к) {
+    к /= 255;
+    return к <= 0.04045 ? к / 12.92 : Math.pow((к + 0.055) / 1.055, 2.4);
+  }
+  function разбор(ш) {
+    ш = ш.replace("#", "");
+    if (ш.length === 3) ш = ш.split("").map(function (х) { return х + х; }).join("");
+    return [parseInt(ш.slice(0, 2), 16), parseInt(ш.slice(2, 4), 16), parseInt(ш.slice(4, 6), 16)];
+  }
+  function светимость(ц) {
+    return 0.2126 * лин(ц[0]) + 0.7152 * лин(ц[1]) + 0.0722 * лин(ц[2]);
+  }
+  function контраст(а, б) {
+    var л1 = светимость(разбор(а)), л2 = светимость(разбор(б));
+    var в = Math.max(л1, л2), н = Math.min(л1, л2);
+    return (в + 0.05) / (н + 0.05);
+  }
+  function показ(з) {
+    return з.toFixed(1).replace(".", ",") + ":1";
+  }
+  function фонТемы() {
+    return document.body.classList.contains("t-dark") ? "#141412" : "#faf9f6";
+  }
+
+  var ВКЛАДКИ = [
+    ["Пульс", "#e5d3a9", "#7a5f33", "#0ea5e9", "крем и лазурь — исходная заря"],
+    ["Отчёт", "#f59e0b", "#a25a06", "#38bdf8", "янтарь недельного доклада"],
+    ["Свод", "#0891b2", "#0e6d85", "#bfa161", "холодный источник истины"],
+    ["Реестр", "#0ea5e9", "#0b6f96", "#caa96b", "небесная вода данных"],
+    ["Не обеспеченные", "#fde68a", "#8a6508", "#22d3ee", "светлый янтарь предупреждения"],
+    ["В течение года", "#c7d2fe", "#4338ca", "#e0b56f", "холодная синь длинных серий"],
+    ["Мониторинг", "#bae6fd", "#0369a1", "#caa96b", "светлое небо наблюдения"],
+    ["Экономия", "#10b981", "#04704f", "#d1a75c", "изумруд сбережённого"],
+    ["Конкуренция", "#5eead4", "#0d6d63", "#c69a52", "бирюза торгов"],
+    ["Дисциплина", "#fdba74", "#9a3a0b", "#67e8f9", "тёплый список дел"],
+    ["Контроль", "#ef4444", "#b3211d", "#9aa5ad", "рубин надзора"],
+    ["Аналитика", "#a78bfa", "#6431c4", "#dcae63", "фиалка разборов"],
+    ["Система", "#a1a1aa", "#55555f", "#bfa161", "цинковая служба"]
+  ];
+  var ЧЕРНИЛА_ТЬМЫ = "#1b170f";
+  var ЧЕРНИЛА_СВЕТА = "#f8f7f4";
+
+  var тело = document.getElementById("тело-пар");
+  ВКЛАДКИ.forEach(function (в) {
+    var тр = document.createElement("tr");
+    function яч(содержимое, кл) {
+      var т = document.createElement("td");
+      if (кл) т.className = кл;
+      т.appendChild(содержимое);
+      return т;
+    }
+    function текст(с, кл) {
+      var э = document.createElement("span");
+      if (кл) э.className = кл;
+      э.textContent = с;
+      return э;
+    }
+    function образец(ш) {
+      var э = document.createElement("span");
+      э.className = "tsw";
+      э.style.background = ш;
+      э.title = ш.toUpperCase();
+      if (ш === "#e5d3a9") { э.classList.add("z-edge"); }
+      return э;
+    }
+    тр.appendChild(яч(текст(в[0])));
+    тр.appendChild(яч(образец(в[1])));
+    тр.appendChild(яч(образец(в[2])));
+    тр.appendChild(яч(образец(в[3])));
+    тр.appendChild(яч(текст(показ(контраст(ЧЕРНИЛА_ТЬМЫ, в[1])), "num"), "r"));
+    тр.appendChild(яч(текст(показ(контраст(ЧЕРНИЛА_СВЕТА, в[2])), "num"), "r"));
+    тр.appendChild(яч(текст(в[4], "tchar")));
+    тело.appendChild(тр);
+  });
+
+  function пересчёт() {
+    var фон = фонТемы();
+    document.querySelectorAll("[data-c]").forEach(function (э) {
+      var цф = э.getAttribute("data-fg");
+      var цб = э.getAttribute("data-bg");
+      if (цб === "var") цб = фон;
+      э.textContent = показ(контраст(цф, цб));
+    });
+  }
+
+  var кнопка = document.getElementById("кнопка-темы");
+  кнопка.addEventListener("click", function () {
+    var тьма = document.body.classList.contains("t-dark");
+    document.body.classList.toggle("t-dark", !тьма);
+    document.body.classList.toggle("t-light", тьма);
+    кнопка.textContent = тьма ? "Тьма" : "Свет";
+    пересчёт();
+  });
+
+  пересчёт();
+})();
+</script>
+</body>
+</html>

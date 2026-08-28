@@ -59,6 +59,25 @@ git diff --check                  passed, line-ending warnings only
   unrelated to `xlsx`: transitive `fast-uri`/`find-my-way` under `fastify`, and
   `brace-expansion`/`shell-quote` in dev tool chains. They predate the xlsx
   re-pin and are tracked as residual until the next dependency update pass.
+- **Re-measured 2026-08-22** (`pnpm audit --audit-level moderate`, run in this
+  repo): **16 vulnerabilities — 1 low, 2 moderate, 13 high**. The 2026-07-24 list
+  above is incomplete. Two advisories it does not name:
+  - `@fastify/static` — Authorization Bypass via Non-Canonical URL Paths
+    (GHSA-8pvw-jcv7-9cmj), vulnerable `<=10.1.1`, patched `>=10.1.2`, path
+    `packages__server>@fastify/static`. Installed version is 9.1.3, so the fix
+    requires a major upgrade. Static serving turns on whenever a `public/`
+    directory sits next to the server, while the auth hook guards only `/api/`
+    paths — so static is open by construction and a path-traversal escape from
+    `public/` could reach a deployment file such as `.env.production`. This is
+    the highest-impact item in the current list, not a transitive detail.
+  - `postcss` — incomplete fix of GHSA-6g55-p6wh-862q (GHSA-fxqj-rqcc-2cmp),
+    vulnerable `<=8.5.22`, patched `>=8.5.23`, path `packages__web>postcss`.
+  - `fast-uri` is held at the old version by the root pin `"fast-uri": "^3.1.2"`
+    (`package.json:54`); `nanoid` is not exploitable here because the project
+    calls it without a size argument.
+
+  Source of the per-advisory triage: `docs/superpowers/audits/2026-08-22-harvest/средние.md`,
+  note Н (record #95). Counts above were re-verified independently on 2026-08-22.
 - `GHSA-gv7w-rqvm-qjhr` is ignored in `pnpm.auditConfig`: it affects esbuild's
   Deno binary download path via attacker-controlled `NPM_CONFIG_REGISTRY`, while
   AEMR builds and runs on Node 22. Forcing patched `esbuild@0.28.1` breaks the

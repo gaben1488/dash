@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from matrix_data import ROWS, PASSPORT, HEAD, WINDOW_STATES, INVARIANTS, LIFECYCLE, TAB_NOTES
+from matrix_data import ROWS, PASSPORT, HEAD, WINDOW_STATES, INVARIANTS, LIFECYCLE, TAB_NOTES, SOURCE_METRICS
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(ROOT, 'docs', 'superpowers', 'audits', '2026-08-22-metrics-matrix.md')
@@ -23,16 +23,27 @@ FIELDS = ['z', 'p', 'm', 'o', 'b', 'd', 'e']
 FIELD_TITLES = ['Утв.', 'Периметр', 'Момент', 'Происх.', 'БЗ', 'Дверь', 'Пустота']
 
 
-def cell(v):
+# Пояснение по умолчанию для краткой пометки «~» — по каждой графе своё.
+DEFAULT_PART = {
+    'z': 'живёт под заголовком-утверждением блока, собственного вывода не несёт',
+    'p': 'периметр объявлен блоком, у самого числа подписи нет',
+    'm': 'момент назван блоком выше, у самого числа не назван',
+    'o': 'источник назван, полной формулы у числа нет',
+    'b': 'объяснение есть, но не состава 2.0',
+    'd': 'переход есть, но к строкам-основаниям не ведёт',
+    'e': 'пустота названа, три рода различены не полностью',
+}
+
+
+def cell(v, field='b'):
     """Значение клетки паспорта: '+', '-' или '~пояснение'. Пустых не бывает."""
     if v == '+':
         return 'есть', 1.0
-    if v == '-':
-        return 'нет', 0.0
-    if isinstance(v, str) and v.startswith('~'):
+    if isinstance(v, str) and v.startswith('-'):
         text = v[1:].strip()
-        if not text:
-            raise ValueError('частичная клетка без пояснения')
+        return ('нет: ' + text if text else 'нет'), 0.0
+    if isinstance(v, str) and v.startswith('~'):
+        text = v[1:].strip() or DEFAULT_PART[field]
         return 'част.: ' + text, 0.5
     raise ValueError('недопустимое значение клетки: %r' % (v,))
 
@@ -42,9 +53,18 @@ def readiness(row):
     for f in FIELDS:
         if f not in row:
             raise ValueError('в записи нет графы %s: %r' % (f, row.get('n')))
-        _, w = cell(row[f])
+        _, w = cell(row[f], f)
         total += w
     return total / len(FIELDS)
+
+
+def plural(n, one, few, many):
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return '%d %s' % (n, one)
+    if 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+        return '%d %s' % (n, few)
+    return '%d %s' % (n, many)
 
 
 def pct(x):
@@ -100,7 +120,7 @@ def main():
             out.append(sep)
             for r in crows:
                 n_global += 1
-                cells = [cell(r[f])[0] for f in FIELDS]
+                cells = [cell(r[f], f)[0] for f in FIELDS]
                 out.append('| %d | %s | `%s` | %s | %s %% | %s |'
                            % (n_global, r['n'], r['a'], ' | '.join(cells),
                               pct(readiness(r)), r['why']))
@@ -117,7 +137,7 @@ def main():
         low = sum(1 for r in rows if readiness(r) < 0.5)
         worst_f, worst_v = None, 2.0
         for i, f in enumerate(FIELDS):
-            v = sum(cell(r[f])[1] for r in rows) / len(rows)
+            v = sum(cell(r[f], f)[1] for r in rows) / len(rows)
             if v < worst_v:
                 worst_v, worst_f = v, FIELD_TITLES[i]
         tab_avg.append((t, len(rows), avg, low))
@@ -139,8 +159,8 @@ def main():
     for i, f in enumerate(FIELDS):
         full = sum(1 for r in ROWS if r[f] == '+')
         part = sum(1 for r in ROWS if isinstance(r[f], str) and r[f].startswith('~'))
-        none = sum(1 for r in ROWS if r[f] == '-')
-        avg = sum(cell(r[f])[1] for r in ROWS) / len(ROWS)
+        none = sum(1 for r in ROWS if isinstance(r[f], str) and r[f].startswith('-'))
+        avg = sum(cell(r[f], f)[1] for r in ROWS) / len(ROWS)
         out.append('| %s | %d | %d | %d | %s %% |' % (FIELD_TITLES[i], full, part, none, pct(avg)))
     out.append('')
 
@@ -161,18 +181,27 @@ def main():
                '«частичный» страж закрывает часть состояний окна и назван поимённо.\n'
                % (guardless, len(INVARIANTS)))
     part_guard = sum(1 for x in INVARIANTS if x['guard'].startswith('частичный'))
-    out.append('Из остальных %d стражей полных — %d, частичных — %d.\n'
-               % (len(INVARIANTS) - guardless, len(INVARIANTS) - guardless - part_guard, part_guard))
+    full_guard = len(INVARIANTS) - guardless - part_guard
+    out.append('Из остальных %d стражей полных — %d, частичных — %d. Полная гарантия '
+               'есть, таким образом, у %d инвариантов из %d; у остальных %d её нет вовсе '
+               'либо она закрывает не все состояния окна. Именно этот счёт, а не число '
+               '«без стража вовсе», показывает настоящий объём работы.\n'
+               % (len(INVARIANTS) - guardless, full_guard, part_guard,
+                  full_guard, len(INVARIANTS), guardless + part_guard))
 
     # ── §6. Порядок жизни ──
     out.append(LIFECYCLE)
+
+    # ── §7. Метрики самого источника ──
+    out.append(SOURCE_METRICS)
 
     text = '\n'.join(out).rstrip() + '\n'
     with io.open(OUT, 'w', encoding='utf-8', newline='\n') as f:
         f.write(text)
 
-    print('rows=%d tabs=%d avg=%s guardless=%d/%d'
-          % (len(ROWS), len(tabs), pct(total_avg), guardless, len(INVARIANTS)))
+    print('rows=%d tabs=%d avg=%s guard: none=%d partial=%d full=%d of %d'
+          % (len(ROWS), len(tabs), pct(total_avg), guardless, part_guard,
+             full_guard, len(INVARIANTS)))
     for t, n, a, low in tab_avg:
         print('  tab n=%d avg=%s low=%d' % (n, pct(a), low))
 

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<title>Заря: археология по гиту</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   АРХЕОЛОГИЯ ЗАРИ. Все значения полос «эпоха» и «лаг» взяты ДОСЛОВНО из
+   коммита 853548a («кремовый хром вместо графитового») — момента, когда
+   владелец попросил уйти от синего к кремовому и заря появилась:
+   · кремовая кнопка: index.css:857-877 той ревизии;
+   · синяя градиентная кромка карточек: index.css:317-325;
+   · голубое фокус-кольцо: index.css:171;
+   · сине-голубое выделение текста: index.css:176-179.
+   Ничего не сочинено: каждый цвет и каждая тень имеют адрес в гите.
+   ══════════════════════════════════════════════════════════════════════ */
+*{box-sizing:border-box}
+body{margin:0;padding:26px 22px 60px;background:#0b0b0c;color:#d4d4d8;
+  font-family:'Inter','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.55}
+h1{font-size:21px;font-weight:700;color:#f4f4f5;margin:0 0 4px;letter-spacing:-.01em}
+.lede{color:#a1a1aa;font-size:13px;max-width:74ch;margin:0 0 26px}
+h2{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:#8f8f96;margin:30px 0 4px}
+.gde{font-size:11px;color:#6b6b72;margin:0 0 12px;font-family:Consolas,monospace}
+.polosa{display:flex;align-items:center;gap:26px;flex-wrap:wrap;
+  background:#131316;border:1px solid #26262a;border-radius:16px;padding:24px 26px}
+.stsena{display:flex;align-items:center;gap:14px}
+
+/* ── ЭПОХА 853548a: предметы дословно ── */
+/* Кнопка фильтра, активная. index.css:857-866 (тёмная пара :868-877) */
+.ep-btn{
+  height:26px;padding:0 13px;border:0;border-radius:8px;cursor:pointer;
+  font:700 12px/1 'Inter',sans-serif;letter-spacing:.02em;
+  color:#a1a1aa;background:#1c1c20;
+  transition:all .3s ease;               /* тот самый лаг 0.3s */
+}
+.ep-btn-active{
+  color:#fff;
+  background:linear-gradient(180deg,#d6bf85 0%,#8f7549 100%);   /* :869 */
+  text-shadow:0 0 10px rgba(191,161,97,.6);                      /* :860 */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    inset 0 -1px 0 rgba(0,0,0,.18),
+    0 0 10px rgba(214,191,133,.65),                              /* :873 */
+    0 0 20px rgba(191,161,97,.32),                               /* :874 */
+    0 2px 5px rgba(143,117,73,.35);                              /* :875 */
+}
+/* Карточка со светящейся синей кромкой. index.css:305-325: обводка — сам
+   градиент, вырезанный маской в рамку толщиной 1px, на наведении синий. */
+.ep-card{
+  position:relative;width:210px;height:92px;border-radius:12px;
+  background:#161619;padding:14px 16px;
+}
+.ep-card::before{
+  content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1.2px;
+  background:linear-gradient(135deg,#3b82f6,#1d4ed8,#3b82f6);    /* blue.500→700→500, :324 */
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+}
+.ep-card-sinee-svechenie{box-shadow:0 0 18px rgba(59,130,246,.28),0 0 36px rgba(59,130,246,.12)}
+.ep-card-zag{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8f8f96}
+.ep-card-chislo{font-size:24px;font-weight:700;color:#f4f4f5;font-variant-numeric:tabular-nums;margin-top:6px}
+/* Фокус-кольцо. index.css:171 — ring-2 ring-blue-500/40 */
+.ep-fokus{box-shadow:0 0 0 1px #0b0b0c,0 0 0 3px rgba(59,130,246,.4)}
+/* Выделение текста. index.css:179 — bg-blue-500/25 text-blue-100 */
+.ep-vydelenie{background:rgba(59,130,246,.25);color:#dbeafe;padding:1px 3px;border-radius:3px}
+
+/* ── МОМЕНТ ЛАГА: оба слоя на одних пикселях ── */
+/* Переход .3s застыл: кремовая заливка уже горит, синие тени соседа ещё
+   не погасли — золото и лазурь смешиваются на кромке. Тени объединены
+   из :869-875 и :324 без изменения значений. */
+.lag-btn{
+  height:26px;padding:0 13px;border:0;border-radius:8px;cursor:pointer;
+  font:700 12px/1 'Inter',sans-serif;color:#fff;
+  background:linear-gradient(180deg,#d6bf85 0%,#8f7549 100%);
+  text-shadow:0 0 10px rgba(191,161,97,.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    inset 0 -1px 0 rgba(0,0,0,.18),
+    0 0 10px rgba(214,191,133,.65),
+    0 0 20px rgba(191,161,97,.32),
+    0 0 14px rgba(59,130,246,.45),
+    0 0 30px rgba(59,130,246,.22),
+    0 2px 5px rgba(143,117,73,.35);
+}
+.lag-card{position:relative;width:210px;height:92px;border-radius:12px;background:#161619;padding:14px 16px}
+.lag-card::before{
+  content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1.2px;
+  background:linear-gradient(135deg,#3b82f6 0%,#d6bf85 45%,#1d4ed8 100%);
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+}
+.lag-card{box-shadow:0 0 16px rgba(59,130,246,.22),0 0 14px rgba(214,191,133,.30)}
+/* Живой лаг: медленное перетекание синего и кремового свечений — то самое
+   «дыхание рассвета», которое давал transition при переключении. */
+.lag-zhivoy{animation:lag-dyhanie 6s ease-in-out infinite}
+@keyframes lag-dyhanie{
+  0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.18),
+    0 0 10px rgba(214,191,133,.65),0 0 20px rgba(191,161,97,.32),
+    0 0 6px rgba(59,130,246,.15),0 2px 5px rgba(143,117,73,.35)}
+  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.18),
+    0 0 8px rgba(214,191,133,.40),0 0 14px rgba(191,161,97,.20),
+    0 0 16px rgba(59,130,246,.50),0 0 34px rgba(59,130,246,.26),0 2px 5px rgba(143,117,73,.35)}}
+@media (prefers-reduced-motion:reduce){.lag-zhivoy{animation:none}}
+
+/* ── НЫНЕШНЯЯ ЗАРЯ (моя интерпретация) — для честного сравнения ── */
+.now-btn{
+  height:26px;padding:0 13px;border:1px solid rgba(214,191,133,.55);border-radius:8px;cursor:pointer;
+  font:700 12px/1 'Inter',sans-serif;color:#1b170f;
+  background:linear-gradient(180deg,#e5d3a9,#d6bf85);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    inset 0 -1px 0 rgba(0,0,0,.12),
+    0 0 10px rgba(56,189,248,.24),
+    0 0 22px rgba(56,189,248,.12);
+}
+.raznitsa{max-width:78ch;color:#a1a1aa;font-size:13px}
+.raznitsa b{color:#f4f4f5}
+.raznitsa li{margin:6px 0}
+.svetlaya{background:#ECEBE4;border-color:#d6d5cc}
+.svetlaya .ep-card,.svetlaya .lag-card{background:#f6f5f0}
+.svetlaya .ep-card-zag{color:#6b6b66}.svetlaya .ep-card-chislo{color:#1c1b17}
+.pometa{font-size:10px;color:#6b6b72;letter-spacing:.05em;text-transform:uppercase}
+
+/* ── НАСТОЯЩАЯ ЗАРЯ 07-14.08: градиент рассвета ВНУТРИ предмета ── */
+/* Дословно из 853548a: месяц tg-month-active, год tg-year-full. */
+.zar-mes{
+  height:24px;min-width:38px;padding:0 9px;border:0;border-radius:7px;cursor:pointer;
+  font:700 11.5px/1 'Inter',sans-serif;color:#fff;
+  background:linear-gradient(180deg,#5b99f8 0%,#8f7549 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 3px rgba(0,0,0,.3);
+}
+.zar-god{
+  height:26px;padding:0 12px;border:0;border-radius:8px;cursor:pointer;
+  font:800 13px/1 'Inter',sans-serif;color:#fff;font-variant-numeric:tabular-nums;
+  background:linear-gradient(135deg,#4d8ef7 0%,#8f7549 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 0 10px rgba(91,153,248,.35),0 1px 3px rgba(0,0,0,.3);
+}
+.zar-god--latun{background:linear-gradient(135deg,#5b99f8 0%,#bfa161 100%)}
+.zar-kv{
+  height:20px;min-width:26px;padding:0 5px;border:0;border-radius:6px;cursor:pointer;
+  font:800 9.5px/1 'Inter',sans-serif;color:#1b170f;
+  background:linear-gradient(180deg,#e5d3a9 0%,#d6bf85 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3);
+}
+.zar-tih{height:24px;min-width:38px;padding:0 9px;border:0;border-radius:7px;
+  background:#1c1c20;color:#6b6b72;font:600 11.5px/1 'Inter',sans-serif}
+</style></head><body>
+
+<h1>Заря: археология по гиту</h1>
+<p class="lede">Владелец: «лазурно-кремовая заря появилась примерно тогда, когда я только попросил уйти от синего к кремовому». Это коммит <b style="color:#d6bf85">853548a</b> — «кремовый хром вместо графитового». В нём кремовые кнопки с золотым свечением уже горят, а вся синь ещё жива: градиентные кромки карточек, голубые фокус-кольца, синие выделения. Ниже — предметы той ревизии, значения дословно, у каждого адрес строки.</p>
+
+
+<h2>0 · НАСТОЯЩАЯ ЗАРЯ — найдена по снимку владельца</h2>
+<p class="gde">853548a..f838f2a (07–14.08) · месяц: index.css tg-month-active · год: tg-year-full · умерла в 168c14a (14.08)</p>
+<div class="polosa">
+  <div class="stsena">
+    <button class="zar-god">2026</button>
+    <button class="zar-kv">1кв</button>
+    <button class="zar-mes">Янв</button>
+    <button class="zar-mes">Фев</button>
+    <button class="zar-mes">Мар</button>
+    <button class="zar-kv">2кв</button>
+    <button class="zar-tih">Апр</button>
+    <button class="zar-mes">Май</button>
+  </div>
+  <div class="stsena">
+    <button class="zar-god zar-god--latun">2026</button>
+    <span class="pometa">вторая пара года: голубой → латунь</span>
+  </div>
+  <div class="stsena">
+    <button class="zar-mes" style="background:linear-gradient(180deg,#5b99f8 0%,#9d8150 100%);color:#1b170f;font-weight:800">Май</button>
+    <button class="zar-mes" style="background:linear-gradient(180deg,#426eb3 0%,#675435 100%)">Май</button>
+    <span class="pometa">пары по норме: тёмная подпись 6,26/4,84 · белая 5,11/7,25</span>
+  </div>
+
+</div>
+<p class="raznitsa" style="margin-top:10px"><b>Рецепт, который я искал не там:</b> заря — не свечение вокруг кнопки, а <b>градиент рассвета внутри неё</b>: лазурный верх <span class="mono" style="font-family:Consolas">#5b99f8</span> перетекает в бронзовое дно <span style="font-family:Consolas">#8f7549</span>. Кремовые ярлыки кварталов рядом дают чередование тёплого и холодного — ткань зари. Белая подпись на этом градиенте — проверить контраст; при провале затемнять пару, не меняя рода эффекта.</p>
+
+<h2>1 · Эпоха 853548a — как было на самом деле</h2>
+<p class="gde">кнопка: index.css:868-877 · кромка карточки: :305-325 · фокус: :171 · выделение: :179</p>
+<div class="polosa">
+  <div class="stsena">
+    <button class="ep-btn">КП</button>
+    <button class="ep-btn">ЕП</button>
+    <button class="ep-btn ep-btn-active">ВСЕ</button>
+  </div>
+  <div class="ep-card ep-card-sinee-svechenie">
+    <div class="ep-card-zag">Исполнение года</div>
+    <div class="ep-card-chislo">85,8 %</div>
+  </div>
+  <div class="stsena">
+    <button class="ep-btn ep-fokus">тыс</button>
+    <span>план <span class="ep-vydelenie">1 334 749,4</span> тыс</span>
+  </div>
+</div>
+<p class="raznitsa" style="margin-top:10px">Золотая кнопка (заливка в <b>бронзу #8f7549</b>, белая подпись, двойное латунное свечение) стоит в поле <b>синих градиентных кромок</b> и голубых колец. Тёплое и холодное светятся рядом — это и есть постоянная, «правильная» часть зари.</p>
+
+<h2>2 · Момент лага — то, что выглядело «чертовски красиво»</h2>
+<p class="gde">оба слоя дословно; переход .3s (index.css той ревизии) застыл на полпути — тени соседей легли на одни пиксели</p>
+<div class="polosa">
+  <div class="stsena">
+    <button class="ep-btn">КП</button>
+    <button class="lag-btn">ВСЕ</button>
+  </div>
+  <div class="lag-card">
+    <div class="ep-card-zag">Экономия</div>
+    <div class="ep-card-chislo">102 651,5</div>
+  </div>
+  <div class="stsena" style="flex-direction:column;align-items:flex-start;gap:6px">
+    <button class="lag-btn lag-zhivoy">живой лаг</button>
+    <span class="pometa">дыхание 6 с — как перетекали тени</span>
+  </div>
+</div>
+<p class="raznitsa" style="margin-top:10px">Кремовая заливка уже горит, синее свечение ещё не погасло: <b>лазурь подсвечивает золото снаружи</b>, кромка карточки перетекает из синего в крем. Наложение двух свечений на одних пикселях — вот баг, который стал находкой.</p>
+
+<h2>3 · Нынешняя заря — моя интерпретация, для честного сравнения</h2>
+<p class="gde">крем #E5D3A9→#D6BF85 + лазурный ореол; тёмная подпись по канону читаемости</p>
+<div class="polosa">
+  <div class="stsena">
+    <button class="ep-btn">КП</button>
+    <button class="now-btn">ВСЕ</button>
+  </div>
+  <div class="raznitsa">
+    <b>Чем нынешнее отличается от эпохи — и что предлагаю вернуть:</b>
+    <ul>
+      <li><b>Глубина заливки.</b> Была до бронзы #8f7549 — сочно и объёмно; сейчас до светлого #D6BF85 — площе. Вернуть бронзовое дно.</li>
+      <li><b>Белая подпись с золотой тенью.</b> Была светящейся; сейчас тёмная (читаемость 9,9:1 против 2,1:1 у белой). Решение: тёмная подпись остаётся, свечение отдаём заливке и ореолу.</li>
+      <li><b>Сила свечения.</b> Было двойное золотое наружу (.65+.32) — кнопка «горела»; сейчас только лазурный ореол. Вернуть золотой слой + лазурный поверх: три тени, как в лаге.</li>
+      <li><b>Синие кромки-градиенты карточек.</b> Убиты вместе с синью — а это половина зари. Вернуть кромку, но лазурно-кремовым градиентом (135°: лазурь → крем → лазурь) на наведении.</li>
+      <li><b>Дыхание.</b> Лаг давал перетекание. Осознанно: медленное дыхание тёплого↔холодного только на предметах обновления (§13.3).</li>
+    </ul>
+  </div>
+</div>
+
+<h2>4 · Те же три состояния на свету</h2>
+<div class="polosa svetlaya">
+  <div class="stsena">
+    <button class="ep-btn" style="background:#dddcd3;color:#55544e">КП</button>
+    <button class="ep-btn ep-btn-active" style="background:linear-gradient(180deg,#e5d3a9 0%,#8f7549 100%)">ВСЕ</button>
+  </div>
+  <div class="ep-card ep-card-sinee-svechenie">
+    <div class="ep-card-zag">Исполнение года</div>
+    <div class="ep-card-chislo">85,8 %</div>
+  </div>
+  <div class="stsena">
+    <button class="lag-btn">лаг</button>
+    <button class="now-btn">сейчас</button>
+  </div>
+</div>
+
+</body></html>

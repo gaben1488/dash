@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Оттиск — образец элементов управления</title>
+<style>
+  :root {
+    --page:        #0b0b0a;   /* графит без синевы: b<=r и b<=g */
+    --card:        #161514;
+    --raised:      #1d1c1a;
+    --sunken:      #100f0e;
+
+    --ink-strong:  #f4f4f5;
+    --ink:         #d9d9db;
+    --ink-muted:   #a0a0a3;
+    --ink-faint:   #757578;
+    --ink-off:     #818182;   /* подпись недоступного, 4,69:1 к карточке */
+
+    --accent:      #e5d3a9;   /* крем, 13,4:1 к странице */
+    --accent-hi:   #efe0be;   /* наведение */
+    --accent-lo:   #d6bf85;   /* нажатие */
+    --accent-ink:  #131217;   /* подпись на заливке, 12,6:1 */
+
+    --lazur:       #7dd3fc;   /* лазурная пара крема */
+    --lazur-edge:  rgba(125,211,252,0.6);
+    --lazur-halo:  rgba(14,165,233,0.4);
+
+    --line:        #6a6a73;   /* граница обведённой кнопки, 3,41:1 к карточке */
+    --line-hi:     #87878f;
+    --line-soft:   #26262a;
+    --ring:        #f4f4f5;   /* кольцо фокуса, 16,60:1 к карточке */
+
+    --bad:         #f87171;
+    --good:        #34d399;
+
+    --r-card:      8px;
+    --r-ctl:       6px;
+    --r-item:      4px;
+    --r-pill:      9999px;
+
+    --h-sm:        24px;
+    --h-md:        28px;
+    --h-lg:        36px;
+
+    --dur-instant: 90ms;
+    --dur-fast:    140ms;
+    --dur-base:    220ms;
+    --dur-slow:    280ms;
+    --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-move:   cubic-bezier(0.77, 0, 0.175, 1);
+
+    --t-sm: 11px;
+    --t-md: 13px;
+    --t-lg: 15px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 28px 24px 64px;
+    background: var(--page);
+    color: var(--ink);
+    font: 400 var(--t-md)/1.5 "Inter", "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; }
+
+  h1 { font-size: 22px; font-weight: 600; color: var(--ink-strong); margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lede { color: var(--ink-muted); font-size: var(--t-md); margin: 0 0 28px; max-width: 62ch; }
+
+  h2 {
+    font-size: var(--t-md); font-weight: 600; color: var(--ink-strong);
+    margin: 32px 0 4px; letter-spacing: 0;
+  }
+  .note { color: var(--ink-muted); font-size: var(--t-sm); margin: 0 0 12px; max-width: 68ch; }
+
+  .panel {
+    background: var(--card);
+    border-radius: var(--r-card);
+    padding: 16px;
+  }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .row + .row { margin-top: 12px; }
+  .col-label {
+    font-size: 10px; color: var(--ink-faint); letter-spacing: 0.05em;
+    text-transform: uppercase; margin: 0 0 6px;
+  }
+
+  /* ── Кольцо фокуса: одно правило на весь набор ───────────────── */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* ── Кнопка ──────────────────────────────────────────────────── */
+  .btn {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 8px; white-space: nowrap;
+    height: var(--h-md); padding: 0 12px;
+    font: 500 var(--t-md)/1 inherit;
+    border: 1px solid transparent;
+    border-radius: var(--r-ctl);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+    transition: background-color var(--dur-instant) var(--ease-out),
+                border-color   var(--dur-instant) var(--ease-out),
+                color          var(--dur-instant) var(--ease-out);
+  }
+  /* Область нажатия дорастает до 44 пикселей, видимая высота не растёт. */
+  .btn::before { content: ""; position: absolute; inset: -8px; }
+
+  .btn--sm { height: var(--h-sm); padding: 0 8px; font-size: var(--t-sm); gap: 6px; }
+  .btn--lg { height: var(--h-lg); padding: 0 16px; font-size: var(--t-lg); }
+
+  .btn--main    { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn--outline { border-color: var(--line); color: var(--ink); }
+  .btn--quiet   { color: var(--ink-muted); }
+  .btn--danger  { border-color: color-mix(in srgb, var(--bad) 55%, transparent); color: var(--bad); }
+
+  @media (hover: hover) and (pointer: fine) {
+    .btn--main:hover    { background: var(--accent-hi); border-color: var(--accent-hi); }
+    .btn--outline:hover { border-color: var(--line-hi); color: var(--ink-strong); }
+    .btn--quiet:hover   { background: var(--raised); color: var(--ink-strong); }
+    .btn--danger:hover  { background: color-mix(in srgb, var(--bad) 10%, transparent); }
+  }
+  .btn--main:active    { background: var(--accent-lo); border-color: var(--accent-lo); }
+  .btn--outline:active { background: var(--raised); }
+  .btn--quiet:active   { background: var(--sunken); }
+
+  /* Отклик геометрией — только у главной кнопки раздела: она одна на экран. */
+  .btn--lg.btn--main:active { transform: scale(0.98); transition-duration: var(--dur-instant); }
+
+  .btn[disabled] {
+    cursor: not-allowed;
+    color: var(--ink-off);
+    background: transparent;
+    border-color: var(--line-soft);
+  }
+  .btn--main[disabled] { background: var(--raised); border-color: var(--raised); color: var(--ink-off); }
+
+  .ico { width: 12px; height: 12px; flex: none; }
+
+  /* Вертушка ожидания: занимает слот значка, ширина кнопки не меняется. */
+  .spin {
+    width: 12px; height: 12px; flex: none; border-radius: 50%;
+    border: 2px solid currentColor; border-right-color: transparent;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Переключатель режима, включая «частично» ────────────────── */
+  .sw {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 8px;
+    height: var(--h-md); padding: 0 12px;
+    border: 1px solid var(--line); border-radius: var(--r-ctl);
+    color: var(--ink-muted); font-size: var(--t-md); cursor: pointer;
+    transition: background-color var(--dur-instant) var(--ease-out),
+                border-color   var(--dur-instant) var(--ease-out),
+                color          var(--dur-instant) var(--ease-out);
+  }
+  .sw input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .sw:has(input:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .sw[data-state="on"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .sw[data-state="mixed"] { border-color: var(--accent); color: var(--ink-strong); }
+  .sw[data-state="mixed"]::after {
+    content: ""; position: absolute; left: 6px; right: 6px; bottom: 3px;
+    height: 2px; background: var(--accent); border-radius: 1px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .sw[data-state="off"]:hover { color: var(--ink-strong); border-color: var(--line-hi); }
+  }
+
+  /* ── Сегменты ────────────────────────────────────────────────── */
+  fieldset.seg { border: 0; margin: 0; padding: 0; }
+  .seg-box {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 2px; border: 1px solid var(--line-soft);
+    border-radius: var(--r-ctl); background: var(--sunken);
+  }
+  .seg-item {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: var(--h-sm); padding: 0 10px;
+    border-radius: var(--r-item);
+    font-size: var(--t-sm); color: var(--ink-muted); cursor: pointer;
+    transition: background-color var(--dur-instant) var(--ease-out),
+                color var(--dur-instant) var(--ease-out);
+  }
+  .seg-item input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .seg-item:has(input:checked) { background: var(--accent); color: var(--accent-ink); }
+  .seg-item:has(input:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .seg-item:has(input:disabled) { color: var(--ink-off); cursor: not-allowed; }
+  @media (hover: hover) and (pointer: fine) {
+    .seg-item:hover:not(:has(input:checked)):not(:has(input:disabled)) {
+      background: var(--raised); color: var(--ink-strong);
+    }
+  }
+
+  /* ── Чип фильтра ─────────────────────────────────────────────── */
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: var(--h-sm); padding: 0 6px 0 10px;
+    border-radius: var(--r-pill);
+    background: var(--raised); color: var(--ink-muted);
+    font-size: var(--t-sm); border: 1px solid transparent;
+    transition: background-color var(--dur-instant) var(--ease-out),
+                color var(--dur-instant) var(--ease-out);
+  }
+  .chip[data-on="1"] { background: var(--accent); color: var(--accent-ink); }
+  @media (hover: hover) and (pointer: fine) {
+    .chip:hover { background: color-mix(in srgb, var(--ink) 12%, var(--raised)); }
+    .chip[data-on="1"]:hover { background: var(--accent-hi); }
+    .chip:hover .chip-x { opacity: 1; }
+  }
+  .chip-x {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; flex: none;
+    border: 0; border-radius: var(--r-pill);
+    background: transparent; color: inherit; cursor: pointer;
+    opacity: 0.55;  /* виден всегда, а не только по наведению */
+    transition: opacity var(--dur-instant) var(--ease-out);
+  }
+  .chip-x:focus-visible { opacity: 1; }
+  .chip-undo {
+    display: inline-flex; align-items: center; height: var(--h-sm);
+    padding: 0 10px; border-radius: var(--r-pill);
+    border: 1px dashed var(--line); background: transparent;
+    color: var(--ink-muted); font-size: var(--t-sm); cursor: pointer;
+  }
+
+  /* ── Карточка: раскрытие и проваливание ──────────────────────── */
+  .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .demo-grid { grid-template-columns: 1fr; } }
+
+  .kard {
+    background: var(--card);
+    border-radius: var(--r-card);
+    padding: 14px 16px 12px;
+    display: flex; flex-direction: column;
+    transition: height var(--dur-base) var(--ease-move);
+  }
+  .kard-head {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; background: none; border: 0; padding: 0;
+    color: inherit; text-align: left; cursor: pointer; font: inherit;
+    border-radius: var(--r-item);
+  }
+  .kard-title { font-size: var(--t-md); font-weight: 600; color: var(--ink-strong); }
+  .kard-num {
+    font-size: 28px; font-weight: 600; color: var(--ink-strong);
+    line-height: 1.15; margin: 6px 0 2px; letter-spacing: -0.02em;
+  }
+  .kard-sub { font-size: var(--t-sm); color: var(--ink-muted); margin: 0; }
+  .caret { transition: transform var(--dur-fast) var(--ease-out); color: var(--ink-faint); }
+  .kard-head[aria-expanded="true"] .caret { transform: rotate(180deg); }
+
+  .disc { overflow: hidden; height: 0; transition: height var(--dur-base) var(--ease-out); }
+  .disc-inner { padding-top: 12px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out) 60ms; }
+  .disc[data-open="1"] .disc-inner { opacity: 1; }
+  .disc table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+  .disc td { padding: 4px 0; color: var(--ink-muted); }
+  .disc td:last-child { text-align: right; color: var(--ink); }
+
+  .kard-foot { margin-top: auto; padding-top: 12px; display: flex; justify-content: flex-end; }
+  .drill {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: var(--h-sm); padding: 0 8px; border: 0; border-radius: var(--r-ctl);
+    background: transparent; color: var(--ink-muted); font: inherit; font-size: var(--t-sm);
+    cursor: pointer;
+    transition: background-color var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out);
+  }
+  .drill .ico { color: var(--ink-faint); transition: transform var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out); }
+  @media (hover: hover) and (pointer: fine) {
+    .drill:hover { color: var(--ink-strong); }
+    .drill:hover .ico { color: var(--accent); transform: translateX(2px); }
+    .back:hover { color: var(--ink-strong); }
+    .back:hover .ico { color: var(--accent); transform: translateX(-2px); }
+  }
+  .back {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: var(--h-sm); padding: 0 8px 0 6px; border: 0; border-radius: var(--r-ctl);
+    background: transparent; color: var(--ink-muted); font: inherit; font-size: var(--t-sm);
+    cursor: pointer;
+  }
+  .back .ico { color: var(--ink-faint); transition: transform var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out); }
+
+  .layer { transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+  .layer[data-out="left"]  { opacity: 0; transform: translateX(-8px); }
+  .layer[data-in="right"]  { opacity: 0; transform: translateX(8px); }
+
+  .trail { font-size: var(--t-sm); color: var(--ink-muted); margin: 8px 0 10px; }
+  .deep table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+  .deep th {
+    text-align: left; font-weight: 500; font-size: 10px; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-faint); padding: 0 0 6px;
+  }
+  .deep td { padding: 5px 0; color: var(--ink); border-top: 1px solid var(--line-soft); }
+  .deep td:last-child, .deep th:last-child { text-align: right; }
+
+  .legend { font-size: var(--t-sm); color: var(--ink-faint); margin-top: 10px; }
+  code { font-family: "Geist Mono", ui-monospace, "Cascadia Mono", monospace; font-size: 11px; color: var(--ink-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+  /* Действие с клавиатуры не анимируется вовсе. */
+  [data-instant] * { transition-duration: 0s !important; }
+
+  /* Заря: лазурная пара каждого кремового предмета — у мелких кромка
+     в один пиксель, у крупной главной кнопки ореол; некремовые
+     предметы лазури не несут. */
+  .btn--main { box-shadow: 0 0 0 1px var(--lazur-edge); }
+  .btn--lg.btn--main { box-shadow: 0 0 0 1px var(--lazur-edge), 0 0 12px var(--lazur-halo); }
+  .btn--main[disabled] { box-shadow: none; }
+  .sw[data-state="on"], .seg-item:has(input:checked), .chip[data-on="1"] {
+    box-shadow: 0 0 0 1px var(--lazur-edge);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Оттиск</h1>
+  <p class="lede">
+    Образец набора элементов управления на согласование. Каждый орган управления —
+    след, оставленный в самом листе: он лежит в плоскости, никогда над ней не
+    поднимается, и различается плотностью краски, а не высотой. Ни теней, ни
+    объёма. Один акцент — кремовый <code>#e5d3a9</code> с лазурной кромкой, 13,4:1 к фону страницы.
+    Числа и наименования — настоящие, из реестра управлений Елизовского района.
+  </p>
+
+  <h2>Кнопка в трёх видах</h2>
+  <p class="note">
+    Главная — залита акцентом, подпись почти чёрная (12,6:1; белая подпись дала бы
+    1,48:1 и здесь запрещена). Обычная — обведена линией 3,41:1. Тихая — без рамки.
+    Необратимое — не четвёртый вид, а надстройка над обычной: обведено тревожным,
+    но не залито им, потому что красный занят числами.
+  </p>
+  <div class="panel">
+    <p class="col-label">Покой, наведение, нажатие</p>
+    <div class="row">
+      <button class="btn btn--lg btn--main">Сверить с отчётом</button>
+      <button class="btn btn--outline">Открыть выгрузку</button>
+      <button class="btn btn--quiet">Скрыть служебные</button>
+      <button class="btn btn--danger">Снять сверку</button>
+    </div>
+    <p class="col-label" style="margin-top:18px">Три ступени размера: 24, 28, 36 пикселей</p>
+    <div class="row">
+      <button class="btn btn--sm btn--outline">Обновить</button>
+      <button class="btn btn--outline">Обновить</button>
+      <button class="btn btn--lg btn--outline">Обновить</button>
+    </div>
+    <p class="col-label" style="margin-top:18px">Ожидание и недоступность</p>
+    <div class="row">
+      <button class="btn btn--main" aria-busy="true"><span class="spin"></span>Сверить с отчётом</button>
+      <button class="btn btn--outline" disabled
+              title="Сверка недоступна: выгрузка от 21.08 не прочитана">Сверить с отчётом</button>
+      <span class="legend">Подпись недоступной кнопки — 4,69:1, а не прозрачность 50 %.</span>
+    </div>
+  </div>
+
+  <h2>Переключатель режима, включая «частично»</h2>
+  <p class="note">
+    Настоящий флажок, спрятанный для глаза и живой для клавиатуры. Третье состояние —
+    «частично»: выбор есть, но неполный. Именно оно обычно и пропускается; в барабане
+    периода оно у нас уже сделано, здесь оно распространено на остальное.
+  </p>
+  <div class="panel">
+    <div class="row">
+      <label class="sw" data-state="off">
+        <input type="checkbox" onchange="tog(this)">
+        Показывать снятые
+      </label>
+      <label class="sw" data-state="on">
+        <input type="checkbox" checked onchange="tog(this)">
+        Считать по неделе
+      </label>
+      <span class="sw" data-state="mixed" tabindex="0" role="checkbox" aria-checked="mixed"
+            title="Выбрано 2 источника из 3: федеральный и краевой">
+        Источник финансирования
+      </span>
+    </div>
+    <p class="legend">
+      У «частично» — заливки нет, граница акцентом и полоса 2 пикселя по нижнему краю;
+      диктору сказано <code>aria-checked="mixed"</code>.
+    </p>
+  </div>
+
+  <h2>Сегменты: один из нескольких</h2>
+  <p class="note">
+    Радиогруппа внутри <code>fieldset</code>: клавиша перехода уводит фокус за группу,
+    стрелки ходят внутри. Вес подписи при выборе не меняется, поэтому полоса не дёргается.
+    Больше четырёх вариантов не выкладывается.
+  </p>
+  <div class="panel">
+    <div class="row" style="gap:16px">
+      <fieldset class="seg">
+        <legend class="col-label">Единица суммы</legend>
+        <div class="seg-box">
+          <label class="seg-item" title="Все суммы на вкладке читаются в рублях"><input type="radio" name="u">Рубли</label>
+          <label class="seg-item" title="Все суммы делятся на тысячу"><input type="radio" name="u" checked>Тысячи</label>
+          <label class="seg-item" title="Все суммы делятся на миллион"><input type="radio" name="u">Миллионы</label>
+        </div>
+      </fieldset>
+      <fieldset class="seg">
+        <legend class="col-label">Разрез</legend>
+        <div class="seg-box">
+          <label class="seg-item"><input type="radio" name="r" checked>Управления</label>
+          <label class="seg-item"><input type="radio" name="r">Учреждения</label>
+          <label class="seg-item" title="Квартальной разбивки в источнике нет"><input type="radio" name="r" disabled>Кварталы</label>
+        </div>
+      </fieldset>
+    </div>
+  </div>
+
+  <h2>Чип фильтра со снятием</h2>
+  <p class="note">
+    Крестик виден всегда на 55 % и не сдвигает соседей: место под него зарезервировано.
+    Снятие не переспрашивает — на месте снятого четыре секунды живёт «вернуть».
+  </p>
+  <div class="panel">
+    <div class="row" id="chips">
+      <span class="chip" data-on="1">УО<button class="chip-x" aria-label="Снять фильтр: управление образования" onclick="drop(this)">✕</button></span>
+      <span class="chip">УКСиМП<button class="chip-x" aria-label="Снять фильтр: управление культуры, спорта и молодёжной политики" onclick="drop(this)">✕</button></span>
+      <span class="chip">Единственный поставщик<button class="chip-x" aria-label="Снять фильтр: единственный поставщик" onclick="drop(this)">✕</button></span>
+      <span class="chip">III квартал<button class="chip-x" aria-label="Снять фильтр: третий квартал" onclick="drop(this)">✕</button></span>
+      <button class="btn btn--sm btn--quiet">и ещё 7</button>
+    </div>
+  </div>
+
+  <h2>Два рода углубления</h2>
+  <p class="note">
+    Признак различения проверяется за секунду: если после углубления заголовок карточки
+    по-прежнему верен — это раскрытие на месте; если заголовок пришлось бы переписать —
+    это проваливание внутрь при сохранённой рамке.
+  </p>
+  <div class="demo-grid">
+
+    <div class="kard">
+      <button class="kard-head" aria-expanded="false" onclick="disc(this)">
+        <svg class="ico caret" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="kard-title">Экономия за квартал — 4,1 %</span>
+      </button>
+      <p class="kard-num">4,1 %</p>
+      <p class="kard-sub">Ниже целевых 5 % на 0,9 процентного пункта</p>
+      <div class="disc" data-open="0">
+        <div class="disc-inner">
+          <table>
+            <tr><td>Местный бюджет</td><td>3,4 %</td></tr>
+            <tr><td>Краевой бюджет</td><td>5,2 %</td></tr>
+            <tr><td>Федеральный бюджет</td><td>4,8 %</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="legend">Раскрытие на месте: заголовок остался верным, соседи уехали вниз.</p>
+    </div>
+
+    <div class="kard" id="deepCard">
+      <div class="layer" id="lvl0">
+        <div class="kard-title">Процедуры за III квартал</div>
+        <p class="kard-num">47</p>
+        <p class="kard-sub">Управление образования, 45 подведомственных учреждений</p>
+        <div class="kard-foot">
+          <button class="drill" onclick="deep(1)">Открыть 47 строк
+            <svg class="ico" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="layer deep" id="lvl1" hidden>
+        <button class="back" onclick="deep(0)">
+          <svg class="ico" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M7.5 2.5L4 6l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          К обзору квартала
+        </button>
+        <div class="trail">Управление образования → Процедуры III квартала</div>
+        <table>
+          <tr><th>Способ</th><th>Учреждений</th><th>Строк</th></tr>
+          <tr><td>Единственный поставщик</td><td>38</td><td>31</td></tr>
+          <tr><td>Электронный аукцион</td><td>11</td><td>12</td></tr>
+          <tr><td>Запрос котировок</td><td>4</td><td>4</td></tr>
+        </table>
+      </div>
+      <p class="legend">Проваливание: рамка не изменилась, содержимое стало другим, путь назад назван.</p>
+    </div>
+
+  </div>
+
+  <h2>Что здесь замерено</h2>
+  <div class="panel">
+    <table style="width:100%;border-collapse:collapse;font-size:var(--t-sm)">
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Акцент <code>#e5d3a9</code> к фону <code>#0b0b0a</code></td><td style="text-align:right">13,40 : 1</td></tr>
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Подпись <code>#131217</code> на заливке акцентом</td><td style="text-align:right">12,62 : 1</td></tr>
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Белая подпись на заливке акцентом — запрещена</td><td style="text-align:right;color:var(--bad)">1,48 : 1</td></tr>
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Граница обведённой кнопки <code>#6a6a73</code> к карточке</td><td style="text-align:right">3,41 : 1</td></tr>
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Нынешняя граница <code>#26262a</code> к карточке — дефект</td><td style="text-align:right;color:var(--bad)">1,21 : 1</td></tr>
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Кольцо фокуса <code>#f4f4f5</code> к карточке</td><td style="text-align:right">16,60 : 1</td></tr>
+      <tr><td style="padding:4px 0;color:var(--ink-muted)">Подпись недоступного <code>#818182</code> к карточке</td><td style="text-align:right">4,69 : 1</td></tr>
+    </table>
+    <p class="legend">
+      Движение: отклик краской 90 мс, раскрытие 220 мс вход и 160 мс выход,
+      кривая <code>cubic-bezier(0.22, 1, 0.36, 1)</code>. Ни одной длительности выше
+      300 мс, ни одного <code>transition-all</code>, все состояния наведения закрыты
+      условием <code>(hover: hover) and (pointer: fine)</code>, действие с клавиатуры
+      не анимировано вовсе.
+    </p>
+  </div>
+
+</div>
+
+<script>
+  function tog(input) {
+    input.closest('.sw').dataset.state = input.checked ? 'on' : 'off';
+  }
+
+  function disc(head) {
+    var open = head.getAttribute('aria-expanded') === 'true';
+    var box = head.parentNode.querySelector('.disc');
+    var inner = box.querySelector('.disc-inner');
+    head.setAttribute('aria-expanded', String(!open));
+    if (open) {
+      box.style.height = inner.offsetHeight + 'px';
+      box.getBoundingClientRect();
+      box.dataset.open = '0';
+      box.style.transitionDuration = '160ms';
+      box.style.height = '0px';
+    } else {
+      box.dataset.open = '1';
+      box.style.transitionDuration = '220ms';
+      box.style.height = inner.offsetHeight + 'px';
+    }
+  }
+
+  function deep(level) {
+    var card = document.getElementById('deepCard');
+    var from = document.getElementById(level ? 'lvl0' : 'lvl1');
+    var to   = document.getElementById(level ? 'lvl1' : 'lvl0');
+    var h0 = card.offsetHeight;
+
+    from.dataset.out = level ? 'left' : 'right';
+    setTimeout(function () {
+      from.hidden = true;
+      delete from.dataset.out;
+      to.hidden = false;
+      to.dataset.in = level ? 'right' : 'left';
+      var h1 = card.offsetHeight;
+      card.style.height = h0 + 'px';
+      card.getBoundingClientRect();
+      card.style.height = h1 + 'px';
+      // Двойной кадр: первый — чтобы браузер зафиксировал начальное
+      // положение, второй — чтобы переход действительно проигрался.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { delete to.dataset.in; });
+      });
+      setTimeout(function () { card.style.height = ''; }, 240);
+      var focusTo = to.querySelector('.back') || to.querySelector('.drill');
+      if (focusTo) focusTo.focus({ preventScroll: true });
+    }, 120);
+  }
+
+  function drop(x) {
+    var chip = x.closest('.chip');
+    var undo = document.createElement('button');
+    undo.className = 'chip-undo';
+    undo.textContent = 'вернуть';
+    chip.after(undo);
+    chip.hidden = true;
+    var timer = setTimeout(function () { undo.remove(); chip.remove(); }, 4000);
+    undo.onclick = function () { clearTimeout(timer); chip.hidden = false; undo.remove(); };
+  }
+
+  // Действие, пришедшее с клавиатуры, не анимируется вовсе.
+  document.addEventListener('keydown', function () {
+    document.body.setAttribute('data-instant', '');
+  });
+  document.addEventListener('mousedown', function () {
+    document.body.removeAttribute('data-instant');
+  });
+</script>
+</body>
+</html>

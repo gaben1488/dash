@@ -1,0 +1,1247 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head><meta charset="utf-8"><title>Угол — крупно</title>
+<style>:root {
+  color-scheme: light;
+  --sloy-dno:        #C1C0B8;
+  --sloy-gnezdo:     #CCCBC4;
+  --sloy-plitka:     #D8D7D0;
+  --sloy-polotno:    #E5E4DE;
+  --sloy-kartochka:  #F2F2ED;
+  --sloy-vsplyv:     #FFFFFF;
+  --line-soft:   #D3D2CA;
+  --line-strong: #ADABA2;
+  --line-card:   transparent;
+  --ink-strong: #171613;
+  --ink:        #3A3833;
+  --ink-muted:  #504D46;
+  --chrome:      #4B483F;
+  --chrome-soft: #E5E4DE;
+  --chrome-line: #ADABA2;
+  --chrome-ink:  #FAF9F6;
+  --deystvie:       #AE2F86;
+  --deystvie-navod: #97256F;
+  --deystvie-tekst: #98297A;
+  --deystvie-tihoe: #F6E7F1;
+  --deystvie-ink:   #FFFFFF;
+  --horosho:   #0E6A46;
+  --vnimanie:  #9A4E27;
+  --ploho:     #B02620;
+  --svedeniya: #67645C;
+  --malahit:       #0E6A46;
+  --patina:        #0D7570;
+  --sliva:         #6B3FB5;
+  --baklazhan:     #4E3487;
+  --karmin:        #B02620;
+  --vishnya:       #99284E;
+  --glina:         #9A4E27;
+  --platina:       #67645C;
+  --platina-tishe: #7C7971;
+  --chart-grid:         #D3D2CA;
+  --chart-axis:         #504D46;
+  --chart-tooltip-bg:   #FFFFFF;
+  --chart-tooltip-line: #ADABA2;
+  --chart-reference:    #7C7971;
+  --e1: 0 1px 2px rgba(20,18,14,.07);
+  --e2: 0 4px 14px rgba(20,18,14,.10), 0 2px 4px rgba(20,18,14,.06);
+  --e3: 0 16px 40px rgba(20,18,14,.18), 0 4px 10px rgba(20,18,14,.09);
+}
+:root[data-theme="dark"], .tma {
+  color-scheme: dark;
+  --sloy-dno:        #000000;
+  --sloy-polotno:    #131312;
+  --sloy-kartochka:  #1F1F1D;
+  --sloy-plitka:     #292926;
+  --sloy-gnezdo:     #333330;
+  --sloy-vsplyv:     #3D3D39;
+  --line-soft:   #2B2B28;
+  --line-strong: #46463F;
+  --line-card:   transparent;
+  --ink-strong: #F4F2EE;
+  --ink:        #D8D5CD;
+  --ink-muted:  #AFABA2;
+  --chrome:      #C9C5BB;
+  --chrome-soft: #262623;
+  --chrome-line: #3A3A35;
+  --chrome-ink:  #131312;
+  --deystvie:       #C6419E;
+  --deystvie-navod: #D857B2;
+  --deystvie-tekst: #EE93CC;
+  --deystvie-tihoe: #2E1C2A;
+  --deystvie-ink:   #FFFFFF;
+  --horosho:   #4EC98D;
+  --vnimanie:  #E3A184;
+  --ploho:     #F2786F;
+  --svedeniya: #B5B0A5;
+  --malahit:       #4EC98D;
+  --patina:        #4FCBC2;
+  --sliva:         #B79BF7;
+  --baklazhan:     #9A83D2;
+  --karmin:        #F2786F;
+  --vishnya:       #C96E92;
+  --glina:         #E3A184;
+  --platina:       #B5B0A5;
+  --platina-tishe: #8E8980;
+  --chart-grid:         #2B2B28;
+  --chart-axis:         #AFABA2;
+  --chart-tooltip-bg:   #3D3D39;
+  --chart-tooltip-line: #46463F;
+  --chart-reference:    #8E8980;
+  --e1: 0 1px 2px rgba(0,0,0,.45);
+  --e2: 0 4px 14px rgba(0,0,0,.50), 0 2px 4px rgba(0,0,0,.32);
+  --e3: 0 16px 40px rgba(0,0,0,.62), 0 4px 10px rgba(0,0,0,.36);
+}
+:root {
+  --steklo: linear-gradient(180deg,
+      rgba(255,255,255,.09) 0%, rgba(255,255,255,.03) 40%, rgba(255,255,255,.01) 100%);
+  --steklo-ln:  rgba(255,255,255,.10);
+  --steklo-lnh: rgba(255,255,255,.14);
+  --steklo-blur: blur(16px) saturate(160%);
+  --steklo-ease: cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-theme="dark"], .tma {
+  --steklo: linear-gradient(180deg,
+      rgba(255,255,255,.07) 0%, rgba(255,255,255,.02) 40%, rgba(255,255,255,.005) 100%);
+  --steklo-ln:  rgba(255,255,255,.08);
+  --steklo-lnh: rgba(255,255,255,.13);
+}
+
+/* ── Мостик: этого в присланной палитре нет, а макет этим живёт.
+      Рецепт стекла в макете состоит из ПЯТИ переменных, в палитре пришло
+      три: подложка и слоистая тень остались за кадром. При замене палитры
+      их надо перенести, иначе барабаны потеряют подложку и подъём. ────── */
+:root{
+  --shag: 16px;
+  --steklo-pod: color-mix(in srgb, var(--sloy-kartochka) 55%, transparent);
+  --steklo-sh:
+    inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(0,0,0,.08),
+    0 2px 4px rgba(20,18,14,.06), 0 4px 12px rgba(20,18,14,.08), 0 8px 24px rgba(20,18,14,.05);
+}
+:root[data-theme="dark"], .tma{
+  --steklo-pod: color-mix(in srgb, var(--sloy-plitka) 62%, transparent);
+  --steklo-sh:
+    inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(0,0,0,.30),
+    0 2px 4px rgba(0,0,0,.30), 0 4px 12px rgba(0,0,0,.34), 0 8px 24px rgba(0,0,0,.26);
+}
+</style><style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--sloy-polotno);color:var(--ink);
+  font-family:"Segoe UI",system-ui,-apple-system,Inter,Roboto,Arial,sans-serif;
+  font-size:14px;line-height:1.5;font-variant-numeric:tabular-nums;zoom:2}
+button{font:inherit;color:inherit}
+h1,h2,h3,p,ul{margin:0}
+:focus-visible{outline:2px solid var(--deystvie);outline-offset:2px}
+.поле{width:390px;padding:10px}
+.полоса{display:flex;align-items:center;justify-content:flex-end;gap:12px;
+  padding:8px 10px;background:color-mix(in srgb,var(--sloy-polotno) 88%,transparent);
+  border-bottom:1px solid var(--line-soft);margin-bottom:14px}
+.lvw{display:flex;width:100%}
+.lv{flex:1 1 auto;min-width:0}
+.метка{font-size:11px;color:var(--ink-muted);margin:14px 0 5px}
+.стенд{margin-top:14px}
+.стенд-образцы{grid-template-columns:minmax(0,1fr)}
+</style><style>
+:root{
+  --lv-card:      var(--card, #1c1c1e);
+  --lv-tile:      var(--tile, #2c2c2e);
+  --lv-ink:       var(--ink, #f4f4f5);
+  --lv-ink2:      var(--ink-2, #c7c7cc);
+  --lv-dim:       var(--ink-faint, #8e8e93);
+  --lv-line:      var(--line, #38383c);
+  --lv-line-s:    var(--line-soft, #2a2a2d);
+  --lv-acc:       var(--accent, #60a5fa);
+  --lv-acc-soft:  var(--accent-soft, rgba(96,165,250,.16));
+  --lv-acc-line:  var(--accent-line, rgba(96,165,250,.42));
+  --lv-good:      var(--good, #34d399);
+  --lv-good-soft: var(--good-soft, rgba(52,211,153,.14));
+  --lv-warn:      var(--warn, #fbbf24);
+  --lv-warn-soft: var(--warn-soft, rgba(251,191,36,.14));
+  --lv-crit:      var(--crit, #f87171);
+  --lv-crit-soft: var(--crit-soft, rgba(248,113,113,.14));
+  --lv-brass:     var(--brass, #d7c08a);
+  --lv-brass-ln:  var(--brass-line, rgba(215,192,138,.32));
+  --lv-e2:        var(--e2, 0 4px 14px rgba(0,0,0,.46), 0 2px 4px rgba(0,0,0,.30));
+  --lv-e3:        var(--e3, 0 16px 40px rgba(0,0,0,.58), 0 4px 10px rgba(0,0,0,.34));
+  --lv-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
+             "Segoe UI Mono", "Roboto Mono", Consolas, monospace;
+
+  /* Стекло барабана изменений — тот же общий рецепт --steklo, что у
+     барабанов навигации, годов и недель. Своей копии рецепта здесь
+     больше нет: одна запись на четыре барабана. */
+  --lv-glass:     var(--steklo);
+  --lv-glass-pod: var(--steklo-pod);
+  --lv-glass-ln:  var(--steklo-ln);
+  --lv-glass-lnh: var(--steklo-lnh);
+  --lv-glass-sh:  var(--steklo-sh);
+
+  --lv-lens-bg: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012));
+  --lv-lens-ln: color-mix(in srgb, var(--lv-brass-ln) 55%, transparent);
+
+  --lv-rh: 16px;                     /* шаг барабана: высота одной строки */
+  --lv-ease: cubic-bezier(.23, 1, .32, 1);
+}
+
+html[data-theme="light"]{
+  --lv-lens-bg: linear-gradient(180deg, rgba(24,24,27,.05), rgba(24,24,27,.015));
+  --lv-lens-ln: color-mix(in srgb, var(--lv-brass-ln) 85%, transparent);
+}
+
+/* ═══ 1. УЗЕЛ ЭФИРА ═══════════════════════════════════════════════════════ */
+
+.lvw{ position: relative; flex: 0 0 auto; }
+
+.lv{
+  display: flex; align-items: stretch; gap: 8px;
+  padding: 4px 6px; border-radius: 14px;
+  background-color: var(--lv-glass-pod);
+  background-image: var(--lv-glass);
+  border: 1px solid var(--lv-glass-ln);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: var(--lv-glass-sh);
+  cursor: pointer; list-style: none; user-select: none;
+  transition: transform 180ms var(--lv-ease), border-color 180ms var(--lv-ease),
+              box-shadow 180ms var(--lv-ease);
+}
+.lv::-webkit-details-marker{ display: none; }
+.lv::marker{ content: ""; }
+.lv:hover{ transform: scale(1.01); border-color: var(--lv-glass-lnh); }
+.lv:focus-visible{ outline: 2px solid var(--lv-acc); outline-offset: 2px; }
+
+/* — состояние: горит всегда, но эфир от него не зависит — */
+.lv-state{
+  flex: 0 0 auto; width: 92px; display: flex; flex-direction: column;
+  justify-content: center; gap: 1px; padding: 0 8px 0 4px;
+  border-right: 1px solid var(--lv-line-s);
+}
+.lv-state-row{ display: flex; align-items: center; gap: 5px; }
+.lv-dot{
+  width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--lv-good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lv-good) 22%, transparent);
+}
+.lv-state-t{
+  font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--lv-ink2);
+}
+.lv-state-n{
+  font-family: var(--lv-mono); font-size: 11px; color: var(--lv-dim);
+  letter-spacing: -.01em; padding-left: 11px;
+}
+
+/* — окно барабана: три строки — */
+.lv-tape{
+  position: relative; flex: 1 1 auto; min-width: 0;
+  height: calc(var(--lv-rh) * 3); overflow: hidden;
+}
+/* цилиндр: край окна темнее и мягче, как на стекле продукта */
+.lv-tape::before{
+  content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--lv-card) 62%, transparent) 0%,
+                            transparent 26%, transparent 74%,
+                            color-mix(in srgb, var(--lv-card) 62%, transparent) 100%);
+}
+/* линза центральной строки: тут стоит последнее изменение */
+.lv-lens{
+  position: absolute; left: 0; right: 0; top: 50%; height: var(--lv-rh);
+  margin-top: calc(var(--lv-rh) / -2); z-index: 1; pointer-events: none;
+  border-top: 1px solid var(--lv-lens-ln);
+  border-bottom: 1px solid var(--lv-lens-ln);
+  background: var(--lv-lens-bg);
+}
+
+.lv-row{
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: var(--lv-rh); margin-top: calc(var(--lv-rh) / -2);
+  display: grid; grid-template-columns: 52px 52px 1fr; align-items: center;
+  column-gap: 8px; white-space: nowrap; overflow: hidden;
+  font-family: var(--lv-mono); font-size: 11px; line-height: var(--lv-rh);
+  letter-spacing: -.02em; color: var(--lv-ink2);
+  font-variant-numeric: tabular-nums;
+}
+.lv-row .t{ color: var(--lv-dim); }
+.lv-row .b{ color: var(--lv-brass-ink, var(--lv-brass)); font-weight: 600; }
+.lv-row .w{ color: var(--lv-ink2); overflow: hidden; text-overflow: ellipsis; }
+.lv-row .w em{ font-style: normal; color: var(--lv-ink); }
+.lv-row .w .up{ color: var(--lv-good-ink, var(--lv-good)); }
+.lv-row .w .down{ color: var(--lv-crit); }
+.lv-row .w .set{ color: var(--lv-acc); }
+
+/* Положения на барабане, когда движения нет. Прозрачность крайних строк — 0,78,
+   как в продукте: там её подняли с 0,45 именно потому, что сквозь неё текст давал
+   1,2:1. Глубину держат перспектива, масштаб и затемнение края окна. */
+.lv-row--top{
+  transform: perspective(320px) translateY(calc(var(--lv-rh) * -1)) rotateX(9deg) scale(.93);
+  opacity: .78;
+}
+.lv-row--mid{ transform: none; opacity: 1; }
+.lv-row--bot{
+  transform: perspective(320px) translateY(var(--lv-rh)) rotateX(-9deg) scale(.93);
+  opacity: .78;
+}
+
+/* поток: строка рождается сверху, доезжает до центра, уходит вниз и тускнеет */
+@keyframes lv-roll{
+  0%,  13%  { transform: perspective(320px) translateY(calc(var(--lv-rh) * -2)) rotateX(16deg) scale(.86); opacity: 0; }
+  20%, 33%  { transform: perspective(320px) translateY(calc(var(--lv-rh) * -1)) rotateX(9deg)  scale(.93); opacity: .78; }
+  40%, 53%  { transform: perspective(320px) translateY(0)                        rotateX(0)     scale(1);   opacity: 1; }
+  60%, 73%  { transform: perspective(320px) translateY(var(--lv-rh))             rotateX(-9deg) scale(.93); opacity: .78; }
+  80%, 100% { transform: perspective(320px) translateY(calc(var(--lv-rh) * 2))   rotateX(-16deg) scale(.86); opacity: 0; }
+}
+.lv--flow .lv-row{
+  animation: lv-roll 10s var(--lv-ease) infinite;
+  animation-delay: calc(var(--i) * -2s);
+}
+/* вспышка прихода — короткая, только на кромке линзы */
+@keyframes lv-beat{ 0%,100%{ opacity: .55 } 6%{ opacity: 1 } }
+.lv--flow .lv-lens{ animation: lv-beat 2s linear infinite; }
+@keyframes lv-pulse{ 0%,100%{ opacity: 1 } 50%{ opacity: .45 } }
+.lv--flow .lv-dot{ animation: lv-pulse 2s ease-in-out infinite; }
+
+/* тишина: барабан стоит, свет ровный, последние строки на месте */
+.lv--quiet .lv-dot{
+  background: var(--lv-dim);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lv-dim) 18%, transparent);
+}
+.lv--quiet .lv-row--bot{ opacity: .7; }
+
+/* потеря связи: лента замерла, поверх — штриховка «не обновляется» */
+.lv--lost{ border-color: color-mix(in srgb, var(--lv-crit) 45%, var(--lv-glass-ln)); }
+.lv--lost .lv-dot{
+  background: var(--lv-crit);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lv-crit) 22%, transparent);
+  animation: lv-pulse 1.1s ease-in-out infinite;
+}
+.lv--lost .lv-state-t{ color: var(--lv-crit); }
+.lv--lost .lv-row{ filter: grayscale(1); }
+.lv--lost .lv-tape::after{
+  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  background: repeating-linear-gradient(-45deg,
+      color-mix(in srgb, var(--lv-crit) 9%, transparent) 0 3px,
+      transparent 3px 9px);
+}
+
+/* правый край узла: знак раскрытия */
+.lv-open{
+  flex: 0 0 auto; width: 22px; display: grid; place-items: center;
+  color: var(--lv-dim); border-left: 1px solid var(--lv-line-s);
+  transition: color 180ms var(--lv-ease), transform 220ms var(--lv-ease);
+}
+.lv:hover .lv-open{ color: var(--lv-ink2); }
+.lvw[open] .lv-open{ transform: rotate(180deg); color: var(--lv-acc); }
+
+/* честная строка под узлом — то, чего вебхук не знает */
+.lv-fact{
+  margin-top: 6px; display: flex; align-items: flex-start; gap: 6px;
+  font-size: 11px; line-height: 1.45; color: var(--lv-dim); max-width: 420px;
+}
+.lv-fact .sign{
+  flex: 0 0 auto; width: 13px; height: 13px; margin-top: 1px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  color: var(--lv-warn-ink, var(--lv-warn)); border: 1px solid color-mix(in srgb, var(--lv-warn) 50%, transparent);
+}
+.lv-fact b{ color: var(--lv-ink2); font-weight: 600; }
+
+/* Узлу нужно около 370 пикселей. Когда линейке тесно, ужимается сначала
+   подпись состояния, потом колонка сути — время и книга не режутся никогда. */
+@media (max-width: 1440px){
+  .lv-state{ width: 76px; padding-right: 6px; }
+  .lv-row{ grid-template-columns: 50px 44px 1fr; column-gap: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .lv--flow .lv-row{ animation: none; }
+  .lv--flow .lv-row--off{ display: none; }
+  .lv--flow .lv-lens, .lv--flow .lv-dot, .lv--lost .lv-dot{ animation: none; }
+}
+</style><style>/* ══════════════════════════════════════════════════════════════════════════
+   ПРАВЫЙ УГОЛ ЛИНЕЙКИ (пп. 7–9) И ДВЕ СТУПЕНИ БАРАБАНА ИЗМЕНЕНИЙ (пп. 10–12).
+
+   Кусок кладётся ПОСЛЕ раздела «ЭФИР ИЗМЕНЕНИЙ» макета: правила ниже
+   перебивают прежнее поведение барабана (бесконечную прокрутку по таймеру)
+   и занимают колонку, где стояла кнопка смены темы.
+
+   Метод — из разбора щита (docs/superpowers/audits/2026-08-22-owner-craft-shield.md):
+   одно место держит несколько мыслей; состояние показано формой и цветом,
+   слово оставлено чтению с экрана; движение — отклик на событие, а не
+   украшение; редкие случаи (уменьшенное движение, пустой отбор, потеря
+   связи) проверены руками.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 0. Колонка угла. Плиты, подложки и рамки нет — п.7 прямо это требует.
+      Предмет стоит на полотне линейки, как значки на щите. ─────────────── */
+.верх-угол{
+  display:flex; align-items:center; gap:14px; align-self:center;
+  padding-left:2px;
+}
+
+/* ══ 1. ПРЕДМЕТ ОТБОРА (п.8) ═══════════════════════════════════════════════
+   Одно место отвечает на три вопроса разом: сколько осей отклонено от
+   умолчания (число горящих ячеек), какие именно (постоянное место каждой
+   оси в решётке плюс полка с именами) и как всё снять (нажатие).
+
+   Роды отклонений разведены КРАСКОЙ, а не подписью:
+     орхидея (--deystvie) — отобраны строки: год, период, ГРБС, способ…
+     олово   (--chrome)   — сменён режим счёта: ставка и единицы.
+   Разметка называет род в data-горит, поэтому смысл держится в одном месте.
+
+   Умолчание — весь текущий год и ничего больше (§11.3 задания). На
+   умолчании предмет молчит: ячейки тусклые, свечения нет, нажатие
+   ничего не делает и об этом сказано в подписи для чтения с экрана. ────── */
+.отбор{ position:relative; display:inline-flex; }
+
+.отбор-предмет{
+  position:relative;
+  width:34px; height:34px; padding:0; border:0; background:none;
+  display:grid; place-items:center;
+  cursor:pointer; -webkit-appearance:none; appearance:none;
+  border-radius:10px;
+}
+.отбор-предмет:focus-visible{ outline:2px solid var(--deystvie); outline-offset:2px; }
+
+/* Решётка двенадцати осей: четыре семьи по три.
+   1 ряд — когда: год · месяцы и кварталы · неделя
+   2 ряд — кто:   ГРБС · организации · категории
+   3 ряд — что:   способ · вид · бюджет
+   4 ряд — как:   ставка · единицы · поиск                                 */
+.отбор-сетка{
+  display:grid; grid-template-columns:repeat(3,4px); grid-auto-rows:4px;
+  gap:3px 4px;
+  transition:transform 180ms var(--steklo-ease,cubic-bezier(.23,1,.32,1));
+}
+.отбор-ячейка{
+  width:4px; height:4px; border-radius:1.5px;
+  background:var(--chrome-line); opacity:.42;
+  transition:background 220ms ease, opacity 220ms ease, box-shadow 220ms ease;
+}
+/* Горящая ячейка: род отклонения = краска.  */
+.отбор-ячейка[data-горит="отбор"]{
+  background:var(--deystvie); opacity:1;
+  box-shadow:0 0 0 1.5px color-mix(in srgb, var(--deystvie) 26%, transparent);
+}
+.отбор-ячейка[data-горит="режим"]{
+  background:var(--chrome); opacity:.82;
+  box-shadow:0 0 0 1.5px color-mix(in srgb, var(--chrome) 24%, transparent);
+}
+/* Наведение на строку полки подсвечивает свою ячейку — слово и форма
+   связаны видимо, а не в уме читателя. */
+.отбор-ячейка[data-подсвечена="да"]{
+  box-shadow:0 0 0 2.5px color-mix(in srgb, var(--deystvie) 34%, transparent);
+}
+
+/* Отклик, а не анимация: наведение крупнее на шесть процентов, нажатие
+   мельче на пять — те же числа, что у щита владельца. */
+.отбор-предмет:hover .отбор-сетка{ transform:scale(1.06); }
+.отбор-предмет:active .отбор-сетка{ transform:scale(.95); }
+
+/* Молчание на умолчании: ни свечения, ни отклика, ни действия. */
+.отбор[data-состояние="молчит"] .отбор-предмет{ cursor:default; }
+.отбор[data-состояние="молчит"] .отбор-ячейка{ opacity:.36; }
+.отбор[data-состояние="молчит"] .отбор-предмет:hover .отбор-сетка,
+.отбор[data-состояние="молчит"] .отбор-предмет:active .отбор-сетка{ transform:none; }
+
+/* ── 1.2. Окно возврата. Сброс одним нажатием обязан быть отменяем: шесть
+      секунд предмет держит прежний отбор и показывает это дугой, которая
+      сходит на нет. Призраки снятых осей стоят в решётке приглушённо —
+      видно, ЧТО именно вернётся. Ни одного слова на предмете. ─────────── */
+.отбор-возврат{
+  position:absolute; inset:0; margin:auto; pointer-events:none;
+  color:var(--deystvie); opacity:0;
+  transition:opacity 200ms ease;
+}
+.отбор[data-возврат="да"] .отбор-возврат{ opacity:1; }
+.отбор-возврат circle{
+  stroke-dasharray:100; stroke-dashoffset:0;
+}
+.отбор[data-возврат="да"] .отбор-возврат circle{
+  animation:отбор-убыль 6s linear forwards;
+}
+@keyframes отбор-убыль{ from{ stroke-dashoffset:0 } to{ stroke-dashoffset:100 } }
+.отбор[data-возврат="да"] .отбор-ячейка[data-призрак="да"]{
+  background:var(--deystvie); opacity:.42;
+}
+
+/* ── 1.3. Полка имён. Открывается наведением и получением фокуса (владелец
+      просил наведение вместо нажатия, п.18 второго круга). Здесь словам
+      место: предмет показывает, полка называет. ─────────────────────────── */
+.отбор-полка{
+  position:absolute; right:0; top:calc(100% + 9px); z-index:80;
+  width:274px; padding:10px 10px 9px;
+  background:var(--sloy-vsplyv);
+  border:1px solid var(--line-soft); border-radius:12px;
+  box-shadow:var(--e3);
+  opacity:0; transform:translateY(-4px); pointer-events:none;
+  transition:opacity 160ms ease, transform 160ms var(--steklo-ease,cubic-bezier(.23,1,.32,1));
+}
+.отбор:hover .отбор-полка,
+.отбор:focus-within .отбор-полка{ opacity:1; transform:none; pointer-events:auto; }
+
+.отбор-полка-шапка{
+  display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  margin-bottom:7px;
+}
+.отбор-полка-имя{
+  font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-muted);
+}
+.отбор-полка-счёт{ font-size:11px; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+.отбор-список{ list-style:none; margin:0; padding:0; display:grid; gap:1px; }
+.отбор-строка{
+  display:grid; grid-template-columns:46px minmax(0,1fr) 18px;
+  align-items:center; column-gap:8px;
+  padding:3px 4px; border-radius:7px;
+  transition:background 140ms ease;
+}
+.отбор-строка:hover{ background:var(--sloy-gnezdo); }
+.отбор-семья{
+  font-size:9.5px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink-muted);
+}
+.отбор-значение{ font-size:11.5px; color:var(--ink-strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.отбор-значение i{ font-style:normal; color:var(--ink-muted); }
+/* Имя семьи красится родом отклонения — теми же двумя красками, что и
+   ячейки. Слово и форма говорят одно, отдельного значка для этого не
+   заводим. */
+.отбор-строка[data-род="отбор"] .отбор-семья{ color:var(--deystvie-tekst); }
+.отбор-строка[data-род="режим"] .отбор-семья{ color:var(--chrome); }
+.отбор-снять{
+  width:18px; height:18px; padding:0; border:0; border-radius:6px;
+  background:none; color:var(--ink-muted); cursor:pointer;
+  display:grid; place-items:center; line-height:1;
+  transition:color 140ms ease, background 140ms ease;
+}
+.отбор-снять:hover{ color:var(--deystvie-tekst); background:var(--deystvie-tihoe); }
+.отбор-низ{
+  margin-top:8px; padding-top:7px; border-top:1px solid var(--line-soft);
+  font-size:10.5px; line-height:1.45; color:var(--ink-muted);
+}
+.отбор-низ b{ color:var(--ink); font-weight:600; }
+
+/* ══ 2. ТИХАЯ СТРОКА «ОБНОВЛЕНО» (п.9) ════════════════════════════════════
+   Минимализм правого края владелец похвалил отдельно: точка и время.
+   Ни плиты, ни рамки, ни значка — только состояние связи и момент чтения. */
+.тихо{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:0; border:0; background:none;
+  font-size:11px; color:var(--ink-muted); white-space:nowrap; cursor:pointer;
+  transition:color 150ms ease;
+}
+.тихо:hover{ color:var(--ink); }
+.тихо-точка{
+  width:6px; height:6px; border-radius:50%; flex:0 0 auto;
+  background:var(--horosho);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--horosho) 20%, transparent);
+}
+.тихо[data-связь="нет"] .тихо-точка{
+  background:var(--ploho);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--ploho) 20%, transparent);
+}
+
+/* ══ 3. БАРАБАН ИЗМЕНЕНИЙ ══════════════════════════════════════════════════
+   3.0. Словарь. Барабан писался под прежние имена красок (--card, --accent,
+   --brass); в ГРАФИТЕ таких имён нет, поэтому они переведены здесь, а не
+   переписаны по всему куску. Латунь стала оловом хрома — коричневый хром
+   владельцем забракован. ─────────────────────────────────────────────────── */
+:root{
+  --lv-card:      var(--sloy-kartochka);
+  --lv-tile:      var(--sloy-plitka);
+  --lv-ink:       var(--ink-strong);
+  --lv-ink2:      var(--ink);
+  --lv-dim:       var(--ink-muted);
+  --lv-line:      var(--line-strong);
+  --lv-line-s:    var(--line-soft);
+  --lv-acc:       var(--deystvie);
+  --lv-acc-soft:  var(--deystvie-tihoe);
+  --lv-acc-line:  var(--deystvie);
+  --lv-good:      var(--horosho);
+  --lv-good-ink:  var(--horosho);
+  --lv-warn:      var(--vnimanie);
+  --lv-crit:      var(--ploho);
+  --lv-brass:     var(--chrome);
+  --lv-brass-ink: var(--chrome);
+  --lv-brass-ln:  var(--chrome-line);
+  --lv-lens-ln:   var(--chrome-line);
+  --lv-ease:      var(--steklo-ease, cubic-bezier(.23,1,.32,1));
+}
+
+/* 3.1. Прокрутка только на настоящем изменении (п.10).
+   Прежде барабан крутился вечным ключевым кадром lv-roll — движение без
+   события. Кадр погашен; положение строки задаёт разметка (data-поз), а
+   переход между положениями делает transition. Значит каждая прокрутка —
+   след ровно одного пришедшего изменения. */
+.lv--flow .lv-row,
+.lv .lv-row{ animation:none; }
+.lv--flow .lv-lens{ animation:none; }
+.lv--flow .lv-dot{ animation:none; }
+
+/* Окно барабана переустроено: линза стоит НЕ в середине, а в верхней трети.
+   Причина простая — последнее изменение обязано лежать в линзе (§1.3
+   первого круга), а приходит оно сверху. При линзе посередине верхняя
+   треть окна всегда пустует. Теперь заняты все три полосы: линза, прошлая
+   строка, позапрошлая уходящая; приход въезжает из-за верхней кромки. */
+.lv-lens{ top:calc(var(--lv-rh) * .5); margin-top:0; }
+.lv-tape::before{
+  background:linear-gradient(180deg,
+      color-mix(in srgb, var(--lv-card) 66%, transparent) 0%,
+      transparent 13%, transparent 64%,
+      color-mix(in srgb, var(--lv-card) 74%, transparent) 100%);
+}
+
+.lv-row{
+  top:calc(var(--lv-rh) * .5); margin-top:0;
+  transition:transform 420ms var(--lv-ease), opacity 420ms var(--lv-ease),
+             color 420ms ease;
+}
+/* −1 — приход из-за кромки; 0 — линза (последнее изменение);
+    1 — прошлая строка; 2 — уходящая; 3 — за нижней кромкой. */
+.lv-row[data-поз="-1"]{
+  transform:perspective(320px) translateY(calc(var(--lv-rh) * -1)) rotateX(16deg) scale(.88);
+  opacity:0;
+}
+.lv-row[data-поз="0"]{ transform:none; opacity:1; }
+.lv-row[data-поз="1"]{
+  transform:perspective(320px) translateY(var(--lv-rh)) rotateX(-9deg) scale(.94);
+  opacity:.82;
+}
+.lv-row[data-поз="2"]{
+  transform:perspective(320px) translateY(calc(var(--lv-rh) * 2)) rotateX(-16deg) scale(.88);
+  opacity:.5;
+}
+.lv-row[data-поз="3"]{
+  transform:perspective(320px) translateY(calc(var(--lv-rh) * 3)) rotateX(-22deg) scale(.82);
+  opacity:0;
+}
+
+/* Вспышка кромки линзы — один раз на приход, а не по кругу. */
+@keyframes lv-вспышка{ 0%{opacity:.55} 12%{opacity:1} 100%{opacity:.55} }
+.lv--вспышка .lv-lens{ animation:lv-вспышка 700ms ease-out 1; }
+
+/* Замена значения в строке барабана — это ДАННЫЕ, а не действие, поэтому
+   орхидее там места нет (правило палитры: тон действия в данных не
+   появляется никогда). Ставим тихую платину роли «сведения»: замена сама
+   по себе ни хороша, ни плоха. Снижение остаётся кармином, добавление —
+   малахитом. */
+.lv-row .w .set{ color:var(--svedeniya); }
+
+/* 3.2. Две ступени строки (п.11) — и они же два шага уведомления (п.12).
+   Ступень «серая»: уведомление Диска пришло, а несёт оно ТОЛЬКО имя книги.
+   Больше в строке и написать нечего — честно так и написано, плюс идёт
+   отметка чтения.
+   Ступень «налитая»: книгу перечитали, сравнили с прошлым чтением, разницу
+   посчитали — тогда в строку приходит суть и краска. */
+.lv-row[data-ступень="серая"],
+.lv-row[data-ступень="пустая"]{ color:var(--lv-dim); }
+.lv-row[data-ступень="серая"] .b,
+.lv-row[data-ступень="серая"] .w,
+.lv-row[data-ступень="серая"] .w em,
+.lv-row[data-ступень="серая"] .w .up,
+.lv-row[data-ступень="серая"] .w .down,
+.lv-row[data-ступень="серая"] .w .set,
+.lv-row[data-ступень="пустая"] .b,
+.lv-row[data-ступень="пустая"] .w{ color:var(--lv-dim); }
+
+/* Третий исход второй ступени: книгу прочитали, а правок в ней не нашлось.
+   Строка остаётся и говорит это словами — «ничего не пришло» и «пришло
+   ничего» обязаны различаться (канон пп. 58, 104). */
+.lv-row[data-ступень="пустая"] .w{ font-style:italic; }
+
+/* Отметка чтения: узкая полоса, по которой идёт свет. Это признак живого
+   процесса — то самое «система дышит» из разбора щита. */
+.чт{
+  display:inline-block; vertical-align:middle; position:relative;
+  width:26px; height:3px; margin-left:6px; border-radius:2px; overflow:hidden;
+  background:color-mix(in srgb, var(--lv-dim) 22%, transparent);
+}
+.чт::after{
+  content:""; position:absolute; top:0; bottom:0; left:0; width:38%;
+  border-radius:2px; background:var(--lv-dim);
+  animation:чт-ход 1.15s linear infinite;
+}
+@keyframes чт-ход{ from{ transform:translateX(-110%) } to{ transform:translateX(300%) } }
+
+/* Налив: краска приходит переходом, а поверх один раз проходит тихая
+   волна — событие видно, но экран от неё не мигает. */
+@keyframes lv-налив{
+  from{ background:color-mix(in srgb, var(--chrome) 16%, transparent) }
+  to  { background:transparent }
+}
+.lv-row[data-ступень="налитая"].наливается{ animation:lv-налив 800ms ease-out 1; }
+
+/* 3.3. Состояние узла. Точка дышит, только пока идёт чтение книги, —
+   движение привязано к процессу, а не к таймеру. */
+@keyframes lv-дых{ 0%,100%{opacity:1} 50%{opacity:.4} }
+.lv--читаем .lv-dot{ animation:lv-дых 1.5s ease-in-out infinite; }
+.lv--читаем .lv-state-t{ color:var(--lv-ink); }
+
+/* 3.4. Честная строка рядом с барабаном (п.12). Стоит внутри узла справа
+   от ленты, поэтому линейка не становится выше. На тесных ширинах уходит:
+   полный текст остаётся в журнале и в подсказке. */
+.lv-рядом{
+  flex:0 0 auto; width:186px; padding-left:9px; margin-left:2px;
+  border-left:1px solid var(--lv-line-s);
+  font-size:10px; line-height:1.34; color:var(--lv-dim);
+  align-self:center;
+}
+.lv-рядом b{ color:var(--lv-ink2); font-weight:600; }
+@media (max-width:1560px){ .lv-рядом{ display:none } }
+
+/* 3.5. Уменьшенное движение. Проверено вручную: прокрутка становится
+   мгновенной, свет по полосе чтения гаснет (иначе она крутится вечно),
+   дуга возврата показывает остаток без хода. */
+@media (prefers-reduced-motion: reduce){
+  .lv-row{ transition:none; }
+  .чт::after{ animation:none; width:100%; opacity:.5; }
+  .lv--читаем .lv-dot{ animation:none; }
+  .lv--вспышка .lv-lens{ animation:none; }
+  .lv-row[data-ступень="налитая"].наливается{ animation:none; }
+  .отбор-возврат circle{ animation:none; stroke-dashoffset:50; }
+  .отбор-сетка{ transition:none; }
+}
+
+/* ══ 4. СТЕНД МАКЕТА ══════════════════════════════════════════════════════
+   В продукте его нет. Здесь он показывает обе ступени рядом и даёт нажать
+   переход, потому что живого потока в файле макета быть не может. ─────── */
+.стенд{
+  margin:var(--shag,16px) 0; padding:14px 16px 13px;
+  background:var(--sloy-kartochka); border-radius:14px; box-shadow:var(--e1);
+}
+.стенд-имя{
+  font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink-muted); margin-bottom:11px;
+}
+.стенд-образцы{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.стенд-образец{ min-width:0; }
+.стенд-подпись{ font-size:11px; color:var(--ink-muted); margin-bottom:6px; }
+.стенд-окно{
+  max-width:430px; padding:6px 10px; border-radius:10px;
+  background:var(--sloy-dno); box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+/* Строка образца стоит в потоке, а не на барабане: положения и наклона у
+   неё нет, всё остальное — та же строка. */
+.стенд-строка{
+  position:relative; top:auto; left:auto; right:auto; margin-top:0;
+  transform:none; opacity:1;
+}
+.стенд-текст{ margin-top:7px; font-size:11.5px; line-height:1.5; color:var(--ink-muted); }
+.стенд-пульт{ display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:13px; }
+.стенд-кнопка{
+  padding:5px 11px; border-radius:9px; cursor:pointer;
+  border:1px solid var(--chrome-line); background:var(--sloy-plitka);
+  color:var(--ink); font-size:11.5px;
+  transition:border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.стенд-кнопка:hover{ border-color:var(--deystvie); color:var(--deystvie-tekst); background:var(--deystvie-tihoe); }
+.стенд-разрыв{ width:1px; height:18px; background:var(--line-soft); }
+@media (max-width:760px){ .стенд-образцы{ grid-template-columns:minmax(0,1fr) } }
+
+/* 3.6. Тесная линейка. Угол не переносится и не режется: сначала уходит
+   честная строка (3.4), потом подпись состояния барабана, и только потом
+   тихая строка «обновлено» сжимается до точки и минут. */
+.тихо-текст-краткий{ display:none; }
+@media (max-width:1200px){
+  .тихо-текст-полный{ display:none; }
+  .тихо-текст-краткий{ display:inline; }
+}
+</style></head>
+<body>
+<div class="поле">
+  <div class="полоса">
+<!-- ╔══════════════════════════════════════════════════════════════════════════╗
+     ║ ПРАВЫЙ УГОЛ ЛИНЕЙКИ. Занимает колонку, где стояла кнопка смены темы     ║
+     ║ (п.7 — рамки нет, п.8 — на её месте состояние отбора и его сброс,       ║
+     ║ п.9 — минимализм точки и «обновлено» сохранён).                          ║
+     ║ Смена темы из угла ушла; её место — вкладка «Система» (см. вопрос в     ║
+     ║ конце: решение владельца не получено).                                   ║
+     ╚══════════════════════════════════════════════════════════════════════════╝ -->
+<div class="верх-угол">
+
+  <!-- ПРЕДМЕТ ОТБОРА. Двенадцать ячеек — двенадцать осей, по три в семье:
+       когда · кто · что · как. Место ячейки постоянно, поэтому «какие
+       именно» читается формой; краска говорит род (орхидея — отобраны
+       строки, олово — сменён режим счёта). Подписи на предмете нет. -->
+  <div class="отбор" data-отбор data-состояние="говорит">
+    <button type="button" class="отбор-предмет" data-предмет
+            aria-describedby="отбор-полка"
+            aria-label="Отбор: отклонений от умолчания нет">
+      <span class="отбор-сетка" aria-hidden="true">
+        <i class="отбор-ячейка" data-ось="год"></i>
+        <i class="отбор-ячейка" data-ось="период"></i>
+        <i class="отбор-ячейка" data-ось="неделя"></i>
+        <i class="отбор-ячейка" data-ось="грбс"></i>
+        <i class="отбор-ячейка" data-ось="организация"></i>
+        <i class="отбор-ячейка" data-ось="категория"></i>
+        <i class="отбор-ячейка" data-ось="способ"></i>
+        <i class="отбор-ячейка" data-ось="вид"></i>
+        <i class="отбор-ячейка" data-ось="бюджет"></i>
+        <i class="отбор-ячейка" data-ось="ставка"></i>
+        <i class="отбор-ячейка" data-ось="единицы"></i>
+        <i class="отбор-ячейка" data-ось="поиск"></i>
+      </span>
+      <!-- Дуга окна возврата: шесть секунд после сброса прежний отбор ещё
+           можно вернуть тем же нажатием. Дуга сходит на нет — отсчёт виден
+           формой, а не цифрой. -->
+      <svg class="отбор-возврат" width="34" height="34" viewBox="0 0 34 34"
+           fill="none" aria-hidden="true">
+        <circle cx="17" cy="17" r="14.6" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" pathLength="100"
+                transform="rotate(-90 17 17)"/>
+      </svg>
+    </button>
+
+    <!-- Полка имён: открывается наведением и фокусом. Каждая строка снимает
+         свою ось; нажатие по предмету возвращает умолчание целиком. -->
+    <div class="отбор-полка" id="отбор-полка" role="group" aria-label="Что отобрано">
+      <div class="отбор-полка-шапка">
+        <span class="отбор-полка-имя">Отобрано</span>
+        <span class="отбор-полка-счёт" data-счёт>умолчание</span>
+      </div>
+      <ul class="отбор-список" data-список></ul>
+      <p class="отбор-низ">Умолчание — <b>весь 2026 год</b>. Нажатие возвращает
+        его, а не пустоту; шесть секунд можно вернуть обратно.</p>
+    </div>
+  </div>
+
+  <!-- ТИХАЯ СТРОКА. Точка состояния связи и момент чтения — больше в углу
+       ничего нет. Нажатие раскрывает провенанс (в макете — заглушка). -->
+  <button type="button" class="тихо" data-связь="есть"
+          title="Откуда числа и когда прочитаны">
+    <i class="тихо-точка" aria-hidden="true"></i>
+    <span class="тихо-текст-полный">обновлено 1 минуту назад</span>
+    <span class="тихо-текст-краткий">1 мин</span>
+  </button>
+</div>
+  </div>
+  <div class="метка">Барабан изменений</div>
+<!-- ╔══════════════════════════════════════════════════════════════════════════╗
+     ║ БАРАБАН ИЗМЕНЕНИЙ. Крутится только на настоящем изменении (п.10) и в    ║
+     ║ две ступени (п.11): серая строка приходит по уведомлению, цветная —     ║
+     ║ после чтения книги. Обёртка .lvw и журнал под ней — как в макете.       ║
+     ╚══════════════════════════════════════════════════════════════════════════╝ -->
+<details class="lvw">
+  <summary class="lv" data-барабан
+           aria-label="Барабан изменений. Нажмите, чтобы открыть журнал">
+    <span class="lv-state">
+      <span class="lv-state-row"><i class="lv-dot"></i><b class="lv-state-t" data-состояние-имя>в эфире</b></span>
+      <span class="lv-state-n" data-счёт-правок>3&nbsp;за&nbsp;час</span>
+    </span>
+
+    <span class="lv-tape" data-лента>
+      <i class="lv-lens"></i>
+      <span class="lv-row" data-поз="0" data-ступень="налитая">
+        <span class="t">09:07:31</span><span class="b">УКСиМП</span>
+        <span class="w">НМЦК 1&nbsp;240,0 <span class="down">→ 1&nbsp;180,0</span></span></span>
+      <span class="lv-row" data-поз="1" data-ступень="налитая">
+        <span class="t">09:03:18</span><span class="b">УО</span>
+        <span class="w">строка 4&nbsp;812 <span class="up">добавлена</span></span></span>
+      <span class="lv-row" data-поз="2" data-ступень="налитая">
+        <span class="t">08:58:02</span><span class="b">УО</span>
+        <span class="w">срок <em>31.03</em> <span class="set">→ 06.04</span></span></span>
+    </span>
+
+    <!-- Честная строка о пределе уведомления (п.12) — рядом с барабаном
+         постоянно, а не только в раскрытом журнале. -->
+    <span class="lv-рядом">
+      <b>Диск сообщает только имя книги.</b> Что изменилось — вторым шагом,
+      после чтения.
+    </span>
+
+    <span class="lv-open" aria-hidden="true">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </span>
+  </summary>
+
+  <!-- Журнал-матрёшка макета остаётся без изменений. -->
+</details>
+<!-- ╔══════════════════════════════════════════════════════════════════════════╗
+     ║ СТЕНД МАКЕТА. В продукте его нет: он показывает обе ступени и переход    ║
+     ║ между ними по требованию п.11, потому что живого потока в файле нет.     ║
+     ╚══════════════════════════════════════════════════════════════════════════╝ -->
+<section class="стенд">
+  <div class="стенд-имя">Две ступени строки — и они же два шага уведомления</div>
+
+  <div class="стенд-образцы">
+    <div class="стенд-образец">
+      <div class="стенд-подпись">Ступень 1 — пришло уведомление</div>
+      <div class="стенд-окно">
+        <span class="lv-row стенд-строка" data-ступень="серая">
+          <span class="t">09:41:12</span><span class="b">УО</span>
+          <span class="w">книгу тронули<i class="чт" aria-hidden="true"></i></span></span>
+      </div>
+      <p class="стенд-текст">Уведомление Диска несёт имя файла и больше ничего:
+        ни листа, ни строки, ни автора. Поэтому строка приходит серой и говорит
+        ровно то, что известно.</p>
+    </div>
+
+    <div class="стенд-образец">
+      <div class="стенд-подпись">Ступень 2 — книга прочитана</div>
+      <div class="стенд-окно">
+        <span class="lv-row стенд-строка" data-ступень="налитая">
+          <span class="t">09:41:14</span><span class="b">УО</span>
+          <span class="w">НМЦК 812,4 <span class="down">→ 799,0</span></span></span>
+      </div>
+      <p class="стенд-текст">Разницу считаем сами — сравнением прошлого чтения
+        с новым. Тогда в строку приходит суть и краска: снижение рубином,
+        добавление малахитом, замена значения — тихой платиной.</p>
+    </div>
+  </div>
+
+  <div class="стенд-пульт">
+    <button type="button" class="стенд-кнопка" data-действие="пришло">Пришло уведомление</button>
+    <button type="button" class="стенд-кнопка" data-действие="налить">Книга прочитана</button>
+    <button type="button" class="стенд-кнопка" data-действие="пусто">Прочитана, правок нет</button>
+    <button type="button" class="стенд-кнопка" data-действие="путь">Весь путь целиком</button>
+    <span class="стенд-разрыв"></span>
+    <button type="button" class="стенд-кнопка" data-действие="тишина">Тишина</button>
+    <button type="button" class="стенд-кнопка" data-действие="потеря">Нет связи</button>
+    <span class="стенд-разрыв"></span>
+    <button type="button" class="стенд-кнопка" data-действие="отбор-пример">Отбор: пять осей</button>
+    <button type="button" class="стенд-кнопка" data-действие="отбор-умолчание">Отбор: умолчание</button>
+  </div>
+</section>
+</div>
+<button class="стенд-тема" id="tema" style="position:fixed;right:8px;bottom:8px;padding:6px 10px;border-radius:8px;border:1px solid var(--chrome-line);background:var(--sloy-kartochka);color:var(--ink);font-size:11px">тема</button>
+<script>/* ══════════════════════════════════════════════════════════════════════════
+   ПРАВЫЙ УГОЛ ЛИНЕЙКИ И БАРАБАН ИЗМЕНЕНИЙ — сценарий макета (пп. 7–12).
+
+   Здесь нет ни одного таймера, который двигал бы барабан: строка появляется
+   только тогда, когда пришло изменение. В макете «изменение» приносит стенд,
+   в продукте — живой поток /api/events, разбуженный уведомлением Диска.
+   ══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  /* ── Склонение числительного: одна ось, две оси, пять осей ────────────── */
+  function склонение(n, одна, две, пять) {
+    var с = Math.abs(n) % 100, е = с % 10;
+    if (с > 10 && с < 20) return пять;
+    if (е > 1 && е < 5) return две;
+    if (е === 1) return одна;
+    return пять;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     1. ПРЕДМЕТ ОТБОРА
+
+     Двенадцать осей в постоянном порядке: место ячейки и есть имя оси.
+     Род отклонения решает краску: «отбор» — какие строки взяты, «режим» —
+     как их посчитали. Умолчание (§11.3 задания) — весь текущий год и
+     ничего больше; на умолчании предмет молчит.
+     ══════════════════════════════════════════════════════════════════════ */
+  var ОСИ = [
+    { ключ: 'год',         семья: 'когда', род: 'отбор', имя: 'год' },
+    { ключ: 'период',      семья: 'когда', род: 'отбор', имя: 'месяцы и кварталы' },
+    { ключ: 'неделя',      семья: 'когда', род: 'отбор', имя: 'неделя' },
+    { ключ: 'грбс',        семья: 'кто',   род: 'отбор', имя: 'ГРБС' },
+    { ключ: 'организация', семья: 'кто',   род: 'отбор', имя: 'организации' },
+    { ключ: 'категория',   семья: 'кто',   род: 'отбор', имя: 'категории' },
+    { ключ: 'способ',      семья: 'что',   род: 'отбор', имя: 'способ закупки' },
+    { ключ: 'вид',         семья: 'что',   род: 'отбор', имя: 'вид расхода' },
+    { ключ: 'бюджет',      семья: 'что',   род: 'отбор', имя: 'бюджет' },
+    { ключ: 'ставка',      семья: 'как',   род: 'режим', имя: 'ставка снижения' },
+    { ключ: 'единицы',     семья: 'как',   род: 'режим', имя: 'единицы' },
+    { ключ: 'поиск',       семья: 'как',   род: 'отбор', имя: 'поиск по строкам' }
+  ];
+
+  var корень   = document.querySelector('[data-отбор]');
+  if (!корень) return;
+  var предмет  = корень.querySelector('[data-предмет]');
+  var список   = корень.querySelector('[data-список]');
+  var счёт     = корень.querySelector('[data-счёт]');
+  var ячейки   = {};
+  Array.prototype.forEach.call(корень.querySelectorAll('.отбор-ячейка'), function (я) {
+    ячейки[я.getAttribute('data-ось')] = я;
+  });
+
+  /** Что сейчас отклонено от умолчания: ключ оси → человеческое значение. */
+  var отбор = Object.create(null);
+  /** Что вернуть, если сброс был ошибкой. */
+  var прежнее = null;
+  var таймерВозврата = null;
+
+  function осьПоКлючу(ключ) {
+    for (var i = 0; i < ОСИ.length; i++) if (ОСИ[i].ключ === ключ) return ОСИ[i];
+    return null;
+  }
+
+  function перерисовать() {
+    var ключи = Object.keys(отбор);
+    var n = ключи.length;
+
+    /* Ячейки: горит только отклонённая ось, краска — по роду. */
+    ОСИ.forEach(function (ось) {
+      var я = ячейки[ось.ключ];
+      if (!я) return;
+      if (отбор[ось.ключ]) я.setAttribute('data-горит', ось.род);
+      else я.removeAttribute('data-горит');
+    });
+
+    /* Полка: строка на каждую отклонённую ось, у каждой свой сброс. */
+    список.textContent = '';
+    ОСИ.forEach(function (ось) {
+      if (!отбор[ось.ключ]) return;
+      var li = document.createElement('li');
+      li.className = 'отбор-строка';
+      li.setAttribute('data-род', ось.род);
+      li.setAttribute('data-ось', ось.ключ);
+      var семья = document.createElement('span');
+      семья.className = 'отбор-семья';
+      семья.textContent = ось.семья;
+      var знач = document.createElement('span');
+      знач.className = 'отбор-значение';
+      знач.textContent = отбор[ось.ключ];
+      var снять = document.createElement('button');
+      снять.type = 'button';
+      снять.className = 'отбор-снять';
+      снять.textContent = '×';
+      снять.setAttribute('aria-label', 'Снять отбор: ' + ось.имя);
+      снять.addEventListener('click', function (e) {
+        e.stopPropagation();
+        delete отбор[ось.ключ];
+        перерисовать();
+      });
+      /* Наведение на строку подсвечивает её ячейку: слово и форма связаны. */
+      li.addEventListener('mouseenter', function () {
+        if (ячейки[ось.ключ]) ячейки[ось.ключ].setAttribute('data-подсвечена', 'да');
+      });
+      li.addEventListener('mouseleave', function () {
+        if (ячейки[ось.ключ]) ячейки[ось.ключ].removeAttribute('data-подсвечена');
+      });
+      li.appendChild(семья); li.appendChild(знач); li.appendChild(снять);
+      список.appendChild(li);
+    });
+
+    if (n === 0) {
+      корень.setAttribute('data-состояние', 'молчит');
+      счёт.textContent = 'умолчание';
+      var пусто = document.createElement('li');
+      пусто.className = 'отбор-строка';
+      пусто.innerHTML = '<span class="отбор-семья">когда</span>' +
+        '<span class="отбор-значение">весь 2026 год <i>— умолчание</i></span><span></span>';
+      список.appendChild(пусто);
+      предмет.setAttribute('aria-label',
+        'Отбор по умолчанию: весь 2026 год. Отклонений нет, снимать нечего.');
+    } else {
+      корень.setAttribute('data-состояние', 'говорит');
+      счёт.textContent = n + ' ' + склонение(n, 'ось', 'оси', 'осей');
+      var перечень = ключи.map(function (к) {
+        return осьПоКлючу(к).имя + ' — ' + отбор[к];
+      }).join('; ');
+      предмет.setAttribute('aria-label',
+        'Отбор: ' + n + ' ' + склонение(n, 'отклонение', 'отклонения', 'отклонений') +
+        ' от умолчания. ' + перечень + '. Нажмите, чтобы вернуть весь 2026 год.');
+    }
+  }
+
+  /** Сброс к умолчанию с шестисекундным окном возврата. */
+  function сбросить() {
+    if (Object.keys(отбор).length === 0) return;
+    прежнее = Object.assign(Object.create(null), отбор);
+    Object.keys(прежнее).forEach(function (к) {
+      if (ячейки[к]) ячейки[к].setAttribute('data-призрак', 'да');
+    });
+    отбор = Object.create(null);
+    перерисовать();
+    корень.setAttribute('data-возврат', 'да');
+    предмет.setAttribute('aria-label',
+      'Отбор снят, вернулся весь 2026 год. Шесть секунд можно вернуть прежний отбор: ' +
+      Object.keys(прежнее).length + ' ' +
+      склонение(Object.keys(прежнее).length, 'ось', 'оси', 'осей') + '.');
+    clearTimeout(таймерВозврата);
+    таймерВозврата = setTimeout(закрытьВозврат, 6000);
+  }
+
+  function закрытьВозврат() {
+    корень.removeAttribute('data-возврат');
+    Array.prototype.forEach.call(корень.querySelectorAll('[data-призрак]'), function (я) {
+      я.removeAttribute('data-призрак');
+    });
+    прежнее = null;
+    перерисовать();
+  }
+
+  предмет.addEventListener('click', function () {
+    if (корень.getAttribute('data-возврат') === 'да' && прежнее) {
+      отбор = прежнее;
+      clearTimeout(таймерВозврата);
+      закрытьВозврат();
+      return;
+    }
+    сбросить();
+  });
+
+  /* Клавиатура: пробел и ввод уже работают на кнопке; Escape закрывает
+     окно возврата, чтобы предложение не висело на экране. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && корень.getAttribute('data-возврат') === 'да') {
+      clearTimeout(таймерВозврата);
+      закрытьВозврат();
+    }
+  });
+
+  /* ══════════════════════════════════════════════════════════════════════
+     2. БАРАБАН ИЗМЕНЕНИЙ
+
+     Одно изменение — одна прокрутка на строку. Ступень первая: пришло
+     уведомление, и оно несёт только имя книги. Ступень вторая: книгу
+     прочитали, сверили с прошлым чтением — тогда приходит суть и краска.
+     ══════════════════════════════════════════════════════════════════════ */
+  var барабан = document.querySelector('[data-барабан]');
+  var лента   = барабан ? барабан.querySelector('[data-лента]') : null;
+  var имяСост = барабан ? барабан.querySelector('[data-состояние-имя]') : null;
+  var счётПравок = барабан ? барабан.querySelector('[data-счёт-правок]') : null;
+  var строки = [];
+  var правокЗаЧас = 3;
+  var ждётЧтения = null;
+  var таймерТишины = null;
+
+  if (лента) {
+    строки = Array.prototype.slice.call(лента.querySelectorAll('.lv-row'));
+
+    /** Перестановка положений: новая строка занимает линзу, прочие уходят вниз. */
+    function расставить() {
+      строки.forEach(function (эл, i) { эл.setAttribute('data-поз', String(i)); });
+      /* Что уехало за нижнюю кромку — удаляем: барабан не хранит историю,
+         её хранит журнал. */
+      while (строки.length > 4) {
+        const хвост = строки.pop();
+        setTimeout(function () { if (хвост.parentNode) хвост.parentNode.removeChild(хвост); }, 500);
+      }
+    }
+
+    function время() {
+      var d = new Date();
+      function дв(n) { return (n < 10 ? '0' : '') + n; }
+      return дв(d.getHours()) + ':' + дв(d.getMinutes()) + ':' + дв(d.getSeconds());
+    }
+
+    /** Ступень 1. Уведомление разбудило чтение: известно только имя книги. */
+    function пришло(книга) {
+      var эл = document.createElement('span');
+      эл.className = 'lv-row';
+      эл.setAttribute('data-ступень', 'серая');
+      эл.setAttribute('data-поз', '-1');
+      эл.innerHTML = '<span class="t">' + время() + '</span>' +
+                     '<span class="b">' + книга + '</span>' +
+                     '<span class="w">книгу тронули<i class="чт" aria-hidden="true"></i></span>';
+      лента.appendChild(эл);
+      строки.unshift(эл);
+      ждётЧтения = эл;
+
+      /* Два кадра — чтобы браузер успел применить начальное положение,
+         иначе перехода не будет и строка появится рывком. */
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          расставить();
+          барабан.classList.add('lv--вспышка');
+          setTimeout(function () { барабан.classList.remove('lv--вспышка'); }, 720);
+        });
+      });
+
+      барабан.classList.add('lv--читаем');
+      барабан.classList.remove('lv--quiet', 'lv--lost');
+      if (имяСост) имяСост.textContent = 'читаем';
+      /* Подпись для чтения с экрана проговаривает то, что видно глазами:
+         серый цвет строки словами не передашь. */
+      барабан.setAttribute('aria-label',
+        'Барабан изменений. Пришло уведомление: книгу ' + книга +
+        ' тронули, читаем её. Нажмите, чтобы открыть журнал.');
+      clearTimeout(таймерТишины);
+    }
+
+    /** Ступень 2. Книга прочитана, разница посчитана — приходит суть и краска.
+        Если разницы не нашлось, строка НЕ исчезает и не притворяется правкой:
+        уведомление было, чтение было, правок нет — так и сказано. Молчание
+        источника и ноль — разные вещи (канон пп. 58 и 104). */
+    function налить(суть) {
+      var эл = ждётЧтения;
+      if (!эл) return;
+      var w = эл.querySelector('.w');
+      var пусто = !суть;
+      w.innerHTML = пусто ? 'книга прочитана, правок не нашлось' : суть;
+      эл.setAttribute('data-ступень', пусто ? 'пустая' : 'налитая');
+      эл.classList.add('наливается');
+      setTimeout(function () { эл.classList.remove('наливается'); }, 820);
+      ждётЧтения = null;
+      барабан.classList.remove('lv--читаем');
+      if (!пусто) {
+        правокЗаЧас += 1;
+        if (счётПравок) счётПравок.innerHTML = правокЗаЧас + '&nbsp;за&nbsp;час';
+      }
+      if (имяСост) имяСост.textContent = 'в эфире';
+      барабан.setAttribute('aria-label',
+        'Барабан изменений. Последнее: ' + (w.textContent || '').trim() +
+        '. Нажмите, чтобы открыть журнал.');
+      /* Тишина наступает сама, если изменений долго нет: это состояние
+         источника, а не украшение — движения в нём никакого. */
+      clearTimeout(таймерТишины);
+      таймерТишины = setTimeout(тишина, 120000);
+    }
+
+    function тишина() {
+      барабан.classList.remove('lv--читаем', 'lv--lost');
+      барабан.classList.add('lv--quiet');
+      if (имяСост) имяСост.textContent = 'тишина';
+    }
+
+    function потеряСвязи() {
+      барабан.classList.remove('lv--читаем', 'lv--quiet');
+      барабан.classList.add('lv--lost');
+      if (имяСост) имяСост.textContent = 'нет связи';
+    }
+
+    /* Барабан открывается наружу для живого потока и для стенда. */
+    window.Барабан = { пришло: пришло, налить: налить, тишина: тишина, потеря: потеряСвязи };
+    таймерТишины = setTimeout(тишина, 120000);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     3. СТЕНД МАКЕТА. В продукте его нет: он подменяет живой поток, чтобы
+     обе ступени и переход между ними можно было увидеть глазами.
+     ══════════════════════════════════════════════════════════════════════ */
+  var книги = ['УО', 'УИО', 'УКСиМП', 'УДТХ', 'УД'];
+  var сути = [
+    'НМЦК 812,4 <span class="down">→ 799,0</span>',
+    'строка 4&nbsp;813 <span class="up">добавлена</span>',
+    'срок <em>12.09</em> <span class="set">→ 26.09</span>',
+    'способ <em>ЭА</em> <span class="set">→ ЕП</span>',
+    'экономия 10,2 <span class="up">→ 14,7</span>'
+  ];
+  var шаг = 0;
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-действие]'), function (кн) {
+    кн.addEventListener('click', function () {
+      var д = кн.getAttribute('data-действие');
+      if (д === 'пришло')  window.Барабан.пришло(книги[шаг++ % книги.length]);
+      if (д === 'налить')  window.Барабан.налить(сути[шаг % сути.length]);
+      if (д === 'пусто')   window.Барабан.налить(null);
+      if (д === 'путь') {
+        window.Барабан.пришло(книги[шаг++ % книги.length]);
+        setTimeout(function () { window.Барабан.налить(сути[шаг % сути.length]); }, 1600);
+      }
+      if (д === 'тишина') window.Барабан.тишина();
+      if (д === 'потеря') window.Барабан.потеря();
+      if (д === 'отбор-пример') {
+        отбор = Object.create(null);
+        отбор['год'] = '2025 год';
+        отбор['период'] = 'III квартал';
+        отбор['грбс'] = 'УО';
+        отбор['способ'] = 'ЕП';
+        отбор['ставка'] = 'живой процент 9,79 %';
+        закрытьВозврат();
+      }
+      if (д === 'отбор-умолчание') { отбор = Object.create(null); закрытьВозврат(); }
+    });
+  });
+
+  перерисовать();
+})();
+</script>
+<script>
+document.getElementById('tema').addEventListener('click', function(){
+  var r=document.documentElement; var d=r.getAttribute('data-theme')==='dark';
+  r.setAttribute('data-theme', d?'light':'dark');
+});
+</script>
+</body></html>

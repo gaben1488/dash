@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Угол отбора — три варианта</title>
+<style>
+  :root{
+    --полотно:#f4efe4; --карточка:#fbf8f0; --чернила:#1b170f; --тихо:#6b6353;
+    --линия:#d9d0bc; --крем:#e5d3a9; --крем-глубь:#d6bf85; --бронза:#8f7549;
+    --латунь:#bfa161; --лазурь:#5b99f8; --лазурь-глубь:#426eb3;
+    --глина:#b0563a; --малахит:#3d7a4f;
+  }
+  *{box-sizing:border-box; margin:0}
+  body{background:var(--полотно); color:var(--чернила);
+       font:14px/1.55 "Segoe UI", system-ui, sans-serif; padding:28px 32px 60px}
+  h1{font-size:21px; margin-bottom:4px}
+  .подзаг{color:var(--тихо); margin-bottom:26px; max-width:760px}
+  .ряд{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:20px; align-items:start}
+  .вар{background:var(--карточка); border:1px solid var(--линия); border-radius:14px; padding:18px 20px 20px}
+  .вар h2{font-size:15px; margin-bottom:2px}
+  .вердикт{font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:999px; display:inline-block; margin-bottom:12px}
+  .в-нет{background:#efe3dd; color:var(--глина)}
+  .в-да{background:#e2ecdf; color:var(--малахит)}
+  .в-зап{background:#ece7da; color:var(--тихо)}
+  .сцена{background:linear-gradient(180deg,#efe9da,#e9e2d0); border:1px solid var(--линия);
+         border-radius:11px; min-height:96px; padding:14px 16px; display:flex; align-items:flex-start;
+         justify-content:flex-end; gap:10px; position:relative; margin-bottom:12px}
+  .поясн{font-size:12.5px; color:var(--тихо)}
+  .поясн b{color:var(--чернила)}
+  .поясн ul{margin:6px 0 0 16px; padding:0}
+  .поясн li{margin-bottom:4px}
+
+  /* ── А: решётка 12 ячеек как в detail2 ── */
+  .предмет-а{width:34px; height:34px; border:0; border-radius:9px; background:transparent;
+             display:grid; place-items:center; cursor:pointer; position:relative}
+  .сетка-а{display:grid; grid-template-columns:repeat(3,4px); grid-auto-rows:4px; gap:3px}
+  .сетка-а i{border-radius:1px; background:var(--тихо); opacity:.42}
+  .сетка-а i.горит{background:var(--лазурь-глубь); opacity:1; box-shadow:0 0 4px rgba(66,110,179,.45)}
+  .сетка-а i.режим{background:var(--бронза); opacity:.82}
+
+  /* ── Б: прибор со счётом ── */
+  .прибор{display:inline-flex; align-items:center; gap:8px; border:1px solid var(--крем-глубь);
+          background:linear-gradient(180deg,var(--крем) 0%,var(--крем-глубь) 100%);
+          border-radius:999px; padding:5px 12px 5px 9px; cursor:pointer;
+          box-shadow:0 0 0 3px rgba(91,153,248,.14); transition:box-shadow .18s ease}
+  .прибор:hover,.прибор:focus-visible{box-shadow:0 0 0 4px rgba(91,153,248,.26); outline:none}
+  .прибор.тихий{background:transparent; border-color:transparent; box-shadow:none}
+  .прибор.тихий .сетка-б i{opacity:.22}
+  .прибор.тихий .счёт{display:none}
+  .сетка-б{display:grid; grid-template-columns:repeat(3,6px); grid-auto-rows:6px; gap:2px}
+  .сетка-б i{border-radius:1.5px; background:var(--бронза); opacity:.35}
+  .сетка-б i.горит{background:linear-gradient(180deg,var(--лазурь) 0%,var(--бронза) 100%); opacity:1}
+  .сетка-б i.подсвет{outline:2px solid var(--лазурь-глубь); outline-offset:1px}
+  .счёт{font-size:13px; font-weight:650; font-variant-numeric:tabular-nums}
+  .полка{position:absolute; top:56px; right:14px; width:272px; background:var(--карточка);
+         border:1px solid var(--линия); border-radius:12px; padding:12px 14px;
+         box-shadow:0 10px 26px rgba(27,23,15,.14); z-index:3}
+  .полка[hidden]{display:none}
+  .полка-шапка{display:flex; justify-content:space-between; font-size:12px; font-weight:650; margin-bottom:8px}
+  .полка-шапка span{color:var(--тихо); font-weight:500}
+  .ось{display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:8px; font-size:12.5px}
+  .ось:hover{background:#f1ebdc}
+  .ось b{font-weight:600}
+  .ось .знач{color:var(--тихо); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .ось button{border:0; background:transparent; color:var(--тихо); cursor:pointer; font-size:12px;
+              width:20px; height:20px; border-radius:6px}
+  .ось button:hover{background:#e7ddc6; color:var(--глина)}
+  .домой{margin-top:10px; width:100%; border:1px solid var(--крем-глубь); border-radius:9px;
+         background:linear-gradient(180deg,var(--крем) 0%,var(--крем-глубь) 100%);
+         color:var(--чернила); font-weight:600; font-size:12.5px; padding:7px 0; cursor:pointer}
+  .домой:hover{filter:brightness(1.04)}
+  .тост{position:absolute; left:14px; right:14px; bottom:-52px; background:var(--чернила); color:#f4efe4;
+        border-radius:10px; padding:9px 14px; font-size:12.5px; display:flex; align-items:center; gap:10px;
+        box-shadow:0 8px 20px rgba(27,23,15,.3); z-index:4}
+  .тост[hidden]{display:none}
+  .тост .вернуть{margin-left:auto; border:0; background:transparent; color:var(--крем);
+                 font-weight:650; font-size:12.5px; cursor:pointer; white-space:nowrap}
+  .тост .вернуть:hover{text-decoration:underline}
+  .тост .сек{color:#b8ad95; font-variant-numeric:tabular-nums; width:16px; text-align:right}
+
+  /* ── В: жетоны по-осево ── */
+  .жетоны{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; max-width:280px}
+  .жетон{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--крем-глубь);
+         background:linear-gradient(180deg,var(--крем) 0%,var(--крем-глубь) 100%);
+         box-shadow:0 0 0 2px rgba(91,153,248,.13);
+         border-radius:999px; padding:3px 6px 3px 10px; font-size:11.5px}
+  .жетон b{font-weight:600}
+  .жетон i{font-style:normal; color:var(--тихо)}
+  .жетон button{border:0; background:transparent; cursor:pointer; color:var(--тихо);
+                width:16px; height:16px; border-radius:50%; font-size:10px}
+  .жетон button:hover{background:#e7ddc6; color:var(--глина)}
+  .сброс-в{border:0; background:transparent; color:var(--тихо); font-size:11.5px;
+           text-decoration:underline; cursor:pointer; align-self:center}
+
+  .текстовка{margin-top:34px; max-width:860px}
+  .текстовка h2{font-size:15px; margin-bottom:8px}
+  table{border-collapse:collapse; width:100%; font-size:12.5px}
+  th,td{border:1px solid var(--линия); padding:6px 10px; text-align:left; vertical-align:top}
+  th{background:#efe9da; font-size:11.5px}
+  td.былo{color:var(--глина)}
+  td.сталo{color:var(--малахит)}
+</style>
+</head>
+<body>
+
+<h1>Угол отбора — три варианта</h1>
+<p class="подзаг">К разбору <b>2026-08-29-ugol-otbora-analiz.md</b>. Сцена — правый угол верхней
+линейки. Вариант Б живой: наведите и нажмите на прибор, снимите фильтр, нажмите
+«Показать весь 2026 год» и успейте «Вернуть».</p>
+
+<div class="ряд">
+
+  <!-- А -->
+  <section class="вар">
+    <h2>А. Решётка 12 ячеек (нынешний)</h2>
+    <span class="вердикт в-нет">как основной канал — нет</span>
+    <div class="сцена">
+      <button class="предмет-а" title="Задано 3 фильтра. Нажмите — сбросить и показать весь 2026 год">
+        <span class="сетка-а">
+          <i></i><i class="горит"></i><i></i>
+          <i></i><i class="горит"></i><i></i>
+          <i class="горит"></i><i></i><i></i>
+          <i class="режим"></i><i></i><i></i>
+        </span>
+      </button>
+    </div>
+    <div class="поясн"><b>Что не так</b> (разбор §2):
+      <ul>
+        <li>ячейка 4×4 px — не сосчитать, которая горит;</li>
+        <li>позиционный код из 12 мест не выучивается;</li>
+        <li>клик значит три разных вещи по невидимому таймеру;</li>
+        <li>имена осей — только по наведению, на касании их нет.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Б -->
+  <section class="вар">
+    <h2>Б. Прибор со счётом</h2>
+    <span class="вердикт в-да">рекомендую</span>
+    <div class="сцена" id="сцена-б">
+      <button class="прибор" id="прибор" aria-expanded="false"
+              aria-label="Задано 3 фильтра. Нажмите, чтобы посмотреть и снять">
+        <span class="сетка-б" id="сетка-б" aria-hidden="true">
+          <i></i><i data-ось="период" class="горит"></i><i></i>
+          <i></i><i data-ось="организации" class="горит"></i><i></i>
+          <i data-ось="способ" class="горит"></i><i></i><i></i>
+          <i></i><i></i><i></i>
+        </span>
+        <span class="счёт" id="счёт">3</span>
+      </button>
+
+      <div class="полка" id="полка" hidden>
+        <div class="полка-шапка">Фильтры <span id="полка-счёт">3</span></div>
+        <div class="ось" data-ось="период"><b>период:</b><span class="знач">2025 · III квартал</span>
+          <button aria-label="Убрать фильтр: период">✕</button></div>
+        <div class="ось" data-ось="организации"><b>организации:</b><span class="знач">УО и 2 подведа</span>
+          <button aria-label="Убрать фильтр: организации">✕</button></div>
+        <div class="ось" data-ось="способ"><b>способ закупки:</b><span class="знач">ЕП</span>
+          <button aria-label="Убрать фильтр: способ закупки">✕</button></div>
+        <button class="домой" id="домой">Показать весь 2026 год</button>
+      </div>
+
+      <div class="тост" id="тост" hidden>
+        <span>Фильтры сброшены</span>
+        <button class="вернуть" id="вернуть">Вернуть</button>
+        <span class="сек" id="сек">6</span>
+      </div>
+    </div>
+    <div class="поясн"><b>Устройство:</b>
+      <ul>
+        <li>лицо — та же решётка, укрупнённая: паттерн читает выучивший, всем остальным хватает числа;</li>
+        <li>клик всегда делает одно — открывает полку (работает и наведением, и касанием);</li>
+        <li>снятие по-осево — в полке; «домой» — одна ясная кнопка со словами;</li>
+        <li>после сброса — тост со словом «Вернуть» и составом возврата, 6 секунд, Escape;</li>
+        <li>на умолчании прибор тих: решётка гаснет, числа нет.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- В -->
+  <section class="вар">
+    <h2>В. Жетоны по-осево</h2>
+    <span class="вердикт в-зап">запасной</span>
+    <div class="сцена">
+      <div class="жетоны">
+        <span class="жетон"><b>период:</b><i>2025 · III кв</i><button aria-label="Убрать фильтр: период">✕</button></span>
+        <span class="жетон"><b>организации:</b><i>3</i><button aria-label="Убрать фильтр: организации">✕</button></span>
+        <span class="жетон"><b>способ:</b><i>ЕП</i><button aria-label="Убрать фильтр: способ закупки">✕</button></span>
+        <button class="сброс-в">Сбросить</button>
+      </div>
+    </div>
+    <div class="поясн"><b>Плюс:</b> понятно с первого взгляда без обучения.
+      <b>Минус:</b> растёт простынёй с числом осей и толкает линейку — то, от чего уходили;
+      отказ от лаконичного предмета.</div>
+  </section>
+</div>
+
+<div class="текстовка">
+  <h2>Текстовка варианта Б — уже по замене (из разбора, §6)</h2>
+  <table>
+    <tr><th>Было (ai-slop)</th><th>Стало</th></tr>
+    <tr><td class="былo">Отбор: отклонений от умолчания нет</td><td class="сталo">Фильтры не заданы — показан весь 2026 год</td></tr>
+    <tr><td class="былo">Отобрано: умолчание</td><td class="сталo">Фильтры: не заданы</td></tr>
+    <tr><td class="былo">Нажатие возвращает его, а не пустоту; шесть секунд можно вернуть обратно</td><td class="сталo">Кнопка снимает все фильтры и показывает весь 2026 год. Передумали — нажмите «Вернуть» в течение 6 секунд</td></tr>
+    <tr><td class="былo">Снять отбор: ось</td><td class="сталo">Убрать фильтр: период / организации / способ закупки</td></tr>
+    <tr><td class="былo">что: ЕП · как: живой процент</td><td class="сталo">способ закупки: ЕП · ставка: фактический % снижения — 9,79</td></tr>
+  </table>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var прибор=document.getElementById('прибор'), полка=document.getElementById('полка'),
+      тост=document.getElementById('тост'), вернуть=document.getElementById('вернуть'),
+      домой=document.getElementById('домой'), сек=document.getElementById('сек'),
+      счёт=document.getElementById('счёт'), полкаСчёт=document.getElementById('полка-счёт'),
+      сетка=document.getElementById('сетка-б'), таймер=null, снятые=null;
+
+  function живые(){ return Array.prototype.slice.call(полка.querySelectorAll('.ось')); }
+  function перерисовать(){
+    var n=живые().length;
+    счёт.textContent=n; полкаСчёт.textContent=n||'не заданы';
+    прибор.classList.toggle('тихий', n===0);
+    прибор.setAttribute('aria-label', n
+      ? 'Задано '+n+' фильтра. Нажмите, чтобы посмотреть и снять'
+      : 'Фильтры не заданы — показан весь 2026 год');
+    Array.prototype.forEach.call(сетка.querySelectorAll('i[data-ось]'), function(я){
+      var есть=живые().some(function(о){return о.dataset.ось===я.dataset.ось;});
+      я.classList.toggle('горит', есть);
+    });
+    if(n===0 && !полка.hidden) закрыть();
+  }
+  function открыть(){ полка.hidden=false; прибор.setAttribute('aria-expanded','true'); }
+  function закрыть(){ полка.hidden=true; прибор.setAttribute('aria-expanded','false'); }
+
+  прибор.addEventListener('click', function(){
+    if(живые().length===0) return;
+    полка.hidden ? открыть() : закрыть();
+  });
+  document.getElementById('сцена-б').addEventListener('mouseleave', function(){
+    if(тост.hidden) закрыть();
+  });
+
+  полка.addEventListener('mouseover', function(e){
+    var о=e.target.closest('.ось'); if(!о) return;
+    Array.prototype.forEach.call(сетка.children, function(я){
+      я.classList.toggle('подсвет', я.dataset.ось===о.dataset.ось);
+    });
+  });
+  полка.addEventListener('mouseout', function(){
+    Array.prototype.forEach.call(сетка.children, function(я){ я.classList.remove('подсвет'); });
+  });
+  полка.addEventListener('click', function(e){
+    var к=e.target.closest('.ось button'); if(!к) return;
+    к.closest('.ось').remove(); перерисовать();
+  });
+
+  домой.addEventListener('click', function(){
+    var состав=живые().map(function(о){return о.querySelector('.знач').textContent;}).join(' · ');
+    вернуть.textContent='Вернуть ('+состав+')';
+    снятые=живые().map(function(о){return о.outerHTML;});
+    живые().forEach(function(о){о.remove();});
+    перерисовать(); закрыть();
+    тост.hidden=false; var осталось=6; сек.textContent=осталось;
+    таймер=setInterval(function(){
+      осталось--; сек.textContent=осталось;
+      if(осталось<=0){ clearInterval(таймер); тост.hidden=true; снятые=null; }
+    },1000);
+  });
+  вернуть.addEventListener('click', function(){
+    clearInterval(таймер); тост.hidden=true;
+    if(снятые){ снятые.forEach(function(h){ домой.insertAdjacentHTML('beforebegin',h); }); снятые=null; }
+    перерисовать(); открыть();
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape'){ clearInterval(таймер); тост.hidden=true; закрыть(); }
+  });
+
+  перерисовать();
+})();
+</script>
+</body>
+</html>

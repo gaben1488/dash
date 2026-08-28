@@ -1,26 +1,53 @@
+<meta charset="utf-8">
 <title>Облик: база, сегодня, предложение</title>
 <style>
   :root {
-    --page: #0a0a0b;
-    --sunken: #0f0f10;
-    --card: #151516;
-    --raised: #1d1d1f;
-    --line: #26262a;
-    --ink-strong: #f4f4f5;
-    --ink: #d9d9db;
-    --ink-muted: #a0a0a3;
-    --ink-faint: #757578;
+    --page: #0b0b0a;
+    --sunken: #100f0e;
+    --card: #161514;
+    --raised: #1e1d1b;
+    --hover: #242321;
+    --line: #2a2926;
+    --ink-strong: #f5f5f4;
+    --ink: #dbdad8;
+    --ink-muted: #a3a2a0;
+    --ink-faint: #787775;
     --brass: #e5d3a9;
     --brass-deep: #d6bf85;
-    --act: #60a5fa;
-    --act-deep: #3b82f6;
+    --act: #7dd3fc;
+    --act-deep: #0ea5e9;
     --good: #34d399;
     --warn: #fbbf24;
     --bad: #f87171;
-    --fb: #60a5fa;
+    --fb: #7dd3fc;
     --kb: #34d399;
     --mb: #fbbf24;
+    --halo: 0 0 14px rgba(14,165,233,.50), 0 0 0 1px rgba(125,211,252,.55);
+    --edge: 0 0 0 1px rgba(125,211,252,.55);
   }
+  [data-theme="light"] {
+    --page: #f7f6f4;
+    --sunken: #efeeec;
+    --card: #ffffff;
+    --raised: #f2f1ef;
+    --hover: #eceae7;
+    --line: #dddcd9;
+    --ink-strong: #1c1b1a;
+    --ink: #34332f;
+    --ink-muted: #6c6a66;
+    --ink-faint: #8f8d89;
+    --act: #0ea5e9;
+    --act-deep: #0284c7;
+    --halo: 0 0 10px rgba(14,165,233,.30), 0 0 0 1px rgba(14,165,233,.40);
+    --edge: 0 0 0 1px rgba(14,165,233,.40);
+  }
+  .theme-toggle {
+    position: fixed; top: 14px; right: 14px; z-index: 60;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    border: 1px solid var(--line); font: inherit; font-size: 11.5px; cursor: pointer;
+  }
+  .theme-toggle:hover { color: var(--ink-strong); background: var(--raised); }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -66,7 +93,16 @@
   .pill { font-size: 9px; font-weight: 600; letter-spacing: .01em; padding: 4px 8px; border-radius: 8px;
           background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
           color: rgba(212,212,216,.72); white-space: nowrap; }
-  .pill-on { background: var(--brass); color: #1b170f; border-color: transparent; }
+  .pill-on {
+    background: linear-gradient(135deg, var(--brass), var(--brass-deep));
+    background-color: var(--brass);
+    color: #1b170f; border-color: transparent;
+    box-shadow: var(--halo);
+  }
+  .navdrum { display: flex; flex-direction: column; gap: 5px; }
+  .navrow { display: flex; gap: 6px; }
+  .nd { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .pill-on .nd { box-shadow: 0 0 0 1px rgba(14,165,233,.55); }
   .drum { display: flex; flex-direction: column; gap: 1px; padding: 3px 5px; border-radius: 14px;
           background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.01));
           border: 1px solid rgba(255,255,255,.09); }
@@ -74,13 +110,16 @@
   .yr { width: 34px; height: 18px; border-radius: 6px; font-size: 10px; font-weight: 600;
         display: grid; place-items: center; color: rgba(161,161,170,.5); }
   .yr-part { color: rgba(229,211,169,.72); }
-  .yr-full { color: #1b170f; background: linear-gradient(135deg, var(--brass), var(--brass-deep)); }
+  .yr-full { color: #1b170f; background: linear-gradient(135deg, var(--brass), var(--brass-deep));
+        background-color: var(--brass); box-shadow: var(--edge); }
   .mo { min-width: 22px; height: 17px; border-radius: 5px; font-size: 9px; font-weight: 600;
         display: grid; place-items: center; color: rgba(161,161,170,.42); padding: 0 3px; position: relative; }
-  .mo-on { color: #1b170f; background: linear-gradient(180deg, var(--brass), var(--brass-deep)); }
+  .mo-on { color: #1b170f; background: linear-gradient(180deg, var(--brass), var(--brass-deep));
+        background-color: var(--brass); box-shadow: var(--edge); }
   .mo-now::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-        width: 3px; height: 3px; border-radius: 50%; background: var(--brass-deep); }
-  .mo-focus { box-shadow: 0 0 0 1.5px rgba(96,165,250,.5); color: var(--act); }
+        width: 3px; height: 3px; border-radius: 50%; background: var(--brass-deep);
+        box-shadow: 0 0 0 1px rgba(125,211,252,.55); }
+  .mo-focus { box-shadow: 0 0 0 1.5px rgba(125,211,252,.55); color: var(--act); }
   .chips { display: flex; gap: 3px; padding: 2px; border-radius: 10px;
            background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.01));
            border: 1px solid rgba(255,255,255,.08); }
@@ -95,6 +134,20 @@
   .grp-cap { font-size: 8px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-faint); padding-right: 2px; }
   .more { font-size: 9px; font-weight: 600; padding: 4px 7px; border-radius: 8px; color: var(--ink-muted);
           border: 1px solid rgba(255,255,255,.09); }
+  [data-theme="light"] .drum,
+  [data-theme="light"] .chips { background: linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.01)); border-color: rgba(0,0,0,.12); }
+  [data-theme="light"] .pill { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.06); color: var(--ink-muted); }
+  [data-theme="light"] .pill-on {
+    color: #1b170f;
+    background: linear-gradient(135deg, var(--brass), var(--brass-deep));
+    background-color: var(--brass);
+    border-color: transparent;
+  }
+  [data-theme="light"] .grp { background: rgba(0,0,0,.03); }
+  [data-theme="light"] .yr { color: rgba(0,0,0,.35); }
+  [data-theme="light"] .mo { color: rgba(0,0,0,.32); }
+  [data-theme="light"] .more { border-color: rgba(0,0,0,.15); }
+  [data-theme="light"] .chip { color: rgba(0,0,0,.45); }
 
   /* ── палитра ── */
   .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -120,7 +173,7 @@
           color: var(--ink-muted); background: rgba(255,255,255,.04); }
   .axis-on { color: #0b1f36; background: var(--act); }
   .mini { display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-top: 10px; }
-  .mini i { flex: 1; border-radius: 2px 2px 0 0; background: rgba(96,165,250,.32); }
+  .mini i { flex: 1; border-radius: 2px 2px 0 0; background: rgba(125,211,252,.32); }
   .mini i.hi { background: var(--act); }
   .ledger { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
   .lrow { display: flex; justify-content: space-between; font-size: 11.5px; padding: 3px 0;
@@ -132,10 +185,12 @@
            font-size: 11.5px; color: var(--ink-faint); }
 </style>
 
+<button class="theme-toggle" type="button" onclick="var к=document.documentElement;к.dataset.theme=(к.dataset.theme==='light'?'dark':'light')">Сменить тему</button>
+
 <div class="wrap">
 
 <h1>Облик: база, сегодня, предложение</h1>
-<p class="lede">Макет к разбору <b>2026-08-22-design-baseline.md</b>. Показаны три состояния каждого узла: как было 8 августа (коммит d317d57), как стало 21 августа (a257d23), и что предлагается. Цвета взяты из кода буквально, ничего не подобрано на глаз. Тёмная тема — основная.</p>
+<p class="lede">Макет к разбору облика от 22.08.2026 (файл разбора — в том же каталоге аудитов). Показаны три состояния каждого узла: как было 8 августа (коммит d317d57), как стало 21 августа (a257d23), и что принято решением владельца. Цвета взяты из кода буквально, ничего не подобрано на глаз; коды цветов — в подсказках образцов. Тёмная тема — основная, светлая переключается кнопкой в углу.</p>
 
 <h2>1. Верхняя линейка</h2>
 <p class="note">Барабан времени, барабан недели и щит не менялись и меняться не должны — это эталон. Менялось окружение: вкладок стало 13 вместо 8, сетка осталась на 6 мест, непрерывная строка распалась на перенос.</p>
@@ -174,24 +229,39 @@
       <div class="drow"><div class="yr yr-full">2026</div><div class="mo mo-on">я</div><div class="mo">ф</div><div class="mo">м</div><div class="mo mo-now">а</div></div>
     </div>
     <div class="chips">
-      <div class="chip" style="color:#1b170f;background:var(--brass)">Все</div>
-      <div class="chip" style="color:#1b170f;background:var(--brass-deep)">ФБ</div>
+      <div class="chip" style="color:#1b170f;background:var(--brass);box-shadow:var(--edge)">Все</div>
+      <div class="chip" style="color:#1b170f;background:var(--brass-deep);box-shadow:var(--edge)">ФБ</div>
       <div class="chip chip-kb">КБ</div><div class="chip chip-mb">МБ</div>
     </div>
   </div>
-  <p class="tiny" style="margin-top:10px">Два дефекта видны прямо здесь: кнопка «ФБ» кремовая, хотя федеральный бюджет везде синий (<b>--data-fb: #3b82f6</b>); кольцо связи недели и месяца погасло вместе с синим.</p>
+  <p class="tiny" style="margin-top:10px">Два дефекта видны прямо здесь: кнопка «ФБ» кремовая, хотя федеральный бюджет везде лазурный (в коде продукта — #3b82f6); кольцо связи недели и месяца погасло вместе с цветом действия.</p>
 </div>
 
 <div class="panel">
-  <div class="panel-head"><span class="panel-title">Предложение</span><span class="verdict v-good">одна строка · три группы · корзины внутрь Реестра</span></div>
+  <div class="panel-head"><span class="panel-title">Решение владельца</span><span class="verdict v-good">две строки · именованные группы · корзины внутрь Реестра</span></div>
   <div class="rail">
     <div class="shield">СВД</div>
-    <div class="grp"><span class="grp-cap">Свод</span>
-      <div class="pill pill-on">Пульт</div><div class="pill">Отчёт</div><div class="pill">Свод</div></div>
-    <div class="grp"><span class="grp-cap">Данные</span>
-      <div class="pill">Реестр</div><div class="pill">Мониторинг</div></div>
-    <div class="grp"><span class="grp-cap">Разборы</span>
-      <div class="pill">Экономия</div><div class="pill">Контроль</div><div class="more">ещё 3</div></div>
+    <div class="navdrum">
+      <div class="navrow">
+        <div class="grp"><span class="grp-cap">Обзор</span>
+          <div class="pill pill-on"><i class="nd" style="background:#e5d3a9"></i>Пульс</div>
+          <div class="pill"><i class="nd" style="background:#f59e0b"></i>Отчёт</div>
+          <div class="pill"><i class="nd" style="background:#0891b2"></i>Свод</div></div>
+        <div class="grp"><span class="grp-cap">Данные</span>
+          <div class="pill"><i class="nd" style="background:#0ea5e9"></i>Реестр</div>
+          <div class="pill"><i class="nd" style="background:#bae6fd"></i>Мониторинг</div>
+          <div class="pill"><i class="nd" style="background:#a78bfa"></i>Аналитика</div></div>
+      </div>
+      <div class="navrow">
+        <div class="grp"><span class="grp-cap">Разборы</span>
+          <div class="pill"><i class="nd" style="background:#10b981"></i>Экономия</div>
+          <div class="pill"><i class="nd" style="background:#5eead4"></i>Конкуренция</div>
+          <div class="pill"><i class="nd" style="background:#fdba74"></i>Дисциплина</div></div>
+        <div class="grp"><span class="grp-cap">Надзор</span>
+          <div class="pill"><i class="nd" style="background:#ef4444"></i>Контроль</div>
+          <div class="pill"><i class="nd" style="background:#a1a1aa"></i>Система</div></div>
+      </div>
+    </div>
     <div class="drum">
       <div class="drow"><div class="yr">2025</div><div class="mo">я</div><div class="mo">ф</div><div class="mo">м</div><div class="mo">а</div></div>
       <div class="drow"><div class="yr yr-full">2026</div><div class="mo mo-on">я</div><div class="mo">ф</div><div class="mo mo-focus">м</div><div class="mo mo-now">а</div></div>
@@ -200,7 +270,11 @@
       <div class="chip chip-act">Все</div><div class="chip chip-fb">ФБ</div><div class="chip chip-kb">КБ</div><div class="chip chip-mb">МБ</div>
     </div>
   </div>
-  <p class="tiny" style="margin-top:10px">Тринадцать разделов уложены в одну строку: три группы с надписью, редкие — за «ещё 3», корзины «Не обеспеченные» и «В течение года» уехали внутрь Реестра как его разрезы. Латунь снова только у щита и активной вкладки, синий вернулся действию: кольцо связи, выделение «Все», федеральный бюджет.</p>
+  <p class="tiny" style="margin-top:10px">Внутри Реестра, не в линейке:
+    <span style="white-space:nowrap"><i class="nd" style="background:#fde68a"></i>Не обеспеченные</span> ·
+    <span style="white-space:nowrap"><i class="nd" style="background:#c7d2fe"></i>В течение года</span>
+  </p>
+  <p class="tiny" style="margin-top:6px">Одиннадцать вкладок уложены в две строки именованными группами по две-три в группе — так решил владелец вместо прежнего «одна строка · три группы». Корзины «Не обеспеченные» и «В течение года» уехали внутрь Реестра как его разрезы. У каждой вкладки свой цвет из набора навигации продукта; активная — кремовая пилюля с лазурным свечением, как в живом продукте. Подписи целиком, без многоточий.</p>
 </div>
 
 <h2>2. Палитра</h2>
@@ -209,39 +283,39 @@
 <div class="panel">
   <div class="panel-head"><span class="panel-title">Две роли базы</span><span class="verdict v-was">латунь = продукт, синий = действие</span></div>
   <div class="swatches">
-    <div class="sw"><i style="background:#bfa161"></i><b>Хром</b><span>#bfa161</span></div>
-    <div class="sw"><i style="background:#1b170f"></i><b>Хром тёмный</b><span>#1b170f</span></div>
-    <div class="sw"><i style="background:#3b82f6"></i><b>Действие</b><span>#3b82f6</span></div>
-    <div class="sw"><i style="background:#60a5fa"></i><b>Фокус</b><span>blue-500/40</span></div>
-    <div class="sw"><i style="background:#fafafa"></i><b>Полотно свет</b><span>zinc-50</span></div>
-    <div class="sw"><i style="background:#09090b"></i><b>Полотно тьма</b><span>zinc-950</span></div>
+    <div class="sw"><i style="background:#bfa161" title="#bfa161"></i><b>Хром</b><span>латунь</span></div>
+    <div class="sw"><i style="background:#1b170f" title="#1b170f"></i><b>Хром тёмный</b><span>надпись по латуни</span></div>
+    <div class="sw"><i style="background:#3b82f6" title="#3b82f6"></i><b>Действие</b><span>синий базы</span></div>
+    <div class="sw"><i style="background:#60a5fa" title="#60a5fa"></i><b>Фокус</b><span>синий светлее</span></div>
+    <div class="sw"><i style="background:#fafafa" title="#fafafa"></i><b>Полотно свет</b><span>цинк почти белый</span></div>
+    <div class="sw"><i style="background:#09090b" title="#09090b"></i><b>Полотно тьма</b><span>цинк почти чёрный</span></div>
   </div>
 </div>
 
 <div class="panel">
   <div class="panel-head"><span class="panel-title">Сегодня</span><span class="verdict v-bad">одна роль на два смысла · тёплое полотно в свету</span></div>
   <div class="swatches">
-    <div class="sw"><i style="background:#e5d3a9"></i><b>Акцент тьма</b><span>#e5d3a9</span></div>
-    <div class="sw"><i style="background:#8f7549"></i><b>Акцент свет</b><span>#8f7549</span></div>
-    <div class="sw"><i style="background:#faf8f3"></i><b>Полотно свет</b><span>#faf8f3</span></div>
-    <div class="sw"><i style="background:#ece5d6"></i><b>Приподнятое</b><span>#ece5d6</span></div>
-    <div class="sw"><i style="background:#1a1714"></i><b>Подсказка тьма</b><span>#1a1714</span></div>
-    <div class="sw"><i style="background:#262320"></i><b>Сетка тьма</b><span>#262320</span></div>
+    <div class="sw"><i style="background:#e5d3a9;box-shadow:var(--edge)" title="#e5d3a9"></i><b>Акцент тьма</b><span>крем</span></div>
+    <div class="sw"><i style="background:#8f7549" title="#8f7549"></i><b>Акцент свет</b><span>крем затемнённый</span></div>
+    <div class="sw"><i style="background:#faf8f3" title="#faf8f3"></i><b>Полотно свет</b><span>тёплое, спорное</span></div>
+    <div class="sw"><i style="background:#ece5d6" title="#ece5d6"></i><b>Приподнятое</b><span>тёплое, спорное</span></div>
+    <div class="sw"><i style="background:#1a1714" title="#1a1714"></i><b>Подсказка тьма</b><span>тёплый графит</span></div>
+    <div class="sw"><i style="background:#262320" title="#262320"></i><b>Сетка тьма</b><span>тёплый графит</span></div>
   </div>
-  <p class="tiny" style="margin-top:10px">Два правых образца — недоделанный откат: поверхности тёмной темы вернули к нейтральным (#0a0a0b), а части графика остались тёплыми.</p>
+  <p class="tiny" style="margin-top:10px">Два правых образца — недоделанный откат: поверхности тёмной темы вернули к нейтральным, а части графика остались тёплыми.</p>
 </div>
 
 <div class="panel">
-  <div class="panel-head"><span class="panel-title">Предложение</span><span class="verdict v-good">роли разведены обратно, тепло только в хроме</span></div>
+  <div class="panel-head"><span class="panel-title">Решение владельца — заря</span><span class="verdict v-good">крем ведёт хром, лазурь — пара крема и цвет действия</span></div>
   <div class="swatches">
-    <div class="sw"><i style="background:#e5d3a9"></i><b>Хром тьма</b><span>#e5d3a9</span></div>
-    <div class="sw"><i style="background:#1b170f"></i><b>Хром свет</b><span>#1b170f</span></div>
-    <div class="sw"><i style="background:#3b82f6"></i><b>Действие свет</b><span>#3b82f6</span></div>
-    <div class="sw"><i style="background:#60a5fa"></i><b>Действие тьма</b><span>#60a5fa</span></div>
-    <div class="sw"><i style="background:#fafafa"></i><b>Полотно свет</b><span>zinc-50</span></div>
-    <div class="sw"><i style="background:#0a0a0b"></i><b>Полотно тьма</b><span>#0a0a0b</span></div>
+    <div class="sw"><i style="background:#e5d3a9;box-shadow:var(--edge)" title="#e5d3a9"></i><b>Крем</b><span>хром зари</span></div>
+    <div class="sw"><i style="background:#d6bf85;box-shadow:var(--edge)" title="#d6bf85"></i><b>Крем глубокий</b><span>низ градиента</span></div>
+    <div class="sw"><i style="background:#0ea5e9" title="#0ea5e9"></i><b>Лазурь</b><span>действие, пара крема</span></div>
+    <div class="sw"><i style="background:#7dd3fc" title="#7dd3fc"></i><b>Лазурь светлая</b><span>действие во тьме</span></div>
+    <div class="sw"><i style="background:#f7f6f4" title="#f7f6f4"></i><b>Полотно свет</b><span>нейтральное, чуть тёплое</span></div>
+    <div class="sw"><i style="background:#0b0b0a" title="#0b0b0a"></i><b>Полотно тьма</b><span>графит без синевы</span></div>
   </div>
-  <p class="tiny" style="margin-top:10px">Ступень поверхностей 1,182:1, измеренная в кремовой волне, сохраняется — контраст держится светлотой и от подтона не зависит.</p>
+  <p class="tiny" style="margin-top:10px">Заря — кремовый градиент на включённых предметах хрома, и на каждом кремовом предмете лазурная пара: у крупных — ореол, у мелких — кромка в один пиксель; во тьме ореолы ярче, на свету тише. Орхидеи, оранжевого хрома, горчицы и коричневого хрома нет; в графите тёмной темы синий канал не выше красного и зелёного. Ступень поверхностей 1,182:1 сохраняется — контраст держится светлотой.</p>
 </div>
 
 <h2>3. Карточка Пульса: приписка против предмета</h2>
@@ -256,7 +330,7 @@
     <p class="tiny" style="margin:2px 0 0">расчёт по колонкам N и Q книг ГРБС</p>
     <p class="tiny" style="margin:2px 0 0">может расходиться со Сводом на 0,4 п. п.</p>
     <p class="tiny" style="margin:2px 0 0">закупки без финансирования в счёт не входят</p>
-    <div class="bar" style="margin-top:12px"><i style="width:88.6%;background:var(--brass-deep)"></i></div>
+    <div class="bar" style="margin-top:12px"><i style="width:88.6%;background:var(--brass-deep);box-shadow:inset 0 0 0 1px rgba(125,211,252,.55)"></i></div>
     <p class="tiny" style="margin:8px 0 0">Разрезы: перейдите на вкладку «Аналитика», чтобы посмотреть по управлениям.</p>
     <p class="pile">↑ Знание есть, предмета нет: пять строк подряд одинаковым кеглем, разрез вынесен на другую вкладку.</p>
   </div>
@@ -287,16 +361,736 @@
   </div>
 </div>
 
-<h2>4. Что этот макет предъявляет к согласованию</h2>
-<p class="note">Три развилки, каждая — отдельное «да» или «нет».</p>
+<h2>4. Решения владельца, применённые в макете</h2>
+<p class="note">Три бывшие развилки закрыты решениями владельца — макет показывает уже принятое.</p>
 <div class="panel">
-  <div class="lrow"><span>Вернуть синему роль действия, латунь оставить хрому</span><span style="color:var(--act)">развилка 1</span></div>
-  <div class="lrow"><span>Вернуть нейтральное полотно светлой темы, ступень 1,182:1 сохранить</span><span style="color:var(--act)">развилка 2</span></div>
-  <div class="lrow"><span>Собрать тринадцать вкладок в три группы, корзины убрать внутрь Реестра</span><span style="color:var(--act)">развилка 3</span></div>
+  <div class="lrow"><span>Заря: крем ведёт хром, лазурь — цвет действия и обязательная пара каждого кремового предмета</span><span style="color:var(--good)">принято</span></div>
+  <div class="lrow"><span>Полотно нейтральное в обеих темах, графит тёмной темы без синевы, ступень 1,182:1 сохранена</span><span style="color:var(--good)">принято</span></div>
+  <div class="lrow"><span>Вкладки — две строки именованными группами со своими цветами, корзины внутрь Реестра</span><span style="color:var(--good)">принято</span></div>
+</div>
+
+<style>
+  /* ── Узел эфира в шапке: собран по методу щита — плотность со смыслом ── */
+  .pv-wrap { position: relative; display: inline-flex; }
+  .pv-trigger {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px; border-radius: 999px;
+    background: transparent; border: 1px solid transparent;
+    color: var(--ink-muted); font-size: 11px; cursor: pointer;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .pv-trigger:hover { background: var(--raised); color: var(--ink); }
+  .pv-trigger:active { transform: scale(.97); }
+  .pv-trigger.pv-open { background: var(--raised); color: var(--ink-strong); }
+  /* Пульс эфира: живое дыхание вместо слова «онлайн» */
+  .pv-pulse { position: relative; width: 7px; height: 7px; flex: 0 0 auto; }
+  .pv-pulse i, .pv-pulse b {
+    position: absolute; inset: 0; border-radius: 50%; background: var(--good);
+  }
+  .pv-pulse i { animation: pv-ping 2.2s cubic-bezier(0,0,.2,1) infinite; opacity: .65; }
+  @keyframes pv-ping { 0% { transform: scale(1); opacity: .65 } 80%,100% { transform: scale(2.4); opacity: 0 } }
+  .pv-stale .pv-pulse i, .pv-stale .pv-pulse b { background: var(--warn); }
+  .pv-stale .pv-pulse i { animation: none; }
+  /* Счётчик правок — цифра, а не значок: она и есть новость */
+  .pv-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+    background: var(--act-deep); color: #fff; font-size: 10px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-count.pv-zero { background: transparent; color: var(--ink-faint); font-weight: 500; }
+
+  /* ── Раскрытая панель: три слоя одной мысли ── */
+  .pv-panel {
+    position: absolute; top: calc(100% + 8px); right: 0; width: 460px;
+    background: var(--card); border-radius: 14px; padding: 0;
+    box-shadow: 0 18px 48px rgba(0,0,0,.55); overflow: hidden; z-index: 40;
+    border: 1px solid var(--line);
+  }
+  .pv-head { padding: 13px 16px 11px; background: var(--sunken); }
+  .pv-title { font-size: 12px; font-weight: 700; color: var(--ink-strong); letter-spacing: .01em; }
+  .pv-sub { margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); line-height: 1.45; }
+  .pv-tabs { display: flex; gap: 2px; padding: 8px 12px 0; background: var(--sunken); }
+  .pv-tab {
+    padding: 6px 11px; border-radius: 8px 8px 0 0; font-size: 11px;
+    color: var(--ink-muted); cursor: pointer; background: transparent;
+    border: none; transition: background .15s, color .15s;
+  }
+  .pv-tab:hover { color: var(--ink); }
+  .pv-tab.pv-tab-on { background: var(--card); color: var(--ink-strong); font-weight: 600; }
+  .pv-tab .pv-tab-n { color: var(--ink-faint); margin-left: 5px; font-variant-numeric: tabular-nums; }
+  .pv-body { padding: 12px 16px 14px; max-height: 340px; overflow-y: auto; }
+
+  .pv-row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .pv-row:last-child { border-bottom: none; }
+  .pv-when { flex: 0 0 42px; font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; padding-top: 1px; }
+  .pv-what { flex: 1; min-width: 0; }
+  .pv-line { font-size: 11.5px; color: var(--ink); line-height: 1.5; }
+  .pv-line b { color: var(--ink-strong); font-weight: 600; }
+  .pv-addr { margin-top: 3px; font-size: 10px; color: var(--ink-faint); }
+  .pv-addr u { text-decoration: none; color: var(--act); cursor: pointer; }
+  .pv-addr u:hover { text-decoration: underline; }
+  .pv-was { color: var(--bad); text-decoration: line-through; opacity: .8; }
+  .pv-now { color: var(--good); }
+  .pv-note {
+    margin-top: 5px; padding: 6px 9px; border-radius: 7px;
+    background: var(--raised); font-size: 10.5px; color: var(--ink-muted);
+    line-height: 1.5; font-style: italic;
+  }
+  .pv-note::before { content: '💬 '; font-style: normal; opacity: .7; }
+  .pv-who { color: var(--brass); font-style: normal; }
+  .pv-foot {
+    padding: 9px 16px; background: var(--sunken);
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10.5px; color: var(--ink-faint);
+  }
+  .pv-foot u { color: var(--act); text-decoration: none; cursor: pointer; }
+  .pv-foot u:hover { text-decoration: underline; }
+  .pv-src { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .pv-src span {
+    font-size: 9.5px; padding: 2px 6px; border-radius: 5px;
+    background: var(--raised); color: var(--ink-muted);
+  }
+  .pv-src span.pv-src-hot { background: rgba(14,165,233,.16); color: var(--act); }
+
+  /* Две ступени строки эфира: серая — правка увидена, цветная — числа пересчитаны */
+  .pv-stage { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+  .pv-stage-seen { background: var(--ink-faint); }
+  .pv-stage-done { background: var(--good); }
+  .pv-row-seen .pv-line, .pv-row-seen .pv-addr { color: var(--ink-faint); }
+  .pv-row-seen .pv-line b { color: var(--ink-muted); }
+  .pv-legend { display: flex; gap: 14px; padding: 7px 16px; background: var(--sunken);
+               border-top: 1px solid var(--line); font-size: 10px; color: var(--ink-faint); }
+  .pv-legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+</style>
+
+<h2>Узел эфира в правом углу линейки <span class="tag">предложение</span></h2>
+<p class="note">Владелец просил это семь раз. Нижняя плашка уходит, её работа переезжает сюда. Собрано по методу щита: одно место вместо трёх, состояние показано, а не подписано, цифра — сама новость.</p>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Свёрнутое состояние</span><span class="verdict v-was">одна строка, три смысла</span></div>
+  <div class="rail" style="justify-content:flex-end">
+    <div class="pv-wrap">
+      <button class="pv-trigger" type="button">
+        <span class="pv-pulse"><i></i><b></b></span>
+        <span>обновлено 3 мин назад</span>
+        <span class="pv-count">7</span>
+      </button>
+    </div>
+  </div>
+  <div class="lrow"><span>Пульс дышит — данные живые; замер обновляется сам</span><span style="color:var(--good)">эфир</span></div>
+  <div class="lrow"><span>Когда читались книги — словом, а не отметкой времени</span><span style="color:var(--ink-muted)">момент</span></div>
+  <div class="lrow"><span>Сколько правок с прошлого взгляда — цифра и есть новость: счёт правок ведётся на виду</span><span style="color:var(--act)">счёт</span></div>
+  <div class="lrow"><span>Каждая строка живёт двумя ступенями: приходит серой, как только правка увидена, и наливается цветом после пересчёта чисел</span><span style="color:var(--ink-muted)">ступени</span></div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Нет связи или данные устарели</span><span class="verdict v-bad">состояние показано формой</span></div>
+  <div class="rail" style="justify-content:flex-end">
+    <div class="pv-wrap pv-stale">
+      <button class="pv-trigger" type="button">
+        <span class="pv-pulse"><i></i><b></b></span>
+        <span>последнее чтение 47 мин назад</span>
+        <span class="pv-count pv-zero">0</span>
+      </button>
+    </div>
+  </div>
+  <p class="note">Пульс перестаёт дышать и желтеет — это видно боковым зрением, слово «устарело» не нужно. Ноль правок не кричит синим: он служебный.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Раскрытое состояние — три слоя одной мысли</span><span class="verdict v-fix">не уходя со вкладки</span></div>
+  <div style="display:flex;justify-content:flex-end;padding:10px 0 300px">
+    <div class="pv-wrap">
+      <button class="pv-trigger pv-open" type="button">
+        <span class="pv-pulse"><i></i><b></b></span>
+        <span>обновлено 3 мин назад</span>
+        <span class="pv-count">7</span>
+      </button>
+      <div class="pv-panel">
+        <div class="pv-head">
+          <div class="pv-title">Книги прочитаны сегодня в 05:08</div>
+          <div class="pv-sub">Восемь книг управлений и лист свода · 656 ячеек · правок с прошлого взгляда: 7 · следующее чтение — сразу после правки в книге</div>
+          <div class="pv-src">
+            <span class="pv-src-hot">УО · 7 правок</span><span>УКСиМП</span><span>УЭР</span><span>УД</span><span>УДТХ</span><span>УИО</span><span>УАГЗО</span><span>УФБП</span><span>Свод</span>
+          </div>
+        </div>
+        <div class="pv-tabs">
+          <button class="pv-tab pv-tab-on" type="button">Что изменилось<span class="pv-tab-n">7</span></button>
+          <button class="pv-tab" type="button">Комментарии<span class="pv-tab-n">3</span></button>
+          <button class="pv-tab" type="button">Откуда числа</button>
+        </div>
+        <div class="pv-body">
+
+          <div class="pv-row pv-row-seen">
+            <span class="pv-stage pv-stage-seen"></span>
+            <div class="pv-when">05:08</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Правка увидена</b> — числа пересчитываются</div>
+              <div class="pv-addr">УО · уведомление пришло, чтение книги идёт; строка нальётся цветом после пересчёта</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <span class="pv-stage pv-stage-done"></span>
+            <div class="pv-when">05:06</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Дата заключения</b> проставлена: <span class="pv-was">пусто</span> → <span class="pv-now">14.08.2026</span></div>
+              <div class="pv-addr">УО · строка 1173 · <u>№ п/п 1173 «Обслуживание и заправка огнетушителей»</u> · Ковалёва</div>
+              <div class="pv-note">Заключили после подтверждения лимитов, документы у бухгалтерии. <span class="pv-who">— координатор просила пояснить задержку</span></div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <span class="pv-stage pv-stage-done"></span>
+            <div class="pv-when">05:02</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Плановая сумма</b> понижена: <span class="pv-was">430,00</span> → <span class="pv-now">318,50</span> тыс. ₽</div>
+              <div class="pv-addr">УКСиМП · строка 280 · <u>№ п/п 671 «Расчистка снега фронтальным погрузчиком»</u> · Сидорова</div>
+              <div class="pv-note">Экономия ушла на строку-приёмник 674, ходатайство подписано 20.08</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <span class="pv-stage pv-stage-done"></span>
+            <div class="pv-when">04:58</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Добавлена строка</b> — новая закупка в плане</div>
+              <div class="pv-addr">УО · строка 1819 · <u>№ п/п 2140 «Лицензированная охрана объектов, 4 квартал»</u> · 17 775,00 тыс. ₽</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <span class="pv-stage pv-stage-done"></span>
+            <div class="pv-when">04:51</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Способ закупки</b> изменён: <span class="pv-was">ЕП</span> → <span class="pv-now">ЭА</span></div>
+              <div class="pv-addr">УД · строка 46 · <u>№ п/п 97 «Огнетушители ОВЭ-5»</u> · Петрова</div>
+              <div class="pv-note">Превысили 600 тысяч после уточнения потребности — переводим на аукцион</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <span class="pv-stage pv-stage-done"></span>
+            <div class="pv-when">04:47</div>
+            <div class="pv-what">
+              <div class="pv-line">Ещё <b>три правки сумм</b> в книге УО</div>
+              <div class="pv-addr"><u>показать все семь</u></div>
+            </div>
+          </div>
+
+        </div>
+        <div class="pv-legend">
+          <span><i style="background:var(--ink-faint)"></i>серая — правка увидена</span>
+          <span><i style="background:var(--good)"></i>цветная — числа пересчитаны</span>
+          <span>правок за сегодня: 7</span>
+        </div>
+        <div class="pv-foot">
+          <span>Удаления строк книга не записывает — ловим сравнением снимков</span>
+          <u>Весь журнал →</u>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Почему так, а не иначе</span><span class="verdict v-fix">метод щита</span></div>
+  <div class="lrow"><span>Нижняя плашка исчезает: она перекрывала содержимое и жила отдельной жизнью</span><span style="color:var(--bad)">снос</span></div>
+  <div class="lrow"><span>Три слоя вместо одной простыни: что изменилось · комментарии людей · откуда числа</span><span style="color:var(--act)">слои</span></div>
+  <div class="lrow"><span>Комментарии исполнителей вынесены отдельным слоем — это была слепая зона</span><span style="color:var(--brass)">новое</span></div>
+  <div class="lrow"><span>Адрес строки — дверь: щелчок ведёт к строке, панель не закрывается</span><span style="color:var(--act)">провал</span></div>
+  <div class="lrow"><span>Было → стало показано цветом и зачёркиванием, без слов «изменено с»</span><span style="color:var(--good)">показ</span></div>
+  <div class="lrow"><span>Книга с правками подсвечена в списке источников — видно, где шевеление</span><span style="color:var(--act)">источник</span></div>
+  <div class="lrow"><span>Две ступени строки: серая при появлении правки, цвет после пересчёта — видно, что уже посчитано</span><span style="color:var(--good)">ступени</span></div>
+  <div class="lrow"><span>Чего книга не пишет (удаления строк) — сказано вслух, а не умолчано</span><span style="color:var(--warn)">честность</span></div>
+</div>
+
+
+<style>
+  /* ── вкладка «Объяснения» ── */
+  .cm-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .cm-stat {
+    display: flex; flex-direction: column; gap: 1px; text-align: left;
+    background: var(--raised); border: 0; border-radius: 10px; padding: 10px 12px 11px;
+    color: inherit; font: inherit; cursor: pointer;
+    transition: background .16s ease, transform .16s ease;
+  }
+  .cm-stat:hover { background: var(--hover); transform: translateY(-1px); }
+  .cm-stat-act .cm-stat-n { color: var(--act); }
+  .cm-stat-n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink-strong);
+               font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .cm-stat-of { font-size: 13px; font-weight: 500; color: var(--ink-faint); }
+  .cm-stat-l { font-size: 12px; color: var(--ink); }
+  .cm-stat-sub { font-size: 11px; color: var(--ink-faint); }
+
+  .cm-lanes { display: flex; gap: 14px; }
+  .cm-lane-labels { display: flex; flex-direction: column; gap: 10px; padding-top: 22px; flex: 0 0 132px; }
+  .cm-lane-l { display: flex; align-items: center; gap: 7px; height: 20px; font-size: 11.5px; color: var(--ink-muted); }
+  .cm-lane-l em { font-style: normal; color: var(--ink-faint); font-size: 10.5px; margin-left: 2px; }
+  .cm-lane-grid { flex: 1; min-width: 0; }
+  .cm-axis { position: relative; height: 16px; font-size: 10.5px; color: var(--ink-faint); }
+  .cm-axis span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .cm-lane {
+    position: relative; height: 20px; margin-bottom: 10px; border-radius: 6px;
+    background: linear-gradient(var(--sunken), var(--sunken)) padding-box;
+    background-color: var(--sunken);
+  }
+  .cm-lane::after {
+    content: ''; position: absolute; inset: 9px 0 auto; height: 1px; background: var(--line);
+  }
+  .cm-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+  .cm-dot-edit { background: var(--act); }
+  .cm-dot-note { background: var(--brass); box-shadow: 0 0 0 1px rgba(125,211,252,.55); }
+  .cm-dot-comm { background: var(--good); }
+  .cm-ev {
+    position: absolute; top: 6px; width: 8px; height: 8px; border-radius: 50%;
+    transform: translateX(-50%); cursor: pointer; transition: transform .16s ease;
+  }
+  .cm-ev:hover { transform: translateX(-50%) scale(1.5); }
+  .cm-ev-edit { background: var(--act); }
+  .cm-ev-note { background: var(--brass); box-shadow: 0 0 0 1px rgba(125,211,252,.55); }
+  .cm-ev-comm { background: var(--good); }
+  .cm-ev-open { background: var(--warn); box-shadow: 0 0 0 3px rgba(251,191,36,.16); }
+  .cm-gap {
+    position: absolute; top: 4px; height: 12px; border-radius: 6px;
+    background: repeating-linear-gradient(115deg, rgba(248,113,113,.14) 0 6px, transparent 6px 12px);
+    border: 1px dashed rgba(248,113,113,.4);
+  }
+  .cm-gap-t {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 10px; color: var(--bad); white-space: nowrap; letter-spacing: .01em;
+  }
+
+  .cm-feed { display: flex; flex-direction: column; gap: 6px; }
+  .cm-row {
+    display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px 10px;
+    background: var(--raised); border-radius: 10px;
+    transition: background .16s ease;
+  }
+  .cm-row:hover { background: var(--hover); }
+  .cm-row-open { box-shadow: inset 2px 0 0 var(--warn); }
+  .cm-row-exp { background: var(--hover); }
+  .cm-row-kind {
+    flex: 0 0 58px; text-align: center; font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+    font-weight: 600; padding: 3px 0; border-radius: 5px; margin-top: 1px;
+  }
+  .cm-kind-fix { background: rgba(14,165,233,.14); color: var(--act); }
+  .cm-kind-why { background: rgba(52,211,153,.13); color: var(--good); }
+  .cm-kind-ask { background: rgba(251,191,36,.14); color: var(--warn); }
+  .cm-row-main { flex: 1; min-width: 0; }
+  .cm-row-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .cm-book { font-size: 11px; font-weight: 600; color: var(--ink-strong); }
+  .cm-addr { font-size: 11.5px; color: var(--ink-muted); }
+  .cm-quote {
+    font-size: 11.5px; color: var(--ink); font-variant-numeric: tabular-nums;
+    background: var(--sunken); padding: 1px 6px; border-radius: 4px;
+  }
+  .cm-swap { display: inline-flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
+  .cm-swap s { color: var(--ink-faint); }
+  .cm-swap b { color: var(--ink-strong); }
+  .cm-arrow { color: var(--ink-faint); }
+  .cm-age { margin-left: auto; font-size: 11px; }
+  .cm-age-bad { color: var(--bad); }
+  .cm-age-warn { color: var(--warn); }
+  .cm-age-ok { color: var(--ink-faint); }
+  .cm-row-text { font-size: 12.5px; color: var(--ink); margin-top: 3px; }
+  .cm-row-sub { font-size: 11px; color: var(--ink-faint); margin-top: 3px; }
+  .cm-who { color: var(--ink-muted); }
+  .cm-row-go {
+    flex: 0 0 auto; align-self: flex-start; background: transparent; border: 0; color: var(--act);
+    font: inherit; font-size: 11.5px; cursor: pointer; padding: 2px 4px; border-radius: 5px;
+    opacity: 0; transition: opacity .16s ease, background .16s ease;
+  }
+  .cm-row:hover .cm-row-go { opacity: 1; }
+  .cm-row-go-on { opacity: 1; color: var(--ink-muted); }
+
+  .cm-exp { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; margin-top: 11px;
+            padding-top: 11px; border-top: 1px solid var(--line); }
+  .cm-exp-h { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint);
+              margin-bottom: 6px; }
+  .cm-trail { display: flex; flex-direction: column; gap: 5px; }
+  .cm-trail-i { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink-muted);
+                font-variant-numeric: tabular-nums; }
+  .cm-trail-i s { color: var(--ink-faint); }
+  .cm-trail-i b { color: var(--ink-strong); }
+  .cm-trail-i em { font-style: normal; color: var(--ink-faint); }
+  .cm-now { font-size: 15px; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+  .cm-now-ok { font-size: 11px; color: var(--good); margin-left: 6px; }
+  .cm-bind { font-size: 11.5px; color: var(--ink-muted); }
+  .cm-bind-warn { display: block; color: var(--warn); font-size: 11px; margin-top: 3px; }
+
+  .cm-sig { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .cm-sig-i { display: flex; align-items: flex-start; gap: 10px; background: var(--raised);
+              border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--ink-muted); }
+  .cm-sig-i b { color: var(--ink-strong); font-weight: 600; }
+  .cm-sig-n { flex: 0 0 34px; font-size: 18px; font-weight: 600; color: var(--ink-strong);
+              font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .cm-sig-bad { color: var(--bad); }
+  .cm-sig-warn { color: var(--warn); }
+
+  .cm-limits { display: flex; flex-direction: column; gap: 8px; }
+  .cm-lim { background: var(--raised); border-radius: 10px; padding: 10px 12px;
+            font-size: 12px; color: var(--ink-muted); }
+  .cm-lim .verdict { display: block; margin-bottom: 3px; }
+  .cm-lim b { color: var(--ink-strong); font-weight: 600; }
+
+  /* Вывод в четыре слоя: факт · прошлый год · порог · вывод, каждый с источником */
+  .fl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fl-card { background: var(--raised); border-radius: 10px; padding: 10px 12px 12px; }
+  .fl-t { font-size: 12px; font-weight: 600; color: var(--ink-strong); margin-bottom: 7px; }
+  .fl-row { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 11.5px; }
+  .fl-l { flex: 0 0 88px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em;
+          color: var(--ink-faint); padding-top: 2px; font-weight: 600; }
+  .fl-b { flex: 1; color: var(--ink); line-height: 1.5; }
+  .fl-b b { color: var(--ink-strong); font-weight: 600; }
+  .fl-mute { color: var(--ink-faint); font-style: italic; }
+  .fl-src { display: block; margin-top: 2px; font-size: 10px; color: var(--ink-faint); }
+  .fl-src::before { content: 'источник: '; color: var(--ink-faint); }
+
+  @media (max-width: 860px) {
+    .cm-summary { grid-template-columns: repeat(2, 1fr); }
+    .cm-sig, .cm-exp, .fl { grid-template-columns: 1fr; }
+    .cm-lanes { flex-direction: column; }
+    .cm-lane-labels { flex-direction: row; flex: none; padding-top: 0; gap: 14px; }
+  }
+</style>
+
+<h2>5. Вкладка «Объяснения» <span class="tag">предложение, данные живые</span></h2>
+
+<p class="note">
+  Снято 22.08.2026 обращением к перечню комментариев Диска: 324 записи по девяти книгам,
+  из них 72 открытых. Числа и цитаты ниже — настоящие, не выдуманные для картинки.
+  Названа вкладка «Объяснения», а не «Комментарии», потому что предмет — не переписка,
+  а <b>причина, по которой число стало таким</b>.
+</p>
+
+<!-- ── 5.1 Сводка ─────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="panel-title">Шапка вкладки</span>
+    <span class="note" style="margin:0">пять чисел, каждое — вход в отбор, а не украшение</span>
+  </div>
+
+  <div class="cm-summary">
+    <button class="cm-stat cm-stat-act">
+      <span class="cm-stat-n">72</span>
+      <span class="cm-stat-l">ждут ответа</span>
+      <span class="cm-stat-sub">68 — дольше месяца</span>
+    </button>
+    <button class="cm-stat">
+      <span class="cm-stat-n">16</span>
+      <span class="cm-stat-l">правок предложено</span>
+      <span class="cm-stat-sub">и не применено</span>
+    </button>
+    <button class="cm-stat">
+      <span class="cm-stat-n">4<span class="cm-stat-of">/9</span></span>
+      <span class="cm-stat-l">книги молчат</span>
+      <span class="cm-stat-sub">ни одного объяснения</span>
+    </button>
+    <button class="cm-stat">
+      <span class="cm-stat-n">1<span class="cm-stat-of"> дн.</span></span>
+      <span class="cm-stat-l">срединный ответ</span>
+      <span class="cm-stat-sub">самый долгий — 119</span>
+    </button>
+    <button class="cm-stat">
+      <span class="cm-stat-n">6</span>
+      <span class="cm-stat-l">удалено</span>
+      <span class="cm-stat-sub">след есть, текста нет</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── 5.2 Три дорожки ────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="panel-title">Три следа одной ячейки на одной оси</span>
+    <span class="note" style="margin:0">главный вид вкладки</span>
+  </div>
+  <p class="note">
+    У правки три независимых следа, и раньше мы видели только первый. Совмещённые во времени,
+    они отвечают на вопрос, которого продукт не задавал ни разу: <b>объяснили ли изменение вообще
+    и через сколько</b>. Разрыв между дорожками — сам по себе факт.
+  </p>
+
+  <div class="cm-lanes">
+    <div class="cm-lane-labels">
+      <div class="cm-lane-l"><span class="cm-dot cm-dot-edit"></span>правка ячейки<em>журнал книги</em></div>
+      <div class="cm-lane-l"><span class="cm-dot cm-dot-note"></span>заметка<em>автоматически</em></div>
+      <div class="cm-lane-l"><span class="cm-dot cm-dot-comm"></span>объяснение<em>человек</em></div>
+    </div>
+
+    <div class="cm-lane-grid">
+      <div class="cm-axis">
+        <span style="left:2%">1 апр</span><span style="left:26%">10 апр</span>
+        <span style="left:50%">20 апр</span><span style="left:74%">1 мая</span><span style="left:95%">сегодня</span>
+      </div>
+
+      <!-- дорожка 1: правки -->
+      <div class="cm-lane">
+        <span class="cm-ev cm-ev-edit" style="left:6%" title="L178: 379,28 → 428,33"></span>
+        <span class="cm-ev cm-ev-edit" style="left:31%" title="N204: 33,00 → 30,00"></span>
+        <span class="cm-ev cm-ev-edit" style="left:33%"></span>
+        <span class="cm-ev cm-ev-edit" style="left:62%"></span>
+      </div>
+      <!-- дорожка 2: заметки -->
+      <div class="cm-lane">
+        <span class="cm-ev cm-ev-note" style="left:6%" title="Было: 379,28 (07.04.2026 11:02, okirsina57@gmail.com)"></span>
+        <span class="cm-ev cm-ev-note" style="left:31%"></span>
+        <span class="cm-ev cm-ev-note" style="left:33%"></span>
+        <span class="cm-ev cm-ev-note" style="left:62%"></span>
+      </div>
+      <!-- дорожка 3: объяснения -->
+      <div class="cm-lane">
+        <span class="cm-ev cm-ev-comm" style="left:6%" title="Ольга Киршина: 428,33147"></span>
+        <span class="cm-ev cm-ev-comm cm-ev-open" style="left:31%" title="открыто 136 дней"></span>
+        <span class="cm-gap" style="left:33%;width:29%">
+          <span class="cm-gap-t">объяснения нет — 2 правки</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:12px">
+    Наведение на точку показывает след целиком: адрес, было → стало, автор, момент.
+    Пустой участок третьей дорожки при заполненной первой — <b>правка без причины</b>;
+    это и есть новый сигнал, а не украшение графика.
+  </p>
+</div>
+
+<!-- ── 5.3 Лента ──────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="panel-title">Лента: три рода записи, не один</span>
+  </div>
+  <p class="note">
+    Разбор корпуса показал, что «комментарий» — три разных предмета, и валить их в один список
+    значит терять смысл. 138 записей из 324 несут в теле готовое значение — это не пояснение,
+    а <b>предложенная замена</b>. Прозой написано 180. Ещё часть — вопрос к координатору.
+  </p>
+
+  <div class="cm-feed">
+
+    <!-- предложенная правка, не применена -->
+    <div class="cm-row cm-row-open">
+      <div class="cm-row-kind cm-kind-fix">правка</div>
+      <div class="cm-row-main">
+        <div class="cm-row-top">
+          <span class="cm-book">УО</span>
+          <span class="cm-addr">способ закупки</span>
+          <span class="cm-swap"><s>ЭА</s><span class="cm-arrow">→</span><b>ЕП</b></span>
+          <span class="cm-age cm-age-bad">143 дня без ответа</span>
+        </div>
+        <div class="cm-row-sub">
+          Ольга Киршина · 1 апреля · <span class="cm-who">никто не закрыл</span>
+        </div>
+      </div>
+      <button class="cm-row-go">строка →</button>
+    </div>
+
+    <!-- проза, решено -->
+    <div class="cm-row">
+      <div class="cm-row-kind cm-kind-why">причина</div>
+      <div class="cm-row-main">
+        <div class="cm-row-top">
+          <span class="cm-book">УЭР</span>
+          <span class="cm-addr">НМЦК</span>
+          <span class="cm-quote">292,67</span>
+          <span class="cm-age cm-age-ok">закрыто за сутки</span>
+        </div>
+        <div class="cm-row-text">«Изменена НМЦК»</div>
+        <div class="cm-row-sub">Макс Макс · 20 августа · закрыла Мария Соколова</div>
+      </div>
+      <button class="cm-row-go">строка →</button>
+    </div>
+
+    <!-- вопрос, открыт -->
+    <div class="cm-row cm-row-open">
+      <div class="cm-row-kind cm-kind-ask">вопрос</div>
+      <div class="cm-row-main">
+        <div class="cm-row-top">
+          <span class="cm-book">УЭР</span>
+          <span class="cm-addr">способ закупки</span>
+          <span class="cm-quote">ЕП</span>
+          <span class="cm-age cm-age-warn">2 дня</span>
+        </div>
+        <div class="cm-row-text">«В комментарии ГРБС просьба согласовать изменение способа определения поставщика»</div>
+        <div class="cm-row-sub">Макс Макс · 20 августа · <span class="cm-who">ждёт координатора</span></div>
+      </div>
+      <button class="cm-row-go">строка →</button>
+    </div>
+
+    <!-- раскрытая карточка: провал внутрь -->
+    <div class="cm-row cm-row-exp">
+      <div class="cm-row-kind cm-kind-why">причина</div>
+      <div class="cm-row-main">
+        <div class="cm-row-top">
+          <span class="cm-book">УО</span>
+          <span class="cm-addr">НМЦК</span>
+          <span class="cm-quote">83,29</span>
+          <span class="cm-age cm-age-bad">53 дня без ответа</span>
+        </div>
+        <div class="cm-row-text">«в связи с заключением соответствующего контракта и актуализацией цен поставщика на предстоящий период»</div>
+        <div class="cm-row-sub">Крис Ви · 30 июня · <span class="cm-who">никто не закрыл</span></div>
+
+        <div class="cm-exp">
+          <div class="cm-exp-col">
+            <div class="cm-exp-h">что было с числом</div>
+            <div class="cm-trail">
+              <div class="cm-trail-i"><span class="cm-dot cm-dot-edit"></span>30 июня 21:44 — <s>76,10</s> → <b>83,29</b> <em>почта О. Киршиной</em></div>
+              <div class="cm-trail-i"><span class="cm-dot cm-dot-note"></span>заметка ячейки: «Было: 76.10 (30.06.2026 21:44)»</div>
+              <div class="cm-trail-i"><span class="cm-dot cm-dot-comm"></span>30 июня 21:56 — объяснение, через 12 минут</div>
+            </div>
+          </div>
+          <div class="cm-exp-col">
+            <div class="cm-exp-h">сейчас в таблице</div>
+            <div class="cm-now"><b>83,29</b> <span class="cm-now-ok">предложение применено</span></div>
+            <div class="cm-exp-h" style="margin-top:12px">привязка</div>
+            <div class="cm-bind">
+              книга УО · цитата «83,29» · момент 30.06 21:56
+              <span class="cm-bind-warn">до ячейки — по совпадению, не по адресу</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="cm-row-go cm-row-go-on">свернуть</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── 5.4 Сигналы ────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="panel-title">Шесть сигналов, которых сейчас нет</span>
+    <span class="note" style="margin:0">каждый выведен из корпуса, а не придуман</span>
+  </div>
+
+  <div class="cm-sig">
+    <div class="cm-sig-i">
+      <span class="cm-sig-n cm-sig-bad">16</span>
+      <div><b>Предложение не применено.</b> В комментарии готовое значение, в ячейке — прежнее.
+      Самое старое с 1 апреля.</div>
+    </div>
+    <div class="cm-sig-i">
+      <span class="cm-sig-n cm-sig-bad">33</span>
+      <div><b>Объяснение висит больше трёх месяцев.</b> Исполнитель написал, координатор не ответил.
+      Рекорд — 149 дней.</div>
+    </div>
+    <div class="cm-sig-i">
+      <span class="cm-sig-n cm-sig-warn">4</span>
+      <div><b>Книга не объясняет ничего.</b> УИО, УД, УДТХ и СВОД — ноль записей за всё время,
+      при том что правки в них есть.</div>
+    </div>
+    <div class="cm-sig-i">
+      <span class="cm-sig-n cm-sig-warn">64</span>
+      <div><b>Автор закрыл себя сам.</b> Из 246 закрытий 64 сделал тот же человек, кто и писал.
+      Это факт корпуса; оценка ему даётся ниже, в блоке выводов, с названным источником.</div>
+    </div>
+    <div class="cm-sig-i">
+      <span class="cm-sig-n cm-sig-warn">?</span>
+      <div><b>Правка без причины.</b> Крупное изменение в журнале, рядом по времени ни заметки,
+      ни объяснения. Считается по совмещению дорожек.</div>
+    </div>
+    <div class="cm-sig-i">
+      <span class="cm-sig-n">6</span>
+      <div><b>Объяснение удалено.</b> Факт и момент известны, текст и автор стёрты самим Диском.
+      Показываем как есть, не домысливая.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 5.5 Выводы в четыре слоя ───────────────────────────── -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="panel-title">Выводы — четыре слоя, каждый с названным источником</span>
+    <span class="note" style="margin:0">слой без источника не существует; будущие периоды не оцениваются</span>
+  </div>
+  <p class="note">
+    Сигналы выше — факты счёта. Оценка им даётся только так: факт с периметром,
+    сравнение с прошлым годом (умеющее молчать и объяснять почему), порог с графой
+    «откуда взят», вывод из справочника выводов. Хардкода «мало — значит плохо» нет.
+  </p>
+
+  <div class="fl">
+
+    <div class="fl-card">
+      <div class="fl-t">72 записи ждут ответа</div>
+      <div class="fl-row">
+        <span class="fl-l">факт</span>
+        <span class="fl-b"><b>72 из 324</b> записей без ответа, 68 — дольше месяца. Периметр: девять книг, весь корпус.
+          <span class="fl-src">перечень комментариев Диска, снято 22.08.2026</span></span>
+      </div>
+      <div class="fl-row">
+        <span class="fl-l">прошлый год</span>
+        <span class="fl-b"><span class="fl-mute">Молчит: перечень ведётся с апреля 2026 — записей за прошлый год нет, сравнение не строится.</span>
+          <span class="fl-src">тот же перечень, границы корпуса</span></span>
+      </div>
+      <div class="fl-row">
+        <span class="fl-l">порог</span>
+        <span class="fl-b">30 дней на ответ. Откуда взят: срединный ответ в корпусе — 1 день, долгая доля хвоста — 41 день; месяц без ответа — уже не работа, а забвение.
+          <span class="fl-src">справочник порогов, разбор скоростей ответа по 246 закрытиям</span></span>
+      </div>
+      <div class="fl-row">
+        <span class="fl-l">вывод</span>
+        <span class="fl-b">Завал не в скорости, а в брошенных ветках: обычный ответ приходит за сутки, а 68 записей старше месяца никто не взял в работу.
+          <span class="fl-src">справочник выводов, правило «долгий хвост при быстрой середине»</span></span>
+      </div>
+    </div>
+
+    <div class="fl-card">
+      <div class="fl-t">Четыре книги молчат</div>
+      <div class="fl-row">
+        <span class="fl-l">факт</span>
+        <span class="fl-b"><b>УИО, УД, УДТХ и СВОД</b> — ноль объяснений за всё время, при живых правках в журналах. Периметр: девять книг.
+          <span class="fl-src">перечень Диска против журналов правок книг, 22.08.2026</span></span>
+      </div>
+      <div class="fl-row">
+        <span class="fl-l">прошлый год</span>
+        <span class="fl-b"><span class="fl-mute">Молчит: перечень моложе года — сравнение не строится.</span>
+          <span class="fl-src">границы корпуса</span></span>
+      </div>
+      <div class="fl-row">
+        <span class="fl-l">порог</span>
+        <span class="fl-b">Хотя бы одно объяснение на десять правок сумм. Откуда взят: говорящие книги дают одно объяснение на семь-девять правок — планка вдвое мягче наблюдаемой нормы.
+          <span class="fl-src">справочник порогов, счёт по говорящим книгам корпуса</span></span>
+      </div>
+      <div class="fl-row">
+        <span class="fl-l">вывод</span>
+        <span class="fl-b">Молчание книги — не отсутствие событий, а привычка управления: правки идут, причины не пишутся. Вопрос организационный, не технический.
+          <span class="fl-src">справочник выводов, сверка перечня с журналом правок</span></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── 5.6 Честные границы ────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="panel-title">Где вкладка обязана молчать</span>
+  </div>
+  <div class="cm-limits">
+    <div class="cm-lim">
+      <span class="verdict v-bad">не знаем</span>
+      <b>Точный адрес ячейки.</b> Комментарий несёт внутренний номер области, в адрес он публично
+      не разворачивается. Родной способ у Таблиц объявлен, но выкатка не дошла: запрос отвергается.
+      До тех пор привязка честно пишется как «книга + цитата», а не «книга + ячейка».
+    </div>
+    <div class="cm-lim">
+      <span class="verdict v-bad">не знаем</span>
+      <b>Содержание удалённого.</b> Остаются только факт и момент.
+    </div>
+    <div class="cm-lim">
+      <span class="verdict v-was">не проверено</span>
+      <b>Применены ли 16 предложений.</b> Сверка по выгрузке не проводилась — до неё сигнал
+      показывается как «предложено», а не «проигнорировано».
+    </div>
+  </div>
 </div>
 
 <footer>
-  Макет статический, код продукта не тронут. Разбор с адресами — <b>docs/superpowers/audits/2026-08-22-design-baseline.md</b>. База: d317d57, голова: a257d23.
+  Макет статический, код продукта не тронут. Разбор с адресами — <b title="docs/superpowers/audits/2026-08-22-design-baseline.md">файл разбора облика от 22.08.2026, тот же каталог аудитов</b>. База: d317d57, голова: a257d23.
 </footer>
 
 </div>

@@ -1,0 +1,1332 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Палитра и элементы АЭМР — образец на согласование</title>
+<style>
+/* ═══════════ 1. ОСНОВАНИЕ ═══════════
+   Нейтральный ряд, чернила, линии, шкала акцента — общие для всех трёх
+   палитр. Взяты из расчёта: фон #131217 из стандарта Минэконома, каждая
+   следующая ступень получена так, чтобы контраст соседей был 1,14:1.
+   Теней нет ни одной: ступень означает вложенность, а не высоту.        */
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --s0:#131217; --s1:#201F26; --s2:#2A2932; --s3:#33323D; --s4:#3C3B47;
+  --ink1:#F2F2F7; --ink2:#C6C6D0; --ink3:#9797A3; --ink4:#807C8C;
+  --line-q:#262530; --line-s:#625F6C;
+  --acc:#E5D3A9; --acc-h:#EFE0BE; --acc-p:#D6BF85; --on-acc:#1A1005;
+  --acc-soft:#3A3423; --acc-line:#8C7B4A; --ring:#7DD3FC;
+  --lazur:#7DD3FC; --lazur-edge:rgba(125,211,252,0.65); --lazur-halo:rgba(14,165,233,0.45);
+  --btn-line:#7C7B87; --btn-line-h:#9797A3; --btn-off:#918F9B;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --s0:#FBFBFE; --s1:#ECECF2; --s2:#DEDEE6; --s3:#D1D1DA; --s4:#C4C4CE;
+  --ink1:#17161C; --ink2:#3B3A45; --ink3:#5C5B68; --ink4:#767281;
+  --line-q:#E4E4EC; --line-s:#94909D;
+  --acc:#D6BF85; --acc-h:#CDB170; --acc-p:#C2A45B; --on-acc:#1A1005;
+  --acc-soft:#F5EDD8; --acc-line:#C9B274; --ring:#0EA5E9;
+  --lazur:#0EA5E9; --lazur-edge:rgba(14,165,233,0.55); --lazur-halo:rgba(14,165,233,0.25);
+  --btn-line:#6E6A79; --btn-line-h:#5C5B68; --btn-off:#63616E;
+}
+
+/* ── Палитра А. «Ведомственный сигнал»: тёплое отдано суждению,
+      холодное — разрядам данных, взаимодействие цвета не берёт.       */
+html[data-theme="dark"] .p-a {
+  --good:#5FBE86; --warn-fg:#EDE0C9; --warn-bg:#3A2410;
+  --bad-fg:#FFF6F2; --bad-bg:#A33A2A; --bad-line:#C0503C;
+  --none:#807C8C; --r1:#7FB3FF; --r2:#3F63D8; --r3:#2A8F86;
+  --pick-bg:transparent; --pick-fg:var(--ink1); --pick-nest:#33323D;
+}
+html[data-theme="light"] .p-a {
+  --good:#1E7A4C; --warn-fg:#6B4A05; --warn-bg:#F6E6C4;
+  --bad-fg:#FFFAF6; --bad-bg:#97452C; --bad-line:#97452C;
+  --none:#767281; --r1:#2F6FD6; --r2:#26379E; --r3:#0F6F68;
+  --pick-bg:transparent; --pick-fg:var(--ink1); --pick-nest:#D1D1DA;
+}
+
+/* ── Палитра Б. «Приборная панель»: крем отдан взаимодействию,
+      нарушение получает собственный красный, ряды идут семьями.       */
+html[data-theme="dark"] .p-b {
+  --good:#43B77F; --warn-fg:#EDE0C9; --warn-bg:#3A2410;
+  --bad-fg:#131217; --bad-bg:#F2544F; --bad-line:#F2544F;
+  --none:#807C8C; --r1:#8FC2FF; --r2:#5385E0; --r3:#2A55A8;
+  --pick-bg:#E5D3A9; --pick-fg:#1A1005; --pick-nest:#33323D;
+}
+html[data-theme="light"] .p-b {
+  --good:#0F7440; --warn-fg:#6B4A05; --warn-bg:#F6E6C4;
+  --bad-fg:#FFFAF6; --bad-bg:#B22C27; --bad-line:#B22C27;
+  --none:#767281; --r1:#4F87DE; --r2:#2A55A8; --r3:#16305E;
+  --pick-bg:#D6BF85; --pick-fg:#1A1005; --pick-nest:#D1D1DA;
+}
+
+/* ── Палитра В. «Печатный свод»: акцент ничего не заливает, он живёт
+      волосяной чертой и точкой; ряды — индиговая лестница светлоты.   */
+html[data-theme="dark"] .p-v {
+  --good:#8FB9A4; --warn-fg:#EDE0C9; --warn-bg:transparent;
+  --bad-fg:#C0503C; --bad-bg:transparent; --bad-line:#C0503C;
+  --none:#807C8C; --r1:#D2CBEB; --r2:#A59FDB; --r3:#727BCA;
+  --pick-bg:transparent; --pick-fg:var(--ink1); --pick-nest:#33323D;
+}
+html[data-theme="light"] .p-v {
+  --good:#3F7A62; --warn-fg:#6B4A05; --warn-bg:transparent;
+  --bad-fg:#97452C; --bad-bg:transparent; --bad-line:#97452C;
+  --none:#767281; --r1:#8D88DC; --r2:#6C66C6; --r3:#4F49AC;
+  --pick-bg:transparent; --pick-fg:var(--ink1); --pick-nest:#D1D1DA;
+}
+
+/* ═══════════ 2. НАБОР ═══════════
+   Четыре вида текста, как требует стандарт: служебная метка 11,
+   основной 14, заголовок 18, решающее число 30. Отношение ступеней
+   1,27 — 1,29 — 1,67.                                                  */
+
+body {
+  margin: 0;
+  background: var(--s1);
+  color: var(--ink2);
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.num { font-variant-numeric: tabular-nums; }
+
+h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15;
+     margin: 0 0 10px; color: var(--ink1); }
+h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em;
+     margin: 0 0 6px; color: var(--ink1); }
+h3 { font-size: 14px; font-weight: 600; margin: 0; color: var(--ink1); }
+p  { margin: 0 0 10px; max-width: 74ch; }
+.mark {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--ink3); margin: 0 0 8px;
+}
+.dim { color: var(--ink3); }
+.faint { color: var(--ink4); }
+
+/* ═══════════ 3. КАРКАС СТРАНИЦЫ ═══════════ */
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 30px 20px 96px; }
+.top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.sect { margin: 0 0 18px; padding-top: 46px; }
+.sect:first-of-type { padding-top: 26px; }
+.rule { height: 1px; background: var(--line-q); border: 0; margin: 0; }
+
+/* ═══════════ 4. ОТКЛИК И ДВИЖЕНИЕ ═══════════
+   Переходы перечислены поимённо, потолок 220 мс, выход быстрее входа.
+   Наведение закрыто условием способа ввода. Действие с клавиатуры
+   гасит движение признаком «мгновенно».                               */
+
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+html[data-instant] * { transition-duration: 0s !important; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* ═══════════ 5. ТРИ ПАЛИТРЫ НА ЖИВОМ КУСКЕ ПРОДУКТА ═══════════ */
+
+.pals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1080px) { .pals { grid-template-columns: 1fr; } }
+
+.pal-h { margin: 0 0 10px; }
+.pal-h .row { display: flex; align-items: baseline; gap: 8px; }
+.badge {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--ink3); border-radius: 4px; padding: 1px 6px;
+  background: var(--s2);
+}
+.pal-h .claim { font-size: 14px; color: var(--ink3); margin: 4px 0 0; max-width: none; }
+
+/* экран продукта: поверхность 0, вложенная в полотно страницы.
+   Ступень 1,14:1 — единственный носитель глубины, теней нет.          */
+.screen { background: var(--s0); border-radius: 8px; padding: 14px; }
+
+.card { background: var(--s1); border-radius: 8px; padding: 12px 14px 14px; }
+.kpi { display: flex; align-items: baseline; gap: 10px; }
+.kpi .v { font-size: 30px; font-weight: 600; letter-spacing: -0.025em;
+          line-height: 1; color: var(--ink1); }
+.kpi .u { font-size: 14px; color: var(--ink3); }
+.claim { font-size: 14px; color: var(--ink2); margin: 8px 0 0; }
+.claim b { color: var(--ink1); font-weight: 600; }
+
+/* состояние: точка цвета плюс слово чернилами.
+   Цвет никогда не единственный носитель.                              */
+.states { margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.st { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.dot.good { background: var(--good); }
+.dot.warn { background: var(--warn-fg); }
+.dot.bad  { background: var(--bad-line); }
+.dot.none { background: var(--none); }
+.st .w { color: var(--ink2); }
+.st .n { color: var(--ink1); font-weight: 600; }
+
+/* плашка: заливка плюс подпись. В палитре В заливки нет вовсе —
+   там остаётся волосяная черта акцентом под числом.                   */
+.plate {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 4px; padding: 2px 8px; font-size: 14px; font-weight: 600;
+  background: var(--bad-bg); color: var(--bad-fg);
+}
+.p-v .plate {
+  padding: 2px 0; border-radius: 0; color: var(--bad-fg);
+  border-bottom: 2px solid var(--bad-line);
+}
+.plate-w {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 4px; padding: 2px 8px; font-size: 14px;
+  background: var(--warn-bg); color: var(--warn-fg);
+}
+.p-v .plate-w { padding: 2px 0; background: none; }
+
+/* ── таблица рейтинга ── */
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 4px; }
+.tbl th {
+  text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink3); padding: 0 6px 6px 0;
+  white-space: nowrap;
+}
+.tbl td { padding: 5px 6px 5px 0; color: var(--ink2); }
+.tbl tbody tr + tr td { border-top: 1px solid var(--line-q); }
+.tbl .r { text-align: right; padding-right: 0; }
+.tbl .nm { color: var(--ink1); font-weight: 600; white-space: nowrap; }
+.tbl .cell { display: flex; align-items: center; gap: 7px; }
+.tbl tbody tr { transition: background-color 90ms cubic-bezier(0.23,1,0.32,1); }
+@media (hover: hover) and (pointer: fine) {
+  .tbl tbody tr:hover td { background: var(--s1); }
+}
+
+/* ── график: сто процентов по источникам финансирования ── */
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 8px; font-size: 11px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink3); }
+.legend i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.brow { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 8px; }
+.brow .bn { font-size: 11px; color: var(--ink3); text-align: right; white-space: nowrap; }
+.brow .bar { display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: var(--s2); }
+.brow .bar i { display: block; height: 100%; }
+.c1 { background: var(--r1); } .c2 { background: var(--r2); } .c3 { background: var(--r3); }
+.brow.total .bn { color: var(--ink1); font-weight: 600; }
+
+/* ── паспорт проверки под каждой палитрой ── */
+.check { margin-top: 12px; font-size: 11px; line-height: 1.5; }
+.check dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+.check dt { color: var(--ink4); white-space: nowrap; }
+.check dd { margin: 0; color: var(--ink2); }
+.check dd b { color: var(--ink1); font-weight: 600; }
+.check .flaw { color: var(--warn-fg); }
+.p-v .check .flaw, .p-a .check .flaw, .p-b .check .flaw { color: var(--ink1); }
+.check .flawline { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-q); color: var(--ink3); }
+
+/* ═══════════ 6. НАБОР ЭЛЕМЕНТОВ ═══════════
+   Предмет — оттиск: след, оставленный в самом листе. Он не поднимается
+   над плоскостью, поэтому теней нет, а покой, наведение, нажатие и
+   выбор различаются плотностью краски.                                */
+
+.kit { background: var(--s0); border-radius: 8px; padding: 16px; }
+.kit + .kit { margin-top: 14px; }
+.kitrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.kitgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  position: relative; height: 28px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: 6px;
+  font: inherit; font-size: 14px; font-weight: 500; line-height: 1;
+  background: none; color: var(--ink2); cursor: pointer;
+  transition: background-color 90ms cubic-bezier(0.23,1,0.32,1),
+              border-color 90ms cubic-bezier(0.23,1,0.32,1),
+              color 90ms cubic-bezier(0.23,1,0.32,1);
+}
+/* область нажатия дорастает до 44 пикселей прозрачным полем,
+   видимая высота при этом не растёт                                   */
+.btn::before { content: ""; position: absolute; inset: -8px; }
+.btn.sm { height: 24px; padding: 0 8px; }
+.btn.lg { height: 36px; padding: 0 16px; }
+
+.btn.main { background: var(--acc); color: var(--on-acc); font-weight: 600; }
+.btn.plain { border-color: var(--btn-line); color: var(--ink2); }
+.btn.quiet { color: var(--ink3); }
+
+@media (hover: hover) and (pointer: fine) {
+  .btn.main:hover { background: var(--acc-h); }
+  .btn.plain:hover { border-color: var(--btn-line-h); color: var(--ink1); }
+  .btn.quiet:hover { background: var(--s2); color: var(--ink1); }
+}
+/* показанные состояния: чтобы наведение и нажатие были видны
+   без мыши, они продублированы признаками разметки                    */
+.btn.main.is-hover { background: var(--acc-h); }
+.btn.plain.is-hover { border-color: var(--btn-line-h); color: var(--ink1); }
+.btn.quiet.is-hover { background: var(--s2); color: var(--ink1); }
+.btn.main.is-press { background: var(--acc-p); }
+.btn.plain.is-press { background: var(--s2); }
+.btn.quiet.is-press { background: var(--s3); }
+.btn.is-ring { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.btn.main:active { background: var(--acc-p); }
+.btn.lg.main:active { transform: scale(0.98); }
+.btn.plain:active { background: var(--s2); }
+.btn.quiet:active { background: var(--s3); }
+.btn[disabled] {
+  cursor: not-allowed; color: var(--btn-off);
+  background: none; border-color: var(--line-q);
+}
+.btn.main[disabled] { background: var(--s2); border-color: transparent; }
+.btn.quiet[disabled] { border-color: transparent; }
+.btn.plain[disabled] { border-color: var(--line-s); }
+.btn .arrow { display: inline-block; transition: transform 90ms cubic-bezier(0.23,1,0.32,1); }
+@media (hover: hover) and (pointer: fine) {
+  .btn.dive:hover .arrow { transform: translateX(2px); }
+  .btn.back:hover .arrow { transform: translateX(-2px); }
+}
+.spin {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: turn 0.8s linear infinite; flex: none;
+}
+@keyframes turn { to { transform: rotate(360deg); } }
+
+.stlab { font-size: 11px; color: var(--ink4); margin: 0 0 6px; }
+.stcol { display: flex; flex-direction: column; gap: 10px; }
+.stline { display: grid; grid-template-columns: 116px auto; align-items: center; gap: 10px; }
+.stline > span:first-child { font-size: 11px; color: var(--ink4); }
+
+/* ── переключатель режима: настоящий флажок, спрятанный от глаз.
+      Ползунка нет: он занимает вдвое больше места и ничего не даёт.   */
+.swwrap { display: flex; flex-direction: column; gap: 8px; }
+.sw { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.sw input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.sw .box {
+  display: inline-flex; align-items: center; height: 28px; padding: 0 12px;
+  border: 1px solid var(--btn-line); border-radius: 6px;
+  font-size: 14px; font-weight: 500; color: var(--ink3);
+  transition: background-color 90ms cubic-bezier(0.23,1,0.32,1),
+              border-color 90ms cubic-bezier(0.23,1,0.32,1),
+              color 90ms cubic-bezier(0.23,1,0.32,1);
+}
+.sw input:checked + .box {
+  background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 600;
+}
+.sw input:focus-visible + .box { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .sw:hover .box { border-color: var(--btn-line-h); color: var(--ink1); }
+  .sw:hover input:checked + .box { background: var(--acc-h); color: var(--on-acc); }
+}
+/* состояние «частично»: заливки нет, граница акцентом,
+   полоса два пикселя по нижнему краю                                  */
+.sw .box.part {
+  border-color: var(--acc); color: var(--ink1);
+  border-bottom-width: 2px; border-bottom-color: var(--acc);
+}
+.sw .hint { font-size: 11px; color: var(--ink4); }
+
+.readout { margin-top: 10px; }
+.readout .v { font-size: 30px; font-weight: 600; letter-spacing: -0.025em;
+              line-height: 1; color: var(--ink1); }
+
+/* ── сегменты: настоящая радиогруппа, ход внутри стрелками ── */
+fieldset.seg { border: 0; margin: 0; padding: 0; }
+fieldset.seg legend { font-size: 11px; color: var(--ink4); padding: 0 0 6px; }
+.segbox { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--s2); }
+.segbox label { position: relative; display: inline-flex; }
+.segbox input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.segbox .it {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+  border-radius: 4px; font-size: 14px; color: var(--ink3); cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 90ms cubic-bezier(0.23,1,0.32,1),
+              color 90ms cubic-bezier(0.23,1,0.32,1);
+}
+.segbox input:checked + .it { background: var(--acc); color: var(--on-acc); font-weight: 600; }
+.segbox input:focus-visible + .it { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .segbox label:hover .it { background: var(--s3); color: var(--ink1); }
+  .segbox label:hover input:checked + .it { background: var(--acc-h); color: var(--on-acc); }
+}
+.segbox input:disabled + .it { color: var(--btn-off); cursor: not-allowed; }
+
+/* ── чип фильтра со снятием ── */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px;
+  padding: 0 8px; border-radius: 9999px; background: var(--s2);
+  font-size: 14px; color: var(--ink2);
+  transition: background-color 90ms cubic-bezier(0.23,1,0.32,1),
+              color 90ms cubic-bezier(0.23,1,0.32,1);
+}
+.chip.on { background: var(--acc); color: var(--on-acc); font-weight: 600; }
+@media (hover: hover) and (pointer: fine) {
+  .chip:hover { background: var(--s3); }
+  .chip.on:hover { background: var(--acc-h); }
+  .chip:hover .x { opacity: 1; }
+}
+/* крестик виден всегда: возможность, доступная только по наведению,
+   на касании недостижима. Место под него зарезервировано, поэтому
+   ширина чипа не меняется ни на пиксель.                              */
+.chip .x {
+  width: 14px; height: 14px; flex: none; border: 0; padding: 0;
+  border-radius: 9999px; background: none; color: inherit; cursor: pointer;
+  font: inherit; font-size: 14px; line-height: 1; opacity: 0.55;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: opacity 90ms cubic-bezier(0.23,1,0.32,1);
+}
+.chip .x:focus-visible { opacity: 1; outline: 2px solid var(--ring); outline-offset: 1px; }
+.undo {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+  border: 1px solid var(--acc); border-radius: 9999px; background: none;
+  font: inherit; font-size: 14px; color: var(--ink1); cursor: pointer;
+}
+
+/* ── барабан периода ── */
+.drum { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+.drow { display: flex; align-items: center; gap: 6px; width: max-content; }
+.yr {
+  height: 28px; min-width: 52px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--btn-line); background: none; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--ink3);
+  transition: background-color 90ms cubic-bezier(0.23,1,0.32,1),
+              border-color 90ms cubic-bezier(0.23,1,0.32,1),
+              color 90ms cubic-bezier(0.23,1,0.32,1);
+}
+.yr[data-state="on"] { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
+.yr[data-state="part"] { border-color: var(--acc); border-bottom-width: 2px; color: var(--ink1); }
+.qbox { display: flex; align-items: center; gap: 2px; padding: 2px;
+        border-radius: 6px; background: var(--s2); }
+.qlab { font-size: 11px; color: var(--ink4); padding: 0 4px; }
+.mo {
+  position: relative; height: 24px; min-width: 34px; padding: 0 6px;
+  border: 1px solid transparent; border-radius: 4px; background: none;
+  font: inherit; font-size: 14px; color: var(--ink3); cursor: pointer;
+  transition: background-color 90ms cubic-bezier(0.23,1,0.32,1),
+              color 90ms cubic-bezier(0.23,1,0.32,1);
+}
+.mo[aria-pressed="true"] { background: var(--acc); color: var(--on-acc); font-weight: 600; }
+@media (hover: hover) and (pointer: fine) {
+  .mo:hover { background: var(--s3); color: var(--ink1); }
+  .mo[aria-pressed="true"]:hover { background: var(--acc-h); color: var(--on-acc); }
+  .yr:hover { border-color: var(--btn-line-h); color: var(--ink1); }
+}
+/* точка «сегодня» гаснет, как только месяц выбран:
+   «сегодня здесь» и «выбрано здесь» — разные сообщения               */
+.mo .now {
+  position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%);
+  width: 4px; height: 4px; border-radius: 50%; background: var(--acc);
+  animation: breathe 4s ease-in-out infinite;
+}
+.mo[aria-pressed="true"] .now { display: none; }
+@keyframes breathe { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }
+.resetslot { display: inline-flex; width: 84px; flex: none; justify-content: flex-start; }
+.drumreset {
+  margin-left: 6px; height: 24px; padding: 0 8px; border-radius: 4px;
+  border: 1px solid var(--btn-line); background: none; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--ink3);
+}
+.drumout { margin-top: 10px; font-size: 14px; color: var(--ink2); }
+.drumout b { color: var(--ink1); font-weight: 600; }
+
+/* ═══════════ 7. ДВА РОДА УГЛУБЛЕНИЯ ═══════════ */
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+
+/* раскрытие на месте: карточка остаётся, вырастает вниз,
+   соседи уезжают                                                      */
+.accbtn {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; text-align: left; color: var(--ink1);
+}
+.accbtn .tri {
+  display: inline-block; font-size: 11px; color: var(--ink4); flex: none;
+  transition: transform 160ms cubic-bezier(0.23,1,0.32,1);
+}
+.accbtn[aria-expanded="true"] .tri { transform: rotate(180deg); }
+@media (hover: hover) and (pointer: fine) {
+  .accbtn:hover .tri { color: var(--ink2); }
+}
+.accbody {
+  overflow: hidden; height: 0;
+  transition: height 220ms cubic-bezier(0.23,1,0.32,1);
+}
+.accbody .inner { padding-top: 12px; opacity: 0;
+  transition: opacity 160ms cubic-bezier(0.23,1,0.32,1) 60ms; }
+.accbody.open .inner { opacity: 1; }
+
+/* проваливание внутрь: рамка карточки сохраняется, меняется только
+   то, что внутри. Вглубь идут вправо, обратно — влево.               */
+.dive-card {
+  position: relative; overflow: hidden;
+  transition: height 220ms cubic-bezier(0.77, 0, 0.175, 1);
+}
+.layer { transition: opacity 160ms cubic-bezier(0.23,1,0.32,1),
+                     transform 160ms cubic-bezier(0.23,1,0.32,1); }
+.layer.out-left  { opacity: 0; transform: translateX(-8px); pointer-events: none; }
+.layer.out-right { opacity: 0; transform: translateX(8px); pointer-events: none; }
+.layer.hidden { display: none; }
+.dive-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.path { font-size: 11px; color: var(--ink3); }
+
+.plist { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.plist li { display: flex; align-items: center; gap: 8px; padding: 5px 0; color: var(--ink2); }
+.plist li + li { border-top: 1px solid var(--line-q); }
+.plist .s { margin-left: auto; color: var(--ink1); font-weight: 600; }
+
+.split { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px;
+         font-size: 14px; align-items: center; }
+.split .k { display: flex; align-items: center; gap: 7px; color: var(--ink2); }
+.split .a { text-align: right; color: var(--ink1); font-weight: 600; }
+.split .b { text-align: right; color: var(--ink3); }
+
+/* ═══════════ 8. ЗАПИСКА ═══════════ */
+.note { background: var(--s0); border-radius: 8px; padding: 18px 20px 20px; }
+.note ol { margin: 0; padding-left: 20px; }
+.note li { margin-bottom: 10px; max-width: 84ch; }
+.note li:last-child { margin-bottom: 0; }
+.note b { color: var(--ink1); font-weight: 600; }
+.foot { margin-top: 26px; font-size: 11px; color: var(--ink4); }
+
+/* ── заря: лазурная пара каждого кремового предмета (§16.2) ──
+   у мелких предметов — кромка в один пиксель, у крупной кнопки —
+   ореол; некремовые предметы лазури не несут                         */
+.btn.main, .sw input:checked + .box, .segbox input:checked + .it,
+.chip.on, .yr[data-state="on"], .mo[aria-pressed="true"] {
+  box-shadow: 0 0 0 1px var(--lazur-edge);
+}
+.btn.lg.main { box-shadow: 0 0 0 1px var(--lazur-edge), 0 0 14px var(--lazur-halo); }
+.btn.main[disabled] { box-shadow: none; }
+.mo .now { box-shadow: 0 0 0 1px var(--lazur-edge); }
+
+/* ── служебные ── */
+.mt { margin-top: 16px; }
+.mt8 { margin-top: 8px; }
+.nowrap { white-space: nowrap; }
+.sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="top">
+  <div>
+    <h1>Палитра и элементы: образец на согласование</h1>
+    <p class="dim">Три варианта одного экрана, набор органов управления и два рода углубления.
+    Ни одна строка кода продукта не тронута. Смотреть, а не читать: решение принимается по картинке.</p>
+  </div>
+  <button class="btn plain nowrap" id="theme" aria-pressed="false">Светлая тема</button>
+</div>
+
+<p class="dim">Числа настоящие. Рейтинг управлений, счёт замечаний и доли источников
+финансирования взяты из среза «Ежедневного мониторинга» от 20.08.2026: 8&nbsp;816 строк,
+1&nbsp;265 замечаний, 23 критических; суммы по восьми управлениям сходятся построчно.
+Исполнение 88,6 % и экономия 4,0 % названы владельцем в задании. Контрасты посчитаны
+по формуле относительной яркости из руководства по доступности содержимого сети, раздел 1.4.3,
+а не оценены на глаз.</p>
+
+<!-- ══════════════════ ТРИ ПАЛИТРЫ ══════════════════ -->
+<section class="sect">
+  <h2>Три палитры на одном и том же куске продукта</h2>
+  <p class="dim">Одна карточка показателя, одна таблица рейтинга, один график.
+  Различаются только краски и то, кому отдана горячая краска.</p>
+</section>
+
+<div class="pals">
+
+  <!-- ─────────── А ─────────── -->
+  <section class="pal p-a">
+    <div class="pal-h">
+      <div class="row"><span class="badge">А</span><h3>Ведомственный сигнал</h3></div>
+      <p class="claim">Единственная горячая краска говорит «здесь неправильно».
+      Взаимодействие цвета не берёт вовсе: выбор показан ступенью поверхности.</p>
+    </div>
+    <div class="screen">
+      <div class="card">
+        <p class="mark">Исполнение плана · район · 2026 год</p>
+        <div class="kpi"><span class="v num">88,6&nbsp;%</span><span class="u">плана закрыто фактом</span></div>
+        <p class="claim">Экономия <b class="num">4,0&nbsp;%</b> — вдвое ниже опорных <span class="num">8&nbsp;%</span>, заложенных в расчёт.</p>
+        <div class="states">
+          <div class="st"><span class="plate"><span class="num">23</span> критических замечания</span></div>
+          <div class="st"><span class="plate-w"><span class="num">1&nbsp;265</span> открыто</span><span class="w">замечаний всего</span></div>
+          <div class="st"><span class="dot good"></span><span class="w">сверка с ручным отчётом чиста</span></div>
+          <div class="st"><span class="dot none"></span><span class="n num">8&nbsp;816</span><span class="w">строк в выборке недели</span></div>
+        </div>
+      </div>
+
+      <p class="mark mt">Рейтинг управлений по исполнению</p>
+      <table class="tbl">
+        <thead><tr><th>Управление</th><th class="r">Исполн.</th><th class="r">Эконом.</th><th class="r">Замеч.</th></tr></thead>
+        <tbody>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УО</span></td><td class="r num">90,8&nbsp;%</td><td class="r num">5,4&nbsp;%</td><td class="r num">866</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УКСиМП</span></td><td class="r num">89,5&nbsp;%</td><td class="r num">0,0&nbsp;%</td><td class="r num">141</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УД</span></td><td class="r num">87,6&nbsp;%</td><td class="r num">4,1&nbsp;%</td><td class="r num">105</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УДТХ</span></td><td class="r num">84,1&nbsp;%</td><td class="r num">0,0&nbsp;%</td><td class="r num">24</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot good"></span>УФБП</span></td><td class="r num">80,6&nbsp;%</td><td class="r num">1,6&nbsp;%</td><td class="r num">16</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УЭР</span></td><td class="r num">70,2&nbsp;%</td><td class="r num">14,6&nbsp;%</td><td class="r num">47</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot good"></span>УИО</span></td><td class="r num">65,5&nbsp;%</td><td class="r num">0,8&nbsp;%</td><td class="r num">29</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УАГЗО</span></td><td class="r num">55,5&nbsp;%</td><td class="r num">22,1&nbsp;%</td><td class="r num">37</td></tr>
+        </tbody>
+      </table>
+
+      <p class="mark mt">Источники финансирования плана, доля</p>
+      <div class="legend">
+        <span><i class="c1"></i>федеральный</span><span><i class="c2"></i>краевой</span><span><i class="c3"></i>местный</span>
+      </div>
+      <div class="bars">
+        <div class="brow"><span class="bn">УО</span><span class="bar"><i class="c1" style="width:24.2%"></i><i class="c2" style="width:6.8%"></i><i class="c3" style="width:69.0%"></i></span></div>
+        <div class="brow"><span class="bn">УИО</span><span class="bar"><i class="c2" style="width:98.7%"></i><i class="c3" style="width:1.3%"></i></span></div>
+        <div class="brow"><span class="bn">УКСиМП</span><span class="bar"><i class="c1" style="width:10.4%"></i><i class="c2" style="width:0.5%"></i><i class="c3" style="width:89.1%"></i></span></div>
+        <div class="brow"><span class="bn">УДТХ</span><span class="bar"><i class="c2" style="width:61.1%"></i><i class="c3" style="width:38.9%"></i></span></div>
+        <div class="brow total"><span class="bn">район</span><span class="bar"><i class="c1" style="width:16.7%"></i><i class="c2" style="width:21.6%"></i><i class="c3" style="width:61.7%"></i></span></div>
+      </div>
+      <p class="mt8" style="font-size:11px;color:var(--ink3)">По району: федеральный <span class="num">16,7&nbsp;%</span>,
+      краевой <span class="num">21,6&nbsp;%</span>, местный <span class="num">61,7&nbsp;%</span> от плана
+      <span class="num">1&nbsp;847&nbsp;510,96</span> тыс. руб.</p>
+    </div>
+
+    <div class="check">
+      <dl>
+        <dt>Текст</dt><dd>решающее число <b>14,64:1</b>, подписи <b>5,66:1</b> — общее для трёх палитр</dd>
+        <dt>Поверхности</dt><dd>соседние ступени <b>1,14:1</b> при пороге 1,12:1 — общее для трёх</dd>
+        <dt>Состояния</dt><dd>норма <b>8,16:1</b>, внимание <b>14,30:1</b>, нарушение <b>7,13:1</b></dd>
+        <dt>Слепота</dt><dd>худшая пара состояний: протанопия <b>13,1</b>, дейтеранопия <b>15,2</b> при пороге 10</dd>
+        <dt>Ряды</dt><dd>пять рядов: обычное зрение 16,1, протанопия 9,2, дейтеранопия <b>6,1</b></dd>
+      </dl>
+      <p class="flawline">Слабое место названо честно: запрет на тёплое в данных стоит различимости.
+      Восемь холодных рядов дают при протанопии <b>3,6</b> — это меньше двух порогов, и разряды
+      начинают сливаться. Спасает прямая подпись у ряда, а не краска.</p>
+    </div>
+  </section>
+
+  <!-- ─────────── Б ─────────── -->
+  <section class="pal p-b">
+    <div class="pal-h">
+      <div class="row"><span class="badge">Б</span><h3>Приборная панель</h3></div>
+      <p class="claim">Крем отдан взаимодействию: «здесь можно нажать, ты сейчас здесь».
+      Нарушение получает собственный красный, ряды идут семьями по разрядам.</p>
+    </div>
+    <div class="screen">
+      <div class="card">
+        <p class="mark">Исполнение плана · район · 2026 год</p>
+        <div class="kpi"><span class="v num">88,6&nbsp;%</span><span class="u">плана закрыто фактом</span></div>
+        <p class="claim">Экономия <b class="num">4,0&nbsp;%</b> — вдвое ниже опорных <span class="num">8&nbsp;%</span>, заложенных в расчёт.</p>
+        <div class="states">
+          <div class="st"><span class="plate"><span class="num">23</span> критических замечания</span></div>
+          <div class="st"><span class="plate-w"><span class="num">1&nbsp;265</span> открыто</span><span class="w">замечаний всего</span></div>
+          <div class="st"><span class="dot good"></span><span class="w">сверка с ручным отчётом чиста</span></div>
+          <div class="st"><span class="dot none"></span><span class="n num">8&nbsp;816</span><span class="w">строк в выборке недели</span></div>
+        </div>
+      </div>
+
+      <p class="mark mt">Рейтинг управлений по исполнению</p>
+      <table class="tbl">
+        <thead><tr><th>Управление</th><th class="r">Исполн.</th><th class="r">Эконом.</th><th class="r">Замеч.</th></tr></thead>
+        <tbody>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УО</span></td><td class="r num">90,8&nbsp;%</td><td class="r num">5,4&nbsp;%</td><td class="r num">866</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УКСиМП</span></td><td class="r num">89,5&nbsp;%</td><td class="r num">0,0&nbsp;%</td><td class="r num">141</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УД</span></td><td class="r num">87,6&nbsp;%</td><td class="r num">4,1&nbsp;%</td><td class="r num">105</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УДТХ</span></td><td class="r num">84,1&nbsp;%</td><td class="r num">0,0&nbsp;%</td><td class="r num">24</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot good"></span>УФБП</span></td><td class="r num">80,6&nbsp;%</td><td class="r num">1,6&nbsp;%</td><td class="r num">16</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УЭР</span></td><td class="r num">70,2&nbsp;%</td><td class="r num">14,6&nbsp;%</td><td class="r num">47</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot good"></span>УИО</span></td><td class="r num">65,5&nbsp;%</td><td class="r num">0,8&nbsp;%</td><td class="r num">29</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УАГЗО</span></td><td class="r num">55,5&nbsp;%</td><td class="r num">22,1&nbsp;%</td><td class="r num">37</td></tr>
+        </tbody>
+      </table>
+
+      <p class="mark mt">Источники финансирования плана, доля</p>
+      <div class="legend">
+        <span><i class="c1"></i>федеральный</span><span><i class="c2"></i>краевой</span><span><i class="c3"></i>местный</span>
+      </div>
+      <div class="bars">
+        <div class="brow"><span class="bn">УО</span><span class="bar"><i class="c1" style="width:24.2%"></i><i class="c2" style="width:6.8%"></i><i class="c3" style="width:69.0%"></i></span></div>
+        <div class="brow"><span class="bn">УИО</span><span class="bar"><i class="c2" style="width:98.7%"></i><i class="c3" style="width:1.3%"></i></span></div>
+        <div class="brow"><span class="bn">УКСиМП</span><span class="bar"><i class="c1" style="width:10.4%"></i><i class="c2" style="width:0.5%"></i><i class="c3" style="width:89.1%"></i></span></div>
+        <div class="brow"><span class="bn">УДТХ</span><span class="bar"><i class="c2" style="width:61.1%"></i><i class="c3" style="width:38.9%"></i></span></div>
+        <div class="brow total"><span class="bn">район</span><span class="bar"><i class="c1" style="width:16.7%"></i><i class="c2" style="width:21.6%"></i><i class="c3" style="width:61.7%"></i></span></div>
+      </div>
+      <p class="mt8" style="font-size:11px;color:var(--ink3)">По району: федеральный <span class="num">16,7&nbsp;%</span>,
+      краевой <span class="num">21,6&nbsp;%</span>, местный <span class="num">61,7&nbsp;%</span> от плана
+      <span class="num">1&nbsp;847&nbsp;510,96</span> тыс. руб.</p>
+    </div>
+
+    <div class="check">
+      <dl>
+        <dt>Текст</dt><dd>решающее число <b>14,64:1</b>, подписи <b>5,66:1</b> — общее для трёх палитр</dd>
+        <dt>Поверхности</dt><dd>соседние ступени <b>1,14:1</b> при пороге 1,12:1 — общее для трёх</dd>
+        <dt>Состояния</dt><dd>норма <b>7,38:1</b>, внимание <b>14,30:1</b>, нарушение <b>5,46:1</b></dd>
+        <dt>Слепота</dt><dd>худшая пара состояний: протанопия <b>14,9</b>, дейтеранопия <b>12,4</b> при пороге 10</dd>
+        <dt>Ряды</dt><dd>пять рядов одной семьи: 15,6 · <b>15,3</b> · <b>16,0</b> — лучший счёт из трёх</dd>
+      </dl>
+      <p class="flawline">Слабое место названо честно: крем отдан взаимодействию и потому
+      присутствует всегда — доля акцента выходит за десятую часть поверхности, и тридцать секунд
+      начальницы уходят на разглядывание оформления. Третий ряд бюджетов даёт к полотну <b>2,31:1</b>
+      при пороге 3:1. И красный нарушения требует осторожного соседства с тёплой заливкой выбора.</p>
+    </div>
+  </section>
+
+  <!-- ─────────── В ─────────── -->
+  <section class="pal p-v">
+    <div class="pal-h">
+      <div class="row"><span class="badge">В</span><h3>Печатный свод</h3></div>
+      <p class="claim">Акцент не заливает ничего: он живёт чертой в два пикселя под числом и точкой
+      перед строкой. Ряды данных — одна индиговая лестница светлоты.</p>
+    </div>
+    <div class="screen">
+      <div class="card">
+        <p class="mark">Исполнение плана · район · 2026 год</p>
+        <div class="kpi"><span class="v num">88,6&nbsp;%</span><span class="u">плана закрыто фактом</span></div>
+        <p class="claim">Экономия <b class="num">4,0&nbsp;%</b> — вдвое ниже опорных <span class="num">8&nbsp;%</span>, заложенных в расчёт.</p>
+        <div class="states">
+          <div class="st"><span class="plate"><span class="num">23</span> критических замечания</span></div>
+          <div class="st"><span class="plate-w"><span class="num">1&nbsp;265</span> открыто</span><span class="w">замечаний всего</span></div>
+          <div class="st"><span class="dot good"></span><span class="w">сверка с ручным отчётом чиста</span></div>
+          <div class="st"><span class="dot none"></span><span class="n num">8&nbsp;816</span><span class="w">строк в выборке недели</span></div>
+        </div>
+      </div>
+
+      <p class="mark mt">Рейтинг управлений по исполнению</p>
+      <table class="tbl">
+        <thead><tr><th>Управление</th><th class="r">Исполн.</th><th class="r">Эконом.</th><th class="r">Замеч.</th></tr></thead>
+        <tbody>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УО</span></td><td class="r num">90,8&nbsp;%</td><td class="r num">5,4&nbsp;%</td><td class="r num">866</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УКСиМП</span></td><td class="r num">89,5&nbsp;%</td><td class="r num">0,0&nbsp;%</td><td class="r num">141</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УД</span></td><td class="r num">87,6&nbsp;%</td><td class="r num">4,1&nbsp;%</td><td class="r num">105</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot warn"></span>УДТХ</span></td><td class="r num">84,1&nbsp;%</td><td class="r num">0,0&nbsp;%</td><td class="r num">24</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot good"></span>УФБП</span></td><td class="r num">80,6&nbsp;%</td><td class="r num">1,6&nbsp;%</td><td class="r num">16</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УЭР</span></td><td class="r num">70,2&nbsp;%</td><td class="r num">14,6&nbsp;%</td><td class="r num">47</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot good"></span>УИО</span></td><td class="r num">65,5&nbsp;%</td><td class="r num">0,8&nbsp;%</td><td class="r num">29</td></tr>
+          <tr><td class="nm"><span class="cell"><span class="dot bad"></span>УАГЗО</span></td><td class="r num">55,5&nbsp;%</td><td class="r num">22,1&nbsp;%</td><td class="r num">37</td></tr>
+        </tbody>
+      </table>
+
+      <p class="mark mt">Источники финансирования плана, доля</p>
+      <div class="legend">
+        <span><i class="c1"></i>федеральный</span><span><i class="c2"></i>краевой</span><span><i class="c3"></i>местный</span>
+      </div>
+      <div class="bars">
+        <div class="brow"><span class="bn">УО</span><span class="bar"><i class="c1" style="width:24.2%"></i><i class="c2" style="width:6.8%"></i><i class="c3" style="width:69.0%"></i></span></div>
+        <div class="brow"><span class="bn">УИО</span><span class="bar"><i class="c2" style="width:98.7%"></i><i class="c3" style="width:1.3%"></i></span></div>
+        <div class="brow"><span class="bn">УКСиМП</span><span class="bar"><i class="c1" style="width:10.4%"></i><i class="c2" style="width:0.5%"></i><i class="c3" style="width:89.1%"></i></span></div>
+        <div class="brow"><span class="bn">УДТХ</span><span class="bar"><i class="c2" style="width:61.1%"></i><i class="c3" style="width:38.9%"></i></span></div>
+        <div class="brow total"><span class="bn">район</span><span class="bar"><i class="c1" style="width:16.7%"></i><i class="c2" style="width:21.6%"></i><i class="c3" style="width:61.7%"></i></span></div>
+      </div>
+      <p class="mt8" style="font-size:11px;color:var(--ink3)">По району: федеральный <span class="num">16,7&nbsp;%</span>,
+      краевой <span class="num">21,6&nbsp;%</span>, местный <span class="num">61,7&nbsp;%</span> от плана
+      <span class="num">1&nbsp;847&nbsp;510,96</span> тыс. руб.</p>
+    </div>
+
+    <div class="check">
+      <dl>
+        <dt>Текст</dt><dd>решающее число <b>14,64:1</b>, подписи <b>5,66:1</b> — общее для трёх палитр</dd>
+        <dt>Поверхности</dt><dd>соседние ступени <b>1,14:1</b> при пороге 1,12:1 — общее для трёх</dd>
+        <dt>Состояния</dt><dd>норма <b>8,56:1</b>, внимание <b>14,30:1</b>, нарушение <b>7,13:1</b></dd>
+        <dt>Слепота</dt><dd>худшая пара состояний: протанопия <b>11,3</b>, дейтеранопия <b>14,7</b> при пороге 10</dd>
+        <dt>Ряды</dt><dd>пять рядов: 13,1 · <b>12,5</b> · <b>12,7</b> — почти не теряет при слепоте</dd>
+      </dl>
+      <p class="flawline">Слабое место названо честно: лестница светлоты выдыхается на шестом ряде
+      (<b>11,4</b>), а разрядов у нас бывает тринадцать. Верхняя ступень лестницы в светлой теме даёт
+      к полотну <b>2,67:1</b> при пороге 3:1. И приглушённая норма сближается с вниманием при
+      протанопии — <b>11,3</b>, худший счёт из трёх.</p>
+    </div>
+  </section>
+
+</div>
+
+<hr class="rule" style="margin-top:56px">
+
+<!-- ══════════════════ НАБОР ЭЛЕМЕНТОВ ══════════════════ -->
+<section class="sect p-a" id="kit">
+  <h2>Набор элементов в рекомендованной палитре</h2>
+  <p class="dim">Предмет — <b style="color:var(--ink1)">оттиск</b>: след, оставленный в самом листе.
+  Он лежит в плоскости и никогда над ней не поднимается, поэтому теней нет, а покой, наведение,
+  нажатие и выбор различаются плотностью краски, а не высотой. Толщина линии одна на весь набор —
+  один пиксель; исключений два, и оба названы: кольцо фокуса и черта акцента, по два пикселя.
+  Один ряд скруглений, одна краска.</p>
+
+  <div class="kit">
+    <p class="mark">Кнопка в трёх видах, шесть состояний у каждого</p>
+    <div class="kitgrid">
+
+      <div>
+        <p class="stlab">Главная. Одна на раздел, не одна на карточку. Заливка акцентом, подпись почти чёрная.</p>
+        <div class="stcol">
+          <div class="stline"><span>покой</span><span><button class="btn lg main">Сверить с отчётом</button></span></div>
+          <div class="stline"><span>наведение</span><span><button class="btn lg main is-hover">Сверить с отчётом</button></span></div>
+          <div class="stline"><span>нажатие</span><span><button class="btn lg main is-press">Сверить с отчётом</button></span></div>
+          <div class="stline"><span>фокус с клавиатуры</span><span><button class="btn lg main is-ring">Сверить с отчётом</button></span></div>
+          <div class="stline"><span>недоступна</span><span><button class="btn lg main" disabled aria-describedby="why1">Сверить с отчётом</button></span></div>
+          <div class="stline"><span>ожидание</span><span><button class="btn lg main"><span class="spin" aria-hidden="true"></span>Сверить с отчётом</button></span></div>
+        </div>
+        <p class="stlab mt8" id="why1">Причина недоступности сказана словом, а не бледностью:
+        «сверка недоступна: выгрузка от 21.08 ещё не прочитана». Недоступная кнопка остаётся
+        достижимой фокусом.</p>
+      </div>
+
+      <div>
+        <p class="stlab">Обычная. Всё остальное. Фона нет, граница один пиксель даёт <b style="color:var(--ink1)">4,47:1</b> к подложке в тёмной теме и <b style="color:var(--ink1)">5,08:1</b> в светлой. Сейчас у этой границы 1,21:1, то есть её на экране нет.</p>
+        <div class="stcol">
+          <div class="stline"><span>покой</span><span><button class="btn plain">Открыть реестр</button></span></div>
+          <div class="stline"><span>наведение</span><span><button class="btn plain is-hover">Открыть реестр</button></span></div>
+          <div class="stline"><span>нажатие</span><span><button class="btn plain is-press">Открыть реестр</button></span></div>
+          <div class="stline"><span>фокус с клавиатуры</span><span><button class="btn plain is-ring">Открыть реестр</button></span></div>
+          <div class="stline"><span>недоступна</span><span><button class="btn plain" disabled>Открыть реестр</button></span></div>
+          <div class="stline"><span>ожидание</span><span><button class="btn plain"><span class="spin" aria-hidden="true"></span>Открыть реестр</button></span></div>
+        </div>
+        <p class="stlab mt8">Подпись недоступной даёт <b style="color:var(--ink1)">5,86:1</b>; прозрачности в половину
+        нет нигде, она даёт около 2,7:1 и читается как поломка, а не как запрет.</p>
+      </div>
+
+      <div>
+        <p class="stlab">Тихая. Действие, которое не должно спорить с содержимым. Ни фона, ни границы.</p>
+        <div class="stcol">
+          <div class="stline"><span>покой</span><span><button class="btn sm quiet">Снять фильтры</button></span></div>
+          <div class="stline"><span>наведение</span><span><button class="btn sm quiet is-hover">Снять фильтры</button></span></div>
+          <div class="stline"><span>нажатие</span><span><button class="btn sm quiet is-press">Снять фильтры</button></span></div>
+          <div class="stline"><span>фокус с клавиатуры</span><span><button class="btn sm quiet is-ring">Снять фильтры</button></span></div>
+          <div class="stline"><span>недоступна</span><span><button class="btn sm quiet" disabled>Снять фильтры</button></span></div>
+          <div class="stline"><span>ожидание</span><span><button class="btn sm quiet"><span class="spin" aria-hidden="true"></span>Снять фильтры</button></span></div>
+        </div>
+        <p class="stlab mt8">Три ступени высоты: малая 24, обычная 28, главная 36 пикселей.
+        Область нажатия у всех дорастает до 44 прозрачным полем, видимая высота при этом не растёт.</p>
+      </div>
+
+    </div>
+    <p class="stlab mt">Геометрия двигается ровно у одной кнопки — главной: сжатие до 0,98 при нажатии.
+    Малая и обычная стоят в плотных рядах и нажимаются десятки раз в день, там сжатие читается как дрожь.
+    Переходят только краски: заливка, граница и подпись, за 90 мс.</p>
+  </div>
+
+  <div class="kit">
+    <p class="mark">Переключатель режима: восемь процентов против живого коэффициента</p>
+    <div class="kitgrid">
+      <div class="swwrap">
+        <label class="sw">
+          <input type="checkbox" id="coef">
+          <span class="box" id="coefbox">Считать по живому коэффициенту</span>
+        </label>
+        <span class="hint" id="coefhint">Выключено: прогноз экономии считается по опорным 8 %, как в действующем листе.</span>
+        <div class="readout">
+          <p class="mark">Прогноз экономии по незаключённым процедурам</p>
+          <span class="v num" id="coefval">92&nbsp;253,13</span>
+          <span class="u dim">тыс. руб.</span>
+          <p class="claim" id="coefclaim">Живой коэффициент дал бы <b class="num">113&nbsp;010,09</b> тыс. руб. —
+          на <b class="num">20&nbsp;756,96</b> тыс. руб. больше.</p>
+        </div>
+        <p class="stlab">Основание: скользящее окно 12 месяцев, 306 состоявшихся процедур,
+        начальные цены в окне <span class="num">1&nbsp;153&nbsp;164,18</span> тыс. руб., живой коэффициент
+        <span class="num">9,8&nbsp;%</span> при доверительном промежутке от <span class="num">6,7</span> до <span class="num">13,6&nbsp;%</span>.
+        Оба числа — доля от одной и той же базы, поэтому их можно сравнивать напрямую.</p>
+      </div>
+
+      <div class="swwrap">
+        <p class="stlab">Седьмое состояние, которого нет нигде в нашем наборе, кроме барабана: «частично».
+        Заливки нет, граница акцентом, полоса два пикселя по нижнему краю.
+        Для чтения с экрана — «частично выбрано».</p>
+        <label class="sw">
+          <input type="checkbox" id="part3" aria-checked="mixed">
+          <span class="box part" id="part3box">Показывать снятые строки</span>
+        </label>
+        <span class="hint">Частично: снятые показываются у пяти управлений из восьми.
+        Режим без названного последствия человек выбирает наугад, поэтому объяснение обязательно.</span>
+        <label class="sw" style="margin-top:12px">
+          <input type="checkbox" checked disabled>
+          <span class="box">Сравнивать с прошлым годом</span>
+        </label>
+        <span class="hint">Недоступен и объясняет причину: «за 2025 год выгрузка не прочитана».
+        Из порядка обхода не выпадает.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="kit">
+    <p class="mark">Сегменты и чипы фильтров</p>
+    <div class="kitgrid">
+      <div>
+        <fieldset class="seg">
+          <legend>Шкала свода</legend>
+          <div class="segbox">
+            <label><input type="radio" name="scale" checked><span class="it">Год</span></label>
+            <label><input type="radio" name="scale"><span class="it">Квартал</span></label>
+            <label><input type="radio" name="scale"><span class="it">Месяц</span></label>
+            <label><input type="radio" name="scale" disabled><span class="it">Неделя</span></label>
+          </div>
+        </fieldset>
+        <p class="stlab mt8">Настоящая радиогруппа: клавиша перехода уводит фокус за группу целиком,
+        стрелки ходят внутри. Сейчас четыре полосы фильтров в шапке дают девять остановок вместо четырёх.
+        «Неделя» недоступна и говорит почему: «в источнике нет недельной разбивки».
+        Вариантов не больше четырёх — больше означает, что их надо группировать.</p>
+
+        <fieldset class="seg" style="margin-top:16px">
+          <legend>Способ закупки</legend>
+          <div class="segbox">
+            <label><input type="radio" name="way" checked><span class="it">Все</span></label>
+            <label><input type="radio" name="way"><span class="it">Конкурентные</span></label>
+            <label><input type="radio" name="way"><span class="it">Единственный поставщик</span></label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div>
+        <p class="stlab">Чип фильтра. Крестик виден всегда на 55 %, а не только при наведении:
+        возможность, доступная только по наведению, на касании недостижима. Место под крестик
+        зарезервировано, поэтому ширина чипа не меняется ни на пиксель.</p>
+        <div class="chips" id="chips">
+          <span class="chip on">Управление образования<button class="x" data-drop="Управление образования" aria-label="снять фильтр: управление образования">×</button></span>
+          <span class="chip">закупки до 600 тысяч<button class="x" data-drop="закупки до 600 тысяч" aria-label="снять фильтр: закупки до 600 тысяч">×</button></span>
+          <span class="chip">местный бюджет<button class="x" data-drop="местный бюджет" aria-label="снять фильтр: местный бюджет">×</button></span>
+          <span class="chip">просрочка<button class="x" data-drop="просрочка" aria-label="снять фильтр: просрочка">×</button></span>
+        </div>
+        <p class="stlab mt8">Снять любой из четырёх: место чипа не схлопывается сразу — на нём
+        появляется «вернуть» и держится четыре секунды. Отмена вместо переспроса.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="kit">
+    <p class="mark">Барабан периода</p>
+    <div class="drum" id="drum">
+      <div class="drow" data-row="2024">
+        <button class="yr" data-year="2024" aria-label="2024 год целиком">2024</button>
+        <div class="qbox"><span class="qlab">кв1</span><button class="mo" data-m="2024-1" aria-pressed="false">янв</button><button class="mo" data-m="2024-2" aria-pressed="false">фев</button><button class="mo" data-m="2024-3" aria-pressed="false">мар</button></div>
+        <div class="qbox"><span class="qlab">кв2</span><button class="mo" data-m="2024-4" aria-pressed="false">апр</button><button class="mo" data-m="2024-5" aria-pressed="false">май</button><button class="mo" data-m="2024-6" aria-pressed="false">июн</button></div>
+        <div class="qbox"><span class="qlab">кв3</span><button class="mo" data-m="2024-7" aria-pressed="false">июл</button><button class="mo" data-m="2024-8" aria-pressed="false">авг</button><button class="mo" data-m="2024-9" aria-pressed="false">сен</button></div>
+        <div class="qbox"><span class="qlab">кв4</span><button class="mo" data-m="2024-10" aria-pressed="false">окт</button><button class="mo" data-m="2024-11" aria-pressed="false">ноя</button><button class="mo" data-m="2024-12" aria-pressed="false">дек</button></div>
+        <span class="resetslot"><button class="drumreset" data-reset="2024" hidden>сбросить</button></span>
+      </div>
+      <div class="drow" data-row="2025">
+        <button class="yr" data-year="2025" aria-label="2025 год целиком">2025</button>
+        <div class="qbox"><span class="qlab">кв1</span><button class="mo" data-m="2025-1" aria-pressed="false">янв</button><button class="mo" data-m="2025-2" aria-pressed="false">фев</button><button class="mo" data-m="2025-3" aria-pressed="false">мар</button></div>
+        <div class="qbox"><span class="qlab">кв2</span><button class="mo" data-m="2025-4" aria-pressed="false">апр</button><button class="mo" data-m="2025-5" aria-pressed="false">май</button><button class="mo" data-m="2025-6" aria-pressed="false">июн</button></div>
+        <div class="qbox"><span class="qlab">кв3</span><button class="mo" data-m="2025-7" aria-pressed="false">июл</button><button class="mo" data-m="2025-8" aria-pressed="false">авг</button><button class="mo" data-m="2025-9" aria-pressed="false">сен</button></div>
+        <div class="qbox"><span class="qlab">кв4</span><button class="mo" data-m="2025-10" aria-pressed="false">окт</button><button class="mo" data-m="2025-11" aria-pressed="false">ноя</button><button class="mo" data-m="2025-12" aria-pressed="false">дек</button></div>
+        <span class="resetslot"><button class="drumreset" data-reset="2025" hidden>сбросить</button></span>
+      </div>
+      <div class="drow" data-row="2026">
+        <button class="yr" data-year="2026" aria-label="2026 год целиком">2026</button>
+        <div class="qbox"><span class="qlab">кв1</span><button class="mo" data-m="2026-1" aria-pressed="false">янв</button><button class="mo" data-m="2026-2" aria-pressed="false">фев</button><button class="mo" data-m="2026-3" aria-pressed="false">мар</button></div>
+        <div class="qbox"><span class="qlab">кв2</span><button class="mo" data-m="2026-4" aria-pressed="false">апр</button><button class="mo" data-m="2026-5" aria-pressed="false">май</button><button class="mo" data-m="2026-6" aria-pressed="false">июн</button></div>
+        <div class="qbox"><span class="qlab">кв3</span><button class="mo" data-m="2026-7" aria-pressed="false">июл</button><button class="mo" data-m="2026-8" aria-pressed="false" aria-label="август 2026, текущий месяц">авг<span class="now"></span></button><button class="mo" data-m="2026-9" aria-pressed="false">сен</button></div>
+        <div class="qbox"><span class="qlab">кв4</span><button class="mo" data-m="2026-10" aria-pressed="false">окт</button><button class="mo" data-m="2026-11" aria-pressed="false">ноя</button><button class="mo" data-m="2026-12" aria-pressed="false">дек</button></div>
+        <span class="resetslot"><button class="drumreset" data-reset="2026" hidden>сбросить</button></span>
+      </div>
+    </div>
+    <p class="drumout" id="drumout">Период не выбран: считается весь <b>2026 год</b>, 8&nbsp;816 строк.</p>
+    <div class="kitgrid mt">
+      <p class="stlab">Год с неполным набором месяцев не «выбран» и не «не выбран»: у него своя краска —
+      граница акцентом и полоса два пикселя по нижнему краю. Нажать один месяц — кнопка года станет
+      «частично»; нажать все двенадцать — «выбран». Нажать саму кнопку года — выберется год целиком.</p>
+      <p class="stlab">Под текущим месяцем горит точка с медленным дыханием. Как только август выбран,
+      точка гаснет: «сегодня здесь» и «выбрано здесь» — два разных сообщения, и одно место они не делят.
+      У кнопки есть подпись для чтения с экрана: «август 2026, текущий месяц».</p>
+      <p class="stlab">Колесо мыши над барабаном перелистывает годы, и то же делают стрелки вверх и вниз
+      на кнопке года: возможность, доступная только колесом, с клавиатуры недостижима.
+      Кнопка сброса стоит в зарезервированном месте, поэтому её появление не сдвигает соседей ни на пиксель.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="rule" style="margin-top:56px">
+
+<!-- ══════════════════ ДВА РОДА УГЛУБЛЕНИЯ ══════════════════ -->
+<section class="sect p-a">
+  <h2>Два рода углубления, живьём</h2>
+  <p class="dim">Признак различения проверяется за секунду: если после углубления заголовок карточки
+  по-прежнему верно её описывает — это раскрытие на месте; если заголовок пришлось бы переписать —
+  это проваливание внутрь при сохранённой рамке. Обе карточки ниже работают по щелчку.</p>
+
+  <div class="two">
+
+    <!-- ── раскрытие на месте ── -->
+    <div class="kit">
+      <p class="mark">Раскрытие на месте · карточка вырастает вниз, соседи уезжают</p>
+      <div class="card">
+        <button class="accbtn" id="accbtn" aria-expanded="false" aria-controls="accbody">
+          <span class="tri" aria-hidden="true">▾</span>
+          <span>
+            <span class="mark" style="display:block;margin:0 0 4px">Экономия за 2026 год · район</span>
+            <span class="kpi" style="display:flex"><span class="v num">85&nbsp;508,89</span><span class="u">тыс. руб., это 4,0&nbsp;% плана</span></span>
+          </span>
+        </button>
+        <div class="accbody" id="accbody">
+          <div class="inner">
+            <p class="mark">Из чего сложилась: разрез по источникам финансирования</p>
+            <div class="split">
+              <span class="k"><span class="dot" style="background:var(--r1)"></span>федеральный</span>
+              <span class="a num">22&nbsp;308,94</span><span class="b num">26,1&nbsp;%</span>
+              <span class="k"><span class="dot" style="background:var(--r2)"></span>краевой</span>
+              <span class="a num">18&nbsp;093,82</span><span class="b num">21,2&nbsp;%</span>
+              <span class="k"><span class="dot" style="background:var(--r3)"></span>местный</span>
+              <span class="a num">45&nbsp;106,13</span><span class="b num">52,8&nbsp;%</span>
+            </div>
+            <p class="stlab mt8">Заголовок карточки после раскрытия остался верным: это те же 85&nbsp;508,89 тыс. руб.,
+            только показано, из чего они сложились. Значит углубление здесь — раскрытие, а не провал.
+            Высота идёт от нуля к собственной высоте содержимого за 220 мс, прозрачность догоняет с
+            задержкой 60 мс, чтобы текст не проявлялся в щели высотой в три пикселя. Строки внутри
+            не каскадируют: человек нажал и смотрит прямо сюда.</p>
+          </div>
+        </div>
+      </div>
+      <p class="stlab mt8">Раскрытых карточек может быть несколько сразу: аналитик сравнивает две,
+      раскрыв обе. Раскрытие не вкладывается — внутри раскрытой части второго раскрытия нет.
+      Раскрытое переживает уход на другую вкладку и возврат, но не переживает ночь: наутро экран свёрнут.</p>
+    </div>
+
+    <!-- ── проваливание внутрь ── -->
+    <div class="kit">
+      <p class="mark">Проваливание внутрь · рамка сохраняется, меняется содержимое</p>
+      <div class="card dive-card" id="divecard">
+
+        <div class="layer" id="lay1">
+          <p class="mark">Управление образования · 2026 год</p>
+          <div class="kpi"><span class="v num">90,8&nbsp;%</span><span class="u">плана закрыто фактом</span></div>
+          <p class="claim">План <b class="num">1&nbsp;207&nbsp;394,80</b> тыс. руб., факт <b class="num">1&nbsp;095&nbsp;910,03</b>,
+          экономия <b class="num">65&nbsp;459,79</b> тыс. руб.</p>
+          <div class="states">
+            <div class="st"><span class="plate"><span class="num">7</span> критических замечаний</span></div>
+            <div class="st"><span class="dot warn"></span><span class="n num">866</span><span class="w">замечаний открыто всего</span></div>
+          </div>
+          <div class="kitrow" style="margin-top:14px;justify-content:flex-end">
+            <button class="btn quiet dive" id="godeep">Открыть 7 критических замечаний <span class="arrow" aria-hidden="true">→</span></button>
+          </div>
+        </div>
+
+        <div class="layer hidden" id="lay2">
+          <div class="dive-head">
+            <button class="btn sm quiet back" id="goback"><span class="arrow" aria-hidden="true">←</span> К обзору управления образования</button>
+          </div>
+          <p class="path">Управление образования → критические замечания</p>
+          <p class="mark mt8">Просрочка закупки · 7 строк · срез от 20.08.2026</p>
+          <ul class="plist">
+            <li><span class="dot bad"></span>Гигиеническое обучение<span class="s num">стр. 1544</span></li>
+            <li><span class="dot bad"></span>Дератизация помещений<span class="s num">стр. 1846</span></li>
+            <li><span class="dot bad"></span>Сан-гигиеническое обучение<span class="s num">стр. 1978</span></li>
+            <li><span class="dot bad"></span>Замена ворот в школьном гараже<span class="s num">стр. 2030</span></li>
+            <li><span class="dot bad"></span>Картриджи<span class="s num">стр. 2039</span></li>
+            <li><span class="dot bad"></span>Юбилей допов и руководителей<span class="s num">стр. 2147</span></li>
+            <li><span class="dot bad"></span>Пожарная сигнализация, Крашенинникова 17<span class="s num">стр. 2189</span></li>
+          </ul>
+          <p class="stlab mt8">Заголовок карточки пришлось переписать — значит это провал, а не раскрытие.
+          Рамка при этом не изменилась: карточка не выросла в окно, не уехала и не открыла панель поверх.
+          Именно постоянство рамки говорит: «это по-прежнему та же карточка, просто я смотрю на неё иначе».</p>
+        </div>
+
+      </div>
+      <p class="stlab mt8">Вглубь содержимое уходит вправо, обратно возвращается влево: смещение на
+      восемь пикселей — не украшение, а сообщение о направлении. Старое уходит за 120 мс, новое
+      входит за 160 мс с задержкой 100 мс, высота рамки переходит к новой за 220 мс. Фокус при провале
+      встаёт на кнопку возврата, при возврате — обратно на ту кнопку, из которой ушли: предмет,
+      на котором фокус стоял, ушёл с экрана. Глубже двух ступеней не уходим.</p>
+    </div>
+
+  </div>
+</section>
+
+<hr class="rule" style="margin-top:56px">
+
+<!-- ══════════════════ ЗАПИСКА ══════════════════ -->
+<section class="sect">
+  <h2>Что рекомендуется и почему</h2>
+  <div class="note">
+    <ol>
+      <li><b>Палитра А, «Ведомственный сигнал».</b> Акцент, отданный взаимодействию, присутствует
+      на экране всегда: активная вкладка есть всегда, выбранный период есть всегда. Акцент, отданный
+      нарушению, присутствует редко: критических замечаний двадцать три против восьми тысяч
+      восьмисот шестнадцати строк. Правило «акцент не больше десятой части поверхности» в варианте Б
+      нарушается устройством, а в варианте А выполняется само собой.</li>
+
+      <li><b>С двумя заимствованиями.</b> От Б берётся устройство рядов данных семьями по разрядам:
+      пять рядов одной семьи дают при дейтеранопии 16,0 против 6,1 у сплошной холодной восьмёрки.
+      От В берётся правило чернил: сумма контракта, экономия и доля набираются чернилами, а цветной
+      бывает только метка рядом с числом — иначе продукт красит числа и тем самым утверждает
+      вместо аналитика.</li>
+
+      <li><b>Горячая краска остаётся тем, чем её назвало начальство.</b> В стандарте Минэконома
+      горячий цвет прямо назван маркером «не в порядке» — здесь эту роль несёт глина.
+      Вариант Б переназначает горячую краску на «нажми», и это
+      расхождение придётся объяснять начальнице; объяснение выйдет слабым.</li>
+
+      <li><b>Кремовый не выбрасывается, а меняет должность.</b> Сейчас он громче основного текста
+      (12,62:1 против 11,0:1) и при этом ничего не означает. В предложении он становится меткой
+      «внимание»: тихий кремовый — «посмотри при случае», громкая глина — «разберись сегодня».
+      Отношение их контрастов ровно 2,01, и это же отношение становится правилом для светлой темы.</li>
+
+      <li><b>Чего в образце нет.</b> Ни одного стража-теста не написано: волна кода не касалась.
+      Замеры расчётные, на кабинетном мониторе и на проекторе ступень 1,14:1 не проверялась.
+      Тританопия не считалась вовсе, а у рекомендуемого решения бюджеты — синяя лестница, и
+      как раз по ней она ударит. Три вещи, о которых стоит сказать словом до правки кода.</li>
+    </ol>
+  </div>
+
+  <p class="foot">Разбор и расчёт лежат рядом, в папке разборов: три документа этой волны от 22.08.2026 —
+  палитра, элементы управления и метод ремесла. Страница самостоятельная: ничего не тянет из сети,
+  открывается двойным нажатием, работает без связи.</p>
+</section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── тема ───────────────────────────────────────────────── */
+  var root = document.documentElement;
+  var tbtn = document.getElementById('theme');
+  tbtn.addEventListener('click', function () {
+    var light = root.getAttribute('data-theme') === 'light';
+    root.setAttribute('data-theme', light ? 'dark' : 'light');
+    tbtn.textContent = light ? 'Светлая тема' : 'Тёмная тема';
+    tbtn.setAttribute('aria-pressed', light ? 'false' : 'true');
+  });
+
+  /* ── признак «без движения»: действие с клавиатуры не анимируется ── */
+  document.addEventListener('keydown', function () { root.setAttribute('data-instant', ''); });
+  document.addEventListener('pointerdown', function () { root.removeAttribute('data-instant'); });
+
+  /* ── переключатель «восемь процентов против живого коэффициента» ── */
+  var coef = document.getElementById('coef');
+  var coefBase = '92 253,13';
+  var coefLive = '113 010,09';
+  coef.addEventListener('change', function () {
+    var on = coef.checked;
+    document.getElementById('coefval').textContent = on ? coefLive : coefBase;
+    document.getElementById('coefbox').textContent =
+      on ? 'Считаю по живому коэффициенту 9,8 %' : 'Считать по живому коэффициенту';
+    document.getElementById('coefhint').textContent = on
+      ? 'Включено: прогноз считается по 9,8 %, выведенным из 306 состоявшихся процедур за 12 месяцев.'
+      : 'Выключено: прогноз экономии считается по опорным 8 %, как в действующем листе.';
+    document.getElementById('coefclaim').innerHTML = on
+      ? 'Опорные 8 % дали бы <b class="num">92 253,13</b> тыс. руб. — на <b class="num">20 756,96</b> тыс. руб. меньше.'
+      : 'Живой коэффициент дал бы <b class="num">113 010,09</b> тыс. руб. — на <b class="num">20 756,96</b> тыс. руб. больше.';
+  });
+
+  /* ── состояние «частично»: три положения по кругу ── */
+  var p3 = document.getElementById('part3');
+  var p3box = document.getElementById('part3box');
+  var p3state = 'mixed';
+  var p3hint = p3box.parentNode.parentNode.querySelector('.hint');
+  p3.parentNode.addEventListener('click', function (e) {
+    e.preventDefault();
+    p3state = p3state === 'mixed' ? 'true' : (p3state === 'true' ? 'false' : 'mixed');
+    p3.checked = (p3state === 'true');
+    p3.setAttribute('aria-checked', p3state);
+    p3box.classList.toggle('part', p3state === 'mixed');
+    p3hint.textContent =
+      p3state === 'mixed' ? 'Частично: снятые показываются у пяти управлений из восьми.'
+      : p3state === 'true' ? 'Включено: снятые строки показываются у всех восьми управлений.'
+      : 'Выключено: снятые строки скрыты везде.';
+  });
+
+  /* ── чипы фильтров: снятие с возвратом вместо переспроса ── */
+  document.getElementById('chips').addEventListener('click', function (e) {
+    var x = e.target.closest ? e.target.closest('.x') : null;
+    if (!x) return;
+    var chip = x.parentNode;
+    var parent = chip.parentNode;
+    var w = chip.offsetWidth;
+    var undo = document.createElement('button');
+    undo.className = 'undo';
+    undo.textContent = 'вернуть';
+    undo.style.minWidth = w + 'px';
+    undo.setAttribute('aria-label', 'вернуть фильтр: ' + x.getAttribute('data-drop'));
+    parent.replaceChild(undo, chip);
+    var t = setTimeout(function () {
+      if (undo.parentNode) undo.parentNode.removeChild(undo);
+    }, 4000);
+    undo.addEventListener('click', function () {
+      clearTimeout(t);
+      if (undo.parentNode) undo.parentNode.replaceChild(chip, undo);
+    });
+  });
+
+  /* ── барабан периода ───────────────────────────────────── */
+  var MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+                'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+  var SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  var NOW_Y = 2026, NOW_M = 8;
+  var drum = document.getElementById('drum');
+  var drows = [].slice.call(drum.querySelectorAll('.drow'));
+  var sel = {};
+  var base = 2024;
+
+  function selCount(y) {
+    var c = 0;
+    for (var m = 1; m <= 12; m++) if (sel[y + '-' + m]) c++;
+    return c;
+  }
+
+  function renderDrum() {
+    drows.forEach(function (row, i) {
+      var y = base + i;
+      var yb = row.querySelector('.yr');
+      yb.textContent = y;
+      yb.setAttribute('data-year', y);
+      yb.setAttribute('aria-label', y + ' год целиком');
+      var mos = row.querySelectorAll('.mo');
+      for (var m = 0; m < 12; m++) {
+        var b = mos[m];
+        var key = y + '-' + (m + 1);
+        b.setAttribute('data-m', key);
+        b.setAttribute('aria-pressed', sel[key] ? 'true' : 'false');
+        var isNow = (y === NOW_Y && m + 1 === NOW_M);
+        var dot = b.querySelector('.now');
+        if (isNow && !dot) {
+          var s = document.createElement('span');
+          s.className = 'now';
+          b.appendChild(s);
+        } else if (!isNow && dot) {
+          dot.parentNode.removeChild(dot);
+        }
+        b.setAttribute('aria-label', MONTHS[m] + ' ' + y + (isNow ? ', текущий месяц' : ''));
+        b.firstChild.nodeValue = SHORT[m];
+      }
+      var c = selCount(y);
+      yb.setAttribute('data-state', c === 12 ? 'on' : (c > 0 ? 'part' : ''));
+      var rs = row.querySelector('.drumreset');
+      rs.hidden = (c === 0);
+      rs.setAttribute('data-reset', y);
+      rs.setAttribute('aria-label', 'сбросить выбор за ' + y + ' год');
+    });
+    writeOut();
+  }
+
+  function writeOut() {
+    var keys = Object.keys(sel);
+    var out = document.getElementById('drumout');
+    if (!keys.length) {
+      out.innerHTML = 'Период не выбран: считается весь <b>2026 год</b>, 8 816 строк.';
+      return;
+    }
+    var byYear = {};
+    keys.forEach(function (k) {
+      var p = k.split('-');
+      (byYear[p[0]] = byYear[p[0]] || []).push(parseInt(p[1], 10));
+    });
+    var parts = Object.keys(byYear).sort().map(function (y) {
+      var ms = byYear[y].sort(function (a, b) { return a - b; });
+      if (ms.length === 12) return '<b>' + y + ' год целиком</b>';
+      return '<b>' + ms.map(function (m) { return SHORT[m - 1]; }).join(', ') + ' ' + y + '</b>';
+    });
+    out.innerHTML = 'Выбрано: ' + parts.join('; ') + '. Месяцев всего: <b>' + keys.length + '</b>.';
+  }
+
+  drum.addEventListener('click', function (e) {
+    var t = e.target;
+    var mo = t.closest ? t.closest('.mo') : null;
+    if (mo) {
+      var k = mo.getAttribute('data-m');
+      if (sel[k]) delete sel[k]; else sel[k] = 1;
+      renderDrum();
+      return;
+    }
+    var yr = t.closest ? t.closest('.yr') : null;
+    if (yr) {
+      var y = parseInt(yr.getAttribute('data-year'), 10);
+      var full = selCount(y) === 12;
+      for (var m = 1; m <= 12; m++) {
+        if (full) delete sel[y + '-' + m]; else sel[y + '-' + m] = 1;
+      }
+      renderDrum();
+      return;
+    }
+    var rs = t.closest ? t.closest('.drumreset') : null;
+    if (rs) {
+      var ry = parseInt(rs.getAttribute('data-reset'), 10);
+      for (var m2 = 1; m2 <= 12; m2++) delete sel[ry + '-' + m2];
+      renderDrum();
+    }
+  });
+
+  function shift(d) {
+    var nb = base + d;
+    if (nb < 2018) nb = 2018;
+    if (nb > NOW_Y - 2) nb = NOW_Y - 2;
+    if (nb === base) return;
+    base = nb;
+    renderDrum();
+  }
+
+  /* колесо перелистывает годы и намеренно не уводит фокус клавиатуры */
+  drum.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    shift(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+
+  /* клавиатурный дубль колеса: без него перелистывание недостижимо */
+  drum.addEventListener('keydown', function (e) {
+    if (!e.target.classList.contains('yr')) return;
+    if (e.key === 'ArrowUp') { e.preventDefault(); shift(-1); e.target.focus(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); shift(1); e.target.focus(); }
+  });
+
+  renderDrum();
+
+  /* ── раскрытие на месте ────────────────────────────────── */
+  var ab = document.getElementById('accbtn');
+  var body = document.getElementById('accbody');
+  ab.addEventListener('click', function () {
+    var open = ab.getAttribute('aria-expanded') === 'true';
+    if (open) {
+      body.style.height = body.scrollHeight + 'px';
+      body.offsetHeight;
+      body.style.height = '0px';
+      body.classList.remove('open');
+      ab.setAttribute('aria-expanded', 'false');
+    } else {
+      body.classList.add('open');
+      ab.setAttribute('aria-expanded', 'true');
+      body.style.height = body.scrollHeight + 'px';
+      setTimeout(function () {
+        if (ab.getAttribute('aria-expanded') === 'true') body.style.height = 'auto';
+      }, 230);
+    }
+  });
+
+  /* ── проваливание внутрь при сохранённой рамке ─────────── */
+  var card = document.getElementById('divecard');
+  var lay1 = document.getElementById('lay1');
+  var lay2 = document.getElementById('lay2');
+  var deep = document.getElementById('godeep');
+  var back = document.getElementById('goback');
+  var busy = false;
+
+  function move(inward) {
+    if (busy) return;
+    busy = true;
+    var from = inward ? lay1 : lay2;
+    var to = inward ? lay2 : lay1;
+    var h0 = card.offsetHeight;
+    card.style.height = h0 + 'px';
+    from.classList.add(inward ? 'out-left' : 'out-right');
+    setTimeout(function () {
+      from.classList.add('hidden');
+      from.classList.remove('out-left', 'out-right');
+      to.classList.remove('hidden');
+      to.classList.add(inward ? 'out-right' : 'out-left');
+      card.style.height = 'auto';
+      var h1 = card.offsetHeight;
+      card.style.height = h0 + 'px';
+      card.offsetHeight;
+      card.style.height = h1 + 'px';
+      setTimeout(function () { to.classList.remove('out-right', 'out-left'); }, 20);
+      setTimeout(function () {
+        card.style.height = '';
+        busy = false;
+        (inward ? back : deep).focus();
+      }, 240);
+    }, 120);
+  }
+
+  deep.addEventListener('click', function () { move(true); });
+  back.addEventListener('click', function () { move(false); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !lay2.classList.contains('hidden')) move(false);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,205 @@
+<style>
+  /* ── Узел эфира в шапке: собран по методу щита — плотность со смыслом ── */
+  .pv-wrap { position: relative; display: inline-flex; }
+  .pv-trigger {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px; border-radius: 999px;
+    background: transparent; border: 1px solid transparent;
+    color: var(--ink-muted); font-size: 11px; cursor: pointer;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .pv-trigger:hover { background: var(--raised); color: var(--ink); }
+  .pv-trigger:active { transform: scale(.97); }
+  .pv-trigger.pv-open { background: var(--raised); color: var(--ink-strong); }
+  /* Пульс эфира: живое дыхание вместо слова «онлайн» */
+  .pv-pulse { position: relative; width: 7px; height: 7px; flex: 0 0 auto; }
+  .pv-pulse i, .pv-pulse b {
+    position: absolute; inset: 0; border-radius: 50%; background: var(--good);
+  }
+  .pv-pulse i { animation: pv-ping 2.2s cubic-bezier(0,0,.2,1) infinite; opacity: .65; }
+  @keyframes pv-ping { 0% { transform: scale(1); opacity: .65 } 80%,100% { transform: scale(2.4); opacity: 0 } }
+  .pv-stale .pv-pulse i, .pv-stale .pv-pulse b { background: var(--warn); }
+  .pv-stale .pv-pulse i { animation: none; }
+  /* Счётчик правок — цифра, а не значок: она и есть новость */
+  .pv-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+    background: var(--act-deep); color: #fff; font-size: 10px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .pv-count.pv-zero { background: transparent; color: var(--ink-faint); font-weight: 500; }
+
+  /* ── Раскрытая панель: три слоя одной мысли ── */
+  .pv-panel {
+    position: absolute; top: calc(100% + 8px); right: 0; width: 460px;
+    background: var(--card); border-radius: 14px; padding: 0;
+    box-shadow: 0 18px 48px rgba(0,0,0,.55); overflow: hidden; z-index: 40;
+    border: 1px solid var(--line);
+  }
+  .pv-head { padding: 13px 16px 11px; background: var(--sunken); }
+  .pv-title { font-size: 12px; font-weight: 700; color: var(--ink-strong); letter-spacing: .01em; }
+  .pv-sub { margin-top: 3px; font-size: 10.5px; color: var(--ink-muted); line-height: 1.45; }
+  .pv-tabs { display: flex; gap: 2px; padding: 8px 12px 0; background: var(--sunken); }
+  .pv-tab {
+    padding: 6px 11px; border-radius: 8px 8px 0 0; font-size: 11px;
+    color: var(--ink-muted); cursor: pointer; background: transparent;
+    border: none; transition: background .15s, color .15s;
+  }
+  .pv-tab:hover { color: var(--ink); }
+  .pv-tab.pv-tab-on { background: var(--card); color: var(--ink-strong); font-weight: 600; }
+  .pv-tab .pv-tab-n { color: var(--ink-faint); margin-left: 5px; font-variant-numeric: tabular-nums; }
+  .pv-body { padding: 12px 16px 14px; max-height: 340px; overflow-y: auto; }
+
+  .pv-row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .pv-row:last-child { border-bottom: none; }
+  .pv-when { flex: 0 0 42px; font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; padding-top: 1px; }
+  .pv-what { flex: 1; min-width: 0; }
+  .pv-line { font-size: 11.5px; color: var(--ink); line-height: 1.5; }
+  .pv-line b { color: var(--ink-strong); font-weight: 600; }
+  .pv-addr { margin-top: 3px; font-size: 10px; color: var(--ink-faint); }
+  .pv-addr u { text-decoration: none; color: var(--act); cursor: pointer; }
+  .pv-addr u:hover { text-decoration: underline; }
+  .pv-was { color: var(--bad); text-decoration: line-through; opacity: .8; }
+  .pv-now { color: var(--good); }
+  .pv-note {
+    margin-top: 5px; padding: 6px 9px; border-radius: 7px;
+    background: var(--raised); font-size: 10.5px; color: var(--ink-muted);
+    line-height: 1.5; font-style: italic;
+  }
+  .pv-note::before { content: '💬 '; font-style: normal; opacity: .7; }
+  .pv-who { color: var(--brass); font-style: normal; }
+  .pv-foot {
+    padding: 9px 16px; background: var(--sunken);
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10.5px; color: var(--ink-faint);
+  }
+  .pv-foot u { color: var(--act); text-decoration: none; cursor: pointer; }
+  .pv-foot u:hover { text-decoration: underline; }
+  .pv-src { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .pv-src span {
+    font-size: 9.5px; padding: 2px 6px; border-radius: 5px;
+    background: var(--raised); color: var(--ink-muted);
+  }
+  .pv-src span.pv-src-hot { background: rgba(96,165,250,.16); color: var(--act); }
+</style>
+
+<h2>Узел эфира в правом углу линейки <span class="tag">предложение</span></h2>
+<p class="note">Владелец просил это семь раз. Нижняя плашка уходит, её работа переезжает сюда. Собрано по методу щита: одно место вместо трёх, состояние показано, а не подписано, цифра — сама новость.</p>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Свёрнутое состояние</span><span class="verdict v-was">одна строка, три смысла</span></div>
+  <div class="rail" style="justify-content:flex-end">
+    <div class="pv-wrap">
+      <button class="pv-trigger" type="button">
+        <span class="pv-pulse"><i></i><b></b></span>
+        <span>обновлено 3 мин назад</span>
+        <span class="pv-count">7</span>
+      </button>
+    </div>
+  </div>
+  <div class="lrow"><span>Пульс дышит — данные живые; замер обновляется сам</span><span style="color:var(--good)">эфир</span></div>
+  <div class="lrow"><span>Когда читались книги — словом, а не отметкой времени</span><span style="color:var(--ink-muted)">момент</span></div>
+  <div class="lrow"><span>Сколько правок с прошлого взгляда — цифра и есть новость</span><span style="color:var(--act)">правки</span></div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Нет связи или данные устарели</span><span class="verdict v-bad">состояние показано формой</span></div>
+  <div class="rail" style="justify-content:flex-end">
+    <div class="pv-wrap pv-stale">
+      <button class="pv-trigger" type="button">
+        <span class="pv-pulse"><i></i><b></b></span>
+        <span>последнее чтение 47 мин назад</span>
+        <span class="pv-count pv-zero">0</span>
+      </button>
+    </div>
+  </div>
+  <p class="note">Пульс перестаёт дышать и желтеет — это видно боковым зрением, слово «устарело» не нужно. Ноль правок не кричит синим: он служебный.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Раскрытое состояние — три слоя одной мысли</span><span class="verdict v-fix">не уходя со вкладки</span></div>
+  <div style="display:flex;justify-content:flex-end;padding:10px 0 300px">
+    <div class="pv-wrap">
+      <button class="pv-trigger pv-open" type="button">
+        <span class="pv-pulse"><i></i><b></b></span>
+        <span>обновлено 3 мин назад</span>
+        <span class="pv-count">7</span>
+      </button>
+      <div class="pv-panel">
+        <div class="pv-head">
+          <div class="pv-title">Книги прочитаны сегодня в 05:08</div>
+          <div class="pv-sub">Восемь книг управлений и лист свода · 656 ячеек · следующее чтение через 12 минут либо сразу после правки в книге</div>
+          <div class="pv-src">
+            <span class="pv-src-hot">УО · 7 правок</span><span>УКСиМП</span><span>УЭР</span><span>УД</span><span>УДТХ</span><span>УИО</span><span>УАГЗО</span><span>УФБП</span><span>Свод</span>
+          </div>
+        </div>
+        <div class="pv-tabs">
+          <button class="pv-tab pv-tab-on" type="button">Что изменилось<span class="pv-tab-n">7</span></button>
+          <button class="pv-tab" type="button">Комментарии<span class="pv-tab-n">3</span></button>
+          <button class="pv-tab" type="button">Откуда числа</button>
+        </div>
+        <div class="pv-body">
+
+          <div class="pv-row">
+            <div class="pv-when">05:06</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Дата заключения</b> проставлена: <span class="pv-was">пусто</span> → <span class="pv-now">14.08.2026</span></div>
+              <div class="pv-addr">УО · строка 1173 · <u>№ п/п 1173 «Обслуживание и заправка огнетушителей»</u> · Ковалёва</div>
+              <div class="pv-note">Заключили после подтверждения лимитов, документы у бухгалтерии. <span class="pv-who">— координатор просила пояснить задержку</span></div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <div class="pv-when">05:02</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Плановая сумма</b> понижена: <span class="pv-was">430,00</span> → <span class="pv-now">318,50</span> тыс. ₽</div>
+              <div class="pv-addr">УКСиМП · строка 280 · <u>№ п/п 671 «Расчистка снега фронтальным погрузчиком»</u> · Сидорова</div>
+              <div class="pv-note">Экономия ушла на строку-приёмник 674, ходатайство подписано 20.08</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <div class="pv-when">04:58</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Добавлена строка</b> — новая закупка в плане</div>
+              <div class="pv-addr">УО · строка 1819 · <u>№ п/п 2140 «Лицензированная охрана объектов, 4 квартал»</u> · 17 775,00 тыс. ₽</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <div class="pv-when">04:51</div>
+            <div class="pv-what">
+              <div class="pv-line"><b>Способ закупки</b> изменён: <span class="pv-was">ЕП</span> → <span class="pv-now">ЭА</span></div>
+              <div class="pv-addr">УД · строка 46 · <u>№ п/п 97 «Огнетушители ОВЭ-5»</u> · Петрова</div>
+              <div class="pv-note">Превысили 600 тысяч после уточнения потребности — переводим на аукцион</div>
+            </div>
+          </div>
+
+          <div class="pv-row">
+            <div class="pv-when">04:47</div>
+            <div class="pv-what">
+              <div class="pv-line">Ещё <b>три правки сумм</b> в книге УО</div>
+              <div class="pv-addr"><u>показать все семь</u></div>
+            </div>
+          </div>
+
+        </div>
+        <div class="pv-foot">
+          <span>Удаления строк книга не записывает — ловим сравнением снимков</span>
+          <u>Весь журнал →</u>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><span class="panel-title">Почему так, а не иначе</span><span class="verdict v-fix">метод щита</span></div>
+  <div class="lrow"><span>Нижняя плашка исчезает: она перекрывала содержимое и жила отдельной жизнью</span><span style="color:var(--bad)">снос</span></div>
+  <div class="lrow"><span>Три слоя вместо одной простыни: что изменилось · комментарии людей · откуда числа</span><span style="color:var(--act)">слои</span></div>
+  <div class="lrow"><span>Комментарии исполнителей вынесены отдельным слоем — это была слепая зона</span><span style="color:var(--brass)">новое</span></div>
+  <div class="lrow"><span>Адрес строки — дверь: щелчок ведёт к строке, панель не закрывается</span><span style="color:var(--act)">провал</span></div>
+  <div class="lrow"><span>Было → стало показано цветом и зачёркиванием, без слов «изменено с»</span><span style="color:var(--good)">показ</span></div>
+  <div class="lrow"><span>Книга с правками подсвечена в списке источников — видно, где шевеление</span><span style="color:var(--act)">источник</span></div>
+  <div class="lrow"><span>Чего книга не пишет (удаления строк) — сказано вслух, а не умолчано</span><span style="color:var(--warn)">честность</span></div>
+</div>
