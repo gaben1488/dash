@@ -65,7 +65,24 @@ export interface LiveState {
   snapshotRebuilt: boolean;
   /** Недавно изменившиеся строки: живут FLASH_MS, потом подсветка гаснет. */
   recentRows: RowChange[];
+  /**
+   * Журнал эфира для угла шапки (мини-барабан истории): те же правки строк,
+   * что recentRows, но НЕ гаснущие с подсветкой и переживающие acknowledge —
+   * это журнал, а не новость. Ограничен HISTORY_MAX, чтобы вкладка, открытая
+   * сутки, не копила тысячи записей. Поле необязательное: старые срезы
+   * состояния (в т.ч. в тестах) остаются валидными.
+   */
+  history?: RowChange[];
+  /**
+   * По какой момент числа пересчитаны (ISO последнего snapshot-rebuilt).
+   * Правка новее этого момента показывается в истории приглушённо-серой:
+   * она увидена, но в числах экрана её ещё нет. Acknowledge поле не трогает.
+   */
+  recalculatedThrough?: string | null;
 }
+
+/** Потолок журнала эфира: столько правок держит история угла шапки. */
+export const HISTORY_MAX = 80;
 
 const EMPTY: LiveState = {
   connected: false,
@@ -74,6 +91,8 @@ const EMPTY: LiveState = {
   newIssues: 0,
   snapshotRebuilt: false,
   recentRows: [],
+  history: [],
+  recalculatedThrough: null,
 };
 
 /**
@@ -178,7 +197,13 @@ export function reduceLive(prev: LiveState, event: ServerEvent, now = Date.now()
       author: typeof event.author === 'string' ? event.author : undefined,
       at,
     };
-    return { ...prev, lastEventAt: at, recentRows: [...prev.recentRows, row] };
+    return {
+      ...prev,
+      lastEventAt: at,
+      recentRows: [...prev.recentRows, row],
+      // Журнал угла: копится параллельно подсветке и не гаснет с ней.
+      history: [...(prev.history ?? []), row].slice(-HISTORY_MAX),
+    };
   }
 
   if (event.kind === 'issues-appeared') {
@@ -186,7 +211,9 @@ export function reduceLive(prev: LiveState, event: ServerEvent, now = Date.now()
   }
 
   if (event.kind === 'snapshot-rebuilt') {
-    return { ...prev, lastEventAt: at, snapshotRebuilt: true };
+    // Снимок пересобран — всё, что пришло по этот момент, уже в числах экрана:
+    // серые строки истории угла наливаются цветом.
+    return { ...prev, lastEventAt: at, snapshotRebuilt: true, recalculatedThrough: at };
   }
 
   return prev;

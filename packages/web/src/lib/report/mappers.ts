@@ -34,6 +34,12 @@ export function fmtPct(pct: number | null): string {
 /** Сумма в тыс. руб. — то же целочисленное ru-RU (алиас, не вторая копия). */
 export const fmtThousands = fmtCount;
 
+/** Процент с двумя знаками без символа % — для вставки в фразы («9,79 %»).
+ *  Ставке снижения нужна сотая доля: 8,00 против 9,79. */
+export function fmtPct2(v: number): string {
+  return v.toFixed(2).replace('.', ',');
+}
+
 /**
  * Дата среза «дд.мм.гггг» из period.asOfDay (номер суток dayNumberOf).
  * UTC-компоненты, не toLocaleDateString: локальное форматирование западнее
@@ -334,7 +340,21 @@ export interface IntegralSummaryVM {
   remainderByMethod: RemainderByMethodVM | null;
 }
 
-export function buildIntegralSummary(report: Report): IntegralSummaryVM {
+/**
+ * Положение ставки снижения для мапперов (канон п.144) — снимок выбора
+ * читателя из хранилища. Чистый слой store не импортирует: страница передаёт
+ * снимок сама, и мапперы остаются тестируемыми без zustand.
+ */
+export interface StavkaVM {
+  /** 'norm' — норматив 8 % (умолчание); 'live' — живой коэффициент. */
+  mode: 'norm' | 'live';
+  /** Живой процент (9.79 = 9,79 %); null — замер не получен, действует норматив. */
+  livePct: number | null;
+  /** Момент чтения книги мониторинга (ISO) — дата замера. */
+  readAt: string | null;
+}
+
+export function buildIntegralSummary(report: Report, stavka?: StavkaVM): IntegralSummaryVM {
   const { period, integralSummary, official } = report;
   const yearBadge = `${period.year} · год`;
   const quarterBadge = quarterLabel(period.quarter);
@@ -453,17 +473,44 @@ export function buildIntegralSummary(report: Report): IntegralSummaryVM {
     // не утверждённая финорганом экономия. Под ключом economy_total карточка
     // объясняла читателю не то число, на которое он смотрит (карта метрик
     // 18.08.2026, расхождение №5 — «две экономии под одним словом»).
+    //
+    // СТАВКА (канон п.144): значение листа посчитано его формулой по
+    // нормативу 8 % от неосвоенного остатка. В положении «живой коэффициент»
+    // карточка пересчитывает то же основание живой ставкой: значение листа
+    // ÷ 8 × живой процент — основание (остаток) при этом не меняется, и обе
+    // суммы названы в паспорте. В положении «норматив» число листа показано
+    // как есть, паспорт называет ставку словами.
+    const livePct = stavka?.mode === 'live' && stavka.livePct !== null ? stavka.livePct : null;
+    const scale = livePct !== null ? livePct / 8 : 1;
+    const fmtStavkaPct = (v: number) => `${v.toFixed(2).replace('.', ',')} %`;
+    const measured = stavka?.readAt ? ` (замер ${formatDateCell(stavka.readAt.slice(0, 10))})` : '';
+    const stavkaTail = livePct !== null
+      ? `Ставка — живой коэффициент ${fmtStavkaPct(livePct)}${measured}: пересчёт значения листа (норматив 8 %) тем же основанием — ` +
+        `${fmtThousands(e.total)} ÷ 8 × ${fmtStavkaPct(livePct).replace(' %', '')} = ${fmtThousands(e.total * scale)} тыс. руб. ` +
+        `По нормативу 8 % — ${fmtThousands(e.total)} тыс. руб. Ставка — режим счёта (переключатель в шапке), данные листа не меняются.`
+      : 'Ставка — норматив 8 %: им посчитана формула листа. Переключатель ставки в шапке пересчитает это число живым коэффициентом.';
     remainder.push({
       metricKey: 'calc_economy_remainder',
-      label: 'Расчётная экономия по остатку — прогноз листа',
-      hint: [{ text: 'та самая строка ручного отчёта: экономия по ещё не заключённым' }],
-      value: fmtThousands(e.total),
-      budget: { fb: e.fb, kb: e.kb, mb: e.mb },
+      label: livePct !== null
+        ? 'Расчётная экономия по остатку — живая ставка'
+        : 'Расчётная экономия по остатку — прогноз листа',
+      hint: [{
+        text: livePct !== null
+          ? `строка ручного отчёта, пересчитанная живой ставкой ${fmtStavkaPct(livePct)} вместо норматива 8 %`
+          : 'та самая строка ручного отчёта: экономия по ещё не заключённым',
+      }],
+      value: fmtThousands(e.total * scale),
+      budget: { fb: e.fb * scale, kb: e.kb * scale, mb: e.mb * scale },
       budgetPrefix: 'economy',
       source: 'svod',
       cell: e.cell,
       accent: 'emerald',
-      live: liveMoney(e, `Ячейка ${e.cell} листа СВОД ТД-ПМ (строка ${e.row}) — как есть, без пересчёта.`),
+      live: livePct !== null
+        ? liveMoney(
+          { fb: e.fb * scale, kb: e.kb * scale, mb: e.mb * scale, total: e.total * scale },
+          `Основание — ячейка ${e.cell} листа СВОД ТД-ПМ (строка ${e.row}). ${stavkaTail}`,
+        )
+        : liveMoney(e, `Ячейка ${e.cell} листа СВОД ТД-ПМ (строка ${e.row}) — как есть, без пересчёта. ${stavkaTail}`),
     });
   }
 

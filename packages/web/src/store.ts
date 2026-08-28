@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { ALL_DEPT_IDS, GRBS_ID_TO_DEPARTMENT_ID, SUBORDINATE_REGISTRY, type ActivityType, type DashboardData } from '@aemr/shared';
 import { api, humanizeRequestError } from './api';
+import { fetchMonitoringAnalytics } from './lib/monitoring/analytics-contract';
 import { mergeSubordinates } from './lib/subordinates';
 import { setOfficialProvenance } from './lib/provenance-registry';
 import { toCanonicalDeptId } from './lib/dept-key';
@@ -33,6 +34,37 @@ export type PeriodScope = 'year' | 'q1' | 'q2' | 'q3' | 'q4';
 
 /** Единицы измерения денег */
 export type MoneyUnit = 'тыс' | 'млн' | 'млрд';
+
+/**
+ * Ставка снижения — РЕЖИМ СЧЁТА, не отбор строк (канон п.144, интервью
+ * 22.08.2026; поведение согласовано в пробе линейки). Два положения:
+ * - 'norm' — норматив 8 %: им посчитаны формулы книг (умолчание);
+ * - 'live' — живой коэффициент из фактических снижений торгов за скользящие
+ *   двенадцать месяцев (ядро: reductionCoefficients книги мониторинга,
+ *   средневзвешенное по деньгам; замер 18.08.2026 — 9,79 %).
+ * Переключение не трогает данные книг — только показ производных чисел.
+ */
+export type StavkaMode = 'norm' | 'live';
+
+/** Норматив района, которым посчитаны формулы книг, % снижения. */
+export const STAVKA_NORM_PCT = 8;
+
+/**
+ * Живой коэффициент снижения с клиентской стороны: снят с роута
+ * /api/monitoring/analytics (раздел reduction). null до первого ответа —
+ * отсутствие замера не выдаётся за ноль, кнопка «живой» живёт выключенной.
+ */
+export interface LiveStavka {
+  /** Средневзвешенное по деньгам снижение, % (portfolioPct ядра). */
+  pct: number;
+  /** Межквартильный разброс построчных снижений, % (Q1–Q3). */
+  q1: number | null;
+  q3: number | null;
+  /** Состоявшихся процедур в основании коэффициента. */
+  count: number;
+  /** Момент чтения книги мониторинга (ISO) — дата замера. */
+  readAt: string | null;
+}
 
 /** Тип закупки (legacy single-select aliases kept for navigateTo compatibility) */
 export type ProcurementFilter = 'all' | 'competitive' | 'single';
@@ -84,12 +116,20 @@ export interface ActiveFilterCountInput {
   monthsByYear: Record<number, Set<number>>;
   periodMode: PeriodMode;
   searchQuery: string;
+  /**
+   * Ставка снижения переведена с норматива 8 % на живой коэффициент (канон
+   * п.144). Это режим счёта, как тыс/млн, — не отбор строк, но умолчание
+   * изменено, и счётчик «Сбросить» обязан это видеть. Поле необязательное,
+   * чтобы старые вызовы (и стражи) не переписывать: отсутствие = норматив.
+   */
+  stavkaChanged?: boolean;
 }
 
 export function getActiveFilterCount(input: ActiveFilterCountInput): number {
   return (
     (input.yearChanged ? 1 : 0) +
     (input.moneyUnitChanged ? 1 : 0) +
+    (input.stavkaChanged ? 1 : 0) +
     (input.selectedMethods.size > 0 ? 1 : 0) +
     (input.selectedActivities.size > 0 ? 1 : 0) +
     (input.selectedBudgets.size > 0 ? 1 : 0) +
@@ -212,6 +252,13 @@ export interface AppState {
   toggleMonth: (month: number) => void;
   moneyUnit: MoneyUnit;
   setMoneyUnit: (unit: MoneyUnit) => void;
+  /** Ставка снижения — режим счёта (см. StavkaMode): норматив 8 % или живой коэффициент. */
+  stavkaMode: StavkaMode;
+  setStavkaMode: (mode: StavkaMode) => void;
+  /** Живой коэффициент с роута мониторинга; null — ещё не получен. */
+  liveStavka: LiveStavka | null;
+  /** Ленивая загрузка живого коэффициента (один запрос, при ошибке — повтор при следующем вызове). */
+  fetchLiveStavka: () => Promise<void>;
   /** Multi-select: выбранные способы закупки (empty = all) */
   selectedMethods: Set<string>;
   toggleMethod: (method: string) => void;
@@ -386,6 +433,9 @@ function isDemoData(data: DashboardData): boolean {
  */
 let dashboardRequestSeq = 0;
 
+/** Страж повторного запроса живого коэффициента (fetchLiveStavka). */
+let liveStavkaInFlight = false;
+
 export const useStore = create<AppState>((set, get) => ({
   // Навигация
   page: 'dashboard',
@@ -440,6 +490,36 @@ export const useStore = create<AppState>((set, get) => ({
   },
   moneyUnit: 'тыс',
   setMoneyUnit: (moneyUnit) => set({ moneyUnit }),
+  // Ставка снижения (канон п.144): умолчание — норматив 8 %, которым посчитаны
+  // формулы книг. Живое положение включается только рукой читателя.
+  stavkaMode: 'norm' as StavkaMode,
+  setStavkaMode: (stavkaMode) => set({ stavkaMode }),
+  liveStavka: null,
+  fetchLiveStavka: async () => {
+    // Один живой запрос на сессию: повтор — только после ошибки (замер не
+    // меняется чаще, чем книга мониторинга перечитывается сервером).
+    if (get().liveStavka !== null || liveStavkaInFlight) return;
+    liveStavkaInFlight = true;
+    try {
+      const payload = await fetchMonitoringAnalytics();
+      const r = payload.analytics.reduction;
+      if (r.portfolioPct === null) return; // состоявшихся торгов нет — замера нет
+      set({
+        liveStavka: {
+          pct: r.portfolioPct,
+          q1: r.reducedQ1Pct,
+          q3: r.reducedQ3Pct,
+          count: r.portfolio.count,
+          readAt: payload.source.readAt || null,
+        },
+      });
+    } catch {
+      // Сервер не ответил — кнопка «живой» остаётся выключенной с честной
+      // подсказкой; следующий вызов попробует снова.
+    } finally {
+      liveStavkaInFlight = false;
+    }
+  },
   // Multi-select filters (empty Set = identity = "Все")
   // When all options are selected individually → collapse to empty Set (= identity)
   selectedMethods: new Set<string>(),
@@ -525,6 +605,10 @@ export const useStore = create<AppState>((set, get) => ({
       period: 'year',
       periodMode: 'week' as PeriodMode,
       moneyUnit: 'тыс',
+      // Ставка — режим счёта с умолчанием «норматив 8 %»: сброс возвращает
+      // умолчание, как и тыс/млн. Сам замер (liveStavka) не трогается — это
+      // данные, а не выбор читателя.
+      stavkaMode: 'norm' as StavkaMode,
       procurementFilter: 'all',
       activityFilter: 'all',
       selectedMethods: new Set<string>(),

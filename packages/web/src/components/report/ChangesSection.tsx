@@ -30,8 +30,9 @@ interface ChangeRecord {
   author: string;
 }
 
-/** «06.04, 17:39» — компактное время правки; год очевиден из контекста среза. */
-function fmtAt(ms: number): string {
+/** «06.04, 17:39» — компактное время правки; год очевиден из контекста среза.
+ *  Экспорт: тем же словом время называет журнал эфира в углу шапки. */
+export function fmtAt(ms: number): string {
   const d = new Date(ms);
   const dd = String(d.getUTCDate()).padStart(2, '0');
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -92,8 +93,10 @@ function attrKeyOf(cell: string): keyof typeof DEPT_COLUMNS | undefined {
   return idx === undefined ? undefined : KEY_BY_INDEX.get(idx);
 }
 
-/** Ячейка «W59» → человеческое имя атрибута («факт по краевому бюджету»). */
-function humanAttribute(cell: string, rawAttr: string): string {
+/** Ячейка «W59» → человеческое имя атрибута («факт по краевому бюджету»).
+ *  Экспорт: журнал эфира в углу шапки обязан говорить тем же языком продукта,
+ *  а не шапкой оператора («КБ 2») — карта HUMAN_ATTR живёт в одном месте. */
+export function humanAttribute(cell: string, rawAttr: string): string {
   const key = attrKeyOf(cell);
   if (key && HUMAN_ATTR[key]) return HUMAN_ATTR[key]!;
   return rawAttr ? `«${rawAttr}»` : 'колонку вне канона';

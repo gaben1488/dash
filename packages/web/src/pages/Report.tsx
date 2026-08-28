@@ -659,6 +659,8 @@ export function ReportPage() {
   const searchQuery = useStore((s) => s.searchQuery);
   const periodMode = useStore((s) => s.periodMode);
   const focusedWeekStart = useStore((s) => s.focusedWeekStart);
+  const stavkaMode = useStore((s) => s.stavkaMode);
+  const liveStavka = useStore((s) => s.liveStavka);
   const ctx = useMemo(
     () => buildFilterContext({
       year, period, activeMonths, selectedDepartments, selectedSubordinates,
@@ -848,7 +850,14 @@ export function ReportPage() {
     [report],
   );
 
-  const summary = useMemo(() => (report ? buildIntegralSummary(report) : null), [report]);
+  // Ставка снижения (канон п.144): положение переключателя шапки доводится до
+  // единственного зависимого числа сводки — расчётной экономии по остатку.
+  const summary = useMemo(
+    () => (report
+      ? buildIntegralSummary(report, { mode: stavkaMode, livePct: liveStavka?.pct ?? null, readAt: liveStavka?.readAt ?? null })
+      : null),
+    [report, stavkaMode, liveStavka],
+  );
   // Паспорта периметра секций (канон п.58): один — квартальный, для сводки и
   // блоков ГРБС; второй — годовой, для блоков, которые квартал не сужает
   // (закупки без финансирования, лента правок). Строятся ИЗ ОТВЕТА сервера,

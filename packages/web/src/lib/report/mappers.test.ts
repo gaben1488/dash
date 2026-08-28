@@ -152,6 +152,53 @@ describe('buildIntegralSummary — четыре яруса сводки', () => 
   });
 });
 
+describe('ставка снижения (канон п.144) — расчётная экономия по остатку', () => {
+  const base = makeReportFixture();
+  const withOfficial = () => ({
+    ...base,
+    official: {
+      remainderToConclude: { fb: 100, kb: 200, mb: 300, total: 2500, row: 2, cell: 'O2' },
+      calcEconomy: { fb: 10, kb: 20, mb: 30, total: 60, row: 32, cell: 'M32' },
+    },
+  });
+
+  it('без ставки и в положении «норматив» число листа показано как есть', () => {
+    const plain = buildIntegralSummary(withOfficial());
+    const norm = buildIntegralSummary(withOfficial(), { mode: 'norm', livePct: 9.79, readAt: null });
+    for (const s of [plain, norm]) {
+      const card = s.remainder[2];
+      expect(card.value).toBe('60');
+      expect(card.label).toContain('прогноз листа');
+    }
+    // Паспорт нормы называет положение ставки словами (правило п.144:
+    // выбранное положение названо у каждого зависимого числа).
+    expect(norm.remainder[2].live).toContain('норматив 8 %');
+  });
+
+  it('в положении «живой» число пересчитано тем же основанием, паспорт называет обе суммы', () => {
+    const live = buildIntegralSummary(withOfficial(), { mode: 'live', livePct: 9.79, readAt: '2026-08-18T09:00:00Z' });
+    const card = live.remainder[2];
+    // 60 ÷ 8 × 9,79 = 73,425 → «73» по канону целочисленного форматирования.
+    expect(card.value).toBe('73');
+    expect(card.label).toContain('живая ставка');
+    expect(card.live).toContain('9,79 %');
+    expect(card.live).toContain('замер 18.08.2026');
+    // Обе суммы в паспорте: живая и нормативная.
+    expect(card.live).toContain('73');
+    expect(card.live).toContain('60');
+    // Бюджетная тройка масштабируется той же ставкой, а не остаётся от 8 %.
+    expect(card.budget.fb).toBeCloseTo(10 * 9.79 / 8, 6);
+    // Ссылка на первичку не теряется: основание — та же ячейка листа.
+    expect(card.cell).toBe('M32');
+  });
+
+  it('живой замер не получен — положение «живой» не выдумывает число: действует норматив', () => {
+    const s = buildIntegralSummary(withOfficial(), { mode: 'live', livePct: null, readAt: null });
+    expect(s.remainder[2].value).toBe('60');
+    expect(s.remainder[2].label).toContain('прогноз листа');
+  });
+});
+
 describe('buildGrbsSection — view-модель секции ГРБС', () => {
   const report = makeReportFixture();
   const uer = buildGrbsSection(report.grbsBlocks[0]);

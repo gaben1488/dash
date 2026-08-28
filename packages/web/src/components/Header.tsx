@@ -8,9 +8,17 @@ import {
 import clsx from 'clsx';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
-import { FilterBreadcrumb } from './FilterBreadcrumb';
+import { SelectionTokens } from './SelectionTokens';
 import { ProvenanceHub } from './live/ProvenanceHub';
+import { LiveHistory } from './live/LiveHistory';
 import { useLiveEvents } from '../hooks/useLiveEvents';
+import { getISOWeekNumber } from '../lib/week-number';
+import { fmtPct2 } from '../lib/report/mappers';
+import { usePeriodCoverage } from '../hooks/usePeriodCoverage';
+import {
+  classifyPeriod, isFutureMonth, monthCountOf, weekCountOf, weekPosition, yearCountOf,
+  type PeriodCoverageKind,
+} from '../lib/period-coverage';
 
 // Re-export for compatibility
 export type FilterGroup =
@@ -310,8 +318,23 @@ function useAutoRefresh() {
    TIME DRUM — unchanged from original
    ═══════════════════════════════════════════════════════════════════ */
 
+/**
+ * Подписи трёх видов покрытия для title/aria (владелец 22.08.2026):
+ * пустота, «почти пусто» и будущее называются словами, а не только краской.
+ */
+function monthCoverageNote(kind: PeriodCoverageKind, count: number): string {
+  switch (kind) {
+    case 'empty': return ' — данных нет';
+    case 'future': return ' — ещё не наступил';
+    case 'scarce': return ` — строк мало (${count})`;
+    default: return '';
+  }
+}
+
 function TimeDrum() {
   const { year, setYear, monthsByYear, toggleMonthInYear, toggleQuarterInYear, toggleYearFull, clearAllPeriods, focusedWeekStart } = useStore();
+  const coverage = usePeriodCoverage();
+  const covReady = coverage.status === 'ready';
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
   const drumRef = useRef<HTMLDivElement>(null);
@@ -371,13 +394,16 @@ function TimeDrum() {
         const isFullYear = yearMonths?.size === 12;
         const isFirst = idx === 0;
         const isLast = idx === AVAILABLE_YEARS.length - 1;
+        // Год без единой строки в книгах (например, следующий) — ряд приглушён
+        // целиком; выбор при этом не запрещается, пустота показана честно.
+        const yearEmpty = covReady && yearCountOf(coverage.index, yr) === 0;
         return (
-          <div key={yr} className={clsx('tg-row', isActiveYear && 'tg-row-active', isFirst && 'tg-row-first', isLast && 'tg-row-last')}>
+          <div key={yr} className={clsx('tg-row', isActiveYear && 'tg-row-active', isFirst && 'tg-row-first', isLast && 'tg-row-last', yearEmpty && 'tg-row-nodata')}>
             <button type="button" onClick={() => toggleYearFull(yr)}
               onKeyDown={(e) => handleYearKey(e, yr)}
-              title={isFullYear ? `${yr} — снять` : `${yr} — весь год`}
+              title={(isFullYear ? `${yr} — снять` : `${yr} — весь год`) + (yearEmpty ? ' (данных нет)' : '')}
               aria-pressed={isFullYear}
-              aria-label={`${yr} год целиком${isActiveYear ? ', год в фокусе' : ''}`}
+              aria-label={`${yr} год целиком${isActiveYear ? ', год в фокусе' : ''}${yearEmpty ? ', данных нет' : ''}`}
               className={clsx('tg-year', isFullYear ? 'tg-year-full' : hasYearSelection ? 'tg-year-partial' : 'tg-year-idle')}>
               {yr}
             </button>
@@ -399,12 +425,22 @@ function TimeDrum() {
                     const isSelected = yearMonths?.has(monthId) ?? false;
                     const isCurrent = monthId === currentMonth && yr === currentYear;
                     const isFocusedByWeek = yr === focusedWYear && monthId === focusedWMonth;
+                    // Краски полноты: «данных нет» приглушает, «ещё не наступил» —
+                    // штрих, «почти пусто» (1–3 строки) — точка. Будущий месяц
+                    // С плановыми строками — обычный: план — не пустота.
+                    // На выбранной кремовой пилюле гашение не вешается — выбор
+                    // читаемее краски, честность остаётся в title/aria.
+                    const mCount = covReady ? monthCountOf(coverage.index, yr, monthId) : 0;
+                    const mKind = classifyPeriod(mCount, isFutureMonth(yr, monthId), covReady);
                     return (
                       <button key={monthId} type="button" onClick={() => toggleMonthInYear(yr, monthId)}
-                        title={`${m.full} ${yr}`}
+                        title={`${m.full} ${yr}${monthCoverageNote(mKind, mCount)}`}
                         aria-pressed={isSelected}
-                        aria-label={`${m.full} ${yr}${isCurrent ? ', текущий месяц' : ''}`}
-                        className={clsx('tg-month', isSelected ? 'tg-month-active' : 'tg-month-idle', isCurrent && 'tg-month-now', isFocusedByWeek && !isSelected && 'tg-month-focused')}>
+                        aria-label={`${m.full} ${yr}${isCurrent ? ', текущий месяц' : ''}${monthCoverageNote(mKind, mCount)}`}
+                        className={clsx('tg-month', isSelected ? 'tg-month-active' : 'tg-month-idle', isCurrent && 'tg-month-now', isFocusedByWeek && !isSelected && 'tg-month-focused',
+                          !isSelected && mKind === 'empty' && 'tg-month-empty',
+                          !isSelected && mKind === 'future' && 'tg-month-future',
+                          mKind === 'scarce' && 'tg-month-scarce')}>
                         {m.short}
                       </button>
                     );
@@ -423,15 +459,13 @@ function TimeDrum() {
    WEEK ROLLER — unchanged
    ═══════════════════════════════════════════════════════════════════ */
 
-function getISOWeekNumber(d: Date): number {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-}
+// getISOWeekNumber переехал в lib/week-number.ts (29.08): номер недели нужен
+// и жетону «срез недели» в правом углу, а импорт из Header дал бы кольцо.
 
 function WeekRoller() {
   const { focusedWeekStart, shiftFocusedWeek, monthsByYear, periodMode } = useStore();
+  const coverage = usePeriodCoverage();
+  const covReady = coverage.status === 'ready';
   const wrRef = useRef<HTMLDivElement>(null);
   const isWeekMode = periodMode === 'week';
   const weeks: Date[] = [];
@@ -507,6 +541,19 @@ function WeekRoller() {
           rangeLine = `${mDay}\u2013${sDay}`;
           monthLine = `${MONTHS[mMonthIdx].short.toLowerCase()}\u2013${MONTHS[sMonthIdx].short.toLowerCase()}`;
         }
+        // Семантика недели (владелец 22.08.2026): текущая — «прямой эфир»
+        // (числа живут и меняются), прошедшая — «срез», будущая — «ещё не
+        // наступила». Плюс краски полноты: неделя без строк приглушена
+        // (выбор не запрещён), будущая без строк — пунктир; будущая
+        // С плановыми строками выглядит обычно — план не пустота.
+        const pos = weekPosition(monday);
+        const wCount = covReady ? weekCountOf(coverage.index, monday) : 0;
+        const isEmptyWeek = covReady && wCount === 0 && pos !== 'future';
+        const isFutureWeek = covReady && wCount === 0 && pos === 'future';
+        const weekWord = pos === 'current' ? 'прямой эфир' : pos === 'past' ? 'срез' : 'ещё не наступила';
+        const covNote = isEmptyWeek ? ', данных нет' : '';
+        const rowTitle = `Неделя ${weekNum}, ${rangeLine} ${monthLine} — ${weekWord}${covNote}`;
+
         // Кириллическая «н» вместо латинской «w»: колонка шириной 18px
         // (.wr-wnum в index.css) держит ровно три знака, поэтому полное
         // слово сюда не влезает — оно вынесено в подсказку при наведении.
@@ -517,8 +564,13 @@ function WeekRoller() {
               <span className="wr-range">{rangeLine}</span>
               <span className="wr-month">{monthLine}</span>
             </span>
+            {/* Точка эфира на текущей неделе: дышит; при «уменьшить движение»
+                дыхание гасится глобальным правилом index.css. */}
+            {pos === 'current' && <span className="wr-live" aria-hidden="true" />}
           </>
         );
+
+        const coverageCls = clsx(isEmptyWeek && 'wr-row-empty', isFutureWeek && 'wr-row-future');
 
         // Нажимается только центральная строка — она и есть кнопка. Соседние
         // недели показаны для контекста и остаются обычным текстом: раньше вся
@@ -528,11 +580,12 @@ function WeekRoller() {
             <button
               key={monday.toISOString()}
               type="button"
-              className={clsx('wr-row', 'wr-row-active', isWeekMode && 'wr-row-driving')}
+              className={clsx('wr-row', 'wr-row-active', isWeekMode && 'wr-row-driving', coverageCls)}
               onClick={() => handleWeekClick(monday)}
               onKeyDown={handleWeekKey}
+              title={rowTitle}
               aria-pressed={isWeekMode}
-              aria-label={`Неделя ${weekNum}, ${rangeLine} ${monthLine}. ${isWeekMode ? 'Данные считаются по этой неделе' : 'Считать данные по этой неделе'}`}
+              aria-label={`Неделя ${weekNum}, ${rangeLine} ${monthLine} — ${weekWord}${covNote}. ${isWeekMode ? 'Данные считаются по этой неделе' : 'Считать данные по этой неделе'}`}
             >
               {body}
             </button>
@@ -541,7 +594,8 @@ function WeekRoller() {
         return (
           <div
             key={monday.toISOString()}
-            className={clsx('wr-row', isEdge && 'wr-row-edge')}
+            className={clsx('wr-row', isEdge && 'wr-row-edge', coverageCls)}
+            title={rowTitle}
           >
             {body}
           </div>
@@ -570,11 +624,102 @@ function CurrencyDrum({ value, onChange }: { value: string; onChange: (v: any) =
   );
 }
 
+/**
+ * Ставка снижения — столбик режима счёта (канон п.144, интервью 22.08.2026;
+ * поведение согласовано в пробе линейки). Два положения: норматив 8 % (им
+ * посчитаны формулы книг) и живой коэффициент из фактических снижений торгов
+ * за скользящие двенадцать месяцев (книга мониторинга, средневзвешенное по
+ * деньгам). Это НЕ отбор строк: переключение не трогает данные книг, только
+ * показ производных чисел. Паспорт разницы — в подсказках кнопок: обе суммы
+ * ожидаемой экономии от плана года в рублях и их разница.
+ */
+function StavkaDrum() {
+  const stavkaMode = useStore((s) => s.stavkaMode);
+  const setStavkaMode = useStore((s) => s.setStavkaMode);
+  const liveStavka = useStore((s) => s.liveStavka);
+  const fetchLiveStavka = useStore((s) => s.fetchLiveStavka);
+  const dashboardData = useStore((s) => s.dashboardData);
+  const formatMoney = useStore((s) => s.formatMoney);
+
+  // Замер снимается лениво при первом появлении линейки: без него кнопка
+  // «живой» честно выключена, а не притворяется рабочей.
+  useEffect(() => { void fetchLiveStavka(); }, [fetchLiveStavka]);
+
+  // План года — сумма планов восьми ГРБС (тыс. руб.); от него обе суммы
+  // ожидаемой экономии. Данных ещё нет — подсказка живёт без сумм.
+  const planTys = (dashboardData?.departmentSummaries ?? [])
+    .reduce((acc, d) => acc + (d.planTotal ?? 0), 0);
+
+  const livePct = liveStavka?.pct ?? null;
+  const measured = liveStavka?.readAt
+    ? new Date(liveStavka.readAt).toLocaleDateString('ru-RU')
+    : null;
+
+  /** Обе суммы в рублях и разница — общий хвост подсказок обеих кнопок. */
+  const sumsLine = (() => {
+    if (planTys <= 0) return 'План года ещё не загружен — суммы ожидаемой экономии появятся с данными.';
+    const normSum = planTys * 0.08;
+    if (livePct === null) {
+      return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу 8 % — ${formatMoney(normSum)}; живой коэффициент ещё не получен.`;
+    }
+    const liveSum = planTys * (livePct / 100);
+    const diff = liveSum - normSum;
+    const diffWord = diff >= 0 ? 'больше' : 'меньше';
+    return `Ожидаемая экономия от плана года ${formatMoney(planTys)}: по нормативу 8 % — ${formatMoney(normSum)}, ` +
+      `по живой ставке ${fmtPct2(livePct)} % — ${formatMoney(liveSum)}: на ${formatMoney(Math.abs(diff))} ${diffWord} норматива.`;
+  })();
+
+  const tail = 'Ставка — режим счёта, а не отбор строк: данные книг не меняются, пересчитываются производные числа.';
+
+  const liveTitle = livePct === null
+    ? `Живой коэффициент ещё не получен из книги мониторинга — действует норматив 8 %. ${sumsLine} ${tail}`
+    : `Живой коэффициент ${fmtPct2(livePct)} % — фактические снижения состоявшихся торгов за скользящие двенадцать месяцев` +
+      `${measured ? ` (замер ${measured}` : ' ('}${liveStavka?.q1 != null && liveStavka?.q3 != null
+        ? `, разброс ${fmtPct2(liveStavka.q1)}–${fmtPct2(liveStavka.q3)} %` : ''}` +
+      `${liveStavka?.count ? `, ${liveStavka.count} процедур` : ''}). ${sumsLine} ${tail}`;
+
+  return (
+    <div className="vf-drum vf-drum-thin" role="group" aria-label="Ставка снижения — режим счёта">
+      <button type="button" onClick={() => setStavkaMode('norm')}
+        className={clsx('vf-btn vf-btn-sm', stavkaMode === 'norm' && 'vf-btn-active')}
+        aria-pressed={stavkaMode === 'norm'}
+        aria-label="Считать по нормативу восемь процентов"
+        title={`Норматив 8 % — им посчитаны формулы книг. ${sumsLine} ${tail}`}
+      >8 %</button>
+      <button type="button" onClick={() => setStavkaMode('live')}
+        disabled={livePct === null}
+        className={clsx('vf-btn vf-btn-sm', stavkaMode === 'live' && 'vf-btn-active', livePct === null && 'opacity-50 cursor-not-allowed')}
+        aria-pressed={stavkaMode === 'live'}
+        aria-label="Считать по живому коэффициенту снижения"
+        title={liveTitle}
+      >{livePct === null ? 'живой' : `живой ${fmtPct2(livePct)} %`}</button>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════
-   NAV PILLS — 6 horizontal buttons with brand colors
-   Glass pill container, each tab has its own color
+   NAV PILLS — кнопки разделов с фирменными цветами
+   Четыре ряда — четыре именованные группы (одобрено владельцем,
+   проба линейки 29.08): подпись группы слева мелкой капителью,
+   кнопки — те же np-btn со всеми умениями (цвет раздела, свечение,
+   счётчики корзин, прирост замечаний).
    Apple Intelligence effects: shimmer on active
    ═══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Группы навигации. Ряд = именованная группа, до четырёх кнопок в ряду.
+ * Состав согласован владельцем: ОБЗОР — сводные экраны, РЕЕСТРЫ — построчные
+ * книги и их корзины, РАЗБОРЫ — аналитические разрезы, НАДЗОР — контроль
+ * и служебное. Раздел, не попавший ни в одну группу (новая вкладка,
+ * забытая здесь), НЕ исчезает из линейки — он выводится отдельным рядом
+ * без имени, чтобы пропажа была видна, а не молчала.
+ */
+const NAV_GROUPS: { name: string; ids: Page[] }[] = [
+  { name: 'Обзор',   ids: ['dashboard', 'report', 'svod'] },
+  { name: 'Реестры', ids: ['data', 'unfunded', 'yearlong', 'monitoring'] },
+  { name: 'Разборы', ids: ['economy', 'competition', 'discipline', 'analytics'] },
+  { name: 'Надзор',  ids: ['quality', 'settings'] },
+];
 
 function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Page) => void }) {
   // Честные счётчики корзин (п.73в): числа считает сервер теми же предикатами,
@@ -591,52 +736,80 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
     if (id === 'yearlong') return bucketCounts.yearlong;
     return null;
   };
+  // Порядок и состав кнопок задаёт NAV_GROUPS; сами разделы (цвет, значок,
+  // подпись) живут в NAV_ITEMS — единственном доме этих данных.
+  const itemById = new Map(NAV_ITEMS.map((item) => [item.id, item]));
+  const groupedIds = new Set(NAV_GROUPS.flatMap((g) => g.ids));
+  const orphans = NAV_ITEMS.filter((item) => !groupedIds.has(item.id));
+  const rows = orphans.length > 0
+    ? [...NAV_GROUPS, { name: '', ids: orphans.map((item) => item.id) }]
+    : NAV_GROUPS;
+
+  const renderButton = (item: (typeof NAV_ITEMS)[number]) => {
+    const Icon = item.icon;
+    const isActive = item.id === activePage;
+    const count = countOf(item.id);
+    return (
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => setPage(item.id)}
+        className={clsx('np-btn', isActive && 'np-btn-active')}
+        style={{ '--np-color': item.color, '--np-color-light': item.colorLight } as React.CSSProperties}
+        title={count !== null
+          ? `${item.title ?? item.label} — ${count} строк во всех книгах на сейчас`
+          : (item.title ?? item.label)}
+        aria-current={isActive ? 'page' : undefined}
+      >
+        {/* Apple Intelligence rotating glow — only on active */}
+        {isActive && <span className="np-glow" aria-hidden="true" />}
+        <span className="np-content">
+          <Icon size={10} strokeWidth={isActive ? 2.2 : 1.5} aria-hidden="true" />
+          <span className="np-label">{item.label}</span>
+          {/* Прирост замечаний из прямого эфира — только на Контроле и
+              только пока он не отработан. Точка спокойная, без мигания. */}
+          {item.id === 'quality' && newIssues > 0 && (
+            <span
+              className="np-count tabular-nums"
+              aria-label={`новых замечаний: ${newIssues}`}
+              title={`С последнего обновления данных замечаний стало больше на ${newIssues}`}
+            >
+              +{newIssues}
+            </span>
+          )}
+          {count !== null && (
+            <span
+              className="np-count tabular-nums"
+              aria-label={`${count} строк`}
+            >
+              {count}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <nav className="nav-pills-wrap" aria-label="Навигация">
-      {NAV_ITEMS.map((item) => {
-        const Icon = item.icon;
-        const isActive = item.id === activePage;
-        const count = countOf(item.id);
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setPage(item.id)}
-            className={clsx('np-btn', isActive && 'np-btn-active')}
-            style={{ '--np-color': item.color, '--np-color-light': item.colorLight } as React.CSSProperties}
-            title={count !== null
-              ? `${item.title ?? item.label} — ${count} строк во всех книгах на сейчас`
-              : (item.title ?? item.label)}
-            aria-current={isActive ? 'page' : undefined}
-          >
-            {/* Apple Intelligence rotating glow — only on active */}
-            {isActive && <span className="np-glow" aria-hidden="true" />}
-            <span className="np-content">
-              <Icon size={10} strokeWidth={isActive ? 2.2 : 1.5} aria-hidden="true" />
-              <span>{item.label}</span>
-              {/* Прирост замечаний из прямого эфира — только на Контроле и
-                  только пока он не отработан. Точка спокойная, без мигания. */}
-              {item.id === 'quality' && newIssues > 0 && (
-                <span
-                  className="np-count tabular-nums"
-                  aria-label={`новых замечаний: ${newIssues}`}
-                  title={`С последнего обновления данных замечаний стало больше на ${newIssues}`}
-                >
-                  +{newIssues}
-                </span>
-              )}
-              {count !== null && (
-                <span
-                  className="np-count tabular-nums"
-                  aria-label={`${count} строк`}
-                >
-                  {count}
-                </span>
-              )}
-            </span>
-          </button>
-        );
-      })}
+      {rows.map((group) => (
+        <div
+          key={group.name || 'прочее'}
+          className="np-group"
+          role="group"
+          aria-label={group.name || undefined}
+        >
+          {/* Имя группы — только зрительная подпись ряда: читалкам группу
+              называет aria-label на держателе, дублировать текст не нужно. */}
+          <span className="np-group-name" aria-hidden="true">{group.name}</span>
+          <div className="np-group-btns">
+            {group.ids
+              .map((id) => itemById.get(id))
+              .filter((item): item is (typeof NAV_ITEMS)[number] => item !== undefined)
+              .map(renderButton)}
+          </div>
+        </div>
+      ))}
     </nav>
   );
 }
@@ -657,6 +830,7 @@ export function Header() {
     searchQuery, setSearchQuery,
     resetAllFilters, selectedDepartments, selectedSubordinates,
     activeMonths, monthsByYear, periodMode,
+    stavkaMode,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
   const { secondsLeft, isOnline } = useAutoRefresh();
@@ -675,6 +849,7 @@ export function Header() {
   const activeCount = getActiveFilterCount({
     yearChanged: year !== new Date().getFullYear(),
     moneyUnitChanged: moneyUnit !== 'тыс',
+    stavkaChanged: stavkaMode !== 'norm',
     selectedMethods,
     selectedActivities,
     selectedBudgets,
@@ -810,6 +985,11 @@ export function Header() {
           <CurrencyDrum value={moneyUnit} onChange={setMoneyUnit} />
         )}
 
+        {/* Ставка снижения — режим счёта (канон п.144: действует на всех
+            вкладках), поэтому столбик не гейтится PAGE_FILTERS, как и тема.
+            Единственное исключение — «Система»: там нет ни одного числа. */}
+        {page !== 'settings' && <StavkaDrum />}
+
         {/* Search */}
         {showSearch && (
           <div className="relative w-[100px] flex-shrink-0">
@@ -833,8 +1013,15 @@ export function Header() {
           </div>
         )}
 
-        {/* Active filter chips — inline, pushes to the right */}
-        <FilterBreadcrumb variant="inline" />
+        {/* Правый угол линейки (контракт пробы «угол», срез 1): эфир-история
+            (мини-барабан правок с журналом) над жетонами состояния отбора.
+            Заменил FilterBreadcrumb variant="inline" — умения строчных чипов
+            перенесены в SelectionTokens целиком (опись в его шапке); панельный
+            variant="panel" на Пульте живёт как жил. */}
+        <div className="hdr-ugol">
+          <LiveHistory />
+          <SelectionTokens />
+        </div>
 
         {/* 5. Tools (right edge) — тема, сброс фильтров, узел провенанса */}
         <div className="nav-tools">
