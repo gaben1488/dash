@@ -1,0 +1,1306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ультимативная заря — выставка для владельца</title>
+<script>
+/* сборщик ошибок — для приёмки: window.__ошибки должен остаться пустым */
+window.__ошибки = [];
+window.addEventListener('error', function (е) { window.__ошибки.push(String(е.message)); });
+window.addEventListener('unhandledrejection', function (е) { window.__ошибки.push('promise: ' + String(е.reason)); });
+</script>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   УЛЬТИМАТИВНАЯ ЗАРЯ — страница-выставка (черновик к приёмке владельцем).
+   Источники, дословно:
+     матрица 63 клеток и небеса 13 вкладок — specs/2026-08-29-zarya-matrica.md §1, §4
+     спецификация живой зари — там же §2 (слой 300%, translateY 9 с, 80 мс)
+     отделки — mockups/otdelki.html (шесть честных CSS-физик, рецепты дословно)
+     стекло барабанов — packages/web/src/index.css: .tg-drum (2223), .wr-drum (2678),
+       наклоны рядов 2312-2327 (±8°/0.95/0.82; ±4°/0.97) и 2844-2849 (wr ±8°/0.94)
+   Запреты: новых оранжевых/орхидейных тонов нет; у тёмных поверхностей
+   синий канал ≤ красного (вся тихая ткань тёплая #141412…#403828);
+   подписи не обрезаются; страница вбок не едет — широкие ряды листаются сами.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* — ТЬМА первична — */
+:root{
+  --фон:#141412; --с1:#1d1c19; --с2:#242320; --с3:#2c2b26;
+  --чернила:#efece3; --чернила2:#c7c2b6; --чернила3:#8f8b80; --чернила4:#67635a;
+  --линия:rgba(255,255,255,0.07);
+  --крем:#e5d3a9; --латунь:#bfa161; --бронза:#8f7549; --бронза-т:#675435;
+  --лазурь:#7dd3fc; --глина:#c65b47; --глина-св:#df7a63;
+  --изумруд:#10b981;
+  --полоса-фон:rgba(255,255,255,0.04); --полоса-палец:#675435;
+  --зерно:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.55'/></svg>");
+}
+/* — СВЕТ: вторая честная гамма (тёплая бумага), не инверсия — */
+html.light{
+  --фон:#f1ebdc; --с1:#faf6ec; --с2:#f2ecdd; --с3:#e9e1cd;
+  --чернила:#1b170f; --чернила2:#4a4234; --чернила3:#7a7060; --чернила4:#9a8f7b;
+  --линия:rgba(27,23,15,0.12);
+  --полоса-фон:rgba(27,23,15,0.06); --полоса-палец:#bfa161;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--фон); color:var(--чернила);
+  font-family:-apple-system,'Segoe UI',system-ui,'Roboto',sans-serif;
+  font-variant-numeric:tabular-nums;
+  font-size:14px; line-height:1.55;
+  overflow-x:hidden; /* страж: страница вбок не едет никогда */
+}
+main{max-width:1280px;margin:0 auto;padding:26px clamp(14px,3.5vw,52px) 90px}
+h1{font-size:23px;font-weight:800;letter-spacing:-0.01em}
+h2{font-size:18px;font-weight:750;margin:0 0 4px}
+h3{font-size:14.5px;font-weight:750}
+section.глава{margin-top:56px;scroll-margin-top:64px}
+.вводная{color:var(--чернила3);max-width:78ch;margin-top:6px;font-size:13px}
+.вводная b{color:var(--чернила2)}
+small.путь{display:block;color:var(--чернила4);font-family:ui-monospace,'Consolas',monospace;font-size:10.5px;margin-top:8px}
+a{color:var(--латунь)}
+
+/* липкое оглавление */
+.шапка{
+  position:sticky;top:0;z-index:60;
+  background:color-mix(in srgb, var(--фон) 84%, transparent);
+  backdrop-filter:blur(14px) saturate(140%);
+  -webkit-backdrop-filter:blur(14px) saturate(140%);
+  border-bottom:1px solid var(--линия);
+}
+.шапка-ряд{
+  max-width:1280px;margin:0 auto;display:flex;align-items:center;gap:14px;
+  padding:9px clamp(14px,3.5vw,52px);
+}
+.шапка-имя{font-weight:800;font-size:13px;white-space:nowrap;flex-shrink:0}
+.шапка-имя i{font-style:normal;display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;margin-right:7px;
+  background:linear-gradient(180deg,#5b99f8 0%,#9d8150 100%)}
+nav.оглавление{display:flex;gap:4px;overflow-x:auto;min-width:0;scrollbar-width:thin}
+nav.оглавление a{
+  color:var(--чернила3);text-decoration:none;font-size:12px;font-weight:650;
+  padding:4px 9px;border-radius:999px;white-space:nowrap;
+}
+nav.оглавление a:hover{color:var(--чернила);background:var(--с2)}
+#тумблер{
+  margin-left:auto;flex-shrink:0;cursor:pointer;
+  border:1px solid var(--линия);border-radius:999px;padding:4px 12px;
+  background:var(--с2);color:var(--чернила2);font:inherit;font-size:12px;font-weight:700;
+}
+#тумблер:hover{color:var(--чернила)}
+
+/* прокрутка широких рядов — своя, со стилизованной полосой */
+.прокрутка{overflow-x:auto;padding-bottom:10px;scrollbar-width:thin;scrollbar-color:var(--полоса-палец) var(--полоса-фон)}
+.прокрутка::-webkit-scrollbar{height:9px}
+.прокрутка::-webkit-scrollbar-track{background:var(--полоса-фон);border-radius:5px}
+.прокрутка::-webkit-scrollbar-thumb{background:var(--полоса-палец);border-radius:5px;border:2px solid transparent;background-clip:padding-box}
+
+.стенд{
+  margin-top:14px;border-radius:16px;border:1px solid var(--линия);
+  padding:18px;background:var(--с1);
+}
+.бейдж{display:inline-block;font-size:10px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;
+  border-radius:999px;padding:2px 9px;vertical-align:2px}
+.бейдж.подходит{background:color-mix(in srgb,var(--изумруд) 22%, transparent);color:#5fd6ab;border:1px solid color-mix(in srgb,var(--изумруд) 45%, transparent)}
+html.light .бейдж.подходит{color:#0b6e4f}
+.бейдж.дозой{background:color-mix(in srgb,var(--латунь) 20%, transparent);color:#d3b878;border:1px solid color-mix(in srgb,var(--латунь) 45%, transparent)}
+html.light .бейдж.дозой{color:#6e5a38}
+.бейдж.нет{background:color-mix(in srgb,var(--глина) 20%, transparent);color:var(--глина-св);border:1px solid color-mix(in srgb,var(--глина) 45%, transparent)}
+html.light .бейдж.нет{color:#96412f}
+.бейдж.вопрос{background:transparent;color:var(--чернила3);border:1px dashed var(--чернила4)}
+
+/* ══════════ 1. МАТРИЦА ЖИВЬЁМ ══════════ */
+#матрица-сетка{
+  display:grid;
+  grid-template-columns:168px repeat(8,minmax(132px,1fr));
+  gap:8px;min-width:1330px;align-items:stretch;
+}
+.км-шапка{font-size:11px;font-weight:750;color:var(--чернила2);padding:0 2px 6px}
+.км-шапка span{display:block;font-weight:500;font-size:9.5px;color:var(--чернила4);margin-top:1px}
+.км-ряд{display:flex;flex-direction:column;justify-content:center;gap:2px;padding-right:8px}
+.км-ряд b{font-size:12px;font-weight:750;line-height:1.3}
+.км-ряд i{font-style:normal;font-size:9.5px;color:var(--чернила4);font-family:ui-monospace,'Consolas',monospace}
+.клетка{display:flex;flex-direction:column;gap:4px;justify-content:flex-start;min-width:0}
+.км-предмет{
+  position:relative;display:flex;align-items:center;justify-content:center;gap:5px;
+  font-weight:700;font-size:12px;line-height:1.2;white-space:nowrap;
+  border-radius:9px;min-height:34px;padding:5px 10px;
+}
+.км-сост{font-size:10px;line-height:1.35;color:var(--чернила3)}
+.км-сост .добор{color:var(--глина-св);font-weight:700}
+.км-точка{width:7px;height:7px;border-radius:50%;background:#df7a63;flex-shrink:0}
+.км-воскл{
+  width:16px;height:16px;border-radius:6px;flex-shrink:0;font-size:10px;font-weight:800;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,0.18);color:#fff;
+}
+.прочерк{
+  display:flex;align-items:center;justify-content:center;min-height:34px;
+  border:1px dashed var(--линия);border-radius:9px;color:var(--чернила4);
+  font-size:13px;cursor:help;
+}
+/* формы предметов */
+.ф-пилюля{border-radius:999px}
+.ф-год{min-height:48px;font-size:15px;border-radius:12px}
+.ф-квартал{min-height:30px;font-size:11px;border-radius:8px}
+.ф-неделя{min-height:30px;font-size:11px;border-radius:8px}
+.ф-жетон{min-height:28px;font-size:11px;border-radius:999px}
+.ф-действие{min-height:36px;border-radius:10px}
+.ф-плитка{min-height:56px;flex-direction:column;gap:1px;border-radius:12px}
+.ф-плитка small{font-size:9px;font-weight:650;letter-spacing:.05em;opacity:.75}
+.ф-полоса{min-height:36px;justify-content:flex-start;border-radius:10px;font-size:11.5px}
+.ф-строка{min-height:26px;font-size:10.5px;font-family:ui-monospace,'Consolas',monospace;font-weight:600;border-radius:7px}
+.ф-ячейка{min-height:30px;border-radius:7px}
+.итог-матрицы{margin-top:12px;font-size:12px;color:var(--чернила3)}
+.итог-матрицы b{color:var(--чернила2)}
+
+/* ══════════ 2. ЖИВАЯ ЗАРЯ ══════════ */
+@property --небо { syntax:'<color>'; inherits:true; initial-value:#5b99f8; }
+@property --гор  { syntax:'<color>'; inherits:true; initial-value:#8f7549; }
+.живой-ряд{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.живой,.статичный{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-height:38px;min-width:96px;padding:7px 18px;border-radius:11px;overflow:hidden;
+  font-weight:750;font-size:13px;white-space:nowrap;cursor:pointer;
+  color:var(--чн,#1b170f);
+}
+.живой.ф-пилюля,.статичный.ф-пилюля{border-radius:999px}
+.живой.ф-год,.статичный.ф-год{min-height:50px;font-size:15px}
+.живой>span,.статичный>span{position:relative;z-index:2}
+.живой{
+  --небо:var(--небо-п); --гор:var(--гор-п);
+  transition:--небо 80ms linear, --гор 80ms linear, transform 80ms ease;
+}
+/* слой 300%: растр считается один раз, дышит на композиторе (§2.1) */
+.живой::before{
+  content:'';position:absolute;left:0;right:0;top:0;height:300%;z-index:0;
+  background:linear-gradient(var(--уг,180deg), var(--небо) 0%, var(--небо) 8%, var(--гор) 42%, var(--гор) 100%);
+  transform:translateY(-4%);
+  animation:дыхание 9s ease-in-out infinite alternate;
+  animation-delay:calc(var(--и,0) * -1.7s); /* рассинхрон: линейка не дышит строем */
+}
+@keyframes дыхание{from{transform:translateY(-4%)}to{transform:translateY(-10%)}}
+/* отклик на мышь: круг светлого неба едет к курсору (§2.2) */
+.живой::after{
+  content:'';position:absolute;left:-70px;top:-70px;width:140px;height:140px;z-index:1;
+  border-radius:50%;pointer-events:none;
+  background:radial-gradient(closest-side, color-mix(in srgb, var(--небо-н) 55%, transparent), transparent 72%);
+  transform:translate(var(--мх,-999px), var(--му,-999px));
+  opacity:0;
+  transition:transform 120ms ease-out, opacity 180ms ease;
+}
+.живой:hover::after{opacity:.5}
+/* нажатие 80 мс: подмена пары + лёгкая усадка (§2.3) */
+.живой:active{--небо:var(--небо-ж,var(--небо-п));--гор:var(--гор-ж,var(--гор-п));transform:scale(0.985)}
+.статичный{background:linear-gradient(var(--уг,180deg), var(--небо-п) 0%, var(--гор-п) 100%)}
+.живая-подпись{margin-top:8px;font-size:12px;color:var(--чернила3)}
+.живая-подпись b{color:var(--чернила2)}
+
+/* ══════════ 3. ОТДЕЛКИ × ЗАРЯ ══════════ */
+.отделка{margin-top:18px;border-radius:16px;border:1px solid var(--линия);padding:16px 16px 13px;background:var(--с1)}
+.отделка header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.отделка .суть{font-size:11.5px;color:var(--чернила3)}
+.о-ряд{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:12px;
+  border-radius:12px;padding:14px;
+  background:
+    radial-gradient(360px 200px at 16% 10%, rgba(229,211,169,0.05), transparent 70%),
+    radial-gradient(320px 190px at 84% 80%, rgba(91,153,248,0.05), transparent 70%),
+    var(--с2);
+}
+.о-предмет{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-height:38px;min-width:96px;padding:7px 18px;border-radius:11px;overflow:hidden;
+  font-weight:750;font-size:13px;white-space:nowrap;color:var(--чн,#1b170f);
+}
+.о-предмет>span{position:relative;z-index:4}
+.о-служба{margin-top:10px;font-size:11.5px;color:var(--чернила3);border-left:3px solid var(--бронза-т);padding-left:10px}
+.о-служба b{color:var(--чернила2)}
+.о-служба .запрет{color:var(--глина-св)}
+
+/* — металлик: полоса света едет по заре при наведении (рецепт otdelki дословно) — */
+.о-металлик{background:linear-gradient(var(--уг,180deg), var(--нб), var(--гр))}
+.о-металлик::before{
+  content:'';position:absolute;inset:-35%;z-index:1;
+  background:linear-gradient(115deg,transparent 36%,rgba(255,255,255,0.30) 47%,rgba(255,255,255,0.07) 52%,transparent 64%);
+  transform:translateX(-16%);
+  transition:transform .9s cubic-bezier(.23,1,.32,1);
+}
+.о-металлик:hover::before{transform:translateX(16%)}
+.о-металлик::after{
+  content:'';position:absolute;inset:0;z-index:2;
+  background-image:var(--зерно);background-size:80px;
+  opacity:.30;mix-blend-mode:overlay;
+}
+/* — перламутр: шёлковый блик + интерференция лазури и глины малой дозой — */
+.о-перламутр{
+  background:
+    radial-gradient(130% 95% at 22% 0%, rgba(255,255,255,0.32), transparent 56%),
+    linear-gradient(var(--уг,180deg), var(--нб), var(--гр));
+}
+.о-перламутр::before{
+  content:'';position:absolute;inset:0;z-index:1;
+  background:
+    radial-gradient(80% 72% at 84% 18%, rgba(125,211,252,0.22) 0%, transparent 56%),
+    radial-gradient(72% 82% at 12% 92%, rgba(223,122,99,0.18) 0%, transparent 52%);
+  opacity:.55;filter:blur(7px);
+  transition:opacity .6s ease;
+}
+.о-перламутр:hover::before{opacity:.95}
+.о-перламутр::after{
+  content:'';position:absolute;inset:0;z-index:2;
+  background-image:var(--зерно);background-size:110px;
+  opacity:.12;mix-blend-mode:overlay;
+}
+/* — ксираллик: искры двух слоёв поверх пары, мерцание 7 с, у курсора чаще — */
+.о-ксираллик{background:linear-gradient(var(--уг,180deg), var(--нб) 0%, var(--гр) 78%, color-mix(in srgb, var(--гр), black 22%) 100%)}
+.о-ксираллик::before{
+  content:'';position:absolute;inset:-35%;z-index:1;
+  background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,0.34) 48%,transparent 58%);
+  transform:translateX(-18%);
+  transition:transform .7s cubic-bezier(.23,1,.32,1);
+}
+.о-ксираллик:hover::before{transform:translateX(18%)}
+.о-ксираллик .искрослой,.о-ксираллик .искрослой2{
+  position:absolute;inset:0;z-index:2;pointer-events:none;
+  background-image:
+    radial-gradient(1.4px 1.4px at 12% 26%, rgba(255,255,255,0.95), transparent),
+    radial-gradient(1.1px 1.1px at 31% 64%, rgba(255,255,255,0.85), transparent),
+    radial-gradient(1.6px 1.6px at 47% 18%, rgba(255,255,255,0.9), transparent),
+    radial-gradient(1px 1px at 58% 72%, rgba(255,255,255,0.8), transparent),
+    radial-gradient(1.4px 1.4px at 72% 34%, rgba(255,255,255,0.95), transparent),
+    radial-gradient(1px 1px at 86% 58%, rgba(255,255,255,0.85), transparent),
+    radial-gradient(1.2px 1.2px at 22% 84%, rgba(255,255,255,0.8), transparent),
+    radial-gradient(1.5px 1.5px at 92% 14%, rgba(255,255,255,0.9), transparent);
+  animation:мерцание 7s ease-in-out infinite;
+}
+.о-ксираллик .искрослой2{
+  background-image:
+    radial-gradient(1.2px 1.2px at 18% 48%, rgba(255,255,255,0.9), transparent),
+    radial-gradient(1.5px 1.5px at 38% 30%, rgba(255,255,255,0.95), transparent),
+    radial-gradient(1px 1px at 52% 86%, rgba(255,255,255,0.8), transparent),
+    radial-gradient(1.4px 1.4px at 66% 12%, rgba(255,255,255,0.9), transparent),
+    radial-gradient(1px 1px at 78% 78%, rgba(255,255,255,0.85), transparent),
+    radial-gradient(1.3px 1.3px at 90% 42%, rgba(255,255,255,0.9), transparent),
+    radial-gradient(1.1px 1.1px at 8% 66%, rgba(255,255,255,0.85), transparent);
+  animation-delay:-3.5s;
+}
+@keyframes мерцание{0%,100%{opacity:.14}50%{opacity:.85}}
+.о-ксираллик:hover .искрослой,.о-ксираллик:hover .искрослой2{animation-duration:2.2s}
+/* — матовый: пара приглушена бархатным зерном, бликов нет честно — */
+.о-мат{
+  background:linear-gradient(var(--уг,180deg),
+    color-mix(in srgb, var(--нб) 90%, #7d7a72 10%),
+    color-mix(in srgb, var(--гр) 90%, #7d7a72 10%));
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,0.05), inset 0 8px 18px rgba(0,0,0,0.10);
+}
+.о-мат::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(130% 100% at 50% 0%, rgba(255,255,255,0.045), transparent 62%);
+}
+.о-мат::after{
+  content:'';position:absolute;inset:0;
+  background-image:var(--зерно);background-size:95px;
+  opacity:.45;mix-blend-mode:overlay;
+}
+/* — кэнди: мокрый лак над зарёй, зерно металла просвечивает изнутри — */
+.о-кэнди{
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--нб) 78%, white 22%) 0%,
+    var(--нб) 30%,
+    var(--гр) 70%,
+    color-mix(in srgb, var(--гр) 62%, black 38%) 100%);
+}
+.о-кэнди::before{
+  content:'';position:absolute;left:2.5%;right:2.5%;top:3%;height:36%;z-index:2;
+  border-radius:10px 10px 100% 100% / 10px 10px 92% 92%;
+  background:linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.02));
+}
+.о-кэнди::after{
+  content:'';position:absolute;inset:0;z-index:1;
+  background-image:var(--зерно);background-size:70px;
+  opacity:.22;mix-blend-mode:screen;
+}
+/* — жидкое стекло: заря лежит ПОД стеклом, рецепт продукта дословно — */
+.о-сцена{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  padding:12px 14px;border-radius:14px;overflow:hidden;
+  background:linear-gradient(var(--уг,180deg), var(--нб) 0%, var(--гр) 100%);
+}
+.о-стекло{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-height:38px;min-width:96px;padding:7px 18px;border-radius:11px;
+  font-weight:750;font-size:13px;white-space:nowrap;color:#fff;
+  text-shadow:0 1px 2px rgba(20,18,14,0.45);
+  background:linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 40%, rgba(255,255,255,0.005) 100%);
+  border:1px solid rgba(255,255,255,0.08);
+  backdrop-filter:blur(16px) saturate(160%);
+  -webkit-backdrop-filter:blur(16px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 -1px 0 rgba(0,0,0,0.25),
+    inset 0 2px 4px rgba(255,255,255,0.02),
+    0 2px 6px rgba(0,0,0,0.15),
+    0 4px 14px rgba(0,0,0,0.12),
+    0 8px 28px rgba(0,0,0,0.08),
+    0 0 18px rgba(191,161,97,0.06),
+    0 0 36px rgba(191,161,97,0.03);
+}
+
+/* ══════════ 4. СТЕКЛО БЕЗ РЕГРЕССИЙ ══════════ */
+.заря-подложка{
+  position:relative;border-radius:14px;padding:22px;
+  display:flex;gap:18px;align-items:center;flex-wrap:wrap;
+  background:
+    radial-gradient(420px 240px at 18% 8%, rgba(125,211,252,0.16), transparent 65%),
+    radial-gradient(380px 220px at 84% 88%, rgba(191,161,97,0.20), transparent 65%),
+    linear-gradient(180deg,#5b99f8 0%, #8ba4c4 45%, #a3906b 72%, #8f7549 100%);
+}
+/* .tg-drum продукта — рецепт тьмы дословно (index.css:2251) */
+.барабан{
+  position:relative;display:flex;flex-direction:column;user-select:none;overflow:hidden;
+  border-radius:14px;
+  padding:4px 6px;
+  background:linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 40%, rgba(255,255,255,0.005) 100%);
+  border:1px solid rgba(255,255,255,0.08);
+  backdrop-filter:blur(16px) saturate(160%);
+  -webkit-backdrop-filter:blur(16px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 -1px 0 rgba(0,0,0,0.25),
+    inset 0 2px 4px rgba(255,255,255,0.02),
+    0 2px 6px rgba(0,0,0,0.15),
+    0 4px 14px rgba(0,0,0,0.12),
+    0 8px 28px rgba(0,0,0,0.08),
+    0 0 18px rgba(191,161,97,0.06),
+    0 0 36px rgba(191,161,97,0.03);
+  transition:transform 180ms cubic-bezier(0.23,1,0.32,1),
+             box-shadow 280ms cubic-bezier(0.23,1,0.32,1),
+             border-color 280ms ease;
+}
+.барабан:hover{transform:scale(1.01);border-color:rgba(255,255,255,0.12)}
+.б-ряд{
+  display:flex;align-items:center;justify-content:center;gap:3px;height:22px;
+  font-size:11.5px;font-weight:650;color:rgba(255,255,255,0.85);white-space:nowrap;
+  transition:all 220ms cubic-bezier(0.16,1,0.3,1), opacity 180ms ease;
+}
+.б-ряд+.б-ряд{margin-top:1px}
+/* физика рядов продукта дословно: index.css:2312-2317 */
+.б-край-верх{transform:perspective(300px) rotateX(8deg) scale(0.95);opacity:0.82;transform-origin:center bottom}
+.б-край-низ{transform:perspective(300px) rotateX(-8deg) scale(0.95);opacity:0.82;transform-origin:center top}
+.б-месяц{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:18px;padding:0 7px;border-radius:6px;
+  font-size:10px;font-weight:700;color:rgba(255,255,255,0.75);
+}
+.б-месяц.выбран{background:linear-gradient(180deg,#5b99f8 0%,#9d8150 100%);color:#1b170f}
+/* .wr-drum: ширина 82px (index.css:2678), края ±8°/0.94 (2844-2849) */
+.барабан-нед{width:82px;padding:5px 7px;justify-content:center}
+.н-ряд{display:flex;align-items:center;justify-content:center;height:20px;font-size:10.5px;font-weight:650;color:rgba(255,255,255,0.85);white-space:nowrap}
+.н-край-верх{transform:perspective(300px) rotateX(8deg) scale(0.94)}
+.н-край-низ{transform:perspective(300px) rotateX(-8deg) scale(0.94)}
+.н-ряд.выбран{background:linear-gradient(180deg,#5b99f8 0%,#9d8150 100%);color:#1b170f;border-radius:6px;font-weight:750}
+.стекло-подпись{margin-top:10px;font-size:11.5px;color:var(--чернила3);max-width:86ch}
+.стекло-подпись b{color:var(--чернила2)}
+.стекло-подпись code{font-family:ui-monospace,'Consolas',monospace;font-size:10.5px;color:var(--чернила2)}
+
+/* ══════════ 5. НЕБЕСА 13 ВКЛАДОК ══════════ */
+.небеса{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.небо-кнопка{
+  position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:4px;
+}
+.небо-пилюля{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:34px;min-width:84px;padding:6px 16px;border-radius:999px;
+  font-weight:750;font-size:12.5px;color:#1b170f;white-space:nowrap;
+}
+.небо-мета{font-size:9.5px;color:var(--чернила4);font-family:ui-monospace,'Consolas',monospace;white-space:nowrap}
+.небо-вопрос .небо-мета{color:var(--глина-св)}
+
+/* ══════════ 6. МОДНЫЕ СТИЛИ ══════════ */
+.стиль{margin-top:20px;border-radius:16px;border:1px solid var(--линия);padding:16px;background:var(--с1)}
+.стиль header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.стиль .суть{font-size:12px;color:var(--чернила3);margin-top:5px;max-width:82ch}
+.стиль .несёт{font-size:12px;color:var(--чернила3);margin-top:9px;max-width:82ch}
+.стиль .несёт b,.стиль .вердикт-текст b{color:var(--чернила2)}
+.стиль .вердикт-текст{font-size:12px;color:var(--чернила3);margin-top:6px;max-width:82ch;border-left:3px solid var(--бронза-т);padding-left:10px}
+.стиль .истоки{margin-top:8px;font-size:10px;color:var(--чернила4);display:flex;gap:10px;flex-wrap:wrap}
+.стиль .истоки a{color:var(--чернила4);word-break:break-all}
+.стиль-демо{margin-top:12px;border-radius:12px;padding:16px;background:var(--с2);overflow:hidden}
+
+/* 6.1 жидкое стекло — рецепт ресёрча дословно */
+.демо-глубина{
+  border-radius:12px;padding:22px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;
+  background:
+    radial-gradient(300px 170px at 20% 15%, rgba(91,153,248,0.35), transparent 70%),
+    radial-gradient(300px 170px at 80% 85%, rgba(143,117,73,0.40), transparent 70%),
+    linear-gradient(180deg,#31497a, #45351d);
+}
+.glass{
+  min-height:56px;min-width:180px;display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(20,18,14,0.4);padding:10px 20px;
+  background:linear-gradient(180deg, rgba(91,153,248,.16) 0%, rgba(143,117,73,.12) 100%);
+  backdrop-filter:blur(16px) saturate(140%);
+  -webkit-backdrop-filter:blur(16px) saturate(140%);
+  border:1px solid rgba(255,255,255,.35);
+  border-radius:16px;
+  box-shadow:0 8px 24px rgba(20,18,14,.12), inset 0 1px 0 rgba(255,255,255,.45);
+}
+/* 6.2 aurora / mesh — рецепт дословно, позиции статичны */
+.zarya-mesh{
+  min-height:180px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  color:#1b170f;font-weight:800;font-size:17px;
+  background-color:#f6f4ef;
+  background-image:
+    radial-gradient(42% 55% at 18% 8%,  rgba(91,153,248,.55) 0%, transparent 70%),
+    radial-gradient(55% 60% at 82% 0%,  rgba(139,164,196,.45) 0%, transparent 72%),
+    radial-gradient(60% 50% at 70% 100%, rgba(143,117,73,.50) 0%, transparent 70%),
+    radial-gradient(45% 45% at 12% 92%, rgba(163,144,107,.40) 0%, transparent 75%);
+}
+/* 6.3 зернистый градиент — рецепт дословно */
+.zarya-grain{
+  position:relative;min-height:150px;border-radius:12px;overflow:hidden;
+  display:flex;align-items:flex-end;padding:14px 18px;
+  color:#1b170f;font-weight:800;
+  background:linear-gradient(180deg, #5b99f8 0%, #8ba4c4 45%, #a3906b 72%, #8f7549 100%);
+}
+.zarya-grain::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity:.07;mix-blend-mode:overlay;
+}
+/* 6.4 глина (claymorphism) — рецепт дословно */
+.демо-бумага{border-radius:12px;padding:22px;background:#efece6;display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+.clay{
+  background:linear-gradient(180deg, #7fb0fa 0%, #a08457 100%);
+  border-radius:28px;
+  box-shadow:
+    inset 6px 6px 16px rgba(255,255,255,.45),
+    inset -6px -8px 16px rgba(74,56,32,.28),
+    12px 16px 32px rgba(74,56,32,.18);
+  padding:24px;
+  color:#1b170f;font-weight:750;
+}
+/* 6.5 хром — рецепт дословно (background-clip:text) */
+.демо-хром{border-radius:12px;padding:26px;background:#1d1c19;display:flex;align-items:center;justify-content:center}
+.metal-zarya{
+  background:linear-gradient(180deg,
+    #eaf2fe 0%, #5b99f8 26%, #31497a 46%,
+    #f4ecd9 50%,
+    #a3906b 56%, #8f7549 74%, #45351d 92%, #c9b489 100%
+  );
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  font-weight:800;letter-spacing:-0.01em;font-size:44px;line-height:1.1;
+}
+/* 6.6 голографика — дуотон-версия, сдвиг только по наведению */
+.holo{
+  min-height:130px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  color:#1b170f;font-weight:800;
+  background:
+    linear-gradient(115deg, transparent 20%, rgba(255,255,255,.45) 36%, transparent 43%),
+    conic-gradient(from 0deg at 50% 50%, #5b99f8, #d9c9a8 25%, #8f7549 50%, #d9c9a8 75%, #5b99f8 100%);
+  background-blend-mode:overlay;
+  filter:saturate(1.3) contrast(1.08);
+  background-size:200% 200%, 100% 100%;
+}
+.holo:hover{background-position:60% 40%, 50% 50%;transition:background-position .4s}
+/* 6.7 enterprise-минимализм — рецепты дословно */
+.демо-минимал{border-radius:12px;padding:22px;background:#f4f1e9;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.демо-минимал .card{background:#fcfbf9;border:1px solid rgba(26,23,18,.08);border-radius:10px;box-shadow:0 1px 2px rgba(26,23,18,.05);padding:16px;color:#1b170f}
+.демо-минимал .card--zarya{
+  border:1px solid transparent;
+  background:
+    linear-gradient(#fcfbf9,#fcfbf9) padding-box,
+    linear-gradient(180deg, rgba(91,153,248,.55), rgba(143,117,73,.55)) border-box;
+}
+.h-zarya{font-weight:600;letter-spacing:-0.02em;font-size:17px;
+  background:linear-gradient(180deg,#3d6fc0,#6e5a38);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.демо-минимал .card--key{box-shadow:0 12px 40px -12px rgba(91,153,248,.25), 0 2px 8px rgba(143,117,73,.10)}
+.демо-минимал .пояс{font-size:11px;color:#6e6553;margin-top:4px}
+/* 6.8 бенто — рецепт дословно */
+.bento{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:140px;gap:12px;min-width:760px}
+.tile{border-radius:14px;background:#fcfbf9;border:1px solid rgba(26,23,18,.08);padding:20px;color:#1b170f}
+.tile--hero{grid-column:span 2;grid-row:span 2}
+.tile--sky{
+  background-image:linear-gradient(180deg,#5b99f8 0%, #8ba4c4 45%, #a3906b 72%, #8f7549 100%);
+  background-attachment:fixed;
+  color:#fff;border:none;font-weight:750;
+  text-shadow:0 1px 2px rgba(20,18,14,0.4);
+}
+.tile .п-метка{font-size:10px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:#7a7060}
+.tile--sky .п-метка{color:rgba(255,255,255,0.8)}
+.tile .п-число{font-size:24px;font-weight:800;margin-top:2px}
+/* 6.9 неоморфность — рецепт дословно */
+.neo{
+  background:#efece6;
+  border-radius:16px;
+  box-shadow:
+    8px 8px 18px rgba(143,117,73,.22),
+    -8px -8px 18px rgba(240,246,255,.95);
+  padding:18px 26px;color:#4a4234;font-weight:750;cursor:pointer;border:none;font-size:13px;
+}
+.neo:active{box-shadow:inset 4px 4px 10px rgba(143,117,73,.25), inset -4px -4px 10px rgba(240,246,255,.9)}
+/* 6.10 фонарик за курсором — рецепт дословно */
+.демо-спот{border-radius:12px;padding:18px;background:var(--с2);display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.демо-спот .card{
+  position:relative;border-radius:12px;padding:16px;min-height:88px;
+  background:var(--с3);border:1px solid var(--линия);color:var(--чернила2);
+}
+.демо-спот .card::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%),
+    rgba(91,153,248,.15), transparent 65%);
+  opacity:0;transition:opacity .25s;
+}
+.демо-спот .card:hover::before{opacity:1}
+.демо-спот .card:hover{box-shadow:0 10px 30px -12px rgba(143,117,73,.35)}
+/* 6.11 progressive blur — рецепт дословно (стек масок поверх списка) */
+.демо-края{position:relative;border-radius:12px;overflow:hidden;background:var(--с2);border:1px solid var(--линия)}
+.края-лента{height:210px;overflow-y:auto;padding:0 16px 14px;scrollbar-width:thin;scrollbar-color:var(--полоса-палец) var(--полоса-фон)}
+.края-лента::-webkit-scrollbar{width:8px}
+.края-лента::-webkit-scrollbar-thumb{background:var(--полоса-палец);border-radius:4px}
+.края-строка{display:flex;gap:12px;font-size:11.5px;padding:7px 2px;border-bottom:1px solid var(--линия);color:var(--чернила2);white-space:nowrap}
+.края-строка i{font-style:normal;color:var(--чернила4);font-family:ui-monospace,'Consolas',monospace}
+.scroll-head{position:sticky;top:0;height:72px;pointer-events:none;z-index:5;margin:0 -16px}
+.scroll-head::before,.scroll-head::after{content:"";position:absolute;inset:0}
+.scroll-head::before{
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 40%,transparent 100%);
+  mask-image:linear-gradient(180deg,#000 0%,#000 40%,transparent 100%);
+}
+.scroll-head::after{
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,transparent 55%);
+  mask-image:linear-gradient(180deg,#000 0%,transparent 55%);
+  background:linear-gradient(180deg, rgba(91,153,248,.10), rgba(143,117,73,0) 90%);
+}
+
+/* подвал */
+.подвал{margin-top:52px;font-size:11px;color:var(--чернила4);border-top:1px solid var(--линия);padding-top:14px;max-width:86ch}
+
+/* ══════════ ГАШЕНИЕ ДВИЖЕНИЯ — по-настоящему (§2.4) ══════════ */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .живой::after{display:none} /* точка отклика не движется — её нет */
+  .живой::before{display:none} /* дышащий слой убран целиком */
+  .живой{background:linear-gradient(var(--уг,180deg), var(--небо) 0%, var(--гор) 100%)} /* предмет стоит на статичной паре §20.1 */
+  .живой:hover{--небо:var(--небо-н,var(--небо-п));--гор:var(--гор-н,var(--гор-п))} /* мгновенная смена пары */
+}
+</style>
+</head>
+<body>
+
+<div class="шапка">
+  <div class="шапка-ряд">
+    <span class="шапка-имя"><i></i>Ультимативная заря</span>
+    <nav class="оглавление">
+      <a href="#матрица">1 · Матрица</a>
+      <a href="#живая">2 · Живая заря</a>
+      <a href="#отделки">3 · Отделки</a>
+      <a href="#стекло">4 · Стекло</a>
+      <a href="#небеса">5 · Небеса</a>
+      <a href="#стили">6 · Модные стили</a>
+    </nav>
+    <button id="тумблер" type="button" title="Светлая гамма — вторая честная (тёплая бумага), не инверсия">Свет</button>
+  </div>
+</div>
+
+<main>
+<h1>Заря живьём — выставка к приёмке</h1>
+<p class="вводная">Каждая клетка ниже — настоящий предмет с настоящим градиентом своей пары
+из матрицы; числа контраста — во всплывающей подсказке (навести мышь). Тёмная тема первична:
+отделки и металл видны на тьме; переключатель наверху даёт вторую честную гамму —
+тёплую бумагу, не инверсию. Пары предметов — значения матрицы §1, посчитанные скриптом
+для тьмы; свет меняет сцену, не пары.</p>
+<small class="путь">канон: specs/2026-08-29-zarya-matrica.md · specs/2026-08-22-pulse-feedback-2.md §20–§21.1 · mockups/otdelki.html · packages/web/src/index.css</small>
+
+<!-- ══════════ 1. МАТРИЦА ЖИВЬЁМ ══════════ -->
+<section class="глава" id="матрица">
+  <h2>1 · Матрица живьём — 63 клетки «элементы × состояния»</h2>
+  <p class="вводная">Строки — четырнадцать элементов, колонки — состояния. Заря — внутри
+  предмета: небо сверху, бронзовый горизонт снизу (закон горизонта §20.0). Прочерк — сочетание
+  без своей клетки: собирается по приоритету <b>тревога &gt; будущее &gt; частично &gt;
+  включено &gt; покой</b> (подсказка на прочерке). Пометка <b style="color:var(--глина-св)">добор</b> —
+  пара добрана затемнением до нормы 4,5.</p>
+  <div class="стенд">
+    <div class="прокрутка">
+      <div id="матрица-сетка"></div>
+    </div>
+    <p class="итог-матрицы" id="итог-матрицы"></p>
+  </div>
+</section>
+
+<!-- ══════════ 2. ЖИВАЯ ЗАРЯ ══════════ -->
+<section class="глава" id="живая">
+  <h2>2 · Живая заря — рассвет дышит внутри предмета</h2>
+  <p class="вводная">Спецификация §2 матрицы дословно: внутри предмета слой высотой
+  <b>300%</b> несёт градиент пары и дышит переносом <b>translateY</b> с периодом
+  <b>9 с</b> (ease-in-out, туда-обратно); соседи рассинхронизированы задержкой
+  <b>−1,7 с × индекс</b> — линейка не дышит строем. Наведение — круг светлого неба едет
+  к курсору (перенос 120 мс, проявление 180 мс); самая светлая точка отклика не выше неба
+  наведения этой пары, поэтому норма контраста не роняется. Нажатие — подмена на пару
+  нажатия за <b>80 мс</b> плюс усадка 0,985. Всё движение — на композиторе:
+  растр слоя считается один раз.</p>
+  <div class="стенд">
+    <h3>Дышит, отвечает мыши, нажимается</h3>
+    <div class="живой-ряд" id="живой-ряд"></div>
+    <h3 style="margin-top:18px">При запрете движения — статичная пара §20.1</h3>
+    <div class="живой-ряд" id="статичный-ряд"></div>
+    <p class="живая-подпись"><b>Гашение по-настоящему:</b> при включённом «уменьшить движение»
+    (prefers-reduced-motion) верхний ряд перестаёт отличаться от нижнего — цикл дыхания
+    выключен, точка отклика убрана, наведение меняет пару мгновенно, без движения (§2.4).
+    Проверяется эмуляцией в браузере, не на словах.</p>
+  </div>
+</section>
+
+<!-- ══════════ 3. ОТДЕЛКИ × ЗАРЯ ══════════ -->
+<section class="глава" id="отделки">
+  <h2>3 · Отделки × заря — шесть машинных физик несут рассвет</h2>
+  <p class="вводная">Отделки — усилители <b>внутри</b> ультимативной зари (§21.1 п.6), не
+  отдельная галерея: тело каждого предмета — пара его клетки из матрицы, отделка — способ её
+  нести. Три предмета у каждой: кнопка вкладки (<i>#5b99f8 → #9d8150</i>), месяц выбранный
+  (та же каноническая пара), жетон включённый (<i>#e5d3a9 → #9d8150</i>). Общий запрет:
+  блик, искра и перелив запрещены на больших площадях текста — числа матрицы верны для
+  чистой пары, под текстом — матовый или гашёная пара.</p>
+  <div id="отделки-дом"></div>
+</section>
+
+<!-- ══════════ 4. СТЕКЛО БЕЗ РЕГРЕССИЙ ══════════ -->
+<section class="глава" id="стекло">
+  <h2>4 · Стекло без регрессий — заря ПОД барабаном</h2>
+  <p class="вводная">Фрагмент барабанов периода с физикой продукта дословно; заря подложена
+  <b>под</b> стеклянный слой — стекло её размывает, физика листания не тронута ни свойством
+  (§21.1 п.5).</p>
+  <div class="стенд">
+    <div class="заря-подложка">
+      <div class="барабан" title="рецепт .tg-drum тьмы дословно: blur(16px) saturate(160%), радиус 14px, рамка rgba(255,255,255,0.08)">
+        <div class="б-ряд б-край-верх">
+          <span class="б-месяц">Фев</span><span class="б-месяц">Мар</span><span class="б-месяц">Апр</span><span class="б-месяц">2025</span>
+        </div>
+        <div class="б-ряд">
+          <span class="б-месяц">Апр</span><span class="б-месяц выбран">Май</span><span class="б-месяц">Июн</span><span class="б-месяц">2026</span>
+        </div>
+        <div class="б-ряд б-край-низ">
+          <span class="б-месяц">Апр</span><span class="б-месяц">Май</span><span class="б-месяц">Июн</span><span class="б-месяц">2027</span>
+        </div>
+      </div>
+      <div class="барабан барабан-нед" title="рецепт .wr-drum дословно: ширина 82px, края perspective(300px) rotateX(±8deg) scale(0.94)">
+        <div class="н-ряд н-край-верх">Н 21</div>
+        <div class="н-ряд выбран">Н 22</div>
+        <div class="н-ряд н-край-низ">Н 23</div>
+      </div>
+    </div>
+    <p class="стекло-подпись"><b>Не тронуто ни одним слоем зари</b> (сверено с
+    packages/web/src/index.css числами): стекло —
+    <code>backdrop-filter: blur(16px) saturate(160%)</code>, радиус <code>14px</code>,
+    рамка <code>rgba(255,255,255,0.08)</code> (тьма) / <code>0.10</code> (свет), заливка
+    белыми слоями <code>0.07/0.02/0.005</code> (тьма) / <code>0.09/0.03/0.01</code> (свет),
+    восемь теней вплоть до латунного свечения <code>rgba(191,161,97,0.06)</code> и
+    <code>0.03</code>; физика рядов года —
+    <code>perspective(300px) rotateX(±8deg) scale(0.95)</code>, прозрачность
+    <code>0.82</code> (строки 2312-2317), второй пояс <code>rotateX(±4deg) scale(0.97)</code>
+    (2323-2327); края недельного барабана — <code>rotateX(±8deg) scale(0.94)</code>
+    (2844-2849), ширина <code>82px</code>; наведение — <code>scale(1.01)</code>. Заря живёт
+    только в подложке под стеклом и в паре выбранного предмета.</p>
+  </div>
+</section>
+
+<!-- ══════════ 5. НЕБЕСА 13 ВКЛАДОК ══════════ -->
+<section class="глава" id="небеса">
+  <h2>5 · Небеса тринадцати вкладок — один горизонт, разные рассветы</h2>
+  <p class="вводная">Активная кнопка каждой вкладки: её небо → общий горизонт
+  <b>#9d8150</b>, подпись <b>#1b170f</b> (путь А §20.1). Все 13 пар прошли норму без добора;
+  числа — в подсказке. Три неба стоят у границ запретов и помечены
+  «вопрос владельцу»: Отчёт и Дисциплина — у запрета оранжевого (трактованы как янтарь и
+  мёд), Аналитика — у запрета орхидеи (трактована как фиалка). Цвета — продовые NAV_ITEMS,
+  новых красок здесь нет.</p>
+  <div class="стенд">
+    <div class="небеса" id="небеса-ряд"></div>
+  </div>
+</section>
+
+<!-- ══════════ 6. МОДНЫЕ СТИЛИ ══════════ -->
+<section class="глава" id="стили">
+  <h2>6 · Модные стили — заря внутри приёма, вердикт каждому</h2>
+  <p class="вводная">Одиннадцать приёмов 2025-26 по ресёрчу, каждый — рецептом дословно и с
+  градиентом зари внутри самого приёма. Вердикт — бейджем; стили «не к месту» показаны тоже,
+  с объяснением почему.</p>
+
+  <!-- 6.1 -->
+  <div class="стиль">
+    <header><h3>Жидкое стекло / стеклянность</h3><span class="бейдж дозой">дозой</span></header>
+    <p class="суть">Поверхность ведёт себя как матовое стекло: полупрозрачная подложка,
+    размытие фона за ней, тонкая светлая кромка. Волна 2025-26 добавила преломление и блик,
+    но базовый веб-рецепт остался четырёхсвойственным.</p>
+    <div class="стиль-демо демо-глубина">
+      <div class="glass"><span>Закреплённая шапка</span></div>
+      <div class="glass" style="min-width:120px"><span>Панель</span></div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> заря живёт в самой тонировке стекла —
+    полупрозрачный градиент rgba(91,153,248,…) сверху → rgba(143,117,73,…) снизу окрашивает
+    лёд в рассвет; полноцветная заря страницы под панелью размывается и «преломляется» —
+    градиент и внутри материала, и за ним.</p>
+    <p class="вердикт-текст"><b>Дозой.</b> Годится для закреплённой шапки, боковой панели и
+    модальных окон поверх зари; на таблицы и плотные реестры класть нельзя — размытие под
+    цифрами убивает читаемость документа, а дневная светлая тема требует непрозрачности
+    тонировки не выше ~16% и обязательного фолбэка сплошной подложкой без размытия.</p>
+    <p class="истоки"><a href="https://css-tricks.com/getting-clarity-on-apples-liquid-glass/">css-tricks</a><a href="https://kube.io/blog/liquid-glass-css-svg/">kube.io</a><a href="https://www.superdesign.dev/styles/glassmorphism">superdesign</a><a href="https://www.setproduct.com/blog/liquid-glass-vs-glassmorphism">setproduct</a></p>
+  </div>
+
+  <!-- 6.2 -->
+  <div class="стиль">
+    <header><h3>Aurora / mesh-градиенты</h3><span class="бейдж дозой">дозой</span></header>
+    <p class="суть">Фон собирается из нескольких размытых радиальных пятен цвета — живописная
+    «дымка» вместо линейной заливки. Дефолтный фон обложек и пустых состояний 2025-26, часто
+    в паре с зерном. Позиции статичны — никакого вечного движения.</p>
+    <div class="стиль-демо" style="padding:0;background:none">
+      <div class="zarya-mesh"><span>Обложка отчёта · пустое состояние</span></div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> узлы сетки — это и есть палитра зари: голубые
+    пятна прижаты к верхней кромке (небо), бронзовые — к нижней (горизонт), промежуточные —
+    приглушённые смеси. Холст читается как та же заря #5b99f8→#8f7549, но с органикой
+    рассветной дымки.</p>
+    <p class="вердикт-текст"><b>Дозой.</b> Уместно на экране входа, обложке отчёта, пустых
+    состояниях и заголовочной полосе свода — статично, без анимации. Под рабочими
+    таблицами — не к месту: пёстрый фон спорит с цифрами документа.</p>
+    <p class="истоки"><a href="https://superdesign.dev/styles/aurora">superdesign</a><a href="https://www.uistyleguide.com/style/gradient-mesh-aurora-evolved">uistyleguide</a><a href="https://effect-labs.com/en/pages/blog/backgrounds-animes-css.html">effect-labs</a><a href="https://www.kittl.com/article/gradient-graphic-design-trend">kittl</a></p>
+  </div>
+
+  <!-- 6.3 -->
+  <div class="стиль">
+    <header><h3>Зернистые градиенты</h3><span class="бейдж подходит">подходит</span></header>
+    <p class="суть">Поверх градиента — слой шума из SVG-фильтра feTurbulence: заливка
+    перестаёт быть «пластиковой» и получает фактуру плёнки или бумаги. Побочный, но важный
+    эффект: зерно растворяет полосы (banding) длинных градиентов на 8-битных экранах.</p>
+    <div class="стиль-демо" style="padding:0;background:none">
+      <div class="zarya-grain"><span>Заря на зернистой бумаге — фактура документа, не глянец</span></div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> приём буквально спасает зарю — переход
+    #5b99f8→#8f7549 длинный и через серую середину, склонен к полосам; зерно 6-7% их
+    растворяет. Промежуточные стопы (#8ba4c4 дымка, #a3906b тёплый песок) плюс зерно
+    превращают градиент в рассветное небо на зернистой бумаге.</p>
+    <p class="вердикт-текст"><b>Подходит.</b> Лучший спутник фирменного градиента в казённом
+    продукте: зерно читается как бумага и печать, работает при дневном свете, статично и
+    стоит ноль запросов (data-URI). Класть на все заревые поверхности; на белые рабочие
+    фоны — не нужно.</p>
+    <p class="истоки"><a href="https://css-tricks.com/grainy-gradients/">css-tricks</a><a href="https://frontendmasters.com/blog/grainy-gradients/">frontendmasters</a><a href="https://www.fffuel.co/gggrain/">fffuel</a><a href="https://ibelick.com/blog/create-grainy-backgrounds-with-css">ibelick</a></p>
+  </div>
+
+  <!-- 6.4 -->
+  <div class="стиль">
+    <header><h3>Глиняная объёмность (claymorphism)</h3><span class="бейдж нет">не к месту</span></header>
+    <p class="суть">Элементы как мягкие подушки из пластилина: крупные радиусы 20–40px, пара
+    внутренних теней (светлая сверху, тёмная снизу) и внешняя парящая тень. После пика
+    2021-22 живёт в онбордингах и «дружелюбных» продуктах.</p>
+    <div class="стиль-демо демо-бумага">
+      <div class="clay">Подушка зари — свет неба сверху, тень горизонта снизу</div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> тело подушки красится осветлённой зарёй
+    (#7fb0fa→#a08457), и логика теней совпадает с рассветом: внутренний свет сверху — небо,
+    внутренняя тень снизу — бронзовый горизонт, внешняя тень тонирована бронзой
+    rgba(74,56,32,…) вместо чёрного.</p>
+    <p class="вердикт-текст"><b>Не к месту.</b> Игрушечная пухлость прямо противоречит
+    характеру строгого аналитического документа: реестр госзакупок в пластилиновых подушках
+    читается как несерьёзный. Единственная щель — иллюстрация пустого состояния, и то
+    спорно.</p>
+    <p class="истоки"><a href="https://superdesign.dev/styles/claymorphism">superdesign</a><a href="https://www.setproduct.com/blog/claymorphism-design-guide">setproduct</a><a href="https://blog.logrocket.com/implementing-claymorphism-css/">logrocket</a><a href="https://www.smashingmagazine.com/2022/03/claymorphism-css-ui-design-trend/">smashing</a></p>
+  </div>
+
+  <!-- 6.5 -->
+  <div class="стиль">
+    <header><h3>Возвращение хрома и металла</h3><span class="бейдж дозой">дозой, на грани</span></header>
+    <p class="суть">Вторая волна нулевых 2025-26 вернула хромированный шрифт без китча — как
+    материальный инструмент для логотипов и обложек. Классический хром — карта отражений:
+    небо сверху, земля снизу, резкая линия горизонта посередине (стоп на 50%).</p>
+    <div class="стиль-демо демо-хром">
+      <span class="metal-zarya">АЕМР · ЗАРЯ</span>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> редкий случай идеального совпадения — хром по
+    определению рисуется как «синее небо над бронзовой землёй», то есть заря #5b99f8→#8f7549 —
+    готовая карта отражений. Резкий стоп #f4ecd9 на 50% даёт линию горизонта, и фирменный
+    градиент становится самим металлом, а не заливкой поверх него.</p>
+    <p class="вердикт-текст"><b>Дозой, на грани «не к месту».</b> В рабочих экранах кабинета
+    глянец инороден — казённый документ при дневном свете не блестит. Допустимая доза ровно
+    одна: эмблема/логотип продукта и обложка годового отчёта; любые кнопки и заголовки
+    хромом — запретить.</p>
+    <p class="истоки"><a href="https://studio2am.co/blogs/news/y2k-graphic-design-in-2026-what-it-actually-looks-like-now">studio2am</a><a href="https://www.wilogo.fr/en/blog/chrome-metallic-logos-why-they-are-returning-in-2026">wilogo</a><a href="https://www.accio.com/blog/retro-futurist-trends-redefining-fashion-design">accio</a></p>
+  </div>
+
+  <!-- 6.6 -->
+  <div class="стиль">
+    <header><h3>Голографика и иридисценция</h3><span class="бейдж нет">не к месту</span></header>
+    <p class="суть">Слоёный пирог из кругового градиента, косой полосы блика и режимов
+    смешивания имитирует голографическую фольгу коллекционных карт; обычно эффект
+    переливается за курсором. Здесь — дуотон-версия: круг качается только между небом и
+    бронзой через кремовый, сдвиг — по наведению, не вечным мерцанием.</p>
+    <div class="стиль-демо" style="padding:0;background:none">
+      <div class="holo"><span>Фольга-сувенир · дуотон неба и бронзы</span></div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> честная иридисценция гоняет тон через весь круг —
+    через пурпур и оранж, что запрещено. Заревая версия — дуотон-перелив: круговой градиент
+    качается между небом #5b99f8 и бронзой #8f7549 через кремовый #d9c9a8, и сдвигается лишь
+    по событию.</p>
+    <p class="вердикт-текст"><b>Не к месту.</b> Полный спектр упирается сразу в два запрета
+    (пурпур/орхидея и оранжевый), а фольга-сувенир по жанру чужда реестру закупок; даже
+    дуотон-версия читается как открытка. Если очень нужно — та же ниша, что у хрома: одна
+    эмблема, не интерфейс.</p>
+    <p class="истоки"><a href="https://css-tricks.com/holographic-trading-card-effect/">css-tricks</a><a href="https://github.com/simeydotme/pokemon-cards-css">pokemon-cards-css</a><a href="https://blog.openreplay.com/creating-holographic-effects-css/">openreplay</a><a href="https://effect-labs.com/en/pages/blog/effet-holographique-css.html">effect-labs</a></p>
+  </div>
+
+  <!-- 6.7 -->
+  <div class="стиль">
+    <header><h3>Enterprise-минимализм (hairline-кромки, тонкая типографика)</h3><span class="бейдж подходит">подходит</span></header>
+    <p class="суть">Дисциплина вместо декора: волосяные рамки в 1px делают работу теней, один
+    хроматический акцент на монохромном холсте, плотная типографика с отрицательным
+    трекингом и редкие «дорогие» свечения под ключевыми блоками. Стандарт профессиональных
+    инструментов 2024-26.</p>
+    <div class="стиль-демо демо-минимал">
+      <div class="card card--zarya">
+        <div class="h-zarya">Заря в рамке 1px</div>
+        <p class="пояс">кант через padding-box/border-box: сверху голубой, снизу бронзовый</p>
+      </div>
+      <div class="card">
+        <div class="h-zarya">Заголовок зарёй</div>
+        <p class="пояс">затемнённая пара #3d6fc0 → #6e5a38 в background-clip:text</p>
+      </div>
+      <div class="card card--key">
+        <div class="h-zarya">Свечение под главной</div>
+        <p class="пояс">голубой ореол сверху, бронзовый отсвет снизу</p>
+      </div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> три законных носителя — 1px-кант через трюк
+    padding-box/border-box (заря живёт в самой рамке: сверху голубая, снизу бронзовая);
+    затемнённая заря в заголовках (#3d6fc0→#6e5a38 — читаемые на бумаге версии тех же
+    тонов); двухцветное свечение — голубой ореол сверху, бронзовый отсвет снизу. Нейтрали
+    тёплые (rgba(26,23,18,…)) — запрет на синеву в графите соблюдён.</p>
+    <p class="вердикт-текст"><b>Подходит.</b> Единственный стиль, совпадающий с продуктом
+    целиком: строгость, документность, дневной свет, ноль вечных анимаций — и при этом заря
+    присутствует в каждой рамке и заголовке. Брать за основу системы, остальные приёмы —
+    поверх него дозами.</p>
+    <p class="истоки"><a href="https://www.designmd.co/d/linear.app">designmd</a><a href="https://github.com/ItamarZand88/design-skills/blob/main/design-md/vercel/DESIGN.md">design-skills</a><a href="https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1">refero</a></p>
+  </div>
+
+  <!-- 6.8 -->
+  <div class="стиль">
+    <header><h3>Бенто-сетки</h3><span class="бейдж подходит">подходит</span></header>
+    <p class="суть">Экран собирается из разнокалиберных скруглённых модулей на общей сетке;
+    радиусы 12–24px. Исследования дают +23% к скорости поиска информации против линейной
+    простыни — но только при ≤12–15 видимых плитках.</p>
+    <div class="стиль-демо" style="background:#f4f1e9">
+      <div class="прокрутка">
+        <div class="bento">
+          <div class="tile tile--hero tile--sky"><span>Плитка-герой: рассвет экрана · каждая небесная плитка — окно в одно общее небо (background-attachment: fixed)</span></div>
+          <div class="tile"><div class="п-метка">Экономия · 2026</div><div class="п-число">94 512,4</div></div>
+          <div class="tile tile--sky"><span>Окно в небо</span></div>
+          <div class="tile"><div class="п-метка">Конкуренция</div><div class="п-число">3,4</div></div>
+          <div class="tile tile--sky" style="display:flex;align-items:end"><span>Нижняя плитка бронзовеет по положению</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> два хода — либо одна плитка-герой несёт полный
+    градиент зари и служит смысловым рассветом экрана, либо через
+    background-attachment:fixed несколько плиток показывают срезы одного общего заревого
+    неба: верхние голубеют, нижние бронзовеют по своему положению на экране.</p>
+    <p class="вердикт-текст"><b>Подходит</b> — для свода, пульта и стартового экрана, где
+    живут карточки-показатели; лимит 8–12 плиток. Для реестров и таблиц — не к месту:
+    документ-простыня не должен дробиться на плитки.</p>
+    <p class="истоки"><a href="https://senorit.de/en/blog/bento-grid-design-trend-2025">senorit</a><a href="https://desinance.com/design/bento-grid-web-design/">desinance</a><a href="https://www.onecodesoft.com/blogs/the-bento-box-effect-why-modular-grids-dominate-2025-design">onecodesoft</a></p>
+  </div>
+
+  <!-- 6.9 -->
+  <div class="стиль">
+    <header><h3>Мягкая неоморфность (soft UI)</h3><span class="бейдж нет">не к месту</span></header>
+    <p class="суть">Элемент «выдавлен» из фона: заливка того же цвета, что подложка, объём
+    дают две противоположные тени. В 2025 пробует вернуться с поправками на доступность, но
+    живёт в основном в концептах.</p>
+    <div class="стиль-демо демо-бумага">
+      <button class="neo" type="button">Выдавлено из бумаги — нажмите</button>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> заря переезжает в пару теней — источник света
+    рассветное небо (светлая тень с голубоватым холодком rgba(240,246,255,…) сверху),
+    падающая тень — бронзовый горизонт (rgba(143,117,73,…) вместо серого). Сам градиент не
+    рисуется, но его два полюса задают всю световую модель поверхности.</p>
+    <p class="вердикт-текст"><b>Не к месту.</b> Границы, существующие только как мягкие тени,
+    не переживают ни аудит доступности, ни яркий дневной свет — а это буквально условия
+    эксплуатации казённого кабинета; кнопки и поля реестра станут невидимыми. Тонированные
+    бронзой тени как идею можно забрать в минимализм, сам стиль — нет.</p>
+    <p class="истоки"><a href="https://superdesign.dev/styles/neumorphism">superdesign</a><a href="https://www.setproduct.com/blog/neumorphism-design-guide">setproduct</a><a href="https://tailwindthememaker.com/articles/soft-ui-neumorphism-accessibility">tailwindthememaker</a></p>
+  </div>
+
+  <!-- 6.10 -->
+  <div class="стиль">
+    <header><h3>Фонарик за курсором (spotlight / glow)</h3><span class="бейдж дозой">дозой</span></header>
+    <p class="суть">Карточка подсвечивается мягким круговым градиентом ровно там, где курсор:
+    скрипт обновляет две CSS-переменные с координатами мыши, отрисовку делает композитор.
+    Часто дополняется светящейся 1px-рамкой.</p>
+    <div class="стиль-демо демо-спот" id="демо-спот">
+      <div class="card">Кликабельная карточка пульта — проведите мышью: небо ходит по карточке</div>
+      <div class="card">Вторая карточка — бронзовая тень отзывается снизу при наведении</div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> фонарик и отсвет образуют зарю в паре — пятно за
+    курсором рассветно-голубое rgba(91,153,248,.15) («небо» ходит по карточке), а тень под
+    карточкой при наведении — бронзовая rgba(143,117,73,.35) («земля» отзывается снизу).
+    Верх холодный, низ тёплый — градиент воспроизведён светотенью, а не заливкой.</p>
+    <p class="вердикт-текст"><b>Дозой.</b> Эффект строго событийный (наведение — событие,
+    запрет вечных анимаций не нарушен) и уместен на кликабельных карточках пульта и
+    навигации; в таблицах-реестрах и на текстовых строках — отключить: блуждающий свет
+    отвлекает от цифр. Прозрачность пятна днём держать ≤15%.</p>
+    <p class="истоки"><a href="https://ui.aceternity.com/components/card-spotlight">aceternity</a><a href="https://ui.aceternity.com/components/glowing-effect">aceternity-glow</a><a href="https://cruip.com/how-to-create-a-spotlight-card-hover-effect-with-tailwind-css/">cruip</a></p>
+  </div>
+
+  <!-- 6.11 -->
+  <div class="стиль">
+    <header><h3>Нарастающее размытие кромок (progressive blur)</h3><span class="бейдж дозой">дозой</span></header>
+    <p class="суть">Контент у кромки не обрезается линией, а постепенно растворяется в
+    нарастающем размытии — стек из 2-3 слоёв backdrop-filter с градиентными масками
+    (blur 4/12px). В CSS уже предложена нативная функция linear-blur().</p>
+    <div class="стиль-демо" style="padding:0;background:none">
+      <div class="демо-края">
+        <div class="края-лента" id="края-лента">
+          <div class="scroll-head"></div>
+        </div>
+      </div>
+    </div>
+    <p class="несёт"><b>Как несёт зарю:</b> тонирующий слой внутри самого стека размытия —
+    заревой: верхняя кромка холодит небом rgba(91,153,248,.10) и растворяется к прозрачной
+    бронзе книзу; у нижней кромки — зеркально. Таблица «выныривает из рассвета» сверху и
+    «уходит в горизонт» снизу — градиент встроен в механизм растворения.</p>
+    <p class="вердикт-текст"><b>Дозой.</b> Идеален ровно в одном месте: липкие шапки и
+    подвалы над длинными реестрами, где строка не должна обрубаться линией. Слоёв не больше
+    трёх — дальше просадка производительности; фолбэк сплошной подложкой там, где
+    backdrop-filter недоступен; размывать сами данные вне кромок — нельзя.</p>
+    <p class="истоки"><a href="https://github.com/w3c/csswg-drafts/issues/13285">csswg-drafts</a><a href="https://www.devslovecoffee.com/blog/making-apple-progressive-blur-on-web">devslovecoffee</a><a href="https://dev.to/xujunhao/recreating-ios-style-gradient-blur-on-the-web-4d45">dev.to</a><a href="https://kennethnym.com/blog/progressive-blur-in-css/">kennethnym</a></p>
+  </div>
+</section>
+
+<p class="подвал">Черновик к приёмке владельцем, не канон. Чего на странице нет по запретам:
+новых оранжевых и орхидейных тонов (небеса Отчёта #f59e0b, Дисциплины #fdba74 и Аналитики
+#a78bfa — продовые цвета NAV_ITEMS, вынесены владельцу вопросом); синевы в графите — у всех
+тёмных поверхностей синий канал не выше красного; вечного движения при запрете —
+prefers-reduced-motion гасит дыхание, искры, блики и отклики по-настоящему. Пары клеток —
+дословно из матрицы 2026-08-29-zarya-matrica.md, посчитанной скриптом
+scripts/zarya_contrast.py; контрасты в подсказках — оттуда же, не пересчитаны на глаз.</p>
+</main>
+
+<script>
+/* ═══ переключатель темы: тьма первична, свет — вторая честная гамма ═══ */
+(function(){
+  var кнопка = document.getElementById('тумблер');
+  кнопка.addEventListener('click', function(){
+    var светло = document.documentElement.classList.toggle('light');
+    кнопка.textContent = светло ? 'Тьма' : 'Свет';
+  });
+})();
+
+/* ═══ 1. МАТРИЦА: 63 клетки дословно из specs/2026-08-29-zarya-matrica.md §1 ═══ */
+(function(){
+  var КОЛОНКИ = [
+    ['покой',''], ['наведение',''], ['нажатие',''], ['фокус','кольцо поверх пары'],
+    ['включено',''], ['частично · форма','рассвет вполсилы / угол года'],
+    ['тревога · опасное','глина в том же роде'], ['выключено · пусто','гашёная заря']
+  ];
+  var ПРАВИЛО = 'Своей клетки нет. Сочетание собирается по приоритету: тревога > будущее > частично > включено > покой; фокус — всегда кольцо поверх пары текущего состояния; наведение выключенного запрещено (выключенный предмет на мышь не отвечает).';
+  /* клетка: [колонка, состояние, небо, горизонт, чернила, К·небо, К·горизонт, флаги{}] */
+  var РЯДЫ = [
+    {имя:'Кнопка вкладки активная', форма:'ф-пилюля', ярлык:'Пульс', клетки:[
+      [0,'включено · покой','#5b99f8','#9d8150','#1b170f','6,26','4,84',{зам:'канон §20.1 путь А'}],
+      [1,'включено · наведение','#6ba3f9','#bfa161','#1b170f','7,00','7,22',{зам:'канонный отклик 853548a'}],
+      [2,'включено · нажатие','#4d8ef7','#9d8150','#1b170f','5,55','4,84',{зам:'небо глубже на такт'}],
+      [3,'включено · фокус','#5b99f8','#9d8150','#1b170f','6,26','4,84',{кольцо:'#7dd3fc',зам:'пара покоя + кольцо #7dd3fc снаружи'}],
+      [6,'включено + тревога','#df7a63','#9d8150','#1b170f','6,04','4,84',{зам:'глина-небо в том же роде (§21.1)'}],
+      [7,'сосед не включён','#242320','#2f2a22','#e5d3a9','10,64','9,64',{зам:'гашёная заря: тёплое дно, крем-подпись'}]
+    ]},
+    {имя:'Месяц выбранный', форма:'', ярлык:'Май', клетки:[
+      [0,'покой','#5b99f8','#9d8150','#1b170f','6,26','4,84',{зам:'канон: лазурь над бронзой'}],
+      [1,'наведение','#6ba3f9','#bfa161','#1b170f','7,00','7,22',{зам:'канонный отклик'}],
+      [2,'нажатие','#4d8ef7','#9d8150','#1b170f','5,55','4,84',{}],
+      [3,'фокус','#5b99f8','#9d8150','#1b170f','6,26','4,84',{кольцо:'#7dd3fc',зам:'пара покоя + кольцо #7dd3fc'}],
+      [5,'частично · 135°','#86a9dc','#9d8150','#1b170f','7,42','4,84',{уг:'135deg',зам:'данные не на весь месяц — рассвет вполсилы'}],
+      [6,'тревога в месяце','#df7a63','#9d8150','#1b170f','6,04','4,84',{зам:'глина-небо'}]
+    ]},
+    {имя:'Год полный', форма:'ф-год', ярлык:'2026', уг:'135deg', клетки:[
+      [0,'покой','#5b99f8','#bfa161','#1b170f','6,26','7,22',{зам:'год звонче месяца: латунный горизонт'}],
+      [1,'наведение','#6ba3f9','#c9ad72','#1b170f','7,00','8,25',{зам:'латунь чуть светлее к курсору'}],
+      [2,'нажатие','#4d8ef7','#9d8150','#1b170f','5,55','4,84',{}],
+      [3,'фокус','#5b99f8','#bfa161','#1b170f','6,26','7,22',{кольцо:'#7dd3fc',зам:'пара покоя + кольцо #7dd3fc'}]
+    ]},
+    {имя:'Год частичный', форма:'ф-год', ярлык:'2026', уг:'135deg', клетки:[
+      [0,'покой','#86a9dc','#9d8150','#1b170f','7,42','4,84',{зам:'разбавленное небо: год не налился'}],
+      [1,'наведение','#93b3e2','#bfa161','#1b170f','8,32','7,22',{}],
+      [6,'частично + тревога','#df7a63','#9d8150','#1b170f','6,04','4,84',{зам:'глина поверх полугода'}]
+    ]},
+    {имя:'Квартал', форма:'ф-квартал', ярлык:'КВ 2', клетки:[
+      [0,'покой · ткань','#e5d3a9','#d6bf85','#1b170f','12,09','9,91',{зам:'кремовый чип эпохи 853548a'}],
+      [1,'наведение','#f0e2bd','#bfa161','#1b170f','13,88','7,22',{}],
+      [2,'нажатие','#d6bf85','#9d8150','#1b170f','9,91','4,84',{}],
+      [3,'фокус','#e5d3a9','#9d8150','#1b170f','12,09','4,84',{кольцо:'#7dd3fc',зам:'пара включения + кольцо #7dd3fc'}],
+      [4,'включено','#e5d3a9','#9d8150','#1b170f','12,09','4,84',{зам:'кремовая ветвь §20.0, горизонт пути А'}]
+    ]},
+    {имя:'Неделя-эфир', форма:'ф-неделя', ярлык:'Н 22', клетки:[
+      [0,'покой','#2c2b26','#332d24','#e5d3a9','9,61','9,23',{зам:'тихая ткань, тёплое дно'}],
+      [1,'наведение','#332d24','#3a3227','#f0e2bd','10,59','9,80',{}],
+      [4,'включено','#5b99f8','#9d8150','#1b170f','6,26','4,84',{зам:'та же заря, что месяц'}],
+      [6,'тревога · точка','#2c2b26','#332d24','#e5d3a9','9,61','9,23',{точка:1,зам:'точка глины #df7a63 — крупный знак, норма 3: к небу 4,80, к горизонту 4,61 — проходит с запасом'}]
+    ]},
+    {имя:'Неделя-срез', форма:'ф-неделя', ярлык:'Н 22', клетки:[
+      [0,'покой','#d6bf85','#9d8150','#1b170f','9,91','4,84',{зам:'тёплый предмет: срез — крем над бронзой'}],
+      [1,'наведение','#6ba3f9','#bfa161','#1b170f','7,00','7,22',{}],
+      [4,'включено','#4d8ef7','#bfa161','#1b170f','5,55','7,22',{зам:'звонче эфирной: латунный горизонт'}]
+    ]},
+    {имя:'Жетон фильтра', форма:'ф-жетон', ярлык:'ФБ', клетки:[
+      [0,'покой · доступен','#2c2b26','#332d24','#e5d3a9','9,61','9,23',{зам:'тихая ткань'}],
+      [1,'включено · наведение','#f0e2bd','#bfa161','#1b170f','13,88','7,22',{}],
+      [4,'включено','#e5d3a9','#9d8150','#1b170f','12,09','4,84',{зам:'наследник кремовой пилюли (index.css:2929)'}],
+      [6,'включено + тревога','#df7a63','#9d8150','#1b170f','6,04','4,84',{зам:'фильтр держит тревожный срез'}],
+      [7,'выключено','#242320','#272420','#8f8b80','4,62','4,54',{добор:1,зам:'серая подпись; горизонт затемнён #2b2823 → #272420'}]
+    ]},
+    {имя:'Кнопка действия', форма:'ф-действие', ярлык:'Обновить', клетки:[
+      [0,'покой','#d6bf85','#9d8150','#1b170f','9,91','4,84',{зам:'кремовая заря — фирменная кнопка'}],
+      [1,'наведение','#e5d3a9','#bfa161','#1b170f','12,09','7,22',{}],
+      [2,'нажатие','#c9ad72','#9d8150','#1b170f','8,25','4,84',{}],
+      [3,'фокус','#d6bf85','#9d8150','#1b170f','9,91','4,84',{кольцо:'#7dd3fc',зам:'пара покоя + кольцо #7dd3fc'}],
+      [6,'опасное действие','#a84a37','#675435','#ffffff','5,68','7,25',{я:'Удалить',зам:'глубокая глина над тёмной бронзой, белая подпись'}],
+      [7,'выключено','#242320','#272420','#8f8b80','4,62','4,54',{добор:1,зам:'горизонт затемнён #2b2823 → #272420'}]
+    ]},
+    {имя:'Плитка числа', форма:'ф-плитка', ярлык:'94 512,4', клетки:[
+      [0,'покой','#1d1c19','#292418','#e5d3a9','11,54','10,46',{зам:'гашёная заря: еле тёплое дно'}],
+      [1,'наведение','#242320','#332c1e','#f0e2bd','12,21','10,74',{}],
+      [4,'включено · как фильтр','#5b99f8','#9d8150','#1b170f','6,26','4,84',{}],
+      [6,'тревога · число плохое','#1d1c19','#292418','#df7a63','5,76','5,22',{зам:'ткань та же, число глиной'}],
+      [7,'пусто · нет данных','#1d1c19','#231f19','#8f8b80','5,01','4,82',{я:'—',зам:'прочерк серым'}]
+    ]},
+    {имя:'Полоса тревоги', форма:'ф-полоса', ярлык:'6 просрочено', клетки:[
+      [0,'покой','#a84a37','#675435','#ffffff','5,68','7,25',{воскл:1,зам:'глина над тёмной бронзой'}],
+      [1,'наведение','#b6543f','#7a6140','#ffffff','4,85','5,81',{воскл:1}],
+      [2,'нажатие · раскрыть','#96412f','#5a4630','#ffffff','6,79','8,92',{воскл:1}],
+      [3,'фокус','#a84a37','#675435','#ffffff','5,68','7,25',{воскл:1,кольцо:'#df7a63',зам:'пара покоя + кольцо #df7a63'}],
+      [7,'тревога снята · гаснет','#2c2b26','#332d24','#a6a49e','5,69','5,47',{воскл:1,зам:'платина на тихой ткани'}]
+    ]},
+    {имя:'Строка эфира', форма:'ф-строка', ярлык:'14:02 · РЕЕСТР 118', клетки:[
+      [0,'налитая · есть событие','#2f2a22','#3a3227','#e5d3a9','9,64','8,54',{}],
+      [1,'наведение','#332d24','#403828','#f0e2bd','10,59','8,99',{}],
+      [4,'включено · выбрана','#5b99f8','#9d8150','#1b170f','6,26','4,84',{}],
+      [6,'тревожная строка','#1d1c19','#26221a','#df7a63','5,76','5,36',{зам:'подпись глиной на серой ткани'}],
+      [7,'серая · пустой день','#1d1c19','#26221a','#c7c2b6','9,59','8,91',{}]
+    ]},
+    {имя:'Ячейка «данных нет»', форма:'ф-ячейка', ярлык:'—', клетки:[
+      [0,'покой','#242320','#29241f','#8f8b80','4,62','4,52',{добор:1,зам:'прочерк; горизонт затемнён #2b2620 → #29241f'}],
+      [1,'наведение','#2b2823','#332c22','#a6a49e','5,89','5,53',{}]
+    ]},
+    {имя:'«Ещё не наступило»', форма:'ф-действие', ярлык:'Сентябрь', клетки:[
+      [0,'покой','#426eb3','#675435','#ffffff','5,11','7,25',{зам:'канон §20.1 путь Б: рассвет «до восхода»'}],
+      [1,'наведение','#4976bb','#71603c','#ffffff','4,57','6,10',{добор:1,зам:'небо затемнено #4a78bf → #4976bb'}],
+      [3,'фокус','#426eb3','#675435','#ffffff','5,11','7,25',{кольцо:'#7dd3fc',зам:'пара покоя + кольцо #7dd3fc'}],
+      [5,'год/квартал · 135°','#426eb3','#675435','#ffffff','5,11','7,25',{уг:'135deg',я:'2027',форма:'ф-год',зам:'та же пара, угол года'}]
+    ]}
+  ];
+
+  var сетка = document.getElementById('матрица-сетка');
+  var куски = ['<div></div>'];
+  КОЛОНКИ.forEach(function(к){
+    куски.push('<div class="км-шапка">' + к[0] + (к[1] ? '<span>' + к[1] + '</span>' : '') + '</div>');
+  });
+  var клеток = 0, доборов = 0, прочерков = 0;
+  РЯДЫ.forEach(function(ряд){
+    куски.push('<div class="км-ряд"><b>' + ряд.имя + '</b><i>' + (ряд.уг || '180deg') + '</i></div>');
+    var поКолонке = {};
+    ряд.клетки.forEach(function(кл){ поКолонке[кл[0]] = кл; });
+    for (var к = 0; к < 8; к++) {
+      var кл = поКолонке[к];
+      if (!кл) {
+        куски.push('<div class="прочерк" title="' + ПРАВИЛО + '">—</div>');
+        прочерков++;
+        continue;
+      }
+      клеток++;
+      var ф = кл[7] || {};
+      if (ф.добор) доборов++;
+      var угол = ф.уг || ряд.уг || '180deg';
+      var подсказка = ряд.имя + ' · ' + кл[1] + ' — небо ' + кл[2] + ', горизонт ' + кл[3] +
+        ', подпись ' + кл[4] + '; К·небо ' + кл[5] + ', К·горизонт ' + кл[6] +
+        (ф.добор ? '; норма ДОБОРОМ' : '; норма: да') + (ф.зам ? '. ' + ф.зам : '');
+      var стиль = 'background:linear-gradient(' + угол + ', ' + кл[2] + ' 0%, ' + кл[3] + ' 100%);color:' + кл[4] + ';';
+      if (ф.кольцо) стиль += 'box-shadow:0 0 0 2px ' + ф.кольцо + ';';
+      var нутро = '';
+      if (ф.воскл) нутро += '<span class="км-воскл">!</span>';
+      var ярлык = ф.я || ряд.ярлык;
+      if (ряд.форма === 'ф-плитка' && !ф.я) {
+        нутро += '<small>экономия · тыс</small><span>' + ярлык + '</span>';
+      } else {
+        нутро += '<span>' + ярлык + '</span>';
+      }
+      if (ф.точка) нутро += '<i class="км-точка" title="точка глины #df7a63 — крупный знак, норма 3: 4,80 / 4,61"></i>';
+      var формы = 'км-предмет ' + (ф.форма || ряд.форма || '');
+      куски.push(
+        '<div class="клетка" data-эл="' + ряд.имя + '" data-сост="' + кл[1] + '">' +
+          '<div class="' + формы + '" style="' + стиль + '" title="' + подсказка.replace(/"/g, '&quot;') + '">' + нутро + '</div>' +
+          '<div class="км-сост">' + кл[1] + (ф.добор ? ' <span class="добор">· добор</span>' : '') + '</div>' +
+        '</div>');
+    }
+  });
+  сетка.innerHTML = куски.join('');
+  document.getElementById('итог-матрицы').innerHTML =
+    'Отрисовано <b>' + клеток + ' клеток</b> из 63 канона; <b>' + (клеток - доборов) +
+    '</b> пар прошли норму в исходном виде, <b>' + доборов + '</b> добраны затемнением; прочерков — ' +
+    прочерков + ', каждый несёт правило приоритета в подсказке. Числа контраста — из scripts/zarya_contrast.py, не на глаз.';
+})();
+
+/* ═══ 2. ЖИВАЯ ЗАРЯ: ряд дышащих предметов + статичный двойник ═══ */
+(function(){
+  /* пары — дословно из матрицы §1: покой / наведение / нажатие */
+  var ПРЕДМЕТЫ = [
+    {я:'Пульс',    ф:'ф-пилюля', чн:'#1b170f', п:['#5b99f8','#9d8150'], н:['#6ba3f9','#bfa161'], ж:['#4d8ef7','#9d8150']},
+    {я:'Май',      ф:'',         чн:'#1b170f', п:['#5b99f8','#9d8150'], н:['#6ba3f9','#bfa161'], ж:['#4d8ef7','#9d8150']},
+    {я:'2026',     ф:'ф-год', уг:'135deg', чн:'#1b170f', п:['#5b99f8','#bfa161'], н:['#6ba3f9','#c9ad72'], ж:['#4d8ef7','#9d8150']},
+    {я:'КВ 2',     ф:'',         чн:'#1b170f', п:['#e5d3a9','#9d8150'], н:['#f0e2bd','#bfa161'], ж:['#d6bf85','#9d8150']},
+    {я:'ФБ',       ф:'ф-пилюля', чн:'#1b170f', п:['#e5d3a9','#9d8150'], н:['#f0e2bd','#bfa161'], ж:['#d6bf85','#9d8150']},
+    {я:'Обновить', ф:'',         чн:'#1b170f', п:['#d6bf85','#9d8150'], н:['#e5d3a9','#bfa161'], ж:['#c9ad72','#9d8150']},
+    {я:'Сентябрь', ф:'',         чн:'#ffffff', п:['#426eb3','#675435'], н:['#4976bb','#71603c'], ж:['#426eb3','#675435']}
+  ];
+  var живой = document.getElementById('живой-ряд');
+  var статичный = document.getElementById('статичный-ряд');
+  var тихо = window.matchMedia('(prefers-reduced-motion: reduce)');
+  ПРЕДМЕТЫ.forEach(function(п, и){
+    var стиль = '--и:' + и + ';--чн:' + п.чн + ';--уг:' + (п.уг || '180deg') +
+      ';--небо-п:' + п.п[0] + ';--гор-п:' + п.п[1] +
+      ';--небо-н:' + п.н[0] + ';--гор-н:' + п.н[1] +
+      ';--небо-ж:' + п.ж[0] + ';--гор-ж:' + п.ж[1] + ';';
+    var подсказка = п.я + ' — покой ' + п.п.join(' → ') + '; наведение ' + п.н.join(' → ') + '; нажатие ' + п.ж.join(' → ');
+    var эл = document.createElement('button');
+    эл.type = 'button';
+    эл.className = 'живой ' + п.ф;
+    эл.style.cssText = стиль + 'border:none;font:inherit;font-weight:750;cursor:pointer;';
+    эл.title = подсказка;
+    эл.innerHTML = '<span>' + п.я + '</span>';
+    живой.appendChild(эл);
+    var дв = document.createElement('div');
+    дв.className = 'статичный ' + п.ф;
+    дв.style.cssText = стиль;
+    дв.title = п.я + ' — статичная пара покоя (запрет движения): ' + п.п.join(' → ');
+    дв.innerHTML = '<span>' + п.я + '</span>';
+    статичный.appendChild(дв);
+  });
+  if (!тихо.matches) {
+    живой.addEventListener('mousemove', function(е){
+      var цель = е.target.closest('.живой');
+      if (!цель) return;
+      var р = цель.getBoundingClientRect();
+      цель.style.setProperty('--мх', (е.clientX - р.left) + 'px');
+      цель.style.setProperty('--му', (е.clientY - р.top) + 'px');
+    });
+  }
+})();
+
+/* ═══ 3. ОТДЕЛКИ: шесть физик × три предмета матрицы ═══ */
+(function(){
+  var ПАРЫ = [
+    {я:'Пульс', ф:'ф-пилюля', чн:'#1b170f', нб:'#5b99f8', гр:'#9d8150', т:'кнопка вкладки · #5b99f8 → #9d8150 · К 6,26/4,84'},
+    {я:'Май',   ф:'',         чн:'#1b170f', нб:'#5b99f8', гр:'#9d8150', т:'месяц выбранный · #5b99f8 → #9d8150 · К 6,26/4,84'},
+    {я:'ФБ',    ф:'ф-пилюля', чн:'#1b170f', нб:'#e5d3a9', гр:'#9d8150', т:'жетон включённый · #e5d3a9 → #9d8150 · К 12,09/4,84'}
+  ];
+  var ОТДЕЛКИ = [
+    {кл:'о-кэнди', имя:'Кэнди — лак над зарёй',
+     суть:'тело предмета = пара клетки; сверху мокрый скруглённый блик, зерно металла просвечивает изнутри. Ближайший родственник рецепта (§21 п.2)',
+     служит:'главные включённые предметы: кнопка вкладки активная, месяц выбранный, включённый жетон',
+     запрет:'большие площади; текстовые массивы'},
+    {кл:'о-металлик', имя:'Металлик — блик по заре',
+     суть:'направленная полоса света едет по паре при наведении (сдвиг слоя переносом) — проведите мышью',
+     служит:'предметы, которые «нажимают»: кнопки действия, кварталы включённые, пилюли',
+     запрет:'тревога (блик по беде — глянец не к месту), массивы текста'},
+    {кл:'о-перламутр', имя:'Перламутр — перелив по заре',
+     суть:'широкий шёлковый блик + еле заметные интерференционные пятна (лазурь и глина малой дозой) поверх пары',
+     служит:'ткань покоя: кварталы-ткань, неделя-срез в покое, плитка числа в покое — слабой дозой',
+     запрет:'подписи мелким кеглем внутри пятен перелива'},
+    {кл:'о-ксираллик', имя:'Ксираллик — искра в заре', искры:1,
+     суть:'точечные искры двух слоёв поверх пары, мерцание ~7 с, при наведении чаще',
+     служит:'редкие праздничные состояния: год полный завершён, «сверка чиста»',
+     запрет:'тревога и пустота (искрить бедой и пустотой нельзя); повседневные предметы — искра обесценится'},
+    {кл:'о-мат', имя:'Матовый — гашёная заря',
+     суть:'пара приглушена бархатным зерном, бликов нет честно (наведение блика не добавляет)',
+     служит:'большие площади: строки эфира, ячейки покрытия, пусто/выключено, подложки панелей',
+     запрет:'нигде — это единственная отделка, допустимая под массивами текста'},
+    {кл:'стекло', имя:'Жидкое стекло — заря сквозь стекло', стекло:1,
+     суть:'рецепт продукта дословно (index.css:2038): размытие подложки blur(16px) saturate(160%), слоистые тени; заря лежит ПОД стеклом',
+     служит:'барабаны и контейнеры-стенды; всё, что уже стеклянное в проде',
+     запрет:'не накладывать поверх кэнди/металлика (двойная физика поверхности — фальшь)'}
+  ];
+  var дом = document.getElementById('отделки-дом');
+  var куски = [];
+  ОТДЕЛКИ.forEach(function(о){
+    var предметы = ПАРЫ.map(function(п){
+      var стиль = '--нб:' + п.нб + ';--гр:' + п.гр + ';--чн:' + п.чн + ';';
+      if (о.стекло) {
+        return '<div class="о-сцена" style="' + стиль + '" title="' + п.т + ' — заря в подложке, стекло сверху">' +
+          '<div class="о-стекло"><span>' + п.я + '</span></div></div>';
+      }
+      var нутро = '';
+      if (о.искры) нутро = '<i class="искрослой"></i><i class="искрослой2"></i>';
+      return '<div class="о-предмет ' + о.кл + ' ' + п.ф + '" style="' + стиль + '" title="' + п.т + '">' +
+        нутро + '<span>' + п.я + '</span></div>';
+    }).join('');
+    куски.push(
+      '<div class="отделка" data-отделка="' + о.кл + '">' +
+        '<header><h3>' + о.имя + '</h3><p class="суть">' + о.суть + '</p></header>' +
+        '<div class="о-ряд">' + предметы + '</div>' +
+        '<p class="о-служба"><b>Служит:</b> ' + о.служит + '. <span class="запрет"><b>Запрещена:</b> ' + о.запрет + '.</span></p>' +
+      '</div>');
+  });
+  дом.innerHTML = куски.join('');
+})();
+
+/* ═══ 5. НЕБЕСА 13 ВКЛАДОК: небо → #9d8150, подпись #1b170f ═══ */
+(function(){
+  var ВКЛАДКИ = [
+    ['Пульс','#5b99f8','6,26',''],
+    ['Отчёт','#f59e0b','8,31','вопрос'],
+    ['Свод','#0891b2','4,85',''],
+    ['Реестр','#0ea5e9','6,44',''],
+    ['Не обеспеченные','#fde68a','14,34',''],
+    ['В течение года','#c7d2fe','11,97',''],
+    ['Мониторинг','#bae6fd','13,46',''],
+    ['Экономия','#10b981','7,04',''],
+    ['Конкуренция','#5eead4','12,07',''],
+    ['Дисциплина','#fdba74','10,59','вопрос'],
+    ['Контроль','#ef4444','4,75',''],
+    ['Аналитика','#a78bfa','6,56','вопрос'],
+    ['Система','#a1a1aa','6,97','']
+  ];
+  var ряд = document.getElementById('небеса-ряд');
+  ряд.innerHTML = ВКЛАДКИ.map(function(в){
+    var подсказка = в[0] + ' — небо ' + в[1] + ' → горизонт #9d8150, подпись #1b170f; К·небо ' + в[2] +
+      ', К·горизонт 4,84; норма без добора' + (в[3] ? '. У границы запрета — вопрос владельцу на приёмке' : '');
+    return '<div class="небо-кнопка' + (в[3] ? ' небо-вопрос' : '') + '">' +
+      '<span class="небо-пилюля" style="background:linear-gradient(180deg,' + в[1] + ' 0%, #9d8150 100%)" title="' +
+      подсказка + '">' + в[0] + '</span>' +
+      '<span class="небо-мета">' + в[1] + ' · ' + в[2] + '/4,84' + (в[3] ? ' · вопрос владельцу' : '') + '</span>' +
+    '</div>';
+  }).join('');
+})();
+
+/* ═══ 6.10 фонарик: скрипт рецепта — три строки на карточку ═══ */
+(function(){
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('#демо-спот .card').forEach(function(эл){
+    эл.addEventListener('mousemove', function(е){
+      var р = эл.getBoundingClientRect();
+      эл.style.setProperty('--mx', (е.clientX - р.left) + 'px');
+      эл.style.setProperty('--my', (е.clientY - р.top) + 'px');
+    });
+  });
+})();
+
+/* ═══ 6.11 лента реестра под progressive blur ═══ */
+(function(){
+  var лента = document.getElementById('края-лента');
+  var строки = '';
+  for (var и = 101; и <= 126; и++) {
+    строки += '<div class="края-строка"><i>№ ' + и + '</i><span>закупка по плану-графику · срок ' +
+      (и % 28 + 1) + '.09.2026</span><i style="margin-left:auto">' + (900 + и * 7) + ',0 тыс</i></div>';
+  }
+  лента.insertAdjacentHTML('beforeend', строки);
+})();
+</script>
+</body>
+</html>
