@@ -758,6 +758,48 @@ async function waveV9(api, report) {
   return ok;
 }
 
+async function waveV11(api, report) {
+  const dims = JSON.parse(fs.readFileSync('E:/aemr-dumps/etalon-sync/plans/uo-dims-canon.json', 'utf8'));
+  const COLS = dims['ВСЕ'].cols; // ширины A:AH — единые для главных и подведов
+  const MAIN_ROWS = [20, 20, 20];
+  const POD_ROWS = [20, 28, 60];
+  function dimRequests(sheetId, isMain) {
+    const reqs = [];
+    let i = 0;
+    while (i < COLS.length) {
+      let j = i;
+      while (j + 1 < COLS.length && COLS[j + 1] === COLS[i]) j++;
+      reqs.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: i, endIndex: j + 1 }, properties: { pixelSize: COLS[i] }, fields: 'pixelSize' } });
+      i = j + 1;
+    }
+    const rows = isMain ? MAIN_ROWS : POD_ROWS;
+    rows.forEach((px, r) => {
+      reqs.push({ updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: r, endIndex: r + 1 }, properties: { pixelSize: px }, fields: 'pixelSize' } });
+    });
+    return reqs;
+  }
+  let ok = true;
+  for (const arg of Object.keys(BOOKS)) {
+    const book = BOOKS[arg];
+    const struct = await fetchAllStruct(api, book.id);
+    const reqs = [];
+    let sheets = 0;
+    for (const sheet of struct.sheets || []) {
+      const t = sheet.properties.title;
+      const isMain = t === book.main;
+      const isPod = !isMain && !SERVICE_TITLES.has(t) && sheet.properties.sheetType !== 'OBJECT';
+      if (!isMain && !isPod) continue;
+      if (botBlocked(sheet)) { report.push(`${book.ru} «${t}»: размеры пропущены (защита)`); continue; }
+      reqs.push(...dimRequests(sheet.properties.sheetId, isMain));
+      sheets++;
+    }
+    const skipped = await batch(api, book.id, reqs, arg + '-dims', { safe: true });
+    report.push(`${book.ru}: размеры канона УО на ${sheets} листах` + (skipped ? ` (пропущено ${skipped})` : ''));
+    await sleep(1000);
+  }
+  return ok;
+}
+
 async function main() {
   const wave = (process.argv.find((a) => a.startsWith('--wave')) || '').split('=')[1] || process.argv[process.argv.indexOf('--wave') + 1];
   const api = sheetsApi('write');
@@ -772,6 +814,7 @@ async function main() {
   else if (wave === 'v7') ok = await waveV7(api, report);
   else if (wave === 'v8') ok = await waveV8(api, report);
   else if (wave === 'v9') ok = await waveV9(api, report);
+  else if (wave === 'v11') ok = await waveV11(api, report);
   else if (wave === 'v6') ok = await waveV6(api, report);
   else { console.log('FATAL: unknown wave'); process.exit(2); }
   const file = path.join(REPORT_DIR, new Date().toISOString().replace(/[:.]/g, '-') + '-' + wave + '.md');

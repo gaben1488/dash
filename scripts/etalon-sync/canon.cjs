@@ -115,9 +115,9 @@ function goldenCF(sheetId, opts) {
     { name: 'Дубль номера A', ranges: [rng(sheetId, 'A')],
       rule: boolRule('=AND($A4<>""; COUNTIF($A$4:$A; $A4)>1)', fmt(C.rowMiss)) },
     // 4. 223-маркеры
-    { vis: true, name: '223 в причине M (вся строка)', ranges: [rng(sheetId, 'A', 'AH', 0)],
+    { name: '223 в причине M (вся строка)', ranges: [rng(sheetId, 'A', 'AH', 0)],
       rule: boolRule('=ISNUMBER(SEARCH("223"; $M1))', fmt(C.law223)) },
-    { vis: true, name: '223-ФЗ в AF при способе не ЕП', ranges: [rng(sheetId, 'L', 'M')],
+    { name: '223-ФЗ в AF при способе не ЕП', ranges: [rng(sheetId, 'L', 'M')],
       rule: boolRule('=IFERROR(AND(SEARCH("223-ФЗ";$AF4)>0; $L4<>"ЕП"); FALSE)', fmt(C.law223, C.law223Text, true)) },
     // 5. Визуальный слой (канон УО)
     { vis: true, name: 'F: Программное мероприятие', ranges: [rng(sheetId, 'F')], rule: textEq('Программное мероприятие', fmt(C.fProg)) },
