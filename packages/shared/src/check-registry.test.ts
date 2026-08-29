@@ -81,6 +81,47 @@ describe('CHECK_REGISTRY — канон интервью 14.08.2026', () => {
     expect(before!.kbHint).toContain('180');
   });
 
+  it('СТРАЖ §22 п.3: паспорта сверки итогов обещают допуск 5 руб., а не «1 руб.»', () => {
+    // Прежние паспорта обещали «Допуск: 1 руб.», а код пропускал до 1000 руб.
+    // (допуск стоял в тысячах — единицах книги). Три числа одного правила.
+    for (const id of ['budget_sum_plan', 'budget_sum_fact', 'dept_fact_sum', 'dept_economy_sum']) {
+      const entry = CHECK_REGISTRY.find((c) => c.id === id);
+      expect(entry, `паспорт «${id}» пропал из реестра`).toBeDefined();
+      expect(entry!.description).toContain('5 руб.');
+      expect(entry!.description).not.toContain('Допуск: 1 руб.');
+    }
+  });
+
+  it('СТРАЖ §22 (без развилки): паспорт «факт превышает план» назван порогом кода', () => {
+    // Код зажигает при факт > план × 1,005 (превышение свыше 0,5%), паспорт
+    // обещал «> 10%» и три несуществующие ступени — расхождение в 20 раз.
+    const entry = CHECK_REGISTRY.find((c) => c.id === 'fact_vs_plan');
+    expect(entry).toBeDefined();
+    expect(entry!.description).toContain('0,5%');
+    expect(entry!.description).not.toContain('10%');
+    expect(entry!.kbHint).not.toContain('significant >10%');
+  });
+
+  it('СТРАЖ §22 п.1: паспорт способа закупки говорит словарём КНИГИ ГРБС', () => {
+    const entry = CHECK_REGISTRY.find((c) => c.id === 'method_validation');
+    expect(entry).toBeDefined();
+    expect(entry!.description).toContain('ЕП');
+    expect(entry!.description).toContain('ЭА');
+    // Конкурс и котировки в книге ГРБС не живут: их дом — книга мониторинга.
+    expect(entry!.description).not.toContain('ЭК');
+    expect(entry!.description).not.toContain('ЭЗК');
+  });
+
+  it('СТРАЖ §22 п.2: паспорт полноты требует предмет G, а программу D — по виду', () => {
+    const entry = CHECK_REGISTRY.find((c) => c.id === 'data_quality');
+    expect(entry).toBeDefined();
+    // Прежний текст обещал «(D, K, L)» и звал D предметом — ложь против
+    // канона колонок (D — наименование программы, предмет живёт в G).
+    expect(entry!.description).not.toContain('(D, K, L)');
+    expect(entry!.description).toContain('предмет (G)');
+    expect(entry!.description).toContain('программного мероприятия');
+  });
+
   it('СТРАЖ п.3 (свип): тексты реестра не содержат голых float-хвостов двоичной арифметики', () => {
     // Числа в описаниях — до 2 знаков (копейки/проценты): «7138.1467200000025»
     // не имеет права появиться в справочном тексте. Даты дд.мм.гггг не

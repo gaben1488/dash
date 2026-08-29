@@ -1,6 +1,16 @@
 import type { ClassifiedRow, ValidationRule, RuleCheckContext, RuleCheckResult } from './types.js';
 import { DEPARTMENT_REGISTRY } from './department-registry.js';
-import { ECONOMY_FLAG_CANON, economyFlagVerdict } from './economy-flag.js';
+import {
+  ECONOMY_FLAG_BOOK_WORDS,
+  ECONOMY_FLAG_CANON,
+  economyFlagVerdict,
+  isEconomyFlagGarbage,
+} from './economy-flag.js';
+import { GRBS_BOOK_METHODS } from './dictionaries/method-families.js';
+import { EP_REASON_DICT } from './dictionaries/ep-reason-clusters.js';
+import { isAbsentCell } from './absence.js';
+import { hasFactDate } from './fact-date.js';
+import { dayNumberOf, parseSheetDate } from './parse-sheet-date.js';
 import {
   detectCellHygiene,
   detectSubordinateNameHygiene,
@@ -41,13 +51,77 @@ function hasData(val: unknown): boolean {
 
 // --- Допустимые значения ---
 
-const VALID_METHODS = ['ЭА', 'ЕП', 'ЭК', 'ЭЗК'] as const;
+/**
+ * Способы, законные в колонке L КНИГИ ГРБС, — единый дом словаря
+ * (`dictionaries/method-families.ts`, GRBS_BOOK_METHODS). Здесь список НЕ
+ * переписывается: копия словаря — это и есть тот класс дефекта, из-за
+ * которого продукт признавал «ЭК»/«ЭЗК» нормой книги, где их не бывает.
+ * Полный набор процедур уполномоченного органа живёт отдельно
+ * (procedure-ref.ts, PROCEDURE_FAMILIES) и этому правилу не подчиняется.
+ */
+
+/**
+ * Виды деятельности (колонка F) — канон книги: РОВНО ДВА значения.
+ *
+ * Паспорт (решение владельца §22 п.2 от 30.08.2026):
+ * — Проверка ввода книги (canon.cjs, goldenValidation F) — строгий список
+ *   ['Программное мероприятие','Текущая деятельность'].
+ * — Замер 30.08.2026: «Текущая деятельность» — 3418 строк, «Программное
+ *   мероприятие» — 541; длинных формулировок в живых данных нет.
+ * — Канон п.30 (интервью 14.08.2026) СНЯЛ разбивку ТД на «в рамках» и «вне
+ *   рамок»: заполненная привязка к программе у текущей деятельности — норма
+ *   и подкатегории не образует. Значит четырёхзначный список был наследием
+ *   упразднённого среза, а не описанием данных.
+ */
 const VALID_TYPES = [
   'Текущая деятельность',
-  'Текущая деятельность в рамках программного мероприятия',
-  'Текущая деятельность вне рамок программного мероприятия',
   'Программное мероприятие',
 ] as const;
+
+/**
+ * ЛЕГАСИ вида деятельности — ТОЛЬКО для чтения старых снимков, где эти
+ * формулировки уже записаны. В проверке валидности НОВЫХ данных не
+ * участвуют: канон п.30 снял разбивку, и книга такое значение при вводе
+ * отклоняет. Обе строки означают обычную «Текущую деятельность».
+ *
+ * Второй носитель того же легаси — VALID_ACTIVITY_TYPES_RAW в
+ * `dictionaries/activity-types.ts`: там список пока держит все четыре
+ * значения. Разводить их дальше нельзя — при следующей правке вида
+ * деятельности оба места читаются вместе.
+ */
+export const LEGACY_TYPES = [
+  'Текущая деятельность в рамках программного мероприятия',
+  'Текущая деятельность вне рамок программного мероприятия',
+] as const;
+
+/**
+ * ДОПУСК СВЕРКИ ИТОГОВ — 5 РУБЛЕЙ, выраженные в единицах книги.
+ *
+ * Паспорт (решение владельца §22 п.3 от 30.08.2026):
+ * — Книги ГРБС ведутся в ТЫСЯЧАХ рублей (канон report-map.ts), поэтому
+ *   5 руб. = 0,005 в единицах ячейки.
+ * — Столько же требует сама книга: контрольные условные форматы сверяют
+ *   `ROUND($K4-SUM($H4:$J4);2)<>0` — округление до копеек, то есть допуск
+ *   порядка копеечного шума, а не тысячи рублей.
+ * — Что было до. `TOLERANCE = 1.0` читалось «1 рубль» (так и обещали
+ *   паспорта в check-registry), а на деле означало ОДНУ ТЫСЯЧУ рублей:
+ *   расхождение до 1000 руб. проходило молча. Мина: на дампе 30.08.2026
+ *   в этом зазоре 0 строк из 3959, поэтому первое же настоящее расхождение
+ *   было бы пропущено без единого признака.
+ */
+const SUM_TOLERANCE_THOUSAND_RUB = 0.005;
+
+/** Тот же допуск в рублях — для текста замечания читателю. */
+const SUM_TOLERANCE_RUB = 5;
+
+/**
+ * Разница сумм из единиц книги (тыс. руб.) в рубли для текста замечания.
+ * До 30.08.2026 разница печаталась как есть с подписью «руб.» — читатель
+ * видел «0.90 руб.» там, где книга разошлась на 900 рублей.
+ */
+function diffToRubText(diffThousandRub: number): string {
+  return (diffThousandRub * 1000).toFixed(2);
+}
 
 // ============================================================
 // ПРАВИЛО 1: Консистентность сумм бюджета
@@ -58,13 +132,13 @@ const budgetSumConsistencyPlan: ValidationRule = {
   name: 'Консистентность плановых сумм бюджета',
   description:
     'K (итого план) должен равняться H + I + J (ФБ + КБ + МБ план). ' +
-    'Допуск на округление: 1 руб. Работает на СВОД и листах подразделений.',
+    'Допуск: расхождение свыше 5 руб. Работает на СВОД и листах подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'both',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = 1.0;
+    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['K']);
     if (total === null) return { passed: true };
 
@@ -83,7 +157,8 @@ const budgetSumConsistencyPlan: ValidationRule = {
         passed: false,
         message:
           `K${ctx.rowIndex} (план) = ${total}, ожидалось ${expectedSum} ` +
-          `(H + I + J). Разница: ${diff.toFixed(2)} руб.`,
+          `(H + I + J). Разница: ${diffToRubText(diff)} руб. ` +
+          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `K${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -98,13 +173,13 @@ const budgetSumConsistencyFact: ValidationRule = {
   name: 'Консистентность фактических сумм бюджета (СВОД)',
   description:
     'O (итого факт) должен равняться L + M + N (ФБ + КБ + МБ факт). ' +
-    'Допуск: 1 руб. Только для листа СВОД ТД-ПМ (на листах подразделений эти столбцы имеют другое назначение).',
+    'Допуск: расхождение свыше 5 руб. Только для листа СВОД ТД-ПМ (на листах подразделений эти столбцы имеют другое назначение).',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'svod',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = 1.0;
+    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['O']);
     if (total === null) return { passed: true };
 
@@ -123,7 +198,8 @@ const budgetSumConsistencyFact: ValidationRule = {
         passed: false,
         message:
           `O${ctx.rowIndex} (факт) = ${total}, ожидалось ${expectedSum} ` +
-          `(L + M + N). Разница: ${diff.toFixed(2)} руб.`,
+          `(L + M + N). Разница: ${diffToRubText(diff)} руб. ` +
+          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `O${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -354,15 +430,22 @@ const factLeqPlan: ValidationRule = {
 };
 
 // ============================================================
-// ПРАВИЛО 6: Валидация метода закупки (листы подразделений)
-// Столбец L: допустимые значения ЭА, ЕП, ЭК, ЭЗК
+// ПРАВИЛО 6: Валидация способа закупки (листы подразделений)
+// Столбец L: допустимые значения книги ГРБС — ЕП и ЭА.
+//
+// Разделение словаря по источникам (решение владельца §22 п.1, 30.08.2026):
+// книга ГРБС ведёт два способа, полный набор процедур (ЭА, ЭАС, ЭК, ЭЗК,
+// ЭЕП) живёт в книге мониторинга уполномоченного органа и имеет свой дом —
+// PROCEDURE_FAMILIES (procedure-ref.ts). Это правило судит ТОЛЬКО строки
+// книг ГРБС (scope: 'department') и словаря мониторинга не касается.
 // ============================================================
 const methodValidation: ValidationRule = {
   id: 'method_validation',
-  name: 'Валидация метода закупки',
+  name: 'Валидация способа закупки',
   description:
-    'Столбец L (метод закупки) на листах подразделений должен содержать ' +
-    'одно из значений: ЭА, ЕП, ЭК, ЭЗК.',
+    'Столбец L (способ закупки) на листах подразделений должен содержать ' +
+    'одно из значений: ЕП, ЭА. Электронный конкурс и запрос котировок ' +
+    'ведутся в книге мониторинга уполномоченного органа, а не здесь.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
@@ -372,32 +455,37 @@ const methodValidation: ValidationRule = {
     if (!hasData(method)) return { passed: true };
 
     const val = String(method).trim();
-    if ((VALID_METHODS as readonly string[]).includes(val)) {
+    if ((GRBS_BOOK_METHODS as readonly string[]).includes(val)) {
       return { passed: true };
     }
 
     return {
       passed: false,
       message:
-        `L${ctx.rowIndex} = "${val}" — недопустимый метод закупки. ` +
-        `Допустимые: ${VALID_METHODS.join(', ')}`,
+        `L${ctx.rowIndex} = "${val}" — недопустимый способ закупки для книги ГРБС. ` +
+        `Допустимые: ${GRBS_BOOK_METHODS.join(', ')}`,
       cell: `L${ctx.rowIndex}`,
       actual: val,
-      expected: VALID_METHODS.join(' | '),
+      expected: GRBS_BOOK_METHODS.join(' | '),
     };
   },
 };
 
 // ============================================================
-// ПРАВИЛО 7: Валидация типа закупки (листы подразделений)
-// Столбец F: "Текущая деятельность" или "Программное мероприятие"
+// ПРАВИЛО 7: Валидация вида деятельности (листы подразделений)
+// Столбец F: «Текущая деятельность» или «Программное мероприятие».
+//
+// Решение владельца §22 п.2 (30.08.2026): значений ровно два. Длинные
+// формулировки «в рамках/вне рамок программного мероприятия» — легаси
+// снятой каноном п.30 разбивки (LEGACY_TYPES выше); в проверке валидности
+// новых данных они не участвуют, книга их при вводе отклоняет.
 // ============================================================
 const typeValidation: ValidationRule = {
   id: 'type_validation',
-  name: 'Валидация типа закупки',
+  name: 'Валидация вида деятельности',
   description:
-    'Столбец F (тип закупки) на листах подразделений должен содержать ' +
-    'одно из значений: "Текущая деятельность" или "Программное мероприятие".',
+    'Столбец F (вид деятельности) на листах подразделений должен содержать ' +
+    'одно из значений: «Текущая деятельность» или «Программное мероприятие».',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
@@ -411,11 +499,18 @@ const typeValidation: ValidationRule = {
       return { passed: true };
     }
 
+    // Легаси старых снимков названо своими словами: это не мусор оператора,
+    // а упразднённая каноном п.30 подкатегория текущей деятельности.
+    const legacyHint = (LEGACY_TYPES as readonly string[]).includes(val)
+      ? ' Это упразднённая (канон п.30) разбивка текущей деятельности —'
+        + ' значение приводится к «Текущая деятельность».'
+      : '';
+
     return {
       passed: false,
       message:
-        `F${ctx.rowIndex} = "${val}" — недопустимый тип закупки. ` +
-        `Допустимые: ${VALID_TYPES.join(', ')}`,
+        `F${ctx.rowIndex} = "${val}" — недопустимый вид деятельности. ` +
+        `Допустимые: ${VALID_TYPES.join(', ')}.${legacyHint}`,
       cell: `F${ctx.rowIndex}`,
       actual: val,
       expected: VALID_TYPES.join(' | '),
@@ -526,13 +621,13 @@ const deptFactSumConsistency: ValidationRule = {
   name: 'Консистентность фактических сумм (подразделения)',
   description:
     'Y (итого факт) = V + W + X (ФБ + КБ + МБ факт). ' +
-    'Допуск: 1 руб. Только для листов подразделений.',
+    'Допуск: расхождение свыше 5 руб. Только для листов подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = 1.0;
+    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['Y']);
     if (total === null) return { passed: true };
 
@@ -551,7 +646,8 @@ const deptFactSumConsistency: ValidationRule = {
         passed: false,
         message:
           `Y${ctx.rowIndex} (факт итого) = ${total}, ожидалось ${expectedSum} ` +
-          `(V + W + X). Разница: ${diff.toFixed(2)} руб.`,
+          `(V + W + X). Разница: ${diffToRubText(diff)} руб. ` +
+          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `Y${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -570,13 +666,13 @@ const deptEconomySumConsistency: ValidationRule = {
   name: 'Консистентность сумм экономии (подразделения)',
   description:
     'AC (итого экономия) = Z + AA + AB (ФБ + КБ + МБ экономия). ' +
-    'Допуск: 1 руб. Только для листов подразделений.',
+    'Допуск: расхождение свыше 5 руб. Только для листов подразделений.',
   severity: 'error',
   origin: 'spreadsheet_rule',
   scope: 'department',
   params: {},
   check(ctx: RuleCheckContext): RuleCheckResult {
-    const TOLERANCE = 1.0;
+    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
     const total = toNumber(ctx.cells['AC']);
     if (total === null) return { passed: true };
 
@@ -595,7 +691,8 @@ const deptEconomySumConsistency: ValidationRule = {
         passed: false,
         message:
           `AC${ctx.rowIndex} (экономия итого) = ${total}, ожидалось ${expectedSum} ` +
-          `(Z + AA + AB). Разница: ${diff.toFixed(2)} руб.`,
+          `(Z + AA + AB). Разница: ${diffToRubText(diff)} руб. ` +
+          `(допуск ${SUM_TOLERANCE_RUB} руб.)`,
         cell: `AC${ctx.rowIndex}`,
         actual: total,
         expected: expectedSum,
@@ -864,8 +961,501 @@ const textHygiene: ValidationRule = {
 };
 
 // ============================================================
+// ОБМОТКА НАД КНИГОЙ (30.08.2026) — правила самой книги, которых у продукта
+// не было. Решение владельца §22: «слепоту продукта стоит решать и убирать
+// полностью».
+//
+// ОТКУДА ВЗЯЛИСЬ. Матрица сверки
+// `docs/superpowers/audits/2026-08-30-pravila-matrica.md` положила рядом канон
+// таблиц (`scripts/etalon-sync/canon.cjs`: 21 контрольный условный формат,
+// проверка ввода, эталонные формулы) и канон продукта — и насчитала девять
+// мест, где книга красит ячейку красным, а продукт молчит. Причина слепоты
+// одна на все девять: продукт читает книгу ЗНАЧЕНИЯМИ и никогда не читал ни
+// условных форматов, ни проверки ввода — то есть половина правил, по которым
+// живёт оператор, у него просто не существовала.
+//
+// ПОЧЕМУ ЗДЕСЬ, А НЕ В ПРИЗНАКАХ СТРОКИ. Предмет каждого правила ниже — ЯЧЕЙКА
+// и её заполнение («здесь не дата», «здесь не число», «здесь не слово из
+// словаря»), а не аналитический вывод о ходе закупки. Это ровно тот род,
+// который RULE_BOOK и держит: validate.ts рождает по нему замечание с адресом
+// ячейки, а паспорт (CHECK_REGISTRY, тот же id) объясняет класс читателю.
+// Признаки строки (@aemr/core signals.ts) остаются про смысл закупки.
+//
+// ГЕЙТ ВСЕХ ПРАВИЛ — «в графе A стоит номер закупки»: ровно так гейтит себя и
+// сама книга (`=AND($A4<>""; …)` в каждом контрольном условном формате).
+// Пустой хвост листа и служебная разметка номера не носят, и правила их не
+// трогают — этот же урок отдельно оплачен приёмкой 30.08.2026, где ручной
+// инструмент счёл дырами 58 пустых строк хвоста УО.
+// ============================================================
+
+/**
+ * Счётная строка КНИГИ: в графе A стоит номер закупки.
+ * Тот же предикат, которым гейтит себя каждый контрольный условный формат.
+ */
+function hasRowNumber(cells: Record<string, unknown>): boolean {
+  return String(cells['A'] ?? '').trim() !== '';
+}
+
+/**
+ * Номер суток из ячейки-даты — тем же рецептом, что у движка признаков
+ * (@aemr/core signals.ts, toDayNumber): сперва TZ-инвариантный `dayNumberOf`,
+ * затем `parseSheetDate` для экзотических записей, которые понимает только
+ * `new Date`. Рецепт повторён СОЗНАТЕЛЬНО и обязан оставаться тем же: если
+ * правило листа начнёт считать датой не то, что считает движок, вернётся класс
+ * «два канона одного понятия» — ровно он и чинился 30.08.2026 по пустоте даты
+ * факта. Обе половины рецепта живут в @aemr/shared, своего разбора здесь нет.
+ */
+function dayOfDateCell(value: unknown): number | null {
+  const day = dayNumberOf(value);
+  if (day !== null) return day;
+  const parsed = parseSheetDate(value);
+  return parsed ? dayNumberOf(parsed) : null;
+}
+
+/**
+ * ОПОЗДАНИЕ ПО СТРУКТУРЕ — число суток между плановой датой (N) и датой
+ * заключения (Q), когда факт позже плана; иначе null.
+ *
+ * Считается по РУКОПИСНЫМ графам N и Q, а не по производной графе T (канон
+ * п.93/45: первичны N и Q, T — формула от них). Перебитая T поэтому расчёт не
+ * искажает — и это не теория: матрица правил называет целостность T отдельной
+ * слепотой продукта, а формульный дамп 30.08.2026 нашёл живую перебитую T в
+ * книге УО (строка 2645, вбито 46255).
+ *
+ * Один расчёт на два правила — «исполнено с опозданием» и «просрочка без
+ * причины»: иначе одно и то же опоздание считалось бы двумя способами.
+ */
+function daysLateOfRow(cells: Record<string, unknown>): number | null {
+  const planDay = dayOfDateCell(cells['N']);
+  const factDay = dayOfDateCell(cells['Q']);
+  if (planDay === null || factDay === null) return null;
+  const diff = factDay - planDay;
+  return diff > 0 ? diff : null;
+}
+
+/** Русское склонение слова «день» по числу суток. */
+function daysWord(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 'дней';
+  switch (mod100 % 10) {
+    case 1: return 'день';
+    case 2:
+    case 3:
+    case 4: return 'дня';
+    default: return 'дней';
+  }
+}
+
+// ============================================================
+// ПРАВИЛО 15: Плановая дата не читается как дата (условный формат книги №6)
+// ============================================================
+const planDateGarbage: ValidationRule = {
+  id: 'plan_date_garbage',
+  name: 'Плановая дата не читается как дата',
+  description:
+    'Графа N (плановая дата) заполнена, но её значение не дата и не маркер ' +
+    'отсутствия «Х». Такая строка молча остаётся «без даты»: сроков у неё нет, ' +
+    'а признака дефекта — тоже.',
+  severity: 'error',
+  origin: 'spreadsheet_rule',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+    const raw = ctx.cells['N'];
+    // Пустая графа и маркер отсутствия — законные состояния, у них свои классы
+    // («не обеспечена финансированием»). Канон маркера — @aemr/shared
+    // absence.ts (п.62): «Х»/«X»/прочерк, ровно то, что пропускает и проверка
+    // ввода книги (`REGEXMATCH(...;"^[ХX]$")`).
+    if (isAbsentCell(raw)) return { passed: true };
+    if (dayOfDateCell(raw) !== null) return { passed: true };
+
+    const shown = String(raw).trim();
+    return {
+      passed: false,
+      message:
+        `N${ctx.rowIndex} = "${shown}" — не дата и не маркер отсутствия «Х». ` +
+        `Плановой даты у строки нет, а вместе с ней нет ни квартала, ни года ` +
+        `плана: строка выпадает из срезов и из контроля сроков, оставаясь на ` +
+        `вид заполненной.`,
+      cell: `N${ctx.rowIndex}`,
+      actual: shown,
+      expected: 'дата (дд.мм.гггг) либо маркер отсутствия «Х»',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 16: Число не читается числом (условные форматы книги №7, 8, 9)
+// H:J план, V:X факт, Z:AB остаток
+// ============================================================
+
+/** Денежные графы книги, обязанные нести число: план, факт, остаток. */
+const NUMERIC_BOOK_COLUMNS: ReadonlyArray<{ col: string; what: string }> = [
+  { col: 'H', what: 'план, федеральный бюджет' },
+  { col: 'I', what: 'план, краевой бюджет' },
+  { col: 'J', what: 'план, муниципальный бюджет' },
+  { col: 'V', what: 'факт, федеральный бюджет' },
+  { col: 'W', what: 'факт, краевой бюджет' },
+  { col: 'X', what: 'факт, муниципальный бюджет' },
+  { col: 'Z', what: 'остаток, федеральный бюджет' },
+  { col: 'AA', what: 'остаток, краевой бюджет' },
+  { col: 'AB', what: 'остаток, муниципальный бюджет' },
+];
+
+const numericCellUnreadable: ValidationRule = {
+  id: 'numeric_cell_unreadable',
+  name: 'Денежная графа заполнена не числом',
+  description:
+    'В графах сумм (H:J план, V:X факт, Z:AB остаток) стоит значение, которое ' +
+    'числом не читается. Сверки итогов такую графу молча пропускают, и строка ' +
+    'выпадает из сумм.',
+  severity: 'error',
+  origin: 'spreadsheet_rule',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+
+    const bad: Array<{ col: string; what: string; shown: string }> = [];
+    for (const { col, what } of NUMERIC_BOOK_COLUMNS) {
+      const raw = ctx.cells[col];
+      if (!hasData(raw)) continue;
+      if (toNumber(raw) !== null) continue;
+      bad.push({ col, what, shown: String(raw).trim() });
+    }
+    if (bad.length === 0) return { passed: true };
+
+    const list = bad.map(b => `${b.col}${ctx.rowIndex} = "${b.shown}" (${b.what})`).join('; ');
+    return {
+      passed: false,
+      message:
+        `Денежные графы строки заполнены не числом: ${list}. ` +
+        `Сверки итогов (K = H+I+J, Y = V+W+X, AC = Z+AA+AB) при нечитаемом ` +
+        `слагаемом молчат — расхождение не всплывёт нигде, а сумма строки ` +
+        `посчитается без этой графы.`,
+      cell: `${bad[0].col}${ctx.rowIndex}`,
+      actual: bad.map(b => `${b.col}="${b.shown}"`).join(', '),
+      expected: 'число (сумма в тыс. руб.) либо пустая ячейка',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 17: Мусор в графе «Статус» (условный формат книги №13)
+// ============================================================
+const economyFlagGarbage: ValidationRule = {
+  id: 'economy_flag_garbage',
+  name: 'Графа «Статус» заполнена не по словарю',
+  description:
+    'В графе «Статус» (AD) стоит значение, которого словарь книги не знает: ' +
+    'принимаются только «да» и «нет». Лист СВОД складывает экономию строго по ' +
+    '«да», поэтому любое иное слово для расчёта равно пустоте.',
+  severity: 'warning',
+  origin: 'spreadsheet_rule',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+    if (!isEconomyFlagGarbage(ctx.cells['AD'])) return { passed: true };
+
+    const shown = String(ctx.cells['AD']).trim();
+    return {
+      passed: false,
+      message:
+        `AD${ctx.rowIndex} = "${shown}" — словарь графы «Статус» знает только ` +
+        `«${ECONOMY_FLAG_BOOK_WORDS.join('» и «')}». Для расчёта такое значение ` +
+        `равно пустой ячейке: лист СВОД суммирует экономию по строкам с «да», ` +
+        `и строка в него не войдёт.`,
+      cell: `AD${ctx.rowIndex}`,
+      actual: shown,
+      expected: ECONOMY_FLAG_BOOK_WORDS.join(' | '),
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 18: Просрочка без причины (условные форматы книги №16, №17)
+// «Срок нарушен» в T либо дни просрочки > 0, а графа U пуста.
+// ============================================================
+const overdueReasonMissing: ValidationRule = {
+  id: 'overdue_reason_missing',
+  name: 'Срок нарушен, а причина (U) не заполнена',
+  description:
+    'Срок по строке нарушен — либо графа T говорит «Срок нарушен», либо дни ' +
+    'просрочки больше нуля, — а графа U (причина отклонения) пуста.',
+  severity: 'warning',
+  origin: 'spreadsheet_rule',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+
+    // Опоздание видно двумя путями. Структурный (даты N и Q) — основной, он не
+    // зависит от целостности формулы T. Графа T нужна для строк БЕЗ факта:
+    // там «нарушен ли срок» решают часы («сегодня» против плановой даты), а у
+    // правила листа часов нет — их держит формула книги, сравнивающая план с
+    // датой среза из настроек.
+    const late = daysLateOfRow(ctx.cells);
+    const verdictT = String(ctx.cells['T'] ?? '').trim().toLowerCase();
+    const daysT = toNumber(ctx.cells['T']);
+    const overdueByBook = verdictT.includes('срок нарушен') || (daysT !== null && daysT > 0);
+    if (late === null && !overdueByBook) return { passed: true };
+
+    // ПУСТОТА — СТРУКТУРНАЯ, СОДЕРЖИМОЕ НЕ ЧИТАЕТСЯ. Канон п.27 запрещает
+    // машинно толковать свободный текст исполнителя (U «Причина отклонения»),
+    // но не запрещает видеть, что графы нет вовсе: ровно так же продукт
+    // проверяет заполненность обоснования ЕП (M). Маркер отсутствия «Х»
+    // считается незаполненностью — канон п.62.
+    if (!isAbsentCell(ctx.cells['U'])) return { passed: true };
+
+    const howLate = late !== null
+      ? `Заключение позже плановой даты на ${late} ${daysWord(late)}.`
+      : 'Плановая дата прошла, факта нет.';
+    return {
+      passed: false,
+      message:
+        `U${ctx.rowIndex} пуста, а срок по строке нарушен. ${howLate} ` +
+        `Причина отклонения — единственное место, где объясняется срыв: без ` +
+        `неё строка приходит в отчёт руководству голой просрочкой. Содержимое ` +
+        `графы продукт не толкует (канон п.27) — проверяется только сам факт ` +
+        `пустоты.`,
+      cell: `U${ctx.rowIndex}`,
+      actual: null,
+      expected: 'причина отклонения от планового срока',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 19: Исполнено с опозданием (визуальный слой книги — дни в T > 0)
+// ============================================================
+const lateSigned: ValidationRule = {
+  id: 'late_signed',
+  name: 'Исполнено с опозданием',
+  description:
+    'Договор заключён (дата в Q) позже плановой даты (N). Строка закрыта, но ' +
+    'срок сорван — признак просрочки у неё гаснет вместе с появлением факта.',
+  severity: 'warning',
+  origin: 'bi_heuristic',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+    const late = daysLateOfRow(ctx.cells);
+    if (late === null) return { passed: true };
+
+    return {
+      passed: false,
+      message:
+        `Заключение (Q${ctx.rowIndex}) позже плановой даты (N${ctx.rowIndex}) ` +
+        `на ${late} ${daysWord(late)}. Это не упрёк, а факт исполнения: строка ` +
+        `состоялась, и признак просрочки по ней погас — до этой проверки ` +
+        `закрытая с нарушением срока закупка выглядела чистой.`,
+      cell: `Q${ctx.rowIndex}`,
+      actual: `+${late} ${daysWord(late)}`,
+      expected: 'заключение не позже плановой даты (N)',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 20: Вне периметра 44-ФЗ (условные форматы книги №20, №21)
+// ============================================================
+
+/**
+ * Названа ли в тексте ячейки закупка по другому закону.
+ *
+ * ЕДИНСТВЕННЫЙ ДОМ ВЫРАЖЕНИЙ — запись `EP_LAW_223` словаря причин ЕП: и это
+ * правило, и жетон Реестра (@aemr/web lib/rows/outside-44fz.ts) берут образцы
+ * оттуда. Второй набор выражений завёл бы второй канон, и «223» на двух
+ * поверхностях считался бы по-разному — ровно тот класс дефекта, который эта
+ * волна и убирает.
+ *
+ * Почему выражения напрямую, а не `canonicalizeReasonEp`: канонизация
+ * возвращает ПЕРВЫЙ совпавший кластер из пятнадцати по фиксированному порядку,
+ * и причина «аукцион не состоялся, закупаем по положению о закупках» ушла бы в
+ * кластер несостоявшегося аукциона — метка периметра пропала бы. Вопрос здесь
+ * другой: относится ли строка к другому закону ВООБЩЕ, и ответ не должен
+ * зависеть от того, чем ещё объяснена строка.
+ */
+function mentionsLaw223(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const cleaned = raw.trim();
+  if (cleaned === '') return false;
+  const normalized = cleaned.toLowerCase().replace(/\s+/g, ' ');
+  return EP_REASON_DICT.EP_LAW_223.regex.some(re => re.test(normalized));
+}
+
+const outOf44fzPerimeter: ValidationRule = {
+  id: 'out_of_44fz_perimeter',
+  name: 'Закупка вне периметра 44-ФЗ (223-ФЗ)',
+  description:
+    'Строка живёт в книге 44-ФЗ, а закупка идёт по 223-ФЗ: либо в графе ' +
+    'обоснования (M) назван другой закон, либо он назван в примечании ГРБС ' +
+    '(AF) при способе не ЕП. Образцы — из словаря причин ЕП, запись «Закупка ' +
+    'по 223-ФЗ». Гейт «не ЕП» стоит только на примечании и повторяет условный ' +
+    'формат книги: у единственного поставщика 223-ФЗ в примечании — норма, а не ' +
+    'нарушение. Жетон строки в Реестре шире (он о принадлежности, а не о ' +
+    'нарушении) и такую строку всё равно метит — расхождение намеренное.',
+  severity: 'info',
+  origin: 'bi_heuristic',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+
+    // Графа M — обязательное правовое поле (основание выбора ЕП), а не
+    // комментарий: её продукт разбирает словарём кластеров с самого начала.
+    const byReason = mentionsLaw223(ctx.cells['M']);
+
+    // Графа AF — свободный текст, и канон п.27 запрещает ТОЛКОВАТЬ его. Здесь
+    // толкования нет: ищется названная ссылка на другой закон, как ищет её и
+    // сама книга. Тот же узкий приём уже применён к маркеру инициативной
+    // заявки. Гейт «способ не ЕП» — из условного формата книги: у ЕП ссылка на
+    // 223-ФЗ обычно часть правового основания, а не признак чужого периметра.
+    const method = String(ctx.cells['L'] ?? '').trim().toLowerCase();
+    const isEp = method.includes('еп') || method.includes('единствен');
+    const byComment = !isEp && mentionsLaw223(ctx.cells['AF']);
+
+    if (!byReason && !byComment) return { passed: true };
+
+    const where = byReason
+      ? `в графе обоснования (M) назван 223-ФЗ либо положение о закупках`
+      : `в примечании ГРБС (AF) назван 223-ФЗ, а способ закупки — не ЕП`;
+    return {
+      passed: false,
+      message:
+        `Строка помечена как закупка вне периметра 44-ФЗ: ${where}. ` +
+        `Это не дефект книги, а род строки: закупка по 223-ФЗ живёт по другому ` +
+        `закону, и её план с фактом попадают в счёты исполнения 44-ФЗ наравне ` +
+        `с остальными. Исключением таких строк из счётов управляет отдельный ` +
+        `переключатель «показать вместе» (решение владельца §22 п.5); пока он ` +
+        `не введён, признак только называет строки, чтобы их можно было ` +
+        `показать целиком.`,
+      cell: byReason ? `M${ctx.rowIndex}` : `AF${ctx.rowIndex}`,
+      actual: String((byReason ? ctx.cells['M'] : ctx.cells['AF']) ?? '').trim(),
+      expected: 'закупка в периметре 44-ФЗ либо явная пометка иного периметра',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 21: Экономия по компонентам (эталон формул книги)
+// Z = H − V, AA = I − W, AB = J − X; при отсутствии даты факта — ноль.
+// ============================================================
+
+/** Тройка «остаток ← план − факт» по уровням бюджета. */
+const ECONOMY_COMPONENT_TRIPLES: ReadonlyArray<{
+  rest: string; plan: string; fact: string; what: string;
+}> = [
+  { rest: 'Z', plan: 'H', fact: 'V', what: 'федеральный бюджет' },
+  { rest: 'AA', plan: 'I', fact: 'W', what: 'краевой бюджет' },
+  { rest: 'AB', plan: 'J', fact: 'X', what: 'муниципальный бюджет' },
+];
+
+const economyComponents: ValidationRule = {
+  id: 'economy_components',
+  name: 'Экономия по компонентам не равна «план − факт»',
+  description:
+    'Остаток по каждому уровню бюджета обязан равняться разности плана и ' +
+    'факта: Z = H − V, AA = I − W, AB = J − X; пока даты заключения нет, все ' +
+    'три равны нулю. Допуск — 5 руб., как у прочих сверок книги.',
+  severity: 'error',
+  origin: 'spreadsheet_rule',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+    const TOLERANCE = SUM_TOLERANCE_THOUSAND_RUB;
+
+    // Пустота даты факта — ЕДИНЫЙ ДОМ канона (@aemr/shared fact-date.ts): в
+    // книге заглушкой обычно стоит «Х», но канон знает все девять её написаний,
+    // и сверять их здесь заново значило бы завести второй дом одного понятия.
+    const factSigned = hasFactDate(ctx.cells['Q']);
+
+    const bad: string[] = [];
+    for (const { rest, plan, fact, what } of ECONOMY_COMPONENT_TRIPLES) {
+      const restVal = toNumber(ctx.cells[rest]);
+      if (restVal === null) continue;
+
+      let expected: number;
+      if (!factSigned) {
+        // Договора нет — тратить было нечего, остаток равен нулю. Это не наша
+        // выдумка, а эталонная формула самой книги.
+        expected = 0;
+      } else {
+        const planVal = toNumber(ctx.cells[plan]);
+        const factVal = toNumber(ctx.cells[fact]);
+        // Нечитаемое слагаемое — предмет соседнего правила
+        // (numeric_cell_unreadable), здесь молчим, чтобы не судить дважды.
+        if (planVal === null || factVal === null) continue;
+        expected = planVal - factVal;
+      }
+
+      const diff = Math.abs(restVal - expected);
+      if (diff <= TOLERANCE) continue;
+      bad.push(
+        `${rest}${ctx.rowIndex} (${what}) = ${restVal}, ожидалось ${expected}` +
+        (factSigned ? ` (${plan} − ${fact})` : ' (даты заключения нет)') +
+        `; разница ${diffToRubText(diff)} руб.`,
+      );
+    }
+    if (bad.length === 0) return { passed: true };
+
+    return {
+      passed: false,
+      message:
+        `Экономия по компонентам не сходится с «план − факт»: ${bad.join(' ')} ` +
+        `(допуск ${SUM_TOLERANCE_RUB} руб.). Сверка итога экономии ` +
+        `(AC = Z + AA + AB) такую строку пропускает: тройка между собой сходится, ` +
+        `а сумма в ней вбита не та.`,
+      cell: `${ECONOMY_COMPONENT_TRIPLES[0].rest}${ctx.rowIndex}`,
+      actual: bad.length,
+      expected: 'Z = H − V, AA = I − W, AB = J − X (без даты заключения — нули)',
+    };
+  },
+};
+
+// ============================================================
+// ПРАВИЛО 22: Способ закупки не указан (условный формат книги №3)
+// ============================================================
+const methodMissing: ValidationRule = {
+  id: 'method_missing',
+  name: 'Способ закупки (L) не указан',
+  description:
+    'В графе A стоит номер закупки, а графа L (способ закупки) пуста. Без ' +
+    'способа строка не относится ни к единственному поставщику, ни к аукциону: ' +
+    'правовой режим закупки неизвестен.',
+  severity: 'error',
+  origin: 'spreadsheet_rule',
+  scope: 'department',
+  params: {},
+  check(ctx: RuleCheckContext): RuleCheckResult {
+    if (!hasRowNumber(ctx.cells)) return { passed: true };
+    // Строго пустота, а не маркер отсутствия: «Х» в графе способа — уже
+    // недопустимое ЗНАЧЕНИЕ, и о нём говорит method_validation. Два замечания
+    // об одной ячейке читателю не помогают.
+    if (String(ctx.cells['L'] ?? '').trim() !== '') return { passed: true };
+
+    return {
+      passed: false,
+      message:
+        `L${ctx.rowIndex} пуста — способ закупки не указан, хотя строка ` +
+        `счётная (№ ${String(ctx.cells['A']).trim()}). Без способа по строке ` +
+        `не считаются ни лимит единственного поставщика, ни ожидание «план ` +
+        `равен факту», ни род экономии: она молча выпадает из всех разборов по ` +
+        `способу. Допустимые значения книги ГРБС: ${GRBS_BOOK_METHODS.join(', ')}.`,
+      cell: `L${ctx.rowIndex}`,
+      actual: null,
+      expected: GRBS_BOOK_METHODS.join(' | '),
+    };
+  },
+};
+
+// ============================================================
 // ПРАВИЛО 12: УДАЛЕНО — dept_fact_leq_plan
-// Дублировало сигнал factExceedsPlan (signals.ts, порог 10%).
+// Дублировало сигнал factExceedsPlan (signals.ts, допуск округления 0,5%).
 // Проверка Y>K на dept sheets выполняется ТОЛЬКО через signal → Issue.
 // Правило fact_leq_plan (СВОД, E>D, кол-во) остаётся — другой scope и предмет.
 // ============================================================
@@ -906,13 +1496,23 @@ export const RULE_BOOK: ValidationRule[] = [
   economySignCheck,          // 9  -- U>=0 (bi_heuristic: negative economy)
 
   // -- Только листы подразделений --
-  methodValidation,          // 6  -- L in {ЭА,ЕП,ЭК,ЭЗК} (COUNTIFS criterion)
+  methodValidation,          // 6  -- L in {ЕП,ЭА} — словарь КНИГИ ГРБС (§22 п.1)
   typeValidation,            // 7  -- F in {ТД,ПМ} (COUNTIFS X$37 criterion)
   statusOnDataRows,          // 8  -- «Экономия без отметки»: канон economy-flag.ts
   deptFactSumConsistency,    // 10 -- Y=V+W+X (dept fact total)
   deptEconomySumConsistency, // 11 -- AC=Z+AA+AB (dept economy total)
   rowNumbering,              // 13 -- № п/п (A): дубли/пропуски/пустые, одна карточка на лист (п.98з)
   textHygiene,               // 14 -- гигиена текста C/G: одна карточка на лист с готовыми исправлениями (п.98д)
+
+  // -- Обмотка над книгой (§22, 30.08.2026): девять слепот продукта --
+  planDateGarbage,           // 15 -- N не дата и не «Х» (условный формат книги №6)
+  numericCellUnreadable,     // 16 -- H:J, V:X, Z:AB не числа (№7, №8, №9)
+  economyFlagGarbage,        // 17 -- AD не «да»/«нет» (№13)
+  overdueReasonMissing,      // 18 -- срок нарушен, причина U пуста (№16, №17)
+  lateSigned,                // 19 -- заключено позже плановой даты (дни в T > 0)
+  outOf44fzPerimeter,        // 20 -- 223-ФЗ в M или AF при способе не ЕП (№20, №21)
+  economyComponents,         // 21 -- Z=H−V, AA=I−W, AB=J−X (эталон формул книги)
+  methodMissing,             // 22 -- пустой способ L при непустом номере A (№3)
   // deptFactLeqPlan УДАЛЁН (#12) — дубль сигнала factExceedsPlan
   // formulaContinuity УДАЛЁН (#13) — дублирует budget_sum_plan (#1a) + dept_fact_sum (#10)
 ];
