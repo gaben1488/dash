@@ -179,7 +179,8 @@ html.light .бейдж.нет{color:#96412f}
   animation:дыхание 9s ease-in-out infinite alternate;
   animation-delay:calc(var(--и,0) * -1.7s); /* рассинхрон: линейка не дышит строем */
 }
-@keyframes дыхание{from{transform:translateY(-4%)}to{transform:translateY(-10%)}}
+/* амплитуда поднята по поправке владельца 29.08 (§21.1 п.7а-2): движение обязано быть видно */
+@keyframes дыхание{from{transform:translateY(-3%)}to{transform:translateY(-16%)}}
 /* отклик на мышь: круг светлого неба едет к курсору (§2.2) */
 .живой::after{
   content:'';position:absolute;left:-70px;top:-70px;width:140px;height:140px;z-index:1;
@@ -577,6 +578,70 @@ html.light .бейдж.нет{color:#96412f}
   background:linear-gradient(180deg, rgba(91,153,248,.10), rgba(143,117,73,0) 90%);
 }
 
+/* ══════════ 0. ГЕРОЙ-ДЫХАНИЕ (поправка владельца §21.1 п.7а-2) ══════════ */
+.герой{margin-top:26px}
+.герой-ряд{display:flex;gap:20px;flex-wrap:wrap;align-items:center}
+.живой.г-крупный{min-height:68px;min-width:170px;font-size:19px;padding:14px 34px;border-radius:18px}
+.живой.г-крупный.ф-пилюля{border-radius:999px}
+.живой.г-крупный.ф-год{min-height:76px;font-size:21px}
+.живой.г-крупный::before{animation-name:дыхание-героя}
+/* герой дышит шире ряда §2: −2%…−30% слоя 300% — рассвет ходит от неба до бронзы */
+@keyframes дыхание-героя{from{transform:translateY(-2%)}to{transform:translateY(-30%)}}
+.герой-подпись{margin-top:10px;font-size:13.5px;font-weight:750;color:var(--чернила2)}
+.герой-подпись span{font-weight:500;color:var(--чернила3)}
+
+/* дыхание клеток матрицы — колонки «покой» и «включено» (та же поправка 7а-2) */
+.км-предмет.км-дыхание{overflow:hidden}
+.км-дыхание>*{position:relative;z-index:2}
+.км-дыхание::before{
+  content:'';position:absolute;left:0;right:0;top:0;height:300%;z-index:0;
+  background:linear-gradient(var(--уг,180deg), var(--нб) 0%, var(--нб) 8%, var(--гр) 42%, var(--гр) 100%);
+  transform:translateY(-3%);
+  animation:дыхание 9s ease-in-out infinite alternate;
+  animation-delay:calc(var(--и,0) * -1.7s);
+}
+
+/* ══════════ СВЕРКА С ЖИВЫМ ОБРАЗЦОМ 7–10.08 (поправка 7а-1) ══════════ */
+.св-таблица{border-collapse:collapse;min-width:1500px;font-size:11.5px;line-height:1.45}
+.св-таблица th,.св-таблица td{border:1px solid var(--линия);padding:7px 10px;text-align:left;vertical-align:top}
+.св-таблица th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--чернила3);background:var(--с2);white-space:nowrap}
+.св-таблица td{color:var(--чернила3)}
+.св-таблица td b{color:var(--чернила2)}
+.св-таблица code{font-family:ui-monospace,'Consolas',monospace;font-size:10px;color:var(--чернила2)}
+.вердикт-крупно{margin-top:14px;font-size:16.5px;font-weight:750;line-height:1.55;color:var(--чернила);
+  border-left:4px solid var(--латунь);padding:12px 16px;background:var(--с2);border-radius:0 12px 12px 0}
+.вердикт-крупно b{color:var(--латунь)}
+.помета-уточн{display:inline-block;font-size:10px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;
+  border:1px dashed var(--латунь);color:var(--латунь);border-radius:999px;padding:2px 9px;vertical-align:2px;white-space:nowrap}
+.св-вердикты{margin-top:10px;display:grid;gap:10px}
+.св-вердикты p{font-size:12.5px;color:var(--чернила3);max-width:110ch}
+.св-вердикты p b{color:var(--чернила2)}
+.рк-метка{margin:14px 0 8px;font-size:12.5px;font-weight:750;color:var(--чернила2)}
+.рк-метка span{display:block;color:var(--чернила4);font-weight:500;font-size:11px;max-width:110ch;margin-top:2px}
+/* адаптация вставки (правила эпохи не тронуты): рамка стенда, прокрутка ряда снаружи */
+.рк-обр{border-radius:12px;border:1px solid var(--линия);min-width:max-content}
+.рк-обр .hbar{overflow:visible}
+/* фрагмент Б: те же предметы парами §20 (уточняются по снимку) — перекраска поверх дословных правил */
+.рк-п20.рк-п20 .tg-month-active{background:linear-gradient(180deg,#5b99f8 0%,#9d8150 100%);color:#1b170f;text-shadow:none}
+.рк-п20.рк-п20 .tg-month-active:hover{background:linear-gradient(180deg,#6ba3f9 0%,#bfa161 100%)}
+.рк-п20.рк-п20 .tg-year-full{background:linear-gradient(135deg,#5b99f8 0%,#bfa161 100%);color:#1b170f;text-shadow:none}
+.рк-п20.рк-п20 .tg-year-full:hover{background:linear-gradient(135deg,#6ba3f9 0%,#c9ad72 100%)}
+.рк-п20.рк-п20 .tg-quarter-tab-full{background:linear-gradient(180deg,#e5d3a9 0%,#d6bf85 100%);color:#1b170f;text-shadow:none;border-radius:3px}
+.рк-п20.рк-п20 .wr-row-active::before{background:linear-gradient(180deg,#5b99f8 0%,#9d8150 100%);border-top-color:transparent;border-bottom-color:transparent;z-index:-1}
+.рк-п20.рк-п20 .wr-row-active .wr-range,.рк-п20.рк-п20 .wr-row-active .wr-month,.рк-п20.рк-п20 .wr-row-active .wr-wnum{color:#1b170f;text-shadow:none}
+.рк-п20.рк-п20 .vf-cur-active{color:#1b170f !important;background:linear-gradient(180deg,#e5d3a9 0%,#9d8150 100%) !important;text-shadow:none !important}
+
+/* ══════════ СЕМЕЙСТВА ВКЛАДОК (поправка 7а-3: догма горизонта отменена) ══════════ */
+.семейство{margin-top:18px;border-radius:16px;border:1px solid var(--линия);padding:16px;background:var(--с1)}
+.семейство header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.семейство .идея{font-size:12px;color:var(--чернила3);margin-top:5px;max-width:110ch}
+.семья-ряд{display:flex;gap:16px;align-items:flex-start;margin-top:14px;min-width:max-content}
+.семья-кнопка{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}
+.семья-кнопка .живой{min-height:40px;min-width:104px}
+.семья-образ{font-size:10.5px;color:var(--чернила3);max-width:158px;line-height:1.35}
+.семья-мета{font-size:9px;color:var(--чернила4);font-family:ui-monospace,'Consolas',monospace;white-space:nowrap}
+.семейство .небеса{flex-wrap:nowrap;min-width:max-content}
+
 /* подвал */
 .подвал{margin-top:52px;font-size:11px;color:var(--чернила4);border-top:1px solid var(--линия);padding-top:14px;max-width:86ch}
 
@@ -585,8 +650,746 @@ html.light .бейдж.нет{color:#96412f}
   *,*::before,*::after{animation:none !important;transition:none !important}
   .живой::after{display:none} /* точка отклика не движется — её нет */
   .живой::before{display:none} /* дышащий слой убран целиком */
+  .км-дыхание::before{display:none} /* клетки матрицы гаснут на статичную пару инлайн-фона */
   .живой{background:linear-gradient(var(--уг,180deg), var(--небо) 0%, var(--гор) 100%)} /* предмет стоит на статичной паре §20.1 */
   .живой:hover{--небо:var(--небо-н,var(--небо-п));--гор:var(--гор-н,var(--гор-п))} /* мгновенная смена пары */
+}
+</style>
+<style>
+/* ════════════════════════════════════════════════════════════════════════
+   РЕКОНСТРУКЦИЯ 853548a «кремовый хром вместо графитового» (07.08.2026).
+   Все правила скопированы ДОСЛОВНО из packages/web/src/index.css@853548a
+   (@apply развёрнут построчно, значения Tailwind v3; ни один цвет/градиент/
+   тень не пересказан — байт в байт из коммита). Единственная адаптация к
+   вставке в выставку: правила обёрнуты в @scope (.рк-обр), html/body-правила
+   перенесены на :scope — сами объявления не тронуты. Сцена всегда тёмная
+   (класс dark на внутренней обёртке — scoped-селекторы .dark X требуют потомка):
+   живой образец 7–10.08 — тёмная тема.
+   ════════════════════════════════════════════════════════════════════════ */
+@scope (.рк-обр) {
+  /* Tailwind preflight (фрагмент, как в проде): кнопка без своего фона/рамки */
+  *, *::before, *::after { box-sizing: border-box; border-width: 0; border-style: solid; }
+  button { background-color: transparent; background-image: none; border: 0; padding: 0; margin: 0;
+           font-family: inherit; font-size: 100%; font-weight: inherit; line-height: inherit; color: inherit; }
+
+  /* .dark * { border-color: zinc.800 } — base layer 853548a */
+  .dark *, .dark *::before, .dark *::after { border-color: #27272a; }
+
+  /* html + body @853548a: bg-zinc-950, text-zinc-100 */
+  :scope {
+    margin: 0;
+    font-size: 16px;
+    background: #09090b;      /* zinc-950 — тёмный фон эпохи */
+    color: #f4f4f5;           /* zinc-100 */
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'calt', 'liga';
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.011em;
+    line-height: 1.6;
+  }
+
+  /* ── HEADER GLASS (дословно) ── */
+  .header-glass {
+    backdrop-filter: blur(24px);
+    background: rgba(255, 255, 255, 0.82);
+    border-bottom: 1px solid rgba(228, 228, 231, 0.5);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.02),
+      0 4px 12px rgba(0, 0, 0, 0.01);
+  }
+  .dark .header-glass {
+    background: rgba(24, 24, 27, 0.82);
+    border-bottom-color: rgba(63, 63, 70, 0.4);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.15),
+      0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  /* ── HBAR (дословно) ── */
+  .hbar {
+    display: flex; align-items: center;
+    padding: 4px 10px;
+    gap: 6px;
+    border-bottom: 1px solid rgba(228, 228, 231, 0.25);
+    min-height: 42px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .hbar::-webkit-scrollbar { display: none; }
+  .dark .hbar { border-bottom-color: rgba(63, 63, 70, 0.25); }
+  .hbar .time-machine {
+    display: flex; align-items: center; flex-shrink: 0;
+    gap: 4px;
+  }
+
+  /* ── TIME MACHINE (дословно) ── */
+  .time-machine {
+    position: relative; display: flex; align-items: stretch; user-select: none;
+    gap: 4px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    padding: 0;
+  }
+  .time-machine::before { display: none; }
+
+  /* Right drum (years/months) — deep 3D glass (дословно) */
+  .tg-drum {
+    position: relative; display: flex; flex-direction: column; user-select: none; overflow: hidden;
+    border-radius: 14px;
+    padding: 2px 4px 2px 4px;
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.09) 0%,
+        rgba(255, 255, 255, 0.03) 40%,
+        rgba(255, 255, 255, 0.01) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+      inset 0 2px 4px rgba(255, 255, 255, 0.03),
+      0 2px 4px rgba(0, 0, 0, 0.06),
+      0 4px 12px rgba(0, 0, 0, 0.08),
+      0 8px 24px rgba(0, 0, 0, 0.05),
+      0 0 16px rgba(191, 161, 97, 0.05),
+      0 0 32px rgba(191, 161, 97, 0.02);
+  }
+  .dark .tg-drum {
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.07) 0%,
+        rgba(255, 255, 255, 0.02) 40%,
+        rgba(255, 255, 255, 0.005) 100%
+      );
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+      inset 0 2px 4px rgba(255, 255, 255, 0.02),
+      0 2px 6px rgba(0, 0, 0, 0.15),
+      0 4px 14px rgba(0, 0, 0, 0.12),
+      0 8px 28px rgba(0, 0, 0, 0.08),
+      0 0 18px rgba(191, 161, 97, 0.06),
+      0 0 36px rgba(191, 161, 97, 0.03);
+  }
+
+  .tg-drum-reset {
+    position: absolute; display: flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    top: 3px;
+    right: 4px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    color: rgba(161, 161, 170, 0.3);
+    z-index: 3;
+  }
+  .tg-drum-reset:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    transform: scale(1.15);
+  }
+  .dark .tg-drum-reset:hover { background: rgba(239, 68, 68, 0.15); }
+
+  /* ═══ Year rows (дословно) ═══ */
+  .tg-row {
+    display: flex; align-items: center; gap: 3px;
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    height: 22px;
+  }
+  .tg-row + .tg-row { margin-top: 1px; }
+
+  .tg-row-first, .tg-row-last {
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 180ms ease, filter 180ms ease;
+    filter: blur(0.2px);
+  }
+  .tg-row-first {
+    transform: perspective(300px) rotateX(8deg) scale(0.95);
+    opacity: 0.45;
+    transform-origin: center bottom;
+  }
+  .tg-row-last {
+    transform: perspective(300px) rotateX(-8deg) scale(0.95);
+    opacity: 0.45;
+    transform-origin: center top;
+  }
+  .tg-row-first:hover {
+    opacity: 0.75;
+    filter: blur(0px);
+    transform: perspective(300px) rotateX(4deg) scale(0.97);
+  }
+  .tg-row-last:hover {
+    opacity: 0.75;
+    filter: blur(0px);
+    transform: perspective(300px) rotateX(-4deg) scale(0.97);
+  }
+
+  .tg-row-active {
+    position: relative;
+    opacity: 1 !important;
+    transform: scale(1) !important;
+    filter: none !important;
+    z-index: 1;
+  }
+  .tg-row-active::before {
+    content: '';
+    position: absolute;
+    inset: -2px -5px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: 0 0 12px rgba(191, 161, 97, 0.04),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    pointer-events: none;
+  }
+  .dark .tg-row-active::before {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+    border-top-color: rgba(255, 255, 255, 0.08);
+    border-bottom-color: rgba(255, 255, 255, 0.04);
+    box-shadow: 0 0 16px rgba(191, 161, 97, 0.05),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Year label (дословно) */
+  .tg-year {
+    flex-shrink: 0; border-radius: 6px; font-weight: 700; font-variant-numeric: tabular-nums;
+    cursor: pointer; user-select: none;
+    width: 36px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    letter-spacing: -0.01em;
+    transition: all 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .tg-year-idle { color: rgba(161, 161, 170, 0.55); }
+  .tg-year-idle:hover {
+    color: rgba(214, 191, 133, 0.85);
+    background: rgba(191, 161, 97, 0.06);
+    text-shadow: 0 0 8px rgba(191, 161, 97, 0.2);
+  }
+  .dark .tg-year-idle { color: rgba(113, 113, 122, 0.45); }
+  .dark .tg-year-idle:hover {
+    color: rgba(229, 211, 169, 0.85);
+    background: rgba(191, 161, 97, 0.08);
+    text-shadow: 0 0 10px rgba(214, 191, 133, 0.25);
+  }
+  .tg-year-partial {
+    color: rgba(214, 191, 133, 0.8);
+    text-shadow: 0 0 6px rgba(191, 161, 97, 0.15);
+  }
+  .dark .tg-year-partial {
+    color: rgba(229, 211, 169, 0.7);
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+  }
+  .tg-year-full {
+    color: #fff;
+    background: linear-gradient(135deg, #4d8ef7 0%, #8f7549 100%);
+    box-shadow:
+      0 1px 4px rgba(143, 117, 73, 0.35),
+      0 0 12px rgba(191, 161, 97, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    font-weight: 800;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  }
+  .tg-year-full:hover {
+    background: linear-gradient(135deg, #5b99f8 0%, #bfa161 100%);
+    box-shadow:
+      0 2px 8px rgba(143, 117, 73, 0.4),
+      0 0 20px rgba(191, 161, 97, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    transform: scale(1.04);
+  }
+
+  /* Quarter group (дословно) */
+  .tg-quarter {
+    display: flex; align-items: center; border-radius: 6px;
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
+    padding: 1px 2px;
+    gap: 1px;
+  }
+  .tg-quarter-idle { border-color: rgba(228, 228, 231, 0.2); }
+  .dark .tg-quarter-idle { border-color: rgba(63, 63, 70, 0.2); }
+  .tg-quarter-idle:hover { border-color: rgba(228, 228, 231, 0.45); }
+  .dark .tg-quarter-idle:hover { border-color: rgba(63, 63, 70, 0.4); }
+  .tg-quarter-full {
+    border-color: rgba(191, 161, 97, 0.3);
+    background: rgba(191, 161, 97, 0.04);
+    box-shadow: 0 0 10px rgba(191, 161, 97, 0.06),
+                inset 0 0 6px rgba(191, 161, 97, 0.03);
+  }
+  .dark .tg-quarter-full {
+    border-color: rgba(214, 191, 133, 0.22);
+    background: rgba(191, 161, 97, 0.05);
+    box-shadow: 0 0 12px rgba(191, 161, 97, 0.06),
+                inset 0 0 8px rgba(191, 161, 97, 0.03);
+  }
+  .tg-quarter-partial {
+    border-color: rgba(191, 161, 97, 0.12);
+    background: rgba(191, 161, 97, 0.015);
+  }
+  .dark .tg-quarter-partial {
+    border-color: rgba(191, 161, 97, 0.08);
+    background: rgba(191, 161, 97, 0.02);
+  }
+
+  /* Quarter tab (дословно) */
+  .tg-quarter-tab {
+    height: 18px; padding-left: 3px; padding-right: 3px; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0; user-select: none;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    min-width: 16px;
+  }
+  .tg-quarter-tab-idle { color: rgba(161, 161, 170, 0.35); }
+  .tg-quarter-tab-idle:hover { color: rgba(191, 161, 97, 0.6); }
+  .dark .tg-quarter-tab-idle { color: rgba(113, 113, 122, 0.3); }
+  .dark .tg-quarter-tab-idle:hover { color: rgba(214, 191, 133, 0.5); }
+  .tg-quarter-tab-partial { color: rgba(191, 161, 97, 0.55); }
+  .dark .tg-quarter-tab-partial { color: rgba(214, 191, 133, 0.45); }
+  .tg-quarter-tab-full {
+    color: #bfa161;
+    font-weight: 800;
+    text-shadow: 0 0 6px rgba(191, 161, 97, 0.2);
+  }
+  .dark .tg-quarter-tab-full {
+    color: #d6bf85;
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.25);
+  }
+
+  /* Month cell (дословно) */
+  .tg-month {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none;
+    height: 18px;
+    min-width: 24px;
+    padding: 0 3px;
+    border-radius: 5px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    transition: all 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .tg-month:active {
+    transform: scale(0.88);
+    transition-duration: 60ms;
+  }
+  .tg-month-active {
+    color: #fff;
+    background: linear-gradient(180deg, #5b99f8 0%, #8f7549 100%);
+    box-shadow:
+      0 1px 3px rgba(143, 117, 73, 0.4),
+      0 0 8px rgba(191, 161, 97, 0.2),
+      0 0 0 0.5px rgba(143, 117, 73, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  .tg-month-active:hover {
+    background: linear-gradient(180deg, #6ba3f9 0%, #bfa161 100%);
+    box-shadow:
+      0 2px 6px rgba(143, 117, 73, 0.45),
+      0 0 14px rgba(191, 161, 97, 0.25),
+      0 0 0 0.5px rgba(143, 117, 73, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    transform: scale(1.06);
+  }
+  .tg-month-idle { color: rgba(113, 113, 122, 0.6); }
+  .dark .tg-month-idle { color: rgba(161, 161, 170, 0.4); }
+  .tg-month-idle:hover {
+    color: rgba(214, 191, 133, 0.9);
+    background: rgba(191, 161, 97, 0.06);
+    text-shadow: 0 0 6px rgba(191, 161, 97, 0.15);
+  }
+  .dark .tg-month-idle:hover {
+    color: rgba(229, 211, 169, 0.85);
+    background: rgba(191, 161, 97, 0.08);
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+  }
+
+  /* Current month dot (дословно) */
+  .tg-month-now { position: relative; }
+  .tg-month-now::after {
+    content: '';
+    position: absolute;
+    bottom: 0px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #d6bf85;
+    box-shadow: 0 0 6px rgba(191, 161, 97, 0.6), 0 0 12px rgba(191, 161, 97, 0.3);
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
+  .dark .tg-month-now::after {
+    background: #93bbfc;
+    box-shadow: 0 0 8px rgba(214, 191, 133, 0.7), 0 0 16px rgba(214, 191, 133, 0.3);
+  }
+  .tg-month-active.tg-month-now::after { display: none; }
+
+  .tg-month-focused {
+    box-shadow: 0 0 0 1.5px rgba(191, 161, 97, 0.3), 0 0 8px rgba(191, 161, 97, 0.1);
+    color: rgba(214, 191, 133, 0.8) !important;
+    text-shadow: 0 0 6px rgba(191, 161, 97, 0.15);
+  }
+  .dark .tg-month-focused {
+    box-shadow: 0 0 0 1.5px rgba(214, 191, 133, 0.25), 0 0 10px rgba(214, 191, 133, 0.12);
+    color: rgba(229, 211, 169, 0.75) !important;
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+  }
+
+  /* ── WEEK ROLLER (дословно) ── */
+  .wr-drum {
+    position: relative; display: flex; flex-direction: column; user-select: none;
+    overflow: hidden; justify-content: center;
+    width: 82px;
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.09) 0%,
+        rgba(255, 255, 255, 0.03) 40%,
+        rgba(255, 255, 255, 0.01) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    padding: 3px 6px;
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+      inset 0 2px 4px rgba(255, 255, 255, 0.03),
+      0 2px 4px rgba(0, 0, 0, 0.06),
+      0 4px 12px rgba(0, 0, 0, 0.08),
+      0 8px 24px rgba(0, 0, 0, 0.05),
+      0 0 16px rgba(191, 161, 97, 0.05),
+      0 0 32px rgba(191, 161, 97, 0.02);
+  }
+  .dark .wr-drum {
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.07) 0%,
+        rgba(255, 255, 255, 0.02) 40%,
+        rgba(255, 255, 255, 0.005) 100%
+      );
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+      inset 0 2px 4px rgba(255, 255, 255, 0.02),
+      0 2px 6px rgba(0, 0, 0, 0.15),
+      0 4px 14px rgba(0, 0, 0, 0.12),
+      0 8px 28px rgba(0, 0, 0, 0.08),
+      0 0 18px rgba(191, 161, 97, 0.06),
+      0 0 36px rgba(191, 161, 97, 0.03);
+  }
+  .wr-drum::before, .wr-drum::after { display: none; }
+
+  .wr-drum, .tg-drum {
+    transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
+                box-shadow 280ms cubic-bezier(0.23, 1, 0.32, 1),
+                border-color 280ms ease;
+  }
+  .wr-drum:hover, .tg-drum:hover {
+    transform: scale(1.01);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+      inset 0 2px 4px rgba(255, 255, 255, 0.04),
+      0 2px 4px rgba(0, 0, 0, 0.06),
+      0 4px 12px rgba(0, 0, 0, 0.08),
+      0 8px 24px rgba(0, 0, 0, 0.05),
+      0 0 24px rgba(191, 161, 97, 0.10),
+      0 0 48px rgba(191, 161, 97, 0.04) !important;
+  }
+  .dark .wr-drum:hover, .dark .tg-drum:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+      inset 0 2px 4px rgba(255, 255, 255, 0.03),
+      0 2px 6px rgba(0, 0, 0, 0.15),
+      0 4px 14px rgba(0, 0, 0, 0.12),
+      0 8px 28px rgba(0, 0, 0, 0.08),
+      0 0 28px rgba(191, 161, 97, 0.12),
+      0 0 56px rgba(191, 161, 97, 0.05) !important;
+  }
+
+  .wr-row-active::before, .tg-row-active::before {
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
+  .tg-month-active:not(:hover) {
+    animation: month-glow-pulse 2s ease-in-out infinite;
+  }
+
+  .wr-row {
+    display: flex; align-items: center; gap: 3px;
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    height: 22px;
+    padding: 0 2px;
+    position: relative;
+    z-index: 3;
+  }
+  .wr-row + .wr-row { margin-top: 1px; }
+  .wr-row-active { z-index: 4; }
+  .wr-row-active::before {
+    content: '';
+    position: absolute;
+    inset: -1px -3px;
+    border-radius: 6px;
+    background: rgba(191, 161, 97, 0.05);
+    border-top: 1px solid rgba(191, 161, 97, 0.1);
+    border-bottom: 1px solid rgba(191, 161, 97, 0.1);
+    box-shadow: 0 0 10px rgba(191, 161, 97, 0.04);
+    pointer-events: none;
+  }
+  .dark .wr-row-active::before {
+    background: rgba(191, 161, 97, 0.06);
+    border-top-color: rgba(214, 191, 133, 0.12);
+    border-bottom-color: rgba(214, 191, 133, 0.12);
+    box-shadow: 0 0 14px rgba(191, 161, 97, 0.05);
+  }
+  .wr-row-edge {
+    opacity: 0.45;
+    filter: blur(0.3px);
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 180ms ease, filter 180ms ease;
+  }
+  .wr-row:first-child.wr-row-edge {
+    transform: perspective(300px) rotateX(8deg) scale(0.94);
+    transform-origin: center bottom;
+  }
+  .wr-row:last-child.wr-row-edge {
+    transform: perspective(300px) rotateX(-8deg) scale(0.94);
+    transform-origin: center top;
+  }
+  .wr-row-edge:hover {
+    opacity: 0.7;
+    filter: blur(0px);
+    cursor: pointer;
+  }
+
+  .wr-wnum {
+    font-size: 8px;
+    font-weight: 700;
+    color: rgba(148, 163, 184, 0.5);
+    width: 18px;
+    text-align: right;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .wr-label {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    line-height: 1.15;
+  }
+  .wr-range {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.7);
+    white-space: nowrap;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .wr-month {
+    font-size: 8.5px;
+    font-weight: 500;
+    color: rgba(148, 163, 184, 0.55);
+    letter-spacing: 0.02em;
+  }
+  .wr-row-active .wr-range {
+    color: #f1e6cb;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(214, 191, 133, 0.25), 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  .wr-row-active .wr-month {
+    color: rgba(229, 211, 169, 0.7);
+    text-shadow: 0 0 6px rgba(214, 191, 133, 0.15);
+  }
+  .wr-row-active .wr-wnum {
+    color: rgba(214, 191, 133, 0.7);
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.25);
+  }
+  .wr-row-edge .wr-range {
+    font-weight: 500;
+    color: rgba(148, 163, 184, 0.5);
+  }
+  .wr-row-edge .wr-month { color: rgba(148, 163, 184, 0.35); }
+  .wr-row-edge .wr-wnum { opacity: 0.7; }
+  .dark .wr-range { color: rgba(226, 232, 240, 0.6); }
+  .dark .wr-month { color: rgba(148, 163, 184, 0.45); }
+  .dark .wr-row-active .wr-range {
+    color: #f1e6cb;
+    text-shadow: 0 0 12px rgba(214, 191, 133, 0.30), 0 1px 2px rgba(0, 0, 0, 0.15);
+  }
+  .dark .wr-row-active .wr-month {
+    color: rgba(229, 211, 169, 0.65);
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.2);
+  }
+  .dark .wr-row-active .wr-wnum {
+    color: rgba(214, 191, 133, 0.65);
+    text-shadow: 0 0 10px rgba(214, 191, 133, 0.3);
+  }
+
+  .wr-drum-active {
+    border-color: rgba(214, 191, 133, 0.25) !important;
+    box-shadow:
+      0 0 0 1px rgba(214, 191, 133, 0.12),
+      0 0 20px rgba(191, 161, 97, 0.08) !important;
+  }
+  .wr-row-driving { background: rgba(191, 161, 97, 0.06) !important; }
+  .wr-row-driving .wr-wnum { color: rgba(214, 191, 133, 0.9) !important; }
+  .dark .wr-drum-active {
+    border-color: rgba(214, 191, 133, 0.20) !important;
+    box-shadow:
+      0 0 0 1px rgba(214, 191, 133, 0.10),
+      0 0 24px rgba(191, 161, 97, 0.10) !important;
+  }
+
+  /* ── VERTICAL FILTER DRUMS (дословно) ── */
+  .vf-drum {
+    display: flex; flex-direction: column; user-select: none; position: relative;
+    border-radius: 10px;
+    padding: 2px;
+    gap: 1px;
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.09) 0%,
+        rgba(255, 255, 255, 0.03) 40%,
+        rgba(255, 255, 255, 0.01) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+      inset 0 2px 4px rgba(255, 255, 255, 0.04),
+      0 2px 4px rgba(0, 0, 0, 0.06),
+      0 4px 12px rgba(0, 0, 0, 0.05),
+      0 0 14px rgba(191, 161, 97, 0.04);
+    transition:
+      transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
+      box-shadow 280ms ease;
+  }
+  .dark .vf-drum {
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.07) 0%,
+        rgba(255, 255, 255, 0.02) 40%,
+        rgba(255, 255, 255, 0.005) 100%
+      );
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.28),
+      0 2px 6px rgba(0, 0, 0, 0.18),
+      0 4px 14px rgba(0, 0, 0, 0.12),
+      0 0 18px rgba(191, 161, 97, 0.06);
+  }
+  .vf-drum:hover {
+    transform: scale(1.02);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+  .dark .vf-drum:hover { border-color: rgba(255, 255, 255, 0.13); }
+
+  .vf-btn {
+    border-radius: 7px; cursor: pointer; white-space: nowrap; text-align: center;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(113, 113, 122, 0.55);
+    letter-spacing: 0.01em;
+    transition:
+      color 180ms cubic-bezier(0.23, 1, 0.32, 1),
+      background 180ms cubic-bezier(0.23, 1, 0.32, 1),
+      box-shadow 180ms cubic-bezier(0.23, 1, 0.32, 1),
+      transform 100ms ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+  }
+  .vf-btn:hover {
+    color: rgba(39, 39, 42, 0.85);
+    background: rgba(255, 255, 255, 0.55);
+  }
+  .dark .vf-btn:hover {
+    color: rgba(212, 212, 216, 0.85);
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .vf-btn:active { transform: scale(0.9); }
+
+  .vf-btn-sm {
+    padding: 2px 6px;
+    font-size: 9px;
+    min-width: 24px;
+  }
+
+  .vf-btn-active {
+    color: #fff !important;
+    background: linear-gradient(180deg, #e5d3a9 0%, #8f7549 100%) !important;
+    text-shadow: 0 0 10px rgba(191, 161, 97, 0.6) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+      0 0 8px rgba(191, 161, 97, 0.55),
+      0 0 16px rgba(191, 161, 97, 0.28),
+      0 2px 5px rgba(143, 117, 73, 0.30) !important;
+  }
+  .dark .vf-btn-active {
+    background: linear-gradient(180deg, #d6bf85 0%, #8f7549 100%) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+      0 0 10px rgba(214, 191, 133, 0.65),
+      0 0 20px rgba(191, 161, 97, 0.32),
+      0 2px 5px rgba(143, 117, 73, 0.35) !important;
+  }
+
+  .vf-cur-active {
+    color: #8f7549 !important;
+    background: rgba(191, 161, 97, 0.10) !important;
+    font-weight: 800;
+    text-shadow: 0 0 6px rgba(191, 161, 97, 0.4);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.20),
+      0 0 6px rgba(191, 161, 97, 0.22) !important;
+  }
+  .dark .vf-cur-active {
+    color: #d6bf85 !important;
+    background: rgba(191, 161, 97, 0.12) !important;
+    text-shadow: 0 0 8px rgba(214, 191, 133, 0.5);
+  }
+}
+/* keyframes эпохи — глобальны по природе @keyframes; имена не пересекаются со стилями выставки */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(191, 161, 97, 0.04); }
+  50% { box-shadow: 0 0 18px rgba(191, 161, 97, 0.08); }
+}
+@keyframes month-glow-pulse {
+  0%, 100% { box-shadow: 0 1px 3px rgba(143, 117, 73, 0.35), 0 0 8px rgba(191, 161, 97, 0.08); }
+  50% { box-shadow: 0 2px 8px rgba(143, 117, 73, 0.4), 0 0 16px rgba(191, 161, 97, 0.12); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 </style>
 </head>
@@ -596,12 +1399,14 @@ html.light .бейдж.нет{color:#96412f}
   <div class="шапка-ряд">
     <span class="шапка-имя"><i></i>Ультимативная заря</span>
     <nav class="оглавление">
-      <a href="#матрица">1 · Матрица</a>
-      <a href="#живая">2 · Живая заря</a>
-      <a href="#отделки">3 · Отделки</a>
-      <a href="#стекло">4 · Стекло</a>
-      <a href="#небеса">5 · Небеса</a>
-      <a href="#стили">6 · Модные стили</a>
+      <a href="#герой">Герой</a>
+      <a href="#сверка">1 · Сверка 7–10.08</a>
+      <a href="#матрица">2 · Матрица</a>
+      <a href="#живая">3 · Живая заря</a>
+      <a href="#отделки">4 · Отделки</a>
+      <a href="#стекло">5 · Стекло</a>
+      <a href="#семейства">6 · Семейства</a>
+      <a href="#стили">7 · Модные стили</a>
     </nav>
     <button id="тумблер" type="button" title="Светлая гамма — вторая честная (тёплая бумага), не инверсия">Свет</button>
   </div>
@@ -609,21 +1414,259 @@ html.light .бейдж.нет{color:#96412f}
 
 <main>
 <h1>Заря живьём — выставка к приёмке</h1>
+
+<!-- ══════════ 0. ГЕРОЙ-ДЫХАНИЕ — первый экран (§21.1 п.7а-2) ══════════ -->
+<section class="герой" id="герой">
+  <div class="герой-ряд" id="герой-ряд"></div>
+  <p class="герой-подпись">Заря дышит — наведите. <span>Дыхание 9 с, герой ходит от неба до
+  бронзы (−2%…−30% слоя 300%); круг светлого неба едет за мышью; нажатие — пара нажатия за
+  80 мс. При включённом «уменьшить движение» ряд гаснет до статичных пар §20.1.</span></p>
+</section>
+
 <p class="вводная">Каждая клетка ниже — настоящий предмет с настоящим градиентом своей пары
 из матрицы; числа контраста — во всплывающей подсказке (навести мышь). Тёмная тема первична:
 отделки и металл видны на тьме; переключатель наверху даёт вторую честную гамму —
 тёплую бумагу, не инверсию. Пары предметов — значения матрицы §1, посчитанные скриптом
-для тьмы; свет меняет сцену, не пары.</p>
-<small class="путь">канон: specs/2026-08-29-zarya-matrica.md · specs/2026-08-22-pulse-feedback-2.md §20–§21.1 · mockups/otdelki.html · packages/web/src/index.css</small>
+для тьмы; свет меняет сцену, не пары. Выставка обновлена по трём поправкам владельца
+29.08 (§21.1 п.7а): герой-дыхание первым экраном, попиксельная сверка с живым образцом
+7–10.08, тематические семейства вкладок вместо догмы единого горизонта.</p>
+<small class="путь">канон: specs/2026-08-29-zarya-matrica.md · specs/2026-08-22-pulse-feedback-2.md §20–§21.1 (вкл. п.7а) · mockups/otdelki.html · packages/web/src/index.css · реконструкция index.css@853548a</small>
 
-<!-- ══════════ 1. МАТРИЦА ЖИВЬЁМ ══════════ -->
+<!-- ══════════ 1. СВЕРКА С ЖИВЫМ ОБРАЗЦОМ 7–10.08 ══════════ -->
+<section class="глава" id="сверка">
+  <h2>1 · Сверка с живым образцом 7–10.08 — попиксельная реконструкция, не пересказ</h2>
+  <p class="вводная">Поправка владельца §21.1 п.7а-1: сверка пар §20 с живым снимком обязана
+  быть попиксельной реконструкцией правил <b>853548a</b> (07.08, «кремовый хром вместо
+  графитового»). Сделано: CSS перенесён дословно (@apply развёрнут построчно, цвета
+  байт-в-байт), фрагмент собран и замерен браузером (Chromium, масштаб 3×). Эпоха проверена
+  диффом: между 853548a (07.08 15:00) и 168c14a (14.08) веб трогали 6427ada, 9e67822,
+  8a59d83, bb5a23f — ни один не менял цвета tg-*/wr-*/vf-*; состояние 7–10 августа равно
+  правилам 853548a.</p>
+  <div class="стенд">
+    <p class="вердикт-крупно">Живой низ был <b>светлее и уже бронзы</b>: бронзовое дно
+    занимало нижние ~4 пикселя 18-пиксельной клетки и глушилось скруглением 5px и бронзовым
+    свечением — глазом месяц читался «светло-голубой пилюлей с тёплой тенью снизу», а не
+    «синим небом над тёмной бронзовой землёй». Заря эпохи — прежде всего <b>контраст
+    соседей</b>: льдисто-голубые месяцы × золотые буквы кварталов × кремовые числа недель ×
+    латте-«ВСЕ» на тёмном стекле; бронзовый горизонт есть, но он узкий.&nbsp;
+    <span class="помета-уточн">пары §20 — уточняются по снимку</span></p>
+
+    <h3 style="margin-top:20px">Таблица сверки (тёмная тема; состояние снимка: 2026 полный год, «ВСЕ» включена)</h3>
+    <div class="прокрутка" style="margin-top:8px">
+      <table class="св-таблица">
+        <thead><tr>
+          <th>Предмет</th><th>Живое правило 853548a (computed)</th><th>Живые пиксели (замер)</th>
+          <th>Пара §20</th><th>Пипетка владельца</th><th>Вердикт</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Месяц включённый</b> (<code>.tg-month-active</code>, index.css:1737)</td>
+            <td><code>180deg, #5b99f8 → #8f7549</code>, подпись #fff 700</td>
+            <td>верх #6095e6, середина #74849a, низ #857963…#8a7857; среднее клетки с текстом #8c9cb2; при сжатии снимка 33%: #5c98f3 / #698fca / #8d764e</td>
+            <td><code>#5b99f8→#8f7549</code></td>
+            <td>≈#a9c6f2→#8fb4ea «почти плоский»</td>
+            <td>Пара §20 = дословно правило. Пипетка владельца — то же небо #5b99f8 с подмесом белой подписи: #a9c6f2 = #5b99f8+47% белого (Δ9,5), #8fb4ea = +29% белого (Δ16,8). Бронзовое дно живёт лишь в нижних ~4px 18-пиксельной клетки, съедено радиусом 5px и бронзовым свечением — потому «почти плоский»</td>
+          </tr>
+          <tr>
+            <td><b>Квартал-ярлык</b> (<code>.dark .tg-quarter-tab-full</code>)</td>
+            <td>ЗАЛИВКИ НЕТ: текст <code>#d6bf85</code> + тень золота; рамка группы rgba(214,191,133,.22), заливка группы rgba(191,161,97,.05)</td>
+            <td>кромка группы #514b3b, ярлык с текстом в среднем #3f3931</td>
+            <td>в матрице квартал — кремовый градиент-чип</td>
+            <td>≈#d4b878</td>
+            <td>Пипетка = ТЕКСТ #d6bf85 (Δ≤5 на канал), точное попадание. В живом квартал — золотые буквы на стекле, не залитый чип: если макеты по §20 льют кварталу фон — это отступление от эпохи</td>
+          </tr>
+          <tr>
+            <td><b>Год 2026</b> (<code>.tg-year-full</code>, index.css:1624)</td>
+            <td><code>135deg, #4d8ef7 → #8f7549</code>, подпись #fff 800</td>
+            <td>углы: #6295e9 / #92979d / #6886b8 / #8c7957; среднее #8897af; при сжатии — сизо-серые #809cc9…#7b7f83, крема НЕТ ни в одной точке</td>
+            <td><code>#4d8ef7→#8f7549</code> (вторая пара #5b99f8→#bfa161 — это только :hover)</td>
+            <td>крем ≈#e6d7ac→#d6c28b</td>
+            <td>Пара §20 верна правилу. НО пипетка владельца цифра-в-цифру совпадает с <code>#e5d3a9→#d6bf85</code> — это <code>tg-year-full</code> эпохи ПОСЛЕ 14.08 (168c14a: <code>135deg, #e5d3a9 0%, #d6bf85 100%</code>, подпись #1b170f). В эпохе 7–10.08 год кремовым не был ни при каком замере</td>
+          </tr>
+          <tr>
+            <td><b>Год 2025 тихий</b></td>
+            <td>текст rgba(113,113,122,.45); ряд-кромка: opacity .45, blur .2px, rotateX 8°</td>
+            <td>фон #252528, среднее #242426 — серый призрак</td>
+            <td>—</td>
+            <td>—</td>
+            <td>сходится: тихий ряд читается тёмно-серым туманом</td>
+          </tr>
+          <tr>
+            <td><b>Неделя текущая (н33)</b></td>
+            <td>градиента НЕТ: лента rgba(191,161,97,.06), рамки rgba(214,191,133,.12); числа <code>#f1e6cb</code>, номер rgba(214,191,133,.65)</td>
+            <td>лента #222021, ряд в среднем #393531</td>
+            <td>в пульс-макетах неделе рисовали зарю 5b99f8→9d8150</td>
+            <td>—</td>
+            <td>в живой эпохе неделя — кремовые буквы на тонкой латте-ленте; заря на неделе — изобретение макетов, не эпохи</td>
+          </tr>
+          <tr>
+            <td><b>Кнопка ВСЕ включена</b> (<code>.dark .vf-cur-active</code>, НЕ vf-btn-active)</td>
+            <td>плоская латте-заливка rgba(191,161,97,.12), текст <code>#d6bf85</code> 800</td>
+            <td>фон #2e2a25, с текстом #474132</td>
+            <td>—</td>
+            <td>—</td>
+            <td>другой класс: кремовый градиент <code>#d6bf85→#8f7549</code> (vf-btn-active) носят КП/ЕП/ПМ/ФБ, когда включены ОНИ; ВСЕ всегда носила тихий vf-cur-active</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:22px">Фрагмент реконструкции — правила 853548a дословно</h3>
+    <p class="рк-метка">Барабан периода эпохи 7–10.08: тёмная тема, 2026 полный год, недели
+    н32/н33/н34, «ВСЕ» включена. <span>CSS — байт-в-байт из index.css@853548a (@apply
+    развёрнут построчно); структура — Header.tsx того же коммита; недели «н» — вечерний
+    6427ada той же эпохи, цвета не тронуты. Адаптация вставки: наружная прокрутка ряда и
+    рамка стенда — правила эпохи не тронуты.</span></p>
+    <div class="прокрутка">
+      <div class="рк-обр">
+        <div class="dark">
+        <header class="header-glass">
+          <div class="hbar">
+            <div class="time-machine">
+              <div class="wr-drum">
+                <div class="wr-row wr-row-edge"><span class="wr-wnum">н32</span><span class="wr-label"><span class="wr-range">3&ndash;9</span><span class="wr-month">авг</span></span></div>
+                <div class="wr-row wr-row-active"><span class="wr-wnum">н33</span><span class="wr-label"><span class="wr-range">10&ndash;16</span><span class="wr-month">авг</span></span></div>
+                <div class="wr-row wr-row-edge"><span class="wr-wnum">н34</span><span class="wr-label"><span class="wr-range">17&ndash;23</span><span class="wr-month">авг</span></span></div>
+              </div>
+              <div class="tg-drum">
+                <button class="tg-drum-reset" title="Сбросить период">&times;</button>
+                <div class="tg-row tg-row-first">
+                  <button class="tg-year tg-year-idle">2025</button>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">1кв</button><button class="tg-month tg-month-idle">Янв</button><button class="tg-month tg-month-idle">Фев</button><button class="tg-month tg-month-idle">Мар</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">2кв</button><button class="tg-month tg-month-idle">Апр</button><button class="tg-month tg-month-idle">Май</button><button class="tg-month tg-month-idle">Июн</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">3кв</button><button class="tg-month tg-month-idle">Июл</button><button class="tg-month tg-month-idle">Авг</button><button class="tg-month tg-month-idle">Сен</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">4кв</button><button class="tg-month tg-month-idle">Окт</button><button class="tg-month tg-month-idle">Ноя</button><button class="tg-month tg-month-idle">Дек</button></div>
+                </div>
+                <div class="tg-row tg-row-active">
+                  <button class="tg-year tg-year-full">2026</button>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">1кв</button><button class="tg-month tg-month-active">Янв</button><button class="tg-month tg-month-active">Фев</button><button class="tg-month tg-month-active">Мар</button></div>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">2кв</button><button class="tg-month tg-month-active">Апр</button><button class="tg-month tg-month-active">Май</button><button class="tg-month tg-month-active">Июн</button></div>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">3кв</button><button class="tg-month tg-month-active">Июл</button><button class="tg-month tg-month-active tg-month-now">Авг</button><button class="tg-month tg-month-active">Сен</button></div>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">4кв</button><button class="tg-month tg-month-active">Окт</button><button class="tg-month tg-month-active">Ноя</button><button class="tg-month tg-month-active">Дек</button></div>
+                </div>
+                <div class="tg-row tg-row-last">
+                  <button class="tg-year tg-year-idle">2027</button>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">1кв</button><button class="tg-month tg-month-idle">Янв</button><button class="tg-month tg-month-idle">Фев</button><button class="tg-month tg-month-idle">Мар</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">2кв</button><button class="tg-month tg-month-idle">Апр</button><button class="tg-month tg-month-idle">Май</button><button class="tg-month tg-month-idle">Июн</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">3кв</button><button class="tg-month tg-month-idle">Июл</button><button class="tg-month tg-month-idle">Авг</button><button class="tg-month tg-month-idle">Сен</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">4кв</button><button class="tg-month tg-month-idle">Окт</button><button class="tg-month tg-month-idle">Ноя</button><button class="tg-month tg-month-idle">Дек</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="vf-drum">
+              <button class="vf-btn" title="Конкурентные (44-ФЗ ст.24)">КП</button>
+              <button class="vf-btn" title="Единственный поставщик (44-ФЗ ст.93)">ЕП</button>
+              <button class="vf-btn vf-cur-active" title="Все способы">ВСЕ</button>
+            </div>
+            <div class="vf-drum">
+              <button class="vf-btn" title="Программные мероприятия">ПМ</button>
+              <button class="vf-btn" title="Текущая деятельность — программные">ТД-ПМ</button>
+              <button class="vf-btn" title="Текущая деятельность">ТД</button>
+            </div>
+          </div>
+        </header>
+        </div>
+      </div>
+    </div>
+
+    <p class="рк-метка" style="margin-top:18px">Те же предметы — моими парами §20&nbsp;
+    <span class="помета-уточн">уточняются по снимку</span>
+    <span>Перекрашено поверх дословных правил: месяц #5b99f8→#9d8150, год 135° #5b99f8→#bfa161,
+    квартал-чип #e5d3a9→#d6bf85, неделя включённая #5b99f8→#9d8150, «ВСЕ» #e5d3a9→#9d8150.
+    Глаз сам увидит отличия от эпохи: там квартал был золотыми буквами на стекле (не залитым
+    чипом), неделя — кремовыми числами на латте-ленте (не зарёй), а низ месяца — узкой тёплой
+    тенью, не половиной предмета.</span></p>
+    <div class="прокрутка">
+      <div class="рк-обр рк-п20">
+        <div class="dark">
+        <header class="header-glass">
+          <div class="hbar">
+            <div class="time-machine">
+              <div class="wr-drum">
+                <div class="wr-row wr-row-edge"><span class="wr-wnum">н32</span><span class="wr-label"><span class="wr-range">3&ndash;9</span><span class="wr-month">авг</span></span></div>
+                <div class="wr-row wr-row-active"><span class="wr-wnum">н33</span><span class="wr-label"><span class="wr-range">10&ndash;16</span><span class="wr-month">авг</span></span></div>
+                <div class="wr-row wr-row-edge"><span class="wr-wnum">н34</span><span class="wr-label"><span class="wr-range">17&ndash;23</span><span class="wr-month">авг</span></span></div>
+              </div>
+              <div class="tg-drum">
+                <button class="tg-drum-reset" title="Сбросить период">&times;</button>
+                <div class="tg-row tg-row-first">
+                  <button class="tg-year tg-year-idle">2025</button>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">1кв</button><button class="tg-month tg-month-idle">Янв</button><button class="tg-month tg-month-idle">Фев</button><button class="tg-month tg-month-idle">Мар</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">2кв</button><button class="tg-month tg-month-idle">Апр</button><button class="tg-month tg-month-idle">Май</button><button class="tg-month tg-month-idle">Июн</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">3кв</button><button class="tg-month tg-month-idle">Июл</button><button class="tg-month tg-month-idle">Авг</button><button class="tg-month tg-month-idle">Сен</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">4кв</button><button class="tg-month tg-month-idle">Окт</button><button class="tg-month tg-month-idle">Ноя</button><button class="tg-month tg-month-idle">Дек</button></div>
+                </div>
+                <div class="tg-row tg-row-active">
+                  <button class="tg-year tg-year-full">2026</button>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">1кв</button><button class="tg-month tg-month-active">Янв</button><button class="tg-month tg-month-active">Фев</button><button class="tg-month tg-month-active">Мар</button></div>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">2кв</button><button class="tg-month tg-month-active">Апр</button><button class="tg-month tg-month-active">Май</button><button class="tg-month tg-month-active">Июн</button></div>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">3кв</button><button class="tg-month tg-month-active">Июл</button><button class="tg-month tg-month-active tg-month-now">Авг</button><button class="tg-month tg-month-active">Сен</button></div>
+                  <div class="tg-quarter tg-quarter-full"><button class="tg-quarter-tab tg-quarter-tab-full">4кв</button><button class="tg-month tg-month-active">Окт</button><button class="tg-month tg-month-active">Ноя</button><button class="tg-month tg-month-active">Дек</button></div>
+                </div>
+                <div class="tg-row tg-row-last">
+                  <button class="tg-year tg-year-idle">2027</button>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">1кв</button><button class="tg-month tg-month-idle">Янв</button><button class="tg-month tg-month-idle">Фев</button><button class="tg-month tg-month-idle">Мар</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">2кв</button><button class="tg-month tg-month-idle">Апр</button><button class="tg-month tg-month-idle">Май</button><button class="tg-month tg-month-idle">Июн</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">3кв</button><button class="tg-month tg-month-idle">Июл</button><button class="tg-month tg-month-idle">Авг</button><button class="tg-month tg-month-idle">Сен</button></div>
+                  <div class="tg-quarter tg-quarter-idle"><button class="tg-quarter-tab tg-quarter-tab-idle">4кв</button><button class="tg-month tg-month-idle">Окт</button><button class="tg-month tg-month-idle">Ноя</button><button class="tg-month tg-month-idle">Дек</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="vf-drum">
+              <button class="vf-btn" title="Конкурентные (44-ФЗ ст.24)">КП</button>
+              <button class="vf-btn" title="Единственный поставщик (44-ФЗ ст.93)">ЕП</button>
+              <button class="vf-btn vf-cur-active" title="Все способы">ВСЕ</button>
+            </div>
+            <div class="vf-drum">
+              <button class="vf-btn" title="Программные мероприятия">ПМ</button>
+              <button class="vf-btn" title="Текущая деятельность — программные">ТД-ПМ</button>
+              <button class="vf-btn" title="Текущая деятельность">ТД</button>
+            </div>
+          </div>
+        </header>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:22px">Вердикт реконструкции — дословно</h3>
+    <div class="св-вердикты">
+      <p><b>1. Селектор пар §20 — правильный.</b> Месяцы на снимке красил ровно
+      <b>.tg-month-active</b> (строка 1737), год — <b>.tg-year-full</b> (1624); никакой другой
+      селектор не вмешивался (вуаль активного ряда rgba(255,255,255,.04) ложится ПОД месяцы и
+      поверх года — 4%, в замере неразличима). Пары §20 взяты из работавшего правила.</p>
+      <p><b>2. Но живой ВИД отличается от голых пар.</b> На 18-пиксельной клетке верхние две
+      трети — чистая лазурь, бронза занимает нижнюю четверть и приглушена скруглением и
+      внешним бронзовым свечением: глазом это «светло-голубая пилюля с тёплой тенью снизу»,
+      а не «синее небо над тёмной бронзовой землёй». Заря эпохи — прежде всего контраст
+      соседей: льдисто-голубые месяцы × золотые буквы кварталов × кремовые числа недель ×
+      латте-ВСЕ на тёмном стекле; бронзовый горизонт есть, но он узкий.</p>
+      <p><b>3. Полупрозрачности — да, и их много:</b> квартал 5% заливки + 22% рамки, неделя
+      6% ленты, ВСЕ 12% латте. Все «кремовые» предметы снимка, кроме месяцев и года, — это
+      полупрозрачный крем и кремовый ТЕКСТ, не градиенты.</p>
+      <p><b>4. Ключевое для владельца («кажется там кремовый, а не бронзовый»):</b> пипетка
+      месяца объясняется эпохой 7–10.08 (белая подпись подмешалась на сжатом снимке), пипетка
+      квартала — точное золото текста #d6bf85 той же эпохи, а вот пипетка ГОДА
+      (#e6d7ac→#d6c28b) эпохой 7–10.08 не воспроизводится вовсе — она цифра-в-цифру совпадает
+      с кремовой парой #e5d3a9→#d6bf85, которой год стал 14.08 в 168c14a (та самая волна, что
+      «убила» зарю). Либо у владельца два снимка разных эпох, либо память склеила их: заря
+      месяцев — из 7–10.08, кремовый год — из 14.08+. Для матрицы это значит: пары §20 для
+      месяца верны, а «год-крем» владельца — не опровержение §20, а свидетель соседней
+      эпохи.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 2. МАТРИЦА ЖИВЬЁМ ══════════ -->
 <section class="глава" id="матрица">
-  <h2>1 · Матрица живьём — 63 клетки «элементы × состояния»</h2>
+  <h2>2 · Матрица живьём — 63 клетки «элементы × состояния»</h2>
   <p class="вводная">Строки — четырнадцать элементов, колонки — состояния. Заря — внутри
   предмета: небо сверху, бронзовый горизонт снизу (закон горизонта §20.0). Прочерк — сочетание
   без своей клетки: собирается по приоритету <b>тревога &gt; будущее &gt; частично &gt;
   включено &gt; покой</b> (подсказка на прочерке). Пометка <b style="color:var(--глина-св)">добор</b> —
-  пара добрана затемнением до нормы 4,5.</p>
+  пара добрана затемнением до нормы 4,5. По поправке 7а-2 клетки колонок <b>«покой»</b> и
+  <b>«включено»</b> дышат живой зарёй (рассинхрон −1,7 с × номер клетки; при запрете движения
+  гаснут на статичную пару, как раньше). По итогам сверки с живым образцом (раздел 1) пары
+  §20 носят пометку <span class="помета-уточн">уточняются по снимку</span>.</p>
   <div class="стенд">
     <div class="прокрутка">
       <div id="матрица-сетка"></div>
@@ -632,13 +1675,14 @@ html.light .бейдж.нет{color:#96412f}
   </div>
 </section>
 
-<!-- ══════════ 2. ЖИВАЯ ЗАРЯ ══════════ -->
+<!-- ══════════ 3. ЖИВАЯ ЗАРЯ ══════════ -->
 <section class="глава" id="живая">
-  <h2>2 · Живая заря — рассвет дышит внутри предмета</h2>
-  <p class="вводная">Спецификация §2 матрицы дословно: внутри предмета слой высотой
+  <h2>3 · Живая заря — рассвет дышит внутри предмета</h2>
+  <p class="вводная">Спецификация §2 матрицы: внутри предмета слой высотой
   <b>300%</b> несёт градиент пары и дышит переносом <b>translateY</b> с периодом
   <b>9 с</b> (ease-in-out, туда-обратно); соседи рассинхронизированы задержкой
-  <b>−1,7 с × индекс</b> — линейка не дышит строем. Наведение — круг светлого неба едет
+  <b>−1,7 с × индекс</b> — линейка не дышит строем. Амплитуда поднята по поправке 7а-2
+  (движение обязано быть видно): ряд ниже ходит −3%…−16% слоя, герой наверху — −2%…−30%. Наведение — круг светлого неба едет
   к курсору (перенос 120 мс, проявление 180 мс); самая светлая точка отклика не выше неба
   наведения этой пары, поэтому норма контраста не роняется. Нажатие — подмена на пару
   нажатия за <b>80 мс</b> плюс усадка 0,985. Всё движение — на композиторе:
@@ -655,9 +1699,9 @@ html.light .бейдж.нет{color:#96412f}
   </div>
 </section>
 
-<!-- ══════════ 3. ОТДЕЛКИ × ЗАРЯ ══════════ -->
+<!-- ══════════ 4. ОТДЕЛКИ × ЗАРЯ ══════════ -->
 <section class="глава" id="отделки">
-  <h2>3 · Отделки × заря — шесть машинных физик несут рассвет</h2>
+  <h2>4 · Отделки × заря — шесть машинных физик несут рассвет</h2>
   <p class="вводная">Отделки — усилители <b>внутри</b> ультимативной зари (§21.1 п.6), не
   отдельная галерея: тело каждого предмета — пара его клетки из матрицы, отделка — способ её
   нести. Три предмета у каждой: кнопка вкладки (<i>#5b99f8 → #9d8150</i>), месяц выбранный
@@ -667,9 +1711,9 @@ html.light .бейдж.нет{color:#96412f}
   <div id="отделки-дом"></div>
 </section>
 
-<!-- ══════════ 4. СТЕКЛО БЕЗ РЕГРЕССИЙ ══════════ -->
+<!-- ══════════ 5. СТЕКЛО БЕЗ РЕГРЕССИЙ ══════════ -->
 <section class="глава" id="стекло">
-  <h2>4 · Стекло без регрессий — заря ПОД барабаном</h2>
+  <h2>5 · Стекло без регрессий — заря ПОД барабаном</h2>
   <p class="вводная">Фрагмент барабанов периода с физикой продукта дословно; заря подложена
   <b>под</b> стеклянный слой — стекло её размывает, физика листания не тронута ни свойством
   (§21.1 п.5).</p>
@@ -707,23 +1751,32 @@ html.light .бейдж.нет{color:#96412f}
   </div>
 </section>
 
-<!-- ══════════ 5. НЕБЕСА 13 ВКЛАДОК ══════════ -->
-<section class="глава" id="небеса">
-  <h2>5 · Небеса тринадцати вкладок — один горизонт, разные рассветы</h2>
-  <p class="вводная">Активная кнопка каждой вкладки: её небо → общий горизонт
-  <b>#9d8150</b>, подпись <b>#1b170f</b> (путь А §20.1). Все 13 пар прошли норму без добора;
-  числа — в подсказке. Три неба стоят у границ запретов и помечены
-  «вопрос владельцу»: Отчёт и Дисциплина — у запрета оранжевого (трактованы как янтарь и
-  мёд), Аналитика — у запрета орхидеи (трактована как фиалка). Цвета — продовые NAV_ITEMS,
-  новых красок здесь нет.</p>
-  <div class="стенд">
-    <div class="небеса" id="небеса-ряд"></div>
+<!-- ══════════ 6. СЕМЕЙСТВА ВКЛАДОК ══════════ -->
+<section class="глава" id="семейства">
+  <h2>6 · Семейства вкладок — тематические небеса, выбор за владельцем</h2>
+  <p class="вводная">Поправка владельца §21.1 п.7а-3: <b>закон единого горизонта отменён как
+  обязательный</b> — «не считаю, что низ всегда кремовый, а меняется только верх». Пары
+  свободные, гармоничные, в меру контрастные, интересные; под кнопки вкладок — тематические
+  семейства («по рубрикам или идеям вроде космос+планеты»). Ниже три семейства: каждое —
+  строка из 13 <b>живых</b> кнопок (дышат, отвечают мыши), пара верх→низ дословно из расчёта,
+  подпись по расчёту; под кнопкой — образ, ниже — пара и контрасты. Четвёртый ряд — прежняя
+  линейка продовых небес «как сейчас в проде», для сравнения.
+  <b>Выбор семейства — решение владельца, не исполнителя.</b></p>
+  <div id="семейства-дом"></div>
+  <div class="семейство">
+    <header><h3>Как сейчас в проде — линейка §20.1 путь А</h3><span class="бейдж вопрос">для сравнения</span></header>
+    <p class="идея">Прежний канон: небо вкладки → общий горизонт <b>#9d8150</b>, подпись
+    <b>#1b170f</b>. Все 13 пар прошли норму без добора; числа — в подсказке. Три неба стоят у
+    границ запретов и помечены «вопрос владельцу»: Отчёт и Дисциплина — у запрета оранжевого
+    (трактованы как янтарь и мёд), Аналитика — у запрета орхидеи (трактована как фиалка).
+    Цвета — продовые NAV_ITEMS, новых красок здесь нет.</p>
+    <div class="прокрутка"><div class="небеса" id="небеса-ряд"></div></div>
   </div>
 </section>
 
-<!-- ══════════ 6. МОДНЫЕ СТИЛИ ══════════ -->
+<!-- ══════════ 7. МОДНЫЕ СТИЛИ ══════════ -->
 <section class="глава" id="стили">
-  <h2>6 · Модные стили — заря внутри приёма, вердикт каждому</h2>
+  <h2>7 · Модные стили — заря внутри приёма, вердикт каждому</h2>
   <p class="вводная">Одиннадцать приёмов 2025-26 по ресёрчу, каждый — рецептом дословно и с
   градиентом зари внутри самого приёма. Вердикт — бейджем; стили «не к месту» показаны тоже,
   с объяснением почему.</p>
@@ -977,11 +2030,16 @@ html.light .бейдж.нет{color:#96412f}
 
 <p class="подвал">Черновик к приёмке владельцем, не канон. Чего на странице нет по запретам:
 новых оранжевых и орхидейных тонов (небеса Отчёта #f59e0b, Дисциплины #fdba74 и Аналитики
-#a78bfa — продовые цвета NAV_ITEMS, вынесены владельцу вопросом); синевы в графите — у всех
+#a78bfa — продовые цвета NAV_ITEMS, вынесены владельцу вопросом; в семействах тёплые тона —
+глина, охра, мёд, терракота, без алого апельсина); синевы в графите — у всех
 тёмных поверхностей синий канал не выше красного; вечного движения при запрете —
-prefers-reduced-motion гасит дыхание, искры, блики и отклики по-настоящему. Пары клеток —
-дословно из матрицы 2026-08-29-zarya-matrica.md, посчитанной скриптом
-scripts/zarya_contrast.py; контрасты в подсказках — оттуда же, не пересчитаны на глаз.</p>
+prefers-reduced-motion гасит дыхание героя, клеток и рядов, искры, блики и отклики
+по-настоящему. Пары клеток — дословно из матрицы 2026-08-29-zarya-matrica.md, посчитанной
+скриптом scripts/zarya_contrast.py; по итогам попиксельной сверки с живым образцом 7–10.08
+(раздел 1, реконструкция index.css@853548a) пары §20 помечены «уточняются по снимку».
+Пары семейств (раздел 6) и их контрасты — из расчёта семейств, переданы дословно; выбор
+семейства — решение владельца. Закон единого горизонта отменён как обязательный
+(§21.1 п.7а-3) — горизонт остаётся одним из вариантов, не догмой.</p>
 </main>
 
 <script>
@@ -991,6 +2049,32 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
   кнопка.addEventListener('click', function(){
     var светло = document.documentElement.classList.toggle('light');
     кнопка.textContent = светло ? 'Тьма' : 'Свет';
+  });
+})();
+
+/* ═══ 0. ГЕРОЙ: четыре крупных предмета, дыхание широкой амплитудой (§21.1 п.7а-2) ═══ */
+(function(){
+  /* пары — дословно из матрицы §1 (покой / наведение / нажатие) */
+  var ГЕРОИ = [
+    {я:'Пульс',    ф:'ф-пилюля', чн:'#1b170f', п:['#5b99f8','#9d8150'], н:['#6ba3f9','#bfa161'], ж:['#4d8ef7','#9d8150']},
+    {я:'2026',     ф:'ф-год', уг:'135deg', чн:'#1b170f', п:['#5b99f8','#bfa161'], н:['#6ba3f9','#c9ad72'], ж:['#4d8ef7','#9d8150']},
+    {я:'ФБ',       ф:'ф-пилюля', чн:'#1b170f', п:['#e5d3a9','#9d8150'], н:['#f0e2bd','#bfa161'], ж:['#d6bf85','#9d8150']},
+    {я:'Сентябрь', ф:'',         чн:'#ffffff', п:['#426eb3','#675435'], н:['#4976bb','#71603c'], ж:['#426eb3','#675435']}
+  ];
+  var дом = document.getElementById('герой-ряд');
+  ГЕРОИ.forEach(function(п, и){
+    var эл = document.createElement('button');
+    эл.type = 'button';
+    эл.className = 'живой г-крупный ' + п.ф;
+    эл.style.cssText = '--и:' + и + ';--чн:' + п.чн + ';--уг:' + (п.уг || '180deg') +
+      ';--небо-п:' + п.п[0] + ';--гор-п:' + п.п[1] +
+      ';--небо-н:' + п.н[0] + ';--гор-н:' + п.н[1] +
+      ';--небо-ж:' + п.ж[0] + ';--гор-ж:' + п.ж[1] +
+      ';border:none;font:inherit;font-weight:750;cursor:pointer;';
+    эл.title = п.я + ' — покой ' + п.п.join(' → ') + '; наведение ' + п.н.join(' → ') +
+      '; нажатие ' + п.ж.join(' → ') + '. Дыхание героя: −2%…−30% слоя, период 9 с';
+    эл.innerHTML = '<span>' + п.я + '</span>';
+    дом.appendChild(эл);
   });
 })();
 
@@ -1102,7 +2186,7 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
   КОЛОНКИ.forEach(function(к){
     куски.push('<div class="км-шапка">' + к[0] + (к[1] ? '<span>' + к[1] + '</span>' : '') + '</div>');
   });
-  var клеток = 0, доборов = 0, прочерков = 0;
+  var клеток = 0, доборов = 0, прочерков = 0, дыханий = 0;
   РЯДЫ.forEach(function(ряд){
     куски.push('<div class="км-ряд"><b>' + ряд.имя + '</b><i>' + (ряд.уг || '180deg') + '</i></div>');
     var поКолонке = {};
@@ -1123,6 +2207,12 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
         (ф.добор ? '; норма ДОБОРОМ' : '; норма: да') + (ф.зам ? '. ' + ф.зам : '');
       var стиль = 'background:linear-gradient(' + угол + ', ' + кл[2] + ' 0%, ' + кл[3] + ' 100%);color:' + кл[4] + ';';
       if (ф.кольцо) стиль += 'box-shadow:0 0 0 2px ' + ф.кольцо + ';';
+      /* поправка 7а-2: колонки «покой» (0) и «включено» (4) дышат живой зарёй */
+      var дышит = (к === 0 || к === 4);
+      if (дышит) {
+        дыханий++;
+        стиль += '--нб:' + кл[2] + ';--гр:' + кл[3] + ';--уг:' + угол + ';--и:' + клеток + ';';
+      }
       var нутро = '';
       if (ф.воскл) нутро += '<span class="км-воскл">!</span>';
       var ярлык = ф.я || ряд.ярлык;
@@ -1132,7 +2222,7 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
         нутро += '<span>' + ярлык + '</span>';
       }
       if (ф.точка) нутро += '<i class="км-точка" title="точка глины #df7a63 — крупный знак, норма 3: 4,80 / 4,61"></i>';
-      var формы = 'км-предмет ' + (ф.форма || ряд.форма || '');
+      var формы = 'км-предмет ' + (ф.форма || ряд.форма || '') + (дышит ? ' км-дыхание' : '');
       куски.push(
         '<div class="клетка" data-эл="' + ряд.имя + '" data-сост="' + кл[1] + '">' +
           '<div class="' + формы + '" style="' + стиль + '" title="' + подсказка.replace(/"/g, '&quot;') + '">' + нутро + '</div>' +
@@ -1144,7 +2234,8 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
   document.getElementById('итог-матрицы').innerHTML =
     'Отрисовано <b>' + клеток + ' клеток</b> из 63 канона; <b>' + (клеток - доборов) +
     '</b> пар прошли норму в исходном виде, <b>' + доборов + '</b> добраны затемнением; прочерков — ' +
-    прочерков + ', каждый несёт правило приоритета в подсказке. Числа контраста — из scripts/zarya_contrast.py, не на глаз.';
+    прочерков + ', каждый несёт правило приоритета в подсказке; дышат <b>' + дыханий +
+    '</b> клеток покоя и включения (7а-2). Числа контраста — из scripts/zarya_contrast.py, не на глаз.';
 })();
 
 /* ═══ 2. ЖИВАЯ ЗАРЯ: ряд дышащих предметов + статичный двойник ═══ */
@@ -1182,8 +2273,9 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
     дв.innerHTML = '<span>' + п.я + '</span>';
     статичный.appendChild(дв);
   });
+  /* отклик на мышь — на весь документ: герой, ряд §2 и семейства ловят одним слушателем */
   if (!тихо.matches) {
-    живой.addEventListener('mousemove', function(е){
+    document.addEventListener('mousemove', function(е){
       var цель = е.target.closest('.живой');
       if (!цель) return;
       var р = цель.getBoundingClientRect();
@@ -1250,7 +2342,88 @@ scripts/zarya_contrast.py; контрасты в подсказках — отт
   дом.innerHTML = куски.join('');
 })();
 
-/* ═══ 5. НЕБЕСА 13 ВКЛАДОК: небо → #9d8150, подпись #1b170f ═══ */
+/* ═══ 6. СЕМЕЙСТВА ВКЛАДОК: три тематических ряда живых кнопок (7а-3) ═══ */
+(function(){
+  /* пары, подписи и контрасты — дословно из расчёта семейств; [вкладка, образ, верх, низ, подпись, К·верх, К·низ] */
+  var СЕМЕЙСТВА = [
+    {имя:'Космос',
+     идея:'Идея владельца: каждой вкладке — небесное тело или явление, подобранное по смыслу работы вкладки. Тёмные глубокие тона одного горизонта светлоты (ночная сторона), белая подпись; Марс — глинисто-кирпичный, метеоры — медь-терракота, ни одного алого апельсина; синие небеса — цветные, единственные нейтралы (Луна, реголит астероидов) — тёплые, R выше B.',
+     вкладки:[
+      ['Пульс','полярное сияние, зелёные волны','#2f7a50','#1f5236','#ffffff','5,22','9,06'],
+      ['Отчёт','Сатурн, золото колец','#8a6a1f','#5f470f','#ffffff','5,05','8,77'],
+      ['Свод','небесный свод, густая синь','#35479b','#242f6e','#ffffff','8,31','12,3'],
+      ['Реестр','Плеяды, каталог звёзд','#4a6da6','#324b78','#ffffff','5,21','8,7'],
+      ['Не обеспеченные','пояс астероидов','#71604a','#4b3f2f','#ffffff','6,04','10,24'],
+      ['В течение года','орбита Земли, один оборот','#2e6f7d','#1e4c57','#ffffff','5,7','9,43'],
+      ['Мониторинг','Полярная звезда, дозор','#677585','#4c5866','#ffffff','4,71','7,25'],
+      ['Экономия','Уран, ледяной изумруд','#438177','#2d5a53','#ffffff','4,52','7,78'],
+      ['Конкуренция','метеорный поток, гонка','#91582f','#613819','#ffffff','5,77','10,06'],
+      ['Дисциплина','Меркурий, точный круг','#857049','#5b4c2f','#ffffff','4,76','8,33'],
+      ['Контроль','Марс, красная стража','#883527','#5a2015','#ffffff','8,12','12,71'],
+      ['Аналитика','туманность, синее свечение','#665ca9','#46407e','#ffffff','5,72','9,15'],
+      ['Система','обратная сторона Луны','#524c47','#34302c','#ffffff','8,46','13,08']
+    ]},
+    {имя:'Камчатка',
+     идея:'Родная земля продукта при дневном свете: пар гейзера, осенняя тундра, Тихий океан, берёзы, стланик, лава, базальт. Светлые пастельные тона одного уровня, тёмная подпись #1b170f; тёплые — только мёд, охра и глинистая терракота (лава, лосось прибоя — без апельсина). Пара «В течение года» — единственная с ходом по тону: летняя зелень сверху уходит в осеннее золото снизу, годовой круг в одном градиенте.',
+     вкладки:[
+      ['Пульс','гейзер, пар на рассвете','#f2e8d8','#d8c7ac','#1b170f','14,72','10,79'],
+      ['Отчёт','золотая тундра осенью','#e8c56a','#c9a144','#1b170f','10,74','7,37'],
+      ['Свод','Тихий океан, гладь','#93b7c9','#6c95ab','#1b170f','8,38','5,55'],
+      ['Реестр','берёзовая роща, ряды стволов','#dce8c4','#b7c795','#1b170f','13,93','9,88'],
+      ['Не обеспеченные','сухая осока на ветру','#e4d5a8','#c2ae76','#1b170f','12,23','8,17'],
+      ['В течение года','год на сопках: зелень в золото','#adc98c','#c3ad6e','#1b170f','9,79','8,1'],
+      ['Мониторинг','ясное небо, видимость','#bcd9ef','#8fb8d9','#1b170f','12,17','8,53'],
+      ['Экономия','хвоя кедрового стланика','#a9c9a4','#7fa878','#1b170f','9,84','6,61'],
+      ['Конкуренция','прибой, пена волн','#aedcd6','#79b8ae','#1b170f','11,91','7,89'],
+      ['Дисциплина','кипрейный мёд','#d29a4f','#b2803a','#1b170f','7,21','5,14'],
+      ['Контроль','лава под коркой','#e08f76','#c46f55','#1b170f','7,11','4,89'],
+      ['Аналитика','сумерки над кальдерой','#b5b9e3','#8d97cc','#1b170f','9,36','6,32'],
+      ['Система','серый базальт, галька','#c6cbc0','#9aa192','#1b170f','10,8','6,71']
+    ]},
+    {имя:'Минералы',
+     идея:'Язык камней, которым проект уже говорит (жадеит, малахит, платина, кармин — все четыре в строю): каждой вкладке — камень или металл в его природном цвете и с его смыслом. Пирит — обманное золото для необеспеченных, агатовое постоянство жадеита — году, соколиный глаз — дозору мониторинга. Глубокие ювелирные тона одного горизонта, белая подпись; платина — тёплый металл (R выше B), рубин — кармин, не апельсин.',
+     вкладки:[
+      ['Пульс','янтарь, тёплая смола','#96591b','#66390d','#ffffff','5,61','9,74'],
+      ['Отчёт','самородное золото','#8d6c15','#614a0c','#ffffff','4,9','8,42'],
+      ['Свод','лазурит, небесный камень','#4257ad','#2b3a7c','#ffffff','6,57','10,51'],
+      ['Реестр','аквамарин, прозрачная вода','#37789e','#24506c','#ffffff','4,84','8,61'],
+      ['Не обеспеченные','пирит, обманное золото','#6e6134','#49401f','#ffffff','6,14','10,31'],
+      ['В течение года','жадеит, вечная зелень','#55796a','#395247','#ffffff','4,85','8,5'],
+      ['Мониторинг','соколиный глаз, дозор','#3c5069','#283749','#ffffff','8,26','12,12'],
+      ['Экономия','малахит, слои копилки','#1d7a48','#125230','#ffffff','5,34','9,23'],
+      ['Конкуренция','бирюза, живой цвет','#178086','#0e5458','#ffffff','4,7','8,65'],
+      ['Дисциплина','тигровый глаз, ровные полосы','#7a5424','#523712','#ffffff','6,73','10,97'],
+      ['Контроль','рубин, строгий кармин','#8f2438','#611424','#ffffff','8,48','12,85'],
+      ['Аналитика','сапфир, глубина взгляда','#3c3579','#28234f','#ffffff','10,62','14,55'],
+      ['Система','платина, тёплый металл','#6b675f','#47443d','#ffffff','5,63','9,71']
+    ]}
+  ];
+  var дом = document.getElementById('семейства-дом');
+  var инд = 0;
+  дом.innerHTML = СЕМЕЙСТВА.map(function(с){
+    var кнопки = с.вкладки.map(function(в){
+      var стиль = '--и:' + (инд++) + ';--чн:' + в[4] + ';--уг:180deg' +
+        ';--небо-п:' + в[2] + ';--гор-п:' + в[3] +
+        ';--небо-н:color-mix(in srgb, ' + в[2] + ' 78%, white);--гор-н:' + в[3] +
+        ';--небо-ж:' + в[2] + ';--гор-ж:' + в[3] +
+        ';border:none;font:inherit;font-weight:750;cursor:pointer;';
+      var подсказка = в[0] + ' · ' + с.имя + ' — ' + в[1] + '; пара ' + в[2] + ' → ' + в[3] +
+        ' дословно из расчёта, подпись ' + в[4] + '; К·верх ' + в[5] + ', К·низ ' + в[6];
+      return '<div class="семья-кнопка">' +
+        '<button type="button" class="живой ф-пилюля" style="' + стиль + '" title="' + подсказка + '"><span>' + в[0] + '</span></button>' +
+        '<span class="семья-образ">' + в[1] + '</span>' +
+        '<span class="семья-мета">' + в[2] + '→' + в[3] + ' · К ' + в[5] + '/' + в[6] + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="семейство" data-семья="' + с.имя + '">' +
+      '<header><h3>' + с.имя + '</h3><span class="бейдж дозой">решение владельца</span></header>' +
+      '<p class="идея">' + с.идея + '</p>' +
+      '<div class="прокрутка"><div class="семья-ряд">' + кнопки + '</div></div>' +
+    '</div>';
+  }).join('');
+})();
+
+/* ═══ 6а. ПРОД-ЛИНЕЙКА «как сейчас»: небо → #9d8150, подпись #1b170f ═══ */
 (function(){
   var ВКЛАДКИ = [
     ['Пульс','#5b99f8','6,26',''],
