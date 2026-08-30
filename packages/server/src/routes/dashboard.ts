@@ -472,9 +472,19 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
    * POST /api/refresh — единое обновление данных.
    * По умолчанию: полная загрузка (8 dept sheets + СВОД + pipeline).
    * ?quick=true — только СВОД (без перезагрузки dept sheets).
+   * ?formulas=true — вместе со значениями прочитать формулы книг ГРБС.
+   *
+   * ЗАЧЕМ РУЧНОЙ ЗАПУСК ФОРМУЛ. Обычно формулы читаются бережно: по
+   * уведомлению Drive о правке книги и ночным обходом (решение владельца
+   * 30.08, §22 п.7) — за неизменные книги мы не платим вторым обращением.
+   * Но у владельца должен быть жест «перечитать сейчас» — тот же, что он
+   * попросил для комментариев: увидеть целостность формул сразу после
+   * ручной починки ячейки, не дожидаясь ночи.
    */
   app.post('/api/refresh', async (request, reply) => {
-    const quick = (request.query as Record<string, string>).quick === 'true';
+    const query = request.query as Record<string, string>;
+    const quick = query.quick === 'true';
+    const withFormulas = query.formulas === 'true';
 
     interface SourceStatus {
       name: string;
@@ -507,6 +517,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
             warn: (msg) => app.log.warn(msg),
           },
           'request',
+          // fresh нужен вместе с формулами: присоединиться к идущему циклу
+          // значило бы получить его результат БЕЗ формул и молча решить,
+          // что дефектов нет.
+          withFormulas ? { withFormulas: true, fresh: true } : {},
         );
       } catch (err) {
         // Цикл сам не валится от отказа отдельной книги; сюда попадает только
