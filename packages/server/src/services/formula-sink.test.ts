@@ -78,3 +78,32 @@ describe('приёмник формул', () => {
     expect(v[0].defects).toHaveLength(0);
   });
 });
+
+describe('шапка книги не судится', () => {
+  it('строка номеров колонок не даёт дефектов (замер прода 30.08)', () => {
+    // Лист приходит с первой строки: 1-3 — шапка, третья несёт номера
+    // колонок 1..28. Раньше они читались как «затёртые формулы».
+    const values: string[][] = [];
+    const formulas: string[][] = [];
+    for (let i = 0; i < 5; i++) {
+      const sheetRow = 1 + i;
+      const v = new Array(30).fill('');
+      const f = new Array(30).fill('');
+      if (sheetRow <= 3) {
+        // Шапка: в графе A номер колонки, в формульных графах — числа.
+        v[0] = String(sheetRow);
+        v[26] = '27'; v[27] = '28';
+        f[26] = '27'; f[27] = '28';
+      } else {
+        v[0] = String(100 + i);
+        v[10] = '100';
+        f[10] = `=SUM(H${sheetRow}:J${sheetRow})`;
+      }
+      values.push(v); formulas.push(f);
+    }
+    acceptFormulaDelivery({ book: 'УАГЗО', values, formulas, startRow: 1, formulasRead: true });
+    const v = formulaVerdicts().find((x) => x.book === 'УАГЗО');
+    expect(v?.defects).toHaveLength(0);
+    expect(v?.rowsJudged).toBe(2);
+  });
+});

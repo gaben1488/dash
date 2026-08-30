@@ -27,6 +27,9 @@ export interface BookFormulaVerdict {
   defects: FormulaDefect[];
 }
 
+/** Первая строка ДАННЫХ книги ГРБС: строки 1-3 — шапка (канон колонок). */
+const FIRST_DATA_ROW = 4;
+
 const verdicts = new Map<string, BookFormulaVerdict>();
 
 /**
@@ -48,14 +51,24 @@ export function resetFormulaVerdicts(): void {
  * именно разбор, а не факт подключения.
  */
 export function acceptFormulaDelivery(delivery: FormulaDelivery): void {
+  // ШАПКА КНИГИ НЕ СУДИТСЯ. Лист приходит целиком с первой строки, а данные
+  // начинаются с четвёртой: строки 1-3 — заголовки, и третья из них несёт
+  // НОМЕРА КОЛОНОК (1, 2, 3 … 27, 28). Гейт слоя «номер закупки — число
+  // больше нуля» её пропускает: в графе A стоит «1». Замер на проде 30.08
+  // это и показал — одиннадцать «затёртых формул» в первой строке УАГЗО
+  // оказались номерами столбцов. Режем шапку здесь, а не в слое: слой судит
+  // то, что ему дали, и знать про устройство книги не обязан.
+  const skip = Math.max(0, FIRST_DATA_ROW - delivery.startRow);
+  const values = (delivery.values ?? []).slice(skip) as string[][];
+  const formulas = (delivery.formulas ?? []).slice(skip) as string[][];
   const defects = detectFormulaIntegrity({
-    values: delivery.values as string[][],
-    formulas: delivery.formulas as string[][],
-    startRow: delivery.startRow,
+    values,
+    formulas,
+    startRow: Math.max(delivery.startRow, FIRST_DATA_ROW),
     book: delivery.book,
   });
   let rowsJudged = 0;
-  for (const row of delivery.values ?? []) {
+  for (const row of values) {
     const a = Number(String((row?.[0] ?? '')).trim());
     if (Number.isFinite(a) && a > 0) rowsJudged++;
   }
