@@ -42,3 +42,14 @@ describe('POST /api/refresh — ручной запуск чтения форм�
     expect(refreshCalls[0].options.fresh).toBe(true);
   });
 });
+
+describe('ручное чтение формул отменяет отсев по отметке Drive', () => {
+  it('withFormulas выключает вопрос к Drive — иначе жест бесполезен', async () => {
+    const src = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../services/source-refresh.ts', import.meta.url), 'utf8'));
+    // Страж держит связку словами кода: правка формулировки не должна тихо
+    // вернуть отсев, из-за которого ручной запуск ничего не читал (30.08).
+    expect(src).toContain('const askDrive = options.withFormulas ? false : (options.askDrive ?? true);');
+    expect(src).toContain('askDrive,');
+  });
+});
