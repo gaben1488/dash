@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { PLAN_SOURCE_COLUMNS, SIGNAL_LABELS } from '@aemr/shared';
+import {
+  CHECK_REGISTRY,
+  ECONOMY_FLAG_BOOK_WORDS,
+  EP_REASON_DICT,
+  FACT_DATE_PLACEHOLDERS,
+  PLAN_SOURCE_COLUMNS,
+  RULE_BOOK,
+  SIGNAL_LABELS,
+  canonicalizeReasonEp,
+  economyFlagState,
+  hasFactDate,
+  isEconomyFlagGarbage,
+} from '@aemr/shared';
+import type { RuleCheckResult } from '@aemr/shared';
 import { detectSignals, classifyRowState, getSignalBadges, type RowSignals } from './signals.js';
 
 // ────────────────────────────────────────────────────────────
@@ -27,6 +40,45 @@ const REF_DATE = new Date(2026, 3, 13); // April 13, 2026
 // ────────────────────────────────────────────────────────────
 // 1. Status Signals
 // ────────────────────────────────────────────────────────────
+
+describe('Пустота даты факта — ОДИН дом канона (консолидация 30.08.2026)', () => {
+  // Класс «одно понятие живёт в двух домах»: движок сигналов звал пустотой
+  // всё нечитаемое (`toDayNumber === null`), а общий канон денег
+  // (@aemr/shared/fact-date.ts) — только девять заглушек. Одна и та же строка
+  // с мусором в Q была «исполнена» в деньгах и «просрочена» в сигналах.
+  const GARBAGE = ['см. примечание', 'в течение года', 'по мере необходимости', '???'];
+
+  it('СТРАЖ: на мусорном значении Q оба канона говорят одно и то же', () => {
+    for (const value of GARBAGE) {
+      const s = detectSignals(makeCells({ Q: value }), REF_DATE);
+      expect(s.signed).toBe(hasFactDate(value));
+      // Дом один — значит мусор считается заявленным заключением там же, где
+      // его считают деньги, а не только в одном из двух мест.
+      expect(s.signed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: все девять заглушек канона гасят «заключено» в движке сигналов', () => {
+    for (const placeholder of FACT_DATE_PLACEHOLDERS) {
+      const s = detectSignals(makeCells({ Q: placeholder }), REF_DATE);
+      expect(s.signed).toBe(hasFactDate(placeholder));
+      expect(s.signed).toBe(false);
+    }
+  });
+
+  it('СТРАЖ: настоящая дата — «заключено» по обоим канонам', () => {
+    const s = detectSignals(makeCells({ Q: '10.03.2026' }), REF_DATE);
+    expect(s.signed).toBe(hasFactDate('10.03.2026'));
+    expect(s.signed).toBe(true);
+  });
+
+  it('СТРАЖ: мусор в Q снимает просрочку — как и в счёте денег', () => {
+    // До консолидации строка с мусором в Q и прошедшей плановой датой
+    // считалась просроченной, хотя деньги по ней уже засчитаны фактом.
+    const s = detectSignals(makeCells({ N: '01.01.2026', Q: 'см. примечание' }), REF_DATE);
+    expect(s.overdue).toBe(false);
+  });
+});
 
 describe('Статус строки — только структурные колонки (канон п.27, интервью 14.08.2026)', () => {
   it('signed: дата заключения (Q) проставлена и разобрана', () => {
@@ -615,6 +667,19 @@ describe('Financial signals', () => {
       }), REF_DATE);
       expect(s.factExceedsPlan).toBe(true);
     });
+
+    it('СТРАЖ §22 (30.08.2026): порог ОДИН — 0,5%, ступеней 5% и 10% нет', () => {
+      // Паспорт fact_vs_plan обещал «> 10%» и три ступени, которых в движке
+      // не было никогда. Свели к числу кода — этот страж держит его от
+      // возврата к обещанному: превышение на 1% обязано гореть.
+      expect(detectSignals(makeCells({ K: 1_000_000, Y: 1_004_000 }), REF_DATE)
+        .factExceedsPlan).toBe(false); // 0,4% — внутри допуска, молчит
+      expect(detectSignals(makeCells({ K: 1_000_000, Y: 1_006_000 }), REF_DATE)
+        .factExceedsPlan).toBe(true);  // 0,6% — сразу за допуском, горит
+      // Превышение на 1%: при обещанных паспортом 5% и 10% строка молчала бы.
+      expect(detectSignals(makeCells({ K: 1_000_000, Y: 1_010_000 }), REF_DATE)
+        .factExceedsPlan).toBe(true);
+    });
   });
 
   describe('epFactDeviation — по ЕП факт обязан равняться плану (канон п.98м + п.102)', () => {
@@ -716,11 +781,45 @@ describe('EP reason classification (ep-reason-clusters wiring 2026-06-05)', () =
 
 describe('Data quality signals', () => {
   describe('dataQuality', () => {
-    it('true: missing required field D, plan date in past', () => {
+    it('СТРАЖ §22 п.2 (30.08.2026): пустой предмет G — замечание ВСЕГДА', () => {
+      // Класс «проверка требует не ту колонку»: до 30.08.2026 обязательной
+      // считалась D (программа) под ложным именем «предмет», а настоящий
+      // предмет G не проверялся вовсе.
+      const past = detectSignals(makeCells({
+        G: '', K: 1_000_000, L: 'ЭА', N: '01.01.2026',
+      }), REF_DATE);
+      expect(past.dataQuality).toBe(true);
+
+      const withFact = detectSignals(makeCells({
+        G: '   ', K: 1_000_000, L: 'ЭА', Q: '10.03.2026',
+      }), REF_DATE);
+      expect(withFact.dataQuality).toBe(true);
+    });
+
+    it('СТРАЖ §22 п.2: «Текущая деятельность» с ПУСТОЙ программой D — чисто', () => {
+      // Уточнение владельца 30.08.2026 дословно: ТД законна с пустой графой
+      // программы. Требовать D у всех строк значит звать норму дефектом.
       const s = detectSignals(makeCells({
-        D: '', K: 1_000_000, L: 'ЭА', N: '01.01.2026',
+        F: 'Текущая деятельность', D: '', G: 'Горючее',
+        K: 1_000_000, L: 'ЭА', N: '01.01.2026',
+      }), REF_DATE);
+      expect(s.dataQuality).toBe(false);
+    });
+
+    it('СТРАЖ §22 п.2: «Программное мероприятие» с пустой программой D — замечание', () => {
+      const s = detectSignals(makeCells({
+        F: 'Программное мероприятие', D: '', G: 'Горючее',
+        K: 1_000_000, L: 'ЭА', N: '01.01.2026',
       }), REF_DATE);
       expect(s.dataQuality).toBe(true);
+    });
+
+    it('СТРАЖ §22 п.2: «Программное мероприятие» с заполненной D — чисто', () => {
+      const s = detectSignals(makeCells({
+        F: 'Программное мероприятие', D: 'Развитие образования', G: 'Горючее',
+        K: 1_000_000, L: 'ЭА', N: '01.01.2026',
+      }), REF_DATE);
+      expect(s.dataQuality).toBe(false);
     });
 
     it('true: missing required field L, has fact date', () => {
@@ -1900,5 +1999,460 @@ describe('п.137(6): гейт ЕП у «факта раньше плановой
     // названа вслух в паспорте fact_date_before_plan.
     const s = detectSignals(makeCells({ L: 'ЕП', N: '15.03.2026', Q: '02.03.2026' }), REF_DATE);
     expect(s.factDateBeforePlan).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// ОБМОТКА НАД КНИГОЙ — девять слепот продукта (§22, 30.08.2026)
+//
+// Матрица `docs/superpowers/audits/2026-08-30-pravila-matrica.md` положила
+// рядом канон таблиц и канон продукта и насчитала девять мест, где книга
+// красит ячейку, а продукт молчит. Решение владельца: «слепоту продукта стоит
+// решать и убирать полностью». Восемь из девяти закрыты правилами КНИГИ
+// (@aemr/shared RULE_BOOK: предмет — ячейка и её заполнение), девятая —
+// сверкой значения производной даты внутри признака derivedFormulaBroken.
+//
+// ПОЧЕМУ СТРАЖИ ПРАВИЛ КНИГИ ЖИВУТ ЗДЕСЬ: у волны один файл стражей, и
+// разводить проверки одной слепоты по двум пакетам значило бы потерять связку
+// «слепота → правило → страж». Правило зовётся напрямую, как его зовёт
+// конвейер (@aemr/core validate.ts).
+// ────────────────────────────────────────────────────────────
+
+/** Правило книги по идентификатору — пропажа правила обязана падать громко. */
+function bookRule(id: string) {
+  const found = RULE_BOOK.find((r) => r.id === id);
+  if (!found) throw new Error(`Правило «${id}» пропало из RULE_BOOK`);
+  return found;
+}
+
+/** Прогон одного правила книги по одной строке — тем же путём, что в конвейере. */
+function checkBook(id: string, cells: Record<string, unknown>): RuleCheckResult {
+  return bookRule(id).check({
+    cells,
+    rowIndex: 42,
+    sheet: 'ВСЕ',
+    classification: 'procurement',
+  });
+}
+
+/** Строка книги: номер закупки в графе A обязателен — на нём стоит гейт правил. */
+function bookRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { A: 7, ...overrides };
+}
+
+/** Восемь правил книги, заведённых обмоткой 30.08.2026. */
+const NEW_BOOK_RULES = [
+  'plan_date_garbage',
+  'numeric_cell_unreadable',
+  'economy_flag_garbage',
+  'overdue_reason_missing',
+  'late_signed',
+  'out_of_44fz_perimeter',
+  'economy_components',
+  'method_missing',
+];
+
+describe('обмотка: каждое новое правило книги имеет паспорт под тем же именем', () => {
+  // Конвейер ищет паспорт по идентификатору правила (validate.ts:
+  // `LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id`). Разъехались имена — замечание
+  // родится безымянным, без строгости, рекомендации и места на Контроле:
+  // ровно этот механизм оставил класс «сломана формула даты» полусиротой.
+  for (const id of NEW_BOOK_RULES) {
+    it(`СТРАЖ: правило «${id}» есть в RULE_BOOK и в CHECK_REGISTRY`, () => {
+      const rule = bookRule(id);
+      expect(rule.scope).toBe('department');
+      const passport = CHECK_REGISTRY.find((c) => c.id === id);
+      expect(passport, `паспорт «${id}» не заведён`).toBeDefined();
+      // Паспорт обязан говорить читателю, что делать: пустая рекомендация
+      // означает карточку-тупик.
+      expect(passport!.recommendation.length).toBeGreaterThan(20);
+      expect(passport!.kbHint.length).toBeGreaterThan(20);
+    });
+  }
+
+  it('СТРАЖ: гейт всех правил — номер закупки в графе A (как у самой книги)', () => {
+    // Пустой хвост листа и служебная разметка номера не носят. Урок оплачен
+    // приёмкой 30.08.2026: ручной инструмент счёл дырами 58 пустых строк
+    // хвоста УО, за которыми не стояло ни одного дефекта.
+    const dirty = {
+      A: '', N: 'см. примечание', H: 'нет', AD: 'возможно', L: '',
+      Z: 999, Q: 'Х', T: 'Срок нарушен', U: '', M: 'закупка по 223-ФЗ',
+    };
+    for (const id of NEW_BOOK_RULES) {
+      expect(checkBook(id, dirty).passed, `правило «${id}» судит строку без номера`).toBe(true);
+    }
+  });
+});
+
+describe('слепота 1: мусор в плановой дате (N)', () => {
+  it('СТРАЖ: непустое значение, которое не дата, — замечание с адресом ячейки', () => {
+    for (const garbage of ['см. примечание', 'по мере необходимости', '???', 'н/д']) {
+      const r = checkBook('plan_date_garbage', bookRow({ N: garbage }));
+      expect(r.passed, `«${garbage}» прошло как дата`).toBe(false);
+      expect(r.cell).toBe('N42');
+      expect(r.message).toContain(garbage);
+    }
+  });
+
+  it('СТРАЖ: маркер отсутствия «Х» и пустота законны — у них свой класс', () => {
+    // Канон маркера — @aemr/shared absence.ts (п.62). Пустая N это «закупка,
+    // не обеспеченная финансированием», а не мусор ввода.
+    for (const ok of ['', 'Х', 'X', 'х', '-', '—']) {
+      expect(checkBook('plan_date_garbage', bookRow({ N: ok })).passed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: настоящая дата в любой живой записи проходит', () => {
+    // Формы записи из живых книг: русская, serial Google-листа, ISO.
+    for (const ok of ['15.03.2026', 46023, '2026-03-15']) {
+      expect(checkBook('plan_date_garbage', bookRow({ N: ok })).passed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: правило и движок признаков читают дату ОДНИМ рецептом', () => {
+    // Два канона одного понятия — тот самый класс, что чинился 30.08.2026 по
+    // пустоте даты факта. Здесь он держится на цепи: что правило пропускает
+    // как дату, движок обязан прочесть датой, и наоборот. Свидетель со стороны
+    // движка — просрочка: она зажигается ровно тогда, когда плановая дата
+    // РАЗОБРАНА и уже прошла (строки ниже — без факта, дата раньше REF_DATE).
+    for (const value of ['15.03.2026', 46023, '2026-03-15', 'см. примечание', 'н/д', '???']) {
+      const ruleSaysDate = checkBook('plan_date_garbage', bookRow({ N: value })).passed;
+      const engineReadsDate = detectSignals(makeCells({ N: value }), REF_DATE).overdue;
+      expect(ruleSaysDate, `«${value}»: правило и движок разошлись`).toBe(engineReadsDate);
+    }
+  });
+});
+
+describe('слепота 2: не-числа в денежных графах (H:J, V:X, Z:AB)', () => {
+  it('СТРАЖ: нечитаемое значение в любой из девяти граф — замечание', () => {
+    for (const col of ['H', 'I', 'J', 'V', 'W', 'X', 'Z', 'AA', 'AB']) {
+      const r = checkBook('numeric_cell_unreadable', bookRow({ [col]: 'по факту' }));
+      expect(r.passed, `графа ${col} пропустила текст`).toBe(false);
+      expect(r.message).toContain(`${col}42`);
+    }
+  });
+
+  it('СТРАЖ: числа книги (пробелы-разряды, запятая) проходят', () => {
+    const clean = bookRow({
+      H: 1000, I: '1 234,56', J: 0, V: 900, W: '0', X: 0, Z: 100, AA: 0, AB: 0,
+    });
+    expect(checkBook('numeric_cell_unreadable', clean).passed).toBe(true);
+  });
+
+  it('СТРАЖ: пустые графы не дефект — правило судит только заполненные', () => {
+    expect(checkBook('numeric_cell_unreadable', bookRow()).passed).toBe(true);
+    expect(checkBook('numeric_cell_unreadable', bookRow({ H: '', V: null })).passed).toBe(true);
+  });
+
+  it('СТРАЖ: замечание перечисляет ВСЕ испорченные графы строки, а не первую', () => {
+    const r = checkBook('numeric_cell_unreadable', bookRow({ H: 'нет', X: 'уточняется' }));
+    expect(r.passed).toBe(false);
+    expect(r.message).toContain('H42');
+    expect(r.message).toContain('X42');
+  });
+});
+
+describe('слепота 3: мусор в графе «Статус» (AD)', () => {
+  it('СТРАЖ: словарь книги — ровно «да» и «нет»', () => {
+    expect([...ECONOMY_FLAG_BOOK_WORDS]).toEqual(['да', 'нет']);
+    for (const ok of ['да', 'нет', 'Да', ' НЕТ ']) {
+      expect(checkBook('economy_flag_garbage', bookRow({ AD: ok })).passed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: пустая графа — не мусор, а отсутствие решения', () => {
+    expect(isEconomyFlagGarbage('')).toBe(false);
+    expect(checkBook('economy_flag_garbage', bookRow({ AD: '' })).passed).toBe(true);
+    expect(checkBook('economy_flag_garbage', bookRow({ AD: null })).passed).toBe(true);
+  });
+
+  it('СТРАЖ: посторонний текст и маркер «Х» — замечание', () => {
+    for (const bad of ['возможно', 'Х', '-', 'принято']) {
+      const r = checkBook('economy_flag_garbage', bookRow({ AD: bad }));
+      expect(r.passed, `«${bad}» прошло как решение органа`).toBe(false);
+      expect(r.cell).toBe('AD42');
+    }
+  });
+
+  it('СТРАЖ: «yes»/«no» продукт читает, но книга их не принимает — это мусор ввода', () => {
+    // Два вопроса к одной графе намеренно разведены: чтение терпимо (старые
+    // снимки несут латиницу, и выбрасывать решение органа из-за раскладки
+    // нельзя), словарь ввода строг (книга такое значение отклоняет).
+    expect(economyFlagState('yes')).toBe('approved');
+    expect(economyFlagState('no')).toBe('declined');
+    expect(isEconomyFlagGarbage('yes')).toBe(true);
+    expect(checkBook('economy_flag_garbage', bookRow({ AD: 'no' })).passed).toBe(false);
+  });
+});
+
+describe('слепота 4: просрочка без причины (U)', () => {
+  it('СТРАЖ: заключено позже плана, а причина пуста — замечание', () => {
+    const r = checkBook('overdue_reason_missing',
+      bookRow({ N: '01.03.2026', Q: '15.03.2026', U: '' }));
+    expect(r.passed).toBe(false);
+    expect(r.cell).toBe('U42');
+    expect(r.message).toContain('14');
+  });
+
+  it('СТРАЖ: причина заполнена — замечания нет, содержимое не читается', () => {
+    // Канон п.27: продукт видит только факт пустоты. Любой текст гасит.
+    for (const reason of ['поставщик отказался', 'не состоялся аукцион', 'ждём финансирование']) {
+      expect(checkBook('overdue_reason_missing',
+        bookRow({ N: '01.03.2026', Q: '15.03.2026', U: reason })).passed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: маркер «Х» в причине — та же незаполненность (канон п.62)', () => {
+    expect(checkBook('overdue_reason_missing',
+      bookRow({ N: '01.03.2026', Q: '15.03.2026', U: 'Х' })).passed).toBe(false);
+  });
+
+  it('СТРАЖ: строка БЕЗ факта — срыв виден только через графу T книги', () => {
+    // У правила листа нет часов: «плановая дата прошла» решает формула книги,
+    // сравнивающая план с датой среза. Поэтому вердикт T тут единственный
+    // источник — и он же второй путь, «дни просрочки больше нуля».
+    expect(checkBook('overdue_reason_missing',
+      bookRow({ N: '01.03.2026', T: 'Срок нарушен', U: '' })).passed).toBe(false);
+    expect(checkBook('overdue_reason_missing',
+      bookRow({ N: '01.03.2026', T: 12, U: '' })).passed).toBe(false);
+  });
+
+  it('СТРАЖ: срок соблюдён — пустая причина законна', () => {
+    expect(checkBook('overdue_reason_missing',
+      bookRow({ N: '15.03.2026', Q: '15.03.2026', U: '' })).passed).toBe(true);
+    expect(checkBook('overdue_reason_missing',
+      bookRow({ N: '15.03.2026', Q: '01.03.2026', U: '' })).passed).toBe(true);
+    expect(checkBook('overdue_reason_missing',
+      bookRow({ N: '15.03.2026', T: 'Срок не наступил', U: '' })).passed).toBe(true);
+  });
+});
+
+describe('слепота 5: закупка вне периметра 44-ФЗ (223-ФЗ)', () => {
+  it('СТРАЖ: кластер 223 в основании (M) — признак с адресом M', () => {
+    const r = checkBook('out_of_44fz_perimeter',
+      bookRow({ L: 'ЕП', M: 'закупка осуществляется по 223-ФЗ' }));
+    expect(r.passed).toBe(false);
+    expect(r.cell).toBe('M42');
+  });
+
+  it('СТРАЖ: «223-ФЗ» в примечании ГРБС при способе НЕ ЕП — признак с адресом AF', () => {
+    const r = checkBook('out_of_44fz_perimeter', bookRow({ L: 'ЭА', AF: 'проводится по 223-ФЗ' }));
+    expect(r.passed).toBe(false);
+    expect(r.cell).toBe('AF42');
+  });
+
+  it('СТРАЖ: у единственного поставщика ссылка в примечании признака не даёт', () => {
+    // Гейт взят у самой книги: у ЕП ссылка на 223-ФЗ обычно часть правового
+    // основания, а не признак чужого периметра.
+    expect(checkBook('out_of_44fz_perimeter',
+      bookRow({ L: 'ЕП', AF: 'см. 223-ФЗ' })).passed).toBe(true);
+  });
+
+  it('СТРАЖ: образцы — из словаря причин ЕП, а не свой набор выражений', () => {
+    // Второй набор выражений завёл бы второй канон: правило и жетон Реестра
+    // (@aemr/web lib/rows/outside-44fz.ts) считали бы «223» по-разному. Страж
+    // держит РАВЕНСТВО вердиктов правила и словаря на живых формулировках —
+    // разойтись им негде, пока образцы берутся из одной записи.
+    const phrases = [
+      'закупка осуществляется по 223-ФЗ',
+      'закупка по 223 фз',
+      'по положению о закупках учреждения',
+      'приобретение по положению о закупках',
+      'п. 4 ч. 1 ст. 93 44-ФЗ',
+      'единственный поставщик, монополист',
+      '',
+    ];
+    for (const phrase of phrases) {
+      const normalized = phrase.trim().toLowerCase().replace(/\s+/g, ' ');
+      const dictSays = normalized !== ''
+        && EP_REASON_DICT.EP_LAW_223.regex.some((re) => re.test(normalized));
+      const ruleSays = !checkBook('out_of_44fz_perimeter',
+        bookRow({ L: 'ЕП', M: phrase })).passed;
+      expect(ruleSays, `«${phrase}»: правило и словарь разошлись`).toBe(dictSays);
+    }
+  });
+
+  it('СТРАЖ: другая причина рядом метку периметра не крадёт', () => {
+    // Канонизация причин ЕП возвращает ПЕРВЫЙ совпавший кластер из
+    // пятнадцати: «аукцион не состоялся, закупаем по положению о закупках»
+    // ушла бы в кластер несостоявшегося аукциона, и метка пропала бы. Вопрос
+    // здесь другой — относится ли строка к другому закону вообще.
+    const mixed = 'аукцион не состоялся, закупаем по положению о закупках';
+    expect(canonicalizeReasonEp(mixed).cluster).not.toBe('EP_LAW_223');
+    expect(checkBook('out_of_44fz_perimeter', bookRow({ L: 'ЕП', M: mixed })).passed).toBe(false);
+  });
+
+  it('СТРАЖ: примечание читается ТОКЕНОМ, а не толкованием (канон п.27)', () => {
+    // Свободный текст без ссылки на закон признака не рождает — иначе это
+    // было бы машинное толкование комментария, запрещённое каноном.
+    expect(checkBook('out_of_44fz_perimeter',
+      bookRow({ L: 'ЭА', AF: 'закупка вне обычного порядка, согласовано' })).passed).toBe(true);
+    expect(checkBook('out_of_44fz_perimeter', bookRow({ L: 'ЭА', M: '', AF: '' })).passed).toBe(true);
+  });
+
+  it('СТРАЖ: паспорт называет переключатель, а не обещает исключение из счётов', () => {
+    // Решение владельца §22 п.5: маркировать сейчас, исключать переключателем
+    // следующей волной. Паспорт обязан сказать это прямо, иначе читатель
+    // решит, что деньги строки уже выведены из счётов.
+    const passport = CHECK_REGISTRY.find((c) => c.id === 'out_of_44fz_perimeter');
+    expect(passport!.severity).toBe('info');
+    expect(passport!.kbHint).toContain('переключател');
+  });
+});
+
+describe('слепота 6: исполнено с опозданием', () => {
+  it('СТРАЖ: факт позже плана — замечание с числом суток', () => {
+    const r = checkBook('late_signed', bookRow({ N: '01.03.2026', Q: '20.03.2026' }));
+    expect(r.passed).toBe(false);
+    expect(r.message).toContain('19');
+    expect(r.cell).toBe('Q42');
+  });
+
+  it('СТРАЖ: срок в срок и опережение опозданием не считаются', () => {
+    expect(checkBook('late_signed', bookRow({ N: '01.03.2026', Q: '01.03.2026' })).passed).toBe(true);
+    expect(checkBook('late_signed', bookRow({ N: '01.03.2026', Q: '20.02.2026' })).passed).toBe(true);
+  });
+
+  it('СТРАЖ: считается по рукописным N и Q, перебитая графа T расчёт не трогает', () => {
+    // Целостность T — отдельная слепота матрицы, и живой случай есть (УО,
+    // строка 2645: вбито 46255). Класс опоздания не должен от неё зависеть.
+    const r = checkBook('late_signed', bookRow({ N: '01.03.2026', Q: '20.03.2026', T: 46255 }));
+    expect(r.passed).toBe(false);
+    expect(r.message).toContain('19');
+    expect(checkBook('late_signed', bookRow({ N: '01.03.2026', Q: '01.03.2026', T: 46255 })).passed)
+      .toBe(true);
+  });
+
+  it('СТРАЖ: признак просрочки гаснет при факте — потому класс и понадобился', () => {
+    // Ровно этот зазор назвала матрица: overdue устроен как «плановая дата
+    // прошла, а факта нет», и закрытая с нарушением срока строка выглядела
+    // чистой. Проверяем оба конца связки на одной строке.
+    const cells = makeCells({ N: '01.03.2026', Q: '20.03.2026', Y: 500_000 });
+    const s = detectSignals(cells, REF_DATE);
+    expect(s.overdue).toBe(false);
+    expect(s.signed).toBe(true);
+    expect(checkBook('late_signed', { ...cells, A: 7 }).passed).toBe(false);
+  });
+});
+
+describe('слепота 7: экономия по компонентам (Z = H−V, AA = I−W, AB = J−X)', () => {
+  const signed = { Q: '20.03.2026' };
+
+  it('СТРАЖ: остаток равен «план − факт» по каждому уровню — молчит', () => {
+    expect(checkBook('economy_components', bookRow({
+      ...signed, H: 100, V: 60, Z: 40, I: 50, W: 50, AA: 0, J: 10, X: 4, AB: 6,
+    })).passed).toBe(true);
+  });
+
+  it('СТРАЖ: вбитый остаток при сходящейся тройке — замечание', () => {
+    // Сверка итога экономии (AC = Z+AA+AB) такую строку пропускает: тройка
+    // между собой сходится, а слагаемое не равно своей разности.
+    const r = checkBook('economy_components', bookRow({
+      ...signed, H: 100, V: 60, Z: 39, I: 0, W: 0, AA: 0, J: 0, X: 0, AB: 0, AC: 39,
+    }));
+    expect(r.passed).toBe(false);
+    expect(r.message).toContain('Z42');
+  });
+
+  it('СТРАЖ: допуск тот же, что у прочих сверок книги, — 5 рублей', () => {
+    // Суммы книги ведутся в тысячах: 0,001 в ячейке это 1 рубль.
+    const at = (rest: number) => checkBook('economy_components', bookRow({
+      ...signed, H: 100, V: 60, Z: rest, I: 0, W: 0, AA: 0, J: 0, X: 0, AB: 0,
+    })).passed;
+    expect(at(40.004)).toBe(true);   // 4 руб. — копеечный шум
+    expect(at(40.006)).toBe(false);  // 6 руб. — уже видно
+  });
+
+  it('СТРАЖ: даты заключения нет — остатки обязаны быть нулями', () => {
+    for (const q of ['Х', '', '—']) {
+      expect(checkBook('economy_components', bookRow({
+        Q: q, H: 100, V: 0, Z: 100, I: 0, W: 0, AA: 0, J: 0, X: 0, AB: 0,
+      })).passed, `Q="${q}": остаток 100 при отсутствии договора прошёл`).toBe(false);
+      expect(checkBook('economy_components', bookRow({
+        Q: q, H: 100, V: 0, Z: 0, I: 0, W: 0, AA: 0, J: 0, X: 0, AB: 0,
+      })).passed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: нечитаемое слагаемое судит соседнее правило, не это', () => {
+    // Двойное замечание об одной ячейке читателю не помогает: текст в графе
+    // плана — предмет проверки «денежная графа заполнена не числом».
+    expect(checkBook('economy_components', bookRow({
+      ...signed, H: 'нет', V: 60, Z: 40,
+    })).passed).toBe(true);
+    expect(checkBook('numeric_cell_unreadable', bookRow({ H: 'нет' })).passed).toBe(false);
+  });
+});
+
+describe('слепота 8: значение производной даты сверяется с самой датой', () => {
+  // Лист считает квартал как ROUNDUP(MONTH/3), год как YEAR. До 30.08.2026
+  // продукт проверял только присутствие производной и диапазон 1..4 — значит
+  // правдоподобное, но неверное значение проходило насквозь, и строка уходила
+  // в чужой квартал печатного года.
+  const healthy = { L: 'ЕП', K: 40, N: '15.11.2026', O: 4, P: 2026 };
+
+  it('СТРАЖ: здоровая строка (ноябрь → 4-й квартал, год 2026) молчит', () => {
+    expect(detectSignals(healthy).derivedFormulaBroken).toBe(false);
+  });
+
+  it('СТРАЖ: квартал не тот, что у плановой даты, — сломанная формула', () => {
+    expect(detectSignals({ ...healthy, O: 2 }).derivedFormulaBroken).toBe(true);
+  });
+
+  it('СТРАЖ: год не тот, что у плановой даты, — сломанная формула', () => {
+    expect(detectSignals({ ...healthy, P: 2025 }).derivedFormulaBroken).toBe(true);
+  });
+
+  it('СТРАЖ: та же сверка на стороне факта (R и S от Q)', () => {
+    const withFact = { ...healthy, Q: '11.08.2026', R: 3, S: 2026 };
+    expect(detectSignals(withFact).derivedFormulaBroken).toBe(false);
+    expect(detectSignals({ ...withFact, R: 1 }).derivedFormulaBroken).toBe(true);
+    expect(detectSignals({ ...withFact, S: 2025 }).derivedFormulaBroken).toBe(true);
+  });
+
+  it('СТРАЖ: границы кварталов считаются как в листе, без сдвига на месяц', () => {
+    // Март — конец первого квартала, апрель — начало второго. Ошибка на
+    // границе была бы неотличима от настоящей перебитой формулы.
+    expect(detectSignals({ ...healthy, N: '31.03.2026', O: 1 }).derivedFormulaBroken).toBe(false);
+    expect(detectSignals({ ...healthy, N: '01.04.2026', O: 2 }).derivedFormulaBroken).toBe(false);
+    expect(detectSignals({ ...healthy, N: '01.04.2026', O: 1 }).derivedFormulaBroken).toBe(true);
+  });
+
+  it('СТРАЖ: маркер «Х» в дате протаскивается в производные — это не поломка', () => {
+    // Формула листа переносит «Х» из даты в квартал и год; такая строка —
+    // «не обеспечена финансированием», а не сломанная формула.
+    const s = detectSignals({ L: 'ЕП', K: 240, N: 'Х', O: 'Х', P: 'Х' });
+    expect(s.derivedFormulaBroken).toBe(false);
+    expect(s.planYearMissing).toBe(true);
+  });
+});
+
+describe('слепота 9: пустой способ закупки (L)', () => {
+  it('СТРАЖ: номер закупки есть, способа нет — замечание всегда', () => {
+    const r = checkBook('method_missing', bookRow({ L: '', K: 1000, N: '31.12.2030' }));
+    expect(r.passed).toBe(false);
+    expect(r.cell).toBe('L42');
+  });
+
+  it('СТРАЖ: плановая строка будущего — та, которую полнота по построению не видит', () => {
+    // Проверка полноты («Пустые обязательные поля») смотрит на строку только
+    // при факте либо прошедшей плановой дате. Плановая строка с будущей датой
+    // и пустым способом до 30.08.2026 не отмечалась ничем.
+    const future = makeCells({ L: '', N: '31.12.2030', Q: null, Y: 0, V: 0, W: 0, X: 0 });
+    expect(detectSignals(future, REF_DATE).dataQuality).toBe(false);
+    expect(checkBook('method_missing', { ...future, A: 7 }).passed).toBe(false);
+  });
+
+  it('СТРАЖ: способ проставлен — молчит', () => {
+    for (const method of ['ЕП', 'ЭА', ' ЕП ']) {
+      expect(checkBook('method_missing', bookRow({ L: method })).passed).toBe(true);
+    }
+  });
+
+  it('СТРАЖ: маркер «Х» в способе судит словарь, а не это правило', () => {
+    // Два замечания об одной ячейке читателю не помогают: «Х» — недопустимое
+    // ЗНАЧЕНИЕ, о нём говорит проверка способа закупки.
+    expect(checkBook('method_missing', bookRow({ L: 'Х' })).passed).toBe(true);
+    expect(checkBook('method_validation', bookRow({ L: 'Х' })).passed).toBe(false);
   });
 });

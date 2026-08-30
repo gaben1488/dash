@@ -12,6 +12,7 @@ import type { RecalculatedMetrics } from './recalculate.js';
 import { CalcEngine, standardRowFilter } from './calc-engine.js';
 import { adaptToRecalcMetrics } from './calc-engine-adapter.js';
 import { detectSignals, type RowSignals } from './signals.js';
+import { formulaIntegrityIssues } from './formula-integrity.js';
 import { analyzeDataset, type DatasetAnalysis } from './dataset-signals.js';
 
 export interface PipelineInput {
@@ -23,6 +24,17 @@ export interface PipelineInput {
   }>;
   /** Построчные данные листов для пересчёта */
   sheetRows: Record<string, unknown[][]>;
+  /**
+   * Формулы формульных граф книг ГРБС по листам — сетка той же геометрии, что
+   * `sheetRows` (`[строка][колонка листа]`, колонка 0 = A). Так её и отдаёт
+   * чтение сервера (`getSheetFormulaColumns`).
+   *
+   * ОТСУТСТВИЕ КЛЮЧА И ПУСТАЯ СЕТКА ЗНАЧАТ ОДНО: формулы НЕ ЧИТАЛИ. Это не
+   * «дефектов нет»: формулы читаются по вебхуку и в ночном обходе (решение
+   * владельца §22 п.7), а быстрое плановое обновление за них не платит — и
+   * не имеет права выдавать своё молчание за чистую книгу.
+   */
+  sheetFormulas?: Record<string, unknown[][]>;
   /** Карта метрик */
   reportMap: ReportMapEntry[];
   /** Правила валидации */
@@ -580,6 +592,17 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       sheetSignalsByDept[deptId] = sheetSignals;
       const signalIssues = detectSignalsToIssues(sheetName, sheetSignals, deptId);
       allIssues.push(...signalIssues);
+
+      // Целостность формул книги — судится НОСИТЕЛЬ (ячейка формульной графы),
+      // а не смысл строки, поэтому отдельным слоем. Слой сам молчит, когда
+      // формул не читали; `startRow: 1` — договор чтения: обе сетки начинаются
+      // с первой строки листа (google-sheets.ts, DeptSheetResult.startRow).
+      allIssues.push(...formulaIntegrityIssues({
+        book: sheetName,
+        values: rows as unknown[][],
+        formulas: input.sheetFormulas?.[sheetName] ?? [],
+        startRow: 1,
+      }, deptId));
 
       // Аналитический пересчёт из строк через CalcEngine (filter by target year to match СВОД scope)
       const grouped = engine.compute(rows as unknown[][], standardRowFilter, 3, input.targetYear);

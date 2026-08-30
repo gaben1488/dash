@@ -3,11 +3,13 @@
  * Анализирует строки закупок на статусы, аномалии и сигналы для принятия решений.
  * Портировано из v22 getRowSignals + classifyRow, переписано как типизированные чистые функции.
  *
- * Столбцы (выверено по recalculate.ts и реальной таблице):
- *   A=0  (ID/№ п/п), B=1, C=2 (подвед), D=3 (предмет),
- *   E=4, F=5  (вид деятельности), G=6 (наименование/subject),
+ * Столбцы (единственный дом карты — @aemr/shared/column-map.ts, DEPT_COLUMNS;
+ * правка 30.08.2026: здесь стояло «D = предмет», что противоречило канону —
+ * предмет живёт в G, а D несёт наименование программы):
+ *   A=0  (ID/№ п/п), B=1 (имя управления), C=2 (подвед), D=3 (программа),
+ *   E=4 (подпрограмма), F=5 (вид деятельности), G=6 (предмет закупки),
  *   H=7  (ФБ план), I=8 (КБ план), J=9 (МБ план), K=10 (план итого),
- *   L=11 (способ закупки: ЭА/ЕП/ЭК/ЭЗК), M=12, N=13 (план дата),
+ *   L=11 (способ закупки книги ГРБС: ЕП/ЭА — §22 п.1), M=12, N=13 (план дата),
  *   O=14 (план квартал: 1-4), P=15, Q=16 (факт дата),
  *   R=17 (факт квартал), S=18, T=19, U=20 (статус),
  *   V=21 (ФБ факт), W=22 (КБ факт), X=23 (МБ факт),
@@ -22,6 +24,7 @@ import {
   canonicalizeReasonEp,
   dayNumberOf,
   economyFlagVerdict,
+  hasFactDate as factDatePresent,
   isAbsentCell,
   isFormulaError,
   isInitiativeMarker,
@@ -185,6 +188,13 @@ export interface RowSignals {
    * Живой пример 18.08.2026: УКСиМП строки 280/283 — N=30.11.2026/31.08.2026,
    * в O и P нет даже формулы; система ложно звала их «не обеспеченными
    * финансированием» (жалоба оператора: «все данные заполнены и сверены»).
+   *
+   * С 30.08.2026 сверяется и ЗНАЧЕНИЕ производной, а не только её присутствие
+   * (слепота №8 матрицы правил): лист считает квартал как ROUNDUP(MONTH/3),
+   * год как YEAR — значит квартал 2 при ноябрьской дате и год 2025 при дате
+   * 2026-го это та же перебитая формула, только с правдоподобным видом. Такая
+   * ячейка не ловилась ничем, а строка молча уходила в чужой квартал
+   * печатного года.
    */
   derivedFormulaBroken: boolean;
   /**
@@ -274,10 +284,33 @@ const PLAN_SOON_DAYS = 14;
 // здесь знал только английскую локаль, и «#ЗНАЧ!»/«#ДЕЛ/0!» русских книг
 // молча читались как текст (страж 29.08.2026).
 
-/** Обязательные столбцы для проверки качества данных.
- * D = предмет, K = план итого, L = способ закупки.
- * E (вид деятельности) исключён — часто не заполняется и это не ошибка данных. */
-const REQUIRED_COLUMNS = ['D', 'K', 'L'] as const;
+/**
+ * Обязательные столбцы строки закупки — ОБЩИЕ для любого вида деятельности:
+ * G = предмет закупки, K = план итого, L = способ закупки.
+ *
+ * Починка 30.08.2026 (класс «проверка требует не ту колонку»). Здесь стояло
+ * `['D','K','L']` с комментарием «D = предмет», и комментарий был ложен: по
+ * канону колонок (shared/column-map.ts) D — НАИМЕНОВАНИЕ ПРОГРАММЫ, а предмет
+ * закупки живёт в G. Цена ошибки двойная: пустой предмет продукт не ловил
+ * вовсе, а законно пустую программу считал дефектом.
+ *
+ * Уточнение владельца (§22 п.2, 30.08.2026): «Текущая деятельность» законна с
+ * ПУСТОЙ графой программы. Поэтому D обязательна не всегда, а только у
+ * программного мероприятия — см. PROGRAM_REQUIRED_COLUMN ниже.
+ *
+ * E (вид деятельности) исключён — часто не заполняется и это не ошибка данных.
+ */
+const REQUIRED_COLUMNS = ['G', 'K', 'L'] as const;
+
+/**
+ * Значение колонки F (вид деятельности), при котором наименование программы
+ * (D) становится обязательным. Сравнение — с приведённым к нижнему регистру
+ * текстом ячейки (cellText), как и везде в этом файле.
+ */
+const PROGRAM_ACTIVITY_TYPE = 'программное мероприятие';
+
+/** Столбец, обязательный ТОЛЬКО у программного мероприятия: D — программа. */
+const PROGRAM_REQUIRED_COLUMN = 'D';
 
 // ────────────────────────────────────────────────────────────
 // Вспомогательные функции
@@ -374,6 +407,17 @@ function utcYearOfDay(day: number): number {
 }
 
 /**
+ * UTC-квартал (1..4) по номеру суток — ТА ЖЕ формула, что у листа:
+ * `ROUNDUP(MONTH(дата)/3)`. Нужен, чтобы сверять ЗНАЧЕНИЕ производной графы
+ * с датой-источником, а не только её присутствие и диапазон (слепота №8
+ * матрицы правил 30.08.2026: `O=2` при `N=15.11` — та же перебитая формула,
+ * что и пустая ячейка, только с правдоподобным видом).
+ */
+function utcQuarterOfDay(day: number): number {
+  return Math.ceil((new Date(day * 86400000).getUTCMonth() + 1) / 3);
+}
+
+/**
  * Проверяет, содержит ли любое значение в cells формульную ошибку.
  * Распознавание — канон @aemr/shared isFormulaError: обе локали кодов,
  * якорное сличение (упоминание «#REF» в середине примечания — не ошибка).
@@ -384,7 +428,14 @@ function hasFormulaError(cells: Record<string, unknown>): boolean {
 
 /**
  * Проверяет, является ли строка «строкой данных» (не заголовок, не итого).
- * Простая эвристика: есть предмет закупки (D) или суммы (K).
+ * Простая эвристика: в графе программы (D) есть текст либо есть сумма (K),
+ * и текст D не служебный («итого», «всего», «раздел», «блок»).
+ *
+ * Оговорка честности (30.08.2026): читается именно D — НАИМЕНОВАНИЕ ПРОГРАММЫ
+ * (канон column-map.ts), а не предмет закупки; прежний комментарий звал D
+ * предметом и был ложен. Поведение не менялось намеренно: расширение
+ * эвристики на G — отдельная правка со своим замером, а не побочный эффект
+ * починки обязательных полей.
  */
 function isDataRow(cells: Record<string, unknown>): boolean {
   const d = cellText(cells, 'D');
@@ -457,7 +508,17 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
 
   // Факт суммы > 0 ИЛИ есть факт дата
   const hasFactAmounts = factTotal > 0;
-  const hasFactDate = factDay !== null;
+  // ЕДИНЫЙ ДОМ ПУСТОТЫ ДАТЫ ФАКТА — @aemr/shared/fact-date.ts (hasFactDate).
+  // Консолидация 30.08.2026: канонов было два и они спорили на мусоре. Здесь
+  // стояло `factDay !== null` — «всё нечитаемое не дата», а общий канон, по
+  // которому считаются деньги (factCountsOn → метрики, отчёт, движок), звал
+  // пустотой только девять заглушек («», Х, X, -, —, –, н/д, нет, не
+  // определена) и любой прочий текст считал заявленным заключением. Из-за
+  // расхождения одна и та же строка с мусором в Q была «исполнена» в деньгах
+  // и «просрочена» в сигналах. Теперь дом один; разбор даты (factDay) ниже
+  // остаётся отдельным вопросом — он про то, КАКОГО ЧИСЛА, а не про то, есть
+  // ли заключение вообще.
+  const hasFactDate = factDatePresent(cells['Q']);
   const hasFact = hasFactAmounts || hasFactDate;
 
   // ── Статусные сигналы — только структура (канон п.27, 14.08.2026) ──
@@ -553,7 +614,15 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let dataQuality = false;
   const planDateInPast = planDay !== null && planDay < todayDay;
   if (isDataRow(cells) && (hasFactDate || planDateInPast)) {
-    dataQuality = REQUIRED_COLUMNS.some(col => {
+    // Обязательность зависит от вида деятельности (уточнение владельца §22 п.2
+    // от 30.08.2026): предмет G, план K и способ L обязательны всегда, а
+    // программа D — только у программного мероприятия. У текущей деятельности
+    // пустая программа законна, и требовать её значит звать норму дефектом.
+    const required: string[] = [...REQUIRED_COLUMNS];
+    if (cellText(cells, 'F') === PROGRAM_ACTIVITY_TYPE) {
+      required.push(PROGRAM_REQUIRED_COLUMN);
+    }
+    dataQuality = required.some(col => {
       const val = cells[col];
       return val === null || val === undefined || String(val).trim() === '';
     });
@@ -685,12 +754,36 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // (канон 20.08.2026: первичны рукописные N и Q, O/P/R/S — вторичная история).
   const planQuarterNum = Number(planQuarterText.replace(',', '.'));
   const planQuarterValid = planQuarterNum >= 1 && planQuarterNum <= 4;
+  const planYearNum = Number(planYearText.replace(',', '.'));
+  const factQuarterNum = Number(factQuarterText.replace(',', '.'));
+  const factYearNum = Number(factYearText.replace(',', '.'));
+
+  // СВЕРКА ЗНАЧЕНИЯ С ДАТОЙ (слепота №8 матрицы правил 30.08.2026). До неё
+  // производная проверялась только на присутствие и диапазон 1..4 — а книга
+  // считает её формулами `ROUNDUP(MONTH(N)/3)` и `YEAR(N)` (для факта — то же
+  // от Q). Значит квартал 2 при ноябрьской дате или год 2025 при дате 2026-го
+  // — ровно та же перебитая формула, что и пустая ячейка, только выглядит
+  // заполненной и потому не ловилась ничем: строка молча уходит в чужой
+  // квартал печатного года. Сверяются лишь ПРАВДОПОДОБНЫЕ значения — пустоту,
+  // маркер и выход из 1..4 ловят ветки присутствия выше и ниже.
+  const planQuarterWrong = planDay !== null && planQuarterValid
+    && Math.round(planQuarterNum) !== utcQuarterOfDay(planDay);
+  const planYearWrong = planDay !== null && !planYearEmpty
+    && Number.isInteger(planYearNum) && planYearNum !== utcYearOfDay(planDay);
+  const factQuarterValid = factQuarterNum >= 1 && factQuarterNum <= 4;
+  const factQuarterWrong = factDay !== null && factQuarterValid
+    && Math.round(factQuarterNum) !== utcQuarterOfDay(factDay);
+  const factYearWrong = factDay !== null && factYearText !== '' && !isAbsentCell(factYearText)
+    && Number.isInteger(factYearNum) && factYearNum !== utcYearOfDay(factDay);
+
   const planDerivedPresent = !planQuarterEmpty || !planYearEmpty;
   const planPairBroken = (planDay !== null && (!planQuarterValid || planYearEmpty))
+    || planQuarterWrong || planYearWrong
     || (planDateAbsent && planDerivedPresent);
   const factDerivedPresent = (factQuarterText !== '' && !isAbsentCell(factQuarterText))
     || (factYearText !== '' && !isAbsentCell(factYearText));
   const factPairBroken = (factDay !== null && (factQuarterText === '' || factYearText === ''))
+    || factQuarterWrong || factYearWrong
     || (factDay === null && factDerivedPresent);
   const derivedFormulaBroken = (methodText !== '' && !isNaN(planTotal) && planTotal > 0)
     && (planPairBroken || factPairBroken);
@@ -826,8 +919,9 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   // объясняет разрыв, а не требует правки. Оба года должны быть заполнены:
   // пустой год плана — это уже свой класс «не обеспечена финансированием»,
   // пустой год факта при дате — «сломана формула даты».
-  const planYearNum = Number(planYearText.replace(',', '.'));
-  const factYearNum = Number(factYearText.replace(',', '.'));
+  // planYearNum / factYearNum разобраны выше, в блоке производных дат: один
+  // разбор графы на модуль — иначе следующая правка канона года разъедет
+  // «сломанную формулу» и «чужой год» между собой.
   const foreignYearExecution =
     Number.isInteger(planYearNum) && planYearNum > 0
     && Number.isInteger(factYearNum) && factYearNum > 0
