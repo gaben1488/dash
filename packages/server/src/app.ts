@@ -35,8 +35,10 @@ import { integrityRoutes } from './routes/integrity.js';
 import { textHygieneRoutes } from './routes/text-hygiene.js';
 import { eventsRoutes } from './routes/events.js';
 import { commentsRoutes } from './routes/comments.js';
+import { sourceIntegrityRoutes } from './routes/source-integrity.js';
 import { recoverWebhookQueue } from './routes/webhook.js';
 import { startNightlyCommentsSweep } from './services/drive-comments.js';
+import { startNightlyIntegritySweep } from './services/metadata-watch.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
@@ -243,6 +245,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(textHygieneRoutes);
   await app.register(eventsRoutes);
   await app.register(commentsRoutes);
+  await app.register(sourceIntegrityRoutes);
 
   // Отладочное чтение книги регистрируется только в явно названной среде
   // разработки (прежде — при любой, кроме production, включая незаданную).
@@ -269,9 +272,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
+    // Ночной обход целостности (решение владельца §22 п.7): дозор метаданных
+    // книг + полное чтение формульных колонок. Отдельным обходом, а не строкой
+    // внутри обхода комментариев: у него своя цена и свой исход, и падение
+    // одного не имеет права отменить другой. Расписание общее — час берётся
+    // из drive-comments.ts, чтобы двух разных «ночей» в продукте не завелось.
+    const stopIntegritySweep = startNightlyIntegritySweep({
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
     app.addHook('onClose', async () => {
       stopWeeklySnapshotCron();
       stopCommentsSweep();
+      stopIntegritySweep();
     });
   }
 

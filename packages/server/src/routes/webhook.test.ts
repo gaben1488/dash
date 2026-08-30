@@ -269,7 +269,9 @@ describe('POST /api/webhook/drive', () => {
     expect(refreshAllSources).toHaveBeenCalledWith(
       expect.anything(),
       'webhook',
-      { fresh: true, books: ['УО'], svod: false },
+      // Формулы читаются по уведомлению (решение владельца §22 п.7): книгу
+      // трогали рукой, а формулу перебивают именно рукой.
+      { fresh: true, books: ['УО'], svod: false, withFormulas: true },
     );
   });
 
@@ -317,7 +319,7 @@ describe('POST /api/webhook/drive', () => {
     expect(refreshAllSources).toHaveBeenCalledWith(
       expect.anything(),
       'webhook',
-      { fresh: true, books: undefined, svod: true },
+      { fresh: true, books: undefined, svod: true, withFormulas: true },
     );
     expect(refreshMonitoringBook).toHaveBeenCalledTimes(1);
   });

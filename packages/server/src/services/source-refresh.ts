@@ -56,6 +56,13 @@ export interface SourceRefreshResult {
    * прошлого чтения. Не ошибка и не пропуск — сэкономленное чтение.
    */
   skipped: string[];
+  /**
+   * Книги, у которых в этом цикле прочитаны ФОРМУЛЬНЫЕ КОЛОНКИ. Пустой список
+   * — это «формулы не читали», а НЕ «дефектов формул нет»: быстрый плановый
+   * цикл за формулы не платит (решение владельца §22 п.7), и выдавать его
+   * молчание за чистую книгу запрещено.
+   */
+  formulaBooks: string[];
 }
 
 /** Идёт ли перечитка прямо сейчас — параллельные вызовы ждут общий промис. */
@@ -68,7 +75,7 @@ let queuedFresh: Promise<SourceRefreshResult> | null = null;
  * обеими книгами; взять цель только у первого вставшего значит потерять вторую
  * правку до планового опроса.
  */
-let queuedScope: { books: Set<string> | null; svod: boolean } | null = null;
+let queuedScope: { books: Set<string> | null; svod: boolean; withFormulas: boolean } | null = null;
 
 /** Отпечатки прошлого чтения — по ним видно, изменилось ли что-нибудь. */
 const bookPrints = new Map<string, string>();
@@ -107,6 +114,133 @@ export function resetSourcePrints(): void {
   svodPrint = null;
 }
 
+// ---------------------------------------------------------------------------
+// Доставка формул в разбор целостности
+// ---------------------------------------------------------------------------
+
+/**
+ * ДОГОВОР СО СЛОЕМ РАЗБОРА (`packages/core/src/pipeline/formula-integrity.ts`).
+ *
+ * Сервер формулы ЧИТАЕТ и ПЕРЕДАЁТ, но не разбирает: эталон колонки, мутанты и
+ * дыры — это правило предметной области, и жить ему в ядре, а не в модуле,
+ * который ходит в сеть. Здесь стоит розетка: слой разбора подключается одним
+ * вызовом `setFormulaSink`, и с этой минуты каждое чтение формул приезжает к
+ * нему само.
+ *
+ * Форма посылки согласована с ядром по именам полей: `{ values, formulas,
+ * startRow, book }`. `values` и `formulas` выровнены по ОДНИМ И ТЕМ ЖЕ
+ * индексам колонок листа (0 = A), `startRow` — номер строки листа для индекса
+ * 0 (всегда 1). Адрес ячейки в замечании считается как
+ * `буква(колонка) + (startRow + индексСтроки)`.
+ *
+ * Пока розетка пуста, чтение не пропадает молча: оно оседает в перечне
+ * `formulaDeliveryState()` со словами «разбор не подключён». Это ровно то
+ * различие, которое запрещено стирать: «формулы прочитаны, разбирать некому»
+ * — не то же самое, что «дефектов нет».
+ */
+export interface FormulaDelivery {
+  book: string;
+  values: unknown[][];
+  formulas: unknown[][];
+  startRow: number;
+  /**
+   * Всегда `true`: розетка получает только состоявшиеся чтения. Поле есть
+   * ради ЯВНОСТИ договора — `FormulaIntegrityInput` в ядре принимает его же,
+   * и посылка обязана читаться без домысливания.
+   */
+  formulasRead: true;
+}
+
+/** След одной доставки — для маршрута состояния и журнала. */
+export interface FormulaDeliveryNote {
+  book: string;
+  at: string;
+  /** Сколько формульных ячеек привезено. */
+  cells: number;
+  /** Принял ли разбор эту посылку (розетка занята и не отказала). */
+  handled: boolean;
+  /** Почему не принял, если не принял. */
+  failedBecause?: string;
+}
+
+let formulaSink: ((delivery: FormulaDelivery) => void) | null = null;
+const formulaNotes = new Map<string, FormulaDeliveryNote>();
+
+/** Подключить слой разбора формул. `null` — отключить (стражи, выключение). */
+export function setFormulaSink(sink: ((delivery: FormulaDelivery) => void) | null): void {
+  formulaSink = sink;
+}
+
+/**
+ * Что известно о формулах книг: когда читали, сколько привезли, взял ли разбор.
+ * Книги здесь НЕТ вовсе — значит формулы этой книги не читались ни разу за
+ * жизнь процесса, и молчание про её формулы означает «не смотрели».
+ */
+export function formulaDeliveryState(): {
+  sinkConnected: boolean;
+  books: FormulaDeliveryNote[];
+} {
+  return {
+    sinkConnected: formulaSink !== null,
+    books: [...formulaNotes.values()].sort((a, b) => a.book.localeCompare(b.book, 'ru')),
+  };
+}
+
+/** Только для стражей: забыть следы доставок. */
+export function resetFormulaDeliveries(): void {
+  formulaNotes.clear();
+}
+
+function countFormulaCells(formulas: unknown[][]): number {
+  let cells = 0;
+  for (const row of formulas) {
+    if (!row) continue;
+    for (const value of row) if (value !== undefined && value !== null && value !== '') cells++;
+  }
+  return cells;
+}
+
+/**
+ * Отдать прочитанные формулы разбору. Отказ разбора не валит цикл чтения:
+ * источники прочитаны, и это правда независимо от того, справился ли разбор.
+ */
+function deliverFormulas(
+  data: Record<string, DeptSheetResult>,
+  at: string,
+  log?: { warn: (msg: string) => void },
+): string[] {
+  const delivered: string[] = [];
+  for (const [book, result] of Object.entries(data)) {
+    if (!result.formulasRead) continue;
+    delivered.push(book);
+    const note: FormulaDeliveryNote = {
+      book,
+      at,
+      cells: countFormulaCells(result.formulas),
+      handled: false,
+    };
+    if (formulaSink) {
+      try {
+        formulaSink({
+          book,
+          values: result.values,
+          formulas: result.formulas,
+          startRow: result.startRow ?? 1,
+          formulasRead: true,
+        });
+        note.handled = true;
+      } catch (err) {
+        note.failedBecause = (err as Error).message;
+        log?.warn(`Разбор формул книги «${book}» не удался: ${(err as Error).message}`);
+      }
+    } else {
+      note.failedBecause = 'разбор формул не подключён';
+    }
+    formulaNotes.set(book, note);
+  }
+  return delivered.sort();
+}
+
 export interface RefreshOptions {
   /**
    * Требуется чтение ПОСЛЕ этого мгновения, а не любое идущее.
@@ -137,6 +271,18 @@ export interface RefreshOptions {
    * «обновить», где человек ждёт чтения, а не рассуждений о его надобности).
    */
   askDrive?: boolean;
+  /**
+   * Читать ли ФОРМУЛЬНЫЕ КОЛОНКИ книг (K, O:P, R:T, Y:AC) вторым обращением к
+   * Google. По умолчанию НЕТ — и это решение владельца §22 п.7, а не экономия
+   * на всякий случай: быстрый плановый цикл идёт каждые несколько минут, а
+   * формулы меняются правкой человека, о которой нас извещает вебхук.
+   *
+   * Включают ровно двое: приёмник уведомлений (routes/webhook.ts — книгу
+   * разбудили, значит в ней могли перебить формулу) и ночной полный обход
+   * (services/metadata-watch.ts — сеть безопасности для книг, которые днём
+   * молчали).
+   */
+  withFormulas?: boolean;
 }
 
 /**
@@ -181,16 +327,27 @@ function publishBookChanges(
  * хвост тихо отменил бы уже обещанное чтение остальных книг.
  */
 function widenScope(
-  scope: { books: Set<string> | null; svod: boolean } | null,
+  scope: { books: Set<string> | null; svod: boolean; withFormulas: boolean } | null,
   options: RefreshOptions,
-): { books: Set<string> | null; svod: boolean } {
+): { books: Set<string> | null; svod: boolean; withFormulas: boolean } {
   const wantsAll = !options.books || options.books.length === 0;
   const svod = (scope?.svod ?? false) || (options.svod ?? true);
-  if (!scope) return { books: wantsAll ? null : new Set(options.books), svod };
-  if (scope.books === null || wantsAll) return { books: null, svod };
+  // Просьба прочитать формулы тоже СКЛАДЫВАЕТСЯ: уведомление вебхука, попавшее
+  // в серию вместе с обычным вызовом, не имеет права потерять чтение формул —
+  // иначе перебитая формула дождалась бы только ночного обхода.
+  const withFormulas = (scope?.withFormulas ?? false) || (options.withFormulas ?? false);
+  if (!scope) return { books: wantsAll ? null : new Set(options.books), svod, withFormulas };
+  if (scope.books === null || wantsAll) return { books: null, svod, withFormulas };
   for (const book of options.books ?? []) scope.books.add(book);
-  return { books: scope.books, svod };
+  return { books: scope.books, svod, withFormulas };
 }
+
+/**
+ * Только для стражей: сложение целей обещанного цикла напрямую. Складывание —
+ * то место, где просьба о формулах может потеряться молча, и проверять его
+ * через таймеры и промисы значит проверять не то.
+ */
+export const widenScopeForTests = widenScope;
 
 /**
  * Ступень отсева У GOOGLE: какие книги вообще стоит читать.
@@ -279,6 +436,7 @@ export function refreshAllSources(log?: {
         return refreshAllSources(log, origin, {
           books: scope?.books ? [...scope.books] : undefined,
           svod: scope?.svod ?? true,
+          withFormulas: scope?.withFormulas ?? false,
         });
       });
     return queuedFresh;
@@ -319,7 +477,12 @@ export function refreshAllSources(log?: {
       // `only` означает «все книги», и передать его сюда значило бы отменить
       // весь отсев ровно в тот момент, когда он сработал полностью.
       booksToRead.length > 0
-        ? fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS, { only: booksToRead })
+        ? fetchDepartmentSpreadsheets(DEPARTMENT_SPREADSHEETS, {
+            only: booksToRead,
+            // Формулы — только когда их попросили (вебхук, ночной обход).
+            // Плановый цикл сюда приходит без флага и платит за одно чтение.
+            withFormulas: options.withFormulas ?? false,
+          })
         : Promise.resolve({
             data: {} as Record<string, DeptSheetResult>,
             errors: {} as Record<string, string>,
@@ -401,6 +564,12 @@ export function refreshAllSources(log?: {
     publishBookChanges(before, data, origin, changedBooks);
 
     const at = new Date().toISOString();
+
+    // Формулы — в разбор целостности. Доставка идёт ПОСЛЕ записи кэша и до
+    // журнала: разбор не имеет права задержать обновление экрана, а его исход
+    // обязан попасть в ту же строку журнала, что и остальной итог цикла.
+    const formulaBooks = deliverFormulas(data, at, log);
+
     const loadMeta: Record<string, { loadedAt: string; rowCount: number; sheetName: string; error?: string }> = {};
     for (const [name, result] of Object.entries(data)) {
       loadMeta[name] = { loadedAt: at, rowCount: result.values.length, sheetName: result.sheetName };
@@ -430,6 +599,11 @@ export function refreshAllSources(log?: {
       + (gate.skipped.length > 0 ? `, не читали (Drive: файл не менялся): ${gate.skipped.join(', ')}` : '')
       + (Object.keys(errors).length > 0 ? `, не прочитано: ${Object.keys(errors).join(', ')}` : '')
       + (readSvod ? (svodOk ? ', лист СВОД прочитан' : ', лист СВОД не прочитан') : ', лист СВОД не входил в цель')
+      // «Формулы не читали» пишется словами, а не пропускается: строка журнала
+      // без упоминания формул читалась бы как «формулы в порядке».
+      + (formulaBooks.length > 0
+          ? `, формулы прочитаны: ${formulaBooks.join(', ')}`
+          : ', формулы не читались')
       + (nothingChanged ? ', изменений нет — снимок не пересобирался' : `, изменилось: ${[...changedBooks, ...(svodResult.changed ? ['лист СВОД'] : [])].join(', ')}`),
       {
         ms: Date.now() - startedAt,
@@ -441,6 +615,7 @@ export function refreshAllSources(log?: {
         targeted: targetBooks ? targetBooks.length : 0,
         skipped: gate.skipped.length,
         changed: changedBooks.length + (svodResult.changed ? 1 : 0),
+        formulaBooks: formulaBooks.length,
       },
     );
 
@@ -465,6 +640,7 @@ export function refreshAllSources(log?: {
       svodChanged: svodResult.changed,
       booksRead: Object.keys(data).length + Object.keys(errors).length,
       skipped: gate.skipped,
+      formulaBooks,
     };
   })().finally(() => {
     inFlight = null;

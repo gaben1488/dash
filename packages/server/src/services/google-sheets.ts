@@ -486,10 +486,140 @@ export async function getSheetDataWithFormulas(
   };
 }
 
+/**
+ * Формульные колонки книги ГРБС — те же четыре группы, что защищает и красит
+ * канон etalon-sync (scripts/etalon-sync/canon.cjs: `goldenProtections` и
+ * правило УФ «Формула сломана (K, O:P, R:T, Y:AC)»). Одиннадцать колонок из
+ * тридцати четырёх; сгруппированы ровно как в каноне, чтобы расхождение
+ * «продукт читает не то, что книга защищает» было видно глазом.
+ *
+ * Страж списка — google-sheets-formula-columns.test.ts: он сверяет группы с
+ * канонными защитами, поэтому колонка, добавленная в книгу и забытая здесь,
+ * падает тестом, а не читается молча мимо.
+ */
+export const FORMULA_COLUMN_GROUPS = [
+  { from: 'K', to: 'K' },
+  { from: 'O', to: 'P' },
+  { from: 'R', to: 'T' },
+  { from: 'Y', to: 'AC' },
+] as const;
+
+/** Те же группы поимённо — для сообщений и стражей. */
+export const FORMULA_COLUMNS = ['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC'] as const;
+
+/** Буква колонки → индекс от нуля (A=0, AA=26). */
+export function letterToColumn(letter: string): number {
+  let n = 0;
+  for (const ch of letter.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+/**
+ * Формулы ОДНОГО листа книги ГРБС — только формульные колонки.
+ *
+ * ЦЕНА (замер 30.08.2026, `scripts` не нужны — считано по канонным формулам
+ * построчного диалекта книг и живым размерам листов: УО 2700 строк, все восемь
+ * книг 3959 строк):
+ *
+ *   · ЗАПРОСЫ. Одно обращение `values.batchGet` на книгу с четырьмя
+ *     диапазонами (K:K, O:P, R:T, Y:AC) — не одиннадцать запросов и не по
+ *     одному на колонку. Полный ночной обход восьми книг: 8 обращений сверх
+ *     восьми за значениями, итого 16 против 8. По уведомлению вебхука — 2
+ *     обращения на одну книгу против 1.
+ *   · ОБЪЁМ (МиБ = 1 048 576 байт, считано по телу ответа JSON). УО: формульные
+ *     колонки 2 111 154 байта (2,01 МиБ) против 3 383 114 (3,23 МиБ) на чтение
+ *     всего листа в виде формул — 62,4 %. Экономия НЕ 11/34, и это главное
+ *     число замера: одиннадцать формульных колонок и есть самые толстые
+ *     ячейки листа, поэтому две трети объёма живут именно в них. Цикл по УО
+ *     растёт с 1 482 854 байт (1,41 МиБ, одни значения) до 3,42 МиБ — в 2,4 раза;
+ *     чтение всего листа дало бы 4,64 МиБ, то есть в 3,3 раза. Восемь книг
+ *     (3 959 строк): значения 2 174 045 байт (2,07 МиБ), формульные колонки
+ *     3 110 800 (2,97 МиБ), формульных ячеек 43 549 (у одной УО — 29 700).
+ *   · МИЛЛИСЕКУНДЫ. Сборка сетки по ответу — 1,3 мс для УО и 1,6 мс для всех
+ *     восьми книг (медиана 20 прогонов). Это ЦЕНА РАЗБОРА; задержка самой
+ *     Google здесь не выдумывается — живой замер 22.08.2026 давал 2,9 с на
+ *     самую тяжёлую книгу (УО) при чтении перечня комментариев, и порядок
+ *     секунд надо ждать и здесь.
+ *
+ * Сетка выравнивается по индексам колонок ЛИСТА (0 = A), а не по порядку
+ * прочитанных диапазонов: потребитель адресует формулу так же, как значение
+ * (`formulas[r][DEPT_COLUMNS.TOTAL_PLAN]`), и не обязан знать, каким запросом
+ * её достали. Непрочитанные колонки остаются пустыми (`undefined`) — это
+ * «не читали», а не «формулы нет», и различать их обязан потребитель.
+ */
+export async function getSheetFormulaColumns(
+  spreadsheetId: string,
+  sheetName: string,
+): Promise<{ formulas: unknown[][]; startRow: number; cells: number }> {
+  const ranges = FORMULA_COLUMN_GROUPS.map((g) =>
+    sheetValuesRange(sheetName, `${g.from}:${g.to}`),
+  );
+
+  const response = await readWithRetry(
+    `чтение формульных колонок листа «${sheetName}»`,
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.batchGet(
+        {
+          spreadsheetId,
+          ranges,
+          valueRenderOption: 'FORMULA',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => (r.data.valueRanges ?? []).reduce((sum, vr) => sum + (vr.values?.length ?? 0), 0),
+  );
+
+  const valueRanges = response.data.valueRanges ?? [];
+  const formulas: unknown[][] = [];
+  let cells = 0;
+
+  for (let i = 0; i < FORMULA_COLUMN_GROUPS.length; i++) {
+    // Начальная колонка берётся из ЗАПРОШЕННОЙ группы, а не из ответа: Google
+    // возвращает `range` в собственном написании, и разбирать его обратно
+    // значит завести второй разборщик А1 там, где ответ уже известен.
+    const startColumn = letterToColumn(FORMULA_COLUMN_GROUPS[i].from);
+    const rows = (valueRanges[i]?.values as unknown[][] | undefined) ?? [];
+    for (let r = 0; r < rows.length; r++) {
+      const line = formulas[r] ?? (formulas[r] = []);
+      const cellsOfRow = rows[r] ?? [];
+      for (let c = 0; c < cellsOfRow.length; c++) {
+        const value = cellsOfRow[c];
+        if (value === undefined || value === null || value === '') continue;
+        line[startColumn + c] = value;
+        cells++;
+      }
+    }
+  }
+
+  // Диапазоны открыты сверху (K:K, а не K4:K), поэтому первая прочитанная
+  // строка — первая строка листа. Число названо явно: потребителю нельзя
+  // догадываться, с какой строки считать адрес ячейки.
+  return { formulas, startRow: 1, cells };
+}
+
 export interface DeptSheetResult {
   values: unknown[][];
   formulas: unknown[][];
   sheetName: string;
+  /**
+   * Первая строка ЛИСТА, которой соответствует индекс 0 в `values`/`formulas`.
+   * Всегда 1 — обе стороны читаются открытыми сверху диапазонами; поле нужно,
+   * чтобы адрес ячейки в замечании считался по договору, а не по привычке.
+   * Не задано — читать как 1 (так собраны заготовки книг в стражах).
+   */
+  startRow?: number;
+  /**
+   * Читались ли формулы в этом чтении. Отсутствие поля и `false` значат
+   * ОДНО И ТО ЖЕ — «не спрашивали», а НЕ «формул нет»: пустой `formulas` при
+   * быстром обновлении не имеет права читаться потребителем как «дефектов
+   * формул не найдено». Поле необязательно ровно поэтому: заготовка книги без
+   * него честно означает «формулы не читались», и ни один страж не обязан
+   * приписывать себе чтение, которого не делал.
+   */
+  formulasRead?: boolean;
 }
 
 /**
@@ -553,21 +683,36 @@ export async function resolveDeptSheetName(deptName: string, ssId: string): Prom
 }
 
 /**
- * Формулы книги ГРБС продукту не нужны.
+ * Формулы книги ГРБС читаются НЕ ВСЕГДА — и это решение, а не забывчивость.
  *
- * Замер 21.08.2026: `getSheetDataWithFormulas` делает ДВА обращения к Google на
- * один лист — одно за значениями, одно за формулами. Восемь книг управлений
- * стоили шестнадцати запросов за цикл, при этом поле `formulas` из
+ * ЗАМЕР 21.08.2026 (почему флаг вообще появился). `getSheetDataWithFormulas`
+ * делает ДВА обращения к Google на один лист — одно за значениями, одно за
+ * формулами, и оба читают лист ЦЕЛИКОМ. Восемь книг управлений стоили
+ * шестнадцати запросов за цикл, при этом поле `formulas` из
  * `fetchDepartmentSpreadsheets` не читал НИКТО: сквозной поиск по серверу и
  * ядру нашёл потребителей формул только у листа ШДЮ (снимок) и у сверки
  * (routes/reconciliation.ts) — и оба берут их своими вызовами. Половина
- * запросов к квоте Google уходила в мусорное ведро.
+ * запросов к квоте Google уходила в мусорное ведро. Формулы тогда выключили,
+ * оставив флаг: «понадобятся — включаются одним флагом, и это будет осознанная
+ * плата, а не тихая привычка».
  *
- * Формулы остались параметром, а не удалены: понадобятся — включаются одним
- * флагом, и это будет осознанная плата, а не тихая привычка.
+ * ПОНАДОБИЛИСЬ 30.08.2026 (решение владельца §22 п.7). Перебитая формула в
+ * книге — живой класс дефектов: на 30.08 в двух книгах шесть ячеек, где вместо
+ * формулы стоит вбитое число или мутант (УИО K34, AA23; УО K1175, T2645, Y1662,
+ * Y1894). Продукт их не видел вовсе. Флаг включается по вебхуку и в ночном
+ * полном обходе; быстрые плановые обновления формулы НЕ читают.
+ *
+ * ЧТО ИМЕННО ИЗМЕНИЛОСЬ В ЦЕНЕ. Читается не весь лист в виде формул, а только
+ * одиннадцать формульных колонок (`getSheetFormulaColumns`, там же снятые
+ * числа): по уведомлению — 2 обращения на книгу вместо 1, в ночном обходе —
+ * 16 на восемь книг вместо 8; объём цикла по УО растёт с 1,41 МиБ до 3,42 МиБ
+ * вместо 4,64 МиБ при чтении всего листа.
  */
 export interface DeptReadOptions {
-  /** Читать ли формулы листа (второе обращение к Google). По умолчанию нет. */
+  /**
+   * Читать ли формульные колонки листа (второе обращение к Google).
+   * По умолчанию нет — плановый цикл опроса за формулы не платит.
+   */
   withFormulas?: boolean;
 }
 
@@ -575,7 +720,7 @@ export async function readDeptSheet(
   deptName: string,
   ssId: string,
   options: DeptReadOptions = {},
-): Promise<{ values: unknown[][]; formulas: unknown[][]; sheetName: string }> {
+): Promise<DeptSheetResult> {
   const DEPT_SHEET_NAME: Record<string, string> = Object.fromEntries(
     DEPARTMENT_REGISTRY.map(d => [d.shortName, d.sheetName]),
   );
@@ -584,12 +729,15 @@ export async function readDeptSheet(
   let lastError: unknown;
   for (const candidate of candidates) {
     try {
-      const result = options.withFormulas
-        ? await getSheetDataWithFormulas(ssId, candidate)
-        : { values: await getSheetDataFromSpreadsheet(ssId, candidate), formulas: [] as unknown[][] };
-      if (result.values.length > 0) {
-        return { ...result, sheetName: candidate };
+      // Значения читаются ВСЕГДА и первыми: пустой лист означает «имя-кандидат
+      // не то», и платить за формулы несуществующего листа незачем.
+      const values = await getSheetDataFromSpreadsheet(ssId, candidate);
+      if (values.length === 0) continue;
+      if (!options.withFormulas) {
+        return { values, formulas: [], sheetName: candidate, startRow: 1, formulasRead: false };
       }
+      const { formulas } = await getSheetFormulaColumns(ssId, candidate);
+      return { values, formulas, sheetName: candidate, startRow: 1, formulasRead: true };
     } catch (err) {
       lastError = err;
       if (isNonRecoverableSheetError(err)) {
@@ -636,8 +784,8 @@ export async function fetchDepartmentSpreadsheets(
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
     if (result.status === 'fulfilled') {
-      const { deptName, values, formulas, sheetName } = result.value;
-      data[deptName] = { values, formulas, sheetName };
+      const { deptName, values, formulas, sheetName, startRow, formulasRead } = result.value;
+      data[deptName] = { values, formulas, sheetName, startRow, formulasRead };
     } else {
       const deptName = entries[i][0];
       errors[deptName] = result.reason instanceof Error ? result.reason.message : String(result.reason);

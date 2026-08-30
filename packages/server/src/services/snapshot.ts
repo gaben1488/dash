@@ -514,6 +514,13 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // Сломанные зеркала по-прежнему оставляют след: «источник сломан»
     // не должен быть неотличим от «данных нет» (см. hasNoMeaningfulRows).
     const brokenMirrors: Array<{ dept: string; got: number; used: number }> = [];
+    /**
+     * Формулы формульных граф книг — для слоя целостности формул в ядре
+     * (`core/pipeline/formula-integrity.ts`). Наполняется ровно теми книгами,
+     * у которых формулы В ЭТОМ чтении читались; книга без чтения формул
+     * остаётся вне карты, и слой про неё честно молчит.
+     */
+    const sheetFormulas: Record<string, unknown[][]> = {};
     /** Сколько строк каждая книга дала снимку — материал для одной итоговой строки журнала. */
     const perimeter: Array<{ dept: string; rows: number }> = [];
     for (const [deptName, deptResult] of Object.entries(cachedDeptSheetData)) {
@@ -529,6 +536,14 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
       }
       perimeter.push({ dept: deptName, rows: deptResult.values.length });
       sheetRows[deptName] = deptResult.values;
+      // Формулы книги — тому же слою, что и строки, и ТОЛЬКО когда их читали
+      // (решение владельца §22 п.7: по вебхуку и в ночном обходе, не при
+      // каждом быстром обновлении). Ключ не ставится вовсе, если чтения не
+      // было: пустая сетка и отсутствие ключа значат для ядра одно —
+      // «формулы не читали», и ни то ни другое не выдаётся за «дефектов нет».
+      if (deptResult.formulasRead && deptResult.formulas.length > 0) {
+        sheetFormulas[deptName] = deptResult.formulas;
+      }
     }
 
     // ОДНА строка на весь периметр вместо восьми поштучных: вопрос «почему в
@@ -549,6 +564,10 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     const pipelineInput: PipelineInput = {
       batchGetData,
       sheetRows,
+      // Ключ ставится только при непустой карте: пустой объект и отсутствие
+      // ключа для ядра равнозначны, но пустой объект в переписке читался бы
+      // как «формулы читали, и они чисты».
+      ...(Object.keys(sheetFormulas).length > 0 ? { sheetFormulas } : {}),
       reportMap: REPORT_MAP,
       rules: getActiveRules(),
       spreadsheetId: config.google.spreadsheetId,
