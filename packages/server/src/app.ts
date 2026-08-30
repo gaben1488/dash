@@ -39,6 +39,7 @@ import { sourceIntegrityRoutes } from './routes/source-integrity.js';
 import { recoverWebhookQueue } from './routes/webhook.js';
 import { startNightlyCommentsSweep } from './services/drive-comments.js';
 import { startNightlyIntegritySweep } from './services/metadata-watch.js';
+import { connectFormulaSink } from './services/formula-sink.js';
 import { getSnapshot, setSourceRefresher } from './services/snapshot.js';
 import { refreshAllSources, startSourceAutoRefresh } from './services/source-refresh.js';
 import { setSourceLogger } from './services/source-log.js';
@@ -391,6 +392,10 @@ export function preloadData(app: FastifyInstance): void {
       info: (m) => app.log.info(m),
       warn: (m) => app.log.warn(m),
     });
+
+    // Приёмник формул: разбор целостности идёт и тогда, когда снимок не
+    // пересобирается (правка формулы значений строк не меняет).
+    connectFormulaSink({ warn: (m) => app.log.warn(m) });
 
     // Push-каналы Drive (п.66/69а): включаются только при WEBHOOK_PUBLIC_URL
     // и WEBHOOK_SECRET; без них — молчаливый опрос, продукт работает как раньше.

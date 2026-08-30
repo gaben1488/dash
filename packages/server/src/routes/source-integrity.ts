@@ -28,6 +28,7 @@ import type { FastifyInstance } from 'fastify';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { formulaDeliveryState } from '../services/source-refresh.js';
 import { metadataWatchState } from '../services/metadata-watch.js';
+import { formulaVerdicts } from '../services/formula-sink.js';
 import { FORMULA_COLUMNS } from '../services/google-sheets.js';
 
 export function sourceIntegrityRoutes(app: FastifyInstance): void {
@@ -44,6 +45,27 @@ export function sourceIntegrityRoutes(app: FastifyInstance): void {
         /** Подключён ли разбор формул (слой целостности в ядре). */
         sinkConnected: formulas.sinkConnected,
         books: formulas.books,
+        /**
+         * Вердикты разбора: сколько строк судилось и какие дефекты найдены.
+         * Книги нет в перечне — её формулы не разбирались ни разу; это не
+         * то же самое, что «дефектов нет» (различие сторожит страж).
+         */
+        verdicts: formulaVerdicts().map((v) => ({
+          book: v.book,
+          at: v.at,
+          rowsJudged: v.rowsJudged,
+          defects: v.defects.length,
+          cells: v.defects.map((d) => ({
+            cell: d.cell,
+            column: d.column,
+            row: d.row,
+            purchase: d.rowSeq,
+            kind: d.kind,
+            actual: d.actual,
+            etalon: d.etalon,
+            donorRow: d.etalonRow,
+          })),
+        })),
         /**
          * Книги, по которым формулы не читались НИ РАЗУ за жизнь службы.
          * Отдельным полем, а не пропуском: пропуск читается как «чисто».

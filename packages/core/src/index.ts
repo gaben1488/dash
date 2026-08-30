@@ -6,6 +6,15 @@ export { validateData } from './pipeline/validate.js';
 export { computeDeltas } from './pipeline/delta.js';
 export { computeTrustScore } from './trust/scorer.js';
 export { detectSignals, classifyRowState, getSignalBadges, type RowSignals, type RowState } from './pipeline/signals.js';
+// Слой формульной целостности книг ГРБС: сервер читает формулы и отдаёт их
+// сюда напрямую, минуя снимок (случай «правили формулу, значения те же»).
+export {
+  detectFormulaIntegrity,
+  formulaIntegrityIssues,
+  FORMULA_COLUMNS as FORMULA_INTEGRITY_COLUMNS,
+  type FormulaDefect,
+  type FormulaIntegrityInput,
+} from './pipeline/formula-integrity.js';
 export { normalizeCell, normalizeMoney, normalizeDate, normalizeStatus, detectFieldType, applyTextNormalization, type NormalizationResult, type TextNormalizationResult } from './pipeline/normalizer-rules.js';
 export { validateInput, isFormulaColumn, isEditableColumn, getColumnDescription } from './pipeline/input-control.js';
 export { type RecalculatedMetrics, type QuarterMetrics, type ActivityBreakdown, type SubordinateMetrics, type SubPeriodMetrics } from './pipeline/recalculate.js';
