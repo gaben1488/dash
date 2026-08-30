@@ -348,6 +348,35 @@ export const api = {
   validateAllSources: () =>
     fetchJSON<any>('/sources/validate-all', { method: 'POST' }),
 
+  /**
+   * Целостность источников ВНУТРИ: читались ли формулы книг, когда, сколько
+   * ячеек привезено и принял ли разбор посылку. Отдельный маршрут от
+   * `/sources` намеренно: тот отвечает на вопрос «прочиталась ли книга»,
+   * этот — «в порядке ли она внутри», и у второго своё расписание (по
+   * уведомлению об изменении книги и в ночном обходе, решение владельца
+   * §22 п.7).
+   *
+   * ЗАЧЕМ ЭКРАНУ. Без этого ответа пустой перечень дефектов формул нельзя
+   * отличить от «формулы ещё не читались», и пятно Пульта выдавало бы
+   * молчание за «ноль дефектов». Поле `notRead` и признак `handled` —
+   * ровно те данные, которыми пятно говорит правду.
+   */
+  getSourceIntegrity: () =>
+    fetchJSON<{
+      at: string;
+      formulas: {
+        columns: string[];
+        sinkConnected: boolean;
+        books: Array<{ book: string; at: string; cells: number; handled: boolean; failedBecause?: string }>;
+        notRead: string[];
+      };
+      metadata: {
+        canonSyncedAt: string | null;
+        books: unknown[];
+        notWatched: string[];
+      };
+    }>('/sources/integrity'),
+
   // Settings / подключение Google (через fetchJSON — с Bearer; голый fetch давал 401 в проде)
   settingsStatus: () => fetchJSON<any>('/settings/status'),
   saveEnv: (form: Record<string, string>) =>

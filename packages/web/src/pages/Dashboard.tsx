@@ -35,6 +35,12 @@ import { DASHBOARD_REPORT_KB_ADDITIONS, kbCardProps } from './kb-additions';
 import { ratio, toPercent, type FigureProvenance } from '../lib/figure';
 import { officialProvenanceFor } from '../lib/provenance-registry';
 import { productLabel, quarterLabel } from '@aemr/shared';
+import {
+  collectFormulaDefects,
+  countFormulaDefects,
+  formulaIntegritySpot,
+  type FormulaReadState,
+} from '../lib/formulas/formula-defects';
 
 // ────────────────────────────────────────────────────────────────
 // Пульт — главная страница: паспорт данных, замечания, ключевые показатели,
@@ -772,6 +778,7 @@ export function Dashboard() {
         onOpenIssues={() => navigateTo('quality', { qualityTab: 'issues' })}
         onNavigate={(category, search) => navigateTo('quality', { category, search })}
         onOpenYearlong={() => navigateTo('yearlong')}
+        onOpenFormulas={() => navigateTo('quality', { qualityTab: 'issues', issuesSection: 'formulas' })}
       />
     </div>
   );
@@ -1301,6 +1308,19 @@ export function yearlongStageLine(
   };
 }
 
+/**
+ * Оформление полосы «Целостность формул книг» по её состоянию. Три вида, и
+ * ни один не подменяет другой: янтарь — счёта НЕТ (формулы не читались либо
+ * не разобраны), красный — дефекты найдены, изумруд — книги разобраны и
+ * дефектов нет. Отдельный цвет у «не смотрели» нужен затем, чтобы молчание
+ * нельзя было прочитать как благополучие.
+ */
+function formulaSpotTone(cells: number | null): string {
+  if (cells === null) return 'border-amber-500/20 bg-amber-500/8';
+  if (cells > 0) return 'border-red-500/20 bg-red-500/8';
+  return 'border-emerald-500/20 bg-emerald-500/8';
+}
+
 function BlindSpotsWidget({
   issues,
   signalCounts: apiSignalCounts,
@@ -1310,6 +1330,7 @@ function BlindSpotsWidget({
   onOpenIssues,
   onNavigate,
   onOpenYearlong,
+  onOpenFormulas,
 }: {
   issues: any[];
   signalCounts?: Record<string, number>;
@@ -1324,6 +1345,8 @@ function BlindSpotsWidget({
   onNavigate: (category: string, search?: string) => void;
   /** Дверь на вкладку «В течение года» — дом стадии (канон §18 п.1). */
   onOpenYearlong: () => void;
+  /** Дверь на «Контроль», раздел «Целостность формул» — дом перечня ячеек. */
+  onOpenFormulas: () => void;
 }) {
   const signalCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1348,6 +1371,26 @@ function BlindSpotsWidget({
     return () => { alive = false; };
   }, []);
   const stage = yearlongStageLine(yearlongBucket);
+
+  // Целостность формул книг: счёт ячеек трёх классов считается ИЗ ЗАМЕЧАНИЙ
+  // (те же данные, что у остальных плиток), а состояние чтения формул —
+  // отдельным маршрутом. Без второго первое лжёт: формулы читаются не при
+  // каждом обновлении (решение владельца §22 п.7), и пустой счёт значит
+  // «не смотрели» ровно так же часто, как «чисто». Ошибка запроса оставляет
+  // null — пятно не рисуется вовсе, а не показывает ноль.
+  const [formulaRead, setFormulaRead] = useState<FormulaReadState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.getSourceIntegrity()
+      .then((res) => { if (alive) setFormulaRead(res.formulas); })
+      .catch(() => { /* состояния нет — пятно молчит, а не показывает ноль */ });
+    return () => { alive = false; };
+  }, []);
+  const formulaCounts = useMemo(
+    () => countFormulaDefects(collectFormulaDefects(issues)),
+    [issues],
+  );
+  const formulaSpot = formulaIntegritySpot(formulaRead, formulaCounts);
 
   // Подписи карточек берутся из словаря продукта (@aemr/shared): локальные
   // сокращения вроде «Факт > план» или «Факт < план дата» расходились с тем,
@@ -1588,6 +1631,43 @@ function BlindSpotsWidget({
               title="Открыть вкладку «В течение года» — дом стадии со всеми строками и видами"
             >
               Открыть «В течение года»
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Пятно «Целостность формул книг» (решение владельца §22 п.7): счёт
+          ячеек трёх классов — затёртая формула, расхождение с эталоном графы,
+          непротянутая формула — и дверь на «Контроль», в раздел с адресами.
+          Стоит отдельной полосой, а не плиткой среди сигналов: у сигналов
+          предмет — СТРОКА книги, здесь — ЯЧЕЙКА формульной графы, и общий ряд
+          выдавал бы одно за другое. ЧЕСТНОЕ МОЛЧАНИЕ: пока формулы не читались
+          или разбор их не принял, числа нет вовсе — вместо него сказано, что
+          именно не смотрели. Ноль показывается только тогда, когда книги
+          действительно разобраны. */}
+      {formulaSpot && (
+        <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 ${formulaSpotTone(formulaSpot.cells)}`}>
+          <p className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300 min-w-0">
+            <span className={
+              formulaSpot.cells === null
+                ? 'font-semibold text-amber-600 dark:text-amber-400'
+                : formulaSpot.cells > 0
+                  ? 'font-semibold text-red-600 dark:text-red-400'
+                  : 'font-semibold text-emerald-600 dark:text-emerald-400'
+            }>
+              {formulaSpot.title}
+              {formulaSpot.cells !== null && `: ${formulaSpot.cells}`}.
+            </span>{' '}
+            {formulaSpot.text}
+          </p>
+          {formulaSpot.hasDoor && (
+            <button
+              type="button"
+              onClick={onOpenFormulas}
+              className="shrink-0 text-[11px] font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 underline underline-offset-2 decoration-red-400/40 hover:decoration-red-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded"
+              title="Открыть «Контроль», раздел «Целостность формул» — перечень ячеек с адресом, номером закупки и эталоном графы"
+            >
+              Открыть перечень ячеек
             </button>
           )}
         </div>

@@ -16,6 +16,7 @@ import { natureOf, NATURE_ORDER, NATURE_CATEGORIES, type NatureCategory } from '
 import { pluralRu } from '../lib/economy-copy';
 import { Segmented } from '../components/ui/segmented';
 import { TextHygieneSection } from '../components/text-hygiene/TextHygieneSection';
+import { FormulaIntegritySection } from '../components/formulas/FormulaIntegritySection';
 import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw, X } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -280,7 +281,19 @@ export function IssuesPage() {
    * раздел — там каждый дефект набора и каждая опечатка показаны строкой
    * таблицы с адресом, контекстом и готовым значением.
    */
-  const [view, setView] = useState<'checks' | 'hygiene'>('checks');
+  /**
+   * Раздел читается затравкой перехода ОДИН раз при открытии и тут же
+   * очищается (тот же закон, что у затравки слагаемого доверия, п.134):
+   * пятно Пульта «Целостность формул книг» обязано приводить в свой раздел,
+   * но переход, о разделе не просивший, открывать вкладку не тем разделом не
+   * должен.
+   */
+  const [view, setView] = useState<'checks' | 'hygiene' | 'formulas'>(
+    () => useStore.getState().issuesSectionSeed ?? 'checks',
+  );
+  useEffect(() => {
+    if (useStore.getState().issuesSectionSeed) useStore.getState().clearIssuesSectionSeed();
+  }, []);
   const [sevFilter, setSevFilter] = useState<Set<Severity>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -505,6 +518,11 @@ export function IssuesPage() {
           label: 'Гигиена текста',
           hint: 'Перечень дефектов набора и орфографии по всем книгам — с готовыми значениями для вставки',
         },
+        {
+          value: 'formulas',
+          label: 'Целостность формул',
+          hint: 'Перечень ячеек формульных граф книг с затёртой, разошедшейся с эталоном или не протянутой формулой — с адресом, номером закупки и эталоном графы',
+        },
       ]}
     />
   );
@@ -514,6 +532,21 @@ export function IssuesPage() {
       <div className="space-y-6">
         {sectionToggle}
         <TextHygieneSection />
+      </div>
+    );
+  }
+
+  /**
+   * Раздел целостности формул живёт СВОИМ источником состояния чтения
+   * (`/api/sources/integrity`) и обязан оставаться доступным даже при
+   * непрочитанных книгах дашборда — поэтому стоит выше проверок на пустоту:
+   * сказать «формулы не читались» он умеет и без снимка.
+   */
+  if (view === 'formulas') {
+    return (
+      <div className="space-y-6">
+        {sectionToggle}
+        <FormulaIntegritySection issues={fd.issues} />
       </div>
     );
   }

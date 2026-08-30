@@ -81,6 +81,22 @@ import {
   stateSignals,
 } from '../lib/rows/registry-view';
 import { CARD, CHECKBOX, CONTROL, CONTROL_EDGE, OVERLAY, RULE_DIVIDE, RULE_HEAD, RULE_SECTION, SURFACE } from '../components/monitoring/surfaces';
+import { Segmented } from '../components/ui/segmented';
+import {
+  OUTSIDE_44FZ_BADGE,
+  OUTSIDE_44FZ_DEFAULT_MODE,
+  OUTSIDE_44FZ_HINT,
+  applyOutside44fzMode,
+  countOutside44fz,
+  isOutside44fz,
+  outside44fzCaption,
+  type Outside44fzMode,
+} from '../lib/rows/outside-44fz';
+import {
+  collectFormulaDefects,
+  formulaRowKey,
+  indexFormulaDefectsByRow,
+} from '../lib/formulas/formula-defects';
 
 type ViewMode = 'browse' | 'editor';
 
@@ -343,7 +359,7 @@ const BUCKET_META: Record<RegistryBucket, {
 };
 
 export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
-  const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets, navigateTo } = useStore();
+  const { formatMoney, moneyUnit, selectedDepartments, selectedSubordinates, activityFilter, procurementFilter, period, activeMonths, searchQuery, subordinatesMap, year, selectedBudgets, navigateTo, dashboardData } = useStore();
   // Вид реестра (сортировка, размер страницы, режим) переживает перезагрузку:
   // читается один раз при первом кадре, дальше живёт в состоянии.
   const storedPrefs = useMemo(
@@ -382,6 +398,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // Фильтр «только инициативные заявки» (п.76б): строки, где примечание AF
   // ЦЕЛИКОМ равно маркеру словаря «хотелки» — структурное чтение, не парсинг.
   const [initiativeOnly, setInitiativeOnly] = useState(false);
+  /**
+   * Режим показа строк вне периметра 44-ФЗ (решение владельца §22 п.5 от
+   * 30.08.2026). По умолчанию — ВМЕСТЕ со всеми и с жетоном: класс заводился,
+   * чтобы такие строки было видно, а не чтобы они исчезли. «Отдельно»
+   * оставляет в таблице только их — чтобы перечень можно было прочитать
+   * целиком. Режима «спрятать» нет намеренно: скрытая строка молча уходит из
+   * счёта экрана.
+   */
+  const [outside44fzMode, setOutside44fzMode] = useState<Outside44fzMode>(OUTSIDE_44FZ_DEFAULT_MODE);
   /**
    * Отбор по состоянию строки. Состояние было видно и сортировалось, а
    * спросить «покажи только просроченные» было нечем: приходилось искать
@@ -627,7 +652,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   }, [deptsToLoad, selectedSubordinates, activityFilter, procurementFilter, year]);
 
   // Смена фильтров возвращает на первую страницу
-  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
+  useEffect(() => { setPageNum(1); }, [searchQuery, selectedDepartments, selectedSubordinates, activityFilter, signalFilter, statusFilter, yearlongKindFilter, initiativeOnly, outside44fzMode, selectedBudgets, bucket, slicePresetId, orgMode.mode, subFocus]);
 
   // Отбор по виду разметки живёт только на корзине «в течение года»: за её
   // пределами вид у большинства строк не определён, и оставленный отбор
@@ -750,6 +775,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     if (initiativeOnly) {
       data = data.filter(r => isInitiativeMarker(r.commentGRBS));
     }
+    // Вне периметра 44-ФЗ (решение владельца §22 п.5): «вместе» перечень не
+    // трогает вовсе, «отдельно» оставляет только такие строки. Отбор стоит
+    // здесь, среди прочих сужений экрана, а не в расчёте: счёты исполнения
+    // этот режим не меняет — о чём подпись под панелью говорит прямо.
+    data = applyOutside44fzMode(data, outside44fzMode) as typeof data;
     // Источники финансирования: строка проходит, если имеет план ИЛИ факт в выбранном
     data = filterRowsByBudgets(data, selectedBudgets);
     // «По числу дел» — производный ключ: замечаний у строки, а не колонка.
@@ -768,7 +798,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       return sortDir === 'asc' ? as.localeCompare(bs, 'ru') : bs.localeCompare(as, 'ru');
     });
     return data;
-  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, statusFilter, yearlongKindFilter, yearlongKinds.overrides, initiativeOnly, selectedBudgets, bucket, orgMode.mode, slicePreset]);
+  }, [rows, searchQuery, sortKey, sortDir, period, activeMonths, signalFilter, statusFilter, yearlongKindFilter, yearlongKinds.overrides, initiativeOnly, outside44fzMode, selectedBudgets, bucket, orgMode.mode, slicePreset]);
 
   /**
    * Итоговая выборка таблицы: та же, плюс фокус на одной организации, если он
@@ -1035,6 +1065,29 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // «В т.ч. инициативные заявки» (п.76б): счёт по ЗАГРУЖЕННЫМ строкам — как
   // счётчики признаков рядом, чтобы подпись фильтра не зависела от него самого.
   const initiativeTotals = useMemo(() => sumInitiativeRows(rows), [rows]);
+  // Строки вне периметра 44-ФЗ — счёт по ЗАГРУЖЕННЫМ строкам по той же
+  // причине: подпись переключателя не должна зависеть от самого переключателя
+  // (в режиме «отдельно» счёт по выборке равнялся бы её длине всегда).
+  const outside44fzCount = useMemo(() => countOutside44fz(rows), [rows]);
+  /**
+   * Дефекты формул книг по строкам. Замечания формульной целостности рождает
+   * конвейер (ядро, слой formula-integrity), и живут они в снимке рядом со
+   * всеми остальными; Реестр берёт их оттуда и раскладывает по строкам ключом
+   * «книга + номер закупки» — тем же устойчивым адресом, которым живёт сам
+   * идентификатор замечания (номер строки листа сдвигается, п.98б).
+   *
+   * ЧЕСТНОСТЬ. Пустой указатель значит «дефектов формул в снимке нет», а это
+   * не то же самое, что «формулы проверены»: формулы читаются по уведомлению
+   * и в ночном обходе. Что именно смотрели, говорит раздел «Целостность
+   * формул» на «Контроле» — жетон строки на этот вопрос не отвечает и
+   * отвечать не должен, поэтому у строк без дефекта он просто отсутствует.
+   */
+  const formulaDefectsByRow = useMemo(
+    // Дом полного перечня замечаний — снимок: recentIssues обрезан, и по нему
+    // жетон формулы появлялся бы через раз.
+    () => indexFormulaDefectsByRow(collectFormulaDefects((dashboardData?.snapshot?.issues ?? []) as any[])),
+    [dashboardData],
+  );
   /**
    * Какие состояния вообще встречаются в загруженных строках и сколько их.
    * Список собирается по данным, а не по словарю: предлагать «Отменён», когда
@@ -1829,6 +1882,39 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
           </select>
         </div>
 
+        {/* Строки вне периметра 44-ФЗ (решение владельца §22 п.5 от 30.08.2026):
+            переключатель «вместе / отдельно». По умолчанию — вместе и с
+            жетоном на строке: класс заводился, чтобы такие строки было видно.
+            Спрятать их нельзя вовсе — третьего варианта в переключателе нет. */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400" id="outside-44fz-label">
+            Вне 44-ФЗ
+          </span>
+          <Segmented
+            legend="Показ строк вне периметра 44-ФЗ"
+            value={outside44fzMode}
+            onChange={setOutside44fzMode}
+            options={[
+              {
+                value: 'together',
+                label: 'Вместе',
+                hint: 'Строки, у которых в обосновании или в примечании назван 223-ФЗ, показаны наравне с остальными и помечены жетоном.',
+              },
+              {
+                value: 'apart',
+                label: 'Отдельно',
+                hint: 'В таблице остаются только строки вне периметра 44-ФЗ — чтобы перечень можно было прочитать целиком.',
+              },
+            ]}
+          />
+          <span
+            className="tabular-nums text-[11px] text-zinc-400 dark:text-zinc-500"
+            title={OUTSIDE_44FZ_HINT}
+          >
+            {outside44fzCount}
+          </span>
+        </div>
+
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1868,6 +1954,13 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             <Download size={13} aria-hidden="true" /> Выгрузить таблицу
           </button>
         </div>
+
+        {/* Подпись переключателя периметра — на всю ширину панели. Говорит
+            число, режим и главное: счёты исполнения такие строки ПОКА
+            включают. Обещать исключение, которого в расчёте нет, запрещено. */}
+        <p className="w-full text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+          {outside44fzCaption(outside44fzCount, outside44fzMode)}
+        </p>
       </div>
 
       {/* Подсказка по клавишам — раскрывается на месте, не поверх экрана (канон: оверлей только для доказательства числа) */}
@@ -2264,6 +2357,10 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                 // пустоты. Правило деления одно на продукт (registry-view).
                 const rowFeatures = featureSignals(row.signals);
                 const rowStates = stateSignals(row.signals);
+                // Дефекты формул этой строки. Это не признак строки, а находка
+                // по ЯЧЕЙКЕ её формульной графы, поэтому чип свой и стоит
+                // рядом с признаками, а не среди них.
+                const rowFormulaDefects = formulaDefectsByRow.get(formulaRowKey(row.dept, row.id)) ?? [];
                 return (
                 <tr
                   key={`${row.dept}-${row.rowIndex ?? row.id}-${i}`}
@@ -2324,6 +2421,18 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                           title="Стадия «инициативная заявка без подтверждённой потребности»: примечание строки целиком равно маркеру словаря «хотелки» (п.76). План виден, но подписывается отдельно и в риск-списки не шумит."
                         >
                           инициативная заявка
+                        </span>
+                      )}
+                      {/* Вне периметра 44-ФЗ (решение владельца §22 п.5):
+                          строка живёт в книге 44-ФЗ, а закупка идёт по другому
+                          закону. Жетон именно помечает — из счётов исполнения
+                          строка не изъята, и подсказка говорит об этом. */}
+                      {isOutside44fz(row) && (
+                        <span
+                          className="px-1 py-px rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-400"
+                          title={OUTSIDE_44FZ_HINT}
+                        >
+                          {OUTSIDE_44FZ_BADGE}
                         </span>
                       )}
                       {noDate && (
@@ -2438,7 +2547,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                         строки, к которым у проверок нет ни одного вопроса. Свои
                         колонки у них рядом: состояние, факт, экономия. */}
                     <div className="flex flex-wrap gap-1">
-                      {rowFeatures.length === 0 && (
+                      {rowFeatures.length === 0 && rowFormulaDefects.length === 0 && (
                         <span
                           className="text-[10px] text-zinc-400 dark:text-zinc-500"
                           title={rowStates.length === 0
@@ -2446,6 +2555,20 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
                             : `Проверки к этой строке замечаний не нашли. Благополучные признаки строки (${rowStates.map((s: string) => signalChipText(s).text).join(', ')}) стоят в своих колонках — состояние, факт, экономия.`}
                         >
                           замечаний нет
+                        </span>
+                      )}
+                      {/* Дефект формулы книги: у него свой чип с адресами ячеек.
+                          Подпись не выдумана — имя класса берётся из паспорта
+                          проверки; что именно с формулой, показывает карточка
+                          строки и раздел «Целостность формул» на «Контроле». */}
+                      {rowFormulaDefects.length > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                          title={rowFormulaDefects
+                            .map((d) => `${d.cell}: ${d.className}${d.actual === null ? ' (ячейка пуста)' : ` — стоит «${d.actual}»`}${d.etalon === null ? '' : `, эталон графы ${d.etalon}`}`)
+                            .join('\n')}
+                        >
+                          формула: {rowFormulaDefects.map((d) => d.cell).join(', ')}
                         </span>
                       )}
                       {rowFeatures.map((sig: string) => (

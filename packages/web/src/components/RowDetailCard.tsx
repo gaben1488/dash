@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useId, useRef, useState } from 'react';
+import { useEffect, useCallback, useId, useMemo, useRef, useState } from 'react';
 import { BUDGET_SOURCE_META, cellTextOrNull, isYearlongStageRow, productLabel } from '@aemr/shared';
 import { useStore } from '../store';
 import { X, Clock, AlertTriangle, MapPin } from 'lucide-react';
@@ -15,6 +15,13 @@ import { YearlongBadge } from './yearlong/YearlongBadge';
 import { YearlongKindSelect } from './yearlong/YearlongKindSelect';
 import { RowStatusChip } from './rows/RowStatusChip';
 import { COPY_REFUSED_NOTE, copyText, formatRowAddress } from './TableEditor';
+import {
+  collectFormulaDefects,
+  formulaDefectDescription,
+  formulaRowKey,
+  indexFormulaDefectsByRow,
+  type FormulaIssueLike,
+} from '../lib/formulas/formula-defects';
 
 /**
  * Карточка строки реестра — «доказательство числа» для одной закупки.
@@ -74,6 +81,21 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
   const formatMoney = useStore(s => s.formatMoney);
+  /**
+   * Дефекты формул этой строки. Берутся из замечаний снимка (их рождает слой
+   * целостности формул в ядре) и раскладываются ключом «книга + номер
+   * закупки» — устойчивым адресом, переживающим сдвиг строк листа (п.98б).
+   * Секция появляется только тогда, когда дефект есть: её отсутствие НЕ
+   * означает «формулы строки проверены» — что именно читалось, говорит
+   * раздел «Целостность формул» на вкладке «Контроль».
+   */
+  // Дом полного перечня замечаний — снимок (recentIssues обрезан, и по нему
+  // дефект строки терялся бы через раз).
+  const issues = useStore(s => s.dashboardData?.snapshot?.issues);
+  const formulaDefects = useMemo(() => {
+    const index = indexFormulaDefectsByRow(collectFormulaDefects((issues ?? []) as FormulaIssueLike[]));
+    return index.get(formulaRowKey(row.dept, row.id)) ?? [];
+  }, [issues, row.dept, row.id]);
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -509,6 +531,48 @@ export function RowDetailCard({ row, onClose }: RowDetailCardProps) {
               <p className="text-xs text-zinc-400 dark:text-zinc-500">Проверки к этой строке замечаний не нашли</p>
             )}
           </div>
+
+          {/* Целостность формул строки: что именно с формулой. Секция стоит
+              отдельно от признаков, потому что судит не строку, а ЯЧЕЙКУ её
+              формульной графы: адрес, что стоит сейчас, каков эталон графы и
+              откуда тянуть целую формулу. Появляется только при дефекте —
+              её отсутствие не значит «формулы проверены». */}
+          {formulaDefects.length > 0 && (
+            <div>
+              <SectionTitle>Целостность формул строки</SectionTitle>
+              <div className="space-y-2">
+                {formulaDefects.map((d) => (
+                  <div
+                    key={d.id}
+                    className="border-l-2 border-red-400 dark:border-red-500 pl-2"
+                  >
+                    <div className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                      Ячейка {d.cell}
+                      {d.row === null ? '' : ` · строка листа ${d.row}`}
+                    </div>
+                    <p
+                      className="text-xs font-medium text-red-600 dark:text-red-400"
+                      title={formulaDefectDescription(d.checkId)}
+                    >
+                      {d.className}
+                    </p>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                      {d.actual === null
+                        ? 'В ячейке пусто: формулу не протянули.'
+                        : <>Сейчас стоит <span className="font-mono">{d.actual}</span>.</>}
+                      {d.etalon !== null && (
+                        <> Эталон графы — <span className="font-mono">{d.etalon}</span>.</>
+                      )}
+                      {d.donorRow !== null && <> Целая формула — в строке {d.donorRow}.</>}
+                    </p>
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      {d.recommendation}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Стадия «в течение года» (каноны п.71, п.81, п.83): собственная
               подпись стадии вместо лживого «есть факт» + разметка вида одним

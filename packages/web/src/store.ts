@@ -460,6 +460,12 @@ export interface AppState {
     trustComponent: string;
     /** Человеческое имя слагаемого — для чипа отбора на «Контроле». */
     trustComponentLabel: string;
+    /**
+     * Раздел вкладки «Контроль», который надо открыть: замечания проверок,
+     * гигиена текста либо целостность формул. Дверь с пятна Пульта обязана
+     * приводить в тот раздел, о котором пятно говорило, а не в общий список.
+     */
+    issuesSection: 'checks' | 'hygiene' | 'formulas';
   }>) => void;
   /**
    * Затравка фильтра признаков для Реестра: navigateTo('data', { signals })
@@ -477,6 +483,15 @@ export interface AppState {
    */
   trustComponentSeed: { id: string; label: string } | null;
   clearTrustComponentSeed: () => void;
+  /**
+   * Затравка РАЗДЕЛА вкладки «Контроль»: Пульс кладёт сюда имя раздела, с
+   * пятна которого щёлкнули («Целостность формул»), вкладка читает его один
+   * раз при открытии и очищает. Живёт по тем же правилам, что две затравки
+   * выше (п.134): переход без раздела её обнуляет, чтобы вкладка не
+   * открывалась сама собой не тем разделом при следующем заходе.
+   */
+  issuesSectionSeed: 'checks' | 'hygiene' | 'formulas' | null;
+  clearIssuesSectionSeed: () => void;
   /** Выбранные отделы (пустой Set = все) */
   selectedDepartments: Set<string>;
   toggleDepartment: (deptId: string) => void;
@@ -753,6 +768,8 @@ export const useStore = create<AppState>((set, get) => ({
   clearRegistrySignalSeed: () => set({ registrySignalSeed: [] }),
   trustComponentSeed: null,
   clearTrustComponentSeed: () => set({ trustComponentSeed: null }),
+  issuesSectionSeed: null,
+  clearIssuesSectionSeed: () => set({ issuesSectionSeed: null }),
   resetAllFilters: () => {
     // Сброс должен быть мгновенным и окончательным: отложенный пересчёт,
     // поставленный последней набранной буквой, вернул бы поиск после сброса.
@@ -790,6 +807,8 @@ export const useStore = create<AppState>((set, get) => ({
       // Затравка — тоже отбор: «Сбросить» обязан снимать и её, иначе
       // непотреблённая затравка всплывёт фильтром при следующем входе в Реестр.
       registrySignalSeed: [],
+      // По той же причине снимается и затравка раздела «Контроля».
+      issuesSectionSeed: null,
     });
   },
   navigateTo: (page, filters) => {
@@ -798,7 +817,8 @@ export const useStore = create<AppState>((set, get) => ({
       'selectedMethods' | 'selectedActivities' |
       'selectedDepartments' | 'selectedSubordinates' | 'year' |
       'searchQuery' | 'searchQueryDebounced' | 'activeMonths' | 'qualityTab' |
-      'periodMode' | 'monthsByYear' | 'registrySignalSeed' | 'trustComponentSeed'
+      'periodMode' | 'monthsByYear' | 'registrySignalSeed' | 'trustComponentSeed' |
+      'issuesSectionSeed'
     >> = { page };
     // Затравка ПЕРЕЗАПИСЫВАЕТСЯ на каждом переходе, а не дописывается: переход
     // без признаков обязан обнулить прежнюю затравку (п.134). Иначе затравка,
@@ -810,6 +830,9 @@ export const useStore = create<AppState>((set, get) => ({
     updates.trustComponentSeed = filters?.trustComponent
       ? { id: filters.trustComponent, label: filters.trustComponentLabel ?? filters.trustComponent }
       : null;
+    // Раздел «Контроля» — тем же законом: переход, о разделе не просивший,
+    // затравку обнуляет, иначе вкладка однажды откроется не тем разделом.
+    updates.issuesSectionSeed = filters?.issuesSection ?? null;
     // Период — АТОМАРНО (фильтр-спека 16.07, Б1-Б3): период/месяцы/режим меняются
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.
