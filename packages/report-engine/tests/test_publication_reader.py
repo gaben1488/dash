@@ -42,3 +42,46 @@ def test_orphans_unsafe_names_and_corrupt_releases_are_not_served(tmp_path):
     (store.releases / first['release_id'] / 'main_report.docx').write_bytes(b'changed')
     with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
         read_publication(state, 'main', first['release_id'])
+
+
+def test_context_selects_exact_archive_date_year_and_quarter(tmp_path):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    first = store.publish(candidate(tmp_path / 'archive', date='24.09.2026'), read_revisions=revisions)
+    store.publish(candidate(tmp_path / 'today'), read_revisions=revisions)
+    status = json.loads(read_publication(state, 'status', selection=('2026-09-24', 2026, 3)))
+    assert status['selected']['release_id'] == first['release_id']
+    assert status['selected']['report_year'] == 2026
+    assert status['selected']['quarter'] == 3
+    for selection in [('2026-09-23', 2026, 3), ('2026-09-24', 2027, 3), ('2026-09-24', 2026, 4)]:
+        assert json.loads(read_publication(state, 'status', selection=selection))['selected'] is None
+
+
+def test_selected_bundle_is_checked_and_empty_selection_does_not_create_state(tmp_path):
+    state = tmp_path / 'state'
+    selection = ('2026-09-30', 2026, 3)
+    assert json.loads(read_publication(state, 'status', selection=selection))['selected'] is None
+    assert not state.exists()
+    store = PublicationStore(state / 'published')
+    first = store.publish(candidate(tmp_path / 'candidate'), read_revisions=revisions)
+    (store.releases / first['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
+    with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        read_publication(state, 'status', selection=selection)
+
+
+def test_intact_archive_can_be_read_even_if_a_later_release_is_corrupt(tmp_path):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    first = store.publish(candidate(tmp_path / 'archive', date='24.09.2026'), read_revisions=revisions)
+    latest = store.publish(candidate(tmp_path / 'latest'), read_revisions=revisions)
+    (store.releases / latest['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
+    status = json.loads(read_publication(state, 'status', selection=('2026-09-24', 2026, 3)))
+    assert status['selected']['release_id'] == first['release_id']
+    with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        read_publication(state, 'status')
+
+
+@pytest.mark.parametrize('selection', [('2026-02-30', 2026, 1), ('2026-09-30', 2026, 0), ('30.09.2026', 2026, 3)])
+def test_reader_rejects_invalid_selection(tmp_path, selection):
+    with pytest.raises(PublicationError, match='PUBLICATION_CONTEXT_INVALID'):
+        read_publication(tmp_path, 'status', selection=selection)

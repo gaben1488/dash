@@ -22,6 +22,7 @@ import {
   buildSheetUrl,
   SVOD_SPREADSHEET_ID,
   dayNumberOf,
+  isoOfDayNumber,
   getMetricByKey,
   productLabel,
   quarterLabel,
@@ -33,7 +34,6 @@ import { useStore } from '../store';
 import { buildFilterContext, type FilterContext } from '../lib/filter-context';
 import { perimeterLabel, type Perimeter } from '../lib/perimeter';
 import { useOrgScope } from '../lib/selectors/org-scope';
-import { freshImport } from '../lib/fresh-import';
 import { KpiTile } from '../components/contract/KpiTile';
 import { SectionCard } from '../components/contract/SectionCard';
 import { ReportTable, type ReportTableColumn } from '../components/contract/ReportTable';
@@ -48,7 +48,7 @@ import {
   type KpiVM,
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
-import { PublishedReleasePanel } from '../components/report/PublishedReleasePanel';
+import { useReportExport } from '../lib/report/use-report-export';
 import { LifecycleStrip, type OpenLifecycleRows } from '../components/report/LifecycleStrip';
 import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
@@ -777,64 +777,13 @@ export function ReportPage() {
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   // Режим просмотра: эфир — числа на сейчас; архив — снимок недели.
   const isLive = report?.period.live ?? false;
-  // Выгрузка в Word: какая из двух кнопок сейчас готовит файл (null — обе
-  // свободны) и на каком она этапе. Этап показывается словами (работа 4.13
-  // плана): сборка идёт секунды и качает четыре квартала, а прежнее
-  // «Готовится…» не отличало «сервер не ответил» от «идём по плану» —
-  // читатель жал кнопку второй раз.
-  const [saving, setSaving] = useState<{ kind: 'main' | 'extra'; stage: string } | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-  const onDownloadDocx = async (kind: 'main' | 'extra') => {
-    if (!report || asOfDate === null) return;
-    setSaving({ kind, stage: 'кварталы 0/4' });
-    setDownloadError(null);
-    // Счётчик готовых кварталов. Обещания разрешаются вразнобой, поэтому
-    // считается ЧИСЛО готовых, а не номер последнего пришедшего: «квартал 4
-    // из 4» при двух оставшихся в пути было бы враньём на кнопке.
-    let done = 0;
-    try {
-      // Библиотека грузится по требованию: 400 КБ не должны висеть на каждом
-      // открытии страницы ради кнопки, которую жмут раз в неделю.
-      // Ручной отчёт печатает ВСЕ четыре квартала («Всего на 1…4 квартал»), а
-      // проекция знает ровно один. Недостающие три берём запросами; текущий
-      // уже загружен страницей. Импорты и запросы независимы — один Promise.all.
-      const [{ buildDocument, downloadDocx, reportFilename }, { mainReportBlocks, additionalReportBlocks }, q1, q2, q3, q4] =
-        await Promise.all([
-          // freshImport: после выката старые куски сборки исчезают с сервера,
-          // и открытая до выката вкладка ловила красное «Failed to fetch
-          // dynamically imported module» (прод, 14.08). Теперь страница один
-          // раз перезагружается на новую версию вместо ошибки.
-          freshImport(() => import('../lib/report/docx/build-docx')),
-          freshImport(() => import('../lib/report/docx/text-blocks')),
-          // В архиве срез пришпилен asOf — текущий квартал можно взять из
-          // загруженного отчёта. В ЭФИРЕ пиновки нет: между открытием
-          // страницы и кликом сервер мог перечитать книги, и документ
-          // склеился бы из разных моментов (тот же класс, что фикс 67c131c).
-          ...QUARTERS.map((q) => {
-            const source = q === report.period.quarter && request.asOf !== undefined
-              ? Promise.resolve(report)
-              : api.getReport(request.year, q, request.asOf);
-            return source.then((r) => {
-              done += 1;
-              setSaving({ kind, stage: `кварталы ${done}/4` });
-              return r;
-            });
-          }),
-        ] as const);
-      setSaving({ kind, stage: 'сборка' });
-      const quarters = { 1: q1, 2: q2, 3: q3, 4: q4 };
-      const isMain = kind === 'main';
-      const blocks = isMain
-        ? mainReportBlocks(report, quarters, asOfDate)
-        : additionalReportBlocks(report, quarters, asOfDate);
-      const title = isMain ? 'Отчёт по закупкам' : 'Дополнительно к отчету по закупкам';
-      await downloadDocx(buildDocument(blocks, title), reportFilename(title, asOfDate));
-    } catch (e: unknown) {
-      setDownloadError(`Не удалось собрать документ: ${String(e)}`);
-    } finally {
-      setSaving(null);
-    }
-  };
+  const exportDate = report ? isoOfDayNumber(report.period.asOfDay) : null;
+  const reportMatchesRequest = report && report.period.year === request.year
+    && (request.quarter === undefined || report.period.quarter === request.quarter)
+    && isLive === (mode === 'live') && (request.asOf === undefined || exportDate === request.asOf);
+  const word = useReportExport(reportMatchesRequest && exportDate ? {
+    date: exportDate, year: request.year, quarter: report.period.quarter, mode,
+  } : null);
 
   const onCopy = () => {
     if (!report || asOfDate === null) return;
@@ -991,8 +940,6 @@ export function ReportPage() {
         </nav>
       )}
       <div className="min-w-0 flex-1 space-y-4">
-      <PublishedReleasePanel />
-      <p className="text-xs text-zinc-600 dark:text-zinc-400">Ниже — оперативные данные и черновые выгрузки. Их состав может отличаться от сохранённого проверенного выпуска.</p>
       {/* Панель управления отчётом: ярус 1 — что это и режим + действия;
           ярус 2 — период и служебные оговорки. Карточка, не россыпь. */}
       <div className="analytics-chart-card px-4 py-3 space-y-2.5">
@@ -1041,7 +988,7 @@ export function ReportPage() {
             Архив недели
           </button>
         </div>
-        <div className="flex items-center gap-1 ml-auto">
+        <div className="flex flex-wrap items-center gap-1 ml-auto">
           <button
             onClick={onCopy}
             disabled={!report}
@@ -1050,29 +997,32 @@ export function ReportPage() {
             {copied ? <ClipboardCheck size={12} /> : <ClipboardCopy size={12} />}
             {copied ? 'Скопировано' : 'Копировать текстом'}
           </button>
-          {/* Локальная выгрузка: документ собирается в браузере и падает в
-              «Загрузки» — без роута и без записи на сервер, поэтому работает
-              и на публичном стенде только для чтения. */}
+          {/* Обе выгрузки закреплены за одним проверенным комплектом выбранного среза. */}
           <button
-            onClick={() => void onDownloadDocx('main')}
-            disabled={!report || saving !== null}
-            title="Основной отчёт в формате Word — вёрстка ручного отчёта по закупкам"
+            onClick={() => void word.download('main')}
+            disabled={!word.release || word.saving !== null}
+            aria-describedby="report-word-status"
+            title="Основной отчёт из проверенного серверного комплекта"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
-            {saving?.kind === 'main' ? saving.stage : 'Черновик отчёта · Word'}
+            {word.saving === 'main' ? 'Загружаем отчёт…' : 'Отчёт в Word'}
           </button>
           <button
-            onClick={() => void onDownloadDocx('extra')}
-            disabled={!report || saving !== null}
-            title="Дополнительно к отчету по закупкам — записка руководителю в формате Word"
+            onClick={() => void word.download('extra')}
+            disabled={!word.release || word.saving !== null}
+            aria-describedby="report-word-status"
+            title="Дополнение из того же проверенного серверного комплекта"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
-            {saving?.kind === 'extra' ? saving.stage : 'Черновик дополнения · Word'}
+            {word.saving === 'extra' ? 'Загружаем дополнение…' : 'Доп. отчёт в Word'}
           </button>
         </div>
       </div>
+
+      <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
+      {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 
       {/* Ярус 2: период и служебные оговорки */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -1172,9 +1122,6 @@ export function ReportPage() {
         onScrollUnfunded={() => document.getElementById('report-unfunded')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
       </div>
-      {downloadError && (
-        <div className="text-[11px] text-red-600 dark:text-red-400">{downloadError}</div>
-      )}
 
       {error ? (
         // Пустое состояние с причиной и действием (критерий «честная пустота»):

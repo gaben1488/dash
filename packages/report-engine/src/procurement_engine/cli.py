@@ -68,6 +68,9 @@ def main(argv=None):
     read.add_argument("--state", required=True)
     read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement'], required=True)
     read.add_argument("--release-id")
+    read.add_argument("--report-date")
+    read.add_argument("--report-year", type=int)
+    read.add_argument("--quarter", type=int)
     args = p.parse_args(argv)
     if args.cmd == 'bootstrap-google':
         from .runtime_inputs import install_google_inputs
@@ -81,7 +84,9 @@ def main(argv=None):
         from .publication_reader import read_publication
         from .publication_store import PublicationError
         try:
-            result = read_publication(args.state, args.view, args.release_id)
+            selection = (args.report_date, args.report_year, args.quarter)
+            result = read_publication(args.state, args.view, args.release_id,
+                                      selection=selection if any(x is not None for x in selection) else None)
         except PublicationError as error:
             print(str(error), file=sys.stderr)
             return 4 if str(error) == 'PUBLICATION_NOT_FOUND' else 2

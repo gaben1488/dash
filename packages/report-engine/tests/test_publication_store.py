@@ -31,14 +31,14 @@ class Source:
                              '0', 'schema1')
 
 
-def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:00:00Z'):
+def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:00:00Z', year=2026, quarter=3):
     path.mkdir()
-    bundle = capture_atomic_snapshot([Source()], report_date=date, report_year=2026,
+    bundle = capture_atomic_snapshot([Source()], report_date=date, report_year=year,
         cutoff_at=cutoff, rules_version='rules1', renderer_version='renderer1')
     persist_atomic_bundle(bundle, path / 'snapshot_bundle')
     model = {'snapshot': {k: bundle.manifest[k] for k in (
-        'snapshot_id', 'report_date', 'cutoff_at', 'rules_version', 'renderer_version')},
-        'headline': {'synthetic_count': 1},
+        'snapshot_id', 'report_date', 'report_year', 'cutoff_at', 'rules_version', 'renderer_version')},
+        'headline': {'synthetic_count': 1, 'current_quarter': quarter},
         'independent_audit': {'pass': True, 'checks': [{'name': 'synthetic', 'pass': True}]},
         'release': {'official_release_allowed': not blocked,
                     'blockers': [{'code': 'UNPROVEN'}] if blocked else []},
