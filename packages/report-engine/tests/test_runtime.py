@@ -88,3 +88,41 @@ def test_cli_failed_run_returns_nonzero_and_writes_readable_status(tmp_path, cap
     result = json.loads(capsys.readouterr().out)
     assert result['status'] == 'NOT_ISSUED'
     assert (tmp_path / 'state/status.json').is_file()
+
+
+def test_formula_proof_reaches_saved_snapshot_and_only_clears_its_own_gate(tmp_path):
+    registry, ledger = inputs(tmp_path)
+
+    class FormulaGoogle(Google):
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 0, 'title': self.grid(provider, 0)['title']}], 'named_ranges': []}
+
+        def formulas(self, provider, title, start, end, columns):
+            return self.values(provider, title, start, end, columns)
+
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert status['status'] == 'NOT_ISSUED'
+    assert 'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN' not in {b['code'] for b in status['blockers']}
+    bundle = state / 'attempts' / status['attempt_id'] / 'bundle'
+    model = json.loads((bundle / 'report_model.json').read_text())
+    assert model['formula_dependencies']['closed']
+    payload = json.loads((bundle / 'snapshot_bundle/payloads/master-0.json').read_text())
+    assert payload['metadata']['formula_evidence']['formulas'] == []
+
+
+def test_formula_evidence_changes_snapshot_identity_even_when_values_match(tmp_path):
+    from copy import deepcopy
+
+    from procurement_engine.google_adapter import capture_google
+    from procurement_engine.raw_pipeline import bundle_from_capture
+
+    registry_path, _ = inputs(tmp_path)
+    registry = json.loads(registry_path.read_text())
+    capture = capture_google(registry, Google())
+    first = bundle_from_capture(capture, registry)
+    modified = deepcopy(capture)
+    modified['sources'][0]['formula_evidence'] = {'rows': 3, 'columns': 34,
+                                               'formulas': [], 'sheets': [], 'named_ranges': []}
+    second = bundle_from_capture(modified, registry)
+    assert first.manifest['snapshot_id'] != second.manifest['snapshot_id']

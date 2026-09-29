@@ -18,6 +18,7 @@ from .atomic_snapshot import AtomicSnapshotBundle, SourcePayload
 from .canonical_metrics import calendar_facts, completed, metric_block
 from .constants import GRBS_ORDER
 from .fact_model import is_procurement_row
+from .formula_dependencies import audit_formula_dependencies
 from .metrics import current_quarter
 from .normalize import (
     clean_text,
@@ -45,8 +46,8 @@ from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc2'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc2'
+RENDERER_VERSION = 'renderer-v1.5.0rc3'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc3'
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
 
@@ -106,13 +107,17 @@ def bundle_from_capture(capture, registry, ledger=None):
         metadata = {'sheet_title': s['sheet'], 'grbs': s.get('grbs'), 'row_count': s['rows'],
                     'column_count': s['columns'], 'header_rows': contract['header_rows'],
                     'units': contract['units'], 'capture_method': 'connector_bounded_ranges'}
+        if 'formula_evidence' in s:
+            metadata['formula_evidence']=s['formula_evidence']
         payload = SourcePayload(sid, s['role'], s['provider_id'], values, str(s['sheet_id']), fingerprint, metadata=metadata)
         payloads.append(payload)
+        content = {'values':values,'formula_evidence':s['formula_evidence']} if 'formula_evidence' in s else values
         source_manifest.append({'source_id': sid, 'provider_id': s['provider_id'], 'role': s['role'],
             'sheet_or_tab_id': str(s['sheet_id']), 'schema_fingerprint': fingerprint,
             'revision_or_modified_at': s['after'], 'revision_or_modified_time_before': s['before'],
             'revision_or_modified_time_after': s['after'], 'canonical_semantic_hash': canonical_semantic_hash(values),
-            'content_hash': canonical_semantic_hash(values), 'content_hash_kind': 'canonical_semantic_values',
+            'content_hash': canonical_semantic_hash(content),
+            'content_hash_kind': 'canonical_values_and_formulas' if 'formula_evidence' in s else 'canonical_semantic_values',
             'payload_metadata': metadata})
     # A changed historical ledger or source contract must produce a different evidence identity.
     for sid, role, value in (('HISTORICAL_RECOMMENDATIONS', 'historical_ledger', ledger or []),
@@ -339,10 +344,14 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['identity_observations']=identity_result
     model['recommendation_review']={'policy':'Historical corpus retained; current identity and statuses require evidence',
                                    'active_review_count':len(model['recommendations_v2']['review_required_ids'])}
+    model['formula_dependencies']=audit_formula_dependencies(capture)
     blockers=[{'code':'PERSISTENT_IDENTITY_NOT_INTEGRATED','message':'Постоянные идентификаторы закупок и подтверждённые связи ещё не подключены.'},
               {'code':'RECOMMENDATION_CURRENT_EVIDENCE_NOT_APPROVED','message':'Текущие наблюдения по рекомендациям собраны, но связи и смысловые статусы не подтверждены.'},
-              {'code':'PROCEDURE_EVENT_OVERLAY_NOT_INTEGRATED','message':'События реестра процедур показаны отдельно и пока не дополняют факт мастер-таблиц.'},
-              {'code':'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN','message':'Стабильность книг подтверждена; актуальность зависимых импортов требует отдельной проверки.'}]
+              {'code':'PROCEDURE_EVENT_OVERLAY_NOT_INTEGRATED','message':'События реестра процедур показаны отдельно и пока не дополняют факт мастер-таблиц.'}]
+    if not model['formula_dependencies']['closed']:
+        blockers.append({'code':'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN',
+                         'message':'Не подтверждён полный состав зависимостей формул. Подробности сохранены в проверке снимка.',
+                         'details':model['formula_dependencies']['issues']})
     if any(i['severity']=='ERROR' for i in issues): blockers.append({'code':'SOURCE_QA_ERRORS','message':'В исходных данных выявлены ошибки; подробности в реестре проверки.'})
     if identity_result:
         blockers[0]={'code':'IDENTITY_HISTORY_SCOPE_INCOMPLETE','message':

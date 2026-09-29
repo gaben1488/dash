@@ -103,12 +103,24 @@ class GoogleReadClient:
         return hits[0]
 
     def values(self,provider_id,title,start,end,columns):
+        return self._values(provider_id,title,start,end,columns,'UNFORMATTED_VALUE')
+
+    def formulas(self,provider_id,title,start,end,columns):
+        return self._values(provider_id,title,start,end,columns,'FORMULA')
+
+    def formula_context(self,provider_id):
+        data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe=''),
+                       {'fields':'sheets.properties(sheetId,title),namedRanges(name,range)'})
+        return {'sheets':sorted((s['properties'] for s in data.get('sheets',[])),key=lambda x:x['sheetId']),
+                'named_ranges':sorted(data.get('namedRanges',[]),key=lambda x:x['name'])}
+
+    def _values(self,provider_id,title,start,end,columns,render_option):
         letters='';n=columns
         while n:
             n,rem=divmod(n-1,26);letters=chr(65+rem)+letters
         a1="'"+title.replace("'","''")+f"'!A{start}:{letters}{end}"
         data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe='')+'/values/'+quote(a1,safe=''),
-                       {'valueRenderOption':'UNFORMATTED_VALUE','dateTimeRenderOption':'SERIAL_NUMBER','majorDimension':'ROWS'})
+                       {'valueRenderOption':render_option,'dateTimeRenderOption':'SERIAL_NUMBER','majorDimension':'ROWS'})
         return data.get('values',[])
 
 
@@ -142,9 +154,25 @@ class GoogleSheetSourceAdapter:
                 if any(isinstance(v,str) and v in FORMULA_ERRORS for v in row):
                     raise GoogleReadError(f'GOOGLE_FORMULA_ERROR:{self.source_id}:{start+offset}')
                 values[start-1+offset]=row
+        metadata={'sheet_title':c['sheet'],'row_count':count,
+                  'column_count':c['columns'],'units':c['units'],'grbs':c.get('grbs')}
+        # Legacy adapters can still produce diagnostic snapshots; missing evidence cannot pass closure.
+        if hasattr(self.client,'formula_context') and hasattr(self.client,'formulas'):
+            context=self.client.formula_context(self.provider_id)
+            full_columns=grid['gridProperties']['columnCount']
+            formulas=[]
+            for start in range(1,count+1,self.chunk_rows):
+                end=min(start+self.chunk_rows-1,count)
+                chunk=self.client.formulas(self.provider_id,c['sheet'],start,end,full_columns)
+                if len(chunk)>end-start+1 or any(len(row)>full_columns for row in chunk):
+                    raise GoogleReadError('GOOGLE_FORMULA_RANGE_OVERFLOW')
+                for offset,row in enumerate(chunk):
+                    for column,value in enumerate(row,1):
+                        if isinstance(value,str) and value.startswith('='):
+                            formulas.append({'row':start+offset,'column':column,'formula':value})
+            metadata['formula_evidence']={**context,'rows':count,'columns':full_columns,'formulas':formulas}
         return SourcePayload(self.source_id,self.role,self.provider_id,values,str(c['sheet_id']),
-            header_hash(values,c['header_rows']),metadata={'sheet_title':c['sheet'],'row_count':count,
-                'column_count':c['columns'],'units':c['units'],'grbs':c.get('grbs')})
+            header_hash(values,c['header_rows']),metadata=metadata)
 
 
 def capture_google(registry,client=None,*,timezone_name='Asia/Kamchatka',max_attempts=3):
@@ -165,6 +193,8 @@ def capture_google(registry,client=None,*,timezone_name='Asia/Kamchatka',max_att
         sources.append({k:c[k] for k in ('source_id','role','provider_id','sheet','sheet_id','columns','grbs')})
         sources[-1].update(rows=len(payload.semantic_values),values=payload.semantic_values,
             before=bundle.before[payload.source_id],after=bundle.after[payload.source_id])
+        if payload.metadata and 'formula_evidence' in payload.metadata:
+            sources[-1]['formula_evidence']=payload.metadata['formula_evidence']
     return {'capture_version':'connector-capture-v1','captured_at':bundle.manifest['captured_at'],
         'acquisition_started_at':now.isoformat(), 'acquisition_completed_at':datetime.now(timezone.utc).isoformat(),
         'report_date':local.strftime('%d.%m.%Y'),'report_year':local.year,'timezone':timezone_name,'sources':sources}

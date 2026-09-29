@@ -39,6 +39,7 @@ def project_dashboard(report_model: dict) -> dict:
         "report_clock": deepcopy(report_model.get("report_clock")),
         "closed_procedure_quality": deepcopy(report_model.get("closed_procedure_quality")),
         "identity_observations": deepcopy(report_model.get("identity_observations")),
+        "formula_dependencies": deepcopy(report_model.get("formula_dependencies")),
     })
     return out
 
