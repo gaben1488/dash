@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -109,12 +110,14 @@ def _validate(root):
 
 
 class PublicationStore:
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, *, readonly=False):
         self.root = Path(root).resolve()
-        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.releases = self.root / 'releases'
-        self.releases.mkdir(exist_ok=True, mode=0o700)
         self.database_path = self.root / 'publications.sqlite'
+        if readonly:
+            return
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.releases.mkdir(exist_ok=True, mode=0o700)
         with closing(sqlite3.connect(self.database_path, timeout=30)) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
             db.execute('PRAGMA synchronous=FULL')
@@ -134,14 +137,28 @@ class PublicationStore:
         return record
 
     def latest(self):
-        with closing(sqlite3.connect(self.database_path)) as db:
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             return self._checked(db.execute('''SELECT receipt, files FROM publications
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC LIMIT 1''').fetchone())
 
     def history(self):
-        with closing(sqlite3.connect(self.database_path)) as db:
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             return [json.loads(row[0]) for row in db.execute('''SELECT receipt FROM publications
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''')]
+
+    def read_artifact(self, release_id, name):
+        if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):
+            raise PublicationError('PUBLICATION_ID_INVALID')
+        if name not in {'dashboard.json', 'main_report.docx', 'management_report.docx'}:
+            raise PublicationError('PUBLICATION_VIEW_INVALID')
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
+            if self._checked(row) is None:
+                raise PublicationError('PUBLICATION_NOT_FOUND')
+            data = (self.releases / release_id / name).read_bytes()
+            if hashlib.sha256(data).hexdigest() != json.loads(row[1]).get(name):
+                raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
+            return data
 
     def publish(self, candidate: str | Path, *, read_revisions: Callable[[], dict]):
         source = Path(candidate)

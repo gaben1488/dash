@@ -65,6 +65,20 @@ jobs:
       - name: Python tests
         run: python -m pytest packages/report-engine/tests -q
 
+  server-image:
+    name: Production image with report runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build server and report engine image
+        run: docker build -f deploy/Dockerfile.server -t aemr-server:ci .
+      - name: Verify installed publication reader
+        run: |
+          docker run --rm --entrypoint /opt/report-env/bin/proc-report aemr-server:ci \
+            read-publication --state /tmp/report-state --view status > /tmp/report-reader.json
+          python3 -c 'import json; assert json.load(open("/tmp/report-reader.json")) == {"latest": None, "attempt": None}'
+
   lint-biome:
     name: Biome lint (advisory)
     runs-on: ubuntu-latest
@@ -93,7 +107,7 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    needs: [verify, report-engine]      # выкатываем только если lint/tsc/test/build/audit зелёные
+    needs: [verify, report-engine, server-image]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20

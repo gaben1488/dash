@@ -38,6 +38,34 @@ proc-report run-google --registry /private/registry.json --ledger /private/ledge
 только после записи всех файлов. Повтор, параллельный запуск и отказ перед
 фиксацией покрыты тестами. Обязательны резервные копии состояния целиком.
 
+## Расписание и доступ к выпуску
+
+Образ сервера содержит Python-движок. После размещения закрытых `registry.json`
+и `ledger.json` в `data/reports/inputs` постоянного тома и положительной приёмки:
+
+```sh
+docker compose --env-file .env.production --profile reports up -d --build
+docker compose --env-file .env.production exec -T server /opt/report-env/bin/proc-report run-google --registry data/reports/inputs/registry.json --ledger data/reports/inputs/ledger.json --state data/reports
+```
+
+`report-worker` выполняет попытку при старте и затем через `REPORT_POLL_SECONDS`
+(по умолчанию 900 секунд) после завершения предыдущей. Для сохранения профиля
+при последующих развёртываниях задаётся `COMPOSE_PROFILES=reports` в `.env.production`.
+Сервис использует существующую авторизацию сервера. Профиль пока не включён в
+производственной среде; без положительной предметной проверки выпуск блокируется.
+
+За существующим контуром авторизации доступны:
+
+- `GET /api/report-releases` — последняя попытка и последний проверенный выпуск.
+- `GET /api/report-releases/<release_id>/dashboard` — сохранённая проекция.
+- `GET /api/report-releases/<release_id>/main.docx` — основной документ.
+- `GET /api/report-releases/<release_id>/supplement.docx` — дополнение.
+
+Все части читаются по одному `release_id`. При повреждении комплекта API отвечает
+503; незарегистрированный выпуск — 404. Исходные матрицы через этот API не выдаются.
+`REPORT_STATE_DIR` меняет путь состояния API; при изменении нужно согласовать
+путь worker. `REPORT_ENGINE_BIN` нужен для локального запуска вне образа.
+
 ## Граница готовности
 
 В текущем кандидате предметные проверки v1.4 продолжают блокировать официальный

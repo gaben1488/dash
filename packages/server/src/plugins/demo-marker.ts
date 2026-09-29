@@ -35,7 +35,8 @@ export function registerDemoMarker(app: FastifyInstance, demo: boolean = isDemoM
   if (!demo) return;
 
   app.addHook('onSend', async (request, reply, payload) => {
-    if (request.url.startsWith('/api/')) {
+    // Frozen publications never fall back to generated demo data when Google is offline.
+    if (request.url.startsWith('/api/') && !/^\/api\/report-releases(?:[/?]|$)/.test(request.url)) {
       reply.header(DEMO_HEADER, '1');
     }
     return payload;

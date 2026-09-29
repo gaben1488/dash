@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from .recommendations import replay_ledger
@@ -56,7 +57,29 @@ def main(argv=None):
     run.add_argument("--registry", required=True)
     run.add_argument("--ledger", required=True)
     run.add_argument("--state", required=True)
+    worker = sub.add_parser("worker", help="Periodically acquire, verify and attempt publication")
+    worker.add_argument("--registry", required=True)
+    worker.add_argument("--ledger", required=True)
+    worker.add_argument("--state", required=True)
+    worker.add_argument("--interval-seconds", type=int, default=900)
+    read = sub.add_parser("read-publication", help="Read a committed release without live recalculation")
+    read.add_argument("--state", required=True)
+    read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement'], required=True)
+    read.add_argument("--release-id")
     args = p.parse_args(argv)
+    if args.cmd == "worker":
+        from .worker import work
+        return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds)
+    if args.cmd == "read-publication":
+        from .publication_reader import read_publication
+        from .publication_store import PublicationError
+        try:
+            result = read_publication(args.state, args.view, args.release_id)
+        except PublicationError as error:
+            print(str(error), file=sys.stderr)
+            return 4 if str(error) == 'PUBLICATION_NOT_FOUND' else 2
+        sys.stdout.buffer.write(result)
+        return 0
     if args.cmd == "run-google":
         from .runtime import run_once
         status = run_once(args.registry, args.ledger, args.state)

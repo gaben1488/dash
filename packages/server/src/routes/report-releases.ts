@@ -1,0 +1,47 @@
+/** Published reports read their frozen model; the live report endpoint is separate. */
+import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
+import type { FastifyInstance } from 'fastify';
+
+type View = 'status' | 'dashboard' | 'main' | 'supplement';
+const execute = promisify(execFile);
+
+async function readStoredRelease(view: View, releaseId?: string): Promise<Buffer> {
+  const args = ['read-publication', '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'), '--view', view];
+  if (releaseId) args.push('--release-id', releaseId);
+  const result = await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report', args,
+    { encoding: 'buffer', timeout: 30_000, maxBuffer: 32 * 1024 * 1024, shell: false });
+  return result.stdout;
+}
+
+export async function reportReleaseRoutes(app: FastifyInstance,
+  options: { read?: (view: View, releaseId?: string) => Promise<Buffer> } = {}): Promise<void> {
+  const read = options.read ?? readStoredRelease;
+  for (const [suffix, view] of [['', 'status'], ['/dashboard', 'dashboard'],
+    ['/main.docx', 'main'], ['/supplement.docx', 'supplement']] as const) {
+    app.get<{ Params: { releaseId?: string } }>(`/api/report-releases${suffix ? '/:releaseId' + suffix : ''}`,
+      async (request, reply) => {
+        const id = request.params.releaseId;
+        reply.header('Cache-Control', 'private, no-store');
+        if (view !== 'status' && !/^REL-[a-f0-9]{64}$/.test(id ?? '')) {
+          return reply.code(400).send({ code: 'PUBLICATION_ID_INVALID', message: 'Некорректный идентификатор выпуска.' });
+        }
+        try {
+          const data = await read(view, id);
+          if (view === 'main' || view === 'supplement') {
+            reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+            reply.header('Content-Disposition', `attachment; filename="${id}-${view}.docx"`);
+            return reply.send(data);
+          }
+          return reply.type('application/json; charset=utf-8').send(data);
+        } catch (error) {
+          const missing = error instanceof Error && 'code' in error && error.code === 4;
+          return reply.code(missing ? 404 : 503).send({
+            code: missing ? 'PUBLICATION_NOT_FOUND' : 'PUBLICATION_UNAVAILABLE',
+            message: missing ? 'Такой проверенный выпуск не опубликован.' : 'Проверенный комплект сейчас недоступен.',
+          });
+        }
+      });
+  }
+}
