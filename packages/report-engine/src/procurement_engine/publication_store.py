@@ -171,6 +171,20 @@ class PublicationStore:
             return [json.loads(row[0]) for row in db.execute('''SELECT receipt FROM publications
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''')]
 
+    def select(self, report_date, report_year, quarter):
+        """Exact context only; a nearby date is not an historical release."""
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            rows = db.execute('''SELECT receipt, files FROM publications WHERE report_date = ?
+                ORDER BY cutoff_at DESC, release_id DESC''', (report_date,))
+            for row in rows:
+                receipt = self._checked(row)
+                model = _json(self.releases / receipt['release_id'] / 'report_model.json')
+                year = (model.get('snapshot') or {}).get('report_year')
+                selected_quarter = (model.get('headline') or {}).get('current_quarter')
+                if year == report_year and selected_quarter == quarter:
+                    return {**receipt, 'report_year': year, 'quarter': selected_quarter}
+        return None
+
     def previous_model(self, report_date):
         day = datetime.strptime(report_date, '%d.%m.%Y').date().isoformat()  # noqa: DTZ007 — civil date.
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:

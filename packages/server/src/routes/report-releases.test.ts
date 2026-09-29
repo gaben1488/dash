@@ -36,3 +36,18 @@ it('distinguishes an unpublished release from an integrity failure', async () =>
   expect((await app.inject(`/api/report-releases/REL-${'b'.repeat(64)}/supplement.docx`)).statusCode).toBe(404);
   await app.close();
 });
+
+it('passes the selected report date, year and quarter to the frozen reader', async () => {
+  const app = Fastify();
+  const read = vi.fn(async () => Buffer.from('{"selected":null}'));
+  await app.register(reportReleaseRoutes, { read });
+  const response = await app.inject('/api/report-releases?date=2026-09-24&year=2026&quarter=3');
+  expect(response.statusCode).toBe(200);
+  expect(read).toHaveBeenCalledWith('status', undefined, { date: '2026-09-24', year: 2026, quarter: 3 });
+  for (const query of ['date=2026-09-24', 'date=2026-02-30&year=2026&quarter=1',
+    'date=2026-09-24&year=2026&quarter=5', 'date=2026-09-24&year=x&quarter=3']) {
+    expect((await app.inject(`/api/report-releases?${query}`)).statusCode).toBe(400);
+  }
+  expect(read).toHaveBeenCalledOnce();
+  await app.close();
+});

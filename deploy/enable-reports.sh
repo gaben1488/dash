@@ -22,9 +22,13 @@ docker compose --env-file .env.production exec -T server sh -eu -c '
   mkdir -p data/reports
   /opt/report-env/bin/proc-report bootstrap-google --inputs data/reports/inputs >data/reports/bootstrap.log 2>&1
 '
+echo 'Report inputs ready. Reading and checking report sources; detailed output stays on the server.'
 docker compose --env-file .env.production exec -T server sh -eu -c '
   umask 077
   /opt/report-env/bin/proc-report run-google --registry data/reports/inputs/registry.json --ledger data/reports/inputs/ledger.json --state data/reports >data/reports/preflight.log 2>&1
   /opt/report-env/bin/python -c '\''import json; from pathlib import Path; s=json.loads(Path("data/reports/status.json").read_text()); assert s["status"] in {"VERIFIED", "VERIFIED_WITH_WARNINGS"}'\''
 '
+echo 'Report generated. Checking the native report context and both Word downloads.'
+docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_smoke
 docker compose --env-file .env.production --profile reports up -d report-worker >/dev/null
+echo 'Report exports verified; schedule started.'
