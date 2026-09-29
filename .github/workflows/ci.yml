@@ -153,3 +153,6 @@ jobs:
             # войти. Ни то, ни другое не говорит о здоровье продукта.
             docker compose --env-file .env.production exec -T server \
               curl -fsS -m 15 http://127.0.0.1:3000/api/health && echo " — deploy OK"
+            # Private inputs and audit output stay in server_data, not Actions logs.
+            # Start the scheduler only after a successful service-account release.
+            bash enable-reports.sh
