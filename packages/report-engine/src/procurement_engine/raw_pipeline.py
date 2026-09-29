@@ -27,6 +27,7 @@ from .procedures import (
     normalize_procedure_values,
     validate_operational_view,
     validate_procedure_lineage,
+    validate_procedure_shares,
     validate_procedure_uniqueness,
 )
 from .projections import (
@@ -44,8 +45,8 @@ from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc6'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc6'
+RENDERER_VERSION = 'renderer-v1.5.0rc7'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc7'
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
 
@@ -258,7 +259,7 @@ def future_rows(sources, year):
                     date = dates.pop(); date_basis = 'explicit_current_plan_text'
             output.append({'grbs':s['grbs'], 'provider_id':s['provider_id'], 'sheet_id':s['sheet_id'],
                 'sheet':s['sheet'], 'row_number':rn, 'business_id':normalize_id(c(0)), 'subject':clean_text(c(6)),
-                'amount_thousand':sum(float(to_decimal(c(i))) for i in (7,8,9)), 'classification':kind,
+                'amount_thousand':float(sum(to_decimal(c(i)) for i in (7,8,9))), 'classification':kind,
                 'date_basis':date_basis, 'target_year':year, 'target_month':int(date[5:7]) if date and date.startswith(str(year)) else None,
                 'evidence':' | '.join(clean_text(c(i)) for i in (20,30,31,32,33) if c(i)),
                 'review_required': kind.endswith('UNSTRUCTURED')})
@@ -313,7 +314,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     future=future_rows(capture['sources'], year+1)
     main=next(s for s in capture['sources'] if s['sheet']=='Рабочий реестр процедур')
     attempts, shares=normalize_procedure_values(main['values'], source_ref_prefix=main['provider_id']+'::'+main['sheet'])
-    issues.extend(x.as_dict() for x in validate_procedure_uniqueness(attempts)+validate_procedure_lineage(attempts))
+    issues.extend(x.as_dict() for x in validate_procedure_uniqueness(attempts)+validate_procedure_lineage(attempts)
+                  + validate_procedure_shares(attempts, shares))
     queue=next(s for s in capture['sources'] if s['sheet']=='Процедуры в работе')
     issues.extend(x.as_dict() for x in validate_operational_view(main['values'], queue['values'], as_of=report_date))
     active=[];closed_quality=[];in_closed_block=False
@@ -388,7 +390,13 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     from .independent_audit import audit_model
     model['independent_audit']=audit_model(capture,model)
+    from .section_audit import audit_source_sections
+    section_errors = audit_source_sections(capture, model, ledger=ledger)
     blockers=[i.as_dict() for i in validate_recorded_state_model(model,ledger=ledger)]
+    if section_errors:
+        blockers.append({'severity':'ERROR','code':'SECTION_SOURCE_MISMATCH',
+                         'message':'Обязательные разделы расходятся с исходными записями.',
+                         'context':{'sections':section_errors}})
     model['release']={'status':'BLOCKED' if blockers else 'READY_WITH_WARNINGS' if issues else 'READY',
         'official_release_allowed':not blockers,'blockers':blockers,
         'policy':'recorded-state-v1','source_revision_barrier_passed':True,'at_publish_checked':False}

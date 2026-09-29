@@ -33,10 +33,16 @@ def method(v):
 
 def recount(capture):
     as_of=day(capture['report_date']);year=capture['report_year'];q=(int(as_of[5:7])-1)//3+1
-    result={k:{s:{'plan_count':0,'fact_count':0,'remain_count':0,
-        **{n:Fraction(0) for n in ('plan_amount','fact_amount','remain_amount','monetary_fact_amount','confirmed_saving_amount')}}
-        for s in ('year','quarter')} for k in ('competitive','single_supplier')}
-    population={k:{s:[] for s in ('year','quarter')} for k in result}
+    def empty():
+        return {'plan_count':0,'fact_count':0,'remain_count':0,
+            **{n:Fraction(0) for n in ('plan_amount','fact_amount','remain_amount',
+                'monetary_fact_amount','confirmed_saving_amount','partial_fact_without_completion_amount')}}
+    periods=('year','q1','q2','q3','q4')
+    kinds=('competitive','single_supplier')
+    result={k:{s:empty() for s in periods} for k in kinds}
+    grouped={source['grbs']:{k:{s:empty() for s in periods} for k in kinds}
+             for source in capture['sources'] if source['role']=='master'}
+    population={k:{s:[] for s in periods} for k in result}
     events=[];event_amount=Fraction(0)
     for source in capture['sources']:
         if source['role']!='master':continue
@@ -57,38 +63,81 @@ def recount(capture):
             if plan_year!=year:continue
             try:plan_q=int(float(text(cell(14)).replace(',','.')))
             except ValueError:plan_q=None
-            for scope in ['year']+(['quarter'] if plan_q==q else []):
-                b=result[kind][scope];population[kind][scope].append(locator)
-                b['plan_count']+=1;b['plan_amount']+=plan
-                if is_fact:b['fact_count']+=1;b['fact_amount']+=fact
-                else:b['remain_count']+=1;b['remain_amount']+=plan
-                if not fact_date or is_fact:b['monetary_fact_amount']+=fact
-                if is_fact and text(cell(29)).casefold()=='да':
-                    b['confirmed_saving_amount']+=sum((number(cell(i)) for i in (25,26,27)),Fraction(0))
-    for groups in result.values():
+            for scope in ['year']+([f'q{plan_q}'] if plan_q in (1,2,3,4) else []):
+                population[kind][scope].append(locator)
+                for b in (result[kind][scope],grouped[source['grbs']][kind][scope]):
+                    b['plan_count']+=1;b['plan_amount']+=plan
+                    if is_fact:b['fact_count']+=1;b['fact_amount']+=fact
+                    else:b['remain_count']+=1;b['remain_amount']+=plan
+                    if not fact_date or is_fact:b['monetary_fact_amount']+=fact
+                    if not fact_date and fact>0:b['partial_fact_without_completion_amount']+=fact
+                    if is_fact and text(cell(29)).casefold()=='да':
+                        b['confirmed_saving_amount']+=sum((number(cell(i)) for i in (25,26,27)),Fraction(0))
+    for groups in [*result.values(),*(scopes for grbs in grouped.values() for scopes in grbs.values())]:
         for b in groups.values():
             b['deviation_amount']=b['monetary_fact_amount']-b['plan_amount']
-    return result,population,events,event_amount
+            b['execution_pct']=Fraction(100*b['fact_count'],b['plan_count']) if b['plan_count'] else None
+            b['contracted_share_pct']=100*b['monetary_fact_amount']/b['plan_amount'] if b['plan_amount'] else None
+    for kind in kinds:
+        result[kind]['quarter']=result[kind][f'q{q}']
+        population[kind]['quarter']=population[kind][f'q{q}']
+    return result,population,events,event_amount,grouped
 
 def audit_model(capture,model):
-    expected,populations,events,event_amount=recount(capture)
+    expected,populations,events,event_amount,grouped=recount(capture)
     failures=[];checks=0
     def check(path,got,want):
         nonlocal checks
         checks+=1
         if got!=want:failures.append({'path':path,'observed':str(got),'expected':str(want)})
+    def decimal_check(path,got,want,*,ratio=False):
+        if want is None:
+            check(path,got,None)
+            return
+        try:
+            parsed=Fraction(got) if isinstance(got,str) else None
+        except (ValueError,ZeroDivisionError):
+            parsed=None
+        # Money is exact. A repeating percentage is serialized at Decimal's
+        # 28-digit precision; allow only its bounded decimal rounding residual.
+        if ratio and parsed is not None:
+            check(path,abs(parsed-want)<=max(abs(want),Fraction(1))*Fraction(1,10**26),True)
+        else:
+            check(path,parsed,want)
+    def display_check(path,actual,block,fields):
+        for field in fields:
+            want=block[field]
+            check(path+'.'+field,actual.get(field),float(want) if isinstance(want,Fraction) else want)
+    display_fields=('plan_count','fact_count','remain_count','plan_amount','fact_amount','remain_amount','execution_pct')
+    check('grbs_metrics.coverage',set(model.get('grbs_metrics') or {}),set(grouped))
+    check('grbs_order.coverage',sorted(model.get('grbs_order') or []),sorted(grouped))
+    for grbs,kinds in grouped.items():
+        for kind,scopes in kinds.items():
+            legacy='comp' if kind=='competitive' else 'ep'
+            for scope,block in scopes.items():
+                actual=((model.get('grbs_metrics',{}).get(grbs) or {}).get(legacy) or {}).get(scope) or {}
+                display_check(f'grbs_metrics.{grbs}.{legacy}.{scope}',actual,block,display_fields)
     for kind,scopes in expected.items():
+        legacy='comp' if kind=='competitive' else 'ep'
         for scope,block in scopes.items():
-            actual=model['exact_metrics'][kind][scope]
+            if scope!='quarter':
+                actual=((model.get('global_quarters') or {}).get(legacy) or {}).get(scope) or {}
+                display_check(f'global_quarters.{legacy}.{scope}',actual,block,display_fields)
+            if scope not in {'year','quarter'}:
+                continue
+            actual=((model.get('exact_metrics') or {}).get(kind) or {}).get(scope) or {}
             for field,want in block.items():
-                got=actual.get(field) if field.endswith('_count') else Fraction(actual['exact_decimal'][field])
-                check(f'{kind}.{scope}.{field}',got,want)
-                if field in model['headline'][kind][scope]:
-                    # IEEE-754 values are only a compatibility/display boundary.
-                    h=model['headline'][kind][scope][field]
-                    check(f'headline.{kind}.{scope}.{field}',h,float(want) if isinstance(want,Fraction) else want)
-            check(f'{kind}.{scope}.population',sorted(actual['contributors']),sorted(populations[kind][scope]))
-    check('calendar_fact.population',sorted(model['calendar_fact']['contributors']),sorted(events))
-    check('calendar_fact.amount',Fraction(model['calendar_fact']['amount_thousand_decimal']),event_amount)
-    return {'pass':not failures,'implementation':'raw-cells Fraction recount v1.4',
+                display_check(f'exact_metrics.{kind}.{scope}',actual,block,(field,))
+                if not field.endswith('_count') and field!='execution_pct':
+                    decimal_check(f'exact_metrics.{kind}.{scope}.exact_decimal.{field}',
+                        (actual.get('exact_decimal') or {}).get(field),want,ratio=field=='contracted_share_pct')
+            headline=((model.get('headline') or {}).get(kind) or {}).get(scope) or {}
+            display_check(f'headline.{kind}.{scope}',headline,block,display_fields)
+            check(f'{kind}.{scope}.population',sorted(actual.get('contributors') or []),sorted(populations[kind][scope]))
+    calendar=model.get('calendar_fact') or {}
+    check('calendar_fact.population',sorted(calendar.get('contributors') or []),sorted(events))
+    check('calendar_fact.recorded_position_count',calendar.get('recorded_position_count'),len(events))
+    check('calendar_fact.amount_thousand',calendar.get('amount_thousand'),float(event_amount))
+    decimal_check('calendar_fact.amount_thousand_decimal',calendar.get('amount_thousand_decimal'),event_amount)
+    return {'pass':not failures,'implementation':'raw-cells Fraction recount v1.5',
             'scope':'master recorded facts; no procedure overlay','checks':checks,'failures':failures}

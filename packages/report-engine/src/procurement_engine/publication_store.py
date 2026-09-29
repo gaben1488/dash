@@ -110,6 +110,7 @@ def _validate(root):
         from .formula_dependencies import audit_formula_dependencies
         from .independent_audit import audit_model
         from .release_gates import validate_recorded_state_model
+        from .section_audit import audit_source_sections
 
         if release.get('policy') != 'recorded-state-v1':
             raise PublicationError('DOMAIN_RELEASE_POLICY_MISSING')
@@ -127,7 +128,8 @@ def _validate(root):
                 'sheet_id': int(payload['sheet_or_tab_id']), 'grbs': meta.get('grbs'),
                 'rows': meta['row_count'], 'columns': meta['column_count'],
                 'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence')})
-        if not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']:
+        if (not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']
+                or audit_source_sections(capture, model, ledger=ledgers[0])):
             raise PublicationError('SAVED_SOURCE_RECHECK_FAILED')
     return model, model_hash, report_date, cutoff.astimezone(timezone.utc).isoformat(), expected
 
