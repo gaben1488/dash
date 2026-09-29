@@ -517,3 +517,27 @@ export const MetricsResponseSchema = z.object({
   calculated: z.record(z.string(), NormalizedMetricSchema.passthrough()),
   deltas: z.array(DeltaResultSchema.passthrough()),
 }).passthrough();
+
+/** Сохранённый выпуск: дата и идентификатор не зависят от живого дашборда. */
+export const PublishedReleaseSchema = z.object({
+  release_id: z.string().regex(/^REL-[a-f0-9]{64}$/),
+  snapshot_id: z.string().min(1),
+  report_date: z.string().regex(/^\d{2}\.\d{2}\.\d{4}$/),
+  cutoff_at: z.string().datetime({ offset: true }),
+  published_at: z.string().datetime({ offset: true }),
+  model_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  rules_version: z.string().min(1),
+  renderer_version: z.string().min(1),
+  status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
+});
+
+export const ReportReleaseStatusSchema = z.object({
+  latest: PublishedReleaseSchema.nullable(),
+  attempt: z.object({
+    status: z.enum(['RUNNING', 'NOT_ISSUED', 'VERIFIED', 'VERIFIED_WITH_WARNINGS']),
+    report_date: z.string().optional(),
+    blockers: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
+    error_code: z.string().optional(),
+  }).nullable(),
+});
+export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { api, fetchJSON, fetchParsed, ApiError, humanizeRequestError } from './api';
+import { api, fetchJSON, fetchParsed, fetchBlob, ApiError, humanizeRequestError } from './api';
 import { HealthResponseSchema } from '@aemr/shared';
 
 function fakeResponse(body: unknown = {}) {
@@ -10,6 +10,23 @@ function fakeResponse(body: unknown = {}) {
     text: async () => JSON.stringify(body),
   } as unknown as Response;
 }
+
+describe('скачивание опубликованного документа', () => {
+  it('сохраняет авторизацию и возвращает байты, не пытаясь разобрать DOCX как JSON', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'test-token' });
+    const blob = new Blob(['document bytes']);
+    const request = vi.fn(async (_url: string, _init: RequestInit) => ({ ok: true, blob: async () => blob }));
+    vi.stubGlobal('fetch', request);
+    expect(await fetchBlob('/report-releases/release/main.docx')).toBe(blob);
+    expect(request.mock.calls[0][0]).toBe('/api/report-releases/release/main.docx');
+    expect(new Headers(request.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer test-token');
+  });
+
+  it('не скачивает тело ошибки как документ', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, text: async () => 'unavailable' })));
+    await expect(fetchBlob('/report-releases/release/main.docx')).rejects.toBeInstanceOf(ApiError);
+  });
+});
 
 describe('fetchJSON header merging (B-13)', () => {
   beforeEach(() => {

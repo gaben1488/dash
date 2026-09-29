@@ -48,6 +48,7 @@ import {
   type KpiVM,
 } from '../lib/report/mappers';
 import { RemainderLedger } from '../components/report/RemainderLedger';
+import { PublishedReleasePanel } from '../components/report/PublishedReleasePanel';
 import { LifecycleStrip, type OpenLifecycleRows } from '../components/report/LifecycleStrip';
 import { ReasonsPanel } from '../components/report/ReasonsPanel';
 import { ExpandableRows } from '../components/contract/ExpandableRows';
@@ -990,6 +991,8 @@ export function ReportPage() {
         </nav>
       )}
       <div className="min-w-0 flex-1 space-y-4">
+      <PublishedReleasePanel />
+      <p className="text-xs text-zinc-600 dark:text-zinc-400">Ниже — оперативные данные и черновые выгрузки. Их состав может отличаться от сохранённого проверенного выпуска.</p>
       {/* Панель управления отчётом: ярус 1 — что это и режим + действия;
           ярус 2 — период и служебные оговорки. Карточка, не россыпь. */}
       <div className="analytics-chart-card px-4 py-3 space-y-2.5">
@@ -1057,7 +1060,7 @@ export function ReportPage() {
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
-            {saving?.kind === 'main' ? saving.stage : 'Отчёт в Word'}
+            {saving?.kind === 'main' ? saving.stage : 'Черновик отчёта · Word'}
           </button>
           <button
             onClick={() => void onDownloadDocx('extra')}
@@ -1066,7 +1069,7 @@ export function ReportPage() {
             className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
-            {saving?.kind === 'extra' ? saving.stage : 'Допотчёт в Word'}
+            {saving?.kind === 'extra' ? saving.stage : 'Черновик дополнения · Word'}
           </button>
         </div>
       </div>
