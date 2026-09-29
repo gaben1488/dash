@@ -204,6 +204,15 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
     require(semantics.get('scope') == 'master_recorded_fact' and semantics.get('procedure_overlay_applied') is False
             and semantics.get('contract_count') is None,
             'RECORDED_STATE_SEMANTICS_CHANGED', 'Результаты процедур не подтверждают договоры или оплату.')
+    from .section_audit import (
+        audit_management_projection,
+        audit_recommendation_projections,
+    )
+
+    require(audit_recommendation_projections(model), 'RECOMMENDATION_PROJECTION_MISMATCH',
+            'Текстовые таблицы рекомендаций расходятся с проверенными записями.')
+    require(audit_management_projection(model), 'MANAGEMENT_PROJECTION_MISMATCH',
+            'Показатели дополнения расходятся с проверенными метриками и статусами.')
     recs = model.get('recommendations') or {}
     active = {r['recommendation_id']: r for r in ledger if r['active_in_current_slice']}
     projected = [r for group in recs.get('tables', {}).values() for r in group]
@@ -213,10 +222,14 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
     for r in projected:
         original = active.get(r['recommendation_id']) or {}
         require(r.get('recommendation_text') == original.get('recommendation_text')
+                and r.get('grbs_response_original') == original.get('grbs_response_original')
+                and r.get('uer_decision_original') == original.get('uer_decision_original')
+                and all(r.get(key) == original.get(key) for key in ('grbs','table_no','row_no','section'))
                 and r.get('status_as_of') == model.get('snapshot', {}).get('report_date')
                 and r.get('evidence_snapshot_id') == model.get('snapshot', {}).get('snapshot_id'),
                 'RECOMMENDATION_EVIDENCE_MISMATCH', 'Рекомендация не связана с текущим проверенным снимком.')
         require(r.get('semantic_status') == 'REVIEW_REQUIRED' and r.get('current_procurement_state') == 'UNKNOWN'
+                and r.get('semantic_status_ru') == 'ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ СВЯЗИ'
                 and r.get('status_evidence') and r.get('dimensions', {}).get('execution_status') == 'UNKNOWN',
                 'UNPROVEN_RECOMMENDATION_CLAIM', 'Исполнение исторической рекомендации не подтверждено.')
     for trace in model.get('trace_records') or []:

@@ -48,3 +48,16 @@ def test_duplicate_master_attempt_is_blocker():
     assert len(issues) == 1
     assert issues[0].severity == "ERROR"
     assert issues[0].code == "DUPLICATE_PROCEDURE_CODE"
+
+
+def test_joint_allocations_require_a_balanced_unique_parent():
+    from procurement_engine.models import ProcedureAttempt, ProcedureShare
+    from procurement_engine.procedures import validate_procedure_shares
+
+    parent = ProcedureAttempt('ЭА1-26', 'УО', 'School', 'Supplies', 100.03, '')
+    shares = [ProcedureShare('ЭА1-26', 'УО', 60.01, 'row2'),
+              ProcedureShare('ЭА1-26', 'УЭР', 40.02, 'row3')]
+    assert validate_procedure_shares([parent], shares) == []
+    shares[1] = ProcedureShare('ЭА1-26', 'УЭР', 40.04, 'row3')
+    assert 'PROCEDURE_SHARE_BALANCE_MISMATCH' in {x.code for x in validate_procedure_shares([parent], shares)}
+    assert 'PROCEDURE_SHARE_PARENT_MISSING' in {x.code for x in validate_procedure_shares([], shares)}

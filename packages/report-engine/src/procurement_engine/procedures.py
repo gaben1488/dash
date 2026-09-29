@@ -170,6 +170,34 @@ def validate_procedure_uniqueness(attempts: list) -> list[ValidationIssue]:
     ]
 
 
+def validate_procedure_shares(attempts: list, shares: list) -> list[ValidationIssue]:
+    """Joint allocations are in RUB and must balance the sole parent within one kopeck."""
+    from collections import defaultdict
+    from decimal import Decimal
+
+    parents = defaultdict(list); groups = defaultdict(list)
+    for attempt in attempts:
+        parents[attempt.procedure_code].append(attempt)
+    for share in shares:
+        groups[share.procedure_code].append(share)
+    issues = []
+    for code, rows in groups.items():
+        def issue(kind, message, code=code):
+            issues.append(ValidationIssue('ERROR', kind, message, {'procedure_code': code}))
+        if len(parents[code]) != 1:
+            issue('PROCEDURE_SHARE_PARENT_MISSING', 'Доли не имеют единственной родительской процедуры.')
+            continue
+        amounts = [Decimal(str(row.amount)) for row in rows]
+        if any(not value.is_finite() or value < 0 for value in amounts):
+            issue('PROCEDURE_SHARE_AMOUNT_INVALID', 'Некорректная сумма доли процедуры.')
+            continue
+        if len({row.grbs for row in rows}) != len(rows) or any(not row.grbs for row in rows):
+            issue('PROCEDURE_SHARE_PARTICIPANT_AMBIGUOUS', 'Участник распределения отсутствует или повторяется.')
+        if abs(sum(amounts, Decimal(0)) - Decimal(str(parents[code][0].nmc))) > Decimal('0.01'):
+            issue('PROCEDURE_SHARE_BALANCE_MISMATCH', 'Сумма долей не совпадает с НМЦК родительской процедуры.')
+    return issues
+
+
 def validate_operational_view(master_values, queue_values, *, as_of):
     """Check the view against its primary registry and the report's civil date.
 
