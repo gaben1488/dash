@@ -2,6 +2,20 @@
 # Run from deploy/. All private source and report output stays inside server_data.
 set -euo pipefail
 
+previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+restore_schedule_on_failure() {
+  result=$?
+  if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
+    # Start the existing container; a failed preflight must not replace its image
+    # or permanently disable the schedule that was running before this attempt.
+    if ! docker compose --env-file .env.production --profile reports start report-worker >/dev/null; then
+      echo 'Could not restore the previously running report worker.' >&2
+    fi
+  fi
+  exit "$result"
+}
+trap restore_schedule_on_failure EXIT
+
 docker compose --env-file .env.production --profile reports stop report-worker >/dev/null
 docker compose --env-file .env.production exec -T server sh -eu -c '
   umask 077

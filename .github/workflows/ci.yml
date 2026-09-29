@@ -165,7 +165,9 @@ jobs:
             git reset --hard origin/main
             git log --oneline -1
             cd /home/aemr/dash/deploy
-            docker compose --env-file .env.production up -d --build
+            # Even if COMPOSE_PROFILES=reports is set, preserve the existing
+            # worker until its separate preflight can safely replace it.
+            docker compose --env-file .env.production up -d --build server web caddy
             sleep 8
             # Проверка идёт ВНУТРЬ контейнера, а не через край периметра:
             # при работе по домену запрос на 127.0.0.1 не совпадает с именем
