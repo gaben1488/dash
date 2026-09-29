@@ -1,9 +1,14 @@
-/* ВРЕМЕННЫЙ замерочный файл — удаляется после снятия чисел. */
-import { describe, it } from 'vitest';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+/* Замеры пишутся в изолированный временный каталог и очищаются после набора. */
+import { describe, it, afterAll } from 'vitest';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const SCRATCH = 'C:/Users/filat/AppData/Local/Temp/claude/C--Users-filat-dash/25733ef5-3a3b-462d-ae7a-02f5c41032ee/scratchpad';
-const FIXTURE = `${SCRATCH}/mon-fresh.json`;
+const scratch = mkdtempSync(join(tmpdir(), 'aemr-bench-'));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+
+const FIXTURE = process.env.AEMR_MONITORING_BENCH_FIXTURE ?? '';
 
 const lines: string[] = [];
 const note = (t: string): void => void lines.push(t);
@@ -93,6 +98,6 @@ describe('замеры разбора книги мониторинга', () => 
   }, 300_000);
 
   it('запись итога', () => {
-    writeFileSync(`${SCRATCH}/bench2.txt`, lines.join('\n'), 'utf8');
+    writeFileSync(join(scratch, 'bench2.txt'), lines.join('\n'), 'utf8');
   });
 });

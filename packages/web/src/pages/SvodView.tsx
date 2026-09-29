@@ -64,7 +64,7 @@ import {
 } from '../lib/svod/recon';
 import {
   FileSpreadsheet, ExternalLink, Columns3, Table2, ShieldCheck, ShieldAlert, ShieldOff,
-  AlertTriangle, CalendarOff, Info,
+  AlertTriangle, CalendarOff,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { CARD, CARD_SURFACE, RULE_HEAD, RULE_ROW } from '../components/dashboard/surfaces';
