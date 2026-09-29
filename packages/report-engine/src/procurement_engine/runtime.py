@@ -12,7 +12,11 @@ from pathlib import Path
 from .google_adapter import GoogleReadClient, capture_google
 from .identity_store import IdentityStore
 from .publication_store import PublicationStore
-from .raw_pipeline import build_from_capture, validate_ledger_contract
+from .raw_pipeline import (
+    build_from_capture,
+    bundle_from_capture,
+    validate_ledger_contract,
+)
 from .snapshot import canonical_semantic_hash
 
 
@@ -62,9 +66,19 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             validate_ledger_contract(ledger)
             client = client or GoogleReadClient()
             capture = capture_google(registry, client)
+            publications = PublicationStore(state / 'published')
+            latest = publications.latest()
+            captured_id = bundle_from_capture(capture, registry, ledger).manifest['snapshot_id']
+            if latest and latest['snapshot_id'] == captured_id:
+                status.update(status=latest['status'], publication=latest, snapshot_id=captured_id,
+                    report_date=capture['report_date'], reused_publication=True,
+                    acquisition_started_at=capture['acquisition_started_at'],
+                    acquisition_completed_at=capture['acquisition_completed_at'])
+                return _finish_attempt(state, attempt, status)
             _write(attempt / 'capture.json', capture)
+            previous = publications.previous_model(capture['report_date'])
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',
-                                       identity_store=IdentityStore(state / 'identity.sqlite'))
+                                       identity_store=IdentityStore(state / 'identity.sqlite'), previous_publication=previous)
             status['snapshot_id'] = model['snapshot']['snapshot_id']
             status['report_date'] = model['snapshot']['report_date']
             if model['release']['official_release_allowed'] is not True:
@@ -77,14 +91,18 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(_load(ledger_path)),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path))}
 
-                receipt = PublicationStore(state / 'published').publish(attempt / 'bundle', read_revisions=final_revisions)
+                receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions)
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
             code = str(error)
             status.update(status='NOT_ISSUED',
                           error_code=code if re.fullmatch(r'[A-Z_]{4,100}', code) else 'GENERATION_FAILED',
                           error_type=type(error).__name__)
-        status['finished_at'] = datetime.now(timezone.utc).isoformat()
-        _write(attempt / 'status.json', status)
-        _write(state / 'status.json', status)
-        return status
+        return _finish_attempt(state, attempt, status)
+
+
+def _finish_attempt(state, attempt, status):
+    status['finished_at'] = datetime.now(timezone.utc).isoformat()
+    _write(attempt / 'status.json', status)
+    _write(state / 'status.json', status)
+    return status

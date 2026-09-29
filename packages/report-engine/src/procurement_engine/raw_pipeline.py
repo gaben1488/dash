@@ -1,8 +1,4 @@
-"""Reproducible diagnostic build from complete, revision-checked source matrices.
-
-This route deliberately cannot publish: persisted identities, reviewed relations and
-current recommendation events must be integrated before an official release exists.
-"""
+"""Reproducible recorded-state reports from complete, revision-checked matrices."""
 from __future__ import annotations
 
 import json
@@ -39,15 +35,17 @@ from .projections import (
     project_main_view,
     project_management_view,
 )
+from .publication_history import compare_published_models
 from .qa import classify_future_context, validate_master_values
+from .release_gates import validate_recorded_state_model
 from .report_model import build_report_model_v3
 from .rule_catalog import DEFAULT_RULE_CATALOG
 from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc3'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc3'
+RENDERER_VERSION = 'renderer-v1.5.0rc5'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc5'
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
 
@@ -200,11 +198,21 @@ def review_recommendations(ledger, rows, snapshot_id, report_date):
             'plan_amount_thousand': x.plan_total, 'actual_date': x.actual_date,
             'current_comment': ' | '.join(t for t in (x.deviation_reason, x.grbs_comment, x.monitoring_note) if t)} for x in unique.values()]
         active = bool(r['active_in_current_slice'])
+        gaps = []
+        if missing:
+            gaps.append('Не найдены кандидаты по номерам: ' + ', '.join(map(str, missing)) + '.')
+        if ambiguous:
+            gaps.append('Номер неоднозначен: ' + ', '.join(map(str, ambiguous)) + '.')
+        if not ids:
+            gaps.append('В исторической записи отсутствуют номера исходных позиций.')
+        if observations:
+            gaps.append('Кандидаты в первичном реестре: строки ' + ', '.join(str(x.row_number) for x in unique.values()) + '.')
+        gaps.append('Совпадение номера не подтверждает постоянную идентичность; исполнение не установлено.')
         r.update(semantic_status='REVIEW_REQUIRED' if active else 'SUPERSEDED',
             semantic_status_ru='ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ СВЯЗИ' if active else 'ЗАМЕЩЕННАЯ ВЕРСИЯ',
             current_procurement_ids=[], procedure_binding_reliable={'reliable_codes':[], 'details':[]},
             current_procurement_state='UNKNOWN', current_method=None, current_fact_date=[],
-            status_evidence='Текущие кандидаты: ' + str(len(observations)) + '. Сопоставление по номеру не подтверждает постоянную идентичность.',
+            status_evidence=' '.join(gaps),
             current_observations=observations, missing_business_ids=missing, ambiguous_business_ids=ambiguous,
             evidence_snapshot_id=snapshot_id,
             dimensions={'compliance_status':'UNKNOWN','execution_status':'UNKNOWN','grouping_status':'UNKNOWN',
@@ -271,7 +279,7 @@ def monthly_projection(rows, year, as_of=None):
     return output
 
 
-def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, identity_store=None):
+def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, identity_store=None, previous_publication=None):
     validate_ledger_contract(ledger)
     out = Path(out_dir)
     if out.exists() and any(out.iterdir()):
@@ -326,8 +334,23 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     snap={**bundle.manifest, 'model':aggregate_rows(rows,year,report_date), 'row_count':len(rows), 'active_procedures':len(active)}
     issues.extend(x.as_dict() for x in validate_snapshot(snap))
     replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'])
+    unresolved_recs=[r['recommendation_id'] for r in replay if r['active_in_current_slice'] and r['semantic_status']=='REVIEW_REQUIRED']
+    if unresolved_recs:
+        issues.append({'severity':'WARN','code':'RECOMMENDATION_LINK_UNCONFIRMED',
+            'message':'Для части исторических рекомендаций текущая связь не подтверждена. Конкретные кандидаты и пробелы указаны в каждой записи; исполнение не заявляется.',
+            'context':{'recommendation_ids':unresolved_recs}})
+    if identity_result and identity_result['unresolved_count']:
+        issues.append({'severity':'WARN','code':'IDENTITY_CONTINUITY_UNCONFIRMED',
+            'message':'Для части строк не доказана постоянная идентичность. Строки сохранены в текущем расчёте; их историческая судьба не утверждается.',
+            'context':{'source_row_keys':[r['source_row_key'] for r in identity_result['rows'] if r['procurement_uid'] is None]}})
     ci=contributors(rows,year,current_quarter(capture['report_date']),report_date)
-    model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active)
+    history=[]
+    if previous_publication:
+        receipt=previous_publication['receipt']
+        if receipt['status'] not in {'VERIFIED','VERIFIED_WITH_WARNINGS'}:
+            raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
+        history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
+    model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}
     model['recommendations_v2']['review_required_ids']=[r['recommendation_id'] for r in replay if r['active_in_current_slice']]
@@ -345,20 +368,6 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['recommendation_review']={'policy':'Historical corpus retained; current identity and statuses require evidence',
                                    'active_review_count':len(model['recommendations_v2']['review_required_ids'])}
     model['formula_dependencies']=audit_formula_dependencies(capture)
-    blockers=[{'code':'PERSISTENT_IDENTITY_NOT_INTEGRATED','message':'Постоянные идентификаторы закупок и подтверждённые связи ещё не подключены.'},
-              {'code':'RECOMMENDATION_CURRENT_EVIDENCE_NOT_APPROVED','message':'Текущие наблюдения по рекомендациям собраны, но связи и смысловые статусы не подтверждены.'},
-              {'code':'PROCEDURE_EVENT_OVERLAY_NOT_INTEGRATED','message':'События реестра процедур показаны отдельно и пока не дополняют факт мастер-таблиц.'}]
-    if not model['formula_dependencies']['closed']:
-        blockers.append({'code':'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN',
-                         'message':'Не подтверждён полный состав зависимостей формул. Подробности сохранены в проверке снимка.',
-                         'details':model['formula_dependencies']['issues']})
-    if any(i['severity']=='ERROR' for i in issues): blockers.append({'code':'SOURCE_QA_ERRORS','message':'В исходных данных выявлены ошибки; подробности в реестре проверки.'})
-    if identity_result:
-        blockers[0]={'code':'IDENTITY_HISTORY_SCOPE_INCOMPLETE','message':
-            'Постоянная история подключена для наблюдений от текущей базы; исторические связи рекомендаций ещё не доказаны.',
-            'unresolved_rows':identity_result['unresolved_count']}
-    model['release']={'status':'BLOCKED','official_release_allowed':False,'blockers':blockers,
-                      'source_revision_barrier_passed':True,'at_publish_checked':False}
     model['metric_semantics']={'fact_count':'Позиции плана с датой Q; не число договоров и не число процедур',
         'money_unit':'тыс. руб.', 'procedure_source_money_unit':'руб.', 'procedure_overlay_applied':False,
         'contract_count':None,'scope':'master_recorded_fact', 'identity_scope':'snapshot_physical_rows'}
@@ -376,10 +385,13 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['exact_metrics']={kind:{scope:metric_block(rows,report_year=year,as_of=report_date,method=method,
         planned_quarter=current_quarter(report_date) if scope=='quarter' else None)
         for scope in ('year','quarter')} for kind,method in (('competitive','ЭА'),('single_supplier','ЕП'))}
+    model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     from .independent_audit import audit_model
     model['independent_audit']=audit_model(capture,model)
-    if not model['independent_audit']['pass']:
-        model['release']['blockers'].append({'code':'INDEPENDENT_AUDIT_FAILED','message':'Независимый пересчёт не совпал с моделью.'})
+    blockers=[i.as_dict() for i in validate_recorded_state_model(model,ledger=ledger)]
+    model['release']={'status':'BLOCKED' if blockers else 'READY_WITH_WARNINGS' if issues else 'READY',
+        'official_release_allowed':not blockers,'blockers':blockers,
+        'policy':'recorded-state-v1','source_revision_barrier_passed':True,'at_publish_checked':False}
     assert_projection_parity(model,project_dashboard(model),project_main_view(model),project_management_view(model))
     for kind,method in (('competitive','ЭА'),('single_supplier','ЕП')):
         monthly=[m for m in model['monthly'] if m['method']==method]

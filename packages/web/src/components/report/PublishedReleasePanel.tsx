@@ -4,6 +4,7 @@ import { ReportReleaseStatusSchema, type ReportReleaseStatus } from '@aemr/share
 import { fetchBlob, fetchParsed } from '../../api';
 import { EMPTY_FILTER_CONTEXT } from '../../lib/filter-context';
 import { SectionCard } from '../contract/SectionCard';
+import { PublishedReleaseMetrics } from './PublishedReleaseMetrics';
 
 const timestamp = new Intl.DateTimeFormat('ru-RU', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC',
@@ -17,6 +18,7 @@ export function PublishedReleasePanel() {
   const [refresh, setRefresh] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState('');
+  const [showMetrics, setShowMetrics] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -78,10 +80,12 @@ export function PublishedReleasePanel() {
           </div>}
         </div>
         {latest && <div className="flex flex-wrap gap-2" aria-busy={saving !== null}>
+          <button className={buttonStyle} aria-expanded={showMetrics} onClick={() => setShowMetrics(x => !x)}>Показатели выпуска</button>
           <button className={buttonStyle} disabled={saving !== null} onClick={() => void download('main.docx')}><FileDown size={16} aria-hidden="true" />Основной отчёт · Word</button>
           <button className={buttonStyle} disabled={saving !== null} onClick={() => void download('supplement.docx')}><FileDown size={16} aria-hidden="true" />Дополнение · Word</button>
           <button className={buttonStyle} disabled={saving !== null} onClick={() => void download('dashboard')}>Данные среза · JSON</button>
         </div>}
+        {latest && showMetrics && <PublishedReleaseMetrics key={latest.release_id} release={latest} />}
         {saving && <p role="status">Загружаем файл…</p>}
         {downloadError && <p role="alert">{downloadError}</p>}
         <button className="text-xs underline underline-offset-4 hover:text-zinc-900 dark:hover:text-white" onClick={() => setRefresh(v => v + 1)}>Обновить состояние выпуска</button>

@@ -26,6 +26,13 @@ def test_absolute_references_are_local_cells_not_unknown_names():
     assert audit([s])['closed']
 
 
+@pytest.mark.parametrize('formula', ['=ISBLANK(A1)', '=LOWER(A1)', '=SUBSTITUTE(A1;"a";"b")',
+                                     '=SEARCH("a";A1)', '=COLUMNS(A1:C3)'])
+def test_native_text_and_range_inspection_functions_are_local(formula):
+    s = source(formulas=[{'row': 1, 'column': 3, 'formula': formula}])
+    assert audit([s])['closed']
+
+
 @pytest.mark.parametrize('formula', ['=IMPORTRANGE("url";"A1")', '=INDIRECT("Support!A1")',
                                      '=GOOGLEFINANCE("TEST")', '=CUSTOM_REMOTE(A1)'])
 def test_unverified_external_or_dynamic_functions_block(formula):

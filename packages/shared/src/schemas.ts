@@ -541,3 +541,17 @@ export const ReportReleaseStatusSchema = z.object({
   }).nullable(),
 });
 export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;
+
+const FrozenMetricBlockSchema = z.object({
+  plan_count: z.number().int().nonnegative(), fact_count: z.number().int().nonnegative(),
+  remain_count: z.number().int().nonnegative(), plan_amount: z.number().finite(),
+  fact_amount: z.number().finite(), remain_amount: z.number().finite(),
+  execution_pct: z.number().finite().nullable(),
+});
+const FrozenPeriodsSchema = z.object({ year: FrozenMetricBlockSchema, quarter: FrozenMetricBlockSchema });
+export const PublishedReportMetricsSchema = z.object({
+  snapshot_id: z.string(), report_date: z.string(), rules_version: z.string(), renderer_version: z.string(),
+  headline: z.object({ report_date: z.string(), current_quarter: z.number().int().min(1).max(4),
+    competitive: FrozenPeriodsSchema, single_supplier: FrozenPeriodsSchema }),
+});
+export type PublishedReportMetrics = z.infer<typeof PublishedReportMetricsSchema>;

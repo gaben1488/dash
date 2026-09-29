@@ -90,7 +90,7 @@ def test_cli_failed_run_returns_nonzero_and_writes_readable_status(tmp_path, cap
     assert (tmp_path / 'state/status.json').is_file()
 
 
-def test_formula_proof_reaches_saved_snapshot_and_only_clears_its_own_gate(tmp_path):
+def test_formula_proof_reaches_saved_snapshot_and_all_required_gates_pass(tmp_path):
     registry, ledger = inputs(tmp_path)
 
     class FormulaGoogle(Google):
@@ -102,8 +102,7 @@ def test_formula_proof_reaches_saved_snapshot_and_only_clears_its_own_gate(tmp_p
 
     state = tmp_path / 'state'
     status = run_once(registry, ledger, state, client=FormulaGoogle())
-    assert status['status'] == 'NOT_ISSUED'
-    assert 'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN' not in {b['code'] for b in status['blockers']}
+    assert status['status'] == 'VERIFIED'
     bundle = state / 'attempts' / status['attempt_id'] / 'bundle'
     model = json.loads((bundle / 'report_model.json').read_text())
     assert model['formula_dependencies']['closed']

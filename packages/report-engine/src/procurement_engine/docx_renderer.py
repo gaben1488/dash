@@ -142,15 +142,19 @@ def _add_metric_section(doc: Document, title: str, metric_year: dict, metric_q: 
     _paragraph(
         doc,
         f"Год: план — {pc} {noun} на {_money(metric_year.get('plan_amount'))} тыс. руб.; "
-        f"исполнено — {fc}; осталось — {rc}; исполнение — {_pct(metric_year.get('execution_pct'))}.",
+        f"с датой факта — {fc} на {_money(metric_year.get('fact_amount'))} тыс. руб.; "
+        f"осталось — {rc} на {_money(metric_year.get('remain_amount'))} тыс. руб.; "
+        f"доля позиций с датой факта — {_pct(metric_year.get('execution_pct'))}.",
         first_line_mm=12.5,
     )
     pcq = int(metric_q.get("plan_count") or 0)
     nounq = _proc_word(pcq) if unit == "procedure" else _position_word(pcq)
     _paragraph(
         doc,
-        f"Текущий квартал: план — {pcq} {nounq}; исполнено — {int(metric_q.get('fact_count') or 0)}; "
-        f"осталось — {int(metric_q.get('remain_count') or 0)}; исполнение — {_pct(metric_q.get('execution_pct'))}.",
+        f"Текущий квартал: план — {pcq} {nounq} на {_money(metric_q.get('plan_amount'))} тыс. руб.; "
+        f"с датой факта — {int(metric_q.get('fact_count') or 0)} на {_money(metric_q.get('fact_amount'))} тыс. руб.; "
+        f"осталось — {int(metric_q.get('remain_count') or 0)} на {_money(metric_q.get('remain_amount'))} тыс. руб.; "
+        f"доля позиций с датой факта — {_pct(metric_q.get('execution_pct'))}.",
         first_line_mm=12.5,
     )
 
@@ -272,6 +276,7 @@ def render_main_docx(report_model: dict, output_path: str | Path, *, narrative_m
     _add_metric_section(doc, "КОНКУРЕНТНЫЕ ЗАКУПКИ В ПЛАНЕ:", h["competitive"]["year"], h["competitive"]["quarter"], color=BLUE, unit="position")
     _add_metric_section(doc, "ЕДИНСТВЕННЫЙ ПОСТАВЩИК:", h["single_supplier"]["year"], h["single_supplier"]["quarter"], color=ORANGE, unit="position")
     _add_narratives(doc, list((report_model.get("narratives") or {}).get(narrative_mode) or []))
+    _add_financial_metrics(doc, report_model)
 
     q = int(h.get("current_quarter") or 1)
     for grbs in report_model.get("grbs_order") or []:
@@ -312,6 +317,8 @@ def render_management_docx(report_model: dict, output_path: str | Path, *, narra
     _add_metric_section(doc, "ЕДИНСТВЕННЫЙ ПОСТАВЩИК:", h["single_supplier"]["year"], h["single_supplier"]["quarter"], color=ORANGE, unit="position")
 
     mgmt = report_model.get("management_summary") or {}
+    _add_financial_metrics(doc, report_model)
+    _add_published_comparison(doc, report_model)
     pub = report_model.get("publication") or {}
     diff_counts = mgmt.get("diff_counts") or {}
     if diff_counts:
@@ -370,17 +377,77 @@ def _add_release_notice(doc, model):
     release = model.get("release") or {}
     if release.get("status") == "BLOCKED":
         _paragraph(doc, "ПРОВЕРОЧНЫЙ ОТЧЕТ  Официальный выпуск заблокирован", bold=True, color=RED)
-        _paragraph(doc, "Показатели рассчитаны из текущих исходных строк. Факт здесь означает заполненную дату Q в плане. Денежный факт и число контрактов учитываются отдельно. Связи с процедурами и рекомендациями требуют завершения проверки.", size=9, space_after=6)
+    _paragraph(doc, "Показатели отражают состояние первичных реестров на дату среза. Количество факта — позиции плана с допустимой датой Q; это не число договоров и не подтверждение их исполнения или оплаты. Результаты торгов учитываются отдельно от денежного факта.", size=8, space_after=6)
+    warnings = [x for x in model.get('issues', []) if x.get('severity') == 'WARN']
+    if warnings:
+        _paragraph(doc, "Замечания к данным и доказательствам", bold=True, keep_with_next=True)
+        explanations = {
+            'MONETARY_FACT_WITHOUT_COMPLETION_DATE': 'В финансовых графах есть суммы факта при отсутствующей дате Q. Эти суммы входят в денежный факт, но не увеличивают количество позиций с датой факта.',
+            'DUPLICATE_BUSINESS_ID': 'Номера в колонке A повторяются. Строки сохранены отдельно; совпадение номера не считается доказательством одной закупки.',
+            'COMPLETION_DATE_WITH_ZERO_FACT': 'Дата Q внесена, но сумма факта равна нулю. Дата сама по себе не доказывает оплату.',
+        }
+        for code in dict.fromkeys(x['code'] for x in warnings):
+            matching = [x for x in warnings if x['code'] == code]
+            _paragraph(doc, f"{explanations.get(code, matching[0]['message'])} Замечаний этой группы: {len(matching)}.", size=8, space_after=3)
     if model.get("recommendation_review"):
         _paragraph(doc, "Рекомендации приведены как накопительная история. Ответы ГРБС и решения УЭР сохранены в первоначальной редакции; текущая проверка выделена отдельно. Старые статусы не подтверждают исполнение на новую дату.", size=8, italic=True, space_after=6)
+
+
+def _add_financial_metrics(doc, model):
+    metrics = model.get('exact_metrics')
+    if not metrics:
+        return
+    _paragraph(doc, 'Денежные показатели', bold=True, keep_with_next=True)
+    _paragraph(doc, 'Денежный факт включает внесённые суммы V–X, в том числе по позициям без даты Q. Доля законтрактованного — установленное название отношения денежного факта к плану; это не доля исполненных или оплаченных договоров. Подтверждённая экономия учитывает дату факта и признак AD «да».', size=8)
+    for kind, label in (('competitive', 'Конкурентные закупки'), ('single_supplier', 'Единственный поставщик')):
+        for period, period_label in (('year', 'год'), ('quarter', 'текущий квартал')):
+            values = metrics[kind][period]['exact_decimal']
+            _paragraph(doc, f"{label}, {period_label}: план — {_money(values['plan_amount'])}; денежный факт — {_money(values['monetary_fact_amount'])} тыс. руб. "
+                f"Отклонение факт минус план — {_money(values['deviation_amount'])} тыс. руб. "
+                f"Доля законтрактованного — {_pct(values['contracted_share_pct'])}. "
+                f"Подтверждённая экономия — {_money(values['confirmed_saving_amount'])} тыс. руб.", size=8, space_after=3)
+
+
+def _add_published_comparison(doc, model):
+    comparison = model.get('comparison')
+    if not comparison:
+        return
+    _paragraph(doc, 'Сравнение с предыдущим опубликованным выпуском', bold=True, keep_with_next=True)
+    status = comparison['status']
+    if status == 'FIRST_RELEASE':
+        _paragraph(doc, 'Предыдущего проверенного выпуска за более раннюю дату нет. Сравнение не рассчитывается.', size=8)
+        return
+    _paragraph(doc, f"Предыдущий выпуск: {comparison['previous_report_date']}.", size=8)
+    if status != 'COMPARABLE':
+        reason = 'изменена версия правил' if status == 'RULES_CHANGED' else 'изменён год плана'
+        _paragraph(doc, f'Сравнение не рассчитывается: {reason}.', size=8)
+        return
+    if 'quarter' not in comparison['compared_periods']:
+        _paragraph(doc, 'Текущий квартал изменился. Сравниваются только годовые показатели.', size=8)
+    if not comparison['changes']:
+        _paragraph(doc, 'Сопоставимые итоговые показатели не изменились.', size=8)
+    labels = {'plan_count':'позиций в плане', 'fact_count':'позиций с датой факта', 'remain_count':'позиций без даты факта',
+              'plan_amount':'плановая сумма', 'fact_amount':'сумма по позициям с датой факта', 'remain_amount':'плановая сумма оставшихся позиций'}
+    for change in comparison['changes']:
+        kind = 'Конкурентные закупки' if change['kind'] == 'competitive' else 'Единственный поставщик'
+        period = 'год' if change['period'] == 'year' else 'текущий квартал'
+        is_money = change['field'].endswith('_amount')
+        before = _money(change['before']) if is_money else str(change['before'])
+        after = _money(change['after']) if is_money else str(change['after'])
+        unit = ' тыс. руб.' if is_money else ''
+        _paragraph(doc, f"{kind}, {period}: {labels[change['field']]} — {before} → {after}{unit}.", size=8)
+    _paragraph(doc, 'Изменение итога описывает состояние учёта; оно само по себе не доказывает отмену или исполнение отдельной закупки.', size=8, italic=True)
 
 
 def _add_future_plan(doc, model):
     future = model.get("future_plan") or {}
     rows = future.get("rows") or []
-    if not rows:
+    if not future:
         return
     _paragraph(doc, f"ЗАКУПКИ БУДУЩЕГО ПЕРИОДА {future['target_year']}", bold=True, keep_with_next=True)
+    if not rows:
+        _paragraph(doc, "В зарегистрированных источниках записи не обнаружены.", size=8)
+        return
     _paragraph(doc, "Отдельный контур вне текущего годового плана. Записи, выявленные в комментариях, требуют подтверждения структурированных полей. Неустановленный месяц не распределяется автоматически.", size=8)
     for row in rows:
         month = str(row['target_month']) if row.get('target_month') else "не установлен"

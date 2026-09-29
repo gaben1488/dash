@@ -57,6 +57,8 @@ def main(argv=None):
     run.add_argument("--registry", required=True)
     run.add_argument("--ledger", required=True)
     run.add_argument("--state", required=True)
+    bootstrap = sub.add_parser("bootstrap-google", help="Install private runtime inputs using the existing service account")
+    bootstrap.add_argument("--inputs", required=True)
     worker = sub.add_parser("worker", help="Periodically acquire, verify and attempt publication")
     worker.add_argument("--registry", required=True)
     worker.add_argument("--ledger", required=True)
@@ -67,6 +69,11 @@ def main(argv=None):
     read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement'], required=True)
     read.add_argument("--release-id")
     args = p.parse_args(argv)
+    if args.cmd == 'bootstrap-google':
+        from .runtime_inputs import install_google_inputs
+        install_google_inputs(args.inputs)
+        print('Runtime inputs ready')
+        return 0
     if args.cmd == "worker":
         from .worker import work
         return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds)

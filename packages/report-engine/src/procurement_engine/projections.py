@@ -28,6 +28,7 @@ def project_dashboard(report_model: dict) -> dict:
         "diff": deepcopy(report_model.get("diff")),
         "trace_records": deepcopy(report_model.get("trace_records")),
         "publication": deepcopy(report_model.get("publication")),
+        "comparison": deepcopy(report_model.get("comparison")),
         "monthly": deepcopy(report_model.get("monthly")),
         "future_plan": deepcopy(report_model.get("future_plan")),
         "metric_contributors": deepcopy(report_model.get("metric_contributors")),

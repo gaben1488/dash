@@ -84,6 +84,17 @@ def test_blocked_candidate_preserves_previous_date(tmp_path):
     assert len(store.history()) == 1
 
 
+def test_previous_model_uses_only_committed_earlier_report_dates(tmp_path):
+    store = PublicationStore(tmp_path / 'published')
+    first = store.publish(candidate(tmp_path / 'first', date='29.09.2026'), read_revisions=revisions)
+    store.publish(candidate(tmp_path / 'same-day', date='30.09.2026'), read_revisions=revisions)
+    candidate(tmp_path / 'unpublished', date='28.09.2026')
+    previous = store.previous_model('30.09.2026')
+    assert previous['receipt'] == first
+    assert previous['model']['snapshot']['report_date'] == '29.09.2026'
+    assert store.previous_model('29.09.2026') is None
+
+
 @pytest.mark.parametrize('damage', ['docx', 'dashboard', 'audit', 'missing', 'symlink', 'snapshot'])
 def test_inconsistent_or_incomplete_bundle_never_becomes_visible(tmp_path, damage):
     path = candidate(tmp_path / 'candidate')

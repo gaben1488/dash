@@ -171,3 +171,60 @@ def validate_product_contract(report_model: dict, *, require_metric_contributors
             continue
         issues.append(ValidationIssue("ERROR", code.split(":", 1)[0], code))
     return issues
+
+
+def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[ValidationIssue]:
+    """ADR-003: admit proven current facts with explicit historical evidence gaps."""
+    issues = validate_product_contract(model)
+
+    def require(condition, code, message):
+        if not condition:
+            issues.append(ValidationIssue('ERROR', code, message))
+
+    required = {'headline', 'grbs_metrics', 'monthly', 'future_plan', 'calendar_fact', 'details',
+                'recommendations', 'recommendations_by_grbs', 'procedures', 'closed_procedure_quality',
+                'report_clock', 'period_contract', 'exact_metrics', 'trace_records'}
+    require(required <= model.keys(), 'REQUIRED_REPORT_SECTION_MISSING', 'Отсутствует обязательный раздел отчёта.')
+    require((model.get('formula_dependencies') or {}).get('closed') is True,
+            'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN', 'Не подтверждён полный состав зависимостей формул.')
+    require((model.get('independent_audit') or {}).get('pass') is True,
+            'INDEPENDENT_AUDIT_FAILED', 'Независимый пересчёт не совпал с моделью.')
+    require(not any(x.get('severity') == 'ERROR' for x in model.get('issues', [])),
+            'SOURCE_QA_ERRORS', 'В исходных данных выявлены ошибки; подробности в реестре проверки.')
+    identity = model.get('identity_observations')
+    require(identity is not None, 'PERSISTENT_IDENTITY_NOT_INTEGRATED', 'Постоянная история наблюдений не подключена.')
+    details = model.get('details') or []
+    locators = [r.get('physical_row_key') for r in details]
+    require(all(locators) and len(locators) == len(set(locators)),
+            'DETAIL_LOCATORS_INVALID', 'Строки отчёта должны иметь уникальные ссылки на первичный снимок.')
+    if identity is not None:
+        require({r['source_row_key'] for r in identity['rows']} == set(locators),
+                'IDENTITY_COVERAGE_MISMATCH', 'История наблюдений не покрывает строки текущего расчёта.')
+    semantics = model.get('metric_semantics') or {}
+    require(semantics.get('scope') == 'master_recorded_fact' and semantics.get('procedure_overlay_applied') is False
+            and semantics.get('contract_count') is None,
+            'RECORDED_STATE_SEMANTICS_CHANGED', 'Результаты процедур не подтверждают договоры или оплату.')
+    recs = model.get('recommendations') or {}
+    active = {r['recommendation_id']: r for r in ledger if r['active_in_current_slice']}
+    projected = [r for group in recs.get('tables', {}).values() for r in group]
+    require(recs.get('historical_unique') == len(ledger) and recs.get('active') == len(active)
+            and len(projected) == len(active) and {r['recommendation_id'] for r in projected} == active.keys(),
+            'RECOMMENDATION_COVERAGE_MISMATCH', 'Накопительный реестр рекомендаций сохранён не полностью.')
+    for r in projected:
+        original = active.get(r['recommendation_id']) or {}
+        require(r.get('recommendation_text') == original.get('recommendation_text')
+                and r.get('status_as_of') == model.get('snapshot', {}).get('report_date')
+                and r.get('evidence_snapshot_id') == model.get('snapshot', {}).get('snapshot_id'),
+                'RECOMMENDATION_EVIDENCE_MISMATCH', 'Рекомендация не связана с текущим проверенным снимком.')
+        require(r.get('semantic_status') == 'REVIEW_REQUIRED' and r.get('current_procurement_state') == 'UNKNOWN'
+                and r.get('status_evidence') and r.get('dimensions', {}).get('execution_status') == 'UNKNOWN',
+                'UNPROVEN_RECOMMENDATION_CLAIM', 'Исполнение исторической рекомендации не подтверждено.')
+    for trace in model.get('trace_records') or []:
+        for key in (trace.get('metric_key') or '').split('|'):
+            value = model
+            for part in key.split('.'):
+                value = value.get(part) if isinstance(value, dict) else None
+            if value not in (None, 0) and key:
+                require(bool(trace.get('source_procurement_ids') or trace.get('recommendation_ids') or trace.get('procedure_ids')),
+                        'TRACE_CONTRIBUTORS_MISSING', 'Ненулевой показатель не имеет исходных записей.')
+    return issues

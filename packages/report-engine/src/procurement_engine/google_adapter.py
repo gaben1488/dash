@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import time
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
@@ -69,20 +70,23 @@ class GoogleReadClient:
     def _get(self, url, params=None):
         if params:
             url += '?' + urlencode(params)
-        for attempt in range(5):
+        # Sheets quotas refill per minute. The bounded retry budget must span
+        # that window, including when Google omits Retry-After.
+        # https://developers.google.com/workspace/sheets/api/limits
+        for attempt in range(8):
             request=Request(url,headers={'Authorization':'Bearer '+self._access_token()})
-            delay = 2 ** attempt
+            delay = min(2 ** attempt + random.random(), 64)
             try:
                 with urlopen(request,timeout=60) as response:
                     return json.load(response)
             except HTTPError as exc:
-                if exc.code not in {429, 500, 502, 503, 504} or attempt == 4:
+                if exc.code not in {429, 500, 502, 503, 504} or attempt == 7:
                     raise GoogleReadError(f'GOOGLE_READ_HTTP_{exc.code}') from None
                 retry_after = (exc.headers or {}).get('Retry-After', '')
                 if retry_after.isdigit():
                     delay = max(delay, min(int(retry_after), 60))
             except (URLError, TimeoutError, ConnectionError):
-                if attempt == 4:
+                if attempt == 7:
                     raise GoogleReadError('GOOGLE_READ_NETWORK_ERROR') from None
             time.sleep(delay)
         raise GoogleReadError('GOOGLE_READ_RETRIES_EXHAUSTED')

@@ -106,6 +106,29 @@ def _validate(root):
         raise PublicationError('SOURCE_CHANGED_DURING_CAPTURE')
     if set(expected) != {p['source_id'] for p in index}:
         raise PublicationError('SOURCE_COVERAGE_MISMATCH')
+    if str((model.get('contract') or {}).get('report_model_version', '')).startswith('report-model-'):
+        from .formula_dependencies import audit_formula_dependencies
+        from .independent_audit import audit_model
+        from .release_gates import validate_recorded_state_model
+
+        if release.get('policy') != 'recorded-state-v1':
+            raise PublicationError('DOMAIN_RELEASE_POLICY_MISSING')
+        payloads = [_json(root / 'snapshot_bundle' / item['path']) for item in index]
+        ledgers = [p['semantic_values'] for p in payloads if p['role'] == 'historical_ledger']
+        if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0]):
+            raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
+        capture = {'report_date': snapshot['report_date'], 'report_year': snapshot['report_year'], 'sources': []}
+        for payload in payloads:
+            meta = payload.get('metadata') or {}
+            if 'sheet_title' not in meta:
+                continue
+            capture['sources'].append({'source_id': payload['source_id'], 'role': payload['role'],
+                'provider_id': payload['provider_id'], 'sheet': meta['sheet_title'],
+                'sheet_id': int(payload['sheet_or_tab_id']), 'grbs': meta.get('grbs'),
+                'rows': meta['row_count'], 'columns': meta['column_count'],
+                'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence')})
+        if not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']:
+            raise PublicationError('SAVED_SOURCE_RECHECK_FAILED')
     return model, model_hash, report_date, cutoff.astimezone(timezone.utc).isoformat(), expected
 
 
@@ -145,6 +168,16 @@ class PublicationStore:
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             return [json.loads(row[0]) for row in db.execute('''SELECT receipt FROM publications
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''')]
+
+    def previous_model(self, report_date):
+        day = datetime.strptime(report_date, '%d.%m.%Y').date().isoformat()  # noqa: DTZ007 — civil date.
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            row = db.execute('''SELECT receipt, files FROM publications WHERE report_date < ?
+                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC LIMIT 1''', (day,)).fetchone()
+            receipt = self._checked(row)
+            if receipt is None:
+                return None
+            return {'receipt': receipt, 'model': _json(self.releases / receipt['release_id'] / 'report_model.json')}
 
     def read_artifact(self, release_id, name):
         if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):

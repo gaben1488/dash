@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 
@@ -59,3 +60,33 @@ def select_previous_official(records: Iterable[PublicationRecord | dict], *, cur
         return None
     candidates.sort(key=lambda r: (_date_key(r.report_date), _published_key(r.published_at), r.snapshot_id))
     return candidates[-1]
+
+
+def compare_published_models(current: dict, previous: dict | None) -> dict:
+    """Compare recorded totals, never infer procurement events from aggregate deltas."""
+    result = {'status': 'FIRST_RELEASE', 'changes': [], 'compared_periods': []}
+    if previous is None:
+        return result
+    current_meta = current['snapshot']; previous_meta = previous['snapshot']
+    result.update(previous_snapshot_id=previous_meta['snapshot_id'], previous_report_date=previous_meta['report_date'])
+    if current_meta['rules_version'] != previous_meta['rules_version']:
+        result['status'] = 'RULES_CHANGED'
+        return result
+    if current_meta['report_year'] != previous_meta.get('report_year'):
+        result['status'] = 'REPORT_YEAR_CHANGED'
+        return result
+    periods = ['year']
+    if current['headline']['current_quarter'] == previous['headline']['current_quarter']:
+        periods.append('quarter')
+    result.update(status='COMPARABLE', compared_periods=periods)
+    for kind in ('competitive', 'single_supplier'):
+        for period in periods:
+            a = previous['exact_metrics'][kind][period]; b = current['exact_metrics'][kind][period]
+            for field in ('plan_count', 'fact_count', 'remain_count', 'plan_amount', 'fact_amount', 'remain_amount'):
+                old = a[field] if field.endswith('_count') else a['exact_decimal'][field]
+                new = b[field] if field.endswith('_count') else b['exact_decimal'][field]
+                delta = Decimal(str(new)) - Decimal(str(old))
+                if delta:
+                    result['changes'].append({'kind': kind, 'period': period, 'field': field,
+                        'before': old, 'after': new, 'delta': str(delta)})
+    return result

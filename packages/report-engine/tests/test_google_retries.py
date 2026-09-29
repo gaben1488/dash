@@ -7,6 +7,28 @@ from procurement_engine import google_adapter
 from procurement_engine.google_adapter import GoogleReadClient, GoogleReadError
 
 
+@pytest.fixture(autouse=True)
+def deterministic_jitter(monkeypatch):
+    monkeypatch.setattr(google_adapter.random, 'random', lambda: 0.5)
+
+
+def test_quota_window_can_refill_without_retry_after(monkeypatch):
+    elapsed = [0.0]
+    attempts = []
+
+    def request(*args, **kwargs):
+        attempts.append(elapsed[0])
+        if elapsed[0] < 60:
+            raise HTTPError('https://sheets.googleapis.com', 429, 'quota', {}, None)
+        return io.BytesIO(b'{"values":[[7]]}')
+
+    monkeypatch.setattr(google_adapter, 'urlopen', request)
+    monkeypatch.setattr(time, 'sleep', lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds))
+    assert GoogleReadClient('synthetic')._get('https://sheets.googleapis.com') == {'values': [[7]]}
+    assert 60 <= elapsed[0] <= 130
+    assert len(attempts) <= 8
+
+
 def test_rate_limit_retries_then_returns_real_response(monkeypatch):
     sleeps = []; attempts = []
     def request(*args, **kwargs):
@@ -35,4 +57,4 @@ def test_permission_failure_is_not_retried_and_exhaustion_stays_a_failure(monkey
     monkeypatch.setattr(google_adapter, 'urlopen', unavailable)
     with pytest.raises(GoogleReadError, match='^GOOGLE_READ_HTTP_503$'):
         GoogleReadClient('synthetic')._get('https://sheets.googleapis.com')
-    assert sleeps == [1, 2, 4, 8]
+    assert sleeps == [1.5, 2.5, 4.5, 8.5, 16.5, 32.5, 64]
