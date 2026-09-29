@@ -1,4 +1,5 @@
 import json
+from itertools import pairwise
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -80,3 +81,17 @@ def test_adapter_batches_every_allocated_row_and_formula_with_original_coordinat
     assert payload.metadata['formula_evidence']['formulas'] == [{'row': 1601, 'column': 1, 'formula': '=A1'}]
     assert len(client.calls) == 4  # Two value batches and two formula batches, not ten requests.
     assert all(len(ranges) <= 4 for ranges, _, _ in client.calls)
+
+
+def test_wide_formula_grid_keeps_requested_cell_bound_and_last_row():
+    class Client:
+        def batch_values(self, provider, title, ranges, columns, render):
+            assert sum(end - start + 1 for start, end in ranges) * columns <= 64000
+            return [[['=1']] if start <= 1601 <= end else [] for start, end in ranges]
+
+    adapter = GoogleSheetSourceAdapter({'source_id': 'test', 'role': 'master',
+        'provider_id': 'test', 'sheet': 'Wide', 'schema_fingerprint': 'test'}, Client())
+    chunks = list(adapter._chunks(1601, 201, 'FORMULA'))
+    assert chunks[0][0] == 1
+    assert chunks[-1][1] == 1601
+    assert all(left[1] + 1 == right[0] for left, right in pairwise(chunks))

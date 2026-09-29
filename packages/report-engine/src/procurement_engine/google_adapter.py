@@ -168,10 +168,11 @@ class GoogleSheetSourceAdapter:
         return self.client.revision(self.provider_id)
 
     def _chunks(self, count, columns, render_option):
-        ranges = [(start, min(start + self.chunk_rows - 1, count))
-                  for start in range(1, count + 1, self.chunk_rows)]
         # Bound both ranges and requested cells; keep full allocated-grid coverage.
-        batch_size = min(4, max(1, 64000 // (self.chunk_rows * columns)))
+        chunk_rows = min(self.chunk_rows, max(1, 64000 // columns))
+        ranges = [(start, min(start + chunk_rows - 1, count))
+                  for start in range(1, count + 1, chunk_rows)]
+        batch_size = min(4, max(1, 64000 // (chunk_rows * columns)))
         for offset in range(0, len(ranges), batch_size):
             group = ranges[offset:offset + batch_size]
             if hasattr(self.client, 'batch_values'):
