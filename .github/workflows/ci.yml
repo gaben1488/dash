@@ -49,6 +49,22 @@ jobs:
       - name: Dependency audit
         run: pnpm audit --audit-level moderate
 
+  report-engine:
+    name: Report engine, publication and runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install report engine
+        run: python -m pip install -e 'packages/report-engine[test]'
+      - name: Python lint
+        run: python -m ruff check packages/report-engine
+      - name: Python tests
+        run: python -m pytest packages/report-engine/tests -q
+
   lint-biome:
     name: Biome lint (advisory)
     runs-on: ubuntu-latest
@@ -77,7 +93,7 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    needs: verify                       # выкатываем только если lint/tsc/test/build/audit зелёные
+    needs: [verify, report-engine]      # выкатываем только если lint/tsc/test/build/audit зелёные
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
