@@ -319,7 +319,7 @@ const EMPTY_MARKERS = new Set(['', '(пусто)', 'пусто']);
 
 /** Значение источника как текст: пустые маркеры книги сводятся к пустоте. */
 function valueText(raw: unknown): string {
-  const s = String(raw ?? '').replace(/ /g, ' ').trim();
+  const s = String(raw ?? '').replace(/\u00a0/g, ' ').trim();
   return EMPTY_MARKERS.has(s.toLowerCase()) ? '' : s;
 }
 
@@ -688,7 +688,7 @@ export interface ChangeFilter {
 
 /** Нормализация строки поиска: регистр и неразрывные пробелы не должны мешать. */
 function norm(s: string): string {
-  return s.replace(/ /g, ' ').trim().toLowerCase();
+  return s.replace(/\u00a0/g, ' ').trim().toLowerCase();
 }
 
 /** Применить отбор. Пустой отбор возвращает список как есть. */

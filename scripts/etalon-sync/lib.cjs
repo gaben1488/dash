@@ -1,7 +1,9 @@
 /* Общее для etalon-sync: авторизация ботом, адресация, цвета, чтение дампов. */
-const { google } = require('C:/Users/filat/dash/packages/server/node_modules/googleapis');
 const fs = require('fs');
 const path = require('path');
+const { createRequire } = require('node:module');
+const serverRequire = createRequire(path.resolve(__dirname, '../../packages/server/package.json'));
+const ROOT = path.resolve(__dirname, '../..');
 
 const DUMP_DIR = 'E:/aemr-dumps/book-dumps/meta-2026-08-29';
 const PLANS_DIR = 'E:/aemr-dumps/etalon-sync/plans';
@@ -19,7 +21,7 @@ const BOOKS = {
 
 function loadEnv(file) {
   const out = {};
-  for (const line of fs.readFileSync(file || 'C:/Users/filat/dash/.env', 'utf8').split(/\r?\n/)) {
+  for (const line of fs.readFileSync(file || path.join(ROOT, '.env'), 'utf8').split(/\r?\n/)) {
     const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
     if (m) out[m[1]] = m[2];
   }
@@ -27,6 +29,7 @@ function loadEnv(file) {
 }
 
 function sheetsApi(scope) {
+  const { google } = serverRequire('googleapis');
   const env = loadEnv();
   let key = String(env.GOOGLE_PRIVATE_KEY || '').replace(/^['"]/, '').replace(/['"]$/, '').replace(/\\n/g, '\n');
   const auth = new google.auth.JWT({

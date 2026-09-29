@@ -39,6 +39,34 @@ services:
     expose: ["80"]
     networks: [aemr]
 
+  report-worker:
+    profiles: [reports]
+    image: aemr-server:latest
+    restart: unless-stopped
+    init: true
+    command:
+      - /opt/report-env/bin/proc-report
+      - worker
+      - --registry
+      - /app/packages/server/data/reports/inputs/registry.json
+      - --ledger
+      - /app/packages/server/data/reports/inputs/ledger.json
+      - --state
+      - /app/packages/server/data/reports
+      - --interval-seconds
+      - "${REPORT_POLL_SECONDS:-900}"
+    env_file:
+      - ./.env.production
+    volumes:
+      - server_data:/app/packages/server/data
+    networks: [aemr]
+    healthcheck:
+      disable: true
+    stop_grace_period: 75s
+    depends_on:
+      server:
+        condition: service_healthy
+
   server:
     build:
       context: ..

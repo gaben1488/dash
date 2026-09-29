@@ -102,3 +102,9 @@ packages/server/harness-*.mjs
 packages/server/build-*.mjs
 packages/server/repair-basis.mjs
 scripts/out-zarya/
+
+# Python package build and test products
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/

@@ -46,7 +46,7 @@ RUN pnpm rebuild
 # ============================================================================
 FROM node:${NODE_VERSION} AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -57,6 +57,10 @@ RUN corepack enable
 # Копируем всё дерево из builder. Это самый надёжный путь:
 # pnpm-структура с symlinks сохраняется как есть.
 COPY --from=builder /app /app
+
+COPY packages/report-engine /app/packages/report-engine
+RUN python3 -m venv /opt/report-env \
+    && /opt/report-env/bin/pip install --no-cache-dir /app/packages/report-engine
 
 # data/ — volume для SQLite
 RUN mkdir -p /app/packages/server/data && chown -R node:node /app

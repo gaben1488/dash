@@ -188,7 +188,7 @@ export function humanizeRequestError(err: unknown): string {
   return `Непредвиденная ошибка при обращении к серверу (${raw})`;
 }
 
-export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+async function fetchResponse(url: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   // Only set Content-Type for requests with a body, and only if the caller hasn't set one
   if (init?.body && !headers.has('Content-Type')) {
@@ -207,7 +207,16 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
     const body = await res.text();
     throw new ApiError(res.status, body);
   }
-  return res.json() as Promise<T>;
+  return res;
+}
+
+export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  return (await fetchResponse(url, init)).json() as Promise<T>;
+}
+
+/** Документы проходят ту же авторизацию и обработку ошибок, что и JSON. */
+export async function fetchBlob(url: string, init?: RequestInit): Promise<Blob> {
+  return (await fetchResponse(url, init)).blob();
 }
 
 /**

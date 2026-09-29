@@ -19,11 +19,17 @@ async function buildApp(demo: boolean) {
   app.get('/api/справочник', async () => ({ uo: { grade: 'A' }, uer: { grade: 'B' } }));
   app.get('/api/выгрузка', async (_req, reply) => reply.type('text/csv').send('а;б\n1;2'));
   app.get('/не-наш-адрес', async () => ({ rows: 1 }));
+  app.get('/api/report-releases', async () => ({ latest: null, attempt: null }));
   await app.ready();
   return app;
 }
 
 describe('признак показательных данных', () => {
+  it('сохранённый выпуск не становится демонстрационным при отключении живого Google', async () => {
+    const app = await buildApp(true);
+    expect((await app.inject('/api/report-releases')).headers[DEMO_HEADER]).toBeUndefined();
+    await app.close();
+  });
   it('данные показательные → признак стоит у ответа любого рода', async () => {
     const app = await buildApp(true);
     for (const url of ['/api/карточка', '/api/список', '/api/справочник', '/api/выгрузка']) {

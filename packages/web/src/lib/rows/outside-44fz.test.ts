@@ -16,7 +16,6 @@ import { EP_REASON_DICT } from '@aemr/shared';
 import {
   OUTSIDE_44FZ_BADGE,
   OUTSIDE_44FZ_DEFAULT_MODE,
-  OUTSIDE_44FZ_HINT,
   OUTSIDE_44FZ_LABEL,
   applyOutside44fzMode,
   countOutside44fz,

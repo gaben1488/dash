@@ -12,7 +12,7 @@
 //    плюс подстановка ЖИВЫХ чисел этого экрана. Латинская отметка A–F
 //    заменена русским словом: школьная шкала США читателю ничего не говорит.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Info, RefreshCw } from 'lucide-react';
@@ -23,9 +23,6 @@ import { buildTrustViewModel } from '../lib/trust-metrics';
 import { kbFor } from '../lib/kb/metric-kb';
 import { natureOf } from '../lib/diagnostics/nature-categories';
 import { CARD, HEAD_STRIP, NOTE, RULE_DIVIDE, RULE_HEAD, TILE } from '../components/control/surfaces';
-import { Button } from '../components/ui/button';
-import { perimeterFromFilters, perimeterHint, perimeterLabel, type Perimeter } from '../lib/perimeter';
-import { stateColor, trustState, STATE_LABELS } from '../lib/semantic-color';
 
 // ── Локальные view-model типы для данных доверия (источники из useFilteredData — any[]).
 interface TrustIssue {

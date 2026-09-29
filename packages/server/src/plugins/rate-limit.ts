@@ -48,6 +48,14 @@ const MINUTE_MS = 60_000;
  */
 export const HEAVY_ROUTE_RULES: readonly HeavyRouteRule[] = [
   {
+    methods: ['GET'],
+    path: /^\/api\/report-releases(?:\/|$)/,
+    limit: 60,
+    windowMs: MINUTE_MS,
+    subject: 'Чтение проверенного выпуска',
+    why: 'перед выдачей проверяется целостность сохранённого комплекта',
+  },
+  {
     methods: ['POST'],
     path: /^\/api\/refresh$/,
     limit: 4,
