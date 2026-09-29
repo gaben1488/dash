@@ -111,14 +111,34 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Deployment address confirmed by the owner; do not rely on a stale secret.
+      VPS_HOST: 193.233.91.162
     concurrency:                        # не допускаем параллельные деплои (последний побеждает)
       group: deploy-vps
       cancel-in-progress: false
     steps:
+      - name: Check deployment configuration without exposing credentials
+        env:
+          PREVIOUS_DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          configured = os.environ.get('PREVIOUS_DEPLOY_HOST', '').strip()
+          target = os.environ['VPS_HOST']
+          print('Configured host matches owner-confirmed VPS:', configured == target)
+          required = ('DEPLOY_USER', 'DEPLOY_SSH_KEY')
+          missing = [name for name in required if not os.environ.get(name, '').strip()]
+          if missing:
+              raise SystemExit('Missing deployment configuration: ' + ', '.join(missing))
+          print('Deployment user and SSH key are configured. SSH port: 22.')
+          PY
       - name: Deploy over SSH (git reset --hard origin/main + docker compose up --build + health)
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
+          host: ${{ env.VPS_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
