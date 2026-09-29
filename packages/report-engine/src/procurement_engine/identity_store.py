@@ -9,6 +9,7 @@ import json
 import sqlite3
 import uuid
 from collections import Counter, defaultdict
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -26,10 +27,21 @@ def signature(row):
 def anchor(row):
     return encoded([row.source_id,row.grbs,row.institution,row.subject,row.planned_year])
 
+
+def _check_integrity(db):
+    try:
+        valid = [tuple(row) for row in db.execute('PRAGMA integrity_check')] == [('ok',)]
+    except sqlite3.DatabaseError:
+        valid = False
+    if not valid:
+        raise ValueError('IDENTITY_DATABASE_CORRUPT')
+
+
 class IdentityStore:
     def __init__(self,path):
         self.path=Path(path);self.path.parent.mkdir(parents=True,exist_ok=True)
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
+            _check_integrity(db)
             db.executescript('''
             CREATE TABLE IF NOT EXISTS snapshots (
                 seq INTEGER PRIMARY KEY, snapshot_id TEXT UNIQUE NOT NULL,
@@ -56,7 +68,7 @@ class IdentityStore:
             raise ValueError('IDENTITY_LOCATORS_INVALID')
         payload=sorted([(r.physical_row_key,signature(r),r.source_row_no,anchor(r)) for r in rows])
         digest=hashlib.sha256(encoded(payload).encode()).hexdigest()
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             existing=db.execute('SELECT * FROM snapshots WHERE snapshot_id=?',(snapshot_id,)).fetchone()
             if existing:
@@ -115,7 +127,7 @@ class IdentityStore:
             raise ValueError('IDENTITY_REVIEW_EVIDENCE_REQUIRED')
         moment=datetime.fromisoformat(reviewed_at)
         if moment.tzinfo is None:raise ValueError('IDENTITY_REVIEW_TIMEZONE_MISSING')
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT * FROM observations WHERE snapshot_id=? AND locator=?',(snapshot_id,locator)).fetchone()
             if row is None:raise ValueError('IDENTITY_REVIEW_ROW_UNKNOWN')
@@ -129,4 +141,12 @@ class IdentityStore:
     def backup(self,destination):
         target=Path(destination)
         if target.exists():raise ValueError('IDENTITY_BACKUP_EXISTS')
-        with self.connect() as source, sqlite3.connect(target) as dest:source.backup(dest)
+        with closing(self.connect()) as source:
+            _check_integrity(source)
+            try:
+                with closing(sqlite3.connect(target)) as dest:
+                    source.backup(dest)
+                    _check_integrity(dest)
+            except (sqlite3.DatabaseError, ValueError):
+                target.unlink(missing_ok=True)
+                raise

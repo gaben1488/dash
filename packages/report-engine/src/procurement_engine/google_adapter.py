@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -68,14 +69,23 @@ class GoogleReadClient:
     def _get(self, url, params=None):
         if params:
             url += '?' + urlencode(params)
-        request=Request(url,headers={'Authorization':'Bearer '+self._access_token()})
-        try:
-            with urlopen(request,timeout=60) as response:
-                return json.load(response)
-        except HTTPError as exc:
-            raise GoogleReadError(f'GOOGLE_READ_HTTP_{exc.code}') from None
-        except URLError:
-            raise GoogleReadError('GOOGLE_READ_NETWORK_ERROR') from None
+        for attempt in range(5):
+            request=Request(url,headers={'Authorization':'Bearer '+self._access_token()})
+            delay = 2 ** attempt
+            try:
+                with urlopen(request,timeout=60) as response:
+                    return json.load(response)
+            except HTTPError as exc:
+                if exc.code not in {429, 500, 502, 503, 504} or attempt == 4:
+                    raise GoogleReadError(f'GOOGLE_READ_HTTP_{exc.code}') from None
+                retry_after = (exc.headers or {}).get('Retry-After', '')
+                if retry_after.isdigit():
+                    delay = max(delay, min(int(retry_after), 60))
+            except (URLError, TimeoutError, ConnectionError):
+                if attempt == 4:
+                    raise GoogleReadError('GOOGLE_READ_NETWORK_ERROR') from None
+            time.sleep(delay)
+        raise GoogleReadError('GOOGLE_READ_RETRIES_EXHAUSTED')
 
     def revision(self, provider_id):
         data=self._get('https://www.googleapis.com/drive/v3/files/'+quote(provider_id,safe=''),

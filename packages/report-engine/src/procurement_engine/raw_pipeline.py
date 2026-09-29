@@ -28,6 +28,7 @@ from .normalize import (
 )
 from .procedures import (
     normalize_procedure_values,
+    validate_operational_view,
     validate_procedure_lineage,
     validate_procedure_uniqueness,
 )
@@ -44,8 +45,8 @@ from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc1'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.4.0'
+RENDERER_VERSION = 'renderer-v1.5.0rc2'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc2'
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
 
@@ -301,6 +302,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     attempts, shares=normalize_procedure_values(main['values'], source_ref_prefix=main['provider_id']+'::'+main['sheet'])
     issues.extend(x.as_dict() for x in validate_procedure_uniqueness(attempts)+validate_procedure_lineage(attempts))
     queue=next(s for s in capture['sources'] if s['sheet']=='Процедуры в работе')
+    issues.extend(x.as_dict() for x in validate_operational_view(main['values'], queue['values'], as_of=report_date))
     active=[];closed_quality=[];in_closed_block=False
     for rn, raw in enumerate(queue['values'], 1):
         if raw and clean_text(raw[0]).casefold() == 'данные по закрытым строкам':
