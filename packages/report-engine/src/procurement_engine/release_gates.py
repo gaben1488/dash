@@ -173,7 +173,7 @@ def validate_product_contract(report_model: dict, *, require_metric_contributors
     return issues
 
 
-def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[ValidationIssue]:
+def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=None) -> list[ValidationIssue]:
     """ADR-003: admit proven current facts with explicit historical evidence gaps."""
     issues = validate_product_contract(model)
 
@@ -184,6 +184,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
     required = {'headline', 'grbs_metrics', 'monthly', 'future_plan', 'calendar_fact', 'details',
                 'recommendations', 'recommendations_by_grbs', 'procedures', 'closed_procedure_quality',
                 'report_clock', 'period_contract', 'exact_metrics', 'trace_records'}
+    if model.get('snapshot', {}).get('renderer_version') != 'renderer-v1.5.0rc7':
+        required.update({'report_content', 'recommendation_records'})
     require(required <= model.keys(), 'REQUIRED_REPORT_SECTION_MISSING', 'Отсутствует обязательный раздел отчёта.')
     require((model.get('formula_dependencies') or {}).get('closed') is True,
             'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN', 'Не подтверждён полный состав зависимостей формул.')
@@ -229,7 +231,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
     current=[ProcurementRow(**{key:value for key,value in row.items() if key in names}) for row in details]
     expected_claims={row['recommendation_id']:row for row in review_recommendations(ledger, current,
         model['snapshot']['snapshot_id'], model['snapshot']['report_date'],
-        identity_evidence=model.get('identity_review_evidence'))}
+        identity_evidence=model.get('identity_review_evidence'), documents=documents,
+        legacy=not model.get('contract', {}).get('recommendation_link_contract'))}
     if 'identity_review_evidence' not in model:
         for claim in expected_claims.values():
             claim.pop('business_finding', None)

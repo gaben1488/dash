@@ -62,7 +62,8 @@ def test_unrelated_fact_does_not_prove_merge():
 
 
 def test_reviewed_full_merge_can_be_proven_at_plan_level():
-    record = recommendation(recommendation_type='MERGE_PROCUREMENTS', source_procurement_ids=['1', '2'])
+    record = recommendation(recommendation_type='MERGE_PROCUREMENTS', source_procurement_ids=['1', '2'],
+                            recommendation_text='Объединить позиции 1, 2 в одну закупку')
     reviewed = proof(evidence={**proof()['evidence'], 'source_procurement_ids': ['1', '2'],
                               'relation': 'MERGES_INTO'})
     result = resolve(record, proofs=[reviewed])
@@ -76,7 +77,9 @@ def test_reviewed_full_merge_can_be_proven_at_plan_level():
     ('MOVE_PLANNED_DATE', {'target_planned_date': '2026-10-01'}, {'planned_date': '2026-10-01'}),
 ])
 def test_structured_action_targets_are_checked_against_current_fields(kind, target, changes):
-    result = resolve(recommendation(recommendation_type=kind, **target),
+    text = ('Рекомендуем установить сумму 0,3 тыс. руб.' if kind == 'CHANGE_AMOUNT'
+            else 'Рекомендуем перенести плановую дату на 01.10.2026')
+    result = resolve(recommendation(recommendation_type=kind, recommendation_text=text, **target),
                      rows=[row(procurement_uid='PUR-1', **changes)])
     assert result['semantic_status'] == 'IMPLEMENTED'
 
@@ -146,3 +149,94 @@ def test_cli_records_existing_review_with_explicit_evidence(tmp_path, capsys):
     receipt = json.loads(capsys.readouterr().out)
     assert receipt['review_id'] == store.review_evidence()[0]['review_id']
     assert store.review_evidence()[0]['evidence']['recommendation_id'] == 'R1'
+
+
+def test_verified_original_and_current_identity_evaluate_action_without_manual_review():
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original()
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA')
+    result = review_recommendations([record], [current_row()], 'snapshot', '30.09.2026',
+                                    documents=TEST_DOCUMENTS)[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['dimensions']['compliance_status'] == 'IMPLEMENTED'
+    assert result['dimensions']['execution_status'] == 'PLANNED'
+    assert result['dimensions']['evidence_quality'] == 'VERIFIED_ORIGIN_AND_CURRENT_IDENTITY'
+    assert result['binding_evidence']['review_ids'] == []
+    assert 'Рекомендуемый конкурентный способ отражён' in result['business_finding']
+
+
+def test_automatic_link_with_recorded_fact_does_not_prove_unimplemented_method():
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original()
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA')
+    result = review_recommendations([record], [replace(current_row(), method='ЕП', actual_date='2026-09-29')],
+                                    'snapshot', '30.09.2026', documents=TEST_DOCUMENTS)[0]
+    assert result['dimensions']['compliance_status'] == 'NOT_IMPLEMENTED'
+    assert result['dimensions']['execution_status'] == 'FACT_RECORDED'
+    assert 'контракт' not in result['business_finding'].casefold()
+
+
+@pytest.mark.parametrize('text', [
+    'Рекомендуем позицию 42 оставить у ЕП (Поставка бумаги) на сумму 46,00 тыс. руб.',
+    'Рекомендуем позицию 42 не переводить на ЭА (Поставка бумаги) на сумму 46,00 тыс. руб.',
+    'Позиция 42 (Поставка бумаги) на сумму 46,00 тыс. руб.; ранее обсуждали ЭА.',
+])
+def test_original_link_does_not_prove_an_invented_method_target(text):
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original(text)
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA')
+    result = review_recommendations([record], [current_row()], 'snapshot', '30.09.2026',
+                                    documents=TEST_DOCUMENTS)[0]
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+def test_review_of_identity_does_not_prove_contradictory_action_type():
+    result = resolve(recommendation(recommendation_text='Оставить закупку у единственного поставщика'))
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+def test_identity_review_does_not_prove_an_amount_target_absent_from_original_text():
+    result = resolve(recommendation(recommendation_type='CHANGE_AMOUNT', target_amount_thousand='0.3'))
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('text', [
+    'При наличии финансирования рекомендуем позицию 42 вынести на ЭА (Поставка бумаги) на сумму 46,00 тыс. руб.',
+    'Рекомендуем рассмотреть возможность позицию 42 вынести на ЭА (Поставка бумаги) на сумму 46,00 тыс. руб.',
+    'Позиция 42 (Поставка бумаги) на сумму 46,00 тыс. руб. Оставить её у ЕП; перевести остальные закупки на ЭА.',
+])
+def test_conditional_or_other_procurement_action_does_not_establish_fulfillment(text):
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original(text)
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA')
+    result = review_recommendations([record], [current_row()], 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS)[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+def test_delta_amount_is_not_a_verified_final_amount():
+    result = resolve(recommendation(recommendation_text='Изменить сумму на 0,3 тыс. руб.',
+                                    recommendation_type='CHANGE_AMOUNT', target_amount_thousand='0.3'))
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('record, reviews', [
+    (recommendation(recommendation_text='Перевести позицию 999 на ЭА'), [proof()]),
+    (recommendation(recommendation_text='Объединить позиции 998, 999 в одну закупку',
+                    recommendation_type='MERGE_PROCUREMENTS', source_procurement_ids=['1', '2']),
+     [proof(evidence={**proof()['evidence'], 'source_procurement_ids': ['1', '2'], 'relation': 'MERGES_INTO'})]),
+])
+def test_explicit_action_ids_must_match_the_verified_historical_objects(record, reviews):
+    assert resolve(record, proofs=reviews)['dimensions']['compliance_status'] == 'UNKNOWN'

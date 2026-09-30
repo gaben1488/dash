@@ -72,6 +72,38 @@ def test_changed_subject_is_review_not_business_number_match(tmp_path):
     assert second['rows'][0]['evidence']['candidate_uids']==[first['rows'][0]['procurement_uid']]
     assert second['rows'][0]['procurement_uid'] is None
 
+
+@pytest.mark.parametrize('change', [
+    {'actual_date': '2026-10-01'}, {'fact_mb': 0.25}, {'saving_mb': 0.05},
+    {'include_saving': False}, {'method': 'ЭА'}, {'grbs_comment': 'Уточнено'},
+    {'monitoring_note': 'Обновлено'}, {'procedure_code': 'ЭА-синтетическая'},
+    {'missing_money_fields': ('V', 'W', 'X')},
+])
+def test_routine_recorded_state_updates_preserve_unique_plan_identity(tmp_path, change):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    first = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    second = store.ingest([row(**change)], snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    assert second['rows'][0]['procurement_uid'] == first['rows'][0]['procurement_uid']
+    assert second['unresolved_count'] == 0
+
+
+def test_unique_state_update_does_not_merge_two_identical_plan_candidates(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    store.ingest([row(), row(row_number=5, source_row_no='2', fact_mb=0.3)],
+                 snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    changed = store.ingest([row(actual_date='2026-10-01')],
+                          snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    assert changed['rows'][0]['procurement_uid'] is None
+
+
+@pytest.mark.parametrize('change', [{'plan_fb': 1}, {'planned_year': 2027}, {'planned_quarter': 4},
+                                   {'institution': 'Школа 2'}, {'missing_money_fields': ('H',)}])
+def test_changed_plan_or_customer_requires_evidence(tmp_path, change):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    changed = store.ingest([row(**change)], snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    assert changed['rows'][0]['procurement_uid'] is None
+
 def test_identical_duplicate_rows_never_collapsed(tmp_path):
     store=IdentityStore(tmp_path/'id.sqlite')
     result=store.ingest([row(),row(row_number=5,procurement_id='2')],snapshot_id='s',captured_at='2026-09-30T00:00:00Z')

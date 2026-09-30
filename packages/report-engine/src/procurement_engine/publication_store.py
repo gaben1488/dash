@@ -59,6 +59,11 @@ def _sync_directory(path):
 def _validate(root):
     _files(root)  # Reject symlinks before reading any input through them.
     model = _json(root / 'report_model.json')
+    if 'report_content' in model:
+        from .diagnostics import project_diagnostics
+
+        if _json(root / 'diagnostic_protocol.json') != project_diagnostics(model):
+            raise PublicationError('DIAGNOSTIC_PROTOCOL_MISMATCH')
     release = model.get('release') or {}
     if release.get('official_release_allowed') is not True or release.get('blockers') != []:
         raise PublicationError('RELEASE_BLOCKED')
@@ -116,10 +121,18 @@ def _validate(root):
             raise PublicationError('DOMAIN_RELEASE_POLICY_MISSING')
         payloads = [_json(root / 'snapshot_bundle' / item['path']) for item in index]
         ledgers = [p['semantic_values'] for p in payloads if p['role'] == 'historical_ledger']
-        if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0]):
+        documents = {}
+        history = [p['semantic_values'] for p in payloads if p['role'] == 'historical_report_evidence']
+        if history and len(ledgers) == 1:
+            from .recommendation_history import enroll_history_package
+
+            _, documents = enroll_history_package(history[0]['package'], ledgers[0])
+        if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0], documents=documents):
             raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
         capture = {'report_date': snapshot['report_date'], 'report_year': snapshot['report_year'], 'sources': []}
         for payload in payloads:
+            if payload['role'] == 'historical_report_evidence':
+                capture['recommendation_history_evidence'] = payload['semantic_values']
             meta = payload.get('metadata') or {}
             if 'sheet_title' not in meta:
                 continue
@@ -140,6 +153,16 @@ def _validate(root):
         proof = identity_proofs[0] if len(identity_proofs) == 1 else []
         if proof != model.get('identity_review_evidence', []):
             raise PublicationError('IDENTITY_REVIEW_EVIDENCE_MISMATCH')
+        if model.get('contract', {}).get('recommendation_link_contract'):
+            from .identity_store import read_saved_identity
+
+            try:
+                identity = read_saved_identity(root / 'identity.sqlite', snapshot['snapshot_id'], as_of=snapshot['cutoff_at'])
+            except (ValueError, KeyError, sqlite3.DatabaseError) as exc:
+                raise PublicationError('SAVED_IDENTITY_RECHECK_FAILED') from exc
+            if identity != model.get('identity_observations'):
+                raise PublicationError('SAVED_IDENTITY_RECHECK_FAILED')
+            capture['identity_evidence'] = identity
         if (not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']
                 or audit_source_sections(capture, model, ledger=ledgers[0], identity_evidence=proof)):
             raise PublicationError('SAVED_SOURCE_RECHECK_FAILED')

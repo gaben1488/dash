@@ -18,6 +18,7 @@ from .raw_pipeline import (
     bundle_from_capture,
     validate_ledger_contract,
 )
+from .recommendation_history import read_google_history
 from .snapshot import canonical_semantic_hash
 
 
@@ -68,9 +69,12 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             validate_ledger_contract(ledger)
             stage = 'acquisition'
             client = client or GoogleReadClient()
+            ledger, _, history_metadata, history_package = read_google_history(client, ledger, include_package=True)
             capture = capture_google(registry, client)
             identities = IdentityStore(state / 'identity.sqlite')
             identity_evidence = identities.review_evidence(as_of=capture['captured_at'])
+            if history_metadata is not None:
+                capture['recommendation_history_evidence'] = {'metadata': history_metadata, 'package': history_package}
             stage = 'publication_selection'
             publications = PublicationStore(state / 'published')
             latest = publications.latest()
@@ -84,6 +88,9 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             _write(attempt / 'capture.json', capture)
             previous = publications.previous_model(capture['report_date'])
             stage = 'build'
+            identities.recover_latest_plan_signatures([
+                *state.glob('attempts/*/bundle/snapshot_bundle'),
+                *state.glob('published/releases/*/snapshot_bundle')])
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',
                                        identity_store=identities, previous_publication=previous)
             status['snapshot_id'] = model['snapshot']['snapshot_id']
@@ -94,8 +101,10 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 def final_revisions():
                     providers = {s['provider_id'] for s in registry['sources']}
                     versions = {provider: client.revision(provider) for provider in providers}
-                    return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']},
-                            'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(_load(ledger_path)),
+                    current_ledger, _, metadata = read_google_history(client, _load(ledger_path))
+                    history_revision = {'RECOMMENDATION_HISTORY_EVIDENCE': canonical_semantic_hash(metadata)} if metadata is not None else {}
+                    return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']}, **history_revision,
+                            'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(current_ledger),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path)),
                             'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at']))}
 

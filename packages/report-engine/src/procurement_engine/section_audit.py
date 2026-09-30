@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import replace
 from fractions import Fraction
 
-from .independent_audit import day, number, text
+from .independent_audit import day, method, number, text
 from .normalize import normalize_procedure_code
 from .procedures import (
     normalize_procedure_values,
@@ -34,7 +34,7 @@ def audit_recommendation_projections(model):
                 'section':r.get('section'),'recommendation_id':r['recommendation_id'],
                 'recommendation':r.get('recommendation_text') or '', 'grbs_response':r.get('grbs_response_original') or '',
                 'uer_decision':r.get('uer_decision_original') or '',
-                'semantic_status_ru':r.get('semantic_status_ru') or r.get('semantic_status') or '',
+                'semantic_status_ru':r.get('semantic_status_ru', r.get('semantic_status') or ''),
                 'status_evidence':r.get('status_evidence') or ''})
     tables={}
     for grbs, records in grouped.items():
@@ -106,8 +106,53 @@ def audit_management_projection(model):
     return all(summary.get(key) == value for key, value in counts.items())
 
 
+def _remaining_population(capture):
+    scopes = ('year', 'q1', 'q2', 'q3', 'q4')
+    result = {s['grbs']: {kind: {scope: [] for scope in scopes} for kind in ('comp', 'ep')}
+              for s in capture['sources'] if s.get('role') == 'master'}
+    as_of = day(capture['report_date'])
+    for source in capture['sources']:
+        if source.get('role') != 'master':
+            continue
+        for rowno, raw in enumerate(source['values'][3:], 4):
+            c = lambda i, raw=raw: raw[i] if i < len(raw) else None
+            kind = method(c(11)); planned = day(c(13)); actual = day(c(16))
+            try:
+                year = int(number(c(15))); quarter = int(number(c(14)))
+            except (ValueError, ZeroDivisionError):
+                continue
+            if (not (text(c(5)) and text(c(6)) and kind and planned)
+                    or year != capture['report_year'] or (actual and actual <= as_of)):
+                continue
+            business = re.sub(r'^(\d+)\.0$', r'\1', text(c(0))) or None
+            label = business or f"__ROW__::{source['provider_id']}::{source['sheet']}::{rowno}"
+            item = {'source_row_key': f"{source['provider_id']}::{source['sheet']}::{rowno}::{label}",
+                    'business_id': business, 'institution': text(c(2)), 'subject': text(c(6)),
+                    'amount_thousand_decimal': sum((number(c(i)) for i in (7,8,9)), Fraction(0)),
+                    'comment': ' | '.join(dict.fromkeys(text(c(i)) for i in (20,31)
+                        if text(c(i)) and text(c(i)).casefold() not in {'x','х','-','—'}))}
+            key = 'comp' if kind == 'competitive' else 'ep'
+            result[source['grbs']][key]['year'].append(item)
+            if quarter in (1,2,3,4):
+                result[source['grbs']][key][f'q{quarter}'].append(item)
+    return result
+
+
+def _normalized_remaining(records):
+    try:
+        return {grbs: {kind: {scope: [{**r, 'amount_thousand_decimal': number(r['amount_thousand_decimal'])}
+            for r in rows] for scope, rows in scopes.items()} for kind, scopes in kinds.items()}
+            for grbs, kinds in records.items()}
+    except (TypeError, KeyError, ValueError, ZeroDivisionError):
+        return None
+
+
 def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     errors=[]
+    if 'report_content' in model:
+        actual = _normalized_remaining((model['report_content'] or {}).get('remaining') or {})
+        if actual != _remaining_population(capture):
+            errors.append('remaining_population')
     if ledger is not None:
         # Replay text and observations from frozen inputs, rather than accepting
         # mutually consistent but invented human-readable claims in projections.
@@ -119,11 +164,27 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
             if source.get('role')=='master':
                 rows.extend(normalize_master_values(source['values'],snapshot_id=sid,expected_grbs=source['grbs'],
                     data_start_row=3,source_id=source['provider_id'],sheet_name=source['sheet']))
-        identities={item['source_row_key']:item['procurement_uid']
-                    for item in (model.get('identity_observations') or {}).get('rows', [])}
-        rows=[replace(row, procurement_uid=identities.get(row.physical_row_key)) for row in rows]
-        expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'],
-            identity_evidence=identity_evidence)}
+        identity = capture.get('identity_evidence') or {}
+        if not model.get('contract', {}).get('recommendation_link_contract'):
+            identity = identity or model.get('identity_observations') or {}
+        if model.get('contract', {}).get('recommendation_link_contract'):
+            from .identity_store import signature
+
+            evidence = {item['source_row_key']: item for item in identity.get('rows', [])}
+            if (set(evidence) != {row.physical_row_key for row in rows}
+                or any(evidence[row.physical_row_key].get('evidence', {}).get('signature') != signature(row) for row in rows)):
+                errors.append('identity_evidence')
+        uids = {item['source_row_key']: item['procurement_uid'] for item in identity.get('rows', [])}
+        rows = [replace(row, procurement_uid=uids.get(row.physical_row_key)) for row in rows]
+        documents = {}
+        if capture.get('recommendation_history_evidence') is not None:
+            from .recommendation_history import enroll_history_package
+
+            _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
+        expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'], documents=documents, identity_evidence=identity_evidence, legacy=not model.get('contract', {}).get('recommendation_link_contract'))}
+        if 'recommendation_records' in model and model['recommendation_records'] != list(expected.values()):
+            errors.append('recommendation_records')
+
         for records in (model.get('recommendations') or {}).get('tables',{}).values():
             for row in records:
                 wanted=expected.get(row['recommendation_id'])
