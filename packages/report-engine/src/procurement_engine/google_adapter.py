@@ -36,6 +36,7 @@ class GoogleReadClient:
     def __init__(self, access_token=None, *, credentials=None):
         self._token = access_token or os.environ.get('GOOGLE_ACCESS_TOKEN')
         self._credentials = credentials
+        self._book_metadata = {}
         if not self._token and self._credentials is None:
             self._credentials = self._environment_credentials()
 
@@ -100,17 +101,24 @@ class GoogleReadClient:
         raise GoogleReadError('GOOGLE_READ_RETRIES_EXHAUSTED')
 
     def revision(self, provider_id):
+        self._book_metadata.pop(provider_id, None)
         data=self._get('https://www.googleapis.com/drive/v3/files/'+quote(provider_id,safe=''),
                        {'fields':'id,mimeType,modifiedTime,version','supportsAllDrives':'true'})
         if data.get('mimeType')!='application/vnd.google-apps.spreadsheet':
             raise GoogleReadError('GOOGLE_SOURCE_NOT_SPREADSHEET')
         return str(data.get('version') or data.get('modifiedTime') or '') or None
 
+    def _metadata(self, provider_id):
+        if provider_id not in self._book_metadata:
+            self._book_metadata[provider_id] = self._get(
+                'https://sheets.googleapis.com/v4/spreadsheets/' + quote(provider_id, safe=''),
+                {'fields': 'sheets.properties,namedRanges(name,range)'})
+        return self._book_metadata[provider_id]
+
     def grid(self, provider_id, sheet_id):
-        data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe=''),
-                       {'fields':'sheets.properties'})
-        hits=[s['properties'] for s in data.get('sheets',[]) if s['properties']['sheetId']==sheet_id]
-        if len(hits)!=1:
+        data = self._metadata(provider_id)
+        hits = [s['properties'] for s in data.get('sheets', []) if s['properties']['sheetId'] == sheet_id]
+        if len(hits) != 1:
             raise GoogleReadError('GOOGLE_SHEET_ID_NOT_FOUND')
         return hits[0]
 
@@ -121,10 +129,9 @@ class GoogleReadClient:
         return self._values(provider_id,title,start,end,columns,'FORMULA')
 
     def formula_context(self,provider_id):
-        data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe=''),
-                       {'fields':'sheets.properties(sheetId,title),namedRanges(name,range)'})
-        return {'sheets':sorted((s['properties'] for s in data.get('sheets',[])),key=lambda x:x['sheetId']),
-                'named_ranges':sorted(data.get('namedRanges',[]),key=lambda x:x['name'])}
+        data = self._metadata(provider_id)
+        return {'sheets': sorted((s['properties'] for s in data.get('sheets', [])), key=lambda x: x['sheetId']),
+                'named_ranges': sorted(data.get('namedRanges', []), key=lambda x: x['name'])}
 
     def _values(self,provider_id,title,start,end,columns,render_option):
         a1 = _a1_range(title, start, end, columns)
@@ -157,6 +164,9 @@ class GoogleReadClient:
 
 
 class GoogleSheetSourceAdapter:
+    # Drive versions describe the whole workbook, not individual tabs.
+    revision_scope = 'provider'
+
     def __init__(self,contract,client,chunk_rows=400):
         self.contract=contract;self.client=client;self.chunk_rows=chunk_rows
         self.source_id=contract['source_id'];self.role=contract['role'];self.provider_id=contract['provider_id']

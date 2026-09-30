@@ -15,8 +15,8 @@ TRUE FALSE'''.split())  # noqa: SIM905 — compact, reviewed vocabulary is easie
 TOKEN = re.compile(r'"(?:[^"]|"")*"|\'(?:[^\']|\'\')*\'|\$?[A-Za-z]{1,3}\$?\d+(?!\w)|[^\W\d][\w.]*|\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?|[^\s]', re.UNICODE)
 REFERENCE = re.compile(
     r"(?<![\w.])(?:(?P<sheet>'(?:[^']|'')*'|[^\W\d][\w.]*)!)?"
-    r'(?P<start>\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}(?=\s*:)|\d+(?=\s*:))'
-    r'(?:\s*:\s*(?P<end>\$?[A-Za-z]{1,3}(?:\$?\d+)?|\d+))?(?![\w.(])', re.UNICODE)
+    r'(?P<start>\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}(?=\s*:)|\$?\d+(?=\s*:))'
+    r'(?:\s*:\s*(?P<end>\$?[A-Za-z]{1,3}(?:\$?\d+)?|\$?\d+))?(?![\w.(])', re.UNICODE)
 
 
 def _reference_bounds(reference):
@@ -149,12 +149,13 @@ def audit_formula_dependencies(capture):
                 bounds = [_reference_bounds(reference['start'])]
                 if reference['end']:
                     bounds.append(_reference_bounds(reference['end']))
-                ranges.append((target, max(c for c, _ in bounds), max(r for _, r in bounds)))
+                ranges.append((target, max(c for c, _ in bounds), max(r for _, r in bounds),
+                               bool(reference['end']) and all(c and not r for c, r in bounds)))
             for token in TOKEN.findall(cell['formula']):
                 if token in names:
                     named = names[token]
-                    ranges.append((named['sheetId'], named.get('endColumnIndex', 0), named.get('endRowIndex', 0)))
-            for target, column, row in ranges:
+                    ranges.append((named['sheetId'], named.get('endColumnIndex', 0), named.get('endRowIndex', 0), False))
+            for target, column, row, whole_columns in ranges:
                 target_id = index.get((s['provider_id'], target))
                 if target_id is None:
                     continue  # Missing sheets already produce FORMULA_DEPENDENCY_NOT_CAPTURED.
@@ -163,6 +164,15 @@ def audit_formula_dependencies(capture):
                 target_evidence = captured.get('formula_evidence') or {}
                 if isinstance(target_evidence.get('extra_values'), list):
                     target_width = target_evidence.get('columns', target_width)
+                # Google intersects whole-column ranges with the allocated grid (live
+                # read probe: A:Z on a 23-column sheet returns A:W). This is safe only
+                # with frozen physical dimensions and complete values/formula coverage.
+                properties = next((p for p in evidence['sheets'] if p['sheetId'] == target), {})
+                grid = properties.get('gridProperties') or {}
+                complete_grid = (grid.get('columnCount') == target_width
+                                 and grid.get('rowCount') == captured['rows'])
+                if whole_columns and complete_grid:
+                    column = min(column, target_width)
                 if column > target_width or row > captured['rows']:
                     problem(sid, 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED', row=cell['row'],
                             column=cell['column'], target_source_id=target_id)

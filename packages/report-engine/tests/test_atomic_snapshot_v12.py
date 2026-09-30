@@ -115,3 +115,28 @@ class AtomicSnapshotV12Tests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+def test_explicit_provider_revision_scope_is_shared_only_within_one_barrier():
+    a = ScriptedAdapter('A', ['r1', 'r2', 'r2', 'r2'])
+    b = ScriptedAdapter('B', ['unused'])
+    a.provider_id = b.provider_id = 'one-book'
+    a.revision_scope = b.revision_scope = 'provider'
+    bundle = capture_atomic_snapshot([a, b], report_date='30.09.2026', report_year=2026,
+        rules_version='rules', renderer_version='renderer', max_attempts=2)
+    assert bundle.attempt == 2
+    assert bundle.before == bundle.after == {'A': 'r2', 'B': 'r2'}
+    assert a.calls.count('revision') == 4
+    assert b.calls.count('revision') == 0
+    assert a.calls.count('read') == b.calls.count('read') == 2
+
+
+def test_failed_barrier_preserves_private_observed_versions():
+    import pytest
+
+    a = ScriptedAdapter('A', ['private-before', 'private-after'])
+    with pytest.raises(AtomicSnapshotError) as failure:
+        capture_atomic_snapshot([a], report_date='30.09.2026', report_year=2026,
+            rules_version='rules', renderer_version='renderer', max_attempts=1)
+    assert failure.value.evidence == {'attempts': 1,
+        'before': {'A': 'private-before'}, 'after': {'A': 'private-after'}}

@@ -118,3 +118,44 @@ def test_named_range_cannot_extend_beyond_captured_values():
     for item in (s, support):
         item['formula_evidence']['named_ranges'][0]['range']['endColumnIndex'] = 4
     assert not audit([s, support])['closed']
+
+
+def allocated(sources):
+    grids = [{'sheetId': s['sheet_id'], 'title': s['sheet'],
+              'gridProperties': {'rowCount': s['rows'], 'columnCount': s['columns']}}
+             for s in sources]
+    for s in sources:
+        s['formula_evidence']['sheets'] = deepcopy(grids)
+    return sources
+
+
+def test_whole_columns_intersect_the_verified_fully_read_allocated_grid():
+    master = source(formulas=[{'row': 1, 'column': 1, 'formula': '=SUM(Support!$A:$Z)'}])
+    support = source('support', 1, 'Support')
+    assert audit(allocated([master, support]))['closed']
+
+
+def test_allocated_columns_inside_the_formula_range_cannot_be_skipped():
+    sources = allocated([source(formulas=[{'row': 1, 'column': 1,
+                                         'formula': '=SUM(Support!A:Z)'}]),
+                         source('support', 1, 'Support')])
+    for s in sources:
+        s['formula_evidence']['sheets'][1]['gridProperties']['columnCount'] = 4
+    assert not audit(sources)['closed']
+
+
+def test_absolute_whole_row_references_retain_target_sheet_and_row_bounds():
+    master = source(formulas=[{'row': 1, 'column': 1, 'formula': '=SUM(Support!$4:$4)'}])
+    assert not audit(allocated([master, source('support', 1, 'Support')]))['closed']
+
+
+def test_bounded_missing_cells_still_block_with_allocated_metadata():
+    s = source(formulas=[{'row': 1, 'column': 1, 'formula': '=SUM(A1:D3)'}])
+    assert not audit(allocated([s]))['closed']
+
+
+def test_absolute_whole_rows_use_dependency_rows_instead_of_local_rows():
+    master = source(formulas=[{'row': 1, 'column': 1, 'formula': '=SUM(Support!$4:$4)'}])
+    support = source('support', 1, 'Support')
+    support['rows'] = support['formula_evidence']['rows'] = 5
+    assert audit(allocated([master, support]))['closed']

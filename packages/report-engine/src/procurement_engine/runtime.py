@@ -110,6 +110,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                     os.chmod(private_error, 0o600)
                     json.dump({'attempt_id': attempt_id, 'stage': stage, 'error_code': code,
                                'error_type': type(error).__name__, 'message': str(error),
+                               'evidence': getattr(error, 'evidence', None),
                                'traceback': ''.join(traceback.format_exception(error))}, file, ensure_ascii=False)
                     file.flush()
                     os.fsync(file.fileno())
