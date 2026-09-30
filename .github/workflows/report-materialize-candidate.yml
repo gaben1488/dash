@@ -38,7 +38,7 @@ jobs:
           git diff --check
           mkdir -p evidence
           python -m pytest packages/report-engine/tests -q --junitxml=evidence/python-tests.xml
-      - name: Save exact verified candidate tree without changing production refs
+      - name: Save exact verified code tree without changing production refs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -50,9 +50,14 @@ jobs:
           names.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
           names.discard('evidence/python-tests.xml')
           assert len(names)==50, sorted(names)
+          # GITHUB_TOKEN cannot edit workflows. Preserve its permissions boundary;
+          # the existing authorized connector applies this small change separately.
+          workflow='.github/workflows/report-rehearsal.yml'
+          names.remove(workflow)
+          subprocess.run(['git','checkout','--',workflow],check=True)
           entries=[]; hashes={}
           for name in sorted(names):
-              assert name.startswith(('packages/report-engine/','packages/web/','packages/shared/','docs/decisions/')) or name=='.github/workflows/report-rehearsal.yml',name
+              assert name.startswith(('packages/report-engine/','packages/web/','packages/shared/','docs/decisions/')),name
               path=Path(name)
               assert path.is_file() and not path.is_symlink()
               content=path.read_bytes()
