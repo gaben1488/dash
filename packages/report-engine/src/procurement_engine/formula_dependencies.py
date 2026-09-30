@@ -150,12 +150,12 @@ def audit_formula_dependencies(capture):
                 if reference['end']:
                     bounds.append(_reference_bounds(reference['end']))
                 ranges.append((target, max(c for c, _ in bounds), max(r for _, r in bounds),
-                               bool(reference['end']) and all(c and not r for c, r in bounds)))
+                               min(c for c, _ in bounds) if reference['end'] and all(c and not r for c, r in bounds) else 0))
             for token in TOKEN.findall(cell['formula']):
                 if token in names:
                     named = names[token]
                     ranges.append((named['sheetId'], named.get('endColumnIndex', 0), named.get('endRowIndex', 0), False))
-            for target, column, row, whole_columns in ranges:
+            for target, column, row, first_column in ranges:
                 target_id = index.get((s['provider_id'], target))
                 if target_id is None:
                     continue  # Missing sheets already produce FORMULA_DEPENDENCY_NOT_CAPTURED.
@@ -171,7 +171,7 @@ def audit_formula_dependencies(capture):
                 grid = properties.get('gridProperties') or {}
                 complete_grid = (grid.get('columnCount') == target_width
                                  and grid.get('rowCount') == captured['rows'])
-                if whole_columns and complete_grid:
+                if first_column and first_column <= target_width and complete_grid:
                     column = min(column, target_width)
                 if column > target_width or row > captured['rows']:
                     problem(sid, 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED', row=cell['row'],
