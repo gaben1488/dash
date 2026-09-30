@@ -4,12 +4,12 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import re
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .atomic_snapshot import AtomicSnapshotError
+from .deployment_diagnostics import public_error_code
 from .google_adapter import GoogleReadClient, capture_google
 from .identity_store import IdentityStore
 from .publication_store import PublicationStore
@@ -61,12 +61,15 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         status = {'status': 'RUNNING', 'attempt_id': attempt_id,
                   'started_at': datetime.now(timezone.utc).isoformat()}
         _write(state / 'status.json', status)
+        stage = 'inputs'
         try:
             registry = _load(registry_path)
             ledger = _load(ledger_path)
             validate_ledger_contract(ledger)
+            stage = 'acquisition'
             client = client or GoogleReadClient()
             capture = capture_google(registry, client)
+            stage = 'publication_selection'
             publications = PublicationStore(state / 'published')
             latest = publications.latest()
             captured_id = bundle_from_capture(capture, registry, ledger).manifest['snapshot_id']
@@ -78,6 +81,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 return _finish_attempt(state, attempt, status)
             _write(attempt / 'capture.json', capture)
             previous = publications.previous_model(capture['report_date'])
+            stage = 'build'
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',
                                        identity_store=IdentityStore(state / 'identity.sqlite'), previous_publication=previous)
             status['snapshot_id'] = model['snapshot']['snapshot_id']
@@ -92,28 +96,25 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(_load(ledger_path)),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path))}
 
+                stage = 'publication'
                 receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions)
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
-            code = str(error)
-            prefix = code.split(':', 1)[0]
-            if isinstance(error, AtomicSnapshotError) and prefix in {
-                'ATOMIC_SOURCE_IDENTITY_INCOMPLETE', 'ATOMIC_SOURCE_REVISION_UNAVAILABLE',
-                'SOURCE_PAYLOAD_ID_MISMATCH', 'SOURCE_PROVIDER_ID_MISMATCH',
-                'SOURCE_ROLE_MISMATCH', 'SOURCE_SCHEMA_CHANGED', 'SOURCE_CHANGED_DURING_FREEZE'}:
-                code = prefix
+            code = public_error_code(str(error))
             private_error = attempt / 'error.json'
             try:
                 with private_error.open('x', encoding='utf-8') as file:
                     os.chmod(private_error, 0o600)
-                    json.dump({'error_type': type(error).__name__, 'message': str(error)}, file, ensure_ascii=False)
+                    json.dump({'attempt_id': attempt_id, 'stage': stage, 'error_code': code,
+                               'error_type': type(error).__name__, 'message': str(error),
+                               'traceback': ''.join(traceback.format_exception(error))}, file, ensure_ascii=False)
                     file.flush()
                     os.fsync(file.fileno())
                 status['private_error_saved'] = True
             except OSError:
                 status['private_error_saved'] = False
             status.update(status='NOT_ISSUED',
-                          error_code=code if re.fullmatch(r'[A-Z_]{4,100}', code) else 'GENERATION_FAILED',
+                          error_code=code, failure_stage=stage,
                           error_type=type(error).__name__)
         return _finish_attempt(state, attempt, status)
 

@@ -44,3 +44,29 @@ def test_formula_scan_reads_grid_width_even_if_value_contract_omits_columns():
     payload = GoogleSheetSourceAdapter(contract, Wide()).read_payload()
     assert payload.metadata['formula_evidence']['columns'] == 4
     assert payload.metadata['formula_evidence']['formulas'][0]['column'] == 4
+
+
+def test_wider_grid_captures_dependency_values_without_expanding_business_columns():
+    from procurement_engine.formula_dependencies import audit_formula_dependencies
+
+    class Wide(Client):
+        def grid(self, provider, sheet_id):
+            return {'title': 'Master', 'gridProperties': {'rowCount': 3, 'columnCount': 4}}
+
+        def values(self, provider, title, start, end, columns):
+            assert columns == 4
+            return [['header'], [1, 2, 7, 7], []][start - 1:end]
+
+        def formulas(self, provider, title, start, end, columns):
+            return [['header'], [1, 2, '=D2', 7], []][start - 1:end]
+
+    contract = {'source_id': 'master', 'role': 'master', 'provider_id': 'book',
+                'sheet_id': 0, 'sheet': 'Master', 'columns': 3, 'header_rows': 1,
+                'units': 'thousand', 'schema_fingerprint': header_hash([['header']], 1)}
+    payload = GoogleSheetSourceAdapter(contract, Wide()).read_payload()
+    assert payload.semantic_values == [['header'], [1, 2, 7], []]
+    evidence = payload.metadata['formula_evidence']
+    assert evidence['extra_values'] == [[], [7], []]
+    result = audit_formula_dependencies({'sources': [{**contract, 'rows': 3,
+        'values': payload.semantic_values, 'formula_evidence': evidence}]})
+    assert result['closed'], result['issues']

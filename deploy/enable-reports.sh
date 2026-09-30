@@ -3,11 +3,12 @@
 set -euo pipefail
 
 deployment_stage=bootstrap
+deployment_started_at=$(date -u +'%Y-%m-%dT%H:%M:%S+00:00')
 previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
 restore_schedule_on_failure() {
   result=$?
   if [ "$result" -ne 0 ]; then
-    docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_diagnostics "$deployment_stage" || true
+    docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_diagnostics "$deployment_stage" "$deployment_started_at" || true
   fi
   if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
     # Start the existing container; a failed preflight must not replace its image

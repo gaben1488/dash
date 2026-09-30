@@ -102,7 +102,7 @@ def main(argv=None):
         from .runtime import run_once
         status = run_once(args.registry, args.ledger, args.state)
         dump(status)
-        return 0 if status['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS', 'ALREADY_RUNNING'} else 2
+        return 0 if status['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'} else 2
     if args.cmd == "capture-google":
         from .google_adapter import capture_google
         if Path(args.out).exists():
