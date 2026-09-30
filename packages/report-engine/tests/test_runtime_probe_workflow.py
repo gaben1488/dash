@@ -58,3 +58,11 @@ def test_probe_preserves_unknown_cache_state(monkeypatch, capsys):
     output = run_probe(monkeypatch, capsys, state='unknown')
     rows = [json.loads(line) for line in output.splitlines()]
     assert next(row['source_cache']['state'] for row in rows if 'source_cache' in row) == 'unknown'
+
+
+def test_probe_uses_shell_failure_handling_without_corrupting_python_heredoc():
+    root = Path(__file__).resolve().parents[3]
+    source = (root / '.github/workflows/report-runtime-probe.yml').read_text()
+    # drone-ssh script_stop inserts shell statements inside heredoc payloads.
+    assert 'script_stop: true' not in source
+    assert 'set -euo pipefail' in source
