@@ -59,6 +59,46 @@ jobs:
                 summary = {'last_report_status': 'UNAVAILABLE'}
             print(json.dumps(summary))
             
+            def formula_summary(model, payloads):
+                from collections import Counter
+                allowed = {'FORMULA_EVIDENCE_MISSING', 'FORMULA_GRID_INCOMPLETE', 'FORMULA_CONTEXT_MISSING',
+                           'FORMULA_CONTEXT_CHANGED', 'FORMULA_CONTEXT_INVALID', 'FORMULA_CELL_INVALID',
+                           'FORMULA_FUNCTION_UNVERIFIED', 'FORMULA_DEPENDENCY_NOT_CAPTURED',
+                           'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED'}
+                issues = (model.get('formula_dependencies') or {}).get('issues') or []
+                counts = dict(Counter(i.get('code') if i.get('code') in allowed else 'UNRECOGNIZED_ERROR'
+                                      for i in issues if isinstance(i, dict)))
+                index = {p['source_id']: p.get('metadata', {}).get('formula_evidence', {}) for p in payloads}
+                geometry = []
+                for issue in issues:
+                    if not isinstance(issue, dict) or issue.get('code') != 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED':
+                        continue
+                    source = index.get(issue.get('source_id'), {})
+                    target = index.get(issue.get('target_source_id') or issue.get('source_id'), {})
+                    item = {prefix + key: block.get(key) if type(block.get(key)) is int
+                            and 0 < block[key] <= 10000000 else None
+                            for prefix, block in [('source_', source), ('target_', target)]
+                            for key in ('rows', 'columns')}
+                    if item not in geometry:
+                        geometry.append(item)
+                return {'issue_counts': counts, 'range_geometry': geometry[:8]}
+            # End formula summary
+            try:
+                import re
+                attempt_id = status.get('attempt_id') if isinstance(status, dict) else None
+                if not isinstance(attempt_id, str) or re.fullmatch('[a-f0-9]{32}', attempt_id) is None:
+                    raise ValueError('No safe candidate')
+                root = Path('data/reports/attempts') / attempt_id / 'bundle'
+                model = json.loads((root / 'report_model.json').read_text())
+                payloads = []
+                for path in (root / 'snapshot_bundle/payloads').glob('*.json'):
+                    if path.is_symlink():
+                        raise ValueError('Unsafe payload')
+                    payloads.append(json.loads(path.read_text()))
+                print(json.dumps({'formula_check': formula_summary(model, payloads)}))
+            except (OSError, ValueError, TypeError):
+                print(json.dumps({'formula_check': 'UNAVAILABLE'}))
+            
             def fetch(path):
                 step = ('health' if path == '/api/health' else 'report' if path == '/api/report'
                         else 'release_context' if path.startswith('/api/report-releases?')
