@@ -7,9 +7,9 @@ import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
-from .constants import GRBS_ORDER
 from .google_adapter import GoogleReadClient
 from .raw_pipeline import validate_ledger_contract
+from .source_contract import registry_grbs_order
 
 INPUT_NAME = 'aemr-report-runtime-inputs-v1.json'
 
@@ -19,7 +19,7 @@ def validate_inputs(registry, ledger):
     sources = registry.get('sources') if isinstance(registry, dict) else None
     if not isinstance(sources, list) or not all(isinstance(x, dict) for x in sources):
         raise ValueError('INPUT_REGISTRY_INVALID')
-    if sorted(str(s.get('grbs')) for s in sources if s.get('role') == 'master') != sorted(GRBS_ORDER):
+    if sorted(str(s.get('grbs')) for s in sources if s.get('role') == 'master') != sorted(registry_grbs_order(registry)):
         raise ValueError('INPUT_MASTER_SET_INVALID')
     ids = set(); paths = set(); sheets = set()
     for s in sources:

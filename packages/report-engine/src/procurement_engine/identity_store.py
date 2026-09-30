@@ -188,7 +188,7 @@ class IdentityStore:
                     continue
                 meta = payload['metadata']
                 rows.extend(normalize_master_values(payload['semantic_values'], snapshot_id=sid,
-                    expected_grbs=meta['grbs'], data_start_row=3, source_id=payload['provider_id'],
+                    expected_grbs=meta['grbs'], data_start_row=meta.get('header_rows', 3), source_id=payload['provider_id'],
                     sheet_name=meta['sheet_title']))
             rows = [replace(r, procurement_uid=uids.get(r.physical_row_key)) for r in rows]
             return self.backfill_plan_signatures(rows, snapshot_id=sid)

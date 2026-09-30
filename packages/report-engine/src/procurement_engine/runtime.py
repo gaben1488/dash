@@ -16,7 +16,6 @@ from .publication_store import PublicationStore
 from .raw_pipeline import (
     build_from_capture,
     bundle_from_capture,
-    validate_ledger_contract,
 )
 from .recommendation_history import read_google_history
 from .snapshot import canonical_semantic_hash
@@ -66,7 +65,9 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         try:
             registry = _load(registry_path)
             ledger = _load(ledger_path)
-            validate_ledger_contract(ledger)
+            from .runtime_inputs import validate_inputs
+
+            validate_inputs(registry, ledger)
             stage = 'acquisition'
             client = client or GoogleReadClient()
             ledger, _, history_metadata, history_package = read_google_history(client, ledger, include_package=True)

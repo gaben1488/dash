@@ -64,7 +64,7 @@ def build_report_model(snapshot: dict, ledger: list[dict]) -> dict:
             "renderer_tables": renderer_tables,
             "renderer_header": ["№ п/п", "Рекомендация", "Ответ ГРБС на рекомендацию", f"Решение УЭР / статус на {snapshot.get('report_date')}"],
         },
-        "grbs_order": GRBS_ORDER,
+        "grbs_order": list(snapshot.get("grbs_order", GRBS_ORDER)),
         "contract": {"report_model_version": "report-model-v1.1.0"},
     }
 

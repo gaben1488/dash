@@ -314,3 +314,47 @@ def test_same_original_document_is_parsed_once_for_multiple_verifications(monkey
     assert recommendation_links.verify_saved_report_origin(rec, TEST_DOCUMENTS)
     assert recommendation_links.verify_saved_report_origin(rec, TEST_DOCUMENTS)
     assert len(calls) == 1
+
+
+def test_complete_group_links_each_own_subject_amount_and_uid_without_claiming_merge():
+    text = ('Объединить позиции 42, 43 в одну закупку. '
+            'Позиция 42 (Поставка бумаги) на сумму 46,00 тыс. руб.; '
+            'позиция 43 (Поставка картриджей) на сумму 17,00 тыс. руб.')
+    second = replace(row(), source_row_no='43', procurement_id='43', subject='Поставка картриджей',
+                     plan_mb=17, procurement_uid='PUR-second', row_number=5)
+    result = resolve(recommendation(text), [row(), second])
+    assert result['status'] == 'CONFIRMED'
+    assert result['business_ids'] == ['42', '43']
+    assert result['procurement_uids'] == ['PUR-synthetic', 'PUR-second']
+    assert result['fulfillment'] == 'UNKNOWN'
+    assert result['origin']['document_sha256']
+
+
+@pytest.mark.parametrize('change', [{'plan_mb': 63}, {'subject': 'Другой предмет'},
+    {'procurement_uid': None}, {'procurement_uid': 'PUR-synthetic'}])
+def test_group_requires_every_member_not_combined_money_or_reused_identity(change):
+    text = ('Объединить позиции 42, 43 в одну закупку. '
+            'Позиция 42 (Поставка бумаги) на сумму 46,00 тыс. руб.; '
+            'позиция 43 (Поставка картриджей) на сумму 17,00 тыс. руб.')
+    second = replace(row(), source_row_no='43', subject='Поставка картриджей', plan_mb=17,
+                     procurement_uid='PUR-second', row_number=5)
+    assert resolve(recommendation(text), [row(), replace(second, **change)])['status'] != 'CONFIRMED'
+
+
+def test_previous_single_only_link_contract_keeps_its_original_replay_result():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Объединить позиции 42, 43 в одну закупку. '
+            'Позиция 42 (Поставка бумаги) на сумму 46,00 тыс. руб.; '
+            'позиция 43 (Поставка картриджей) на сумму 17,00 тыс. руб.')
+    rec = recommendation(text); rec['active_in_current_slice'] = True
+    second = replace(row(), source_row_no='43', subject='Поставка картриджей', plan_mb=17,
+                     procurement_uid='PUR-second', row_number=5)
+    old = review_recommendations([rec], [row(), second], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v1')[0]
+    assert old['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
+    assert old['semantic_status'] == 'REVIEW_REQUIRED'
+    new = review_recommendations([rec], [row(), second], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v2')[0]
+    assert new['current_link']['status'] == 'CONFIRMED'
+    assert new['dimensions']['grouping_status'] == 'UNKNOWN'

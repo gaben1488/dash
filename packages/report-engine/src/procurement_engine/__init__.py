@@ -4,7 +4,7 @@ Core calculations consume frozen data. Google acquisition and DOCX rendering
 are explicit adapters; published projections share one ReportModel.
 """
 
-__version__ = "1.5.0rc8"
+__version__ = "1.5.0rc9"
 RULES_VERSION = "procurement-rules-v1.1.0"
 RECOMMENDATION_RULES_VERSION = "recommendations-v2.0.0"
 SNAPSHOT_CONTRACT_VERSION = "snapshot-v2.2.0"

@@ -7,10 +7,12 @@ from collections.abc import Iterable, Sequence
 from .fact_model import is_procurement_row
 from .models import ProcurementRow, ValidationIssue
 from .normalize import (
+    NO_DATE_MARKERS,
     clean_text,
     normalize_id,
     normalize_method,
     parse_date,
+    parse_integer,
     to_decimal,
 )
 from .rule_catalog import DEFAULT_RULE_CATALOG
@@ -71,6 +73,21 @@ def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: 
         ctx = {"grbs": grbs, "source_id": source_id, "sheet": sheet_name,
                "row": rn, "procurement_id": pid, "row_key": source_row_key(source_id, sheet_name, rn, pid)}
 
+        for column, label, maximum in ((14, 'PLAN_QUARTER', 4), (15, 'PLAN_YEAR', 9999),
+                                        (17, 'FACT_QUARTER', 4), (18, 'FACT_YEAR', 9999)):
+            raw = _cell(row, column)
+            if clean_text(raw).casefold() in NO_DATE_MARKERS:
+                continue
+            number = parse_integer(raw)
+            if number is None or not 1 <= number <= maximum:
+                issues.append(ValidationIssue('ERROR', 'INVALID_' + label,
+                    f'{grbs} row {rn}: calendar period must be a valid whole number', ctx))
+        for column, label in ((13, 'PLAN_DATE'), (16, 'FACT_DATE')):
+            raw = _cell(row, column)
+            if clean_text(raw).casefold() not in NO_DATE_MARKERS and parse_date(raw) is None:
+                issues.append(ValidationIssue('ERROR', 'INVALID_' + label,
+                    f'{grbs} row {rn}: invalid calendar date cannot be treated as a missing date', ctx))
+
         plan = [_num(_cell(row, i)) for i in (7, 8, 9)]
         fact = [_num(_cell(row, i)) for i in (21, 22, 23)]
         saving = [_num(_cell(row, i)) for i in (25, 26, 27)]
@@ -86,7 +103,7 @@ def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: 
 
         planned_date = _cell(row, 13)
         pq = int(_num(_cell(row, 14))) if _num(_cell(row, 14)) in (1, 2, 3, 4) else None
-        py = int(_num(_cell(row, 15))) if _num(_cell(row, 15)) else None
+        py = parse_integer(_cell(row, 15))
         dy, dq = _year_from_date(planned_date), _quarter_from_date(planned_date)
         if dy and py and dy != py:
             issues.append(ValidationIssue("ERROR", "PLAN_YEAR_DATE_MISMATCH", f"{grbs} row {rn}: P != year(N)", ctx))
@@ -95,7 +112,7 @@ def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: 
 
         actual_date = _cell(row, 16)
         fq = int(_num(_cell(row, 17))) if _num(_cell(row, 17)) in (1, 2, 3, 4) else None
-        fy = int(_num(_cell(row, 18))) if _num(_cell(row, 18)) else None
+        fy = parse_integer(_cell(row, 18))
         ay, aq = _year_from_date(actual_date), _quarter_from_date(actual_date)
         if ay and fy and ay != fy:
             issues.append(ValidationIssue("ERROR", "FACT_YEAR_DATE_MISMATCH", f"{grbs} row {rn}: S != year(Q)", ctx))
@@ -251,7 +268,7 @@ def classify_future_context(raw_row: Sequence, *, target_year: int) -> str:
     fields.  Phrase matching may propose a class but never invent a missing month.
     """
     planned_date = parse_date(_cell(raw_row, 13))
-    planned_year = int(_num(_cell(raw_row, 15))) if _num(_cell(raw_row, 15)) else None
+    planned_year = parse_integer(_cell(raw_row, 15))
     year_s = str(target_year)
     if planned_year == target_year or (planned_date and planned_date.startswith(f"{target_year}-")):
         return f"STRUCTURED_PLAN_{target_year}"
