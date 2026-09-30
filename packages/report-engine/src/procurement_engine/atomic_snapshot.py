@@ -10,7 +10,9 @@ from .snapshot import _snapshot_id, canonical_semantic_hash
 
 
 class AtomicSnapshotError(RuntimeError):
-    pass
+    def __init__(self, message, *, evidence=None):
+        super().__init__(message)
+        self.evidence = evidence
 
 
 @dataclass(frozen=True)
@@ -79,7 +81,15 @@ def _validate_adapters(adapters: Sequence[SnapshotSourceAdapter]) -> None:
 
 
 def _read_revision_map(adapters: Sequence[SnapshotSourceAdapter]) -> dict[str, str | None]:
-    return {a.source_id: a.revision_token() for a in adapters}
+    providers, revisions = {}, {}
+    for adapter in adapters:
+        if getattr(adapter, 'revision_scope', None) == 'provider':
+            if adapter.provider_id not in providers:
+                providers[adapter.provider_id] = adapter.revision_token()
+            revisions[adapter.source_id] = providers[adapter.provider_id]
+        else:
+            revisions[adapter.source_id] = adapter.revision_token()
+    return revisions
 
 
 def _validate_payload(adapter: SnapshotSourceAdapter, payload: SourcePayload) -> None:
@@ -166,7 +176,8 @@ def capture_atomic_snapshot(adapters: Sequence[SnapshotSourceAdapter], *, report
 
     before, after = last_drift or ({}, {})
     changed = [k for k in sorted(set(before) | set(after)) if before.get(k) != after.get(k)]
-    raise AtomicSnapshotError(f"SOURCE_CHANGED_DURING_FREEZE:{','.join(changed)}")
+    raise AtomicSnapshotError(f"SOURCE_CHANGED_DURING_FREEZE:{','.join(changed)}",
+                              evidence={"attempts": max_attempts, "before": before, "after": after})
 
 
 def validate_at_publish(adapters: Sequence[SnapshotSourceAdapter], frozen_after: dict[str, str | None]) -> list[ValidationIssue]:

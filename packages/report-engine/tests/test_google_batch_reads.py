@@ -95,3 +95,30 @@ def test_wide_formula_grid_keeps_requested_cell_bound_and_last_row():
     assert chunks[0][0] == 1
     assert chunks[-1][1] == 1601
     assert all(left[1] + 1 == right[0] for left, right in pairwise(chunks))
+
+
+def test_book_metadata_is_shared_by_tabs_and_refreshed_at_each_revision_barrier(monkeypatch):
+    client = GoogleReadClient('synthetic')
+    calls = []
+    width = [3]
+
+    def get(url, params):
+        calls.append(url)
+        if 'drive/v3' in url:
+            return {'mimeType': 'application/vnd.google-apps.spreadsheet', 'version': '1'}
+        return {'sheets': [{'properties': {'sheetId': 0, 'title': 'First',
+                    'gridProperties': {'rowCount': 3, 'columnCount': width[0]}}},
+                {'properties': {'sheetId': 1, 'title': 'Second',
+                    'gridProperties': {'rowCount': 3, 'columnCount': width[0]}}}],
+                'namedRanges': []}
+
+    monkeypatch.setattr(client, '_get', get)
+    client.revision('book')
+    assert client.grid('book', 0)['gridProperties']['columnCount'] == 3
+    client.formula_context('book')
+    client.grid('book', 1)
+    assert len([x for x in calls if 'sheets.googleapis' in x]) == 1
+    width[0] = 4
+    client.revision('book')
+    assert client.grid('book', 1)['gridProperties']['columnCount'] == 4
+    assert len([x for x in calls if 'sheets.googleapis' in x]) == 2

@@ -252,3 +252,23 @@ def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tm
     assert updated['status'] == 'VERIFIED'
     assert not updated.get('reused_publication')
     assert updated['snapshot_id'] != first['snapshot_id']
+
+
+def test_revision_versions_are_private_and_public_status_keeps_only_code(tmp_path):
+    from procurement_engine.atomic_snapshot import AtomicSnapshotError
+
+    registry, ledger = inputs(tmp_path)
+
+    class Drift(Google):
+        def revision(self, provider):
+            raise AtomicSnapshotError('SOURCE_CHANGED_DURING_FREEZE:private-source',
+                evidence={'before': {'private-source': 'private-v1'},
+                          'after': {'private-source': 'private-v2'}})
+
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=Drift())
+    assert status['error_code'] == 'SOURCE_CHANGED_DURING_FREEZE'
+    assert 'private-' not in json.dumps(status)
+    error = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
+    assert error['evidence'] == {'before': {'private-source': 'private-v1'},
+                                 'after': {'private-source': 'private-v2'}}
