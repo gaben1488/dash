@@ -9,11 +9,26 @@ import io
 import json
 import os
 import sys
+import time
 import urllib.request
 import zipfile
 from datetime import date, timedelta
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from xml.etree import ElementTree
+
+
+def fetch_when_ready(fetch, path, *, sleep=time.sleep):
+    """Allow a cold HTTP cache to become ready; never retry semantic failures."""
+    for attempt in range(7):
+        try:
+            return fetch(path)
+        except HTTPError as error:
+            if error.code != 503 or attempt == 6:
+                raise
+            error.close()
+            sleep(2 ** attempt)
+    raise RuntimeError('REPORT_EXPORT_READINESS_BUDGET_EXHAUSTED')
 
 
 def check_exports(fetch):
@@ -53,13 +68,16 @@ def main():
                 raise ValueError('REPORT_EXPORT_RESPONSE_TOO_LARGE')
             return payload
     try:
-        print(json.dumps(check_exports(fetch)))
+        print(json.dumps(check_exports(lambda path: fetch_when_ready(fetch, path))))
         return 0
     except Exception as error:  # noqa: BLE001 — sanitize all deployment output.
         code = str(error)
         allowed = {'REPORT_EXPORT_CONTEXT_MISSING', 'REPORT_EXPORT_SNAPSHOT_MISMATCH',
                    'REPORT_EXPORT_DOCUMENT_INVALID', 'REPORT_EXPORT_RESPONSE_TOO_LARGE'}
-        print(code if code in allowed else 'REPORT_EXPORT_HTTP_CHECK_FAILED', file=sys.stderr)
+        public = code if code in allowed else 'REPORT_EXPORT_HTTP_CHECK_FAILED'
+        if isinstance(error, HTTPError) and error.code in {400, 401, 403, 404, 429, 500, 502, 503, 504}:
+            public = 'REPORT_EXPORT_HTTP_' + str(error.code)
+        print(public, file=sys.stderr)
         return 1
 
 
