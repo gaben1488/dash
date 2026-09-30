@@ -26,7 +26,7 @@ jobs:
             git fetch --quiet origin "$candidate"
             work=$(mktemp -d /tmp/report-inspect.XXXXXX)
             trap 'rm -rf "$work"' EXIT
-            git show "$candidate:.github/report-root-cause-inspect.py" > "$work/inspect.py"
+            git show "$candidate:.github/report-root-cause-inspect.py" > "$work/root_probe.py"
             cd deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
@@ -35,4 +35,4 @@ jobs:
               --tmpfs /tmp:rw,nosuid,nodev,size=256m \
               --volumes-from "$server":ro \
               -v "$work:/probe:ro" \
-              --entrypoint /opt/report-env/bin/python "$image" /probe/inspect.py
+              --entrypoint /opt/report-env/bin/python "$image" /probe/root_probe.py
