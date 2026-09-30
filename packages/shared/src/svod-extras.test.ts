@@ -13,6 +13,17 @@ import { parseSvodExtras } from './svod-grid.js';
 /** Пустая строка листа нужной ширины. */
 const empty = (): unknown[] => new Array(21).fill('');
 
+describe('parseSvodExtras — год итоговой строки', () => {
+  it.each(['ИТОГО 2027:', 'ИТОГО 2025:', 'ИТОГО 2026+2027:', 'ИТОГО:'])(
+    'не записывает %s поверх подтверждённого итога 2026', (label) => {
+      const values = [cell(empty(), 0, 'ВСЕ'),
+        cell(cell(empty(), 0, 'ИТОГО 2026:'), 10, 100),
+        cell(cell(empty(), 0, label), 10, 700)];
+      expect(parseSvodExtras(values).scopes[0]?.totalY2026?.planTotal).toBe(100);
+    },
+  );
+});
+
 function cell(row: unknown[], index: number, value: unknown): unknown[] {
   row[index] = value;
   return row;

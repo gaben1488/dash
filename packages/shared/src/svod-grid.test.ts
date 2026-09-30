@@ -49,6 +49,14 @@ function buildSheet(): unknown[][] {
 describe('parseSvodGrid — структурный ридер СВОД ТД-ПМ', () => {
   const blocks = parseSvodGrid(buildSheet());
 
+  it.each(['Итого ЭА 2027', 'Итого ЭА 2025', 'Итого ЭА 2026+2027', 'Итого ЭА'])(
+    'не записывает %s поверх подтверждённого итога 2026', (label) => {
+      const values = [row({ A: 'ВСЕ', B: 1, C: 2026, D: 1 }),
+        row({ A: 'Итого ЭА 2026', K: 100 }), row({ A: label, K: 700 })];
+      expect(parseSvodGrid(values)[0]?.totalY2026?.planTotal).toBe(100);
+    },
+  );
+
   it('находит все блоки: ВСЕ×(КП,ЕП) + УЭР×КП', () => {
     expect(blocks.map(b => `${b.scope}:${b.method}`)).toEqual(['ВСЕ:КП', 'ВСЕ:ЕП', 'УЭР:КП']);
   });

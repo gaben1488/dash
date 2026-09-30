@@ -419,6 +419,16 @@ describe('buildReport — official: числа, которые лист счит
     expect(report.official!.remainderToConclude!.total).toBe(295447.27);
   });
 
+  it.each([2025, 2027])('не показывает официальный ярус 2026 в отчёте за %s год', (year) => {
+    const report = buildReport({
+      rowsByDept: { 'УЭР': [makeRow({ planYear: year })] },
+      svodExtras: extras(),
+    }, { ...OPTS, year });
+    expect(report.period.year).toBe(year);
+    expect(report.integralSummary.money.plan.total).toBe(300);
+    expect(report.official).toBeUndefined();
+  });
+
   it('ярус не передан — поля нет вовсе (честная пустота, не ноль)', () => {
     const report = buildReport({ rowsByDept: fixtureRows() }, OPTS);
     expect(report.official).toBeUndefined();
@@ -458,6 +468,17 @@ describe('buildReport — деньги года: официал СВОД и ст
   };
   const extras = (): SvodSheetExtras => ({
     scopes: [{ scope: 'УЭР', totalY2026 }],
+  });
+
+  it.each([2025, 2027])('не подменяет деньги управления за %s год итогом 2026', (year) => {
+    const report = buildReport({
+      rowsByDept: { 'УЭР': [makeRow({ planYear: year })] },
+      svodExtras: { scopes: [{ scope: 'ВСЕ', totalY2026 }, ...extras().scopes] },
+    }, { ...OPTS, year });
+    const uer = report.grbsBlocks.find((b) => b.dept === 'УЭР')!;
+    expect(uer.money.plan.total).toBe(300);
+    expect(uer.svodYearMoney).toBeUndefined();
+    expect(report.official).toBeUndefined();
   });
 
   it('официальные деньги года — из строки «ИТОГО 2026:» скоупа, origin svod, с ячейками', () => {
