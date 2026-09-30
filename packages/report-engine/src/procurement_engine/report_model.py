@@ -161,7 +161,7 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
             "recommendation": r.get("recommendation_text") or "",
             "grbs_response": r.get("grbs_response_original") or "",
             "uer_decision": r.get("uer_decision_original") or "",
-            "semantic_status_ru": r.get("semantic_status_ru") or r.get("semantic_status") or "",
+            "semantic_status_ru": r.get("semantic_status_ru", r.get("semantic_status") or ""),
             "status_evidence": r.get("status_evidence") or "",
         })
     for rows in rec_by_grbs.values():

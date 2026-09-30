@@ -37,6 +37,11 @@ def metric_block(rows, *, report_year, as_of=None, method=None, planned_quarter=
         'partial_fact_without_completion_amount': sum((money(r,'fact') for r in partial), Decimal(0)),
         'confirmed_saving_amount': sum((money(r,'saving') for r in eligible), Decimal(0)),
     }
+    for prefix, population in [('plan', selected), ('fact', done), ('remain', remaining)]:
+        for budget in ('fb', 'kb', 'mb'):
+            field = ('plan' if prefix == 'remain' else prefix) + '_' + budget
+            exact[prefix + '_' + budget + '_amount'] = sum(
+                (Decimal(str(getattr(r, field))) for r in population), Decimal(0))
     exact['deviation_amount'] = exact['monetary_fact_amount'] - exact['plan_amount']
     exact['contracted_share_pct'] = (exact['monetary_fact_amount'] / exact['plan_amount'] * 100) if exact['plan_amount'] else None
     block = {'plan_count':len(selected),'fact_count':len(done),'remain_count':len(remaining),
