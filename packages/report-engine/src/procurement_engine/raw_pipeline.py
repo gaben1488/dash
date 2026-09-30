@@ -12,6 +12,7 @@ from .adapters import normalize_master_values
 from .atomic_snapshot import AtomicSnapshotBundle, SourcePayload
 from .canonical_metrics import calendar_facts, completed, metric_block
 from .constants import GRBS_ORDER
+from .diagnostics import project_diagnostics
 from .fact_model import is_procurement_row
 from .formula_dependencies import audit_formula_dependencies
 from .metrics import current_quarter
@@ -42,14 +43,16 @@ from .qa import (
     validate_master_values,
 )
 from .release_gates import validate_recorded_state_model
+from .report_content import build_business_sections
 from .report_model import build_report_model_v3
 from .rule_catalog import DEFAULT_RULE_CATALOG
 from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc7'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc8+reviewed-actions-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc8'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc8+reviewed-actions-v1+verified-original-links-v1'
+
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
 
@@ -132,6 +135,18 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         source_manifest.append({'source_id':sid, 'provider_id':sid, 'role':role,
             'revision_or_modified_at':token, 'content_hash':token, 'canonical_semantic_hash':token,
             'content_hash_kind':'canonical_semantic_values'})
+    history = capture.get('recommendation_history_evidence')
+    if history is not None:
+        from .recommendation_history import enroll_history_package
+
+        enroll_history_package(history['package'], ledger or [])
+        sid = 'RECOMMENDATION_HISTORY_EVIDENCE'
+        token = canonical_semantic_hash(history['metadata'])
+        payloads.append(SourcePayload(sid, 'historical_report_evidence', sid, history))
+        before[sid] = after[sid] = token
+        source_manifest.append({'source_id': sid, 'provider_id': sid, 'role': 'historical_report_evidence',
+            'revision_or_modified_at': token, 'content_hash': canonical_semantic_hash(history),
+            'canonical_semantic_hash': canonical_semantic_hash(history), 'content_hash_kind': 'canonical_semantic_values'})
     snapshot_id = _snapshot_id(report_date=capture['report_date'], report_year=capture['report_year'],
         sources=source_manifest, rules_version=RAW_RULES_VERSION, renderer_version=RENDERER_VERSION, mode='CANONICAL')
     manifest = {'snapshot_id': snapshot_id, 'report_date': capture['report_date'], 'report_year': capture['report_year'],
@@ -174,7 +189,7 @@ def contributors(rows, year, quarter, as_of=None):
     return out
 
 
-def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None):
+def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None, documents=None, legacy=False):
     """Current observations and candidates, never inheritance of old current statuses.
 
     GRBS + business A narrows a candidate set but is not a persisted identity.
@@ -184,6 +199,8 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
     for row in rows:
         if row.source_row_no:
             index[row.grbs, row.source_row_no].append(row)
+    from .recommendation_links import resolve_current_link, verify_saved_report_origin
+
     output = []
     for old in ledger:
         r = {k: old.get(k) for k in ('recommendation_id','grbs','row_no','table_no','section','recommendation_type',
@@ -214,21 +231,40 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
         if observations:
             gaps.append('Кандидаты в первичном реестре: строки ' + ', '.join(str(x.row_number) for x in unique.values()) + '.')
         gaps.append('Совпадение номера не подтверждает постоянную идентичность; исполнение не установлено.')
-        r.update(semantic_status='REVIEW_REQUIRED' if active else 'SUPERSEDED',
-            semantic_status_ru='ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ СВЯЗИ' if active else 'ЗАМЕЩЕННАЯ ВЕРСИЯ',
-            current_procurement_ids=[], procedure_binding_reliable={'reliable_codes':[], 'details':[]},
+        proof = verify_saved_report_origin(old, documents or {})
+        link = resolve_current_link(old, rows, report_date=report_date, snapshot_id=snapshot_id, verified_origin=proof)
+        confirmed = active and link['status'] == 'CONFIRMED'
+        r.update(semantic_status=('CURRENT_LINK_CONFIRMED' if confirmed else 'REVIEW_REQUIRED') if active else 'SUPERSEDED',
+            semantic_status_ru='', current_link=link,
+            current_procurement_ids=link['business_ids'] if confirmed else [], procedure_binding_reliable={'reliable_codes':[], 'details':[]},
             current_procurement_state='UNKNOWN', current_method=None, current_fact_date=[],
             status_evidence=' '.join(gaps),
             current_observations=observations, missing_business_ids=missing, ambiguous_business_ids=ambiguous,
             evidence_snapshot_id=snapshot_id,
             dimensions={'compliance_status':'UNKNOWN','execution_status':'UNKNOWN','grouping_status':'UNKNOWN',
-                        'evidence_quality':'IDENTITY_REVIEW_REQUIRED'})
-        r['business_finding'] = 'Текущая связь с исходной закупкой не подтверждена; исполнение рекомендованного действия не установлено.'
-        if active:
+                        'evidence_quality':'VERIFIED_ORIGIN_AND_CURRENT_IDENTITY' if confirmed else 'VERIFIED_ORIGIN' if link['origin'] else 'IDENTITY_REVIEW_REQUIRED'})
+        if active and not legacy:
             from .recommendation_evidence import confirmed_result
-            confirmed = confirmed_result(old, rows, identity_evidence, report_date)
-            if confirmed is not None:
-                r.update(confirmed)
+
+            reviewed = confirmed_result(old, rows, identity_evidence, report_date)
+            if reviewed is not None:
+                r.update(reviewed)
+            elif confirmed:
+                from .recommendation_evidence import (
+                    action_target_proven,
+                    evaluate_linked_action,
+                )
+
+                linked_rows = [row for row in rows if row.procurement_uid in link['procurement_uids']]
+                if action_target_proven(old, link['business_ids']):
+                    r.update(evaluate_linked_action(old, linked_rows, report_date,
+                        source_ids=link['business_ids'], evidence_quality='VERIFIED_ORIGIN_AND_CURRENT_IDENTITY'))
+        if legacy:
+            r.pop('current_link', None)
+            r.update(semantic_status='REVIEW_REQUIRED' if active else 'SUPERSEDED',
+                semantic_status_ru='ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ СВЯЗИ' if active else 'ЗАМЕЩЕННАЯ ВЕРСИЯ',
+                current_procurement_ids=[])
+            r['dimensions']['evidence_quality'] = 'IDENTITY_REVIEW_REQUIRED'
         output.append(r)
     return output
 
@@ -346,7 +382,12 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
                        'deadline':parse_date(c(0)) or c(0), 'source_ref':f"{queue['provider_id']}::{queue['sheet']}::{rn}"})
     snap={**bundle.manifest, 'model':aggregate_rows(rows,year,report_date), 'row_count':len(rows), 'active_procedures':len(active)}
     issues.extend(x.as_dict() for x in validate_snapshot(snap))
-    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], identity_evidence=identity_evidence)
+    documents = {}
+    if capture.get('recommendation_history_evidence') is not None:
+        from .recommendation_history import enroll_history_package
+
+        _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
+    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence)
     unresolved_recs=[r['recommendation_id'] for r in replay if r['active_in_current_slice'] and r['semantic_status']=='REVIEW_REQUIRED']
     if unresolved_recs:
         issues.append({'severity':'WARN','code':'RECOMMENDATION_LINK_UNCONFIRMED',
@@ -364,10 +405,11 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
+    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v1'
+    model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}
-    model['recommendations_v2']['review_required_ids']=[r['recommendation_id'] for r in replay
-        if r['active_in_current_slice'] and r['dimensions']['compliance_status'] == 'UNKNOWN']
+    model['recommendations_v2']['review_required_ids']=unresolved_recs
     from .recommendation_evidence import recommendation_counts
     model['management_summary'].update(recommendation_counts(replay))
     model['identity_review_evidence']=identity_evidence or []
@@ -400,12 +442,14 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['exact_metrics']={kind:{scope:metric_block(rows,report_year=year,as_of=report_date,method=method,
         planned_quarter=current_quarter(report_date) if scope=='quarter' else None)
         for scope in ('year','quarter')} for kind,method in (('competitive','ЭА'),('single_supplier','ЕП'))}
+    model['report_content'] = build_business_sections(rows, year=year, as_of=report_date,
+        grbs_order=model['grbs_order'], departmental_model=snap['model'])
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     from .independent_audit import audit_model
     model['independent_audit']=audit_model(capture,model)
     from .section_audit import audit_source_sections
-    section_errors = audit_source_sections(capture, model, ledger=ledger, identity_evidence=identity_evidence)
-    blockers=[i.as_dict() for i in validate_recorded_state_model(model,ledger=ledger)]
+    section_errors = audit_source_sections({**capture, 'identity_evidence': identity_result}, model, ledger=ledger, identity_evidence=identity_evidence)
+    blockers=[i.as_dict() for i in validate_recorded_state_model(model,ledger=ledger,documents=documents)]
     if section_errors:
         blockers.append({'severity':'ERROR','code':'SECTION_SOURCE_MISMATCH',
                          'message':'Обязательные разделы расходятся с исходными записями.',
@@ -419,6 +463,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
         if sum(m['plan_count'] for m in monthly)!=model['headline'][kind]['year']['plan_count']:
             raise ValueError('MONTHLY_PARITY_FAILED')
     dump(snap,out/'snapshot.json');dump(model,out/'report_model.json');dump(replay,out/'recommendation_review.json')
+    dump(project_diagnostics(model), out/'diagnostic_protocol.json')
     dump({'issues':issues,'counts':dict(Counter(i['code'] for i in issues))},out/'qa.json')
     dump({'attempts':[asdict(x) for x in attempts], 'shares':[asdict(x) for x in shares],
           'source_amount_unit':'руб.', 'active':active},out/'procedure_lifecycle.json')

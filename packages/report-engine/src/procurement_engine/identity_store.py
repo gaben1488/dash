@@ -1,4 +1,4 @@
-"""Persistent identity observations; exact continuity, never business-number-only joins.
+"""Persistent identity observations; unique plan continuity, never number-only joins.
 
 SQLite transactions serialize competing imports. Snapshots are immutable and
 idempotent. Identical duplicates and changed identifying fields stay unresolved. Missing
@@ -10,7 +10,7 @@ import sqlite3
 import uuid
 from collections import Counter, defaultdict
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +37,7 @@ def continuity_signature(row):
                 'stored_saving_total', 'include_saving', 'deviation_reason',
                 'grbs_comment', 'monitoring_note', 'missing_money_fields'):
         data.pop(key, None)
+    data['missing_plan_fields'] = sorted(set(row.missing_money_fields) & {'H', 'I', 'J'})
     return hashlib.sha256(encoded(data).encode()).hexdigest()
 
 
@@ -81,6 +82,15 @@ def anchor(row):
     return encoded([row.source_id,row.grbs,row.institution,row.subject,row.planned_year])
 
 
+def plan_signature(row):
+    fields = ('source_id', 'grbs', 'institution', 'subject', 'activity_kind',
+              'planned_date', 'planned_quarter', 'planned_year',
+              'plan_fb', 'plan_kb', 'plan_mb', 'stored_plan_total')
+    data = {key: getattr(row, key) for key in fields}
+    data['missing_plan_fields'] = sorted(set(row.missing_money_fields) & {'H', 'I', 'J'})
+    return hashlib.sha256(encoded(data).encode()).hexdigest()
+
+
 def _check_integrity(db):
     try:
         valid = [tuple(row) for row in db.execute('PRAGMA integrity_check')] == [('ok',)]
@@ -109,9 +119,81 @@ class IdentityStore:
                 uid TEXT NOT NULL, reviewer TEXT NOT NULL, reviewed_at TEXT NOT NULL,
                 evidence TEXT NOT NULL);
             ''')
+            db.execute('BEGIN IMMEDIATE')
+            if 'plan_signature' not in {r['name'] for r in db.execute('PRAGMA table_info(observations)')}:
+                db.execute('ALTER TABLE observations ADD COLUMN plan_signature TEXT')
     def connect(self):
         db=sqlite3.connect(self.path,timeout=30);db.row_factory=sqlite3.Row
         return db
+
+    def backfill_plan_signatures(self, rows, *, snapshot_id):
+        """Recover nullable migration metadata, never rewrite frozen import results."""
+        rows = list(rows)
+        if len({r.physical_row_key for r in rows}) != len(rows):
+            raise ValueError('IDENTITY_BACKFILL_LOCATORS_INVALID')
+        updated = 0
+        with closing(self.connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            locators = {r['locator'] for r in db.execute(
+                'SELECT locator FROM observations WHERE snapshot_id=?', (snapshot_id,))}
+            if not locators or {r.physical_row_key for r in rows} != locators:
+                raise ValueError('IDENTITY_BACKFILL_COVERAGE_INCOMPLETE')
+            for row in rows:
+                prior = db.execute('SELECT * FROM observations WHERE snapshot_id=? AND locator=?',
+                                   (snapshot_id, row.physical_row_key)).fetchone()
+                if (row.snapshot_id != snapshot_id or prior is None
+                    or prior['signature'] != signature(row) or prior['uid'] != row.procurement_uid):
+                    raise ValueError('IDENTITY_BACKFILL_EVIDENCE_MISMATCH')
+                fp = plan_signature(row)
+                if prior['plan_signature'] not in (None, fp):
+                    raise ValueError('IDENTITY_BACKFILL_SIGNATURE_CONFLICT')
+                if prior['plan_signature'] is None:
+                    db.execute('UPDATE observations SET plan_signature=? WHERE snapshot_id=? AND locator=?',
+                               (fp, snapshot_id, row.physical_row_key))
+                    updated += 1
+        return updated
+
+    def recover_latest_plan_signatures(self, bundle_roots):
+        """Recover the complete previous import from its sealed source payloads."""
+        from .adapters import normalize_master_values
+        from .snapshot_bundle_io import verify_persisted_bundle
+
+        with closing(self.connect()) as db:
+            latest = db.execute('SELECT snapshot_id FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
+            if latest is None:
+                return 0
+            sid = latest['snapshot_id']
+            missing = db.execute('SELECT count(*) FROM observations WHERE snapshot_id=? AND plan_signature IS NULL', (sid,)).fetchone()[0]
+            if not missing:
+                return 0
+        frozen = read_saved_identity(self.path, sid)
+        uids = {r['source_row_key']: r['procurement_uid'] for r in frozen['rows']}
+        for root in bundle_roots:
+            root = Path(root); path = root / 'manifest.json'
+            if not path.is_file():
+                continue
+            manifest = json.loads(path.read_text())
+            if manifest.get('snapshot_id') != sid:
+                continue
+            entries = manifest.get('payload_index') or []
+            if any(not isinstance(item.get('path'), str) or Path(item['path']).is_absolute()
+                   or '..' in Path(item['path']).parts for item in entries):
+                raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID')
+            if verify_persisted_bundle(root):
+                raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID')
+            rows = []
+            for item in entries:
+                payload = json.loads((root / item['path']).read_text())
+                if payload['role'] != 'master':
+                    continue
+                meta = payload['metadata']
+                rows.extend(normalize_master_values(payload['semantic_values'], snapshot_id=sid,
+                    expected_grbs=meta['grbs'], data_start_row=3, source_id=payload['provider_id'],
+                    sheet_name=meta['sheet_title']))
+            rows = [replace(r, procurement_uid=uids.get(r.physical_row_key)) for r in rows]
+            return self.backfill_plan_signatures(rows, snapshot_id=sid)
+        # Missing optional identity history must not erase current rows or invent links.
+        return 0
 
     def ingest(self,rows,*,snapshot_id,captured_at):
         instant=datetime.fromisoformat(captured_at)
@@ -139,8 +221,12 @@ class IdentityStore:
                 (previous['snapshot_id'],)), instant) if previous else []
             by_signature=defaultdict(list)
             for r in old:by_signature[r['signature']].append(r)
+            by_plan=defaultdict(list)
+            for r in old:
+                if r['plan_signature']:by_plan[r['plan_signature']].append(r)
             frequencies=Counter(signature(r) for r in rows)
             continuity_counts=Counter((continuity_signature(r), r.source_row_no) for r in rows)
+            plan_frequencies=Counter(plan_signature(r) for r in rows)
             result=[];assigned=set()
             for row in sorted(rows,key=lambda r:r.physical_row_key):
                 fp=signature(row);hits=by_signature[fp];uid=None
@@ -158,11 +244,20 @@ class IdentityStore:
                     uid=hits[0]['uid'];status='EXACT_CONTINUITY'
                     evidence['previous_locator']=hits[0]['locator']
                     evidence['review_ids']=json.loads(hits[0]['evidence']).get('review_ids', [])
-                elif len(continuity_hits) == 1 and continuity_counts[continuity_signature(row), row.source_row_no] == 1:
+                elif (len(continuity_hits) == 1 and continuity_counts[continuity_signature(row), row.source_row_no] == 1
+                      and plan_frequencies[plan_signature(row)] == 1 and len(by_plan[plan_signature(row)]) == 1):
                     prior = continuity_hits[0]
                     uid=prior['uid'];status='OBSERVATION_CONTINUITY'
                     evidence['previous_locator']=prior['locator']
                     evidence['review_ids']=json.loads(prior['evidence']).get('review_ids', [])
+                elif (plan_frequencies[plan_signature(row)] == 1
+                      and len(by_plan[plan_signature(row)]) == 1
+                      and by_plan[plan_signature(row)][0]['uid']
+                      and row.source_row_no == by_plan[plan_signature(row)][0]['business_id']):
+                    prior = by_plan[plan_signature(row)][0]
+                    uid = prior['uid']; status = 'PLAN_CONTINUITY'
+                    evidence.update(previous_locator=prior['locator'],
+                                    plan_signature=plan_signature(row), rule='unique-plan-continuity-v1')
                 elif hits or candidates:
                     status='REVIEW_REQUIRED'
                 else:
@@ -171,8 +266,11 @@ class IdentityStore:
                 if uid:assigned.add(uid)
                 item={'source_row_key':row.physical_row_key,'procurement_uid':uid,'status':status,'evidence':evidence}
                 result.append(item)
-                db.execute('INSERT INTO observations VALUES(?,?,?,?,?,?,?,?,?)',
-                    (snapshot_id,row.physical_row_key,fp,row.source_id,row.source_row_no,anchor(row),uid,status,encoded(evidence)))
+                db.execute('''INSERT INTO observations
+                    (snapshot_id,locator,signature,source_id,business_id,anchor,uid,status,evidence,plan_signature)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                    (snapshot_id,row.physical_row_key,fp,row.source_id,row.source_row_no,anchor(row),uid,status,
+                     encoded(evidence),plan_signature(row)))
             missing=sorted({r['uid'] for r in old if r['uid']} - assigned)
             outcome={'snapshot_id':snapshot_id,'captured_at':captured_at,'rows':result,
                      'unresolved_count':sum(r['procurement_uid'] is None for r in result),
@@ -236,3 +334,31 @@ def read_identity_result(path, snapshot_id, as_of):
         if record is None:
             raise ValueError('IDENTITY_SNAPSHOT_UNKNOWN')
         return _project_result(db, json.loads(record['result']), datetime.fromisoformat(as_of))
+
+
+def read_saved_identity(path, snapshot_id, *, as_of=None):
+    """Read an independently frozen database without migrations or writes."""
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        _check_integrity(db)
+        snapshot = db.execute('SELECT result FROM snapshots WHERE snapshot_id=?', (snapshot_id,)).fetchone()
+        if snapshot is None:
+            raise ValueError('IDENTITY_SNAPSHOT_EVIDENCE_MISSING')
+        result = json.loads(snapshot['result'])
+        observations = {r['locator']: r for r in db.execute(
+            'SELECT * FROM observations WHERE snapshot_id=?', (snapshot_id,))}
+        records = result.get('rows', [])
+        if (result.get('snapshot_id') != snapshot_id or len(records) != len(observations)
+            or len({r['source_row_key'] for r in records}) != len(records)):
+            raise ValueError('IDENTITY_SNAPSHOT_EVIDENCE_INVALID')
+        for record in records:
+            row = observations.get(record['source_row_key'])
+            if row is None or record != {'source_row_key': row['locator'], 'procurement_uid': row['uid'],
+                'status': row['status'], 'evidence': json.loads(row['evidence'])}:
+                raise ValueError('IDENTITY_SNAPSHOT_EVIDENCE_INVALID')
+        if as_of is not None:
+            instant = datetime.fromisoformat(as_of)
+            if instant.tzinfo is None:
+                raise ValueError('IDENTITY_CAPTURE_TIMEZONE_MISSING')
+            return _project_result(db, result, instant)
+        return result

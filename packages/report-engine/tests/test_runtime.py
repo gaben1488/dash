@@ -9,6 +9,9 @@ from test_publication_store import PublicationStore, candidate, revisions
 
 
 class Google:
+    def _get(self, url, params):
+        return {'files': []}
+
     def revision(self, provider):
         return 'revision1'
 

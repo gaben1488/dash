@@ -1,9 +1,41 @@
 """Current action evidence from reviewed historical links and frozen primary rows."""
+import re
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 
 from .normalize import normalize_id, parse_date, to_decimal
+
+
+def action_target_proven(record, source_ids):
+    """Accept only a complete unconditional action, never an embedded mention."""
+    text = ' '.join((record.get('recommendation_text') or '').casefold().split())
+    prefix = r'(?:рекомендуем\s+)?'
+    number = r'\d+(?:[/-]\d+)?'
+    kind = record.get('recommendation_type')
+    if kind in {'CHANGE_METHOD_EA', 'CHANGE_METHOD_EP'}:
+        action = (rf'(?:позицию\s+{number}\s+(?:вынести|перевести|провести)'
+                  rf'|(?:вынести|перевести|провести)\s+(?:закупку|позицию\s+{number}))\s+на\s+эа')
+        anchor = r'(?:\s*\([^()]+\)\s+на\s+сумму\s+\d+(?:[.,]\d+)?\s+тыс\.\s*руб\.)?'
+        match = re.fullmatch(prefix + action + anchor + r'\.?', text)
+        if not match:
+            return False
+        explicit = re.findall(number, re.split(r'\bна\s+эа\b', text, maxsplit=1)[0])
+        wanted = {normalize_id(value) for value in source_ids}
+        return ({normalize_id(value) for value in explicit} == wanted if explicit else len(wanted) == 1)
+    if kind == 'MERGE_PROCUREMENTS':
+        match = re.fullmatch(prefix + rf'объединить\s+позиции\s+({number}(?:\s*,\s*{number})+)\s+в\s+одну\s+закупку\.?', text)
+        return bool(match and {normalize_id(value) for value in re.findall(number, match[1])}
+                    == {normalize_id(value) for value in source_ids})
+    if kind == 'CHANGE_AMOUNT':
+        target = re.fullmatch(prefix + r'(?:установить\s+(?:плановую\s+)?сумму\s+|изменить\s+(?:плановую\s+)?сумму\s+до\s+)(\d+(?:[.,]\d+)?)\s+тыс\.\s*руб\.', text)
+        return bool(target and record.get('target_amount_thousand') is not None
+                    and to_decimal(target[1]) == to_decimal(record['target_amount_thousand']))
+    if kind == 'MOVE_PLANNED_DATE':
+        match = re.fullmatch(prefix + r'перенести\s+плановую\s+дату\s+на\s+(\d{2}\.\d{2}\.\d{4})\.?', text)
+        target = parse_date(record.get('target_planned_date'))
+        return bool(match and target is not None and parse_date(match[1]) == target)
+    return False
 
 
 def confirmed_result(record, rows, reviews, report_date):
@@ -36,16 +68,23 @@ def confirmed_result(record, rows, reviews, report_date):
         return None
     uids = sorted({next(iter(targets)) for targets in links.values()})
     current = [by_uid[uid][0] for uid in uids]
+    return evaluate_linked_action(record, current, report_date, source_ids=wanted, proofs=proofs)
+
+
+def evaluate_linked_action(record, current, report_date, *, source_ids, proofs=(),
+                           evidence_quality='REVIEWED_IDENTITY+PRIMARY_FIELDS'):
+    """Evaluate primary fields only after the caller has verified the full link."""
+    wanted = set(source_ids)
+    uids = sorted({row.procurement_uid for row in current})
     methods = {row.method for row in current}
     facts = sorted({row.actual_date for row in current if row.actual_date and row.actual_date <= parse_date(report_date)})
     execution = ('FACT_RECORDED' if all(row.actual_date in facts for row in current)
                  else 'PARTIAL_RECORDED_FACT' if facts else 'PLANNED')
     compliance, grouping = 'UNKNOWN', 'NONE'
-    kind = record.get('recommendation_type')
+    kind = record.get('recommendation_type') if action_target_proven(record, source_ids) else None
     if kind in {'CHANGE_METHOD_EA', 'CHANGE_METHOD_EP'} and None not in methods:
         # CHANGE_METHOD_EP is the existing historical label for leaving ЕП.
-        implemented = all(method == 'ЭА' or (kind == 'CHANGE_METHOD_EP' and method not in {'', 'ЕП'})
-                          for method in methods)
+        implemented = all(method == 'ЭА' for method in methods)
         compliance = 'IMPLEMENTED' if implemented else 'NOT_IMPLEMENTED'
         finding = ('Рекомендуемый конкурентный способ отражён в текущем плане: ' if implemented
                    else 'Рекомендуемый конкурентный способ не отражён во всех связанных позициях: ') + ', '.join(sorted(methods)) + '.'
@@ -87,12 +126,13 @@ def confirmed_result(record, rows, reviews, report_date):
                                  'source_procurement_ids': sorted(wanted), 'current_procurement_uids': uids},
             'status_evidence': 'Подтверждена историческая связь; действие проверено по первичным полям текущего снимка.',
             'dimensions': {'compliance_status': compliance, 'execution_status': execution,
-                           'grouping_status': grouping, 'evidence_quality': 'REVIEWED_IDENTITY+PRIMARY_FIELDS'}}
+                           'grouping_status': grouping, 'evidence_quality': evidence_quality}}
 
 
 COUNT_LABELS = {
     'UNKNOWN': 'Не подтверждено', 'IMPLEMENTED': 'Реализовано', 'NOT_IMPLEMENTED': 'Не реализовано',
     'PLANNED': 'Факт не внесён', 'FACT_RECORDED': 'Факт внесён', 'PARTIAL_RECORDED_FACT': 'Факт внесён частично',
+    'VERIFIED_ORIGIN_AND_CURRENT_IDENTITY': 'Связь подтверждена', 'VERIFIED_ORIGIN': 'Происхождение подтверждено',
     'IDENTITY_REVIEW_REQUIRED': 'Не подтверждено', 'REVIEWED_IDENTITY+PRIMARY_FIELDS': 'Подтверждённая связь и первичные поля',
 }
 
