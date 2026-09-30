@@ -159,3 +159,11 @@ def test_absolute_whole_rows_use_dependency_rows_instead_of_local_rows():
     support = source('support', 1, 'Support')
     support['rows'] = support['formula_evidence']['rows'] = 5
     assert audit(allocated([master, support]))['closed']
+
+
+@pytest.mark.parametrize('formula', ['=SUM(Support!D:F)', '=SUM(Support!$D:$D)'])
+def test_whole_columns_starting_outside_allocated_grid_do_not_have_proven_coverage(formula):
+    master = source(formulas=[{'row': 1, 'column': 1, 'formula': formula}])
+    result = audit(allocated([master, source('support', 1, 'Support')]))
+    assert not result['closed']
+    assert any(issue['code'] == 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED' for issue in result['issues'])
