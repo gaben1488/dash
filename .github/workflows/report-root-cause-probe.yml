@@ -25,7 +25,7 @@ jobs:
             test -n "$server"
             image=$(docker inspect --format '{{.Image}}' "$server")
             docker run --rm -i --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=256m --volumes-from "$server":ro --entrypoint /opt/report-env/bin/python "$image" - <<'PY'
-            import json
+            import hashlib, json, shutil, sqlite3, tempfile
             from collections import Counter, defaultdict
             from dataclasses import fields
             from pathlib import Path
@@ -34,36 +34,56 @@ jobs:
             from procurement_engine.recommendation_links import _text, _text_ids, _subject_amounts
             from procurement_engine.canonical_metrics import money
             root = Path('/app/packages/server/data/reports')
-            store = PublicationStore(root / 'published', readonly=True)
-            receipt = store.latest()
-            if receipt is None:
-                raise SystemExit('NO_VERIFIED_RELEASE')
-            model = json.loads((store.releases / receipt['release_id'] / 'report_model.json').read_text())
-            names = {field.name for field in fields(ProcurementRow)}
-            rows = [ProcurementRow(**{key: value for key, value in record.items() if key in names}) for record in model['details']]
-            by_number = defaultdict(list)
-            for row in rows:
-                by_number[row.grbs, row.source_row_no].append(row)
-            records = [record for record in model['recommendation_records'] if record.get('active_in_current_slice')]
-            recoverable = 0
-            for record in records:
-                if (record.get('current_link') or {}).get('status') == 'CONFIRMED':
-                    continue
-                text = _text(record.get('recommendation_text'))
-                ids, _ = _text_ids(text)
-                candidates = [row for number in ids for row in by_number[record.get('grbs'), number]]
-                if any(_subject_amounts(text, row.subject, row.source_row_no) and money(row, 'plan') not in _subject_amounts(text, row.subject, row.source_row_no) for row in candidates):
-                    recoverable += 1
-            output = {
-                'release_date': model['snapshot']['report_date'],
-                'active_recommendations': len(records),
-                'link_status_counts': dict(Counter((record.get('current_link') or {}).get('status', 'NONE') for record in records)),
-                'action_status_counts': dict(Counter((record.get('dimensions') or {}).get('compliance_status', 'UNKNOWN') for record in records)),
-                'recommendation_type_counts': dict(Counter(record.get('recommendation_type', 'NONE') for record in records)),
-                'price_is_only_changed_anchor_candidates': recoverable,
-                'identity_unresolved_count': (model.get('identity_observations') or {}).get('unresolved_count'),
-                'issue_code_counts': dict(Counter(item.get('code', 'UNKNOWN') for item in model.get('issues', []))),
-                'worker_status': json.loads((root / 'status.json').read_text()).get('status')
-            }
-            print(json.dumps(output, ensure_ascii=False, sort_keys=True))
+            def fingerprint(path):
+                if not path.exists(): return None
+                stat = path.stat()
+                with path.open('rb') as stream: digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                return stat.st_ino, stat.st_size, stat.st_mtime_ns, digest
+            def run():
+                store = PublicationStore(root / 'published', readonly=True)
+                source = store.database_path
+                files = [source, source.with_name(source.name + '-wal')]
+                receipt = None
+                for _ in range(3):
+                    with tempfile.TemporaryDirectory(prefix='report-catalog-') as folder:
+                        before = [fingerprint(path) for path in files]
+                        if before[0] is None: raise ValueError('PUBLICATION_NOT_FOUND')
+                        try:
+                            for path, stamp in zip(files, before):
+                                if stamp is not None: shutil.copyfile(path, Path(folder) / path.name)
+                        except FileNotFoundError: continue
+                        if before != [fingerprint(path) for path in files]: continue
+                        store.database_path = Path(folder) / source.name
+                        db = sqlite3.connect(store.database_path)
+                        try:
+                            if db.execute('PRAGMA quick_check').fetchone() != ('ok',): raise ValueError('CATALOG_CORRUPT')
+                        finally: db.close()
+                        receipt = store.latest()
+                        break
+                if receipt is None: raise ValueError('NO_VERIFIED_RELEASE')
+                model = json.loads((store.releases / receipt['release_id'] / 'report_model.json').read_text())
+                names = {field.name for field in fields(ProcurementRow)}
+                rows = [ProcurementRow(**{key: value for key, value in record.items() if key in names}) for record in model['details']]
+                by_number = defaultdict(list)
+                for row in rows: by_number[row.grbs, row.source_row_no].append(row)
+                records = [record for record in model['recommendation_records'] if record.get('active_in_current_slice')]
+                recoverable = 0
+                for record in records:
+                    if (record.get('current_link') or {}).get('status') == 'CONFIRMED': continue
+                    text = _text(record.get('recommendation_text')); ids, _ = _text_ids(text)
+                    candidates = [row for number in ids for row in by_number[record.get('grbs'), number]]
+                    if any(_subject_amounts(text, row.subject, row.source_row_no) and money(row, 'plan') not in _subject_amounts(text, row.subject, row.source_row_no) for row in candidates): recoverable += 1
+                return {'release_date': model['snapshot']['report_date'], 'active_recommendations': len(records),
+                    'link_status_counts': dict(Counter((record.get('current_link') or {}).get('status', 'NONE') for record in records)),
+                    'action_status_counts': dict(Counter((record.get('dimensions') or {}).get('compliance_status', 'UNKNOWN') for record in records)),
+                    'recommendation_type_counts': dict(Counter(record.get('recommendation_type', 'NONE') for record in records)),
+                    'price_changed_anchor_candidates': recoverable,
+                    'identity_unresolved_count': (model.get('identity_observations') or {}).get('unresolved_count'),
+                    'issue_code_counts': dict(Counter(item.get('code', 'UNKNOWN') for item in model.get('issues', []))),
+                    'worker_status': json.loads((root / 'status.json').read_text()).get('status')}
+            try:
+                print(json.dumps(run(), ensure_ascii=False, sort_keys=True))
+            except Exception as error:
+                print(json.dumps({'probe': 'FAIL', 'exception_class': type(error).__name__}))
+                raise SystemExit(2)
             PY
