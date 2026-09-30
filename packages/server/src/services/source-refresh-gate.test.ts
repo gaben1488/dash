@@ -16,7 +16,9 @@ const setDeptLoadMeta = vi.fn();
 const setSvodGridCache = vi.fn();
 const setSvodLoadFailure = vi.fn();
 const invalidateCache = vi.fn();
-const getDeptSheetCache = vi.fn(() => ({}));
+let cachedBooks: Record<string, { values: unknown[][] }> = {};
+const getDeptSheetCache = vi.fn(() => cachedBooks);
+const loadWatermarks = vi.fn(() => new Map<string, { fingerprint: string; parsedAt: string; driveVersion: string | null; driveModifiedTime: string | null }>());
 
 vi.mock('./google-sheets.js', () => ({
   fetchDepartmentSpreadsheets: (...a: unknown[]) => fetchDepartmentSpreadsheets(...a),
@@ -50,7 +52,7 @@ vi.mock('./file-revision.js', () => ({
 // Водяной знак заглушен: гейт проверяет отсев чтений, а не память базы.
 vi.mock('./book-watermark.js', () => ({
   SVOD_WATERMARK_KEY: 'лист СВОД',
-  loadWatermarks: vi.fn(() => new Map()),
+  loadWatermarks: () => loadWatermarks(),
   saveWatermark: vi.fn(),
   noteHonestGap: vi.fn(() => true),
 }));
@@ -66,8 +68,16 @@ beforeAll(async () => {
   await import('./source-refresh.js');
 }, 60_000);
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  cachedBooks = {};
+  loadWatermarks.mockReturnValue(new Map());
+  const { resetSourcePrints } = await import('./source-refresh.js');
+  resetSourcePrints();
+  setDeptSheetCache.mockImplementation((data: Record<string, { values: unknown[][] }>, failed: string[]) => {
+    cachedBooks = { ...cachedBooks, ...data };
+    cachedBooks = Object.fromEntries(Object.entries(cachedBooks).filter(([name]) => !failed.includes(name)));
+  });
   verdicts.clear();
   fetchDepartmentSpreadsheets.mockImplementation(async (_all: unknown, opts: { only?: string[] } = {}) => ({
     data: Object.fromEntries(
@@ -195,4 +205,36 @@ describe('перечитка спрашивает Drive, прежде чем ч�
     expect(r.failed).toEqual(['УО']);
     expect(forgetRevision).toHaveBeenCalledWith(bookIds['УО']);
   });
+});
+
+
+it('сохранённая версия после рестарта не заменяет отсутствующие строки кэша', async () => {
+  loadWatermarks.mockReturnValue(new Map(Object.keys(bookIds).map(name => [name, {
+    fingerprint: 'persisted-before-restart', parsedAt: '2026-09-29T00:00:00Z',
+    driveVersion: '1', driveModifiedTime: '2026-09-29T00:00:00Z',
+  }])));
+  for (const id of Object.values(bookIds)) verdicts.set(id, 'same');
+  const { refreshAllSources } = await import('./source-refresh.js');
+  const result = await refreshAllSources(log, 'startup', { svod: false });
+  expect(result.booksRead).toBe(Object.keys(bookIds).length);
+  expect(result.skipped).toEqual([]);
+  expect(Object.keys(cachedBooks).sort()).toEqual(Object.keys(bookIds).sort());
+  expect(checkFileChanged).not.toHaveBeenCalled();
+});
+
+it('восстановление строк из сохранённого отпечатка сбрасывает неполный снимок без ложного изменения закупок', async () => {
+  const { sheetFingerprint } = await import('./sheet-fingerprint.js');
+  const data = Object.fromEntries(Object.keys(bookIds).map(name => [name, {
+    values: [[name, 1]], formulas: [], sheetName: 'ВСЕ',
+  }]));
+  loadWatermarks.mockReturnValue(new Map(Object.entries(data).map(([name, item]) => [name, {
+    fingerprint: sheetFingerprint(item.values), parsedAt: '2026-09-29T00:00:00Z',
+    driveVersion: '1', driveModifiedTime: '2026-09-29T00:00:00Z',
+  }])));
+  fetchDepartmentSpreadsheets.mockResolvedValue({ data, errors: {} });
+  const { refreshAllSources } = await import('./source-refresh.js');
+  const result = await refreshAllSources(log, 'startup', { svod: false });
+  expect(result.booksRead).toBe(Object.keys(bookIds).length);
+  expect(result.changedBooks).toEqual([]);
+  expect(invalidateCache).toHaveBeenCalledTimes(1);
 });

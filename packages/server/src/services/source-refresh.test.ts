@@ -18,7 +18,8 @@ const setSvodLoadFailure = vi.fn();
 const invalidateCache = vi.fn();
 // Прежнее чтение книг — материал живых событий: цикл берёт его ДО записи
 // нового кэша, поэтому заглушка обязана отдавать пустой кэш, а не падать.
-const getDeptSheetCache = vi.fn(() => ({}));
+let cachedBooks: Record<string, { values: unknown[][] }> = {};
+const getDeptSheetCache = vi.fn(() => cachedBooks);
 
 vi.mock('./google-sheets.js', () => ({
   fetchDepartmentSpreadsheets: (...a: unknown[]) => fetchDepartmentSpreadsheets(...a),
@@ -94,6 +95,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  cachedBooks = {};
+  getDeptSheetCache.mockImplementation(() => cachedBooks);
+  setDeptSheetCache.mockImplementation((data: Record<string, { values: unknown[][] }>, failed: string[]) => {
+    cachedBooks = Object.fromEntries(Object.entries({ ...cachedBooks, ...data }).filter(([name]) => !failed.includes(name)));
+  });
   checkFileChanged.mockResolvedValue('unknown' as const);
   fetchDepartmentSpreadsheets.mockResolvedValue({
     data: {
@@ -382,6 +388,11 @@ describe('водяной знак (§2.4) и правило полноты (§2.
     // Первое чтение — отпечатки и отметки версии запоминаются.
     await refreshAllSources(log);
     vi.clearAllMocks();
+
+    // У первого чтения есть строки в кэше, а не только отпечаток.
+    getDeptSheetCache.mockReturnValue({
+      'УКСиМП': { values: [[1], [2]] }, 'УО': { values: [[1]] },
+    });
 
     // Второе: Drive свидетельствует правку (была прежняя отметка, новая
     // разошлась), но лист тот же самый — содержательные свидетели молчат.
