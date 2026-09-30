@@ -556,6 +556,9 @@ function deptOrder(keys: string[]): string[] {
  */
 export function buildReport(input: BuildReportInput, opts: BuildReportOptions): Report {
   const { year, quarter } = opts;
+  // parseSvodExtras reads the fixed 2026 annual tier, including its
+  // remainder and calculated economy. Other years use their own row metrics.
+  const yearExtras = year === 2026 ? input.svodExtras : undefined;
   const issues = input.issues ?? [];
   const notes: string[] = [];
   const qGroup = `q${quarter}`;
@@ -653,7 +656,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
       money: { plan: moneyOf(g, 'plan'), fact: moneyOf(g, 'fact') },
       economy: moneyOf(g, 'economy'),
       ...(() => {
-        const svodYearMoney = svodYearMoneyOf(input.svodExtras, entry?.shortName ?? dept);
+        const svodYearMoney = svodYearMoneyOf(yearExtras, entry?.shortName ?? dept);
         return svodYearMoney ? { svodYearMoney } : {};
       })(),
       ...(() => {
@@ -722,7 +725,7 @@ export function buildReport(input: BuildReportInput, opts: BuildReportOptions): 
     period: { year, quarter, ...(opts.asOfDay === undefined ? {} : { asOfDay: opts.asOfDay }) },
     integralSummary: integralOf(blocks, input.svodGrid, quarter, year),
     grbsBlocks: blocks,
-    ...(input.svodExtras ? { official: officialOf(input.svodExtras) } : {}),
+    ...(yearExtras ? { official: officialOf(yearExtras) } : {}),
     notes,
     ...(unfunded ? { unfunded } : {}),
   };

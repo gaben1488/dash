@@ -315,7 +315,7 @@ export function parseSvodExtras(values: unknown[][]): SvodSheetExtras {
       const s = ensure(lastScope);
       const metrics = { ...readMetrics(row), row: i + 1 };
       if (a.includes('2025+2026')) s.totalBothYears = metrics;
-      else s.totalY2026 = metrics;
+      else if (/^ИТОГО(?:\s+(?:ЭА|ЕП))?\s+2026\s*:?$/i.test(a)) s.totalY2026 = metrics;
       continue;
     }
 
@@ -391,7 +391,7 @@ export function parseSvodGrid(values: unknown[][]): SvodGridBlock[] {
     if (block && a.startsWith('Итого')) {
       const metrics = { ...readMetrics(row), row: i + 1 };
       if (a.includes('2025+2026')) block.totalBothYears = metrics;
-      else block.totalY2026 = metrics;
+      else if (/^ИТОГО\s+(?:ЭА|ЕП)\s+2026\s*:?$/i.test(a)) block.totalY2026 = metrics;
       continue;
     }
 
