@@ -44,7 +44,7 @@ def test_failed_preflight_never_enables_schedule(tmp_path):
 def test_failed_update_restores_previously_running_worker_and_preserves_failure(tmp_path):
     result,log=run_deploy(tmp_path,fail=True,running=True)
     assert result.returncode==2
-    assert log.index('run-google')<log.index('start report-worker')
+    assert log.index('run-google') < log.index('procurement_engine.deployment_diagnostics') < log.index('start report-worker')
     assert 'up -d report-worker' not in log
 
 
