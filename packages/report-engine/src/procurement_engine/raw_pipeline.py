@@ -174,7 +174,7 @@ def contributors(rows, year, quarter, as_of=None):
     return out
 
 
-def review_recommendations(ledger, rows, snapshot_id, report_date):
+def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None):
     """Current observations and candidates, never inheritance of old current statuses.
 
     GRBS + business A narrows a candidate set but is not a persisted identity.
@@ -223,6 +223,12 @@ def review_recommendations(ledger, rows, snapshot_id, report_date):
             evidence_snapshot_id=snapshot_id,
             dimensions={'compliance_status':'UNKNOWN','execution_status':'UNKNOWN','grouping_status':'UNKNOWN',
                         'evidence_quality':'IDENTITY_REVIEW_REQUIRED'})
+        r['business_finding'] = 'Текущая связь с исходной закупкой не подтверждена; исполнение рекомендованного действия не установлено.'
+        if active:
+            from .recommendation_evidence import confirmed_result
+            confirmed = confirmed_result(old, rows, identity_evidence, report_date)
+            if confirmed is not None:
+                r.update(confirmed)
         output.append(r)
     return output
 
@@ -340,7 +346,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
                        'deadline':parse_date(c(0)) or c(0), 'source_ref':f"{queue['provider_id']}::{queue['sheet']}::{rn}"})
     snap={**bundle.manifest, 'model':aggregate_rows(rows,year,report_date), 'row_count':len(rows), 'active_procedures':len(active)}
     issues.extend(x.as_dict() for x in validate_snapshot(snap))
-    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'])
+    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], identity_evidence=identity_evidence)
     unresolved_recs=[r['recommendation_id'] for r in replay if r['active_in_current_slice'] and r['semantic_status']=='REVIEW_REQUIRED']
     if unresolved_recs:
         issues.append({'severity':'WARN','code':'RECOMMENDATION_LINK_UNCONFIRMED',
@@ -360,9 +366,11 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}
-    model['recommendations_v2']['review_required_ids']=[r['recommendation_id'] for r in replay if r['active_in_current_slice']]
-    for key in ('recommendation_compliance_counts','recommendation_execution_counts','recommendation_evidence_quality_counts'):
-        model['management_summary'][key]={'Не подтверждено':len(model['recommendations_v2']['review_required_ids'])}
+    model['recommendations_v2']['review_required_ids']=[r['recommendation_id'] for r in replay
+        if r['active_in_current_slice'] and r['dimensions']['compliance_status'] == 'UNKNOWN']
+    from .recommendation_evidence import recommendation_counts
+    model['management_summary'].update(recommendation_counts(replay))
+    model['identity_review_evidence']=identity_evidence or []
     model['future_plan']=future
     model['closed_procedure_quality']=closed_quality
     model['report_clock']={'business_as_of':report_date,'business_timezone':capture['timezone'],
@@ -396,7 +404,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     from .independent_audit import audit_model
     model['independent_audit']=audit_model(capture,model)
     from .section_audit import audit_source_sections
-    section_errors = audit_source_sections(capture, model, ledger=ledger)
+    section_errors = audit_source_sections(capture, model, ledger=ledger, identity_evidence=identity_evidence)
     blockers=[i.as_dict() for i in validate_recorded_state_model(model,ledger=ledger)]
     if section_errors:
         blockers.append({'severity':'ERROR','code':'SECTION_SOURCE_MISMATCH',

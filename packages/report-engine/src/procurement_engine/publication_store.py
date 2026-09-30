@@ -128,8 +128,20 @@ def _validate(root):
                 'sheet_id': int(payload['sheet_or_tab_id']), 'grbs': meta.get('grbs'),
                 'rows': meta['row_count'], 'columns': meta['column_count'],
                 'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence')})
+        from .identity_store import read_identity_result
+
+        try:
+            frozen_identity = read_identity_result(root / 'identity.sqlite', snapshot['snapshot_id'], snapshot['cutoff_at'])
+        except (OSError, ValueError, sqlite3.DatabaseError) as exc:
+            raise PublicationError('IDENTITY_BACKUP_INVALID') from exc
+        if frozen_identity != model.get('identity_observations'):
+            raise PublicationError('IDENTITY_BACKUP_MODEL_MISMATCH')
+        identity_proofs = [p['semantic_values'] for p in payloads if p['role'] == 'identity_reviews']
+        proof = identity_proofs[0] if len(identity_proofs) == 1 else []
+        if proof != model.get('identity_review_evidence', []):
+            raise PublicationError('IDENTITY_REVIEW_EVIDENCE_MISMATCH')
         if (not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']
-                or audit_source_sections(capture, model, ledger=ledgers[0])):
+                or audit_source_sections(capture, model, ledger=ledgers[0], identity_evidence=proof)):
             raise PublicationError('SAVED_SOURCE_RECHECK_FAILED')
     return model, model_hash, report_date, cutoff.astimezone(timezone.utc).isoformat(), expected
 

@@ -73,7 +73,22 @@ def main(argv=None):
     read.add_argument("--report-date")
     read.add_argument("--report-year", type=int)
     read.add_argument("--quarter", type=int)
+    review = sub.add_parser('record-identity-review', help='Append dated proof to an existing identity observation')
+    for option in ('state', 'snapshot-id', 'locator', 'uid', 'reviewer', 'reviewed-at', 'evidence'):
+        review.add_argument('--' + option, required=True)
+
     args = p.parse_args(argv)
+    if args.cmd == 'record-identity-review':
+        from .identity_store import IdentityStore
+
+        database = Path(args.state) / 'identity.sqlite'
+        if not database.is_file():
+            raise ValueError('IDENTITY_DATABASE_MISSING')
+        review_id = IdentityStore(database).record_review(snapshot_id=args.snapshot_id,
+            locator=args.locator, uid=args.uid, reviewer=args.reviewer, reviewed_at=args.reviewed_at,
+            evidence=load(args.evidence))
+        dump({'review_id': review_id})
+        return 0
     if args.cmd == 'migrate-google-schema':
         from .schema_migrations import apply_google_schema_migrations
         print(json.dumps({'reviewed_schema_migrations_applied': apply_google_schema_migrations(args.registry)}))
