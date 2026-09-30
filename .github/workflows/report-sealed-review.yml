@@ -27,13 +27,22 @@ jobs:
             git fetch --quiet origin "$candidate"
             work='/tmp/aemr-encrypted-review-${{ github.run_id }}'
             mkdir -m 700 "$work"
+            trap 'rc=$?; if [ "$rc" -ne 0 ]; then rm -rf -- "$work"; fi' EXIT
             mkdir -m 700 "$work/out"
             git show "$candidate:.github/report-sealed-export.py" > "$work/sealed_export.py"
+            python3 - "$work/sealed_export.py" <<'PY'
+            from pathlib import Path
+            import sys
+            p = Path(sys.argv[1]); text = p.read_text()
+            text = text.replace('MAX_BYTES = 128 * 1024 * 1024', 'MAX_BYTES = 512 * 1024 * 1024')
+            text = text.replace("'exception_class': type(error).__name__}", "'exception_class': type(error).__name__, 'code': str(error) if str(error) in {'UNSAFE_PATH','PUBLIC_KEY_INVALID','PUBLICATION_NOT_FOUND','CATALOG_CORRUPT','RELEASE_BOUNDS','RELEASE_TOO_LARGE','RELEASE_CHANGED','EXPORT_TOO_LARGE'} else 'UNEXPECTED'}")
+            p.write_text(text)
+            PY
             cd deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
             image=$(docker inspect --format '{{.Image}}' "$server")
-            docker run --rm --network none --read-only \
+            docker run --rm --cpus=1 --memory=768m --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=256m \
               --volumes-from "$server":ro \
               -v "$work/sealed_export.py:/sealed_export.py:ro" \
@@ -51,7 +60,7 @@ jobs:
           known=$(mktemp)
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$key"
           cleanup() {
-            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$known" "$DEPLOY_USER@193.233.91.162" "rm -rf -- '/tmp/aemr-encrypted-review-${GITHUB_RUN_ID}'" || true
+            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$known" "$DEPLOY_USER@193.233.91.162" "rm -rf -- '/tmp/aemr-encrypted-review-${GITHUB_RUN_ID}' '/tmp/aemr-encrypted-review-36780223405'" || true
             rm -f "$key" "$known"
           }
           trap cleanup EXIT
