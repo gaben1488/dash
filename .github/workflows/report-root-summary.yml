@@ -1,0 +1,34 @@
+name: Report root-cause counts (read only)
+on:
+  push:
+    branches: [codex/report-root-causes]
+    paths: [.github/report-root-summary.py, .github/workflows/report-root-summary.yml]
+permissions:
+  contents: read
+jobs:
+  counts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 3m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash
+            candidate='${{ github.sha }}'
+            git fetch --quiet origin "$candidate"
+            work=$(mktemp -d /tmp/report-counts.XXXXXX)
+            trap 'rm -rf "$work"' EXIT
+            git show "$candidate:.github/report-root-summary.py" > "$work/counts.py"
+            chmod 755 "$work"
+            chmod 644 "$work/counts.py"
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m --volumes-from "$server":ro -v "$work/counts.py:/counts.py:ro" --entrypoint /opt/report-env/bin/python "$image" /counts.py
