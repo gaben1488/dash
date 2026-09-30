@@ -13,6 +13,7 @@ from .adapters import normalize_master_values
 from .atomic_snapshot import AtomicSnapshotBundle, SourcePayload
 from .canonical_metrics import calendar_facts, completed, metric_block
 from .constants import GRBS_ORDER
+from .diagnostics import project_diagnostics
 from .fact_model import is_procurement_row
 from .formula_dependencies import audit_formula_dependencies
 from .metrics import current_quarter
@@ -39,13 +40,14 @@ from .projections import (
 from .publication_history import compare_published_models
 from .qa import classify_future_context, validate_master_values
 from .release_gates import validate_recorded_state_model
+from .report_content import build_business_sections
 from .report_model import build_report_model_v3
 from .rule_catalog import DEFAULT_RULE_CATALOG
 from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc7'
+RENDERER_VERSION = 'renderer-v1.5.0rc8'
 RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc7'
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -353,6 +355,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
+    model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}
     model['recommendations_v2']['review_required_ids']=[r['recommendation_id'] for r in replay if r['active_in_current_slice']]
@@ -387,6 +390,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['exact_metrics']={kind:{scope:metric_block(rows,report_year=year,as_of=report_date,method=method,
         planned_quarter=current_quarter(report_date) if scope=='quarter' else None)
         for scope in ('year','quarter')} for kind,method in (('competitive','ЭА'),('single_supplier','ЕП'))}
+    model['report_content'] = build_business_sections(rows, year=year, as_of=report_date,
+        grbs_order=model['grbs_order'], departmental_model=snap['model'])
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     from .independent_audit import audit_model
     model['independent_audit']=audit_model(capture,model)
@@ -406,6 +411,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
         if sum(m['plan_count'] for m in monthly)!=model['headline'][kind]['year']['plan_count']:
             raise ValueError('MONTHLY_PARITY_FAILED')
     dump(snap,out/'snapshot.json');dump(model,out/'report_model.json');dump(replay,out/'recommendation_review.json')
+    dump(project_diagnostics(model), out/'diagnostic_protocol.json')
     dump({'issues':issues,'counts':dict(Counter(i['code'] for i in issues))},out/'qa.json')
     dump({'attempts':[asdict(x) for x in attempts], 'shares':[asdict(x) for x in shares],
           'source_amount_unit':'руб.', 'active':active},out/'procedure_lifecycle.json')

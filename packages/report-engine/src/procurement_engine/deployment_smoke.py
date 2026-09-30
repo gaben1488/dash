@@ -35,7 +35,9 @@ def check_exports(fetch):
                 if archive.getinfo('word/document.xml').file_size > 16 * 1024 * 1024:
                     raise ValueError('oversize document')
                 text = ''.join(ElementTree.fromstring(archive.read('word/document.xml')).itertext())
-            if release['snapshot_id'] not in text or release['report_date'] not in text:
+                metadata = ElementTree.fromstring(archive.read('docProps/core.xml'))
+                identifier = metadata.find('{http://purl.org/dc/elements/1.1/}identifier')
+            if identifier is None or identifier.text != release['snapshot_id'] or release['report_date'] not in text:
                 raise ValueError('document context differs')
         except (ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
             raise ValueError('REPORT_EXPORT_DOCUMENT_INVALID') from exc

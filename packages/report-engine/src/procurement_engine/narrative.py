@@ -193,7 +193,7 @@ def build_smart_narrative(report_model: dict, *, diff_events: Iterable[dict] = (
         )
         blocks.append(NarrativeBlock(
             bid, "judge",
-            f"До публикации требуется устранить {_fmt_num(len(serious), 0)} блокирующих или высокоприоритетных замечаний, перечисленных в validation layer.",
+            "Выпуск не прошёл проверку. Причины и затронутые сведения приведены в отдельном протоколе проверки.",
             "smart:release-risk", trace, profile_id,
         ))
 
