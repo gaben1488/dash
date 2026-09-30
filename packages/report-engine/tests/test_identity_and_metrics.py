@@ -151,3 +151,12 @@ def test_review_cannot_assign_one_uid_to_two_rows(tmp_path):
         evidence={'source_ref': 'protocol/1', 'reason': 'Проверено'})
     with pytest.raises(ValueError, match='IDENTITY_REVIEW_UID_COLLISION'):
         store.ingest([row(), changed], snapshot_id='s2', captured_at='2026-10-01T02:00:00Z')
+
+
+def test_review_cannot_be_dated_before_its_observation(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    outcome = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    with pytest.raises(ValueError, match='IDENTITY_REVIEW_BEFORE_OBSERVATION'):
+        store.record_review(snapshot_id='s1', locator=row().physical_row_key,
+            uid=outcome['rows'][0]['procurement_uid'], reviewer='Проверяющий',
+            reviewed_at='2026-09-29T00:00:00Z', evidence={'source_ref': 'protocol/1', 'reason': 'Проверено'})

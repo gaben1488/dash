@@ -47,3 +47,20 @@ def test_deployment_does_not_present_previous_attempt_as_current_failure(tmp_pat
 def test_public_summary_identifies_failure_stage_but_rejects_arbitrary_stage_text():
     assert summarize_status({'status': 'NOT_ISSUED', 'failure_stage': 'acquisition'})['failure_stage'] == 'acquisition'
     assert summarize_status({'status': 'NOT_ISSUED', 'failure_stage': 'private-book'})['failure_stage'] == 'unknown'
+
+
+def test_every_release_gate_code_has_a_safe_public_projection():
+    import ast
+    from pathlib import Path
+
+    from procurement_engine.deployment_diagnostics import PUBLIC_CODES
+
+    source = Path(__file__).parents[1] / 'src/procurement_engine/release_gates.py'
+    tree = ast.parse(source.read_text())
+    codes = set()
+    for call in ast.walk(tree):
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id in {'require', 'ValidationIssue'} and len(call.args) > 1
+                and isinstance(call.args[1], ast.Constant) and isinstance(call.args[1].value, str)):
+            codes.add(call.args[1].value)
+    assert codes <= PUBLIC_CODES

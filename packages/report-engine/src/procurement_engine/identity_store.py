@@ -196,6 +196,9 @@ class IdentityStore:
             db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT * FROM observations WHERE snapshot_id=? AND locator=?',(snapshot_id,locator)).fetchone()
             if row is None:raise ValueError('IDENTITY_REVIEW_ROW_UNKNOWN')
+            observed=db.execute('SELECT captured_at FROM snapshots WHERE snapshot_id=?', (snapshot_id,)).fetchone()
+            if moment < datetime.fromisoformat(observed['captured_at']):
+                raise ValueError('IDENTITY_REVIEW_BEFORE_OBSERVATION')
             if not db.execute('SELECT 1 FROM observations WHERE uid=?',(uid,)).fetchone():
                 raise ValueError('IDENTITY_REVIEW_UID_UNKNOWN')
             review_id='REV-'+uuid.uuid4().hex
@@ -222,3 +225,14 @@ class IdentityStore:
             except (sqlite3.DatabaseError, ValueError):
                 target.unlink(missing_ok=True)
                 raise
+
+
+def read_identity_result(path, snapshot_id, as_of):
+    """Read the frozen SQLite backup without initializing or migrating it."""
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        _check_integrity(db)
+        record = db.execute('SELECT result FROM snapshots WHERE snapshot_id=?', (snapshot_id,)).fetchone()
+        if record is None:
+            raise ValueError('IDENTITY_SNAPSHOT_UNKNOWN')
+        return _project_result(db, json.loads(record['result']), datetime.fromisoformat(as_of))

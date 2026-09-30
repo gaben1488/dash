@@ -1,6 +1,7 @@
 """Check rendered section populations against frozen cells and canonical records."""
 import re
 from collections import defaultdict
+from dataclasses import replace
 from fractions import Fraction
 
 from .independent_audit import day, number, text
@@ -97,12 +98,15 @@ def audit_management_projection(model):
             if block['remain_count']>0:
                 expected.append({'grbs':grbs,'remain_count':block['remain_count'],'remain_amount':block['remain_amount']})
         if summary.get(field)!=expected:return False
-    active=(model.get('recommendations') or {}).get('active')
-    return all(summary.get(key)=={'Не подтверждено':active} for key in
-        ('recommendation_compliance_counts','recommendation_execution_counts','recommendation_evidence_quality_counts'))
+    from .recommendation_evidence import recommendation_counts
+    records=[r for table in (model.get('recommendations') or {}).get('tables', {}).values() for r in table]
+    counts=recommendation_counts(records)
+    if 'identity_review_evidence' not in model and not records:
+        counts={key:{'Не подтверждено':0} for key in counts}
+    return all(summary.get(key) == value for key, value in counts.items())
 
 
-def audit_source_sections(capture,model,*,ledger=None):
+def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     errors=[]
     if ledger is not None:
         # Replay text and observations from frozen inputs, rather than accepting
@@ -115,10 +119,16 @@ def audit_source_sections(capture,model,*,ledger=None):
             if source.get('role')=='master':
                 rows.extend(normalize_master_values(source['values'],snapshot_id=sid,expected_grbs=source['grbs'],
                     data_start_row=3,source_id=source['provider_id'],sheet_name=source['sheet']))
-        expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'])}
+        identities={item['source_row_key']:item['procurement_uid']
+                    for item in (model.get('identity_observations') or {}).get('rows', [])}
+        rows=[replace(row, procurement_uid=identities.get(row.physical_row_key)) for row in rows]
+        expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'],
+            identity_evidence=identity_evidence)}
         for records in (model.get('recommendations') or {}).get('tables',{}).values():
             for row in records:
                 wanted=expected.get(row['recommendation_id'])
+                if wanted is not None and 'identity_review_evidence' not in model:
+                    wanted.pop('business_finding', None)
                 if wanted is None or any(row.get(key)!=value for key,value in wanted.items()):
                     errors.append('recommendation_evidence')
                     break

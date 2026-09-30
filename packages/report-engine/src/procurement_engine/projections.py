@@ -42,6 +42,8 @@ def project_dashboard(report_model: dict) -> dict:
         "identity_observations": deepcopy(report_model.get("identity_observations")),
         "formula_dependencies": deepcopy(report_model.get("formula_dependencies")),
     })
+    if "identity_review_evidence" in report_model:
+        out["management_summary"] = deepcopy(report_model.get("management_summary"))
     return out
 
 

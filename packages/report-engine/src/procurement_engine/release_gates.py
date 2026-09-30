@@ -198,7 +198,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
     require(all(locators) and len(locators) == len(set(locators)),
             'DETAIL_LOCATORS_INVALID', 'Строки отчёта должны иметь уникальные ссылки на первичный снимок.')
     if identity is not None:
-        require({r['source_row_key'] for r in identity['rows']} == set(locators),
+        require({r['source_row_key']:r['procurement_uid'] for r in identity['rows']}
+                == {r['physical_row_key']:r.get('procurement_uid') for r in details},
                 'IDENTITY_COVERAGE_MISMATCH', 'История наблюдений не покрывает строки текущего расчёта.')
     semantics = model.get('metric_semantics') or {}
     require(semantics.get('scope') == 'master_recorded_fact' and semantics.get('procedure_overlay_applied') is False
@@ -219,6 +220,19 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
     require(recs.get('historical_unique') == len(ledger) and recs.get('active') == len(active)
             and len(projected) == len(active) and {r['recommendation_id'] for r in projected} == active.keys(),
             'RECOMMENDATION_COVERAGE_MISMATCH', 'Накопительный реестр рекомендаций сохранён не полностью.')
+    from dataclasses import fields
+
+    from .models import ProcurementRow
+    from .raw_pipeline import review_recommendations
+
+    names={field.name for field in fields(ProcurementRow)}
+    current=[ProcurementRow(**{key:value for key,value in row.items() if key in names}) for row in details]
+    expected_claims={row['recommendation_id']:row for row in review_recommendations(ledger, current,
+        model['snapshot']['snapshot_id'], model['snapshot']['report_date'],
+        identity_evidence=model.get('identity_review_evidence'))}
+    if 'identity_review_evidence' not in model:
+        for claim in expected_claims.values():
+            claim.pop('business_finding', None)
     for r in projected:
         original = active.get(r['recommendation_id']) or {}
         require(r.get('recommendation_text') == original.get('recommendation_text')
@@ -228,10 +242,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
                 and r.get('status_as_of') == model.get('snapshot', {}).get('report_date')
                 and r.get('evidence_snapshot_id') == model.get('snapshot', {}).get('snapshot_id'),
                 'RECOMMENDATION_EVIDENCE_MISMATCH', 'Рекомендация не связана с текущим проверенным снимком.')
-        require(r.get('semantic_status') == 'REVIEW_REQUIRED' and r.get('current_procurement_state') == 'UNKNOWN'
-                and r.get('semantic_status_ru') == 'ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ СВЯЗИ'
-                and r.get('status_evidence') and r.get('dimensions', {}).get('execution_status') == 'UNKNOWN',
-                'UNPROVEN_RECOMMENDATION_CLAIM', 'Исполнение исторической рекомендации не подтверждено.')
+        require(all(r.get(key) == value for key, value in expected_claims[r['recommendation_id']].items()),
+                'UNPROVEN_RECOMMENDATION_CLAIM', 'Статус не следует из подтверждённой связи и первичных полей.')
     for trace in model.get('trace_records') or []:
         for key in (trace.get('metric_key') or '').split('|'):
             value = model
