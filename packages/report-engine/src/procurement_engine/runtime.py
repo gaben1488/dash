@@ -69,10 +69,12 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             stage = 'acquisition'
             client = client or GoogleReadClient()
             capture = capture_google(registry, client)
+            identities = IdentityStore(state / 'identity.sqlite')
+            identity_evidence = identities.review_evidence(as_of=capture['captured_at'])
             stage = 'publication_selection'
             publications = PublicationStore(state / 'published')
             latest = publications.latest()
-            captured_id = bundle_from_capture(capture, registry, ledger).manifest['snapshot_id']
+            captured_id = bundle_from_capture(capture, registry, ledger, identity_evidence=identity_evidence).manifest['snapshot_id']
             if latest and latest['snapshot_id'] == captured_id:
                 status.update(status=latest['status'], publication=latest, snapshot_id=captured_id,
                     report_date=capture['report_date'], reused_publication=True,
@@ -83,7 +85,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             previous = publications.previous_model(capture['report_date'])
             stage = 'build'
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',
-                                       identity_store=IdentityStore(state / 'identity.sqlite'), previous_publication=previous)
+                                       identity_store=identities, previous_publication=previous)
             status['snapshot_id'] = model['snapshot']['snapshot_id']
             status['report_date'] = model['snapshot']['report_date']
             if model['release']['official_release_allowed'] is not True:
@@ -94,7 +96,8 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                     versions = {provider: client.revision(provider) for provider in providers}
                     return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']},
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(_load(ledger_path)),
-                            'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path))}
+                            'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path)),
+                            'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at']))}
 
                 stage = 'publication'
                 receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions)

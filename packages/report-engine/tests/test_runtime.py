@@ -221,3 +221,31 @@ def test_cli_busy_worker_is_not_a_successful_release(tmp_path, capsys):
     assert result != 0
     assert json.loads(capsys.readouterr().out) == {'status': 'ALREADY_RUNNING'}
     assert json.loads((state / 'status.json').read_text())['attempt_id'] == 'previous'
+
+
+def test_review_evidence_change_reissues_even_when_google_cells_are_unchanged(tmp_path):
+    from procurement_engine.identity_store import IdentityStore
+    from test_identity_and_metrics import row
+
+    registry, ledger = inputs(tmp_path)
+
+    class FormulaGoogle(Google):
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 0, 'title': self.grid(provider, 0)['title']}], 'named_ranges': []}
+
+        def formulas(self, provider, title, start, end, columns):
+            return self.values(provider, title, start, end, columns)
+
+    state = tmp_path / 'state'
+    identities = IdentityStore(state / 'identity.sqlite')
+    initial = identities.ingest([row()], snapshot_id='seed', captured_at='2026-09-01T00:00:00Z')
+    first = run_once(registry, ledger, state, client=FormulaGoogle())
+    unchanged = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert unchanged['reused_publication'] is True
+    identities.record_review(snapshot_id='seed', locator=row().physical_row_key,
+        uid=initial['rows'][0]['procurement_uid'], reviewer='Ревизор',
+        reviewed_at='2026-09-02T00:00:00Z', evidence={'source_ref': 'protocol/1', 'reason': 'Подтверждено'})
+    updated = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert updated['status'] == 'VERIFIED'
+    assert not updated.get('reused_publication')
+    assert updated['snapshot_id'] != first['snapshot_id']
