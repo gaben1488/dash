@@ -139,7 +139,7 @@ def _validate(root):
             capture['sources'].append({'source_id': payload['source_id'], 'role': payload['role'],
                 'provider_id': payload['provider_id'], 'sheet': meta['sheet_title'],
                 'sheet_id': int(payload['sheet_or_tab_id']), 'grbs': meta.get('grbs'),
-                'rows': meta['row_count'], 'columns': meta['column_count'],
+                'rows': meta['row_count'], 'columns': meta['column_count'], 'header_rows': meta.get('header_rows', 3),
                 'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence')})
         from .identity_store import read_identity_result
 

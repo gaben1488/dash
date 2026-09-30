@@ -18,3 +18,19 @@ def schema_fingerprint(header_rows: list[list], *, max_rows: int = 4, max_cols: 
 def validate_schema_fingerprint(actual: str, allowed: list[str]) -> None:
     if actual not in set(allowed):
         raise ValueError(f"SOURCE_SCHEMA_CHANGED: fingerprint={actual}")
+
+
+def registry_grbs_order(registry: dict) -> list[str]:
+    """Explicit reporting perimeter; missing inputs never redefine that perimeter.
+
+    The original eight-department contract remains the backward-compatible default.
+    A different perimeter is a versioned private input, not a source-code edit.
+    """
+    from .constants import GRBS_ORDER
+
+    order = registry.get('grbs_order', GRBS_ORDER)
+    if (not isinstance(order, list) or not order
+        or any(not isinstance(value, str) or not value or clean_text(value) != value for value in order)
+        or len(set(order)) != len(order)):
+        raise ValueError('INPUT_GRBS_ORDER_INVALID')
+    return list(order)

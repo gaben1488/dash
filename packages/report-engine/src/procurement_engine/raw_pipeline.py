@@ -48,10 +48,11 @@ from .report_model import build_report_model_v3
 from .rule_catalog import DEFAULT_RULE_CATALOG
 from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
+from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc8'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc8+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc9'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc9+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -74,7 +75,7 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
     """Validate a completed connector capture. Never simulate revision rereads."""
     expected = {s['source_id']: s for s in registry['sources']}
     got = capture['sources']
-    if sorted(s.get('grbs') for s in got if s['role'] == 'master') != sorted(GRBS_ORDER):
+    if sorted(s.get('grbs') for s in got if s['role'] == 'master') != sorted(registry_grbs_order(registry)):
         raise ValueError('MASTER_GRBS_SET_INCOMPLETE')
     if len(expected) != len(registry['sources']) or len({s['source_id'] for s in got}) != len(got):
         raise ValueError('DUPLICATE_SOURCE_ID')
@@ -99,6 +100,10 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         if s['before'] != s['after']:
             raise ValueError(f'SOURCE_CHANGED_DURING_FREEZE:{sid}')
         values = s['values']
+        headers = contract['header_rows']
+        if (type(headers) is not int or not 1 <= headers <= len(values)
+                or s.get('header_rows', 3) != headers):
+            raise ValueError(f'SOURCE_HEADER_CONTRACT_MISMATCH:{sid}')
         if len(values) != s['rows'] or not all(isinstance(r, list) and len(r) <= s['columns'] for r in values):
             raise ValueError(f'SOURCE_RANGE_INCOMPLETE:{sid}')
         fingerprint = header_hash(values, contract['header_rows'])
@@ -158,10 +163,10 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
     return AtomicSnapshotBundle(manifest, tuple(payloads), 1, before, after)
 
 
-def aggregate_rows(rows, year, as_of=None):
+def aggregate_rows(rows, year, as_of=None, *, grbs_order=None):
     """Translate the existing canonical row aggregation to the renderer schema."""
     model = {}
-    for grbs in GRBS_ORDER:
+    for grbs in GRBS_ORDER if grbs_order is None else grbs_order:
         model[grbs] = {}
         for kind in ('comp', 'ep'):
             model[grbs][kind] = {}
@@ -189,7 +194,8 @@ def contributors(rows, year, quarter, as_of=None):
     return out
 
 
-def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None, documents=None, legacy=False):
+def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None, documents=None, legacy=False,
+                           link_contract='verified-original-and-current-plan-v2'):
     """Current observations and candidates, never inheritance of old current statuses.
 
     GRBS + business A narrows a candidate set but is not a persisted identity.
@@ -232,7 +238,8 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
             gaps.append('Кандидаты в первичном реестре: строки ' + ', '.join(str(x.row_number) for x in unique.values()) + '.')
         gaps.append('Совпадение номера не подтверждает постоянную идентичность; исполнение не установлено.')
         proof = verify_saved_report_origin(old, documents or {})
-        link = resolve_current_link(old, rows, report_date=report_date, snapshot_id=snapshot_id, verified_origin=proof)
+        link = resolve_current_link(old, rows, report_date=report_date, snapshot_id=snapshot_id, verified_origin=proof,
+            legacy_group_rules=link_contract != 'verified-original-and-current-plan-v2')
         confirmed = active and link['status'] == 'CONFIRMED'
         r.update(semantic_status=('CURRENT_LINK_CONFIRMED' if confirmed else 'REVIEW_REQUIRED') if active else 'SUPERSEDED',
             semantic_status_ru='', current_link=link,
@@ -291,7 +298,7 @@ def future_rows(sources, year):
     output = []
     for s in sources:
         if s['role'] != 'master': continue
-        for rn, raw in enumerate(s['values'][3:], 4):
+        for rn, raw in enumerate(s['values'][s.get('header_rows', 3):], s.get('header_rows', 3) + 1):
             c = lambda i, raw=raw: raw[i] if i < len(raw) else None
             if not c(6): continue
             kind = classify_future_context(raw, target_year=year)
@@ -312,9 +319,9 @@ def future_rows(sources, year):
     return {'target_year':year, 'rows':output, 'unknown_month_count':sum(r['target_month'] is None for r in output)}
 
 
-def monthly_projection(rows, year, as_of=None):
+def monthly_projection(rows, year, as_of=None, *, grbs_order=None):
     output = []
-    for grbs in GRBS_ORDER:
+    for grbs in GRBS_ORDER if grbs_order is None else grbs_order:
         for method in ('ЭА','ЕП'):
             for month in range(1,13):
                 selected = [r for r in rows if is_procurement_row(r, report_year=year) and r.grbs == grbs
@@ -340,9 +347,11 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     rows, issues = [], []
     for s in capture['sources']:
         if s['role'] != 'master': continue
-        issues.extend(x.as_dict() for x in validate_master_values(s['values'][3:], grbs=s['grbs'], source_id=s['provider_id'], sheet_name=s['sheet']))
+        headers = s.get('header_rows', 3)
+        issues.extend(x.as_dict() for x in validate_master_values(s['values'][headers:], grbs=s['grbs'],
+            source_id=s['provider_id'], sheet_name=s['sheet'], first_sheet_row=headers + 1))
         rows.extend(normalize_master_values(s['values'], snapshot_id=bundle.manifest['snapshot_id'], expected_grbs=s['grbs'],
-                    data_start_row=3, source_id=s['provider_id'], sheet_name=s['sheet']))
+                    data_start_row=headers, source_id=s['provider_id'], sheet_name=s['sheet']))
     year=capture['report_year']; report_date=parse_date(capture['report_date'])
     identity_result=None
     if identity_store is not None:
@@ -380,7 +389,10 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             continue
         active.append({'procedure_code':code, 'stage':c(8), 'subject':c(6), 'action':c(2),
                        'deadline':parse_date(c(0)) or c(0), 'source_ref':f"{queue['provider_id']}::{queue['sheet']}::{rn}"})
-    snap={**bundle.manifest, 'model':aggregate_rows(rows,year,report_date), 'row_count':len(rows), 'active_procedures':len(active)}
+    grbs_order = registry_grbs_order(registry)
+    snap={**bundle.manifest, 'grbs_order':grbs_order,
+          'model':aggregate_rows(rows,year,report_date,grbs_order=grbs_order),
+          'row_count':len(rows), 'active_procedures':len(active)}
     issues.extend(x.as_dict() for x in validate_snapshot(snap))
     documents = {}
     if capture.get('recommendation_history_evidence') is not None:
@@ -405,7 +417,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
-    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v1'
+    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v2'
     model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}
@@ -428,7 +440,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['metric_semantics']={'fact_count':'Позиции плана с датой Q; не число договоров и не число процедур',
         'money_unit':'тыс. руб.', 'procedure_source_money_unit':'руб.', 'procedure_overlay_applied':False,
         'contract_count':None,'scope':'master_recorded_fact', 'identity_scope':'snapshot_physical_rows'}
-    model['monthly']=monthly_projection(rows,year,report_date)
+    model['monthly']=monthly_projection(rows,year,report_date,grbs_order=grbs_order)
     # Detail rows share snapshot-local locators with every metric's contributor list.
     model['details']=[{**asdict(r),'physical_row_key':r.physical_row_key,'plan_amount':r.plan_total,
         'fact_amount':r.fact_total,'included':is_procurement_row(r,report_year=year)} for r in rows]

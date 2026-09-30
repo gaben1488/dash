@@ -47,7 +47,7 @@ def recount(capture):
     events=[];event_amount=Fraction(0)
     for source in capture['sources']:
         if source['role']!='master':continue
-        for rowno,raw in enumerate(source['values'][3:],4):
+        for rowno,raw in enumerate(source['values'][source.get('header_rows', 3):], source.get('header_rows', 3) + 1):
             cell=lambda i, raw=raw:raw[i] if i<len(raw) else None
             kind=method(cell(11));plan_date=day(cell(13));fact_date=day(cell(16))
             try:plan_year=int(float(text(cell(15)).replace(',','.')))

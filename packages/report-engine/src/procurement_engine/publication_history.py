@@ -75,6 +75,9 @@ def compare_published_models(current: dict, previous: dict | None) -> dict:
     if current_meta['report_year'] != previous_meta.get('report_year'):
         result['status'] = 'REPORT_YEAR_CHANGED'
         return result
+    if set(current.get('grbs_order') or []) != set(previous.get('grbs_order') or []):
+        result['status'] = 'REPORT_SCOPE_CHANGED'
+        return result
     periods = ['year']
     if current['headline']['current_quarter'] == previous['headline']['current_quarter']:
         periods.append('quarter')

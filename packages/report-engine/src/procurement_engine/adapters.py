@@ -9,6 +9,7 @@ from .normalize import (
     normalize_id,
     normalize_method,
     parse_date,
+    parse_integer,
     to_decimal,
 )
 
@@ -23,13 +24,7 @@ def _cell(row: Sequence, idx: int):
 
 
 def _as_int(value):
-    text = clean_text(value)
-    if not text:
-        return None
-    try:
-        return int(float(text.replace(",", ".")))
-    except ValueError:
-        return None
+    return parse_integer(value)
 
 
 def normalize_master_values(values: Iterable[Sequence], *, snapshot_id: str, expected_grbs: str | None = None,

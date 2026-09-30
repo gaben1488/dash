@@ -232,7 +232,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
     expected_claims={row['recommendation_id']:row for row in review_recommendations(ledger, current,
         model['snapshot']['snapshot_id'], model['snapshot']['report_date'],
         identity_evidence=model.get('identity_review_evidence'), documents=documents,
-        legacy=not model.get('contract', {}).get('recommendation_link_contract'))}
+        legacy=not model.get('contract', {}).get('recommendation_link_contract'),
+        link_contract=model.get('contract', {}).get('recommendation_link_contract'))}
     if 'identity_review_evidence' not in model:
         for claim in expected_claims.values():
             claim.pop('business_finding', None)

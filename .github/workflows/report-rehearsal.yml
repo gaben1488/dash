@@ -1,0 +1,59 @@
+name: Report read-only upgrade rehearsal
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/report-engine/**'
+      - '.github/workflows/report-rehearsal.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: report-readonly-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  frozen-replay:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'codex/report-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Replay saved production evidence without changing service or data
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 8m
+          # Bash owns failure handling; per-line SSH injection breaks shell blocks.
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in
+              *[!0-9a-f]*|'') exit 2 ;;
+            esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
+            trap 'rm -rf "$work"' EXIT
+            git archive "$candidate" packages/report-engine | tar -x -C "$work"
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
+            docker run --rm --network none --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+              --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -m procurement_engine.rehearsal --state /app/packages/server/data/reports

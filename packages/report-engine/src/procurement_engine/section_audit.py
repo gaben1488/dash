@@ -50,7 +50,7 @@ def _future_population(capture):
     year=capture['report_year']+1; records=[]
     for source in capture['sources']:
         if source.get('role')!='master':continue
-        for rn,row in enumerate(source['values'][3:],4):
+        for rn,row in enumerate(source['values'][source.get('header_rows', 3):], source.get('header_rows', 3) + 1):
             c=lambda i,row=row:row[i] if i<len(row) else None
             if not c(6):continue
             planned=day(c(13))
@@ -114,7 +114,7 @@ def _remaining_population(capture):
     for source in capture['sources']:
         if source.get('role') != 'master':
             continue
-        for rowno, raw in enumerate(source['values'][3:], 4):
+        for rowno, raw in enumerate(source['values'][source.get('header_rows', 3):], source.get('header_rows', 3) + 1):
             c = lambda i, raw=raw: raw[i] if i < len(raw) else None
             kind = method(c(11)); planned = day(c(13)); actual = day(c(16))
             try:
@@ -163,7 +163,7 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
         for source in capture['sources']:
             if source.get('role')=='master':
                 rows.extend(normalize_master_values(source['values'],snapshot_id=sid,expected_grbs=source['grbs'],
-                    data_start_row=3,source_id=source['provider_id'],sheet_name=source['sheet']))
+                    data_start_row=source.get('header_rows', 3),source_id=source['provider_id'],sheet_name=source['sheet']))
         identity = capture.get('identity_evidence') or {}
         if not model.get('contract', {}).get('recommendation_link_contract'):
             identity = identity or model.get('identity_observations') or {}
@@ -181,7 +181,8 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
             from .recommendation_history import enroll_history_package
 
             _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
-        expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'], documents=documents, identity_evidence=identity_evidence, legacy=not model.get('contract', {}).get('recommendation_link_contract'))}
+        expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'], documents=documents, identity_evidence=identity_evidence, legacy=not model.get('contract', {}).get('recommendation_link_contract'),
+            link_contract=model.get('contract', {}).get('recommendation_link_contract'))}
         if 'recommendation_records' in model and model['recommendation_records'] != list(expected.values()):
             errors.append('recommendation_records')
 

@@ -252,7 +252,7 @@ def capture_google(registry,client=None,*,timezone_name='Asia/Kamchatka',max_att
     sources=[]
     for payload in bundle.payloads:
         c=contracts[payload.source_id]
-        sources.append({k:c[k] for k in ('source_id','role','provider_id','sheet','sheet_id','columns','grbs')})
+        sources.append({k:c[k] for k in ('source_id','role','provider_id','sheet','sheet_id','columns','grbs','header_rows')})
         sources[-1].update(rows=len(payload.semantic_values),values=payload.semantic_values,
             before=bundle.before[payload.source_id],after=bundle.after[payload.source_id])
         if payload.metadata and 'formula_evidence' in payload.metadata:

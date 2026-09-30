@@ -142,7 +142,7 @@ def _heading_grbs(value):
     return normalize_grbs(match[1]) if match else None
 
 
-def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None):
+def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -168,21 +168,30 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         and money(row, 'plan') in _subject_amounts(text, row.subject, normalize_id(row.source_row_no))
         and (not row.planned_year or not explicit_years or str(row.planned_year) in explicit_years)
         and (not row.planned_year or int(row.planned_year) == int(as_of[:4]))]
-    if len(ids) != 1 or re.search(r'объедин|совместн|единую закуп|раздроб', text):
+    if legacy_group_rules and (len(ids) != 1 or re.search(r'объедин|совместн|единую закуп|раздроб', text)):
+        # Replay old immutable releases with their original single-only contract.
         result['status'] = 'GROUP_EVIDENCE_REQUIRED'
         return result
-    if len(candidates) > 1:
+    # Every explicitly named member needs its own full subject, own amount and
+    # unique current identity. A group sum or an incomplete subset is not proof.
+    by_id = {business_id: [row for row in candidates if normalize_id(row.source_row_no) == business_id]
+             for business_id in ids}
+    if any(len(matches) > 1 for matches in by_id.values()):
         result['status'] = 'AMBIGUOUS'
         return result
-    if not candidates or not candidates[0].procurement_uid:
-        result['status'] = 'CURRENT_EVIDENCE_MISSING'
+    if any(not matches or not matches[0].procurement_uid for matches in by_id.values()):
+        result['status'] = 'GROUP_EVIDENCE_REQUIRED' if len(ids) > 1 else 'CURRENT_EVIDENCE_MISSING'
         return result
-    row = candidates[0]
-    result.update(status='CONFIRMED', procurement_uids=[row.procurement_uid],
-        business_ids=[row.source_row_no], source_row_keys=[row.physical_row_key],
+    linked = [by_id[business_id][0] for business_id in ids]
+    if len({row.procurement_uid for row in linked}) != len(linked):
+        # A proven merge needs a separate dated relation, not UID reuse in a row.
+        result['status'] = 'AMBIGUOUS'
+        return result
+    result.update(status='CONFIRMED', procurement_uids=[row.procurement_uid for row in linked],
+        business_ids=[row.source_row_no for row in linked], source_row_keys=[row.physical_row_key for row in linked],
         matches=[{'source_row_key': row.physical_row_key, 'procurement_uid': row.procurement_uid,
                   'business_id': row.source_row_no, 'subject': row.subject,
                   'plan_amount_thousand_decimal': format(money(row, 'plan'), 'f'),
                   'planned_year': row.planned_year, 'method': row.method,
-                  'recorded_fact_date': row.actual_date}])
+                  'recorded_fact_date': row.actual_date} for row in linked])
     return result

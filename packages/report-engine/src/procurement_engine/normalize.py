@@ -92,3 +92,14 @@ def to_decimal(value) -> Decimal:
 
 def meaningful(value) -> bool:
     return bool(clean_text(value))
+
+
+def parse_integer(value, *, minimum=1, maximum=9999) -> int | None:
+    """Accept a bounded calendar integer, without rounding or allocating huge integers."""
+    if value is None or not clean_text(value):
+        return None
+    try:
+        number = to_decimal(value)
+    except ValueError:
+        return None
+    return int(number) if minimum <= number <= maximum and number == number.to_integral_value() else None

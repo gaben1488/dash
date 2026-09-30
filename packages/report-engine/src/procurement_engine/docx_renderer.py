@@ -500,7 +500,9 @@ def _add_published_comparison(doc, model):
         return
     _paragraph(doc, f"Предыдущий выпуск: {comparison['previous_report_date']}.", size=8)
     if status != 'COMPARABLE':
-        reason = 'изменилась методика расчёта; показатели двух выпусков несопоставимы' if status == 'RULES_CHANGED' else 'изменён год плана'
+        reason = {'RULES_CHANGED': 'изменилась методика расчёта; показатели двух выпусков несопоставимы',
+                  'REPORT_SCOPE_CHANGED': 'изменился состав управлений, включённых в отчёт',
+                  'REPORT_YEAR_CHANGED': 'изменён год плана'}.get(status, 'сопоставимость выпусков не подтверждена')
         _paragraph(doc, f'Сравнение не рассчитывается: {reason}.', size=8)
         return
     if 'quarter' not in comparison['compared_periods']:
