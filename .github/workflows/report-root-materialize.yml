@@ -1,0 +1,92 @@
+name: Materialize reviewed report candidate
+on:
+  push:
+    branches: [codex/report-root-causes]
+    paths: [.github/workflows/report-root-materialize.yml]
+permissions:
+  contents: write
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply checksum-pinned public source patch
+        env:
+          PATCH_URL: 'https://sdmntpritalynorth.oaiusercontent.com/files/00000000-4f28-8246-9fc3-7ab3a695df34/raw?se=2026-09-30T13%3A21%3A16Z&sp=r&sv=2026-02-06&sr=b&scid=6e0ab273-e8b9-53ea-a3e0-381c7f3228fb&skoid=82a3371f-2f6c-4f81-8a78-2701b362559b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T10%3A51%3A15Z&ske=2026-10-01T10%3A51%3A15Z&sks=b&skv=2026-02-06&sig=Za0FTQBCdxRXuUMzK3aTnbWCXszPTCyOTQsae3YIMYk%3D'
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 90 "$PATCH_URL" -o /tmp/source.patch.gz
+          echo 'a5dad8e0cebc3395bc6fdc4daaa76fe6937016c62150a9d0d4a7f682b7ae364e  /tmp/source.patch.gz' | sha256sum -c -
+          gzip -dc /tmp/source.patch.gz > /tmp/source.patch
+          echo '8135431f0f346be49d7a0f875d4fad3282a02248e6b67ed343222519bcca3374  /tmp/source.patch' | sha256sum -c -
+          git apply --check /tmp/source.patch
+          git apply /tmp/source.patch
+          git rm .github/report-root-summary.py .github/workflows/report-root-summary.yml .github/workflows/report-root-materialize.yml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Python verification
+        run: |
+          python -m pip install -e 'packages/report-engine[test]'
+          python -m ruff check packages/report-engine
+          mkdir -p /tmp/evidence
+          python -m pytest packages/report-engine/tests -q --junitxml=/tmp/evidence/python-tests.xml
+      - name: Application verification
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm -r tsc --noEmit
+          pnpm -r test
+          pnpm -r build
+          git diff --check
+      - name: Save verified tree without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          subprocess.run(['git', 'add', '-A'], check=True)
+          names = subprocess.check_output(['git','diff','--cached','--name-only','HEAD'],text=True).splitlines()
+          allowed = ('packages/report-engine/', 'packages/shared/', 'packages/web/', 'docs/decisions/', '.github/workflows/report-rehearsal.yml', '.github/report-root-summary.py', '.github/workflows/report-root-summary.yml', '.github/workflows/report-root-materialize.yml')
+          assert names and all(name.startswith(allowed) for name in names)
+          entries = []
+          for name in names:
+              path = Path(name)
+              assert not path.is_symlink()
+              item = {'path':name, 'mode':'100644', 'type':'blob'}
+              if path.exists():
+                  item['content'] = path.read_text()
+              else:
+                  item['sha'] = None
+              entries.append(item)
+          base = subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          request = Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/trees',
+              data=json.dumps({'base_tree':base,'tree':entries}).encode(), method='POST',
+              headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urlopen(request,timeout=60) as response:
+              tree = json.load(response)['sha']
+          local = subprocess.check_output(['git','write-tree'],text=True).strip()
+          assert tree == local, (tree, local)
+          Path('/tmp/evidence/TREE.txt').write_text(tree+'\n')
+          print('VERIFIED_TREE=' + tree)
+          with Path('/tmp/evidence/public-source.tar.gz').open('wb') as output:
+              subprocess.run(['git','archive','--format=tar.gz','--prefix=dash/',tree],stdout=output,check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-report-candidate
+          path: /tmp/evidence/
+          retention-days: 7
+          if-no-files-found: error
