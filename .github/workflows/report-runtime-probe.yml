@@ -49,6 +49,8 @@ jobs:
                 'SOURCE_COVERAGE_MISMATCH', 'DOMAIN_RELEASE_POLICY_MISSING',
                 'PUBLICATION_ID_INVALID', 'PUBLICATION_VIEW_INVALID', 'PUBLICATION_NOT_FOUND',
                 'CANDIDATE_DIRECTORY_INVALID', 'BUNDLE_UNSAFE_FILE',
+                'IDENTITY_BACKUP_INVALID', 'IDENTITY_BACKUP_MODEL_MISMATCH',
+                'IDENTITY_REVIEW_EVIDENCE_MISMATCH', 'SAVED_IDENTITY_RECHECK_FAILED',
             }
             try:
                 status = json.loads(Path('data/reports/status.json').read_text())
@@ -85,11 +87,13 @@ jobs:
             # End formula summary
             try:
                 import re
-                attempt_id = status.get('attempt_id') if isinstance(status, dict) else None
-                if not isinstance(attempt_id, str) or re.fullmatch('[a-f0-9]{32}', attempt_id) is None:
+                candidates = [path for path in Path('data/reports/attempts').glob('*/bundle/report_model.json')
+                              if re.fullmatch('[a-f0-9]{32}', path.parent.parent.name) and not path.is_symlink()]
+                candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+                if not candidates:
                     raise ValueError('No safe candidate')
-                root = Path('data/reports/attempts') / attempt_id / 'bundle'
-                model = json.loads((root / 'report_model.json').read_text())
+                root = candidates[0].parent
+                model = json.loads(candidates[0].read_text())
                 payloads = []
                 for path in (root / 'snapshot_bundle/payloads').glob('*.json'):
                     if path.is_symlink():
@@ -98,6 +102,13 @@ jobs:
                 print(json.dumps({'formula_check': formula_summary(model, payloads)}))
             except (OSError, ValueError, TypeError):
                 print(json.dumps({'formula_check': 'UNAVAILABLE'}))
+            try:
+                from procurement_engine.publication_reader import read_publication
+                read_publication('data/reports', 'dashboard')
+                print(json.dumps({'publication_reader': 'PASS'}))
+            except Exception as error:
+                code = str(error)
+                print(json.dumps({'publication_reader': 'FAIL', 'code': code if code in publication_codes else 'UNRECOGNIZED_ERROR'}))
             
             def fetch(path):
                 step = ('health' if path == '/api/health' else 'report' if path == '/api/report'
