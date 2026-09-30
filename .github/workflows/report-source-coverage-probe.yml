@@ -1,0 +1,66 @@
+name: Report source coverage probe
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.head_ref == 'codex/report-source-coverage-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect current formula coverage without modifying runtime or sources
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 3m
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python - <<'PY'
+            import json
+            import os
+            import time
+            from pathlib import Path
+            from urllib.error import HTTPError
+            from urllib.parse import urlencode
+            from urllib.request import Request, urlopen
+            from procurement_engine.publication_reader import read_publication
+            from procurement_engine.deployment_diagnostics import public_error_code, summarize_status
+            root = Path('data/reports')
+            status = json.loads((root / 'status.json').read_text())
+            print(json.dumps(summarize_status(status)))
+            release = None
+            started = time.monotonic()
+            try:
+                response = json.loads(read_publication(root, 'status'))
+                release = response.get('latest')
+                print(json.dumps({'local_publication': 'PASS', 'elapsed_seconds': round(time.monotonic()-started, 2), 'available': release is not None}))
+            except Exception as error:
+                print(json.dumps({'local_publication': 'FAIL', 'code': public_error_code(str(error)), 'elapsed_seconds': round(time.monotonic()-started, 2)}))
+            paths = [('report', '/api/report')]
+            if release:
+                query = urlencode({'date':'-'.join(reversed(release['report_date'].split('.'))),'year':int(release['report_date'].split('.')[-1]),'quarter':(int(release['report_date'].split('.')[1])-1)//3+1})
+                paths.append(('release_context','/api/report-releases?'+query))
+                prefix = '/api/report-releases/' + release['release_id']
+                paths.extend([('dashboard',prefix+'/dashboard'),('main',prefix+'/main.docx'),('supplement',prefix+'/supplement.docx')])
+            for step, path in paths:
+                started = time.monotonic()
+                request = Request('http://127.0.0.1:' + str(int(os.environ.get('PORT','3000'))) + path, headers={'Authorization':'Bearer '+os.environ.get('AEMR_API_KEY','')})
+                try:
+                    with urlopen(request, timeout=40) as response:
+                        body = response.read(32*1024*1024+1)
+                        result = {'step':step,'http_status':response.status,'elapsed_seconds':round(time.monotonic()-started,2),'response_bytes':len(body)}
+                        if step=='report':
+                            period = json.loads(body).get('period',{})
+                            result['period']={key:period.get(key) for key in ('year','quarter','asOfDay')}
+                        print(json.dumps(result))
+                except HTTPError as error:
+                    print(json.dumps({'step':step,'http_status':error.code,'elapsed_seconds':round(time.monotonic()-started,2)})); error.close()
+                except Exception as error:
+                    print(json.dumps({'step':step,'code':public_error_code(str(error)),'elapsed_seconds':round(time.monotonic()-started,2)}))
+            PY
