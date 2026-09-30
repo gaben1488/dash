@@ -30,7 +30,8 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 8m
-          script_stop: true
+          # Bash owns failure handling; per-line SSH injection breaks shell blocks.
+          script_stop: false
           script: |
             set -euo pipefail
             umask 077
