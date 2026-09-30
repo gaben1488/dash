@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -7,6 +8,58 @@ from procurement_engine.publication_reader import read_publication
 from procurement_engine.runtime import run_once
 from test_recorded_release import CompleteGoogle
 from test_runtime import inputs
+
+
+def test_readiness_retries_temporary_503_without_changing_report_selection():
+    from procurement_engine.deployment_smoke import fetch_when_ready
+
+    calls = []; delays = []
+    def fetch(path):
+        calls.append(path)
+        if len(calls) < 3:
+            raise HTTPError('http://localhost' + path, 503, 'not ready', {}, None)
+        return b'original response'
+    assert fetch_when_ready(fetch, '/api/report', sleep=delays.append) == b'original response'
+    assert calls == ['/api/report'] * 3
+    assert delays == [1, 2]
+
+
+def test_readiness_has_a_bounded_retry_budget():
+    from procurement_engine.deployment_smoke import fetch_when_ready
+
+    calls = []; delays = []
+    def fetch(path):
+        calls.append(path)
+        raise HTTPError('http://localhost' + path, 503, 'not ready', {}, None)
+    with pytest.raises(HTTPError) as failure:
+        fetch_when_ready(fetch, '/api/report', sleep=delays.append)
+    assert failure.value.code == 503
+    assert len(calls) == 7
+    assert delays == [1, 2, 4, 8, 16, 32]
+
+
+@pytest.mark.parametrize('code', [400, 401, 403, 404, 500])
+def test_readiness_does_not_retry_auth_context_or_other_http_failures(code):
+    from procurement_engine.deployment_smoke import fetch_when_ready
+
+    calls = []; delays = []
+    def fetch(path):
+        calls.append(path)
+        raise HTTPError('http://localhost' + path, code, 'failure', {}, None)
+    with pytest.raises(HTTPError):
+        fetch_when_ready(fetch, '/api/report', sleep=delays.append)
+    assert len(calls) == 1
+    assert delays == []
+
+
+def test_http_failure_output_discloses_only_fixed_status_code(monkeypatch, capsys):
+    from procurement_engine import deployment_smoke
+
+    def failure(fetch):
+        raise HTTPError('http://localhost/private-source', 503, 'private business text', {}, None)
+    monkeypatch.setattr(deployment_smoke, 'check_exports', failure)
+    assert deployment_smoke.main() == 1
+    assert capsys.readouterr().err == 'REPORT_EXPORT_HTTP_503\n'
 
 
 def test_http_acceptance_checks_native_context_and_both_pinned_documents(tmp_path):
