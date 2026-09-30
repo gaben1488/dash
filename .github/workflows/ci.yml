@@ -9,7 +9,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push must not interrupt a running deployment/state migration.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   verify:
@@ -135,7 +136,7 @@ jobs:
               raise SystemExit('Missing deployment configuration: ' + ', '.join(missing))
           print('Deployment user and SSH key are configured. SSH port: 22.')
           PY
-      - name: Deploy over SSH (git reset --hard origin/main + docker compose up --build + health)
+      - name: Deploy tested commit over SSH and verify native report exports
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ env.VPS_HOST }}
@@ -162,7 +163,10 @@ jobs:
             done
             git fetch origin
             git checkout main
-            git reset --hard origin/main
+            tested_commit='${{ github.sha }}'
+            git cat-file -e "$tested_commit^{commit}"
+            git reset --hard "$tested_commit"
+            test "$(git rev-parse HEAD)" = "$tested_commit"
             git log --oneline -1
             cd /home/aemr/dash/deploy
             # Even if COMPOSE_PROFILES=reports is set, preserve the existing
