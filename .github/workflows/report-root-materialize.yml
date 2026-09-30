@@ -15,7 +15,7 @@ jobs:
           persist-credentials: false
       - name: Apply checksum-pinned public source patch
         env:
-          PATCH_URL: 'https://sdmntpritalynorth.oaiusercontent.com/files/00000000-4f28-8246-9fc3-7ab3a695df34/raw?se=2026-09-30T13%3A21%3A16Z&sp=r&sv=2026-02-06&sr=b&scid=6e0ab273-e8b9-53ea-a3e0-381c7f3228fb&skoid=82a3371f-2f6c-4f81-8a78-2701b362559b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T10%3A51%3A15Z&ske=2026-10-01T10%3A51%3A15Z&sks=b&skv=2026-02-06&sig=Za0FTQBCdxRXuUMzK3aTnbWCXszPTCyOTQsae3YIMYk%3D'
+          PATCH_URL: 'https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-b6b8-8210-a91e-1587b32275ee/raw?se=2026-09-30T13%3A27%3A12Z&sp=r&sv=2026-02-06&sr=b&scid=1060d6e5-3278-58ff-8ae8-4d5c8af10d78&skoid=1d6acb5b-b3f4-43ec-a5ec-b05c4a7708c8&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T06%3A33%3A35Z&ske=2026-10-01T06%3A33%3A35Z&sks=b&skv=2026-02-06&sig=57pxSNdtgLBLmBD8cN1KlN4FsDiSzGi0NHlkaAHpLSw%3D'
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 90 "$PATCH_URL" -o /tmp/source.patch.gz
@@ -43,9 +43,9 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm lint
-          pnpm -r tsc --noEmit
+          pnpm typecheck
           pnpm -r test
-          pnpm -r build
+          pnpm build
           git diff --check
       - name: Save verified tree without moving any branch
         env:
