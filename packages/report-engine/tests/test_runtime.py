@@ -1,6 +1,7 @@
 import fcntl
 import json
 
+import pytest
 from procurement_engine.constants import GRBS_ORDER
 from procurement_engine.raw_pipeline import header_hash
 from procurement_engine.runtime import run_once
@@ -168,3 +169,55 @@ def test_private_error_write_failure_does_not_leave_attempt_running(tmp_path, mo
     assert status['error_code'] == 'SOURCE_SCHEMA_CHANGED'
     assert status['private_error_saved'] is False
     assert json.loads((tmp_path / 'state/status.json').read_text()) == status
+
+
+@pytest.mark.parametrize('message, expected', [
+    ('GOOGLE_READ_HTTP_429', 'GOOGLE_READ_HTTP_429'),
+    ('GOOGLE_FORMULA_ERROR:private-book:17', 'GOOGLE_FORMULA_ERROR'),
+    ('SOURCE_CHANGED_DURING_FREEZE:private-book', 'SOURCE_CHANGED_DURING_FREEZE'),
+    ('PRIVATE_SECRET', 'GENERATION_FAILED'),
+])
+def test_acquisition_error_code_survives_public_summary_without_private_details(tmp_path, message, expected):
+    from procurement_engine.deployment_diagnostics import summarize_status
+    from procurement_engine.google_adapter import GoogleReadError
+
+    registry, ledger = inputs(tmp_path)
+
+    class Failed(Google):
+        def revision(self, provider):
+            raise GoogleReadError(message)
+
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=Failed())
+    assert status['error_code'] == expected
+    assert summarize_status(status)['error_code'] == expected
+    assert 'PRIVATE_SECRET' not in json.dumps(status)
+    assert 'private-book' not in json.dumps(status)
+    evidence = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
+    assert evidence['message'] == message
+    assert evidence['attempt_id'] == status['attempt_id']
+    assert evidence['stage'] == 'acquisition'
+    assert 'revision' in evidence['traceback']
+
+
+def test_missing_input_failure_is_distinguished_from_acquisition(tmp_path):
+    state = tmp_path / 'state'
+    status = run_once(tmp_path / 'missing.json', tmp_path / 'ledger.json', state, client=Google())
+    assert status['failure_stage'] == 'inputs'
+    evidence = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
+    assert evidence['stage'] == 'inputs'
+
+
+def test_cli_busy_worker_is_not_a_successful_release(tmp_path, capsys):
+    from procurement_engine.cli import main
+
+    state = tmp_path / 'state'
+    state.mkdir()
+    (state / 'status.json').write_text('{"status":"VERIFIED","attempt_id":"previous"}')
+    with (state / 'run.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = main(['run-google', '--registry', str(tmp_path / 'registry.json'),
+                       '--ledger', str(tmp_path / 'ledger.json'), '--state', str(state)])
+    assert result != 0
+    assert json.loads(capsys.readouterr().out) == {'status': 'ALREADY_RUNNING'}
+    assert json.loads((state / 'status.json').read_text())['attempt_id'] == 'previous'

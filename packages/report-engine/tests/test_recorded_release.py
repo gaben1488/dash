@@ -30,6 +30,22 @@ def test_real_runtime_can_publish_without_manual_context_or_forced_model(tmp_pat
     assert read_publication(state, 'supplement', release_id).startswith(b'PK')
 
 
+def test_complete_wider_grids_can_publish_both_documents(tmp_path):
+    class Wide(CompleteGoogle):
+        def grid(self, provider, sheet_id):
+            value = super().grid(provider, sheet_id)
+            value['gridProperties']['columnCount'] = 35
+            return value
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    result = run_once(registry, ledger, state, client=Wide())
+    assert result['status'] == 'VERIFIED'
+    release_id = result['publication']['release_id']
+    assert read_publication(state, 'main', release_id).startswith(b'PK')
+    assert read_publication(state, 'supplement', release_id).startswith(b'PK')
+
+
 def test_unlinked_recommendation_is_preserved_as_unknown_not_executed(tmp_path):
     registry, ledger = inputs(tmp_path)
     ledger.write_text(json.dumps([{

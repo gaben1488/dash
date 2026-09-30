@@ -95,3 +95,26 @@ def test_reference_to_unknown_sheet_cannot_pass_as_local():
 def test_local_declarations_do_not_whitelist_external_calls_or_bare_named_functions(formula):
     s = source(formulas=[{'row': 1, 'column': 1, 'formula': formula}])
     assert not audit([s])['closed']
+
+
+@pytest.mark.parametrize('formula', ['=D1', '=A4', '=SUM(A1:D3)', '=SUM(A:C4)', '=SUM(A:D)'])
+def test_local_reference_outside_captured_values_is_not_closed(formula):
+    s = source(formulas=[{'row': 1, 'column': 1, 'formula': formula}])
+    result = audit([s])
+    assert not result['closed']
+    assert any(i['code'] == 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED' for i in result['issues'])
+
+
+def test_dependency_sheet_must_cover_the_referenced_columns():
+    s = source(formulas=[{'row': 1, 'column': 1, 'formula': '=SUM(Support!A1:D3)'}])
+    result = audit([s, source('support', 1, 'Support')])
+    assert not result['closed']
+    assert any(i['code'] == 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED' for i in result['issues'])
+
+
+def test_named_range_cannot_extend_beyond_captured_values():
+    s = source(formulas=[{'row': 1, 'column': 1, 'formula': '=SUM(Customers)'}])
+    support = source('support', 1, 'Support')
+    for item in (s, support):
+        item['formula_evidence']['named_ranges'][0]['range']['endColumnIndex'] = 4
+    assert not audit([s, support])['closed']

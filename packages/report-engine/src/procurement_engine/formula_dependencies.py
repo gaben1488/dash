@@ -13,6 +13,19 @@ MONTH N NOT OFFSET OR REGEXEXTRACT REGEXMATCH REGEXREPLACE RIGHT ROUND ROUNDUP R
 SEARCH SORT SPLIT SUBSTITUTE SUM SUMIF SUMIFS SUMPRODUCT TEXT TEXTJOIN TODAY TO_TEXT TRIM UNIQUE VALUE VLOOKUP YEAR
 TRUE FALSE'''.split())  # noqa: SIM905 — compact, reviewed vocabulary is easier to audit by function name.
 TOKEN = re.compile(r'"(?:[^"]|"")*"|\'(?:[^\']|\'\')*\'|\$?[A-Za-z]{1,3}\$?\d+(?!\w)|[^\W\d][\w.]*|\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?|[^\s]', re.UNICODE)
+REFERENCE = re.compile(
+    r"(?<![\w.])(?:(?P<sheet>'(?:[^']|'')*'|[^\W\d][\w.]*)!)?"
+    r'(?P<start>\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}(?=\s*:)|\d+(?=\s*:))'
+    r'(?:\s*:\s*(?P<end>\$?[A-Za-z]{1,3}(?:\$?\d+)?|\d+))?(?![\w.(])', re.UNICODE)
+
+
+def _reference_bounds(reference):
+    letters = ''.join(c for c in reference if c.isalpha()).upper()
+    column = 0
+    for letter in letters:
+        column = column * 26 + ord(letter) - ord('A') + 1
+    digits = ''.join(c for c in reference if c.isdigit())
+    return column, int(digits) if digits else 0
 
 
 def _arguments(tokens, opening):
@@ -80,6 +93,7 @@ def _formula_dependencies(formula, named_ranges, sheets):
 def audit_formula_dependencies(capture):
     sources = capture.get('sources') or []
     index = {(s['provider_id'], s['sheet_id']): s['source_id'] for s in sources}
+    by_id = {s['source_id']: s for s in sources}
     issues, edges, contexts = [], set(), {}
 
     def problem(sid, code, **details):
@@ -89,9 +103,15 @@ def audit_formula_dependencies(capture):
         sid = s['source_id']; evidence = s.get('formula_evidence')
         if not isinstance(evidence, dict):
             problem(sid, 'FORMULA_EVIDENCE_MISSING'); continue
-        if (evidence.get('rows') != s['rows'] or evidence.get('columns') != s['columns']
+        width = evidence.get('columns')
+        if (evidence.get('rows') != s['rows'] or type(width) is not int or width < s['columns']
                 or not isinstance(evidence.get('formulas'), list)):
             problem(sid, 'FORMULA_GRID_INCOMPLETE'); continue
+        if width > s['columns']:
+            extra = evidence.get('extra_values')
+            if (not isinstance(extra, list) or len(extra) != s['rows']
+                    or any(not isinstance(row, list) or len(row) > width - s['columns'] for row in extra)):
+                problem(sid, 'FORMULA_GRID_INCOMPLETE'); continue
         book_context = {'sheets': evidence.get('sheets'), 'named_ranges': evidence.get('named_ranges')}
         if not isinstance(book_context['sheets'], list) or not isinstance(book_context['named_ranges'], list):
             problem(sid, 'FORMULA_CONTEXT_MISSING'); continue
@@ -106,7 +126,7 @@ def audit_formula_dependencies(capture):
         for cell in evidence['formulas']:
             if (not isinstance(cell.get('formula'), str) or not cell['formula'].startswith('=')
                     or not 1 <= cell.get('row', 0) <= s['rows']
-                    or not 1 <= cell.get('column', 0) <= s['columns']):
+                    or not 1 <= cell.get('column', 0) <= width):
                 problem(sid, 'FORMULA_CELL_INVALID'); continue
             functions, targets = _formula_dependencies(cell['formula'], names, sheets)
             if functions:
@@ -119,6 +139,33 @@ def audit_formula_dependencies(capture):
                             column=cell['column'], target_sheet_id=target)
                 elif target_id != sid:
                     edges.add((sid, target_id))
+            # A registered sheet alone is not proof that a referenced range was read.
+            ranges = []
+            formula_text = re.sub(r'"(?:[^"]|"")*"', '""', cell['formula'])
+            for reference in REFERENCE.finditer(formula_text):
+                title = reference['sheet']
+                target = s['sheet_id'] if title is None else sheets.get(
+                    title[1:-1].replace("''", "'") if title.startswith("'") else title)
+                bounds = [_reference_bounds(reference['start'])]
+                if reference['end']:
+                    bounds.append(_reference_bounds(reference['end']))
+                ranges.append((target, max(c for c, _ in bounds), max(r for _, r in bounds)))
+            for token in TOKEN.findall(cell['formula']):
+                if token in names:
+                    named = names[token]
+                    ranges.append((named['sheetId'], named.get('endColumnIndex', 0), named.get('endRowIndex', 0)))
+            for target, column, row in ranges:
+                target_id = index.get((s['provider_id'], target))
+                if target_id is None:
+                    continue  # Missing sheets already produce FORMULA_DEPENDENCY_NOT_CAPTURED.
+                captured = by_id[target_id]
+                target_width = captured['columns']
+                target_evidence = captured.get('formula_evidence') or {}
+                if isinstance(target_evidence.get('extra_values'), list):
+                    target_width = target_evidence.get('columns', target_width)
+                if column > target_width or row > captured['rows']:
+                    problem(sid, 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED', row=cell['row'],
+                            column=cell['column'], target_source_id=target_id)
     return {'closed': bool(sources) and not issues, 'issues': issues,
             'edges': [{'from': a, 'to': b} for a, b in sorted(edges)],
             'scope': 'Captured native formulas and registered in-workbook dependencies; business event completeness is not inferred.'}

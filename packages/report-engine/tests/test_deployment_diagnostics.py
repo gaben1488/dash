@@ -22,3 +22,28 @@ def test_formatted_private_values_are_not_a_known_code_or_type():
         'error_type': 'SyntheticPrivateValue', 'blockers': [{'code': 'SYNTHETIC_PRIVATE_VALUE'}]}) == {
         'last_report_status': 'UNKNOWN', 'error_code': 'UNRECOGNIZED_ERROR',
         'error_type': 'OtherError', 'blocker_codes': ['UNRECOGNIZED_ERROR']}
+
+
+def test_deployment_does_not_present_previous_attempt_as_current_failure(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    directory = tmp_path / 'data/reports'
+    directory.mkdir(parents=True)
+    status = {'status': 'NOT_ISSUED', 'started_at': '2026-09-29T00:00:00+00:00',
+              'error_code': 'GOOGLE_READ_HTTP_429'}
+    (directory / 'status.json').write_text(json.dumps(status))
+    result = subprocess.run([sys.executable, '-m', 'procurement_engine.deployment_diagnostics',
+                             'capture', '2026-09-30T00:00:00+00:00'], cwd=tmp_path,
+        env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1] / 'src')},
+        capture_output=True, text=True, check=True)
+    summary = json.loads(result.stdout)
+    assert summary == {'failed_deployment_stage': 'capture', 'last_report_status': 'NOT_CURRENT'}
+
+
+def test_public_summary_identifies_failure_stage_but_rejects_arbitrary_stage_text():
+    assert summarize_status({'status': 'NOT_ISSUED', 'failure_stage': 'acquisition'})['failure_stage'] == 'acquisition'
+    assert summarize_status({'status': 'NOT_ISSUED', 'failure_stage': 'private-book'})['failure_stage'] == 'unknown'

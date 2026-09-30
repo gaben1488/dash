@@ -194,22 +194,24 @@ class GoogleSheetSourceAdapter:
         count=grid['gridProperties']['rowCount']
         if grid['gridProperties']['columnCount']<c['columns']:
             raise GoogleReadError('GOOGLE_SOURCE_COLUMNS_MISSING')
+        full_columns=grid['gridProperties']['columnCount']
         values=[[] for _ in range(count)]
-        for start, end, chunk in self._chunks(count, c['columns'], 'UNFORMATTED_VALUE'):
+        extra_values=[[] for _ in range(count)]
+        for start, end, chunk in self._chunks(count, full_columns, 'UNFORMATTED_VALUE'):
             if len(chunk)>end-start+1:
                 raise GoogleReadError('GOOGLE_RANGE_OVERFLOW')
             for offset,row in enumerate(chunk):
-                if len(row)>c['columns']:
+                if len(row)>full_columns:
                     raise GoogleReadError('GOOGLE_COLUMN_OVERFLOW')
                 if any(isinstance(v,str) and v in FORMULA_ERRORS for v in row):
                     raise GoogleReadError(f'GOOGLE_FORMULA_ERROR:{self.source_id}:{start+offset}')
-                values[start-1+offset]=row
+                values[start-1+offset]=row[:c['columns']]
+                extra_values[start-1+offset]=row[c['columns']:]
         metadata={'sheet_title':c['sheet'],'row_count':count,
                   'column_count':c['columns'],'units':c['units'],'grbs':c.get('grbs')}
         # Legacy adapters can still produce diagnostic snapshots; missing evidence cannot pass closure.
         if hasattr(self.client,'formula_context') and hasattr(self.client,'formulas'):
             context=self.client.formula_context(self.provider_id)
-            full_columns=grid['gridProperties']['columnCount']
             formulas=[]
             for start, end, chunk in self._chunks(count, full_columns, 'FORMULA'):
                 if len(chunk)>end-start+1 or any(len(row)>full_columns for row in chunk):
@@ -219,6 +221,8 @@ class GoogleSheetSourceAdapter:
                         if isinstance(value,str) and value.startswith('='):
                             formulas.append({'row':start+offset,'column':column,'formula':value})
             metadata['formula_evidence']={**context,'rows':count,'columns':full_columns,'formulas':formulas}
+            if full_columns>c['columns']:
+                metadata['formula_evidence']['extra_values']=extra_values
         return SourcePayload(self.source_id,self.role,self.provider_id,values,str(c['sheet_id']),
             header_hash(values,c['header_rows']),metadata=metadata)
 
