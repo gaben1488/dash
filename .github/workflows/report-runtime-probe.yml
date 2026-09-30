@@ -104,7 +104,10 @@ jobs:
                 print(json.dumps({'formula_check': 'UNAVAILABLE'}))
             try:
                 from procurement_engine.publication_reader import read_publication
-                read_publication('data/reports', 'dashboard')
+                publication = json.loads(read_publication('data/reports', 'status')).get('latest')
+                if not isinstance(publication, dict) or not publication.get('release_id'):
+                    raise ValueError('PUBLICATION_NOT_FOUND')
+                read_publication('data/reports', 'dashboard', publication['release_id'])
                 print(json.dumps({'publication_reader': 'PASS'}))
             except Exception as error:
                 code = str(error)
