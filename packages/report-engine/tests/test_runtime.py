@@ -125,3 +125,46 @@ def test_formula_evidence_changes_snapshot_identity_even_when_values_match(tmp_p
                                                'formulas': [], 'sheets': [], 'named_ranges': []}
     second = bundle_from_capture(modified, registry)
     assert first.manifest['snapshot_id'] != second.manifest['snapshot_id']
+
+
+def test_prefixed_snapshot_error_retains_safe_code_and_private_evidence(tmp_path):
+    from procurement_engine.atomic_snapshot import AtomicSnapshotError
+
+    registry, ledger = inputs(tmp_path)
+
+    class Changed(Google):
+        def revision(self, provider):
+            raise AtomicSnapshotError('SOURCE_SCHEMA_CHANGED:private-source:private-fingerprint')
+
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=Changed())
+    assert status['error_code'] == 'SOURCE_SCHEMA_CHANGED'
+    assert 'private-source' not in json.dumps(status)
+    evidence = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
+    assert evidence['message'] == 'SOURCE_SCHEMA_CHANGED:private-source:private-fingerprint'
+    assert (state / 'attempts' / status['attempt_id'] / 'error.json').stat().st_mode & 0o777 == 0o600
+
+
+def test_private_error_write_failure_does_not_leave_attempt_running(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from procurement_engine.atomic_snapshot import AtomicSnapshotError
+
+    registry, ledger = inputs(tmp_path)
+    original = Path.open
+
+    def open_path(path, *args, **kwargs):
+        if path.name == 'error.json':
+            raise PermissionError('private diagnostics unavailable')
+        return original(path, *args, **kwargs)
+
+    class Changed(Google):
+        def revision(self, _):
+            raise AtomicSnapshotError('SOURCE_SCHEMA_CHANGED:private-source')
+
+    monkeypatch.setattr(Path, 'open', open_path)
+    status = run_once(registry, ledger, tmp_path / 'state', client=Changed())
+    assert status['status'] == 'NOT_ISSUED'
+    assert status['error_code'] == 'SOURCE_SCHEMA_CHANGED'
+    assert status['private_error_saved'] is False
+    assert json.loads((tmp_path / 'state/status.json').read_text()) == status

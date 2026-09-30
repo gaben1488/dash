@@ -27,7 +27,7 @@ if 'ps' in sys.argv and os.environ.get('WAS_RUNNING')=='1':print('existing-worke
 def test_schedule_starts_only_after_private_bootstrap_and_successful_run(tmp_path):
     result, log = run_deploy(tmp_path)
     assert result.returncode == 0
-    assert log.index('bootstrap-google') < log.index('run-google') < log.index('procurement_engine.deployment_smoke') < log.index('up -d report-worker')
+    assert log.index('bootstrap-google') < log.index('migrate-google-schema') < log.index('run-google') < log.index('procurement_engine.deployment_smoke') < log.index('up -d report-worker')
     assert 'preflight.log' in log
     assert 'Reading and checking report sources' in result.stdout
     assert 'Report exports verified; schedule started.' in result.stdout

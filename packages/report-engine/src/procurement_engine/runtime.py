@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .atomic_snapshot import AtomicSnapshotError
 from .google_adapter import GoogleReadClient, capture_google
 from .identity_store import IdentityStore
 from .publication_store import PublicationStore
@@ -95,6 +96,22 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
             code = str(error)
+            prefix = code.split(':', 1)[0]
+            if isinstance(error, AtomicSnapshotError) and prefix in {
+                'ATOMIC_SOURCE_IDENTITY_INCOMPLETE', 'ATOMIC_SOURCE_REVISION_UNAVAILABLE',
+                'SOURCE_PAYLOAD_ID_MISMATCH', 'SOURCE_PROVIDER_ID_MISMATCH',
+                'SOURCE_ROLE_MISMATCH', 'SOURCE_SCHEMA_CHANGED', 'SOURCE_CHANGED_DURING_FREEZE'}:
+                code = prefix
+            private_error = attempt / 'error.json'
+            try:
+                with private_error.open('x', encoding='utf-8') as file:
+                    os.chmod(private_error, 0o600)
+                    json.dump({'error_type': type(error).__name__, 'message': str(error)}, file, ensure_ascii=False)
+                    file.flush()
+                    os.fsync(file.fileno())
+                status['private_error_saved'] = True
+            except OSError:
+                status['private_error_saved'] = False
             status.update(status='NOT_ISSUED',
                           error_code=code if re.fullmatch(r'[A-Z_]{4,100}', code) else 'GENERATION_FAILED',
                           error_type=type(error).__name__)

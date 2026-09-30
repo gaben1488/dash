@@ -59,6 +59,8 @@ def main(argv=None):
     run.add_argument("--state", required=True)
     bootstrap = sub.add_parser("bootstrap-google", help="Install private runtime inputs using the existing service account")
     bootstrap.add_argument("--inputs", required=True)
+    migration = sub.add_parser("migrate-google-schema", help="Apply reviewed private reference header migrations")
+    migration.add_argument("--registry", required=True)
     worker = sub.add_parser("worker", help="Periodically acquire, verify and attempt publication")
     worker.add_argument("--registry", required=True)
     worker.add_argument("--ledger", required=True)
@@ -72,6 +74,10 @@ def main(argv=None):
     read.add_argument("--report-year", type=int)
     read.add_argument("--quarter", type=int)
     args = p.parse_args(argv)
+    if args.cmd == 'migrate-google-schema':
+        from .schema_migrations import apply_google_schema_migrations
+        print(json.dumps({'reviewed_schema_migrations_applied': apply_google_schema_migrations(args.registry)}))
+        return 0
     if args.cmd == 'bootstrap-google':
         from .runtime_inputs import install_google_inputs
         install_google_inputs(args.inputs)
