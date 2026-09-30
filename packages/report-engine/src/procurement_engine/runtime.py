@@ -91,11 +91,12 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             stage = 'build'
             identities.recover_latest_plan_signatures([
                 *state.glob('attempts/*/bundle/snapshot_bundle'),
-                *state.glob('published/releases/*/snapshot_bundle')])
+                *state.glob('published/releases/*/snapshot_bundle')], recover_chain=True)
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',
                                        identity_store=identities, previous_publication=previous)
             status['snapshot_id'] = model['snapshot']['snapshot_id']
             status['report_date'] = model['snapshot']['report_date']
+            status['automation_assurance'] = model.get('automation_assurance')
             if model['release']['official_release_allowed'] is not True:
                 status.update(status='NOT_ISSUED', blockers=model['release']['blockers'])
             else:

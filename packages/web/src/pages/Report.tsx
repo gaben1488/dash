@@ -12,6 +12,7 @@
  * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
+import { ReportAssurancePanel } from '../lib/report/ReportAssurancePanel';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
 import clsx from 'clsx';
@@ -1023,6 +1024,9 @@ export function ReportPage() {
 
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
+
+      <ReportAssurancePanel value={word.assurance} label={`Ограничения выбранного Word-выпуска${word.release ? ` от ${word.release.report_date}` : ''}`} />
+      <ReportAssurancePanel value={word.failedAttemptAssurance} label="Последняя попытка: новый выпуск не создан" />
 
       {/* Ярус 2: период и служебные оговорки */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

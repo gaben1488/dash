@@ -518,6 +518,30 @@ export const MetricsResponseSchema = z.object({
   deltas: z.array(DeltaResultSchema.passthrough()),
 }).passthrough();
 
+/** Конкретные действия относятся к тому же замороженному выпуску, что и Word. */
+export const ReportActionSchema = z.object({
+  signal_id: z.string().min(1), code: z.string().min(1),
+  severity: z.enum(['needs_attention', 'blocks_release']),
+  owner_kind: z.enum(['SOURCE_OWNER', 'ENGINE']), owner: z.string().nullable(),
+  user_action_required: z.boolean(), title: z.string(), cause: z.string(),
+  report_effect: z.string(), action: z.string(), resolved_when: z.string(),
+  recommendation_id: z.string().nullable(), source_row_key: z.string().nullable(),
+  locations: z.array(z.object({
+    source_id: z.string().nullable(), sheet: z.string().nullable(), sheet_id: z.number().int().nullable(),
+    row: z.number().int().nullable(), column: z.string(), a1: z.string().nullable(), url: z.string().nullable(),
+    subject: z.string().nullable(), business_id: z.string().nullable(),
+  })),
+});
+export const ReportAssuranceSchema = z.object({
+  contract: z.literal('actionable-assurance-v1'), fully_automated: z.boolean(),
+  user_action_count: z.number().int().nonnegative(), engine_action_count: z.number().int().nonnegative(),
+  active_recommendations: z.number().int().nonnegative(),
+  link_status_counts: z.record(z.string(), z.number().int().nonnegative()),
+  action_status_counts: z.record(z.string(), z.number().int().nonnegative()),
+  actions: z.array(ReportActionSchema), meaning: z.string(),
+});
+export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
+
 /** Сохранённый выпуск: дата и идентификатор не зависят от живого дашборда. */
 export const PublishedReleaseSchema = z.object({
   release_id: z.string().regex(/^REL-[a-f0-9]{64}$/),
@@ -529,6 +553,7 @@ export const PublishedReleaseSchema = z.object({
   rules_version: z.string().min(1),
   renderer_version: z.string().min(1),
   status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
+  automation_assurance: ReportAssuranceSchema.optional(),
 });
 
 export const ReportReleaseStatusSchema = z.object({
@@ -539,6 +564,7 @@ export const ReportReleaseStatusSchema = z.object({
     started_at: z.string().datetime({ offset: true }).optional(),
     blockers: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
     error_code: z.string().optional(),
+    automation_assurance: ReportAssuranceSchema.nullable().optional(),
   }).nullable(),
 });
 export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;

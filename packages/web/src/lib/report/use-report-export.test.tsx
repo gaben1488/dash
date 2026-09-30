@@ -104,3 +104,22 @@ it('does not advertise preparation for a different year or quarter', async () =>
   await waitFor(() => expect(result.current.status).toContain('ещё не выпущен'));
   expect(result.current.status).not.toContain('Готовится');
 });
+
+it('does not present newer assurance as belonging to an already downloaded Word pair', async () => {
+  const assurance = {
+    contract: 'actionable-assurance-v1', fully_automated: true, user_action_count: 0,
+    engine_action_count: 0, active_recommendations: 0, link_status_counts: {}, action_status_counts: {},
+    actions: [], meaning: 'Verification is scoped.',
+  };
+  let selected = { ...receipt, automation_assurance: assurance };
+  request.mockImplementation(async (url: string) => url.endsWith('.docx')
+    ? { ok: true, blob: async () => new Blob(['docx']) } : response(selected));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.assurance?.user_action_count).toBe(0));
+  await act(() => result.current.download('main'));
+  selected = { ...selected, release_id: `REL-${'b'.repeat(64)}`,
+    automation_assurance: { ...assurance, user_action_count: 1, fully_automated: false } };
+  await act(async () => { poll(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(result.current.assurance?.user_action_count).toBe(0);
+  expect(result.current.release?.release_id).toBe(receipt.release_id);
+});

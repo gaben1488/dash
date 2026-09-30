@@ -209,12 +209,13 @@ def test_runtime_freezes_original_history_and_publishes_confirmed_link_with_unkn
             return values[start - 1:end]
     registry, ledger = inputs(tmp_path); ledger.write_text(json.dumps(history))
     state = tmp_path / 'state'; result = run_once(registry, ledger, state, client=HistoricalGoogle())
-    assert result['status'] == 'VERIFIED', result
+    assert result['status'] == 'VERIFIED_WITH_WARNINGS', result
+    assert result['automation_assurance']['engine_action_count'] == 1
     dashboard = json.loads(read_publication(state, 'dashboard', result['publication']['release_id']))
     rec = dashboard['recommendations']['tables']['1'][0]
     assert rec['current_link']['status'] == 'CONFIRMED'
     assert rec['current_link']['fulfillment'] == 'UNKNOWN'
-    assert rec['semantic_status'] == 'CURRENT_LINK_CONFIRMED'
+    assert rec['semantic_status'] == 'ACTION_REVIEW_REQUIRED'
     bundle = state / 'attempts' / result['attempt_id'] / 'bundle' / 'snapshot_bundle'
     frozen = json.loads((bundle / 'payloads/RECOMMENDATION_HISTORY_EVIDENCE.json').read_text())
     assert frozen['semantic_values']['package'] == package

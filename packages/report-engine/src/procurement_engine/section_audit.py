@@ -35,7 +35,9 @@ def audit_recommendation_projections(model):
                 'recommendation':r.get('recommendation_text') or '', 'grbs_response':r.get('grbs_response_original') or '',
                 'uer_decision':r.get('uer_decision_original') or '',
                 'semantic_status_ru':r.get('semantic_status_ru', r.get('semantic_status') or ''),
-                'status_evidence':r.get('status_evidence') or ''})
+                'status_evidence':r.get('status_evidence') or '',
+                **({'business_finding': r.get('business_finding') or ''}
+                   if model.get('contract', {}).get('business_context_contract') == 'source-context-v1' else {})})
     tables={}
     for grbs, records in grouped.items():
         records.sort(key=lambda r:(int(r.get('table_no') or 0),int(r.get('row_no') or 0),r['recommendation_id']))
@@ -149,6 +151,9 @@ def _normalized_remaining(records):
 
 def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     errors=[]
+    if (model.get('contract', {}).get('business_context_contract') == 'source-context-v1'
+        and not audit_context(capture, model)):
+        errors.append('source_context')
     if 'report_content' in model:
         actual = _normalized_remaining((model['report_content'] or {}).get('remaining') or {})
         if actual != _remaining_population(capture):
@@ -182,7 +187,8 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
 
             _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
         expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'], documents=documents, identity_evidence=identity_evidence, legacy=not model.get('contract', {}).get('recommendation_link_contract'),
-            link_contract=model.get('contract', {}).get('recommendation_link_contract'))}
+            link_contract=model.get('contract', {}).get('recommendation_link_contract'),
+        context_contract=model.get('contract', {}).get('business_context_contract'))}
         if 'recommendation_records' in model and model['recommendation_records'] != list(expected.values()):
             errors.append('recommendation_records')
 
@@ -220,4 +226,64 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     mgmt=model.get('management_summary') or {}
     for key,want in [('procedure_rows',active),('procedure_count',len(active))]:
         if mgmt.get(key)!=want:errors.append('management_summary.'+key)
+    if model.get('contract', {}).get('automation_assurance_contract') == 'actionable-assurance-v1':
+        from .automation_assurance import assess_automation
+        if model.get('automation_assurance') != assess_automation(model, capture['sources']):
+            errors.append('automation_assurance')
     return errors
+
+
+def audit_context(capture, model):
+    """Independently reconstruct every displayed explanation from frozen cells.
+
+    Do not call the producer's context_rows/explanations: the audit must notice a
+    forgotten column in that producer, not repeat the omission.
+    """
+    fields = [(12, 'M', 'single_supplier_reason', 'Основание выбора ЕП'),
+              (20, 'U', 'deviation_reason', 'Пояснение отклонения'),
+              (30, 'AE', 'necessity_reason', 'Обоснование необходимости'),
+              (31, 'AF', 'grbs_comment', 'Комментарий ГРБС'),
+              (32, 'AG', 'uer_comment', 'Комментарий УЭР'),
+              (33, 'AH', 'monitoring_note', 'Примечание мониторинга')]
+    details = {(r['source_id'], r['sheet_name'], r['row_number']): r for r in model.get('details', [])}
+    from .source_context import is_technical_note
+    expected = []
+    for source in capture['sources']:
+        if source.get('role') != 'master':
+            continue
+        for number_row, raw in enumerate(source['values'][source.get('header_rows', 3):],
+                                          source.get('header_rows', 3) + 1):
+            detail = details.get((source['provider_id'], source['sheet'], number_row))
+            if detail is None:
+                continue  # The row-population audit handles whether this is a procurement.
+            cell = lambda i, raw=raw: raw[i] if i < len(raw) else None
+            c = lambda i, cell=cell: text(cell(i))
+            try:
+                raw_year = number(cell(15))
+                plan_year = int(raw_year) if raw_year.denominator == 1 and 1 <= raw_year <= 9999 else None
+            except (ValueError, ZeroDivisionError):
+                plan_year = None
+            primary = {'source_row_no': re.sub(r'^(\d+)\.0$', r'\1', c(0)) or None,
+                       'subject': c(6), 'planned_year': plan_year, 'planned_date': day(cell(13)),
+                       'actual_date': day(cell(16)),
+                       'method': {'competitive': 'ЭА', 'single_supplier': 'ЕП'}.get(method(cell(11)))}
+            if any(detail.get(key) != value for key, value in primary.items()):
+                return False
+            entries = []
+            for index, column, field, label in fields:
+                value = '' if column == 'AG' and normalize_procedure_code(c(index)) else c(index)
+                if detail.get(field) != value:
+                    return False
+                if value.casefold() not in {'', 'x', 'х', '-', '—'}:
+                    entries.append({'field': field, 'column': column, 'label': label, 'text': value,
+                                    'source_row_key': detail['physical_row_key'], 'assertion_kind': 'SOURCE_STATEMENT',
+                                    'visibility': 'diagnostic_only' if is_technical_note(value) else 'business'})
+            if detail.get('program') != c(3) or detail.get('subprogram') != c(4):
+                return False
+            if entries:
+                expected.append({'source_row_key': detail['physical_row_key'], 'business_id': primary['source_row_no'],
+                                 'grbs': source['grbs'], 'subject': primary['subject'], 'planned_year': plan_year,
+                                 'planned_date': primary['planned_date'], 'actual_date': primary['actual_date'],
+                                 'method': primary['method'],
+                                 'in_report_year': plan_year == capture['report_year'], 'explanations': entries})
+    return model.get('source_context') == expected

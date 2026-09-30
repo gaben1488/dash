@@ -38,7 +38,7 @@ def action_target_proven(record, source_ids):
     return False
 
 
-def confirmed_result(record, rows, reviews, report_date):
+def confirmed_result(record, rows, reviews, report_date, *, compile_original=False):
     wanted = {normalize_id(value) for value in record.get('source_procurement_ids') or []}
     if not wanted:
         return None
@@ -68,20 +68,31 @@ def confirmed_result(record, rows, reviews, report_date):
         return None
     uids = sorted({next(iter(targets)) for targets in links.values()})
     current = [by_uid[uid][0] for uid in uids]
-    return evaluate_linked_action(record, current, report_date, source_ids=wanted, proofs=proofs)
+    spec = None
+    if compile_original:
+        from .action_spec import compile_action
+        spec = compile_action(record.get('recommendation_text'), source_ids=wanted,
+            subjects=[(row.source_row_no, row.subject) for row in current])
+    return evaluate_linked_action(record, current, report_date, source_ids=wanted, proofs=proofs,
+                                  action_spec=spec)
 
 
 def evaluate_linked_action(record, current, report_date, *, source_ids, proofs=(),
-                           evidence_quality='REVIEWED_IDENTITY+PRIMARY_FIELDS'):
+                           evidence_quality='REVIEWED_IDENTITY+PRIMARY_FIELDS', action_spec=None):
     """Evaluate primary fields only after the caller has verified the full link."""
+    if not current:
+        raise ValueError('RECOMMENDATION_ROWS_REQUIRED')
     wanted = set(source_ids)
+    if action_spec is not None and set(action_spec.get('source_ids', [])) != wanted:
+        raise ValueError('RECOMMENDATION_ACTION_TARGET_MISMATCH')
     uids = sorted({row.procurement_uid for row in current})
     methods = {row.method for row in current}
     facts = sorted({row.actual_date for row in current if row.actual_date and row.actual_date <= parse_date(report_date)})
     execution = ('FACT_RECORDED' if all(row.actual_date in facts for row in current)
                  else 'PARTIAL_RECORDED_FACT' if facts else 'PLANNED')
     compliance, grouping = 'UNKNOWN', 'NONE'
-    kind = record.get('recommendation_type') if action_target_proven(record, source_ids) else None
+    goal = action_spec or record
+    kind = action_spec['type'] if action_spec is not None else (record.get('recommendation_type') if action_target_proven(record, source_ids) else None)
     if kind in {'CHANGE_METHOD_EA', 'CHANGE_METHOD_EP'} and None not in methods:
         # CHANGE_METHOD_EP is the existing historical label for leaving ЕП.
         implemented = all(method == 'ЭА' for method in methods)
@@ -98,15 +109,18 @@ def evaluate_linked_action(record, current, report_date, *, source_ids, proofs=(
         else:
             grouping = 'UNKNOWN'
             finding = 'Связь с текущими закупками подтверждена; объединение всех исходных позиций не доказано.'
-    elif kind == 'CHANGE_AMOUNT' and record.get('target_amount_thousand') is not None:
+    elif kind == 'CHANGE_AMOUNT' and goal.get('target_amount_thousand') is not None:
         amount = sum((to_decimal(getattr(row, field)) for row in current
                       for field in ('plan_fb', 'plan_kb', 'plan_mb')), Decimal(0))
-        target = to_decimal(record['target_amount_thousand'])
-        if not any(any(field in row.missing_money_fields for field in ('H', 'I', 'J')) for row in current):
+        target = to_decimal(goal['target_amount_thousand'])
+        if all(not any(field in row.missing_money_fields for field in ('H', 'I', 'J'))
+               or (action_spec is not None and row.stored_plan_total is not None
+                   and to_decimal(row.stored_plan_total) == sum((to_decimal(getattr(row, f))
+                        for f in ('plan_fb', 'plan_kb', 'plan_mb')), Decimal(0))) for row in current):
             compliance = 'IMPLEMENTED' if amount == target else 'NOT_IMPLEMENTED'
         finding = f'Плановая сумма связанных позиций — {amount} тыс. руб.; рекомендуемая — {target} тыс. руб.'
-    elif kind == 'MOVE_PLANNED_DATE' and parse_date(record.get('target_planned_date')):
-        target = parse_date(record['target_planned_date'])
+    elif kind == 'MOVE_PLANNED_DATE' and parse_date(goal.get('target_planned_date')):
+        target = parse_date(goal['target_planned_date'])
         if all(row.planned_date for row in current):
             compliance = 'IMPLEMENTED' if all(row.planned_date == target for row in current) else 'NOT_IMPLEMENTED'
         finding = 'Рекомендуемая дата планирования: ' + target + '; текущие даты: ' + ', '.join(
@@ -116,7 +130,7 @@ def evaluate_linked_action(record, current, report_date, *, source_ids, proofs=(
     finding += (' Факт внесён по всем связанным позициям.' if execution == 'FACT_RECORDED'
                 else ' Факт внесён по части связанных позиций.' if facts else ' Факт закупки пока не внесён.')
     status = compliance if compliance != 'UNKNOWN' else 'ACTION_REVIEW_REQUIRED'
-    return {'semantic_status': status,
+    return {**({'compiled_action': action_spec} if action_spec is not None else {}), 'semantic_status': status,
             'semantic_status_ru': {'IMPLEMENTED': 'РЕАЛИЗОВАНО В ПЛАНЕ', 'NOT_IMPLEMENTED': 'НЕ РЕАЛИЗОВАНО В ПЛАНЕ',
                                    'ACTION_REVIEW_REQUIRED': 'ИСПОЛНЕНИЕ ДЕЙСТВИЯ НЕ УСТАНОВЛЕНО'}[status],
             'current_procurement_ids': sorted({row.source_row_no for row in current if row.source_row_no}),

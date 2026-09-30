@@ -64,6 +64,12 @@ export function useReportExport(context: ExportContext | null) {
       : current.error || 'Для выбранной даты, года и квартала проверенный комплект ещё не выпущен.';
   if (release) {
     status = `Word: ${release.status === 'VERIFIED' ? 'проверен' : 'проверен, есть замечания'}. Источники прочитаны ${timestamp.format(new Date(release.cutoff_at))} (Камчатка).`;
+    const assurance = release.automation_assurance;
+    if (assurance) {
+      status += ` Проверок, требующих действий владельцев данных: ${assurance.user_action_count}; задач сопровождения: ${assurance.engine_action_count}.`;
+    } else {
+      status += ' Полнота обработки пояснений этим выпуском не оценена.';
+    }
     if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
   }
   const attempt = current?.data?.attempt;
@@ -75,7 +81,7 @@ export function useReportExport(context: ExportContext | null) {
   if (attemptApplies && attempt?.status === 'RUNNING') status += ' Готовится следующий комплект.';
   if (attemptApplies && attempt?.status === 'NOT_ISSUED') {
     status += ' Новый комплект не выпущен.';
-    if (attempt.blockers?.length) status += ` ${attempt.blockers.map(x => x.message).join(' ')}`;
+    if (!attempt.automation_assurance && attempt.blockers?.length) status += ' Причина сохранена в диагностике сопровождения; исправлять отчёт вручную не требуется.';
   }
   if (release && current?.error) status += ` ${current.error}`;
 
@@ -102,5 +108,9 @@ export function useReportExport(context: ExportContext | null) {
       controller.abort();
     }
   }
-  return { release, status, saving, downloadError, download };
+  // Do not mix newer attempts with a pinned Word file. Both sets remain explicitly labelled.
+  const assurance = release?.automation_assurance ?? null;
+  const failedAttemptAssurance = attemptApplies && attempt?.status === 'NOT_ISSUED'
+    ? attempt.automation_assurance ?? null : null;
+  return { release, status, saving, downloadError, download, assurance, failedAttemptAssurance };
 }

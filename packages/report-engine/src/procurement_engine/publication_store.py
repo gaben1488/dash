@@ -111,7 +111,11 @@ def _validate(root):
         raise PublicationError('SOURCE_CHANGED_DURING_CAPTURE')
     if set(expected) != {p['source_id'] for p in index}:
         raise PublicationError('SOURCE_COVERAGE_MISMATCH')
-    if str((model.get('contract') or {}).get('report_model_version', '')).startswith('report-model-'):
+    modern = snapshot.get('renderer_version') == 'renderer-v1.5.0rc10'
+    has_domain_contract = str((model.get('contract') or {}).get('report_model_version', '')).startswith('report-model-')
+    if modern and not has_domain_contract:
+        raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
+    if has_domain_contract:
         from .formula_dependencies import audit_formula_dependencies
         from .independent_audit import audit_model
         from .release_gates import validate_recorded_state_model
@@ -166,6 +170,21 @@ def _validate(root):
         if (not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']
                 or audit_source_sections(capture, model, ledger=ledgers[0], identity_evidence=proof)):
             raise PublicationError('SAVED_SOURCE_RECHECK_FAILED')
+    if model.get('contract', {}).get('document_content_contract') == 'document-plan-v1':
+        from .document_content import (
+            validate_document_content,
+            validate_document_plans,
+        )
+        try:
+            # The domain gate above already reconstructed and checked these
+            # plans. Avoid rebuilding the full document twice per HTTP read.
+            if not has_domain_contract and not validate_document_plans(model):
+                raise ValueError('DOCUMENT_CONTENT_PLAN_MISMATCH')
+            plans = model['document_plans']
+            for name, view in [('main_report.docx', 'main'), ('management_report.docx', 'management')]:
+                validate_document_content(root / name, plans[view])
+        except ValueError as exc:
+            raise PublicationError(str(exc)) from exc
     return model, model_hash, report_date, cutoff.astimezone(timezone.utc).isoformat(), expected
 
 
@@ -263,6 +282,16 @@ class PublicationStore:
                     previous = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
                     if previous:
                         return self._checked(previous)
+                    if model.get('contract', {}).get('document_content_contract') == 'document-plan-v1':
+                        from .semantic_headers import assert_header_continuity
+                        prior_row = db.execute('''SELECT receipt, files FROM publications WHERE cutoff_at <= ?
+                            ORDER BY cutoff_at DESC, release_id DESC LIMIT 1''', (cutoff,)).fetchone()
+                        prior = self._checked(prior_row)
+                        if prior is not None:
+                            try:
+                                assert_header_continuity(self.releases / prior['release_id'], stage)
+                            except ValueError as exc:
+                                raise PublicationError(str(exc)) from exc
                     observed = read_revisions()
                     if not observed or observed != expected:
                         raise PublicationError('SOURCE_CHANGED_BEFORE_PUBLICATION')
@@ -286,7 +315,9 @@ class PublicationStore:
                               'renderer_version': model['snapshot']['renderer_version'],
                               'published_at': datetime.now(timezone.utc).isoformat(),
                               'source_revisions_at_publish': observed,
-                              'status': 'VERIFIED_WITH_WARNINGS' if model.get('issues') else 'VERIFIED'}
+                              'status': 'VERIFIED_WITH_WARNINGS' if model.get('issues') or (model.get('automation_assurance') or {}).get('actions') else 'VERIFIED'}
+                    if model.get('automation_assurance') is not None:
+                        record['automation_assurance'] = model['automation_assurance']
                     db.execute('INSERT INTO publications VALUES (?, ?, ?, ?, ?)',
                         (release_id, report_date, cutoff, json.dumps(record, ensure_ascii=False), json.dumps(files)))
                 _sync_directory(self.root)
