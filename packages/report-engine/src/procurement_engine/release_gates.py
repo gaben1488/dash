@@ -183,7 +183,7 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict]) -> list[Va
 
     required = {'headline', 'grbs_metrics', 'monthly', 'future_plan', 'calendar_fact', 'details',
                 'recommendations', 'recommendations_by_grbs', 'procedures', 'closed_procedure_quality',
-                'report_clock', 'period_contract', 'exact_metrics', 'trace_records'}
+                'report_clock', 'period_contract', 'exact_metrics', 'trace_records', 'report_content', 'recommendation_records'}
     require(required <= model.keys(), 'REQUIRED_REPORT_SECTION_MISSING', 'Отсутствует обязательный раздел отчёта.')
     require((model.get('formula_dependencies') or {}).get('closed') is True,
             'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN', 'Не подтверждён полный состав зависимостей формул.')

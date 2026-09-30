@@ -59,6 +59,11 @@ def _sync_directory(path):
 def _validate(root):
     _files(root)  # Reject symlinks before reading any input through them.
     model = _json(root / 'report_model.json')
+    if 'report_content' in model:
+        from .diagnostics import project_diagnostics
+
+        if _json(root / 'diagnostic_protocol.json') != project_diagnostics(model):
+            raise PublicationError('DIAGNOSTIC_PROTOCOL_MISMATCH')
     release = model.get('release') or {}
     if release.get('official_release_allowed') is not True or release.get('blockers') != []:
         raise PublicationError('RELEASE_BLOCKED')

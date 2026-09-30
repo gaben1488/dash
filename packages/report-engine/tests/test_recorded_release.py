@@ -108,7 +108,8 @@ def test_empty_required_sections_and_fact_meaning_remain_explicit_in_both_docume
     bundle = state / 'attempts' / result['attempt_id'] / 'bundle'
     for name in ['main_report.docx', 'management_report.docx']:
         text = '\n'.join(p.text for p in Document(bundle / name).paragraphs)
-        assert 'число договоров' in text
+        assert 'число договоров' not in text  # Methodology remains in the diagnostic protocol.
+        assert 'позици' in text
         assert 'ЗАКУПКИ БУДУЩЕГО ПЕРИОДА' in text
         assert 'В зарегистрированных источниках записи не обнаружены.' in text
         assert 'Денежные показатели' in text

@@ -36,7 +36,8 @@ def recount(capture):
     def empty():
         return {'plan_count':0,'fact_count':0,'remain_count':0,
             **{n:Fraction(0) for n in ('plan_amount','fact_amount','remain_amount',
-                'monetary_fact_amount','confirmed_saving_amount','partial_fact_without_completion_amount')}}
+                'monetary_fact_amount','confirmed_saving_amount','partial_fact_without_completion_amount',
+                *(prefix+'_'+budget+'_amount' for prefix in ('plan','fact','remain') for budget in ('fb','kb','mb')))}}
     periods=('year','q1','q2','q3','q4')
     kinds=('competitive','single_supplier')
     result={k:{s:empty() for s in periods} for k in kinds}
@@ -73,6 +74,9 @@ def recount(capture):
                     if not fact_date and fact>0:b['partial_fact_without_completion_amount']+=fact
                     if is_fact and text(cell(29)).casefold()=='да':
                         b['confirmed_saving_amount']+=sum((number(cell(i)) for i in (25,26,27)),Fraction(0))
+                    for budget, plan_column, fact_column in [('fb',7,21),('kb',8,22),('mb',9,23)]:
+                        b['plan_'+budget+'_amount'] += number(cell(plan_column))
+                        b[('fact_' if is_fact else 'remain_')+budget+'_amount'] += number(cell(fact_column if is_fact else plan_column))
     for groups in [*result.values(),*(scopes for grbs in grouped.values() for scopes in grbs.values())]:
         for b in groups.values():
             b['deviation_amount']=b['monetary_fact_amount']-b['plan_amount']
@@ -109,6 +113,15 @@ def audit_model(capture,model):
             want=block[field]
             check(path+'.'+field,actual.get(field),float(want) if isinstance(want,Fraction) else want)
     display_fields=('plan_count','fact_count','remain_count','plan_amount','fact_amount','remain_amount','execution_pct')
+    content=model.get('report_content') or {}
+    check('report_content.version',content.get('version'),'business-sections-v1')
+    check('report_content.by_grbs.coverage',set(content.get('by_grbs') or {}),set(grouped))
+    def content_check(path,actual,block):
+        for field,want in block.items():
+            display_check(path,actual,block,(field,))
+            if not field.endswith('_count') and field!='execution_pct':
+                decimal_check(path+'.exact_decimal.'+field,(actual.get('exact_decimal') or {}).get(field),
+                              want,ratio=field=='contracted_share_pct')
     check('grbs_metrics.coverage',set(model.get('grbs_metrics') or {}),set(grouped))
     check('grbs_order.coverage',sorted(model.get('grbs_order') or []),sorted(grouped))
     for grbs,kinds in grouped.items():
@@ -117,12 +130,16 @@ def audit_model(capture,model):
             for scope,block in scopes.items():
                 actual=((model.get('grbs_metrics',{}).get(grbs) or {}).get(legacy) or {}).get(scope) or {}
                 display_check(f'grbs_metrics.{grbs}.{legacy}.{scope}',actual,block,display_fields)
+                section=(((content.get('by_grbs') or {}).get(grbs) or {}).get(legacy) or {}).get(scope) or {}
+                content_check(f'report_content.by_grbs.{grbs}.{legacy}.{scope}',section,block)
     for kind,scopes in expected.items():
         legacy='comp' if kind=='competitive' else 'ep'
         for scope,block in scopes.items():
             if scope!='quarter':
                 actual=((model.get('global_quarters') or {}).get(legacy) or {}).get(scope) or {}
                 display_check(f'global_quarters.{legacy}.{scope}',actual,block,display_fields)
+                section=((content.get('global') or {}).get(legacy) or {}).get(scope) or {}
+                content_check(f'report_content.global.{legacy}.{scope}',section,block)
             if scope not in {'year','quarter'}:
                 continue
             actual=((model.get('exact_metrics') or {}).get(kind) or {}).get(scope) or {}

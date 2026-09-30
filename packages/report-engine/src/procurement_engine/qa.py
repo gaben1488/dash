@@ -45,9 +45,11 @@ def _quarter_from_date(v) -> int | None:
     return (m - 1) // 3 + 1
 
 
-def source_row_key(source_id: str, sheet_name: str, row_number: int, procurement_id: str) -> str:
+def source_row_key(source_id: str, sheet_name: str, row_number: int, procurement_id: str | None) -> str:
     """Physical row identity. Column A is a business label, not a unique database key."""
-    return f"{source_id}::{sheet_name}::{row_number}::{normalize_id(procurement_id)}"
+    locator = f"{source_id}::{sheet_name}::{row_number}"
+    label = normalize_id(procurement_id) or f"__ROW__::{locator}"
+    return f"{locator}::{label}"
 
 
 def validate_master_values(values: Iterable[Sequence], *, grbs: str, source_id: str,
