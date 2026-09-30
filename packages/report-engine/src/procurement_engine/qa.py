@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
@@ -227,6 +228,19 @@ def assess_procedure_binding(*, explicit_code_link: bool, same_grbs: bool, same_
     return {"decision": "REJECT_INFERRED", "reliable": False, "reason": "insufficient independent evidence", "evidence": evidence}
 
 
+def explicit_future_plan_dates(text: str, target_year: int) -> set[str]:
+    """Legacy proposals for procurement timing, not dates of delivery or performance."""
+    dates = set()
+    for match in re.finditer(r'\bзапланировано\s+(?:на\s+)?(\d{2}\.\d{2}\.\d{4})(?!\d)', text, re.IGNORECASE):
+        if re.search(r'\b(?:изготовление|исполнение|выполнение|оказание|оплата|поставка)\s*$',
+                     text[:match.start()], re.IGNORECASE):
+            continue
+        date = parse_date(match[1])
+        if date and date.startswith(f'{target_year}-'):
+            dates.add(date)
+    return dates
+
+
 def classify_future_context(raw_row: Sequence, *, target_year: int) -> str:
     """Classify a future-year mention without confusing it with procurement timing.
 
@@ -246,12 +260,12 @@ def classify_future_context(raw_row: Sequence, *, target_year: int) -> str:
 
     no_structured_plan = planned_year is None and planned_date is None
     target_phrases = (
-        f"поставили в план на {year_s}", f"запланировано 01.09.{year_s}",
+        f"поставили в план на {year_s}",
         f"за счет средств планового периода со сроком выполнения в {year_s}",
         f"за счёт средств планового периода со сроком выполнения в {year_s}",
         f"план на {year_s}", f"запланировано на {year_s}",
     )
-    if no_structured_plan and any(p in text for p in target_phrases):
+    if no_structured_plan and (any(p in text for p in target_phrases) or explicit_future_plan_dates(text, target_year)):
         return f"TARGET_PLAN_{target_year}_UNSTRUCTURED"
     if "ассигнован" in text and "планов" in text and year_s in text:
         return f"MULTIYEAR_FUNDING_{target_year}"

@@ -82,6 +82,44 @@ def test_future_audit_accepts_legacy_missing_year_markers(year):
     assert _future_population({'report_year':2026,'sources':[source]})==future_rows([source],2027)
 
 
+@pytest.mark.parametrize('planned, expected_year, expected_month', [
+    ('02.09.2027', 2027, 9), ('31.12.2027', 2027, 12), ('05.02.2028', 2028, 2),
+])
+def test_future_plan_accepts_new_dates_and_years_in_both_calculations(planned, expected_year, expected_month):
+    from procurement_engine.raw_pipeline import future_rows
+    from procurement_engine.section_audit import _future_population
+
+    row = [''] * 34
+    row[6] = 'Закупка оборудования'
+    row[7] = 100
+    row[30] = f'Запланировано {planned}'
+    source = {'role': 'master', 'provider_id': 's', 'sheet': 'ВСЕ', 'sheet_id': 0,
+              'grbs': 'УЭР', 'values': [[], [], [], row]}
+    for result in (future_rows([source], expected_year),
+                   _future_population({'report_year': expected_year - 1, 'sources': [source]})):
+        assert len(result['rows']) == 1
+        assert result['rows'][0]['target_month'] == expected_month
+        assert result['rows'][0]['review_required'] is True
+
+
+@pytest.mark.parametrize('comment', [
+    'Изготовление запланировано 01.09.2027', 'Поставка запланирована 02.09.2027',
+    'Ассигнования на плановый 2027 год', 'Запланировано 31.02.2027',
+    'Запланировано 02.09.2028',
+])
+def test_future_plan_does_not_invent_procurement_period_from_other_dates(comment):
+    from procurement_engine.raw_pipeline import future_rows
+    from procurement_engine.section_audit import _future_population
+
+    row = [''] * 34
+    row[6] = 'Закупка оборудования'
+    row[30] = comment
+    source = {'role': 'master', 'provider_id': 's', 'sheet': 'ВСЕ', 'sheet_id': 0,
+              'grbs': 'УЭР', 'values': [[], [], [], row]}
+    assert future_rows([source], 2027)['rows'] == []
+    assert _future_population({'report_year': 2026, 'sources': [source]})['rows'] == []
+
+
 @pytest.mark.parametrize('field', ['semantic_status_ru', 'status_evidence', 'current_observations'])
 def test_source_replay_rejects_coherent_recommendation_claim_mutation(tmp_path, field):
     from procurement_engine.section_audit import audit_source_sections
