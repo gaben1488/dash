@@ -15,43 +15,22 @@ jobs:
           persist-credentials: false
       - name: Apply checksum-pinned public source patch
         env:
-          PATCH_URL: 'https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-b6b8-8210-a91e-1587b32275ee/raw?se=2026-09-30T13%3A27%3A12Z&sp=r&sv=2026-02-06&sr=b&scid=1060d6e5-3278-58ff-8ae8-4d5c8af10d78&skoid=1d6acb5b-b3f4-43ec-a5ec-b05c4a7708c8&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T06%3A33%3A35Z&ske=2026-10-01T06%3A33%3A35Z&sks=b&skv=2026-02-06&sig=57pxSNdtgLBLmBD8cN1KlN4FsDiSzGi0NHlkaAHpLSw%3D'
+          PATCH_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-dcc0-81f4-86f7-82f3db77ed2f/raw?se=2026-09-30T13%3A36%3A30Z&sp=r&sv=2026-02-06&sr=b&scid=23d16267-2610-54bf-9b35-8ad639ec9bf2&skoid=6658dbdd-f305-4d30-8f6b-d62218202cb9&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T11%3A48%3A39Z&ske=2026-10-01T11%3A48%3A39Z&sks=b&skv=2026-02-06&sig=IuEppVW2o9Ox4Q9EMxRYUwog0%2B7G6s2uiwBfM1WvVmk%3D'
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 90 "$PATCH_URL" -o /tmp/source.patch.gz
-          echo 'a5dad8e0cebc3395bc6fdc4daaa76fe6937016c62150a9d0d4a7f682b7ae364e  /tmp/source.patch.gz' | sha256sum -c -
+          echo 'f324b905e787b96700934b2b1b0ea1b2a42b0333d5cccec86e4c1a8fcf884ca9  /tmp/source.patch.gz' | sha256sum -c -
           gzip -dc /tmp/source.patch.gz > /tmp/source.patch
-          echo '8135431f0f346be49d7a0f875d4fad3282a02248e6b67ed343222519bcca3374  /tmp/source.patch' | sha256sum -c -
+          echo 'a127276234bb38a6dc2e1385dda45b2f98009f756ba01371b1bf336c8a09baf1  /tmp/source.patch' | sha256sum -c -
           git apply --check /tmp/source.patch
           git apply /tmp/source.patch
           git rm .github/report-root-summary.py .github/workflows/report-root-summary.yml .github/workflows/report-root-materialize.yml
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: pnpm
-      - name: Python verification
-        run: |
-          python -m pip install -e 'packages/report-engine[test]'
-          python -m ruff check packages/report-engine
           mkdir -p /tmp/evidence
-          python -m pytest packages/report-engine/tests -q --junitxml=/tmp/evidence/python-tests.xml
-      - name: Application verification
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm lint
-          pnpm typecheck
-          pnpm -r test
-          pnpm build
-          git diff --check
-      - name: Save verified tree without moving any branch
+      - name: Record candidate tree without moving any branch (not acceptance)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import json, os, subprocess
           from pathlib import Path
           from urllib.request import Request, urlopen
@@ -64,27 +43,49 @@ jobs:
               path = Path(name)
               assert not path.is_symlink()
               item = {'path':name, 'mode':'100644', 'type':'blob'}
-              if path.exists():
-                  item['content'] = path.read_text()
-              else:
-                  item['sha'] = None
+              if path.exists(): item['content'] = path.read_text()
+              else: item['sha'] = None
               entries.append(item)
           base = subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
           request = Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/trees',
               data=json.dumps({'base_tree':base,'tree':entries}).encode(), method='POST',
               headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          with urlopen(request,timeout=60) as response:
-              tree = json.load(response)['sha']
+          with urlopen(request,timeout=60) as response: tree = json.load(response)['sha']
           local = subprocess.check_output(['git','write-tree'],text=True).strip()
           assert tree == local, (tree, local)
           Path('/tmp/evidence/TREE.txt').write_text(tree+'\n')
-          print('VERIFIED_TREE=' + tree)
+          print('CANDIDATE_TREE=' + tree)
           with Path('/tmp/evidence/public-source.tar.gz').open('wb') as output:
               subprocess.run(['git','archive','--format=tar.gz','--prefix=dash/',tree],stdout=output,check=True)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: verified-report-candidate
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Python verification
+        run: |
+          python -m pip install -e 'packages/report-engine[test]' > /tmp/evidence/python-install.log 2>&1
+          python -m ruff check packages/report-engine
+          python -m pytest packages/report-engine/tests -q --junitxml=/tmp/evidence/python-tests.xml > /tmp/evidence/python-tests.log 2>&1 || { tail -50 /tmp/evidence/python-tests.log; exit 1; }
+          tail -3 /tmp/evidence/python-tests.log
+      - name: Application verification
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile > /tmp/evidence/install.log 2>&1
+          pnpm lint > /tmp/evidence/lint.log 2>&1 || { tail -30 /tmp/evidence/lint.log; exit 1; }
+          pnpm typecheck > /tmp/evidence/typecheck.log 2>&1 || { tail -40 /tmp/evidence/typecheck.log; exit 1; }
+          pnpm -r test > /tmp/evidence/app-tests.log 2>&1 || { tail -80 /tmp/evidence/app-tests.log; exit 1; }
+          pnpm build > /tmp/evidence/build.log 2>&1 || { tail -30 /tmp/evidence/build.log; exit 1; }
+          git diff --check
+          echo 'Application verification passed.'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-candidate-evidence
           path: /tmp/evidence/
           retention-days: 7
           if-no-files-found: error
