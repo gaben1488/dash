@@ -23,50 +23,44 @@ jobs:
             cd /home/aemr/dash/deploy
             docker compose --env-file .env.production exec -T server /opt/report-env/bin/python - <<'PY'
             import json
-            import re
-            from collections import Counter
+            import os
+            import time
             from pathlib import Path
-            from urllib.parse import quote
-            from procurement_engine.google_adapter import GoogleReadClient
-            from procurement_engine.deployment_diagnostics import PUBLIC_CODES, public_error_code
+            from urllib.error import HTTPError
+            from urllib.parse import urlencode
+            from urllib.request import Request, urlopen
+            from procurement_engine.publication_reader import read_publication
+            from procurement_engine.deployment_diagnostics import public_error_code, summarize_status
             root = Path('data/reports')
             status = json.loads((root / 'status.json').read_text())
-            attempt = status.get('attempt_id', '')
-            if status.get('status') != 'NOT_ISSUED':
-                candidates = []
-                for path in (root / 'attempts').glob('*/status.json'):
-                    try:
-                        candidate = json.loads(path.read_text())
-                        if candidate.get('status') == 'NOT_ISSUED' and any(x.get('code') == 'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN' for x in candidate.get('blockers', []) if isinstance(x, dict)):
-                            candidates.append((candidate.get('finished_at', ''), candidate))
-                    except (OSError, ValueError):
-                        pass
-                if candidates:
-                    status = max(candidates, key=lambda x: x[0])[1]
-                    attempt = status.get('attempt_id', '')
-            if not re.fullmatch(r'[a-f0-9]{32}', attempt):
-                raise ValueError('INVALID_ATTEMPT')
-            model_path = root / 'attempts' / attempt / 'bundle' / 'report_model.json'
-            if not model_path.exists():
-                print(json.dumps({'model': 'UNAVAILABLE', 'status': status.get('status') if status.get('status') in {'RUNNING','NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS'} else 'UNKNOWN'}))
-            else:
-                model = json.loads(model_path.read_text())
-                issues = model.get('formula_dependencies', {}).get('issues', [])
-                codes = Counter(x.get('code') if x.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR' for x in issues)
-                print(json.dumps({'formula_dependency_codes': dict(codes)}))
-                capture = json.loads((root / 'attempts' / attempt / 'capture.json').read_text())
-                sources = {s['source_id']: s for s in capture['sources']}
-                targets = {x.get('target_source_id') for x in issues if x.get('code') == 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED'}
-                client = GoogleReadClient()
-                for target in sorted(t for t in targets if t in sources):
-                    s = sources[target]
-                    try:
-                        grid = client.grid(s['provider_id'], s['sheet_id'])
-                        a1 = "'" + s['sheet'].replace("'", "''") + "'!A1:Z1"
-                        result = client._get('https://sheets.googleapis.com/v4/spreadsheets/' + quote(s['provider_id'], safe='') + '/values/' + quote(a1, safe=''), {'valueRenderOption': 'UNFORMATTED_VALUE'})
-                        address = result.get('range', '').rsplit('!', 1)[-1]
-                        safe_address = address if re.fullmatch(r'[A-Z]+[0-9]+:[A-Z]+[0-9]+', address) else 'OTHER'
-                        print(json.dumps({'role': s['role'] if s['role'] in {'master','historical_control_dependency','formula_dependency','procedure_lifecycle'} else 'OTHER', 'allocated_columns': grid['gridProperties']['columnCount'], 'captured_columns': s.get('formula_evidence',{}).get('columns'), 'requested_columns':26, 'returned_address':safe_address,'returned_value_columns':max((len(row) for row in result.get('values',[])), default=0)}))
-                    except Exception as error:
-                        print(json.dumps({'read_probe_code': public_error_code(str(error))}))
+            print(json.dumps(summarize_status(status)))
+            release = None
+            started = time.monotonic()
+            try:
+                response = json.loads(read_publication(root, 'status'))
+                release = response.get('latest')
+                print(json.dumps({'local_publication': 'PASS', 'elapsed_seconds': round(time.monotonic()-started, 2), 'available': release is not None}))
+            except Exception as error:
+                print(json.dumps({'local_publication': 'FAIL', 'code': public_error_code(str(error)), 'elapsed_seconds': round(time.monotonic()-started, 2)}))
+            paths = [('report', '/api/report')]
+            if release:
+                query = urlencode({'date':'-'.join(reversed(release['report_date'].split('.'))),'year':int(release['report_date'].split('.')[-1]),'quarter':(int(release['report_date'].split('.')[1])-1)//3+1})
+                paths.append(('release_context','/api/report-releases?'+query))
+                prefix = '/api/report-releases/' + release['release_id']
+                paths.extend([('dashboard',prefix+'/dashboard'),('main',prefix+'/main.docx'),('supplement',prefix+'/supplement.docx')])
+            for step, path in paths:
+                started = time.monotonic()
+                request = Request('http://127.0.0.1:' + str(int(os.environ.get('PORT','3000'))) + path, headers={'Authorization':'Bearer '+os.environ.get('AEMR_API_KEY','')})
+                try:
+                    with urlopen(request, timeout=40) as response:
+                        body = response.read(32*1024*1024+1)
+                        result = {'step':step,'http_status':response.status,'elapsed_seconds':round(time.monotonic()-started,2),'response_bytes':len(body)}
+                        if step=='report':
+                            period = json.loads(body).get('period',{})
+                            result['period']={key:period.get(key) for key in ('year','quarter','asOfDay')}
+                        print(json.dumps(result))
+                except HTTPError as error:
+                    print(json.dumps({'step':step,'http_status':error.code,'elapsed_seconds':round(time.monotonic()-started,2)})); error.close()
+                except Exception as error:
+                    print(json.dumps({'step':step,'code':public_error_code(str(error)),'elapsed_seconds':round(time.monotonic()-started,2)}))
             PY
