@@ -24,6 +24,14 @@ class GoogleReadError(RuntimeError):
     pass
 
 
+def _a1_range(title, start, end, columns):
+    letters = ''
+    while columns:
+        columns, remainder = divmod(columns - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return "'" + title.replace("'", "''") + f"'!A{start}:{letters}{end}"
+
+
 class GoogleReadClient:
     def __init__(self, access_token=None, *, credentials=None):
         self._token = access_token or os.environ.get('GOOGLE_ACCESS_TOKEN')
@@ -69,7 +77,7 @@ class GoogleReadClient:
 
     def _get(self, url, params=None):
         if params:
-            url += '?' + urlencode(params)
+            url += '?' + urlencode(params, doseq=True)
         # Sheets quotas refill per minute. The bounded retry budget must span
         # that window, including when Google omits Retry-After.
         # https://developers.google.com/workspace/sheets/api/limits
@@ -119,13 +127,33 @@ class GoogleReadClient:
                 'named_ranges':sorted(data.get('namedRanges',[]),key=lambda x:x['name'])}
 
     def _values(self,provider_id,title,start,end,columns,render_option):
-        letters='';n=columns
-        while n:
-            n,rem=divmod(n-1,26);letters=chr(65+rem)+letters
-        a1="'"+title.replace("'","''")+f"'!A{start}:{letters}{end}"
+        a1 = _a1_range(title, start, end, columns)
         data=self._get('https://sheets.googleapis.com/v4/spreadsheets/'+quote(provider_id,safe='')+'/values/'+quote(a1,safe=''),
                        {'valueRenderOption':render_option,'dateTimeRenderOption':'SERIAL_NUMBER','majorDimension':'ROWS'})
         return data.get('values',[])
+
+    def batch_values(self, provider_id, title, ranges, columns, render_option):
+        requested = [_a1_range(title, start, end, columns) for start, end in ranges]
+        data = self._get(
+            'https://sheets.googleapis.com/v4/spreadsheets/' + quote(provider_id, safe='') + '/values:batchGet',
+            {'ranges': requested, 'valueRenderOption': render_option,
+             'dateTimeRenderOption': 'SERIAL_NUMBER', 'majorDimension': 'ROWS'})
+        if data.get('spreadsheetId') != provider_id:
+            raise GoogleReadError('GOOGLE_BATCH_SOURCE_MISMATCH')
+        received = data.get('valueRanges')
+        if not isinstance(received, list) or len(received) != len(requested):
+            raise GoogleReadError('GOOGLE_BATCH_RANGE_COUNT_MISMATCH')
+        chunks = []
+        for expected, actual in zip(requested, received):
+            # Google may omit the quotes around simple sheet names.
+            unquoted = title + '!' + expected.rsplit('!', 1)[1]
+            if not isinstance(actual, dict) or actual.get('range') not in {expected, unquoted}:
+                raise GoogleReadError('GOOGLE_BATCH_RANGE_MISMATCH')
+            chunk = actual.get('values', [])
+            if not isinstance(chunk, list) or any(not isinstance(row, list) for row in chunk):
+                raise GoogleReadError('GOOGLE_BATCH_VALUES_INVALID')
+            chunks.append(chunk)
+        return chunks
 
 
 class GoogleSheetSourceAdapter:
@@ -139,6 +167,26 @@ class GoogleSheetSourceAdapter:
     def revision_token(self):
         return self.client.revision(self.provider_id)
 
+    def _chunks(self, count, columns, render_option):
+        # Bound both ranges and requested cells; keep full allocated-grid coverage.
+        chunk_rows = min(self.chunk_rows, max(1, 64000 // columns))
+        ranges = [(start, min(start + chunk_rows - 1, count))
+                  for start in range(1, count + 1, chunk_rows)]
+        batch_size = min(4, max(1, 64000 // (chunk_rows * columns)))
+        for offset in range(0, len(ranges), batch_size):
+            group = ranges[offset:offset + batch_size]
+            if hasattr(self.client, 'batch_values'):
+                chunks = self.client.batch_values(self.provider_id, self.contract['sheet'],
+                                                  group, columns, render_option)
+                if len(chunks) != len(group):
+                    raise GoogleReadError('GOOGLE_BATCH_RANGE_COUNT_MISMATCH')
+            else:
+                read = self.client.formulas if render_option == 'FORMULA' else self.client.values
+                chunks = [read(self.provider_id, self.contract['sheet'], start, end, columns)
+                          for start, end in group]
+            for (start, end), chunk in zip(group, chunks):
+                yield start, end, chunk
+
     def read_payload(self):
         c=self.contract;grid=self.client.grid(self.provider_id,c['sheet_id'])
         if grid['title']!=c['sheet']:
@@ -147,9 +195,7 @@ class GoogleSheetSourceAdapter:
         if grid['gridProperties']['columnCount']<c['columns']:
             raise GoogleReadError('GOOGLE_SOURCE_COLUMNS_MISSING')
         values=[[] for _ in range(count)]
-        for start in range(1,count+1,self.chunk_rows):
-            end=min(start+self.chunk_rows-1,count)
-            chunk=self.client.values(self.provider_id,c['sheet'],start,end,c['columns'])
+        for start, end, chunk in self._chunks(count, c['columns'], 'UNFORMATTED_VALUE'):
             if len(chunk)>end-start+1:
                 raise GoogleReadError('GOOGLE_RANGE_OVERFLOW')
             for offset,row in enumerate(chunk):
@@ -165,9 +211,7 @@ class GoogleSheetSourceAdapter:
             context=self.client.formula_context(self.provider_id)
             full_columns=grid['gridProperties']['columnCount']
             formulas=[]
-            for start in range(1,count+1,self.chunk_rows):
-                end=min(start+self.chunk_rows-1,count)
-                chunk=self.client.formulas(self.provider_id,c['sheet'],start,end,full_columns)
+            for start, end, chunk in self._chunks(count, full_columns, 'FORMULA'):
                 if len(chunk)>end-start+1 or any(len(row)>full_columns for row in chunk):
                     raise GoogleReadError('GOOGLE_FORMULA_RANGE_OVERFLOW')
                 for offset,row in enumerate(chunk):
