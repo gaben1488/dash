@@ -49,7 +49,7 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .validation import validate_snapshot
 
 RENDERER_VERSION = 'renderer-v1.5.0rc7'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc7'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc8'
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
 
@@ -67,7 +67,7 @@ def header_hash(values, header_rows):
     return canonical_semantic_hash(normalized)
 
 
-def bundle_from_capture(capture, registry, ledger=None):
+def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=None):
     """Validate a completed connector capture. Never simulate revision rereads."""
     expected = {s['source_id']: s for s in registry['sources']}
     got = capture['sources']
@@ -123,7 +123,9 @@ def bundle_from_capture(capture, registry, ledger=None):
             'payload_metadata': metadata})
     # A changed historical ledger or source contract must produce a different evidence identity.
     for sid, role, value in (('HISTORICAL_RECOMMENDATIONS', 'historical_ledger', ledger or []),
-                             ('SOURCE_CONTRACT', 'rule_contract', registry)):
+                             ('SOURCE_CONTRACT', 'rule_contract', registry),
+                             *([('IDENTITY_REVIEWS', 'identity_reviews', identity_evidence)]
+                               if identity_evidence is not None else [])):
         token = canonical_semantic_hash(value)
         payloads.append(SourcePayload(sid, role, sid, value, raw_content_hash=None))
         before[sid] = after[sid] = token
@@ -287,7 +289,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     out = Path(out_dir)
     if out.exists() and any(out.iterdir()):
         raise ValueError('OUTPUT_DIRECTORY_NOT_EMPTY')
-    bundle = bundle_from_capture(capture, registry, ledger)
+    identity_evidence = identity_store.review_evidence(as_of=capture['captured_at']) if identity_store is not None else None
+    bundle = bundle_from_capture(capture, registry, ledger, identity_evidence=identity_evidence)
     out.mkdir(parents=True, exist_ok=True)
     persist_atomic_bundle(bundle, out/'snapshot_bundle')
     errors = verify_persisted_bundle(out/'snapshot_bundle')

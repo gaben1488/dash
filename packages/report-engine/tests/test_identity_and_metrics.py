@@ -64,10 +64,10 @@ def test_identity_survives_move_sort_renumber_and_restore(tmp_path):
     restored=IdentityStore(tmp_path/'restored.sqlite')
     assert restored.ingest([moved],snapshot_id='s2',captured_at='2026-10-01T00:00:00+12:00')==b
 
-def test_identity_change_is_review_not_business_number_match(tmp_path):
+def test_changed_subject_is_review_not_business_number_match(tmp_path):
     store=IdentityStore(tmp_path/'id.sqlite')
     first=store.ingest([row()],snapshot_id='s1',captured_at='2026-09-30T00:00:00+12:00')
-    second=store.ingest([row(actual_date='2026-10-01')],snapshot_id='s2',captured_at='2026-10-01T00:00:00+12:00')
+    second=store.ingest([row(subject='Другая закупка')],snapshot_id='s2',captured_at='2026-10-01T00:00:00+12:00')
     assert second['unresolved_count']==1
     assert second['rows'][0]['evidence']['candidate_uids']==[first['rows'][0]['procurement_uid']]
     assert second['rows'][0]['procurement_uid'] is None
@@ -99,3 +99,55 @@ def test_same_evidence_can_be_rechecked_later_without_rewriting_identity_history
         store.ingest([row(subject='Changed')], snapshot_id='same', captured_at='2026-09-29T17:00:00Z')
     with pytest.raises(ValueError, match='OUT_OF_ORDER'):
         store.ingest([row()], snapshot_id='same', captured_at='2026-09-29T13:00:00Z')
+
+
+@pytest.mark.parametrize('change', [
+    {'actual_date': '2026-10-01'}, {'grbs_comment': 'Уточнён срок'},
+    {'deviation_reason': 'Экономия'}, {'monitoring_note': 'Ответ получен'},
+    {'fact_kb': 1.5, 'actual_date': '2026-10-01'},
+])
+def test_ordinary_observation_updates_keep_entity_and_change_state(tmp_path, change):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    a = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    b = store.ingest([row(**change)], snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    assert b['rows'][0]['procurement_uid'] == a['rows'][0]['procurement_uid']
+    assert b['rows'][0]['evidence']['signature'] != a['rows'][0]['evidence']['signature']
+
+
+def test_same_subject_different_business_number_is_not_automatic_continuity(tmp_path):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    a = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    b = store.ingest([row(source_row_no='2', actual_date='2026-10-01')],
+                     snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    assert b['rows'][0]['procurement_uid'] is None
+    assert b['rows'][0]['evidence']['candidate_uids'] == [a['rows'][0]['procurement_uid']]
+
+
+def test_review_is_applied_on_next_observation_and_repeated_capture(tmp_path):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    a = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    changed = row(subject='Бумага А4')
+    b = store.ingest([changed], snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    uid = a['rows'][0]['procurement_uid']
+    review = store.record_review(snapshot_id='s2', locator=changed.physical_row_key, uid=uid,
+        reviewer='Ревизор', reviewed_at='2026-10-01T01:00:00Z',
+        evidence={'source_ref': 'protocol/1', 'reason': 'Уточнение наименования одной закупки'})
+    assert b['rows'][0]['procurement_uid'] is None  # Frozen result remains unchanged.
+    again = store.ingest([changed], snapshot_id='s2', captured_at='2026-10-01T02:00:00Z')
+    assert again['rows'][0]['procurement_uid'] == uid
+    assert review in again['rows'][0]['evidence']['review_ids']
+    next_result = store.ingest([row(subject='Бумага А4', grbs_comment='Доставлено')],
+        snapshot_id='s3', captured_at='2026-10-02T00:00:00Z')
+    assert next_result['rows'][0]['procurement_uid'] == uid
+
+
+def test_review_cannot_assign_one_uid_to_two_rows(tmp_path):
+    store = IdentityStore(tmp_path / 'id.sqlite')
+    a = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    changed = row(subject='Бумага А4', row_number=5, procurement_id='2')
+    store.ingest([row(), changed], snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    store.record_review(snapshot_id='s2', locator=changed.physical_row_key,
+        uid=a['rows'][0]['procurement_uid'], reviewer='Ревизор', reviewed_at='2026-10-01T01:00:00Z',
+        evidence={'source_ref': 'protocol/1', 'reason': 'Проверено'})
+    with pytest.raises(ValueError, match='IDENTITY_REVIEW_UID_COLLISION'):
+        store.ingest([row(), changed], snapshot_id='s2', captured_at='2026-10-01T02:00:00Z')

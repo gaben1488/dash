@@ -1,7 +1,7 @@
 """Persistent identity observations; exact continuity, never business-number-only joins.
 
 SQLite transactions serialize competing imports. Snapshots are immutable and
-idempotent. Identical duplicates and changed candidates stay unresolved. Missing
+idempotent. Identical duplicates and changed identifying fields stay unresolved. Missing
 rows are observations of absence, not proof of cancellation or completion.
 """
 import hashlib
@@ -23,6 +23,59 @@ def signature(row):
     for key in ('snapshot_id','procurement_id','source_row_no','row_number','sheet_name','procurement_uid'):
         data.pop(key,None)
     return hashlib.sha256(encoded(data).encode()).hexdigest()
+
+def continuity_signature(row):
+    """Evidence for an ordinary observation update, separate from the full state hash.
+
+    Require the same business number as well as this fingerprint. Plan, subject,
+    institution and procedure changes still require explicit reviewed evidence.
+    """
+    data = asdict(row)
+    for key in ('snapshot_id', 'procurement_id', 'source_row_no', 'row_number',
+                'sheet_name', 'procurement_uid', 'actual_date', 'fact_fb', 'fact_kb',
+                'fact_mb', 'stored_fact_total', 'saving_fb', 'saving_kb', 'saving_mb',
+                'stored_saving_total', 'include_saving', 'deviation_reason',
+                'grbs_comment', 'monitoring_note', 'missing_money_fields'):
+        data.pop(key, None)
+    return hashlib.sha256(encoded(data).encode()).hexdigest()
+
+
+def _resolved_observations(db, observations, instant):
+    """Project dated reviews without rewriting immutable snapshot results."""
+    result = [dict(item) for item in observations]
+    assigned = set()
+    for item in result:
+        evidence = json.loads(item['evidence'])
+        reviews = [dict(review) for review in db.execute(
+            'SELECT * FROM reviews WHERE snapshot_id=? AND locator=? ORDER BY reviewed_at, review_id',
+            (item['snapshot_id'], item['locator']))
+            if datetime.fromisoformat(review['reviewed_at']) <= instant]
+        decisions = {review['uid'] for review in reviews}
+        if len(decisions) > 1:
+            raise ValueError('IDENTITY_REVIEW_CONFLICT')
+        if reviews:
+            item['uid'] = reviews[0]['uid']
+            item['status'] = 'REVIEWED_CONTINUITY'
+            evidence['review_ids'] = [review['review_id'] for review in reviews]
+        if item['uid']:
+            if item['uid'] in assigned:
+                raise ValueError('IDENTITY_REVIEW_UID_COLLISION')
+            assigned.add(item['uid'])
+        item['evidence'] = encoded(evidence)
+    return result
+
+
+def _project_result(db, outcome, instant):
+    observations = _resolved_observations(db, db.execute(
+        'SELECT * FROM observations WHERE snapshot_id=? ORDER BY locator', (outcome['snapshot_id'],)), instant)
+    outcome['rows'] = [{'source_row_key': item['locator'], 'procurement_uid': item['uid'],
+                       'status': item['status'], 'evidence': json.loads(item['evidence'])}
+                      for item in observations]
+    outcome['unresolved_count'] = sum(item['uid'] is None for item in observations)
+    assigned = {item['uid'] for item in observations if item['uid']}
+    outcome['absent_previous_uids'] = [uid for uid in outcome['absent_previous_uids'] if uid not in assigned]
+    return outcome
+
 
 def anchor(row):
     return encoded([row.source_id,row.grbs,row.institution,row.subject,row.planned_year])
@@ -78,26 +131,38 @@ class IdentityStore:
                     raise ValueError('IDENTITY_OUT_OF_ORDER_CAPTURE')
                 # Evidence identity excludes acquisition time. Preserve the first
                 # identity observation; ReportModel carries the latest read clock.
-                return json.loads(existing['result'])
+                return _project_result(db, json.loads(existing['result']), instant)
             previous=db.execute('SELECT * FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
             if previous and instant < datetime.fromisoformat(previous['captured_at']):
                 raise ValueError('IDENTITY_OUT_OF_ORDER_CAPTURE')
-            old=list(db.execute('SELECT * FROM observations WHERE snapshot_id=?',(previous['snapshot_id'],))) if previous else []
+            old=_resolved_observations(db, db.execute('SELECT * FROM observations WHERE snapshot_id=?',
+                (previous['snapshot_id'],)), instant) if previous else []
             by_signature=defaultdict(list)
             for r in old:by_signature[r['signature']].append(r)
             frequencies=Counter(signature(r) for r in rows)
+            continuity_counts=Counter((continuity_signature(r), r.source_row_no) for r in rows)
             result=[];assigned=set()
             for row in sorted(rows,key=lambda r:r.physical_row_key):
                 fp=signature(row);hits=by_signature[fp];uid=None
                 candidates=sorted({r['uid'] for r in old if r['uid'] and r['source_id']==row.source_id
                     and ((row.source_row_no and r['business_id']==row.source_row_no) or r['anchor']==anchor(row))})
                 evidence={'previous_snapshot_id':previous['snapshot_id'] if previous else None,
-                          'signature':fp,'candidate_uids':candidates,'rule':'exact-semantic-continuity-v1'}
+                          'signature':fp,'candidate_uids':candidates,'rule':'semantic-continuity-v2',
+                          'continuity_signature':continuity_signature(row)}
+                continuity_hits = [item for item in old if item['uid'] and row.source_row_no
+                    and item['business_id'] == row.source_row_no
+                    and json.loads(item['evidence']).get('continuity_signature') == continuity_signature(row)]
                 if frequencies[fp]!=1:
                     status='AMBIGUOUS_DUPLICATE'
                 elif len(hits)==1 and hits[0]['uid']:
                     uid=hits[0]['uid'];status='EXACT_CONTINUITY'
                     evidence['previous_locator']=hits[0]['locator']
+                    evidence['review_ids']=json.loads(hits[0]['evidence']).get('review_ids', [])
+                elif len(continuity_hits) == 1 and continuity_counts[continuity_signature(row), row.source_row_no] == 1:
+                    prior = continuity_hits[0]
+                    uid=prior['uid'];status='OBSERVATION_CONTINUITY'
+                    evidence['previous_locator']=prior['locator']
+                    evidence['review_ids']=json.loads(prior['evidence']).get('review_ids', [])
                 elif hits or candidates:
                     status='REVIEW_REQUIRED'
                 else:
@@ -120,8 +185,8 @@ class IdentityStore:
     def record_review(self,*,snapshot_id,locator,uid,reviewer,reviewed_at,evidence):
         """Append review evidence. It never silently mutates the frozen import result.
 
-        A later resolution projection must explicitly consume these reviews; the raw
-        pipeline currently exports them only. This avoids retroactive publication.
+        Later ingests consume a dated review projection; existing publication files
+        and the stored raw snapshot result remain immutable.
         """
         if not reviewer or not evidence.get('source_ref') or not evidence.get('reason'):
             raise ValueError('IDENTITY_REVIEW_EVIDENCE_REQUIRED')
@@ -137,6 +202,13 @@ class IdentityStore:
             db.execute('INSERT INTO reviews VALUES(?,?,?,?,?,?,?)',
                        (review_id,snapshot_id,locator,uid,reviewer,reviewed_at,encoded(evidence)))
             return review_id
+
+    def review_evidence(self, *, as_of=None):
+        """Stable private proof input; observations themselves are output state."""
+        with closing(self.connect()) as db:
+            return [{**dict(item), 'evidence': json.loads(item['evidence'])}
+                    for item in db.execute('SELECT * FROM reviews ORDER BY review_id')
+                    if as_of is None or datetime.fromisoformat(item['reviewed_at']) <= datetime.fromisoformat(as_of)]
 
     def backup(self,destination):
         target=Path(destination)
