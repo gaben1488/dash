@@ -1,0 +1,99 @@
+name: Report runtime probe
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event_name == 'workflow_dispatch' || (github.head_ref == 'codex/report-runtime-probe' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read private runtime state and native HTTP status
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 3m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            if [ -n "$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)" ]; then
+              echo 'Report worker running: true'
+            else
+              echo 'Report worker running: false'
+            fi
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python - <<'PY'
+            import json
+            import os
+            import urllib.request
+            from pathlib import Path
+            from urllib.error import HTTPError
+            from procurement_engine.deployment_diagnostics import summarize_status
+            from procurement_engine.deployment_smoke import check_exports
+            
+            publication_codes = {
+                'SOURCE_CHANGED_BEFORE_PUBLICATION', 'SOURCE_CHANGED_DURING_CAPTURE',
+                'PUBLISHED_BUNDLE_CORRUPT', 'ORPHAN_RELEASE_CONFLICT',
+                'DOMAIN_RELEASE_CONTRACT_FAILED', 'SAVED_SOURCE_RECHECK_FAILED',
+                'RELEASE_BLOCKED', 'INDEPENDENT_AUDIT_FAILED', 'REPORT_METADATA_MISSING',
+                'REPORT_DATE_INVALID', 'DASHBOARD_MODEL_MISMATCH', 'SNAPSHOT_EMPTY',
+                'SNAPSHOT_PATH_INVALID', 'SNAPSHOT_CORRUPT', 'SNAPSHOT_MODEL_MISMATCH',
+                'SOURCE_COVERAGE_MISMATCH', 'DOMAIN_RELEASE_POLICY_MISSING',
+                'PUBLICATION_ID_INVALID', 'PUBLICATION_VIEW_INVALID', 'PUBLICATION_NOT_FOUND',
+                'CANDIDATE_DIRECTORY_INVALID', 'BUNDLE_UNSAFE_FILE',
+            }
+            try:
+                status = json.loads(Path('data/reports/status.json').read_text())
+                summary = summarize_status(status) if isinstance(status, dict) else {'last_report_status': 'UNKNOWN'}
+                if isinstance(status, dict) and isinstance(status.get('error_code'), str) and status['error_code'] in publication_codes:
+                    summary['error_code'] = status['error_code']
+            except (OSError, ValueError):
+                summary = {'last_report_status': 'UNAVAILABLE'}
+            print(json.dumps(summary))
+            
+            def fetch(path):
+                step = ('health' if path == '/api/health' else 'report' if path == '/api/report'
+                        else 'release_context' if path.startswith('/api/report-releases?')
+                        else 'dashboard' if path.endswith('/dashboard')
+                        else 'main' if path.endswith('/main.docx')
+                        else 'supplement' if path.endswith('/supplement.docx') else 'other')
+                request = urllib.request.Request(
+                    'http://127.0.0.1:' + str(int(os.environ.get('PORT', '3000'))) + path,
+                    headers={'Authorization': 'Bearer ' + os.environ.get('AEMR_API_KEY', '')})
+                try:
+                    with urllib.request.urlopen(request, timeout=40) as response:
+                        payload = response.read(32 * 1024 * 1024 + 1)
+                        if len(payload) > 32 * 1024 * 1024:
+                            raise ValueError('REPORT_EXPORT_RESPONSE_TOO_LARGE')
+                        print(json.dumps({'step': step, 'http_status': response.status}))
+                        return payload
+                except HTTPError as error:
+                    print(json.dumps({'step': step, 'http_status': error.code if error.code in {400, 401, 403, 404, 429, 500, 502, 503, 504} else 'OTHER'}))
+                    error.close()
+                    raise
+            
+            try:
+                health = json.loads(fetch('/api/health'))
+                sources = health.get('sources', {})
+                if isinstance(sources, dict):
+                    cache = {'state': sources.get('state') if sources.get('state') in {'ok', 'degraded', 'unknown'} else 'UNKNOWN'}
+                    for key in ('loaded', 'total', 'failed'):
+                        value = sources.get(key)
+                        cache[key] = value if type(value) is int and 0 <= value <= 10000 else None
+                    print(json.dumps({'source_cache': cache}))
+                print(json.dumps(check_exports(fetch)))
+            except Exception as error:
+                allowed = {'REPORT_EXPORT_CONTEXT_MISSING', 'REPORT_EXPORT_SNAPSHOT_MISMATCH',
+                           'REPORT_EXPORT_DOCUMENT_INVALID', 'REPORT_EXPORT_RESPONSE_TOO_LARGE'}
+                code = str(error)
+                print(json.dumps({'exports': 'FAIL', 'code': code if code in allowed else 'REPORT_EXPORT_CHECK_FAILED'}))
+            PY
