@@ -392,9 +392,10 @@ async function gateByRevision(
   // содержимом — это честный пропуск журнала (правило полноты §2.2).
   const attested: string[] = [];
 
+  const cached = getDeptSheetCache();
   const questions: Array<Promise<void>> = candidates.map(async (book) => {
     const fileId = DEPARTMENT_SPREADSHEETS[book];
-    if (!fileId || !bookPrints.has(book)) {
+    if (!fileId || !bookPrints.has(book) || !cached[book]?.values.length) {
       books.push(book);
       return;
     }
@@ -535,8 +536,8 @@ export function refreshAllSources(log?: {
       const print = sheetFingerprint(result.values);
       const previous = bookPrints.get(name);
       bookPrints.set(name, print);
-      if (previous === undefined) firstReads++;
-      else if (previous !== print) changedBooks.push(name);
+      if (previous === undefined || !before[name]?.values.length) firstReads++;
+      if (previous !== undefined && previous !== print) changedBooks.push(name);
       // Водяной знак: момент успешного разбора, отпечаток и отметка версии
       // файла — в базу, чтобы рестарт не обнулял базу сравнения (§2.4).
       const fileId = DEPARTMENT_SPREADSHEETS[name];
