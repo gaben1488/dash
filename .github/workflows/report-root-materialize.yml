@@ -15,7 +15,7 @@ jobs:
           persist-credentials: false
       - name: Apply checksum-pinned public source patch
         env:
-          PATCH_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-dcc0-81f4-86f7-82f3db77ed2f/raw?se=2026-09-30T13%3A36%3A30Z&sp=r&sv=2026-02-06&sr=b&scid=23d16267-2610-54bf-9b35-8ad639ec9bf2&skoid=6658dbdd-f305-4d30-8f6b-d62218202cb9&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T11%3A48%3A39Z&ske=2026-10-01T11%3A48%3A39Z&sks=b&skv=2026-02-06&sig=IuEppVW2o9Ox4Q9EMxRYUwog0%2B7G6s2uiwBfM1WvVmk%3D'
+          PATCH_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-7f88-81f4-a489-7adc7fd5d777/raw?se=2026-09-30T13%3A39%3A51Z&sp=r&sv=2026-02-06&sr=b&scid=0310157f-0d5d-59a7-9328-18f4a92abd64&skoid=0a4a0f0c-99ac-4752-9d87-cfac036fa93f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-30T09%3A38%3A34Z&ske=2026-10-01T09%3A38%3A34Z&sks=b&skv=2026-02-06&sig=RnJI/EUb9zo3OC6jxJnayKUkXaH%2BEjOyx8byR39c5Z4%3D'
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 90 "$PATCH_URL" -o /tmp/source.patch.gz
@@ -24,7 +24,8 @@ jobs:
           echo 'a127276234bb38a6dc2e1385dda45b2f98009f756ba01371b1bf336c8a09baf1  /tmp/source.patch' | sha256sum -c -
           git apply --check /tmp/source.patch
           git apply /tmp/source.patch
-          git rm .github/report-root-summary.py .github/workflows/report-root-summary.yml .github/workflows/report-root-materialize.yml
+          # GITHUB_TOKEN cannot write workflows. Connector applies/removes those separately.
+          git restore --source=HEAD --staged --worktree .github
           mkdir -p /tmp/evidence
       - name: Record candidate tree without moving any branch (not acceptance)
         env:
@@ -36,7 +37,7 @@ jobs:
           from urllib.request import Request, urlopen
           subprocess.run(['git', 'add', '-A'], check=True)
           names = subprocess.check_output(['git','diff','--cached','--name-only','HEAD'],text=True).splitlines()
-          allowed = ('packages/report-engine/', 'packages/shared/', 'packages/web/', 'docs/decisions/', '.github/workflows/report-rehearsal.yml', '.github/report-root-summary.py', '.github/workflows/report-root-summary.yml', '.github/workflows/report-root-materialize.yml')
+          allowed = ('packages/report-engine/', 'packages/shared/', 'packages/web/', 'docs/decisions/')
           assert names and all(name.startswith(allowed) for name in names)
           entries = []
           for name in names:
