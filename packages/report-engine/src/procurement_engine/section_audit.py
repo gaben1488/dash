@@ -165,6 +165,8 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
                 rows.extend(normalize_master_values(source['values'],snapshot_id=sid,expected_grbs=source['grbs'],
                     data_start_row=3,source_id=source['provider_id'],sheet_name=source['sheet']))
         identity = capture.get('identity_evidence') or {}
+        if not model.get('contract', {}).get('recommendation_link_contract'):
+            identity = identity or model.get('identity_observations') or {}
         if model.get('contract', {}).get('recommendation_link_contract'):
             from .identity_store import signature
 

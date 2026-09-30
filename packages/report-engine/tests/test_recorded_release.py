@@ -240,3 +240,22 @@ def test_runtime_freezes_original_history_and_publishes_confirmed_link_with_unkn
     revisions = json.loads((bundle / 'bundle.json').read_text())['after']
     with pytest.raises(PublicationError, match='IDENTITY_BACKUP_MODEL_MISMATCH'):
         PublicationStore(tmp_path / 'forged').publish(bundle.parent, read_revisions=lambda: revisions)
+
+
+def test_rc7_release_contract_does_not_require_new_rc8_sections(tmp_path):
+    from procurement_engine.release_gates import validate_recorded_state_model
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    result = run_once(registry, ledger, state, client=CompleteGoogle())
+    bundle = state / 'attempts' / result['attempt_id'] / 'bundle'
+    model = json.loads((bundle / 'report_model.json').read_text())
+    model['snapshot']['renderer_version'] = 'renderer-v1.5.0rc7'
+    model['contract'].pop('recommendation_link_contract')
+    model.pop('report_content')
+    model.pop('recommendation_records')
+    codes = {issue.code for issue in validate_recorded_state_model(model, ledger=[])}
+    assert 'REQUIRED_REPORT_SECTION_MISSING' not in codes
+    model['snapshot']['renderer_version'] = 'renderer-v1.5.0rc8'
+    codes = {issue.code for issue in validate_recorded_state_model(model, ledger=[])}
+    assert 'REQUIRED_REPORT_SECTION_MISSING' in codes
