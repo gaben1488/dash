@@ -1,0 +1,60 @@
+name: Report source coverage probe
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.head_ref == 'codex/report-source-coverage-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect current formula coverage without modifying runtime or sources
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 3m
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python - <<'PY'
+            import json
+            import re
+            from collections import Counter
+            from pathlib import Path
+            from urllib.parse import quote
+            from procurement_engine.google_adapter import GoogleReadClient
+            from procurement_engine.deployment_diagnostics import PUBLIC_CODES, public_error_code
+            root = Path('data/reports')
+            status = json.loads((root / 'status.json').read_text())
+            attempt = status.get('attempt_id', '')
+            if not re.fullmatch(r'[a-f0-9]{32}', attempt):
+                raise ValueError('INVALID_ATTEMPT')
+            model_path = root / 'attempts' / attempt / 'bundle' / 'report_model.json'
+            if not model_path.exists():
+                print(json.dumps({'model': 'UNAVAILABLE', 'status': status.get('status') if status.get('status') in {'RUNNING','NOT_ISSUED','VERIFIED','VERIFIED_WITH_WARNINGS'} else 'UNKNOWN'}))
+            else:
+                model = json.loads(model_path.read_text())
+                issues = model.get('formula_dependencies', {}).get('issues', [])
+                codes = Counter(x.get('code') if x.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR' for x in issues)
+                print(json.dumps({'formula_dependency_codes': dict(codes)}))
+                capture = json.loads((root / 'attempts' / attempt / 'capture.json').read_text())
+                sources = {s['source_id']: s for s in capture['sources']}
+                targets = {x.get('target_source_id') for x in issues if x.get('code') == 'FORMULA_DEPENDENCY_RANGE_NOT_CAPTURED'}
+                client = GoogleReadClient()
+                for target in sorted(t for t in targets if t in sources):
+                    s = sources[target]
+                    try:
+                        grid = client.grid(s['provider_id'], s['sheet_id'])
+                        a1 = "'" + s['sheet'].replace("'", "''") + "'!A1:Z1"
+                        result = client._get('https://sheets.googleapis.com/v4/spreadsheets/' + quote(s['provider_id'], safe='') + '/values/' + quote(a1, safe=''), {'valueRenderOption': 'UNFORMATTED_VALUE'})
+                        address = result.get('range', '').rsplit('!', 1)[-1]
+                        safe_address = address if re.fullmatch(r'[A-Z]+[0-9]+:[A-Z]+[0-9]+', address) else 'OTHER'
+                        print(json.dumps({'role': s['role'] if s['role'] in {'master','historical_control_dependency','formula_dependency','procedure_lifecycle'} else 'OTHER', 'allocated_columns': grid['gridProperties']['columnCount'], 'captured_columns': s.get('formula_evidence',{}).get('columns'), 'requested_columns':26, 'returned_address':safe_address,'returned_value_columns':max((len(row) for row in result.get('values',[])), default=0)}))
+                    except Exception as error:
+                        print(json.dumps({'read_probe_code': public_error_code(str(error))}))
+            PY
