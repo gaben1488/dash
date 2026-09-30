@@ -32,6 +32,18 @@ jobs:
             root = Path('data/reports')
             status = json.loads((root / 'status.json').read_text())
             attempt = status.get('attempt_id', '')
+            if status.get('status') != 'NOT_ISSUED':
+                candidates = []
+                for path in (root / 'attempts').glob('*/status.json'):
+                    try:
+                        candidate = json.loads(path.read_text())
+                        if candidate.get('status') == 'NOT_ISSUED' and any(x.get('code') == 'UPSTREAM_IMPORT_FRESHNESS_NOT_PROVEN' for x in candidate.get('blockers', []) if isinstance(x, dict)):
+                            candidates.append((candidate.get('finished_at', ''), candidate))
+                    except (OSError, ValueError):
+                        pass
+                if candidates:
+                    status = max(candidates, key=lambda x: x[0])[1]
+                    attempt = status.get('attempt_id', '')
             if not re.fullmatch(r'[a-f0-9]{32}', attempt):
                 raise ValueError('INVALID_ATTEMPT')
             model_path = root / 'attempts' / attempt / 'bundle' / 'report_model.json'
