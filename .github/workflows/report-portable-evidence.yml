@@ -25,6 +25,12 @@ jobs:
           git rev-parse HEAD^{tree} > evidence/TREE.txt
           git archive --format=tar.gz --prefix=dash/ HEAD > evidence/source.tar.gz
           (cd evidence && sha256sum source.tar.gz > SHA256SUMS)
+      - name: Collect public offline verification dependencies
+        run: >-
+          python3 -m pip download --only-binary=:all: --no-deps
+          --dest evidence/wheels
+          'google-auth==2.59.0' 'pyasn1-modules==0.4.2'
+          'pyasn1==0.6.4' 'ruff==0.16.9'
       - uses: actions/upload-artifact@v4
         with:
           name: report-source-${{ github.sha }}
