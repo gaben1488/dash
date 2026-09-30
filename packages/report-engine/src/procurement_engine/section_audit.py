@@ -58,18 +58,24 @@ def _future_population(capture):
             except ValueError: planned_year=None
             blob=' '.join(text(c(i)).casefold() for i in (4,6,12,20,30,31,32,33))
             structured=planned_year==year or bool(planned and planned.startswith(f'{year}-'))
-            phrases=[f'поставили в план на {year}',f'запланировано 01.09.{year}',
+            phrases=[f'поставили в план на {year}',
                 f'за счет средств планового периода со сроком выполнения в {year}',
                 f'за счёт средств планового периода со сроком выполнения в {year}',
                 f'план на {year}',f'запланировано на {year}']
-            proposed=planned_year is None and planned is None and any(x in blob for x in phrases)
+            # Independent date parser: new dates must work without a historical literal.
+            explicit = set()
+            for found in re.finditer(r'\bзапланировано\s+(?:на\s+)?(\d{2}\.\d{2}\.\d{4})(?!\d)', blob):
+                prior_words = blob[:found.start()].split()
+                if prior_words and prior_words[-1] in {'изготовление', 'исполнение', 'выполнение', 'оказание', 'оплата', 'поставка'}:
+                    continue
+                date = day(found[1])
+                if date and date.startswith(f'{year}-'):
+                    explicit.add(date)
+            proposed=planned_year is None and planned is None and (any(x in blob for x in phrases) or bool(explicit))
             if not structured and not proposed:continue
             basis='structured_plan_date' if planned else None
-            if not planned:
-                explicit={day(x) for x in re.findall(r'запланировано\s+(?:на\s+)?(\d{2}\.\d{2}\.\d{4})',
-                    ' '.join(text(c(i)) for i in (20,30,31,32,33)),re.IGNORECASE)}
-                explicit={x for x in explicit if x and x.startswith(str(year))}
-                if len(explicit)==1:planned=explicit.pop();basis='explicit_current_plan_text'
+            if not planned and len(explicit)==1:
+                planned=explicit.pop();basis='explicit_current_plan_text'
             business_id=re.sub(r'^(\d+)\.0$',r'\1',text(c(0)))
             records.append({'grbs':source['grbs'],'provider_id':source['provider_id'],'sheet_id':source['sheet_id'],
                 'sheet':source['sheet'],'row_number':rn,'business_id':business_id or None,'subject':text(c(6)),

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, replace
 from datetime import datetime
@@ -37,7 +36,11 @@ from .projections import (
     project_management_view,
 )
 from .publication_history import compare_published_models
-from .qa import classify_future_context, validate_master_values
+from .qa import (
+    classify_future_context,
+    explicit_future_plan_dates,
+    validate_master_values,
+)
 from .release_gates import validate_recorded_state_model
 from .report_model import build_report_model_v3
 from .rule_catalog import DEFAULT_RULE_CATALOG
@@ -252,9 +255,8 @@ def future_rows(sources, year):
             date = parse_date(c(13))
             date_basis = 'structured_plan_date' if date else None
             if not date:
-                text = ' '.join(clean_text(c(i)) for i in (20,30,31,32,33))
-                explicit = re.findall(r'запланировано\s+(?:на\s+)?(\d{2}\.\d{2}\.\d{4})', text, re.IGNORECASE)
-                dates = {parse_date(v) for v in explicit if parse_date(v) and parse_date(v).startswith(str(year))}
+                text = ' '.join(clean_text(c(i)) for i in (4,6,12,20,30,31,32,33))
+                dates = explicit_future_plan_dates(text, year)
                 if len(dates) == 1:
                     date = dates.pop(); date_basis = 'explicit_current_plan_text'
             output.append({'grbs':s['grbs'], 'provider_id':s['provider_id'], 'sheet_id':s['sheet_id'],
