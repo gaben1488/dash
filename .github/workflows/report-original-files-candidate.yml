@@ -1,0 +1,101 @@
+name: Original week files candidate verification
+on:
+  push:
+    branches: [codex/report-root-causes-and-actions]
+    paths: [.github/workflows/report-original-files-candidate.yml]
+permissions:
+  contents: write
+jobs:
+  verify-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply checksum-verified public source patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64,hashlib,json,lzma,os,subprocess
+          from urllib.request import Request,urlopen
+          parts=['4496ebebd8e47414511ade3da0f302633cab8c9d','7ad926819049e4dc0814698c28ec81f257d8a4a8','cddef3a6fbf59918a0b7e6bec81cd81872e445df']
+          data=b''
+          for sha in parts:
+              request=Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs/'+sha,
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urlopen(request,timeout=40) as response: result=json.load(response)
+              assert result['sha']==sha and result['encoding']=='base64'
+              data+=base64.b64decode(''.join(result['content'].split()),validate=True)
+          assert len(data)==28104
+          assert hashlib.sha256(data).hexdigest()=='9c81dbc078d3a7edbd1f73feb6b2dd274bd5aec3b4e495c191d9e56df975a383'
+          patch=lzma.decompress(data)
+          assert hashlib.sha256(patch).hexdigest()=='f86155166e0f465726a465ebacbff9606c6b731b4c65ca35d537bb320864cf1f'
+          subprocess.run(['git','apply','--check','-'],input=patch,check=True)
+          subprocess.run(['git','apply','-'],input=patch,check=True)
+          PY
+      - name: Python and archive publication tests
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python -m pip install -e 'packages/report-engine[test]'
+          python -m ruff check packages/report-engine
+          git diff --check
+          python -m pytest packages/report-engine/tests -q --junitxml=evidence/python-tests.xml | tee evidence/python-tests.log
+      - name: Application verification
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm typecheck
+          pnpm -r test 2>&1 | tee evidence/application-tests.log
+          pnpm build
+      - name: Save exact verified source tree without changing production refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          from urllib.request import Request,urlopen
+          names=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          names.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          names={name for name in names if not name.startswith('evidence/')}
+          assert len(names)==22, sorted(names)
+          hashes={};entries=[]
+          for name in sorted(names):
+              assert name.startswith(('packages/report-engine/','packages/web/','docs/decisions/')),name
+              path=Path(name);assert path.is_file() and not path.is_symlink()
+              content=path.read_bytes();hashes[name]=hashlib.sha256(content).hexdigest()
+              entries.append({'path':name,'mode':'100644','type':'blob','content':content.decode('utf-8')})
+          base=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          request=Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',
+              data=json.dumps({'base_tree':base,'tree':entries}).encode(),method='POST',
+              headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urlopen(request,timeout=60) as response: tree=json.load(response)['sha']
+          subprocess.run(['git','add','--',*sorted(names)],check=True)
+          assert tree==subprocess.check_output(['git','write-tree'],text=True).strip()
+          Path('evidence/CANDIDATE_TREE.txt').write_text(tree+'\n')
+          Path('evidence/SOURCE_SHA256.json').write_text(json.dumps(hashes,indent=2))
+          print('CANDIDATE_TREE_SHA='+tree)
+          with Path('evidence/source.tar.gz').open('wb') as out:
+              subprocess.run(['git','archive','--format=tar.gz','--prefix=dash/',tree],stdout=out,check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-original-files-candidate-${{ github.sha }}
+          path: evidence/
+          retention-days: 3
+          if-no-files-found: warn
