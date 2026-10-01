@@ -23,26 +23,24 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - name: Apply checksum-verified public source patch
+      - name: Apply exact public source patches
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
           import base64,hashlib,json,lzma,os,subprocess
           from urllib.request import Request,urlopen
-          parts=['735e4132362184a710289ddffdba0b131e295357','1f5130e5035acbc16ee7693f68b22a4981f4bef0','61856537d34a4bbe453419bdbe05f13e83e94838']
-          data=b''
-          for sha in parts:
+          def blob(sha):
               request=Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
               with urlopen(request,timeout=40) as response: result=json.load(response)
               assert result['sha']==sha and result['encoding']=='base64'
-              data+=base64.b64decode(''.join(result['content'].split()),validate=True)
-          assert len(data)==21328
-          assert hashlib.sha256(data).hexdigest()=='0f866c25cabd3250b6cbf87657210ac8feb5d777c72043218ab2c7643624e609'
-          patch=lzma.decompress(data)
-          assert hashlib.sha256(patch).hexdigest()=='14a94aa4113368571e6304784019fb9532bfa57a59ba2418e94be60f4a457dee'
-          subprocess.run(['git','apply','--check','-'],input=patch,check=True)
-          subprocess.run(['git','apply','-'],input=patch,check=True)
+              return base64.b64decode(''.join(result['content'].split()),validate=True)
+          parts=['735e4132362184a710289ddffdba0b131e295357','1f5130e5035acbc16ee7693f68b22a4981f4bef0','61856537d34a4bbe453419bdbe05f13e83e94838']
+          for data,expected in [(b''.join(blob(sha) for sha in parts),'0f866c25cabd3250b6cbf87657210ac8feb5d777c72043218ab2c7643624e609'),(blob('b8ed22b0b7cb8c3affc2668ca12c11cbfdcc74ee'),'3b669761640e63deacad9d34e2999fbb1d87f16d3c1cd62efb464312120ad2ad')]:
+              assert hashlib.sha256(data).hexdigest()==expected
+              patch=lzma.decompress(data)
+              subprocess.run(['git','apply','--check','-'],input=patch,check=True)
+              subprocess.run(['git','apply','-'],input=patch,check=True)
           PY
       - name: Python and publication tests
         run: |
@@ -69,7 +67,7 @@ jobs:
           names=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
           names.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
           names.discard('evidence/python-tests.xml')
-          assert len(names)==25, sorted(names)
+          assert len(names)==28, sorted(names)
           hashes={};entries=[]
           for name in sorted(names):
               assert name.startswith(('packages/report-engine/','packages/server/','packages/web/','packages/shared/','docs/decisions/')),name
