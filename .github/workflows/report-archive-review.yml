@@ -1,0 +1,71 @@
+name: Report archive inventory
+on:
+  push:
+    branches: [codex/report-root-causes-and-actions]
+    paths: [.github/workflows/report-archive-review.yml]
+permissions:
+  contents: read
+jobs:
+  archive-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 8m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            cd /home/aemr/dash
+            candidate='${{ github.sha }}'
+            git fetch --quiet origin "$candidate"
+            work=$(mktemp -d /tmp/report-archive-review.XXXXXX)
+            trap 'rm -rf "$work"' EXIT
+            git archive "$candidate" packages/report-engine | tar -x -C "$work"
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            docker run --rm -i --network none --read-only --cpus=1 --memory=768m \
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" - <<'PY'
+            import json, sqlite3
+            from pathlib import Path
+            from collections import Counter
+            from contextlib import closing
+            from procurement_engine.readonly_catalog import copied_catalog
+            from procurement_engine.publication_store import PublicationStore
+            root=Path('/app/packages/server/data')
+            result={'legacy_snapshots':[], 'full_capture_days':{}, 'published_days':[]}
+            db=root/'aemr.db'
+            if db.is_file():
+                with copied_catalog(db) as path, closing(sqlite3.connect(path)) as cx:
+                    if cx.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshots'").fetchone():
+                        for created,data in cx.execute('SELECT created_at,data FROM snapshots ORDER BY created_at DESC LIMIT 150'):
+                            try: value=json.loads(data or '{}')
+                            except (ValueError,TypeError):
+                                result['legacy_snapshots'].append({'day':str(created)[:10],'invalid_json':True});continue
+                            depts=value.get('rowsByDept') or {}
+                            result['legacy_snapshots'].append({'day':str(created)[:10], 'departments':len(depts),
+                                'rows':sum(len(v) for v in depts.values()), 'svod_present':bool(value.get('svodGrid')),
+                                'full_capture':bool(value.get('reportCapture')), 'procedure_rows_present':bool(value.get('procedures')),
+                                'recommendation_ledger_present':bool(value.get('recommendation_records'))})
+            days=Counter()
+            for manifest in (root/'reports').glob('attempts/*/bundle/snapshot_bundle/manifest.json'):
+                try: days[json.loads(manifest.read_text())['report_date']]+=1
+                except (ValueError,KeyError): pass
+            result['full_capture_days']=dict(days)
+            pub=root/'reports/published'
+            if (pub/'publications.sqlite').is_file():
+                store=PublicationStore(pub,readonly=True)
+                with copied_catalog(store.database_path) as path:
+                    store.database_path=path
+                    result['published_days']=[r['report_date'] for r in store.history()]
+            print(json.dumps(result,ensure_ascii=False,sort_keys=True))
+            PY
