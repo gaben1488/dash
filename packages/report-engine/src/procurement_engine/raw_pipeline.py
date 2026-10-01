@@ -51,8 +51,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc12'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc12+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc13'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc13+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -73,6 +73,9 @@ def header_hash(values, header_rows):
 
 def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=None):
     """Validate a completed connector capture. Never simulate revision rereads."""
+    if capture.get('archived_file_evidence') is not None:
+        from .file_archive import verify_archived_values
+        verify_archived_values(capture, registry=registry, ledger=ledger)
     expected = {s['source_id']: s for s in registry['sources']}
     got = capture['sources']
     if sorted(s.get('grbs') for s in got if s['role'] == 'master') != sorted(registry_grbs_order(registry)):
@@ -121,7 +124,9 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         before[sid], after[sid] = s['before'], s['after']
         metadata = {'sheet_title': s['sheet'], 'grbs': s.get('grbs'), 'row_count': s['rows'],
                     'column_count': s['columns'], 'header_rows': contract['header_rows'],
-                    'units': contract['units'], 'capture_method': 'connector_bounded_ranges'}
+                    'units': contract['units'], 'capture_method': s.get('capture_method', 'connector_bounded_ranges')}
+        if 'archive_file_sha256' in s:
+            metadata['archive_file_sha256'] = s['archive_file_sha256']
         if 'formula_evidence' in s:
             metadata['formula_evidence']=s['formula_evidence']
         payload = SourcePayload(sid, s['role'], s['provider_id'], values, str(s['sheet_id']), fingerprint, metadata=metadata)
@@ -147,6 +152,14 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         source_manifest.append({'source_id':sid, 'provider_id':sid, 'role':role,
             'revision_or_modified_at':token, 'content_hash':token, 'canonical_semantic_hash':token,
             'content_hash_kind':'canonical_semantic_values'})
+    if capture.get('archived_file_evidence') is not None:
+        value = capture['archived_file_evidence']; sid = 'ARCHIVED_FILE_EVIDENCE'
+        token = canonical_semantic_hash(value)
+        payloads.append(SourcePayload(sid, 'archived_file_evidence', sid, value))
+        before[sid] = after[sid] = token
+        source_manifest.append({'source_id': sid, 'provider_id': sid, 'role': 'archived_file_evidence',
+            'revision_or_modified_at': token, 'content_hash': token, 'canonical_semantic_hash': token,
+            'content_hash_kind': 'canonical_semantic_values'})
     history = capture.get('recommendation_history_evidence')
     if history is not None:
         from .recommendation_history import enroll_history_package
@@ -167,6 +180,10 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         'status': 'DIAGNOSTIC', 'snapshot_contract_version': 'snapshot-v2.2.0', 'sources': source_manifest,
         'atomic_capture': {'before_after_equal': True, 'basis': 'observed provider modifiedTime barriers',
                            'limitation': 'Provider revision stability does not prove upstream IMPORTRANGE freshness.'}}
+    if capture.get('archived_file_evidence') is not None:
+        manifest['atomic_capture'] = {'before_after_equal': True,
+            'basis': 'Registered immutable archived file bytes and observed XLSX caches',
+            'limitation': 'Historical cutoff is declared in the source archive; neither live revisions nor upstream formula freshness are asserted.'}
     for key in ('report_scope', 'archive_origin'):
         if key in capture:
             manifest[key] = capture[key]
@@ -249,8 +266,8 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
         gaps.append('Совпадение номера не подтверждает постоянную идентичность; исполнение не установлено.')
         proof = verify_saved_report_origin(old, documents or {})
         link = resolve_current_link(old, rows, report_date=report_date, snapshot_id=snapshot_id, verified_origin=proof,
-            legacy_group_rules=link_contract not in {'verified-original-and-current-plan-v2', 'verified-original-and-current-plan-v3'},
-            entity_link_rules=link_contract == 'verified-original-and-current-plan-v3')
+            legacy_group_rules=link_contract not in {'verified-original-and-current-plan-v2', 'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4'},
+            entity_link_rules=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4'})
         confirmed = active and link['status'] == 'CONFIRMED'
         r.update(semantic_status=('CURRENT_LINK_CONFIRMED' if confirmed else 'REVIEW_REQUIRED') if active else 'SUPERSEDED',
             semantic_status_ru='', current_link=link,
@@ -265,7 +282,8 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
             from .recommendation_evidence import confirmed_result
 
             reviewed = confirmed_result(old, rows, identity_evidence, report_date,
-                compile_original=link_contract == 'verified-original-and-current-plan-v3')
+                compile_original=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4'},
+                reference_grammar=link_contract == 'verified-original-and-current-plan-v4')
             if reviewed is not None:
                 r.update(reviewed)
             elif confirmed:
@@ -276,11 +294,12 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
 
                 linked_rows = [row for row in rows if row.procurement_uid in link['procurement_uids']]
                 spec = None
-                if link_contract == 'verified-original-and-current-plan-v3':
+                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4'}:
                     from .action_spec import compile_action
                     spec = compile_action(old.get('recommendation_text'), source_ids=link['business_ids'],
-                        subjects=[(row.source_row_no, row.subject) for row in linked_rows])
-                if link_contract == 'verified-original-and-current-plan-v3' or action_target_proven(old, link['business_ids']):
+                        subjects=[(row.source_row_no, row.subject) for row in linked_rows],
+                        reference_grammar=link_contract == 'verified-original-and-current-plan-v4')
+                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4'} or action_target_proven(old, link['business_ids']):
                     r.update(evaluate_linked_action(old, linked_rows, report_date,
                         source_ids=link['business_ids'], evidence_quality='VERIFIED_ORIGIN_AND_CURRENT_IDENTITY',
                         action_spec=spec))
@@ -421,7 +440,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
         from .recommendation_history import enroll_history_package
 
         _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
-    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence, context_contract='source-context-v1', link_contract='verified-original-and-current-plan-v3')
+    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence, context_contract='source-context-v1', link_contract='verified-original-and-current-plan-v4')
     unresolved_recs=[r['recommendation_id'] for r in replay if r['active_in_current_slice'] and r['semantic_status']=='REVIEW_REQUIRED']
     if unresolved_recs:
         issues.append({'severity':'WARN','code':'RECOMMENDATION_LINK_UNCONFIRMED',
@@ -439,7 +458,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
-    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v3'
+    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v4'
     model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}

@@ -57,6 +57,8 @@ def rehearse_latest(state_dir, *, coverage=False):
     capture['sources'] = []
     for payload in payloads:
         meta = payload.get('metadata') or {}
+        if payload['role'] == 'archived_file_evidence':
+            capture['archived_file_evidence'] = payload['semantic_values']
         if payload['role'] == 'historical_report_evidence':
             capture['recommendation_history_evidence'] = payload['semantic_values']
         if 'sheet_title' not in meta:
@@ -67,6 +69,9 @@ def rehearse_latest(state_dir, *, coverage=False):
                   'grbs': meta.get('grbs'), 'rows': meta['row_count'], 'columns': meta['column_count'],
                   'header_rows': meta.get('header_rows', 3), 'values': payload['semantic_values'],
                   'before': bundle['before'][sid], 'after': bundle['after'][sid]}
+        for key in ('capture_method', 'archive_file_sha256'):
+            if key in meta:
+                source[key] = meta[key]
         if 'formula_evidence' in meta:
             source['formula_evidence'] = meta['formula_evidence']
         capture['sources'].append(source)

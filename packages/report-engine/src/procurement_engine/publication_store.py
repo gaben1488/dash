@@ -148,6 +148,8 @@ def _validate(root):
             if key in snapshot:
                 capture[key] = snapshot[key]
         for payload in payloads:
+            if payload['role'] == 'archived_file_evidence':
+                capture['archived_file_evidence'] = payload['semantic_values']
             if payload['role'] == 'historical_report_evidence':
                 capture['recommendation_history_evidence'] = payload['semantic_values']
             meta = payload.get('metadata') or {}
@@ -157,7 +159,14 @@ def _validate(root):
                 'provider_id': payload['provider_id'], 'sheet': meta['sheet_title'],
                 'sheet_id': int(payload['sheet_or_tab_id']), 'grbs': meta.get('grbs'),
                 'rows': meta['row_count'], 'columns': meta['column_count'], 'header_rows': meta.get('header_rows', 3),
-                'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence')})
+                'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence'),
+                **{key: meta[key] for key in ('capture_method', 'archive_file_sha256') if key in meta}})
+        if capture.get('archived_file_evidence') is not None:
+            from .file_archive import verify_archived_values
+            saved_contracts = [p['semantic_values'] for p in payloads if p['role'] == 'rule_contract']
+            if len(saved_contracts) != 1:
+                raise PublicationError('ARCHIVE_FILE_REGISTRY_MISMATCH')
+            verify_archived_values(capture, registry=saved_contracts[0], ledger=ledgers[0])
         from .identity_store import read_identity_result
 
         try:

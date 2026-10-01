@@ -49,3 +49,41 @@ def test_date_target_does_not_require_an_additional_manual_target_field():
 def test_merge_is_only_complete_when_all_named_members_match():
     assert compile_text('Объединить позиции 42 и 43 в одну закупку.', ('42', '43'))['type'] == 'MERGE_PROCUREMENTS'
     assert compile_text('Объединить позиции 42 и 43 в одну закупку.', ('42',)) is None
+
+
+@pytest.mark.parametrize('text', [
+    'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.',
+    'Вынести на ЭА 42 Поставка бумаги на сумму 46,00 тыс. руб.',
+    'Рекомендуем позицию 42 (Поставка бумаги) вынести на ЭА на сумму 46,00 тыс. руб.',
+    'Вынести на ЭА 42 (Поставка бумаги) на сумму 46,00 тыс. руб. (прогнозная экономия – 5,00 тыс. руб.)',
+    'Вынести на ЭА 42 (Поставка бумаги)',
+])
+def test_linked_description_is_not_an_unrecognised_new_action(text):
+    from procurement_engine.action_spec import compile_action
+    result = compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')], reference_grammar=True)
+    assert result['type'] == 'CHANGE_METHOD_EA'
+    assert result['source_text'] == text
+    assert result['source_ids'] == ['42']
+
+
+@pytest.mark.parametrize('text', [
+    'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб. если появятся средства.',
+    'Не рекомендуется вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.',
+    'Вынести на ЭА 42 Поставка бумаги и картриджей – 46,00 тыс. руб.',
+    'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб. Отменить позицию 43.',
+    'Вынести на ЭА 42/1 Поставка бумаги – 46,00 тыс. руб.',
+    'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб. (только при финансировании)',
+    'Коллеги писали «Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.»',
+    'Вынести на единый ЭА 42,43 Поставка бумаги – 46,00 тыс. руб.',
+])
+def test_extra_conditions_targets_and_partial_subjects_stay_unclassified(text):
+    from procurement_engine.action_spec import compile_action
+    assert compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')], reference_grammar=True) is None
+
+
+def test_nested_subject_and_nonempty_historical_v1_result_are_versioned():
+    from procurement_engine.action_spec import compile_action
+    text = 'Вынести на ЭА 42 (Химия (моющие средства)) на сумму 40,00 тыс. руб.'
+    assert compile_action(text, source_ids=['42'], subjects=[('42', 'Химия (моющие средства)')], reference_grammar=True)['type'] == 'CHANGE_METHOD_EA'
+    plain = 'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.'
+    assert compile_action(plain, source_ids=['42'], subjects=[('42', 'Поставка бумаги')]) is None

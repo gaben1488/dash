@@ -2,6 +2,7 @@
 import hashlib
 import io
 import re
+import unicodedata
 import zipfile
 from decimal import Decimal
 from functools import lru_cache
@@ -136,7 +137,17 @@ def verify_saved_report_origin(rec, documents):
         table = document.tables[table_no - 1]
         if row_no > len(table.rows) or cell_no > len(table.rows[row_no - 1].cells):
             continue
-        if table.cell(row_no - 1, cell_no - 1).text != text:
+        observed = table.cell(row_no - 1, cell_no - 1).text
+        normalization = evidence.get('normalization')
+        if normalization == 'NFKC_WHITESPACE_V1':
+            # Normalise typography only under an explicit proof contract. Keep
+            # the complete raw cell and its hash; never fuzzy-match source words.
+            if (evidence.get('observed_text') != observed
+                or evidence.get('observed_text_sha256') != hashlib.sha256(observed.encode()).hexdigest()
+                or ' '.join(unicodedata.normalize('NFKC', observed).split())
+                   != ' '.join(unicodedata.normalize('NFKC', text).split())):
+                continue
+        elif observed != text:
             continue
         heading = None
         for element in document.element.body:

@@ -19,8 +19,12 @@ POSITION = rf'(?:позици(?:ю|я)\s*[№#]?\s*)?({NUMBER})'
 AMOUNT = r'(\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?)\s*(тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
 
 
-def compile_action(text, *, source_ids, subjects=()):
+def compile_action(text, *, source_ids, subjects=(), reference_grammar=False):
     """Return a typed goal and an exact source text; None never means noncompliance."""
+    if reference_grammar:
+        result = _compile_reference_action(text, source_ids=source_ids, subjects=subjects)
+        if result is not None:
+            return result
     value = clean_text(str(text or '').replace('№', '#')).casefold().replace('ё', 'е')
     wanted = {normalize_id(item) for item in source_ids}
     if not wanted or None in wanted or not value:
@@ -59,4 +63,44 @@ def compile_action(text, *, source_ids, subjects=()):
     match = re.fullmatch(PREFIX + r'перенести\s+плановую\s+дату\s+на\s+(\d{2}\.\d{2}\.\d{4})', value)
     if match and (day := parse_date(match[1])):
         return {**base, 'type': 'MOVE_PLANNED_DATE', 'target_planned_date': day}
+    return None
+
+
+def _compile_reference_action(text, *, source_ids, subjects):
+    """Recognise a whole imperative with its exact linked item description.
+
+    The description and price are reference attributes, not another requested
+    action. A forecast saving is explicitly labelled and never a target amount.
+    No free prose, conditions, exceptions, partial subjects or extra targets are
+    removed. Older frozen contracts keep the previous v1 compiler unchanged.
+    """
+    value = clean_text(str(text or '').replace('№', '#')).casefold().replace('ё', 'е')
+    wanted = {normalize_id(item) for item in source_ids}
+    if len(wanted) != 1 or None in wanted or not value:
+        return None
+    business_id = next(iter(wanted))
+    names = {clean_text(subject).casefold().replace('ё', 'е') for number, subject in subjects
+             if normalize_id(number) == business_id and clean_text(subject)}
+    if len(names) != 1:
+        return None
+    name = re.escape(next(iter(names)))
+    # Literal nested parentheses in the source subject are escaped, not removed.
+    description = rf'(?:\({name}\)|«{name}»|"{name}"|{name})'
+    number = re.escape(business_id)
+    item = rf'(?:(?:позици[юя])\s*[#]?\s*)?{number}(?![\w/.-])'
+    verb = r'(?:вынести|перевести|провести)'
+    prefix = r'(?:(?:рекомендуем|рекомендуется|предлагаем|предлагается|рекомендовано)\s+)?'
+    amount = r'\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?\s*(?:тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
+    price = rf'(?:\s*(?:на\s+сумму|[—–-])\s*{amount})?'
+    forecast = rf'(?:\s*\(прогнозная\s+экономия\s*[—–-]\s*{amount}\))?'
+    tails = price + forecast + r'\s*[.;]?'
+    patterns = (
+        rf'{prefix}{verb}\s+на\s+{METHOD}\s+{item}\s+{description}{tails}',
+        rf'{prefix}{item}\s+{verb}\s+на\s+{METHOD}\s+{description}{tails}',
+        rf'{prefix}{item}\s+{description}\s+{verb}\s+на\s+{METHOD}{tails}',
+        rf'{prefix}{verb}\s+{item}\s+{description}\s+(?:на|способом)\s+{METHOD}{tails}',
+    )
+    if any(re.fullmatch(pattern, value) for pattern in patterns):
+        return {'contract': 'original-action-v2', 'source_text': clean_text(text),
+                'source_ids': sorted(wanted), 'type': 'CHANGE_METHOD_EA', 'target_method': 'ЭА'}
     return None

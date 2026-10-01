@@ -37,6 +37,7 @@ MESSAGES = {
     'ARCHIVE_CORRUPT': 'Проверка целостности архива не пройдена. Требуется восстановление архивной копии; рабочие таблицы менять не нужно.',
     'ARCHIVE_CHANGED': 'Архив изменился во время обработки. Выпуск отменён; требуется проверка хранения архива.',
     'ARCHIVE_BUILD_FAILED': 'Сборка архивного отчёта не прошла контроль. Это задача сопровождения; последний сохранённый выпуск не заменён.',
+    'ARCHIVE_INTAKE_FAILED': 'Проверка исходных файлов недельного архива не пройдена. Сопровождение должно восстановить комплект среза. Рабочие таблицы и прошлый Word менять не нужно; текущие данные не использованы.',
     'ARCHIVE_BUSY': 'Архивный комплект уже собирается. Готовность будет проверена автоматически.',
 }
 
@@ -63,6 +64,14 @@ def _frozen_fingerprint(root):
     if identity.is_symlink() or not identity.is_file():
         raise ArchiveError('ARCHIVE_INPUT_INCOMPLETE')
     result['identity.sqlite'] = _hash(identity)
+    intake = root / 'import.json'
+    if intake.exists():
+        if intake.is_symlink():
+            raise ArchiveError('ARCHIVE_CORRUPT')
+        receipt = _read(intake)
+        if receipt.get('identity_sha256') != result['identity.sqlite']:
+            raise ArchiveError('ARCHIVE_CORRUPT')
+        result['import.json'] = _hash(intake)
     return result
 
 
@@ -98,6 +107,8 @@ def load_frozen_input(root, *, day, year, quarter):
         capture.update(report_year=year, report_scope={'year': year, 'quarter': quarter}, sources=[])
         for payload in payloads:
             meta = payload.get('metadata') or {}
+            if payload['role'] == 'archived_file_evidence':
+                capture['archived_file_evidence'] = payload['semantic_values']
             if payload['role'] == 'historical_report_evidence':
                 capture['recommendation_history_evidence'] = payload['semantic_values']
             if 'sheet_title' not in meta:
@@ -108,6 +119,9 @@ def load_frozen_input(root, *, day, year, quarter):
                 'grbs': meta.get('grbs'), 'rows': meta['row_count'], 'columns': meta['column_count'],
                 'header_rows': meta.get('header_rows', 3), 'values': payload['semantic_values'],
                 'before': bundle['before'][sid], 'after': bundle['after'][sid]}
+            for key in ('capture_method', 'archive_file_sha256'):
+                if key in meta:
+                    source[key] = meta[key]
             if 'formula_evidence' in meta:
                 source['formula_evidence'] = meta['formula_evidence']
             capture['sources'].append(source)
@@ -164,7 +178,8 @@ def _source_for_day(state, day):
         for path in state.glob(pattern):
             try:
                 manifest = _read(path)
-                if parse_date(manifest['report_date']) == day and 'archive_origin' not in manifest:
+                if parse_date(manifest['report_date']) == day and (not manifest.get('archive_origin')
+                        or manifest['archive_origin'].get('contract') == 'xlsx-archive-v1'):
                     instant = datetime.fromisoformat(manifest['captured_at'])
                     if instant.tzinfo is None:
                         raise ValueError
@@ -229,6 +244,12 @@ def ensure_archive_release(state_dir, *, day, year, quarter, legacy_database=Non
                     return result
             _write(work / 'status.json', {**result, 'archive': {'status': 'RUNNING', 'code': 'ARCHIVE_BUSY', 'message': MESSAGES['ARCHIVE_BUSY']}})
             source = _source_for_day(state, day)
+            if source is None:
+                # Lazy import: the old installed runtime can replay saved Google
+                # bundles without loading the optional XLSX translator.
+                from .file_archive import import_inbox_week
+                if import_inbox_week(state, day) is not None:
+                    source = _source_for_day(state, day)
             if source is None:
                 coverage = legacy_coverage(legacy_database, day) if legacy_database else None
                 if coverage:
