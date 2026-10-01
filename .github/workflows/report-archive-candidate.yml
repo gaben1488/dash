@@ -29,6 +29,7 @@ jobs:
         run: |
           python - <<'PY'
           import base64,hashlib,json,lzma,os,subprocess
+          from pathlib import Path
           from urllib.request import Request,urlopen
           def blob(sha):
               request=Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
@@ -41,20 +42,26 @@ jobs:
               patch=lzma.decompress(data)
               subprocess.run(['git','apply','--check','-'],input=patch,check=True)
               subprocess.run(['git','apply','-'],input=patch,check=True)
+          evidence=Path('evidence');evidence.mkdir()
+          for name in ('report-releases.test.ts','report-releases.ts'):
+              content=Path('packages/server/src/routes',name).read_bytes()
+              (evidence/name).write_bytes(content)
+              print(name, 'lines', len(content.splitlines()), 'sha256',hashlib.sha256(content).hexdigest())
           PY
       - name: Python and publication tests
         run: |
+          set -euo pipefail
           python -m pip install -e 'packages/report-engine[test]'
           python -m ruff check packages/report-engine
           git diff --check
-          mkdir -p evidence
-          python -m pytest packages/report-engine/tests -q --junitxml=evidence/python-tests.xml
+          python -m pytest packages/report-engine/tests -q --junitxml=evidence/python-tests.xml | tee evidence/python-tests.log
       - name: Application verification
         run: |
+          set -euo pipefail
           pnpm install --frozen-lockfile
           pnpm lint
           pnpm typecheck
-          pnpm -r test
+          pnpm -r test 2>&1 | tee evidence/application-tests.log
           pnpm build
       - name: Store verified source tree without moving production refs
         env:
@@ -66,7 +73,7 @@ jobs:
           from urllib.request import Request,urlopen
           names=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
           names.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
-          names.discard('evidence/python-tests.xml')
+          names={name for name in names if not name.startswith('evidence/')}
           assert len(names)==28, sorted(names)
           hashes={};entries=[]
           for name in sorted(names):
