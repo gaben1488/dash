@@ -42,6 +42,14 @@ jobs:
               patch=lzma.decompress(data)
               subprocess.run(['git','apply','--check','-'],input=patch,check=True)
               subprocess.run(['git','apply','-'],input=patch,check=True)
+          p=Path('packages/server/src/routes/report-releases.test.ts')
+          assert hashlib.sha256(p.read_bytes()).hexdigest()=='4ae50e0c59e4202e34121a37b7653cb4c46b6f0a380a9bf1f256399b2051a951'
+          s=p.read_text()
+          s=s.replace("  const first = app.inject({ method: 'POST', url: '/api/report-releases/prepare', payload });", "  await app.ready();\n  // Consume both thenables before releasing the build; light-my-request may be lazy.\n  const first = app.inject({ method: 'POST', url: '/api/report-releases/prepare', payload }).then(response => response);")
+          s=s.replace("  const second = app.inject({ method: 'POST', url: '/api/report-releases/prepare', payload });", "  const second = app.inject({ method: 'POST', url: '/api/report-releases/prepare', payload }).then(response => response);")
+          s=s.replace("  await Promise.all([first, second]);\n  expect(prepare)","  const replies = await Promise.all([first, second]);\n  expect(replies.map(response => response.json())).toEqual([\n    { selected: null, attempt: null }, { selected: null, attempt: null },\n  ]);\n  expect(prepare)")
+          p.write_text(s)
+          assert hashlib.sha256(p.read_bytes()).hexdigest()=='4f1815fc94319910a26c3f125a3c220b3121269eab675ca588cfecaa88ee0d69'
           evidence=Path('evidence');evidence.mkdir()
           for name in ('report-releases.test.ts','report-releases.ts'):
               content=Path('packages/server/src/routes',name).read_bytes()
