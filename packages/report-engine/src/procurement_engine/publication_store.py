@@ -105,13 +105,19 @@ def _validate(root):
         raise PublicationError('SNAPSHOT_CORRUPT')
     if any(manifest.get(k) != snapshot[k] for k in ('snapshot_id', 'report_date', 'cutoff_at', 'rules_version', 'renderer_version')):
         raise PublicationError('SNAPSHOT_MODEL_MISMATCH')
+    for key in ('report_year', 'report_scope', 'archive_origin'):
+        if manifest.get(key) != snapshot.get(key):
+            raise PublicationError('SNAPSHOT_MODEL_MISMATCH')
     bundle = _json(root / 'snapshot_bundle/bundle.json')
     expected = bundle.get('after') or {}
     if not expected or any(not x for x in expected.values()) or bundle.get('before') != expected:
         raise PublicationError('SOURCE_CHANGED_DURING_CAPTURE')
     if set(expected) != {p['source_id'] for p in index}:
         raise PublicationError('SOURCE_COVERAGE_MISMATCH')
-    modern = snapshot.get('renderer_version') == 'renderer-v1.5.0rc10'
+    # A production matrix cannot opt out of domain gates by deleting the
+    # model contract or merely changing a renderer patch version.
+    modern = any(source.get('role') == 'master' for source in manifest.get('sources', []))
+    modern = modern or str(snapshot.get('renderer_version', '')).startswith('renderer-v')
     has_domain_contract = str((model.get('contract') or {}).get('report_model_version', '')).startswith('report-model-')
     if modern and not has_domain_contract:
         raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
@@ -125,6 +131,10 @@ def _validate(root):
             raise PublicationError('DOMAIN_RELEASE_POLICY_MISSING')
         payloads = [_json(root / 'snapshot_bundle' / item['path']) for item in index]
         ledgers = [p['semantic_values'] for p in payloads if p['role'] == 'historical_ledger']
+        for key in ('report_scope', 'archive_origin'):
+            evidence = [p['semantic_values'] for p in payloads if p['role'] == key]
+            if evidence != ([snapshot[key]] if key in snapshot else []):
+                raise PublicationError('ARCHIVE_SCOPE_EVIDENCE_MISMATCH')
         documents = {}
         history = [p['semantic_values'] for p in payloads if p['role'] == 'historical_report_evidence']
         if history and len(ledgers) == 1:
@@ -134,6 +144,9 @@ def _validate(root):
         if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0], documents=documents):
             raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
         capture = {'report_date': snapshot['report_date'], 'report_year': snapshot['report_year'], 'sources': []}
+        for key in ('report_scope', 'archive_origin'):
+            if key in snapshot:
+                capture[key] = snapshot[key]
         for payload in payloads:
             if payload['role'] == 'historical_report_evidence':
                 capture['recommendation_history_evidence'] = payload['semantic_values']
@@ -215,10 +228,21 @@ class PublicationStore:
             raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
         return record
 
+    def _first_live(self, rows):
+        """Archive recomputation never replaces the live worker's baseline.
+
+        History/context selectors still expose archives explicitly. Presence of
+        archive_origin (including an invalid null) is not a live publication.
+        """
+        for row in rows:
+            if 'archive_origin' not in json.loads(row[0]):
+                return self._checked(row)
+        return None
+
     def latest(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            return self._checked(db.execute('''SELECT receipt, files FROM publications
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC LIMIT 1''').fetchone())
+            return self._first_live(db.execute('''SELECT receipt, files FROM publications
+                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC'''))
 
     def history(self):
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
@@ -242,9 +266,9 @@ class PublicationStore:
     def previous_model(self, report_date):
         day = datetime.strptime(report_date, '%d.%m.%Y').date().isoformat()  # noqa: DTZ007 — civil date.
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
-            row = db.execute('''SELECT receipt, files FROM publications WHERE report_date < ?
-                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC LIMIT 1''', (day,)).fetchone()
-            receipt = self._checked(row)
+            rows = db.execute('''SELECT receipt, files FROM publications WHERE report_date < ?
+                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (day,))
+            receipt = self._first_live(rows)
             if receipt is None:
                 return None
             return {'receipt': receipt, 'model': _json(self.releases / receipt['release_id'] / 'report_model.json')}
@@ -282,11 +306,12 @@ class PublicationStore:
                     previous = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
                     if previous:
                         return self._checked(previous)
-                    if model.get('contract', {}).get('document_content_contract') == 'document-plan-v1':
+                    if (model.get('contract', {}).get('document_content_contract') == 'document-plan-v1'
+                            and not model['snapshot'].get('archive_origin')):
                         from .semantic_headers import assert_header_continuity
-                        prior_row = db.execute('''SELECT receipt, files FROM publications WHERE cutoff_at <= ?
-                            ORDER BY cutoff_at DESC, release_id DESC LIMIT 1''', (cutoff,)).fetchone()
-                        prior = self._checked(prior_row)
+                        prior_rows = db.execute('''SELECT receipt, files FROM publications WHERE cutoff_at <= ?
+                            ORDER BY cutoff_at DESC, release_id DESC''', (cutoff,))
+                        prior = self._first_live(prior_rows)
                         if prior is not None:
                             try:
                                 assert_header_continuity(self.releases / prior['release_id'], stage)
@@ -316,6 +341,10 @@ class PublicationStore:
                               'published_at': datetime.now(timezone.utc).isoformat(),
                               'source_revisions_at_publish': observed,
                               'status': 'VERIFIED_WITH_WARNINGS' if model.get('issues') or (model.get('automation_assurance') or {}).get('actions') else 'VERIFIED'}
+                    if model['snapshot'].get('archive_origin'):
+                        record['archive_origin'] = model['snapshot']['archive_origin']
+                        record['source_verification'] = 'FROZEN_ARCHIVE_HASHES'
+                        record['source_revisions_at_capture'] = record.pop('source_revisions_at_publish')
                     if model.get('automation_assurance') is not None:
                         record['automation_assurance'] = model['automation_assurance']
                     db.execute('INSERT INTO publications VALUES (?, ?, ?, ?, ?)',

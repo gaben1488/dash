@@ -28,6 +28,9 @@ def _text_ids(text):
 
 
 def _subject_amounts(text, subject, business_id):
+    business_id = normalize_id(business_id)
+    if not business_id or not _text(subject):
+        return set()
     phrase = _text(subject)
     # The full subject must belong to this number, not another sentence or a
     # longer procurement subject containing the same words.
@@ -55,6 +58,9 @@ def _exact_subject_reference(text, subject, business_id):
     Amounts are historical attributes. They cannot be invariant identity keys.
     Only recognised boundaries delimit a full subject; prose similarity is not used.
     """
+    business_id = normalize_id(business_id)
+    if not business_id or not _text(subject):
+        return False
     prefix = r'(?<!\w)(?:позици(?:ю|и|й|я)\s*#?\s*|#\s*|^|(?:вынести|перевести)\s+на\s+эа\s+)'
     reference = prefix + re.escape(business_id) + r'(?![\w/.-])\s*(?:[—–:]\s*)?'
     instruction = r'(?:(?:вынести|перевести|провести)\s+на\s+эа\s+)?'

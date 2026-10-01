@@ -17,6 +17,7 @@ const businessDay = new Intl.DateTimeFormat('sv-SE', {
 export function useReportExport(context: ExportContext | null) {
   const query = context ? new URLSearchParams({ date: context.date, year: String(context.year), quarter: String(context.quarter) }).toString() : null;
   const key = context ? `${context.mode}/${query}` : null;
+  const archiveMode = context?.mode === 'archive';
   const [state, setState] = useState<{ key: string; data: SelectedReportReleaseStatus | null; error: string } | null>(null);
   const [pinned, setPinned] = useState<{ key: string; release: Release } | null>(null);
   const [transfer, setTransfer] = useState<{ key: string; saving: Kind | null; error: string } | null>(null);
@@ -28,17 +29,34 @@ export function useReportExport(context: ExportContext | null) {
     if (!key || !query) return;
     const controller = new AbortController();
     let loading = false;
+    let preparationRequested = false;
     async function load() {
       if (loading) return;
       loading = true;
       const requestController = new AbortController();
       const abort = () => requestController.abort();
       controller.signal.addEventListener('abort', abort, { once: true });
-      const timeout = setTimeout(abort, 35_000);
+      let timeout = setTimeout(abort, 35_000);
       try {
         const data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
-        if (!controller.signal.aborted) setState({ key: key!, data, error: '' });
+        if (controller.signal.aborted) return;
+        setState({ key: key!, data, error: '' });
+        if (archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
+          preparationRequested = true;
+          setState({ key: key!, data: { ...data, archive: { status: 'RUNNING', code: 'ARCHIVE_BUSY',
+            message: 'Собираем Word из сохранённого среза. Текущие таблицы не используются.' } }, error: '' });
+          clearTimeout(timeout);
+          timeout = setTimeout(abort, 610_000);
+          const params = new URLSearchParams(query!);
+          const prepared = await fetchParsed('/report-releases/prepare', SelectedReportReleaseStatusSchema, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: requestController.signal,
+            body: JSON.stringify({ date: params.get('date'), year: Number(params.get('year')), quarter: Number(params.get('quarter')) }),
+          });
+          if (!controller.signal.aborted) setState({ key: key!, data: prepared, error: '' });
+          if (prepared.archive?.code === 'ARCHIVE_BUSY') preparationRequested = false;
+        }
       } catch {
+        preparationRequested = false;
         if (!controller.signal.aborted) setState({ key: key!, data: null, error: 'Не удалось проверить готовность Word. Повторим запрос автоматически.' });
       } finally {
         clearTimeout(timeout);
@@ -49,7 +67,7 @@ export function useReportExport(context: ExportContext | null) {
     void load();
     const timer = setInterval(() => void load(), 60_000);
     return () => { controller.abort(); downloadController.current?.abort(); clearInterval(timer); };
-  }, [key, query]);
+  }, [key, query, archiveMode]);
 
   const current = state?.key === key ? state : null;
   const candidate = pinned?.key === key ? pinned.release : current?.data?.selected;
@@ -71,6 +89,11 @@ export function useReportExport(context: ExportContext | null) {
       status += ' Полнота обработки пояснений этим выпуском не оценена.';
     }
     if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
+  }
+  if (archiveMode && !release && current?.data?.archive) {
+    status = current.data.archive.message;
+    const missing = current.data.archive.coverage?.missing_sections;
+    if (missing?.length) status += ` Не сохранены: ${missing.join('; ')}.`;
   }
   const attempt = current?.data?.attempt;
   const attemptDay = attempt?.report_date?.split('.').reverse().join('-')

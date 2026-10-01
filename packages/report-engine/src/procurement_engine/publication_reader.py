@@ -27,6 +27,29 @@ def read_publication(state_dir, view, release_id=None, *, selection=None):
         attempt = json.loads(attempt_path.read_text(encoding='utf-8')) if attempt_path.exists() else None
         if selection is not None:
             result = {'selected': store.select(*selection) if store else None, 'attempt': attempt}
+            # GET remains read-only. Archive job status never overwrites the live worker status.
+            from .archive_runtime import MESSAGES, selection_key
+            archive_path = state / 'archive_attempts' / selection_key(*selection) / 'status.json'
+            if archive_path.is_file():
+                saved = json.loads(archive_path.read_text(encoding='utf-8'))
+                job = saved.get('archive') or {}
+                if job.get('status') in {'READY', 'RUNNING', 'NOT_ISSUED'}:
+                    result['archive'] = job
+                    # Process death cannot leave the UI saying RUNNING forever.
+                    if job.get('status') == 'RUNNING':
+                        import fcntl
+                        lock_path = archive_path.with_name('run.lock')
+                        if lock_path.is_file():
+                            with lock_path.open('r') as lock:
+                                try:
+                                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                except BlockingIOError:
+                                    pass
+                                else:
+                                    result['archive'] = {'status': 'NOT_ISSUED', 'code': 'ARCHIVE_BUILD_FAILED',
+                                        'message': MESSAGES['ARCHIVE_BUILD_FAILED']}
+                                    fcntl.flock(lock, fcntl.LOCK_UN)
+
         else:
             result = {'latest': store.latest() if store else None, 'attempt': attempt}
         return json.dumps(result, ensure_ascii=False, allow_nan=False).encode()

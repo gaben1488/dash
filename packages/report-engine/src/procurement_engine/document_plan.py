@@ -29,7 +29,7 @@ class DocumentPlan:
         keys = ('snapshot', 'headline', 'grbs_order', 'report_content', 'grbs_metrics',
                 'management_summary', 'procedures', 'narratives', 'publication', 'comparison',
                 'recommendations', 'recommendations_by_grbs', 'recommendation_tables_by_grbs',
-                'source_context', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract')
+                'source_context', 'source_context_groups', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract')
         projection = {key: model[key] for key in keys if key in model}
         if 'details' in projection:
             projection['details'] = [{key: value for key, value in row.items()
@@ -528,8 +528,10 @@ def _add_future_plan(doc, model):
         _paragraph(doc, f"{row['grbs']}: {row['subject']}. Сумма {_money(row['amount_thousand'])} тыс. руб. Месяц: {month}.{note}", size=8, space_after=4)
 
 
-@section_rule('DOC.SOURCE_CONTEXT', roots=['source_context'])
+@section_rule('DOC.SOURCE_CONTEXT', roots=['source_context', 'source_context_groups'])
 def _add_source_context(doc, model):
+    if model.get('contract', {}).get('context_presentation_contract') == 'relevant-context-v1':
+        return _add_grouped_context(doc, model)
     records = [row for row in model.get('source_context', [])
                if any(entry['visibility'] == 'business' for entry in row['explanations'])]
     if not records:
@@ -546,4 +548,24 @@ def _add_source_context(doc, model):
                 if entry['visibility'] != 'business':
                     continue
                 with doc.binding('DOC.SOURCE_EXPLANATION', [doc.path(entry)]):
+                    _paragraph(doc, f"{entry['label']}: «{entry['text']}».", size=8, first_line_mm=4)
+
+
+def _add_grouped_context(doc, model):
+    groups = model.get('source_context_groups', [])
+    if not groups:
+        return
+    _paragraph(doc, 'ПОЯСНЕНИЯ К ПОЗИЦИЯМ ПЛАНА', bold=True, keep_with_next=True)
+    for group in groups:
+        members = group['members']
+        with doc.binding('DOC.CONTEXT_GROUP', [doc.path(group)]):
+            labels = [f"№ {member['business_id']}" if member['business_id'] else f"«{member['subject']}»"
+                      for member in members]
+            subjects = '; '.join(dict.fromkeys(member['subject'] for member in members))
+            plan = '.'.join(reversed(group['planned_date'].split('-'))) if group['planned_date'] else 'не указана'
+            _paragraph(doc, f"{group['grbs']}, план {group['planned_year']} года: {', '.join(labels)}. "
+                       f"Предмет: {subjects}; плановая дата — {plan}.", size=8, bold=True, keep_with_next=True)
+            for entry in group['explanations']:
+                # The entry lists EVERY source in the group, not only the first.
+                with doc.binding('DOC.GROUPED_EXPLANATION', [doc.path(entry), *[doc.path(member) for member in members]]):
                     _paragraph(doc, f"{entry['label']}: «{entry['text']}».", size=8, first_line_mm=4)

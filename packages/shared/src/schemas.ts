@@ -569,7 +569,17 @@ export const ReportReleaseStatusSchema = z.object({
 });
 export type ReportReleaseStatus = z.infer<typeof ReportReleaseStatusSchema>;
 
+export const ArchivePreparationSchema = z.object({
+  status: z.enum(['READY', 'RUNNING', 'NOT_ISSUED']),
+  code: z.enum(['ARCHIVE_READY', 'ARCHIVE_BUSY', 'ARCHIVE_NOT_FOUND', 'ARCHIVE_INPUT_INCOMPLETE',
+    'ARCHIVE_CORRUPT', 'ARCHIVE_CHANGED', 'ARCHIVE_BUILD_FAILED']),
+  message: z.string(),
+  coverage: z.object({ departments: z.number().int().nonnegative(), rows: z.number().int().nonnegative(),
+    missing_sections: z.array(z.string()) }).optional(),
+});
+
 export const SelectedReportReleaseStatusSchema = z.object({
+  archive: ArchivePreparationSchema.optional(),
   attempt: ReportReleaseStatusSchema.shape.attempt,
   selected: PublishedReleaseSchema.extend({
     report_year: z.number().int().min(1900).max(9999),

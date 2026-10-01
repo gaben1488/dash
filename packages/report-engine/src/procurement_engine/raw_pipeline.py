@@ -15,7 +15,7 @@ from .constants import GRBS_ORDER
 from .diagnostics import project_diagnostics
 from .fact_model import is_procurement_row
 from .formula_dependencies import audit_formula_dependencies
-from .metrics import current_quarter
+from .metrics import reporting_quarter
 from .normalize import (
     clean_text,
     normalize_id,
@@ -51,8 +51,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc11'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc11+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc12'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc12+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -87,7 +87,8 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
     report_date = parse_date(capture['report_date'])
     if not report_date or report_date != capture_time.astimezone(ZoneInfo(capture['timezone'])).date().isoformat():
         raise ValueError('REPORT_DATE_CAPTURE_DATE_MISMATCH')
-    if int(report_date[:4]) != capture['report_year']:
+    reporting_quarter(capture)  # Validate explicit selection before any persistence.
+    if 'report_scope' not in capture and int(report_date[:4]) != capture['report_year']:
         raise ValueError('REPORT_YEAR_MISMATCH')
     payloads, source_manifest, before, after = [], [], {}, {}
     for s in sorted(got, key=lambda x: x['source_id']):
@@ -136,6 +137,8 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
     # A changed historical ledger or source contract must produce a different evidence identity.
     for sid, role, value in (('HISTORICAL_RECOMMENDATIONS', 'historical_ledger', ledger or []),
                              ('SOURCE_CONTRACT', 'rule_contract', registry),
+                             *([('REPORT_SCOPE', 'report_scope', capture['report_scope'])] if 'report_scope' in capture else []),
+                             *([('ARCHIVE_ORIGIN', 'archive_origin', capture['archive_origin'])] if 'archive_origin' in capture else []),
                              *([('IDENTITY_REVIEWS', 'identity_reviews', identity_evidence)]
                                if identity_evidence is not None else [])):
         token = canonical_semantic_hash(value)
@@ -164,6 +167,9 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         'status': 'DIAGNOSTIC', 'snapshot_contract_version': 'snapshot-v2.2.0', 'sources': source_manifest,
         'atomic_capture': {'before_after_equal': True, 'basis': 'observed provider modifiedTime barriers',
                            'limitation': 'Provider revision stability does not prove upstream IMPORTRANGE freshness.'}}
+    for key in ('report_scope', 'archive_origin'):
+        if key in capture:
+            manifest[key] = capture[key]
     return AtomicSnapshotBundle(manifest, tuple(payloads), 1, before, after)
 
 
@@ -425,7 +431,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
         issues.append({'severity':'WARN','code':'IDENTITY_CONTINUITY_UNCONFIRMED',
             'message':'Для части строк не доказана постоянная идентичность. Строки сохранены в текущем расчёте; их историческая судьба не утверждается.',
             'context':{'source_row_keys':[r['source_row_key'] for r in identity_result['rows'] if r['procurement_uid'] is None]}})
-    ci=contributors(rows,year,current_quarter(capture['report_date']),report_date)
+    ci=contributors(rows,year,reporting_quarter(capture),report_date)
     history=[]
     if previous_publication:
         receipt=previous_publication['receipt']
@@ -462,18 +468,21 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
         'fact_amount':r.fact_total,'included':is_procurement_row(r,report_year=year)} for r in rows]
     model['fact_metrics']={kind:metric_block(rows,report_year=year,as_of=report_date,method=method)
                            for kind,method in (('competitive','ЭА'),('single_supplier','ЕП'))}
-    model['calendar_fact']=calendar_facts(rows,event_year=year,event_quarter=current_quarter(report_date),as_of=report_date)
+    model['calendar_fact']=calendar_facts(rows,event_year=year,event_quarter=reporting_quarter(capture),as_of=report_date)
     model['period_contract']={'planned_cohort':'headline and monthly use planned period N/O/P',
         'calendar_fact':'calendar_fact uses Q event period across plan years',
         'money_missing':'Known component sums; see money_coverage and detail missing_money_fields',
         'as_of':report_date, 'historical_reconstruction':'Requires original frozen capture, not a relabelled current capture'}
     model['exact_metrics']={kind:{scope:metric_block(rows,report_year=year,as_of=report_date,method=method,
-        planned_quarter=current_quarter(report_date) if scope=='quarter' else None)
+        planned_quarter=reporting_quarter(capture) if scope=='quarter' else None)
         for scope in ('year','quarter')} for kind,method in (('competitive','ЭА'),('single_supplier','ЕП'))}
     model['report_content'] = build_business_sections(rows, year=year, as_of=report_date,
         grbs_order=model['grbs_order'], departmental_model=snap['model'])
     from .source_context import context_rows
     model['source_context'] = context_rows(rows, year=year)
+    from .context_presentation import CONTRACT, group_context
+    model['contract']['context_presentation_contract'] = CONTRACT
+    model['source_context_groups'] = group_context(model['source_context'], year=year, as_of=report_date)
     from .automation_assurance import assess_automation
     model['contract']['automation_assurance_contract'] = 'actionable-assurance-v1'
     model['automation_assurance'] = assess_automation(model, capture['sources'])

@@ -123,3 +123,42 @@ it('does not present newer assurance as belonging to an already downloaded Word 
   expect(result.current.assurance?.user_action_count).toBe(0);
   expect(result.current.release?.release_id).toBe(receipt.release_id);
 });
+
+it('materializes a missing archived pair through the native action with exact date/year/quarter', async () => {
+  request.mockImplementation(async (url: string) => {
+    if (url === '/api/report-releases/prepare') return response(receipt);
+    return response(null);
+  });
+  const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  const prepare = request.mock.calls.find(([url]) => url === '/api/report-releases/prepare');
+  expect(prepare?.[1].method).toBe('POST');
+  expect(JSON.parse(prepare?.[1].body)).toEqual({ date: context.date, year: 2026, quarter: 3 });
+});
+
+it('ignores an archive builder response for a previously selected week', async () => {
+  let finish!: (value: ReturnType<typeof response>) => void;
+  request.mockImplementation((url: string) => url === '/api/report-releases/prepare'
+    ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(response(null)));
+  const { result, rerender } = renderHook(({ value }: { value: ExportContext }) => useReportExport(value),
+    { initialProps: { value: { ...context, mode: 'archive' } } });
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  rerender({ value: { ...context, date: '2026-10-01', mode: 'live', quarter: 4 } });
+  await act(async () => { finish(response(receipt)); });
+  expect(result.current.release).toBeNull();
+  expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
+});
+
+it('names the missing archived inputs and does not spin up another build on every poll', async () => {
+  const missing = { ok: true, json: async () => ({ selected: null, attempt: null, archive: {
+    status: 'NOT_ISSUED', code: 'ARCHIVE_INPUT_INCOMPLETE', message: 'Нужен исходный архив недели.',
+    coverage: { departments: 8, rows: 40, missing_sections: ['Архив реестра процедур'] },
+  } }) };
+  request.mockResolvedValue(missing);
+  const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
+  await waitFor(() => expect(result.current.status).toContain('Архив реестра процедур'));
+  await act(async () => { poll(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/prepare')).toHaveLength(1);
+  expect(result.current.status).not.toContain('Готовится');
+  expect(result.current.release).toBeNull();
+});

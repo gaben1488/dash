@@ -93,6 +93,11 @@ PUBLIC_CODES = PUBLIC_CODES | frozenset({'PUBLICATION_CATALOG_UNSAFE', 'PUBLICAT
 PUBLIC_STAGES = frozenset({'inputs', 'acquisition', 'publication_selection', 'build', 'publication'})
 
 
+PUBLIC_CODES = PUBLIC_CODES | frozenset({'CONTEXT_PRESENTATION_MISSING', 'ARCHIVE_SCOPE_EVIDENCE_MISMATCH',
+    'REPORT_SCOPE_INVALID', 'ARCHIVE_NOT_FOUND', 'ARCHIVE_INPUT_INCOMPLETE', 'ARCHIVE_CORRUPT',
+    'ARCHIVE_CHANGED', 'ARCHIVE_BUILD_FAILED', 'ARCHIVE_BUSY'})
+
+
 def public_error_code(message):
     """Separate known machine codes from private suffixes and arbitrary exceptions."""
     prefix = message.split(':', 1)[0]

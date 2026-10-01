@@ -91,7 +91,7 @@ def _future_population(capture):
 
 def audit_management_projection(model):
     summary=model.get('management_summary') or {}
-    quarter=(int(day(model['snapshot']['report_date'])[5:7])-1)//3+1
+    quarter=(model['snapshot'].get('report_scope') or {}).get('quarter', (int(day(model['snapshot']['report_date'])[5:7])-1)//3+1)
     if summary.get('current_quarter')!=quarter:return False
     for field,kind in [('competitive_remaining_by_grbs','comp'),('single_supplier_remaining_by_grbs','ep')]:
         expected=[]
@@ -286,4 +286,9 @@ def audit_context(capture, model):
                                  'planned_date': primary['planned_date'], 'actual_date': primary['actual_date'],
                                  'method': primary['method'],
                                  'in_report_year': plan_year == capture['report_year'], 'explanations': entries})
-    return model.get('source_context') == expected
+    if model.get('source_context') != expected:
+        return False
+    if model.get('contract', {}).get('context_presentation_contract') == 'relevant-context-v1':
+        from .context_presentation import group_context
+        return model.get('source_context_groups') == group_context(expected, year=capture['report_year'], as_of=capture['report_date'])
+    return True

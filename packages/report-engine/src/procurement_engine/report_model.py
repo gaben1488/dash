@@ -78,6 +78,9 @@ def build_report_model_v2(snapshot: dict, ledger: list[dict]) -> dict:
     from .recommendation_dimensions import evaluate_dimensions
 
     model = build_report_model(snapshot, ledger)
+    for key in ('report_scope', 'archive_origin'):
+        if key in snapshot:
+            model['snapshot'][key] = snapshot[key]
     dimensions_by_id = {}
     review_required = []
     for r in ledger:

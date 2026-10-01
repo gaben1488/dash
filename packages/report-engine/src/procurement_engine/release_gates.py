@@ -192,10 +192,14 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
             ('document_content_contract', 'document-plan-v1'), ('business_context_contract', 'source-context-v1'),
             ('trace_catalog_contract', 'complete-trace-v1'), ('narrative_source_contract', 'recorded-business-v1'))),
             'BUSINESS_DOCUMENT_CONTRACT_MISSING', 'Отсутствует обязательный контракт чистового документа.')
-    if model.get('snapshot', {}).get('renderer_version') == 'renderer-v1.5.0rc11':
+    if model.get('snapshot', {}).get('renderer_version') in {'renderer-v1.5.0rc11', 'renderer-v1.5.0rc12'}:
         require(model.get('contract', {}).get('automation_assurance_contract') == 'actionable-assurance-v1'
                 and (model.get('automation_assurance') or {}).get('contract') == 'actionable-assurance-v1',
                 'AUTOMATION_ASSURANCE_MISSING', 'Отсутствует обязательная оценка полноты автоматизации.')
+    if model.get('snapshot', {}).get('renderer_version') == 'renderer-v1.5.0rc12':
+        require(model.get('contract', {}).get('context_presentation_contract') == 'relevant-context-v1'
+                and 'source_context_groups' in model, 'CONTEXT_PRESENTATION_MISSING',
+                'Отсутствует проверяемый отбор пояснений для документа.')
     if model.get('contract', {}).get('narrative_source_contract') == 'recorded-business-v1':
         from .narrative import validate_recorded_narratives
         require(validate_recorded_narratives(model), 'NARRATIVE_SOURCE_MISMATCH',

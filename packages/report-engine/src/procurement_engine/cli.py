@@ -73,11 +73,28 @@ def main(argv=None):
     read.add_argument("--report-date")
     read.add_argument("--report-year", type=int)
     read.add_argument("--quarter", type=int)
+    archive = sub.add_parser('run-archive', help='Build an exact archived context without current sources')
+    archive.add_argument('--state', required=True)
+    archive.add_argument('--report-date', required=True)
+    archive.add_argument('--report-year', type=int, required=True)
+    archive.add_argument('--quarter', type=int, required=True)
+    archive.add_argument('--legacy-db', help='Read-only old dashboard snapshot catalog')
     review = sub.add_parser('record-identity-review', help='Append dated proof to an existing identity observation')
     for option in ('state', 'snapshot-id', 'locator', 'uid', 'reviewer', 'reviewed-at', 'evidence'):
         review.add_argument('--' + option, required=True)
 
     args = p.parse_args(argv)
+    if args.cmd == 'run-archive':
+        from .archive_runtime import MESSAGES, ArchiveError, ensure_archive_release
+        try:
+            result = ensure_archive_release(args.state, day=args.report_date,
+                year=args.report_year, quarter=args.quarter, legacy_database=args.legacy_db)
+        except ArchiveError as error:
+            print(json.dumps({'code': str(error), 'message': MESSAGES.get(str(error), 'Некорректный период архива.')}, ensure_ascii=False))
+            return 2
+        # A missing archive is a typed business result, not a transport failure.
+        dump(result)
+        return 0
     if args.cmd == 'record-identity-review':
         from .identity_store import IdentityStore
 

@@ -32,7 +32,7 @@ def method(v):
     return None
 
 def recount(capture):
-    as_of=day(capture['report_date']);year=capture['report_year'];q=(int(as_of[5:7])-1)//3+1
+    as_of=day(capture['report_date']);year=capture['report_year'];q=(capture.get('report_scope') or {}).get('quarter', (int(as_of[5:7])-1)//3+1)
     def empty():
         return {'plan_count':0,'fact_count':0,'remain_count':0,
             **{n:Fraction(0) for n in ('plan_amount','fact_amount','remain_amount',
