@@ -213,12 +213,16 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
       utcOffsetHours: 12,
       listSnapshotDays: vi.fn(() => [] as number[]),
       prepareSources: vi.fn(async () => ({
-        loaded: ['УЭР'],
-        failed: [],
-        svodOk: true,
-        formulaBooks: ['УЭР'],
+        loaded: ['УЭР'], failed: [], svodOk: true, formulaBooks: ['УЭР'], expectedBooks: 1,
       })),
-      refresh: vi.fn(async () => ({ id: 'snap-fresh' })),
+      prepareMonitoring: vi.fn(async () => ({
+        readAt: kamchatkaThursdayMorning.toISOString(), version: 1,
+        sheets: { '1. УЭР': [['ok']] }, failed: {}, expectedSheets: 1,
+      })),
+      refresh: vi.fn(async () => ({
+        id: 'snap-fresh', createdAt: '2026-07-22T20:01:00.000Z',
+      })),
+      sealContext: vi.fn(async () => true),
       sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayMorning)),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       ...overrides,
@@ -230,7 +234,9 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('taken');
     expect(deps.prepareSources).toHaveBeenCalledTimes(1);
+    expect(deps.prepareMonitoring).toHaveBeenCalledTimes(1);
     expect(deps.refresh).toHaveBeenCalledTimes(1);
+    expect(deps.sealContext).toHaveBeenCalledWith('snap-fresh', expect.objectContaining({ version: 1 }));
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining('Еженедельный снимок четверга снят'));
   });
 
@@ -240,6 +246,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('skipped');
     expect(deps.prepareSources).not.toHaveBeenCalled();
+    expect(deps.prepareMonitoring).not.toHaveBeenCalled();
     expect(deps.refresh).not.toHaveBeenCalled();
   });
 
@@ -250,6 +257,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
         failed: ['УО'],
         svodOk: true,
         formulaBooks: ['УЭР'],
+        expectedBooks: 2,
       })),
     });
 
@@ -265,6 +273,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
         failed: [],
         svodOk: true,
         formulaBooks: ['УЭР'],
+        expectedBooks: 2,
       })),
     });
 
@@ -273,8 +282,40 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
     expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('формулы прочитаны: 1'));
   });
 
+  it('неполный реестр процедур блокирует недельный снимок', async () => {
+    const deps = makeDeps({
+      prepareMonitoring: vi.fn(async () => ({
+        readAt: kamchatkaThursdayMorning.toISOString(), version: 2,
+        sheets: { '1. УЭР': [] }, failed: { '8. УО': 'нет доступа' }, expectedSheets: 2,
+      })),
+    });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.refresh).not.toHaveBeenCalled();
+    expect(deps.sealContext).not.toHaveBeenCalled();
+  });
+
+  it('fallback на старый сохранённый snapshot не выдаётся за текущую неделю', async () => {
+    const deps = makeDeps({
+      refresh: vi.fn(async () => ({ id: 'old-real', createdAt: '2026-07-16T06:00:00.000Z' })),
+    });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.sealContext).not.toHaveBeenCalled();
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('сохранённый ранее snapshot'));
+  });
+
+  it('неудачный seal не помечает rows-only snapshot завершённой неделей', async () => {
+    const deps = makeDeps({ sealContext: vi.fn(async () => false) });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.refresh).toHaveBeenCalledTimes(1);
+    expect(deps.sealContext).toHaveBeenCalledTimes(1);
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('не завершён'));
+  });
+
   it('refresh упал в демо-фолбэк (Google недоступен): снимок не снят, предупреждение, повтор следующим тиком', async () => {
-    const deps = makeDeps({ refresh: vi.fn(async () => ({ id: 'demo-123' })) });
+    const deps = makeDeps({ refresh: vi.fn(async () => ({ id: 'demo-123', createdAt: '2026-07-22T20:01:00.000Z' })) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
     expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('не снят'));
@@ -332,7 +373,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
     const deps = makeDeps({
       now: () => kamchatkaThursdayEvening,
       sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)),
-      refresh: vi.fn(async () => ({ id: 'demo-123' })),
+      refresh: vi.fn(async () => ({ id: 'demo-123', createdAt: '2026-07-22T20:01:00.000Z' })),
     });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
