@@ -30,6 +30,8 @@ interface SnapshotRef {
   createdAt: string;
   /** Несёт ли data-JSON строки-атомы rowsByDept (SQL-маркер, JSON не разбирается). */
   hasRows: boolean;
+  /** Завершён ли полный weekly table context. */
+  hasWeeklyContext: boolean;
 }
 
 /**
@@ -44,8 +46,11 @@ const sliceThursdayOf = (day: number): number => day + ((DAYS_PER_WEEK - (day % 
  * поздний > строконосный ранний > бесстрочный поздний. createdAt — toISOString
  * одного формата, лексикографика = хронология.
  */
-const beats = (a: SnapshotRef, b: SnapshotRef): boolean =>
-  a.hasRows !== b.hasRows ? a.hasRows : a.createdAt > b.createdAt;
+const beats = (a: SnapshotRef, b: SnapshotRef): boolean => {
+  if (a.hasWeeklyContext !== b.hasWeeklyContext) return a.hasWeeklyContext;
+  if (a.hasRows !== b.hasRows) return a.hasRows;
+  return a.createdAt > b.createdAt;
+};
 
 /**
  * Какие снимки выживают. Держим: (а) победителя каждого календарного дня
@@ -88,6 +93,7 @@ export function retentionKeepIds(
  * по байтам колонки — многомегабайтные JSON не разбираются ради одного признака.
  */
 const HAS_ROWS_SQL = sql<number>`instr(${schema.snapshots.data}, '"rowsByDept"') > 0`;
+const HAS_WEEKLY_CONTEXT_SQL = sql<number>`instr(${schema.snapshots.data}, '"weeklyTableContext"') > 0`;
 
 /**
  * Применить retention к БД: метаданные всех снимков → решение → удаление
@@ -103,11 +109,13 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
         id: schema.snapshots.id,
         createdAt: schema.snapshots.createdAt,
         hasRows: HAS_ROWS_SQL,
+        hasWeeklyContext: HAS_WEEKLY_CONTEXT_SQL,
       })
       .from(schema.snapshots)
       .all()
       // data NULL → instr даёт NULL → драйвер вернёт null: считаем бесстрочным.
-      .map((r) => ({ id: r.id, createdAt: r.createdAt, hasRows: r.hasRows === 1 }));
+      .map((r) => ({ id: r.id, createdAt: r.createdAt, hasRows: r.hasRows === 1,
+        hasWeeklyContext: r.hasWeeklyContext === 1 }));
     const offset = config.weeklySnapshot.utcOffsetHours;
     const keep = retentionKeepIds(rows, productCalendarDay(now, offset), offset);
     const drop = rows.filter((r) => !keep.has(r.id)).map((r) => r.id);
