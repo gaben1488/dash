@@ -73,11 +73,12 @@ async function fixture(options: {
     data: JSON.stringify(snapshot),
   }).run();
 
+  const monitoringNames = options.monitoringMissing
+    ? core.MONITORING_DATA_SHEETS.slice(1)
+    : core.MONITORING_DATA_SHEETS;
   const monitoringSheets = Object.fromEntries(
-    core.MONITORING_DATA_SHEETS.map((name) => [name, [[name, 'строка']]]),
+    monitoringNames.map((name) => [name, [[name, 'строка']]]),
   );
-  const firstMonitoringSheet = core.MONITORING_DATA_SHEETS[0];
-  if (options.monitoringMissing && firstMonitoringSheet) delete monitoringSheets[firstMonitoringSheet];
   const monitoring = {
     readAt: createdAt,
     version: 7,
