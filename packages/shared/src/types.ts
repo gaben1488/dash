@@ -433,6 +433,28 @@ export interface ValidationRule {
 }
 
 /** Снимок данных (pipeline output) */
+export interface WeeklyMasterTableEvidence {
+  sheetName: string;
+  startRow: number;
+  loadedAt: string;
+  headerRows: unknown[][];
+  formulas: unknown[][];
+  formulasRead: true;
+}
+
+export interface WeeklyMonitoringTableEvidence {
+  readAt: string;
+  version: number;
+  sheets: Record<string, unknown[][]>;
+}
+
+export interface WeeklyTableContext {
+  contract: 'dash-weekly-table-context-v1';
+  sealedAt: string;
+  masters: Record<string, WeeklyMasterTableEvidence>;
+  monitoring: WeeklyMonitoringTableEvidence;
+}
+
 export interface DataSnapshot {
   id: string;
   spreadsheetId: string;
@@ -471,6 +493,8 @@ export interface DataSnapshot {
    * сырых values листа. Той же опциональности, что rowsByDept.
    */
   svodGrid?: SvodGridBlock[];
+  /** Полный недельный контекст тех же таблиц; существует только у завершённого weekly-capture. */
+  weeklyTableContext?: WeeklyTableContext;
   metadata: {
     sheetsRead: string[];
     cellsRead: number;
