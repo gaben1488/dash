@@ -81,7 +81,7 @@ describe('productCalendarDay — календарь Камчатки на UTC-с
 
 describe('collectSnapshotDays — дни существующих снимков из БД', () => {
   /** Минимальный валидный снимок для saveSnapshot (как в snapshot.test.ts). */
-  function snap(id: string, createdAt: string) {
+  function snap(id: string, createdAt: string, completeWeek = true) {
     return {
       id,
       spreadsheetId: 'test',
@@ -92,6 +92,12 @@ describe('collectSnapshotDays — дни существующих снимков
       issues: [],
       trust: { overall: 100, components: [], grade: 'A' as const, computedAt: createdAt, basedOnSnapshot: id },
       rowCount: 0,
+      ...(completeWeek ? { weeklyTableContext: {
+        contract: 'dash-weekly-table-context-v1' as const,
+        sealedAt: createdAt,
+        masters: {},
+        monitoring: { readAt: createdAt, version: 1, sheets: {} },
+      } } : {}),
       metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
     };
   }
@@ -107,6 +113,9 @@ describe('collectSnapshotDays — дни существующих снимков
     const days = await collectSnapshotDays(thursday, 12);
     expect(days).toContain(thursday);
     expect(days).toHaveLength(1);
+    // Незавершённый snapshot не дедупит неделю: следующий тик обязан повторить seal.
+    await saveSnapshot(snap('incomplete-thu', '2026-07-22T17:00:00.000Z', false));
+    expect(await collectSnapshotDays(thursday, 12)).toEqual([thursday]);
     // Таймаут: этот тест — единственный в файле, кому нужен snapshot.js
     // (SQLite + весь серверный граф); чистые функции рядом грузятся мгновенно.
   }, 20000);
