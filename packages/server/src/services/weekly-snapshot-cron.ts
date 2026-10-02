@@ -65,14 +65,6 @@ const HISTORY_SCAN_LIMIT = 500;
  */
 const SOURCE_STALE_HOURS = 24;
 
-/**
- * Час продуктового четверга, после которого устаревший источник перестаёт быть
- * поводом ждать: до вечера обновление ещё может прийти, после — неделя дороже
- * свежести, и снимок снимается с пометкой. Раньше 18:00 отказ обратим — тик
- * повторяется каждый час, день всё ещё не в snapshotDays.
- */
-const STALE_DEADLINE_HOUR = 18;
-
 // Календарь продукта живёт в product-calendar.ts — общий дом конверсии с
 // retention снимков и роутом отчёта; отсюда она только реэкспортируется.
 export { productCalendarDay };
@@ -219,13 +211,25 @@ export async function collectSnapshotDays(nowDay: number, utcOffsetHours: number
 export type TickOutcome = 'taken' | 'taken-stale' | 'deferred' | 'skipped' | 'failed';
 
 /** Зависимости тика — инжектируются, чтобы тик тестировался без часов, БД и Google. */
+export interface WeeklySourceRefresh {
+  loaded: string[];
+  failed: string[];
+  svodOk: boolean;
+  formulaBooks: string[];
+}
+
 export interface WeeklySnapshotDeps {
   now: () => Date;
   utcOffsetHours: number;
   listSnapshotDays: (nowDay: number) => number[] | Promise<number[]>;
+  /**
+   * Перед срезом принудительно перечитать все книги, СВОД и формулы.
+   * Недельная история не имеет права зависеть от обычного TTL-кэша.
+   */
+  prepareSources: () => Promise<WeeklySourceRefresh>;
   /** Существующий путь снятия снимка; от результата нужен только id (демо-детектор). */
   refresh: () => Promise<{ id: string }>;
-  /** Мета чтения книг ГРБС — источник признака свежести (snapshot.getDeptLoadMeta). */
+  /** Мета чтения книг ГРБС — контроль, что принудительный цикл действительно обновил кэш. */
   sourceMeta: () => Record<string, DeptReadMeta> | Promise<Record<string, DeptReadMeta>>;
   log: {
     info(msg: string): void;
@@ -250,23 +254,36 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
       return 'skipped';
     }
 
-    // Свежесть меряется ДО снятия. Замер после вернул бы более выгодную
-    // картину: конкурентный /api/refresh, пришедший в момент пайплайна, уже
-    // обновил бы мету, а строки в снимок попали бы прежние — ровно та
-    // подмена, которую этот гейт закрывает.
-    const freshness = assessSourceFreshness(now, await deps.sourceMeta());
     const dayLabel = `день ${nowDay}, ${isoOfDayNumber(nowDay)}`;
 
+    // Канонический недельный снимок сам читает источник. Никакого вечернего
+    // "снимем устаревшее, чтобы не потерять неделю": неполный срез хуже честного
+    // пропуска, потому что потом выглядит как историческая первичка.
+    const prepared = await deps.prepareSources();
+    const formulaSet = new Set(prepared.formulaBooks);
+    const completeRead = prepared.loaded.length > 0
+      && prepared.failed.length === 0
+      && prepared.svodOk
+      && prepared.loaded.every((book) => formulaSet.has(book));
+    if (!completeRead) {
+      deps.log.warn(
+        `Еженедельный снимок четверга (${dayLabel}) не снят: принудительное чтение источников неполно. `
+        + `Книг прочитано: ${prepared.loaded.length}; не прочитано: ${prepared.failed.length}; `
+        + `формулы прочитаны: ${prepared.formulaBooks.length}; СВОД: ${prepared.svodOk ? 'прочитан' : 'не прочитан'}. `
+        + 'Текущие или устаревшие данные вместо недельного среза не сохранялись; повтор следующим тиком.',
+      );
+      return 'failed';
+    }
+
+    // Перепроверяем мету после принудительного цикла: если источник формально
+    // ответил, но кэш не получил свежую отметку, snapshot не считается годным.
+    const freshness = assessSourceFreshness(now, await deps.sourceMeta());
     if (freshness.status !== 'fresh') {
-      const hour = productCalendarHour(now, deps.utcOffsetHours);
-      if (hour < STALE_DEADLINE_HOUR) {
-        deps.log.warn(
-          `Еженедельный снимок четверга (${dayLabel}) отложен: ${describeSourceFreshness(freshness)} ` +
-          `Обновление источника (POST /api/refresh) до ${STALE_DEADLINE_HOUR}:00 ещё спасёт срез; ` +
-          'повтор следующим тиком.',
-        );
-        return 'deferred';
-      }
+      deps.log.warn(
+        `Еженедельный снимок четверга (${dayLabel}) не снят: после принудительного чтения `
+        + `свежесть не подтверждена — ${describeSourceFreshness(freshness)} Повтор следующим тиком.`,
+      );
+      return 'failed';
     }
 
     const snapshot = await deps.refresh();
@@ -278,18 +295,6 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
         'источник недоступен, сработал демо-фолбэк. Повтор следующим тиком.',
       );
       return 'failed';
-    }
-
-    if (freshness.status !== 'fresh') {
-      // Вечер четверга: ждать больше нечего, а неделя без снимка — дыра в
-      // единственной исторической правде. Снимаем, но признак несём наружу
-      // и в лог: числа этой недели нельзя читать как состояние книг на дату.
-      deps.log.warn(
-        `Еженедельный снимок четверга (${dayLabel}) снят ПО УСТАРЕВШЕМУ ИСТОЧНИКУ: ${snapshot.id}. ` +
-        `${describeSourceFreshness(freshness)} ` +
-        'Неделя сохранена, чтобы не потерять срез, но состоянием книг на эту дату он не является.',
-      );
-      return 'taken-stale';
     }
 
     deps.log.info(
@@ -315,6 +320,14 @@ export function startWeeklySnapshotCron(log: WeeklySnapshotDeps['log']): () => v
     now: () => new Date(),
     utcOffsetHours: config.weeklySnapshot.utcOffsetHours,
     listSnapshotDays: (nowDay) => collectSnapshotDays(nowDay, config.weeklySnapshot.utcOffsetHours),
+    prepareSources: async () => {
+      const { refreshAllSources } = await import('./source-refresh.js');
+      return refreshAllSources(log, 'cycle', {
+        fresh: true,
+        askDrive: false,
+        withFormulas: true,
+      });
+    },
     refresh: async () => (await import('./snapshot.js')).getSnapshot(true),
     sourceMeta: async () => (await import('./snapshot.js')).getDeptLoadMeta(),
     log,
