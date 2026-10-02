@@ -212,6 +212,12 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
       now: () => kamchatkaThursdayMorning,
       utcOffsetHours: 12,
       listSnapshotDays: vi.fn(() => [] as number[]),
+      prepareSources: vi.fn(async () => ({
+        loaded: ['УЭР'],
+        failed: [],
+        svodOk: true,
+        formulaBooks: ['УЭР'],
+      })),
       refresh: vi.fn(async () => ({ id: 'snap-fresh' })),
       sourceMeta: vi.fn(() => freshMeta(kamchatkaThursdayMorning)),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -223,6 +229,7 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
     const deps = makeDeps();
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('taken');
+    expect(deps.prepareSources).toHaveBeenCalledTimes(1);
     expect(deps.refresh).toHaveBeenCalledTimes(1);
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining('Еженедельный снимок четверга снят'));
   });
@@ -232,7 +239,38 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
     const deps = makeDeps({ listSnapshotDays: vi.fn(() => [nowDay]) });
 
     await expect(tickWeeklySnapshot(deps)).resolves.toBe('skipped');
+    expect(deps.prepareSources).not.toHaveBeenCalled();
     expect(deps.refresh).not.toHaveBeenCalled();
+  });
+
+  it('неполное принудительное чтение источников блокирует недельный snapshot', async () => {
+    const deps = makeDeps({
+      prepareSources: vi.fn(async () => ({
+        loaded: ['УЭР'],
+        failed: ['УО'],
+        svodOk: true,
+        formulaBooks: ['УЭР'],
+      })),
+    });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.refresh).not.toHaveBeenCalled();
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('принудительное чтение источников неполно'));
+  });
+
+  it('недельный snapshot требует формульное чтение каждой прочитанной книги', async () => {
+    const deps = makeDeps({
+      prepareSources: vi.fn(async () => ({
+        loaded: ['УЭР', 'УО'],
+        failed: [],
+        svodOk: true,
+        formulaBooks: ['УЭР'],
+      })),
+    });
+
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.refresh).not.toHaveBeenCalled();
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('формулы прочитаны: 1'));
   });
 
   it('refresh упал в демо-фолбэк (Google недоступен): снимок не снят, предупреждение, повтор следующим тиком', async () => {
@@ -249,34 +287,34 @@ describe('tickWeeklySnapshot — тик планировщика', () => {
     expect(deps.log.error).toHaveBeenCalled();
   });
 
-  it('утро четверга, книги трёхнедельной давности: снимок отложен, refresh не дёргается (Д17)', async () => {
+  it('принудительное чтение прошло, но мета осталась трёхнедельной: снимок не создаётся', async () => {
     const deps = makeDeps({ sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayMorning)) });
 
-    await expect(tickWeeklySnapshot(deps)).resolves.toBe('deferred');
-    // Главное: устаревшие строки НЕ уходят в архив недели молча.
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.prepareSources).toHaveBeenCalledTimes(1);
+    // Главное: устаревшие строки НЕ уходят в историческую первичку.
     expect(deps.refresh).not.toHaveBeenCalled();
-    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('отложен'));
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('свежесть не подтверждена'));
     expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('504,0 ч назад'));
   });
 
-  it('книги не читались ни разу: тоже отложить, свежесть неизвестна', async () => {
+  it('книги не получили отметку чтения даже после принудительного цикла: снимок не создаётся', async () => {
     const deps = makeDeps({ sourceMeta: vi.fn(() => ({})) });
 
-    await expect(tickWeeklySnapshot(deps)).resolves.toBe('deferred');
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
     expect(deps.refresh).not.toHaveBeenCalled();
-    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('свежесть источника неизвестна'));
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('свежесть не подтверждена'));
   });
 
-  it('вечер четверга, источник так и не обновился: снимок снят с честным признаком', async () => {
+  it('вечер четверга не разрешает сохранить устаревшую историческую неделю', async () => {
     const deps = makeDeps({
       now: () => kamchatkaThursdayEvening,
       sourceMeta: vi.fn(() => staleMeta(kamchatkaThursdayEvening)),
     });
 
-    // Неделю терять нельзя — срез снимается, но признак отличается от 'taken'.
-    await expect(tickWeeklySnapshot(deps)).resolves.toBe('taken-stale');
-    expect(deps.refresh).toHaveBeenCalledTimes(1);
-    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('ПО УСТАРЕВШЕМУ ИСТОЧНИКУ'));
+    await expect(tickWeeklySnapshot(deps)).resolves.toBe('failed');
+    expect(deps.refresh).not.toHaveBeenCalled();
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining('свежесть не подтверждена'));
     expect(deps.log.info).not.toHaveBeenCalled();
   });
 
