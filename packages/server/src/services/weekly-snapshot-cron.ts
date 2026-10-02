@@ -40,7 +40,7 @@
 // чистых функций платили за него ~25 с на холодном кэше.
 import { isoOfDayNumber } from '@aemr/shared';
 import { productCalendarDay } from './product-calendar.js';
-import { config } from '../config.js';
+import { config, DEPARTMENT_SPREADSHEETS } from '../config.js';
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -192,9 +192,9 @@ export function shouldTakeWeeklySnapshot(nowDay: number, snapshotDays: readonly 
  * снятый в четверг 04:00 Камчатки (= среда 16:00 UTC), дедупится с четвергом.
  */
 export async function collectSnapshotDays(nowDay: number, utcOffsetHours: number): Promise<number[]> {
-  const { getSnapshotHistory } = await import('./snapshot.js');
+  const { getWeeklySnapshotHistory } = await import('./snapshot.js');
   const days = new Set<number>();
-  for (const row of getSnapshotHistory(HISTORY_SCAN_LIMIT)) {
+  for (const row of getWeeklySnapshotHistory(HISTORY_SCAN_LIMIT)) {
     const ms = Date.parse(row.createdAt);
     if (Number.isNaN(ms)) continue;
     const day = productCalendarDay(new Date(ms), utcOffsetHours);
@@ -208,7 +208,7 @@ export async function collectSnapshotDays(nowDay: number, utcOffsetHours: number
  * устаревшему источнику, — не то же самое, что снимок недели, и звать их одним
  * словом значило бы повторить ту же молчаливую подмену на уровне контракта.
  */
-export type TickOutcome = 'taken' | 'taken-stale' | 'deferred' | 'skipped' | 'failed';
+export type TickOutcome = 'taken' | 'skipped' | 'failed';
 
 /** Зависимости тика — инжектируются, чтобы тик тестировался без часов, БД и Google. */
 export interface WeeklySourceRefresh {
@@ -216,6 +216,15 @@ export interface WeeklySourceRefresh {
   failed: string[];
   svodOk: boolean;
   formulaBooks: string[];
+  expectedBooks: number;
+}
+
+export interface WeeklyMonitoringCapture {
+  readAt: string;
+  version: number;
+  sheets: Record<string, unknown[][]>;
+  failed: Record<string, string>;
+  expectedSheets: number;
 }
 
 export interface WeeklySnapshotDeps {
@@ -227,8 +236,10 @@ export interface WeeklySnapshotDeps {
    * Недельная история не имеет права зависеть от обычного TTL-кэша.
    */
   prepareSources: () => Promise<WeeklySourceRefresh>;
-  /** Существующий путь снятия снимка; от результата нужен только id (демо-детектор). */
-  refresh: () => Promise<{ id: string }>;
+  prepareMonitoring: () => Promise<WeeklyMonitoringCapture>;
+  /** Существующий путь снятия снимка; createdAt нужен против фолбэка на старую БД. */
+  refresh: () => Promise<{ id: string; createdAt: string }>;
+  sealContext: (snapshotId: string, monitoring: WeeklyMonitoringCapture) => Promise<boolean>;
   /** Мета чтения книг ГРБС — контроль, что принудительный цикл действительно обновил кэш. */
   sourceMeta: () => Record<string, DeptReadMeta> | Promise<Record<string, DeptReadMeta>>;
   log: {
@@ -261,14 +272,15 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
     // пропуска, потому что потом выглядит как историческая первичка.
     const prepared = await deps.prepareSources();
     const formulaSet = new Set(prepared.formulaBooks);
-    const completeRead = prepared.loaded.length > 0
+    const completeRead = prepared.expectedBooks > 0
+      && prepared.loaded.length === prepared.expectedBooks
       && prepared.failed.length === 0
       && prepared.svodOk
       && prepared.loaded.every((book) => formulaSet.has(book));
     if (!completeRead) {
       deps.log.warn(
         `Еженедельный снимок четверга (${dayLabel}) не снят: принудительное чтение источников неполно. `
-        + `Книг прочитано: ${prepared.loaded.length}; не прочитано: ${prepared.failed.length}; `
+        + `Книг прочитано: ${prepared.loaded.length}/${prepared.expectedBooks}; не прочитано: ${prepared.failed.length}; `
         + `формулы прочитаны: ${prepared.formulaBooks.length}; СВОД: ${prepared.svodOk ? 'прочитан' : 'не прочитан'}. `
         + 'Текущие или устаревшие данные вместо недельного среза не сохранялись; повтор следующим тиком.',
       );
@@ -286,6 +298,18 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
       return 'failed';
     }
 
+    const monitoring = await deps.prepareMonitoring();
+    if (Object.keys(monitoring.failed).length > 0
+        || monitoring.expectedSheets < 1
+        || Object.keys(monitoring.sheets).length !== monitoring.expectedSheets) {
+      deps.log.warn(
+        `Еженедельный снимок четверга (${dayLabel}) не снят: реестр процедур прочитан неполно `
+        + `(${Object.keys(monitoring.sheets).length}/${monitoring.expectedSheets} листов). `
+        + 'Текущие данные вместо пропавших листов не подставлялись; повтор следующим тиком.',
+      );
+      return 'failed';
+    }
+
     const snapshot = await deps.refresh();
     if (snapshot.id.startsWith('demo-')) {
       // Google недоступен: createSnapshot упал в демо-фолбэк, который в БД не
@@ -293,6 +317,23 @@ export async function tickWeeklySnapshot(deps: WeeklySnapshotDeps): Promise<Tick
       deps.log.warn(
         `Еженедельный снимок четверга (${dayLabel}) не снят: ` +
         'источник недоступен, сработал демо-фолбэк. Повтор следующим тиком.',
+      );
+      return 'failed';
+    }
+
+    const snapshotMs = Date.parse(snapshot.createdAt);
+    if (!Number.isFinite(snapshotMs)
+        || productCalendarDay(new Date(snapshotMs), deps.utcOffsetHours) !== nowDay) {
+      deps.log.warn(
+        `Еженедельный снимок четверга (${dayLabel}) не снят: сборка вернула не новый срез, `
+        + 'а сохранённый ранее snapshot. Текущей неделей он не помечен.',
+      );
+      return 'failed';
+    }
+    if (!await deps.sealContext(snapshot.id, monitoring)) {
+      deps.log.warn(
+        `Еженедельный снимок четверга (${dayLabel}) не завершён: полный контекст таблиц не сохранён. `
+        + 'Этот snapshot не считается недельным и будет повторён следующим тиком.',
       );
       return 'failed';
     }
@@ -322,13 +363,21 @@ export function startWeeklySnapshotCron(log: WeeklySnapshotDeps['log']): () => v
     listSnapshotDays: (nowDay) => collectSnapshotDays(nowDay, config.weeklySnapshot.utcOffsetHours),
     prepareSources: async () => {
       const { refreshAllSources } = await import('./source-refresh.js');
-      return refreshAllSources(log, 'cycle', {
-        fresh: true,
-        askDrive: false,
-        withFormulas: true,
+      const result = await refreshAllSources(log, 'cycle', {
+        fresh: true, askDrive: false, withFormulas: true,
       });
+      return { ...result, expectedBooks: Object.keys(DEPARTMENT_SPREADSHEETS).length };
+    },
+    prepareMonitoring: async () => {
+      const [{ getMonitoringBook }, { MONITORING_DATA_SHEETS }] = await Promise.all([
+        import('./monitoring.js'), import('@aemr/core'),
+      ]);
+      const book = await getMonitoringBook(true);
+      return { ...book, expectedSheets: MONITORING_DATA_SHEETS.length };
     },
     refresh: async () => (await import('./snapshot.js')).getSnapshot(true),
+    sealContext: async (snapshotId, monitoring) =>
+      (await import('./snapshot.js')).sealWeeklyTableContext(snapshotId, monitoring),
     sourceMeta: async () => (await import('./snapshot.js')).getDeptLoadMeta(),
     log,
   };
