@@ -7,8 +7,8 @@
  * одна ось недели (дизайн-док 2026-07-23 §4 R2): срез текущей недели (от
  * последнего четверга) читается из ЖИВЫХ источников, срез прошлых недель —
  * из СЛЕПКА той недели (snapshots.data: rowsByDept + svodGrid + issues),
- * чтобы история не переписывалась сегодняшними правками книг. Снимка со
- * строками нет — живые данные с честной плашкой, без тихой подмены.
+ * чтобы история не переписывалась сегодняшними правками книг. Явный архив
+ * всегда требует точного сохранённого дня, включая текущую неделю; иначе 404.
  *
  * Живые источники:
  *   - строки-атомы: кэш книг ГРБС (deptSheetCache, ключи — кириллические
@@ -43,7 +43,6 @@ import {
   SVOD_SHEET_NAME,
   buildSheetUrl,
   collectRowsByDept,
-  floorToThursday,
   isoOfDayNumber,
   parseSvodGrid,
   parseSvodExtras,
@@ -61,15 +60,6 @@ import {
   type PeriodSlice,
 } from '../services/period-params.js';
 import { config } from '../config.js';
-
-/**
- * Последний четверг «сегодня» — по календарю ПРОДУКТА (фиксированное смещение
- * config.weeklySnapshot.utcOffsetHours, Камчатка +12), а не по календарю машины:
- * прод-сервер живёт в UTC, и окно среда 12:00 — четверг 00:00 UTC иначе отдавало
- * бы живые данные без плашки за уже закрытую неделю (ревью R2a №3).
- */
-const currentProductThursday = (): number =>
-  floorToThursday(productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours));
 
 /** Методология отчёта — та же строка уходит читателю страницы. */
 const METHODOLOGY =
@@ -166,10 +156,8 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       todayDay: productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours),
     });
 
-    // Правило источника строк («одна ось недели»): срез текущей недели — живой
-    // кэш; срез прошлых недель — снимок той недели, чтобы отчёт за прошлое не
-    // пересчитывался по сегодняшнему состоянию книг.
-    const currentThursday = currentProductThursday();
+    // Live reads the current cache; every explicit archive reads its exact saved day.
+    // A current-week selection is still an archive, not an alias for the live cache.
     const sourceNotes: string[] = [];
     let input: BuildReportInput | undefined;
     /**
@@ -179,9 +167,20 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
      */
     let issuesByYear: Map<number, Issue[]> | undefined;
 
-    if (!period.live && period.asOfDay < currentThursday) {
+    if (!period.live) {
       const snapshot = getSnapshotAtOrBefore(period.asOfDay);
-      if (snapshot?.rowsByDept) {
+      const createdMs = snapshot ? Date.parse(snapshot.createdAt) : NaN;
+      const snapshotDay = Number.isFinite(createdMs)
+        ? productCalendarDay(new Date(createdMs), config.weeklySnapshot.utcOffsetHours) : null;
+      if (!snapshot?.rowsByDept || snapshotDay === null || snapshotDay !== period.asOfDay) {
+        return reply.status(404).send({
+          error: 'ArchiveSnapshotNotFound', code: 'ARCHIVE_SNAPSHOT_NOT_FOUND', statusCode: 404,
+          requestedDate: isoOfDayNumber(period.asOfDay),
+          message: `Сохранённый снимок на ${ruDateOfDay(period.asOfDay)} не найден. ` +
+            'Текущие данные и другая неделя вместо выбранной даты не использованы.',
+        });
+      }
+      {
         // Всё из снимка: строки, официальная сетка, сигналы — единый момент времени.
         // Сигналы снимка годонезависимы ОСОЗНАННО: у Issue (@aemr/shared) нет
         // поля года — фильтровать нечем; живой путь получает год-скоуп не
@@ -191,21 +190,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
           ...(snapshot.svodGrid && snapshot.svodGrid.length > 0 ? { svodGrid: snapshot.svodGrid } : {}),
           issues: snapshot.issues,
         };
-        // День снимка в плашке — по календарю ПРОДУКТА: createdAt — UTC-инстант,
-        // и его UTC-срез назвал бы камчатский четверг 04:00 «средой» (ревью №7).
-        const createdMs = Date.parse(snapshot.createdAt);
-        const snapshotDay = Number.isNaN(createdMs)
-          ? null
-          : productCalendarDay(new Date(createdMs), config.weeklySnapshot.utcOffsetHours);
-        sourceNotes.push(
-          `Отчёт построен из снимка ${snapshotDay !== null ? ruDateOfDay(snapshotDay) : snapshot.createdAt}.`,
-        );
-      } else {
-        // Честная плашка вместо тихой подмены: снимка той недели нет, читатель
-        // видит сегодняшние строки под прошлой датой среза — и знает об этом.
-        sourceNotes.push(
-          `Снимка на ${ruDateOfDay(period.asOfDay)} нет — показаны текущие данные под датой среза.`,
-        );
+        sourceNotes.push(`Отчёт построен из снимка ${ruDateOfDay(snapshotDay)}.`);
       }
     }
 

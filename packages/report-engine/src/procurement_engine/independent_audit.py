@@ -32,7 +32,7 @@ def method(v):
     return None
 
 def recount(capture):
-    as_of=day(capture['report_date']);year=capture['report_year'];q=(int(as_of[5:7])-1)//3+1
+    as_of=day(capture['report_date']);year=capture['report_year'];q=(capture.get('report_scope') or {}).get('quarter', (int(as_of[5:7])-1)//3+1)
     def empty():
         return {'plan_count':0,'fact_count':0,'remain_count':0,
             **{n:Fraction(0) for n in ('plan_amount','fact_amount','remain_amount',
@@ -87,6 +87,25 @@ def recount(capture):
         population[kind]['quarter']=population[kind][f'q{q}']
     return result,population,events,event_amount,grouped
 
+def raw_row_evidence(capture):
+    result = {}
+    as_of = day(capture['report_date'])
+    for source in capture['sources']:
+        if source['role'] != 'master':
+            continue
+        for number_, row in enumerate(source['values'][source.get('header_rows', 3):], source.get('header_rows', 3) + 1):
+            cell = lambda index, row=row: row[index] if index < len(row) else None
+            label = re.sub(r'^(\d+)\.0$', r'\1', text(cell(0)))
+            if not label:
+                label = f"__ROW__::{source['provider_id']}::{source['sheet']}::{number_}"
+            locator = f"{source['provider_id']}::{source['sheet']}::{number_}::{label}"
+            fact = day(cell(16))
+            done = bool(fact and fact <= as_of)
+            result[locator] = {'grbs': source['grbs'], 'completed': done,
+                               'saving': done and text(cell(29)).casefold() == 'да'}
+    return result
+
+
 def audit_model(capture,model):
     expected,populations,events,event_amount,grouped=recount(capture)
     failures=[];checks=0
@@ -113,6 +132,15 @@ def audit_model(capture,model):
             want=block[field]
             check(path+'.'+field,actual.get(field),float(want) if isinstance(want,Fraction) else want)
     display_fields=('plan_count','fact_count','remain_count','plan_amount','fact_amount','remain_amount','execution_pct')
+    evidence = raw_row_evidence(capture)
+    modern_traces = model.get('contract', {}).get('trace_catalog_contract') == 'complete-trace-v1'
+    def trace_check(path, actual, population):
+        if not modern_traces:
+            return
+        for key, selected in [('contributors', population),
+                              ('fact_contributors', [x for x in population if evidence[x]['completed']]),
+                              ('saving_contributors', [x for x in population if evidence[x]['saving']])]:
+            check(path + '.' + key, sorted(actual.get(key) or []), sorted(selected))
     content=model.get('report_content') or {}
     check('report_content.version',content.get('version'),'business-sections-v1')
     check('report_content.by_grbs.coverage',set(content.get('by_grbs') or {}),set(grouped))
@@ -132,6 +160,8 @@ def audit_model(capture,model):
                 display_check(f'grbs_metrics.{grbs}.{legacy}.{scope}',actual,block,display_fields)
                 section=(((content.get('by_grbs') or {}).get(grbs) or {}).get(legacy) or {}).get(scope) or {}
                 content_check(f'report_content.by_grbs.{grbs}.{legacy}.{scope}',section,block)
+                trace_check(f'report_content.by_grbs.{grbs}.{legacy}.{scope}', section,
+                            [key for key in populations[kind][scope] if evidence[key]['grbs'] == grbs])
     for kind,scopes in expected.items():
         legacy='comp' if kind=='competitive' else 'ep'
         for scope,block in scopes.items():
@@ -140,6 +170,7 @@ def audit_model(capture,model):
                 display_check(f'global_quarters.{legacy}.{scope}',actual,block,display_fields)
                 section=((content.get('global') or {}).get(legacy) or {}).get(scope) or {}
                 content_check(f'report_content.global.{legacy}.{scope}',section,block)
+                trace_check(f'report_content.global.{legacy}.{scope}', section, populations[kind][scope])
             if scope not in {'year','quarter'}:
                 continue
             actual=((model.get('exact_metrics') or {}).get(kind) or {}).get(scope) or {}
@@ -151,6 +182,16 @@ def audit_model(capture,model):
             headline=((model.get('headline') or {}).get(kind) or {}).get(scope) or {}
             display_check(f'headline.{kind}.{scope}',headline,block,display_fields)
             check(f'{kind}.{scope}.population',sorted(actual.get('contributors') or []),sorted(populations[kind][scope]))
+            if modern_traces:
+                for field in display_fields:
+                    population = populations[kind][scope]
+                    if field.startswith('fact'):
+                        population = [key for key in population if evidence[key]['completed']]
+                    elif field.startswith('remain'):
+                        population = [key for key in population if not evidence[key]['completed']]
+                    key = f'headline.{kind}.{scope}.{field}'
+                    check('metric_contributors.' + key, sorted(model.get('metric_contributors', {}).get(key) or []),
+                          sorted(population))
     calendar=model.get('calendar_fact') or {}
     check('calendar_fact.population',sorted(calendar.get('contributors') or []),sorted(events))
     check('calendar_fact.recorded_position_count',calendar.get('recorded_position_count'),len(events))

@@ -73,11 +73,58 @@ def main(argv=None):
     read.add_argument("--report-date")
     read.add_argument("--report-year", type=int)
     read.add_argument("--quarter", type=int)
+    archive = sub.add_parser('run-archive', help='Build an exact archived context without current sources')
+    archive.add_argument('--state', required=True)
+    archive.add_argument('--report-date', required=True)
+    archive.add_argument('--report-year', type=int, required=True)
+    archive.add_argument('--quarter', type=int, required=True)
+    archive.add_argument('--legacy-db', help='Read-only old dashboard snapshot catalog')
+    file_archive = sub.add_parser('import-week-files', help='Seal registered original XLSX/ZIP inputs without live reads')
+    file_archive.add_argument('--archive', required=True)
+    file_archive.add_argument('--manifest', required=True)
+    file_archive.add_argument('--state', required=True)
     review = sub.add_parser('record-identity-review', help='Append dated proof to an existing identity observation')
     for option in ('state', 'snapshot-id', 'locator', 'uid', 'reviewer', 'reviewed-at', 'evidence'):
         review.add_argument('--' + option, required=True)
 
     args = p.parse_args(argv)
+    if args.cmd == 'import-week-files':
+        from .file_archive import FileArchiveError, _decode_json, import_file_archive
+        try:
+            manifest = _decode_json(Path(args.manifest).read_bytes())
+            result = import_file_archive(args.archive, manifest, args.state)
+        except (FileArchiveError, ValueError, OSError) as error:
+            # CLI runs inside the private service; detailed coordinate evidence
+            # is not published in GitHub logs or returned as an unsanitized trace.
+            from .file_archive import INBOX_MESSAGE
+            from .runtime import _write
+            detail = error.issue if isinstance(error, FileArchiveError) else {'code': 'ARCHIVE_IMPORT_FAILED'}
+            evidence_path = Path(args.state) / 'archive_intake/manual-error.json'
+            saved = False
+            try:
+                evidence_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                _write(evidence_path, {**detail, 'owner': 'ENGINE', 'exception_class': type(error).__name__})
+                evidence_path.chmod(0o600)
+                saved = True
+            except OSError:
+                pass  # Failure to write diagnostics must not hide the source failure.
+            result = {'status': 'NOT_IMPORTED', 'code': detail['code'], 'owner': 'ENGINE',
+                      'message': INBOX_MESSAGE, 'evidence': 'archive_intake/manual-error.json' if saved else None}
+            dump(result)
+            return 2
+        dump(result)
+        return 0
+    if args.cmd == 'run-archive':
+        from .archive_runtime import MESSAGES, ArchiveError, ensure_archive_release
+        try:
+            result = ensure_archive_release(args.state, day=args.report_date,
+                year=args.report_year, quarter=args.quarter, legacy_database=args.legacy_db)
+        except ArchiveError as error:
+            print(json.dumps({'code': str(error), 'message': MESSAGES.get(str(error), 'Некорректный период архива.')}, ensure_ascii=False))
+            return 2
+        # A missing archive is a typed business result, not a transport failure.
+        dump(result)
+        return 0
     if args.cmd == 'record-identity-review':
         from .identity_store import IdentityStore
 

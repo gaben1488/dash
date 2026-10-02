@@ -2,6 +2,7 @@
 import hashlib
 import io
 import re
+import unicodedata
 import zipfile
 from decimal import Decimal
 from functools import lru_cache
@@ -28,6 +29,9 @@ def _text_ids(text):
 
 
 def _subject_amounts(text, subject, business_id):
+    business_id = normalize_id(business_id)
+    if not business_id or not _text(subject):
+        return set()
     phrase = _text(subject)
     # The full subject must belong to this number, not another sentence or a
     # longer procurement subject containing the same words.
@@ -47,6 +51,23 @@ def _subject_amounts(text, subject, business_id):
         output.add(value)
     return output if len(output) == 1 else set()
 
+
+
+def _exact_subject_reference(text, subject, business_id):
+    """An explicit number owns the complete subject, not a price or a substring.
+
+    Amounts are historical attributes. They cannot be invariant identity keys.
+    Only recognised boundaries delimit a full subject; prose similarity is not used.
+    """
+    business_id = normalize_id(business_id)
+    if not business_id or not _text(subject):
+        return False
+    prefix = r'(?<!\w)(?:позици(?:ю|и|й|я)\s*#?\s*|#\s*|^|(?:вынести|перевести)\s+на\s+эа\s+)'
+    reference = prefix + re.escape(business_id) + r'(?![\w/.-])\s*(?:[—–:]\s*)?'
+    instruction = r'(?:(?:вынести|перевести|провести)\s+на\s+эа\s+)?'
+    subject_start = r'[«"(]*\s*'
+    boundary = r'(?=\s*(?:[)»";.]|$|на\s+сумму\b|[—–]|планов\w*\s+сумм\w*\b))'
+    return bool(re.search(reference + instruction + subject_start + re.escape(_text(subject)) + boundary, text))
 
 def _origin_registered(rec, as_of, verified_origin):
     """Require independently verified document bytes, not ledger metadata alone."""
@@ -116,7 +137,17 @@ def verify_saved_report_origin(rec, documents):
         table = document.tables[table_no - 1]
         if row_no > len(table.rows) or cell_no > len(table.rows[row_no - 1].cells):
             continue
-        if table.cell(row_no - 1, cell_no - 1).text != text:
+        observed = table.cell(row_no - 1, cell_no - 1).text
+        normalization = evidence.get('normalization')
+        if normalization == 'NFKC_WHITESPACE_V1':
+            # Normalise typography only under an explicit proof contract. Keep
+            # the complete raw cell and its hash; never fuzzy-match source words.
+            if (evidence.get('observed_text') != observed
+                or evidence.get('observed_text_sha256') != hashlib.sha256(observed.encode()).hexdigest()
+                or ' '.join(unicodedata.normalize('NFKC', observed).split())
+                   != ' '.join(unicodedata.normalize('NFKC', text).split())):
+                continue
+        elif observed != text:
             continue
         heading = None
         for element in document.element.body:
@@ -142,7 +173,7 @@ def _heading_grbs(value):
     return normalize_grbs(match[1]) if match else None
 
 
-def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False):
+def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False, entity_link_rules=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -159,15 +190,26 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         return result
     explicit_years = set(re.findall(r'\b(20\d{2})(?:[-–](?:м|й|го|му|е))?\s*(?:год(?:а|у|ом|е)?\b|г\.)', text))
     explicit_years.update(re.findall(r'\b(?:план|период)\w*\s+(20\d{2})\b', text))
-    if explicit_years - {as_of[:4]}:
-        result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
-        return result
-    candidates = [row for row in rows if row.grbs == rec.get('grbs')
-        and normalize_id(row.source_row_no) in ids
-        and row.snapshot_id == snapshot_id and row.subject
-        and money(row, 'plan') in _subject_amounts(text, row.subject, normalize_id(row.source_row_no))
-        and (not row.planned_year or not explicit_years or str(row.planned_year) in explicit_years)
-        and (not row.planned_year or int(row.planned_year) == int(as_of[:4]))]
+    if entity_link_rules:
+        # A new calendar year does not erase the still observed prior-year plan.
+        source_years = explicit_years or {origin['document_date'][:4]}
+        if len(source_years) != 1:
+            result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
+            return result
+        candidates = [row for row in rows if row.grbs == rec.get('grbs')
+            and normalize_id(row.source_row_no) in ids and row.snapshot_id == snapshot_id
+            and row.subject and str(row.planned_year) in source_years
+            and _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no))]
+    else:
+        if explicit_years - {as_of[:4]}:
+            result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
+            return result
+        candidates = [row for row in rows if row.grbs == rec.get('grbs')
+            and normalize_id(row.source_row_no) in ids
+            and row.snapshot_id == snapshot_id and row.subject
+            and money(row, 'plan') in _subject_amounts(text, row.subject, normalize_id(row.source_row_no))
+            and (not row.planned_year or not explicit_years or str(row.planned_year) in explicit_years)
+            and (not row.planned_year or int(row.planned_year) == int(as_of[:4]))]
     if legacy_group_rules and (len(ids) != 1 or re.search(r'объедин|совместн|единую закуп|раздроб', text)):
         # Replay old immutable releases with their original single-only contract.
         result['status'] = 'GROUP_EVIDENCE_REQUIRED'
@@ -194,4 +236,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
                   'plan_amount_thousand_decimal': format(money(row, 'plan'), 'f'),
                   'planned_year': row.planned_year, 'method': row.method,
                   'recorded_fact_date': row.actual_date} for row in linked])
+    if entity_link_rules:
+        for match in result['matches']:
+            match['match_basis'] = 'EXACT_DOCUMENT_REFERENCE_AND_CURRENT_UID'
+            match['amount_is_identity_key'] = False
     return result

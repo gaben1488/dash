@@ -246,3 +246,22 @@ def validate_narrative_blocks(blocks: Iterable[NarrativeBlock | dict]) -> list[s
         if not trace.has_evidence:
             errors.append(f"NARRATIVE_EVIDENCE_MISSING:{b.block_id}")
     return errors
+
+
+def validate_recorded_narratives(model):
+    """Rebuild the wording contract, not just the existence of a trace label.
+
+    The recorded-state input has no separately registered free-form narrative
+    notes or diff events. Those must not be injected into a verified model.
+    Attributed business comments are independently checked in source_context.
+    """
+    from .snapshot import canonical_semantic_hash
+
+    if (model.get('context') or {}).get('narrative_notes') or model.get('diff'):
+        return False
+    expected = {
+        'GENERIC_TEMPLATE': [block.as_dict() for block in build_generic_narrative(model)],
+        'SMART_NARRATIVE': [block.as_dict() for block in build_smart_narrative(model, issues=model.get('issues', []))],
+        'decision_chain': ['describe', 'explain', 'judge', 'act'], 'same_kpi_source': True,
+    }
+    return canonical_semantic_hash(model.get('narratives')) == canonical_semantic_hash(expected)

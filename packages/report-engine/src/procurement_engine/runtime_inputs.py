@@ -31,6 +31,13 @@ def validate_inputs(registry, ledger):
         for name in ('sheet_id', 'columns', 'header_rows'):
             if isinstance(s.get(name), bool) or not isinstance(s.get(name), int) or s[name] < (0 if name == 'sheet_id' else 1):
                 raise ValueError('INPUT_SOURCE_GEOMETRY_INVALID')
+        for key in ('semantic_header_fingerprint', 'previous_semantic_header_fingerprint'):
+            if key in s and (not isinstance(s[key], str) or not re.fullmatch('[a-f0-9]{64}', s[key])):
+                raise ValueError('INPUT_SCHEMA_FINGERPRINT_INVALID')
+        if 'previous_semantic_header_fingerprint' in s and (
+            not s.get('semantic_header_fingerprint') or not isinstance(s.get('schema_change_reason'), str)
+            or not s['schema_change_reason'].strip()):
+            raise ValueError('INPUT_SCHEMA_MIGRATION_REASON_MISSING')
         safe = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in s['source_id'])
         pair = (s['provider_id'], s['sheet_id'])
         if s['source_id'] in ids or safe in paths or pair in sheets:

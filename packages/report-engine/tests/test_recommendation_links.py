@@ -358,3 +358,65 @@ def test_previous_single_only_link_contract_keeps_its_original_replay_result():
         documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v2')[0]
     assert new['current_link']['status'] == 'CONFIRMED'
     assert new['dimensions']['grouping_status'] == 'UNKNOWN'
+
+
+def normalized_original(text=TEXT):
+    from io import BytesIO
+
+    from docx import Document
+    rec, content = saved_report()
+    doc = Document(BytesIO(content))
+    observed = text.replace('Поставка бумаги', 'Поставка\nбумаги').replace('46,00', '46,00\u00a0') + '  '
+    doc.tables[0].cell(1, 1).text = observed
+    out = BytesIO(); doc.save(out); content = out.getvalue()
+    e = rec['origin_evidence'][0]
+    e.update(document_sha256=hashlib.sha256(content).hexdigest(),
+        normalization='NFKC_WHITESPACE_V1', observed_text=observed,
+        observed_text_sha256=hashlib.sha256(observed.encode()).hexdigest())
+    return rec, content
+
+
+def test_explicit_typographic_origin_keeps_original_bytes_and_cell():
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+    rec, content = normalized_original()
+    proof = verify_saved_report_origin(rec, {hashlib.sha256(content).hexdigest(): content})
+    assert proof is not None
+    assert proof['text_sha256'] == hashlib.sha256(TEXT.encode()).hexdigest()
+
+
+@pytest.mark.parametrize('change', ['other-word', 'other-money', 'other-number', 'negated', 'raw-hash', 'raw-cell', 'rule', 'no-rule'])
+def test_typographic_equivalence_cannot_change_semantic_source_or_drop_raw_proof(change):
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+    text = TEXT
+    if change == 'other-word': text = text.replace('бумаги', 'картриджей')
+    if change == 'other-money': text = text.replace('46,00', '64,00')
+    if change == 'other-number': text = text.replace('42', '24')
+    if change == 'negated': text = 'Не ' + text
+    rec, content = normalized_original(text)
+    evidence = rec['origin_evidence'][0]
+    if change == 'raw-hash': evidence['observed_text_sha256'] = '0' * 64
+    if change == 'raw-cell': evidence['observed_text'] = 'forged'
+    if change == 'rule': evidence['normalization'] = 'fuzzy'
+    if change == 'no-rule': evidence.pop('normalization')
+    assert verify_saved_report_origin(rec, {hashlib.sha256(content).hexdigest(): content}) is None
+
+
+def test_v4_evaluates_whole_reference_while_frozen_v3_keeps_previous_action_result():
+    from procurement_engine.raw_pipeline import review_recommendations
+    text = 'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.'
+    rec = recommendation(text); rec['active_in_current_slice'] = True
+    current = [replace(row(), planned_year=2026)]
+    old = review_recommendations([rec], current, 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+                                link_contract='verified-original-and-current-plan-v3')[0]
+    new = review_recommendations([rec], current, 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+                                link_contract='verified-original-and-current-plan-v4')[0]
+    assert old['dimensions']['compliance_status'] == 'UNKNOWN'
+    assert new['dimensions']['compliance_status'] == 'IMPLEMENTED'
+    assert new['dimensions']['execution_status'] == 'PLANNED'
+
+
+def test_legacy_exact_origin_with_research_normalization_metadata_is_still_exact():
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+    rec, content = saved_report()
+    rec['origin_evidence'][0]['normalization'] = 'NFKC_casefold_yo_whitespace_v1'
+    assert verify_saved_report_origin(rec, {hashlib.sha256(content).hexdigest(): content}) is not None

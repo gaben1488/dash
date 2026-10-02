@@ -23,7 +23,7 @@ def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def rehearse_latest(state_dir):
+def rehearse_latest(state_dir, *, coverage=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
     PASS means the candidate can process that saved input. It does NOT establish
@@ -34,7 +34,11 @@ def rehearse_latest(state_dir):
     if not (state / 'published/publications.sqlite').is_file():
         raise ValueError('PUBLICATION_NOT_FOUND')
     store = PublicationStore(state / 'published', readonly=True)
-    receipt = store.latest()
+    from .readonly_catalog import copied_catalog
+
+    with copied_catalog(store.database_path) as catalog:
+        store.database_path = catalog
+        receipt = store.latest()
     if receipt is None:
         raise ValueError('PUBLICATION_NOT_FOUND')
     root = store.releases / receipt['release_id']
@@ -53,6 +57,8 @@ def rehearse_latest(state_dir):
     capture['sources'] = []
     for payload in payloads:
         meta = payload.get('metadata') or {}
+        if payload['role'] == 'archived_file_evidence':
+            capture['archived_file_evidence'] = payload['semantic_values']
         if payload['role'] == 'historical_report_evidence':
             capture['recommendation_history_evidence'] = payload['semantic_values']
         if 'sheet_title' not in meta:
@@ -63,6 +69,9 @@ def rehearse_latest(state_dir):
                   'grbs': meta.get('grbs'), 'rows': meta['row_count'], 'columns': meta['column_count'],
                   'header_rows': meta.get('header_rows', 3), 'values': payload['semantic_values'],
                   'before': bundle['before'][sid], 'after': bundle['after'][sid]}
+        for key in ('capture_method', 'archive_file_sha256'):
+            if key in meta:
+                source[key] = meta[key]
         if 'formula_evidence' in meta:
             source['formula_evidence'] = meta['formula_evidence']
         capture['sources'].append(source)
@@ -70,6 +79,8 @@ def rehearse_latest(state_dir):
         work = Path(temporary)
         shutil.copyfile(root / 'identity.sqlite', work / 'identity.sqlite')
         identities = IdentityStore(work / 'identity.sqlite')
+        identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
+            *state.glob('published/releases/*/snapshot_bundle')], recover_chain=True)
         candidate = build_from_capture(capture, registry, ledger, work / 'bundle', identity_store=identities)
         issues = [*candidate.get('issues', []), *candidate['release']['blockers']]
         errors = Counter(issue['code'] if issue.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
@@ -81,18 +92,26 @@ def rehearse_latest(state_dir):
             # The same domain/artifact checks used by publication, but no commit
             # and no fabricated assertion about current provider revisions.
             _validate(work / 'bundle')
-        return {'frozen_release_readable': True, 'replay_status': 'PASS' if ready else 'BLOCKED',
+        result = {'frozen_release_readable': True, 'replay_status': 'PASS' if ready else 'BLOCKED',
                 'independent_audit': 'PASS' if candidate['independent_audit']['pass'] else 'FAIL',
                 'two_docx_rebuilt': documents, 'headline_changed': candidate['headline'] != previous['headline'],
                 'error_counts': dict(sorted(errors.items()))}
+        if coverage:
+            assurance = candidate.get('automation_assurance') or {}
+            result['automation'] = {key: assurance.get(key) for key in ('fully_automated', 'user_action_count',
+                'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
+            result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
+            result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
+        return result
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', required=True)
+    parser.add_argument('--coverage', action='store_true')
     args = parser.parse_args(argv)
     try:
-        result = rehearse_latest(args.state)
+        result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
         result = {'replay_status': 'FAIL', 'error_code': public_error_code(str(error))}
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))

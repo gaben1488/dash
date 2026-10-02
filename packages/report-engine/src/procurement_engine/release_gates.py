@@ -181,6 +181,34 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
         if not condition:
             issues.append(ValidationIssue('ERROR', code, message))
 
+    if model.get('contract', {}).get('trace_catalog_contract') == 'complete-trace-v1':
+        from .snapshot import canonical_semantic_hash
+        from .traceability import complete_trace_catalog
+
+        require(canonical_semantic_hash(model.get('trace_records')) == canonical_semantic_hash(complete_trace_catalog(model)),
+                'TRACE_CATALOG_MISMATCH', 'Неполный или изменённый каталог происхождения выводов.')
+    if model.get('snapshot', {}).get('renderer_version') not in {'renderer-v1.5.0rc7', 'renderer-v1.5.0rc8', 'renderer-v1.5.0rc9'}:
+        require(all(model.get('contract', {}).get(key) == version for key, version in (
+            ('document_content_contract', 'document-plan-v1'), ('business_context_contract', 'source-context-v1'),
+            ('trace_catalog_contract', 'complete-trace-v1'), ('narrative_source_contract', 'recorded-business-v1'))),
+            'BUSINESS_DOCUMENT_CONTRACT_MISSING', 'Отсутствует обязательный контракт чистового документа.')
+    if model.get('snapshot', {}).get('renderer_version') not in {
+            'renderer-v1.5.0rc7', 'renderer-v1.5.0rc8', 'renderer-v1.5.0rc9', 'renderer-v1.5.0rc10'}:
+        require(model.get('contract', {}).get('automation_assurance_contract') == 'actionable-assurance-v1'
+                and (model.get('automation_assurance') or {}).get('contract') == 'actionable-assurance-v1',
+                'AUTOMATION_ASSURANCE_MISSING', 'Отсутствует обязательная оценка полноты автоматизации.')
+    if model.get('snapshot', {}).get('renderer_version') not in {
+            'renderer-v1.5.0rc7', 'renderer-v1.5.0rc8', 'renderer-v1.5.0rc9', 'renderer-v1.5.0rc10', 'renderer-v1.5.0rc11'}:
+        require(model.get('contract', {}).get('context_presentation_contract') == 'relevant-context-v1'
+                and 'source_context_groups' in model, 'CONTEXT_PRESENTATION_MISSING',
+                'Отсутствует проверяемый отбор пояснений для документа.')
+    if model.get('contract', {}).get('narrative_source_contract') == 'recorded-business-v1':
+        from .narrative import validate_recorded_narratives
+        require(validate_recorded_narratives(model), 'NARRATIVE_SOURCE_MISMATCH',
+                'Текстовые выводы не воспроизводятся из проверенных исходных данных.')
+    if model.get('contract', {}).get('document_content_contract') == 'document-plan-v1':
+        from .document_content import validate_document_plans
+        require(validate_document_plans(model), 'DOCUMENT_PLAN_MISMATCH', 'Состав документа расходится с моделью.')
     required = {'headline', 'grbs_metrics', 'monthly', 'future_plan', 'calendar_fact', 'details',
                 'recommendations', 'recommendations_by_grbs', 'procedures', 'closed_procedure_quality',
                 'report_clock', 'period_contract', 'exact_metrics', 'trace_records'}
@@ -233,7 +261,8 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
         model['snapshot']['snapshot_id'], model['snapshot']['report_date'],
         identity_evidence=model.get('identity_review_evidence'), documents=documents,
         legacy=not model.get('contract', {}).get('recommendation_link_contract'),
-        link_contract=model.get('contract', {}).get('recommendation_link_contract'))}
+        link_contract=model.get('contract', {}).get('recommendation_link_contract'),
+        context_contract=model.get('contract', {}).get('business_context_contract'))}
     if 'identity_review_evidence' not in model:
         for claim in expected_claims.values():
             claim.pop('business_finding', None)
@@ -253,7 +282,7 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
             value = model
             for part in key.split('.'):
                 value = value.get(part) if isinstance(value, dict) else None
-            if value not in (None, 0) and key:
+            if not isinstance(value, dict) and value not in (None, 0) and key:
                 require(bool(trace.get('source_procurement_ids') or trace.get('recommendation_ids') or trace.get('procedure_ids')),
                         'TRACE_CONTRIBUTORS_MISSING', 'Ненулевой показатель не имеет исходных записей.')
     return issues
