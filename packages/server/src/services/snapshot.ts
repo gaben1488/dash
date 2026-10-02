@@ -1,12 +1,11 @@
-import { runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow, type PipelineSnapshot } from '@aemr/core';
+import { MONITORING_DATA_SHEETS, runPipeline, computeUnifiedGrid, reconcileUnified, type PipelineInput, type MetricRow, type PipelineSnapshot } from '@aemr/core';
 import { REPORT_MAP, getAllCellAddresses, getActiveRules, ALL_SHEETS, SVOD_SHEET_NAME, findDept, SHDYU_MONTHLY_SHEET_NAME, DEPT_HEADER_ROWS, buildCellDict, METHOD_FAMILY_MAP } from '@aemr/shared';
 import type { DataSnapshot, Issue, NormalizedMetric, SvodReconRow, SHDYUDeptData } from '@aemr/shared';
 import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
-import { SHDYU_SPREADSHEET_ID } from '../config.js';
 import { db, schema } from '../db/index.js';
-import { config, isDemoMode } from '../config.js';
+import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
 import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
 import { pruneSnapshotsByRetention } from './snapshot-retention.js';
@@ -180,6 +179,88 @@ export function hasNoMeaningfulRows(values: unknown[][]): boolean {
     }
   }
   return true;
+}
+
+export interface WeeklyMonitoringEvidenceInput {
+  readAt: string;
+  version: number;
+  sheets: Record<string, unknown[][]>;
+  failed: Record<string, string>;
+  expectedSheets: number;
+}
+
+/**
+ * Завершить недельный снимок таблиц. Snapshot уже записан обычным pipeline;
+ * здесь к тому же id добавляются только недостающие исторические входы.
+ * Никакого чтения live-данных внутри функции нет.
+ */
+export async function sealWeeklyTableContext(
+  snapshotId: string,
+  monitoring: WeeklyMonitoringEvidenceInput,
+): Promise<boolean> {
+  try {
+    const row = db.select({ data: schema.snapshots.data })
+      .from(schema.snapshots).where(eq(schema.snapshots.id, snapshotId)).get();
+    if (!row?.data) return false;
+    const snapshot = JSON.parse(row.data) as PipelineSnapshot;
+    const rowsByDept = snapshot.rowsByDept ?? {};
+    const names = Object.keys(rowsByDept);
+    const expectedMasters = Object.keys(DEPARTMENT_SPREADSHEETS).sort();
+    if (names.length !== expectedMasters.length
+        || names.slice().sort().some((name, index) => name !== expectedMasters[index])) return false;
+    const monitoringNames = Object.keys(monitoring.sheets ?? {}).sort();
+    const expectedMonitoring = [...MONITORING_DATA_SHEETS].sort();
+    if (Object.keys(monitoring.failed ?? {}).length > 0
+        || monitoringNames.length !== expectedMonitoring.length
+        || monitoringNames.some((name, index) => name !== expectedMonitoring[index])) return false;
+
+    const masters: NonNullable<PipelineSnapshot['weeklyTableContext']>['masters'] = {};
+    for (const name of names) {
+      const source = cachedDeptSheetData[name];
+      const meta = deptLoadMeta[name];
+      if (!source || !source.formulasRead || !meta || meta.error) return false;
+      const observed = source.values.slice(DEPT_HEADER_ROWS);
+      if (JSON.stringify(observed) !== JSON.stringify(rowsByDept[name])) return false;
+      masters[name] = {
+        sheetName: source.sheetName,
+        startRow: source.startRow ?? 1,
+        loadedAt: meta.loadedAt,
+        headerRows: source.values.slice(0, DEPT_HEADER_ROWS),
+        formulas: source.formulas,
+        formulasRead: true,
+      };
+    }
+    snapshot.weeklyTableContext = {
+      contract: 'dash-weekly-table-context-v1',
+      sealedAt: new Date().toISOString(),
+      masters,
+      monitoring: {
+        readAt: monitoring.readAt,
+        version: monitoring.version,
+        sheets: monitoring.sheets,
+      },
+    };
+    // Snapshot уже существует: повторный saveSnapshot() закономерно упадёт на
+    // PRIMARY KEY и, хуже того, попытался бы второй раз писать метрики/issues.
+    // Weekly context — дочернее доказательство того же среза, поэтому меняем
+    // только data JSON ровно одной существующей строки. Retention запускается
+    // после UPDATE и уже видит признак complete-week.
+    return db.transaction(() => {
+      const updated = db.update(schema.snapshots)
+        .set({ data: JSON.stringify(snapshot) })
+        .where(eq(schema.snapshots.id, snapshotId))
+        .run();
+      if (updated.changes !== 1) throw new Error('WEEKLY_SNAPSHOT_NOT_UNIQUE');
+      pruneSnapshotsByRetention();
+      return true;
+    });
+  } catch (error) {
+    logSourceProblem('Недельный контекст таблиц не сохранён', {
+      snapshotId,
+      reason: (error as Error)?.message ?? String(error),
+    });
+    return false;
+  }
 }
 
 export function getDeptSheetValues(): Record<string, unknown[][]> {
@@ -963,6 +1044,15 @@ export function getSnapshotAtOrBefore(day: number): PipelineSnapshot | null {
     }
   }
   return null;
+}
+
+export function getWeeklySnapshotHistory(limit = 50): Array<{ id: string; createdAt: string }> {
+  return db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
+    .from(schema.snapshots)
+    .where(sql`instr(${schema.snapshots.data}, '"weeklyTableContext"') > 0`)
+    .orderBy(desc(schema.snapshots.createdAt))
+    .limit(limit)
+    .all();
 }
 
 export function getSnapshotHistory(limit = 50): Array<{
