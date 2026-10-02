@@ -8,10 +8,11 @@ import { retentionKeepIds } from './snapshot-retention.js';
  */
 
 /** Снимок в `day` (календарь продукта UTC+0 в тестах) с часом внутри суток. */
-const snap = (id: string, day: number, hour = 10, hasRows = true) => ({
+const snap = (id: string, day: number, hour = 10, hasRows = true, hasWeeklyContext = false) => ({
   id,
   createdAt: new Date(day * 86400000 + hour * 3600000).toISOString(),
   hasRows,
+  hasWeeklyContext,
 });
 
 const THU = 20657; // четверг 2026-07-23
@@ -79,7 +80,7 @@ describe('retentionKeepIds — ежедневные (7 дней) + еженед�
 
   it('битый createdAt не роняет решение и не удаляется молча (страховка: keep)', () => {
     const keep = retentionKeepIds(
-      [{ id: 'broken', createdAt: 'мусор', hasRows: true }, snap('now', THU)],
+      [{ id: 'broken', createdAt: 'мусор', hasRows: true, hasWeeklyContext: false }, snap('now', THU)],
       THU + 1,
       0,
     );
@@ -107,10 +108,25 @@ describe('retentionKeepIds — ежедневные (7 дней) + еженед�
     expect(keep.has('day-rowless-late')).toBe(false);
   });
 
+  it('полный weekly context побеждает более поздний rows-only snapshot той же недели', () => {
+    const oldThu = THU - 7 * 2;
+    const keep = retentionKeepIds(
+      [
+        snap('sealed-early', oldThu, 8, true, true),
+        snap('rows-only-late', oldThu, 20, true, false),
+        snap('now', THU),
+      ],
+      THU + 1,
+      0,
+    );
+    expect(keep.has('sealed-early')).toBe(true);
+    expect(keep.has('rows-only-late')).toBe(false);
+  });
+
   it('смещение пояса влияет на границу суток: 16:30 UTC среды = четверг Камчатки', () => {
     // THU*86400000 - 7.5h = среда 16:30 UTC; при +12 это четверг 04:30 продукта.
     // Второй снимок — 08:00 UTC четверга (= 20:00 Камчатки, ещё четверг).
-    const wedUtc = { id: 'kam-thu', createdAt: new Date(THU * 86400000 - 7.5 * 3600000).toISOString(), hasRows: true };
+    const wedUtc = { id: 'kam-thu', createdAt: new Date(THU * 86400000 - 7.5 * 3600000).toISOString(), hasRows: true, hasWeeklyContext: false };
     const keepKam = retentionKeepIds([wedUtc, snap('later-thu', THU, 8)], THU + 1, 12);
     // При +12 оба — четверг; выживает поздний.
     expect(keepKam.has('later-thu')).toBe(true);
