@@ -448,6 +448,8 @@ def test_v5_exact_unique_subject_can_link_original_prose_without_a_position_numb
 
 
 def test_v4_keeps_subject_only_original_unlinked_for_replay_compatibility():
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+
     rec = subject_only_recommendation(
         'Изменить способ определения поставщика с ЕП на ЭА по мероприятию «Поставка бумаги» 46,00 тыс. руб.')
     proof = verify_saved_report_origin(rec, TEST_DOCUMENTS)
