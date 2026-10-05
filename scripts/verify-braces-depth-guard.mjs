@@ -4,8 +4,10 @@ import { createRequire } from 'node:module';
 const requireFromWeb = createRequire(new URL('../packages/web/package.json', import.meta.url));
 const tailwindPackage = requireFromWeb.resolve('tailwindcss/package.json');
 const requireFromTailwind = createRequire(tailwindPackage);
-const braces = requireFromTailwind('braces');
-const bracesPackage = requireFromTailwind('braces/package.json');
+const chokidarPackage = requireFromTailwind.resolve('chokidar/package.json');
+const requireFromChokidar = createRequire(chokidarPackage);
+const braces = requireFromChokidar('braces');
+const bracesPackage = requireFromChokidar('braces/package.json');
 
 assert.equal(bracesPackage.version, '3.0.3',
   'Security patch contract must be reviewed when the upstream braces version changes.');
