@@ -24,10 +24,12 @@ class RevisionClient:
     def __init__(self, revisions, exports):
         self.revisions = revisions
         self.exports = exports
+        self.list_calls = 0
 
     def _get(self, url, params=None):
         assert 'supportsAllDrives' not in (params or {})
         if url.endswith('/revisions'):
+            self.list_calls += 1
             return {'revisions': self.revisions}
         revision_id = url.rsplit('/', 1)[-1]
         revision = next(item for item in self.revisions if item['id'] == revision_id)
@@ -84,6 +86,7 @@ def test_probe_reads_every_exact_revision_and_validates_registered_schema():
     assert result['days_with_exact_revision'] == 1
     assert result['days_with_readable_schema'] == 1
     assert result['exact_revisions_read'] == 2
+    assert client.list_calls == 1
     assert result['by_grbs']['УЭР'] == {
         'requested_days': 1, 'exact_days': 1, 'readable_days': 1,
         'rejected_days': 0, 'exact_revisions': 2, 'source_registered': True,
