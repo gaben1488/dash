@@ -1,6 +1,5 @@
 from io import BytesIO
 
-import pytest
 from openpyxl import Workbook
 
 from procurement_engine.master_revision_history import (
@@ -87,7 +86,7 @@ def test_probe_reads_every_exact_revision_and_validates_registered_schema():
     assert result['exact_revisions_read'] == 2
     assert result['by_grbs']['УЭР'] == {
         'requested_days': 1, 'exact_days': 1, 'readable_days': 1,
-        'exact_revisions': 2, 'source_registered': True,
+        'rejected_days': 0, 'exact_revisions': 2, 'source_registered': True,
     }
 
 
@@ -117,5 +116,8 @@ def test_probe_rejects_historical_schema_drift():
     ledger = [{'recommendation_id': 'R1', 'grbs': 'УЭР', 'recommendation_text': 'x',
                'source_procurement_ids': ['1'], 'active_in_current_slice': True,
                'origin_evidence': [{'document_date': '11.09.2026'}]}]
-    with pytest.raises(ValueError, match='MASTER_REVISION_SCHEMA_CHANGED'):
-        probe_exact_master_revisions(registry, ledger, client)
+    result = probe_exact_master_revisions(registry, ledger, client)
+    assert result['days_with_exact_revision'] == 1
+    assert result['days_with_readable_schema'] == 0
+    assert result['days_rejected_schema'] == 1
+    assert result['by_grbs']['УЭР']['rejected_days'] == 1
