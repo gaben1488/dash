@@ -41,6 +41,7 @@ def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
         'identity': result['identity_status_counts'],
         'candidates': result['identity_unresolved_candidate_uid_buckets'],
         'recommendations': result['recommendation_gap_shapes'],
+        'origin_date_bindable_count': result['origin_date_identity_bindable_count'],
         'subject_shapes': result['text_reference_missing_subject_shapes'],
     }
     # Diagnostic output is counts only: no raw source locator, subject, recommendation ID or business ID fields.
