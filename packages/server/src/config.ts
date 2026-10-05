@@ -144,12 +144,17 @@ export const SVOD_SPREADSHEET_ID = SHARED_SVOD_ID;
  * который в Drive уже называется «старый …». Переменная окружения оставляет
  * явную управляемую точку миграции без правки исходников.
  */
-const configuredMonitoringSpreadsheetId = env.MONITORING_SPREADSHEET_ID?.trim();
-export const MONITORING_SPREADSHEET_ID = configuredMonitoringSpreadsheetId
-  ? validateSpreadsheetIdForSourceChange(configuredMonitoringSpreadsheetId).success
-    ? configuredMonitoringSpreadsheetId
-    : (() => { throw new Error('MONITORING_SPREADSHEET_ID_INVALID'); })()
-  : '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
+const DEFAULT_MONITORING_SPREADSHEET_ID = '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
+
+function resolveMonitoringSpreadsheetId(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_MONITORING_SPREADSHEET_ID;
+  const checked = validateSpreadsheetIdForSourceChange(value);
+  if (!checked.success) throw new Error('MONITORING_SPREADSHEET_ID_INVALID');
+  return checked.spreadsheetId;
+}
+
+export const MONITORING_SPREADSHEET_ID = resolveMonitoringSpreadsheetId(env.MONITORING_SPREADSHEET_ID);
 /** ШДЮ — лист внутри основной таблицы СВОД_для_Google */
 export const SHDYU_SPREADSHEET_ID = SVOD_SPREADSHEET_ID;
 
