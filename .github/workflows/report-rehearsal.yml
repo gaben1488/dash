@@ -41,6 +41,12 @@ jobs:
             esac
             test "${#candidate}" = 40
             cd /home/aemr/dash
+            echo "=== production rehearsal storage diagnostic ==="
+            df -h . /tmp 2>/dev/null || true
+            df -i . /tmp 2>/dev/null || true
+            git count-objects -vH || true
+            docker system df || true
+            echo "=== end storage diagnostic ==="
             git fetch --quiet origin "$candidate"
             work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
             trap 'rm -rf "$work"' EXIT
