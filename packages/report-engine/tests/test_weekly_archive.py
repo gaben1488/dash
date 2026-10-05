@@ -1,7 +1,7 @@
 import json
 import shutil
 
-from procurement_engine.archive_runtime import ensure_archive_release, load_frozen_input
+from procurement_engine.archive_runtime import _source_for_day, ensure_archive_release, load_frozen_input
 from procurement_engine.google_adapter import capture_google
 from procurement_engine.identity_store import IdentityStore
 from procurement_engine.raw_pipeline import build_from_capture
@@ -76,6 +76,18 @@ def test_complete_thursday_attempt_becomes_self_contained_replay_input(tmp_path)
     replay = ensure_archive_release(state, day='2034-09-28', year=2034, quarter=3)
     assert replay['selected'] is not None
     assert replay['selected']['source_verification'] == 'FROZEN_ARCHIVE_HASHES'
+
+
+def test_sealed_weekly_archive_wins_over_same_day_attempts(tmp_path):
+    state, status = complete_attempt(tmp_path)
+    result = seal_weekly_archive(state, status)
+    archive = state / 'archives/WEEKLY-2034-09-28'
+    assert result['status'] == 'SEALED'
+    assert (state / 'attempts' / status['attempt_id'] / 'bundle').is_dir()
+
+    # The transient attempt has the same date and can even sort later by path/time;
+    # once WEEKLY-* exists it is the authoritative exact-date replay input.
+    assert _source_for_day(state, '2034-09-28') == archive
 
 
 def test_later_attempt_cannot_replace_first_sealed_thursday(tmp_path):
