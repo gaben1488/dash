@@ -37,15 +37,20 @@ def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
     assert isinstance(result['identity_unresolved_candidate_uid_buckets'], dict)
     assert isinstance(result['recommendation_gap_shapes'], dict)
     assert isinstance(result['text_reference_missing_subject_shapes'], dict)
-    serialized = json.dumps({
+    diagnostic = {
         'identity': result['identity_status_counts'],
         'candidates': result['identity_unresolved_candidate_uid_buckets'],
         'recommendations': result['recommendation_gap_shapes'],
-        'subjects': result['text_reference_missing_subject_shapes'],
-    }, ensure_ascii=False)
-    # Diagnostic output is counts only: no source locator, subject, recommendation ID or business ID.
-    for forbidden in ('source_row_key', 'recommendation_id', 'subject', 'business_id'):
-        assert forbidden not in serialized
+        'subject_shapes': result['text_reference_missing_subject_shapes'],
+    }
+    # Diagnostic output is counts only: no raw source locator, subject, recommendation ID or business ID fields.
+    def keys(value):
+        if isinstance(value, dict):
+            return set(value) | set().union(*(keys(item) for item in value.values()), set())
+        if isinstance(value, list):
+            return set().union(*(keys(item) for item in value), set())
+        return set()
+    assert not {'source_row_key', 'recommendation_id', 'subject', 'business_id'} & keys(diagnostic)
 
 
 def test_missing_publication_is_not_a_successful_rehearsal(tmp_path):
