@@ -19,10 +19,11 @@ POSITION = rf'(?:позици(?:ю|я)\s*[№#]?\s*)?({NUMBER})'
 AMOUNT = r'(\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?)\s*(тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
 
 
-def compile_action(text, *, source_ids, subjects=(), reference_grammar=False):
+def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, subject_reference_grammar=False):
     """Return a typed goal and an exact source text; None never means noncompliance."""
     if reference_grammar:
-        result = _compile_reference_action(text, source_ids=source_ids, subjects=subjects)
+        result = _compile_reference_action(text, source_ids=source_ids, subjects=subjects,
+                                           allow_subject_only=subject_reference_grammar)
         if result is not None:
             return result
     value = clean_text(str(text or '').replace('№', '#')).casefold().replace('ё', 'е')
@@ -66,7 +67,7 @@ def compile_action(text, *, source_ids, subjects=(), reference_grammar=False):
     return None
 
 
-def _compile_reference_action(text, *, source_ids, subjects):
+def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=False):
     """Recognise a whole imperative with its exact linked item description.
 
     The description and price are reference attributes, not another requested
@@ -103,4 +104,19 @@ def _compile_reference_action(text, *, source_ids, subjects):
     if any(re.fullmatch(pattern, value) for pattern in patterns):
         return {'contract': 'original-action-v2', 'source_text': clean_text(text),
                 'source_ids': sorted(wanted), 'type': 'CHANGE_METHOD_EA', 'target_method': 'ЭА'}
+    if allow_subject_only:
+        # v5: the caller has already proved a unique current entity from this
+        # complete subject.  The action parser still requires the whole source
+        # sentence to be one unconditional method-change instruction.
+        subject_price = rf'(?:\s*(?:(?:на\s+сумму|[—–-])\s*)?{amount})?'
+        subject_tail = subject_price + forecast + r'\s*[.;]?'
+        subject_patterns = (
+            rf'{prefix}изменить\s+способ\s+определения\s+поставщика\s+с\s+еп\s+на\s+{METHOD}'
+            rf'\s+(?:по\s+мероприятию\s+)?{description}{subject_tail}',
+            rf'{prefix}{verb}\s+на\s+{METHOD}\s+{description}{subject_tail}',
+            rf'{prefix}{verb}\s+{description}\s+(?:на|способом)\s+{METHOD}{subject_tail}',
+        )
+        if any(re.fullmatch(pattern, value) for pattern in subject_patterns):
+            return {'contract': 'original-action-v3', 'source_text': clean_text(text),
+                    'source_ids': sorted(wanted), 'type': 'CHANGE_METHOD_EA', 'target_method': 'ЭА'}
     return None
