@@ -65,7 +65,7 @@ def _read_manifest(root: Path) -> dict:
     except (OSError, ValueError) as error:
         raise ValueError('WEEKLY_ARCHIVE_MANIFEST_INVALID') from error
     if not isinstance(manifest, dict):
-        raise ValueError('WEEKLY_ARCHIVE_MANIFEST_INVALID')
+        raise TypeError('WEEKLY_ARCHIVE_MANIFEST_INVALID')
     return manifest
 
 
