@@ -47,6 +47,14 @@ jobs:
             git count-objects -vH || true
             docker system df || true
             echo "=== end storage diagnostic ==="
+            # Rehearsal must not mutate report data or running services. The only
+            # automatic recovery allowed here is unused Docker build cache.
+            free_kb=$(df -Pk . | awk 'NR==2 {print $4}')
+            if [ "${free_kb:-0}" -lt 1048576 ]; then
+              echo "Root filesystem has less than 1 GiB free; pruning unused Docker build cache only."
+              docker builder prune --all --force
+              df -h . /tmp 2>/dev/null || true
+            fi
             git fetch --quiet origin "$candidate"
             work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
             trap 'rm -rf "$work"' EXIT
