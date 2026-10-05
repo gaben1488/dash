@@ -138,8 +138,9 @@ def main(argv=None):
         from .recommendation_history import read_google_history
 
         registry = load(args.registry)
-        ledger, _, _ = read_google_history(GoogleReadClient(), load(args.ledger))
-        dump(probe_exact_master_revisions(registry, ledger, GoogleReadClient()))
+        client = GoogleReadClient()
+        ledger, _, _ = read_google_history(client, load(args.ledger))
+        dump(probe_exact_master_revisions(registry, ledger, client))
         return 0
     if args.cmd == 'record-identity-review':
         from .identity_store import IdentityStore
