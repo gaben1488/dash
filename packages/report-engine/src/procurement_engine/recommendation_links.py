@@ -173,7 +173,41 @@ def _heading_grbs(value):
     return normalize_grbs(match[1]) if match else None
 
 
-def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False, entity_link_rules=False):
+
+def _exact_subject_mention(text, subject):
+    """Require the whole current subject as a literal source phrase, never fuzzy similarity."""
+    phrase = _text(subject)
+    return len(phrase) >= 8 and bool(re.search(r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', text))
+
+
+def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
+    """v5 fallback for old prose that names one exact subject but no plan position.
+
+    Group/merge wording is deliberately excluded because one visible subject cannot
+    prove every historical member.  Price is not an identity key.
+    """
+    if rec.get('recommendation_type') == 'MERGE_PROCUREMENTS' or re.search(
+            r'объедин\w*|раздроб\w*|совместн\w*|един(?:ую|ой)\s+закуп\w*|единый\s+эа', text):
+        return 'GROUP_EVIDENCE_REQUIRED', None
+    matches = [
+        row for row in rows
+        if row.grbs == rec.get('grbs')
+        and row.snapshot_id == snapshot_id
+        and row.subject and row.source_row_no
+        and str(row.planned_year) in source_years
+        and _exact_subject_mention(text, row.subject)
+    ]
+    if not matches:
+        return 'TEXT_REFERENCE_MISSING', None
+    if len(matches) != 1:
+        return 'AMBIGUOUS', None
+    if not matches[0].procurement_uid:
+        return 'CURRENT_EVIDENCE_MISSING', None
+    return 'CONFIRMED', matches[0]
+
+
+def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
+                         entity_link_rules=False, exact_subject_fallback=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -185,17 +219,32 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
     text = _text(rec.get('recommendation_text'))
     ids, _ = _text_ids(text)
     result['required_business_ids'] = ids
-    if not ids:
-        result['status'] = 'TEXT_REFERENCE_MISSING'
-        return result
     explicit_years = set(re.findall(r'\b(20\d{2})(?:[-–](?:м|й|го|му|е))?\s*(?:год(?:а|у|ом|е)?\b|г\.)', text))
     explicit_years.update(re.findall(r'\b(?:план|период)\w*\s+(20\d{2})\b', text))
+    source_years = explicit_years or {origin['document_date'][:4]}
+    if len(source_years) != 1:
+        result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
+        return result
+    if not ids:
+        if not exact_subject_fallback:
+            result['status'] = 'TEXT_REFERENCE_MISSING'
+            return result
+        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years)
+        result['status'] = status
+        if row is None:
+            return result
+        result.update(status='CONFIRMED', procurement_uids=[row.procurement_uid],
+            business_ids=[row.source_row_no], source_row_keys=[row.physical_row_key],
+            matches=[{'source_row_key': row.physical_row_key, 'procurement_uid': row.procurement_uid,
+                      'business_id': row.source_row_no, 'subject': row.subject,
+                      'plan_amount_thousand_decimal': format(money(row, 'plan'), 'f'),
+                      'planned_year': row.planned_year, 'method': row.method,
+                      'recorded_fact_date': row.actual_date,
+                      'match_basis': 'EXACT_DOCUMENT_SUBJECT_AND_CURRENT_UID',
+                      'amount_is_identity_key': False}])
+        return result
     if entity_link_rules:
         # A new calendar year does not erase the still observed prior-year plan.
-        source_years = explicit_years or {origin['document_date'][:4]}
-        if len(source_years) != 1:
-            result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
-            return result
         candidates = [row for row in rows if row.grbs == rec.get('grbs')
             and normalize_id(row.source_row_no) in ids and row.snapshot_id == snapshot_id
             and row.subject and str(row.planned_year) in source_years
