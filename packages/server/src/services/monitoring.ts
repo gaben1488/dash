@@ -29,7 +29,7 @@
  */
 
 import { MONITORING_DATA_SHEETS } from '@aemr/core';
-import { config, MONITORING_SPREADSHEET_ID as CONFIGURED_MONITORING_SPREADSHEET_ID } from '../config.js';
+import { config } from '../config.js';
 import { batchGetSheetValues, getSheetDataFromSpreadsheet } from './google-sheets.js';
 import { bookFingerprints, changedSheets } from './sheet-fingerprint.js';
 import { checkFileChanged } from './file-revision.js';
@@ -39,7 +39,8 @@ import { checkFileChanged } from './file-revision.js';
  * default указывает на текущую книгу, production может переопределить его env.
  * Тот же экспорт оставлен для drive-watch и существующих тестов.
  */
-export const MONITORING_SPREADSHEET_ID = CONFIGURED_MONITORING_SPREADSHEET_ID;
+export const MONITORING_SPREADSHEET_ID = config.google.monitoringSpreadsheetId
+  ?? '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
 
 export interface MonitoringBookSnapshot {
   /** Грид каждого прочитанного листа: имя листа книги → строки значений. */
