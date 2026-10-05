@@ -490,3 +490,32 @@ def test_v5_subject_only_link_never_collapses_group_wording_to_one_current_row(t
     rec = subject_only_recommendation(text)
     result = resolve_subject_only(rec, [replace(row(), planned_year=2026)])
     assert result['status'] == 'GROUP_EVIDENCE_REQUIRED'
+
+
+def test_v5_subject_only_original_is_linked_and_action_is_checked_end_to_end():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Изменить способ определения поставщика с ЕП на ЭА по мероприятию '
+            '«Поставка бумаги» 46,00 тыс. руб.')
+    rec = subject_only_recommendation(text)
+    rec.update(active_in_current_slice=True, uer_decision_original='Принята', table_no=1, row_no=1)
+    current = [replace(row(), planned_year=2026, method='ЭА')]
+    result = review_recommendations([rec], current, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v5')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['matches'][0]['match_basis'] == 'EXACT_DOCUMENT_SUBJECT_AND_CURRENT_UID'
+    assert result['dimensions']['compliance_status'] == 'IMPLEMENTED'
+    assert result['semantic_status'] == 'IMPLEMENTED'
+    assert result['compiled_action']['contract'] == 'original-action-v3'
+
+
+def test_v5_subject_only_group_original_remains_review_required_end_to_end():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = subject_only_recommendation(
+        'Объединить раздробленные процедуры по ЭА «Поставка бумаги» 46,00 тыс. руб. в единую закупку.')
+    rec.update(active_in_current_slice=True, table_no=1, row_no=1)
+    result = review_recommendations([rec], [replace(row(), planned_year=2026)], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v5')[0]
+    assert result['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
+    assert result['semantic_status'] == 'REVIEW_REQUIRED'
