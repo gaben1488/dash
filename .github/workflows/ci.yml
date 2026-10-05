@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify patched dependency security guard
+        run: pnpm verify:braces-patch
+
       - name: ESLint
         run: pnpm lint
 
