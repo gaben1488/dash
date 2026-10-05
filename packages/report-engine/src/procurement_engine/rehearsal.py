@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import tempfile
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from .deployment_diagnostics import PUBLIC_CODES, public_error_code
@@ -21,6 +22,79 @@ from .runtime_inputs import validate_inputs
 
 def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+
+def _coverage_details(candidate):
+    """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
+    identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
+    unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
+    candidate_buckets = Counter()
+    for row in unresolved:
+        evidence = row.get('evidence') or {}
+        count = len(set(evidence.get('candidate_uids') or []))
+        candidate_buckets['0' if count == 0 else '1' if count == 1 else '2+'] += 1
+
+    details = candidate.get('details') or []
+    by_business = defaultdict(list)
+    for row in details:
+        business_id = str(row.get('source_row_no') or '').strip().casefold()
+        if business_id:
+            by_business[(row.get('grbs'), business_id)].append(row)
+
+    from .recommendation_links import _text, _text_ids
+
+    gap_shapes = Counter()
+    subject_only = Counter()
+    for record in candidate.get('recommendation_records') or []:
+        if not record.get('active_in_current_slice'):
+            continue
+        link = record.get('current_link') or {}
+        if link.get('status') == 'CONFIRMED':
+            continue
+        text = _text(record.get('recommendation_text'))
+        ids, _ = _text_ids(text)
+        if ids:
+            groups = [by_business[(record.get('grbs'), str(value).casefold())] for value in ids]
+            if all(len(group) == 1 for group in groups):
+                gap_shapes['explicit_ids_all_present_unique'] += 1
+                rows = [group[0] for group in groups]
+                if all(row.get('procurement_uid') for row in rows):
+                    gap_shapes['explicit_ids_all_have_uid'] += 1
+            else:
+                if any(len(group) == 0 for group in groups):
+                    gap_shapes['explicit_ids_missing_current_row'] += 1
+                if any(len(group) > 1 for group in groups):
+                    gap_shapes['explicit_ids_ambiguous_current_row'] += 1
+            continue
+
+        origin = link.get('origin') or {}
+        year = str(origin.get('document_date') or '')[:4]
+        candidates = [
+            row for row in details
+            if row.get('grbs') == record.get('grbs')
+            and (not year or not row.get('planned_year') or str(row.get('planned_year')) == year)
+        ]
+        matches = []
+        for row in candidates:
+            subject = _text(row.get('subject'))
+            if subject and re.search(r'(?<!\w)' + re.escape(subject) + r'(?!\w)', text):
+                matches.append(row)
+        if not matches:
+            subject_only['none'] += 1
+        elif len(matches) == 1:
+            subject_only['unique_exact_subject'] += 1
+            if matches[0].get('procurement_uid'):
+                subject_only['unique_exact_subject_with_uid'] += 1
+        else:
+            subject_only['multiple_exact_subjects'] += 1
+
+    return {
+        'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
+        'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
+        'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
+        'text_reference_missing_subject_shapes': dict(sorted(subject_only.items())),
+    }
 
 
 def rehearse_latest(state_dir, *, coverage=False):
@@ -102,6 +176,7 @@ def rehearse_latest(state_dir, *, coverage=False):
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
+            result.update(_coverage_details(candidate))
         return result
 
 
