@@ -214,7 +214,7 @@ diff --git a/lib/stringify.js b/lib/stringify.js
      const invalidBlock = options.escapeInvalid && utils.isInvalidBrace(parent);
      const invalidNode = node.invalid === true && options.escapeInvalid === true;
      let output = '';
-@@ -21,12 +27,11 @@ module.exports = (ast, options = {}) => {
+@@ -21,11 +27,11 @@ module.exports = (ast, options = {}) => {
  
      if (node.nodes) {
        for (const child of node.nodes) {
