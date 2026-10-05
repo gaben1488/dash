@@ -25,7 +25,7 @@ def _json(path):
 
 
 
-def _coverage_details(candidate):
+def _coverage_details(candidate, identities=None):
     """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
     identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
     unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
@@ -47,6 +47,7 @@ def _coverage_details(candidate):
 
     gap_shapes = Counter()
     subject_only = Counter()
+    origin_date_bindable = 0
     for record in candidate.get('recommendation_records') or []:
         if not record.get('active_in_current_slice'):
             continue
@@ -62,6 +63,14 @@ def _coverage_details(candidate):
                 rows = [group[0] for group in groups]
                 if all(row.get('procurement_uid') for row in rows):
                     gap_shapes['explicit_ids_all_have_uid'] += 1
+                    if identities is not None and link.get('origin'):
+                        proof = identities.prove_origin_date_binding(
+                            details,
+                            grbs=record.get('grbs'),
+                            business_ids=ids,
+                            document_date=link['origin'].get('document_date'),
+                        )
+                        origin_date_bindable += int(proof is not None)
             else:
                 if any(len(group) == 0 for group in groups):
                     gap_shapes['explicit_ids_missing_current_row'] += 1
@@ -94,6 +103,7 @@ def _coverage_details(candidate):
         'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
         'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
+        'origin_date_identity_bindable_count': origin_date_bindable,
         'text_reference_missing_subject_shapes': dict(sorted(subject_only.items())),
     }
 
@@ -177,7 +187,7 @@ def rehearse_latest(state_dir, *, coverage=False):
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
-            result.update(_coverage_details(candidate))
+            result.update(_coverage_details(candidate, identities))
         return result
 
 
