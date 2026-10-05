@@ -170,7 +170,20 @@ def build_archived_release(source, state_dir, *, day, year, quarter):
 
 
 def _source_for_day(state, day):
-    """Latest exact-date complete capture, never nearest-date/live substitution."""
+    """Prefer the sealed weekly truth; otherwise use the latest exact-date capture."""
+    weekly = state / 'archives' / f'WEEKLY-{day}'
+    if weekly.exists():
+        try:
+            if weekly.is_symlink() or not weekly.is_dir():
+                raise ValueError
+            quarter = (int(day[5:7]) - 1) // 3 + 1
+            load_frozen_input(weekly, day=day, year=int(day[:4]), quarter=quarter)
+            return weekly
+        except (ArchiveError, KeyError, TypeError, ValueError, OSError) as exc:
+            # A named weekly archive is authoritative for that day. Corruption is
+            # never permission to fall through to a later attempt from the same day.
+            raise ArchiveError('ARCHIVE_CORRUPT') from exc
+
     candidates = []
     for pattern in ('archives/*/snapshot_bundle/manifest.json',
                     'published/releases/*/snapshot_bundle/manifest.json',
