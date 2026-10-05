@@ -83,6 +83,13 @@ def main(argv=None):
     file_archive.add_argument('--archive', required=True)
     file_archive.add_argument('--manifest', required=True)
     file_archive.add_argument('--state', required=True)
+    revision_probe = sub.add_parser(
+        'probe-master-revisions',
+        help='Read-only capability check for exact historical master revisions',
+    )
+    revision_probe.add_argument('--registry', required=True)
+    revision_probe.add_argument('--ledger', required=True)
+
     review = sub.add_parser('record-identity-review', help='Append dated proof to an existing identity observation')
     for option in ('state', 'snapshot-id', 'locator', 'uid', 'reviewer', 'reviewed-at', 'evidence'):
         review.add_argument('--' + option, required=True)
@@ -124,6 +131,15 @@ def main(argv=None):
             return 2
         # A missing archive is a typed business result, not a transport failure.
         dump(result)
+        return 0
+    if args.cmd == 'probe-master-revisions':
+        from .google_adapter import GoogleReadClient
+        from .master_revision_history import probe_exact_master_revisions
+        from .recommendation_history import read_google_history
+
+        registry = load(args.registry)
+        ledger, _, _ = read_google_history(GoogleReadClient(), load(args.ledger))
+        dump(probe_exact_master_revisions(registry, ledger, GoogleReadClient()))
         return 0
     if args.cmd == 'record-identity-review':
         from .identity_store import IdentityStore
