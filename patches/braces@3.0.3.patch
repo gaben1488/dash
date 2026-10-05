@@ -138,7 +138,7 @@ diff --git a/lib/parse.js b/lib/parse.js
  const {
 +  MAX_DEPTH,
    MAX_LENGTH,
-   CHAR_BACKSLASH, /* \\ */
+   CHAR_BACKSLASH, /* \ */
    CHAR_BACKTICK, /* ` */
 @@ -35,6 +36,7 @@ const parse = (input, options = {}) => {
  
