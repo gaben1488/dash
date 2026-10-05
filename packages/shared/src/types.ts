@@ -623,6 +623,8 @@ export interface PaginatedResponse<T> {
 export interface AppConfig {
   google: {
     spreadsheetId: string;
+    /** Отдельная книга процедур/оперативного мониторинга. */
+    monitoringSpreadsheetId?: string;
     serviceAccountEmail?: string;
     privateKey?: string;
     apiKey?: string;
