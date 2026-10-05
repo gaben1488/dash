@@ -192,3 +192,40 @@ def test_review_cannot_be_dated_before_its_observation(tmp_path):
         store.record_review(snapshot_id='s1', locator=row().physical_row_key,
             uid=outcome['rows'][0]['procurement_uid'], reviewer='Проверяющий',
             reviewed_at='2026-09-29T00:00:00Z', evidence={'source_ref': 'protocol/1', 'reason': 'Проверено'})
+
+
+def test_origin_date_binding_requires_same_day_unique_persisted_uid(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    first = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-25T08:00:00+12:00')
+    uid = first['rows'][0]['procurement_uid']
+    current = row(snapshot_id='s2', procurement_uid=uid)
+    proof = store.prove_origin_date_binding(
+        [current], grbs='УО', business_ids=['1'], document_date='25.09.2026')
+    assert proof is not None
+    assert proof['contract'] == 'origin-date-identity-v1'
+    assert proof['current_procurement_uids'] == [uid]
+
+
+def test_origin_date_binding_fails_without_same_day_snapshot_or_with_reused_number(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    first = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-24T08:00:00+12:00')
+    uid = first['rows'][0]['procurement_uid']
+    current = row(snapshot_id='s2', procurement_uid=uid)
+    assert store.prove_origin_date_binding(
+        [current], grbs='УО', business_ids=['1'], document_date='25.09.2026') is None
+
+    other = row(snapshot_id='s3', subject='Другая закупка', procurement_uid='PUR-other')
+    store.ingest([other], snapshot_id='s3', captured_at='2026-09-25T08:00:00+12:00')
+    assert store.prove_origin_date_binding(
+        [current], grbs='УО', business_ids=['1'], document_date='25.09.2026') is None
+
+
+def test_origin_date_binding_rejects_duplicate_current_business_number(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    first = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-25T08:00:00+12:00')
+    uid = first['rows'][0]['procurement_uid']
+    current = row(snapshot_id='s2', procurement_uid=uid)
+    duplicate = row(snapshot_id='s2', row_number=5, procurement_id='2',
+                    source_row_no='1', procurement_uid='PUR-other')
+    assert store.prove_origin_date_binding(
+        [current, duplicate], grbs='УО', business_ids=['1'], document_date='25.09.2026') is None
