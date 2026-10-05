@@ -55,19 +55,27 @@ def _revision_pages(client, provider_id):
             raise ValueError('MASTER_REVISION_PAGINATION_INVALID')
 
 
-def exact_revisions(client, provider_id, day, *, timezone_name='Asia/Kamchatka'):
-    target = parse_date(day)
-    if not target:
-        raise ValueError('MASTER_REVISION_DATE_INVALID')
+def revision_index(client, provider_id, *, timezone_name='Asia/Kamchatka'):
+    """List a provider once and index returned revisions by product-local day."""
     zone = ZoneInfo(timezone_name)
-    found = []
+    output = {}
     for revision in _revision_pages(client, provider_id):
         instant = datetime.fromisoformat(revision['modifiedTime'].replace('Z', '+00:00'))
         if instant.tzinfo is None:
             raise ValueError('MASTER_REVISION_TIMEZONE_MISSING')
-        if instant.astimezone(zone).date().isoformat() == target:
-            found.append(revision)
-    return sorted(found, key=lambda item: (item['modifiedTime'], item['id']))
+        day = instant.astimezone(zone).date().isoformat()
+        output.setdefault(day, []).append(revision)
+    return {
+        day: sorted(values, key=lambda item: (item['modifiedTime'], item['id']))
+        for day, values in output.items()
+    }
+
+
+def exact_revisions(client, provider_id, day, *, timezone_name='Asia/Kamchatka'):
+    target = parse_date(day)
+    if not target:
+        raise ValueError('MASTER_REVISION_DATE_INVALID')
+    return revision_index(client, provider_id, timezone_name=timezone_name).get(target, [])
 
 
 def _revision_export(client, provider_id, revision):
@@ -151,8 +159,9 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
         item = {'requested_days': len(dates), 'exact_days': 0, 'readable_days': 0,
                 'rejected_days': 0, 'exact_revisions': 0, 'source_registered': source is not None}
         if source is not None:
+            indexed = revision_index(client, source['provider_id'], timezone_name=timezone_name)
             for day in dates:
-                revisions = exact_revisions(client, source['provider_id'], day, timezone_name=timezone_name)
+                revisions = indexed.get(day, [])
                 if not revisions:
                     continue
                 item['exact_days'] += 1
