@@ -111,8 +111,10 @@ def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=
         subject_price = rf'(?:\s*(?:(?:на\s+сумму|[—–-])\s*)?{amount})?'
         subject_tail = subject_price + forecast + r'\s*[.;]?'
         subject_patterns = (
-            rf'{prefix}изменить\s+способ\s+определения\s+поставщика\s+с\s+еп\s+на\s+{METHOD}'
-            rf'\s+(?:по\s+мероприятию\s+)?{description}{subject_tail}',
+            (
+                rf'{prefix}изменить\s+способ\s+определения\s+поставщика\s+с\s+еп\s+на\s+{METHOD}'
+                rf'\s+(?:по\s+мероприятию\s+)?{description}{subject_tail}'
+            ),
             rf'{prefix}{verb}\s+на\s+{METHOD}\s+{description}{subject_tail}',
             rf'{prefix}{verb}\s+{description}\s+(?:на|способом)\s+{METHOD}{subject_tail}',
         )
