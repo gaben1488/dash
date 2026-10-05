@@ -1,7 +1,6 @@
 from io import BytesIO
 
 from openpyxl import Workbook
-
 from procurement_engine.master_revision_history import (
     exact_revisions,
     probe_exact_master_revisions,
