@@ -1,13 +1,14 @@
 /**
- * directory.ts — справочник «Перечень ГРБС» и его связь с реестром
- * (спека §1.4, §2.4).
+ * directory.ts — адаптер справочника заказчиков и его связь с реестром.
  *
- * Семьдесят пять строк, четыре колонки: номер, ГРБС-владелец,
- * «Наименованиеучрежения» (опечатка в шапке книги) и «Сокращеное
- * наименование учреждения» (вторая опечатка). Справочник наполовину не
- * работает: у 35 строк из 75 сокращённое наименование дословно повторяет
- * полное, а из 71 написания заказчика на листах управлений со справочником
- * совпадают четыре.
+ * Источник эволюционировал: ранняя книга имела четыре колонки и две опечатки
+ * в заголовках, текущая — канонический «Справочник заказчиков» с полными и
+ * краткими именами, legacy-наименованием, алиасами, именем из книг ГРБС и,
+ * в окружной версии, отдельными колонками нового муниципального округа.
+ *
+ * Парсер принимает обе схемы. Для текущей схемы окружные имена имеют приоритет,
+ * но прежние канонические имена, legacy-краткое, имя из книг ГРБС и каждый
+ * явный алиас также индексируются как доказанные варианты написания.
  *
  * Продукт не переписывает справочник. Он говорит вслух две вещи: «сокращения
  * нет» там, где длинный текст притворяется коротким, и список написаний, для
@@ -18,18 +19,60 @@
 import { monitoringNumber, monitoringText } from './cells.js';
 import { MONITORING_DIRECTORY_SHEET, normalizeCustomer } from './procedures.js';
 
-/** Колонки справочника (0-based). */
-const DIRECTORY_COLUMNS = {
+/** Ранняя четырёхколоночная схема (0-based). */
+const LEGACY_DIRECTORY_COLUMNS = {
   ORDINAL: 0,
   GRBS: 1,
   FULL_NAME: 2,
   SHORT_NAME: 3,
 } as const;
 
-/** Дословные подписи шапки книги — с обеими опечатками, как в источнике. */
+/** Текущая каноническая схема (0-based). */
+const CURRENT_DIRECTORY_COLUMNS = {
+  ORDINAL: 0,
+  GRBS: 2,
+  FULL_NAME: 3,
+  SHORT_NAME: 4,
+  LEGACY_SHORT_NAME: 5,
+  ALIASES: 8,
+  SOURCE_BOOK_NAME: 11,
+  OKRUG_FULL_NAME: 16,
+  OKRUG_SHORT_NAME: 17,
+} as const;
+
+/** Дословные подписи прежней схемы — оставлены для совместимого импорта. */
 export const MONITORING_DIRECTORY_HEADER: readonly string[] = [
   '№ п/п', 'ГРБС', 'Наименованиеучрежения', 'Сокращеное наименование учреждения',
 ];
+
+/** Минимальные маркеры текущего «Справочника заказчиков». */
+export const MONITORING_DIRECTORY_HEADER_V2: readonly string[] = [
+  '№ п/п',
+  'Управление',
+  'Новый каноничный справочник полных наименований',
+  'Новый каноничный справочник кратких наименований',
+  'Алиасы и варианты написания',
+];
+
+function currentDirectorySchema(grid: unknown[][]): boolean {
+  const header = new Set((grid[0] ?? []).map((value) => monitoringText(value)).filter(Boolean));
+  return MONITORING_DIRECTORY_HEADER_V2.every((value) => header.has(value));
+}
+
+function directoryAliases(raw: unknown[], modern: boolean): string[] {
+  if (!modern) return [];
+  const C = CURRENT_DIRECTORY_COLUMNS;
+  const direct = [
+    monitoringText(raw[C.FULL_NAME]),
+    monitoringText(raw[C.SHORT_NAME]),
+    monitoringText(raw[C.LEGACY_SHORT_NAME]),
+    monitoringText(raw[C.SOURCE_BOOK_NAME]),
+    monitoringText(raw[C.OKRUG_FULL_NAME]),
+    monitoringText(raw[C.OKRUG_SHORT_NAME]),
+  ];
+  const aliases = monitoringText(raw[C.ALIASES])?.split(';').map((value) => value.trim()) ?? [];
+  return [...direct, ...aliases].filter((value): value is string => Boolean(value && value !== '-'));
+}
 
 export interface DirectoryEntry {
   readonly sheet: string;
@@ -95,24 +138,38 @@ export function parseMonitoringDirectory(
     };
   }
 
-  const C = DIRECTORY_COLUMNS;
+  const modern = currentDirectorySchema(grid);
+  const C = modern ? CURRENT_DIRECTORY_COLUMNS : LEGACY_DIRECTORY_COLUMNS;
   const index = new Map<string, number>();
   const drafts: Array<Omit<DirectoryEntry, 'usageCount'>> = [];
 
   for (let i = 0; i < grid.length; i++) {
     const raw = grid[i] ?? [];
-    const fullName = monitoringText(raw[C.FULL_NAME]);
-    const shortName = monitoringText(raw[C.SHORT_NAME]);
+    if (modern && i === 0) continue;
+
+    const canonicalFull = monitoringText(raw[C.FULL_NAME]);
+    const canonicalShort = monitoringText(raw[C.SHORT_NAME]);
+    const fullName = modern
+      ? monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.OKRUG_FULL_NAME]) ?? canonicalFull
+      : canonicalFull;
+    const shortName = modern
+      ? monitoringText(raw[CURRENT_DIRECTORY_COLUMNS.OKRUG_SHORT_NAME]) ?? canonicalShort
+      : canonicalShort;
     const grbs = monitoringText(raw[C.GRBS]);
     if (fullName === null && shortName === null) continue;
-    // Строка шапки: в колонке ГРБС стоит слово «ГРБС».
-    if (grbs !== null && /^грбс$/iu.test(grbs)) continue;
+    // Строка шапки прежней схемы: в колонке ГРБС стоит слово «ГРБС».
+    if (!modern && grbs !== null && /^грбс$/iu.test(grbs)) continue;
 
     const normFull = fullName === null ? null : normalizeCustomer(fullName);
     const normShort = shortName === null ? null : normalizeCustomer(shortName);
     const draftIndex = drafts.length;
-    if (normFull !== null && !index.has(normFull)) index.set(normFull, draftIndex);
-    if (normShort !== null && !index.has(normShort)) index.set(normShort, draftIndex);
+    const knownNames = modern
+      ? directoryAliases(raw, true)
+      : [fullName, shortName].filter((value): value is string => value !== null);
+    for (const name of knownNames) {
+      const normalized = normalizeCustomer(name);
+      if (normalized && !index.has(normalized)) index.set(normalized, draftIndex);
+    }
 
     drafts.push({
       sheet: MONITORING_DIRECTORY_SHEET,
