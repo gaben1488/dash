@@ -38,10 +38,11 @@ def _coverage_details(candidate):
     details = candidate.get('details') or []
     by_business = defaultdict(list)
     for row in details:
-        business_id = str(row.get('source_row_no') or '').strip().casefold()
+        business_id = normalize_id(row.get('source_row_no'))
         if business_id:
             by_business[(row.get('grbs'), business_id)].append(row)
 
+    from .normalize import normalize_id
     from .recommendation_links import _text, _text_ids
 
     gap_shapes = Counter()
@@ -55,7 +56,7 @@ def _coverage_details(candidate):
         text = _text(record.get('recommendation_text'))
         ids, _ = _text_ids(text)
         if ids:
-            groups = [by_business[(record.get('grbs'), str(value).casefold())] for value in ids]
+            groups = [by_business[(record.get('grbs'), normalize_id(value))] for value in ids]
             if all(len(group) == 1 for group in groups):
                 gap_shapes['explicit_ids_all_present_unique'] += 1
                 rows = [group[0] for group in groups]
