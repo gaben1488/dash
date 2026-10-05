@@ -87,3 +87,38 @@ def test_nested_subject_and_nonempty_historical_v1_result_are_versioned():
     assert compile_action(text, source_ids=['42'], subjects=[('42', 'Химия (моющие средства)')], reference_grammar=True)['type'] == 'CHANGE_METHOD_EA'
     plain = 'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.'
     assert compile_action(plain, source_ids=['42'], subjects=[('42', 'Поставка бумаги')]) is None
+
+
+@pytest.mark.parametrize('text', [
+    'Изменить способ определения поставщика с ЕП на ЭА по мероприятию «Поставка бумаги» 46,00 тыс. руб.',
+    'Вынести на ЭА Поставка бумаги – 46,00 тыс. руб.',
+    'Рекомендуем вынести на электронный аукцион «Поставка бумаги» на сумму 46,00 тыс. руб.',
+])
+def test_v5_subject_only_reference_compiles_after_entity_link_is_proven(text):
+    from procurement_engine.action_spec import compile_action
+    result = compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')],
+                            reference_grammar=True, subject_reference_grammar=True)
+    assert result['type'] == 'CHANGE_METHOD_EA'
+    assert result['target_method'] == 'ЭА'
+    assert result['contract'] == 'original-action-v3'
+
+
+@pytest.mark.parametrize('text', [
+    'Если появится финансирование, вынести на ЭА Поставка бумаги – 46,00 тыс. руб.',
+    'Не рекомендуется вынести на ЭА Поставка бумаги – 46,00 тыс. руб.',
+    'Вынести на единый ЭА Поставка бумаги – 46,00 тыс. руб.',
+    'Объединить Поставка бумаги в единую закупку.',
+    'Вынести на ЭА Поставка бумаги – 46,00 тыс. руб. Отменить другую закупку.',
+    'Вынести на ЭА Поставка бумаги специальная – 46,00 тыс. руб.',
+])
+def test_v5_subject_only_action_rejects_conditions_groups_compounds_and_partial_subjects(text):
+    from procurement_engine.action_spec import compile_action
+    assert compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')],
+                          reference_grammar=True, subject_reference_grammar=True) is None
+
+
+def test_v4_reference_grammar_does_not_reinterpret_subject_only_text():
+    from procurement_engine.action_spec import compile_action
+    text = 'Вынести на ЭА Поставка бумаги – 46,00 тыс. руб.'
+    assert compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')],
+                          reference_grammar=True) is None
