@@ -154,7 +154,6 @@ function resolveMonitoringSpreadsheetId(raw: string | undefined): string {
   return checked.spreadsheetId;
 }
 
-export const MONITORING_SPREADSHEET_ID = resolveMonitoringSpreadsheetId(env.MONITORING_SPREADSHEET_ID);
 /** ШДЮ — лист внутри основной таблицы СВОД_для_Google */
 export const SHDYU_SPREADSHEET_ID = SVOD_SPREADSHEET_ID;
 
@@ -201,6 +200,7 @@ export const isDemoMode: boolean =
 export const config: AppConfig = {
   google: {
     spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID ?? SVOD_SPREADSHEET_ID,
+    monitoringSpreadsheetId: resolveMonitoringSpreadsheetId(env.MONITORING_SPREADSHEET_ID),
     serviceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     privateKey: env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     apiKey: env.GOOGLE_API_KEY,
