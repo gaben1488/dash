@@ -41,12 +41,12 @@ def _revision_pages(client, provider_id):
         )
         revisions = data.get('revisions')
         if not isinstance(revisions, list):
-            raise ValueError('MASTER_REVISION_LIST_INVALID')
+            raise TypeError('MASTER_REVISION_LIST_INVALID')
         for revision in revisions:
             if (not isinstance(revision, dict)
                     or not isinstance(revision.get('id'), str)
                     or not isinstance(revision.get('modifiedTime'), str)):
-                raise ValueError('MASTER_REVISION_METADATA_INVALID')
+                raise TypeError('MASTER_REVISION_METADATA_INVALID')
             yield revision
         token = data.get('nextPageToken')
         pages += 1
@@ -97,7 +97,7 @@ def _revision_export(client, provider_id, revision):
 def _matrix(content, contract):
     try:
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    except Exception as error:  # noqa: BLE001 - private bytes never escape this boundary.
+    except Exception as error:
         raise ValueError('MASTER_REVISION_XLSX_INVALID') from error
     try:
         if contract['sheet'] not in workbook.sheetnames:
