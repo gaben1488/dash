@@ -9,10 +9,10 @@ before revision evidence participates in recommendation linkage.
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from io import BytesIO
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
-from datetime import datetime
 
 from openpyxl import load_workbook
 
@@ -140,6 +140,7 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
         'requested_exact_days': 0,
         'days_with_exact_revision': 0,
         'days_with_readable_schema': 0,
+        'days_rejected_schema': 0,
         'exact_revisions_read': 0,
     }
     by_grbs = {}
@@ -149,7 +150,7 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
         totals['requested_exact_days'] += len(dates)
         source = masters.get(grbs)
         item = {'requested_days': len(dates), 'exact_days': 0, 'readable_days': 0,
-                'exact_revisions': 0, 'source_registered': source is not None}
+                'rejected_days': 0, 'exact_revisions': 0, 'source_registered': source is not None}
         if source is not None:
             for day in dates:
                 revisions = exact_revisions(client, source['provider_id'], day, timezone_name=timezone_name)
@@ -160,14 +161,26 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
                 readable = True
                 for revision in revisions:
                     content = _revision_export(client, source['provider_id'], revision)
-                    _matrix(content, source)
                     item['exact_revisions'] += 1
                     totals['exact_revisions_read'] += 1
                     # Digest is deliberately computed but not emitted; reading all
                     # bytes proves that the export link is usable and bounded.
                     hashlib.sha256(content).digest()
+                    try:
+                        _matrix(content, source)
+                    except ValueError as error:
+                        if str(error) not in {
+                            'MASTER_REVISION_SHEET_MISSING',
+                            'MASTER_REVISION_RANGE_INCOMPLETE',
+                            'MASTER_REVISION_SCHEMA_CHANGED',
+                        }:
+                            raise
+                        readable = False
                 if readable:
                     item['readable_days'] += 1
                     totals['days_with_readable_schema'] += 1
+                else:
+                    item['rejected_days'] += 1
+                    totals['days_rejected_schema'] += 1
         by_grbs[grbs] = item
     return {'contract': CONTRACT, **totals, 'by_grbs': by_grbs}
