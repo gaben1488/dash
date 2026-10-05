@@ -26,6 +26,7 @@ class RevisionClient:
         self.exports = exports
 
     def _get(self, url, params=None):
+        assert 'supportsAllDrives' not in (params or {})
         if url.endswith('/revisions'):
             return {'revisions': self.revisions}
         revision_id = url.rsplit('/', 1)[-1]
