@@ -382,6 +382,67 @@ class IdentityStore:
                        (snapshot_id,digest,captured_at,encoded(outcome)))
             return outcome
 
+    def prove_origin_date_binding(self, rows, *, grbs, business_ids, document_date):
+        """Prove explicit historical plan numbers through same-day persisted UID history.
+
+        This is stricter than a current number match. Every report snapshot stored on
+        the original document date must contain exactly one observation for each
+        named business number in the same source workbook, and every such observation
+        must already carry the same UID as the unique current row.
+        """
+        from .normalize import normalize_id, parse_date
+
+        day = parse_date(document_date)
+        wanted = {normalize_id(value) for value in business_ids}
+        if not day or not wanted or None in wanted:
+            return None
+        current = defaultdict(list)
+        for row in rows:
+            value = row.get('source_row_no') if isinstance(row, dict) else row.source_row_no
+            row_grbs = row.get('grbs') if isinstance(row, dict) else row.grbs
+            key = normalize_id(value)
+            if row_grbs == grbs and key in wanted:
+                current[key].append(row)
+        if any(len(current[key]) != 1 for key in wanted):
+            return None
+
+        def field(row, name):
+            return row.get(name) if isinstance(row, dict) else getattr(row, name)
+
+        if any(not field(current[key][0], 'procurement_uid') for key in wanted):
+            return None
+
+        with closing(self.connect()) as db:
+            snapshots = [
+                dict(item) for item in db.execute(
+                    'SELECT snapshot_id,captured_at FROM snapshots ORDER BY seq')
+                if datetime.fromisoformat(item['captured_at']).date().isoformat() == day
+            ]
+            if not snapshots:
+                return None
+            snapshot_ids = []
+            for snapshot in snapshots:
+                sid = snapshot['snapshot_id']
+                for key in sorted(wanted):
+                    row = current[key][0]
+                    matches = list(db.execute(
+                        '''SELECT uid,status FROM observations
+                           WHERE snapshot_id=? AND source_id=? AND business_id=?''',
+                        (sid, field(row, 'source_id'), field(row, 'source_row_no'))))
+                    if len(matches) != 1 or not matches[0]['uid']:
+                        return None
+                    if matches[0]['uid'] != field(row, 'procurement_uid'):
+                        return None
+                snapshot_ids.append(sid)
+        return {
+            'contract': 'origin-date-identity-v1',
+            'document_date': day,
+            'business_ids': sorted(wanted),
+            'current_procurement_uids': sorted(
+                {field(current[key][0], 'procurement_uid') for key in wanted}),
+            'snapshot_ids': snapshot_ids,
+        }
+
     def record_review(self,*,snapshot_id,locator,uid,reviewer,reviewed_at,evidence):
         """Append review evidence. It never silently mutates the frozen import result.
 
