@@ -9,8 +9,8 @@
  *
  * ЧИТАЕМ ОДИННАДЦАТЬ ВИДИМЫХ ЛИСТОВ, а не восемь: восемь реестров управлений,
  * «СВОДНЫЙ» (итог книги и его разрыв с нашим счётом), «25-26» (переходящий
- * реестр с победителями, ИНН и родословной переобъявлений) и «Перечень ГРБС»
- * (справочник учреждений). Три скрытых листа-предка данными не читаются — там
+ * реестр с победителями, ИНН и родословной переобъявлений) и «Справочник заказчиков»
+ * (канонический справочник учреждений и алиасов). Три скрытых листа-предка данными не читаются — там
  * ноль строк, и продукт показывает их как форму, а не как данные.
  *
  * ОДНО ОБРАЩЕНИЕ ВМЕСТО ОДИННАДЦАТИ (21.08.2026). Листы читались одиннадцатью
@@ -29,16 +29,17 @@
  */
 
 import { MONITORING_DATA_SHEETS } from '@aemr/core';
-import { config } from '../config.js';
+import { config, MONITORING_SPREADSHEET_ID as CONFIGURED_MONITORING_SPREADSHEET_ID } from '../config.js';
 import { batchGetSheetValues, getSheetDataFromSpreadsheet } from './google-sheets.js';
 import { bookFingerprints, changedSheets } from './sheet-fingerprint.js';
 import { checkFileChanged } from './file-revision.js';
 
 /**
- * Книга «Ежедневный мониторинг» — директива владельца п.59 (drive-ссылка
- * 14.08). Тот же идентификатор наблюдает drive-watch (вебхук-канал изменений).
+ * Книга оперативного мониторинга/процедур. Значение централизовано в config:
+ * default указывает на текущую книгу, production может переопределить его env.
+ * Тот же экспорт оставлен для drive-watch и существующих тестов.
  */
-export const MONITORING_SPREADSHEET_ID = '15VKFyOPbyP2vJVvmAFVXD0lV14ZwgJ0nxwbhBdjJMps';
+export const MONITORING_SPREADSHEET_ID = CONFIGURED_MONITORING_SPREADSHEET_ID;
 
 export interface MonitoringBookSnapshot {
   /** Грид каждого прочитанного листа: имя листа книги → строки значений. */
