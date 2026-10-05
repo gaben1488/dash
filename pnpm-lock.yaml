@@ -24,7 +24,9 @@ overrides:
   undici@>=8.1.0 <8.10.2: 8.10.2
 
 patchedDependencies:
-  braces@3.0.3: 428e53dfa0ff2c79d6078bf3b102abd0b592fc50bf7920f66d40627bdda0d139
+  braces@3.0.3:
+    hash: 428e53dfa0ff2c79d6078bf3b102abd0b592fc50bf7920f66d40627bdda0d139
+    path: patches/braces@3.0.3.patch
 
 importers:
 
