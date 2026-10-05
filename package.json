@@ -26,7 +26,8 @@
     "typecheck:all": "pnpm -r --workspace-concurrency=1 exec tsc --noEmit",
     "test": "pnpm -r test",
     "test:watch": "pnpm -r --parallel test --watch",
-    "prepare": "husky"
+    "prepare": "husky",
+    "verify:braces-patch": "node scripts/verify-braces-depth-guard.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
@@ -45,7 +46,8 @@
   "pnpm": {
     "auditConfig": {
       "ignoreGhsas": [
-        "GHSA-gv7w-rqvm-qjhr"
+        "GHSA-gv7w-rqvm-qjhr",
+        "GHSA-vfj7-8cjw-p6xm"
       ]
     },
     "overrides": {
@@ -66,6 +68,9 @@
       "@humanfs/node@<0.16.8": "0.16.8",
       "baseline-browser-mapping@>=2.0.0 <2.11.0": "2.11.0",
       "undici@>=8.1.0 <8.10.2": "8.10.2"
+    },
+    "patchedDependencies": {
+      "braces@3.0.3": "patches/braces@3.0.3.patch"
     }
   }
 }
