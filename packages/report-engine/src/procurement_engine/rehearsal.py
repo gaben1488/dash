@@ -35,15 +35,15 @@ def _coverage_details(candidate):
         count = len(set(evidence.get('candidate_uids') or []))
         candidate_buckets['0' if count == 0 else '1' if count == 1 else '2+'] += 1
 
+    from .normalize import normalize_id
+    from .recommendation_links import _text, _text_ids
+
     details = candidate.get('details') or []
     by_business = defaultdict(list)
     for row in details:
         business_id = normalize_id(row.get('source_row_no'))
         if business_id:
             by_business[(row.get('grbs'), business_id)].append(row)
-
-    from .normalize import normalize_id
-    from .recommendation_links import _text, _text_ids
 
     gap_shapes = Counter()
     subject_only = Counter()
