@@ -1,7 +1,11 @@
 import json
 import shutil
 
-from procurement_engine.archive_runtime import _source_for_day, ensure_archive_release, load_frozen_input
+from procurement_engine.archive_runtime import (
+    _source_for_day,
+    ensure_archive_release,
+    load_frozen_input,
+)
 from procurement_engine.google_adapter import capture_google
 from procurement_engine.identity_store import IdentityStore
 from procurement_engine.raw_pipeline import build_from_capture
