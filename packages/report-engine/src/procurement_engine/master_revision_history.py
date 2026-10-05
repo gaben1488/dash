@@ -30,7 +30,6 @@ def _revision_pages(client, provider_id):
         params = {
             'pageSize': 1000,
             'fields': 'nextPageToken,revisions(id,modifiedTime)',
-            'supportsAllDrives': 'true',
         }
         if token:
             params['pageToken'] = token
@@ -80,7 +79,7 @@ def _revision_export(client, provider_id, revision):
     )
     metadata = client._get(
         url,
-        {'fields': 'id,modifiedTime,exportLinks', 'supportsAllDrives': 'true'},
+        {'fields': 'id,modifiedTime,exportLinks'},
     )
     if metadata.get('id') != revision['id'] or metadata.get('modifiedTime') != revision['modifiedTime']:
         raise ValueError('MASTER_REVISION_CHANGED')
