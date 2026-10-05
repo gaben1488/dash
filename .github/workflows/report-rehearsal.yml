@@ -71,3 +71,51 @@ jobs:
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
+
+  historical-revision-preflight:
+    needs: frozen-replay
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'codex/report-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify exact historical master revisions with production read-only credentials
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 8m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in
+              *[!0-9a-f]*|'') exit 2 ;;
+            esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            work=$(mktemp -d /tmp/report-revision-probe.XXXXXX)
+            trap 'rm -rf "$work"' EXIT
+            git archive "$candidate" packages/report-engine | tar -x -C "$work"
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            echo "Checking exact historical master revisions read-only; no production files or Drive data are changed."
+            docker run --rm --read-only \
+              --security-opt no-new-privileges \
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+              --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              --env-file .env.production \
+              -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -m procurement_engine.cli probe-master-revisions \
+              --registry /app/packages/server/data/reports/inputs/registry.json \
+              --ledger /app/packages/server/data/reports/inputs/ledger.json
+
