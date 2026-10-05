@@ -23,7 +23,7 @@ const envSchema = z.object({
   // Google Sheets
   GOOGLE_SHEETS_SPREADSHEET_ID: z.string().optional(),
   /** Отдельная книга оперативного мониторинга/процедур; не путать с общим СВОД. */
-  MONITORING_SPREADSHEET_ID: z.string().trim().min(20).optional(),
+  MONITORING_SPREADSHEET_ID: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_PRIVATE_KEY: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(),
@@ -144,8 +144,12 @@ export const SVOD_SPREADSHEET_ID = SHARED_SVOD_ID;
  * который в Drive уже называется «старый …». Переменная окружения оставляет
  * явную управляемую точку миграции без правки исходников.
  */
-export const MONITORING_SPREADSHEET_ID = env.MONITORING_SPREADSHEET_ID
-  ?? '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
+const configuredMonitoringSpreadsheetId = env.MONITORING_SPREADSHEET_ID?.trim();
+export const MONITORING_SPREADSHEET_ID = configuredMonitoringSpreadsheetId
+  ? validateSpreadsheetIdForSourceChange(configuredMonitoringSpreadsheetId).success
+    ? configuredMonitoringSpreadsheetId
+    : (() => { throw new Error('MONITORING_SPREADSHEET_ID_INVALID'); })()
+  : '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
 /** ШДЮ — лист внутри основной таблицы СВОД_для_Google */
 export const SHDYU_SPREADSHEET_ID = SVOD_SPREADSHEET_ID;
 
