@@ -70,4 +70,4 @@ jobs:
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
-              -m procurement_engine.rehearsal --state /app/packages/server/data/reports
+              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
