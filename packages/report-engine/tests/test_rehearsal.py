@@ -26,6 +26,28 @@ def test_frozen_rehearsal_rebuilds_both_documents_without_publishing(tmp_path):
     assert business_files(state) == before
 
 
+
+def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    run_once(registry, ledger, state, client=CompleteGoogle())
+    result = rehearse_latest(state, coverage=True)
+    assert result['replay_status'] == 'PASS'
+    assert isinstance(result['identity_status_counts'], dict)
+    assert isinstance(result['identity_unresolved_candidate_uid_buckets'], dict)
+    assert isinstance(result['recommendation_gap_shapes'], dict)
+    assert isinstance(result['text_reference_missing_subject_shapes'], dict)
+    serialized = json.dumps({
+        'identity': result['identity_status_counts'],
+        'candidates': result['identity_unresolved_candidate_uid_buckets'],
+        'recommendations': result['recommendation_gap_shapes'],
+        'subjects': result['text_reference_missing_subject_shapes'],
+    }, ensure_ascii=False)
+    # Diagnostic output is counts only: no source locator, subject, recommendation ID or business ID.
+    for forbidden in ('source_row_key', 'recommendation_id', 'subject', 'business_id'):
+        assert forbidden not in serialized
+
+
 def test_missing_publication_is_not_a_successful_rehearsal(tmp_path):
     with pytest.raises(ValueError, match='PUBLICATION_NOT_FOUND'):
         rehearse_latest(tmp_path)
