@@ -38,6 +38,19 @@ def validate_inputs(registry, ledger):
             not s.get('semantic_header_fingerprint') or not isinstance(s.get('schema_change_reason'), str)
             or not s['schema_change_reason'].strip()):
             raise ValueError('INPUT_SCHEMA_MIGRATION_REASON_MISSING')
+        if 'volatile_header_cells' in s:
+            from .semantic_headers import semantic_header_hash
+
+            if (s['role'] not in {'procedure_lifecycle', 'formula_dependency'}
+                or not isinstance(s['volatile_header_cells'], list) or not s['volatile_header_cells']
+                or not s.get('semantic_header_fingerprint')
+                or not s.get('previous_semantic_header_fingerprint')
+                or not isinstance(s.get('schema_change_reason'), str) or not s['schema_change_reason'].strip()):
+                raise ValueError('INPUT_VOLATILE_HEADER_CONTRACT_INVALID')
+            try:
+                semantic_header_hash([], s['header_rows'], s['columns'], volatile_cells=s['volatile_header_cells'])
+            except (ValueError, TypeError):
+                raise ValueError('INPUT_VOLATILE_HEADER_CONTRACT_INVALID') from None
         safe = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in s['source_id'])
         pair = (s['provider_id'], s['sheet_id'])
         if s['source_id'] in ids or safe in paths or pair in sheets:

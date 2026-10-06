@@ -34,6 +34,7 @@ deployment_stage=schema_migration
 docker compose --env-file .env.production exec -T server sh -eu -c '
   umask 077
   /opt/report-env/bin/proc-report migrate-google-schema --registry data/reports/inputs/registry.json >data/reports/schema-migration.log 2>&1
+  /opt/report-env/bin/proc-report migrate-monitoring-schema --registry data/reports/inputs/registry.json --state data/reports >data/reports/monitoring-schema-migration.log 2>&1
 '
 deployment_stage=capture
 echo 'Report inputs ready. Reading and checking report sources; detailed output stays on the server.'

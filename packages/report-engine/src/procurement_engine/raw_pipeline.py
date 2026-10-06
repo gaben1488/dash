@@ -26,6 +26,7 @@ from .normalize import (
 from .procedures import (
     iter_operational_rows,
     normalize_procedure_values,
+    operational_cells,
     validate_operational_view,
     validate_procedure_lineage,
     validate_procedure_shares,
@@ -52,8 +53,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc18'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc18+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc19'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc19+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -113,7 +114,8 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
             raise ValueError(f'SOURCE_RANGE_INCOMPLETE:{sid}')
         if contract.get('semantic_header_fingerprint'):
             from .semantic_headers import semantic_header_hash
-            if semantic_header_hash(values, headers, contract['columns']) != contract['semantic_header_fingerprint']:
+            if semantic_header_hash(values, headers, contract['columns'],
+                volatile_cells=contract.get('volatile_header_cells', ())) != contract['semantic_header_fingerprint']:
                 raise ValueError(f'SOURCE_SEMANTIC_HEADER_CHANGED:{sid}')
         fingerprint = header_hash(values, contract['header_rows'])
         if fingerprint != contract['schema_fingerprint']:
@@ -432,7 +434,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     issues.extend(x.as_dict() for x in validate_operational_view(main['values'], queue['values'], as_of=report_date))
     active=[];closed_quality=[]
     for block, rn, offset, raw in iter_operational_rows(queue['values']):
-        c=lambda i, raw=raw: raw[i] if i<len(raw) else None
+        cells = operational_cells(raw, offset)
+        c=lambda i, cells=cells: cells[i] if i<len(cells) else None
         code=normalize_procedure_code(c(3))
         source_ref=f"{queue['provider_id']}::{queue['sheet']}::{rn}"
         if offset: source_ref += f"::column_offset={offset}"

@@ -21,13 +21,25 @@ def test_local_formula_closure_accepts_native_math_and_quoted_text():
     assert audit([s])['closed'] is True
 
 
+def test_native_navigation_links_do_not_fetch_external_values_but_keep_cell_dependencies():
+    s = source(formulas=[{'row': 1, 'column': 3,
+        'formula': '=HYPERLINK("#gid=1&range=A2";"В реестр")'}])
+    assert audit([s])['closed']
+    s['formula_evidence']['formulas'][0]['formula'] = '=HYPERLINK("https://example.org";Support!A1)'
+    assert not audit([s])['closed']
+    assert audit([s, source('support', 1, 'Support')])['closed']
+    s['formula_evidence']['formulas'][0]['formula'] = '=HYPERLINK(IMPORTRANGE("url";"A1");"Open")'
+    assert not audit([s])['closed']
+
+
 def test_absolute_references_are_local_cells_not_unknown_names():
     s = source(formulas=[{'row': 1, 'column': 3, 'formula': '=SUM($A$1:$B$3;A$1;$A1;$A:$C)'}])
     assert audit([s])['closed']
 
 
 @pytest.mark.parametrize('formula', ['=ISBLANK(A1)', '=LOWER(A1)', '=SUBSTITUTE(A1;"a";"b")',
-                                     '=SEARCH("a";A1)', '=COLUMNS(A1:C3)'])
+                                     '=SEARCH("a";A1)', '=COLUMNS(A1:C3)', '=IFERROR(DATEVALUE(A1);0)',
+                                     '=REDUCE(0;A1:A3;LAMBDA(accumulator;value;accumulator+value))'])
 def test_native_text_and_range_inspection_functions_are_local(formula):
     s = source(formulas=[{'row': 1, 'column': 3, 'formula': formula}])
     assert audit([s])['closed']

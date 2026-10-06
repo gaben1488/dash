@@ -23,3 +23,27 @@ History is keyed by both the previous registry and package hashes, so applying
 the same package to a different reviewed base preserves both records. External
 registry writers must coordinate with this lock to eliminate the final narrow
 check-to-replace window; deployment stops the report worker before migration.
+
+## Reviewed canonical monitoring update, 2026-10-06
+
+The live canonical workbook changed after the last sealed report: the operational
+queue now has active A:J rows and closed data checks in N:W; the filtered view
+was renamed; one archive caption changed; five legacy support/control sheets
+were removed. The eight primary plan books and primary procedure registry retain
+their complete header hashes. A separate explicit deployment migration accepts
+only the observed old/new hashes, existing physical identities and geometry.
+It preserves the historical ledger and all previous releases, and records the
+previous registry plus the review in immutable private history under the existing
+migration lock. Missing required or unreviewed sources still block.
+
+The Today value in analytics B1 and the filtered view's selection B1 and summary
+values B2/D2/F2/H2/J2 are data, not column captions. Only these explicitly reviewed
+header cells may vary; every static caption remains checked. Primary master
+headers cannot opt out. Full frozen values, formulas and arithmetic remain
+captured and audited, including those variable cells. New formula references to
+retired sheets still fail dependency closure and prevent publication.
+
+Queue checks retain their original physical cells and column offset. The current
+source formula leaves publication/repair deadlines unset; application dates do
+not become invented publication deadlines. Closed checks have no deadline field.
+Legacy frozen queue formats remain supported with their original semantics.
