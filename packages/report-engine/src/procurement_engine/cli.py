@@ -61,6 +61,9 @@ def main(argv=None):
     bootstrap.add_argument("--inputs", required=True)
     migration = sub.add_parser("migrate-google-schema", help="Apply reviewed private reference header migrations")
     migration.add_argument("--registry", required=True)
+    monitoring = sub.add_parser("migrate-monitoring-schema", help="Apply the explicit reviewed canonical monitoring update")
+    monitoring.add_argument("--registry", required=True)
+    monitoring.add_argument("--state", required=True)
     worker = sub.add_parser("worker", help="Periodically acquire, verify and attempt publication")
     worker.add_argument("--registry", required=True)
     worker.add_argument("--ledger", required=True)
@@ -109,6 +112,10 @@ def main(argv=None):
             locator=args.locator, uid=args.uid, reviewer=args.reviewer, reviewed_at=args.reviewed_at,
             evidence=load(args.evidence))
         dump({'review_id': review_id})
+        return 0
+    if args.cmd == 'migrate-monitoring-schema':
+        from .monitoring_schema import apply_monitoring_schema
+        dump({'reviewed_monitoring_changes_applied': apply_monitoring_schema(args.registry, args.state)})
         return 0
     if args.cmd == 'migrate-google-schema':
         from .schema_migrations import apply_google_schema_migrations

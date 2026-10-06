@@ -62,3 +62,48 @@ def test_parallel_queue_includes_missing_dates_but_not_reference_notes():
     title = ['Процедуры в работе'] + [''] * 11 + ['Данные по закрытым строкам']
     closed = queue(incomplete); closed[2] = 'Разобрать замечания'
     assert validate_operational_view([incomplete, reference], [title, [''] * 12 + closed], as_of='2026-09-30') == []
+
+
+def test_current_closed_checks_without_deadlines_keep_every_physical_row():
+    from procurement_engine.procedures import iter_operational_rows
+
+    active = master('ЭА1-26', 'Объявлена')
+    closed = master('ЭА2-26', 'Состоялась', 'Состоялась', action='')
+    closed[24] = 'Неполно: Нет даты итогов — L'
+    title = ['Очередь на сегодня'] + [''] * 12 + ['Проверки данных закрытых процедур']
+    headers = ['Срок', 'Дней до срока', 'Действие', 'Код', 'Управление', 'Заказчик',
+               'Предмет', 'НМЦК', 'Стадия', 'Сигнал'] + [''] * 3 + [
+               'Уровень', 'Код', 'Действие', 'Управление', 'Заказчик', 'Предмет',
+               'НМЦК', 'Стадия', 'Сигнал', 'Открыть']
+    checks = ['Неполно', closed[0], 'Уточнить даты итогов', '', '', closed[6], 0,
+              closed[22], closed[24], 'В реестр']
+    closed[23] = checks[2]
+    view = [title, headers, queue(active) + [''] * 3 + checks]
+    assert validate_operational_view([active, closed], view, as_of='2026-09-30') == []
+    records = list(iter_operational_rows(view))
+    assert [(block, number, offset) for block, number, offset, _ in records] == [
+        ('active', 3, 0), ('closed_quality', 3, 13)]
+    assert records[1][3] == checks
+    view[2][18] = 'Другой предмет'
+    assert 'PROCEDURE_QUEUE_RECORD_MISMATCH' in {
+        issue.code for issue in validate_operational_view([active, closed], view, as_of='2026-09-30')}
+    view[2] = view[2][:13]
+    assert 'PROCEDURE_QUEUE_COVERAGE_MISMATCH' in {
+        issue.code for issue in validate_operational_view([active, closed], view, as_of='2026-09-30')}
+
+
+def test_current_queue_does_not_turn_application_dates_into_publication_deadlines():
+    closed = master('ЭА2-26', 'Состоялась', 'Состоялась', action='')
+    closed[24] = 'Проверить: неоднозначный ИНН — S'
+    application = master('ЭА1-26', 'Заявка в уполномоченном органе', action='Разместить извещение')
+    application[9] = ''
+    repair = master('ЭА3-26', 'Объявлена', action='Исправить: сумму')
+    headers = [''] * 13 + ['Уровень', 'Код', 'Действие', 'Управление', 'Заказчик',
+                          'Предмет', 'НМЦК', 'Стадия', 'Сигнал', 'Открыть']
+    checks = ['Проверить', closed[0], 'Проверить данные', '', '', closed[6], 0,
+              closed[22], closed[24], 'В реестр']
+    view = [headers, queue(application, '') + [''] * 3 + checks, queue(repair, '')]
+    assert validate_operational_view([application, repair, closed], view, as_of='2026-09-30') == []
+    view[1][0] = application[8]
+    assert 'PROCEDURE_QUEUE_RECORD_MISMATCH' in {
+        issue.code for issue in validate_operational_view([application, repair, closed], view, as_of='2026-09-30')}

@@ -20,7 +20,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'codex/report-')
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 10
     steps:
       - name: Inspect registered live headers without source contents or writes
         uses: appleboy/ssh-action@v1.2.0
@@ -29,17 +29,28 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 4m
+          command_timeout: 8m
           script_stop: false
           script: |
             set -euo pipefail
             umask 077
-            cd /home/aemr/dash/deploy
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in
+              *[!0-9a-f]*|'') exit 2 ;;
+            esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            work=$(mktemp -d /tmp/report-schema-preflight.XXXXXX)
+            trap 'rm -rf "$work"' EXIT
+            git archive "$candidate" packages/report-engine | tar -x -C "$work"
+            cd deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
             image=$(docker inspect --format '{{.Image}}' "$server")
             docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
               --env-file .env.production --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" - <<'PYREAD'
             import json, tempfile
             from pathlib import Path
@@ -75,6 +86,23 @@ jobs:
                     item["status"] = str(error) if str(error) == "GOOGLE_SHEET_ID_NOT_FOUND" else "GOOGLE_HEADER_READ_FAILED"
                 results.append(item)
             print(json.dumps({"installed_contract_preflight": results}, ensure_ascii=False, sort_keys=True))
+            from procurement_engine.monitoring_schema import review_registry
+            from procurement_engine.runtime_inputs import validate_inputs
+            reviewed, changes = review_registry(registry, sealed, client)
+            validate_inputs(reviewed, json.loads((root / "inputs/ledger.json").read_text()))
+            original_primary = [source for source in registry["sources"] if source["role"] == "master" or source["sheet"] == "Рабочий реестр процедур"]
+            reviewed_primary = [source for source in reviewed["sources"] if source["role"] == "master" or source["sheet"] == "Рабочий реестр процедур"]
+            print(json.dumps({"reviewed_monitoring_preview": {"status": "PASS", "changes": changes, "sources_before": len(registry["sources"]), "sources_after": len(reviewed["sources"]), "primary_contracts_unchanged": original_primary == reviewed_primary}}, sort_keys=True))
+            from collections import Counter
+            from procurement_engine.google_adapter import capture_google
+            from procurement_engine.formula_dependencies import audit_formula_dependencies
+            from procurement_engine.raw_pipeline import bundle_from_capture
+            capture = capture_google(reviewed, client)
+            bundle_from_capture(capture, reviewed, json.loads((root / "inputs/ledger.json").read_text()))
+            closure = audit_formula_dependencies(capture)
+            print(json.dumps({"reviewed_live_source_closure": {"status": "PASS" if closure["closed"] else "BLOCKED", "source_count": len(capture["sources"]), "issue_counts": dict(Counter(issue["code"] for issue in closure["issues"]))}}, sort_keys=True))
+            if not closure["closed"]:
+                raise SystemExit(2)
             with tempfile.TemporaryDirectory() as temporary:
                 target = Path(temporary) / "inputs"
                 install_google_inputs(target, client=client)

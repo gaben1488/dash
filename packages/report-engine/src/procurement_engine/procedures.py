@@ -198,21 +198,39 @@ def validate_procedure_shares(attempts: list, shares: list) -> list[ValidationIs
     return issues
 
 
+def _closed_check_view(queue_values):
+    return any(len(row) >= 23 and [clean_text(c) for c in row[13:23]] == [
+        'Уровень', 'Код', 'Действие', 'Управление', 'Заказчик', 'Предмет',
+        'НМЦК', 'Стадия', 'Сигнал', 'Открыть'] for row in queue_values)
+
+
+def operational_cells(raw, offset):
+    """Map reviewed physical columns without changing the retained source cells."""
+    if offset != 13:
+        return raw
+    c = lambda i: raw[i] if i < len(raw) else ''
+    return ['', '', c(2), c(1), *[c(i) for i in range(3, 9)]]
+
+
 def iter_operational_rows(queue_values):
-    """Read both legacy stacked blocks and fixed A:J / M:V blocks.
+    """Read stacked queues, A:J / M:V queues and the N:W closed checks.
 
     Column offset is kept with each physical row so the source address stays verifiable.
     """
     parallel = any(len(row) > 12 and clean_text(row[12]).casefold() == 'данные по закрытым строкам'
                    for row in queue_values)
+    checks = _closed_check_view(queue_values)
     block = 'active'
     for number, row in enumerate(queue_values, 1):
         if row and clean_text(row[0]).casefold() == 'данные по закрытым строкам':
             block = 'closed_quality'
             continue
-        for current, offset in ([('active', 0), ('closed_quality', 12)] if parallel else [(block, 0)]):
+        blocks = [('active', 0), ('closed_quality', 13)] if checks else (
+            [('active', 0), ('closed_quality', 12)] if parallel else [(block, 0)])
+        for current, offset in blocks:
             cells = row[offset:offset + 10]
-            if len(cells) > 3 and normalize_procedure_code(cells[3]):
+            mapped = operational_cells(cells, offset)
+            if len(mapped) > 3 and normalize_procedure_code(mapped[3]):
                 yield current, number, offset, cells
 
 
@@ -230,6 +248,7 @@ def validate_operational_view(master_values, queue_values, *, as_of):
     expected = {'active': {}, 'closed_quality': {}}
     parallel = any(len(row) > 12 and clean_text(row[12]).casefold() == 'данные по закрытым строкам'
                    for row in queue_values)
+    checks = _closed_check_view(queue_values)
     active_stages = {'Заявка в уполномоченном органе', 'Объявлена', 'Итог не внесён'}
     closed_stages = {'Состоялась', 'Не состоялась', 'Переоформлена'}
     for number, row in enumerate(master_values, 1):
@@ -256,19 +275,24 @@ def validate_operational_view(master_values, queue_values, *, as_of):
                 'Стадия реестра не соответствует датам на момент отчёта.',
                 {'procedure_code': code, 'row': number, 'expected': stage, 'observed': c(22), 'as_of': day}))
         action = clean_text(c(23)); quality = clean_text(c(24))
-        if stage in active_stages and action:
+        if stage in active_stages and (action or checks):
             deadline = day if action.startswith('Исправить: ') else application if action == 'Разместить извещение' else results_due
+            if checks and (action == 'Разместить извещение' or action.startswith('Исправить: ')):
+                deadline = None  # Current source formula explicitly leaves these deadlines unset.
             block = 'active'
         elif stage in closed_stages and (action or 'Ошибка: ' in quality or 'Проверить: ' in quality
-                                        or (parallel and 'Неполно: ' in quality)):
-            deadline = results_due
+                                        or ((parallel or checks) and 'Неполно: ' in quality)):
+            deadline = None if checks else results_due
             block = 'closed_quality'
+            if checks and not action:
+                action = 'Проверить данные'
         else:
             continue
         expected[block][code] = (stage, clean_text(c(6)), action, deadline)
 
     observed = {'active': {}, 'closed_quality': {}}
     for block, number, offset, row in iter_operational_rows(queue_values):
+        row = operational_cells(row, offset)
         def c(i, row=row): return row[i] if i < len(row) else ''
         if offset and not expected[block].get(normalize_procedure_code(c(3)), ('', '', ''))[2]:
             code = normalize_procedure_code(c(3))

@@ -9,6 +9,7 @@ from .normalize import normalize_procedure_code
 from .procedures import (
     iter_operational_rows,
     normalize_procedure_values,
+    operational_cells,
     validate_operational_view,
     validate_procedure_lineage,
     validate_procedure_shares,
@@ -213,7 +214,8 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     if any(i.severity=='ERROR' for i in raw_issues):errors.append('procedure_source_contract')
     active=[];closed=[]
     for block,rn,offset,row in iter_operational_rows(queue['values']):
-        c=lambda i,row=row:row[i] if i<len(row) else None
+        cells = operational_cells(row, offset)
+        c=lambda i,cells=cells:cells[i] if i<len(cells) else None
         code=normalize_procedure_code(c(3))
         source_ref=f"{queue['provider_id']}::{queue['sheet']}::{rn}"
         if offset: source_ref += f"::column_offset={offset}"

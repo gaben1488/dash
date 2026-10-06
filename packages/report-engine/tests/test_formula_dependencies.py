@@ -21,6 +21,17 @@ def test_local_formula_closure_accepts_native_math_and_quoted_text():
     assert audit([s])['closed'] is True
 
 
+def test_native_navigation_links_do_not_fetch_external_values_but_keep_cell_dependencies():
+    s = source(formulas=[{'row': 1, 'column': 3,
+        'formula': '=HYPERLINK("#gid=1&range=A2";"В реестр")'}])
+    assert audit([s])['closed']
+    s['formula_evidence']['formulas'][0]['formula'] = '=HYPERLINK("https://example.org";Support!A1)'
+    assert not audit([s])['closed']
+    assert audit([s, source('support', 1, 'Support')])['closed']
+    s['formula_evidence']['formulas'][0]['formula'] = '=HYPERLINK(IMPORTRANGE("url";"A1");"Open")'
+    assert not audit([s])['closed']
+
+
 def test_absolute_references_are_local_cells_not_unknown_names():
     s = source(formulas=[{'row': 1, 'column': 3, 'formula': '=SUM($A$1:$B$3;A$1;$A1;$A:$C)'}])
     assert audit([s])['closed']

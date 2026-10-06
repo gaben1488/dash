@@ -10,7 +10,7 @@ from .normalize import clean_text
 from .snapshot import canonical_semantic_hash
 
 
-def semantic_header_hash(values, header_rows, columns):
+def semantic_header_hash(values, header_rows, columns, *, volatile_cells=()):
     if type(header_rows) is not int or type(columns) is not int or header_rows < 1 or columns < 1:
         raise ValueError('SOURCE_SEMANTIC_HEADER_INVALID')
     result = []
@@ -22,6 +22,15 @@ def semantic_header_hash(values, header_rows, columns):
         cells.extend([''] * (columns - len(cells)))
         result.append(cells)
     result.extend([[''] * columns for _ in range(header_rows - len(result))])
+    seen = set()
+    for cell in volatile_cells:
+        if (not isinstance(cell, (list, tuple)) or len(cell) != 2
+            or any(type(n) is not int for n in cell)
+            or not 1 <= cell[0] <= header_rows or not 1 <= cell[1] <= columns
+            or tuple(cell) in seen):
+            raise ValueError('SOURCE_SEMANTIC_HEADER_INVALID')
+        seen.add(tuple(cell))
+        result[cell[0] - 1][cell[1] - 1] = ''
     return canonical_semantic_hash({'header_rows': header_rows, 'columns': columns, 'values': result})
 
 
@@ -39,7 +48,8 @@ def _headers(root):
         if sid not in contracts:
             continue
         source = contracts[sid]
-        result[sid] = (source, semantic_header_hash(payload['semantic_values'], source['header_rows'], source['columns']))
+        result[sid] = (source, semantic_header_hash(payload['semantic_values'], source['header_rows'], source['columns'],
+            volatile_cells=source.get('volatile_header_cells', ())))
     return result
 
 
