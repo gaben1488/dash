@@ -33,7 +33,7 @@ class ArchiveError(ValueError):
 
 MESSAGES = {
     'ARCHIVE_NOT_FOUND': 'За выбранную дату полный архив входных данных не найден. Текущие таблицы не использованы.',
-    'ARCHIVE_INPUT_INCOMPLETE': 'Снимок страницы сохранился, но полного набора входов отчёта в нём нет. Требуется восстановление исходного недельного архива; переписывать отчёт вручную не нужно.',
+    'ARCHIVE_INPUT_INCOMPLETE': 'Снимок страницы сохранился, но полного набора входов отчёта в нём нет. Требуется восстановление полного снимка входов генератора; переписывать отчёт вручную не нужно.',
     'ARCHIVE_CORRUPT': 'Проверка целостности архива не пройдена. Требуется восстановление архивной копии; рабочие таблицы менять не нужно.',
     'ARCHIVE_CHANGED': 'Архив изменился во время обработки. Выпуск отменён; требуется проверка хранения архива.',
     'ARCHIVE_BUILD_FAILED': 'Сборка архивного отчёта не прошла контроль. Это задача сопровождения; последний сохранённый выпуск не заменён.',
@@ -257,12 +257,6 @@ def ensure_archive_release(state_dir, *, day, year, quarter, legacy_database=Non
                     return result
             _write(work / 'status.json', {**result, 'archive': {'status': 'RUNNING', 'code': 'ARCHIVE_BUSY', 'message': MESSAGES['ARCHIVE_BUSY']}})
             source = _source_for_day(state, day)
-            if source is None:
-                # Lazy import: the old installed runtime can replay saved Google
-                # bundles without loading the optional XLSX translator.
-                from .file_archive import import_inbox_week
-                if import_inbox_week(state, day) is not None:
-                    source = _source_for_day(state, day)
             if source is None:
                 coverage = legacy_coverage(legacy_database, day) if legacy_database else None
                 if coverage:

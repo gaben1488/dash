@@ -10,9 +10,10 @@ import json
 import re
 import tempfile
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 
-from .deployment_diagnostics import PUBLIC_CODES, public_error_code
+from .deployment_diagnostics import PUBLIC_CODES, public_error_code, safe_sqlite_error
 from .identity_store import IdentityStore, freeze_identity_snapshot
 from .publication_store import PublicationStore, _validate
 from .raw_pipeline import build_from_capture
@@ -21,6 +22,26 @@ from .runtime_inputs import validate_inputs
 
 def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+def rehearse_weekly(state):
+    """Replay the newest own sealed week into disposable storage, offline."""
+    from .archive_runtime import build_archived_release
+
+    weeks = sorted(Path(state).glob('archives/WEEKLY-*'))
+    if not weeks:
+        return None
+    source = weeks[-1]
+    day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
+    with tempfile.TemporaryDirectory(prefix='report-weekly-rehearsal-') as temporary:
+        receipt = build_archived_release(source, temporary, day=day.isoformat(),
+                                         year=day.year, quarter=(day.month - 1) // 3 + 1)
+        root = Path(temporary) / 'published/releases' / receipt['release_id']
+        _validate(root)
+        documents = all((root / name).read_bytes().startswith(b'PK')
+                        for name in ('main_report.docx', 'management_report.docx'))
+        return {'replay_status': 'PASS', 'two_docx_rebuilt': documents,
+                'source_verification': receipt['source_verification']}
 
 
 
@@ -169,7 +190,8 @@ def rehearse_latest(state_dir, *, coverage=False):
         )
         identities = IdentityStore(work / 'identity.sqlite')
         identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
-            *state.glob('published/releases/*/snapshot_bundle')], recover_chain=True)
+            *state.glob('published/releases/*/snapshot_bundle'),
+            *state.glob('archives/*/snapshot_bundle')], recover_chain=True)
         candidate = build_from_capture(capture, registry, ledger, work / 'bundle', identity_store=identities)
         issues = [*candidate.get('issues', []), *candidate['release']['blockers']]
         errors = Counter(issue['code'] if issue.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
@@ -192,6 +214,9 @@ def rehearse_latest(state_dir, *, coverage=False):
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
             result.update(_coverage_details(candidate, identities))
+            weekly = rehearse_weekly(state)
+            if weekly is not None:
+                result['weekly'] = weekly
         return result
 
 
@@ -211,10 +236,10 @@ def main(argv=None):
         }
         # Known invariant failures are fixed machine codes. Expose only that
         # restricted grammar; arbitrary exception text can contain source data.
-        if re.fullmatch(r'[A-Z][A-Z0-9_:-]{2,96}', message):
+        if message in PUBLIC_CODES:
             result['internal_code'] = message
         sqlite_error = getattr(error, 'sqlite_errorname', None)
-        if isinstance(sqlite_error, str) and re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
+        if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     return 0 if result['replay_status'] == 'PASS' else 2

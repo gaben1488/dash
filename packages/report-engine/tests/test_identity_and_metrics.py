@@ -300,3 +300,43 @@ def test_freeze_identity_snapshot_upgrades_legacy_optional_columns_without_sourc
     with restored.connect() as db:
         columns = {item['name'] for item in db.execute('PRAGMA table_info(observations)')}
     assert {'plan_signature', 'entity_signature'} <= columns
+
+
+def test_identity_recovery_skips_malformed_transient_attempt_donor(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    store.ingest([row()], snapshot_id='legacy', captured_at='2026-09-30T00:00:00Z')
+    with store.connect() as db, db:
+        db.execute(
+            'UPDATE observations SET plan_signature=NULL WHERE snapshot_id=?',
+            ('legacy',),
+        )
+
+    donor = tmp_path / 'attempts' / 'broken' / 'bundle' / 'snapshot_bundle'
+    donor.mkdir(parents=True)
+    (donor / 'manifest.json').write_text('{', encoding='utf-8')
+
+    diagnostics = {}
+    assert store.recover_latest_plan_signatures([donor], diagnostics=diagnostics) == 0
+    assert diagnostics == {'skipped_transient_donors': 1, 'unrecovered_snapshots': 1}
+    with store.connect() as db:
+        assert db.execute(
+            'SELECT plan_signature FROM observations WHERE snapshot_id=?',
+            ('legacy',),
+        ).fetchone()[0] is None
+
+
+def test_identity_recovery_fails_closed_for_malformed_published_donor(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    store.ingest([row()], snapshot_id='legacy', captured_at='2026-09-30T00:00:00Z')
+    with store.connect() as db, db:
+        db.execute(
+            'UPDATE observations SET plan_signature=NULL WHERE snapshot_id=?',
+            ('legacy',),
+        )
+
+    donor = tmp_path / 'published' / 'releases' / 'REL-broken' / 'snapshot_bundle'
+    donor.mkdir(parents=True)
+    (donor / 'manifest.json').write_text('{', encoding='utf-8')
+
+    with pytest.raises(ValueError, match='IDENTITY_BACKFILL_DONOR_INVALID'):
+        store.recover_latest_plan_signatures([donor])

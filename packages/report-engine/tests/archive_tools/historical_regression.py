@@ -14,9 +14,8 @@ from io import BytesIO
 from itertools import chain
 
 from openpyxl import load_workbook
-
-from .independent_audit import number, recount, text
-from .normalize import parse_date
+from procurement_engine.independent_audit import number, recount, text
+from procurement_engine.normalize import parse_date
 
 CONTRACT = 'historical-master-regression-v1'
 ORACLE_CONTRACT = 'historical-master-oracle-v1'
@@ -227,7 +226,8 @@ def probe_google_historical_regression(registry, oracle, client, *, timezone_nam
     """
     if oracle.get('contract') != ORACLE_CONTRACT:
         raise ValueError('HISTORICAL_ORACLE_INVALID')
-    from .google_adapter import GoogleReadError
+    from procurement_engine.google_adapter import GoogleReadError
+
     from .master_revision_history import (
         _revision_export,
         revision_export_unavailable,

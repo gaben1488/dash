@@ -4,13 +4,12 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import re
 import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .deployment_diagnostics import public_error_code
+from .deployment_diagnostics import public_error_code, safe_sqlite_error
 from .google_adapter import GoogleReadClient, capture_google
 from .identity_store import IdentityStore
 from .publication_store import PublicationStore
@@ -90,9 +89,13 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             _write(attempt / 'capture.json', capture)
             previous = publications.previous_model(capture['report_date'])
             stage = 'build'
+            recovery_diagnostics = {}
             identities.recover_latest_plan_signatures([
                 *state.glob('attempts/*/bundle/snapshot_bundle'),
-                *state.glob('published/releases/*/snapshot_bundle')], recover_chain=True)
+                *state.glob('published/releases/*/snapshot_bundle'),
+                *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+            if any(recovery_diagnostics.values()):
+                status['identity_recovery'] = recovery_diagnostics
             model = build_from_capture(capture, registry, ledger, attempt / 'bundle',
                                        identity_store=identities, previous_publication=previous)
             status['snapshot_id'] = model['snapshot']['snapshot_id']
@@ -116,9 +119,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
             code = public_error_code(str(error))
-            sqlite_error = getattr(error, 'sqlite_errorname', None)
-            if not isinstance(sqlite_error, str) or not re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
-                sqlite_error = None
+            sqlite_error = safe_sqlite_error(getattr(error, 'sqlite_errorname', None))
             private_error = attempt / 'error.json'
             try:
                 with private_error.open('x', encoding='utf-8') as file:

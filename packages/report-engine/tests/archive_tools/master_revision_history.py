@@ -15,10 +15,9 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
-
-from .google_adapter import GoogleReadError
-from .normalize import parse_date
-from .raw_pipeline import header_hash
+from procurement_engine.google_adapter import GoogleReadError
+from procurement_engine.normalize import parse_date
+from procurement_engine.raw_pipeline import header_hash
 
 XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 CONTRACT = 'exact-master-revision-probe-v2'

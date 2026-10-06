@@ -430,6 +430,40 @@ def resolve_subject_only(rec, rows):
         verified_origin=proof, entity_link_rules=True, exact_subject_fallback=True)
 
 
+def test_v6_shared_full_subject_links_every_explicit_group_member_and_preserves_v5():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = recommendation('Вынести на ЭА 42,43 Поставка бумаги – 92,00 тыс. руб. (совместный аукцион)')
+    rec['active_in_current_slice'] = True
+    rows = [replace(row(), planned_year=2026), replace(row(), source_row_no='43',
+        procurement_id='43', row_number=5, procurement_uid='PUR-second', planned_year=2026)]
+    old = review_recommendations([rec], rows, 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+        link_contract='verified-original-and-current-plan-v5')[0]
+    current = review_recommendations([rec], rows, 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+        link_contract='verified-original-and-current-plan-v6')[0]
+    assert old['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
+    assert current['current_link']['status'] == 'CONFIRMED'
+    assert set(current['current_procurement_uids']) == {'PUR-synthetic', 'PUR-second'}
+    assert current['current_link']['fulfillment'] == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('change', [
+    {'subject': 'Поставка бумаги и картриджей'}, {'procurement_uid': None},
+    {'planned_year': 2027}, {'source_row_no': '44'}, {'procurement_uid': 'PUR-synthetic'},
+])
+def test_v6_shared_subject_never_confirms_incomplete_or_mismatched_group(change):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = recommendation('Вынести на ЭА 42,43 Поставка бумаги – 92,00 тыс. руб. (совместный аукцион)')
+    rec['active_in_current_slice'] = True
+    second = replace(row(), source_row_no='43', procurement_id='43', row_number=5,
+        procurement_uid='PUR-second', planned_year=2026)
+    result = review_recommendations([rec], [replace(row(), planned_year=2026), replace(second, **change)],
+        'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+        link_contract='verified-original-and-current-plan-v6')[0]
+    assert result['current_link']['status'] != 'CONFIRMED'
+
+
 def subject_only_recommendation(text):
     rec = recommendation(text)
     rec['source_procurement_ids'] = []

@@ -5,6 +5,7 @@ keys, source identifiers or business metrics are printed to deployment logs.
 """
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import os
@@ -12,7 +13,8 @@ import sys
 import time
 import urllib.request
 import zipfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from xml.etree import ElementTree
@@ -59,7 +61,40 @@ def check_exports(fetch):
     return {'context': 'PASS', 'main': 'PASS', 'supplement': 'PASS', 'snapshot': 'PASS'}
 
 
-def main():
+def check_worker_cycle(read_status, since, *, sleep=time.sleep, attempts=91):
+    """Require a completed automatic attempt after startup, not preflight success."""
+    marker = datetime.fromisoformat(since)
+    if marker.tzinfo is None:
+        raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+    for attempt in range(attempts):
+        status = read_status()
+        started = datetime.fromisoformat(status['started_at'])
+        if started.tzinfo is not None and started >= marker:
+            if status.get('status') == 'NOT_ISSUED':
+                raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+            if status.get('status') in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}:
+                finished = datetime.fromisoformat(status.get('finished_at', ''))
+                publication = status.get('publication') or {}
+                if (finished.tzinfo is None or finished < started or not status.get('snapshot_id')
+                        or status['snapshot_id'] != publication.get('snapshot_id')):
+                    raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+                result = {'worker': 'PASS'}
+                assurance = status.get('automation_assurance') or publication.get('automation_assurance')
+                if assurance:
+                    result['automation'] = {key: assurance.get(key) for key in ('fully_automated',
+                        'user_action_count', 'engine_action_count', 'active_recommendations',
+                        'link_status_counts', 'action_status_counts')}
+                return result
+        if attempt < attempts - 1:
+            sleep(3)
+    raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+
+
+def main(argv=()):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--worker-since')
+    parser.add_argument('--state', default='/app/packages/server/data/reports')
+    args = parser.parse_args(argv)
     def fetch(path):
         headers = {'Authorization': 'Bearer ' + os.environ.get('AEMR_API_KEY', '')}
         request = urllib.request.Request('http://127.0.0.1:' + str(int(os.environ.get('PORT', '3000'))) + path,
@@ -70,13 +105,20 @@ def main():
                 raise ValueError('REPORT_EXPORT_RESPONSE_TOO_LARGE')
             return payload
     try:
-        print(json.dumps(check_exports(lambda path: fetch_when_ready(fetch, path))))
+        if args.worker_since:
+            result = check_worker_cycle(lambda: json.loads((Path(args.state) / 'status.json').read_text()),
+                                        args.worker_since)
+        else:
+            result = check_exports(lambda path: fetch_when_ready(fetch, path))
+        print(json.dumps(result))
         return 0
     except Exception as error:  # noqa: BLE001 — sanitize all deployment output.
         code = str(error)
         allowed = {'REPORT_EXPORT_CONTEXT_MISSING', 'REPORT_EXPORT_SNAPSHOT_MISMATCH',
-                   'REPORT_EXPORT_DOCUMENT_INVALID', 'REPORT_EXPORT_RESPONSE_TOO_LARGE'}
-        public = code if code in allowed else 'REPORT_EXPORT_HTTP_CHECK_FAILED'
+                   'REPORT_EXPORT_DOCUMENT_INVALID', 'REPORT_EXPORT_RESPONSE_TOO_LARGE',
+                   'REPORT_WORKER_CYCLE_FAILED'}
+        public = code if code in allowed else ('REPORT_WORKER_CYCLE_FAILED' if args.worker_since
+                                               else 'REPORT_EXPORT_HTTP_CHECK_FAILED')
         if isinstance(error, HTTPError) and error.code in {400, 401, 403, 404, 429, 500, 502, 503, 504}:
             public = 'REPORT_EXPORT_HTTP_' + str(error.code)
         print(public, file=sys.stderr)
@@ -84,4 +126,4 @@ def main():
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

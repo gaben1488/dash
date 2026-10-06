@@ -51,8 +51,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc14'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc14+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc15'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc15+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -74,7 +74,7 @@ def header_hash(values, header_rows):
 def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=None):
     """Validate a completed connector capture. Never simulate revision rereads."""
     if capture.get('archived_file_evidence') is not None:
-        from .file_archive import verify_archived_values
+        from .archived_evidence import verify_archived_values
         verify_archived_values(capture, registry=registry, ledger=ledger)
     expected = {s['source_id']: s for s in registry['sources']}
     got = capture['sources']
@@ -266,9 +266,10 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
         gaps.append('Совпадение номера не подтверждает постоянную идентичность; исполнение не установлено.')
         proof = verify_saved_report_origin(old, documents or {})
         link = resolve_current_link(old, rows, report_date=report_date, snapshot_id=snapshot_id, verified_origin=proof,
-            legacy_group_rules=link_contract not in {'verified-original-and-current-plan-v2', 'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'},
-            entity_link_rules=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'},
-            exact_subject_fallback=link_contract == 'verified-original-and-current-plan-v5')
+            legacy_group_rules=link_contract not in {'verified-original-and-current-plan-v2', 'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'},
+            entity_link_rules=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'},
+            exact_subject_fallback=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'},
+            shared_group_subject=link_contract == 'verified-original-and-current-plan-v6')
         confirmed = active and link['status'] == 'CONFIRMED'
         r.update(semantic_status=('CURRENT_LINK_CONFIRMED' if confirmed else 'REVIEW_REQUIRED') if active else 'SUPERSEDED',
             semantic_status_ru='', current_link=link,
@@ -283,9 +284,9 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
             from .recommendation_evidence import confirmed_result
 
             reviewed = confirmed_result(old, rows, identity_evidence, report_date,
-                compile_original=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'},
-                reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'},
-                subject_reference_grammar=link_contract == 'verified-original-and-current-plan-v5')
+                compile_original=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'},
+                reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'},
+                subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'})
             if reviewed is not None:
                 r.update(reviewed)
             elif confirmed:
@@ -296,13 +297,13 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
 
                 linked_rows = [row for row in rows if row.procurement_uid in link['procurement_uids']]
                 spec = None
-                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'}:
+                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'}:
                     from .action_spec import compile_action
                     spec = compile_action(old.get('recommendation_text'), source_ids=link['business_ids'],
                         subjects=[(row.source_row_no, row.subject) for row in linked_rows],
-                        reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'},
-                        subject_reference_grammar=link_contract == 'verified-original-and-current-plan-v5')
-                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5'} or action_target_proven(old, link['business_ids']):
+                        reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'},
+                        subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'})
+                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6'} or action_target_proven(old, link['business_ids']):
                     r.update(evaluate_linked_action(old, linked_rows, report_date,
                         source_ids=link['business_ids'], evidence_quality='VERIFIED_ORIGIN_AND_CURRENT_IDENTITY',
                         action_spec=spec))
@@ -443,7 +444,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
         from .recommendation_history import enroll_history_package
 
         _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
-    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence, context_contract='source-context-v1', link_contract='verified-original-and-current-plan-v5')
+    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence, context_contract='source-context-v1', link_contract='verified-original-and-current-plan-v6')
     unresolved_recs=[r['recommendation_id'] for r in replay if r['active_in_current_slice'] and r['semantic_status']=='REVIEW_REQUIRED']
     if unresolved_recs:
         issues.append({'severity':'WARN','code':'RECOMMENDATION_LINK_UNCONFIRMED',
@@ -461,7 +462,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
-    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v5'
+    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v6'
     model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}

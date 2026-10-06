@@ -10,6 +10,33 @@ from test_recorded_release import CompleteGoogle
 from test_runtime import inputs
 
 
+def test_worker_acceptance_waits_for_a_new_completed_cycle():
+    from procurement_engine.deployment_smoke import check_worker_cycle
+
+    old = {'started_at': '2026-10-06T08:00:00+00:00', 'status': 'VERIFIED'}
+    running = {'started_at': '2026-10-06T08:02:00+00:00', 'status': 'RUNNING'}
+    done = {**running, 'status': 'VERIFIED_WITH_WARNINGS', 'finished_at': '2026-10-06T08:03:00+00:00',
+        'snapshot_id': 'snapshot', 'publication': {'snapshot_id': 'snapshot'}}
+    statuses = iter([old, running, done]); waits = []
+    assert check_worker_cycle(lambda: next(statuses), '2026-10-06T08:01:00+00:00',
+        sleep=waits.append) == {'worker': 'PASS'}
+    assert waits == [3, 3]
+
+
+@pytest.mark.parametrize('status', [
+    {'status': 'NOT_ISSUED', 'started_at': '2026-10-06T08:02:00+00:00'},
+    {'status': 'VERIFIED', 'started_at': '2026-10-06T08:00:00+00:00'},
+    {'status': 'VERIFIED', 'started_at': '2026-10-06T08:02:00+00:00',
+     'finished_at': '2026-10-06T08:03:00+00:00', 'snapshot_id': 'new', 'publication': {'snapshot_id': 'old'}},
+])
+def test_worker_acceptance_rejects_failure_stale_cycle_or_wrong_snapshot(status):
+    from procurement_engine.deployment_smoke import check_worker_cycle
+
+    with pytest.raises(ValueError, match='REPORT_WORKER_CYCLE_FAILED'):
+        check_worker_cycle(lambda: status, '2026-10-06T08:01:00+00:00', sleep=lambda _: None,
+            attempts=2)
+
+
 def test_readiness_retries_temporary_503_without_changing_report_selection():
     from procurement_engine.deployment_smoke import fetch_when_ready
 

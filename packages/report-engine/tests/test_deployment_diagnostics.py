@@ -92,3 +92,9 @@ def test_arbitrary_sqlite_text_is_not_exposed():
         'last_report_status': 'NOT_ISSUED',
         'error_type': 'OperationalError',
     }
+
+
+def test_sqlite_prefix_is_not_an_allowlist():
+    for value in ('SQLITE_PRIVATE_CUSTOMER_NAME', 'SQLITE_PASSWORD_12345', 'SQLITE_' + 'X' * 10000):
+        assert 'sqlite_error' not in summarize_status({'status': 'NOT_ISSUED', 'sqlite_error': value})
+    assert summarize_status({'status': 'NOT_ISSUED', 'sqlite_error': 'SQLITE_BUSY_SNAPSHOT'})['sqlite_error'] == 'SQLITE_BUSY_SNAPSHOT'
