@@ -19,11 +19,13 @@ POSITION = rf'(?:позици(?:ю|я)\s*[№#]?\s*)?({NUMBER})'
 AMOUNT = r'(\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?)\s*(тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
 
 
-def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, subject_reference_grammar=False):
+def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, subject_reference_grammar=False,
+                   literal_open_quote=False):
     """Return a typed goal and an exact source text; None never means noncompliance."""
     if reference_grammar:
         result = _compile_reference_action(text, source_ids=source_ids, subjects=subjects,
-                                           allow_subject_only=subject_reference_grammar)
+                                           allow_subject_only=subject_reference_grammar,
+                                           literal_open_quote=literal_open_quote)
         if result is not None:
             return result
     value = clean_text(str(text or '').replace('№', '#')).casefold().replace('ё', 'е')
@@ -67,7 +69,7 @@ def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, su
     return None
 
 
-def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=False):
+def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=False, literal_open_quote=False):
     """Recognise a whole imperative with its exact linked item description.
 
     The description and price are reference attributes, not another requested
@@ -121,4 +123,13 @@ def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=
         if any(re.fullmatch(pattern, value) for pattern in subject_patterns):
             return {'contract': 'original-action-v3', 'source_text': clean_text(text),
                     'source_ids': sorted(wanted), 'type': 'CHANGE_METHOD_EA', 'target_method': 'ЭА'}
+        if literal_open_quote:
+            # The source can omit the outer closing quote around a literal full
+            # subject (including its own nested quotes). Do not repair or trim
+            # that subject: the whole imperative and permitted tail must match.
+            opened = rf'«{name}'
+            if any(re.fullmatch(pattern.replace(description, opened), value)
+                   for pattern in subject_patterns):
+                return {'contract': 'original-action-v4', 'source_text': clean_text(text),
+                        'source_ids': sorted(wanted), 'type': 'CHANGE_METHOD_EA', 'target_method': 'ЭА'}
     return None
