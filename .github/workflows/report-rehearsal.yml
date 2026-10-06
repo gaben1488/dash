@@ -70,7 +70,7 @@ jobs:
               -ec 'root=/app/packages/server/data/reports;
                    for name in attempts published archives archive_intake inputs; do
                      if [ -e "$root/$name" ]; then
-                       kb=$(du -sk "$root/$name" 2>/dev/null | awk "{print \\$1}");
+                       kb=$(du -sk "$root/$name" 2>/dev/null | cut -f1);
                        echo "$name ${kb:-0} KiB";
                      fi;
                    done;
