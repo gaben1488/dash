@@ -1,7 +1,7 @@
 from io import BytesIO
 
-from openpyxl import Workbook
 import procurement_engine.master_revision_history as revision_history
+from openpyxl import Workbook
 from procurement_engine.master_revision_history import (
     exact_revisions,
     probe_exact_master_revisions,
@@ -141,7 +141,8 @@ def test_matrix_streams_cells_when_read_only_dimensions_are_missing(monkeypatch)
             return iter(tuple(row) for row in rows)
 
     class Book:
-        sheetnames = ['ВСЕ']
+        def __init__(self):
+            self.sheetnames = ['ВСЕ']
 
         def __getitem__(self, name):
             assert name == 'ВСЕ'
