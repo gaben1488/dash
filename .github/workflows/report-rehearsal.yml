@@ -47,22 +47,40 @@ jobs:
             git count-objects -vH || true
             docker system df || true
             echo "=== end storage diagnostic ==="
-            # Rehearsal must not mutate report data or running services. The only
-            # automatic recovery allowed here is unused Docker build cache.
+            # The production report volume can fill the root filesystem before
+            # Git can even fetch the current candidate. For this one repair, use
+            # the already-fetched, CI-green retention implementation from
+            # adc6c815... out of Git objects and /tmp (tmpfs). It is wrapped in
+            # the same shared run.lock, so report generation cannot race cleanup.
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            cd ..
             free_kb=$(df -Pk . | awk 'NR==2 {print $4}')
             if [ "${free_kb:-0}" -lt 1048576 ]; then
-              echo "Root filesystem has less than 1 GiB free; pruning unused Docker build cache only."
-              docker builder prune --all --force
-              df -h . /tmp 2>/dev/null || true
+              retention_seed='adc6c815d4a9b607921e8550b47d979fa9017b3b'
+              git cat-file -e "$retention_seed^{commit}"
+              seed_work=$(mktemp -d /tmp/report-retention-seed.XXXXXX)
+              git archive "$retention_seed" packages/report-engine | tar -x -C "$seed_work"
+              echo "Filesystem critically full before Git fetch; applying previously CI-verified bounded retention under run.lock."
+              docker run --rm --network none --read-only \
+                --volumes-from "$server":rw \
+                -v "$seed_work/packages/report-engine:/retention:ro" \
+                -e PYTHONPATH=/retention/src \
+                --entrypoint /opt/report-env/bin/python "$image" \
+                -c 'import fcntl,json; from pathlib import Path; from procurement_engine.retention import plan_transient_attempt_retention,apply_transient_attempt_retention; state="/app/packages/server/data/reports"; lock=(Path(state)/"run.lock").open("a"); fcntl.flock(lock,fcntl.LOCK_EX); plan=plan_transient_attempt_retention(state); summary={k:v for k,v in plan.items() if k!="compact_attempts"}; print(json.dumps({"seed_retention_dry_run":summary},ensure_ascii=False,sort_keys=True)); assert plan.get("bytes_reclaimable",0)>=2*1024**3,"RETENTION_RECLAIMABLE_SPACE_TOO_SMALL"; result=apply_transient_attempt_retention(state,expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"seed_retention_apply":safe},ensure_ascii=False,sort_keys=True)); assert result.get("status")=="COMPACTED" and result.get("bytes_reclaimed",0)>=1024**3,"RETENTION_APPLY_DID_NOT_FREE_REQUIRED_SPACE"'
+              rm -rf "$seed_work"
+              df -h . /tmp
+              free_kb=$(df -Pk . | awk 'NR==2 {print $4}')
+              test "${free_kb:-0}" -ge 1048576
             fi
+
             git fetch --quiet origin "$candidate"
             work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
             trap 'rm -rf "$work"' EXIT
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
-            server=$(docker compose --env-file .env.production ps --status running --quiet server)
-            test -n "$server"
-            image=$(docker inspect --format '{{.Image}}' "$server")
             echo "=== report state aggregate footprint (no source contents) ==="
             docker run --rm --network none --read-only \
               --volumes-from "$server":ro \
