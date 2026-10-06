@@ -100,22 +100,37 @@ jobs:
             cd /home/aemr/dash
             git fetch --quiet origin "$candidate"
             work=$(mktemp -d /tmp/report-revision-probe.XXXXXX)
-            trap 'rm -rf "$work"' EXIT
+            candidate_env=$(mktemp -d /tmp/report-candidate-env.XXXXXX)
+            trap 'rm -rf "$work" "$candidate_env"' EXIT
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
             image=$(docker inspect --format '{{.Image}}' "$server")
+
+            # The deployed image can be older than the PR and therefore can lack
+            # a newly declared Python runtime dependency. Build an ephemeral venv
+            # from the exact candidate without exposing production credentials.
+            echo "Preparing exact candidate report-engine dependencies in disposable storage."
+            docker run --rm --read-only --user 0:0 \
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              -v "$candidate_env:/candidate-env" \
+              -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+              --entrypoint /bin/sh "$image" \
+              -ec 'python3 -m venv /candidate-env &&
+                   /candidate-env/bin/pip install --quiet --no-cache-dir /candidate'
+
             echo "Checking exact historical master revisions read-only; no production files or Drive data are changed."
             docker run --rm --read-only \
               --security-opt no-new-privileges \
               --tmpfs /tmp:rw,nosuid,nodev,size=512m \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
+              -v "$candidate_env:/candidate-env:ro" \
               --env-file .env.production \
               -e PYTHONPATH=/candidate/src \
-              --entrypoint /opt/report-env/bin/python "$image" \
+              --entrypoint /candidate-env/bin/python "$image" \
               -m procurement_engine.cli probe-master-revisions \
               --registry /app/packages/server/data/reports/inputs/registry.json \
               --ledger /app/packages/server/data/reports/inputs/ledger.json
-
