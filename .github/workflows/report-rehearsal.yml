@@ -63,6 +63,28 @@ jobs:
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
             image=$(docker inspect --format '{{.Image}}' "$server")
+            echo "=== report state aggregate footprint (no source contents) ==="
+            docker run --rm --network none --read-only \
+              --volumes-from "$server":ro \
+              --entrypoint /bin/sh "$image" \
+              -ec 'root=/app/packages/server/data/reports;
+                   for name in attempts published archives archive_intake inputs; do
+                     if [ -e "$root/$name" ]; then
+                       kb=$(du -sk "$root/$name" 2>/dev/null | awk "{print \\$1}");
+                       echo "$name ${kb:-0} KiB";
+                     fi;
+                   done;
+                   printf "attempt_dirs "; find "$root/attempts" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l;
+                   printf "release_dirs "; find "$root/published/releases" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l;
+                   printf "weekly_dirs "; find "$root/archives" -mindepth 1 -maxdepth 1 -type d -name "WEEKLY-*" 2>/dev/null | wc -l'
+            echo "=== candidate retention dry run ==="
+            docker run --rm --network none --read-only \
+              --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -c 'import json; from procurement_engine.retention import plan_transient_attempt_retention as p; r=p("/app/packages/server/data/reports"); r.pop("compact_attempts", None); print(json.dumps(r, ensure_ascii=False, sort_keys=True))'
+            echo "=== end report state footprint ==="
             echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
             docker run --rm --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=1g \
