@@ -162,6 +162,35 @@ def test_v10_case_form_duplicate_without_uid_still_makes_link_ambiguous():
     assert result['current_link']['status'] == 'AMBIGUOUS'
 
 
+@pytest.mark.parametrize('change,expected', [
+    ({}, 'CONFIRMED'),
+    ({'procurement_uid': None}, 'CURRENT_EVIDENCE_MISSING'),
+    ({'subject': 'Оказание услуг по перевозке населения и багажа'}, 'TEXT_REFERENCE_MISSING'),
+    ({'planned_year': 2027}, 'TEXT_REFERENCE_MISSING'),
+    ({'grbs': 'УО'}, 'TEXT_REFERENCE_MISSING'),
+])
+def test_v12_complete_service_dative_reference_keeps_identity_scope_and_unknown_goal(change, expected):
+    primary = replace(row(), **({'subject': 'Оказание услуг по перевозке населения', 'planned_year': 2026} | change))
+    text = 'замена типа процедуры по оказанию услуг по перевозке населения 215,67 тыс. руб. с ЕП на ЭП'
+    result = _case_form_review(text, [primary], 'verified-original-and-current-plan-v12')
+    assert result['current_link']['status'] == expected
+    if expected == 'CONFIRMED':
+        assert result['current_link']['fulfillment'] == 'UNKNOWN'
+        assert result.get('compiled_action') is None
+        assert _case_form_review(text, [primary], 'verified-original-and-current-plan-v11')['current_link']['status'] == 'TEXT_REFERENCE_MISSING'
+        assert _case_form_review(text, [primary, replace(primary, row_number=5, procurement_uid=None)],
+            'verified-original-and-current-plan-v12')['current_link']['status'] == 'AMBIGUOUS'
+
+
+@pytest.mark.parametrize('tail', [
+    ', если появится финансирование', ' и изменить сумму',
+])
+def test_v12_service_reference_rejects_conditional_and_compound_instructions(tail):
+    primary = replace(row(), subject='Оказание услуг по перевозке населения', planned_year=2026)
+    text = 'замена типа процедуры по оказанию услуг по перевозке населения 215,67 тыс. руб. с ЕП на ЭП' + tail
+    assert _case_form_review(text, [primary], 'verified-original-and-current-plan-v12')['current_link']['status'] != 'CONFIRMED'
+
+
 @pytest.mark.parametrize('modifier', ['единый', 'совместный'])
 def test_v11_joint_method_modifier_keeps_explicit_primary_identity_without_group_fulfillment(modifier):
     text = f'Вынести на {modifier} ЭА 42 Поставка бумаги – 46,00 тыс. руб.'

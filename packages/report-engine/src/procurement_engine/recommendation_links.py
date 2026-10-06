@@ -230,7 +230,7 @@ def _exact_subject_mention(text, subject):
 
 
 def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years=None,
-                            inflected_supply_subject=False):
+                            inflected_supply_subject=False, inflected_service_subject=False):
     """v5 fallback for old prose that names one exact subject but no plan position.
 
     Group/merge wording is deliberately excluded because one visible subject cannot
@@ -246,7 +246,8 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_y
         and row.subject and row.source_row_no
         and _row_year_matches(row, source_years, budget_years)
         and (_exact_subject_mention(text, row.subject)
-             or (inflected_supply_subject and _complete_supply_case_instruction(text, row)))
+             or (inflected_supply_subject and _complete_supply_case_instruction(text, row))
+             or (inflected_service_subject and _complete_service_case_instruction(text, row)))
     ]
     if not matches:
         return 'TEXT_REFERENCE_MISSING', None
@@ -255,6 +256,17 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_y
     if not matches[0].procurement_uid:
         return 'CURRENT_EVIDENCE_MISSING', None
     return 'CONFIRMED', matches[0]
+
+
+def _complete_service_case_instruction(text, row):
+    """Bounded dative form of the same full service; the target label stays uninterpreted."""
+    subject = _text(row.subject)
+    if not subject.startswith('оказание услуг '):
+        return False
+    name = re.escape('оказанию услуг ' + subject[len('оказание услуг '):])
+    amount = r'\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?\s*(?:тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
+    return bool(re.fullmatch(r'замена\s+типа\s+процедуры\s+по\s+' + name
+        + r'\s+' + amount + r'\s+с\s+еп\s+на\s+эп\s*[.;]?', text))
 
 
 def _complete_supply_case_instruction(text, row):
@@ -340,7 +352,7 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
                          entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
                          joint_group_target=False, budget_years=None, extended_literal_reference=False,
-                         inflected_supply_subject=False, joint_method_reference=False):
+                         inflected_supply_subject=False, joint_method_reference=False, inflected_service_subject=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -390,7 +402,7 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
             result['status'] = 'TEXT_REFERENCE_MISSING'
             return result
         status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years,
-                                              inflected_supply_subject)
+                                              inflected_supply_subject, inflected_service_subject)
         result['status'] = status
         if row is None:
             return result
