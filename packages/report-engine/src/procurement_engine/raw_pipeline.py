@@ -24,6 +24,7 @@ from .normalize import (
     to_decimal,
 )
 from .procedures import (
+    iter_operational_rows,
     normalize_procedure_values,
     validate_operational_view,
     validate_procedure_lineage,
@@ -421,21 +422,19 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
                   + validate_procedure_shares(attempts, shares))
     queue=next(s for s in capture['sources'] if s['sheet']=='Процедуры в работе')
     issues.extend(x.as_dict() for x in validate_operational_view(main['values'], queue['values'], as_of=report_date))
-    active=[];closed_quality=[];in_closed_block=False
-    for rn, raw in enumerate(queue['values'], 1):
-        if raw and clean_text(raw[0]).casefold() == 'данные по закрытым строкам':
-            in_closed_block=True
-            continue
+    active=[];closed_quality=[]
+    for block, rn, offset, raw in iter_operational_rows(queue['values']):
         c=lambda i, raw=raw: raw[i] if i<len(raw) else None
         code=normalize_procedure_code(c(3))
-        if not code: continue
-        if in_closed_block:
+        source_ref=f"{queue['provider_id']}::{queue['sheet']}::{rn}"
+        if offset: source_ref += f"::column_offset={offset}"
+        if block == 'closed_quality':
             closed_quality.append({'procedure_code':code,'stage':c(8),'subject':c(6),
-                'action':c(2),'source_ref':f"{queue['provider_id']}::{queue['sheet']}::{rn}",
+                'action':c(2),'source_ref':source_ref,
                 'raw_cells':raw,'classification':'closed_procedure_data_quality'})
             continue
         active.append({'procedure_code':code, 'stage':c(8), 'subject':c(6), 'action':c(2),
-                       'deadline':parse_date(c(0)) or c(0), 'source_ref':f"{queue['provider_id']}::{queue['sheet']}::{rn}"})
+                       'deadline':parse_date(c(0)) or c(0), 'source_ref':source_ref})
     grbs_order = registry_grbs_order(registry)
     snap={**bundle.manifest, 'grbs_order':grbs_order, 'business_context_contract':'source-context-v1',
           'model':aggregate_rows(rows,year,report_date,grbs_order=grbs_order),

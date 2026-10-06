@@ -22,6 +22,8 @@ export const STAGE_ORDER: readonly string[] = [
   'bidding',
   'awarded',
   'no_result',
+  'reissued',
+  'unknown',
 ];
 
 const STAGE_LABELS: Readonly<Record<string, string>> = {
@@ -30,6 +32,8 @@ const STAGE_LABELS: Readonly<Record<string, string>> = {
   bidding: 'Торги прошли',
   awarded: 'Состоялась',
   no_result: 'Без результата',
+  reissued: 'Переоформлена',
+  unknown: 'Проверить стадию',
 };
 
 /** Короткая подпись для узких мест — кнопок разрезов и бейджа в таблице. */
@@ -39,6 +43,8 @@ const STAGE_SHORT: Readonly<Record<string, string>> = {
   bidding: 'Торги прошли',
   awarded: 'Состоялась',
   no_result: 'Без результата',
+  reissued: 'Переоформлена',
+  unknown: 'Проверить стадию',
 };
 
 /** Что стадия означает — одной фразой для подсказки и экранного диктора. */
@@ -50,9 +56,9 @@ const STAGE_MEANING: Readonly<Record<string, string>> = {
   bidding:
     'Торги прошли: дата торгов в книге есть, но цена победителя ещё не внесена.',
   awarded:
-    'Договор заключён: цена аукциона больше нуля, победитель назван.',
+    'В поле результата указано «Состоялась». Это не подтверждение заключения контракта.',
   no_result:
-    'Торги прошли без результата: цена аукциона равна нулю. Это не пустота, а содержательный ноль — чаще всего «не состоялся, ноль заявок».',
+    'Указан результат «Нет заявок» либо отмена закупки. Причина показывается в исходной строке.',
 };
 
 /**
@@ -64,6 +70,8 @@ const STAGE_BADGE: Readonly<Record<string, string>> = {
   published: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
   bidding: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300',
   awarded: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+  reissued: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-300',
+  unknown: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300',
   no_result: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
 };
 

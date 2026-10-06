@@ -7,6 +7,7 @@ from fractions import Fraction
 from .independent_audit import day, method, number, text
 from .normalize import normalize_procedure_code
 from .procedures import (
+    iter_operational_rows,
     normalize_procedure_values,
     validate_operational_view,
     validate_procedure_lineage,
@@ -208,15 +209,15 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
         + validate_procedure_uniqueness(attempts)+validate_procedure_lineage(attempts)
         + validate_procedure_shares(attempts,shares))
     if any(i.severity=='ERROR' for i in raw_issues):errors.append('procedure_source_contract')
-    active=[];closed=[];closed_block=False
-    for rn,row in enumerate(queue['values'],1):
+    active=[];closed=[]
+    for block,rn,offset,row in iter_operational_rows(queue['values']):
         c=lambda i,row=row:row[i] if i<len(row) else None
-        if text(c(0)).casefold()=='данные по закрытым строкам':closed_block=True;continue
         code=normalize_procedure_code(c(3))
-        if not code:continue
+        source_ref=f"{queue['provider_id']}::{queue['sheet']}::{rn}"
+        if offset: source_ref += f"::column_offset={offset}"
         item={'procedure_code':code,'stage':c(8),'subject':c(6),'action':c(2),
-              'source_ref':f"{queue['provider_id']}::{queue['sheet']}::{rn}"}
-        if closed_block:
+              'source_ref':source_ref}
+        if block == 'closed_quality':
             item.update(raw_cells=row,classification='closed_procedure_data_quality');closed.append(item)
         else:
             item['deadline']=day(c(0)) or c(0);active.append(item)

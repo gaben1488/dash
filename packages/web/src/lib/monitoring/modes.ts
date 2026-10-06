@@ -17,7 +17,7 @@
 import { MONITORING_DEPT_SHEETS } from '@aemr/core';
 
 /** Что за форма показывается — от этого зависит вся таблица под переключателем. */
-export type ModeKind = 'registry' | 'svod' | 'journal' | 'directory' | 'ancestors';
+export type ModeKind = 'work' | 'registry' | 'svod' | 'journal' | 'directory' | 'ancestors';
 
 export interface SheetMode {
   /** Ид режима: `all`, `dept:УО`, `svod`, … — живёт в состоянии страницы. */
@@ -45,8 +45,8 @@ export const ALL_DEPTS_MODE: SheetMode = {
   id: 'all',
   kind: 'registry',
   label: 'Реестр',
-  hint: 'Восемь листов управлений одной таблицей; выбранное в шапке управление сужает реестр до своих листов.',
-  sheet: null,
+  hint: 'Рабочий реестр процедур: одна строка на процедуру; доли участников показываются в срезах управлений.',
+  sheet: 'Рабочий реестр процедур',
   dept: null,
 };
 
@@ -54,17 +54,17 @@ export const SVOD_MODE: SheetMode = {
   id: 'svod',
   kind: 'svod',
   label: 'Сводный',
-  hint: 'Лист «СВОДНЫЙ»: восемь строк управлений и итог, рядом — как те же числа считает продукт.',
-  sheet: 'СВОДНЫЙ',
+  hint: 'Сводный аналитический лист: процедуры и деньги по рабочему реестру, рядом — независимый пересчёт.',
+  sheet: 'Сводный аналитический лист',
   dept: null,
 };
 
 export const JOURNAL_MODE: SheetMode = {
   id: 'journal',
   kind: 'journal',
-  label: 'Переходящий реестр 25-26',
-  hint: 'Лист «25-26»: победители и ИНН, судьба процедуры и родословная переобъявлений.',
-  sheet: '25-26',
+  label: 'Результаты и связи',
+  hint: 'Результаты и явные связи «Предок» / «Наследник» из рабочего реестра.',
+  sheet: 'Рабочий реестр процедур',
   dept: null,
 };
 
@@ -72,8 +72,8 @@ export const DIRECTORY_MODE: SheetMode = {
   id: 'directory',
   kind: 'directory',
   label: 'Справочник учреждений',
-  hint: 'Лист «Перечень ГРБС»: учреждения района и их владельцы-ГРБС.',
-  sheet: 'Перечень ГРБС',
+  hint: 'Лист «Справочник заказчиков»: учреждения района и их владельцы-ГРБС.',
+  sheet: 'Справочник заказчиков',
   dept: null,
 };
 
@@ -87,17 +87,20 @@ export const ANCESTORS_MODE: SheetMode = {
 };
 
 /** Полный ряд режимов в порядке книги: реестр → свод → журнал → справочники. */
+export const WORK_MODE: SheetMode = { id: 'work', kind: 'work', label: 'В работе',
+  hint: 'Ежедневная очередь действий УО; проверки закрытых процедур доступны отдельно.', sheet: 'Процедуры в работе', dept: null };
+
 export const SHEET_MODES: readonly SheetMode[] = [
+  WORK_MODE,
   ALL_DEPTS_MODE,
   SVOD_MODE,
   JOURNAL_MODE,
   DIRECTORY_MODE,
-  ANCESTORS_MODE,
 ];
 
 /** Режим по ид; незнакомый ид возвращает вход по умолчанию, а не падение. */
 export function modeById(id: string): SheetMode {
-  return SHEET_MODES.find((m) => m.id === id) ?? ALL_DEPTS_MODE;
+  return SHEET_MODES.find((m) => m.id === id) ?? WORK_MODE;
 }
 
 /** Русское имя управления по ид — для крошек разрезов и заголовков. */

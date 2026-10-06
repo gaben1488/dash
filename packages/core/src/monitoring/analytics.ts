@@ -26,7 +26,7 @@
  */
 
 import { isoMonth, isoQuarter, round3 } from './cells.js';
-import type { MonitoringProcedure } from './procedures.js';
+import { monetaryFactAllowed, type MonitoringProcedure } from './procedures.js';
 import { supplierKey } from './winner.js';
 
 // ── Статистика: медиана и квартили ───────────────────────────────────
@@ -104,8 +104,8 @@ export function stageFunnel(procedures: readonly MonitoringProcedure[]): StageFu
     if (p.applicationDate?.iso != null) counts.application += 1;
     if (p.publicationDate?.iso != null) counts.published += 1;
     if (p.auctionDate?.iso != null) counts.auction += 1;
-    if (p.auctionPrice !== null && p.auctionPrice > 0) counts.priced += 1;
-    if (p.savingsSplitSum !== null && p.controlAgrees === true) counts.split += 1;
+    if (monetaryFactAllowed(p) && p.auctionPrice !== null && p.auctionPrice > 0) counts.priced += 1;
+    if (monetaryFactAllowed(p) && p.savingsSplitSum !== null && p.controlAgrees === true) counts.split += 1;
   }
 
   const order: FunnelStepKey[] = ['application', 'published', 'auction', 'priced', 'split'];
@@ -177,7 +177,7 @@ export function reductionCoefficients(
   const reducedPcts: number[] = [];
 
   for (const p of procedures) {
-    if (p.stage !== 'awarded' || p.auctionPrice === null || p.nmck === null || p.nmck <= 0) continue;
+    if (p.stage !== 'awarded' || p.factsEligible === false || p.auctionPrice === null || p.nmck === null || p.nmck <= 0) continue;
     count += 1;
     nmckRub += p.nmck;
     priceRub += p.auctionPrice;
@@ -269,7 +269,7 @@ export function discountHistogram(
     if (bucket === undefined) continue;
     bucket.count += 1;
     bucket.nmck += p.nmck ?? 0;
-    bucket.price += p.auctionPrice ?? 0;
+    bucket.price += monetaryFactAllowed(p) ? p.auctionPrice ?? 0 : 0;
   }
 
   return DISCOUNT_BUCKET_DEFS.map((def) => {
@@ -335,7 +335,7 @@ export function supplierProfile(
   let winsWithoutInn = 0;
 
   for (const p of procedures) {
-    if (p.stage !== 'awarded') continue;
+    if (p.stage !== 'awarded' || p.factsEligible === false) continue;
     const key = supplierKey(p.winner);
     if (key === null) continue;
     totalWins += 1;
@@ -429,7 +429,7 @@ export function supplierCustomerPairs(
   }>();
 
   for (const p of procedures) {
-    if (p.stage !== 'awarded' || p.customer === '') continue;
+    if (p.stage !== 'awarded' || p.factsEligible === false || p.customer === '') continue;
     const key = supplierKey(p.winner);
     if (key === null) continue;
     const pairKey = `${key}|${p.customerNormalized}`;
@@ -591,11 +591,11 @@ export function seasonality(
       if (period === null) continue;
       const bucket = map.get(period);
       if (bucket === undefined) {
-        map.set(period, { count: 1, nmck: p.nmck ?? 0, price: p.auctionPrice ?? 0 });
+        map.set(period, { count: 1, nmck: p.nmck ?? 0, price: monetaryFactAllowed(p) ? p.auctionPrice ?? 0 : 0 });
       } else {
         bucket.count += 1;
         bucket.nmck += p.nmck ?? 0;
-        bucket.price += p.auctionPrice ?? 0;
+        bucket.price += monetaryFactAllowed(p) ? p.auctionPrice ?? 0 : 0;
       }
     }
   }
@@ -655,7 +655,7 @@ export function nmckBuckets(procedures: readonly MonitoringProcedure[]): NmckBuc
     if (bucket === undefined) continue;
     bucket.count += 1;
     bucket.nmck += p.nmck ?? 0;
-    if (p.stage === 'awarded' && p.auctionPrice !== null && p.nmck !== null) {
+    if (p.stage === 'awarded' && p.factsEligible !== false && p.auctionPrice !== null && p.nmck !== null) {
       bucket.awardedNmck += p.nmck;
       bucket.price += p.auctionPrice;
     }
@@ -721,13 +721,15 @@ export function deptComparison(
       acc.set(p.dept, b);
     }
     b.count += 1;
-    b.nmck += p.nmck ?? 0;
-    b.price += p.auctionPrice ?? 0;
-    b.savings += p.savingsTotal ?? 0;
+    if (p.result === undefined || p.stage !== 'reissued') b.nmck += p.nmck ?? 0;
+    if (monetaryFactAllowed(p)) {
+      b.price += p.auctionPrice ?? 0;
+      b.savings += p.savingsTotal ?? 0;
+    }
     if (p.stage === 'no_result') b.noResult += 1;
     if (p.controlAgrees === false) b.controlErrors += 1;
     if (p.savingsTotal !== null && p.savingsTotal !== 0 && p.savingsSplitSum === null) b.splitMissing += 1;
-    if (p.stage === 'awarded' && p.auctionPrice !== null && p.nmck !== null && p.nmck > 0) {
+    if (p.stage === 'awarded' && p.factsEligible !== false && p.auctionPrice !== null && p.nmck !== null && p.nmck > 0) {
       b.awarded += 1;
       b.awardedNmck += p.nmck;
       b.awardedPrice += p.auctionPrice;

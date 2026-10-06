@@ -105,16 +105,16 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Лист «СВОДНЫЙ»</h2>
+          <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Сводный аналитический лист</h2>
           <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-2xl">
-            Восемь строк управлений и итог — как в книге. Где свод книги и разбор листа расходятся,
+            Управления, совместные процедуры и итог — как в книге. Где свод книги и пересчёт реестра расходятся,
             стоят два числа: сверху книжное, под ним — продуктовое. Причина разницы названа под таблицей.
           </p>
         </div>
         <div className="shrink-0 text-right">
           <BookPeriodBadge label={readAtLabel} note="свод книги пересчитывается формулами при каждом открытии книги" />
           <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
-            Источник: лист «СВОДНЫЙ» книги «Ежедневный мониторинг»
+            Источник: сводный аналитический лист рабочего реестра
           </p>
           {/* Свод — районный лист: выбранное в шапке управление его числа не
               сужает, и паспорт говорит это словами (п.58, п.127). */}

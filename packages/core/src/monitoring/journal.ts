@@ -30,7 +30,7 @@ import {
   monitoringText,
   type MonitoringDate,
 } from './cells.js';
-import { MONITORING_JOURNAL_SHEET } from './procedures.js';
+import { MONITORING_MASTER_SHEET, parseMonitoringProcedures, type MonitoringProcedure } from './procedures.js';
 import { parseWinnerCell, type ParsedWinner } from './winner.js';
 
 /** Колонки листа «25-26» (0-based). */
@@ -163,6 +163,29 @@ export interface MonitoringJournal {
   readonly outsideFilterCount: number;
 }
 
+/** Explicit U / V links from the canonical source; comments never create edges. */
+export function journalFromProcedures(procedures: readonly MonitoringProcedure[]): MonitoringJournal {
+  const edges: LineageEdge[] = [];
+  const seen = new Set<string>();
+  const rows = procedures.map((p): MonitoringJournalRow => {
+    const before = p.ancestorCodes ?? []; const after = p.successorCodes ?? [];
+    const fateText = [p.result, before.length ? `Предок: ${before.join(', ')}` : null, after.length ? `Наследник: ${after.join(', ')}` : null].filter(Boolean).join('; ') || null;
+    for (const [from, to, field] of [...before.map((code) => [code, p.code, 'Предок U']), ...after.map((code) => [p.code, code, 'Наследник V'])]) {
+      if (!from || !to || seen.has(`${from}\n${to}`)) continue;
+      seen.add(`${from}\n${to}`);
+      edges.push({ from, to, sourceRow: p.row, sourceText: field ?? '' });
+    }
+    return { sheet: p.sheet, row: p.row, fateText,
+      fate: p.result?.startsWith('Отмена') ? 'cancelled' : after.length ? 'new-purchase' : before.length ? 'after-rework' : null,
+      customer: p.customer, code: p.code, method: p.method, year: p.year, subject: p.subject, nmck: p.nmck,
+      applicationDate: p.applicationDate, publicationDate: p.publicationDate, deadlineDate: p.deadlineDate,
+      resultDate: p.auctionDate, price: p.auctionPrice, savings: p.savingsTotal, savingsMb: p.savingsMb,
+      savingsKb: p.savingsKb, savingsFb: p.savingsFb, winner: p.winner, outsideBookFilter: false,
+      hiddenInBook: null, linkedCodes: [...before, ...after] };
+  });
+  return { rows, edges, chains: buildLineageChains(edges), outsideFilterCount: 0 };
+}
+
 /**
  * Маркеры направления связи. Порядок важен: длинные раньше коротких.
  *
@@ -237,6 +260,9 @@ export function parseMonitoringJournal(
   const rows: MonitoringJournalRow[] = [];
   const edges: LineageEdge[] = [];
   if (!grid) return { rows, edges, chains: [], outsideFilterCount: 0 };
+  if (grid[1]?.[0] === 'Код процедуры') {
+    return journalFromProcedures(parseMonitoringProcedures({ [MONITORING_MASTER_SHEET]: grid }).procedures);
+  }
 
   const hidden = options.hiddenRows === undefined ? null : new Set(options.hiddenRows);
   const C = JOURNAL_COLUMNS;
@@ -281,7 +307,7 @@ export function parseMonitoringJournal(
     if (outsideBookFilter) outsideFilterCount += 1;
 
     rows.push({
-      sheet: MONITORING_JOURNAL_SHEET,
+      sheet: '25-26',
       row,
       fateText,
       fate,

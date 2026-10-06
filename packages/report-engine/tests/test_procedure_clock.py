@@ -39,3 +39,26 @@ def test_share_rows_do_not_create_attempts_and_queue_edits_are_detected():
     wrong = queue(active); wrong[6] = 'Different procurement'
     assert 'PROCEDURE_QUEUE_RECORD_MISMATCH' in {
         i.code for i in validate_operational_view([active], [wrong], as_of='2026-09-30')}
+
+
+def test_parallel_queues_keep_closed_header_fixed_when_active_grows():
+    active = [master(f'ЭА{i}-26', 'Объявлена') for i in range(1, 122)]
+    closed = master('ЭА200-26', 'Состоялась', 'Состоялась', action='')
+    closed[24] = 'Проверить: неоднозначный ИНН — S'
+    closed_row = queue(closed); closed_row[2] = 'Разобрать замечания'
+    title = ['Процедуры в работе'] + [''] * 11 + ['Данные по закрытым строкам']
+    view = [title, ['Дата ориентира']] + [queue(row) + [''] * 2 + (closed_row if i == 0 else []) for i, row in enumerate(active)]
+    assert validate_operational_view([*active, closed], view, as_of='2026-09-30') == []
+    view[2][18] = 'Подменённый предмет'
+    assert 'PROCEDURE_QUEUE_RECORD_MISMATCH' in {
+        issue.code for issue in validate_operational_view([*active, closed], view, as_of='2026-09-30')}
+
+
+def test_parallel_queue_includes_missing_dates_but_not_reference_notes():
+    incomplete = master('ЭЕП29-26', 'Состоялась', 'Состоялась', action='')
+    incomplete[24] = 'Неполно: Нет даты итогов — L'
+    reference = master('ЭА230-26', 'Состоялась', 'Состоялась', action='')
+    reference[24] = 'Справка: Протокол с отклонениями — C'
+    title = ['Процедуры в работе'] + [''] * 11 + ['Данные по закрытым строкам']
+    closed = queue(incomplete); closed[2] = 'Разобрать замечания'
+    assert validate_operational_view([incomplete, reference], [title, [''] * 12 + closed], as_of='2026-09-30') == []

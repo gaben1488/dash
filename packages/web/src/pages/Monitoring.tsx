@@ -48,7 +48,7 @@
  * своими данными, и её отказ реестр не роняет. Считается она по ВСЕЙ районной
  * книге — при выбранном управлении об этом сказано словами, а не молчанием.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, SearchX } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonKPIRow, SkeletonTable } from '../components/Skeleton';
@@ -64,6 +64,7 @@ import { DirectoryTable } from '../components/monitoring/DirectoryTable';
 import { AncestorSheets } from '../components/monitoring/AncestorSheets';
 import { SignalCards } from '../components/monitoring/SignalCards';
 import { MonitoringAnalyticsSection } from '../components/monitoring/AnalyticsSection';
+import { WorkQueue } from '../components/monitoring/WorkQueue';
 import { TripleCheck } from '../components/monitoring/TripleCheck';
 import { MonitoringPerimeterProvider } from '../components/monitoring/PerimeterProvider';
 import { humanizeRequestError } from '../api';
@@ -82,7 +83,7 @@ import { buildMatchIndex } from '../lib/monitoring/match-rows';
 import {
   fetchMonitoringTriple, type TripleState,
 } from '../lib/monitoring/triple-contract';
-import { ALL_DEPTS_MODE, deptSheetName, modeById, type SheetMode } from '../lib/monitoring/modes';
+import { ALL_DEPTS_MODE, WORK_MODE, deptSheetName, modeById, type SheetMode } from '../lib/monitoring/modes';
 import {
   applySlices, emptySlices, hasAnySlice, sortProcedures,
   type SliceState, type SortDir, type SortKey,
@@ -106,7 +107,8 @@ export function MonitoringPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [modeId, setModeId] = useState<string>(ALL_DEPTS_MODE.id);
+  const [modeId, setModeId] = useState<string>(WORK_MODE.id);
+  const modeInitialized = useRef(false);
   const [slices, setSlices] = useState<SliceState>(emptySlices);
   const [sortKey, setSortKey] = useState<SortKey>('row');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -116,7 +118,13 @@ export function MonitoringPage() {
     setLoading(true);
     setError(null);
     fetchMonitoring(refresh)
-      .then((resp) => setData(resp))
+      .then((resp) => {
+        setData(resp);
+        if (!modeInitialized.current) {
+          setModeId(resp.source.schema === 'canonical' ? WORK_MODE.id : ALL_DEPTS_MODE.id);
+          modeInitialized.current = true;
+        }
+      })
       .catch((e: unknown) => setError(humanizeRequestError(e)))
       .finally(() => setLoading(false));
     // Сверка с книгами управлений едет отдельным запросом и отдельной судьбой:
@@ -157,7 +165,7 @@ export function MonitoringPage() {
     [data, deptScope],
   );
   const scopedSignals = useMemo(
-    () => scopeSignals(data?.signals ?? [], deptScope),
+    () => scopeSignals(data?.signals ?? [], deptScope, data?.procedures ?? []),
     [data, deptScope],
   );
 
@@ -170,7 +178,7 @@ export function MonitoringPage() {
   const portrait = useMemo(() => portraitFrom(filtered), [filtered]);
 
   /** Счётчик на кнопке «Реестр» — сколько строк даёт периметр после разрезов. */
-  const modeCounts = useMemo(() => ({ all: filtered.length }), [filtered]);
+  const modeCounts = useMemo(() => ({ all: filtered.length, work: data?.work?.active.filter((i) => filtered.some((p) => p.sheet === i.procedure.sheet && p.row === i.procedure.row)).length ?? 0 }), [filtered, data]);
 
   // Три указателя «код процедуры → …»: родословная и строка «25-26» дают
   // карточке то, чего на листе управления нет, сверка — встречную сторону из
@@ -379,6 +387,8 @@ export function MonitoringPage() {
               )}
 
               {/* ── Содержимое режима ── */}
+              {mode.kind === 'work' && <WorkQueue queue={data.work} procedures={filtered} readAtLabel={readAtLabel} onOpen={(code) => { setModeId(ALL_DEPTS_MODE.id); setSlices({ ...emptySlices(), query: code }); setOpenCode(code); }} />}
+
               {mode.kind === 'registry' && (
                 sorted.length === 0 ? (
                   <EmptyState
@@ -398,7 +408,7 @@ export function MonitoringPage() {
                       journalByCode={journalByCode}
                       matchIndex={matchIndex}
                       readAtLabel={readAtLabel}
-                      sourceLabel={`книга «Ежедневный мониторинг» · ${scopeLabel}`}
+                      sourceLabel={`рабочий реестр процедур · ${scopeLabel}`}
                       onOpenCode={onOpenCode}
                       openCode={openCode}
                       onCloseOpenCode={() => setOpenCode(null)}
@@ -410,23 +420,23 @@ export function MonitoringPage() {
 
               {mode.kind === 'svod' && (
                 data.svod === null
-                  ? <PendingSheet name="СВОДНЫЙ" onReload={() => load(true)} />
+                  ? <PendingSheet name="Сводный аналитический лист" onReload={() => load(true)} />
                   : data.svod.rows.length === 0
-                    ? <ReadButEmptySheet name="СВОДНЫЙ" onReload={() => load(true)} />
+                    ? <ReadButEmptySheet name="Сводный аналитический лист" onReload={() => load(true)} />
                     : <SvodTable svod={data.svod} readAtLabel={readAtLabel} />
               )}
 
               {mode.kind === 'journal' && (
                 data.journal === null
-                  ? <PendingSheet name="25-26" onReload={() => load(true)} />
+                  ? <PendingSheet name="Рабочий реестр процедур" onReload={() => load(true)} />
                   : data.journal.rows.length === 0
-                    ? <ReadButEmptySheet name="25-26" onReload={() => load(true)} />
+                    ? <ReadButEmptySheet name="Рабочий реестр процедур" onReload={() => load(true)} />
                     : <JournalTable journal={data.journal} readAtLabel={readAtLabel} query={slices.query} />
               )}
 
               {mode.kind === 'directory' && (
                 data.directory !== null && data.directory.rows.length === 0
-                  ? <ReadButEmptySheet name="Перечень ГРБС" onReload={() => load(true)} />
+                  ? <ReadButEmptySheet name="Справочник заказчиков" onReload={() => load(true)} />
                   : data.directory !== null
                   ? (
                     <DirectoryTable
@@ -438,7 +448,7 @@ export function MonitoringPage() {
                       }}
                     />
                   )
-                  : <PendingSheet name="Перечень ГРБС" onReload={() => load(true)} />
+                  : <PendingSheet name="Справочник заказчиков" onReload={() => load(true)} />
               )}
 
               {mode.kind === 'ancestors' && (
@@ -450,7 +460,7 @@ export function MonitoringPage() {
                   вывод из них, и читать её надо до того, как поверишь числам
                   ниже. Раздел живёт своим запросом и своими пустотами — отказ
                   сверки не отнимает у вкладки реестр. */}
-              {triple !== null && (
+              {triple !== null && data.source.schema !== 'canonical' && (
                 <TripleCheck
                   state={triple}
                   deptScope={deptScope}

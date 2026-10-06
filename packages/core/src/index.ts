@@ -89,11 +89,12 @@ export {
 export {
   MONITORING_DATA_SHEETS, MONITORING_DEPT_COLUMNS, MONITORING_DEPT_HEADER_LABELS,
   MONITORING_DIRECTORY_SHEET, MONITORING_JOURNAL_SHEET, MONITORING_SVOD_SHEET,
-  PROCEDURE_STAGE_ORDER, normalizeCustomer,
+  MONITORING_MASTER_SHEET, MONITORING_WORK_SHEET, MONITORING_MASTER_HEADERS,
+  PROCEDURE_STAGE_ORDER, normalizeCustomer, monitoringDept, monitoringWorkQueue,
 } from './monitoring/procedures.js';
 export type {
   MonitoringAggregates, MonitoringDefect, MonitoringDefectKind, MonitoringProcedure,
-  MonitoringRegistry, ProcedureDurations, ProcedureStage, UnparsedCodeRef,
+  MonitoringRegistry, MonitoringParticipant, MonitoringWorkItem, ProcedureDurations, ProcedureStage, UnparsedCodeRef,
 } from './monitoring/procedures.js';
 // Ячейки книги: адреса, даты, суммы-текстом (общий словарь дефектов)
 export {
@@ -116,7 +117,7 @@ export type {
 // Переходящий реестр «25-26»: судьба процедуры и родословная переобъявлений
 export {
   JOURNAL_FILTER_LAST_ROW, PROCEDURE_FATE_LABELS, buildLineageChains, classifyFate,
-  parseMonitoringJournal,
+  parseMonitoringJournal, journalFromProcedures,
 } from './monitoring/journal.js';
 export type {
   LineageChain, LineageEdge, MonitoringJournal, MonitoringJournalRow, ProcedureFate,

@@ -21,7 +21,7 @@
  */
 
 import { monitoringNumber, monitoringText, round3 } from './cells.js';
-import { MONITORING_SVOD_SHEET, type MonitoringProcedure } from './procedures.js';
+import { monetaryFactAllowed, type MonitoringProcedure } from './procedures.js';
 
 /**
  * Написания управлений НА СВОДЕ — третий способ имени после имени листа
@@ -93,25 +93,28 @@ export function parseMonitoringSvod(grid: unknown[][] | undefined): MonitoringSv
   let authorNote: string | null = null;
   if (!grid) return { rows, total, authorNote };
 
-  const byName = new Map(MONITORING_SVOD_DEPT_NAMES.map((e) => [e.svodName, e.dept]));
+  const modern = grid[1]?.[0] === 'Управление';
+  const C = modern ? { ORDINAL: 0, NAME: 0, COUNT: 1, NMCK: 6, PRICE: 8, SAVINGS_TOTAL: 9, SAVINGS_MB: 13, SAVINGS_KB: 12, SAVINGS_FB: 11 } : SVOD_COLUMNS;
+  const byName = new Map(modern ? [...MONITORING_SVOD_DEPT_NAMES.map((e) => [e.dept, e.dept] as const), ['Совместные', 'Совместные'] as const] : MONITORING_SVOD_DEPT_NAMES.map((e) => [e.svodName, e.dept] as const));
+  if (modern) authorNote = monitoringText(grid[0]?.[2]);
 
-  for (let i = 0; i < grid.length; i++) {
+  for (let i = 0; i < (modern ? 12 : grid.length); i++) {
     const raw = grid[i] ?? [];
-    const name = monitoringText(raw[SVOD_COLUMNS.NAME]);
-    const ordinalCell = monitoringText(raw[SVOD_COLUMNS.ORDINAL]);
+    const name = monitoringText(raw[C.NAME]);
+    const ordinalCell = monitoringText(raw[C.ORDINAL]);
     const isTotal = ordinalCell !== null && /^итого/iu.test(ordinalCell);
     const dept = name === null ? null : byName.get(name) ?? null;
     if (!isTotal && dept === null) {
       // Пояснение автора книги живёт в третьей колонке под таблицей.
-      const note = monitoringText(raw[SVOD_COLUMNS.COUNT]);
+      const note = monitoringText(raw[C.COUNT]);
       if (note !== null && /ячейка считает/iu.test(note)) authorNote = note;
       continue;
     }
 
-    const savingsTotal = monitoringNumber(raw[SVOD_COLUMNS.SAVINGS_TOTAL]);
-    const savingsMb = monitoringNumber(raw[SVOD_COLUMNS.SAVINGS_MB]);
-    const savingsKb = monitoringNumber(raw[SVOD_COLUMNS.SAVINGS_KB]);
-    const savingsFb = monitoringNumber(raw[SVOD_COLUMNS.SAVINGS_FB]);
+    const savingsTotal = monitoringNumber(raw[C.SAVINGS_TOTAL]);
+    const savingsMb = monitoringNumber(raw[C.SAVINGS_MB]);
+    const savingsKb = monitoringNumber(raw[C.SAVINGS_KB]);
+    const savingsFb = monitoringNumber(raw[C.SAVINGS_FB]);
     const savingsSplitSum = savingsMb === null && savingsKb === null && savingsFb === null
       ? null
       : round3((savingsMb ?? 0) + (savingsKb ?? 0) + (savingsFb ?? 0));
@@ -124,16 +127,16 @@ export function parseMonitoringSvod(grid: unknown[][] | undefined): MonitoringSv
       svodName: isTotal ? (ordinalCell ?? 'Итого:') : (name ?? ''),
       dept: isTotal ? null : dept,
       isTotal,
-      count: monitoringNumber(raw[SVOD_COLUMNS.COUNT]),
-      nmck: monitoringNumber(raw[SVOD_COLUMNS.NMCK]),
-      price: monitoringNumber(raw[SVOD_COLUMNS.PRICE]),
+      count: monitoringNumber(raw[C.COUNT]),
+      nmck: monitoringNumber(raw[C.NMCK]),
+      price: monitoringNumber(raw[C.PRICE]),
       savingsTotal,
       savingsMb,
       savingsKb,
       savingsFb,
       savingsSplitSum,
       controlGapRub,
-      controlAgrees: controlGapRub === null ? null : Math.abs(controlGapRub) < 0.005,
+      controlAgrees: controlGapRub === null ? null : modern ? Math.abs(controlGapRub) <= 0.01 : Math.abs(controlGapRub) < 0.005,
     };
     rows.push(svodRow);
     if (isTotal) total = svodRow;
@@ -185,12 +188,14 @@ export function productTotalsByDept(
       acc.set(p.dept, b);
     }
     b.count += 1;
-    b.nmck += p.nmck ?? 0;
-    b.price += p.auctionPrice ?? 0;
-    b.savingsTotal += p.savingsTotal ?? 0;
-    b.savingsMb += p.savingsMb ?? 0;
-    b.savingsKb += p.savingsKb ?? 0;
-    b.savingsFb += p.savingsFb ?? 0;
+    if (p.stage !== 'reissued') b.nmck += p.nmck ?? 0;
+    if (monetaryFactAllowed(p)) {
+      b.price += p.auctionPrice ?? 0;
+      b.savingsTotal += p.savingsTotal ?? 0;
+      b.savingsMb += p.savingsMb ?? 0;
+      b.savingsKb += p.savingsKb ?? 0;
+      b.savingsFb += p.savingsFb ?? 0;
+    }
     for (const defect of p.defects) {
       if (defect.kind === 'text-number' && /![A-Z]*D\d+$/u.test(defect.address)) {
         b.textNumbers.push(defect.address);
@@ -326,4 +331,4 @@ export function compareSvodWithProduct(
 }
 
 /** Адрес разрыва свода — карточка диагноста ссылается на конкретные ячейки. */
-export const SVOD_CONTROL_ADDRESS = `${MONITORING_SVOD_SHEET}!F12 против G12+H12+I12`;
+export const SVOD_CONTROL_ADDRESS = `СВОДНЫЙ!F12 против G12+H12+I12`;

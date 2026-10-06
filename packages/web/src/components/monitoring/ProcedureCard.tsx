@@ -164,6 +164,9 @@ export function ProcedureCard({
         </Band>
 
         <Band title="Деньги, руб.">
+          {p.factsEligible === false && p.stage === 'awarded' && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">Дата итогов ещё не наступила. Цена и экономия сохранены в книге, но пока не входят в денежный факт.</p>
+          )}
           <Line label="НМЦК" value={fmtRubExact(p.nmck)} />
           <Line
             label="Цена аукциона"
@@ -235,7 +238,7 @@ export function ProcedureCard({
           )}
           {journalRow?.fate != null && (
             <p className="text-[11px] text-zinc-600 dark:text-zinc-300">
-              Судьба по листу «25-26»: {journalRow.fate}
+              Результат и связи: {journalRow.fate}
             </p>
           )}
           {p.comment !== null && (

@@ -40,7 +40,10 @@ export type MonitoringSignalKind =
   | 'monitoring_map_no_book_row'
   | 'monitoring_map_duplicate_in_book'
   | 'monitoring_map_nmck_mismatch'
-  | 'monitoring_map_fact_mismatch';
+  | 'monitoring_map_fact_mismatch'
+  | 'monitoring_source_error'
+  | 'monitoring_source_warning'
+  | 'monitoring_source_incomplete';
 
 /** Критичность: очередь чтения, а не оценка человека. */
 export type MonitoringSignalSeverity = 'high' | 'medium' | 'low';
@@ -79,6 +82,16 @@ interface SignalTemplate {
 
 /** Дефект строки → сигнал: одно место, где живут формулировки карточек. */
 const DEFECT_SIGNALS: ReadonlyArray<{ defect: MonitoringDefectKind; template: SignalTemplate }> = [
+  ...(['error', 'warning', 'incomplete'] as const).map((level) => ({
+    defect: `source-${level}` as MonitoringDefectKind,
+    template: {
+      kind: `monitoring_source_${level}` as MonitoringSignalKind,
+      title: level === 'error' ? 'Ошибки рабочего реестра' : level === 'warning' ? 'Замечания рабочего реестра' : 'Данные реестра требуют дополнения',
+      severity: level === 'error' ? 'high' as const : level === 'warning' ? 'medium' as const : 'low' as const,
+      mechanism: 'Проверка исходной строки указана в колонке «Замечания» рабочего реестра. Адреса ниже ведут к проверяемым ячейкам.',
+      action: 'Открыть указанную строку и выполнить «Требуемое действие» либо разобрать конкретное замечание по первичным данным.',
+    },
+  })),
   {
     defect: 'text-number',
     template: {
@@ -179,6 +192,7 @@ const DEFECT_SIGNALS: ReadonlyArray<{ defect: MonitoringDefectKind; template: Si
  */
 export function buildMonitoringSignals(input: {
   readonly procedures: readonly MonitoringProcedure[];
+  readonly sourceIssues?: readonly { kind: MonitoringDefectKind; address: string; note: string }[];
   readonly journal?: MonitoringJournal;
   readonly directory?: MonitoringDirectory;
   readonly svod?: MonitoringSvod;
@@ -190,8 +204,8 @@ export function buildMonitoringSignals(input: {
 
   // 1–9. Сигналы из дефектов строк реестра.
   const byDefect = new Map<MonitoringDefectKind, MonitoringSignalAddress[]>();
-  for (const p of input.procedures) {
-    for (const defect of p.defects) {
+  for (const defects of [...input.procedures.map((p) => p.defects), input.sourceIssues ?? []]) {
+    for (const defect of defects) {
       const bucket = byDefect.get(defect.kind);
       const entry = { address: defect.address, note: defect.note };
       if (bucket === undefined) byDefect.set(defect.kind, [entry]);
@@ -207,16 +221,16 @@ export function buildMonitoringSignals(input: {
   // 10. Разрыв на своде: контроля там нет вовсе, поэтому он невидим.
   if (input.svod?.total != null) {
     const gap = input.svod.total.controlGapRub;
-    if (gap !== null && Math.abs(gap) >= 0.005) {
+    if (gap !== null && input.svod.total.controlAgrees === false) {
       signals.push({
         kind: 'monitoring_svod_gap',
         title: 'Экономия свода не сходится с разбивкой по бюджетам',
         severity: 'high',
-        mechanism: 'На листе управления контрольная колонка есть, а на своде её нет вовсе, поэтому разрыв между итогом экономии и суммой МБ+КБ+ФБ ничем не показан и накапливается незаметно.',
-        action: 'Добавить контрольную колонку на свод книги. На вкладке она уже стоит.',
+        mechanism: 'Итог экономии расходится с суммой её распределения по бюджетам. Этот разрыв требует проверки исходных строк.',
+        action: 'Открыть очередь дозаполнения и проверить распределение экономии по ФБ, КБ и МБ.',
         count: 1,
         addresses: [{
-          address: SVOD_CONTROL_ADDRESS,
+          address: input.procedures.some((p) => p.result !== undefined) ? `Сводный аналитический лист!O${input.svod.total.row}` : SVOD_CONTROL_ADDRESS,
           note: `Итог экономии и сумма долей расходятся на ${gap.toFixed(2)} руб.`,
         }],
       });
@@ -246,6 +260,7 @@ export function buildMonitoringSignals(input: {
     const orphans: MonitoringSignalAddress[] = [];
     for (const p of input.procedures) {
       if (p.stage !== 'no_result' || p.code === null) continue;
+      if (p.result !== undefined && p.result !== 'Нет заявок') continue;
       if (withSuccessor.has(p.code)) continue;
       orphans.push({
         address: `${p.sheet}!A${p.row}`,

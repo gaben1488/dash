@@ -26,10 +26,12 @@
  * суммы на экране: перепутать эти две книги значит ошибиться в тысячу раз.
  */
 import { fetchJSON } from '../../api';
+import type { MonitoringParticipant } from '@aemr/core';
 
 // ── Источник и состояние книги ───────────────────────────────────────
 
 export interface MonitoringSource {
+  schema?: string | null;
   bookName: string;
   /** Момент чтения книги (ISO) — плашка периода данных (п.58). */
   readAt: string;
@@ -83,6 +85,12 @@ export interface ProcedureDurations {
 }
 
 export interface RegistryProcedure {
+  result?: string | null;
+  factsEligible?: boolean;
+  requiredAction?: string | null;
+  qualityNote?: string | null;
+  participants?: MonitoringParticipant[];
+
   /** Имя листа книги — половина адреса для карточки диагноста (п.53). */
   sheet: string;
   /** Номер строки листа (1-based, как в Sheets) — вторая половина адреса. */
@@ -325,7 +333,17 @@ export interface MonitoringSignal {
 
 // ── Целый ответ ──────────────────────────────────────────────────────
 
+export interface WorkQueueItem {
+  procedure: RegistryProcedure;
+  action: string;
+  referenceDate: string | null;
+  daysToDate: number | null;
+}
+export interface WorkQueuePayload { asOf: string; active: WorkQueueItem[]; closed: WorkQueueItem[]; }
+
 export interface MonitoringPayload {
+  work?: WorkQueuePayload | null;
+
   source: MonitoringSource;
   procedures: RegistryProcedure[];
   aggregates: RegistryAggregates | null;
@@ -447,6 +465,11 @@ function readDefects(v: unknown): ProcedureDefect[] {
     .filter((d) => d.note !== '' || d.address !== '');
 }
 
+function readWorkItem(raw: unknown): WorkQueueItem {
+  const r = rec(raw);
+  return { procedure: readProcedure(r.procedure), action: text(r.action), referenceDate: readDate(r.referenceDate), daysToDate: num(r.daysToDate) };
+}
+
 function readProcedure(raw: unknown): RegistryProcedure {
   const r = rec(raw);
   const code = str(r.code);
@@ -458,6 +481,13 @@ function readProcedure(raw: unknown): RegistryProcedure {
   const defects = readDefects(r.defects);
   const dur = rec(r.durations);
   return {
+    ...(r.result !== undefined ? { result: str(r.result) } : {}),
+    ...(typeof r.factsEligible === 'boolean' ? { factsEligible: r.factsEligible } : {}),
+    requiredAction: str(r.requiredAction), qualityNote: str(r.qualityNote),
+    participants: arr(r.participants).map((value) => { const v = rec(value); return {
+      row: count(v.row), dept: text(v.dept), customer: text(v.customer), nmck: num(v.nmck), price: num(v.price), savings: num(v.savings),
+      savingsMb: num(v.savingsMb), savingsKb: num(v.savingsKb), savingsFb: num(v.savingsFb),
+    }; }),
     sheet: text(r.sheet),
     row: count(r.row),
     dept: text(r.dept),
@@ -812,6 +842,7 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
   const src = rec(r.source);
   return {
     source: {
+      schema: str(src.schema),
       bookName: str(src.bookName) ?? 'Ежедневный мониторинг',
       readAt: text(src.readAt),
       moneyUnit: str(src.moneyUnit) ?? 'руб',
@@ -820,6 +851,10 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
       sheetsExpected: num(src.sheetsExpected),
     },
     procedures: arr(r.procedures).map(readProcedure),
+    work: r.work && typeof r.work === 'object' ? {
+      asOf: text(rec(r.work).asOf),
+      active: arr(rec(r.work).active).map(readWorkItem), closed: arr(rec(r.work).closed).map(readWorkItem),
+    } : null,
     aggregates: readAggregates(r.aggregates),
     unparsedCodes: arr(r.unparsedCodes).map((x) => {
       const u = rec(x);

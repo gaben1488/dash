@@ -31,6 +31,7 @@ import {
   compareSvodWithProduct,
   parseMonitoringDirectory,
   parseMonitoringJournal,
+  journalFromProcedures,
   parseMonitoringProcedures,
   parseMonitoringSvod,
   productTotalsByDept,
@@ -62,8 +63,8 @@ let reused = 0;
 let computed = 0;
 
 function parseFresh(book: MonitoringBookSnapshot): ParsedMonitoringBook {
-  const registry = parseMonitoringProcedures(book.sheets);
-  const journal = parseMonitoringJournal(book.sheets[MONITORING_JOURNAL_SHEET]);
+  const registry = parseMonitoringProcedures(book.sheets, new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date(book.readAt)));
+  const journal = registry.schema === 'canonical' ? journalFromProcedures(registry.procedures) : parseMonitoringJournal(book.sheets[MONITORING_JOURNAL_SHEET]);
   const svod = parseMonitoringSvod(book.sheets[MONITORING_SVOD_SHEET]);
   const directory = parseMonitoringDirectory(
     book.sheets[MONITORING_DIRECTORY_SHEET],

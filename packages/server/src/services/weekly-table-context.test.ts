@@ -105,7 +105,7 @@ describe('sealWeeklyTableContext — недельный snapshot таблиц', 
     expect(context.masters.УЭР.headerRows).toHaveLength(3);
     expect(context.masters.УЭР.formulasRead).toBe(true);
     expect(context.masters.УЭР.loadedAt).toBe(createdAt);
-    expect(Object.keys(context.monitoring.sheets)).toHaveLength(11);
+    expect(Object.keys(context.monitoring.sheets)).toEqual(['Рабочий реестр процедур', 'Процедуры в работе', 'Сводный аналитический лист', 'Справочник заказчиков']);
     expect(context.monitoring.version).toBe(7);
     expect(snapshotModule.getWeeklySnapshotHistory().map((row) => row.id)).toContain('weekly-source');
   });
