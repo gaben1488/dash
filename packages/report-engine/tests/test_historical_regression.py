@@ -1,7 +1,6 @@
 from io import BytesIO
 
 from openpyxl import Workbook
-
 from procurement_engine.historical_regression import (
     _canonical_history_matrix,
     metric_digest,
