@@ -217,8 +217,75 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
     return 'CONFIRMED', matches[0]
 
 
+
+def _joint_group_target_spec(text, ids):
+    """Parse one complete group instruction into a bounded current target.
+
+    The target amount is part of the explicit instruction, not a generic
+    procurement identity key.  A parenthetical target number, when present,
+    is authoritative and must agree with the current joint row.
+    """
+    if len(ids) < 2:
+        return None
+    number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
+    group = f'({number}(?:\\s*[,;]\\s*{number}|\\s+и\\s+{number})+)'
+    amount = r'(\\d+(?:[ \\u00a0]\\d{3})*(?:[,.]\\d+)?)\\s*(тыс\\.?\\s*)?руб(?:лей|ля|ль)?\\.?'
+    prefix = (
+        r'(?:объединить\\s+позиции\\s+' + group
+        + r'|(?:вынести|перевести)\\s+на\\s+(?:(?:единый|совместный)\\s+)?эа\\s+' + group + r')'
+    )
+    target = rf'(?:\\(\\s*({number})\\s*\\)\\s*)?'
+    subject = r'[«"(]*\\s*(.+?)\\s*[)»"]*'
+    price = r'\\s*(?:на\\s+общую\\s+сумму|на\\s+сумму|[—–-])\\s*' + amount
+    joint = (
+        r'\\s*(?:в\\s+(?:совместную\\s+закупку|совместный\\s+аукцион|одну\\s+закупку|единую\\s+закупку)'
+        r'|\\([^)]*(?:совместн\\w*|объедин\\w*)[^)]*\\))\\s*\\.?'
+    )
+    match = re.fullmatch(prefix + r'\\s+' + target + subject + price + joint, text)
+    if not match:
+        return None
+    source_group = match[1] or match[2]
+    source_ids = [normalize_id(value) for value in re.split(r'\\s*[,;]\\s*|\\s+и\\s+', source_group)]
+    if len(source_ids) != len(ids) or set(source_ids) != set(ids):
+        return None
+    target_id = normalize_id(match[3]) if match[3] else None
+    raw_amount = Decimal(match[5].replace(' ', '').replace('\\u00a0', '').replace(',', '.'))
+    if raw_amount < 0:
+        return None
+    amount_thousand = raw_amount if match[6] else raw_amount / 1000
+    name = clean_text(match[4]).strip('«»"() ')
+    if not name:
+        return None
+    return {'source_ids': ids, 'target_business_id': target_id,
+            'subject': name, 'amount_thousand': amount_thousand}
+
+
+def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years):
+    spec = _joint_group_target_spec(text, ids)
+    if spec is None:
+        return None, None
+    matches = [
+        row for row in rows
+        if row.grbs == rec.get('grbs')
+        and row.snapshot_id == snapshot_id
+        and row.procurement_uid and row.source_row_no
+        and _text(row.institution) == 'совместные закупки'
+        and row.method == 'ЭА'
+        and _text(row.subject) == _text(spec['subject'])
+        and money(row, 'plan') == spec['amount_thousand']
+        and (not row.planned_year or str(row.planned_year) in source_years)
+        and (not spec['target_business_id']
+             or normalize_id(row.source_row_no) == spec['target_business_id'])
+    ]
+    if len(matches) > 1:
+        return 'AMBIGUOUS', None
+    if not matches:
+        return None, None
+    return spec, matches[0]
+
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
-                         entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False):
+                         entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
+                         joint_group_target=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -236,6 +303,33 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
     if len(source_years) != 1:
         result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
         return result
+    if joint_group_target and len(ids) > 1:
+        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years)
+        if spec == 'AMBIGUOUS':
+            result['status'] = 'AMBIGUOUS'
+            return result
+        if target is not None:
+            action_spec = {
+                'contract': 'original-action-v5',
+                'source_text': clean_text(rec.get('recommendation_text')),
+                'source_ids': ids,
+                'type': 'MERGE_PROCUREMENTS',
+                'target_business_id': target.source_row_no,
+                'target_subject': target.subject,
+                'target_amount_thousand': format(spec['amount_thousand'], 'f'),
+            }
+            result.update(status='CONFIRMED', relation='MERGES_INTO',
+                procurement_uids=[target.procurement_uid], business_ids=[target.source_row_no],
+                source_row_keys=[target.physical_row_key], action_spec=action_spec,
+                matches=[{'source_row_key': target.physical_row_key,
+                          'procurement_uid': target.procurement_uid,
+                          'business_id': target.source_row_no, 'subject': target.subject,
+                          'plan_amount_thousand_decimal': format(money(target, 'plan'), 'f'),
+                          'planned_year': target.planned_year, 'method': target.method,
+                          'recorded_fact_date': target.actual_date,
+                          'match_basis': 'EXACT_GROUP_TARGET_PRIMARY_ROW',
+                          'amount_is_identity_key': False}])
+            return result
     if not ids:
         if not exact_subject_fallback:
             result['status'] = 'TEXT_REFERENCE_MISSING'
