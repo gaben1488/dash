@@ -89,12 +89,22 @@ def verify_persisted_bundle(directory: str | Path) -> list[str]:
         return ["SNAPSHOT_BUNDLE_MANIFEST_MISSING"]
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(meta, dict):
+        return ["SNAPSHOT_BUNDLE_SHAPE_INVALID"]
+    entries = manifest.get("payload_index", [])
+    if (not isinstance(entries, list)
+            or any(not isinstance(item, dict)
+                   or not isinstance(item.get("source_id"), str)
+                   or not isinstance(item.get("path"), str)
+                   or Path(item["path"]).is_absolute()
+                   or ".." in Path(item["path"]).parts for item in entries)):
+        return ["SNAPSHOT_BUNDLE_SHAPE_INVALID"]
     got_manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     if got_manifest_sha != meta.get("manifest_sha256"):
         errors.append("SNAPSHOT_BUNDLE_MANIFEST_HASH_MISMATCH")
     if manifest.get("snapshot_id") != meta.get("snapshot_id"):
         errors.append("SNAPSHOT_BUNDLE_ID_MISMATCH")
-    for item in manifest.get("payload_index", []):
+    for item in entries:
         path = root / item["path"]
         if not path.exists():
             errors.append(f"SNAPSHOT_PAYLOAD_MISSING:{item['source_id']}")
@@ -104,6 +114,9 @@ def verify_persisted_bundle(directory: str | Path) -> list[str]:
             errors.append(f"SNAPSHOT_PAYLOAD_FILE_HASH_MISMATCH:{item['source_id']}")
             continue
         body = json.loads(raw.decode("utf-8"))
+        if not isinstance(body, dict):
+            errors.append(f"SNAPSHOT_PAYLOAD_SHAPE_INVALID:{item['source_id']}")
+            continue
         if canonical_semantic_hash(body.get("semantic_values")) != item.get("canonical_semantic_hash"):
             errors.append(f"SNAPSHOT_PAYLOAD_SEMANTIC_HASH_MISMATCH:{item['source_id']}")
     return errors

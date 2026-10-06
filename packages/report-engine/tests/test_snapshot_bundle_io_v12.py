@@ -1,6 +1,8 @@
+import hashlib
 import json
 from pathlib import Path
 
+import pytest
 from procurement_engine.atomic_snapshot import SourcePayload, capture_atomic_snapshot
 from procurement_engine.snapshot_bundle_io import (
     matrix_shape,
@@ -72,3 +74,30 @@ def test_verify_detects_payload_tampering(tmp_path: Path):
     p.write_text(p.read_text() + " ")
     errors = verify_persisted_bundle(tmp_path / "snap")
     assert "SNAPSHOT_PAYLOAD_FILE_HASH_MISMATCH:UO" in errors
+
+
+@pytest.mark.parametrize("part", ["manifest", "meta", "payload"])
+@pytest.mark.parametrize("invalid", [[], 1, None])
+def test_verify_rejects_checksummed_json_with_wrong_shape(tmp_path, part, invalid):
+    bundle = capture_atomic_snapshot(
+        [FakeAdapter("UO", [["a"], ["b"], ["c"], [1]])],
+        report_date="2026-09-29", report_year=2026, rules_version="r",
+        renderer_version="x", cutoff_at="2026-09-29T08:00:00Z",
+    )
+    persist_atomic_bundle(bundle, tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    meta_path = tmp_path / "bundle.json"
+    manifest = json.loads(manifest_path.read_text())
+    meta = json.loads(meta_path.read_text())
+    if part == "payload":
+        payload = tmp_path / manifest["payload_index"][0]["path"]
+        payload.write_text(json.dumps(invalid))
+        manifest["payload_index"][0]["bundle_file_sha256"] = hashlib.sha256(payload.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+    elif part == "manifest":
+        manifest_path.write_text(json.dumps(invalid))
+    meta["manifest_sha256"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    meta_path.write_text(json.dumps(invalid if part == "meta" else meta))
+    assert verify_persisted_bundle(tmp_path) == [
+        "SNAPSHOT_PAYLOAD_SHAPE_INVALID:UO" if part == "payload" else "SNAPSHOT_BUNDLE_SHAPE_INVALID"
+    ]
