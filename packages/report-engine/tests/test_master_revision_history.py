@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from openpyxl import Workbook
+import procurement_engine.master_revision_history as revision_history
 from procurement_engine.master_revision_history import (
     exact_revisions,
     probe_exact_master_revisions,
@@ -124,3 +125,31 @@ def test_probe_rejects_historical_schema_drift():
     assert result['days_with_readable_schema'] == 0
     assert result['days_rejected_schema'] == 1
     assert result['by_grbs']['УЭР']['rejected_days'] == 1
+
+
+def test_matrix_streams_cells_when_read_only_dimensions_are_missing(monkeypatch):
+    rows = [['group', None, None, None], ['№', 'ГРБС', 'Учреждение', 'Предмет'],
+            [1, 'УЭР', 'МКУ', 'Бумага']]
+
+    class Sheet:
+        max_row = None
+        max_column = None
+
+        def iter_rows(self, min_row=1, values_only=True):
+            assert min_row == 1
+            assert values_only is True
+            return iter(tuple(row) for row in rows)
+
+    class Book:
+        sheetnames = ['ВСЕ']
+
+        def __getitem__(self, name):
+            assert name == 'ВСЕ'
+            return Sheet()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(revision_history, 'load_workbook', lambda *_args, **_kwargs: Book())
+    contract = source_contract(rows)
+    assert revision_history._matrix(b'PK-not-used-by-fake-loader', contract) == rows
