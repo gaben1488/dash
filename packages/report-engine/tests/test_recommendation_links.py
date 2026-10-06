@@ -616,6 +616,7 @@ def test_v8_unique_joint_procurement_proves_group_target_without_reusing_source_
     {'institution': 'МБОУ Школа'},
     {'plan_mb': 10939.49},
     {'method': 'ЕП'},
+    {'planned_year': 2027},
     {'procurement_uid': None},
     {'subject': 'Мягкий инвентарь и мебель'},
 ])
@@ -630,6 +631,23 @@ def test_v8_joint_target_rejects_non_primary_or_changed_target(change):
     result = review_recommendations([rec], [joint_row(**change)], 'snapshot', '30.09.2026',
         documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v8')[0]
     assert result['current_link']['status'] != 'CONFIRMED'
+
+
+
+def test_v8_duplicate_exact_joint_targets_remain_ambiguous():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Объединить позиции 1446, 1737, 1774, 1630 мягкий инвентарь '
+            'на общую сумму 10 939,50 тыс. руб. в совместную закупку')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS',
+               table_no=1, row_no=1)
+    first = joint_row()
+    second = replace(first, source_row_no='2210', procurement_id='2210',
+                     procurement_uid='PUR-joint-2', row_number=1905)
+    result = review_recommendations([rec], [first, second], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] == 'AMBIGUOUS'
 
 
 def test_v8_parenthetical_target_must_match_the_current_joint_business_number():
