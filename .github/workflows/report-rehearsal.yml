@@ -95,4 +95,11 @@ jobs:
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
+              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --failed-attempt
+            docker run --rm --network none --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+              --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
