@@ -88,3 +88,18 @@ def test_rehearsal_does_not_echo_uppercase_private_exception_text(monkeypatch, c
     monkeypatch.setattr(rehearsal, 'rehearse_latest', failure)
     assert rehearsal.main(['--state', '/unused']) == 2
     assert 'PRIVATE_CUSTOMER_NAME' not in capsys.readouterr().out
+
+
+def test_last_sealed_week_replays_both_documents_without_changing_source_state(tmp_path):
+    from procurement_engine.rehearsal import rehearse_weekly
+    from procurement_engine.weekly_archive import seal_weekly_archive
+    from test_weekly_archive import complete_attempt
+
+    state, status = complete_attempt(tmp_path)
+    assert seal_weekly_archive(state, status)['status'] == 'SEALED'
+    before = business_files(state)
+    assert rehearse_weekly(state) == {
+        'replay_status': 'PASS', 'two_docx_rebuilt': True,
+        'source_verification': 'FROZEN_ARCHIVE_HASHES',
+    }
+    assert business_files(state) == before

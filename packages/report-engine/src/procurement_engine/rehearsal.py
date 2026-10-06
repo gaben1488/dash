@@ -10,6 +10,7 @@ import json
 import re
 import tempfile
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 
 from .deployment_diagnostics import PUBLIC_CODES, public_error_code, safe_sqlite_error
@@ -21,6 +22,26 @@ from .runtime_inputs import validate_inputs
 
 def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+def rehearse_weekly(state):
+    """Replay the newest own sealed week into disposable storage, offline."""
+    from .archive_runtime import build_archived_release
+
+    weeks = sorted(Path(state).glob('archives/WEEKLY-*'))
+    if not weeks:
+        return None
+    source = weeks[-1]
+    day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
+    with tempfile.TemporaryDirectory(prefix='report-weekly-rehearsal-') as temporary:
+        receipt = build_archived_release(source, temporary, day=day.isoformat(),
+                                         year=day.year, quarter=(day.month - 1) // 3 + 1)
+        root = Path(temporary) / 'published/releases' / receipt['release_id']
+        _validate(root)
+        documents = all((root / name).read_bytes().startswith(b'PK')
+                        for name in ('main_report.docx', 'management_report.docx'))
+        return {'replay_status': 'PASS', 'two_docx_rebuilt': documents,
+                'source_verification': receipt['source_verification']}
 
 
 
@@ -193,6 +214,9 @@ def rehearse_latest(state_dir, *, coverage=False):
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
             result.update(_coverage_details(candidate, identities))
+            weekly = rehearse_weekly(state)
+            if weekly is not None:
+                result['weekly'] = weekly
         return result
 
 
