@@ -145,9 +145,8 @@ jobs:
               --env-file .env.production \
               -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
               --entrypoint /bin/sh "$image" \
-              -ec 'cp -a /candidate /tmp/candidate &&
-                   /opt/report-env/bin/python -m pip install --quiet --no-cache-dir --target /tmp/candidate-deps /tmp/candidate &&
-                   export PYTHONPATH=/tmp/candidate/src:/tmp/candidate-deps &&
+              -ec '/opt/report-env/bin/python -m pip install --quiet --no-cache-dir --target /tmp/candidate-deps "openpyxl>=3.1.5,<4" &&
+                   export PYTHONPATH=/candidate/src:/tmp/candidate-deps &&
                    exec /opt/report-env/bin/python -m procurement_engine.cli probe-master-revisions \
                      --registry /app/packages/server/data/reports/inputs/registry.json \
                      --ledger /app/packages/server/data/reports/inputs/ledger.json'
