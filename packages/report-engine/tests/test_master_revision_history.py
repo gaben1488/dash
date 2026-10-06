@@ -2,6 +2,7 @@ from io import BytesIO
 
 import procurement_engine.master_revision_history as revision_history
 from openpyxl import Workbook
+from procurement_engine.google_adapter import GoogleReadError
 from procurement_engine.master_revision_history import (
     exact_revisions,
     probe_exact_master_revisions,
@@ -90,7 +91,8 @@ def test_probe_reads_every_exact_revision_and_validates_registered_schema():
     assert client.list_calls == 1
     assert result['by_grbs']['УЭР'] == {
         'requested_days': 1, 'exact_days': 1, 'readable_days': 1,
-        'rejected_days': 0, 'exact_revisions': 2, 'source_registered': True,
+        'rejected_days': 0, 'unexportable_days': 0, 'exact_revisions': 2,
+        'unavailable_revisions': 0, 'source_registered': True,
     }
 
 
@@ -154,3 +156,60 @@ def test_matrix_streams_cells_when_read_only_dimensions_are_missing(monkeypatch)
     monkeypatch.setattr(revision_history, 'load_workbook', lambda *_args, **_kwargs: Book())
     contract = source_contract(rows)
     assert revision_history._matrix(b'PK-not-used-by-fake-loader', contract) == rows
+
+
+def test_probe_classifies_pruned_listed_revision_without_substituting_neighbor():
+    rows = [['group'], ['№', 'ГРБС', 'Учреждение', 'Предмет'], [1, 'УЭР', 'МКУ', 'Бумага']]
+    content = xlsx_bytes('ВСЕ', rows)
+
+    class PrunedRevisionClient(RevisionClient):
+        def _get(self, url, params=None):
+            if url.endswith('/revisions'):
+                return super()._get(url, params)
+            revision_id = url.rsplit('/', 1)[-1]
+            if revision_id == 'gone':
+                raise GoogleReadError('GOOGLE_READ_HTTP_404')
+            return super()._get(url, params)
+
+    client = PrunedRevisionClient([
+        {'id': 'gone', 'modifiedTime': '2026-09-11T01:00:00Z'},
+        {'id': 'kept', 'modifiedTime': '2026-09-11T05:00:00Z'},
+    ], {'kept': content})
+    registry = {'sources': [source_contract(rows)]}
+    ledger = [{'recommendation_id': 'R1', 'grbs': 'УЭР', 'recommendation_text': 'x',
+               'source_procurement_ids': ['1'], 'active_in_current_slice': True,
+               'origin_evidence': [{'document_date': '11.09.2026'}]}]
+
+    result = probe_exact_master_revisions(registry, ledger, client)
+
+    assert result['days_with_exact_revision'] == 1
+    assert result['days_with_readable_schema'] == 1
+    assert result['exact_revisions_read'] == 1
+    assert result['unavailable_revisions'] == 1
+    assert result['days_without_exportable_revision'] == 0
+
+
+def test_probe_marks_day_unexportable_when_all_listed_revisions_are_pruned():
+    rows = [['group'], ['№', 'ГРБС', 'Учреждение', 'Предмет'], [1, 'УЭР', 'МКУ', 'Бумага']]
+
+    class GoneClient(RevisionClient):
+        def _get(self, url, params=None):
+            if url.endswith('/revisions'):
+                return super()._get(url, params)
+            raise GoogleReadError('GOOGLE_READ_HTTP_410')
+
+    client = GoneClient(
+        [{'id': 'gone', 'modifiedTime': '2026-09-11T01:00:00Z'}],
+        {},
+    )
+    registry = {'sources': [source_contract(rows)]}
+    ledger = [{'recommendation_id': 'R1', 'grbs': 'УЭР', 'recommendation_text': 'x',
+               'source_procurement_ids': ['1'], 'active_in_current_slice': True,
+               'origin_evidence': [{'document_date': '11.09.2026'}]}]
+
+    result = probe_exact_master_revisions(registry, ledger, client)
+
+    assert result['days_with_exact_revision'] == 1
+    assert result['days_with_readable_schema'] == 0
+    assert result['days_without_exportable_revision'] == 1
+    assert result['unavailable_revisions'] == 1
