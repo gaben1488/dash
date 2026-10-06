@@ -98,7 +98,6 @@ jobs:
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
 
   historical-revision-preflight:
-    needs: frozen-replay
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'codex/report-')
