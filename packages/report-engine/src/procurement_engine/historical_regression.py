@@ -228,7 +228,11 @@ def probe_google_historical_regression(registry, oracle, client, *, timezone_nam
     if oracle.get('contract') != ORACLE_CONTRACT:
         raise ValueError('HISTORICAL_ORACLE_INVALID')
     from .google_adapter import GoogleReadError
-    from .master_revision_history import _revision_export, revision_export_unavailable, revision_index
+    from .master_revision_history import (
+        _revision_export,
+        revision_export_unavailable,
+        revision_index,
+    )
     masters = {source.get('grbs'): source for source in registry.get('sources', [])
                if source.get('role') == 'master' and source.get('grbs')}
     required_grbs = sorted({
