@@ -272,3 +272,37 @@ def test_revision_versions_are_private_and_public_status_keeps_only_code(tmp_pat
     error = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
     assert error['evidence'] == {'before': {'private-source': 'private-v1'},
                                  'after': {'private-source': 'private-v2'}}
+
+
+def test_sqlite_failure_keeps_machine_code_without_public_message(tmp_path, monkeypatch):
+    import sqlite3
+
+    registry, ledger = inputs(tmp_path)
+
+    class FormulaGoogle(Google):
+        def formula_context(self, provider):
+            return {'sheets': [{'sheetId': 0, 'title': self.grid(provider, 0)['title']}], 'named_ranges': []}
+
+        def formulas(self, provider, title, start, end, columns):
+            return self.values(provider, title, start, end, columns)
+
+    original_publish = PublicationStore.publish
+
+    def fail_publish(self, *args, **kwargs):
+        error = sqlite3.OperationalError('private database path and table')
+        error.sqlite_errorname = 'SQLITE_BUSY'
+        raise error
+
+    monkeypatch.setattr(PublicationStore, 'publish', fail_publish)
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=FormulaGoogle())
+    assert status['status'] == 'NOT_ISSUED'
+    assert status['failure_stage'] == 'publication'
+    assert status['error_type'] == 'OperationalError'
+    assert status['sqlite_error'] == 'SQLITE_BUSY'
+    assert 'private database' not in json.dumps(status)
+    evidence = json.loads((state / 'attempts' / status['attempt_id'] / 'error.json').read_text())
+    assert evidence['sqlite_error'] == 'SQLITE_BUSY'
+    assert evidence['message'] == 'private database path and table'
+
+    monkeypatch.setattr(PublicationStore, 'publish', original_publish)
