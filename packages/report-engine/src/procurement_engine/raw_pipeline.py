@@ -545,7 +545,11 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     dump(closed_quality,out/'closed_procedure_quality.json')
     if identity_result:
         dump(identity_result,out/'identity_observations.json')
-        identity_store.backup(out/'identity.sqlite')
+        identity_store.backup_snapshot(
+            out/'identity.sqlite',
+            snapshot_id=bundle.manifest['snapshot_id'],
+            as_of=capture['captured_at'],
+        )
     if render_docx:
         from .docx_renderer import render_main_docx, render_management_docx
         render_main_docx(model,out/'main_report.docx');render_management_docx(model,out/'management_report.docx')
