@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import procurement_engine.retention as retention
 from procurement_engine.retention import (
     apply_transient_attempt_retention,
     plan_transient_attempt_retention,
@@ -138,3 +139,39 @@ def test_dry_run_compare_barrier_rejects_changed_plan(tmp_path):
         state, keep_full=2, expected_attempts=old_plan["compact_attempts"])
     assert result["status"] == "PLAN_CHANGED"
     assert result["bytes_reclaimed"] == 0
+
+
+def test_apply_retention_takes_the_same_exclusive_run_lock_as_report_generation(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    base = datetime(2034, 10, 7, tzinfo=timezone.utc)
+    for i in range(4):
+        _attempt(state, f"a{i}", when=base + timedelta(minutes=i))
+
+    calls = []
+    real_flock = retention.fcntl.flock
+
+    def observed(fd, operation):
+        calls.append(operation)
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(retention.fcntl, "flock", observed)
+    result = apply_transient_attempt_retention(state, keep_full=2)
+
+    assert result["status"] == "COMPACTED"
+    assert retention.fcntl.LOCK_EX in calls
+    assert (state / "run.lock").is_file()
+
+
+def test_retention_refuses_symlinked_run_lock(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    target = tmp_path / "outside.lock"
+    target.write_text("", encoding="utf-8")
+    (state / "run.lock").symlink_to(target)
+
+    try:
+        apply_transient_attempt_retention(state, keep_full=2)
+    except ValueError as error:
+        assert str(error) == "ATTEMPT_RETENTION_LOCK_UNSAFE"
+    else:
+        raise AssertionError("symlinked run lock must fail closed")
