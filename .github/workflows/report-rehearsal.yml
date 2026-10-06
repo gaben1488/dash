@@ -71,6 +71,12 @@ jobs:
                    printf "attempt_dirs "; find "$root/attempts" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l;
                    printf "release_dirs "; find "$root/published/releases" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l;
                    printf "weekly_dirs "; find "$root/archives" -mindepth 1 -maxdepth 1 -type d -name "WEEKLY-*" 2>/dev/null | wc -l'
+            echo "=== installed source contract geometry (no source contents) ==="
+            docker run --rm --network none --read-only \
+              --volumes-from "$server":ro \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -c 'import json; from pathlib import Path; r=json.loads(Path("/app/packages/server/data/reports/inputs/registry.json").read_text()); keys=("sheet","role","columns","header_rows","schema_fingerprint","semantic_header_fingerprint","previous_semantic_header_fingerprint"); print(json.dumps({"installed_source_contracts":[{k:s[k] for k in keys if k in s} for s in r["sources"]]},ensure_ascii=False,sort_keys=True))'
+            echo "=== end installed source contract geometry ==="
             echo "=== latest live release aggregate footprint ==="
             docker run --rm --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=128m \
