@@ -111,7 +111,7 @@ def rehearse_release_restore(state, receipt):
 
 
 
-def _identity_gap_diagnostics(candidate, identities):
+def _identity_gap_diagnostics(candidate, identities, *, identity_snapshot_id=None):
     """Explain conservative chain failures with counts/coordinates only; never modify identities."""
     if identities is None:
         return {'identity_chain_break_counts': {}, 'recommendation_identity_gap_index': []}
@@ -136,7 +136,7 @@ def _identity_gap_diagnostics(candidate, identities):
     with closing(sqlite3.connect(identities.path.resolve().as_uri() + '?mode=ro', uri=True)) as db:
         db.row_factory = sqlite3.Row
         current = db.execute('SELECT seq FROM snapshots WHERE snapshot_id=?',
-                             (candidate['snapshot']['snapshot_id'],)).fetchone()
+                             (identity_snapshot_id or candidate['snapshot']['snapshot_id'],)).fetchone()
 
         def explain(item, row):
             if item.get('status') == 'AMBIGUOUS_DUPLICATE':
@@ -204,7 +204,7 @@ def _identity_gap_diagnostics(candidate, identities):
             'recommendation_identity_gap_index': gaps}
 
 
-def _coverage_details(candidate, identities=None, identity_history=None):
+def _coverage_details(candidate, identities=None, identity_history=None, *, identity_snapshot_id=None):
     """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
     identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
     unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
@@ -289,7 +289,7 @@ def _coverage_details(candidate, identities=None, identity_history=None):
             subject_only['multiple_exact_subjects'] += 1
 
     return {
-        **_identity_gap_diagnostics(candidate, identity_history or identities),
+        **_identity_gap_diagnostics(candidate, identity_history or identities, identity_snapshot_id=identity_snapshot_id),
         'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
         'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
@@ -389,7 +389,8 @@ def rehearse_latest(state_dir, *, coverage=False):
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
             # The sealed release intentionally contains one identity snapshot.
-            # Diagnose its earlier chain from a stable copy of the live history;
+            # Diagnose the sealed input import's earlier chain from a stable
+            # copy of the live history: an upgraded replay has a new snapshot ID.
             # metadata backfill affects only that copy, never the replay or source.
             with copied_catalog(state / 'identity.sqlite') as history_path:
                 history = IdentityStore(history_path)
@@ -398,7 +399,7 @@ def rehearse_latest(state_dir, *, coverage=False):
                     *state.glob('published/releases/*/snapshot_bundle'),
                     *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
                 result['identity_recovery'] = recovery_diagnostics
-                result.update(_coverage_details(candidate, identities, history))
+                result.update(_coverage_details(candidate, identities, history, identity_snapshot_id=manifest['snapshot_id']))
             weekly = rehearse_weekly(state)
             if weekly is not None:
                 result['weekly'] = weekly
