@@ -35,6 +35,30 @@ def test_proven_method_change_is_implemented_without_claiming_contract_completio
     assert 'ЭА' in result['business_finding']
 
 
+def test_reviewed_identity_is_exposed_as_confirmed_current_link_when_origin_is_verified():
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original()
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA',
+                  source_procurement_ids=['42'])
+    reviewed = proof(uid='PUR-synthetic', evidence={**proof()['evidence'],
+        'recommendation_id': 'synthetic', 'source_procurement_ids': ['42']})
+    # The automatic v7 matcher rejects this year transition. The explicit
+    # reviewed UID is allowed to bridge it, while the original DOCX still has
+    # to pass provenance verification independently.
+    result = review_recommendations([record], [replace(current_row(), planned_year=2027)],
+        'snapshot', '30.09.2026', identity_evidence=[reviewed],
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v7')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['required_business_ids'] == ['42']
+    assert result['current_link']['procurement_uids'] == ['PUR-synthetic']
+    assert result['current_link']['review_ids'] == ['REV-1']
+    assert result['current_link']['matches'][0]['match_basis'] == 'REVIEWED_HISTORICAL_IDENTITY'
+    assert result['dimensions']['evidence_quality'] == 'REVIEWED_IDENTITY+PRIMARY_FIELDS'
+
+
 @pytest.mark.parametrize('rows', [[row(procurement_uid='PUR-1', actual_date='2026-09-29')],
                                 [row(method='ЕП', procurement_uid='PUR-1')]])
 def test_acceptance_and_fact_do_not_prove_recommended_method(rows):
