@@ -30,6 +30,51 @@ def test_real_runtime_can_publish_without_manual_context_or_forced_model(tmp_pat
     assert read_publication(state, 'supplement', release_id).startswith(b'PK')
 
 
+def test_live_registry_order_can_differ_from_persisted_source_order(tmp_path):
+    from procurement_engine.section_audit import audit_context
+    from test_forensic_qa import rawrow
+
+    registry, ledger = inputs(tmp_path)
+    contract = json.loads(registry.read_text())
+    contract['sources'][0]['source_id'] = 'Z_MASTER'
+    contract['sources'][1]['source_id'] = 'A_MASTER'
+    registry.write_text(json.dumps(contract))
+    class WithContext(CompleteGoogle):
+        def grid(self, provider, sheet_id):
+            result = super().grid(provider, sheet_id)
+            if provider in ('master-0', 'master-1'):
+                result['gridProperties']['rowCount'] = 5 if provider == 'master-0' else 4
+            return result
+        def values(self, provider, title, start, end, columns):
+            values = [[], [], ['Synthetic header']]
+            if provider in ('master-0', 'master-1'):
+                row = rawrow('42' if provider == 'master-0' else '43', subject='Поставка бумаги', fact_date='', plan=(0, 0, 46))
+                row[29] = 'нет'; row[31] = 'Финансирование отсутствует'
+                values.append(row)
+                if provider == 'master-0':
+                    extra = list(row); extra[0] = '44'; values.append(extra)
+            return values[start - 1:end]
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=WithContext())
+    assert status['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    bundle = state / 'attempts' / status['attempt_id'] / 'bundle'
+    model = json.loads((bundle / 'report_model.json').read_text())
+    capture = json.loads((bundle.parent / 'capture.json').read_text())
+    capture['sources'].sort(key=lambda source: source['source_id'])
+    assert audit_context(capture, model)
+    assert len(model['source_context']) == 3
+    for view in ('main', 'supplement'):
+        assert read_publication(state, view, status['publication']['release_id']).startswith(b'PK')
+    model['source_context'].append(model['source_context'][0])
+    assert not audit_context(capture, model)
+    model['source_context'].pop()
+    model['source_context'].reverse()
+    from procurement_engine.context_presentation import group_context
+    model['source_context_groups'] = group_context(model['source_context'],
+        year=model['snapshot']['report_year'], as_of=model['snapshot']['report_date'])
+    assert not audit_context(capture, model)
+
+
 def test_complete_wider_grids_can_publish_both_documents(tmp_path):
     class Wide(CompleteGoogle):
         def grid(self, provider, sheet_id):

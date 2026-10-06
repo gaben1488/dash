@@ -189,9 +189,14 @@ def _validate(root):
             if identity != model.get('identity_observations'):
                 raise PublicationError('SAVED_IDENTITY_RECHECK_FAILED')
             capture['identity_evidence'] = identity
-        if (not audit_formula_dependencies(capture)['closed'] or not audit_model(capture, model)['pass']
-                or audit_source_sections(capture, model, ledger=ledgers[0], identity_evidence=proof)):
-            raise PublicationError('SAVED_SOURCE_RECHECK_FAILED')
+        formula = audit_formula_dependencies(capture)
+        arithmetic = audit_model(capture, model)
+        sections = audit_source_sections(capture, model, ledger=ledgers[0], identity_evidence=proof)
+        if not formula['closed'] or not arithmetic['pass'] or sections:
+            error = PublicationError('SAVED_SOURCE_RECHECK_FAILED')
+            error.evidence = {'formula_closed': formula['closed'], 'arithmetic_pass': arithmetic['pass'],
+                              'section_errors': sections}
+            raise error
     if model.get('contract', {}).get('document_content_contract') == 'document-plan-v1':
         from .document_content import (
             validate_document_content,

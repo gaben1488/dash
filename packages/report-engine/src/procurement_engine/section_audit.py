@@ -286,9 +286,23 @@ def audit_context(capture, model):
                                  'planned_date': primary['planned_date'], 'actual_date': primary['actual_date'],
                                  'method': primary['method'],
                                  'in_report_year': plan_year == capture['report_year'], 'explanations': entries})
-    if model.get('source_context') != expected:
+    recorded = model.get('source_context')
+    if (not isinstance(recorded, list)
+            or any(not isinstance(row, dict) or not isinstance(row.get('source_row_key'), str)
+                   or not isinstance(row.get('grbs'), str) for row in recorded)):
+        return False
+    def by_grbs(rows):
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(row['grbs'], []).append(row)
+        return grouped
+    # Each registered master belongs to one GRBS. Book order may change when
+    # persisted, but row order, content, completeness and duplicates must match.
+    if by_grbs(recorded) != by_grbs(expected):
         return False
     if model.get('contract', {}).get('context_presentation_contract') == 'relevant-context-v1':
         from .context_presentation import group_context
-        return model.get('source_context_groups') == group_context(expected, year=capture['report_year'], as_of=capture['report_date'])
+        # Acquisition follows registry order; persisted payloads sort source IDs.
+        # Verify every row independently, then preserve the recorded display order.
+        return model.get('source_context_groups') == group_context(recorded, year=capture['report_year'], as_of=capture['report_date'])
     return True

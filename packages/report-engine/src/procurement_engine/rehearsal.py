@@ -15,13 +15,44 @@ from pathlib import Path
 
 from .deployment_diagnostics import PUBLIC_CODES, public_error_code, safe_sqlite_error
 from .identity_store import IdentityStore, freeze_identity_snapshot
-from .publication_store import PublicationStore, _validate
+from .publication_store import PublicationError, PublicationStore, _validate
 from .raw_pipeline import build_from_capture
 from .runtime_inputs import validate_inputs
 
 
 def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+def diagnose_failed_attempt(state):
+    """Recheck retained failure bytes; expose only bounded audit categories."""
+    failures = []
+    for path in Path(state).glob('attempts/*/status.json'):
+        try:
+            status = _json(path)
+        except (OSError, ValueError):
+            continue
+        bundle = path.parent / 'bundle'
+        if (isinstance(status, dict) and status.get('error_code') == 'SAVED_SOURCE_RECHECK_FAILED'
+                and bundle.is_dir() and not bundle.is_symlink()):
+            failures.append((status.get('finished_at') or '', bundle))
+    if not failures:
+        return None
+    root = max(failures, key=lambda item: item[0])[1]
+    try:
+        _validate(root)
+    except PublicationError as error:
+        evidence = getattr(error, 'evidence', {})
+        allowed = {'source_context', 'remaining_population', 'identity_evidence', 'recommendation_records',
+            'recommendation_evidence', 'future_plan', 'procedure_source_contract', 'procedures',
+            'closed_procedure_quality', 'active_procedures_count', 'management_summary.procedure_rows',
+            'management_summary.procedure_count', 'automation_assurance'}
+        return {'error_code': public_error_code(str(error)),
+            **{key: evidence[key] for key in ('formula_closed', 'arithmetic_pass')
+               if type(evidence.get(key)) is bool},
+            'section_errors': dict(Counter(code if code in allowed else 'UNRECOGNIZED_SECTION'
+                for code in evidence.get('section_errors', [])))}
+    return {'recheck_status': 'PASS'}
 
 
 def rehearse_weekly(state):
@@ -224,8 +255,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', required=True)
     parser.add_argument('--coverage', action='store_true')
+    parser.add_argument('--failed-attempt', action='store_true')
     args = parser.parse_args(argv)
     try:
+        if args.failed_attempt:
+            print(json.dumps({'failed_attempt': diagnose_failed_attempt(args.state)}, ensure_ascii=False))
+            return 0
         result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
         message = str(error)

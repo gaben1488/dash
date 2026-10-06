@@ -103,3 +103,39 @@ def test_last_sealed_week_replays_both_documents_without_changing_source_state(t
         'source_verification': 'FROZEN_ARCHIVE_HASHES',
     }
     assert business_files(state) == before
+
+
+def test_failed_publication_recheck_is_diagnosed_without_source_text_or_mutation(tmp_path, monkeypatch):
+    from procurement_engine import section_audit
+    from procurement_engine.rehearsal import diagnose_failed_attempt
+
+    registry, ledger = inputs(tmp_path); state = tmp_path / 'state'
+    original = section_audit.audit_source_sections
+    def saved_only_failure(capture, *args, **kwargs):
+        return ['automation_assurance', 'PRIVATE_SOURCE_TEXT'] if 'captured_at' not in capture else original(capture, *args, **kwargs)
+    monkeypatch.setattr(section_audit, 'audit_source_sections', saved_only_failure)
+    result = run_once(registry, ledger, state, client=CompleteGoogle())
+    assert result['error_code'] == 'SAVED_SOURCE_RECHECK_FAILED'
+    before = business_files(state)
+    diagnostic = diagnose_failed_attempt(state)
+    assert diagnostic == {'error_code': 'SAVED_SOURCE_RECHECK_FAILED',
+        'formula_closed': True, 'arithmetic_pass': True,
+        'section_errors': {'automation_assurance': 1, 'UNRECOGNIZED_SECTION': 1}}
+    assert business_files(state) == before
+    assert 'PRIVATE_SOURCE_TEXT' not in json.dumps(diagnostic)
+    compacted = state / 'attempts/compacted'
+    compacted.mkdir()
+    (compacted / 'status.json').write_text(json.dumps({'error_code': 'SAVED_SOURCE_RECHECK_FAILED',
+        'finished_at': '2034-09-28T12:00:00Z'}))
+    assert diagnose_failed_attempt(state) == diagnostic
+    monkeypatch.setattr(section_audit, 'audit_source_sections', original)
+    assert diagnose_failed_attempt(state) == {'recheck_status': 'PASS'}
+
+
+def test_failed_attempt_cli_sanitizes_unexpected_failure(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+    def failure(*args):
+        raise ValueError('PRIVATE_SOURCE_TEXT')
+    monkeypatch.setattr(rehearsal, 'diagnose_failed_attempt', failure)
+    assert rehearsal.main(['--state', '/unused', '--failed-attempt']) == 2
+    assert 'PRIVATE_SOURCE_TEXT' not in capsys.readouterr().out
