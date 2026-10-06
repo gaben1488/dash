@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-import procurement_engine.retention as retention
+from procurement_engine import retention
 from procurement_engine.retention import (
     apply_transient_attempt_retention,
     plan_transient_attempt_retention,
