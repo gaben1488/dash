@@ -257,6 +257,8 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_y
 def _complete_supply_case_instruction(text, row):
     from .action_spec import compile_action
 
+    if not _text(row.subject).startswith('поставка '):
+        return False
     spec = compile_action(text, source_ids=[row.source_row_no],
         subjects=[(row.source_row_no, row.subject)], reference_grammar=True,
         subject_reference_grammar=True, inflected_supply_subject=True)
