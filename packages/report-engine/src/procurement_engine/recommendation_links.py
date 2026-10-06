@@ -76,7 +76,8 @@ def _subject_amounts(text, subject, business_id):
 
 
 
-def _exact_subject_reference(text, subject, business_id, *, shared_group_subject=False):
+def _exact_subject_reference(text, subject, business_id, *, shared_group_subject=False,
+                             extended_literal_reference=False):
     """An explicit number owns the complete subject, not a price or a substring.
 
     Amounts are historical attributes. They cannot be invariant identity keys.
@@ -89,8 +90,18 @@ def _exact_subject_reference(text, subject, business_id, *, shared_group_subject
     reference = prefix + re.escape(business_id) + r'(?![\w/.-])\s*(?:[—–:]\s*)?'
     instruction = r'(?:(?:вынести|перевести|провести)\s+на\s+эа\s+)?'
     subject_start = r'[«"(]*\s*'
-    boundary = r'(?=\s*(?:[)»";.]|$|на\s+сумму\b|[—–]|планов\w*\s+сумм\w*\b))'
-    suffix = instruction + subject_start + re.escape(_text(subject)) + boundary
+    boundary_terms = r'[)»";.]|$|на\s+сумму\b|[—–]|планов\w*\s+сумм\w*\b'
+    phrase = re.escape(_text(subject))
+    if extended_literal_reference:
+        # Spaces inside parentheses are typography, never aliases for source words.
+        subject_text = re.sub(r'\(\s*', '(', _text(subject))
+        subject_text = re.sub(r'\s*\)', ')', subject_text)
+        phrase = re.escape(subject_text).replace(r'\(', r'\(\s*').replace(r'\)', r'\s*\)')
+        # A plain dash may introduce an amount, but not another subject word.
+        amount_start = r'-\s*\d+(?:[ ,.\u00a0]\d+)*\s*(?:тыс\.?\s*)?руб\b'
+        boundary_terms += '|' + amount_start
+    boundary = r'(?=\s*(?:' + boundary_terms + '))'
+    suffix = instruction + subject_start + phrase + boundary
     if re.search(reference + suffix, text):
         return True
     if shared_group_subject:
@@ -98,7 +109,8 @@ def _exact_subject_reference(text, subject, business_id, *, shared_group_subject
         # Each member still needs a unique row, the full subject, year and UID.
         number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
         group = f'({number}(?:\\s*[,;]\\s*{number}|\\s+и\\s+{number})+)'
-        for match in re.finditer(prefix + group + r'\s*(?:[—–:]\s*)?' + suffix, text):
+        target = r'(?:\s*\(\s*' + number + r'\s*\))?' if extended_literal_reference else ''
+        for match in re.finditer(prefix + group + target + r'\s*(?:[—–:]\s*)?' + suffix, text):
             if business_id in {normalize_id(item) for item in re.split(r'\s*[,;]\s*|\s+и\s+', match[1])}:
                 return True
     return False
@@ -311,7 +323,7 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
 
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
                          entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
-                         joint_group_target=False, budget_years=None):
+                         joint_group_target=False, budget_years=None, extended_literal_reference=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -380,7 +392,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
             and normalize_id(row.source_row_no) in ids and row.snapshot_id == snapshot_id
             and row.subject and _row_year_matches(row, source_years, budget_years)
             and _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
-                                         shared_group_subject=shared_group_subject)]
+                                         shared_group_subject=shared_group_subject,
+                                         extended_literal_reference=extended_literal_reference)]
     else:
         if explicit_years - {as_of[:4]}:
             result['status'] = 'PERIOD_EVIDENCE_REQUIRED'

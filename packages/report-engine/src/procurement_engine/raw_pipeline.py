@@ -271,6 +271,7 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
             exact_subject_fallback=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9'},
             shared_group_subject=link_contract in {'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9'},
             joint_group_target=link_contract in {'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9'},
+            extended_literal_reference=link_contract == 'verified-original-and-current-plan-v9',
             budget_years=budget_years if link_contract == 'verified-original-and-current-plan-v9' else None)
         confirmed = active and link['status'] == 'CONFIRMED'
         r.update(semantic_status=('CURRENT_LINK_CONFIRMED' if confirmed else 'REVIEW_REQUIRED') if active else 'SUPERSEDED',

@@ -125,6 +125,53 @@ def test_complete_subject_with_dash_before_its_amount_is_supported():
     assert resolve(recommendation('Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.'), [row()])['status'] == 'CONFIRMED'
 
 
+@pytest.mark.parametrize('subject,expected', [
+    ('оргтехника ( 2 принтера, 2 ноутбука)', 'CONFIRMED'),
+    ('оргтехника (2 принтера, 2 монитора)', 'CURRENT_EVIDENCE_MISSING'),
+    ('оргтехника (2 принтера, 2 ноутбука) и картриджи', 'CURRENT_EVIDENCE_MISSING'),
+])
+def test_v9_literal_reference_tolerates_parenthesis_spacing_only(subject, expected):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = recommendation('Вынести на ЭА 42 оргтехника (2 принтера, 2 ноутбука) – 180,00 тыс. руб.')
+    rec['active_in_current_slice'] = True
+    rows = [replace(row(), subject=subject, planned_year=2026)]
+    kwargs = {'documents': TEST_DOCUMENTS, 'budget_years': {}}
+    result = review_recommendations([rec], rows, 'snapshot', '30.09.2026',
+        link_contract='verified-original-and-current-plan-v9', **kwargs)
+    assert result[0]['current_link']['status'] == expected
+    old = review_recommendations([rec], rows, 'snapshot', '30.09.2026',
+        link_contract='verified-original-and-current-plan-v8', **kwargs)
+    assert old[0]['current_link']['status'] == 'CURRENT_EVIDENCE_MISSING'
+
+
+@pytest.mark.parametrize('change,expected', [
+    ({}, 'CONFIRMED'),
+    ({'subject': 'Поставка бумаги и картриджей'}, 'GROUP_EVIDENCE_REQUIRED'),
+    ({'procurement_uid': None}, 'GROUP_EVIDENCE_REQUIRED'),
+    ({'source_row_no': '44'}, 'GROUP_EVIDENCE_REQUIRED'),
+])
+def test_v9_group_target_parenthesis_keeps_full_original_members(change, expected):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = recommendation('Вынести на ЭА 42,43 (99) Поставка бумаги -100,00 тыс. руб. (совместный аукцион)')
+    rec['active_in_current_slice'] = True
+    second = {'source_row_no': '43', 'procurement_id': '43', 'row_number': 5,
+              'procurement_uid': 'PUR-other', 'planned_year': 2026} | change
+    rows = [replace(row(), planned_year=2026), replace(row(), **second)]
+    result = review_recommendations([rec], rows, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v9', budget_years={})
+    assert result[0]['current_link']['status'] == expected
+    if expected == 'CONFIRMED':
+        assert result[0]['current_link']['business_ids'] == ['42', '43']
+        assert result[0]['current_link']['fulfillment'] == 'UNKNOWN'
+        assert 'relation' not in result[0]['current_link']
+        duplicate = replace(rows[1], row_number=6, procurement_uid=None)
+        result = review_recommendations([rec], [*rows, duplicate], 'snapshot', '30.09.2026',
+            documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v9', budget_years={})
+        assert result[0]['current_link']['status'] == 'AMBIGUOUS'
+
+
 @pytest.mark.parametrize('text', [
     'Рекомендуем позицию 42 (Поставка бумаги) и картриджей на сумму 46,00 тыс. руб.',
     'Рекомендуем позицию 42 (Поставка бумаги). Поставка картриджей на сумму 46,00 тыс. руб.',
