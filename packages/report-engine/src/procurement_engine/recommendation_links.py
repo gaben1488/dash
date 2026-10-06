@@ -260,7 +260,7 @@ def _joint_group_target_spec(text, ids):
             'subject': name, 'amount_thousand': amount_thousand}
 
 
-def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years):
+def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of):
     spec = _joint_group_target_spec(text, ids)
     if spec is None:
         return None, None
@@ -273,7 +273,8 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years):
         and row.method == 'ЭА'
         and _text(row.subject) == _text(spec['subject'])
         and money(row, 'plan') == spec['amount_thousand']
-        and (not row.planned_year or str(row.planned_year) in source_years)
+        and (str(row.planned_year) in source_years
+             or (not row.planned_year and as_of[:4] in source_years))
         and (not spec['target_business_id']
              or normalize_id(row.source_row_no) == spec['target_business_id'])
     ]
@@ -304,7 +305,7 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
         return result
     if joint_group_target and len(ids) > 1:
-        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years)
+        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of)
         if spec == 'AMBIGUOUS':
             result['status'] = 'AMBIGUOUS'
             return result
