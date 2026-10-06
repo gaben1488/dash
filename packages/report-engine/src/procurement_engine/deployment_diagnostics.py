@@ -148,14 +148,14 @@ def summarize_status(status):
 
 
 if __name__ == '__main__':
-    stage = sys.argv[1] if len(sys.argv) in {2, 3} and sys.argv[1] in {'bootstrap', 'schema_migration', 'capture', 'http'} else 'unknown'
+    stage = sys.argv[1] if len(sys.argv) in {2, 3} and sys.argv[1] in {'bootstrap', 'schema_migration', 'capture', 'http', 'worker'} else 'unknown'
     try:
         status = json.loads(Path('data/reports/status.json').read_text())
         summary = summarize_status(status) if isinstance(status, dict) else {'last_report_status': 'UNKNOWN'}
         if len(sys.argv) == 3:
             start = datetime.fromisoformat(sys.argv[2])
             attempted = datetime.fromisoformat(status.get('started_at') or '')
-            if stage not in {'capture', 'http'} or start.tzinfo is None or attempted.tzinfo is None or attempted < start:
+            if stage not in {'capture', 'http', 'worker'} or start.tzinfo is None or attempted.tzinfo is None or attempted < start:
                 summary = {'last_report_status': 'NOT_CURRENT'}
     except (OSError, ValueError, TypeError, AttributeError):
         summary = {'last_report_status': 'UNAVAILABLE'}

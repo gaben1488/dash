@@ -45,5 +45,10 @@ docker compose --env-file .env.production exec -T server sh -eu -c '
 deployment_stage=http
 echo 'Report generated. Checking the native report context and both Word downloads.'
 docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_smoke
+deployment_stage=worker
+worker_started_at=$(date -u +'%Y-%m-%dT%H:%M:%S+00:00')
 docker compose --env-file .env.production --profile reports up -d report-worker >/dev/null
-echo 'Report exports verified; schedule started.'
+docker compose --env-file .env.production exec -T server /opt/report-env/bin/python \
+  -m procurement_engine.deployment_smoke --worker-since "$worker_started_at"
+test -n "$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)"
+echo 'Report exports and a completed automatic worker cycle verified; schedule running.'
