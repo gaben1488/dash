@@ -487,6 +487,79 @@ class IdentityStore:
                 target.unlink(missing_ok=True)
                 raise
 
+    def backup_snapshot(self, destination, *, snapshot_id, as_of):
+        """Write the minimal immutable identity proof needed by one report input.
+
+        The live identity database is the longitudinal continuity ledger and must
+        remain complete. A release/archive, however, only needs the frozen
+        snapshot row, its observations and the dated review evidence available
+        at the capture cutoff. Copying the complete longitudinal DB into every
+        release causes quadratic storage growth without adding release proof.
+        """
+        target = Path(destination)
+        if target.exists():
+            raise ValueError('IDENTITY_BACKUP_EXISTS')
+        instant = datetime.fromisoformat(as_of)
+        if instant.tzinfo is None:
+            raise ValueError('IDENTITY_CAPTURE_TIMEZONE_MISSING')
+        try:
+            with closing(self.connect()) as source:
+                _check_integrity(source)
+                snapshot = source.execute(
+                    'SELECT seq,snapshot_id,digest,captured_at,result FROM snapshots WHERE snapshot_id=?',
+                    (snapshot_id,),
+                ).fetchone()
+                if snapshot is None:
+                    raise ValueError('IDENTITY_SNAPSHOT_UNKNOWN')
+                observations = list(source.execute(
+                    '''SELECT snapshot_id,locator,signature,source_id,business_id,anchor,uid,status,evidence,
+                              plan_signature,entity_signature
+                       FROM observations WHERE snapshot_id=? ORDER BY locator''',
+                    (snapshot_id,),
+                ))
+                reviews = [
+                    row for row in source.execute(
+                        '''SELECT review_id,snapshot_id,locator,uid,reviewer,reviewed_at,evidence
+                           FROM reviews ORDER BY review_id''')
+                    if datetime.fromisoformat(row['reviewed_at']) <= instant
+                ]
+                with closing(sqlite3.connect(target)) as dest, dest:
+                    dest.executescript('''
+                    CREATE TABLE snapshots (
+                        seq INTEGER PRIMARY KEY, snapshot_id TEXT UNIQUE NOT NULL,
+                        digest TEXT NOT NULL, captured_at TEXT NOT NULL, result TEXT NOT NULL);
+                    CREATE TABLE observations (
+                        snapshot_id TEXT NOT NULL, locator TEXT NOT NULL, signature TEXT NOT NULL,
+                        source_id TEXT NOT NULL, business_id TEXT, anchor TEXT NOT NULL,
+                        uid TEXT, status TEXT NOT NULL, evidence TEXT NOT NULL,
+                        plan_signature TEXT, entity_signature TEXT,
+                        PRIMARY KEY(snapshot_id,locator));
+                    CREATE TABLE reviews (
+                        review_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, locator TEXT NOT NULL,
+                        uid TEXT NOT NULL, reviewer TEXT NOT NULL, reviewed_at TEXT NOT NULL,
+                        evidence TEXT NOT NULL);
+                    CREATE INDEX observations_anchor_idx ON observations(anchor,snapshot_id);
+                    ''')
+                    dest.execute(
+                        'INSERT INTO snapshots(seq,snapshot_id,digest,captured_at,result) VALUES(?,?,?,?,?)',
+                        tuple(snapshot),
+                    )
+                    dest.executemany(
+                        '''INSERT INTO observations
+                           (snapshot_id,locator,signature,source_id,business_id,anchor,uid,status,evidence,
+                            plan_signature,entity_signature)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+                        [tuple(row) for row in observations],
+                    )
+                    dest.executemany(
+                        'INSERT INTO reviews VALUES(?,?,?,?,?,?,?)',
+                        [tuple(row) for row in reviews],
+                    )
+                    _check_integrity(dest)
+        except (sqlite3.DatabaseError, ValueError):
+            target.unlink(missing_ok=True)
+            raise
+
 
 def read_identity_result(path, snapshot_id, as_of):
     """Read the frozen SQLite backup without initializing or migrating it."""
