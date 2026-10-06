@@ -141,8 +141,6 @@ def _validate(root):
             from .recommendation_history import enroll_history_package
 
             _, documents = enroll_history_package(history[0]['package'], ledgers[0])
-        if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0], documents=documents):
-            raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
         capture = {'report_date': snapshot['report_date'], 'report_year': snapshot['report_year'], 'sources': []}
         for key in ('report_scope', 'archive_origin'):
             if key in snapshot:
@@ -161,6 +159,11 @@ def _validate(root):
                 'rows': meta['row_count'], 'columns': meta['column_count'], 'header_rows': meta.get('header_rows', 3),
                 'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence'),
                 **{key: meta[key] for key in ('capture_method', 'archive_file_sha256') if key in meta}})
+        from .recommendation_links import primary_budget_years
+
+        if len(ledgers) != 1 or validate_recorded_state_model(model, ledger=ledgers[0], documents=documents,
+                budget_years=primary_budget_years(capture['sources'])):
+            raise PublicationError('DOMAIN_RELEASE_CONTRACT_FAILED')
         if capture.get('archived_file_evidence') is not None:
             from .archived_evidence import verify_archived_values
             saved_contracts = [p['semantic_values'] for p in payloads if p['role'] == 'rule_contract']

@@ -164,6 +164,7 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
         # mutually consistent but invented human-readable claims in projections.
         from .adapters import normalize_master_values
         from .raw_pipeline import review_recommendations
+        from .recommendation_links import primary_budget_years
 
         sid=model['snapshot']['snapshot_id'];rows=[]
         for source in capture['sources']:
@@ -189,7 +190,8 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
             _, documents = enroll_history_package(capture['recommendation_history_evidence']['package'], ledger)
         expected={r['recommendation_id']:r for r in review_recommendations(ledger,rows,sid,model['snapshot']['report_date'], documents=documents, identity_evidence=identity_evidence, legacy=not model.get('contract', {}).get('recommendation_link_contract'),
             link_contract=model.get('contract', {}).get('recommendation_link_contract'),
-        context_contract=model.get('contract', {}).get('business_context_contract'))}
+        context_contract=model.get('contract', {}).get('business_context_contract'),
+        budget_years=primary_budget_years(capture['sources']))}
         if 'recommendation_records' in model and model['recommendation_records'] != list(expected.values()):
             errors.append('recommendation_records')
 

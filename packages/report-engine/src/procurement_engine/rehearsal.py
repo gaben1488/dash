@@ -134,12 +134,22 @@ def _coverage_details(candidate, identities=None):
     gap_shapes = Counter()
     subject_only = Counter()
     origin_date_bindable = 0
+    gap_index = []
     for record in candidate.get('recommendation_records') or []:
         if not record.get('active_in_current_slice'):
             continue
         link = record.get('current_link') or {}
         if link.get('status') == 'CONFIRMED':
             continue
+        gap_index.append({
+            'grbs': record.get('grbs'),
+            'table_no': record.get('table_no'),
+            'row_no': record.get('row_no'),
+            'link_status': link.get('status') or 'UNKNOWN',
+            'origin_date': (link.get('origin') or {}).get('document_date'),
+            'required_business_id_count': len(link.get('required_business_ids') or []),
+            'matched_current_count': len(link.get('business_ids') or []),
+        })
         text = _text(record.get('recommendation_text'))
         ids, _ = _text_ids(text)
         if ids:
@@ -191,6 +201,8 @@ def _coverage_details(candidate, identities=None):
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
         'origin_date_identity_bindable_count': origin_date_bindable,
         'text_reference_missing_subject_shapes': dict(sorted(subject_only.items())),
+        'recommendation_gap_index': sorted(gap_index, key=lambda item: (
+            str(item.get('grbs') or ''), int(item.get('table_no') or 0), int(item.get('row_no') or 0))),
     }
 
 

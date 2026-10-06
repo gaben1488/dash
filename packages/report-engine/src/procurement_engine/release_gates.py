@@ -173,7 +173,7 @@ def validate_product_contract(report_model: dict, *, require_metric_contributors
     return issues
 
 
-def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=None) -> list[ValidationIssue]:
+def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=None, budget_years=None) -> list[ValidationIssue]:
     """ADR-003: admit proven current facts with explicit historical evidence gaps."""
     issues = validate_product_contract(model)
 
@@ -262,7 +262,7 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
         identity_evidence=model.get('identity_review_evidence'), documents=documents,
         legacy=not model.get('contract', {}).get('recommendation_link_contract'),
         link_contract=model.get('contract', {}).get('recommendation_link_contract'),
-        context_contract=model.get('contract', {}).get('business_context_contract'))}
+        context_contract=model.get('contract', {}).get('business_context_contract'), budget_years=budget_years)}
     if 'identity_review_evidence' not in model:
         for claim in expected_claims.values():
             claim.pop('business_finding', None)

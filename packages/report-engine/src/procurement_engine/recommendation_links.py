@@ -18,6 +18,29 @@ def _text(value):
     return clean_text(str(value or '').replace('№', '#')).casefold().replace('ё', 'е')
 
 
+def primary_budget_years(sources):
+    """Read the annual budget scope from frozen master H2, never a row's prose/date."""
+    years = {}
+    for source in sources:
+        if source.get('role') != 'master':
+            continue
+        values = source.get('values') or []
+        header = values[1] if len(values) > 1 else []
+        value = _text(header[7]) if len(header) > 7 else ''
+        match = re.fullmatch(
+            r'объем средств, предусмотренный муниципальной программой на (20\d{2}) год, тыс\. руб\.', value)
+        key = (source.get('provider_id'), source.get('sheet'))
+        if match and all(key):
+            years.setdefault(key, set()).add(match[1])
+    return {key: next(iter(value)) for key, value in years.items() if len(value) == 1}
+
+
+def _row_year_matches(row, source_years, budget_years=None):
+    if row.planned_year is not None:
+        return str(row.planned_year) in source_years
+    return (budget_years or {}).get((row.source_id, row.sheet_name)) in source_years
+
+
 def _text_ids(text):
     # Scope numbers to an explicit position marker, excluding amounts and dates.
     number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
@@ -53,7 +76,8 @@ def _subject_amounts(text, subject, business_id):
 
 
 
-def _exact_subject_reference(text, subject, business_id, *, shared_group_subject=False):
+def _exact_subject_reference(text, subject, business_id, *, shared_group_subject=False,
+                             extended_literal_reference=False):
     """An explicit number owns the complete subject, not a price or a substring.
 
     Amounts are historical attributes. They cannot be invariant identity keys.
@@ -66,8 +90,18 @@ def _exact_subject_reference(text, subject, business_id, *, shared_group_subject
     reference = prefix + re.escape(business_id) + r'(?![\w/.-])\s*(?:[—–:]\s*)?'
     instruction = r'(?:(?:вынести|перевести|провести)\s+на\s+эа\s+)?'
     subject_start = r'[«"(]*\s*'
-    boundary = r'(?=\s*(?:[)»";.]|$|на\s+сумму\b|[—–]|планов\w*\s+сумм\w*\b))'
-    suffix = instruction + subject_start + re.escape(_text(subject)) + boundary
+    boundary_terms = r'[)»";.]|$|на\s+сумму\b|[—–]|планов\w*\s+сумм\w*\b'
+    phrase = re.escape(_text(subject))
+    if extended_literal_reference:
+        # Spaces inside parentheses are typography, never aliases for source words.
+        subject_text = re.sub(r'\(\s*', '(', _text(subject))
+        subject_text = re.sub(r'\s*\)', ')', subject_text)
+        phrase = re.escape(subject_text).replace(r'\(', r'\(\s*').replace(r'\)', r'\s*\)')
+        # A plain dash may introduce an amount, but not another subject word.
+        amount_start = r'-\s*\d+(?:[ ,.\u00a0]\d+)*\s*(?:тыс\.?\s*)?руб\b'
+        boundary_terms += '|' + amount_start
+    boundary = r'(?=\s*(?:' + boundary_terms + '))'
+    suffix = instruction + subject_start + phrase + boundary
     if re.search(reference + suffix, text):
         return True
     if shared_group_subject:
@@ -75,7 +109,8 @@ def _exact_subject_reference(text, subject, business_id, *, shared_group_subject
         # Each member still needs a unique row, the full subject, year and UID.
         number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
         group = f'({number}(?:\\s*[,;]\\s*{number}|\\s+и\\s+{number})+)'
-        for match in re.finditer(prefix + group + r'\s*(?:[—–:]\s*)?' + suffix, text):
+        target = r'(?:\s*\(\s*' + number + r'\s*\))?' if extended_literal_reference else ''
+        for match in re.finditer(prefix + group + target + r'\s*(?:[—–:]\s*)?' + suffix, text):
             if business_id in {normalize_id(item) for item in re.split(r'\s*[,;]\s*|\s+и\s+', match[1])}:
                 return True
     return False
@@ -191,7 +226,7 @@ def _exact_subject_mention(text, subject):
     return len(phrase) >= 8 and bool(re.search(r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', text))
 
 
-def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
+def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years=None):
     """v5 fallback for old prose that names one exact subject but no plan position.
 
     Group/merge wording is deliberately excluded because one visible subject cannot
@@ -205,7 +240,7 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
         if row.grbs == rec.get('grbs')
         and row.snapshot_id == snapshot_id
         and row.subject and row.source_row_no
-        and str(row.planned_year) in source_years
+        and _row_year_matches(row, source_years, budget_years)
         and _exact_subject_mention(text, row.subject)
     ]
     if not matches:
@@ -217,8 +252,78 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
     return 'CONFIRMED', matches[0]
 
 
+
+def _joint_group_target_spec(text, ids):
+    """Parse one complete group instruction into a bounded current target.
+
+    The target amount is part of the explicit instruction, not a generic
+    procurement identity key.  A parenthetical target number, when present,
+    is authoritative and must agree with the current joint row.
+    """
+    if len(ids) < 2:
+        return None
+    number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
+    group = rf'({number}(?:\s*[,;]\s*{number}|\s+и\s+{number})+)'
+    amount = r'(\d+(?:[ \u00a0]\d{3})*(?:[,.]\d+)?)\s*(тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
+    prefix = (
+        r'(?:объединить\s+позиции\s+' + group
+        + r'|(?:вынести|перевести)\s+на\s+(?:(?:единый|совместный)\s+)?эа\s+' + group + r')'
+    )
+    target = rf'(?:\(\s*({number})\s*\)\s*)?'
+    subject = r'[«"(]*\s*(.+?)\s*[)»"]*'
+    price = r'\s*(?:на\s+общую\s+сумму|на\s+сумму|[—–-])\s*' + amount
+    joint = (
+        r'\s*(?:в\s+(?:совместную\s+закупку|совместный\s+аукцион|одну\s+закупку|единую\s+закупку)'
+        r'|\([^)]*(?:совместн\w*|объедин\w*)[^)]*\))\s*\.?'
+    )
+    match = re.fullmatch(prefix + r'\s+' + target + subject + price + joint, text)
+    if not match:
+        return None
+    source_group = match[1] or match[2]
+    source_ids = [normalize_id(value) for value in re.split(r'\s*[,;]\s*|\s+и\s+', source_group)]
+    if len(source_ids) != len(ids) or set(source_ids) != set(ids):
+        return None
+    target_id = normalize_id(match[3]) if match[3] else None
+    raw_amount = Decimal(match[5].replace(' ', '').replace('\u00a0', '').replace(',', '.'))
+    if raw_amount < 0:
+        return None
+    amount_thousand = raw_amount if match[6] else raw_amount / 1000
+    name = clean_text(match[4]).strip('«»"() ')
+    if not name:
+        return None
+    return {'source_ids': ids, 'target_business_id': target_id,
+            'subject': name, 'amount_thousand': amount_thousand}
+
+
+def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years=None):
+    spec = _joint_group_target_spec(text, ids)
+    if spec is None:
+        return None, None
+    matches = [
+        row for row in rows
+        if row.grbs == rec.get('grbs')
+        and row.snapshot_id == snapshot_id
+        and row.source_row_no
+        and _text(row.institution) == 'совместные закупки'
+        and row.method == 'ЭА'
+        and _text(row.subject) == _text(spec['subject'])
+        and not set(row.missing_money_fields).intersection({'H', 'I', 'J'})
+        and money(row, 'plan') == spec['amount_thousand']
+        and (_row_year_matches(row, source_years, budget_years) if budget_years is not None else
+             (str(row.planned_year) in source_years
+              or (not row.planned_year and as_of[:4] in source_years)))
+        and (not spec['target_business_id']
+             or normalize_id(row.source_row_no) == spec['target_business_id'])
+    ]
+    if len(matches) > 1:
+        return 'AMBIGUOUS', None
+    if not matches or not matches[0].procurement_uid:
+        return None, None
+    return spec, matches[0]
+
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
-                         entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False):
+                         entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
+                         joint_group_target=False, budget_years=None, extended_literal_reference=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -236,11 +341,38 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
     if len(source_years) != 1:
         result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
         return result
+    if joint_group_target and len(ids) > 1:
+        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years)
+        if spec == 'AMBIGUOUS':
+            result['status'] = 'AMBIGUOUS'
+            return result
+        if target is not None:
+            action_spec = {
+                'contract': 'original-action-v5',
+                'source_text': clean_text(rec.get('recommendation_text')),
+                'source_ids': ids,
+                'type': 'MERGE_PROCUREMENTS',
+                'target_business_id': target.source_row_no,
+                'target_subject': target.subject,
+                'target_amount_thousand': format(spec['amount_thousand'], 'f'),
+            }
+            result.update(status='CONFIRMED', relation='MERGES_INTO',
+                procurement_uids=[target.procurement_uid], business_ids=[target.source_row_no],
+                source_row_keys=[target.physical_row_key], action_spec=action_spec,
+                matches=[{'source_row_key': target.physical_row_key,
+                          'procurement_uid': target.procurement_uid,
+                          'business_id': target.source_row_no, 'subject': target.subject,
+                          'plan_amount_thousand_decimal': format(money(target, 'plan'), 'f'),
+                          'planned_year': target.planned_year, 'method': target.method,
+                          'recorded_fact_date': target.actual_date,
+                          'match_basis': 'EXACT_GROUP_TARGET_PRIMARY_ROW',
+                          'amount_is_identity_key': False}])
+            return result
     if not ids:
         if not exact_subject_fallback:
             result['status'] = 'TEXT_REFERENCE_MISSING'
             return result
-        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years)
+        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years)
         result['status'] = status
         if row is None:
             return result
@@ -258,9 +390,10 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         # A new calendar year does not erase the still observed prior-year plan.
         candidates = [row for row in rows if row.grbs == rec.get('grbs')
             and normalize_id(row.source_row_no) in ids and row.snapshot_id == snapshot_id
-            and row.subject and str(row.planned_year) in source_years
+            and row.subject and _row_year_matches(row, source_years, budget_years)
             and _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
-                                         shared_group_subject=shared_group_subject)]
+                                         shared_group_subject=shared_group_subject,
+                                         extended_literal_reference=extended_literal_reference)]
     else:
         if explicit_years - {as_of[:4]}:
             result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
