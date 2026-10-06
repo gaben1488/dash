@@ -59,6 +59,41 @@ def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
     assert business_files(state) == before
 
 
+def test_identity_gap_diagnostic_distinguishes_changed_context_from_missing_row_without_writes(tmp_path):
+    import hashlib
+    from dataclasses import asdict, replace
+
+    from procurement_engine.identity_store import IdentityStore
+    from procurement_engine.rehearsal import _identity_gap_diagnostics
+    from test_recommendation_links import TEXT, row
+
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    original = replace(row(), snapshot_id='old', institution='Synthetic institution',
+        activity_kind='CURRENT', planned_year=2026, program='Original program')
+    store.ingest([original], snapshot_id='old', captured_at='2026-09-25T00:00:00+00:00')
+    current = replace(original, snapshot_id='new', program='Changed program', procurement_uid=None)
+    observation = store.ingest([current], snapshot_id='new', captured_at='2026-09-26T00:00:00+00:00',
+        allow_plan_updates=True)
+    assert observation['rows'][0]['procurement_uid'] is None
+    model = {'snapshot': {'snapshot_id': 'new'}, 'details': [asdict(current)],
+        'identity_observations': observation,
+        'recommendation_records': [{'grbs': current.grbs, 'table_no': 1, 'row_no': 1,
+            'active_in_current_slice': True, 'recommendation_text': TEXT,
+            'current_link': {'status': 'CURRENT_EVIDENCE_MISSING'}}]}
+    before = hashlib.sha256(store.path.read_bytes()).hexdigest()
+    result = _identity_gap_diagnostics(model, store)
+    assert result['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    gap = result['recommendation_identity_gap_index'][0]
+    assert gap['missing_primary_number_count'] == 0
+    assert gap['full_literal_subject_match_count'] == 1
+    assert gap['matched_current_uid_count'] == 0
+    assert gap['identity_chain_reasons'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    serialized = json.dumps(result)
+    assert 'Synthetic institution' not in serialized and 'Original program' not in serialized
+    assert 'source_row_key' not in serialized and 'PUR-' not in serialized and 'synthetic-book' not in serialized
+    assert hashlib.sha256(store.path.read_bytes()).hexdigest() == before
+
+
 def test_restore_rejects_bytes_damaged_during_copy(tmp_path, monkeypatch):
     import shutil
     from pathlib import Path
