@@ -144,7 +144,7 @@ describe('parseMonitoringProcedures', () => {
     // Пятая ступень «торги прошли, итог не внесён» на этой фикстуре пуста,
     // но существует: ноль здесь — измеренный ноль, а не отсутствие ступени.
     expect(agg.byStage).toEqual({
-      application: 2, published: 1, bidding: 0, awarded: 2, no_result: 1,
+      application: 2, published: 1, bidding: 0, awarded: 2, no_result: 1, reissued: 0, unknown: 0,
     });
     // Все строки с числовой НМЦК: 446 700 + 100 000 + 2 250 000 + 50 000 + 780 000 + 10 000.
     expect(agg.nmckTotal).toBe(3_636_700);

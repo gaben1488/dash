@@ -35,6 +35,8 @@ import { collectRowsByDept } from '@aemr/shared';
 import {
   MONITORING_ANCESTOR_SHEETS,
   MONITORING_DATA_SHEETS,
+  MONITORING_MASTER_SHEET,
+  monitoringWorkQueue,
   MONITORING_MISSING_FIELDS,
   bookRowsForMatch,
   bookSide,
@@ -76,11 +78,13 @@ export interface MonitoringSource {
   sheetsFailed: Record<string, string>;
   /** Сколько листов книги продукт читает данными всего (одиннадцать видимых). */
   sheetsExpected: number;
+  schema: 'canonical';
 }
 
 export interface MonitoringResponsePayload {
   source: MonitoringSource;
   procedures: MonitoringProcedure[];
+  work: ReturnType<typeof monitoringWorkQueue>;
   aggregates: MonitoringAggregates;
   /** Лист СВОДНЫЙ книги плюс контроль и пара «книга ↔ продукт». */
   svod: {
@@ -123,12 +127,13 @@ function parseBook(book: MonitoringBookSnapshot): ParsedMonitoringBook {
 /** Плашка периметра из снимка книги. Порядок листов — канонический, не сетевой. */
 function sourceOf(book: MonitoringBookSnapshot): MonitoringSource {
   return {
-    bookName: 'Ежедневный мониторинг',
+    bookName: 'План-реестр процедур определения поставщика',
     readAt: book.readAt,
     moneyUnit: 'руб',
     sheetsRead: MONITORING_DATA_SHEETS.filter((sheet) => sheet in book.sheets),
     sheetsFailed: book.failed,
     sheetsExpected: MONITORING_DATA_SHEETS.length,
+    schema: 'canonical',
   };
 }
 
@@ -150,7 +155,7 @@ function commonNotes(book: MonitoringBookSnapshot): string[] {
 const BOOK_UNAVAILABLE = {
   error: 'ServiceUnavailable',
   message:
-    'Книга «Ежедневный мониторинг» не прочитана: ни один лист не ответил. '
+    'Рабочий реестр процедур не прочитан. Книга «Ежедневный мониторинг» не может быть показана целиком. '
     + 'Повторите запрос позже.',
   statusCode: 503,
 };
@@ -158,13 +163,14 @@ const BOOK_UNAVAILABLE = {
 export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { refresh?: string } }>('/api/monitoring', async (request, reply) => {
     const book = await getMonitoringBook(request.query.refresh === 'true');
-    if (Object.keys(book.sheets).length === 0) {
+    if (!book.sheets[MONITORING_MASTER_SHEET]) {
       return reply.status(503).send(BOOK_UNAVAILABLE);
     }
 
     const { registry, journal, svod, directory, aggregates, comparison } = parseBook(book);
     const signals = buildMonitoringSignals({
       procedures: registry.procedures,
+      sourceIssues: registry.sourceIssues,
       journal,
       directory,
       svod,
@@ -181,7 +187,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     const nmckBook = comparison.bookTotals.nmck;
     if (nmckBook !== null && Math.abs(comparison.productTotals.nmck - nmckBook) >= 0.005) {
       notes.push(
-        'Свод книги и наш счёт по листам расходятся: часть сумм в книге записана текстом, и формула СУММ их не складывает. Обе стороны показаны рядом.',
+        'Свод книги и пересчёт рабочего реестра расходятся. Обе стороны и адреса возможных причин показаны рядом.',
       );
     }
     if (journal.outsideFilterCount > 0) {
@@ -193,6 +199,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     return {
       source: sourceOf(book),
       procedures: registry.procedures,
+      work: monitoringWorkQueue(registry.procedures, new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(book.readAt))),
       aggregates,
       svod: { book: svod, comparison },
       journal,
@@ -216,7 +223,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     '/api/monitoring/analytics',
     async (request, reply) => {
       const book = await getMonitoringBook(request.query.refresh === 'true');
-      if (Object.keys(book.sheets).length === 0) {
+      if (!book.sheets[MONITORING_MASTER_SHEET]) {
         return reply.status(503).send(BOOK_UNAVAILABLE);
       }
 
@@ -258,7 +265,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get<{ Querystring: { refresh?: string } }>('/api/monitoring/match', async (request, reply) => {
     const book = await getMonitoringBook(request.query.refresh === 'true');
-    if (Object.keys(book.sheets).length === 0) {
+    if (!book.sheets[MONITORING_MASTER_SHEET]) {
       return reply.status(503).send(BOOK_UNAVAILABLE);
     }
 
@@ -269,7 +276,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     const procedureRows = procedureRowsForMatch(registry.procedures, journal.rows);
     const result = matchMonitoring(bookRows, procedureRows);
     const summary = summarizeMatch(result, bookRows.length, procedureRows.length);
-    const internal = internalDiff(registry.procedures, journal.rows);
+    const internal = registry.schema === 'canonical' ? { ...internalDiff([], []), applicable: false, reason: 'Единый рабочий реестр заменил дубли листов управлений и журнала.' } : internalDiff(registry.procedures, journal.rows);
 
     const notes = commonNotes(book);
     notes.push(
@@ -318,11 +325,17 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get<{ Querystring: { refresh?: string } }>('/api/monitoring/triple', async (request, reply) => {
     const book = await getMonitoringBook(request.query.refresh === 'true');
-    if (Object.keys(book.sheets).length === 0) {
+    if (!book.sheets[MONITORING_MASTER_SHEET]) {
       return reply.status(503).send(BOOK_UNAVAILABLE);
     }
 
     const { registry, journal } = parseBook(book);
+    if (registry.schema === 'canonical') {
+      return { source: sourceOf(book), applicable: false,
+        reason: 'Тройная сверка старых копий снята: процедуры и их связи ведутся в едином рабочем реестре.',
+        ...tripleCheck({ readAt: book.readAt, bookRows: [], sheetRows: [], journalRows: [] }),
+        books: { read: [] }, notes: ['Внешняя сверка с планами управлений доступна отдельно.'] };
+    }
     const rowsByBook = collectRowsByDept(getDeptSheetValues());
     const booksRead = Object.keys(rowsByBook).sort();
     const result = tripleCheck({

@@ -5,7 +5,7 @@
  * ряд режимов и снова раздуть верх вкладки.
  */
 import { describe, expect, it } from 'vitest';
-import { ALL_DEPTS_MODE, SHEET_MODES, modeById } from './modes';
+import { WORK_MODE, SHEET_MODES, modeById } from './modes';
 
 describe('режимы листов книги (п.128-1)', () => {
   it('в ряду пять режимов и ни одного режима отдельного управления', () => {
@@ -14,14 +14,14 @@ describe('режимы листов книги (п.128-1)', () => {
     expect(SHEET_MODES.some((m) => m.dept !== null)).toBe(false);
   });
 
-  it('порядок — порядок книги: реестр, свод, 25-26, справочник, предки', () => {
+  it('ежедневная очередь первая, далее реестр, свод, связи и справочник', () => {
     expect(SHEET_MODES.map((m) => m.kind)).toEqual([
-      'registry', 'svod', 'journal', 'directory', 'ancestors',
+      'work', 'registry', 'svod', 'journal', 'directory',
     ]);
   });
 
-  it('незнакомый ид (в т.ч. бывший dept:УО из старой сессии) падает в реестр', () => {
-    expect(modeById('dept:УО')).toBe(ALL_DEPTS_MODE);
-    expect(modeById('нет такого')).toBe(ALL_DEPTS_MODE);
+  it('незнакомый ид открывает ежедневную очередь', () => {
+    expect(modeById('dept:УО')).toBe(WORK_MODE);
+    expect(modeById('нет такого')).toBe(WORK_MODE);
   });
 });

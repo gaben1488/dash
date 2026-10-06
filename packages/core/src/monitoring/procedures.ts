@@ -24,7 +24,7 @@
  *    поводом выбросить строку.
  */
 
-import { explainDistortedCode, extractProcedureRefs, type ProcedureFamily } from '@aemr/shared';
+import { DEPARTMENT_REGISTRY, explainDistortedCode, extractProcedureRefs, parseProcedureRef, type ProcedureFamily } from '@aemr/shared';
 import {
   cellAddress,
   daysBetween,
@@ -61,35 +61,30 @@ export const MONITORING_DEPT_SHEETS: ReadonlyArray<{ sheet: string; dept: string
 ];
 
 /** Лист СВОДНЫЙ книги. */
-export const MONITORING_SVOD_SHEET = 'СВОДНЫЙ';
+export const MONITORING_MASTER_SHEET = 'Рабочий реестр процедур';
+export const MONITORING_WORK_SHEET = 'Процедуры в работе';
+export const MONITORING_SVOD_SHEET = 'Сводный аналитический лист';
 /** Переходящий реестр двух лет с родословной процедур. */
-export const MONITORING_JOURNAL_SHEET = '25-26';
+export const MONITORING_JOURNAL_SHEET = MONITORING_MASTER_SHEET;
 /** Канонический справочник заказчиков; старое имя «Перечень ГРБС» в книге отсутствует. */
 export const MONITORING_DIRECTORY_SHEET = 'Справочник заказчиков';
 
-/** Все листы книги, которые продукт читает данными (одиннадцать видимых). */
+/** Четыре действующих источника; архивные копии управлений не читаются. */
 export const MONITORING_DATA_SHEETS: readonly string[] = [
-  ...MONITORING_DEPT_SHEETS.map(({ sheet }) => sheet),
+  MONITORING_MASTER_SHEET,
+  MONITORING_WORK_SHEET,
   MONITORING_SVOD_SHEET,
-  MONITORING_JOURNAL_SHEET,
   MONITORING_DIRECTORY_SHEET,
 ];
 
 // ── Стадии ───────────────────────────────────────────────────────────
 
-/**
- * Стадия процедуры — по числовым предикатам (п.27), пять ступеней:
- *  - awarded: цена аукциона больше нуля — договор заключён;
- *  - no_result: цена аукциона равна нулю — торги без результата (21 строка);
- *  - bidding: цены нет, но дата торгов уже стоит — торги прошли, итог не внесён;
- *  - published: цены и торгов нет, есть дата публикации — процедура объявлена;
- *  - application: нет ничего из перечисленного — заявка ждёт объявления.
- */
-export type ProcedureStage = 'application' | 'published' | 'bidding' | 'awarded' | 'no_result';
+/** Канон использует структурный результат T и связи U/V; числовые предикаты — только для исторического импорта. */
+export type ProcedureStage = 'application' | 'published' | 'bidding' | 'awarded' | 'no_result' | 'reissued' | 'unknown';
 
 /** Порядок ступеней пути — ось воронки. */
 export const PROCEDURE_STAGE_ORDER: readonly ProcedureStage[] = [
-  'application', 'published', 'bidding', 'awarded', 'no_result',
+  'application', 'published', 'bidding', 'awarded', 'no_result', 'reissued', 'unknown',
 ];
 
 /** Подписи стадий для читателя — литературный русский, без ключей. */
@@ -97,8 +92,10 @@ export const PROCEDURE_STAGE_LABELS: Record<ProcedureStage, string> = {
   application: 'Заявка в уполномоченном органе',
   published: 'Объявлена, итога нет',
   bidding: 'Торги прошли, итог не внесён',
-  awarded: 'Договор заключён',
+  awarded: 'Состоялась',
   no_result: 'Без результата',
+  reissued: 'Переоформлена',
+  unknown: 'Стадия требует проверки',
 };
 
 /** Стадия по числовым предикатам — см. комментарий к ProcedureStage. */
@@ -111,6 +108,11 @@ export function procedureStage(
   if (auctionPrice !== null && auctionPrice === 0) return 'no_result';
   if (auctionIso !== null) return 'bidding';
   return publicationIso !== null ? 'published' : 'application';
+}
+
+/** Исторический импорт сохраняет прежний смысл; канон требует первичного результата. */
+export function monetaryFactAllowed(p: Pick<MonitoringProcedure, 'result' | 'stage' | 'factsEligible'>): boolean {
+  return p.result === undefined || (p.stage === 'awarded' && p.factsEligible !== false);
 }
 
 // ── Дефекты строки ───────────────────────────────────────────────────
@@ -137,7 +139,10 @@ export type MonitoringDefectKind =
   /** Этап пути пропущен: торги есть, публикации либо окончания подачи нет. */
   | 'missing-stage'
   /** Длительность этапа отрицательна: торги раньше публикации. */
-  | 'negative-duration';
+  | 'negative-duration'
+  | 'source-error'
+  | 'source-warning'
+  | 'source-incomplete';
 
 export interface MonitoringDefect {
   readonly kind: MonitoringDefectKind;
@@ -150,6 +155,15 @@ export interface MonitoringDefect {
 // ── Строка реестра ───────────────────────────────────────────────────
 
 export interface MonitoringProcedure {
+  /** Поля действующего мастера. Отсутствуют у исторического импорта. */
+  readonly result?: string | null;
+  /** Денежный факт допустим на дату снимка; исходная цена сохраняется. */
+  readonly factsEligible?: boolean;
+  readonly requiredAction?: string | null;
+  readonly qualityNote?: string | null;
+  readonly ancestorCodes?: readonly string[];
+  readonly successorCodes?: readonly string[];
+  readonly participants?: readonly MonitoringParticipant[];
   /** Имя листа книги — первая половина адреса (п.53). */
   readonly sheet: string;
   /** Номер строки листа (1-based, как в Sheets) — вторая половина адреса. */
@@ -241,6 +255,8 @@ export interface UnparsedCodeRef {
 }
 
 export interface MonitoringRegistry {
+  readonly schema?: 'canonical' | 'legacy';
+  readonly sourceIssues?: MonitoringDefect[];
   readonly procedures: MonitoringProcedure[];
   /** Строки с нераспознанным кодом: спека §5 — пять паттернов искажений. */
   readonly unparsedCodes: UnparsedCodeRef[];
@@ -322,7 +338,12 @@ function splitSum(mb: number | null, kb: number | null, fb: number | null): numb
  */
 export function parseMonitoringProcedures(
   sheets: Readonly<Record<string, unknown[][]>>,
+  asOf?: string,
 ): MonitoringRegistry {
+  if (sheets[MONITORING_MASTER_SHEET]) return parseCanonicalProcedures(sheets[MONITORING_MASTER_SHEET], asOf);
+  if (sheets[MONITORING_WORK_SHEET] || sheets[MONITORING_SVOD_SHEET]) {
+    throw new Error('MONITORING_SCHEMA: рабочий реестр не прочитан');
+  }
   const procedures: MonitoringProcedure[] = [];
   const unparsedCodes: UnparsedCodeRef[] = [];
 
@@ -342,6 +363,163 @@ export function parseMonitoringProcedures(
   }
 
   return { procedures, unparsedCodes };
+}
+
+export interface MonitoringParticipant {
+  readonly row: number;
+  readonly dept: string;
+  readonly customer: string;
+  readonly nmck: number | null;
+  readonly price: number | null;
+  readonly savings: number | null;
+  readonly savingsMb: number | null;
+  readonly savingsKb: number | null;
+  readonly savingsFb: number | null;
+}
+
+export interface MonitoringWorkItem {
+  readonly procedure: MonitoringProcedure;
+  readonly action: string;
+  readonly referenceDate: MonitoringDate | null;
+  readonly daysToDate: number | null;
+}
+export function monitoringWorkQueue(procedures: readonly MonitoringProcedure[], asOf: string): {
+  asOf: string; active: MonitoringWorkItem[]; closed: MonitoringWorkItem[];
+} {
+  const active: MonitoringWorkItem[] = []; const closed: MonitoringWorkItem[] = [];
+  for (const p of procedures) {
+    const isActive = ['application', 'published', 'bidding'].includes(p.stage);
+    const isClosed = ['awarded', 'no_result', 'reissued'].includes(p.stage);
+    if (!isActive && !isClosed) continue;
+    if (isActive ? !p.requiredAction : !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
+    const action = p.requiredAction || 'Разобрать замечания';
+    const referenceDate = isActive && action.startsWith('Исправить: ') ? monitoringDate(asOf)
+      : isActive && action === 'Разместить извещение' ? p.applicationDate : p.auctionDate;
+    (isActive ? active : closed).push({ procedure: p, action, referenceDate, daysToDate: daysBetween(asOf, referenceDate?.iso ?? null) });
+  }
+  active.sort((a, b) => (a.referenceDate?.iso ?? '').localeCompare(b.referenceDate?.iso ?? '') || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
+  const severity = (p: MonitoringProcedure) => p.qualityNote?.includes('Ошибка:') ? 0 : p.qualityNote?.includes('Проверить:') ? 1 : 2;
+  closed.sort((a, b) => severity(a.procedure) - severity(b.procedure) || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
+  return { asOf, active, closed };
+}
+
+export const MONITORING_MASTER_HEADERS = ['Код процедуры', 'Вид строки', 'Флаг протокола', 'Комментарий', 'Управление', 'Заказчик', 'Наименование объекта закупки', 'НМЦК', 'Дата поступления заявки в уполномоченный орган', 'Дата публикации', 'Дата окончания подачи заявок', 'Дата подведения итогов', 'Цена по итогам', 'ФБ', 'КБ', 'МБ', 'Экономия', 'Победитель', 'ИНН победителя', 'Результат', 'Предок', 'Наследник', 'Стадия', 'Требуемое действие', 'Замечания'] as const;
+
+/** Exact source names verified against the master's E column, not fuzzy aliases. */
+const CANONICAL_DEPTS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(DEPARTMENT_REGISTRY.flatMap((d) => [[d.id, d.id], [d.fullName, d.id]])),
+  'Управление культуры, спорта и молодежной политики Администрации Елизовского муниципального района, УКС и МП': 'УКСиМП',
+  'УИО Администрации Елизовского МР': 'УИО',
+  'УАГЗО Администрации Елизовского муниципального района': 'УАГЗО',
+  'Управление дорожно-транспортного хозяйства, УДТХ': 'УДТХ',
+  'Управление делами Администрации Елизовского муниципального района': 'УД',
+  'Управление финансово-бюджетной политики (УФБП АЕМР)': 'УФБП',
+  Совместные: 'Совместные',
+};
+export function monitoringDept(raw: unknown): string {
+  const text = monitoringText(raw) ?? '';
+  return CANONICAL_DEPTS[text] ?? text;
+}
+
+const CANONICAL_STAGES: Readonly<Record<string, ProcedureStage>> = {
+  'Заявка в уполномоченном органе': 'application', Объявлена: 'published',
+  'Итог не внесён': 'bidding', Состоялась: 'awarded', 'Не состоялась': 'no_result', Переоформлена: 'reissued',
+};
+
+function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringRegistry {
+  if (!MONITORING_MASTER_HEADERS.every((h, i) => monitoringText(grid[1]?.[i]) === h)) {
+    throw new Error('MONITORING_SCHEMA: заголовки рабочего реестра изменились; чтение остановлено');
+  }
+  const procedures: MonitoringProcedure[] = [];
+  const unparsedCodes: UnparsedCodeRef[] = [];
+  const shares = new Map<string, MonitoringParticipant[]>();
+  const sourceIssues: MonitoringDefect[] = [];
+  const links = (v: unknown): string[] => extractProcedureRefs(monitoringText(v)).map((r) => r.code);
+  for (let i = 2; i < grid.length; i++) {
+    const r = grid[i] ?? [];
+    const codeText = monitoringText(r[0]);
+    if (codeText === null && r.every((v) => monitoringText(v) === null)) continue;
+    const row = i + 1;
+    const dept = monitoringDept(r[4]);
+    if (monitoringText(r[1]) === 'доля') {
+      for (const note of monitoringText(r[24])?.split('; ') ?? []) {
+        if (note.startsWith('Справка:')) continue;
+        sourceIssues.push({ kind: note.startsWith('Ошибка:') ? 'source-error' : note.startsWith('Проверить:') ? 'source-warning' : 'source-incomplete',
+          address: `${MONITORING_MASTER_SHEET}!${note.match(/ — ([A-Y])/u)?.[1] ?? 'Y'}${row}`, note });
+      }
+      const shareCode = parseProcedureRef(codeText)?.code ?? codeText ?? '';
+      const group = shares.get(shareCode) ?? [];
+      group.push({ row, dept, customer: monitoringText(r[5]) ?? '', nmck: monitoringNumber(r[7]),
+        price: monitoringNumber(r[12]), savings: monitoringNumber(r[16]), savingsFb: monitoringNumber(r[13]),
+        savingsKb: monitoringNumber(r[14]), savingsMb: monitoringNumber(r[15]) });
+      shares.set(shareCode, group);
+      continue;
+    }
+    const sheet = MONITORING_MASTER_SHEET;
+    const ref = parseProcedureRef(codeText);
+    const defects: MonitoringDefect[] = [];
+    if (ref === null) {
+      const distorted = explainDistortedCode(codeText);
+      unparsedCodes.push({ sheet, row, text: codeText ?? '', guess: distorted?.guess ?? null, note: distorted?.note ?? null });
+      defects.push({ kind: 'broken-code', address: cellAddress(sheet, row, 0), note: 'Код в колонке A не разобран; строка сохранена, связь по догадке не строится.' });
+    }
+    for (const col of [7, 12, 13, 14, 15, 16]) {
+      if (isTextNumber(r[col])) defects.push({ kind: 'text-number', address: cellAddress(sheet, row, col), note: 'Число хранится текстом; формулы суммирования могут его пропустить.' });
+    }
+    const dates = [8, 9, 10, 11].map((col) => monitoringDate(r[col]));
+    dates.forEach((date, idx) => { if (isBrokenDate(date)) defects.push({ kind: 'broken-date', address: cellAddress(sheet, row, idx + 8), note: `Дата не читается: ${date?.raw ?? ''}.` }); });
+    const result = monitoringText(r[19]);
+    const successorCodes = links(r[21]);
+    const computedStage = CANONICAL_STAGES[monitoringText(r[22]) ?? ''];
+    const stage = result === 'Состоялась' ? 'awarded' : successorCodes.length > 0 ? 'reissued'
+      : ['Нет заявок', 'Отмена по решению заказчика', 'Отмена по предписанию ФАС'].includes(result ?? '') ? 'no_result'
+        : computedStage && ['application', 'published', 'bidding'].includes(computedStage) ? computedStage : 'unknown';
+    const factsEligible = stage === 'awarded' && (!asOf || !dates[3]?.iso || dates[3].iso <= asOf);
+    const qualityNote = monitoringText(r[24]);
+    for (const note of qualityNote?.split('; ') ?? []) {
+      if (note.startsWith('Справка:')) continue;
+      const kind = note.startsWith('Ошибка:') ? 'source-error' : note.startsWith('Проверить:') ? 'source-warning' : 'source-incomplete';
+      const col = note.match(/ — ([A-Y])/u)?.[1] ?? 'Y';
+      defects.push({ kind, address: `${sheet}!${col}${row}`, note });
+    }
+    if (stage === 'awarded' && !factsEligible && !defects.some((d) => /будущ/iu.test(d.note))) defects.push({ kind: 'source-warning', address: `${sheet}!L${row}`, note: 'Дата итогов позже даты снимка. Проверьте дату; цена и экономия пока не входят в денежный факт.' });
+    if (stage === 'unknown') defects.push({ kind: 'source-error', address: `${sheet}!W${row}`, note: 'Стадия не определена; требуется проверить результат и даты в реестре.' });
+    const nmck = monitoringNumber(r[7]); const auctionPrice = monitoringNumber(r[12]);
+    const savingsTotal = monitoringNumber(r[16]); const savingsFb = monitoringNumber(r[13]);
+    const savingsKb = monitoringNumber(r[14]); const savingsMb = monitoringNumber(r[15]);
+    const savingsSplitSum = splitSum(savingsMb, savingsKb, savingsFb);
+    const controlGapRub = savingsTotal !== null && savingsSplitSum !== null ? round3(savingsTotal - savingsSplitSum) : null;
+    const winner = parseWinnerCell(r[17]);
+    const inn = monitoringText(r[18]);
+    const reductionRub = factsEligible && nmck !== null && auctionPrice !== null && auctionPrice > 0 ? round3(nmck - auctionPrice) : null;
+    const subjectCell = monitoringText(r[6]) ?? '';
+    const subject = codeText && subjectCell.startsWith(`${codeText} `) ? subjectCell.slice(codeText.length).trim() : subjectCell;
+    procedures.push({ sheet, row, ordinal: null, dept, customer: monitoringText(r[5]) ?? '',
+      customerNormalized: normalizeCustomer(monitoringText(r[5]) ?? ''), code: ref?.code ?? null,
+      codeNote: ref === null ? 'Проверьте код в колонке A.' : null, method: ref?.family ?? null, year: ref?.yy ?? null,
+      subject, nmck, applicationDate: dates[0], publicationDate: dates[1], deadlineDate: dates[2], auctionDate: dates[3],
+      auctionPrice, savingsTotal, savingsFb, savingsKb, savingsMb, savingsSplitSum,
+      controlGapRub, controlAgrees: controlGapRub === null ? null : Math.abs(controlGapRub) <= 0.01,
+      selfCheck: null, winner: { ...winner, inn: inn && /^(\d{10}|\d{12})$/u.test(inn) ? inn : null },
+      comment: monitoringText(r[3]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
+      joint: monitoringText(r[1]) === 'процедура' || ref?.family === 'ЭАС',
+      durations: { toPublication: daysBetween(dates[0]?.iso ?? null, dates[1]?.iso ?? null), toDeadline: daysBetween(dates[1]?.iso ?? null, dates[2]?.iso ?? null), toAuction: daysBetween(dates[2]?.iso ?? null, dates[3]?.iso ?? null), total: daysBetween(dates[0]?.iso ?? null, dates[3]?.iso ?? null) },
+      defects, result, factsEligible, requiredAction: monitoringText(r[23]), qualityNote, ancestorCodes: links(r[20]), successorCodes,
+    });
+  }
+  for (const [code, parts] of shares) {
+    if (procedures.filter((p) => p.code === code).length !== 1) {
+      for (const part of parts) sourceIssues.push({ kind: 'source-error', address: `${MONITORING_MASTER_SHEET}!A${part.row}`,
+        note: `${code}: у доли ${part.dept} нет единственной родительской процедуры. Исправьте код или родительскую строку; доля не увеличивает число процедур.` });
+    }
+  }
+  const codeCounts = new Map<string, number>();
+  for (const p of procedures) if (p.code) codeCounts.set(p.code, (codeCounts.get(p.code) ?? 0) + 1);
+  for (const p of procedures) if (p.code && (codeCounts.get(p.code) ?? 0) > 1) sourceIssues.push({
+    kind: 'source-error', address: `${MONITORING_MASTER_SHEET}!A${p.row}`,
+    note: `${p.code}: код повторяется у нескольких процедур. Уточните первичную строку; ближайшая сумма не выбирается.`,
+  });
+  return { schema: 'canonical', procedures: procedures.map((p) => ({ ...p, participants: shares.get(p.code ?? '') ?? [] })), unparsedCodes, sourceIssues };
 }
 
 interface DeptRowInput {
@@ -635,7 +813,7 @@ export interface MonitoringAggregates {
 
 export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAggregates {
   const byStage: Record<ProcedureStage, number> = {
-    application: 0, published: 0, bidding: 0, awarded: 0, no_result: 0,
+    application: 0, published: 0, bidding: 0, awarded: 0, no_result: 0, reissued: 0, unknown: 0,
   };
   const byMethod: Record<string, number> = {};
   const byYear: Record<string, number> = {};
@@ -661,11 +839,13 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
     const year = p.year === null ? 'без кода' : String(2000 + p.year);
     byYear[year] = (byYear[year] ?? 0) + 1;
 
-    if (p.nmck !== null) nmckTotal += p.nmck;
-    if (p.savingsTotal !== null) savingsBookTotal += p.savingsTotal;
-    if (p.savingsMb !== null) savingsMb += p.savingsMb;
-    if (p.savingsKb !== null) savingsKb += p.savingsKb;
-    if (p.savingsFb !== null) savingsFb += p.savingsFb;
+    if (p.nmck !== null && p.stage !== 'reissued') nmckTotal += p.nmck;
+    if (monetaryFactAllowed(p)) {
+      if (p.savingsTotal !== null) savingsBookTotal += p.savingsTotal;
+      if (p.savingsMb !== null) savingsMb += p.savingsMb;
+      if (p.savingsKb !== null) savingsKb += p.savingsKb;
+      if (p.savingsFb !== null) savingsFb += p.savingsFb;
+    }
     if (p.controlAgrees === false) {
       controlErrors += 1;
       controlGapRub += p.controlGapRub ?? 0;
@@ -673,7 +853,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
     if (p.joint) jointCount += 1;
     if (p.winner.outcome === 'supplier' && p.winner.inn === null) winnersWithoutInn += 1;
 
-    if (p.stage === 'awarded' && p.auctionPrice !== null) {
+    if (p.stage === 'awarded' && p.factsEligible !== false && p.auctionPrice !== null) {
       awardedCount += 1;
       awardedPrice += p.auctionPrice;
       if (p.nmck !== null) {

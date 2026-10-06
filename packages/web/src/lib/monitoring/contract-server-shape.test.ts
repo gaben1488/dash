@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeMonitoring } from './contract';
+import { scopeProcedures } from './dept-scope';
+import { portraitFrom } from './portrait';
+
+it('новый результат и очередь не теряются между API и экраном; доля не превращается в районную сумму', () => {
+  const raw = { sheet: 'Рабочий реестр процедур', row: 3, code: 'ЭАС100-26', dept: 'Совместные',
+    nmck: 100, auctionPrice: 80, savingsTotal: 20, stage: 'awarded', result: 'Состоялась',
+    requiredAction: 'Дополнить сведения', qualityNote: 'Неполно: сведения — Y',
+    participants: [{ row: 4, dept: 'УО', nmck: 40, price: 30, savings: 10, savingsMb: 10 }, { row: 5, dept: 'УЭР', nmck: 60, price: 50, savings: 10 }] };
+  const p = normalizeMonitoring({ source: { schema: 'canonical' }, procedures: [raw], work: { asOf: '2026-10-06', active: [], closed: [{ procedure: raw, action: 'Дополнить сведения', daysToDate: null, referenceDate: null }] } });
+  expect(p.procedures[0].result).toBe('Состоялась');
+  expect(p.work?.closed).toHaveLength(1);
+  const [part] = scopeProcedures(p.procedures, new Set(['УО']));
+  expect(part.nmck).toBe(40); expect(part.auctionPrice).toBe(30);
+  expect(portraitFrom([part]).savingsTotal).toBe(10);
+});
+
+it('число в цене без структурного результата не подтверждает состоявшуюся процедуру', () => {
+  const p = normalizeMonitoring({ procedures: [{ stage: 'published', result: '', nmck: 100, auctionPrice: 80 }] });
+  expect(portraitFrom(p.procedures).awardedCount).toBe(0);
+});
 
 /**
  * Страж дрейфа контракта сервер↔веб (живой инцидент 20.08.2026): роут

@@ -80,16 +80,15 @@ export function portraitFrom(rows: readonly RegistryProcedure[]): RegistryPortra
 
   for (const p of rows) {
     if (p.nmck === null) nmckMissing += 1;
-    else nmckTotal += p.nmck;
+    else if (p.stage !== 'reissued') nmckTotal += p.nmck;
 
-    if (p.auctionPrice === null) continue;
-
-    if (p.auctionPrice === 0) {
+    if (p.stage === 'no_result') {
       noResultCount += 1;
       if (p.nmck !== null) noResultNmck += p.nmck;
       continue;
     }
 
+    if (p.stage !== 'awarded' || p.factsEligible === false || p.auctionPrice === null || p.auctionPrice <= 0) continue;
     awardedCount += 1;
     priceTotal += p.auctionPrice;
     if (p.nmck === null || p.nmck <= 0) continue;

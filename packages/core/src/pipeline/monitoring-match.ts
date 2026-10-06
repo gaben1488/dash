@@ -53,6 +53,9 @@ export interface MonitoringBookRow {
 
 /** Строка-процедура «Ежедневного мониторинга» (листы управлений и журнал «25-26»). */
 export interface MonitoringProcedureRow {
+  readonly canonical?: boolean;
+  /** Canonical joint allocations; a participant is selected by its department, never by nearest price. */
+  readonly allocations?: readonly { dept: string; nmck: number | null; price: number | null }[];
   /** Адрес процедуры: «1. УЭР:7» (лист + номер строки). */
   readonly procKey: string;
   /** Имя листа мониторинга — журнал «25-26» дублирует листы управлений. */
@@ -252,7 +255,7 @@ export function matchMonitoring(
   const ambiguous: AmbiguousCode[] = [];
   for (const [code, rows] of singleByCode) {
     const procedures = procIndex.get(code) ?? [];
-    if (rows.length > 1) {
+    if (rows.length > 1 || (procedures.length > 1 && procedures.some((p) => p.canonical))) {
       const books = new Set(rows.map((r) => r.book));
       ambiguous.push({
         outcome: 'ambiguous',
@@ -271,6 +274,15 @@ export function matchMonitoring(
     // Опорная процедура — с минимальным |Δ НМЦК| к K книги: журнал «25-26»
     // и лист управления могут нести чуть разные копейки, сверяем ближайшую.
     let primary = procedures[0];
+    if (primary.allocations?.length) {
+      const allocations = primary.allocations.filter((a) => a.dept === bookRow.book);
+      const allocation = allocations.length === 1 ? allocations[0] : null;
+      primary = { ...primary, nmckRub: allocation?.nmck ?? null, winnerPriceRub: allocation?.price ?? null };
+      matched.push({ outcome: 'matched', code, bookRow, procedures, primary,
+        nmck: compareMoney(bookRow.planTotalThousands, primary.nmckRub),
+        fact: compareMoney(bookRow.factTotalThousands, primary.winnerPriceRub) });
+      continue;
+    }
     let primaryNmck = compareMoney(bookRow.planTotalThousands, primary.nmckRub);
     for (const candidate of procedures.slice(1)) {
       const cmp = compareMoney(bookRow.planTotalThousands, candidate.nmckRub);

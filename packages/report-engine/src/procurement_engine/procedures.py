@@ -198,6 +198,24 @@ def validate_procedure_shares(attempts: list, shares: list) -> list[ValidationIs
     return issues
 
 
+def iter_operational_rows(queue_values):
+    """Read both legacy stacked blocks and fixed A:J / M:V blocks.
+
+    Column offset is kept with each physical row so the source address stays verifiable.
+    """
+    parallel = any(len(row) > 12 and clean_text(row[12]).casefold() == 'данные по закрытым строкам'
+                   for row in queue_values)
+    block = 'active'
+    for number, row in enumerate(queue_values, 1):
+        if row and clean_text(row[0]).casefold() == 'данные по закрытым строкам':
+            block = 'closed_quality'
+            continue
+        for current, offset in ([('active', 0), ('closed_quality', 12)] if parallel else [(block, 0)]):
+            cells = row[offset:offset + 10]
+            if len(cells) > 3 and normalize_procedure_code(cells[3]):
+                yield current, number, offset, cells
+
+
 def validate_operational_view(master_values, queue_values, *, as_of):
     """Check the view against its primary registry and the report's civil date.
 
@@ -210,6 +228,8 @@ def validate_operational_view(master_values, queue_values, *, as_of):
         raise ValueError('PROCEDURE_AS_OF_INVALID')
     issues = []
     expected = {'active': {}, 'closed_quality': {}}
+    parallel = any(len(row) > 12 and clean_text(row[12]).casefold() == 'данные по закрытым строкам'
+                   for row in queue_values)
     active_stages = {'Заявка в уполномоченном органе', 'Объявлена', 'Итог не внесён'}
     closed_stages = {'Состоялась', 'Не состоялась', 'Переоформлена'}
     for number, row in enumerate(master_values, 1):
@@ -239,19 +259,22 @@ def validate_operational_view(master_values, queue_values, *, as_of):
         if stage in active_stages and action:
             deadline = day if action.startswith('Исправить: ') else application if action == 'Разместить извещение' else results_due
             block = 'active'
-        elif stage in closed_stages and (action or 'Ошибка: ' in quality or 'Проверить: ' in quality):
+        elif stage in closed_stages and (action or 'Ошибка: ' in quality or 'Проверить: ' in quality
+                                        or (parallel and 'Неполно: ' in quality)):
             deadline = results_due
             block = 'closed_quality'
         else:
             continue
         expected[block][code] = (stage, clean_text(c(6)), action, deadline)
 
-    observed = {'active': {}, 'closed_quality': {}}; block = 'active'
-    for number, row in enumerate(queue_values, 1):
+    observed = {'active': {}, 'closed_quality': {}}
+    for block, number, offset, row in iter_operational_rows(queue_values):
         def c(i, row=row): return row[i] if i < len(row) else ''
-        if clean_text(c(0)).casefold() == 'данные по закрытым строкам':
-            block = 'closed_quality'
-            continue
+        if offset and not expected[block].get(normalize_procedure_code(c(3)), ('', '', ''))[2]:
+            code = normalize_procedure_code(c(3))
+            if code in expected[block]:
+                stage, subject, _, deadline = expected[block][code]
+                expected[block][code] = (stage, subject, 'Разобрать замечания', deadline)
         code = normalize_procedure_code(c(3))
         if not code:
             continue

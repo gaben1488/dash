@@ -150,6 +150,7 @@ export function hasAnySlice(s: SliceState): boolean {
  */
 export function procedureDefects(p: RegistryProcedure): ProcedureDefect[] {
   const out: ProcedureDefect[] = [...p.defects];
+  if (p.result !== undefined) return out;
   const known = new Set(out.map((d) => d.kind));
   // Адрес строки — на случай, когда дефект нашёл экран, а не ядро: колонку он
   // назвать не может, строку обязан.

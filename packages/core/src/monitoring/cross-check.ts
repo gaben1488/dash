@@ -88,14 +88,16 @@ export function procedureRowsForMatch(
     if (p.code === null) continue;
     out.push({
       procKey: `${p.sheet}:${p.row}`,
+      canonical: p.result !== undefined,
       sheet: p.sheet,
       nameCell: `${p.code} ${p.subject}`.trim(),
       nmckRub: p.nmck,
-      winnerPriceRub: p.auctionPrice,
+      winnerPriceRub: p.result !== undefined && (p.stage !== 'awarded' || p.factsEligible === false) ? null : p.auctionPrice,
+      ...(p.participants?.length ? { allocations: p.participants.map((a) => ({ dept: a.dept, nmck: a.nmck, price: p.stage === 'awarded' && p.factsEligible !== false ? a.price : null })) } : {}),
     });
   }
   for (const j of journalRows) {
-    if (j.code === null) continue;
+    if (j.code === null || out.some((p) => p.procKey === `${j.sheet}:${j.row}`)) continue;
     out.push({
       procKey: `${j.sheet}:${j.row}`,
       sheet: j.sheet,

@@ -252,6 +252,20 @@ describe('Мониторинг: разрезы и поиск', () => {
 });
 
 describe('Мониторинг: режимы листов', () => {
+  it('на новом каноне открывает действия УО и отдельно проверки закрытых строк', async () => {
+    const active = proc({ sheet: 'Рабочий реестр процедур', row: 3, stage: 'published', result: '', code: 'ЭА100-26', requiredAction: 'Подвести итоги' });
+    const closed = proc({ sheet: 'Рабочий реестр процедур', row: 4, code: 'ЭА101-26', result: 'Состоялась', qualityNote: 'Неполно: Нет даты — L' });
+    serve(payload({ source: { schema: 'canonical', readAt: '2026-10-06T12:00:00Z' }, procedures: [active, closed],
+      work: { asOf: '2026-10-07', active: [{ procedure: active, action: 'Подвести итоги', referenceDate: '2026-10-08', daysToDate: 1 }],
+        closed: [{ procedure: closed, action: 'Дополнить даты', referenceDate: null, daysToDate: null }] } }));
+    renderPage();
+    const queue = await screen.findByRole('region', { name: 'Ежедневная очередь процедур' });
+    expect(within(queue).getByText('Подвести итоги')).toBeTruthy();
+    expect(within(queue).queryByText('Дополнить даты')).toBeNull();
+    fireEvent.click(within(queue).getByRole('button', { name: /Проверки закрытых/u }));
+    expect(within(queue).getByText('Дополнить даты')).toBeTruthy();
+    expect(within(queue).queryByText('Подвести итоги')).toBeNull();
+  });
   it('оставляет в ряду лист, которого сервер ещё не отдаёт, и объясняет пустоту', async () => {
     serve(payload());
     renderPage();
@@ -259,7 +273,7 @@ describe('Мониторинг: режимы листов', () => {
     const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
     fireEvent.click(within(tabs).getByRole('button', { name: /Сводный/u }));
 
-    expect(await screen.findByText('Лист «СВОДНЫЙ» сервер пока не отдаёт')).toBeTruthy();
+    expect(await screen.findByText('Лист «Сводный аналитический лист» сервер пока не отдаёт')).toBeTruthy();
     expect(screen.getByText(/незаконченная труба чтения, а не пустой лист/u)).toBeTruthy();
   });
 
@@ -285,15 +299,14 @@ describe('Мониторинг: режимы листов', () => {
     });
   });
 
-  it('режим листов-предков показывает поля, которых форме не хватает', async () => {
+  it('ежедневная очередь заменяет режим скрытых исторических листов', async () => {
     serve(payload());
     renderPage();
 
     const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
-    fireEvent.click(within(tabs).getByRole('button', { name: /Листы-предки/u }));
-
-    expect(await screen.findByText(/Чего рабочей форме не хватает/u)).toBeTruthy();
-    expect(screen.getAllByText('Кол-во заявок от поставщиков').length).toBeGreaterThan(0);
+    expect(within(tabs).queryByRole('button', { name: /Листы-предки/u })).toBeNull();
+    fireEvent.click(within(tabs).getByRole('button', { name: /В работе/u }));
+    expect(await screen.findByText('Очередь ещё не получена от сервера.')).toBeTruthy();
   });
 
   it('показывает свод книги рядом с расчётом продукта, когда лист пришёл', async () => {

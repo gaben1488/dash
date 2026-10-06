@@ -105,7 +105,7 @@ describe('buildMonitoringSignals', () => {
   it('разрыв свода поднимается отдельно: контроля на своде книги нет вовсе', () => {
     const signal = byKind.get('monitoring_svod_gap');
     expect(signal?.addresses[0].address).toContain('СВОДНЫЙ!F12');
-    expect(signal?.action).toContain('контрольную колонку');
+    expect(signal?.action).toContain('распределение экономии');
   });
 
   it('сорвавшаяся процедура без преемницы называется по коду', () => {
