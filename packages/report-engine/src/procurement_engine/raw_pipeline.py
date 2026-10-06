@@ -51,8 +51,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc16'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc16+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc17'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc17+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -221,6 +221,53 @@ def contributors(rows, year, quarter, as_of=None):
     return out
 
 
+
+def _reviewed_current_link(reviewed, rows, origin, snapshot_id):
+    """Expose a reviewed historical identity through the current-link contract.
+
+    A review can bridge legitimate renumbering or plan-period changes, but it is
+    never allowed to manufacture report provenance: the saved original must also
+    have passed the independent origin check.
+    """
+    if origin is None:
+        return None
+    evidence = reviewed.get('binding_evidence') or {}
+    uids = list(evidence.get('current_procurement_uids') or [])
+    required = list(evidence.get('source_procurement_ids') or [])
+    review_ids = list(evidence.get('review_ids') or [])
+    if not uids or not required or not review_ids:
+        return None
+    by_uid = defaultdict(list)
+    for row in rows:
+        if row.procurement_uid in uids:
+            by_uid[row.procurement_uid].append(row)
+    if any(len(by_uid[uid]) != 1 for uid in uids):
+        return None
+    linked = [by_uid[uid][0] for uid in uids]
+    return {
+        'status': 'CONFIRMED',
+        'procurement_uids': uids,
+        'business_ids': sorted({normalize_id(row.source_row_no) for row in linked if row.source_row_no}),
+        'required_business_ids': sorted({normalize_id(value) for value in required}),
+        'source_row_keys': [row.physical_row_key for row in linked],
+        'fulfillment': 'UNKNOWN',
+        'evidence_snapshot_id': snapshot_id,
+        'origin': origin,
+        'review_ids': sorted(review_ids),
+        'matches': [{
+            'source_row_key': row.physical_row_key,
+            'procurement_uid': row.procurement_uid,
+            'business_id': row.source_row_no,
+            'subject': row.subject,
+            'plan_amount_thousand_decimal': format(to_decimal(row.plan_total), 'f'),
+            'planned_year': row.planned_year,
+            'method': row.method,
+            'recorded_fact_date': row.actual_date,
+            'match_basis': 'REVIEWED_HISTORICAL_IDENTITY',
+            'amount_is_identity_key': False,
+        } for row in linked],
+    }
+
 def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None, documents=None, legacy=False,
                            link_contract='verified-original-and-current-plan-v2', context_contract=None):
     """Current observations and candidates, never inheritance of old current statuses.
@@ -289,6 +336,9 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
                 subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7'},
                 literal_open_quote=link_contract == 'verified-original-and-current-plan-v7')
             if reviewed is not None:
+                reviewed_link = _reviewed_current_link(reviewed, rows, proof, snapshot_id)
+                if reviewed_link is not None:
+                    r['current_link'] = reviewed_link
                 r.update(reviewed)
             elif confirmed:
                 from .recommendation_evidence import (
