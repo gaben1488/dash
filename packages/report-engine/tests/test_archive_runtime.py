@@ -210,3 +210,11 @@ def test_archive_only_catalog_has_no_live_latest_or_live_baseline(original, tmp_
     assert store.latest() is None
     assert store.previous_model('29.09.2034') is None
     assert store.select('2034-09-28', 2033, 1)['release_id'] == archived['release_id']
+
+
+def test_native_archive_selection_never_imports_old_xlsx_inbox(tmp_path, monkeypatch):
+    import archive_tools.file_archive as intake
+    monkeypatch.setattr(intake, 'import_inbox_week', lambda *a: pytest.fail('runtime accessed historical XLSX inbox'))
+    result = ensure_archive_release(tmp_path, day='2034-09-28', year=2034, quarter=3)
+    assert result['archive']['code'] == 'ARCHIVE_NOT_FOUND'
+    assert result['selected'] is None

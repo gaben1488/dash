@@ -51,8 +51,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc14'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc14+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc15'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc15+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -74,7 +74,7 @@ def header_hash(values, header_rows):
 def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=None):
     """Validate a completed connector capture. Never simulate revision rereads."""
     if capture.get('archived_file_evidence') is not None:
-        from .file_archive import verify_archived_values
+        from .archived_evidence import verify_archived_values
         verify_archived_values(capture, registry=registry, ledger=ledger)
     expected = {s['source_id']: s for s in registry['sources']}
     got = capture['sources']

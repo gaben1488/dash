@@ -4,13 +4,13 @@ import zipfile
 from copy import deepcopy
 
 import pytest
-from procurement_engine.archive_runtime import ensure_archive_release
-from procurement_engine.file_archive import (
+from archive_tools.file_archive import (
     FileArchiveError,
     capture_file_archive,
     import_file_archive,
     verify_archived_values,
 )
+from procurement_engine.archive_runtime import ensure_archive_release
 from procurement_engine.formula_dependencies import audit_formula_dependencies
 from procurement_engine.publication_reader import read_publication
 from procurement_engine.raw_pipeline import header_hash
@@ -187,7 +187,7 @@ def test_same_archived_purchase_keeps_uid_for_independent_quarter_selections(tmp
     assert models[0]['details'][0]['single_supplier_reason'] == 'Поставка по фактической потребности'
 
 
-def test_native_prepare_imports_ready_original_inbox_without_separate_manual_command(tmp_path, monkeypatch):
+def test_offline_import_explicitly_seals_original_inbox_before_native_replay(tmp_path, monkeypatch):
     import json
 
     import procurement_engine.google_adapter as google
@@ -197,6 +197,7 @@ def test_native_prepare_imports_ready_original_inbox_without_separate_manual_com
     inbox.mkdir(parents=True)
     manifest = populated_inputs(inbox)
     (inbox / 'manifest.json').write_text(json.dumps(manifest))
+    import_file_archive(inbox, manifest, state)
     result = ensure_archive_release(state, day='2034-05-25', year=2034, quarter=2)
     assert result['archive']['status'] == 'READY', result
     assert list((state / 'archives').glob('XLSX-*'))
@@ -220,9 +221,9 @@ def test_bad_inbox_does_not_fallback_or_create_generic_data_task(tmp_path, corru
         (inbox / 'manifest.json').rename(inbox / 'real.json')
         (inbox / 'manifest.json').symlink_to(inbox / 'real.json')
     result = ensure_archive_release(state, day='2034-05-25', year=2034, quarter=2)
-    assert result['archive']['code'] == 'ARCHIVE_INTAKE_FAILED'
+    assert result['archive']['code'] == 'ARCHIVE_NOT_FOUND'
     assert result['selected'] is None
-    assert 'Рабочие таблицы' in result['archive']['message']
+    assert 'Текущие таблицы не использованы' in result['archive']['message']
     assert not (state / 'published').exists()
 
 
@@ -273,18 +274,9 @@ def test_empty_declared_identity_is_not_mistaken_for_a_real_archive_database(tmp
         import_file_archive(tmp_path, manifest, tmp_path / 'state')
 
 
-def test_failed_cli_records_exact_source_privately_and_assigns_technical_owner(tmp_path, capsys):
-    import json
-
+def test_production_cli_has_no_historical_intake_or_revision_probe():
     from procurement_engine.cli import main
-    manifest = inputs(tmp_path)
-    (tmp_path / 'manifest.json').write_text(json.dumps(manifest))
-    (tmp_path / 'book-0.xlsx').unlink()
-    state = tmp_path / 'state'
-    result = main(['import-week-files', '--archive', str(tmp_path), '--manifest', str(tmp_path / 'manifest.json'), '--state', str(state)])
-    assert result == 2
-    notice = json.loads(capsys.readouterr().out)
-    assert notice['owner'] == 'ENGINE' and notice['code'] == 'ARCHIVE_FILE_MISSING'
-    detail = json.loads((state / notice['evidence']).read_text())
-    assert detail['file'] == 'book-0.xlsx'
-    assert 'Рабочие таблицы' in notice['message']
+    for command in ('import-week-files', 'probe-master-revisions'):
+        with pytest.raises(SystemExit) as error:
+            main([command])
+        assert error.value.code == 2

@@ -96,7 +96,7 @@ def audit_formula_dependencies(capture):
         source.get('capture_method') == 'xlsx_cached_archive' or source.get('archive_file_sha256')
         for source in sources)
     if archived:
-        from .file_archive import FileArchiveError, verify_archived_values
+        from .archived_evidence import FileArchiveError, verify_archived_values
         try:
             return verify_archived_values(capture)
         except (FileArchiveError, ValueError, TypeError, KeyError) as error:

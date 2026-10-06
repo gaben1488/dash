@@ -306,3 +306,15 @@ def test_sqlite_failure_keeps_machine_code_without_public_message(tmp_path, monk
     assert evidence['message'] == 'private database path and table'
 
     monkeypatch.setattr(PublicationStore, 'publish', original_publish)
+
+
+def test_identity_recovery_degradation_is_visible_in_attempt_status(tmp_path, monkeypatch):
+    from procurement_engine.identity_store import IdentityStore
+    registry, ledger = inputs(tmp_path)
+    def recover(self, *a, diagnostics=None, **kw):
+        if diagnostics is not None:
+            diagnostics.update(skipped_transient_donors=1, unrecovered_snapshots=1)
+        return 0
+    monkeypatch.setattr(IdentityStore, 'recover_latest_plan_signatures', recover)
+    status = run_once(registry, ledger, tmp_path / 'state', client=Google())
+    assert status['identity_recovery'] == {'skipped_transient_donors': 1, 'unrecovered_snapshots': 1}

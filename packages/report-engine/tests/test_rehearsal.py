@@ -77,3 +77,14 @@ def test_rehearsal_cli_sanitizes_private_failure(tmp_path, capsys):
     assert result['error_type'] == 'ValueError'
     assert result['internal_code'] == 'PUBLICATION_NOT_FOUND'
     assert 'private-name' not in output
+
+
+def test_rehearsal_does_not_echo_uppercase_private_exception_text(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+    def failure(*a, **kw):
+        error = ValueError('PRIVATE_CUSTOMER_NAME')
+        error.sqlite_errorname = 'SQLITE_PRIVATE_CUSTOMER_NAME'
+        raise error
+    monkeypatch.setattr(rehearsal, 'rehearse_latest', failure)
+    assert rehearsal.main(['--state', '/unused']) == 2
+    assert 'PRIVATE_CUSTOMER_NAME' not in capsys.readouterr().out

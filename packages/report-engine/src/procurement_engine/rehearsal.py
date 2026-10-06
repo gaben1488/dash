@@ -12,7 +12,7 @@ import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .deployment_diagnostics import PUBLIC_CODES, public_error_code
+from .deployment_diagnostics import PUBLIC_CODES, public_error_code, safe_sqlite_error
 from .identity_store import IdentityStore, freeze_identity_snapshot
 from .publication_store import PublicationStore, _validate
 from .raw_pipeline import build_from_capture
@@ -169,7 +169,8 @@ def rehearse_latest(state_dir, *, coverage=False):
         )
         identities = IdentityStore(work / 'identity.sqlite')
         identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
-            *state.glob('published/releases/*/snapshot_bundle')], recover_chain=True)
+            *state.glob('published/releases/*/snapshot_bundle'),
+            *state.glob('archives/*/snapshot_bundle')], recover_chain=True)
         candidate = build_from_capture(capture, registry, ledger, work / 'bundle', identity_store=identities)
         issues = [*candidate.get('issues', []), *candidate['release']['blockers']]
         errors = Counter(issue['code'] if issue.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
@@ -211,10 +212,10 @@ def main(argv=None):
         }
         # Known invariant failures are fixed machine codes. Expose only that
         # restricted grammar; arbitrary exception text can contain source data.
-        if re.fullmatch(r'[A-Z][A-Z0-9_:-]{2,96}', message):
+        if message in PUBLIC_CODES:
             result['internal_code'] = message
         sqlite_error = getattr(error, 'sqlite_errorname', None)
-        if isinstance(sqlite_error, str) and re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
+        if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     return 0 if result['replay_status'] == 'PASS' else 2

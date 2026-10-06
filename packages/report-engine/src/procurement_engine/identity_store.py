@@ -266,11 +266,13 @@ class IdentityStore:
                 updated += int(changed)
         return updated
 
-    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False):
+    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None):
         """Recover the complete previous import from its sealed source payloads."""
         from .adapters import normalize_master_values
         from .snapshot_bundle_io import verify_persisted_bundle
 
+        if diagnostics is not None:
+            diagnostics.update(skipped_transient_donors=0, unrecovered_snapshots=0)
         with closing(self.connect()) as db:
             latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
             if latest is None:
@@ -294,36 +296,68 @@ class IdentityStore:
             return 0
         updated = 0
         for root in bundle_roots:
-            root = Path(root); path = root / 'manifest.json'
+            root = Path(root)
+            path = root / 'manifest.json'
             if not path.is_file():
                 continue
-            manifest = json.loads(path.read_text())
-            sid = manifest.get('snapshot_id')
-            if sid not in targets:
+            # attempts/ is transient diagnostic storage and can contain a
+            # half-written bundle left by a killed/failed run. published/releases/
+            # is immutable evidence: corruption there must remain fail-closed.
+            immutable = ('published' in root.parts and 'releases' in root.parts) or 'archives' in root.parts
+            try:
+                manifest = json.loads(path.read_text(encoding='utf-8'))
+                if not isinstance(manifest, dict):
+                    raise TypeError('IDENTITY_BACKFILL_DONOR_INVALID')
+                sid = manifest.get('snapshot_id')
+                if sid not in targets:
+                    continue
+                entries = manifest.get('payload_index') or []
+                if (not isinstance(entries, list)
+                        or any(not isinstance(item, dict)
+                               or not isinstance(item.get('path'), str)
+                               or Path(item['path']).is_absolute()
+                               or '..' in Path(item['path']).parts
+                               for item in entries)
+                        or verify_persisted_bundle(root)):
+                    raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID')
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                if immutable:
+                    raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID') from error
+                if diagnostics is not None:
+                    diagnostics['skipped_transient_donors'] += 1
                 continue
-            entries = manifest.get('payload_index') or []
-            if any(not isinstance(item.get('path'), str) or Path(item['path']).is_absolute()
-                   or '..' in Path(item['path']).parts for item in entries):
-                raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID')
-            if verify_persisted_bundle(root):
-                raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID')
+
+            # Identity state is authoritative and is not a donor parsing error.
             frozen = read_saved_identity(self.path, sid)
             uids = {r['source_row_key']: r['procurement_uid'] for r in frozen['rows']}
-            rows = []
-            for item in entries:
-                payload = json.loads((root / item['path']).read_text())
-                if payload['role'] != 'master':
-                    continue
-                meta = payload['metadata']
-                rows.extend(normalize_master_values(payload['semantic_values'], snapshot_id=sid,
-                    expected_grbs=meta['grbs'], data_start_row=meta.get('header_rows', 3), source_id=payload['provider_id'],
-                    sheet_name=meta['sheet_title']))
+            try:
+                rows = []
+                for item in entries:
+                    payload = json.loads((root / item['path']).read_text(encoding='utf-8'))
+                    if not isinstance(payload, dict):
+                        raise TypeError('IDENTITY_BACKFILL_DONOR_INVALID')
+                    if payload.get('role') != 'master':
+                        continue
+                    meta = payload.get('metadata')
+                    if not isinstance(meta, dict):
+                        raise TypeError('IDENTITY_BACKFILL_DONOR_INVALID')
+                    rows.extend(normalize_master_values(payload['semantic_values'], snapshot_id=sid,
+                        expected_grbs=meta['grbs'], data_start_row=meta.get('header_rows', 3),
+                        source_id=payload['provider_id'], sheet_name=meta['sheet_title']))
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                if immutable:
+                    raise ValueError('IDENTITY_BACKFILL_DONOR_INVALID') from error
+                if diagnostics is not None:
+                    diagnostics['skipped_transient_donors'] += 1
+                continue
             rows = [replace(r, procurement_uid=uids.get(r.physical_row_key)) for r in rows]
             updated += self.backfill_plan_signatures(rows, snapshot_id=sid)
             targets.remove(sid)
             if not targets:
                 break
         # Missing sealed donors cannot be replaced by a guess about their contents.
+        if diagnostics is not None:
+            diagnostics['unrecovered_snapshots'] = len(targets)
         return updated
 
     @staticmethod

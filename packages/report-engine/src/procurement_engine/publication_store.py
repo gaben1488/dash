@@ -162,7 +162,7 @@ def _validate(root):
                 'values': payload['semantic_values'], 'formula_evidence': meta.get('formula_evidence'),
                 **{key: meta[key] for key in ('capture_method', 'archive_file_sha256') if key in meta}})
         if capture.get('archived_file_evidence') is not None:
-            from .file_archive import verify_archived_values
+            from .archived_evidence import verify_archived_values
             saved_contracts = [p['semantic_values'] for p in payloads if p['role'] == 'rule_contract']
             if len(saved_contracts) != 1:
                 raise PublicationError('ARCHIVE_FILE_REGISTRY_MISMATCH')

@@ -1,12 +1,12 @@
 from io import BytesIO
 
-from openpyxl import Workbook
-from procurement_engine.historical_regression import (
+from archive_tools.historical_regression import (
     _canonical_history_matrix,
     metric_digest,
     source_semantic_digest,
     verify_private_corpus,
 )
+from openpyxl import Workbook
 
 
 def row(*, number=1, method='ЭА', plan=10, fact=0, plan_date='01.05.2034', fact_date=None):

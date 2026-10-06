@@ -1,6 +1,6 @@
 """Public deployment summary; full evidence stays in the private runtime directory."""
 import json
-import re
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -94,6 +94,9 @@ PUBLIC_CODES = PUBLIC_CODES | frozenset({'SOURCE_SEMANTIC_HEADER_CHANGED',
     'DOCUMENT_PLAN_UNBOUND_TABLE_RECORD', 'DOCUMENT_PLAN_UNBOUND_PARAGRAPH', 'NARRATIVE_SOURCE_MISMATCH'})
 PUBLIC_CODES = PUBLIC_CODES | frozenset({'PUBLICATION_CATALOG_UNSAFE', 'PUBLICATION_CATALOG_CORRUPT',
     'PUBLICATION_CATALOG_CHANGED_DURING_COPY', 'AUTOMATION_ASSURANCE_MISSING'})
+PUBLIC_CODES = PUBLIC_CODES | frozenset({'IDENTITY_BACKFILL_DONOR_INVALID',
+    'IDENTITY_BACKFILL_COVERAGE_INCOMPLETE', 'IDENTITY_BACKFILL_EVIDENCE_MISMATCH',
+    'IDENTITY_BACKFILL_SIGNATURE_CONFLICT', 'IDENTITY_DATABASE_CORRUPT'})
 PUBLIC_STAGES = frozenset({'inputs', 'acquisition', 'publication_selection', 'build', 'publication'})
 
 
@@ -108,6 +111,14 @@ def public_error_code(message):
     return prefix if prefix in PUBLIC_CODES else 'GENERATION_FAILED'
 
 
+PUBLIC_SQLITE_CODES = frozenset(name for name in dir(sqlite3)
+                               if name.startswith("SQLITE_") and type(getattr(sqlite3, name)) is int)
+
+
+def safe_sqlite_error(value):
+    return value if isinstance(value, str) and value in PUBLIC_SQLITE_CODES else None
+
+
 def summarize_status(status):
     value = status.get('status')
     result = {'last_report_status': value if isinstance(value, str) and value in {
@@ -118,8 +129,13 @@ def summarize_status(status):
             value = status[field]
             result[field] = value if isinstance(value, str) and value in allowed else fallback
     sqlite_error = status.get('sqlite_error')
-    if isinstance(sqlite_error, str) and re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
+    if safe_sqlite_error(sqlite_error) is not None:
         result['sqlite_error'] = sqlite_error
+    recovery = status.get('identity_recovery')
+    if isinstance(recovery, dict):
+        result['identity_recovery'] = {key: value for key, value in recovery.items()
+            if key in {'skipped_transient_donors', 'unrecovered_snapshots'}
+            and type(value) is int and value >= 0}
     blockers = status.get('blockers')
     if isinstance(blockers, list):
         result['blocker_codes'] = sorted({item['code'] if isinstance(item.get('code'), str)
