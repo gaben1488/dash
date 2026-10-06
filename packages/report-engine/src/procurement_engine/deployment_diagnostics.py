@@ -1,5 +1,6 @@
 """Public deployment summary; full evidence stays in the private runtime directory."""
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -7,7 +8,10 @@ from pathlib import Path
 # Fixed vocabulary, not a character filter: unknown source text is never echoed.
 PUBLIC_CODES = frozenset(['GENERATION_FAILED', 'GOOGLE_BATCH_SOURCE_MISMATCH', 'GOOGLE_BATCH_RANGE_COUNT_MISMATCH', 'GOOGLE_BATCH_RANGE_MISMATCH', 'GOOGLE_BATCH_VALUES_INVALID', 'GOOGLE_AUTH_CONFIGURATION_INVALID', 'GOOGLE_CREDENTIALS_REQUIRED', 'GOOGLE_AUTH_REFRESH_FAILED', 'GOOGLE_AUTH_TOKEN_MISSING', 'GOOGLE_READ_NETWORK_ERROR', 'GOOGLE_READ_RETRIES_EXHAUSTED', 'GOOGLE_SOURCE_NOT_SPREADSHEET', 'GOOGLE_SHEET_ID_NOT_FOUND', 'SOURCE_CHANGED', 'SOURCE_CHANGED_AFTER_FREEZE', 'SOURCE_SCHEMA_CHANGED', 'SOURCE_CHANGED_DURING_FREEZE', 'ATOMIC_SOURCE_REVISION_UNAVAILABLE', 'ATOMIC_SOURCE_IDENTITY_INCOMPLETE', 'SOURCE_PAYLOAD_ID_MISMATCH', 'SOURCE_PROVIDER_ID_MISMATCH', 'SOURCE_ROLE_MISMATCH', 'SOURCE_SET_MISMATCH', 'ATOMIC_SNAPSHOT_UNSTABLE', 'SECTION_SOURCE_MISMATCH', 'MONTHLY_PARITY_FAILED', 'RECOMMENDATION_LEDGER_SCHEMA_INVALID', 'RECOMMENDATION_LEDGER_DUPLICATE_ID', 'FACT_AFTER_REPORT_DATE', 'SOURCE_FORMULA_ERROR', 'INPUT_CONTRACT_INVALID'])
 PUBLIC_TYPES = frozenset(['GoogleReadError', 'AtomicSnapshotError', 'PublicationError',
-                         'ValueError', 'TypeError', 'KeyError', 'OSError', 'RuntimeError'])
+                         'ValueError', 'TypeError', 'KeyError', 'OSError', 'RuntimeError',
+                         'DatabaseError', 'OperationalError', 'IntegrityError',
+                         'ProgrammingError', 'InterfaceError', 'InternalError',
+                         'DataError', 'NotSupportedError'])
 
 # HTTP status is a finite protocol vocabulary; no provider response text is public.
 PUBLIC_CODES = PUBLIC_CODES | frozenset(f'GOOGLE_READ_HTTP_{code}' for code in range(400, 600)) | frozenset({
@@ -113,6 +117,9 @@ def summarize_status(status):
         if field in status:
             value = status[field]
             result[field] = value if isinstance(value, str) and value in allowed else fallback
+    sqlite_error = status.get('sqlite_error')
+    if isinstance(sqlite_error, str) and re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
+        result['sqlite_error'] = sqlite_error
     blockers = status.get('blockers')
     if isinstance(blockers, list):
         result['blocker_codes'] = sorted({item['code'] if isinstance(item.get('code'), str)
