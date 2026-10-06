@@ -70,5 +70,10 @@ def test_corrupt_saved_doc_is_rejected_before_replay(tmp_path):
 def test_rehearsal_cli_sanitizes_private_failure(tmp_path, capsys):
     from procurement_engine.rehearsal import main
     assert main(['--state', str(tmp_path / 'private-name')]) == 2
-    result = json.loads(capsys.readouterr().out)
-    assert result == {'replay_status': 'FAIL', 'error_code': 'PUBLICATION_NOT_FOUND'}
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result['replay_status'] == 'FAIL'
+    assert result['error_code'] == 'PUBLICATION_NOT_FOUND'
+    assert result['error_type'] == 'ValueError'
+    assert result['internal_code'] == 'PUBLICATION_NOT_FOUND'
+    assert 'private-name' not in output
