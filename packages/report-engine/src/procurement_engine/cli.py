@@ -66,6 +66,10 @@ def main(argv=None):
     worker.add_argument("--ledger", required=True)
     worker.add_argument("--state", required=True)
     worker.add_argument("--interval-seconds", type=int, default=900)
+    prune = sub.add_parser("prune-state", help="Plan or compact old transient attempt payloads")
+    prune.add_argument("--state", required=True)
+    prune.add_argument("--keep-full", type=int, default=12)
+    prune.add_argument("--apply", action="store_true")
     read = sub.add_parser("read-publication", help="Read a committed release without live recalculation")
     read.add_argument("--state", required=True)
     read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement'], required=True)
@@ -162,6 +166,17 @@ def main(argv=None):
         install_google_inputs(args.inputs)
         print('Runtime inputs ready')
         return 0
+    if args.cmd == "prune-state":
+        from .retention import apply_transient_attempt_retention, plan_transient_attempt_retention
+
+        plan = plan_transient_attempt_retention(args.state, keep_full=args.keep_full)
+        result = (apply_transient_attempt_retention(
+            args.state, keep_full=args.keep_full, expected_attempts=plan["compact_attempts"])
+            if args.apply else plan)
+        # Attempt UUIDs are an internal compare-and-delete barrier, not useful
+        # operational output and must not be copied into CI logs.
+        dump({key: value for key, value in result.items() if key != "compact_attempts"})
+        return 0 if result.get("status") not in {"FAILED", "PLAN_CHANGED"} else 2
     if args.cmd == "worker":
         from .worker import work
         return work(args.registry, args.ledger, args.state, interval_seconds=args.interval_seconds)
