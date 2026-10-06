@@ -4,6 +4,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -115,14 +116,20 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 status.update(status=receipt['status'], publication=receipt)
         except Exception as error:  # noqa: BLE001 — process boundary records a failed attempt; never reports success.
             code = public_error_code(str(error))
+            sqlite_error = getattr(error, 'sqlite_errorname', None)
+            if not isinstance(sqlite_error, str) or not re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
+                sqlite_error = None
             private_error = attempt / 'error.json'
             try:
                 with private_error.open('x', encoding='utf-8') as file:
                     os.chmod(private_error, 0o600)
-                    json.dump({'attempt_id': attempt_id, 'stage': stage, 'error_code': code,
+                    payload = {'attempt_id': attempt_id, 'stage': stage, 'error_code': code,
                                'error_type': type(error).__name__, 'message': str(error),
                                'evidence': getattr(error, 'evidence', None),
-                               'traceback': ''.join(traceback.format_exception(error))}, file, ensure_ascii=False)
+                               'traceback': ''.join(traceback.format_exception(error))}
+                    if sqlite_error is not None:
+                        payload['sqlite_error'] = sqlite_error
+                    json.dump(payload, file, ensure_ascii=False)
                     file.flush()
                     os.fsync(file.fileno())
                 status['private_error_saved'] = True
@@ -131,6 +138,8 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             status.update(status='NOT_ISSUED',
                           error_code=code, failure_stage=stage,
                           error_type=type(error).__name__)
+            if sqlite_error is not None:
+                status['sqlite_error'] = sqlite_error
         return _finish_attempt(state, attempt, status)
 
 

@@ -64,3 +64,31 @@ def test_every_release_gate_code_has_a_safe_public_projection():
                 and isinstance(call.args[1], ast.Constant) and isinstance(call.args[1].value, str)):
             codes.add(call.args[1].value)
     assert codes <= PUBLIC_CODES
+
+
+def test_sqlite_failure_projection_exposes_only_fixed_sqlite_code():
+    assert summarize_status({
+        'status': 'NOT_ISSUED',
+        'error_code': 'GENERATION_FAILED',
+        'error_type': 'OperationalError',
+        'failure_stage': 'publication',
+        'sqlite_error': 'SQLITE_FULL',
+    }) == {
+        'last_report_status': 'NOT_ISSUED',
+        'error_code': 'GENERATION_FAILED',
+        'error_type': 'OperationalError',
+        'sqlite_error': 'SQLITE_FULL',
+        'failure_stage': 'publication',
+    }
+
+
+def test_arbitrary_sqlite_text_is_not_exposed():
+    result = summarize_status({
+        'status': 'NOT_ISSUED',
+        'error_type': 'OperationalError',
+        'sqlite_error': 'private table name',
+    })
+    assert result == {
+        'last_report_status': 'NOT_ISSUED',
+        'error_type': 'OperationalError',
+    }
