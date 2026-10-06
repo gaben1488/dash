@@ -41,12 +41,14 @@ def _row_year_matches(row, source_years, budget_years=None):
     return (budget_years or {}).get((row.source_id, row.sheet_name)) in source_years
 
 
-def _text_ids(text):
+def _text_ids(text, *, joint_method_reference=False):
     # Scope numbers to an explicit position marker, excluding amounts and dates.
     number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
     group = f'({number}(?:\\s*[,;]\\s*{number}|\\s+и\\s+{number})*)'
     explicit = re.findall(r'(?:позици(?:ю|и|й|я)\s*#?|#)\s*' + group, text)
-    leading = re.findall(r'(?:^|(?:вынести|перевести)\s+на\s+эа\s+)' + group + r'\s+(?!тыс\b|руб\b)', text)
+    modifier = r'(?:(?:единый|совместный)\s+)?' if joint_method_reference else ''
+    leading = re.findall(r'(?:^|(?:вынести|перевести)\s+на\s+' + modifier + r'эа\s+)'
+                         + group + r'\s+(?!тыс\b|руб\b)', text)
     return list(dict.fromkeys(normalize_id(x) for values in explicit + leading
                              for x in re.split(r'\s*[,;]\s*|\s+и\s+', values))), explicit
 
@@ -77,7 +79,7 @@ def _subject_amounts(text, subject, business_id):
 
 
 def _exact_subject_reference(text, subject, business_id, *, shared_group_subject=False,
-                             extended_literal_reference=False):
+                             extended_literal_reference=False, joint_method_reference=False):
     """An explicit number owns the complete subject, not a price or a substring.
 
     Amounts are historical attributes. They cannot be invariant identity keys.
@@ -86,7 +88,8 @@ def _exact_subject_reference(text, subject, business_id, *, shared_group_subject
     business_id = normalize_id(business_id)
     if not business_id or not _text(subject):
         return False
-    prefix = r'(?<!\w)(?:позици(?:ю|и|й|я)\s*#?\s*|#\s*|^|(?:вынести|перевести)\s+на\s+эа\s+)'
+    modifier = r'(?:(?:единый|совместный)\s+)?' if joint_method_reference else ''
+    prefix = r'(?<!\w)(?:позици(?:ю|и|й|я)\s*#?\s*|#\s*|^|(?:вынести|перевести)\s+на\s+' + modifier + r'эа\s+)'
     reference = prefix + re.escape(business_id) + r'(?![\w/.-])\s*(?:[—–:]\s*)?'
     instruction = r'(?:(?:вынести|перевести|провести)\s+на\s+эа\s+)?'
     subject_start = r'[«"(]*\s*'
@@ -337,7 +340,7 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
                          entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
                          joint_group_target=False, budget_years=None, extended_literal_reference=False,
-                         inflected_supply_subject=False):
+                         inflected_supply_subject=False, joint_method_reference=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -347,7 +350,7 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
     if origin is None:
         return result
     text = _text(rec.get('recommendation_text'))
-    ids, _ = _text_ids(text)
+    ids, _ = _text_ids(text, joint_method_reference=joint_method_reference)
     result['required_business_ids'] = ids
     explicit_years = set(re.findall(r'\b(20\d{2})(?:[-–](?:м|й|го|му|е))?\s*(?:год(?:а|у|ом|е)?\b|г\.)', text))
     explicit_years.update(re.findall(r'\b(?:план|период)\w*\s+(20\d{2})\b', text))
@@ -409,7 +412,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
             and row.subject and _row_year_matches(row, source_years, budget_years)
             and _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
                                          shared_group_subject=shared_group_subject,
-                                         extended_literal_reference=extended_literal_reference)]
+                                         extended_literal_reference=extended_literal_reference,
+                                         joint_method_reference=joint_method_reference)]
     else:
         if explicit_years - {as_of[:4]}:
             result['status'] = 'PERIOD_EVIDENCE_REQUIRED'

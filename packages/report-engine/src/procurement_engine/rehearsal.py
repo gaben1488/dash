@@ -185,11 +185,13 @@ def _identity_gap_diagnostics(candidate, identities):
         if not record.get('active_in_current_slice') or (record.get('current_link') or {}).get('status') == 'CONFIRMED':
             continue
         text = _text(record.get('recommendation_text'))
-        numbers, _ = _text_ids(text)
+        numbers = (record.get('current_link') or {}).get('required_business_ids', _text_ids(text)[0])
         groups = [by_number[record.get('grbs'), number] for number in numbers]
         matches = [row for group in groups for row in group
             if _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
-                shared_group_subject=True, extended_literal_reference=True)] if numbers else [
+                shared_group_subject=True, extended_literal_reference=True,
+                joint_method_reference=candidate.get('contract', {}).get('recommendation_link_contract')
+                == 'verified-original-and-current-plan-v11')] if numbers else [
             row for row in rows.values() if row.grbs == record.get('grbs') and _exact_subject_mention(text, row.subject)]
         gaps.append({'grbs': record.get('grbs'), 'table_no': record.get('table_no'), 'row_no': record.get('row_no'),
             'explicit_reference_count': len(numbers), 'missing_primary_number_count': sum(not group for group in groups),
@@ -242,7 +244,7 @@ def _coverage_details(candidate, identities=None):
             'matched_current_count': len(link.get('business_ids') or []),
         })
         text = _text(record.get('recommendation_text'))
-        ids, _ = _text_ids(text)
+        ids = link.get('required_business_ids', _text_ids(text)[0])
         if ids:
             groups = [by_business[(record.get('grbs'), normalize_id(value))] for value in ids]
             if all(len(group) == 1 for group in groups):

@@ -162,6 +162,41 @@ def test_v10_case_form_duplicate_without_uid_still_makes_link_ambiguous():
     assert result['current_link']['status'] == 'AMBIGUOUS'
 
 
+@pytest.mark.parametrize('modifier', ['единый', 'совместный'])
+def test_v11_joint_method_modifier_keeps_explicit_primary_identity_without_group_fulfillment(modifier):
+    text = f'Вынести на {modifier} ЭА 42 Поставка бумаги – 46,00 тыс. руб.'
+    result = _case_form_review(text, [replace(row(), planned_year=2026)],
+        'verified-original-and-current-plan-v11')
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['required_business_ids'] == ['42']
+    assert result['current_link']['procurement_uids'] == ['PUR-synthetic']
+    assert result['current_link']['fulfillment'] == 'UNKNOWN'
+    assert 'relation' not in result['current_link']
+    assert _case_form_review(text, [replace(row(), planned_year=2026)],
+        'verified-original-and-current-plan-v10')['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
+
+
+@pytest.mark.parametrize('change,expected', [
+    ({}, 'CONFIRMED'),
+    ({'procurement_uid': None}, 'GROUP_EVIDENCE_REQUIRED'),
+    ({'subject': 'Поставка бумаги и картриджей'}, 'GROUP_EVIDENCE_REQUIRED'),
+    ({'planned_year': 2027}, 'GROUP_EVIDENCE_REQUIRED'),
+])
+def test_v11_joint_method_reference_still_requires_every_complete_member(change, expected):
+    first = replace(row(), planned_year=2026)
+    second = replace(first, **({'source_row_no': '43', 'row_number': 5,
+        'procurement_uid': 'PUR-other'} | change))
+    result = _case_form_review('Вынести на единый ЭА 42,43 Поставка бумаги – 92,00 тыс. руб.',
+        [first, second], 'verified-original-and-current-plan-v11')
+    assert result['current_link']['status'] == expected
+    if expected == 'CONFIRMED':
+        assert result['current_link']['business_ids'] == ['42', '43']
+        assert result['current_link']['fulfillment'] == 'UNKNOWN'
+        duplicate = replace(second, row_number=6, procurement_uid=None)
+        assert _case_form_review('Вынести на единый ЭА 42,43 Поставка бумаги – 92,00 тыс. руб.',
+            [first, second, duplicate], 'verified-original-and-current-plan-v11')['current_link']['status'] == 'AMBIGUOUS'
+
+
 @pytest.mark.parametrize('text', [
     TEXT.replace('Поставка бумаги)', 'Поставка бумаги и картриджей)'),
     'Поставка бумаги отменена. Рекомендуем позицию 42 (Поставка картриджей) на сумму 46,00 тыс. руб.',
