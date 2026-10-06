@@ -39,7 +39,7 @@ def action_target_proven(record, source_ids):
 
 
 def confirmed_result(record, rows, reviews, report_date, *, compile_original=False, reference_grammar=False,
-                     subject_reference_grammar=False):
+                     subject_reference_grammar=False, literal_open_quote=False):
     wanted = {normalize_id(value) for value in record.get('source_procurement_ids') or []}
     if not wanted:
         return None
@@ -74,7 +74,7 @@ def confirmed_result(record, rows, reviews, report_date, *, compile_original=Fal
         from .action_spec import compile_action
         spec = compile_action(record.get('recommendation_text'), source_ids=wanted,
             subjects=[(row.source_row_no, row.subject) for row in current], reference_grammar=reference_grammar,
-            subject_reference_grammar=subject_reference_grammar)
+            subject_reference_grammar=subject_reference_grammar, literal_open_quote=literal_open_quote)
     return evaluate_linked_action(record, current, report_date, source_ids=wanted, proofs=proofs,
                                   action_spec=spec)
 

@@ -555,3 +555,25 @@ def test_v5_subject_only_group_original_remains_review_required_end_to_end():
         documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v5')[0]
     assert result['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
     assert result['semantic_status'] == 'REVIEW_REQUIRED'
+
+
+@pytest.mark.parametrize('method,expected', [('ЭА', 'IMPLEMENTED'), ('ЕП', 'NOT_IMPLEMENTED')])
+def test_v7_unclosed_outer_quote_keeps_exact_subject_and_old_replay(method, expected):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    subject = 'Контроль мероприятий «Маршрут «Озёр»'
+    text = ('Изменить способ определения поставщика с ЕП на ЭА по мероприятию '
+            '«' + subject + ' 400,00 тыс. руб.')
+    rec = subject_only_recommendation(text)
+    rec.update(active_in_current_slice=True, table_no=1, row_no=1)
+    current = [replace(row(), subject=subject, planned_year=2026, method=method)]
+    old = review_recommendations([rec], current, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v6')[0]
+    assert old['current_link']['status'] == 'CONFIRMED'
+    assert old['dimensions']['compliance_status'] == 'UNKNOWN'
+    result = review_recommendations([rec], current, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v7')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['dimensions']['compliance_status'] == expected
+    assert result['compiled_action']['contract'] == 'original-action-v4'
+    assert result['compiled_action']['source_text'] == text

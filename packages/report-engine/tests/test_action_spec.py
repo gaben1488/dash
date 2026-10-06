@@ -122,3 +122,17 @@ def test_v4_reference_grammar_does_not_reinterpret_subject_only_text():
     text = 'Вынести на ЭА Поставка бумаги – 46,00 тыс. руб.'
     assert compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')],
                           reference_grammar=True) is None
+
+
+@pytest.mark.parametrize('text', [
+    'Если есть средства, вынести на ЭА «Поставка бумаги 46,00 тыс. руб.',
+    'Не рекомендуется вынести на ЭА «Поставка бумаги 46,00 тыс. руб.',
+    'Вынести на ЭА «Поставка бумаги 46,00 тыс. руб. при наличии средств.',
+    'Вынести на ЭА «Поставка бумаги специальной 46,00 тыс. руб.',
+    'Вынести на ЭА «Поставка бумаги 46,00 тыс. руб. Отменить другую закупку.',
+    'Вынести на единый ЭА «Поставка бумаги 46,00 тыс. руб.',
+])
+def test_v7_literal_open_quote_cannot_hide_conditions_partial_subjects_or_groups(text):
+    from procurement_engine.action_spec import compile_action
+    assert compile_action(text, source_ids=['42'], subjects=[('42', 'Поставка бумаги')],
+        reference_grammar=True, subject_reference_grammar=True, literal_open_quote=True) is None
