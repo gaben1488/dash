@@ -112,6 +112,56 @@ def test_subject_is_a_full_phrase_not_a_substring_of_another_subject():
     assert resolve(rec, [replace(row(), subject='Краны')])['status'] != 'CONFIRMED'
 
 
+def _case_form_review(text, rows, contract='verified-original-and-current-plan-v10'):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = recommendation(text)
+    rec['active_in_current_slice'] = True
+    return review_recommendations([rec], rows, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract=contract, budget_years={})[0]
+
+
+def test_v10_complete_supply_subject_accusative_is_not_a_missing_reference():
+    text = 'Рекомендовано вынести поставку бумаги на ЭА'
+    result = _case_form_review(text, [replace(row(), planned_year=2026)])
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['matches'][0]['match_basis'] == 'DOCUMENT_FULL_SUBJECT_CASE_FORM_AND_CURRENT_UID'
+    assert result['compiled_action']['contract'] == 'original-action-v6'
+    assert result['compiled_action']['type'] == 'CHANGE_METHOD_EA'
+    assert _case_form_review(text, [replace(row(), planned_year=2026)],
+        'verified-original-and-current-plan-v9')['current_link']['status'] == 'TEXT_REFERENCE_MISSING'
+
+
+@pytest.mark.parametrize('text', [
+    'Рекомендовано вынести поставку бумаги и картриджей на ЭА',
+    'Рекомендовано вынести поставку бумаги на ЭА, если появится финансирование',
+    'Рекомендовано вынести поставку бумаги на ЭА и изменить сумму',
+    'Рекомендовано вынести закупку бумаги на ЭА',
+    'Поставку бумаги обсуждали. Рекомендовано вынести другую закупку на ЭА',
+])
+def test_v10_case_form_does_not_accept_aliases_partial_or_compound_goals(text):
+    assert _case_form_review(text, [replace(row(), planned_year=2026)])['current_link']['status'] != 'CONFIRMED'
+
+
+@pytest.mark.parametrize('change,expected', [
+    ({'procurement_uid': None}, 'CURRENT_EVIDENCE_MISSING'),
+    ({'planned_year': 2027}, 'TEXT_REFERENCE_MISSING'),
+    ({'subject': 'Поставка бумаги и картриджей'}, 'TEXT_REFERENCE_MISSING'),
+    ({'grbs': 'УО'}, 'TEXT_REFERENCE_MISSING'),
+])
+def test_v10_case_form_keeps_identity_period_department_and_whole_subject(change, expected):
+    result = _case_form_review('Рекомендовано вынести поставку бумаги на ЭА',
+        [replace(row(), **({'planned_year': 2026} | change))])
+    assert result['current_link']['status'] == expected
+
+
+def test_v10_case_form_duplicate_without_uid_still_makes_link_ambiguous():
+    primary = replace(row(), planned_year=2026)
+    result = _case_form_review('Рекомендовано вынести поставку бумаги на ЭА',
+        [primary, replace(primary, row_number=5, procurement_uid=None)])
+    assert result['current_link']['status'] == 'AMBIGUOUS'
+
+
 @pytest.mark.parametrize('text', [
     TEXT.replace('Поставка бумаги)', 'Поставка бумаги и картриджей)'),
     'Поставка бумаги отменена. Рекомендуем позицию 42 (Поставка картриджей) на сумму 46,00 тыс. руб.',

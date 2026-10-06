@@ -226,7 +226,8 @@ def _exact_subject_mention(text, subject):
     return len(phrase) >= 8 and bool(re.search(r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', text))
 
 
-def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years=None):
+def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years=None,
+                            inflected_supply_subject=False):
     """v5 fallback for old prose that names one exact subject but no plan position.
 
     Group/merge wording is deliberately excluded because one visible subject cannot
@@ -241,7 +242,8 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_y
         and row.snapshot_id == snapshot_id
         and row.subject and row.source_row_no
         and _row_year_matches(row, source_years, budget_years)
-        and _exact_subject_mention(text, row.subject)
+        and (_exact_subject_mention(text, row.subject)
+             or (inflected_supply_subject and _complete_supply_case_instruction(text, row)))
     ]
     if not matches:
         return 'TEXT_REFERENCE_MISSING', None
@@ -250,6 +252,15 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_y
     if not matches[0].procurement_uid:
         return 'CURRENT_EVIDENCE_MISSING', None
     return 'CONFIRMED', matches[0]
+
+
+def _complete_supply_case_instruction(text, row):
+    from .action_spec import compile_action
+
+    spec = compile_action(text, source_ids=[row.source_row_no],
+        subjects=[(row.source_row_no, row.subject)], reference_grammar=True,
+        subject_reference_grammar=True, inflected_supply_subject=True)
+    return spec is not None and spec['contract'] == 'original-action-v6'
 
 
 
@@ -323,7 +334,8 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
 
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
                          entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
-                         joint_group_target=False, budget_years=None, extended_literal_reference=False):
+                         joint_group_target=False, budget_years=None, extended_literal_reference=False,
+                         inflected_supply_subject=False):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -372,7 +384,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         if not exact_subject_fallback:
             result['status'] = 'TEXT_REFERENCE_MISSING'
             return result
-        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years)
+        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years,
+                                              inflected_supply_subject)
         result['status'] = status
         if row is None:
             return result
@@ -383,7 +396,8 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
                       'plan_amount_thousand_decimal': format(money(row, 'plan'), 'f'),
                       'planned_year': row.planned_year, 'method': row.method,
                       'recorded_fact_date': row.actual_date,
-                      'match_basis': 'EXACT_DOCUMENT_SUBJECT_AND_CURRENT_UID',
+                      'match_basis': ('EXACT_DOCUMENT_SUBJECT_AND_CURRENT_UID' if _exact_subject_mention(text, row.subject)
+                                      else 'DOCUMENT_FULL_SUBJECT_CASE_FORM_AND_CURRENT_UID'),
                       'amount_is_identity_key': False}])
         return result
     if entity_link_rules:
