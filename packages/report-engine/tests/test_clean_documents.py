@@ -1,5 +1,7 @@
 import json
+from datetime import datetime, timezone
 
+import pytest
 from docx import Document
 from procurement_engine.docx_renderer import render_main_docx, render_management_docx
 from procurement_engine.runtime import run_once
@@ -20,6 +22,7 @@ def test_clean_word_keeps_business_date_and_hidden_provenance_with_protocol(tmp_
         for token in ['Идентификатор среза', 'версия правил', 'датой Q', 'V–X', 'AD «да»', 'validation layer']:
             assert token not in text
         assert doc.core_properties.identifier == model['snapshot']['snapshot_id']
+        assert not doc.core_properties.comments
     protocol = json.loads((bundle / 'diagnostic_protocol.json').read_text())
     assert protocol['snapshot'] == model['snapshot']
     assert protocol['issues'] == model['issues']
@@ -45,6 +48,23 @@ def test_future_structured_rows_do_not_get_comment_warning_or_physical_row_label
     render_main_docx(model, tmp_path / 'uncertain.docx')
     text = '\n'.join(p.text for p in Document(tmp_path / 'uncertain.docx').paragraphs)
     assert 'Бумага' in text and 'не установлен' in text and 'комментари' in text
+
+
+@pytest.fixture
+def quarter_three_clock(monkeypatch):
+    """These fixtures describe Q3 2026, not the wall clock of the CI runner."""
+    from procurement_engine import atomic_snapshot, google_adapter
+
+    class Clock(datetime):
+        instant = datetime(2026, 9, 30, 1, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.instant.astimezone(tz) if tz is not None else cls.instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(atomic_snapshot, 'datetime', Clock)
+    monkeypatch.setattr(google_adapter, 'datetime', Clock)
+    return Clock
 
 
 class BusinessGoogle(CompleteGoogle):
@@ -78,7 +98,7 @@ class BusinessGoogle(CompleteGoogle):
         return rows[start-1:end]
 
 
-def test_complete_business_sections_include_all_quarters_budgets_and_remaining_positions(tmp_path):
+def test_complete_business_sections_include_all_quarters_budgets_and_remaining_positions(tmp_path, quarter_three_clock):
     registry, ledger = inputs(tmp_path)
     result = run_once(registry, ledger, tmp_path / 'state', client=BusinessGoogle())
     assert result['status'] == 'VERIFIED'
@@ -94,10 +114,13 @@ def test_complete_business_sections_include_all_quarters_budgets_and_remaining_p
         assert f'{quarter} квартал 2026' in text
     assert 'ФБ — 10,00' in text and 'КБ — 20,00' in text and 'МБ — 30,00' in text
     assert 'Поставка материалов' in text and '15.09.2026' in text
-    assert 'Закупка следующего квартала' not in text
+    retrospective, context = text.split('ПОЯСНЕНИЯ К ПОЗИЦИЯМ ПЛАНА', 1)
+    assert 'Закупка следующего квартала' not in retrospective
+    assert 'Закупка следующего квартала' in context
+    assert 'плановая дата — 01.10.2026' in context
 
 
-def test_independent_audit_rejects_budget_and_remaining_population_mutations(tmp_path):
+def test_independent_audit_rejects_budget_and_remaining_population_mutations(tmp_path, quarter_three_clock):
     from copy import deepcopy
 
     from procurement_engine.independent_audit import audit_model
@@ -168,7 +191,7 @@ def test_quality_warning_names_the_procurement_even_when_business_number_is_empt
     assert 'закупка № не указан' not in text
 
 
-def test_native_report_outline_keeps_control_in_competitive_section_and_notices_at_end(tmp_path):
+def test_native_report_outline_keeps_control_in_competitive_section_and_notices_at_end(tmp_path, quarter_three_clock):
     registry, ledger = inputs(tmp_path)
     result = run_once(registry, ledger, tmp_path / 'state', client=BusinessGoogle())
     bundle = tmp_path / 'state/attempts' / result['attempt_id'] / 'bundle'
@@ -204,3 +227,18 @@ def test_unknown_recommendation_link_is_kept_in_protocol_and_original_decision_s
         if name == 'main_report.docx': assert 'Принята' in text and 'Исходная рекомендация' in text
     protocol = json.loads((bundle / 'diagnostic_protocol.json').read_text())
     assert protocol['recommendations'][0]['current_link']['status'] == 'ORIGIN_UNPROVEN'
+
+
+@pytest.mark.parametrize('month,quarter,visible', [(9, 3, False), (10, 4, True)])
+def test_remaining_detail_follows_the_selected_quarter_not_test_machine_date(tmp_path, quarter_three_clock, month, quarter, visible):
+    quarter_three_clock.instant = datetime(2026, month, 1, 1, tzinfo=timezone.utc)
+    registry, ledger = inputs(tmp_path)
+    result = run_once(registry, ledger, tmp_path / 'state', client=BusinessGoogle())
+    assert result['status'] == 'VERIFIED'
+    bundle = tmp_path / 'state/attempts' / result['attempt_id'] / 'bundle'
+    model = json.loads((bundle / 'report_model.json').read_text())
+    assert model['headline']['current_quarter'] == quarter
+    text = '\n'.join(p.text for p in Document(bundle / 'main_report.docx').paragraphs)
+    retrospective, context = text.split('ПОЯСНЕНИЯ К ПОЗИЦИЯМ ПЛАНА', 1)
+    assert ('Закупка следующего квартала' in retrospective) is visible
+    assert 'Закупка следующего квартала' in context

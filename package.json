@@ -26,7 +26,8 @@
     "typecheck:all": "pnpm -r --workspace-concurrency=1 exec tsc --noEmit",
     "test": "pnpm -r test",
     "test:watch": "pnpm -r --parallel test --watch",
-    "prepare": "husky"
+    "prepare": "husky",
+    "verify:braces-patch": "node scripts/verify-braces-depth-guard.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
@@ -45,7 +46,8 @@
   "pnpm": {
     "auditConfig": {
       "ignoreGhsas": [
-        "GHSA-gv7w-rqvm-qjhr"
+        "GHSA-gv7w-rqvm-qjhr",
+        "GHSA-vfj7-8cjw-p6xm"
       ]
     },
     "overrides": {
@@ -61,11 +63,16 @@
       "postcss@<8.5.23": "8.5.23",
       "nanoid@<3.3.18": "3.3.18",
       "nanoid@>=4.0.0 <5.1.16": "5.1.16",
-      "postcss-selector-parser@>=6.1.0 <6.1.3": "6.1.3",
       "browserslist@<4.28.7": "4.28.7",
       "@humanfs/node@<0.16.8": "0.16.8",
       "baseline-browser-mapping@>=2.0.0 <2.11.0": "2.11.0",
-      "undici@>=8.1.0 <8.10.2": "8.10.2"
+      "undici@>=8.1.0 <8.10.2": "8.10.2",
+      "source-map-js@>=1.0.0 <1.2.2": "1.2.2",
+      "postcss-selector-parser@<7.1.6": "7.1.6",
+      "fast-copy@>=4.0.0 <4.1.0": "4.1.0"
+    },
+    "patchedDependencies": {
+      "braces@3.0.3": "patches/braces@3.0.3.patch"
     }
   }
 }

@@ -35,6 +35,19 @@ def current_quarter(report_date: str) -> int:
     raise ValueError(f"Unsupported report date: {report_date}")
 
 
+def reporting_quarter(record: dict) -> int:
+    """Selected plan quarter is independent of the immutable evidence cutoff."""
+    scope = record.get('report_scope')
+    if scope is None:
+        return current_quarter(record['report_date'])
+    if (not isinstance(scope, dict) or set(scope) != {'year', 'quarter'}
+            or type(scope['year']) is not int or not 1900 <= scope['year'] <= 9999
+            or type(scope['quarter']) is not int or scope['quarter'] not in (1, 2, 3, 4)
+            or scope['year'] != record.get('report_year')):
+        raise ValueError('REPORT_SCOPE_INVALID')
+    return scope['quarter']
+
+
 def aggregate_snapshot_model(model: dict, procurement_type: str, scope: str) -> MetricBlock:
     items = [g[procurement_type][scope] for g in model.values()]
     return MetricBlock(
@@ -48,7 +61,7 @@ def aggregate_snapshot_model(model: dict, procurement_type: str, scope: str) -> 
 
 
 def headline_from_snapshot(snapshot: dict) -> dict:
-    q = current_quarter(snapshot["report_date"])
+    q = reporting_quarter(snapshot)
     model = snapshot["model"]
     return {
         "report_date": snapshot["report_date"],

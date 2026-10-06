@@ -78,6 +78,9 @@ def build_report_model_v2(snapshot: dict, ledger: list[dict]) -> dict:
     from .recommendation_dimensions import evaluate_dimensions
 
     model = build_report_model(snapshot, ledger)
+    for key in ('report_scope', 'archive_origin'):
+        if key in snapshot:
+            model['snapshot'][key] = snapshot[key]
     dimensions_by_id = {}
     review_required = []
     for r in ledger:
@@ -110,6 +113,9 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
     from .traceability import metric_trace
 
     model = build_report_model_v2(snapshot, ledger)
+    modern_context = snapshot.get('business_context_contract') == 'source-context-v1'
+    if modern_context:
+        model['contract']['business_context_contract'] = 'source-context-v1'
     model.setdefault("contract", {})["report_model_version"] = "report-model-v1.2.0"
 
     # Renderer-neutral per-GRBS and all-quarter metric projections.  Renderers must not
@@ -163,6 +169,7 @@ def build_report_model_v3(snapshot: dict, ledger: list[dict], *, contributor_ind
             "uer_decision": r.get("uer_decision_original") or "",
             "semantic_status_ru": r.get("semantic_status_ru", r.get("semantic_status") or ""),
             "status_evidence": r.get("status_evidence") or "",
+            **({"business_finding": r.get("business_finding") or ""} if modern_context else {}),
         })
     for rows in rec_by_grbs.values():
         rows.sort(key=lambda x: (int(x.get("table_no") or 0), int(x.get("row_no") or 0), str(x.get("recommendation_id") or "")))

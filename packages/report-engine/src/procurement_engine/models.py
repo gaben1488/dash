@@ -40,6 +40,11 @@ class ProcurementRow:
     saving_mb: float = 0.0
     stored_saving_total: float | None = None
     include_saving: bool | None = None
+    program: str = ""
+    subprogram: str = ""
+    single_supplier_reason: str = ""
+    necessity_reason: str = ""
+    uer_comment: str = ""
     deviation_reason: str = ""
     grbs_comment: str = ""
     procedure_code: str = ""

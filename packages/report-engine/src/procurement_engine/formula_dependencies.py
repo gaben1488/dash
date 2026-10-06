@@ -92,6 +92,16 @@ def _formula_dependencies(formula, named_ranges, sheets):
 
 def audit_formula_dependencies(capture):
     sources = capture.get('sources') or []
+    archived = capture.get('archived_file_evidence') is not None or any(
+        source.get('capture_method') == 'xlsx_cached_archive' or source.get('archive_file_sha256')
+        for source in sources)
+    if archived:
+        from .file_archive import FileArchiveError, verify_archived_values
+        try:
+            return verify_archived_values(capture)
+        except (FileArchiveError, ValueError, TypeError, KeyError) as error:
+            return {'closed': False, 'issues': [{'code': str(error).split(':')[0]}], 'edges': [],
+                    'scope': 'Original archived bytes do not prove the requested source matrices.'}
     index = {(s['provider_id'], s['sheet_id']): s['source_id'] for s in sources}
     by_id = {s['source_id']: s for s in sources}
     issues, edges, contexts = [], set(), {}

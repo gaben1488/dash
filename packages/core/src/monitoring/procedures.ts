@@ -64,8 +64,8 @@ export const MONITORING_DEPT_SHEETS: ReadonlyArray<{ sheet: string; dept: string
 export const MONITORING_SVOD_SHEET = 'СВОДНЫЙ';
 /** Переходящий реестр двух лет с родословной процедур. */
 export const MONITORING_JOURNAL_SHEET = '25-26';
-/** Справочник учреждений района. */
-export const MONITORING_DIRECTORY_SHEET = 'Перечень ГРБС';
+/** Канонический справочник заказчиков; старое имя «Перечень ГРБС» в книге отсутствует. */
+export const MONITORING_DIRECTORY_SHEET = 'Справочник заказчиков';
 
 /** Все листы книги, которые продукт читает данными (одиннадцать видимых). */
 export const MONITORING_DATA_SHEETS: readonly string[] = [

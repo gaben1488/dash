@@ -12,6 +12,7 @@
  * неделю» вместе с дельта-бейджами KPI-плиток. Кнопка «Копировать текстом»
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
+import { ReportAssurancePanel } from '../lib/report/ReportAssurancePanel';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
 import clsx from 'clsx';
@@ -119,7 +120,11 @@ function moneyFooter(tile: KpiVM) {
  * Заголовок — причина, описание — что это значит и что делать; технический
  * текст сервера уезжает в мелкую строку подробности, а не подменяет объяснение.
  */
-function errorContent(error: string): { title: string; description: string } {
+function errorContent(error: string, mode: ReportMode): { title: string; description: string } {
+  if (mode === 'archive') return {
+    title: 'Архивные показатели страницы недоступны',
+    description: 'Старый снимок страницы не загружен. Проверенный Word-комплект собирается отдельно из полного архива выбранной даты; его состояние показано выше. Текущие данные не заменяют архив.',
+  };
   return error.includes('503')
     ? {
       title: 'Сервер ещё не прочитал книги управлений',
@@ -781,7 +786,13 @@ export function ReportPage() {
   const reportMatchesRequest = report && report.period.year === request.year
     && (request.quarter === undefined || report.period.quarter === request.quarter)
     && isLive === (mode === 'live') && (request.asOf === undefined || exportDate === request.asOf);
-  const word = useReportExport(reportMatchesRequest && exportDate ? {
+  // Frozen Word evidence is independent of the legacy dashboard snapshot.
+  // A failed /api/report must not suppress /report-releases/prepare.
+  const word = useReportExport(mode === 'archive' && request.asOf ? {
+    date: request.asOf, year: request.year,
+    quarter: request.quarter ?? (Math.floor((Number(request.asOf.slice(5, 7)) - 1) / 3) + 1) as Quarter,
+    mode,
+  } : reportMatchesRequest && exportDate ? {
     date: exportDate, year: request.year, quarter: report.period.quarter, mode,
   } : null);
 
@@ -1024,6 +1035,9 @@ export function ReportPage() {
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 
+      <ReportAssurancePanel value={word.assurance} label={`Ограничения выбранного Word-выпуска${word.release ? ` от ${word.release.report_date}` : ''}`} />
+      <ReportAssurancePanel value={word.failedAttemptAssurance} label="Последняя попытка: новый выпуск не создан" />
+
       {/* Ярус 2: период и служебные оговорки */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         {/* Выбор квартала — тот же род, что и переключатель режима выше:
@@ -1129,8 +1143,8 @@ export function ReportPage() {
         <div className="analytics-chart-card">
           <EmptyState
             tone="problem"
-            title={errorContent(error).title}
-            description={errorContent(error).description}
+            title={errorContent(error, mode).title}
+            description={errorContent(error, mode).description}
             detail={error}
             action={{ label: 'Запросить отчёт заново', onClick: () => setRetry((r) => r + 1) }}
             secondaryAction={{ label: 'Открыть Пульт', onClick: () => navigateTo('dashboard') }}

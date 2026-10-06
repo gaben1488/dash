@@ -22,6 +22,8 @@ if (existsSync(rootEnv)) {
 const envSchema = z.object({
   // Google Sheets
   GOOGLE_SHEETS_SPREADSHEET_ID: z.string().optional(),
+  /** Отдельная книга оперативного мониторинга/процедур; не путать с общим СВОД. */
+  MONITORING_SPREADSHEET_ID: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_PRIVATE_KEY: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(),
@@ -137,6 +139,21 @@ export function validateSpreadsheetIdForSourceChange(value: unknown): Spreadshee
  * ID определён в @aemr/shared/constants — единый источник истины.
  */
 export const SVOD_SPREADSHEET_ID = SHARED_SVOD_ID;
+/**
+ * Текущая книга процедур. До 05.10.2026 здесь был жёстко зашит ID файла,
+ * который в Drive уже называется «старый …». Переменная окружения оставляет
+ * явную управляемую точку миграции без правки исходников.
+ */
+const DEFAULT_MONITORING_SPREADSHEET_ID = '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E';
+
+function resolveMonitoringSpreadsheetId(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return DEFAULT_MONITORING_SPREADSHEET_ID;
+  const checked = validateSpreadsheetIdForSourceChange(value);
+  if (!checked.success) throw new Error('MONITORING_SPREADSHEET_ID_INVALID');
+  return checked.spreadsheetId;
+}
+
 /** ШДЮ — лист внутри основной таблицы СВОД_для_Google */
 export const SHDYU_SPREADSHEET_ID = SVOD_SPREADSHEET_ID;
 
@@ -183,6 +200,7 @@ export const isDemoMode: boolean =
 export const config: AppConfig = {
   google: {
     spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID ?? SVOD_SPREADSHEET_ID,
+    monitoringSpreadsheetId: resolveMonitoringSpreadsheetId(env.MONITORING_SPREADSHEET_ID),
     serviceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     privateKey: env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     apiKey: env.GOOGLE_API_KEY,

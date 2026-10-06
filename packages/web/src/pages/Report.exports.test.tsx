@@ -7,15 +7,19 @@ import { makeReportFixture } from '../lib/report/fixture';
 import { useStore } from '../store';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 
+const backend = vi.hoisted(() => ({ archiveUnavailable: false }));
+
 vi.mock('../api', async importOriginal => {
   const original = await importOriginal<typeof import('../api')>();
   return { ...original, api: { ...original.api,
     getHistorySnapshots: async () => [],
-    getReport: async (year: number, quarter = 3, asOf?: string) => ({
+    getReport: async (year: number, quarter = 3, asOf?: string) => {
+      if (asOf && backend.archiveUnavailable) throw new Error('503 legacy archive unavailable');
+      return ({
       ...makeReportFixture(),
       period: { year, quarter, asOfDay: dayNumberOf(asOf ?? '2026-09-30'), live: !asOf },
       methodology: [], svodOnlineUrl: null,
-    }),
+    }); },
   } };
 });
 const receipt = {
@@ -26,6 +30,7 @@ const receipt = {
 const request = vi.fn();
 let saved: string[];
 beforeEach(() => {
+  backend.archiveUnavailable = false;
   localStorage.clear();
   useStore.setState({ year: 2026, period: 'q3', periodMode: 'explicit', focusedWeekStart: new Date('2026-09-28T00:00:00Z') });
   vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
@@ -80,4 +85,32 @@ it('an archive selection never downloads the current release', async () => {
   await screen.findByText(/Для выбранной даты, года и квартала проверенный комплект ещё не выпущен/);
   expect(main).toHaveProperty('disabled', true);
   expect(saved).toHaveLength(0);
+});
+
+
+it('prepares and downloads the full frozen archive even when the old dashboard snapshot is unavailable', async () => {
+  backend.archiveUnavailable = true;
+  let archived = false;
+  request.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/report-releases/prepare') {
+      const selected = JSON.parse(String(init?.body));
+      archived = true;
+      return { ok: true, json: async () => ({ latest: receipt, attempt: null,
+        selected: { ...receipt, report_date: selected.date.split('-').reverse().join('.'),
+          report_year: selected.year, quarter: selected.quarter } }) };
+    }
+    return { ok: true, json: async () => ({ latest: receipt, attempt: null,
+      selected: url.includes('date=2026-09-30&year=2026&quarter=3') ? receipt : null }),
+      blob: async () => new Blob(['archive docx']) };
+  });
+  render(<TooltipProvider><ReportPage /></TooltipProvider>);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отчёт в Word' })).toHaveProperty('disabled', false));
+  fireEvent.click(screen.getByRole('button', { name: 'Архив недели' }));
+  await waitFor(() => expect(archived).toBe(true));
+  expect(await screen.findByText(/Архивные показатели страницы недоступны/)).toBeTruthy();
+  const main = screen.getByRole('button', { name: 'Отчёт в Word' });
+  await waitFor(() => expect(main).toHaveProperty('disabled', false));
+  fireEvent.click(main);
+  await waitFor(() => expect(saved).toHaveLength(1));
+  expect(screen.queryByText(/Запустите чтение текущих источников/)).toBeNull();
 });

@@ -82,3 +82,51 @@ def validate_trace_records(records: Iterable[TraceRecord | dict], *, require_con
         if require_contributors_for_metrics and r.metric_key and not r.source_procurement_ids and not r.recommendation_ids and not r.procedure_ids:
             errors.append(f"TRACE_CONTRIBUTORS_MISSING:{r.report_block_id}")
     return errors
+
+
+def complete_trace_catalog(model):
+    """Expected inventory, rebuilt from semantic entities, never from supplied traces.
+
+    Includes zero metrics (an empty population is not a missing inventory), all
+    departmental/quarter blocks, source explanations and active recommendation rows.
+    The document-plan catalogue separately maps every emitted paragraph/table cell.
+    """
+    snap = model['snapshot']
+    records = []
+
+    def add(block, rule, *, metric=None, sources=(), recommendations=()):
+        records.append(TraceRecord(block, str(snap['snapshot_id']), str(snap['rules_version']),
+                                   str(snap['renderer_version']), rule, metric_key=metric,
+                                   source_procurement_ids=tuple(sources),
+                                   recommendation_ids=tuple(recommendations)).as_dict())
+
+    for kind in ('competitive', 'single_supplier'):
+        for scope in ('year', 'quarter'):
+            for field in ('plan_count', 'fact_count', 'remain_count', 'plan_amount',
+                          'fact_amount', 'remain_amount', 'execution_pct'):
+                key = f'headline.{kind}.{scope}.{field}'
+                add('metric.' + key, 'METRIC.PROJECTION', metric=key,
+                    sources=model.get('metric_contributors', {}).get(key, []))
+    content = model.get('report_content') or {}
+    for group, departments in [('global', {'ALL': content.get('global', {})}),
+                               ('by_grbs', content.get('by_grbs', {}))]:
+        for department, kinds in departments.items():
+            for kind, scopes in kinds.items():
+                for scope, block in scopes.items():
+                    base = f'report_content.{group}.' + (f'{department}.' if group == 'by_grbs' else '') + f'{kind}.{scope}'
+                    add('section.' + base, 'METRIC.BUDGET_AND_POPULATION', metric=base,
+                        sources=block.get('contributors', []))
+    for record in model.get('recommendation_records', []):
+        if record.get('active_in_current_slice'):
+            add('recommendation.' + record['recommendation_id'], 'RECOMMENDATION.CURRENT_AND_HISTORY',
+                recommendations=[record['recommendation_id']])
+    for row in model.get('source_context', []):
+        for entry in row['explanations']:
+            add('context.' + row['source_row_key'] + '.' + entry['column'], 'SOURCE.ATTRIBUTED_EXPLANATION',
+                sources=[row['source_row_key']])
+    for mode in ('GENERIC_TEMPLATE', 'SMART_NARRATIVE'):
+        records.extend(dict(block['trace']) for block in (model.get('narratives', {}).get(mode) or []))
+    unique = {}
+    for record in records:
+        unique.setdefault(record['report_block_id'], record)
+    return list(unique.values())

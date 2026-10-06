@@ -100,6 +100,26 @@ class GoogleReadClient:
             time.sleep(delay)
         raise GoogleReadError('GOOGLE_READ_RETRIES_EXHAUSTED')
 
+    def _get_bytes(self, url):
+        """Read authenticated immutable/export bytes with the same bounded retry policy."""
+        for attempt in range(8):
+            request = Request(url, headers={'Authorization': 'Bearer ' + self._access_token()})
+            delay = min(2 ** attempt + random.random(), 64)
+            try:
+                with urlopen(request, timeout=60) as response:
+                    return response.read()
+            except HTTPError as exc:
+                if exc.code not in {429, 500, 502, 503, 504} or attempt == 7:
+                    raise GoogleReadError(f'GOOGLE_READ_HTTP_{exc.code}') from None
+                retry_after = (exc.headers or {}).get('Retry-After', '')
+                if retry_after.isdigit():
+                    delay = max(delay, min(int(retry_after), 60))
+            except (URLError, TimeoutError, ConnectionError):
+                if attempt == 7:
+                    raise GoogleReadError('GOOGLE_READ_NETWORK_ERROR') from None
+            time.sleep(delay)
+        raise GoogleReadError('GOOGLE_READ_RETRIES_EXHAUSTED')
+
     def revision(self, provider_id):
         self._book_metadata.pop(provider_id, None)
         data=self._get('https://www.googleapis.com/drive/v3/files/'+quote(provider_id,safe=''),

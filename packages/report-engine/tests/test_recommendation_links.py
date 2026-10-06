@@ -358,3 +358,166 @@ def test_previous_single_only_link_contract_keeps_its_original_replay_result():
         documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v2')[0]
     assert new['current_link']['status'] == 'CONFIRMED'
     assert new['dimensions']['grouping_status'] == 'UNKNOWN'
+
+
+def normalized_original(text=TEXT):
+    from io import BytesIO
+
+    from docx import Document
+    rec, content = saved_report()
+    doc = Document(BytesIO(content))
+    observed = text.replace('Поставка бумаги', 'Поставка\nбумаги').replace('46,00', '46,00\u00a0') + '  '
+    doc.tables[0].cell(1, 1).text = observed
+    out = BytesIO(); doc.save(out); content = out.getvalue()
+    e = rec['origin_evidence'][0]
+    e.update(document_sha256=hashlib.sha256(content).hexdigest(),
+        normalization='NFKC_WHITESPACE_V1', observed_text=observed,
+        observed_text_sha256=hashlib.sha256(observed.encode()).hexdigest())
+    return rec, content
+
+
+def test_explicit_typographic_origin_keeps_original_bytes_and_cell():
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+    rec, content = normalized_original()
+    proof = verify_saved_report_origin(rec, {hashlib.sha256(content).hexdigest(): content})
+    assert proof is not None
+    assert proof['text_sha256'] == hashlib.sha256(TEXT.encode()).hexdigest()
+
+
+@pytest.mark.parametrize('change', ['other-word', 'other-money', 'other-number', 'negated', 'raw-hash', 'raw-cell', 'rule', 'no-rule'])
+def test_typographic_equivalence_cannot_change_semantic_source_or_drop_raw_proof(change):
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+    text = TEXT
+    if change == 'other-word': text = text.replace('бумаги', 'картриджей')
+    if change == 'other-money': text = text.replace('46,00', '64,00')
+    if change == 'other-number': text = text.replace('42', '24')
+    if change == 'negated': text = 'Не ' + text
+    rec, content = normalized_original(text)
+    evidence = rec['origin_evidence'][0]
+    if change == 'raw-hash': evidence['observed_text_sha256'] = '0' * 64
+    if change == 'raw-cell': evidence['observed_text'] = 'forged'
+    if change == 'rule': evidence['normalization'] = 'fuzzy'
+    if change == 'no-rule': evidence.pop('normalization')
+    assert verify_saved_report_origin(rec, {hashlib.sha256(content).hexdigest(): content}) is None
+
+
+def test_v4_evaluates_whole_reference_while_frozen_v3_keeps_previous_action_result():
+    from procurement_engine.raw_pipeline import review_recommendations
+    text = 'Вынести на ЭА 42 Поставка бумаги – 46,00 тыс. руб.'
+    rec = recommendation(text); rec['active_in_current_slice'] = True
+    current = [replace(row(), planned_year=2026)]
+    old = review_recommendations([rec], current, 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+                                link_contract='verified-original-and-current-plan-v3')[0]
+    new = review_recommendations([rec], current, 'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+                                link_contract='verified-original-and-current-plan-v4')[0]
+    assert old['dimensions']['compliance_status'] == 'UNKNOWN'
+    assert new['dimensions']['compliance_status'] == 'IMPLEMENTED'
+    assert new['dimensions']['execution_status'] == 'PLANNED'
+
+
+def test_legacy_exact_origin_with_research_normalization_metadata_is_still_exact():
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+    rec, content = saved_report()
+    rec['origin_evidence'][0]['normalization'] = 'NFKC_casefold_yo_whitespace_v1'
+    assert verify_saved_report_origin(rec, {hashlib.sha256(content).hexdigest(): content}) is not None
+
+
+def resolve_subject_only(rec, rows):
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+
+    proof = verify_saved_report_origin(rec, TEST_DOCUMENTS)
+    return resolve_current_link(rec, rows, report_date='30.09.2026', snapshot_id='snapshot',
+        verified_origin=proof, entity_link_rules=True, exact_subject_fallback=True)
+
+
+def subject_only_recommendation(text):
+    rec = recommendation(text)
+    rec['source_procurement_ids'] = []
+    return rec
+
+
+def test_v5_exact_unique_subject_can_link_original_prose_without_a_position_number():
+    text = ('Изменить способ определения поставщика с ЕП на ЭА по мероприятию '
+            '«Поставка бумаги» 46,00 тыс. руб.')
+    result = resolve_subject_only(subject_only_recommendation(text), [replace(row(), planned_year=2026)])
+    assert result['status'] == 'CONFIRMED'
+    assert result['business_ids'] == ['42']
+    assert result['procurement_uids'] == ['PUR-synthetic']
+    assert result['matches'][0]['match_basis'] == 'EXACT_DOCUMENT_SUBJECT_AND_CURRENT_UID'
+    assert result['matches'][0]['amount_is_identity_key'] is False
+
+
+def test_v4_keeps_subject_only_original_unlinked_for_replay_compatibility():
+    from procurement_engine.recommendation_links import verify_saved_report_origin
+
+    rec = subject_only_recommendation(
+        'Изменить способ определения поставщика с ЕП на ЭА по мероприятию «Поставка бумаги» 46,00 тыс. руб.')
+    proof = verify_saved_report_origin(rec, TEST_DOCUMENTS)
+    result = resolve_current_link(rec, [replace(row(), planned_year=2026)],
+        report_date='30.09.2026', snapshot_id='snapshot', verified_origin=proof, entity_link_rules=True)
+    assert result['status'] == 'TEXT_REFERENCE_MISSING'
+
+
+def test_v5_subject_only_link_does_not_use_historical_price_as_identity():
+    text = 'Вынести на ЭА Поставка бумаги – 46,00 тыс. руб.'
+    result = resolve_subject_only(subject_only_recommendation(text),
+                                  [replace(row(), planned_year=2026, plan_mb=999)])
+    assert result['status'] == 'CONFIRMED'
+
+
+@pytest.mark.parametrize('rows, expected', [
+    ([replace(row(), planned_year=2027)], 'TEXT_REFERENCE_MISSING'),
+    ([replace(row(), planned_year=2026, procurement_uid=None)], 'CURRENT_EVIDENCE_MISSING'),
+    ([replace(row(), planned_year=2026, subject='Поставка бумаги специальной')], 'TEXT_REFERENCE_MISSING'),
+])
+def test_v5_subject_only_link_requires_same_year_full_subject_and_uid(rows, expected):
+    rec = subject_only_recommendation('Вынести на ЭА Поставка бумаги – 46,00 тыс. руб.')
+    assert resolve_subject_only(rec, rows)['status'] == expected
+
+
+def test_v5_subject_only_link_rejects_duplicate_exact_subjects():
+    current = replace(row(), planned_year=2026)
+    other = replace(current, row_number=5, source_row_no='43', procurement_id='43',
+                    procurement_uid='PUR-other')
+    rec = subject_only_recommendation('Вынести на ЭА Поставка бумаги – 46,00 тыс. руб.')
+    assert resolve_subject_only(rec, [current, other])['status'] == 'AMBIGUOUS'
+
+
+@pytest.mark.parametrize('text', [
+    'Объединить раздробленные процедуры по ЭА «Поставка бумаги» 46,00 тыс. руб. в единую закупку.',
+    'Вынести на единый ЭА Поставка бумаги – 46,00 тыс. руб.',
+    'Совместная закупка Поставка бумаги – 46,00 тыс. руб.',
+])
+def test_v5_subject_only_link_never_collapses_group_wording_to_one_current_row(text):
+    rec = subject_only_recommendation(text)
+    result = resolve_subject_only(rec, [replace(row(), planned_year=2026)])
+    assert result['status'] == 'GROUP_EVIDENCE_REQUIRED'
+
+
+def test_v5_subject_only_original_is_linked_and_action_is_checked_end_to_end():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Изменить способ определения поставщика с ЕП на ЭА по мероприятию '
+            '«Поставка бумаги» 46,00 тыс. руб.')
+    rec = subject_only_recommendation(text)
+    rec.update(active_in_current_slice=True, uer_decision_original='Принята', table_no=1, row_no=1)
+    current = [replace(row(), planned_year=2026, method='ЭА')]
+    result = review_recommendations([rec], current, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v5')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['matches'][0]['match_basis'] == 'EXACT_DOCUMENT_SUBJECT_AND_CURRENT_UID'
+    assert result['dimensions']['compliance_status'] == 'IMPLEMENTED'
+    assert result['semantic_status'] == 'IMPLEMENTED'
+    assert result['compiled_action']['contract'] == 'original-action-v3'
+
+
+def test_v5_subject_only_group_original_remains_review_required_end_to_end():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    rec = subject_only_recommendation(
+        'Объединить раздробленные процедуры по ЭА «Поставка бумаги» 46,00 тыс. руб. в единую закупку.')
+    rec.update(active_in_current_slice=True, table_no=1, row_no=1)
+    result = review_recommendations([rec], [replace(row(), planned_year=2026)], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v5')[0]
+    assert result['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
+    assert result['semantic_status'] == 'REVIEW_REQUIRED'

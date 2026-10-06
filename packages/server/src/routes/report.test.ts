@@ -83,7 +83,7 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
   beforeAll(async () => {
     vi.resetModules();
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, saveSnapshot } = await import('../services/snapshot.js');
     const headers = [new Array(32).fill('h'), new Array(32).fill('h'), new Array(32).fill('h')];
     // УЭР: 1 кв план 15 (10 ЭА + 5 ЕП), факт 6 (4 + 2) → 40.00% — эталон отчёта.
     setDeptSheetCache({
@@ -93,6 +93,9 @@ describe('GET /api/report — проекция отчёта (эталон 20.03.
         sheetName: 'УЭР',
       },
     });
+    await saveSnapshot(makeSnapshot('exact-tuesday', '2026-02-10T08:00:00.000Z', {
+      УЭР: planRows('archived', 10, 3, 1, 'ЭА'),
+    }));
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
   }, 60_000);
@@ -297,9 +300,15 @@ describe('GET /api/report — прошлая неделя строится из 
     // Плашка об источнике — с датой снимка в человеческом формате.
     expect(body.notes.some((n) => n.includes('снимка 19.03.2026'))).toBe(true);
   }, 30_000);
+  it('does not relabel an earlier saved week under a later requested date', async () => {
+    const res = await app.inject('/api/report?asOf=2026-03-20&year=2026&quarter=1');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().requestedDate).toBe('2026-03-20');
+  }, 30_000);
+
 });
 
-describe('GET /api/report — прошлая неделя без снимка: живой кэш + честная плашка', () => {
+describe('GET /api/report — прошлая неделя без снимка: никакой подмены текущими данными', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -325,20 +334,24 @@ describe('GET /api/report — прошлая неделя без снимка: �
     vi.resetModules();
   });
 
-  it('asOf прошлой недели без снимка: текущие данные + плашка «снимка нет»', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/report?asOf=2026-03-19&year=2026&quarter=1' });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<ReportResponse>();
-
-    // Фолбэк на живой кэш: числа текущих данных, не пустота и не 5xx.
-    const uer = body.grbsBlocks.find((b) => b.dept === 'УЭР');
-    expect(uer!.quarter.execution.planCount).toBe(15);
-    expect(uer!.quarter.execution.doneCount).toBe(6);
-
-    // Честная плашка: читатель знает, что видит текущие данные под датой среза.
-    expect(body.notes.some((n) => n.includes('Снимка на 19.03.2026 нет'))).toBe(true);
-    expect(body.notes.some((n) => n.includes('текущие данные'))).toBe(true);
+  it('returns 404 rather than current rows when the exact archive is absent', async () => {
+    const res = await app.inject('/api/report?asOf=2026-03-19&year=2026&quarter=1');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('ARCHIVE_SNAPSHOT_NOT_FOUND');
+    expect(res.json().requestedDate).toBe('2026-03-19');
+    expect(res.json()).not.toHaveProperty('grbsBlocks');
   }, 30_000);
+
+  it('does not call a live current-week cache an archived snapshot', async () => {
+    const { productCalendarDay } = await import('../services/product-calendar.js');
+    const { config } = await import('../config.js');
+    const today = productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours);
+    const date = new Date(today * 86400000).toISOString().slice(0, 10);
+    const result = await app.inject(`/api/report?asOf=${date}`);
+    expect(result.statusCode).toBe(404);
+    expect(result.json().requestedDate).toBe(date);
+  }, 30_000);
+
 });
 
 describe('GET /api/report — пустой кэш листов', () => {

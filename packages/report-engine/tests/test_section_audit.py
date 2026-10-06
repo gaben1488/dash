@@ -62,6 +62,12 @@ def test_publisher_rejects_future_section_mutation_after_coherent_rerender(tmp_p
     bundle=state/'attempts'/result['attempt_id']/'bundle'
     model=json.loads((bundle/'report_model.json').read_text())
     model['future_plan']['target_year']+=1
+    # Keep the new text contract coherent too: the raw-source auditor, not a
+    # stale document plan, must reject the deliberately incorrect future year.
+    from procurement_engine.diagnostics import project_diagnostics
+    from procurement_engine.document_content import planned_documents
+    model['document_plans'] = planned_documents(model)
+    (bundle/'diagnostic_protocol.json').write_text(json.dumps(project_diagnostics(model)))
     (bundle/'report_model.json').write_text(json.dumps(model))
     (bundle/'dashboard.json').write_text(json.dumps(project_dashboard(model)))
     render_main_docx(model,bundle/'main_report.docx')

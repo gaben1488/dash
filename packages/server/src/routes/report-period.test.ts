@@ -112,8 +112,10 @@ describe('GET /api/report — период: старая форма и муль�
   beforeAll(async () => {
     vi.resetModules();
     process.env = { ...ORIGINAL_ENV, NODE_ENV: 'test', AEMR_API_KEY: '', SQLITE_PATH: ':memory:', LOG_LEVEL: 'silent' };
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, saveSnapshot } = await import('../services/snapshot.js');
     setDeptSheetCache({ УЭР: { values: UER_ROWS, formulas: [], sheetName: 'УЭР' } });
+    await saveSnapshot(makeSnapshot('exact-period-tuesday', '2026-02-10T08:00:00.000Z', { УЭР: UER_ROWS.slice(3) }));
+    await saveSnapshot(makeSnapshot('exact-period-thursday', '2026-03-19T08:00:00.000Z', { УЭР: UER_ROWS.slice(3) }));
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
   }, 60_000);
@@ -246,8 +248,7 @@ describe('GET /api/report — период: старая форма и муль�
     expect(body.period.asOfDay).toBe(dayNumberOf('2026-03-19'));
     expect(body.period.year).toBe(2026);
     expect(body.period.quarter).toBe(1);
-    // Снимка той недели в этой БД нет — честная плашка вместо тихой подмены.
-    expect(body.notes.some((n) => n.includes('Снимка на 19.03.2026 нет'))).toBe(true);
+    expect(body.notes.some((n) => n.includes('снимка 19.03.2026'))).toBe(true);
     expect(body.selectionLabel).toContain('срез 2026-03-19');
   }, 30_000);
 
@@ -255,10 +256,10 @@ describe('GET /api/report — период: старая форма и муль�
     const { productCalendarDay } = await import('../services/product-calendar.js');
     const { config } = await import('../config.js');
     const today = productCalendarDay(new Date(), config.weeklySnapshot.utcOffsetHours);
-    const body = await get('/api/report?week=2099-01-05');
-    // Будущий четверг не адресуем: он вернул бы сегодняшние числа под чужой датой.
-    expect(body.period.asOfDay).toBe(floorToThursday(today));
-    expect(body.period.live).toBe(false);
+    const result = await app.inject('/api/report?week=2099-01-05');
+    // Clamping does not authorize substituting live rows for an absent archive.
+    expect(result.statusCode).toBe(404);
+    expect(result.json().requestedDate).toBe(new Date(floorToThursday(today) * 86400000).toISOString().slice(0, 10));
   }, 30_000);
 
   it('мусор в новых параметрах → 400 с русским объяснением', async () => {
