@@ -18,6 +18,29 @@ def _text(value):
     return clean_text(str(value or '').replace('№', '#')).casefold().replace('ё', 'е')
 
 
+def primary_budget_years(sources):
+    """Read the annual budget scope from frozen master H2, never a row's prose/date."""
+    years = {}
+    for source in sources:
+        if source.get('role') != 'master':
+            continue
+        values = source.get('values') or []
+        header = values[1] if len(values) > 1 else []
+        value = _text(header[7]) if len(header) > 7 else ''
+        match = re.fullmatch(
+            r'объем средств, предусмотренный муниципальной программой на (20\d{2}) год, тыс\. руб\.', value)
+        key = (source.get('provider_id'), source.get('sheet'))
+        if match and all(key):
+            years.setdefault(key, set()).add(match[1])
+    return {key: next(iter(value)) for key, value in years.items() if len(value) == 1}
+
+
+def _row_year_matches(row, source_years, budget_years=None):
+    if row.planned_year is not None:
+        return str(row.planned_year) in source_years
+    return (budget_years or {}).get((row.source_id, row.sheet_name)) in source_years
+
+
 def _text_ids(text):
     # Scope numbers to an explicit position marker, excluding amounts and dates.
     number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
@@ -191,7 +214,7 @@ def _exact_subject_mention(text, subject):
     return len(phrase) >= 8 and bool(re.search(r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', text))
 
 
-def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
+def _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years=None):
     """v5 fallback for old prose that names one exact subject but no plan position.
 
     Group/merge wording is deliberately excluded because one visible subject cannot
@@ -205,7 +228,7 @@ def _subject_only_candidate(rec, rows, text, snapshot_id, source_years):
         if row.grbs == rec.get('grbs')
         and row.snapshot_id == snapshot_id
         and row.subject and row.source_row_no
-        and str(row.planned_year) in source_years
+        and _row_year_matches(row, source_years, budget_years)
         and _exact_subject_mention(text, row.subject)
     ]
     if not matches:
@@ -260,7 +283,7 @@ def _joint_group_target_spec(text, ids):
             'subject': name, 'amount_thousand': amount_thousand}
 
 
-def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of):
+def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years=None):
     spec = _joint_group_target_spec(text, ids)
     if spec is None:
         return None, None
@@ -274,8 +297,9 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
         and _text(row.subject) == _text(spec['subject'])
         and not set(row.missing_money_fields).intersection({'H', 'I', 'J'})
         and money(row, 'plan') == spec['amount_thousand']
-        and (str(row.planned_year) in source_years
-             or (not row.planned_year and as_of[:4] in source_years))
+        and (_row_year_matches(row, source_years, budget_years) if budget_years is not None else
+             (str(row.planned_year) in source_years
+              or (not row.planned_year and as_of[:4] in source_years)))
         and (not spec['target_business_id']
              or normalize_id(row.source_row_no) == spec['target_business_id'])
     ]
@@ -287,7 +311,7 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
 
 def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin=None, legacy_group_rules=False,
                          entity_link_rules=False, exact_subject_fallback=False, shared_group_subject=False,
-                         joint_group_target=False):
+                         joint_group_target=False, budget_years=None):
     """Separate current linkage from fulfillment, contract execution and payment."""
     as_of = parse_date(report_date)
     origin = _origin_registered(rec, as_of, verified_origin)
@@ -306,7 +330,7 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         result['status'] = 'PERIOD_EVIDENCE_REQUIRED'
         return result
     if joint_group_target and len(ids) > 1:
-        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of)
+        spec, target = _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_of, budget_years)
         if spec == 'AMBIGUOUS':
             result['status'] = 'AMBIGUOUS'
             return result
@@ -336,7 +360,7 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         if not exact_subject_fallback:
             result['status'] = 'TEXT_REFERENCE_MISSING'
             return result
-        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years)
+        status, row = _subject_only_candidate(rec, rows, text, snapshot_id, source_years, budget_years)
         result['status'] = status
         if row is None:
             return result
@@ -354,7 +378,7 @@ def resolve_current_link(rec, rows, *, report_date, snapshot_id, verified_origin
         # A new calendar year does not erase the still observed prior-year plan.
         candidates = [row for row in rows if row.grbs == rec.get('grbs')
             and normalize_id(row.source_row_no) in ids and row.snapshot_id == snapshot_id
-            and row.subject and str(row.planned_year) in source_years
+            and row.subject and _row_year_matches(row, source_years, budget_years)
             and _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
                                          shared_group_subject=shared_group_subject)]
     else:

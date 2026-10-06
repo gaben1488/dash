@@ -17,6 +17,71 @@ class CompleteGoogle(Google):
         return []
 
 
+@pytest.mark.parametrize('budget_year,planned_year,expected', [
+    ('2026', None, 'CONFIRMED'),
+    ('2027', None, 'CURRENT_EVIDENCE_MISSING'),
+    ('2026 и 2027', None, 'CURRENT_EVIDENCE_MISSING'),
+    ('', None, 'CURRENT_EVIDENCE_MISSING'),
+    ('2026', 2027, 'CURRENT_EVIDENCE_MISSING'),
+])
+def test_original_reference_can_use_primary_budget_period_without_inventing_plan_date(
+        tmp_path, budget_year, planned_year, expected):
+    from test_recommendation_history import fixture
+
+    history, package, _ = fixture()
+    history[0].update(active_in_current_slice=True, section='ep', table_no=1,
+                      row_no=1, source_procurement_ids=['42'])
+    metadata = {'id': 'synthetic-history', 'name': 'aemr-report-recommendation-history-v1.json',
+                'mimeType': 'application/json', 'version': '1', 'modifiedTime': '2026-09-25T00:00:00Z'}
+
+    class AnnualGoogle(CompleteGoogle):
+        def _get(self, url, params):
+            if url.endswith('/files'):
+                return {'files': [metadata]}
+            return package if params.get('alt') == 'media' else metadata
+
+        def grid(self, provider, sheet_id):
+            value = super().grid(provider, sheet_id)
+            if provider == 'master-0':
+                value['gridProperties']['rowCount'] = 4
+            return value
+
+        def values(self, provider, title, start, end, columns):
+            header = [''] * 8
+            header[7] = f'Объём средств, предусмотренный муниципальной программой на {budget_year} год, тыс. руб.'
+            values = [[], header, ['Synthetic header']]
+            if provider == 'master-0':
+                row = [''] * 34
+                for index, value in {0: '42', 1: 'УЭР', 2: 'Synthetic customer',
+                    5: 'Текущая деятельность', 6: 'Поставка бумаги',
+                    7: 0, 8: 0, 9: 46, 10: 46, 11: 'ЕП', 15: planned_year}.items():
+                    row[index] = value
+                values.append(row)
+            return values[start - 1:end]
+
+    registry, ledger = inputs(tmp_path)
+    ledger.write_text(json.dumps(history))
+    state = tmp_path / 'state'
+    result = run_once(registry, ledger, state, client=AnnualGoogle())
+    assert result['status'] == 'VERIFIED_WITH_WARNINGS', result
+    dashboard = json.loads(read_publication(state, 'dashboard', result['publication']['release_id']))
+    rec = dashboard['recommendations']['tables']['1'][0]
+    assert rec['current_link']['status'] == expected
+    detail = dashboard['details'][0]
+    assert detail['planned_year'] == planned_year
+    assert detail['planned_date'] is None
+    assert dashboard['headline']['single_supplier']['year']['plan_count'] == 0
+    if expected == 'CONFIRMED':
+        from procurement_engine.section_audit import audit_source_sections
+
+        bundle = state / 'attempts' / result['attempt_id'] / 'bundle'
+        capture = json.loads((bundle.parent / 'capture.json').read_text())
+        model = json.loads((bundle / 'report_model.json').read_text())
+        capture['sources'][0]['values'][1][7] = 'Объём средств на 2027 год, тыс. руб.'
+        assert 'recommendation_records' in audit_source_sections(capture, model,
+            ledger=json.loads((bundle / 'snapshot_bundle/payloads/HISTORICAL_RECOMMENDATIONS.json').read_text())['semantic_values'])
+
+
 def test_real_runtime_can_publish_without_manual_context_or_forced_model(tmp_path):
     registry, ledger = inputs(tmp_path)
     state = tmp_path / 'state'

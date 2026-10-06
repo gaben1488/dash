@@ -114,7 +114,10 @@ jobs:
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
             # Startup success is insufficient: observe a later timer attempt.
             worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
-            test -n "$worker"
+            if [ -z "$worker" ]; then
+              echo '{"scheduled_worker_cycle":{"status":"BLOCKED","reason":"RUNNING_REPORT_WORKER_NOT_FOUND"}}'
+              exit 1
+            fi
             started=$(docker inspect --format '{{.State.StartedAt}}' "$worker")
             interval=$(docker exec "$worker" /bin/sh -c 'printf "%s" "${REPORT_POLL_SECONDS:-900}"')
             docker run --rm --network none --read-only \
