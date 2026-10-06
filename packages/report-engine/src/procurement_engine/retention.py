@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -35,11 +35,14 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 def _report_day(value: object) -> str | None:
     text = str(value or "").strip()
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt).date().isoformat()
-        except ValueError:
-            pass
+    try:
+        if len(text) == 10 and text[2] == "." and text[5] == ".":
+            day, month, year = (int(part) for part in text.split("."))
+            return date(year, month, day).isoformat()
+        if len(text) == 10 and text[4] == "-" and text[7] == "-":
+            return date.fromisoformat(text).isoformat()
+    except ValueError:
+        pass
     return None
 
 
