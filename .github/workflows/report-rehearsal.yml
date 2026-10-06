@@ -15,6 +15,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-schema:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'codex/report-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect registered live headers without source contents or writes
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --env-file .env.production --volumes-from "$server":ro \
+              --entrypoint /opt/report-env/bin/python "$image" - <<'PYREAD'
+            import json, tempfile
+            from pathlib import Path
+            from procurement_engine.google_adapter import GoogleReadClient, GoogleReadError
+            from procurement_engine.raw_pipeline import header_hash
+            from procurement_engine.runtime_inputs import install_google_inputs
+            from procurement_engine.semantic_headers import semantic_header_hash, _headers
+            from procurement_engine.publication_store import PublicationStore
+            from procurement_engine.readonly_catalog import copied_catalog
+            root = Path("/app/packages/server/data/reports")
+            registry = json.loads((root / "inputs/registry.json").read_text())
+            store = PublicationStore(root / "published", readonly=True)
+            with copied_catalog(store.database_path) as catalog:
+                store.database_path = catalog
+                receipt = store.latest()
+            sealed = _headers(root / "published/releases" / receipt["release_id"]) if receipt else {}
+            client = GoogleReadClient()
+            results = []
+            for index, source in enumerate(registry["sources"]):
+                item = {"registry_index": index, "sheet": source["sheet"], "role": source["role"], "columns": source["columns"], "header_rows": source["header_rows"], "old_fingerprint": source["schema_fingerprint"]}
+                try:
+                    grid = client.grid(source["provider_id"], source["sheet_id"])
+                    columns = grid["gridProperties"]["columnCount"]
+                    if not 1 <= source["header_rows"] <= 4 or not 1 <= columns <= 64:
+                        item["status"] = "HEADER_BOUNDS_REVIEW_REQUIRED"
+                    else:
+                        before = client.revision(source["provider_id"])
+                        rows = client.values(source["provider_id"], grid["title"], 1, source["header_rows"], columns)
+                        item.update(live_sheet=grid["title"], live_columns=columns, live_fingerprint=header_hash(rows, source["header_rows"]), live_semantic_fingerprint=semantic_header_hash(rows, source["header_rows"], columns), status="STABLE" if before == client.revision(source["provider_id"]) else "SOURCE_CHANGED")
+                    if source["source_id"] in sealed:
+                        item["sealed_semantic_fingerprint"] = sealed[source["source_id"]][1]
+                except GoogleReadError as error:
+                    item["status"] = str(error) if str(error) == "GOOGLE_SHEET_ID_NOT_FOUND" else "GOOGLE_HEADER_READ_FAILED"
+                results.append(item)
+            print(json.dumps({"installed_contract_preflight": results}, ensure_ascii=False, sort_keys=True))
+            with tempfile.TemporaryDirectory() as temporary:
+                target = Path(temporary) / "inputs"
+                install_google_inputs(target, client=client)
+                remote = json.loads((target / "registry.json").read_text())
+                keys = ("sheet", "role", "columns", "header_rows", "schema_fingerprint", "semantic_header_fingerprint", "previous_semantic_header_fingerprint")
+                print(json.dumps({"remote_contract": [{k: source[k] for k in keys if k in source} for source in remote["sources"]], "ledger_unchanged": json.loads((target / "ledger.json").read_text()) == json.loads((root / "inputs/ledger.json").read_text())}, ensure_ascii=False, sort_keys=True))
+            PYREAD
   frozen-replay:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
