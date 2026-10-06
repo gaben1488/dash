@@ -144,7 +144,7 @@ def _identity_gap_diagnostics(candidate, identities):
             if row is None:
                 return 'CURRENT_ROW_UNAVAILABLE'
             entity = entity_signature(row)
-            if not entity:
+            if not entity or not row.source_row_no:
                 return 'INCOMPLETE_CURRENT_ENTITY'
             if entity_counts[entity] != 1:
                 return 'DUPLICATE_CURRENT_ENTITY'
@@ -204,7 +204,7 @@ def _identity_gap_diagnostics(candidate, identities):
             'recommendation_identity_gap_index': gaps}
 
 
-def _coverage_details(candidate, identities=None):
+def _coverage_details(candidate, identities=None, identity_history=None):
     """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
     identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
     unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
@@ -289,7 +289,7 @@ def _coverage_details(candidate, identities=None):
             subject_only['multiple_exact_subjects'] += 1
 
     return {
-        **_identity_gap_diagnostics(candidate, identities),
+        **_identity_gap_diagnostics(candidate, identity_history or identities),
         'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
         'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
@@ -388,7 +388,17 @@ def rehearse_latest(state_dir, *, coverage=False):
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
-            result.update(_coverage_details(candidate, identities))
+            # The sealed release intentionally contains one identity snapshot.
+            # Diagnose its earlier chain from a stable copy of the live history;
+            # metadata backfill affects only that copy, never the replay or source.
+            with copied_catalog(state / 'identity.sqlite') as history_path:
+                history = IdentityStore(history_path)
+                recovery_diagnostics = {}
+                history.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
+                    *state.glob('published/releases/*/snapshot_bundle'),
+                    *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+                result['identity_recovery'] = recovery_diagnostics
+                result.update(_coverage_details(candidate, identities, history))
             weekly = rehearse_weekly(state)
             if weekly is not None:
                 result['weekly'] = weekly

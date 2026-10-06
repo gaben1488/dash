@@ -94,6 +94,60 @@ def test_identity_gap_diagnostic_distinguishes_changed_context_from_missing_row_
     assert hashlib.sha256(store.path.read_bytes()).hexdigest() == before
 
 
+def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot(tmp_path):
+    class ChangedProgram(CompleteGoogle):
+        program = 'Original program'
+
+        def revision(self, provider):
+            return self.program
+
+        def grid(self, provider, sheet_id):
+            value = super().grid(provider, sheet_id)
+            if provider == 'master-0':
+                value['gridProperties']['rowCount'] = 4
+            return value
+
+        def values(self, provider, title, start, end, columns):
+            values = [[], [], ['Synthetic header']]
+            if provider == 'master-0':
+                row = [''] * 34
+                for index, value in {0: '42', 1: 'УЭР', 2: 'Synthetic customer',
+                    3: self.program, 5: 'Текущая деятельность', 6: 'Поставка бумаги',
+                    7: 0, 8: 0, 9: 46, 10: 46, 11: 'ЕП', 15: 2026}.items():
+                    row[index] = value
+                values.append(row)
+            return values[start - 1:end]
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    client = ChangedProgram()
+    run_once(registry, ledger, state, client=client)
+    client.program = 'Changed program'
+    result = run_once(registry, ledger, state, client=client)
+    assert result['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    before = business_files(state)
+    coverage = rehearse_latest(state, coverage=True)
+    assert coverage['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    assert business_files(state) == before
+
+
+def test_identity_gap_without_business_number_is_incomplete_before_searching_history(tmp_path):
+    from dataclasses import asdict, replace
+
+    from procurement_engine.identity_store import IdentityStore
+    from procurement_engine.rehearsal import _identity_gap_diagnostics
+    from test_recommendation_links import row
+
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    current = replace(row(), source_row_no=None, institution='Synthetic institution',
+        activity_kind='CURRENT', planned_year=2026)
+    observation = store.ingest([current], snapshot_id='snapshot', captured_at='2026-09-26T00:00:00+00:00')
+    observation['rows'][0].update(procurement_uid=None, status='REVIEW_REQUIRED')
+    model = {'snapshot': {'snapshot_id': 'snapshot'}, 'details': [asdict(current)],
+        'identity_observations': observation}
+    assert _identity_gap_diagnostics(model, store)['identity_chain_break_counts'] == {'INCOMPLETE_CURRENT_ENTITY': 1}
+
+
 def test_restore_rejects_bytes_damaged_during_copy(tmp_path, monkeypatch):
     import shutil
     from pathlib import Path
