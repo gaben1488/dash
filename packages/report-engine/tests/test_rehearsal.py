@@ -94,7 +94,8 @@ def test_identity_gap_diagnostic_distinguishes_changed_context_from_missing_row_
     assert hashlib.sha256(store.path.read_bytes()).hexdigest() == before
 
 
-def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot(tmp_path):
+@pytest.mark.parametrize('upgrade', [False, True])
+def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot(tmp_path, monkeypatch, upgrade):
     class ChangedProgram(CompleteGoogle):
         program = 'Original program'
 
@@ -126,6 +127,10 @@ def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot
     result = run_once(registry, ledger, state, client=client)
     assert result['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
     before = business_files(state)
+    if upgrade:
+        from procurement_engine import raw_pipeline
+
+        monkeypatch.setattr(raw_pipeline, 'RAW_RULES_VERSION', raw_pipeline.RAW_RULES_VERSION + '+synthetic-upgrade')
     coverage = rehearse_latest(state, coverage=True)
     assert coverage['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
     assert business_files(state) == before
