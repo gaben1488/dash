@@ -20,7 +20,7 @@ AMOUNT = r'(\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?)\s*(тыс\.?\s*)?руб(?:лей
 
 
 def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, subject_reference_grammar=False,
-                   literal_open_quote=False):
+                   literal_open_quote=False, inflected_supply_subject=False):
     """Return a typed goal and an exact source text; None never means noncompliance."""
     if reference_grammar:
         result = _compile_reference_action(text, source_ids=source_ids, subjects=subjects,
@@ -28,6 +28,12 @@ def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, su
                                            literal_open_quote=literal_open_quote)
         if result is not None:
             return result
+        if inflected_supply_subject:
+            result = _compile_reference_action(text, source_ids=source_ids, subjects=subjects,
+                allow_subject_only=subject_reference_grammar, literal_open_quote=literal_open_quote,
+                inflected_supply_subject=True)
+            if result is not None:
+                return {**result, 'contract': 'original-action-v6'}
     value = clean_text(str(text or '').replace('№', '#')).casefold().replace('ё', 'е')
     wanted = {normalize_id(item) for item in source_ids}
     if not wanted or None in wanted or not value:
@@ -69,7 +75,8 @@ def compile_action(text, *, source_ids, subjects=(), reference_grammar=False, su
     return None
 
 
-def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=False, literal_open_quote=False):
+def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=False, literal_open_quote=False,
+                              inflected_supply_subject=False):
     """Recognise a whole imperative with its exact linked item description.
 
     The description and price are reference attributes, not another requested
@@ -86,7 +93,14 @@ def _compile_reference_action(text, *, source_ids, subjects, allow_subject_only=
              if normalize_id(number) == business_id and clean_text(subject)}
     if len(names) != 1:
         return None
-    name = re.escape(next(iter(names)))
+    subject = next(iter(names))
+    if inflected_supply_subject:
+        # A reviewed grammatical case of the same complete subject. The entire
+        # unconditional imperative below must still match; no synonym expansion.
+        if not subject.startswith('поставка '):
+            return None
+        subject = 'поставку ' + subject[len('поставка '):]
+    name = re.escape(subject)
     # Literal nested parentheses in the source subject are escaped, not removed.
     description = rf'(?:\({name}\)|«{name}»|"{name}"|{name})'
     number = re.escape(business_id)
