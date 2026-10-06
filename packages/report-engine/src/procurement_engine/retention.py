@@ -16,6 +16,7 @@ Safety rules:
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import shutil
 from datetime import date
@@ -205,44 +206,58 @@ def apply_transient_attempt_retention(
     workflow. If supplied and the fresh plan differs, nothing is changed.
     """
     state = Path(state_dir).resolve()
-    plan = plan_transient_attempt_retention(state, keep_full=keep_full)
-    selected = plan["compact_attempts"]
-    if expected_attempts is not None and sorted(expected_attempts) != selected:
-        return {**plan, "status": "PLAN_CHANGED", "bytes_reclaimed": 0}
+    lock_path = state / "run.lock"
+    if lock_path.is_symlink():
+        raise ValueError("ATTEMPT_RETENTION_LOCK_UNSAFE")
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
 
-    reclaimed = 0
-    compacted = 0
-    for attempt_id in selected:
-        root = state / "attempts" / attempt_id
-        # Bind deletion to a normal direct child and to still-valid metadata.
-        if root.parent != state / "attempts" or root.is_symlink() or not root.is_dir():
-            continue
-        status = _load_json(root / "status.json")
-        if status is None or status.get("attempt_id") != attempt_id:
-            continue
-        for name in ("capture.json", "bundle"):
-            target = root / name
-            if target.is_symlink():
+    # Share the report worker's process-wide exclusion barrier. An external
+    # maintenance pass therefore cannot compact evidence while run_once is
+    # acquiring/building/publishing it, and the worker's own post-run compaction
+    # starts only after run_once has released this lock.
+    with lock_path.open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        plan = plan_transient_attempt_retention(state, keep_full=keep_full)
+        selected = plan["compact_attempts"]
+        if expected_attempts is not None and sorted(expected_attempts) != selected:
+            return {**plan, "status": "PLAN_CHANGED", "bytes_reclaimed": 0}
+
+        reclaimed = 0
+        compacted = 0
+        for attempt_id in selected:
+            root = state / "attempts" / attempt_id
+            # Bind deletion to a normal direct child and to still-valid metadata.
+            if root.parent != state / "attempts" or root.is_symlink() or not root.is_dir():
                 continue
-            try:
-                size = _payload_bytes(target)
-                if target.is_dir():
-                    shutil.rmtree(target)
-                elif target.is_file():
-                    target.unlink()
-                else:
+            status = _load_json(root / "status.json")
+            if status is None or status.get("attempt_id") != attempt_id:
+                continue
+            removed_any = False
+            for name in ("capture.json", "bundle"):
+                target = root / name
+                if target.is_symlink():
                     continue
-                reclaimed += size
-            except OSError:
-                continue
-        compacted += 1
+                try:
+                    size = _payload_bytes(target)
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    elif target.is_file():
+                        target.unlink()
+                    else:
+                        continue
+                    reclaimed += size
+                    removed_any = True
+                except OSError:
+                    continue
+            if removed_any:
+                compacted += 1
 
-    return {
-        **plan,
-        "status": "COMPACTED",
-        "compacted": compacted,
-        "bytes_reclaimed": reclaimed,
-    }
+        return {
+            **plan,
+            "status": "COMPACTED",
+            "compacted": compacted,
+            "bytes_reclaimed": reclaimed,
+        }
 
 
 def safe_compact_transient_attempts(state_dir: str | Path, *, keep_full: int = DEFAULT_FULL_ATTEMPTS) -> dict[str, Any]:
