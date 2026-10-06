@@ -1,6 +1,6 @@
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-import sqlite3
 from pathlib import Path
 
 import pytest
