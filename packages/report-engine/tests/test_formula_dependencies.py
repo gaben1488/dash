@@ -38,7 +38,7 @@ def test_absolute_references_are_local_cells_not_unknown_names():
 
 
 @pytest.mark.parametrize('formula', ['=ISBLANK(A1)', '=LOWER(A1)', '=SUBSTITUTE(A1;"a";"b")',
-                                     '=SEARCH("a";A1)', '=COLUMNS(A1:C3)'])
+                                     '=SEARCH("a";A1)', '=COLUMNS(A1:C3)', '=IFERROR(DATEVALUE(A1);0)'])
 def test_native_text_and_range_inspection_functions_are_local(formula):
     s = source(formulas=[{'row': 1, 'column': 3, 'formula': formula}])
     assert audit([s])['closed']
