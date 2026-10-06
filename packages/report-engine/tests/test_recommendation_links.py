@@ -577,3 +577,88 @@ def test_v7_unclosed_outer_quote_keeps_exact_subject_and_old_replay(method, expe
     assert result['dimensions']['compliance_status'] == expected
     assert result['compiled_action']['contract'] == 'original-action-v4'
     assert result['compiled_action']['source_text'] == text
+
+
+def joint_row(**changes):
+    base = replace(row(), source_row_no='2209', procurement_id='2209',
+        institution='Совместные закупки', subject='Мягкий инвентарь',
+        plan_mb=10939.5, planned_year=None, method='ЭА',
+        procurement_uid='PUR-joint', row_number=1904)
+    return replace(base, **changes)
+
+
+def test_v8_unique_joint_procurement_proves_group_target_without_reusing_source_numbers():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Объединить позиции 1446, 1737, 1774, 1630 мягкий инвентарь '
+            'на общую сумму 10 939,50 тыс. руб. в совместную закупку')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS',
+               table_no=1, row_no=1)
+    current = [joint_row()]
+    old = review_recommendations([rec], current, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v7')[0]
+    assert old['current_link']['status'] == 'GROUP_EVIDENCE_REQUIRED'
+
+    result = review_recommendations([rec], current, 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['relation'] == 'MERGES_INTO'
+    assert result['current_link']['required_business_ids'] == ['1446', '1737', '1774', '1630']
+    assert result['current_procurement_ids'] == ['2209']
+    assert result['current_procurement_uids'] == ['PUR-joint']
+    assert result['dimensions']['compliance_status'] == 'IMPLEMENTED'
+    assert result['dimensions']['grouping_status'] == 'MERGED'
+    assert result['compiled_action']['contract'] == 'original-action-v5'
+
+
+@pytest.mark.parametrize('change', [
+    {'institution': 'МБОУ Школа'},
+    {'plan_mb': 10939.49},
+    {'method': 'ЕП'},
+    {'procurement_uid': None},
+    {'subject': 'Мягкий инвентарь и мебель'},
+])
+def test_v8_joint_target_rejects_non_primary_or_changed_target(change):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Объединить позиции 1446, 1737, 1774, 1630 мягкий инвентарь '
+            'на общую сумму 10 939,50 тыс. руб. в совместную закупку')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS',
+               table_no=1, row_no=1)
+    result = review_recommendations([rec], [joint_row(**change)], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] != 'CONFIRMED'
+
+
+def test_v8_parenthetical_target_must_match_the_current_joint_business_number():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Вынести на ЭА 1205,1309 (2277) оргтехника – 660,00 тыс. руб. '
+            '(совместный аукцион)')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS',
+               table_no=1, row_no=1)
+    target = replace(joint_row(), source_row_no='9999', procurement_id='9999',
+        subject='Оргтехника', plan_mb=660, procurement_uid='PUR-office')
+    result = review_recommendations([rec], [target], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] != 'CONFIRMED'
+
+
+def test_v8_parenthetical_target_can_prove_the_exact_current_joint_row():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Вынести на ЭА 1205,1309 (2277) оргтехника – 660,00 тыс. руб. '
+            '(совместный аукцион)')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS',
+               table_no=1, row_no=1)
+    target = replace(joint_row(), source_row_no='2277', procurement_id='2277',
+        subject='Оргтехника', plan_mb=660, procurement_uid='PUR-office')
+    result = review_recommendations([rec], [target], 'snapshot', '30.09.2026',
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_procurement_ids'] == ['2277']
+    assert result['dimensions']['grouping_status'] == 'MERGED'
