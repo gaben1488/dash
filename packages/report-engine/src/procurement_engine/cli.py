@@ -167,7 +167,10 @@ def main(argv=None):
         print('Runtime inputs ready')
         return 0
     if args.cmd == "prune-state":
-        from .retention import apply_transient_attempt_retention, plan_transient_attempt_retention
+        from .retention import (
+            apply_transient_attempt_retention,
+            plan_transient_attempt_retention,
+        )
 
         plan = plan_transient_attempt_retention(args.state, keep_full=args.keep_full)
         result = (apply_transient_attempt_retention(
