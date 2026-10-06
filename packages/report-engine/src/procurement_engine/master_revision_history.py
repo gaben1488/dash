@@ -102,6 +102,12 @@ def _revision_export(client, provider_id, revision):
 
 
 def _matrix(content, contract):
+    """Read a bounded historical matrix even when OOXML dimension metadata is absent.
+
+    Google revision exports can omit a usable worksheet <dimension>; in openpyxl
+    read-only mode that leaves max_row/max_column as None. Dimensions are metadata,
+    not evidence. Stream the actual cells instead and apply explicit resource bounds.
+    """
     try:
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
     except Exception as error:
@@ -109,16 +115,23 @@ def _matrix(content, contract):
     try:
         if contract['sheet'] not in workbook.sheetnames:
             raise ValueError('MASTER_REVISION_SHEET_MISSING')
+        columns = contract['columns']
+        headers = contract['header_rows']
+        if type(columns) is not int or type(headers) is not int or not 1 <= columns <= 512 or not 1 <= headers <= 100:
+            raise ValueError('MASTER_REVISION_CONTRACT_INVALID')
         sheet = workbook[contract['sheet']]
-        if sheet.max_column < contract['columns'] or sheet.max_row < contract['header_rows']:
+        values = []
+        observed_width = 0
+        for number, row in enumerate(sheet.iter_rows(min_row=1, values_only=True), 1):
+            if number > 200000:
+                raise ValueError('MASTER_REVISION_RANGE_TOO_LARGE')
+            observed_width = max(observed_width, len(row))
+            values.append(list(row[:columns]))
+        if len(values) < headers or observed_width < columns:
             raise ValueError('MASTER_REVISION_RANGE_INCOMPLETE')
-        values = [
-            list(row[:contract['columns']])
-            for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row, values_only=True)
-        ]
     finally:
         workbook.close()
-    if header_hash(values, contract['header_rows']) != contract['schema_fingerprint']:
+    if header_hash(values, headers) != contract['schema_fingerprint']:
         raise ValueError('MASTER_REVISION_SCHEMA_CHANGED')
     return values
 
