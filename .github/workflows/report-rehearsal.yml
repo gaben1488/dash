@@ -102,19 +102,7 @@ jobs:
                 -v "$work/packages/report-engine:/candidate:ro" \
                 -e PYTHONPATH=/candidate/src \
                 --entrypoint /opt/report-env/bin/python "$image" \
-                -c 'import json
-from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention
-state="/app/packages/server/data/reports"
-plan=plan_transient_attempt_retention(state)
-summary={k:v for k,v in plan.items() if k != "compact_attempts"}
-print(json.dumps({"retention_dry_run": summary}, ensure_ascii=False, sort_keys=True))
-if plan.get("bytes_reclaimable", 0) < 2 * 1024**3:
-    raise SystemExit("RETENTION_RECLAIMABLE_SPACE_TOO_SMALL")
-result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"])
-safe={k:v for k,v in result.items() if k != "compact_attempts"}
-print(json.dumps({"retention_apply": safe}, ensure_ascii=False, sort_keys=True))
-if result.get("status") != "COMPACTED" or result.get("bytes_reclaimed", 0) < 1024**3:
-    raise SystemExit("RETENTION_APPLY_DID_NOT_FREE_REQUIRED_SPACE")'
+                -c 'import json; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; plan=plan_transient_attempt_retention(state); summary={k:v for k,v in plan.items() if k != "compact_attempts"}; print(json.dumps({"retention_dry_run":summary}, ensure_ascii=False, sort_keys=True)); assert plan.get("bytes_reclaimable",0) >= 2*1024**3, "RETENTION_RECLAIMABLE_SPACE_TOO_SMALL"; result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k != "compact_attempts"}; print(json.dumps({"retention_apply":safe}, ensure_ascii=False, sort_keys=True)); assert result.get("status") == "COMPACTED" and result.get("bytes_reclaimed",0) >= 1024**3, "RETENTION_APPLY_DID_NOT_FREE_REQUIRED_SPACE"'
               df -h . /tmp
               free_kb=$(df -Pk . | awk 'NR==2 {print $4}')
               test "${free_kb:-0}" -ge 1048576
