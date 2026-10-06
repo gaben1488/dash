@@ -15,6 +15,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  latest-private-error-probe:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'codex/report-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Emit only sanitized latest report failure metadata
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -c 'import json,re; from pathlib import Path; root=Path("data/reports"); status=json.loads((root/"status.json").read_text()); attempt=status.get("attempt_id"); error=json.loads((root/"attempts"/attempt/"error.json").read_text()) if isinstance(attempt,str) else {}; typ=error.get("error_type"); typ=typ if isinstance(typ,str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,80}",typ) else "OtherError"; message=error.get("message") if isinstance(error.get("message"),str) else ""; prefix=message.split(":",1)[0]; code=prefix if re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}",prefix) else None; sqlite=error.get("sqlite_error"); sqlite=sqlite if isinstance(sqlite,str) and re.fullmatch(r"SQLITE_[A-Z0-9_]+",sqlite) else None; frames=[]; pattern=re.compile(r"File \"[^\"]*/procurement_engine/([A-Za-z0-9_]+)\.py\", line ([0-9]+), in ([A-Za-z0-9_]+)"); [frames.append({"module":m.group(1),"line":int(m.group(2)),"function":m.group(3)}) for m in pattern.finditer(error.get("traceback") or "")]; print(json.dumps({"status":status.get("status"),"failure_stage":status.get("failure_stage"),"error_type":typ,"internal_code":code,"sqlite_error":sqlite,"frames":frames[-8:]},sort_keys=True))'
+
   frozen-replay:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
