@@ -151,19 +151,54 @@ jobs:
           script: |
             set -euo pipefail
             cd /home/aemr/dash
-            # Точка возврата. Реестр багов 09.07.2026, PLAUSIBLE «нет отката:
-            # образы только :latest, выкат затирает единственный рабочий»:
-            # сборка шла поверх работающих образов, и вернуться было некуда —
-            # оставалось чинить на живом стенде. Теперь перед сборкой рабочие
-            # образы получают метку :previous, а слепок кода запоминается в
-            # файле. Порядок обязателен: метка ставится ДО git reset, иначе
-            # запомнится уже новый слепок. Откат — deploy/rollback.sh.
-            git rev-parse HEAD > deploy/.last-known-good
-            for img in aemr-server aemr-web; do
-              if docker image inspect "$img:latest" >/dev/null 2>&1; then
-                docker tag "$img:latest" "$img:previous"
+            cd deploy
+            previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            restore_worker_on_failure() {
+              result=$?
+              if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
+                docker compose --env-file .env.production --profile reports start report-worker >/dev/null 2>&1 || true
               fi
-            done
+              exit "$result"
+            }
+            trap restore_worker_on_failure EXIT
+
+            # Storage is a deployment prerequisite, not a post-failure repair.
+            # Keep rollback-tagged images, but discard only unused image/build cache.
+            docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
+            docker image prune --force >/dev/null
+            docker builder prune --all --force >/dev/null
+            if docker image inspect aemr-server:latest >/dev/null 2>&1; then
+              echo "Recovering canonical weekly evidence and compacting transient report payloads before build."
+              docker compose --env-file .env.production run --rm --no-deps \
+                --entrypoint /opt/report-env/bin/python server -c \
+                'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
+            fi
+            df -h /
+            free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            if [ "${free_kb:-0}" -lt 4194304 ]; then
+              echo "Deployment aborted: less than 4 GiB free after safe recovery." >&2
+              exit 1
+            fi
+            cd ..
+
+            # Do not overwrite the rollback point with a deployment that is
+            # already unhealthy. Preserve the prior :previous images in that case.
+            current_server=$(docker compose --project-directory deploy --env-file deploy/.env.production ps --all --quiet server)
+            current_health=
+            if [ -n "$current_server" ]; then
+              current_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$current_server" 2>/dev/null || true)
+            fi
+            if [ "$current_health" = "healthy" ]; then
+              git rev-parse HEAD > deploy/.last-known-good
+              for img in aemr-server aemr-web; do
+                if docker image inspect "$img:latest" >/dev/null 2>&1; then
+                  docker tag "$img:latest" "$img:previous"
+                fi
+              done
+            else
+              echo "Current server is not healthy; preserving the existing rollback point."
+            fi
+
             git fetch origin
             git checkout main
             tested_commit='${{ github.sha }}'
@@ -174,7 +209,14 @@ jobs:
             cd /home/aemr/dash/deploy
             # Even if COMPOSE_PROFILES=reports is set, preserve the existing
             # worker until its separate preflight can safely replace it.
-            docker compose --env-file .env.production up -d --build server web caddy
+            if ! docker compose --env-file .env.production up -d --build server web caddy; then
+              df -h /
+              server_id=$(docker compose --env-file .env.production ps --all --quiet server)
+              if [ -n "$server_id" ]; then
+                docker inspect --format 'server_state={{.State.Status}} exit_code={{.State.ExitCode}} oom={{.State.OOMKilled}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$server_id" || true
+              fi
+              exit 1
+            fi
             sleep 8
             # Проверка идёт ВНУТРЬ контейнера, а не через край периметра:
             # при работе по домену запрос на 127.0.0.1 не совпадает с именем
@@ -185,3 +227,4 @@ jobs:
             # Private inputs and audit output stay in server_data, not Actions logs.
             # Start the scheduler only after a successful service-account release.
             bash enable-reports.sh
+            trap - EXIT
