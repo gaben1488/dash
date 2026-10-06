@@ -156,7 +156,9 @@ jobs:
             restore_worker_on_failure() {
               result=$?
               if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
-                docker compose --env-file .env.production --profile reports start report-worker >/dev/null 2>&1 || true
+                docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+                  --env-file /home/aemr/dash/deploy/.env.production --profile reports \
+                  start report-worker >/dev/null 2>&1 || true
               fi
               exit "$result"
             }
@@ -183,7 +185,7 @@ jobs:
 
             # Do not overwrite the rollback point with a deployment that is
             # already unhealthy. Preserve the prior :previous images in that case.
-            current_server=$(docker compose --project-directory deploy --env-file deploy/.env.production ps --all --quiet server)
+            current_server=$(docker compose -f deploy/docker-compose.yml --env-file deploy/.env.production ps --all --quiet server)
             current_health=
             if [ -n "$current_server" ]; then
               current_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$current_server" 2>/dev/null || true)
