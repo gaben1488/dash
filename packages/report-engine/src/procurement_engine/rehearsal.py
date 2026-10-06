@@ -209,6 +209,9 @@ def main(argv=None):
         # restricted grammar; arbitrary exception text can contain source data.
         if re.fullmatch(r'[A-Z][A-Z0-9_:-]{2,96}', message):
             result['internal_code'] = message
+        sqlite_error = getattr(error, 'sqlite_errorname', None)
+        if isinstance(sqlite_error, str) and re.fullmatch(r'SQLITE_[A-Z0-9_]+', sqlite_error):
+            result['sqlite_error'] = sqlite_error
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     return 0 if result['replay_status'] == 'PASS' else 2
 
