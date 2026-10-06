@@ -16,11 +16,24 @@ from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
+from .google_adapter import GoogleReadError
 from .normalize import parse_date
 from .raw_pipeline import header_hash
 
 XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-CONTRACT = 'exact-master-revision-probe-v1'
+CONTRACT = 'exact-master-revision-probe-v2'
+
+
+def revision_export_unavailable(error):
+    """A listed Drive revision can later lose retrievable bytes.
+
+    Google can compact native-file revision history after revisions.list has
+    exposed an id. Only 404/410 are evidence-unavailable states; authorization,
+    quota, network and provider errors remain hard failures.
+    """
+    return isinstance(error, GoogleReadError) and str(error) in {
+        'GOOGLE_READ_HTTP_404', 'GOOGLE_READ_HTTP_410'
+    }
 
 
 def _revision_pages(client, provider_id):
@@ -161,7 +174,9 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
         'days_with_exact_revision': 0,
         'days_with_readable_schema': 0,
         'days_rejected_schema': 0,
+        'days_without_exportable_revision': 0,
         'exact_revisions_read': 0,
+        'unavailable_revisions': 0,
     }
     by_grbs = {}
     for grbs in sorted(requested):
@@ -170,7 +185,8 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
         totals['requested_exact_days'] += len(dates)
         source = masters.get(grbs)
         item = {'requested_days': len(dates), 'exact_days': 0, 'readable_days': 0,
-                'rejected_days': 0, 'exact_revisions': 0, 'source_registered': source is not None}
+                'rejected_days': 0, 'unexportable_days': 0, 'exact_revisions': 0,
+                'unavailable_revisions': 0, 'source_registered': source is not None}
         if source is not None:
             indexed = revision_index(client, source['provider_id'], timezone_name=timezone_name)
             for day in dates:
@@ -179,9 +195,17 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
                     continue
                 item['exact_days'] += 1
                 totals['days_with_exact_revision'] += 1
-                readable = True
+                readable_exports = 0
+                rejected_exports = 0
                 for revision in revisions:
-                    content = _revision_export(client, source['provider_id'], revision)
+                    try:
+                        content = _revision_export(client, source['provider_id'], revision)
+                    except GoogleReadError as error:
+                        if not revision_export_unavailable(error):
+                            raise
+                        item['unavailable_revisions'] += 1
+                        totals['unavailable_revisions'] += 1
+                        continue
                     item['exact_revisions'] += 1
                     totals['exact_revisions_read'] += 1
                     # Digest is deliberately computed but not emitted; reading all
@@ -196,12 +220,17 @@ def probe_exact_master_revisions(registry, ledger, client, *, timezone_name='Asi
                             'MASTER_REVISION_SCHEMA_CHANGED',
                         }:
                             raise
-                        readable = False
-                if readable:
+                        rejected_exports += 1
+                    else:
+                        readable_exports += 1
+                if readable_exports:
                     item['readable_days'] += 1
                     totals['days_with_readable_schema'] += 1
-                else:
+                elif rejected_exports:
                     item['rejected_days'] += 1
                     totals['days_rejected_schema'] += 1
+                else:
+                    item['unexportable_days'] += 1
+                    totals['days_without_exportable_revision'] += 1
         by_grbs[grbs] = item
     return {'contract': CONTRACT, **totals, 'by_grbs': by_grbs}
