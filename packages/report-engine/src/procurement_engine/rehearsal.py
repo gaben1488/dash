@@ -8,8 +8,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
+import sqlite3
 import tempfile
 from collections import Counter, defaultdict
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -73,6 +76,38 @@ def rehearse_weekly(state):
                         for name in ('main_report.docx', 'management_report.docx'))
         return {'replay_status': 'PASS', 'two_docx_rebuilt': documents,
                 'source_verification': receipt['source_verification']}
+
+
+def rehearse_release_restore(state, receipt):
+    """Restore one complete published package in isolation, never the live volume.
+
+    This proves recovery of that release, its identity/evidence and native exports.
+    It does not claim that an off-host backup of the whole service is configured.
+    """
+    from .publication_reader import read_publication
+    from .readonly_catalog import copied_catalog
+
+    published = Path(state) / 'published'
+    release_id = receipt['release_id']
+    with tempfile.TemporaryDirectory(prefix='report-restore-') as temporary:
+        restored_state = Path(temporary)
+        restored = PublicationStore(restored_state / 'published')
+        with copied_catalog(published / 'publications.sqlite') as catalog:
+            with closing(sqlite3.connect(catalog)) as source:
+                record = source.execute('SELECT * FROM publications WHERE release_id=?',
+                                        (release_id,)).fetchone()
+            if record is None:
+                raise PublicationError('PUBLICATION_NOT_FOUND')
+            with closing(sqlite3.connect(restored.database_path)) as target, target:
+                target.execute('INSERT INTO publications VALUES (?,?,?,?,?)', record)
+        destination = restored.releases / release_id
+        shutil.copytree(published / 'releases' / release_id, destination, symlinks=True)
+        if restored.latest() != receipt:
+            raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
+        for view in ('dashboard', 'main', 'supplement'):
+            read_publication(restored_state, view, release_id)
+        _validate(destination)
+    return {'catalog': 'PASS', 'artifacts': 'PASS', 'source_recheck': 'PASS'}
 
 
 
@@ -239,6 +274,7 @@ def rehearse_latest(state_dir, *, coverage=False):
                 'two_docx_rebuilt': documents, 'headline_changed': candidate['headline'] != previous['headline'],
                 'error_counts': dict(sorted(errors.items()))}
         if coverage:
+            result['published_release_restore'] = rehearse_release_restore(state, receipt)
             assurance = candidate.get('automation_assurance') or {}
             result['automation'] = {key: assurance.get(key) for key in ('fully_automated', 'user_action_count',
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
