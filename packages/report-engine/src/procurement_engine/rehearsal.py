@@ -32,8 +32,10 @@ def diagnose_failed_attempt(state):
             status = _json(path)
         except (OSError, ValueError):
             continue
-        if isinstance(status, dict) and status.get('error_code') == 'SAVED_SOURCE_RECHECK_FAILED':
-            failures.append((status.get('finished_at') or '', path.parent / 'bundle'))
+        bundle = path.parent / 'bundle'
+        if (isinstance(status, dict) and status.get('error_code') == 'SAVED_SOURCE_RECHECK_FAILED'
+                and bundle.is_dir() and not bundle.is_symlink()):
+            failures.append((status.get('finished_at') or '', bundle))
     if not failures:
         return None
     root = max(failures, key=lambda item: item[0])[1]
@@ -50,7 +52,7 @@ def diagnose_failed_attempt(state):
                if type(evidence.get(key)) is bool},
             'section_errors': dict(Counter(code if code in allowed else 'UNRECOGNIZED_SECTION'
                 for code in evidence.get('section_errors', [])))}
-    return {'error_code': 'RECHECK_PASSED'}
+    return {'recheck_status': 'PASS'}
 
 
 def rehearse_weekly(state):

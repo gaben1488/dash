@@ -123,3 +123,19 @@ def test_failed_publication_recheck_is_diagnosed_without_source_text_or_mutation
         'section_errors': {'automation_assurance': 1, 'UNRECOGNIZED_SECTION': 1}}
     assert business_files(state) == before
     assert 'PRIVATE_SOURCE_TEXT' not in json.dumps(diagnostic)
+    compacted = state / 'attempts/compacted'
+    compacted.mkdir()
+    (compacted / 'status.json').write_text(json.dumps({'error_code': 'SAVED_SOURCE_RECHECK_FAILED',
+        'finished_at': '2034-09-28T12:00:00Z'}))
+    assert diagnose_failed_attempt(state) == diagnostic
+    monkeypatch.setattr(section_audit, 'audit_source_sections', original)
+    assert diagnose_failed_attempt(state) == {'recheck_status': 'PASS'}
+
+
+def test_failed_attempt_cli_sanitizes_unexpected_failure(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+    def failure(*args):
+        raise ValueError('PRIVATE_SOURCE_TEXT')
+    monkeypatch.setattr(rehearsal, 'diagnose_failed_attempt', failure)
+    assert rehearsal.main(['--state', '/unused', '--failed-attempt']) == 2
+    assert 'PRIVATE_SOURCE_TEXT' not in capsys.readouterr().out
