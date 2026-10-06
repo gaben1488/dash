@@ -148,6 +148,6 @@ jobs:
               -ec 'cp -a /candidate /tmp/candidate &&
                    python3 -m venv /tmp/candidate-env &&
                    /tmp/candidate-env/bin/pip install --quiet --no-cache-dir /tmp/candidate &&
-                   exec /tmp/candidate-env/bin/python -m procurement_engine.cli probe-master-revisions
-                     --registry /app/packages/server/data/reports/inputs/registry.json
+                   exec /tmp/candidate-env/bin/python -m procurement_engine.cli probe-master-revisions \
+                     --registry /app/packages/server/data/reports/inputs/registry.json \
                      --ledger /app/packages/server/data/reports/inputs/ledger.json'
