@@ -139,7 +139,7 @@ jobs:
             echo "Preparing exact candidate dependencies and checking historical master revisions read-only."
             docker run --rm --read-only \
               --security-opt no-new-privileges \
-              --tmpfs /tmp:rw,nosuid,nodev,size=768m \
+              --tmpfs /tmp:rw,exec,nosuid,nodev,size=768m \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
               --env-file .env.production \
