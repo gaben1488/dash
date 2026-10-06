@@ -88,7 +88,6 @@ jobs:
               --entrypoint /opt/report-env/bin/python "$image" \
               -c 'import json; from pathlib import Path; from procurement_engine.publication_store import PublicationStore; from procurement_engine.readonly_catalog import copied_catalog; root=Path("/app/packages/server/data/reports/published"); store=PublicationStore(root,readonly=True); context=copied_catalog(store.database_path); catalog=context.__enter__(); store.database_path=catalog; receipt=store.latest(); model=json.loads((root/"releases"/receipt["release_id"]/"report_model.json").read_text()); rows=[]; [rows.append({"grbs":r.get("grbs"),"table_no":r.get("table_no"),"row_no":r.get("row_no"),"link_status":(r.get("current_link") or {}).get("status"),"origin_date":((r.get("current_link") or {}).get("origin") or {}).get("document_date"),"required_id_count":len((r.get("current_link") or {}).get("required_business_ids") or [])}) for r in model.get("recommendation_records",[]) if r.get("active_in_current_slice") and (r.get("current_link") or {}).get("status")!="CONFIRMED"]; print(json.dumps({"release_id":receipt["release_id"],"report_date":receipt["report_date"],"unresolved_count":len(rows),"rows":rows},ensure_ascii=False,sort_keys=True)); context.__exit__(None,None,None)'
             echo "=== end unresolved recommendation index ==="
-            exit 0
             echo "=== candidate retention dry run ==="
             docker run --rm --network none --read-only \
               --volumes-from "$server":ro \

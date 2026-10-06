@@ -650,6 +650,37 @@ def test_v8_duplicate_exact_joint_targets_remain_ambiguous():
     assert result['current_link']['status'] == 'AMBIGUOUS'
 
 
+@pytest.mark.parametrize('missing', ['H', 'I', 'J'])
+def test_v8_joint_target_requires_every_explicit_plan_component(missing):
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Объединить позиции 1446, 1737, 1774, 1630 мягкий инвентарь '
+            'на общую сумму 10 939,50 тыс. руб. в совместную закупку')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS')
+    result = review_recommendations([rec], [joint_row(missing_money_fields=(missing,))],
+        'snapshot', '30.09.2026', documents=TEST_DOCUMENTS,
+        link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] != 'CONFIRMED'
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+def test_v8_unresolved_joint_duplicate_cannot_make_another_target_unique():
+    from procurement_engine.raw_pipeline import review_recommendations
+
+    text = ('Объединить позиции 1446, 1737, 1774, 1630 мягкий инвентарь '
+            'на общую сумму 10 939,50 тыс. руб. в совместную закупку')
+    rec = recommendation(text)
+    rec.update(active_in_current_slice=True, recommendation_type='MERGE_PROCUREMENTS')
+    duplicate = joint_row(source_row_no='2210', procurement_id='2210',
+        procurement_uid=None, row_number=1905)
+    result = review_recommendations([rec], [joint_row(), duplicate], 'snapshot',
+        '30.09.2026', documents=TEST_DOCUMENTS,
+        link_contract='verified-original-and-current-plan-v8')[0]
+    assert result['current_link']['status'] == 'AMBIGUOUS'
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
 def test_v8_parenthetical_target_must_match_the_current_joint_business_number():
     from procurement_engine.raw_pipeline import review_recommendations
 

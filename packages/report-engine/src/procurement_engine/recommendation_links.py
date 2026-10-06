@@ -268,10 +268,11 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
         row for row in rows
         if row.grbs == rec.get('grbs')
         and row.snapshot_id == snapshot_id
-        and row.procurement_uid and row.source_row_no
+        and row.source_row_no
         and _text(row.institution) == 'совместные закупки'
         and row.method == 'ЭА'
         and _text(row.subject) == _text(spec['subject'])
+        and not set(row.missing_money_fields).intersection({'H', 'I', 'J'})
         and money(row, 'plan') == spec['amount_thousand']
         and (str(row.planned_year) in source_years
              or (not row.planned_year and as_of[:4] in source_years))
@@ -280,7 +281,7 @@ def _joint_group_candidate(rec, rows, text, ids, snapshot_id, source_years, as_o
     ]
     if len(matches) > 1:
         return 'AMBIGUOUS', None
-    if not matches:
+    if not matches or not matches[0].procurement_uid:
         return None, None
     return spec, matches[0]
 
