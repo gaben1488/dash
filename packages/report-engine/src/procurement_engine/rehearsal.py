@@ -199,7 +199,16 @@ def main(argv=None):
     try:
         result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
-        result = {'replay_status': 'FAIL', 'error_code': public_error_code(str(error))}
+        message = str(error)
+        result = {
+            'replay_status': 'FAIL',
+            'error_code': public_error_code(message),
+            'error_type': type(error).__name__,
+        }
+        # Known invariant failures are fixed machine codes. Expose only that
+        # restricted grammar; arbitrary exception text can contain source data.
+        if re.fullmatch(r'[A-Z][A-Z0-9_:-]{2,96}', message):
+            result['internal_code'] = message
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     return 0 if result['replay_status'] == 'PASS' else 2
 
