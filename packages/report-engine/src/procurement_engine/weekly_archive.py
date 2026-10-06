@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from .archive_runtime import _frozen_fingerprint, load_frozen_input
+from .identity_store import freeze_identity_snapshot
 from .normalize import parse_date
 from .snapshot_bundle_io import verify_persisted_bundle
 
@@ -159,7 +160,13 @@ def seal_weekly_archive(state_dir, status):
         stage = Path(tempfile.mkdtemp(prefix='.weekly-', dir=archives))
         try:
             shutil.copytree(source / 'snapshot_bundle', stage / 'snapshot_bundle')
-            shutil.copyfile(source / 'identity.sqlite', stage / 'identity.sqlite')
+            manifest = _read_manifest(source)
+            freeze_identity_snapshot(
+                source / 'identity.sqlite',
+                stage / 'identity.sqlite',
+                snapshot_id=snapshot_id,
+                as_of=manifest['captured_at'],
+            )
             identity_sha256 = hashlib.sha256((stage / 'identity.sqlite').read_bytes()).hexdigest()
             _write_json(stage / 'import.json', {
                 'archive_id': archive_id,
