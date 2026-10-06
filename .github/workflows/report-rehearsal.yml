@@ -85,6 +85,41 @@ jobs:
               --entrypoint /opt/report-env/bin/python "$image" \
               -c 'import json; from procurement_engine.retention import plan_transient_attempt_retention as p; r=p("/app/packages/server/data/reports"); r.pop("compact_attempts", None); print(json.dumps(r, ensure_ascii=False, sort_keys=True))'
             echo "=== end report state footprint ==="
+
+            # One-time bounded remediation for the current full filesystem. The
+            # candidate retention code is deliberately narrower than a generic
+            # rm/prune: it keeps audit status/error files, current/new attempts,
+            # every unsealed Thursday source and the source attempt of every
+            # sealed WEEKLY archive. published/, archives/, inputs/ and identity
+            # state are outside its deletion surface. The apply phase also takes
+            # the same run.lock as report generation and compares against the
+            # immediately preceding dry-run plan.
+            free_kb=$(df -Pk . | awk 'NR==2 {print $4}')
+            if [ "${free_kb:-0}" -lt 1048576 ]; then
+              echo "Filesystem critically full; applying bounded transient-attempt retention from the exact candidate."
+              docker run --rm --network none --read-only \
+                --volumes-from "$server":rw \
+                -v "$work/packages/report-engine:/candidate:ro" \
+                -e PYTHONPATH=/candidate/src \
+                --entrypoint /opt/report-env/bin/python "$image" \
+                -c 'import json
+from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention
+state="/app/packages/server/data/reports"
+plan=plan_transient_attempt_retention(state)
+summary={k:v for k,v in plan.items() if k != "compact_attempts"}
+print(json.dumps({"retention_dry_run": summary}, ensure_ascii=False, sort_keys=True))
+if plan.get("bytes_reclaimable", 0) < 2 * 1024**3:
+    raise SystemExit("RETENTION_RECLAIMABLE_SPACE_TOO_SMALL")
+result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"])
+safe={k:v for k,v in result.items() if k != "compact_attempts"}
+print(json.dumps({"retention_apply": safe}, ensure_ascii=False, sort_keys=True))
+if result.get("status") != "COMPACTED" or result.get("bytes_reclaimed", 0) < 1024**3:
+    raise SystemExit("RETENTION_APPLY_DID_NOT_FREE_REQUIRED_SPACE")'
+              df -h . /tmp
+              free_kb=$(df -Pk . | awk 'NR==2 {print $4}')
+              test "${free_kb:-0}" -ge 1048576
+            fi
+
             echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
             docker run --rm --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=1g \
