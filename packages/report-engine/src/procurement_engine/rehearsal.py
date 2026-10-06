@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .deployment_diagnostics import PUBLIC_CODES, public_error_code
-from .identity_store import IdentityStore
+from .identity_store import IdentityStore, freeze_identity_snapshot
 from .publication_store import PublicationStore, _validate
 from .raw_pipeline import build_from_capture
 from .runtime_inputs import validate_inputs
@@ -162,7 +162,12 @@ def rehearse_latest(state_dir, *, coverage=False):
         capture['sources'].append(source)
     with tempfile.TemporaryDirectory(prefix='report-rehearsal-') as temporary:
         work = Path(temporary)
-        shutil.copyfile(root / 'identity.sqlite', work / 'identity.sqlite')
+        freeze_identity_snapshot(
+            root / 'identity.sqlite',
+            work / 'identity.sqlite',
+            snapshot_id=manifest['snapshot_id'],
+            as_of=capture['captured_at'],
+        )
         identities = IdentityStore(work / 'identity.sqlite')
         identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
             *state.glob('published/releases/*/snapshot_bundle')], recover_chain=True)
