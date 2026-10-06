@@ -69,11 +69,18 @@ def _payload_bytes(path: Path) -> int:
     return total
 
 
-def _sealed_week_days(state: Path) -> set[str]:
-    result: set[str] = set()
+def _sealed_week_evidence(state: Path) -> tuple[set[str], set[str]]:
+    """Return sealed days and source attempts that must remain as a second copy.
+
+    The weekly archive is the canonical replay input, but keeping the one attempt
+    it was copied from gives an independent local recovery path at modest cost
+    (one complete attempt per week instead of up to 96 per day).
+    """
+    days: set[str] = set()
+    source_attempts: set[str] = set()
     archives = state / "archives"
     if not archives.is_dir():
-        return result
+        return days, source_attempts
     for root in archives.glob("WEEKLY-*"):
         if root.is_symlink() or not root.is_dir():
             continue
@@ -84,12 +91,19 @@ def _sealed_week_days(state: Path) -> set[str]:
             continue
         if parsed.weekday() != 3:
             continue
-        # The canonical weekly contract is self-contained only with all three.
-        if ((root / "snapshot_bundle/manifest.json").is_file()
-                and (root / "identity.sqlite").is_file()
-                and (root / "import.json").is_file()):
-            result.add(day)
-    return result
+        manifest = _load_json(root / "snapshot_bundle/manifest.json")
+        imported = _load_json(root / "import.json")
+        identity = root / "identity.sqlite"
+        if (manifest is None or imported is None or not identity.is_file() or identity.is_symlink()
+                or manifest.get("snapshot_id") != imported.get("snapshot_id")
+                or _report_day(manifest.get("report_date")) != day
+                or _report_day(imported.get("report_date")) != day
+                or imported.get("contract") != "canonical-weekly-report-input-v1"):
+            continue
+        days.add(day)
+        if imported.get("source_kind") == "attempt" and isinstance(imported.get("source_ref"), str):
+            source_attempts.add(imported["source_ref"])
+    return days, source_attempts
 
 
 def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = DEFAULT_FULL_ATTEMPTS) -> dict[str, Any]:
@@ -117,9 +131,9 @@ def plan_transient_attempt_retention(state_dir: str | Path, *, keep_full: int = 
 
     current = _load_json(state / "status.json") or {}
     current_id = current.get("attempt_id") if isinstance(current.get("attempt_id"), str) else None
-    sealed_days = _sealed_week_days(state)
+    sealed_days, weekly_source_attempts = _sealed_week_evidence(state)
     valid: list[tuple[Path, dict[str, Any]]] = []
-    protected: set[str] = set()
+    protected: set[str] = set(weekly_source_attempts)
     malformed = 0
 
     for root in attempts.iterdir():
