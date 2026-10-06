@@ -228,7 +228,7 @@ def _joint_group_target_spec(text, ids):
     if len(ids) < 2:
         return None
     number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
-    group = f'({number}(?:\s*[,;]\s*{number}|\s+и\s+{number})+)'
+    group = rf'({number}(?:\s*[,;]\s*{number}|\s+и\s+{number})+)'
     amount = r'(\d+(?:[ \u00a0]\d{3})*(?:[,.]\d+)?)\s*(тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
     prefix = (
         r'(?:объединить\s+позиции\s+' + group
