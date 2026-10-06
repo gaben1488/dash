@@ -111,7 +111,100 @@ def rehearse_release_restore(state, receipt):
 
 
 
-def _coverage_details(candidate, identities=None):
+def _identity_gap_diagnostics(candidate, identities, *, identity_snapshot_id=None):
+    """Explain conservative chain failures with counts/coordinates only; never modify identities."""
+    if identities is None:
+        return {'identity_chain_break_counts': {}, 'recommendation_identity_gap_index': []}
+    from dataclasses import fields
+
+    from .identity_store import anchor, entity_signature
+    from .models import ProcurementRow
+    from .normalize import normalize_id
+    from .recommendation_links import (
+        _exact_subject_mention,
+        _exact_subject_reference,
+        _text,
+        _text_ids,
+    )
+
+    keys = {field.name for field in fields(ProcurementRow)}
+    normalized = [ProcurementRow(**{key: value for key, value in item.items() if key in keys})
+                  for item in candidate.get('details', [])]
+    rows = {row.physical_row_key: row for row in normalized}
+    entity_counts = Counter(entity_signature(row) for row in rows.values())
+    reasons = {}
+    with closing(sqlite3.connect(identities.path.resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        current = db.execute('SELECT seq FROM snapshots WHERE snapshot_id=?',
+                             (identity_snapshot_id or candidate['snapshot']['snapshot_id'],)).fetchone()
+
+        def explain(item, row):
+            if item.get('status') == 'AMBIGUOUS_DUPLICATE':
+                return 'DUPLICATE_CURRENT_OBSERVATION'
+            if row is None:
+                return 'CURRENT_ROW_UNAVAILABLE'
+            entity = entity_signature(row)
+            if not entity or not row.source_row_no:
+                return 'INCOMPLETE_CURRENT_ENTITY'
+            if entity_counts[entity] != 1:
+                return 'DUPLICATE_CURRENT_ENTITY'
+            if current is None:
+                return 'SNAPSHOT_HISTORY_UNAVAILABLE'
+            history = defaultdict(list)
+            for prior in db.execute('''SELECT o.*, s.seq FROM observations o
+                JOIN snapshots s ON s.snapshot_id=o.snapshot_id
+                WHERE o.anchor=? AND s.seq<? ORDER BY s.seq DESC''', (anchor(row), current['seq'])):
+                history[prior['seq']].append(prior)
+            sequence = current['seq'] - 1
+            while sequence in history:
+                records = history[sequence]
+                if len(records) != 1:
+                    return 'DUPLICATE_HISTORICAL_ANCHOR'
+                prior = records[0]
+                if prior['business_id'] != row.source_row_no:
+                    return 'BUSINESS_NUMBER_CHANGED_IN_CHAIN'
+                if not prior['entity_signature']:
+                    return 'HISTORICAL_ENTITY_FINGERPRINT_UNAVAILABLE'
+                if prior['entity_signature'] != entity:
+                    return 'ENTITY_CONTEXT_CHANGED_IN_CHAIN'
+                if prior['uid']:
+                    return 'UID_AVAILABLE_IN_CHAIN'
+                sequence -= 1
+            return 'HISTORY_ANCHOR_CHANGED_OR_ABSENT' if sequence else 'NO_PREVIOUS_UID_IN_OBSERVED_CHAIN'
+
+        for item in (candidate.get('identity_observations') or {}).get('rows', []):
+            if not item.get('procurement_uid'):
+                key = item['source_row_key']
+                reasons[key] = explain(item, rows.get(key))
+    by_number = defaultdict(list)
+    for row in rows.values():
+        if row.source_row_no:
+            by_number[row.grbs, normalize_id(row.source_row_no)].append(row)
+    gaps = []
+    for record in candidate.get('recommendation_records', []):
+        if not record.get('active_in_current_slice') or (record.get('current_link') or {}).get('status') == 'CONFIRMED':
+            continue
+        text = _text(record.get('recommendation_text'))
+        numbers = (record.get('current_link') or {}).get('required_business_ids', _text_ids(text)[0])
+        groups = [by_number[record.get('grbs'), number] for number in numbers]
+        matches = [row for group in groups for row in group
+            if _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
+                shared_group_subject=True, extended_literal_reference=True,
+                joint_method_reference=candidate.get('contract', {}).get('recommendation_link_contract')
+                in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'})] if numbers else [
+            row for row in rows.values() if row.grbs == record.get('grbs') and _exact_subject_mention(text, row.subject)]
+        gaps.append({'grbs': record.get('grbs'), 'table_no': record.get('table_no'), 'row_no': record.get('row_no'),
+            'explicit_reference_count': len(numbers), 'missing_primary_number_count': sum(not group for group in groups),
+            'duplicate_primary_number_count': sum(len(group) > 1 for group in groups),
+            'full_literal_subject_match_count': len(matches),
+            'matched_current_uid_count': sum(bool(row.procurement_uid) for row in matches),
+            'identity_chain_reasons': dict(Counter(reasons[row.physical_row_key] for row in matches
+                if row.physical_row_key in reasons))})
+    return {'identity_chain_break_counts': dict(Counter(reasons.values())),
+            'recommendation_identity_gap_index': gaps}
+
+
+def _coverage_details(candidate, identities=None, identity_history=None, *, identity_snapshot_id=None):
     """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
     identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
     unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
@@ -151,7 +244,7 @@ def _coverage_details(candidate, identities=None):
             'matched_current_count': len(link.get('business_ids') or []),
         })
         text = _text(record.get('recommendation_text'))
-        ids, _ = _text_ids(text)
+        ids = link.get('required_business_ids', _text_ids(text)[0])
         if ids:
             groups = [by_business[(record.get('grbs'), normalize_id(value))] for value in ids]
             if all(len(group) == 1 for group in groups):
@@ -196,6 +289,7 @@ def _coverage_details(candidate, identities=None):
             subject_only['multiple_exact_subjects'] += 1
 
     return {
+        **_identity_gap_diagnostics(candidate, identity_history or identities, identity_snapshot_id=identity_snapshot_id),
         'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
         'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
@@ -267,9 +361,10 @@ def rehearse_latest(state_dir, *, coverage=False):
             as_of=capture['captured_at'],
         )
         identities = IdentityStore(work / 'identity.sqlite')
+        recovery_diagnostics = {}
         identities.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
             *state.glob('published/releases/*/snapshot_bundle'),
-            *state.glob('archives/*/snapshot_bundle')], recover_chain=True)
+            *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
         candidate = build_from_capture(capture, registry, ledger, work / 'bundle', identity_store=identities)
         issues = [*candidate.get('issues', []), *candidate['release']['blockers']]
         errors = Counter(issue['code'] if issue.get('code') in PUBLIC_CODES else 'UNRECOGNIZED_ERROR'
@@ -286,13 +381,25 @@ def rehearse_latest(state_dir, *, coverage=False):
                 'two_docx_rebuilt': documents, 'headline_changed': candidate['headline'] != previous['headline'],
                 'error_counts': dict(sorted(errors.items()))}
         if coverage:
+            result['identity_recovery'] = recovery_diagnostics
             result['published_release_restore'] = rehearse_release_restore(state, receipt)
             assurance = candidate.get('automation_assurance') or {}
             result['automation'] = {key: assurance.get(key) for key in ('fully_automated', 'user_action_count',
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
-            result.update(_coverage_details(candidate, identities))
+            # The sealed release intentionally contains one identity snapshot.
+            # Diagnose the sealed input import's earlier chain from a stable
+            # copy of the live history: an upgraded replay has a new snapshot ID.
+            # metadata backfill affects only that copy, never the replay or source.
+            with copied_catalog(state / 'identity.sqlite') as history_path:
+                history = IdentityStore(history_path)
+                recovery_diagnostics = {}
+                history.recover_latest_plan_signatures([*state.glob('attempts/*/bundle/snapshot_bundle'),
+                    *state.glob('published/releases/*/snapshot_bundle'),
+                    *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
+                result['identity_recovery'] = recovery_diagnostics
+                result.update(_coverage_details(candidate, identities, history, identity_snapshot_id=manifest['snapshot_id']))
             weekly = rehearse_weekly(state)
             if weekly is not None:
                 result['weekly'] = weekly

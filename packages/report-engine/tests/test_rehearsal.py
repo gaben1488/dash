@@ -59,6 +59,100 @@ def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
     assert business_files(state) == before
 
 
+def test_identity_gap_diagnostic_distinguishes_changed_context_from_missing_row_without_writes(tmp_path):
+    import hashlib
+    from dataclasses import asdict, replace
+
+    from procurement_engine.identity_store import IdentityStore
+    from procurement_engine.rehearsal import _identity_gap_diagnostics
+    from test_recommendation_links import TEXT, row
+
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    original = replace(row(), snapshot_id='old', institution='Synthetic institution',
+        activity_kind='CURRENT', planned_year=2026, program='Original program')
+    store.ingest([original], snapshot_id='old', captured_at='2026-09-25T00:00:00+00:00')
+    current = replace(original, snapshot_id='new', program='Changed program', procurement_uid=None)
+    observation = store.ingest([current], snapshot_id='new', captured_at='2026-09-26T00:00:00+00:00',
+        allow_plan_updates=True)
+    assert observation['rows'][0]['procurement_uid'] is None
+    model = {'snapshot': {'snapshot_id': 'new'}, 'details': [asdict(current)],
+        'identity_observations': observation,
+        'recommendation_records': [{'grbs': current.grbs, 'table_no': 1, 'row_no': 1,
+            'active_in_current_slice': True, 'recommendation_text': TEXT,
+            'current_link': {'status': 'CURRENT_EVIDENCE_MISSING'}}]}
+    before = hashlib.sha256(store.path.read_bytes()).hexdigest()
+    result = _identity_gap_diagnostics(model, store)
+    assert result['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    gap = result['recommendation_identity_gap_index'][0]
+    assert gap['missing_primary_number_count'] == 0
+    assert gap['full_literal_subject_match_count'] == 1
+    assert gap['matched_current_uid_count'] == 0
+    assert gap['identity_chain_reasons'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    serialized = json.dumps(result)
+    assert 'Synthetic institution' not in serialized and 'Original program' not in serialized
+    assert 'source_row_key' not in serialized and 'PUR-' not in serialized and 'synthetic-book' not in serialized
+    assert hashlib.sha256(store.path.read_bytes()).hexdigest() == before
+
+
+@pytest.mark.parametrize('upgrade', [False, True])
+def test_coverage_uses_the_live_history_copy_beyond_the_compact_release_snapshot(tmp_path, monkeypatch, upgrade):
+    class ChangedProgram(CompleteGoogle):
+        program = 'Original program'
+
+        def revision(self, provider):
+            return self.program
+
+        def grid(self, provider, sheet_id):
+            value = super().grid(provider, sheet_id)
+            if provider == 'master-0':
+                value['gridProperties']['rowCount'] = 4
+            return value
+
+        def values(self, provider, title, start, end, columns):
+            values = [[], [], ['Synthetic header']]
+            if provider == 'master-0':
+                row = [''] * 34
+                for index, value in {0: '42', 1: 'УЭР', 2: 'Synthetic customer',
+                    3: self.program, 5: 'Текущая деятельность', 6: 'Поставка бумаги',
+                    7: 0, 8: 0, 9: 46, 10: 46, 11: 'ЕП', 15: 2026}.items():
+                    row[index] = value
+                values.append(row)
+            return values[start - 1:end]
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    client = ChangedProgram()
+    run_once(registry, ledger, state, client=client)
+    client.program = 'Changed program'
+    result = run_once(registry, ledger, state, client=client)
+    assert result['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    before = business_files(state)
+    if upgrade:
+        from procurement_engine import raw_pipeline
+
+        monkeypatch.setattr(raw_pipeline, 'RAW_RULES_VERSION', raw_pipeline.RAW_RULES_VERSION + '+synthetic-upgrade')
+    coverage = rehearse_latest(state, coverage=True)
+    assert coverage['identity_chain_break_counts'] == {'ENTITY_CONTEXT_CHANGED_IN_CHAIN': 1}
+    assert business_files(state) == before
+
+
+def test_identity_gap_without_business_number_is_incomplete_before_searching_history(tmp_path):
+    from dataclasses import asdict, replace
+
+    from procurement_engine.identity_store import IdentityStore
+    from procurement_engine.rehearsal import _identity_gap_diagnostics
+    from test_recommendation_links import row
+
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    current = replace(row(), source_row_no=None, institution='Synthetic institution',
+        activity_kind='CURRENT', planned_year=2026)
+    observation = store.ingest([current], snapshot_id='snapshot', captured_at='2026-09-26T00:00:00+00:00')
+    observation['rows'][0].update(procurement_uid=None, status='REVIEW_REQUIRED')
+    model = {'snapshot': {'snapshot_id': 'snapshot'}, 'details': [asdict(current)],
+        'identity_observations': observation}
+    assert _identity_gap_diagnostics(model, store)['identity_chain_break_counts'] == {'INCOMPLETE_CURRENT_ENTITY': 1}
+
+
 def test_restore_rejects_bytes_damaged_during_copy(tmp_path, monkeypatch):
     import shutil
     from pathlib import Path
