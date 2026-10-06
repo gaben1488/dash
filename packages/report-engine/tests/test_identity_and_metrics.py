@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -229,3 +230,44 @@ def test_origin_date_binding_rejects_duplicate_current_business_number(tmp_path)
                     source_row_no='1', procurement_uid='PUR-other')
     assert store.prove_origin_date_binding(
         [current, duplicate], grbs='УО', business_ids=['1'], document_date='25.09.2026') is None
+
+
+def test_release_identity_backup_contains_one_snapshot_but_preserves_dated_reviews(tmp_path):
+    store = IdentityStore(tmp_path / 'identity.sqlite')
+    first = store.ingest([row()], snapshot_id='s1', captured_at='2026-09-30T00:00:00Z')
+    changed = row(subject='Бумага А4')
+    store.ingest([changed], snapshot_id='s2', captured_at='2026-10-01T00:00:00Z')
+    uid = first['rows'][0]['procurement_uid']
+    review_id = store.record_review(
+        snapshot_id='s2',
+        locator=changed.physical_row_key,
+        uid=uid,
+        reviewer='Ревизор',
+        reviewed_at='2026-10-01T01:00:00Z',
+        evidence={'source_ref': 'protocol/1', 'reason': 'Проверено'},
+    )
+    current = row(subject='Бумага А4', grbs_comment='Доставлено')
+    expected = store.ingest([current], snapshot_id='s3', captured_at='2026-10-02T00:00:00Z')
+
+    frozen = tmp_path / 'release-identity.sqlite'
+    store.backup_snapshot(
+        frozen,
+        snapshot_id='s3',
+        as_of='2026-10-02T00:00:00Z',
+    )
+
+    with sqlite3.connect(frozen) as db:
+        assert db.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0] == 1
+        assert db.execute('SELECT snapshot_id FROM snapshots').fetchone()[0] == 's3'
+        assert db.execute('SELECT COUNT(*) FROM observations').fetchone()[0] == 1
+        assert db.execute('SELECT COUNT(*) FROM reviews').fetchone()[0] == 1
+        assert db.execute('SELECT review_id FROM reviews').fetchone()[0] == review_id
+
+    restored = IdentityStore(frozen)
+    assert restored.review_evidence(as_of='2026-10-02T00:00:00Z') == store.review_evidence(
+        as_of='2026-10-02T00:00:00Z')
+    assert restored.ingest(
+        [current],
+        snapshot_id='s3',
+        captured_at='2026-10-02T00:00:00Z',
+    ) == expected
