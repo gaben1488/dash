@@ -227,7 +227,8 @@ def probe_google_historical_regression(registry, oracle, client, *, timezone_nam
     """
     if oracle.get('contract') != ORACLE_CONTRACT:
         raise ValueError('HISTORICAL_ORACLE_INVALID')
-    from .master_revision_history import _revision_export, revision_index
+    from .google_adapter import GoogleReadError
+    from .master_revision_history import _revision_export, revision_export_unavailable, revision_index
     masters = {source.get('grbs'): source for source in registry.get('sources', [])
                if source.get('role') == 'master' and source.get('grbs')}
     required_grbs = sorted({
@@ -250,7 +251,8 @@ def probe_google_historical_regression(registry, oracle, client, *, timezone_nam
         missing_expected = sorted(case.get('expected_missing_sources') or [])
         totals['expected_blocked_cases' if missing_expected else 'complete_cases'] += 1
         matrices = {}
-        source_status = {'MATCHED': 0, 'NO_EXACT_REVISION': 0, 'NO_MATCHING_REVISION': 0}
+        source_status = {'MATCHED': 0, 'NO_EXACT_REVISION': 0, 'NO_MATCHING_REVISION': 0,
+                         'REVISION_UNAVAILABLE': 0}
         for grbs, expected_digest in sorted(case.get('source_digests', {}).items()):
             totals['source_states'] += 1
             source = masters[grbs]
@@ -259,8 +261,15 @@ def probe_google_historical_regression(registry, oracle, client, *, timezone_nam
                 source_status['NO_EXACT_REVISION'] += 1
                 continue
             matched = None
+            exportable = 0
             for revision in reversed(revisions):
-                content = _revision_export(client, source['provider_id'], revision)
+                try:
+                    content = _revision_export(client, source['provider_id'], revision)
+                except GoogleReadError as error:
+                    if not revision_export_unavailable(error):
+                        raise
+                    continue
+                exportable += 1
                 try:
                     sheet, values = _canonical_history_matrix(content,
                         preferred_sheet=source['sheet'], header_rows=3)
@@ -270,7 +279,7 @@ def probe_google_historical_regression(registry, oracle, client, *, timezone_nam
                     matched = (sheet, values)
                     break
             if matched is None:
-                source_status['NO_MATCHING_REVISION'] += 1
+                source_status['REVISION_UNAVAILABLE' if exportable == 0 else 'NO_MATCHING_REVISION'] += 1
                 continue
             source_status['MATCHED'] += 1
             totals['matched_source_states'] += 1
