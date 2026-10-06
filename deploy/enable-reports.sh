@@ -22,6 +22,9 @@ restore_schedule_on_failure() {
 trap restore_schedule_on_failure EXIT
 
 docker compose --env-file .env.production --profile reports stop report-worker >/dev/null
+echo 'Recovering retained Thursday evidence and compacting transient report payloads.'
+docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -c \
+  'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
 docker compose --env-file .env.production exec -T server sh -eu -c '
   umask 077
   mkdir -p data/reports
