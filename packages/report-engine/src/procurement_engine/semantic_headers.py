@@ -25,6 +25,27 @@ def semantic_header_hash(values, header_rows, columns):
     return canonical_semantic_hash({'header_rows': header_rows, 'columns': columns, 'values': result})
 
 
+def header_contract_diagnostic(source, values, previous_fingerprint=None):
+    """Read-only, bounded diagnostics; never expose IDs, captions or provider text."""
+    from .raw_pipeline import header_hash
+
+    kinds = {'Рабочий реестр процедур': 'monitoring_master',
+        'Процедуры в работе': 'monitoring_queue', '_Поставщики': 'supplier_directory',
+        'Сводный аналитический лист': 'monitoring_summary',
+        'Справочник заказчиков': 'customer_directory'}
+    roles = {'master', 'procedure', 'procedure_master', 'procedure_view', 'operational_view',
+        'procedures', 'operational', 'formula_dependency', 'directory'}
+    rows, columns = source['header_rows'], source['columns']
+    full_hash = semantic_header_hash(values, rows, columns)
+    pinned = source.get('semantic_header_fingerprint')
+    return {'kind': kinds.get(source['sheet'], 'other'),
+        'role': source['role'] if source['role'] in roles else 'other',
+        'columns': columns, 'header_rows': rows,
+        'last_row_matches': header_hash(values, rows) == source['schema_fingerprint'],
+        'pinned_full_header_matches': full_hash == pinned if pinned else None,
+        'previous_full_header_matches': full_hash == previous_fingerprint if previous_fingerprint else None}
+
+
 def _headers(root):
     snapshot = root / 'snapshot_bundle'
     manifest = json.loads((snapshot / 'manifest.json').read_text())
