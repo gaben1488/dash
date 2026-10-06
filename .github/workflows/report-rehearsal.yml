@@ -101,6 +101,7 @@ jobs:
             bundle_from_capture(capture, reviewed, json.loads((root / "inputs/ledger.json").read_text()))
             closure = audit_formula_dependencies(capture)
             print(json.dumps({"reviewed_live_source_closure": {"status": "PASS" if closure["closed"] else "BLOCKED", "source_count": len(capture["sources"]), "issue_counts": dict(Counter(issue["code"] for issue in closure["issues"]))}}, sort_keys=True))
+            print(json.dumps({"unverified_formula_tokens": sorted({token for issue in closure["issues"] if issue["code"] == "FORMULA_FUNCTION_UNVERIFIED" for token in issue["functions"]})}, sort_keys=True))
             if not closure["closed"]:
                 raise SystemExit(2)
             with tempfile.TemporaryDirectory() as temporary:
