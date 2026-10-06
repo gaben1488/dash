@@ -17,7 +17,6 @@ Safety rules:
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from datetime import date, datetime
 from pathlib import Path
