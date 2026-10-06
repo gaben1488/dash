@@ -31,8 +31,12 @@ def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
     registry, ledger = inputs(tmp_path)
     state = tmp_path / 'state'
     run_once(registry, ledger, state, client=CompleteGoogle())
+    before = business_files(state)
     result = rehearse_latest(state, coverage=True)
     assert result['replay_status'] == 'PASS'
+    assert result.get('published_release_restore') == {
+        'catalog': 'PASS', 'artifacts': 'PASS', 'source_recheck': 'PASS',
+    }
     assert isinstance(result['identity_status_counts'], dict)
     assert isinstance(result['identity_unresolved_candidate_uid_buckets'], dict)
     assert isinstance(result['recommendation_gap_shapes'], dict)
@@ -52,6 +56,29 @@ def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
             return set().union(*(keys(item) for item in value), set())
         return set()
     assert not {'source_row_key', 'recommendation_id', 'subject', 'business_id'} & keys(diagnostic)
+    assert business_files(state) == before
+
+
+def test_restore_rejects_bytes_damaged_during_copy(tmp_path, monkeypatch):
+    import shutil
+    from pathlib import Path
+
+    from procurement_engine.rehearsal import rehearse_release_restore
+
+    registry, ledger = inputs(tmp_path); state = tmp_path / 'state'
+    receipt = run_once(registry, ledger, state, client=CompleteGoogle())['publication']
+    before = business_files(state)
+    copy = shutil.copytree
+    def damaged_copy(source, destination, *args, **kwargs):
+        result = copy(source, destination, *args, **kwargs)
+        document = Path(destination) / 'main_report.docx'
+        if document.is_file():
+            document.write_bytes(b'damaged backup')
+        return result
+    monkeypatch.setattr(shutil, 'copytree', damaged_copy)
+    with pytest.raises(ValueError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        rehearse_release_restore(state, receipt)
+    assert business_files(state) == before
 
 
 def test_missing_publication_is_not_a_successful_rehearsal(tmp_path):

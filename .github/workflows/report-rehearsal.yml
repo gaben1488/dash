@@ -20,7 +20,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'codex/report-')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Replay saved production evidence without changing service or data
         uses: appleboy/ssh-action@v1.2.0
@@ -29,7 +29,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 8m
+          command_timeout: 13m
           # Bash owns failure handling; per-line SSH injection breaks shell blocks.
           script_stop: false
           script: |
@@ -103,3 +103,15 @@ jobs:
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
+            # Startup success is insufficient: observe a later timer attempt.
+            worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            test -n "$worker"
+            started=$(docker inspect --format '{{.State.StartedAt}}' "$worker")
+            interval=$(docker exec "$worker" /bin/sh -c 'printf "%s" "${REPORT_POLL_SECONDS:-900}"')
+            docker run --rm --network none --read-only \
+              --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -c 'import json, sys; from datetime import datetime, timedelta; from pathlib import Path; from procurement_engine.deployment_smoke import check_worker_cycle; since=(datetime.fromisoformat(sys.argv[1])+timedelta(seconds=float(sys.argv[2]))).isoformat(); result=check_worker_cycle(lambda: json.loads(Path("/app/packages/server/data/reports/status.json").read_text()), since, attempts=1); print(json.dumps({"scheduled_worker_cycle": result}, sort_keys=True))' \
+              "$started" "$interval"
