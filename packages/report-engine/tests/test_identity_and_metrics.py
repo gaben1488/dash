@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from procurement_engine.canonical_metrics import calendar_facts, metric_block
-from procurement_engine.identity_store import IdentityStore
+from procurement_engine.identity_store import IdentityStore, freeze_identity_snapshot
 from procurement_engine.models import ProcurementRow
 from procurement_engine.normalize import parse_date, to_decimal
 
@@ -271,3 +271,32 @@ def test_release_identity_backup_contains_one_snapshot_but_preserves_dated_revie
         snapshot_id='s3',
         captured_at='2026-10-02T00:00:00Z',
     ) == expected
+
+
+def test_freeze_identity_snapshot_upgrades_legacy_optional_columns_without_source_write(tmp_path):
+    source = tmp_path / 'legacy.sqlite'
+    store = IdentityStore(source)
+    expected = store.ingest([row()], snapshot_id='legacy', captured_at='2026-09-30T00:00:00Z')
+    with store.connect() as db, db:
+        db.execute('ALTER TABLE observations DROP COLUMN plan_signature')
+        db.execute('ALTER TABLE observations DROP COLUMN entity_signature')
+    before = source.read_bytes()
+
+    frozen = tmp_path / 'frozen.sqlite'
+    freeze_identity_snapshot(
+        source,
+        frozen,
+        snapshot_id='legacy',
+        as_of='2026-09-30T00:00:00Z',
+    )
+
+    assert source.read_bytes() == before
+    restored = IdentityStore(frozen)
+    assert restored.ingest(
+        [row()],
+        snapshot_id='legacy',
+        captured_at='2026-09-30T00:00:00Z',
+    ) == expected
+    with restored.connect() as db:
+        columns = {item['name'] for item in db.execute('PRAGMA table_info(observations)')}
+    assert {'plan_signature', 'entity_signature'} <= columns
