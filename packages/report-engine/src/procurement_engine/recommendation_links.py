@@ -228,28 +228,28 @@ def _joint_group_target_spec(text, ids):
     if len(ids) < 2:
         return None
     number = r'[0-9]+[a-zа-я]*(?:[/.-][0-9a-zа-я]+)*(?![\w/.-])'
-    group = f'({number}(?:\\s*[,;]\\s*{number}|\\s+и\\s+{number})+)'
-    amount = r'(\\d+(?:[ \\u00a0]\\d{3})*(?:[,.]\\d+)?)\\s*(тыс\\.?\\s*)?руб(?:лей|ля|ль)?\\.?'
+    group = f'({number}(?:\s*[,;]\s*{number}|\s+и\s+{number})+)'
+    amount = r'(\d+(?:[ \u00a0]\d{3})*(?:[,.]\d+)?)\s*(тыс\.?\s*)?руб(?:лей|ля|ль)?\.?'
     prefix = (
-        r'(?:объединить\\s+позиции\\s+' + group
-        + r'|(?:вынести|перевести)\\s+на\\s+(?:(?:единый|совместный)\\s+)?эа\\s+' + group + r')'
+        r'(?:объединить\s+позиции\s+' + group
+        + r'|(?:вынести|перевести)\s+на\s+(?:(?:единый|совместный)\s+)?эа\s+' + group + r')'
     )
-    target = rf'(?:\\(\\s*({number})\\s*\\)\\s*)?'
-    subject = r'[«"(]*\\s*(.+?)\\s*[)»"]*'
-    price = r'\\s*(?:на\\s+общую\\s+сумму|на\\s+сумму|[—–-])\\s*' + amount
+    target = rf'(?:\(\s*({number})\s*\)\s*)?'
+    subject = r'[«"(]*\s*(.+?)\s*[)»"]*'
+    price = r'\s*(?:на\s+общую\s+сумму|на\s+сумму|[—–-])\s*' + amount
     joint = (
-        r'\\s*(?:в\\s+(?:совместную\\s+закупку|совместный\\s+аукцион|одну\\s+закупку|единую\\s+закупку)'
-        r'|\\([^)]*(?:совместн\\w*|объедин\\w*)[^)]*\\))\\s*\\.?'
+        r'\s*(?:в\s+(?:совместную\s+закупку|совместный\s+аукцион|одну\s+закупку|единую\s+закупку)'
+        r'|\([^)]*(?:совместн\w*|объедин\w*)[^)]*\))\s*\.?'
     )
-    match = re.fullmatch(prefix + r'\\s+' + target + subject + price + joint, text)
+    match = re.fullmatch(prefix + r'\s+' + target + subject + price + joint, text)
     if not match:
         return None
     source_group = match[1] or match[2]
-    source_ids = [normalize_id(value) for value in re.split(r'\\s*[,;]\\s*|\\s+и\\s+', source_group)]
+    source_ids = [normalize_id(value) for value in re.split(r'\s*[,;]\s*|\s+и\s+', source_group)]
     if len(source_ids) != len(ids) or set(source_ids) != set(ids):
         return None
     target_id = normalize_id(match[3]) if match[3] else None
-    raw_amount = Decimal(match[5].replace(' ', '').replace('\\u00a0', '').replace(',', '.'))
+    raw_amount = Decimal(match[5].replace(' ', '').replace('\u00a0', '').replace(',', '.'))
     if raw_amount < 0:
         return None
     amount_thousand = raw_amount if match[6] else raw_amount / 1000
