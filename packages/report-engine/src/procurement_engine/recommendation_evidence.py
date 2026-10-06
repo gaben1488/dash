@@ -138,7 +138,7 @@ def evaluate_linked_action(record, current, report_date, *, source_ids, proofs=(
             'current_procurement_ids': sorted({row.source_row_no for row in current if row.source_row_no}),
             'current_procurement_uids': uids, 'current_method': next(iter(methods)) if len(methods) == 1 else None,
             'current_procurement_state': execution, 'current_fact_date': facts, 'business_finding': finding,
-            'binding_evidence': {'review_ids': sorted({review['review_id'] for review in proofs}),
+            'binding_evidence': {'review_ids': sorted({review.get('review_id') for review in proofs if review.get('review_id')}),
                                  'source_procurement_ids': sorted(wanted), 'current_procurement_uids': uids},
             'status_evidence': 'Подтверждена историческая связь; действие проверено по первичным полям текущего снимка.',
             'dimensions': {'compliance_status': compliance, 'execution_status': execution,
