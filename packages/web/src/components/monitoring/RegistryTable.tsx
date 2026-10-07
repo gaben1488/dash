@@ -222,6 +222,8 @@ export interface RegistryTableProps {
   /** Откуда строки: листы управлений либо назван срез шапки. */
   sourceLabel?: string;
   onOpenCode?: (code: string) => void;
+  onOpenProcedure?: (p: RegistryProcedure) => void;
+  bookUrl?: string | null;
   /** Код, чья карточка должна быть раскрыта извне (переход по родословной). */
   openCode?: string | null;
   /**
@@ -235,7 +237,7 @@ export interface RegistryTableProps {
 export function RegistryTable({
   rows, sortKey, sortDir, onSort,
   lineageByCode, journalByCode, matchIndex, readAtLabel, sourceLabel,
-  onOpenCode, openCode = null, onCloseOpenCode,
+  onOpenCode, openCode = null, onCloseOpenCode, onOpenProcedure, bookUrl,
 }: RegistryTableProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [limit, setLimit] = useState(CHUNK);
@@ -272,6 +274,7 @@ export function RegistryTable({
 
   const cardFor = (p: RegistryProcedure) => (
     <ProcedureCard
+                        bookUrl={bookUrl}
       p={p}
       lineage={p.code !== null ? lineageByCode?.get(p.code) ?? null : null}
       journalRow={p.code !== null ? journalByCode?.get(p.code) ?? null : null}
@@ -403,7 +406,14 @@ export function RegistryTable({
               return [
                 <tr
                   key={idOf(p)}
-                  onClick={() => toggleRow(p, open)}
+                  onClick={() => onOpenProcedure ? onOpenProcedure(p) : toggleRow(p, open)}
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      if (onOpenProcedure) onOpenProcedure(p); else toggleRow(p, open);
+                    }
+                  }}
                   aria-expanded={open}
                   className={`${RULE_ROW} align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
                 >
@@ -521,7 +531,7 @@ export function RegistryTable({
             <li key={idOf(p)} className={`${CARD} p-3`}>
               <button
                 type="button"
-                onClick={() => toggleRow(p, open)}
+                onClick={() => onOpenProcedure ? onOpenProcedure(p) : toggleRow(p, open)}
                 aria-expanded={open}
                 className="w-full text-left"
               >

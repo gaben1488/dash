@@ -17,6 +17,19 @@ function row(code: string, result = '', stage = 'Объявлена'): unknown[]
 function parse(rows: unknown[][]) { return parseMonitoringProcedures({ [sheet]: [[], headers, ...rows] }); }
 
 describe('канонический реестр', () => {
+  it('не вычитает цену без НМЦК из экономии полного портфеля', () => {
+    const a = row('ЭА100-26', 'Состоялась', 'Состоялась');
+    a[7] = ''; a[11] = '01.09.2026'; a[12] = 100;
+    const b = row('ЭА101-26', 'Состоялась', 'Состоялась');
+    b[7] = 200; b[11] = '01.09.2026'; b[12] = 150;
+    const p = aggregateMonitoring(parse([a, b]));
+    expect(p.awarded.priceTotal).toBe(250);
+    expect(p.awarded.savingsTotal).toBe(50);
+  });
+  it('канонический ответ не читает комментарий D, но сохраняет флаг протокола C', () => {
+    const a = row('ЭА100-26'); a[2] = 'Флаг из источника'; a[3] = 'Свободный комментарий';
+    expect(parse([a]).procedures[0]).toMatchObject({ comment: null, protocolFlag: 'Флаг из источника' });
+  });
   it('ведущие нули кода допустимы и не создают ложные задачи', () => {
     const parent = row('ЭАС06-25', 'Состоялась', 'Состоялась'); parent[1] = 'процедура';
     const share = row('ЭАС06-25'); share[1] = 'доля'; share[7] = 40;

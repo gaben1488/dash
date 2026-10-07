@@ -31,6 +31,7 @@ import type { MonitoringParticipant } from '@aemr/core';
 // ── Источник и состояние книги ───────────────────────────────────────
 
 export interface MonitoringSource {
+  bookUrl?: string | null;
   schema?: string | null;
   bookName: string;
   /** Момент чтения книги (ISO) — плашка периода данных (п.58). */
@@ -85,6 +86,7 @@ export interface ProcedureDurations {
 }
 
 export interface RegistryProcedure {
+  protocolFlag?: string | null;
   result?: string | null;
   factsEligible?: boolean;
   requiredAction?: string | null;
@@ -484,6 +486,7 @@ function readProcedure(raw: unknown): RegistryProcedure {
     ...(r.result !== undefined ? { result: str(r.result) } : {}),
     ...(typeof r.factsEligible === 'boolean' ? { factsEligible: r.factsEligible } : {}),
     requiredAction: str(r.requiredAction), qualityNote: str(r.qualityNote),
+    protocolFlag: str(r.protocolFlag),
     participants: arr(r.participants).map((value) => { const v = rec(value); return {
       row: count(v.row), dept: text(v.dept), customer: text(v.customer), nmck: num(v.nmck), price: num(v.price), savings: num(v.savings),
       savingsMb: num(v.savingsMb), savingsKb: num(v.savingsKb), savingsFb: num(v.savingsFb),
@@ -843,6 +846,7 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
   return {
     source: {
       schema: str(src.schema),
+      bookUrl: str(src.bookUrl),
       bookName: str(src.bookName) ?? 'Ежедневный мониторинг',
       readAt: text(src.readAt),
       moneyUnit: str(src.moneyUnit) ?? 'руб',

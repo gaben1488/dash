@@ -136,3 +136,11 @@ export function plural(n: number, one: string, few: string, many: string): strin
 export function pluralCount(n: number, one: string, few: string, many: string): string {
   return `${fmtCount(n)} ${plural(n, one, few, many)}`;
 }
+
+/** Ссылка только на принятую книгу; имя листа задаёт адрес без предположения о gid. */
+export function sourceCellUrl(bookUrl: string | null | undefined, sheet: string, cell: string): string | null {
+  if (!bookUrl || !/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit$/.test(bookUrl)
+    || !/^[A-Z]+[1-9]\d*$/.test(cell)) return null;
+  const range = `'${sheet.replaceAll("'", "''")}'!${cell}`;
+  return `${bookUrl}?range=${encodeURIComponent(range)}`;
+}

@@ -6,7 +6,7 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
   queue: WorkQueuePayload | null | undefined;
   procedures: readonly RegistryProcedure[];
   readAtLabel: string;
-  onOpen: (code: string) => void;
+  onOpen: (procedure: RegistryProcedure) => void;
 }) {
   const [block, setBlock] = useState<'active' | 'closed'>('active');
   if (!queue) return <p className="text-sm text-zinc-500">Очередь ещё не получена от сервера.</p>;
@@ -41,7 +41,7 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
             return <tr key={`${p.sheet}:${p.row}`} className="align-top">
               {block === 'active' && <><td className="hidden whitespace-nowrap px-3 py-4 tabular-nums md:table-cell">{dateLabel}</td>
               <td className="hidden px-3 py-4 tabular-nums text-zinc-500 md:table-cell">{item.daysToDate ?? '—'}</td></>}
-              <td className="px-3 py-4"><button type="button" disabled={!p.code} onClick={() => p.code && onOpen(p.code)}
+              <td className="px-3 py-4"><button type="button" onClick={() => onOpen(p)}
                 title="Открыть процедуру в реестре" className="font-medium text-sky-700 underline decoration-sky-200 underline-offset-4 dark:text-sky-300">{p.code ?? `Строка ${p.row}`}</button>
                 <div className="mt-1 text-zinc-500">{p.dept}</div></td>
               <td className="max-w-80 px-3 py-4"><p className={item.action.startsWith('Исправить:') ? 'font-medium text-red-700 dark:text-red-300' : 'font-medium'}>{item.action}</p>

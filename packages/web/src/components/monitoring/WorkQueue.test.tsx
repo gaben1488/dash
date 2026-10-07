@@ -19,7 +19,7 @@ it('показывает дату заявки отдельно от незад�
   expect(screen.getByText('Заявка поступила 01.09.2026')).toBeTruthy();
   expect(screen.queryByText(/Дата ориентира — дата заявки/u)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'ЭА100-26' }));
-  expect(onOpen).toHaveBeenCalledWith('ЭА100-26');
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ code: 'ЭА100-26' }));
   fireEvent.click(screen.getByRole('button', { name: /Проверки закрытых/u }));
   expect(screen.getByText('В выбранном срезе очередь пуста.')).toBeTruthy();
 });

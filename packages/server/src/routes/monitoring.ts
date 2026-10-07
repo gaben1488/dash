@@ -61,12 +61,13 @@ import {
   type SvodComparison,
   type UnparsedCodeRef,
 } from '@aemr/core';
-import { getMonitoringBook, type MonitoringBookSnapshot } from '../services/monitoring.js';
+import { MONITORING_SPREADSHEET_ID, getMonitoringBook, type MonitoringBookSnapshot } from '../services/monitoring.js';
 import { parsedMonitoringBook, type ParsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { getDeptSheetValues } from '../services/snapshot.js';
 
 /** Плашка периметра: откуда числа, на какой момент и в чём измерены. */
 export interface MonitoringSource {
+  bookUrl: string;
   /** Название книги-источника — для плашки периметра. */
   bookName: string;
   /** Момент чтения книги (ISO) — «данные на …» (п.58). */
@@ -127,6 +128,7 @@ function parseBook(book: MonitoringBookSnapshot): ParsedMonitoringBook {
 /** Плашка периметра из снимка книги. Порядок листов — канонический, не сетевой. */
 function sourceOf(book: MonitoringBookSnapshot): MonitoringSource {
   return {
+    bookUrl: `https://docs.google.com/spreadsheets/d/${MONITORING_SPREADSHEET_ID}/edit`,
     bookName: 'План-реестр процедур определения поставщика',
     readAt: book.readAt,
     moneyUnit: 'руб',

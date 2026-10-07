@@ -137,6 +137,40 @@ function renderPage() {
   );
 }
 
+describe('ежедневный сценарий канонического реестра', () => {
+  function canonical() {
+    const p = proc({ sheet: 'Рабочий реестр процедур', code: null, requiredAction: 'Исправить: код', qualityNote: 'Код не заполнен' });
+    return payload({ source: { schema: 'canonical', bookName: 'План-реестр', readAt: '2026-10-07T02:00:00Z', moneyUnit: 'руб', sheetsRead: ['Рабочий реестр процедур'], sheetsFailed: {} },
+      procedures: [p], work: { asOf: '2026-10-07', active: [{ procedure: p, action: 'Исправить: код' }], closed: [] } });
+  }
+
+  it('открывает строку без кода и возвращает к прежней очереди', async () => {
+    serve(canonical());
+    renderPage();
+    const button = await screen.findByRole('button', { name: 'Строка 3' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(button);
+    const card = await screen.findByRole('dialog');
+    expect(within(card).getByText('Код не заполнен')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Закрыть' }));
+    expect(screen.getByRole('table', { name: 'Процедуры в работе' })).toBeTruthy();
+  });
+
+  it('сохраняет успешную очередь во время обновления и после отказа', async () => {
+    serve(canonical());
+    renderPage();
+    await screen.findByRole('table', { name: 'Процедуры в работе' });
+    let rejectRead: (e: Error) => void = () => {};
+    fetchJSON.mockImplementation((url: string) => url === '/monitoring?refresh=true'
+      ? new Promise((_resolve, reject) => { rejectRead = reject; }) : Promise.reject(new Error('Not Found')));
+    fireEvent.click(screen.getByRole('button', { name: 'Прочитать книгу заново' }));
+    expect(screen.getByRole('table', { name: 'Процедуры в работе' })).toBeTruthy();
+    rejectRead(new Error('Источник недоступен'));
+    await screen.findByText(/Сохранены данные последнего успешного чтения/u);
+    expect(screen.getByRole('table', { name: 'Процедуры в работе' })).toBeTruthy();
+  });
+});
+
 describe('Мониторинг: форма книги перенесена', () => {
   it('называется по канону, подписывает рубли и показывает момент чтения книги', async () => {
     serve(payload());
@@ -255,7 +289,7 @@ describe('Мониторинг: режимы листов', () => {
   it('на новом каноне открывает действия УО и отдельно проверки закрытых строк', async () => {
     const active = proc({ sheet: 'Рабочий реестр процедур', row: 3, stage: 'published', result: '', code: 'ЭА100-26', requiredAction: 'Подвести итоги' });
     const closed = proc({ sheet: 'Рабочий реестр процедур', row: 4, code: 'ЭА101-26', result: 'Состоялась', qualityNote: 'Неполно: Нет даты — L' });
-    serve(payload({ source: { schema: 'canonical', readAt: '2026-10-06T12:00:00Z' }, procedures: [active, closed],
+    serve(payload({ source: { schema: 'canonical', readAt: '2026-10-06T12:00:00Z', sheetsRead: ['Рабочий реестр процедур'] }, procedures: [active, closed],
       work: { asOf: '2026-10-07', active: [{ procedure: active, action: 'Подвести итоги', referenceDate: '2026-10-08', daysToDate: 1 }],
         closed: [{ procedure: closed, action: 'Дополнить даты', referenceDate: null, daysToDate: null }] } }));
     renderPage();

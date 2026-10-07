@@ -850,7 +850,7 @@ export function normalizeMatchView(raw: unknown): MatchViewPayload {
  * либо книги управлений не прочитаны — и это не повод не показать аналитику.
  * Отказ возвращается словами, а не молчанием.
  */
-export async function fetchMonitoringMatchView(): Promise<MatchViewPayload> {
-  const raw = await fetchJSON<unknown>('/monitoring/match');
+export async function fetchMonitoringMatchView(refresh = false): Promise<MatchViewPayload> {
+  const raw = await fetchJSON<unknown>(`/monitoring/match${refresh ? '?refresh=true' : ''}`);
   return normalizeMatchView(raw);
 }

@@ -155,6 +155,7 @@ export interface MonitoringDefect {
 // ── Строка реестра ───────────────────────────────────────────────────
 
 export interface MonitoringProcedure {
+  readonly protocolFlag?: string | null;
   /** Поля действующего мастера. Отсутствуют у исторического импорта. */
   readonly result?: string | null;
   /** Денежный факт допустим на дату снимка; исходная цена сохраняется. */
@@ -503,7 +504,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
       auctionPrice, savingsTotal, savingsFb, savingsKb, savingsMb, savingsSplitSum,
       controlGapRub, controlAgrees: controlGapRub === null ? null : Math.abs(controlGapRub) <= 0.01,
       selfCheck: null, winner: { ...winner, inn: inn && /^(\d{10}|\d{12})$/u.test(inn) ? inn : null },
-      comment: monitoringText(r[3]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
+      comment: null, protocolFlag: monitoringText(r[2]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
       joint: monitoringText(r[1]) === 'процедура' || ref?.family === 'ЭАС',
       durations: { toPublication: daysBetween(dates[0]?.iso ?? null, dates[1]?.iso ?? null), toDeadline: daysBetween(dates[1]?.iso ?? null, dates[2]?.iso ?? null), toAuction: daysBetween(dates[2]?.iso ?? null, dates[3]?.iso ?? null), total: daysBetween(dates[0]?.iso ?? null, dates[3]?.iso ?? null) },
       defects, result, factsEligible, requiredAction: monitoringText(r[23]), qualityNote, ancestorCodes: links(r[20]), successorCodes,
@@ -829,6 +830,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
   let awardedCount = 0;
   let awardedNmck = 0;
   let awardedPrice = 0;
+  let pairedPrice = 0;
   let noReductionCount = 0;
   let jointCount = 0;
   let winnersWithoutInn = 0;
@@ -859,6 +861,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
       awardedCount += 1;
       awardedPrice += p.auctionPrice;
       if (p.nmck !== null) {
+        pairedPrice += p.auctionPrice;
         awardedNmck += p.nmck;
         if (p.nmck > 0) reductions.push(((p.nmck - p.auctionPrice) / p.nmck) * 100);
         if (p.nmck === p.auctionPrice) noReductionCount += 1;
@@ -882,7 +885,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
       count: awardedCount,
       nmckTotal: round3(awardedNmck),
       priceTotal: round3(awardedPrice),
-      savingsTotal: round3(awardedNmck - awardedPrice),
+      savingsTotal: round3(awardedNmck - pairedPrice),
       avgReductionPct: reductions.length > 0
         ? reductions.reduce((a, b) => a + b, 0) / reductions.length
         : null,

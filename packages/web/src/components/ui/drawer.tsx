@@ -55,6 +55,7 @@ export interface DrawerProps {
   /** Управление в подвале шторки: главное действие и отмена. */
   footer?: ReactNode;
   className?: string;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function Drawer({
@@ -65,6 +66,7 @@ export function Drawer({
   children,
   footer,
   className,
+  onCloseAutoFocus,
 }: DrawerProps) {
   const [dragY, setDragY] = useState(0);
   const startY = useRef<number | null>(null);
@@ -101,6 +103,7 @@ export function Drawer({
           )}
         />
         <Dialog.Content
+          onCloseAutoFocus={onCloseAutoFocus}
           // Описание у шторки необязательно намеренно: у списка полей
           // описывать нечего сверх заголовка. Radix в этом случае
           // предупреждает о забытой связи `aria-describedby` — здесь она

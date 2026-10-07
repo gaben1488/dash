@@ -1,53 +1,4 @@
-/**
- * «Мониторинг · Реестр процедур определения поставщика» — книга «Ежедневный
- * мониторинг» целиком (канон п.101а, спека
- * docs/superpowers/specs/2026-08-18-monitoring-tab-spec-v2.md).
- *
- * ЧТО ЭТОТ ЭКРАН ОБЕЩАЕТ. Перенести ФОРМУ КНИГИ, а не выжимку из неё: у
- * каждого листа свой режим, и в режиме лист узнаётся глазами. Восемь листов
- * управлений, свод, переходящий реестр «25-26» с победителями и ИНН,
- * справочник учреждений и три скрытых листа-предка — четырнадцать листов,
- * ни одного молча выброшенного.
- *
- * ПОЧЕМУ РЕЖИМ И РАЗРЕЗ РАЗВЕДЕНЫ. Режим отвечает на вопрос «на какой лист я
- * смотрю», разрез — «какие строки меня интересуют». Они перпендикулярны:
- * выбрав квартал, читатель обязан увидеть его и на листе УО, и в своде.
- * Поэтому смена режима разрезов не сбрасывает, а панель разрезов стоит выше
- * ряда режимов.
- *
- * ЧЕСТНЫЕ ПУСТОТЫ — ПЯТЬ РАЗНЫХ, И НИ ОДНА НЕ ЗАМЕНЯЕТ ДРУГУЮ (п.36).
- * «Книга не прочитана» (отказ чтения), «на прочитанных листах нет строк»
- * (книга пуста), «разрезы всё срезали» (отбор экрана), «сервер этот лист ещё
- * не отдаёт» (незаконченная труба чтения) и «лист прочитан, а строк в нём
- * ноль» (пустота самого листа). Различает их не оттенок слов, а ДЕЙСТВИЕ:
- * перечитать сервером, открыть книгу-источник, снять разрезы — три разных
- * поступка, и подсунуть читателю не тот значит отправить его чинить то, что
- * не сломано.
- *
- * У КАЖДОГО ЧИСЛА — ИСТОЧНИК И МОМЕНТ ЧТЕНИЯ (п.58). Момент несёт плашка,
- * источник — строка «Источник: …», остальные оси (год, период, органы, срез)
- * — паспорт периметра из общесистемного дома `lib/perimeter.ts`, розданный
- * вкладке сверху через `MonitoringPerimeterProvider`. Книга мониторинга почти
- * ничему из шапки не подчиняется, и каждое такое расхождение паспорт называет
- * словами у самого числа, а не одной оговоркой над секцией.
- *
- * ДЕНЬГИ — РУБЛИ, и подпись единицы стоит у каждой суммы: книги управлений
- * ведутся в тысячах, перепутать эти две книги значит ошибиться в тысячу раз.
- *
- * ВЕРХ ВКЛАДКИ — ОДИН РЯД (п.128-1, п.128-2, владелец 20.08.2026). Линейки
- * листов управлений внутри вкладки нет: срез по управлению даёт глобальный
- * фильтр шапки (изоляция п.127). Режимы листов, поиск и кнопка разрезов стоят
- * в одном ряду; панель разрезов раскрывается по кнопке.
- *
- * РАЙОННЫЕ ЛИСТЫ ПРИ ВЫБРАННОМ УПРАВЛЕНИИ показываются целиком с пояснением:
- * «Сводный», «25-26» и справочник — листы всего района, и резать их по
- * управлению продукт не берётся (решение о резке — за владельцем).
- *
- * АНАЛИТИКА КНИГИ (воронка, снижение, поставщики, сроки, сезонность, сверка)
- * встаёт ниже реестра секцией `MonitoringAnalyticsSection`: она сама ходит за
- * своими данными, и её отказ реестр не роняет. Считается она по ВСЕЙ районной
- * книге — при выбранном управлении об этом сказано словами, а не молчанием.
- */
+/** Рабочее место процедур: канонический реестр, действия и адресные источники. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, SearchX } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
@@ -64,6 +15,8 @@ import { DirectoryTable } from '../components/monitoring/DirectoryTable';
 import { AncestorSheets } from '../components/monitoring/AncestorSheets';
 import { SignalCards } from '../components/monitoring/SignalCards';
 import { MonitoringAnalyticsSection } from '../components/monitoring/AnalyticsSection';
+import { Drawer } from '../components/ui/drawer';
+import { ProcedureCard } from '../components/monitoring/ProcedureCard';
 import { WorkQueue } from '../components/monitoring/WorkQueue';
 import { TripleCheck } from '../components/monitoring/TripleCheck';
 import { MonitoringPerimeterProvider } from '../components/monitoring/PerimeterProvider';
@@ -74,7 +27,7 @@ import { useOrgScope } from '../lib/selectors/org-scope';
 import { scopeProcedures, scopeSignals } from '../lib/monitoring/dept-scope';
 import {
   fetchMonitoring,
-  type JournalRow, type LineageChain, type MonitoringPayload,
+  type JournalRow, type LineageChain, type MonitoringPayload, type RegistryProcedure,
 } from '../lib/monitoring/contract';
 import {
   fetchMonitoringMatchView, type MatchViewPayload,
@@ -109,6 +62,9 @@ export function MonitoringPage() {
 
   const [modeId, setModeId] = useState<string>(WORK_MODE.id);
   const modeInitialized = useRef(false);
+  const opener = useRef<HTMLElement | null>(null);
+  const [selected, setSelected] = useState<RegistryProcedure | null>(null);
+  const [navigationNote, setNavigationNote] = useState<string | null>(null);
   const [slices, setSlices] = useState<SliceState>(emptySlices);
   const [sortKey, setSortKey] = useState<SortKey>('row');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -119,6 +75,9 @@ export function MonitoringPage() {
     setError(null);
     fetchMonitoring(refresh)
       .then((resp) => {
+        if (resp.source.schema === 'canonical' && !resp.source.sheetsRead.includes('Рабочий реестр процедур')) {
+          throw new Error('Основной реестр не прочитан; предыдущие данные сохранены.');
+        }
         setData(resp);
         if (!modeInitialized.current) {
           setModeId(resp.source.schema === 'canonical' ? WORK_MODE.id : ALL_DEPTS_MODE.id);
@@ -133,10 +92,9 @@ export function MonitoringPage() {
     // своя, ждала формы `{rows, outcomes}`, которой живой роут никогда не
     // отдавал, — и полоса сверки в карточке КАЖДОЙ строки молча писала
     // «сверка не подключена» при работающем сервере. Один сигнал — один дом.
-    void fetchMonitoringMatchView().then(setMatch).catch(() => setMatch(null));
+    void fetchMonitoringMatchView(refresh).then(setMatch).catch(() => setMatch(null));
     // Тройная сверка сама разводит свои исходы и не бросает: у неё нет
     // состояния «ошибка вкладки» — только состояние собственного раздела.
-    setTriple(null);
     void fetchMonitoringTriple(refresh).then(setTriple);
   }, []);
 
@@ -243,13 +201,30 @@ export function MonitoringPage() {
     });
   }, []);
 
-  const onOpenCode = useCallback((code: string) => {
-    // Переход по родословной: показать процедуру там, где она лежит, а не
-    // делать вид, что она нашлась в текущем разрезе.
-    setModeId(ALL_DEPTS_MODE.id);
-    setSlices({ ...emptySlices(), query: code });
-    setOpenCode(code);
+  const openProcedure = useCallback((p: RegistryProcedure) => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setNavigationNote(null);
+    setSelected(p);
   }, []);
+
+  const onOpenCode = useCallback((code: string) => {
+    const matches = procedures.filter((p) => p.code === code);
+    if (matches.length !== 1) {
+      setNavigationNote(matches.length > 1
+        ? 'Код встречается в нескольких строках. Откройте нужную строку в реестре.'
+        : 'Связанная процедура отсутствует в выбранных управлениях. Измените фильтр управления для её просмотра.');
+      return;
+    }
+    if (selected === null) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setNavigationNote(null);
+    setSelected(matches[0]);
+  }, [procedures, selected]);
+
+  // Код заново разрешается в текущий адрес после обновления/сортировки источника.
+  const selectedProcedure = selected === null ? null : selected.code !== null
+    ? procedures.filter((p) => p.code === selected.code).length === 1
+      ? procedures.find((p) => p.code === selected.code) ?? null : null
+    : procedures.find((p) => p.sheet === selected.sheet && p.row === selected.row && p.code === null && p.subject === selected.subject) ?? null;
 
   const readAtLabel = data ? `данные книги на ${fmtReadAt(data.source.readAt)}` : 'книга ещё читается';
   const pendingIds = data
@@ -285,11 +260,9 @@ export function MonitoringPage() {
             Мониторинг · Реестр процедур определения поставщика
           </h1>
           <p className="mt-0.5 max-w-3xl text-[11px] text-zinc-500 dark:text-zinc-400">
-            Книга «Ежедневный мониторинг» целиком: восемь листов управлений, свод, переходящий
-            реестр «25-26», справочник учреждений и листы-предки. Деньги книги —{' '}
-            <span className="font-medium">в рублях</span> (книги управлений — в тысячах).
-            Фильтр года из шапки не применяется — книга читается целиком; выбранное управление
-            сужает реестр и сигналы до своих листов (п.127).
+            {data?.source.bookName ?? 'План-реестр процедур определения поставщика'}. Действия, результаты,
+            суммы и связи берутся из рабочего реестра. Деньги — <span className="font-medium">в рублях</span>.
+            Выбранные управления сужают процедуры; период выбирается в разрезах ниже.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -297,6 +270,7 @@ export function MonitoringPage() {
           <button
             type="button"
             onClick={() => load(true)}
+            disabled={loading}
             className={`inline-flex items-center gap-1 ${CONTROL} px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
           >
             <RotateCcw size={12} aria-hidden="true" /> Прочитать книгу заново
@@ -304,13 +278,13 @@ export function MonitoringPage() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && data === null ? (
         <div className="space-y-4" role="status" aria-live="polite">
           <span className="sr-only">Читаем книгу «Ежедневный мониторинг»</span>
           <SkeletonKPIRow count={6} />
           <SkeletonTable rows={12} />
         </div>
-      ) : error !== null || data === null ? (
+      ) : data === null ? (
         <EmptyState
           tone="problem"
           title="Книга «Ежедневный мониторинг» не прочитана"
@@ -320,6 +294,9 @@ export function MonitoringPage() {
         />
       ) : (
         <>
+          {loading && <p role="status" className="text-sm text-zinc-500">Обновляем книгу; показаны данные последнего успешного чтения.</p>}
+          {error !== null && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{error}. Сохранены данные последнего успешного чтения: {readAtLabel}.</p>}
+          {navigationNote && selected === null && <p role="alert" className="text-sm text-amber-700">{navigationNote}</p>}
           {/* Сигналы полосе отдаются СРЕЗАННЫЕ — те же, чьи карточки читатель
               увидит ниже (п.127). Иначе полоса обещала бы двенадцать сигналов
               там, где экран показывает три. */}
@@ -387,7 +364,7 @@ export function MonitoringPage() {
               )}
 
               {/* ── Содержимое режима ── */}
-              {mode.kind === 'work' && <WorkQueue queue={data.work} procedures={filtered} readAtLabel={readAtLabel} onOpen={(code) => { setModeId(ALL_DEPTS_MODE.id); setSlices({ ...emptySlices(), query: code }); setOpenCode(code); }} />}
+              {mode.kind === 'work' && <WorkQueue queue={data.work} procedures={filtered} readAtLabel={readAtLabel} onOpen={openProcedure} />}
 
               {mode.kind === 'registry' && (
                 sorted.length === 0 ? (
@@ -409,11 +386,13 @@ export function MonitoringPage() {
                       matchIndex={matchIndex}
                       readAtLabel={readAtLabel}
                       sourceLabel={`рабочий реестр процедур · ${scopeLabel}`}
+                      onOpenProcedure={openProcedure}
+                      bookUrl={data.source.schema === 'canonical' ? data.source.bookUrl : null}
                       onOpenCode={onOpenCode}
                       openCode={openCode}
                       onCloseOpenCode={() => setOpenCode(null)}
                     />
-                    {sheetTotals !== null && <SheetTotalsRow row={sheetTotals} />}
+                    {sheetTotals !== null && !hasAnySlice(slices) && <SheetTotalsRow row={sheetTotals} />}
                   </>
                 )
               )}
@@ -640,6 +619,20 @@ export function MonitoringPage() {
           )}
         </>
       )}
+      <Drawer open={selected !== null} onOpenChange={(open) => { if (!open) { setSelected(null); setNavigationNote(null); } }}
+        title={selectedProcedure?.code ?? 'Карточка процедуры'}
+        description="Действие, данные и источники. Закрытие возвращает к прежнему списку."
+        className="!max-h-[100dvh] h-[100dvh] !rounded-none sm:left-auto sm:w-[min(56rem,90vw)]"
+        onCloseAutoFocus={(event) => { event.preventDefault(); opener.current?.focus(); }}>
+        {navigationNote && <p role="alert" className="mb-3 text-sm text-amber-700">{navigationNote}</p>}
+        {selectedProcedure ? <ProcedureCard p={selectedProcedure}
+          bookUrl={data?.source.schema === 'canonical' ? data.source.bookUrl : null}
+          lineage={selectedProcedure.code ? lineageByCode.get(selectedProcedure.code) : null}
+          journalRow={selectedProcedure.code ? journalByCode.get(selectedProcedure.code) : null}
+          match={selectedProcedure.code ? matchIndex?.byCode.get(selectedProcedure.code) : null}
+          matchIndex={matchIndex} onOpenCode={onOpenCode} />
+          : <p className="text-sm">Строка не найдена однозначно в текущем снимке и выбранных управлениях. Закройте карточку и выберите её заново.</p>}
+      </Drawer>
     </div>
     </MonitoringPerimeterProvider>
   );
