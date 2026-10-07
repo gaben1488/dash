@@ -32,14 +32,14 @@ export function fmtCount(v: number | null): string {
   return v === null ? '—' : v.toLocaleString('ru-RU');
 }
 
-/** Момент чтения книги: «18.08.2026, 14:05» по часам читателя (п.58). */
+/** Момент чтения книги: «18.08.2026, 14:05» по времени Камчатки. */
 export function fmtReadAt(iso: string): string {
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return iso;
   return new Date(ms).toLocaleString('ru-RU', {
     day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka',
+  }) + ' (Камчатка)';
 }
 
 /** Дата книги как есть: «дд.мм.гггг» уже пришла строкой, чинить её нельзя. */

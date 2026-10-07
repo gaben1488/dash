@@ -97,19 +97,19 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
         <Figure
           kbKey="monitoring_contract_price"
           value={fmtRub(p.priceTotal)}
-          caption={`цена контрактов, руб. · по ${pluralCount(p.awardedCount, 'состоявшейся', 'состоявшимся', 'состоявшимся')}`}
+          caption={`цена по итогам, руб. · по ${pluralCount(p.awardedCount, 'состоявшейся', 'состоявшимся', 'состоявшимся')}`}
         />
         <Figure
           kbKey="monitoring_auction_savings"
           value={fmtRub(p.savingsTotal)}
-          caption="экономия на торгах, руб."
-          tone={p.savingsTotal > 0 ? 'good' : 'plain'}
+          caption={`снижение цены, руб. · ${p.portfolio.base} из ${p.awardedCount} состоявшихся с НМЦК и ценой`}
+          tone={p.savingsTotal !== null && p.savingsTotal > 0 ? 'good' : 'plain'}
         />
         <Figure
           kbKey="monitoring_reduction_pct"
           value={fmtPct(p.portfolio.value)}
           caption={p.portfolio.value === null
-            ? 'снижения нет: состоявшихся торгов в срезе нет'
+            ? 'снижение не рассчитано: нет полных пар НМЦК и цены'
             : 'снижение портфеля — один из трёх коэффициентов'}
         />
         <Figure

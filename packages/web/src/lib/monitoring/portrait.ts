@@ -43,7 +43,7 @@ export interface RegistryPortrait {
   /** Сумма цен победителей по состоявшимся, руб. */
   priceTotal: number;
   /** Экономия на торгах: НМЦК − цена по состоявшимся, руб. */
-  savingsTotal: number;
+  savingsTotal: number | null;
   /** Процедуры с ценой ровно ноль — торги без результата. */
   noResultCount: number;
   /** Их НМЦК, руб.: деньги, которые за несостоявшимися стоят. */
@@ -72,6 +72,7 @@ export function portraitFrom(rows: readonly RegistryProcedure[]): RegistryPortra
   let awardedCount = 0;
   let awardedNmck = 0;
   let priceTotal = 0;
+  let pairedPrice = 0;
   let noResultCount = 0;
   let noResultNmck = 0;
   let noReductionCount = 0;
@@ -93,6 +94,7 @@ export function portraitFrom(rows: readonly RegistryProcedure[]): RegistryPortra
     priceTotal += p.auctionPrice;
     if (p.nmck === null || p.nmck <= 0) continue;
 
+    pairedPrice += p.auctionPrice;
     awardedNmck += p.nmck;
     const pct = ((p.nmck - p.auctionPrice) / p.nmck) * 100;
     perRowPct.push(pct);
@@ -100,7 +102,7 @@ export function portraitFrom(rows: readonly RegistryProcedure[]): RegistryPortra
     else if (pct > 0) reducedPct.push(pct);
   }
 
-  const savingsTotal = awardedNmck - priceTotal;
+  const savingsTotal = perRowPct.length > 0 ? awardedNmck - pairedPrice : awardedCount > 0 ? null : 0;
 
   return {
     total: rows.length,
@@ -115,9 +117,9 @@ export function portraitFrom(rows: readonly RegistryProcedure[]): RegistryPortra
     portfolio: {
       // Отношение сумм: знаменатель — НМЦК состоявшихся, а не всего реестра,
       // иначе несостоявшиеся торги разбавляли бы процент чужими деньгами.
-      value: awardedNmck > 0 ? (savingsTotal / awardedNmck) * 100 : null,
+      value: awardedNmck > 0 && savingsTotal !== null ? (savingsTotal / awardedNmck) * 100 : null,
       median: null,
-      base: awardedCount,
+      base: perRowPct.length,
     },
     perRow: {
       value: mean(perRowPct),

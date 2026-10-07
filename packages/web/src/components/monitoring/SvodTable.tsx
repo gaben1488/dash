@@ -17,7 +17,7 @@
  * нет. Разница объясняется, а не сглаживается.
  */
 import type { SvodPayload, SvodRow } from '../../lib/monitoring/contract';
-import { fmtCount, fmtRub } from '../../lib/monitoring/format';
+import { fmtCount, fmtRubExact } from '../../lib/monitoring/format';
 import { BookPeriodBadge } from './BookPeriodBadge';
 import { MonitoringPerimeterCaption } from './PerimeterProvider';
 import { CARD, RULE_COL, RULE_COL_HEAD, RULE_HEAD, RULE_ROW, RULE_SECTION, RULE_TOTAL } from './surfaces';
@@ -28,10 +28,8 @@ function Pair({ book, product, kind = 'money' }: {
   product: number | null;
   kind?: 'money' | 'count';
 }) {
-  const fmt = kind === 'money' ? fmtRub : fmtCount;
-  // Расхождением считается разница больше рубля: копеечный след округления
-  // формул книги — не новость, и поднимать из-за него две колонки незачем.
-  const differs = book !== null && product !== null && Math.abs(book - product) > 1;
+  const fmt = kind === 'money' ? fmtRubExact : fmtCount;
+  const differs = book !== null && product !== null && (kind === 'count' ? book !== product : Math.abs(book - product) > 0.01 + 1e-8);
   if (!differs) {
     return <span className="tabular-nums text-zinc-700 dark:text-zinc-200">{fmt(book ?? product)}</span>;
   }
@@ -49,7 +47,7 @@ function ControlCell({ row }: { row: SvodRow }) {
   if (row.budgetGap === null) {
     return <span className="text-zinc-300 dark:text-zinc-600" title="Разбивки по бюджетам в строке свода нет">·</span>;
   }
-  const ok = Math.abs(row.budgetGap) <= 1;
+  const ok = Math.abs(row.budgetGap) <= 0.01 + 1e-8;
   return (
     <span
       className={`tabular-nums ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
@@ -57,7 +55,7 @@ function ControlCell({ row }: { row: SvodRow }) {
         ? 'ВСЕГО сходится с суммой МБ, КБ и ФБ'
         : 'ВСЕГО не собирается из долей: разрыв показан рублями'}
     >
-      {ok ? 'сходится' : fmtRub(row.budgetGap)}
+      {ok ? 'сходится' : fmtRubExact(row.budgetGap)}
     </span>
   );
 }
@@ -82,9 +80,9 @@ function Row({ row, total = false }: { row: SvodRow; total?: boolean }) {
       <td className={`px-2 py-1.5 text-right ${RULE_COL}`}>
         <Pair book={row.book.savingsTotal} product={row.product.savingsTotal} />
       </td>
-      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.mb)}</span></td>
-      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.kb)}</span></td>
-      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.fb)}</span></td>
+      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRubExact(row.book.mb)}</span></td>
+      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRubExact(row.book.kb)}</span></td>
+      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRubExact(row.book.fb)}</span></td>
       <td className={`px-2 py-1.5 text-right ${RULE_COL}`}><ControlCell row={row} /></td>
     </tr>
   );
@@ -129,7 +127,7 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Управление</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Кол-во</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">НМЦК, руб.</th>
-              <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Цена аукциона, руб.</th>
+              <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Цена по итогам, руб.</th>
               <th colSpan={4} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
                 Экономия, руб.
               </th>
@@ -202,7 +200,7 @@ export function SheetTotalsRow({ row }: { row: SvodRow }) {
           Молчание об этом читалось бы как «итог показанных строк» — и любое
           несовпадение суммы выглядело бы ошибкой счёта. */}
       <p className="mt-0.5 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
-        Источник: лист «{row.sheet}» и строка свода книги «Ежедневный мониторинг». Числа — за ВЕСЬ
+        Источник: лист «{row.sheet}» и строка сводного аналитического листа. Числа — за ВЕСЬ
         лист: разрезы панели, которыми сужена таблица выше, к этому итогу не применяются.
       </p>
       <dl className="mt-2 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
