@@ -243,6 +243,9 @@ export function normalizeMasterRules(rules, sheetId, rowCount) {
 export function completedArchiveFormula(formula) {
   // Blank dates retain the accumulated-history policy; unreadable dates never admit facts.
   formula = formula.replaceAll('DATEVALUE(датаФакта))<=Сегодня;TRUE)', 'DATEVALUE(датаФакта))<=Сегодня;FALSE)');
+  // The mask already replaces parents with shares. A parent with no shares still owns its amounts.
+  formula = formula.replaceAll('м*NOT(процБезДолей)', 'м');
+  for (const amount of ['нмцк', 'цена', 'экономия', 'фб', 'кб', 'мб']) formula = formula.replaceAll(`IF(процБезДолей;"";${amount})`, amount);
   const oldPrimary = 'процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0))';
   const primary = oldPrimary.slice(0, -1) + '*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)))';
   const oldMask = 'м;ARRAYFORMULA(--((свои+процБезДолей)>0))';

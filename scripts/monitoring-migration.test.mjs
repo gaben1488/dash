@@ -17,6 +17,13 @@ test('повторный ремонт архива сохраняет допус
   assert.equal(completedArchiveFormula(fixed), fixed);
 });
 
+test('основная совместная процедура без долей сохраняет деньги в архиве', async () => {
+  const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
+  const f = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0)*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)));м;ARRAYFORMULA(--((свои+процБезДолей)>0)*EXACT(стд;"Состоялась"));вПоказателях;ARRAYFORMULA(м*NOT(процБезДолей));FILTER(ARRAYFORMULA(IF(процБезДолей;"";нмцк));м))';
+  const fixed = completedArchiveFormula(f);
+  assert.equal(fixed, f.replace('м*NOT(процБезДолей)', 'м').replace('IF(процБезДолей;"";нмцк)', 'нмцк'));
+});
+
 test('ремонт свода сохраняет введённые деньги и отвергает другую раскладку', async () => {
   const { planAnalyticalRepair } = await import('./monitoring-migration.mjs');
   const cells = [{ row: 2, column: 0, cell: { userEnteredValue: { stringValue: 'Управление' } } },
