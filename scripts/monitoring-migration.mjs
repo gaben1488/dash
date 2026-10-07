@@ -220,12 +220,25 @@ export function normalizeMasterRules(rules, sheetId, rowCount) {
     seen.add(formula);
     const source = rule.ranges[0];
     const range = { sheetId, startRowIndex: 2, endRowIndex: rowCount,
-      startColumnIndex: stageOnly ? 22 : address ? column(address[1]) : guarded ? column(guarded[1]) : source.startColumnIndex,
-      endColumnIndex: stageOnly ? 23 : address ? column(address[2] ?? address[1]) + 1 : guarded ? column(guarded[1]) + 1 : source.endColumnIndex };
+      startColumnIndex: stageOnly ? 0 : address ? column(address[1]) : guarded ? column(guarded[1]) : source.startColumnIndex,
+      endColumnIndex: stageOnly ? 25 : address ? column(address[2] ?? address[1]) + 1 : guarded ? column(guarded[1]) + 1 : source.endColumnIndex };
     const ranges = formula === '=EXACT($B3;"доля")'
       ? [range, { ...range, startColumnIndex: 12, endColumnIndex: 17 }]
       : [range];
     return [{ ranges, booleanRule: { ...rule.booleanRule,
       condition: { ...rule.booleanRule.condition, values: [{ userEnteredValue: formula }] } } }];
   }).sort((a, b) => Number(b.booleanRule.condition.values[0].userEnteredValue.includes('NOT(ISFORMULA')) - Number(a.booleanRule.condition.values[0].userEnteredValue.includes('NOT(ISFORMULA')));
+}
+
+/** Owner clarification 08.10: department archive contains completed outcomes only.
+ * Participant shares inherit the primary outcome; money/date admission stays separate.
+ */
+export function completedArchiveFormula(formula) {
+  const oldPrimary = 'процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0))';
+  const primary = oldPrimary.slice(0, -1) + '*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)))';
+  const oldMask = 'м;ARRAYFORMULA(--((свои+процБезДолей)>0))';
+  const mask = oldMask.slice(0, -1) + '*EXACT(стд;"Состоялась"))';
+  if (formula.includes(primary) && formula.includes(mask)) return formula;
+  if (!formula.startsWith('=') || !formula.includes(oldPrimary) || !formula.includes(oldMask)) throw new Error('ARCHIVE_FORMULA_CONTRACT');
+  return formula.replace(oldPrimary, primary).replace(oldMask, mask);
 }

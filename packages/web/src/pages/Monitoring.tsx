@@ -279,7 +279,7 @@ export function MonitoringPage() {
           <h1 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
             Мониторинг · Реестр процедур определения поставщика
           </h1>
-          <p className="mt-0.5 max-w-3xl text-[11px] text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
             {data?.source.bookName ?? 'План-реестр процедур определения поставщика'}. Действия, результаты,
             суммы и связи берутся из рабочего реестра. Деньги — <span className="font-medium">в рублях</span>.
             Выбранные управления сужают процедуры; период выбирается в разрезах ниже.
@@ -354,13 +354,13 @@ export function MonitoringPage() {
               {/* Подсказка режима — только у листов с собственной формой:
                   у реестра ту же роль выполняет портрет со скоупом. */}
               {mode.kind !== 'registry' && (
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{mode.hint}</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">{mode.hint}</p>
               )}
 
               {/* Районные листы при выбранном управлении режутся только решением
                   владельца — пока показываются целиком, и об этом сказано словами. */}
               {deptScope !== null && mode.kind === 'directory' && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
                   В шапке выбрано управление, но лист «{mode.sheet ?? mode.label}» — районный и
                   показан целиком: срез по управлению к нему не применяется, справочник показывает организации всего округа. Процедурные разрезы здесь не применяются.
                 </p>
@@ -370,7 +370,7 @@ export function MonitoringPage() {
                   лист управления не делится на аппарат и подведы — вместо
                   молчаливого (и ненадёжного) отсева сказано словами. */}
               {mode.kind === 'registry' && orgScope.mode === 'grbs' && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
                   Режим «только ГРБС» из шапки к этой книге не применяется: лист управления
                   ведётся по заказчикам-учреждениям без словаря подведов, и надёжно отделить
                   закупки аппарата от подведомственных продукт не берётся — показан весь лист.
@@ -389,7 +389,7 @@ export function MonitoringPage() {
                   <option value="all">Все процедуры{deptScope !== null ? ' выбранных управлений' : ''}</option>
                   <option value="withoutContract">Без контракта</option>
                   <option value="joint">Совместные</option>
-                  <option value="successful">Успешно завершённые процедуры</option>
+                  <option value="successful">Состоявшиеся процедуры</option>
                 </select></label>
                 {slices.view === 'withoutContract' && <p className="text-zinc-500">Нет заявок, отмены и передачи наследникам — по результатам источника. Процедуры в работе показаны в своей очереди.</p>}
                 {slices.view === 'successful' && <p className="text-zinc-500">Результат «Состоялась»; исполнение контракта этим не подтверждается.</p>}
@@ -429,6 +429,7 @@ export function MonitoringPage() {
                       readAtLabel={readAtLabel}
                       sourceLabel={`рабочий реестр процедур · ${scopeLabel}`}
                       onOpenProcedure={openProcedure}
+                      compact={data.source.schema === 'canonical'}
                       bookUrl={data.source.schema === 'canonical' ? data.source.bookUrl : null}
                       onOpenCode={onOpenCode}
                       openCode={openCode}
@@ -660,14 +661,14 @@ export function MonitoringPage() {
                 />
               )}
               {deptScope !== null && (data.signals?.length ?? 0) > 0 && scopedSignals.length === 0 && (
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   По выбранным управлениям адресных сигналов книги нет; сигналы уровня всей книги
                   (свод, переходящий реестр, справочник) показываются в срезе «все управления».
                 </p>
               )}
 
               {data.notes.length > 0 && (
-                <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                   {data.notes.map((n) => <p key={n}>{n}</p>)}
                 </div>
               )}

@@ -54,6 +54,12 @@ import { CARD, CONTROL, RULE_COL, RULE_COL_HEAD, RULE_HEAD, RULE_ROW } from './s
 
 /** Сколько строк показывается сразу; остальное — по кнопке. */
 const CHUNK = 200;
+const WORKING_COLUMNS: readonly { label: string; sortKey?: SortKey }[] = [
+  { label: 'Код', sortKey: 'code' }, { label: 'Требуемое действие' },
+  { label: 'Предмет и заказчик' }, { label: 'Стадия и результат' },
+  { label: 'Дата итогов', sortKey: 'auctionDate' }, { label: 'НМЦК, руб.', sortKey: 'nmck' },
+  { label: 'Цена по итогам, руб.', sortKey: 'auctionPrice' },
+];
 
 /**
  * Ключи памяти гармошек (п.128-4). Версия в ключе — чтобы смена смысла
@@ -116,7 +122,7 @@ function DatesFoldedCell({ p }: { p: RegistryProcedure }) {
   if (p.durations.total === null) {
     return (
       <span
-        className="text-zinc-400 dark:text-zinc-500"
+        className="text-zinc-500 dark:text-zinc-400"
         title={`Путь не измерить: одной из крайних дат в книге нет. ${detail}`}
       >
         —
@@ -204,6 +210,7 @@ function CodeCell({ p }: { p: RegistryProcedure }) {
 
 export interface RegistryTableProps {
   rows: readonly RegistryProcedure[];
+  compact?: boolean;
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
@@ -235,12 +242,14 @@ export interface RegistryTableProps {
 }
 
 export function RegistryTable({
-  rows, sortKey, sortDir, onSort,
+  rows, sortKey, sortDir, onSort, compact = false,
   lineageByCode, journalByCode, matchIndex, readAtLabel, sourceLabel,
   onOpenCode, openCode = null, onCloseOpenCode, onOpenProcedure, bookUrl,
 }: RegistryTableProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [limit, setLimit] = useState(CHUNK);
+  const chunk = compact ? 50 : CHUNK;
+  const [limit, setLimit] = useState(chunk);
+  const [compactView, setCompactView] = useState(compact);
   const [datesOpen, setDatesOpen] = useState(() => loadPref(DATES_PREF_KEY));
   const [budgetsOpen, setBudgetsOpen] = useState(() => loadPref(BUDGETS_PREF_KEY));
 
@@ -293,16 +302,43 @@ export function RegistryTable({
           книги управлений ведутся в тысячах, и перепутать их с рублями книги
           мониторинга значит ошибиться ровно в тысячу раз. ── */}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs leading-tight text-zinc-400 dark:text-zinc-500">
+        <p className="text-xs leading-tight text-zinc-500 dark:text-zinc-400">
           Источник: {sourceLabel ?? 'книга «Ежедневный мониторинг» · листы управлений'}; деньги —
           рубли книги{readAtLabel !== undefined && `; ${readAtLabel}`}
         </p>
         <MonitoringPerimeterCaption scope="registry" className="text-right" />
       </div>
 
+      {compact && <button type="button" onClick={() => setCompactView(v => !v)}
+        className={`${CONTROL} px-3 py-2 text-sm`}>
+        {compactView ? 'Все колонки' : 'Рабочий вид'}
+      </button>}
       {/* ── Широкий экран: форма книги ── */}
       <div className={`hidden sm:block ${CARD} overflow-x-auto`}>
-        <table className="w-full text-sm">
+        {compactView ? <table className="w-full min-w-[64rem] text-sm">
+          <thead className={`text-xs text-zinc-600 dark:text-zinc-300 ${RULE_HEAD}`}>
+            <tr>{WORKING_COLUMNS.map(column =>
+              <th key={column.label} className="px-3 py-3 text-left font-medium">{column.sortKey
+                ? <SortButton label={column.label} sortKey={column.sortKey} active={sortKey === column.sortKey}
+                  dir={sortDir} onSort={onSort} /> : column.label}</th>)}</tr>
+          </thead>
+          <tbody>{shown.map(p => [<tr key={idOf(p)} className={`${RULE_ROW} align-top`}>
+            <td className="px-3 py-3 whitespace-nowrap"><button type="button"
+              aria-label={`Открыть процедуру ${procedureCodeLabel(p)}`}
+              className="rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+              onClick={() => onOpenProcedure ? onOpenProcedure(p) : toggleRow(p, isOpen(p))}><CodeCell p={p} /></button>
+              </td>
+            <td className="px-3 py-3 min-w-[12rem] max-w-[18rem]">
+              <p>{p.requiredAction || 'Действие не указано'}</p>
+              {p.qualityNote && <details className="mt-2 text-xs text-zinc-600 dark:text-zinc-300"><summary className="cursor-pointer">Замечания</summary><p className="mt-1">{p.qualityNote}</p></details>}
+            </td>
+            <td className="px-3 py-3 min-w-[16rem] max-w-[26rem]"><p>{p.subject}</p><p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">{p.customer}</p></td>
+            <td className="px-3 py-3"><span className={`rounded px-2 py-1 text-xs ${stageBadgeClass(p.stage)}`}>{stageShort(p.stage)}</span><p className="mt-2 text-xs">{p.result || 'Результат не внесён'}</p></td>
+            <td className="px-3 py-3 whitespace-nowrap tabular-nums">{p.auctionDate ? fmtDate(p.auctionDate) : 'Не внесена'}</td>
+            <td className="px-3 py-3 text-right whitespace-nowrap tabular-nums">{fmtRub(p.nmck)}</td>
+            <td className="px-3 py-3 text-right whitespace-nowrap tabular-nums">{fmtRub(p.auctionPrice)}{p.factsEligible === false && <p className="mt-1 whitespace-normal text-xs text-amber-700 dark:text-amber-400">Цена пока не учтена в денежных итогах</p>}</td>
+          </tr>, isOpen(p) && !onOpenProcedure && <tr key={`${idOf(p)}:card`}><td colSpan={7} className="p-3">{cardFor(p)}</td></tr>])}</tbody>
+        </table> : <table className="w-full text-sm">
           <thead className="text-xs text-zinc-500 dark:text-zinc-400">
             <tr className={RULE_HEAD}>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Адрес</th>
@@ -417,7 +453,7 @@ export function RegistryTable({
                   aria-expanded={onOpenProcedure ? undefined : open}
                   className={`${RULE_ROW} align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
                 >
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
+                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
                     <ChevronDown
                       size={11}
                       aria-hidden="true"
@@ -504,7 +540,7 @@ export function RegistryTable({
                       {p.winnerName ?? p.outcome ?? '—'}
                     </span>
                     {p.winnerInn !== null && (
-                      <span className="block font-mono text-xs text-zinc-400 dark:text-zinc-500">{p.winnerInn}</span>
+                      <span className="block font-mono text-xs text-zinc-500 dark:text-zinc-400">{p.winnerInn}</span>
                     )}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
@@ -525,7 +561,7 @@ export function RegistryTable({
               ];
             })}
           </tbody>
-        </table>
+        </table>}
       </div>
 
       {/* ── Узкий экран: та же строка списком карточек (§6.3) ── */}
@@ -547,6 +583,7 @@ export function RegistryTable({
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300 line-clamp-2">{p.subject}</p>
+                {p.requiredAction && <p className="mt-2 text-sm font-medium">{p.requiredAction}</p>}
                 <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
                   <dt className="text-zinc-500 dark:text-zinc-400">НМЦК, руб.</dt>
                   <dd className="text-right tabular-nums text-zinc-800 dark:text-zinc-100">{fmtRub(p.nmck)}</dd>
@@ -555,7 +592,7 @@ export function RegistryTable({
                   <dt className="text-zinc-500 dark:text-zinc-400">снижение</dt>
                   <dd className="text-right tabular-nums text-zinc-600 dark:text-zinc-300">{fmtPct(p.reductionPct)}</dd>
                 </dl>
-                <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   {p.sheet} · строка {p.row}
                   {p.ppNum !== null && ` · № ${p.ppNum}`}
                 </p>
@@ -570,10 +607,10 @@ export function RegistryTable({
         <div className="text-center">
           <button
             type="button"
-            onClick={() => setLimit((v) => v + CHUNK)}
+            onClick={() => setLimit((v) => v + chunk)}
             className={`${CONTROL} px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
           >
-            Показано {fmtCount(limit)} из {fmtCount(rows.length)} — показать ещё {fmtCount(Math.min(CHUNK, rows.length - limit))}
+            Показано {fmtCount(limit)} из {fmtCount(rows.length)} — показать ещё {fmtCount(Math.min(chunk, rows.length - limit))}
           </button>
         </div>
       )}

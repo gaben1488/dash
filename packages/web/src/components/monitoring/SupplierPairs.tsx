@@ -49,7 +49,7 @@ export function SupplierPairs({ pairs, periodLabel }: SupplierPairsProps) {
         </CardEmpty>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-sm">
             <caption className="sr-only">Повторяющиеся связки поставщика и заказчика</caption>
             <thead>
               <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -67,14 +67,14 @@ export function SupplierPairs({ pairs, periodLabel }: SupplierPairsProps) {
                 >
                   <td className="py-1 pr-2">
                     <span className="font-medium">{p.supplierName}</span>
-                    <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                    <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">
                       {p.inn === null ? 'ИНН в книге не указан' : `ИНН ${p.inn}`}
                     </span>
                   </td>
                   <td className="py-1 pr-2">
                     {p.customer}
                     {p.subjects.length > 0 && (
-                      <div className="text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                      <div className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                         предметы: {p.subjects.join('; ')}
                       </div>
                     )}
@@ -86,7 +86,7 @@ export function SupplierPairs({ pairs, periodLabel }: SupplierPairsProps) {
             </tbody>
           </table>
           {pairs.length > top.length && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Показаны {fmtCount(top.length)} связок из {fmtCount(pairs.length)} — остальные короче
               по числу побед.
             </p>

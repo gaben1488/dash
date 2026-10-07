@@ -40,8 +40,8 @@ test('УФ проверяет нужную колонку этой строки,
   assert.deepEqual(normalized[1].ranges, [{ sheetId: 1, startRowIndex: 2, endRowIndex: 1002, startColumnIndex: 13, endColumnIndex: 16 }]);
   assert.match(normalized[1].booleanRule.condition.values[0].userEnteredValue, /\$Y3/u);
   assert.match(normalized[0].booleanRule.condition.values[0].userEnteredValue, /TRIM\(\$A3/u);
-  assert.equal(normalized[2].ranges[0].startColumnIndex, 22);
-  assert.equal(normalized[2].ranges[0].endColumnIndex, 23);
+  assert.equal(normalized[2].ranges[0].startColumnIndex, 0);
+  assert.equal(normalized[2].ranges[0].endColumnIndex, 25);
 });
 
 test('отмена не становится ошибкой только потому, что сегодня прошло больше времени', () => {
@@ -86,4 +86,14 @@ test('автокод заполняет только пустые A внутри
   assert.throws(() => planProcedureCodeAutofill(rows.slice(2), 1, 5), /CODE_AUTOFILL_HEADER/);
   assert.throws(() => procedureCodeFormula(2), /CODE_AUTOFILL_ROW/);
   assert.match(procedureCodeFormula(1002), /G1002/);
+});
+
+ test('архив ГРБС отделяет состоявшиеся и соблюдает выбранное управление', async () => {
+  const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
+  const base = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0));свои;ARRAYFORMULA(есть);м;ARRAYFORMULA(--((свои+процБезДолей)>0));FILTER(код;м))';
+  const result = completedArchiveFormula(base);
+  assert.match(result, /долейКода=0\)\*IF\(EXACT\(выбор;"все"\);1;--EXACT\(упр;выбор\)\)/u);
+  assert.match(result, /м;ARRAYFORMULA\(--\(\(свои\+процБезДолей\)>0\)\*EXACT\(стд;"Состоялась"\)\)/u);
+  assert.equal(completedArchiveFormula(result), result);
+  assert.throws(() => completedArchiveFormula('=SUM(A1:A3)'), /ARCHIVE_FORMULA_CONTRACT/u);
 });

@@ -201,7 +201,7 @@ export function MonitoringAnalyticsSection({
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
             Аналитика мониторинга
           </h2>
-          <p className="mt-0.5 max-w-2xl text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             То, чего книга не считает сама. Витрина отвечает на три вопроса: <span className="font-medium">где
             деньги</span> — у каких заказчиков, в чьих бюджетах, в совместных или одиночных лотах;{' '}
             <span className="font-medium">где риск</span> — сколько прошло без торга, где цена не
@@ -221,11 +221,12 @@ export function MonitoringAnalyticsSection({
       </div>
 
       {error !== null && (
-        <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+        <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
           Последний пересчёт не удался ({error}); ниже — числа предыдущего успешного чтения книги.
         </p>
       )}
 
+      <details open className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Итоги и деньги</summary>
       <StageFunnel funnel={a.funnel} money={money} periodLabel={periodLabel} />
 
       {/* ── Где деньги: у кого они и чей рубль сэкономлен ── */}
@@ -273,12 +274,16 @@ export function MonitoringAnalyticsSection({
         </>
       )}
 
+      </details>
+      <details className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Поставщики</summary>
       <SupplierTop
         profile={a.suppliers}
         periodLabel={periodLabel}
         {...(onPickSupplier !== undefined ? { onPickSupplier } : {})}
       />
       <SupplierPairs pairs={a.pairs} periodLabel={periodLabel} />
+      </details>
+      <details className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Сроки и повторные процедуры</summary>
       <StageDurationBox durations={a.durations} periodLabel={periodLabel} />
 
       {/* ── Где затык: наследство прошлого года и причины повторного круга ── */}
@@ -304,6 +309,8 @@ export function MonitoringAnalyticsSection({
         {...(onPickFate !== undefined ? { onPickFate } : {})}
       />
 
+      </details>
+      <details className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Сравнение управлений и проверки</summary>
       <DeptCompare
         depts={a.depts}
         periodLabel={periodLabel}
@@ -312,8 +319,10 @@ export function MonitoringAnalyticsSection({
       <AnomalyList anomalies={a.anomalies} unsuccessful={a.unsuccessful} periodLabel={periodLabel} />
       <MatchPanel match={sharedMatch === undefined ? match : sharedMatch} error={sharedMatch === undefined ? matchError : sharedMatchError ?? null} periodLabel={periodLabel} onReload={loadMatch} />
 
+      </details>
+
       {data.notes.length > 0 && (
-        <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {data.notes.map((n) => <p key={n}>{n}</p>)}
         </div>
       )}

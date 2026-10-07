@@ -92,27 +92,27 @@ export function DiscountHistogram({
             key={m.id}
             className={`${TILE} p-3`}
           >
-            <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{m.title}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{m.title}</p>
             <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
               {m.valuePct === null ? '—' : fmtPct(m.valuePct)}
             </p>
             {m.medianPct !== null && (
-              <p className="text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                 медиана {fmtPct(m.medianPct)}
               </p>
             )}
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">{m.basis}</p>
-            <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{m.basis}</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
               {m.question}
             </p>
-            <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
               {m.method}
             </p>
           </div>
         ))}
       </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+      <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
         Разрыв между коэффициентами объясняется одним числом:{' '}
         {reduction.equalPriceCount === 0
           ? 'процедур, где цена в точности равна начальной, в этом срезе нет'
@@ -164,7 +164,7 @@ export function DiscountHistogram({
           </div>
 
           {onPickBucket !== undefined && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Клик по столбу ставит реестру выше разрез той же корзиной снижения — видно сами
               строки за числом.
             </p>
@@ -173,7 +173,7 @@ export function DiscountHistogram({
           {/* Текстовый дубль графика: печать бывает чёрно-белой, а часть
               читателей не различает тона. Числа обязаны быть словами тоже. */}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">Распределение процедур по величине снижения</caption>
               <thead>
                 <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -199,10 +199,10 @@ export function DiscountHistogram({
       )}
 
       {/* ── Разрез по способу закупки ── */}
-      <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+      <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
         Разрез по способу определения поставщика
       </h4>
-      <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
         Складывать электронный аукцион и закупку у единственного поставщика в один средний процент
         бессмысленно: у второй снижения нет по природе способа.
       </p>
@@ -213,7 +213,7 @@ export function DiscountHistogram({
         </CardEmpty>
       ) : (
         <div className="mt-1.5 overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th className="py-1 pr-2 font-normal">Способ</th>
@@ -242,10 +242,10 @@ export function DiscountHistogram({
       )}
 
       {/* ── Разрез по размеру закупки ── */}
-      <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+      <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
         Разрез по размеру закупки
       </h4>
-      <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
         Мелкие и крупные закупки торгуются по-разному: у мелких сильнее конкуренция за счёт низкого
         порога входа, у крупных выше цена ошибки в начальной цене.
       </p>
@@ -253,7 +253,7 @@ export function DiscountHistogram({
         <CardEmpty>Корзин по размеру закупки сервер не прислал.</CardEmpty>
       ) : (
         <div className="mt-1.5 overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th className="py-1 pr-2 font-normal">Размер</th>

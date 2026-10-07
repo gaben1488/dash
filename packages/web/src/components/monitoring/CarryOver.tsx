@@ -84,32 +84,32 @@ export function CarryOverCard({ carry, periodLabel, onPickYear }: CarryOverProps
           <div className="grid gap-2 sm:grid-cols-3">
             <KBTooltip {...biKbProps(BI_KB.carry_over)} showIcon>
               <div className={`${TILE} p-3 text-left`}>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Прошлогодних процедур</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Прошлогодних процедур</p>
                 <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                   {fmtCount(carry.carriedCount)}
                 </p>
-                <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                   {fmtPct(carry.carriedCountSharePct)} строк книги
                 </p>
               </div>
             </KBTooltip>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Их начальные цены</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Их начальные цены</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtRub(carry.carriedNmckRub)}
               </p>
-              <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                 руб. · {fmtPct(carry.carriedMoneySharePct)} денег книги
               </p>
             </div>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Год без кода</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Год без кода</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtCount(carry.unknownYearCount)}
               </p>
-              <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 {pluralCount(carry.unknownYearCount, 'строка', 'строки', 'строк')} без разобранного
                 кода — год неизвестен, а не «прошлый»
               </p>
@@ -118,7 +118,7 @@ export function CarryOverCard({ carry, periodLabel, onPickYear }: CarryOverProps
 
           {carry.carriedCount > 0 && carry.carriedMoneySharePct !== null
             && carry.carriedCountSharePct !== null && (
-            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
               {carry.carriedMoneySharePct > carry.carriedCountSharePct + 2
                 ? `Наследство весит больше своего счёта: ${fmtPct(carry.carriedCountSharePct)} строк держат ${fmtPct(carry.carriedMoneySharePct)} денег — переходят преимущественно крупные закупки.`
                 : carry.carriedMoneySharePct < carry.carriedCountSharePct - 2
@@ -195,22 +195,22 @@ export function CarryOverCard({ carry, periodLabel, onPickYear }: CarryOverProps
           </div>
 
           {onPickYear !== undefined && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Клик по столбу «процедур» ставит реестру выше разрез «год процедуры» — видно сами
               строки за числом.
             </p>
           )}
 
           {/* ── Стадии внутри года: без них хвост не отличить от затыка ── */}
-          <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+          <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
             Что с этими процедурами сейчас
           </h4>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             Прошлогодняя строка, дошедшая до договора, — нормальный переход. Прошлогодняя строка без
             итога торгов — вопрос к управлению.
           </p>
           <div className="mt-1.5 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">Стадии процедур по годам нумерации</caption>
               <thead>
                 <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -250,7 +250,7 @@ export function CarryOverCard({ carry, periodLabel, onPickYear }: CarryOverProps
 
           {/* ── Где хвост лежит ── */}
           {carry.carriedCount > 0 && (
-            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
               Хвост лежит на листах:{' '}
               {carry.rows
                 .filter((r) => r.year !== null && carry.currentYear !== null && r.year < carry.currentYear)

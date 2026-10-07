@@ -39,7 +39,7 @@ function Figure({
   const body = (
     <div>
       <p className={`text-xl sm:text-2xl font-semibold tabular-nums ${color}`}>{value}</p>
-      <p className="text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">{caption}</p>
+      <p className="text-xs leading-tight text-zinc-500 dark:text-zinc-400">{caption}</p>
     </div>
   );
   // Карточки БЗ ещё нет — число всё равно показывается: дыра в объяснении не
@@ -127,7 +127,7 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
         type="button"
         onClick={() => setOpenCoefficients((v) => !v)}
         aria-expanded={openCoefficients}
-        className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
+        className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
       >
         <ChevronDown
           size={12}
@@ -139,7 +139,7 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
 
       {openCoefficients && (
         <div className={`mt-3 space-y-2 ${RULE_SECTION} pt-3`}>
-          <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             Коэффициенты расходятся не от ошибки счёта, а потому, что у{' '}
             {pluralCount(p.noReductionCount, 'процедуры', 'процедур', 'процедур')} из{' '}
             {fmtCount(p.awardedCount)} состоявшихся цена в точности равна начальной — торги
@@ -175,17 +175,17 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
                 // только обводкой — тем самым «частоколом».
                 className={`${TILE} px-3 py-2`}
               >
-                <dt className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{x.title}</dt>
+                <dt className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{x.title}</dt>
                 <dd className="mt-0.5">
                   <span className="text-base font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                     {fmtPct(x.c.value)}
                   </span>
                   {x.c.median !== null && (
-                    <span className="ml-1.5 text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                    <span className="ml-1.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                       медиана {fmtPct(x.c.median)}
                     </span>
                   )}
-                  <p className="mt-1 text-[10px] leading-tight text-zinc-500 dark:text-zinc-400">
+                  <p className="mt-1 text-xs leading-tight text-zinc-500 dark:text-zinc-400">
                     {x.what}. Считается: {x.how}. В знаменателе —{' '}
                     {pluralCount(x.c.base, 'процедура', 'процедуры', 'процедур')}.
                   </p>

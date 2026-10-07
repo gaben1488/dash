@@ -55,7 +55,7 @@ export function AnomalyList({ anomalies, unsuccessful, periodLabel }: AnomalyLis
     >
       {/* ── Несостоявшиеся ── */}
       <div className={`${TILE} p-3`}>
-        <p className="text-[11px] text-zinc-700 dark:text-zinc-200">
+        <p className="text-xs text-zinc-700 dark:text-zinc-200">
           {unsuccessful.count === 0
             ? 'Ни одна процедура среза не закончилась без результата.'
             : (
@@ -68,7 +68,7 @@ export function AnomalyList({ anomalies, unsuccessful, periodLabel }: AnomalyLis
             )}
         </p>
         {unsuccessful.byDept.length > 0 && (
-          <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+          <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {unsuccessful.byDept.map((d) => (
               <li key={d.dept} className="tabular-nums">
                 {d.dept}: {fmtCount(d.count)} · {fmtRub(d.nmckRub)} руб.
@@ -78,10 +78,10 @@ export function AnomalyList({ anomalies, unsuccessful, periodLabel }: AnomalyLis
         )}
         {unsuccessful.outcomes.length > 0 && (
           <div className="mt-1.5">
-            <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Что записано в книге как причина:
             </p>
-            <ul className="mt-0.5 space-y-0.5 text-[10px] text-zinc-600 dark:text-zinc-300">
+            <ul className="mt-0.5 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-300">
               {unsuccessful.outcomes.slice(0, 6).map((o) => (
                 <li key={o.text} className="tabular-nums">
                   «{o.text}» — {pluralCount(o.count, 'раз', 'раза', 'раз')}
@@ -127,15 +127,15 @@ function AnomalyCard({ group }: { group: AnomalyGroup }) {
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">
             {group.title}
-            <span className="ml-1.5 text-[10px] font-normal tabular-nums text-zinc-400 dark:text-zinc-500">
+            <span className="ml-1.5 text-xs font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
               {pluralCount(group.count, 'строка', 'строки', 'строк')}
             </span>
           </p>
-          <p className="mt-1 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+          <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
             {group.mechanism}
           </p>
-          <p className="mt-1 text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
-            <span className="text-zinc-400 dark:text-zinc-500">Что сделать: </span>{group.action}
+          <p className="mt-1 text-xs leading-relaxed text-zinc-700 dark:text-zinc-200">
+            <span className="text-zinc-500 dark:text-zinc-400">Что сделать: </span>{group.action}
           </p>
           {group.refs.length > 0 && (
             <>
@@ -143,13 +143,13 @@ function AnomalyCard({ group }: { group: AnomalyGroup }) {
                 type="button"
                 onClick={() => setOpen((v) => !v)}
                 aria-expanded={open}
-                className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 hover:underline"
+                className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400 hover:underline"
               >
                 <ChevronDown size={10} aria-hidden="true" className={open ? 'rotate-180' : ''} />
                 {open ? 'скрыть адреса' : `показать адреса (${fmtCount(group.refs.length)})`}
               </button>
               {open && (
-                <ul className="mt-1 max-h-60 space-y-0.5 overflow-y-auto text-[10px] text-zinc-500 dark:text-zinc-400">
+                <ul className="mt-1 max-h-60 space-y-0.5 overflow-y-auto text-xs text-zinc-500 dark:text-zinc-400">
                   {group.refs.map((r) => (
                     <li key={`${r.sheet}:${r.row}`}>
                       <span className="font-mono">{refAddress(r)}</span> — {r.note}

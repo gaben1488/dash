@@ -62,8 +62,8 @@ export function StageFunnel({ funnel, money, periodLabel }: StageFunnelProps) {
             return (
               <li key={b.key}>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                  <span className="text-[11px] text-zinc-600 dark:text-zinc-300">{b.label}</span>
-                  <span className="text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                  <span className="text-xs text-zinc-600 dark:text-zinc-300">{b.label}</span>
+                  <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                     {b.conversionPct === null
                       ? 'первая ступень — сравнивать не с чем'
                       : `${fmtPct(b.conversionPct, 0)} от предыдущей`}
@@ -81,7 +81,7 @@ export function StageFunnel({ funnel, money, periodLabel }: StageFunnelProps) {
                     {fmtCount(b.count)}
                   </span>
                 </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-zinc-500 dark:text-zinc-400">
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-zinc-500 dark:text-zinc-400">
                   {m !== undefined && (
                     <>
                       <span className="tabular-nums">
@@ -100,7 +100,7 @@ export function StageFunnel({ funnel, money, periodLabel }: StageFunnelProps) {
                   {money === null && <span>суммы этой ступени показываются вместе с реестром</span>}
                 </div>
                 {b.note !== null && (
-                  <p className="mt-0.5 text-[10px] leading-relaxed text-amber-700 dark:text-amber-400">
+                  <p className="mt-0.5 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
                     {b.note}
                   </p>
                 )}

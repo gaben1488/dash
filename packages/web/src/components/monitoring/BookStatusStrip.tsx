@@ -94,7 +94,7 @@ export function BookStatusStrip({
             {bySeverity.low > 0 && ` · низкой ${bySeverity.low}`}
           </span>
         )}
-        <span className="text-zinc-400 dark:text-zinc-500">
+        <span className="text-zinc-500 dark:text-zinc-400">
           {pluralCount(ancestorNames.length, 'лист', 'листа', 'листов')} книги скрыты
           и данных не несут — показаны формой
         </span>

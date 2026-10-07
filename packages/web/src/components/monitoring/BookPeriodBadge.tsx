@@ -30,12 +30,12 @@ export function BookPeriodBadge({ label, note, kind = 'moment' }: BookPeriodBadg
   const Icon = kind === 'moment' ? Clock : Calendar;
   return (
     <div className="flex flex-col items-start sm:items-end gap-1 shrink-0">
-      <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300">
+      <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-medium text-zinc-600 dark:text-zinc-300">
         <Icon size={10} aria-hidden="true" />
         <span className="tabular-nums">{label}</span>
       </div>
       {note && (
-        <span className="text-[9px] leading-tight text-amber-700 dark:text-amber-400 sm:text-right max-w-[15rem]">
+        <span className="text-xs leading-tight text-amber-700 dark:text-amber-400 sm:text-right max-w-[15rem]">
           {note}
         </span>
       )}

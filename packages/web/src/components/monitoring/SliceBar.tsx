@@ -238,7 +238,7 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
       {/* ── Крошки: видны всегда, в том числе со сложенной панелью ── */}
       {active && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">
             показано {fmtCount(shownCount)} из {fmtCount(rows.length)}:
           </span>
           {crumbs.map((c) => (

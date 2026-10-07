@@ -158,7 +158,7 @@ export function SeasonChart({ seasonality, periodLabel, basis, onBasisChange }: 
           </div>
 
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">
                 Процедуры и деньги по {grain === 'month' ? 'месяцам' : 'кварталам'}
               </caption>

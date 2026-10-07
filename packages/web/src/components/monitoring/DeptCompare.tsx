@@ -99,7 +99,7 @@ export function DeptCompare({ depts, periodLabel, onPickDept }: DeptCompareProps
           </div>
 
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">Управления в сравнении по выбранной величине</caption>
               <thead>
                 <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -123,7 +123,7 @@ export function DeptCompare({ depts, periodLabel, onPickDept }: DeptCompareProps
                           {r.dept}
                         </button>
                       )}
-                      <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">
                         лист «{r.sheet}»
                       </span>
                     </td>

@@ -14,7 +14,7 @@ import { RULE_SECTION, TILE } from './surfaces';
 function Band({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+      <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         {title}
       </h4>
       <div className="mt-1.5 space-y-1">{children}</div>
@@ -51,7 +51,7 @@ function Step({ label, date, days }: { label: string; date: string | null; days:
         <span className="tabular-nums text-zinc-700 dark:text-zinc-200">{fmtDate(date)}</span>
         {days !== null && (
           <span
-            className={`ml-1.5 tabular-nums ${negative ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-500'}`}
+            className={`ml-1.5 tabular-nums ${negative ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500 dark:text-zinc-400'}`}
             title={negative
               ? 'Вторая дата раньше первой: этап получился отрицательной длины — так записано в книге'
               : 'календарных дней от предыдущей ступени'}
@@ -117,7 +117,7 @@ export function ProcedureCard({
             )}
           </div>
           <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300 max-w-3xl">{p.subject}</p>
-          <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {rowAddress(p.sheet, p.row, p.ppNum)} · заказчик: {p.customer || 'в книге не назван'}
           </p>
           {/* Диагноз кода — видимым текстом, не только подсказкой при наведении
@@ -158,7 +158,7 @@ export function ProcedureCard({
           <Step label="Публикация" date={p.publicationDate} days={d.toPublication} />
           <Step label="Окончание подачи" date={p.deadlineDate} days={d.toDeadline} />
           <Step label="Подведение итогов" date={p.auctionDate} days={d.toAuction} />
-          <p className="pt-1 text-xs text-zinc-400 dark:text-zinc-500">
+          <p className="pt-1 text-xs text-zinc-500 dark:text-zinc-400">
             {d.total !== null
               ? `Весь путь — ${fmtDays(d.total)} от заявки до подведения итогов.`
               : 'Весь путь не измерить: одной из крайних дат в книге нет.'}
@@ -225,7 +225,7 @@ export function ProcedureCard({
             </button>
           )}
           {p.innRepeated && (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
               ИНН записан в ячейке дважды — след копирования, на разбор не влияет.
             </p>
           )}
@@ -233,7 +233,7 @@ export function ProcedureCard({
             <p className="text-sm text-amber-700 dark:text-amber-400">Исход: {p.outcome}</p>
           )}
           {p.winner !== null && (
-            <details className="text-xs text-zinc-400 dark:text-zinc-500">
+            <details className="text-xs text-zinc-500 dark:text-zinc-400">
               <summary className="cursor-pointer">ячейка книги как есть</summary>
               <p className="mt-1 whitespace-pre-line break-words text-zinc-500 dark:text-zinc-400">{p.winner}</p>
             </details>
@@ -264,7 +264,7 @@ export function ProcedureCard({
       {/* ── Родословная переобъявлений ── */}
       {lineage && lineage.codes.length > 1 && (
         <div className={`${RULE_SECTION} pt-3`}>
-          <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+          <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Родословная процедуры
           </h4>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -288,7 +288,7 @@ export function ProcedureCard({
               {lineage.notes.map((n) => <li key={n}>{n}</li>)}
             </ul>
           )}
-          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             Показаны явные связи из источника; связь сама по себе не подтверждает повторное объявление.
           </p>
         </div>
@@ -296,7 +296,7 @@ export function ProcedureCard({
 
       {/* ── Сверка со строкой книги ГРБС ── */}
       <div className={`${RULE_SECTION} pt-3`}>
-        <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Сверка со строкой книги управления
         </h4>
         {matchIndex && <p className="mt-1 text-sm text-zinc-500">Отдельное чтение сверки: {fmtReadAt(matchIndex.readAt)}. Его время может отличаться от чтения реестра.</p>}
@@ -326,7 +326,7 @@ export function ProcedureCard({
                 мониторинга. Без адресов вердикт остаётся мнением — проверить
                 его читатель не может (требование владельца о числе и его
                 источнике). */}
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Источник:{' '}
               {match.bookRowKey !== null ? `книга управления ${match.bookRowKey}` : 'книги управлений (колонка AG)'}
               {' ↔ '}
@@ -360,7 +360,7 @@ export function ProcedureCard({
           if (d === undefined) return null;
           return (
             <div className="mt-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Внутри книги: лист управления против «25-26»
               </p>
               <p className="mt-1 text-sm leading-relaxed text-amber-700 dark:text-amber-400">
@@ -378,7 +378,7 @@ export function ProcedureCard({
 
       {/* ── Сигналы строки: карточки диагноста с адресами ── */}
       <div className={`${RULE_SECTION} pt-3`}>
-        <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Сигналы строки
         </h4>
         {defects.length === 0 ? (

@@ -61,7 +61,7 @@ export function StageDurationBox({ durations, periodLabel }: StageDurationBoxPro
           <ul className="space-y-3">
             {boxes.map((b) => (
               <li key={b.key}>
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[11px]">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
                   <span className="text-zinc-600 dark:text-zinc-300">{b.label}</span>
                   <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
                     медиана {fmtDays(b.medianDays)} · среднее {fmtDays(b.meanDays)} ·{' '}
@@ -78,7 +78,7 @@ export function StageDurationBox({ durations, periodLabel }: StageDurationBoxPro
                     role="presentation"
                   />
                   {b.box === null ? (
-                    <span className="absolute inset-0 flex items-center justify-center text-[10px] text-zinc-500 dark:text-zinc-400">
+                    <span className="absolute inset-0 flex items-center justify-center text-xs text-zinc-500 dark:text-zinc-400">
                       четвертей у этого этапа нет — строк слишком мало
                     </span>
                   ) : (
@@ -96,7 +96,7 @@ export function StageDurationBox({ durations, periodLabel }: StageDurationBoxPro
                     </>
                   )}
                 </div>
-                <p className="mt-0.5 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                <p className="mt-0.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                   крайние значения: от {fmtDays(b.minDays)} до {fmtDays(b.maxDays)}
                   {b.negativeCount > 0 && (
                     <span className="text-amber-700 dark:text-amber-400">
@@ -109,10 +109,10 @@ export function StageDurationBox({ durations, periodLabel }: StageDurationBoxPro
           </ul>
 
           {/* ── Самые долгие и невозможные: адрес обязателен (п.53) ── */}
-          <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+          <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
             Выбивающиеся из ряда процедуры
           </h4>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             Сюда попадают строки с отрицательной длительностью (торги раньше публикации — значит,
             дата набрана неверно) и строки длиннее полутора межчетвертных размахов от третьей
             четверти. Долгий срок сам по себе не нарушение: закупка могла ждать согласования.
@@ -121,7 +121,7 @@ export function StageDurationBox({ durations, periodLabel }: StageDurationBoxPro
             {boxes.flatMap((b) => b.outliers.slice(0, 6).map((o) => (
               <li
                 key={`${b.key}:${o.sheet}:${o.row}`}
-                className="text-[10px] leading-relaxed text-zinc-600 dark:text-zinc-300"
+                className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300"
               >
                 <span className="font-mono text-zinc-500 dark:text-zinc-400">
                   {o.sheet} · строка {o.row}
@@ -132,7 +132,7 @@ export function StageDurationBox({ durations, periodLabel }: StageDurationBoxPro
               </li>
             )))}
             {boxes.every((b) => b.outliers.length === 0) && (
-              <li className="text-[10px] text-zinc-500 dark:text-zinc-400">
+              <li className="text-xs text-zinc-500 dark:text-zinc-400">
                 Выбивающихся строк нет: все длительности лежат в обычном разбросе.
               </li>
             )}

@@ -58,7 +58,7 @@ export function AncestorSheets({ ancestors, readAtLabel }: AncestorSheetsProps) 
               книга прочитана. Форма — тоже число экрана, и источника у неё до
               сих пор не было видно. */}
           <div className="shrink-0 text-right">
-            <p className="text-[10px] leading-tight text-zinc-400 dark:text-zinc-500 max-w-[18rem] break-words">
+            <p className="text-xs leading-tight text-zinc-500 dark:text-zinc-400 max-w-[18rem] break-words">
               Источник: {fromServer
                 ? 'книга «Ежедневный мониторинг» · скрытые листы, названные сервером'
                 : 'запасной список приложения — сервер листы-предки в ответе не назвал'}
@@ -67,24 +67,24 @@ export function AncestorSheets({ ancestors, readAtLabel }: AncestorSheetsProps) 
             <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
           </div>
         </div>
-        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-3xl">
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400 max-w-3xl">
           Строк с данными на них нет — эти листы остались от прежней формы отчёта. Их шапка
           сохранена целиком: {pluralCount(columns.length, 'колонка', 'колонки', 'колонок')},
           из которых часть в нынешнюю рабочую форму не перешла.
         </p>
         {fromServer && ancestors.sheets.some((s) => s.note !== '') && (
-          <ul className="mt-1.5 space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+          <ul className="mt-1.5 space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {ancestors.sheets.filter((s) => s.note !== '').map((s) => (
               <li key={s.sheet}>«{s.sheet}» — {s.note}</li>
             ))}
           </ul>
         )}
-        <ol className="mt-2 grid gap-x-4 gap-y-0.5 sm:grid-cols-2 xl:grid-cols-3 text-[11px] text-zinc-600 dark:text-zinc-300">
+        <ol className="mt-2 grid gap-x-4 gap-y-0.5 sm:grid-cols-2 xl:grid-cols-3 text-xs text-zinc-600 dark:text-zinc-300">
           {columns.map((c, i) => {
             const missing = ANCESTOR_MISSING_FIELDS.some((f) => c.startsWith(f.field));
             return (
               <li key={c} className="tabular-nums">
-                <span className="text-zinc-400 dark:text-zinc-500">{i + 1}.</span>{' '}
+                <span className="text-zinc-500 dark:text-zinc-400">{i + 1}.</span>{' '}
                 <span className={missing ? 'text-amber-700 dark:text-amber-400' : ''}>{c}</span>
               </li>
             );
@@ -102,8 +102,8 @@ export function AncestorSheets({ ancestors, readAtLabel }: AncestorSheetsProps) 
         <dl className="mt-2 space-y-2.5">
           {ANCESTOR_MISSING_FIELDS.map((f) => (
             <div key={f.field}>
-              <dt className="text-[11px] font-medium text-zinc-700 dark:text-zinc-200">{f.field}</dt>
-              <dd className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 max-w-3xl">
+              <dt className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{f.field}</dt>
+              <dd className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400 max-w-3xl">
                 {f.whatItGives}
               </dd>
             </div>

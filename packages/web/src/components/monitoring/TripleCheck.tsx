@@ -171,7 +171,7 @@ function TripleBody({
 
           {formGroups.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Ниже — не расхождения, а форма заполнения: так книги ведутся по замыслу.
               </p>
               {formGroups.map((g) => (
@@ -183,7 +183,7 @@ function TripleBody({
       )}
 
       {payload.notes.length > 0 && (
-        <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {payload.notes.map((n) => <p key={n}>{n}</p>)}
         </div>
       )}
@@ -200,7 +200,7 @@ function Frame({ children }: { children: React.ReactNode }) {
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
           Сверка трёх источников
         </h2>
-        <p className="mt-0.5 max-w-3xl text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+        <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
           Одна и та же закупка записана трижды: в книге своего управления, на листе управления
           книги «Ежедневный мониторинг» и в переходящем реестре «25-26». Здесь эти три записи
           сведены по номеру процедуры и сравнены по трём величинам — начальной цене, факту
@@ -226,7 +226,7 @@ function Lineage({ payload, rows }: { payload: TriplePayload; rows: readonly Tri
 
   return (
     <div className={`${CARD} px-4 py-3`}>
-      <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">
         Что с чем сверялось
       </p>
       <ul className="mt-1.5 grid gap-1.5 sm:grid-cols-3">
@@ -248,7 +248,7 @@ function Lineage({ payload, rows }: { payload: TriplePayload; rows: readonly Tri
           detail="Лист «25-26» — общий для района: судьба переходящих процедур, деньги в рублях."
         />
       </ul>
-      <p className={`mt-2 pt-2 ${RULE_SECTION} text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400`}>
+      <p className={`mt-2 pt-2 ${RULE_SECTION} text-xs leading-relaxed text-zinc-500 dark:text-zinc-400`}>
         Книга мониторинга прочитана {fmtReadAt(payload.source.readAt)}; фильтр года и периода из
         шапки к этой сверке не применяется — книги читаются целиком, и это относится к каждому
         числу раздела. Допуск сравнения разный по природе хранения: пары с книгой управления
@@ -256,7 +256,7 @@ function Lineage({ payload, rows }: { payload: TriplePayload; rows: readonly Tri
         «лист управления ↔ переходящий реестр» — полкопейки.
       </p>
       {Object.keys(payload.source.sheetsFailed).length > 0 && (
-        <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
           Прочитаны не все листы: {Object.keys(payload.source.sheetsFailed).join(', ')} — счётчики
           неполные, и «пары нет» по этим листам может означать «лист не прочитан».
         </p>
@@ -268,11 +268,11 @@ function Lineage({ payload, rows }: { payload: TriplePayload; rows: readonly Tri
 function LineageItem({ title, count, detail }: { title: string; count: number; detail: string }) {
   return (
     <li className={`${TILE} px-2.5 py-2`}>
-      <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-200">{title}</p>
+      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{title}</p>
       <p className="mt-0.5 text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
         {pluralCount(count, 'строка', 'строки', 'строк')}
       </p>
-      <p className="mt-0.5 text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">{detail}</p>
+      <p className="mt-0.5 text-xs leading-snug text-zinc-500 dark:text-zinc-400">{detail}</p>
     </li>
   );
 }
@@ -323,8 +323,8 @@ function Stat({
       }`}>
         {value}
       </p>
-      <p className="text-[11px] text-zinc-600 dark:text-zinc-300">{label}</p>
-      <p className="mt-0.5 text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">{hint}</p>
+      <p className="text-xs text-zinc-600 dark:text-zinc-300">{label}</p>
+      <p className="mt-0.5 text-xs leading-snug text-zinc-500 dark:text-zinc-400">{hint}</p>
     </div>
   );
 }
@@ -353,7 +353,7 @@ function ClassCard({
           <span className="text-[13px] font-medium text-zinc-800 dark:text-zinc-100">
             {group.label}
           </span>
-          <span className="ml-2 text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400">
+          <span className="ml-2 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
             {pluralCount(group.items.length, 'закупка', 'закупки', 'закупок')}
             {group.deltaSumRub !== null && (
               <> · разрыв {fmtRub(group.deltaSumRub)} руб.</>
@@ -371,7 +371,7 @@ function ClassCard({
       </button>
 
       {group.guide !== null && (
-        <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
           {group.guide.why}
         </p>
       )}
@@ -379,7 +379,7 @@ function ClassCard({
       {open && (
         <div className="mt-2 space-y-1.5">
           {group.guide !== null && (
-            <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+            <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">
               Что делать: {group.guide.todo}
             </p>
           )}
@@ -396,7 +396,7 @@ function ClassCard({
             <button
               type="button"
               onClick={() => setAll((v) => !v)}
-              className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
+              className="text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
             >
               {all
                 ? `свернуть до ${PREVIEW} крупнейших`
@@ -424,12 +424,12 @@ function FindingItem({
 
   return (
     <li className={`${TILE} px-2.5 py-2`}>
-      <p className="text-[11px] leading-snug text-zinc-700 dark:text-zinc-200">
+      <p className="text-xs leading-snug text-zinc-700 dark:text-zinc-200">
         <span className="font-mono font-medium">{row.code}</span>
         {row.subject !== '' && <> · {row.subject}</>}
       </p>
       {org !== '' && (
-        <p className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">{org}</p>
+        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{org}</p>
       )}
 
       {/* Три числа рядом и адрес под каждым — «где она в каждой книге». */}
@@ -440,7 +440,7 @@ function FindingItem({
           const isOutlier = subject.money.outlier === s;
           return (
             <div key={s} className="min-w-0">
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{SIDE_SHORT[s]}</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">{SIDE_SHORT[s]}</p>
               <p className={`text-[12px] tabular-nums ${
                 isOutlier
                   ? 'font-semibold text-amber-700 dark:text-amber-300'
@@ -448,7 +448,7 @@ function FindingItem({
               }`}>
                 {value === null ? 'записи нет' : fmtRubExact(value)}
               </p>
-              <p className="truncate font-mono text-[10px] text-zinc-400 dark:text-zinc-500" title={addr.join(', ')}>
+              <p className="truncate font-mono text-xs text-zinc-500 dark:text-zinc-400" title={addr.join(', ')}>
                 {addr.length === 0 ? '—' : addr.join(', ')}
               </p>
             </div>
@@ -456,7 +456,7 @@ function FindingItem({
         })}
       </div>
 
-      <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         Сравнивается {subject.label}
         {finding.deltaRub !== null && (
           <>; разница <span className="font-medium tabular-nums text-zinc-700 dark:text-zinc-200">
@@ -468,7 +468,7 @@ function FindingItem({
         )}
       </p>
 
-      <p className="mt-1 text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
+      <p className="mt-1 text-xs leading-snug text-zinc-600 dark:text-zinc-300">
         {finding.note}
       </p>
 
@@ -476,7 +476,7 @@ function FindingItem({
         <button
           type="button"
           onClick={() => onOpenCode(row.code)}
-          className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
+          className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
         >
           <Search size={9} aria-hidden="true" /> показать эту закупку в реестре
         </button>
@@ -499,11 +499,11 @@ function OrphanCard({ orphans }: { orphans: readonly TripleOrphan[] }) {
     <div className={`${CARD} px-4 py-3`}>
       <p className="text-[13px] font-medium text-zinc-800 dark:text-zinc-100">
         Номер процедуры набран с опечаткой
-        <span className="ml-2 text-[11px] font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
+        <span className="ml-2 text-xs font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
           {pluralCount(orphans.length, 'строка', 'строки', 'строк')}
         </span>
       </p>
-      <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+      <p className="mt-1 max-w-3xl text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
         В этих строках номер виден, но записан не так, как в остальных книгах: латинская буква
         вместо русской, лишний пробел, иной разделитель. Пара по такому номеру не строится —
         продукт не соединяет строки по догадке. Догадка названа рядом; исправьте номер в книге,
@@ -512,13 +512,13 @@ function OrphanCard({ orphans }: { orphans: readonly TripleOrphan[] }) {
       <ul className="mt-2 space-y-1">
         {shown.map((o) => (
           <li key={`${o.address}:${o.text}`} className={`${TILE} px-2.5 py-1.5`}>
-            <p className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
               {o.address} · {SIDE_SHORT[o.side]}
             </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-zinc-700 dark:text-zinc-200">
+            <p className="mt-0.5 text-xs leading-snug text-zinc-700 dark:text-zinc-200">
               «{o.text}»
             </p>
-            <p className="mt-0.5 text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">
+            <p className="mt-0.5 text-xs leading-snug text-zinc-500 dark:text-zinc-400">
               {o.note}
               {o.subjectCandidate !== null && (
                 <> Похожий предмет у закупки{' '}
@@ -534,7 +534,7 @@ function OrphanCard({ orphans }: { orphans: readonly TripleOrphan[] }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="mt-1.5 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
+          className="mt-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
         >
           {open ? `свернуть до ${PREVIEW}` : `показать все ${fmtCount(orphans.length)}`}
         </button>
@@ -558,14 +558,14 @@ function Empty({
         <Info size={13} aria-hidden="true" className="text-zinc-400" />
         {title}
       </p>
-      <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+      <p className="mt-1 max-w-3xl text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
         {body}
       </p>
       {action !== undefined && (
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-2 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
+          className="mt-2 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
         >
           {action.label}
         </button>

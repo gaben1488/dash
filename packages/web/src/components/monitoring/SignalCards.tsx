@@ -68,16 +68,16 @@ function AddressAnswer({
 
   return (
     <li className={`${TILE} px-2 py-1.5`}>
-      <p className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">{answer.address}</p>
+      <p className="font-mono text-xs text-zinc-500 dark:text-zinc-400">{answer.address}</p>
 
       {answer.kind === 'row' && p !== null && (
         <>
-          <p className="mt-0.5 text-[11px] leading-snug text-zinc-700 dark:text-zinc-200">
+          <p className="mt-0.5 text-xs leading-snug text-zinc-700 dark:text-zinc-200">
             <span className="font-medium">{procedureCodeLabel(p) ?? 'код не разобран'}</span>
             {' · '}{p.customer}
             {p.subject !== '' && <> · {p.subject}</>}
           </p>
-          <p className="mt-0.5 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
             НМЦК {fmtRub(p.nmck)} руб. · {stageLabel(p.stage)}
             {p.winnerName !== null && <> · победитель {p.winnerName}</>}
           </p>
@@ -85,7 +85,7 @@ function AddressAnswer({
             <button
               type="button"
               onClick={() => onOpenCode(p.code as string)}
-              className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
+              className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:underline"
             >
               <Search size={9} aria-hidden="true" /> показать эту строку в реестре
             </button>
@@ -94,14 +94,14 @@ function AddressAnswer({
       )}
 
       {answer.kind === 'not-registry' && (
-        <p className="mt-0.5 text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">
+        <p className="mt-0.5 text-xs leading-snug text-zinc-500 dark:text-zinc-400">
           Этот адрес указывает не на строку реестра, а на встречную сторону — книгу управления,
           свод либо справочник учреждений. Строки процедуры за ним нет по природе адреса.
         </p>
       )}
 
       {answer.kind === 'row-missing' && (
-        <p className="mt-0.5 text-[10px] leading-snug text-amber-700 dark:text-amber-400">
+        <p className="mt-0.5 text-xs leading-snug text-amber-700 dark:text-amber-400">
           Строки {answer.ref?.row} листа «{answer.ref?.sheet}» в показанном реестре нет: либо её
           срезал выбранный в шапке периметр, либо она ушла из книги между двумя чтениями.
         </p>
@@ -130,14 +130,14 @@ function SignalCard({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">
             {s.title}
-            <span className="ml-1.5 tabular-nums text-[10px] font-normal text-zinc-400 dark:text-zinc-500">
+            <span className="ml-1.5 tabular-nums text-xs font-normal text-zinc-500 dark:text-zinc-400">
               {pluralCount(s.count, 'случай', 'случая', 'случаев')}
             </span>
           </p>
-          <p className="mt-1 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">{s.mechanism}</p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">{s.mechanism}</p>
           {s.action !== '' && (
-            <p className="mt-1 text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
-              <span className="text-zinc-400 dark:text-zinc-500">Что сделать: </span>{s.action}
+            <p className="mt-1 text-xs leading-relaxed text-zinc-700 dark:text-zinc-200">
+              <span className="text-zinc-500 dark:text-zinc-400">Что сделать: </span>{s.action}
             </p>
           )}
           {s.addresses.length > 0 && (
@@ -146,7 +146,7 @@ function SignalCard({
                 type="button"
                 onClick={() => setOpen((v) => !v)}
                 aria-expanded={open}
-                className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 hover:underline"
+                className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400 hover:underline"
               >
                 <ChevronDown size={10} aria-hidden="true" className={open ? 'rotate-180' : ''} />
                 {open
@@ -208,7 +208,7 @@ export function SignalCards({
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
             Сигналы книги — {pluralCount(signals.length, 'класс', 'класса', 'классов')}
           </h2>
-          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-3xl">
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-3xl">
             Каждый сигнал — механизм расхождения и строки книги, по которым его видно: адрес,
             что в этой строке записано и кнопка до неё в реестре. Это не оценка работы отдела:
             почти все сигналы возникают от того, что книгу ведут руками в таблице без проверок
@@ -219,7 +219,7 @@ export function SignalCards({
             момент. До этого у сигналов не было ни источника, ни момента — из
             двух половин требования владельца не выполнялась ни одна. */}
         <div className="shrink-0 text-right">
-          <p className="text-[10px] leading-tight text-zinc-400 dark:text-zinc-500 max-w-[18rem] break-words">
+          <p className="text-xs leading-tight text-zinc-500 dark:text-zinc-400 max-w-[18rem] break-words">
             Источник: машинные проверки по книге «Ежедневный мониторинг»
             {scopeLabel !== undefined && `; срез: ${scopeLabel}`}
             {readAtLabel !== undefined && `; ${readAtLabel}`}
@@ -229,7 +229,7 @@ export function SignalCards({
       </div>
       {groups.map((g) => (
         <div key={g.sev}>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             {SEVERITY_LABEL[g.sev] ?? 'Прочее'}
           </p>
           <ul className="mt-1.5 grid gap-2 md:grid-cols-2">
