@@ -1,5 +1,5 @@
 import type { MonitoringSource, RegistryProcedure } from './contract';
-import { fmtReadAt, sourceCellUrl } from './format';
+import { fmtReadAt, sourceCellUrl, procedureCodeLabel } from './format';
 import { stageShort } from './stage-labels';
 
 const HEADERS = ['Код процедуры', 'Управление', 'Заказчик', 'Предмет закупки', 'Стадия', 'Результат',
@@ -20,7 +20,7 @@ const text = (s: string | null | undefined) => {
 /** Caller supplies the complete sorted selection, before the table's 200-row window. */
 export function buildMonitoringCsv(rows: readonly RegistryProcedure[], source: Pick<MonitoringSource, 'readAt' | 'bookUrl'>, scope: string): string {
   const lines = rows.map((p) => [
-    ...[p.code, p.dept, p.customer, p.subject, stageShort(p.stage), p.result, p.requiredAction, p.qualityNote].map(text),
+    ...[procedureCodeLabel(p), p.dept, p.customer, p.subject, stageShort(p.stage), p.result, p.requiredAction, p.qualityNote].map(text),
     ...[p.nmck, p.auctionPrice, p.reductionRub, p.reductionPct, p.savingsTotal, p.savingsFb, p.savingsKb, p.savingsMb].map(money),
     ...[p.applicationDate, p.publicationDate, p.deadlineDate, p.auctionDate, p.winnerName, p.winnerInn, p.protocolFlag,
       p.ancestorCodes?.join('; '), p.successorCodes?.join('; '), p.participants?.map((r) => `${r.dept}: ${r.customer}`).join('; '),

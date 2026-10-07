@@ -6,7 +6,7 @@ import type {
 import type { MatchIndex, RowMatch } from '../../lib/monitoring/match-rows';
 import { procedureDefects } from '../../lib/monitoring/slices';
 import {
-  fmtDate, fmtDays, fmtPct, fmtRubExact, rowAddress, sourceCellUrl, fmtReadAt,
+  fmtDate, fmtDays, fmtPct, fmtRubExact, rowAddress, sourceCellUrl, fmtReadAt, procedureCodeLabel,
 } from '../../lib/monitoring/format';
 import { methodLabel, stageBadgeClass, stageLabel, stageMeaning } from '../../lib/monitoring/stage-labels';
 import { RULE_SECTION, TILE } from './surfaces';
@@ -82,10 +82,11 @@ export interface ProcedureCardProps {
   matchIndex?: MatchIndex | null;
   /** Нажатие на код в родословной — открыть соседнюю процедуру. */
   onOpenCode?: (code: string) => void;
+  codeLabel?: (code: string) => string;
 }
 
 export function ProcedureCard({
-  p, lineage, journalRow, match, matchIndex, onOpenCode, bookUrl,
+  p, lineage, journalRow, match, matchIndex, onOpenCode, bookUrl, codeLabel = (code) => code,
 }: ProcedureCardProps) {
   const defects = procedureDefects(p);
   const d = p.durations;
@@ -104,7 +105,7 @@ export function ProcedureCard({
               className="font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-100"
               title={p.code === null ? p.codeNote ?? undefined : undefined}
             >
-              {p.code ?? (p.codeNote !== null && p.codeNote.includes('похоже на') ? 'код с опечаткой' : 'без кода')}
+              {procedureCodeLabel(p) ?? (p.codeNote !== null && p.codeNote.includes('похоже на') ? 'код с опечаткой' : 'без кода')}
             </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               {methodLabel(p.method)}
@@ -277,7 +278,7 @@ export function ProcedureCard({
                     ? 'font-semibold text-zinc-800 dark:text-zinc-100'
                     : 'text-zinc-600 dark:text-zinc-300 hover:underline'}`}
                 >
-                  {c}
+                  {codeLabel(c)}
                 </button>
               </span>
             ))}

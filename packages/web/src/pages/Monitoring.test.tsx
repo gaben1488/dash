@@ -306,7 +306,7 @@ describe('Мониторинг: режимы листов', () => {
     serve(payload());
     renderPage();
 
-    const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
+    const tabs = await screen.findByRole('navigation', { name: /Разделы мониторинга процедур/u });
     fireEvent.click(within(tabs).getByRole('button', { name: /Обзор/u }));
 
     expect(await screen.findByText('Лист «Сводный аналитический лист» сервер пока не отдаёт')).toBeTruthy();
@@ -317,7 +317,7 @@ describe('Мониторинг: режимы листов', () => {
     serve(payload());
     renderPage();
 
-    const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
+    const tabs = await screen.findByRole('navigation', { name: /Разделы мониторинга процедур/u });
     expect(within(tabs).queryByRole('button', { name: /8\. УО/u })).toBeNull();
   });
 
@@ -339,7 +339,7 @@ describe('Мониторинг: режимы листов', () => {
     serve(payload());
     renderPage();
 
-    const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
+    const tabs = await screen.findByRole('navigation', { name: /Разделы мониторинга процедур/u });
     expect(within(tabs).queryByRole('button', { name: /Листы-предки/u })).toBeNull();
     fireEvent.click(within(tabs).getByRole('button', { name: /В работе/u }));
     expect(await screen.findByText('Очередь ещё не получена от сервера.')).toBeTruthy();
@@ -366,7 +366,7 @@ describe('Мониторинг: режимы листов', () => {
     }));
     renderPage();
 
-    const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
+    const tabs = await screen.findByRole('navigation', { name: /Разделы мониторинга процедур/u });
     fireEvent.click(within(tabs).getByRole('button', { name: /Обзор/u }));
 
     const svod = await screen.findByRole('region', { name: 'Свод книги' });

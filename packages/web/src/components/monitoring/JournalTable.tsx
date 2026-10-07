@@ -31,16 +31,17 @@ export interface JournalTableProps {
   /** Поисковая строка разрезов — журнал слушает её так же, как реестр. */
   query?: string;
   onOpenCode?: (code: string) => void;
+  codeLabel?: (code: string) => string;
 }
 
-export function JournalTable({ journal, readAtLabel, query = '', onOpenCode }: JournalTableProps) {
+export function JournalTable({ journal, readAtLabel, query = '', onOpenCode, codeLabel = (code) => code }: JournalTableProps) {
   const [showHidden, setShowHidden] = useState(true);
   const needle = query.trim().toLowerCase();
 
   const rows = journal.rows.filter((r) => {
     if (!showHidden && r.hiddenInBook) return false;
     if (needle === '') return true;
-    return [r.code, r.subject, r.customer, r.winnerName, r.winnerInn, r.fate]
+    return [r.code, r.code ? codeLabel(r.code) : null, r.subject, r.customer, r.winnerName, r.winnerInn, r.fate]
       .some((v) => v !== null && v.toLowerCase().includes(needle));
   });
 
@@ -68,7 +69,7 @@ export function JournalTable({ journal, readAtLabel, query = '', onOpenCode }: J
                   {chain.codes.map((c, i) => (
                     <span key={c} className="inline-flex items-center gap-1.5">
                       {i > 0 && <ArrowRight size={10} className="text-zinc-400" aria-hidden="true" />}
-                      <button type="button" onClick={() => onOpenCode?.(c)} className="font-mono text-sky-700 underline dark:text-sky-300">{c}</button>
+                      <button type="button" onClick={() => onOpenCode?.(c)} className="font-mono text-sky-700 underline dark:text-sky-300">{codeLabel(c)}</button>
                     </span>
                   ))}
                 </span>
@@ -156,10 +157,10 @@ export function JournalTable({ journal, readAtLabel, query = '', onOpenCode }: J
                     {r.fateRaw ?? r.fate ?? '—'}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
-                    {(r.linkedCodes?.length ? r.linkedCodes : r.linkedCode ? [r.linkedCode] : []).map((code) => <button key={code} type="button" onClick={() => onOpenCode?.(code)} className="mr-2 text-sky-700 underline dark:text-sky-300">{code}</button>)}
+                    {(r.linkedCodes?.length ? r.linkedCodes : r.linkedCode ? [r.linkedCode] : []).map((code) => <button key={code} type="button" onClick={() => onOpenCode?.(code)} className="mr-2 text-sky-700 underline dark:text-sky-300">{codeLabel(code)}</button>)}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap font-mono text-zinc-800 dark:text-zinc-100">
-                    {r.code ? <button type="button" onClick={() => onOpenCode?.(r.code!)} className="text-sky-700 underline dark:text-sky-300">{r.code}</button> : '—'}
+                    {r.code ? <button type="button" onClick={() => onOpenCode?.(r.code!)} className="text-sky-700 underline dark:text-sky-300">{codeLabel(r.code)}</button> : '—'}
                   </td>
                   <td className="px-2 py-1.5 max-w-[10rem] truncate text-zinc-600 dark:text-zinc-300" title={r.customer}>
                     {r.customer || '—'}

@@ -177,8 +177,10 @@ export interface MonitoringProcedure {
   readonly customer: string;
   /** Заказчик, приведённый к сравнимому виду НАШЕЙ нормализацией (не книги). */
   readonly customerNormalized: string;
-  /** Канонический код процедуры («ЭА152-26») либо null — код не разобран. */
+  /** Нормализованный ключ сопоставления либо null — код не разобран. */
   readonly code: string | null;
+  /** Код колонки A для отображения; ведущие нули сохраняются. code — ключ сопоставления. */
+  readonly sourceCode?: string | null;
   /**
    * Объяснение нечитаемого кода: «в книге „ЭКЗ301-26“ — похоже на ЭЗК301-26
    * (буквы переставлены местами)». null — код разобран либо кода в ячейке
@@ -499,6 +501,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
     const subject = codeText && subjectCell.startsWith(`${codeText} `) ? subjectCell.slice(codeText.length).trim() : subjectCell;
     procedures.push({ sheet, row, ordinal: null, dept, customer: monitoringText(r[5]) ?? '',
       customerNormalized: normalizeCustomer(monitoringText(r[5]) ?? ''), code: ref?.code ?? null,
+      sourceCode: ref ? codeText : null,
       codeNote: ref === null ? 'Проверьте код в колонке A.' : null, method: ref?.family ?? null, year: ref?.yy ?? null,
       subject, nmck, applicationDate: dates[0], publicationDate: dates[1], deadlineDate: dates[2], auctionDate: dates[3],
       auctionPrice, savingsTotal, savingsFb, savingsKb, savingsMb, savingsSplitSum,

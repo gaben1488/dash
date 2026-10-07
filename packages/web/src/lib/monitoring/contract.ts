@@ -106,6 +106,8 @@ export interface RegistryProcedure {
   customer: string;
   /** Канонический код процедуры («ЭА152-26») либо null — код не разобран. */
   code: string | null;
+  /** Запись кода в источнике; отдельно от ключа сопоставления code. */
+  sourceCode?: string | null;
   /**
    * Объяснение нечитаемого кода: «В книге записано „ЭКЗ301-26“ — похоже на
    * ЭЗК301-26 (буквы переставлены местами).» null — код разобран либо кода
@@ -503,6 +505,7 @@ function readProcedure(raw: unknown): RegistryProcedure {
     ppNum: str(r.ppNum) ?? str(r.ordinal),
     customer: text(r.customer),
     code,
+    sourceCode: str(r.sourceCode),
     codeNote: str(r.codeNote),
     // Способ и год сервер может ещё не присылать — выводим из кода сами, но
     // ровно так же, как их выводит ядро: префикс букв и суффикс после дефиса.

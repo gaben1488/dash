@@ -46,7 +46,7 @@ import type { SortDir, SortKey } from '../../lib/monitoring/slices';
 import { procedureDefects } from '../../lib/monitoring/slices';
 import { KBTooltip } from '../ui/kb-tooltip';
 import { MONITORING_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
-import { fmtCount, fmtDate, fmtDays, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
+import { fmtCount, fmtDate, fmtDays, fmtPct, fmtRub, pluralCount, procedureCodeLabel } from '../../lib/monitoring/format';
 import { methodLabel, stageBadgeClass, stageMeaning, stageShort } from '../../lib/monitoring/stage-labels';
 import { ProcedureCard } from './ProcedureCard';
 import { MonitoringPerimeterCaption } from './PerimeterProvider';
@@ -197,7 +197,7 @@ function CodeCell({ p }: { p: RegistryProcedure }) {
   }
   return (
     <span className="font-mono font-medium text-zinc-800 dark:text-zinc-100" title={methodLabel(p.method)}>
-      {p.code}
+      {procedureCodeLabel(p)}
     </span>
   );
 }
@@ -435,7 +435,7 @@ export function RegistryTable({
                     )}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap"><button type="button"
-                    aria-label={`Открыть процедуру ${p.code ?? `в строке ${p.row}`}`}
+                    aria-label={`Открыть процедуру ${procedureCodeLabel(p) ?? `в строке ${p.row}`}`}
                     aria-haspopup={onOpenProcedure ? 'dialog' : undefined}
                     aria-expanded={onOpenProcedure ? undefined : open}
                     onClick={(event) => { event.stopPropagation(); if (onOpenProcedure) onOpenProcedure(p); else toggleRow(p, open); }}

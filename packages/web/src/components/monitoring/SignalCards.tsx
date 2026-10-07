@@ -28,7 +28,7 @@
 import { AlertTriangle, ChevronDown, Info, Search } from 'lucide-react';
 import { useState } from 'react';
 import type { MonitoringSignal, RegistryProcedure } from '../../lib/monitoring/contract';
-import { fmtCount, fmtRub, pluralCount } from '../../lib/monitoring/format';
+import { fmtCount, fmtRub, pluralCount, procedureCodeLabel } from '../../lib/monitoring/format';
 import { answerForAddress, type SignalAnswer } from '../../lib/monitoring/signal-answer';
 import { stageLabel } from '../../lib/monitoring/stage-labels';
 import { MonitoringPerimeterCaption } from './PerimeterProvider';
@@ -73,7 +73,7 @@ function AddressAnswer({
       {answer.kind === 'row' && p !== null && (
         <>
           <p className="mt-0.5 text-[11px] leading-snug text-zinc-700 dark:text-zinc-200">
-            <span className="font-medium">{p.code ?? 'код не разобран'}</span>
+            <span className="font-medium">{procedureCodeLabel(p) ?? 'код не разобран'}</span>
             {' · '}{p.customer}
             {p.subject !== '' && <> · {p.subject}</>}
           </p>

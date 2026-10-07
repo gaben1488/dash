@@ -10,6 +10,11 @@
  * никогда — ноль в цене аукциона содержателен («торги без результата»).
  */
 
+/** Для пользователя код выглядит так же, как в первичной книге. */
+export function procedureCodeLabel(p: { code: string | null; sourceCode?: string | null }): string | null {
+  return p.sourceCode ?? p.code;
+}
+
 /** Рубли с разрядами, без копеек: копейки в реестре — шум, точность — в title. */
 export function fmtRub(v: number | null): string {
   return v === null ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 0 });

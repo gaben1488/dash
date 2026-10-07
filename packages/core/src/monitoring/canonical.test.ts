@@ -34,11 +34,12 @@ describe('канонический реестр', () => {
     const note = Array(25).fill(''); note[3] = 'Свободная заметка';
     expect(parse([note]).procedures).toEqual([]);
   });
-  it('ведущие нули кода допустимы и не создают ложные задачи', () => {
-    const parent = row('ЭАС06-25', 'Состоялась', 'Состоялась'); parent[1] = 'процедура';
-    const share = row('ЭАС06-25'); share[1] = 'доля'; share[7] = 40;
+  it.each([['ЭАС06-25', 'ЭАС6-25'], ['ЭАС06/02-25', 'ЭАС6/2-25']])('код %s сохраняется для отображения, доля сопоставляется', (sourceCode, key) => {
+    const parent = row(sourceCode, 'Состоялась', 'Состоялась'); parent[1] = 'процедура';
+    const share = row(sourceCode); share[1] = 'доля'; share[7] = 40;
     const registry = parse([parent, share]);
-    expect(registry.procedures[0].code).toBe('ЭАС6-25');
+    expect(registry.procedures[0].code).toBe(key);
+    expect(registry.procedures[0].sourceCode).toBe(sourceCode);
     expect(registry.procedures[0].defects).toEqual([]);
     expect(registry.procedures[0].participants).toHaveLength(1);
     expect(registry.sourceIssues).toEqual([]);

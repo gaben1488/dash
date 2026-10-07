@@ -32,7 +32,7 @@ export interface SheetModeTabsProps {
 export function SheetModeTabs({ activeId, onSelect, pendingIds = [], counts = {} }: SheetModeTabsProps) {
   return (
     <nav
-      aria-label="Листы книги «Ежедневный мониторинг»"
+      aria-label="Разделы мониторинга процедур"
       className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1"
     >
       {SHEET_MODES.map((mode) => {

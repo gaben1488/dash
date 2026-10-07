@@ -39,6 +39,12 @@ function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {
   };
 }
 
+it('поиск принимает исходный код с ведущими нулями и ключ сопоставления', () => {
+  const p = proc({ code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' });
+  expect(applySlices([p], { ...emptySlices(), query: 'ЭАС06-25' })).toEqual([p]);
+  expect(applySlices([p], { ...emptySlices(), query: 'ЭАС6-25' })).toEqual([p]);
+});
+
 it('представления сохраняют отмены и наследников отдельно от успешных процедур', () => {
   const rows = [proc(), proc({ stage: 'no_result', result: 'Нет заявок', auctionPrice: null }),
     proc({ stage: 'reissued', auctionPrice: 100 }), proc({ stage: 'bidding', auctionPrice: 100 })];

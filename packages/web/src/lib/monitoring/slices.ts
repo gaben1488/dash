@@ -216,8 +216,8 @@ export function procedureDefects(p: RegistryProcedure): ProcedureDefect[] {
 function matchesQuery(p: RegistryProcedure, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (needle === '') return true;
-  return [p.code, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome]
-    .some((v) => v !== null && v.toLowerCase().includes(needle));
+  return [p.code, p.sourceCode, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome]
+    .some((v) => v != null && v.toLowerCase().includes(needle));
 }
 
 function periodDate(p: RegistryProcedure, basis: PeriodBasis): string | null {

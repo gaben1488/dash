@@ -44,7 +44,7 @@ import {
 import { portraitFrom } from '../lib/monitoring/portrait';
 import { addressKey, indexByAddress } from '../lib/monitoring/signal-answer';
 import { buildDrill } from '../lib/drill';
-import { fmtReadAt, fmtRub, pluralCount } from '../lib/monitoring/format';
+import { fmtReadAt, fmtRub, pluralCount, procedureCodeLabel } from '../lib/monitoring/format';
 import { buildMonitoringCsv } from '../lib/monitoring/csv';
 import { CARD, CONTROL } from '../components/monitoring/surfaces';
 
@@ -129,6 +129,7 @@ export function MonitoringPage() {
     () => scopeProcedures(data?.procedures ?? [], deptScope),
     [data, deptScope],
   );
+  const codeLabel = useCallback((code: string) => data?.procedures.find((p) => p.code === code)?.sourceCode ?? code, [data]);
   const scopedSignals = useMemo(
     () => scopeSignals(data?.signals ?? [], deptScope, data?.procedures ?? []),
     [data, deptScope],
@@ -451,7 +452,7 @@ export function MonitoringPage() {
                   ? <PendingSheet name="Рабочий реестр процедур" onReload={() => load(true)} />
                   : data.journal.rows.length === 0
                     ? <ReadButEmptySheet name="Рабочий реестр процедур" onReload={() => load(true)} />
-                    : <JournalTable journal={filteredJournal ?? data.journal} readAtLabel={readAtLabel} onOpenCode={onOpenCode} />
+                    : <JournalTable journal={filteredJournal ?? data.journal} readAtLabel={readAtLabel} onOpenCode={onOpenCode} codeLabel={codeLabel} />
               )}
 
               {mode.kind === 'directory' && (
@@ -462,6 +463,8 @@ export function MonitoringPage() {
                     <DirectoryTable
                       directory={data.directory}
                       readAtLabel={readAtLabel}
+                      sourceSheetName={data.source.schema === 'canonical' ? 'Справочник заказчиков' : 'Перечень ГРБС'}
+                      sourceBookName={data.source.bookName}
                       onPickCustomer={(name) => {
                         setModeId(ALL_DEPTS_MODE.id);
                         setSlices({ ...emptySlices(), customer: name });
@@ -673,7 +676,7 @@ export function MonitoringPage() {
         </>
       )}
       <Drawer open={selected !== null} onOpenChange={(open) => { if (!open) { setSelected(null); setCardHistory([]); setNavigationNote(null); } }}
-        title={selectedProcedure?.code ?? 'Карточка процедуры'}
+        title={selectedProcedure ? procedureCodeLabel(selectedProcedure) ?? 'Карточка процедуры' : 'Карточка процедуры'}
         description="Действие, данные и источники. Закрытие возвращает к прежнему списку."
         className="!max-h-[100dvh] h-[100dvh] !rounded-none sm:left-auto sm:w-[min(56rem,90vw)]"
         onCloseAutoFocus={(event) => { event.preventDefault(); opener.current?.focus(); }}>
@@ -686,7 +689,7 @@ export function MonitoringPage() {
           lineage={selectedProcedure.code ? lineageByCode.get(selectedProcedure.code) : null}
           journalRow={selectedProcedure.code ? journalByCode.get(selectedProcedure.code) : null}
           match={selectedProcedure.code ? matchIndex?.byCode.get(selectedProcedure.code) : null}
-          matchIndex={matchIndex} onOpenCode={onOpenCode} />
+          matchIndex={matchIndex} onOpenCode={onOpenCode} codeLabel={codeLabel} />
           : <p className="text-sm">Строка не найдена однозначно в текущем снимке и выбранных управлениях. Закройте карточку и выберите её заново.</p>}
       </Drawer>
     </div>

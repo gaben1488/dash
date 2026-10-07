@@ -6,6 +6,15 @@ import { WorkQueue } from './WorkQueue';
 
 afterEach(cleanup);
 
+it('показывает код книги с нулями и открывает ту же процедуру по ключу сопоставления', () => {
+  const procedure = { sheet: 'Рабочий реестр процедур', row: 3, code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' };
+  const data = normalizeMonitoring({ procedures: [procedure], work: { active: [{ procedure, action: 'Разместить извещение' }], closed: [] } });
+  const onOpen = vi.fn();
+  render(<WorkQueue queue={data.work} procedures={data.procedures} readAtLabel="Снимок" onOpen={onOpen} />);
+  fireEvent.click(screen.getByRole('button', { name: 'ЭАС06-25' }));
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' }));
+});
+
 it('показывает дату заявки отдельно от незаданного срока и открывает её процедуру', () => {
   const procedure = { sheet: 'Рабочий реестр процедур', row: 3, dept: 'УО', code: 'ЭА100-26',
     customer: 'Синтетический заказчик', subject: 'Синтетический предмет', stage: 'application',

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { RegistryProcedure, WorkQueuePayload } from '../../lib/monitoring/contract';
 import { stageBadgeClass, stageShort } from '../../lib/monitoring/stage-labels';
+import { procedureCodeLabel } from '../../lib/monitoring/format';
 
 export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
   queue: WorkQueuePayload | null | undefined;
@@ -30,7 +31,7 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
     </p>
     {items.length === 0 ? <p className="rounded-lg bg-zinc-50 p-6 text-sm text-zinc-500 dark:bg-zinc-800">В выбранном срезе очередь пуста.</p> :
       <div className="overflow-x-auto rounded-lg bg-white dark:bg-zinc-900">
-        <table className="w-full text-left text-xs" aria-label={block === 'active' ? 'Процедуры в работе' : 'Проверки закрытых процедур'}>
+        <table className="w-full text-left text-sm" aria-label={block === 'active' ? 'Процедуры в работе' : 'Проверки закрытых процедур'}>
           <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800"><tr>
             {columns.map((h) => <th key={h} className={`px-3 py-3 font-medium ${['Дата ориентира', 'Дней к дате', 'Заказчик и предмет', 'Стадия'].includes(h) ? 'hidden md:table-cell' : ''}`}>{h}</th>)}
           </tr></thead>
@@ -42,7 +43,7 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
               {block === 'active' && <><td className="hidden whitespace-nowrap px-3 py-4 tabular-nums md:table-cell">{dateLabel}</td>
               <td className="hidden px-3 py-4 tabular-nums text-zinc-500 md:table-cell">{item.daysToDate ?? '—'}</td></>}
               <td className="px-3 py-4"><button type="button" onClick={() => onOpen(p)}
-                title="Открыть процедуру в реестре" className="font-medium text-sky-700 underline decoration-sky-200 underline-offset-4 dark:text-sky-300">{p.code ?? `Строка ${p.row}`}</button>
+                title="Открыть процедуру в реестре" className="font-medium text-sky-700 underline decoration-sky-200 underline-offset-4 dark:text-sky-300">{procedureCodeLabel(p) ?? `Строка ${p.row}`}</button>
                 <div className="mt-1 text-zinc-500">{p.dept}</div></td>
               <td className="max-w-80 px-3 py-4"><p className={item.action.startsWith('Исправить:') ? 'font-medium text-red-700 dark:text-red-300' : 'font-medium'}>{item.action}</p>
                 {block === 'active' && item.action === 'Разместить извещение' && <p className="mt-2 text-zinc-500">{p.applicationDate ? `Заявка поступила ${p.applicationDate}` : 'Дата поступления заявки не внесена'}</p>}

@@ -26,11 +26,13 @@ import { CARD, RULE_HEAD, RULE_ROW } from './surfaces';
 export interface DirectoryTableProps {
   directory: DirectoryPayload;
   readAtLabel: string;
+  sourceSheetName?: string;
+  sourceBookName?: string;
   /** Нажатие на написание заказчика — отобрать его в реестре. */
   onPickCustomer?: (name: string) => void;
 }
 
-export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: DirectoryTableProps) {
+export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceSheetName = 'Перечень ГРБС', sourceBookName = 'Ежедневный мониторинг' }: DirectoryTableProps) {
   const shortMissing = directory.rows.filter((r) => r.shortMissing).length;
   const unused = directory.rows.filter((r) => r.usedInBook === 0).length;
 
@@ -42,7 +44,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Лист «Перечень ГРБС»</h2>
+            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Лист «{sourceSheetName}»</h2>
             <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-2xl">
               {pluralCount(directory.rows.length, 'учреждение', 'учреждения', 'учреждений')} района и их
               владельцы-ГРБС. Из них у {fmtCount(shortMissing)} сокращённое наименование дословно
@@ -52,7 +54,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
           <div className="shrink-0 text-right">
             <BookPeriodBadge label={readAtLabel} note="справочник живёт отдельно от реестра и обновляется реже" />
             <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
-              Источник: лист «Перечень ГРБС» книги «Ежедневный мониторинг»
+              Источник: лист «{sourceSheetName}» книги «{sourceBookName}»
             </p>
             <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
           </div>

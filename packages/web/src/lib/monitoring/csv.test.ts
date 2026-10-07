@@ -3,6 +3,12 @@ import { normalizeMonitoring } from './contract';
 import { buildMonitoringCsv } from './csv';
 
 describe('выгрузка текущего отбора мониторинга', () => {
+  it('сохраняет код источника с ведущими нулями, отдельно от ключа сопоставления', () => {
+    const rows = normalizeMonitoring({ procedures: [{ code: 'ЭАС6/2-25', sourceCode: 'ЭАС06/02-25' }] }).procedures;
+    expect(rows[0].sourceCode).toBe('ЭАС06/02-25');
+    expect(buildMonitoringCsv(rows, { readAt: '' }, '')).toContain('\r\nЭАС06/02-25;');
+    expect(rows[0].code).toBe('ЭАС6/2-25');
+  });
   it('выгружает переданные строки в их порядке, сохраняет копейки, пустоту и источник', () => {
     const rows = normalizeMonitoring({ procedures: [
       { code: 'ЭА12-26', sheet: 'Рабочий реестр процедур', row: 4, nmck: 100.01, auctionPrice: 0, stage: 'published', subject: 'Крупа; "Поставка"\nВторая строка' },
