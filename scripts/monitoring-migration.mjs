@@ -1,4 +1,137 @@
 /** Pure transformations for the native Sheets migration; no credentials or workbook data. */
+/** Repairs the existing 235-row analytical layout without touching master inputs. */
+export function planAnalyticalRepair(cells, sheetId, rowCount) {
+  const byAddress = new Map(cells.map(c => [`${c.row}:${c.column}`, c.cell]));
+  if (rowCount < 235 || byAddress.get('2:0')?.userEnteredValue?.stringValue !== 'Управление') throw new Error('ANALYTICAL_SCHEMA');
+  const requests = [];
+  const put = (row, column, value, note = '') => requests.push({ updateCells: {
+    start: { sheetId, rowIndex: row - 1, columnIndex: column },
+    rows: [{ values: [{ userEnteredValue: typeof value === 'number' ? { numberValue: value } : value.startsWith('=') ? { formulaValue: value } : { stringValue: value }, note }] }],
+    fields: 'userEnteredValue,note',
+  } });
+  const col = n => `INDEX(ДанныеМастера;0;${n})`;
+  const primary = `(TRIM(${col(1)}&"")<>"")*(${col(2)}<>"доля")`;
+  const eligible = `IFERROR(IF(TRIM(${col(12)}&"")="";TRUE;IF(ISNUMBER(${col(12)});${col(12)};DATEVALUE(${col(12)}))<=Сегодня);FALSE)`;
+  const realized = `${primary}*(${col(23)}="Состоялась")`;
+  const admitted = `${realized}*${eligible}`;
+  const residual = `ROUND(N(${col(17)})-N(${col(14)})-N(${col(15)})-N(${col(16)});2)`;
+  for (const { row, column, cell } of cells) {
+    const formula = cell.userEnteredValue?.formulaValue;
+    if (formula?.includes('<=Сегодня);TRUE)')) put(row, column, formula.replaceAll('<=Сегодня);TRUE)', '<=Сегодня);FALSE)'), cell.note ?? '');
+    if (row >= 157 && row <= 209 && column === 1 && formula?.includes('MID($A')) {
+      const label = byAddress.get(`${row}:0`)?.userEnteredValue?.stringValue;
+      if (!label?.includes('. ')) throw new Error('ANALYTICAL_CLASS_SCHEMA');
+      const token = label.slice(label.indexOf('. ') + 2).replaceAll('"', '""');
+      put(row, column, `=IFERROR(SUMPRODUCT(--ISNUMBER(FIND("${token}";${col(25)})));"не рассчитано")`, `Правило ${label.split('.')[0]}. Поиск сообщения канона; пользовательская подпись A не участвует в расчёте.`);
+    }
+  }
+  // NMCK is the full exposure of recorded results. Price/savings remain date-admitted facts.
+  for (let i = 0; i < 9; i++) {
+    const row = 30 + 12 * i;
+    put(row, 2, `=SUMPRODUCT(N(${col(8)});(${col(23)}="Состоялась");(${col(5)}=$R${i + 3});(${col(2)}<>"доля"))`, 'Все внесённые результаты, включая требующие проверки по дате. Цена и экономия отдельно допускаются на дату расчёта.');
+    put(row, 0, 'Результат «Состоялась» внесён');
+  }
+  put(138, 0, 'Результат «Состоялась» внесён');
+  put(2, 2, 'Результатов внесено'); put(2, 7, 'НМЦК учтённых результатов');
+  put(2, 8, 'Цена по учтённым итогам'); put(2, 9, 'Учтённая экономия');
+  put(2, 11, 'Экономия · ФБ'); put(2, 12, 'Экономия · КБ'); put(2, 13, 'Экономия · МБ');
+  put(2, 16, 'НМЦК переоформленных');
+  put(27, 0, 'Объём процедур по стадиям');
+  put(28, 1, 'Основных процедур'); put(28, 2, 'НМЦК всех в категории');
+  put(28, 3, 'Цена учтённых итогов'); put(28, 4, 'Учтённая экономия');
+  put(28, 5, 'Экономия · ФБ'); put(28, 6, 'Экономия · КБ'); put(28, 7, 'Экономия · МБ');
+  put(152, 0, 'Распределить / проверить экономию: остатки больше 0,01 ₽');
+  put(152, 1, `=ROUND(SUMPRODUCT(${admitted};${residual};--(ABS(${residual})>0,01));2)`, 'Из денежных полей, без поиска текста замечаний. Та же выборка, что у учтённой экономии.');
+  put(153, 0, 'Остатки распределения до 0,01 ₽ включительно');
+  put(153, 1, `=ROUND(SUMPRODUCT(${admitted};${residual};--(ABS(${residual})<=0,01));2)`, 'Автоматический остаток; это сумма данных, а не фиксированная поправка и не порог сверки.');
+  put(216, 0, 'Результатов учтено на дату'); put(216, 1, `=SUMPRODUCT(${admitted})`);
+  put(217, 0, 'Результат внесён, но не учтён по дате'); put(217, 1, `=SUMPRODUCT(${realized}*(1-N(${eligible})))`);
+  put(217, 2, `=IFERROR(LET(условие;ARRAYFORMULA(${realized}*(1-N(${eligible})));HYPERLINK("#gid=2526300&range=T"&(MATCH(1;условие;0)+2);TEXTJOIN(", ";TRUE;FILTER(${col(1)};условие))));IF(B217=0;"нет";"не рассчитано"))`);
+  put(218, 0, 'Основных процедур требуют внимания'); put(218, 1, `=SUMPRODUCT(${primary}*N(REGEXMATCH(${col(25)}&"";"Ошибка:|Проверить:|Неполно:")))`);
+  put(219, 0, 'Основных процедур с любыми замечаниями'); put(219, 1, `=SUMPRODUCT(${primary}*(TRIM(${col(25)}&"")<>""))`);
+  put(220, 0, 'Строк мастера, включая доли · знаменатель'); put(220, 1, `=SUMPRODUCT(--(TRIM(${col(1)}&"")<>""))`);
+  put(221, 0, 'Учтены без даты итогов · ограничение анализа'); put(221, 1, `=SUMPRODUCT(${realized}*(TRIM(${col(12)}&"")=""))`);
+  for (let row = 157; row <= 209; row++) put(row, 6, `=IFERROR(IF($B$220>0;B${row}/$B$220;"не рассчитано");"не рассчитано")`);
+  put(156, 6, 'Доля строк мастера, включая доли');
+  put(1, 0, 'Дата расчёта:');
+  put(1, 2, '=IFERROR(IF(OR(COUNTIF(E16:E25;"<>сошлось")>0;ROUND(D150;2)<>0;ROUND(D151;2)<>0;B215<>0);"Есть несогласованность расчётов";"Арифметика согласована")&" · результатов внесено "&C12&", учтено "&B216&", требуют проверки даты "&B217&IF(B217>0;" ("&C217&")";"")&" · без даты итогов "&B221;"Свод не рассчитан — проверьте формулы и контроль")', 'Дата расчёта не является датой последнего обновления фактов. Согласованность арифметики не подтверждает полноту и достоверность источников.');
+  put(13, 0, '=HYPERLINK("#gid=2526400&range=N3";"Проверка данных · процедур: "&B218&" · открыть очередь")');
+  put(222, 0, 'Дата расчёта — параметр Сегодня. Момент обновления фактов и история срезов в книге пока не фиксируются.');
+  put(223, 0, 'Четыре категории считаются по канону; доли не увеличивают число процедур и деньги. Внесённый результат не доказывает заключение контракта. НМЦК включает все процедуры категории, цена и экономия — только результаты, допущенные на дату расчёта. Пустая дата допускает накопительный результат с замечанием; ошибочная или будущая дата не допускает денежный факт. Для периода без даты результат не датируется автоматически. Экономия по ФБ / КБ / МБ — распределение экономии, не финансирование. Строки контроля и уникальные процедуры — разные счётчики.');
+  put(210, 9, familyValuationFormula(), 'Служебный пересчёт семей: 9 управлений + итог. Слабосвязные компоненты направленных связей U; каждая семья один раз. Корни — без предка, живые члены — не «Переоформлена». Сбой / цикл / неизвестный предок не заменяются нулём.');
+  for (let i = 0; i < 9; i++) put(39 + 12 * i, 8, `=IFERROR(VLOOKUP($R${i + 3};$J$210:$K$219;2;FALSE);"не рассчитано")`);
+  put(147, 8, '=IFERROR(INDEX($K$210:$K$219;10);"не рассчитано")');
+  put(224, 0, 'Схема полей источника');
+  const headers = { A: 'Код процедуры', B: 'Вид строки', E: 'Управление', H: 'НМЦК', L: 'Дата подведения итогов', M: 'Цена по итогам', N: 'ФБ', O: 'КБ', P: 'МБ', Q: 'Экономия', U: 'Предок', W: 'Стадия', Y: 'Замечания' };
+  put(224, 1, `=IF(AND(${Object.entries(headers).map(([c, name]) => `'Рабочий реестр процедур'!${c}2="${name}"`).join(';')});"схема соответствует";"Схема изменилась — проверьте расчёты")`);
+  put(225, 0, 'Охват диапазона ДанныеМастера');
+  put(225, 1, '=IF(OR(ROWS(\'Рабочий реестр процедур\'!A3:A)<>ROWS(ДанныеМастера);COLUMNS(ДанныеМастера)<>25);"Диапазон требует расширения / проверки";"охват соответствует сетке")', 'ROWS открытой ссылки проверяет размер сетки, данные агрегируются только в ограниченном ДанныеМастера. Добавление строк за нижней границей блокирует успешный статус до расширения охвата.');
+  const status = requests.find(r => r.updateCells.start.rowIndex === 0 && r.updateCells.start.columnIndex === 2).updateCells.rows[0].values[0];
+  const text = status.userEnteredValue.formulaValue;
+  status.userEnteredValue.formulaValue = '=IFERROR(IF(OR(NOT(ISNUMBER(B220));B220<=0;COUNTIF(B157:B209;"не рассчитано")>0;NOT(ISNUMBER(I147));B224<>"схема соответствует");"Свод не рассчитан — проверьте знаменатель, правила, семьи и схему";' + text.slice('=IFERROR('.length, -';"Свод не рассчитан — проверьте формулы и контроль")'.length) + ');"Свод не рассчитан — проверьте формулы и контроль")';
+  const derived = ['J210', 'I147', 'B152', 'B153', 'B220', ...Array.from({ length: 9 }, (_, i) => `I${39 + 12 * i}`)];
+  status.userEnteredValue.formulaValue = status.userEnteredValue.formulaValue.replace('B224<>"схема соответствует")', `B224<>"схема соответствует";B225<>"охват соответствует сетке";NOT(AND(${derived.map(a => `ISFORMULA(${a})`).join(';')})))`);
+  status.userEnteredValue.formulaValue = status.userEnteredValue.formulaValue.replace('IF(OR(COUNTIF(E16:E25;', '"Требуют внимания · процедур: "&B218&CHAR(10)&"Учтённая цена: "&TEXT(I12;"#,##0.00")&" ₽ · экономия: "&TEXT(J12;"#,##0.00")&" ₽"&CHAR(10)&IF(OR(COUNTIF(E16:E25;').replace('&" · результатов внесено "', '&CHAR(10)&"Результатов внесено "');
+  return requests;
+}
+
+/** Native disclosure preserves the existing coordinates read by Dash. Apply once. */
+export function planAnalyticalLayout(sheetId) {
+  const range = (startRowIndex, endRowIndex, startColumnIndex = 0, endColumnIndex = 7) => ({ sheetId, startRowIndex, endRowIndex, startColumnIndex, endColumnIndex });
+  const requests = [
+    { unmergeCells: { range: range(0, 1, 2, 18) } },
+    { mergeCells: { range: range(0, 1, 2, 7), mergeType: 'MERGE_ALL' } },
+    { mergeCells: { range: range(12, 13), mergeType: 'MERGE_ALL' } },
+    { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1, hideGridlines: true } }, fields: 'gridProperties.frozenRowCount,gridProperties.hideGridlines' } },
+    { repeatCell: { range: range(0, 235, 0, 18), cell: { userEnteredFormat: { textFormat: { fontSize: 12 }, verticalAlignment: 'MIDDLE' } }, fields: 'userEnteredFormat.textFormat.fontSize,userEnteredFormat.verticalAlignment' } },
+    { repeatCell: { range: range(0, 1, 2, 7), cell: { userEnteredFormat: { wrapStrategy: 'WRAP', textFormat: { bold: false } } }, fields: 'userEnteredFormat.wrapStrategy,userEnteredFormat.textFormat.bold' } },
+    { repeatCell: { range: range(1, 2, 0, 18), cell: { userEnteredFormat: { wrapStrategy: 'WRAP', textFormat: { bold: true, fontSize: 11 } } }, fields: 'userEnteredFormat.wrapStrategy,userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.fontSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 235 }, properties: { pixelSize: 30 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 150 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 72 }, fields: 'pixelSize' } },
+    { repeatCell: { range: range(156, 209, 6, 7), cell: { userEnteredFormat: { numberFormat: { type: 'PERCENT', pattern: '0.00%' } } }, fields: 'userEnteredFormat.numberFormat' } },
+  ];
+  [260, 140, 140, 140, 140, 120, 140].forEach((pixelSize, startIndex) => requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex, endIndex: startIndex + 1 }, properties: { pixelSize }, fields: 'pixelSize' } }));
+  const groups = [{ sheetId, dimension: 'COLUMNS', startIndex: 7, endIndex: 18 }, ...[[14, 25], [27, 154], [155, 225]].map(([startIndex, endIndex]) => ({ sheetId, dimension: 'ROWS', startIndex, endIndex }))];
+  for (const r of groups) requests.push({ addDimensionGroup: { range: r } }, { updateDimensionGroup: { dimensionGroup: { range: r, depth: 1, collapsed: true }, fields: 'collapsed' } }, { updateDimensionProperties: { range: r, properties: { hiddenByUser: true }, fields: 'hiddenByUser' } });
+  requests.push({ addConditionalFormatRule: { index: 0, rule: { ranges: [range(0, 1, 2, 7)], booleanRule: { condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=REGEXMATCH($C$1;"Свод не рассчитан|Есть несогласованность")' }] }, format: { backgroundColor: { red: 1, green: 0.88, blue: 0.88 } } } } } },
+    { addConditionalFormatRule: { index: 1, rule: { ranges: [range(0, 1, 2, 7)], booleanRule: { condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$B$218>0' }] }, format: { backgroundColor: { red: 1, green: 0.96, blue: 0.82 } } } } } });
+  return requests;
+}
+
+/** Add views once; then use the returned IDs for links. Never change the shared basic filter. */
+export function planAnalyticalViews(masterSheetId, rowCount) {
+  return [
+    ['Проверка данных · основные процедуры', '=REGEXMATCH($Y3;"Ошибка:|Проверить:|Неполно:")'],
+    ['Распределить экономию', '=ISNUMBER(FIND("Экономия не разложена";$Y3))'],
+    ['Уточнить поставщика и ИНН', '=ISNUMBER(FIND("Одному имени несколько ИНН";$Y3))'],
+    ['Результат требует проверки даты', '=AND($W3="Состоялась";IFERROR(IF(TRIM($L3&"")="";FALSE;IF(ISNUMBER($L3);$L3;DATEVALUE($L3))>Сегодня);TRUE))'],
+  ].map(([title, formula]) => ({ addFilterView: { filter: {
+    title, range: { sheetId: masterSheetId, startRowIndex: 1, endRowIndex: rowCount, startColumnIndex: 0, endColumnIndex: 25 },
+    criteria: { 1: { hiddenValues: ['доля'] }, 24: { condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: formula }] } } },
+  } } }));
+}
+
+export function planAnalyticalLinks(sheetId, masterSheetId, viewIds) {
+  if (viewIds.length !== 4 || viewIds.some(id => !Number.isInteger(id))) throw new Error('ANALYTICAL_VIEW_IDS');
+  return [
+    [13, 0, '"Проверка данных · процедур: "&B218&" · открыть отобранный реестр"'],
+    [183, 1, '"28. Экономия не разложена"'],
+    [182, 2, '"27. Одному имени несколько ИНН"'],
+    [186, 3, '"31. Результат раньше срока"'],
+  ].map(([row, view, label]) => ({ updateCells: {
+    start: { sheetId, rowIndex: row - 1, columnIndex: 0 },
+    rows: [{ values: [{ userEnteredValue: { formulaValue: `=HYPERLINK("#gid=${masterSheetId}&fvid=${viewIds[view]}";${label})` } }] }],
+    fields: 'userEnteredValue',
+  } }));
+}
+
+/** One native calculation for all nine views, including branches and merged roots. */
+export function familyValuationFormula() {
+  const col = n => `INDEX(ДанныеМастера;0;${n})`;
+  const empty = 'VSTACK(HSTACK($R$3:$R$11;MAP($R$3:$R$11;LAMBDA(группа;0)));HSTACK("Итого";0))';
+  return `=IFERROR(IF(OR($B$215<>0;$B$168>0;$B$171>0);"не рассчитано";LET(маска;ARRAYFORMULA((TRIM(${col(1)}&"")<>"")*(${col(2)}<>"доля"));всеКоды;FILTER(${col(1)};маска);всеПредки;FILTER(${col(21)};маска);всеГруппы;FILTER(${col(5)};маска);всеСуммы;FILTER(${col(8)};маска);всеСтадии;FILTER(${col(23)};маска);IF(OR(COUNTIF(всеПредки;"<>")=0;COUNTIF(всеСтадии;"Переоформлена")=0);${empty};LET(связанные;MAP(всеКоды;всеПредки;LAMBDA(код;предки;OR(TRIM(предки&"")<>"";SUM(ARRAYFORMULA(--ISNUMBER(FIND("; "&код&"; ";"; "&всеПредки&"; "))))>0)));коды;FILTER(всеКоды;связанные);предки;FILTER(всеПредки;связанные);группы;FILTER(всеГруппы;связанные);суммы;FILTER(всеСуммы;связанные);стадии;FILTER(всеСтадии;связанные);число;ROWS(коды);семьи;REDUCE(SEQUENCE(число);SEQUENCE(число);LAMBDA(метки;шаг;MAP(коды;предки;LAMBDA(код;егоПредки;MIN(FILTER(метки;ARRAYFORMULA((коды=код)+ISNUMBER(FIND("; "&код&"; ";"; "&предки&"; "))+ISNUMBER(FIND("; "&коды&"; ";"; "&егоПредки&"; ")))))))));семьиЗамены;UNIQUE(FILTER(семьи;стадии="Переоформлена"));изменения;MAP(семьиЗамены;LAMBDA(семья;ROUND(SUMPRODUCT(--(семьи=семья);суммы;--(стадии<>"Переоформлена"))-SUMPRODUCT(--(семьи=семья);суммы;--(TRIM(предки&"")=""));2)));группыСемей;MAP(семьиЗамены;LAMBDA(семья;TEXTJOIN(" | ";TRUE;UNIQUE(FILTER(группы;семьи=семья;стадии="Переоформлена")))));VSTACK(HSTACK($R$3:$R$11;MAP($R$3:$R$11;LAMBDA(группа;IF(SUM(ARRAYFORMULA(--ISNUMBER(FIND(группа;группыСемей))*--ISNUMBER(FIND(" | ";группыСемей))))>0;"семья в двух группах";ROUND(SUMPRODUCT(--(группыСемей=группа);изменения);2)))));HSTACK("Итого";ROUND(SUM(изменения);2)))))));"не рассчитано")`;
+}
 /** Source-side input convenience. A remains the key read by every consumer. */
 export function procedureCodeFormula(row) {
   if (!Number.isInteger(row) || row < 3) throw new Error('CODE_AUTOFILL_ROW');

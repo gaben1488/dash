@@ -2,6 +2,20 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeMasterRules, splitQueueFormula, removeCancellationClockWarning, auditMasterFormulas, withQualityAction } from './monitoring-migration.mjs';
 
+test('ремонт свода сохраняет введённые деньги и отвергает другую раскладку', async () => {
+  const { planAnalyticalRepair } = await import('./monitoring-migration.mjs');
+  const cells = [{ row: 2, column: 0, cell: { userEnteredValue: { stringValue: 'Управление' } } },
+    { row: 152, column: 1, cell: { userEnteredValue: { formulaValue: '=SUM(A1:A2)' } } },
+    { row: 153, column: 1, cell: { userEnteredValue: { numberValue: 0.01 } } }];
+  const requests = planAnalyticalRepair(cells, 2526800, 235);
+  const writes = requests.filter(r => r.updateCells).map(r => r.updateCells);
+  assert(writes.some(r => r.start.rowIndex === 152 && r.rows[0].values[0].userEnteredValue.formulaValue));
+  assert(writes.some(r => r.start.rowIndex === 219 && r.rows[0].values[0].userEnteredValue.formulaValue));
+  assert(writes.every(r => r.start.sheetId === 2526800 && r.start.rowIndex < 235));
+  assert(writes.every(r => r.fields === 'userEnteredValue,note'));
+  assert.throws(() => planAnalyticalRepair([], 2526800, 235), /ANALYTICAL_SCHEMA/);
+});
+
 test('разрастание первой очереди не сдвигает формулу второй', () => {
   const old = '=IFERROR(LET(код;ФильтрВитрин;блок1;FILTER(код;код<>"");блок2;FILTER(код;код="X");{блок1;{""};{"Данные по закрытым строкам"};блок2});"ошибка")';
   const { active, closed } = splitQueueFormula(old);
