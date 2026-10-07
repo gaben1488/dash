@@ -28,7 +28,8 @@ export function scopeProcedures(
     const sum = (key: 'nmck' | 'price' | 'savings' | 'savingsMb' | 'savingsKb' | 'savingsFb'): number | null =>
       parts.some((part) => part[key] === null) ? null : parts.reduce((total, part) => total + (part[key] ?? 0), 0);
     const nmck = sum('nmck'); const auctionPrice = sum('price');
-    const reductionRub = p.stage === 'awarded' && nmck !== null && auctionPrice !== null ? nmck - auctionPrice : null;
+    const reductionRub = p.stage === 'awarded' && p.factsEligible !== false && nmck !== null && auctionPrice !== null && auctionPrice > 0
+      ? nmck - auctionPrice : null;
     const savingsMb = sum('savingsMb'); const savingsKb = sum('savingsKb'); const savingsFb = sum('savingsFb');
     const savingsTotal = sum('savings');
     const savingsSplitSum = savingsMb === null || savingsKb === null || savingsFb === null ? null : savingsMb + savingsKb + savingsFb;
