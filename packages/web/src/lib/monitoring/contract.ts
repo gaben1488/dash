@@ -346,7 +346,7 @@ export interface WorkQueueItem {
   referenceDate: string | null;
   daysToDate: number | null;
 }
-export interface WorkQueuePayload { asOf: string; active: WorkQueueItem[]; closed: WorkQueueItem[]; }
+export interface WorkQueuePayload { asOf: string; active: WorkQueueItem[]; closed: WorkQueueItem[]; triage?: WorkQueueItem[]; }
 
 export interface MonitoringPayload {
   work?: WorkQueuePayload | null;
@@ -866,6 +866,7 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
     work: r.work && typeof r.work === 'object' ? {
       asOf: text(rec(r.work).asOf),
       active: arr(rec(r.work).active).map(readWorkItem), closed: arr(rec(r.work).closed).map(readWorkItem),
+      triage: arr(rec(r.work).triage).map(readWorkItem),
     } : null,
     aggregates: readAggregates(r.aggregates),
     unparsedCodes: arr(r.unparsedCodes).map((x) => {

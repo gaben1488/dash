@@ -387,25 +387,25 @@ export interface MonitoringWorkItem {
   readonly daysToDate: number | null;
 }
 export function monitoringWorkQueue(procedures: readonly MonitoringProcedure[], asOf: string): {
-  asOf: string; active: MonitoringWorkItem[]; closed: MonitoringWorkItem[];
+  asOf: string; active: MonitoringWorkItem[]; closed: MonitoringWorkItem[]; triage: MonitoringWorkItem[];
 } {
-  const active: MonitoringWorkItem[] = []; const closed: MonitoringWorkItem[] = [];
+  const active: MonitoringWorkItem[] = []; const closed: MonitoringWorkItem[] = []; const triage: MonitoringWorkItem[] = [];
   for (const p of procedures) {
     const isActive = ['application', 'published', 'bidding'].includes(p.stage);
     const isClosed = ['awarded', 'no_result', 'reissued'].includes(p.stage);
-    if (!isActive && !isClosed) continue;
-    if (!isActive && !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
-    const action = p.requiredAction || (isActive ? 'Проверить действие в реестре' : 'Разобрать замечания');
+    if (isClosed && !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
+    const action = p.requiredAction || (isActive ? 'Проверить действие в реестре' : isClosed ? 'Разобрать замечания' : 'Уточнить стадию процедуры');
     // Формула A3 рабочей книги: заявку показываем как факт поступления,
     // но срок размещения и срок исправления данных в источнике не заданы.
     const referenceDate = !isActive || action.startsWith('Исправить: ') || action === 'Разместить извещение'
       ? null : p.auctionDate;
-    (isActive ? active : closed).push({ procedure: p, action, referenceDate, daysToDate: daysBetween(asOf, referenceDate?.iso ?? null) });
+    (isActive ? active : isClosed ? closed : triage).push({ procedure: p, action, referenceDate, daysToDate: daysBetween(asOf, referenceDate?.iso ?? null) });
   }
   active.sort((a, b) => (a.referenceDate?.iso ?? '').localeCompare(b.referenceDate?.iso ?? '') || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
   const severity = (p: MonitoringProcedure) => p.qualityNote?.includes('Ошибка:') ? 0 : p.qualityNote?.includes('Проверить:') ? 1 : 2;
   closed.sort((a, b) => severity(a.procedure) - severity(b.procedure) || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
-  return { asOf, active, closed };
+  triage.sort((a, b) => severity(a.procedure) - severity(b.procedure) || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
+  return { asOf, active, closed, triage };
 }
 
 export const MONITORING_MASTER_HEADERS = ['Код процедуры', 'Вид строки', 'Флаг протокола', 'Комментарий', 'Управление', 'Заказчик', 'Наименование объекта закупки', 'НМЦК', 'Дата поступления заявки в уполномоченный орган', 'Дата публикации', 'Дата окончания подачи заявок', 'Дата подведения итогов', 'Цена по итогам', 'ФБ', 'КБ', 'МБ', 'Экономия', 'Победитель', 'ИНН победителя', 'Результат', 'Предок', 'Наследник', 'Стадия', 'Требуемое действие', 'Замечания'] as const;

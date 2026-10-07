@@ -6,6 +6,20 @@ import { WorkQueue } from './WorkQueue';
 
 afterEach(cleanup);
 
+it('неизвестная стадия открывается из отдельного разбора данных в текущем срезе', () => {
+  const own = { sheet: 'Рабочий реестр процедур', row: 3, dept: 'УО', code: 'ЭА100-26', stage: 'unknown' };
+  const other = { ...own, row: 4, dept: 'УЭР', code: 'ЭА101-26' };
+  const data = normalizeMonitoring({ procedures: [own], work: { active: [], closed: [], triage:
+    [own, other].map((procedure) => ({ procedure, action: 'Уточнить стадию процедуры' })) } });
+  const onOpen = vi.fn();
+  render(<WorkQueue queue={data.work} procedures={data.procedures} readAtLabel="Снимок" onOpen={onOpen} />);
+  fireEvent.click(screen.getByRole('button', { name: /Разобрать данные 1/u }));
+  expect(screen.queryByRole('columnheader', { name: 'Дата ориентира' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'ЭА101-26' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'ЭА100-26' }));
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ stage: 'unknown', row: 3 }));
+});
+
 it('показывает код книги с нулями и открывает ту же процедуру по ключу сопоставления', () => {
   const procedure = { sheet: 'Рабочий реестр процедур', row: 3, code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' };
   const data = normalizeMonitoring({ procedures: [procedure], work: { active: [{ procedure, action: 'Разместить извещение' }], closed: [] } });

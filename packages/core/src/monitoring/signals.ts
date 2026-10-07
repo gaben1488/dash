@@ -65,12 +65,13 @@ export interface MonitoringSignal {
   readonly action: string;
   /** Сколько всего адресов у сигнала (может быть больше, чем показано). */
   readonly count: number;
-  /** Адреса; список обрезан лимитом, count держит полное число. */
+  /** Полный набор адресов по умолчанию; явный лимит оставлен для отдельных витрин. */
   readonly addresses: readonly MonitoringSignalAddress[];
 }
 
-/** Сколько адресов кладём в ответ на один сигнал: список сворачиваемый. */
-const DEFAULT_ADDRESS_LIMIT = 40;
+// API передаёт полный набор: управление может встречаться только в его хвосте.
+// Сворачивать список следует после отбора, в интерфейсе.
+const DEFAULT_ADDRESS_LIMIT = Infinity;
 
 interface SignalTemplate {
   readonly kind: MonitoringSignalKind;

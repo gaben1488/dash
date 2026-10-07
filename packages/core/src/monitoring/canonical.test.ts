@@ -17,6 +17,13 @@ function row(code: string, result = '', stage = 'Объявлена'): unknown[]
 function parse(rows: unknown[][]) { return parseMonitoringProcedures({ [sheet]: [[], headers, ...rows] }); }
 
 describe('канонический реестр', () => {
+  it('неизвестная стадия доступна для разбора без увеличения активных или закрытых процедур', () => {
+    const r = row('ЭА100-26', '', 'Неизвестная стадия'); r[23] = 'Исправить: стадию';
+    const q = monitoringWorkQueue(parse([r]).procedures, '2026-10-06');
+    expect(q.active).toHaveLength(0); expect(q.closed).toHaveLength(0);
+    expect(q.triage).toHaveLength(1);
+    expect(q.triage[0]).toMatchObject({ action: 'Исправить: стадию', referenceDate: null, daysToDate: null });
+  });
   it('не вычитает цену без НМЦК из экономии полного портфеля', () => {
     const a = row('ЭА100-26', 'Состоялась', 'Состоялась');
     a[7] = ''; a[11] = '01.09.2026'; a[12] = 100;

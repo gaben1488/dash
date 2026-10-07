@@ -45,6 +45,12 @@ it('поиск принимает исходный код с ведущими н
   expect(applySlices([p], { ...emptySlices(), query: 'ЭАС6-25' })).toEqual([p]);
 });
 
+it('поиск полного кода сопоставляет разные числа нулей и сохраняет различие лотов', () => {
+  const rows = [proc({ code: 'ЭАС6/2-25', sourceCode: 'ЭАС06/02-25' }), proc({ code: 'ЭАС6/3-25' })];
+  expect(applySlices(rows, { ...emptySlices(), query: 'эас0006/002-25' })).toEqual([rows[0]]);
+  expect(applySlices([proc({ code: 'ЭА1-26' })], { ...emptySlices(), query: 'ЭА001-26' })).toHaveLength(1);
+});
+
 it('представления сохраняют отмены и наследников отдельно от успешных процедур', () => {
   const rows = [proc(), proc({ stage: 'no_result', result: 'Нет заявок', auctionPrice: null }),
     proc({ stage: 'reissued', auctionPrice: 100 }), proc({ stage: 'bidding', auctionPrice: 100 })];

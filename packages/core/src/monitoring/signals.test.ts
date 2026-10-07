@@ -70,6 +70,15 @@ const directory = parseMonitoringDirectory(
 );
 
 describe('buildMonitoringSignals', () => {
+  it('сохраняет адрес после первых сорока для последующего отбора управления', () => {
+    const sourceIssues = Array.from({ length: 41 }, (_, i) => ({ kind: 'source-warning' as const,
+      address: `Рабочий реестр процедур!Y${i + 3}`, note: 'Проверить исходные данные' }));
+    const signal = buildMonitoringSignals({ procedures: [], sourceIssues })
+      .find((s) => s.kind === 'monitoring_source_warning');
+    expect(signal?.count).toBe(41);
+    expect(signal?.addresses).toHaveLength(41);
+    expect(signal?.addresses[40].address).toBe('Рабочий реестр процедур!Y43');
+  });
   const signals = buildMonitoringSignals({ procedures, journal, directory, svod });
   const byKind = new Map(signals.map((s) => [s.kind, s]));
 

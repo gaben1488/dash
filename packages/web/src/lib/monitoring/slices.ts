@@ -13,6 +13,7 @@
  * обязан экран — тремя разными словами и тремя разными кнопками (п.36).
  */
 import { discountBucketOf } from '@aemr/core';
+import { parseProcedureRef } from '@aemr/shared';
 import type { ProcedureDefect, RegistryProcedure } from './contract';
 import { dateQuarter, dateSortKey, dateYear, daysBetween } from './format';
 
@@ -216,6 +217,8 @@ export function procedureDefects(p: RegistryProcedure): ProcedureDefect[] {
 function matchesQuery(p: RegistryProcedure, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (needle === '') return true;
+  const ref = parseProcedureRef(q);
+  if (ref !== null && ref.code === p.code) return true;
   return [p.code, p.sourceCode, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome]
     .some((v) => v != null && v.toLowerCase().includes(needle));
 }
