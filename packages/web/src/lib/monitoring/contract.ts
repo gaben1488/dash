@@ -86,6 +86,8 @@ export interface ProcedureDurations {
 }
 
 export interface RegistryProcedure {
+  ancestorCodes?: string[];
+  successorCodes?: string[];
   protocolFlag?: string | null;
   result?: string | null;
   factsEligible?: boolean;
@@ -485,6 +487,7 @@ function readProcedure(raw: unknown): RegistryProcedure {
   const dur = rec(r.durations);
   return {
     ...(r.result !== undefined ? { result: str(r.result) } : {}),
+    ancestorCodes: strList(r.ancestorCodes), successorCodes: strList(r.successorCodes),
     ...(typeof r.factsEligible === 'boolean' ? { factsEligible: r.factsEligible } : {}),
     requiredAction: str(r.requiredAction), qualityNote: str(r.qualityNote),
     protocolFlag: str(r.protocolFlag),

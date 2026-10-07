@@ -45,6 +45,7 @@ import { portraitFrom } from '../lib/monitoring/portrait';
 import { addressKey, indexByAddress } from '../lib/monitoring/signal-answer';
 import { buildDrill } from '../lib/drill';
 import { fmtReadAt, fmtRub, pluralCount } from '../lib/monitoring/format';
+import { buildMonitoringCsv } from '../lib/monitoring/csv';
 import { CARD, CONTROL } from '../components/monitoring/surfaces';
 
 export function MonitoringPage() {
@@ -391,6 +392,16 @@ export function MonitoringPage() {
                 </select></label>
                 {slices.view === 'withoutContract' && <p className="text-zinc-500">Нет заявок, отмены и передачи наследникам — по результатам источника. Процедуры в работе показаны в своей очереди.</p>}
                 {slices.view === 'successful' && <p className="text-zinc-500">Результат «Состоялась»; исполнение контракта этим не подтверждается.</p>}
+              </div>}
+
+              {mode.kind === 'registry' && <div className="flex flex-wrap items-center gap-3 text-sm">
+                <button type="button" disabled={sorted.length === 0} className={`${CONTROL} px-3 py-2 disabled:opacity-50`}
+                  onClick={() => {
+                    const url = URL.createObjectURL(new Blob([buildMonitoringCsv(sorted, data.source, scopeLabel)], { type: 'text/csv;charset=utf-8' }));
+                    const link = document.createElement('a');
+                    link.href = url; link.download = 'Реестр процедур.csv'; link.click(); URL.revokeObjectURL(url);
+                  }}>Скачать текущий отбор · {sorted.length} строк</button>
+                <p className="text-zinc-600 dark:text-zinc-300">CSV для Excel и Р7-Офис: весь отбор в текущем порядке, суммы с копейками, адреса источника и момент чтения.</p>
               </div>}
 
               {/* ── Содержимое режима ── */}
