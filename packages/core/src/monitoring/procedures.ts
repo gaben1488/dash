@@ -441,7 +441,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
   for (let i = 2; i < grid.length; i++) {
     const r = grid[i] ?? [];
     const codeText = monitoringText(r[0]);
-    if (codeText === null && r.every((v) => monitoringText(v) === null)) continue;
+    if (codeText === null && r.every((v, col) => col === 3 || monitoringText(v) === null)) continue;
     const row = i + 1;
     const dept = monitoringDept(r[4]);
     if (monitoringText(r[1]) === 'доля') {

@@ -30,6 +30,10 @@ describe('канонический реестр', () => {
     const a = row('ЭА100-26'); a[2] = 'Флаг из источника'; a[3] = 'Свободный комментарий';
     expect(parse([a]).procedures[0]).toMatchObject({ comment: null, protocolFlag: 'Флаг из источника' });
   });
+  it('один свободный комментарий не создаёт процедуру без кода', () => {
+    const note = Array(25).fill(''); note[3] = 'Свободная заметка';
+    expect(parse([note]).procedures).toEqual([]);
+  });
   it('ведущие нули кода допустимы и не создают ложные задачи', () => {
     const parent = row('ЭАС06-25', 'Состоялась', 'Состоялась'); parent[1] = 'процедура';
     const share = row('ЭАС06-25'); share[1] = 'доля'; share[7] = 40;
