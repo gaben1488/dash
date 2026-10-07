@@ -237,6 +237,7 @@ export interface SvodPayload {
 // ── Переходящий реестр «25-26» ───────────────────────────────────────
 
 export interface JournalRow {
+  linkedCodes?: string[];
   row: number;
   /** Колонка A, разобранная на словарь: «С отклонением участника», «ФАС», … */
   fate: string | null;
@@ -711,35 +712,36 @@ function readJournal(raw: unknown): JournalPayload | null {
     return {
       row: count(j.row),
       fate: str(j.fate),
-      fateRaw: str(j.fateRaw),
-      linkedCode: str(j.linkedCode),
+      fateRaw: str(j.fateRaw) ?? str(j.fateText),
+      linkedCode: str(j.linkedCode) ?? strList(j.linkedCodes)[0] ?? null,
+      linkedCodes: strList(j.linkedCodes),
       customer: text(j.customer),
       code: str(j.code),
       subject: text(j.subject),
       nmck: num(j.nmck),
-      applicationDate: str(j.applicationDate),
-      publicationDate: str(j.publicationDate),
-      deadlineDate: str(j.deadlineDate),
-      resultDate: str(j.resultDate),
-      auctionPrice: num(j.auctionPrice),
-      savingsTotal: num(j.savingsTotal),
+      applicationDate: readDate(j.applicationDate),
+      publicationDate: readDate(j.publicationDate),
+      deadlineDate: readDate(j.deadlineDate),
+      resultDate: readDate(j.resultDate),
+      auctionPrice: num(j.auctionPrice ?? j.price),
+      savingsTotal: num(j.savingsTotal ?? j.savings),
       savingsMb: num(j.savingsMb),
       savingsKb: num(j.savingsKb),
       savingsFb: num(j.savingsFb),
-      winnerName: str(j.winnerName),
-      winnerInn: str(j.winnerInn),
-      outcome: str(j.outcome),
+      winnerName: str(j.winnerName) ?? str(rec(j.winner).name),
+      winnerInn: str(j.winnerInn) ?? str(rec(j.winner).inn),
+      outcome: str(j.outcome) ?? str(rec(j.winner).outcomeText),
       hiddenInBook: bool(j.hiddenInBook),
-      outsideFilter: bool(j.outsideFilter),
+      outsideFilter: bool(j.outsideFilter ?? j.outsideBookFilter),
     };
   });
   // Прочитанный, но пустой лист — НЕ «сервер лист не отдаёт» (п.36, три рода
   // пустоты). Схлопывая ноль строк в null, маппер отправлял читателя чинить
   // трубу чтения там, где чинить нечего: лист прочитан, и это ответ. Пустой
   // раздел доезжает до экрана как есть, а словами о нём говорит вкладка.
-  const lineage = arr(r.lineage).map((x): LineageChain => {
+  const lineage = arr(r.lineage ?? r.chains).map((x): LineageChain => {
     const l = rec(x);
-    return { codes: strList(l.codes), notes: strList(l.notes) };
+    return { codes: strList(l.codes), notes: l.notes === undefined ? arr(l.edges).map((edge) => str(rec(edge).sourceText)).filter((note): note is string => note !== null) : strList(l.notes) };
   });
   return { rows, lineage, notes: strList(r.notes) };
 }

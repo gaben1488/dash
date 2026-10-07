@@ -50,6 +50,7 @@ import { CARD, CONTROL } from '../components/monitoring/surfaces';
 export function MonitoringPage() {
   const [data, setData] = useState<MonitoringPayload | null>(null);
   const [match, setMatch] = useState<MatchViewPayload | null>(null);
+  const [matchError, setMatchError] = useState<string | null>(null);
   // Сверка трёх источников едет отдельным запросом и отдельной судьбой: её
   // состояние — не «данные или null», а один из исходов, среди которых три
   // РАЗНЫЕ пустоты (расхождений нет / книга не прочитана / сопоставлять
@@ -62,8 +63,10 @@ export function MonitoringPage() {
 
   const [modeId, setModeId] = useState<string>(WORK_MODE.id);
   const modeInitialized = useRef(false);
+  const loadSequence = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
   const [selected, setSelected] = useState<RegistryProcedure | null>(null);
+  const [cardHistory, setCardHistory] = useState<RegistryProcedure[]>([]);
   const [navigationNote, setNavigationNote] = useState<string | null>(null);
   const [slices, setSlices] = useState<SliceState>(emptySlices);
   const [sortKey, setSortKey] = useState<SortKey>('row');
@@ -71,10 +74,12 @@ export function MonitoringPage() {
   const [openCode, setOpenCode] = useState<string | null>(null);
 
   const load = useCallback((refresh = false) => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
     fetchMonitoring(refresh)
       .then((resp) => {
+        if (sequence !== loadSequence.current) return;
         if (resp.source.schema === 'canonical' && !resp.source.sheetsRead.includes('Рабочий реестр процедур')) {
           throw new Error('Основной реестр не прочитан; предыдущие данные сохранены.');
         }
@@ -84,21 +89,22 @@ export function MonitoringPage() {
           modeInitialized.current = true;
         }
       })
-      .catch((e: unknown) => setError(humanizeRequestError(e)))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => { if (sequence === loadSequence.current) setError(humanizeRequestError(e)); })
+      .finally(() => { if (sequence === loadSequence.current) setLoading(false); });
     // Сверка с книгами управлений едет отдельным запросом и отдельной судьбой:
     // её роут может быть ещё не поднят, и это не повод не показать реестр.
     // Читается она ТОЙ ЖЕ читалкой, что и панель сверки в аналитике: вторая,
     // своя, ждала формы `{rows, outcomes}`, которой живой роут никогда не
     // отдавал, — и полоса сверки в карточке КАЖДОЙ строки молча писала
     // «сверка не подключена» при работающем сервере. Один сигнал — один дом.
-    void fetchMonitoringMatchView(refresh).then(setMatch).catch(() => setMatch(null));
+    setMatchError(null);
+    void fetchMonitoringMatchView(refresh).then((value) => { if (sequence === loadSequence.current) setMatch(value); }).catch((e: unknown) => { if (sequence === loadSequence.current) { setMatch(null); setMatchError(humanizeRequestError(e)); } });
     // Тройная сверка сама разводит свои исходы и не бросает: у неё нет
     // состояния «ошибка вкладки» — только состояние собственного раздела.
-    void fetchMonitoringTriple(refresh).then(setTriple);
+    void fetchMonitoringTriple(refresh).then((value) => { if (sequence === loadSequence.current) setTriple(value); });
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); return () => { loadSequence.current += 1; }; }, [load]);
 
   const mode = modeById(modeId);
 
@@ -148,6 +154,15 @@ export function MonitoringPage() {
     }
     return map;
   }, [data]);
+
+  const filteredJournal = useMemo(() => {
+    if (!data?.journal) return null;
+    const codes = new Set(filtered.map((p) => p.code).filter((code) => code !== null));
+    const addresses = new Set(filtered.map((p) => `${p.sheet}:${p.row}`));
+    return { ...data.journal,
+      rows: data.journal.rows.filter((r) => r.code !== null ? codes.has(r.code) : addresses.has(`Рабочий реестр процедур:${r.row}`)),
+      lineage: data.journal.lineage.filter((chain) => chain.codes.some((code) => codes.has(code))) };
+  }, [data, filtered]);
 
   const journalByCode = useMemo(() => {
     const map = new Map<string, JournalRow>();
@@ -204,10 +219,12 @@ export function MonitoringPage() {
   const openProcedure = useCallback((p: RegistryProcedure) => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setNavigationNote(null);
+    setCardHistory([]);
     setSelected(p);
   }, []);
 
   const onOpenCode = useCallback((code: string) => {
+    if (selected?.code === code) return;
     const matches = procedures.filter((p) => p.code === code);
     if (matches.length !== 1) {
       setNavigationNote(matches.length > 1
@@ -217,6 +234,7 @@ export function MonitoringPage() {
     }
     if (selected === null) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setNavigationNote(null);
+    if (selected !== null) setCardHistory((history) => [...history, selected]);
     setSelected(matches[0]);
   }, [procedures, selected]);
 
@@ -287,7 +305,7 @@ export function MonitoringPage() {
       ) : data === null ? (
         <EmptyState
           tone="problem"
-          title="Книга «Ежедневный мониторинг» не прочитана"
+          title="Рабочая книга не прочитана"
           description="Реестр собрать не из чего: сервер не отдал ни одного листа книги. Это отказ чтения, а не «в книге пусто» — числа не потеряны, их просто неоткуда взять прямо сейчас."
           {...(error !== null ? { detail: error } : {})}
           action={{ label: 'Прочитать ещё раз', onClick: () => load(true) }}
@@ -316,7 +334,7 @@ export function MonitoringPage() {
           ) : (
             <>
               {/* ── Один ряд управления вкладкой: режимы · поиск · разрезы (п.128-2) ── */}
-              <SliceBar
+              {mode.kind === 'directory' ? <SheetModeTabs activeId={modeId} onSelect={(m: SheetMode) => setModeId(m.id)} pendingIds={pendingIds} counts={modeCounts} /> : <SliceBar
                 rows={modeRows}
                 slices={slices}
                 onChange={(next) => { setSlices(next); setOpenCode(null); }}
@@ -329,7 +347,7 @@ export function MonitoringPage() {
                     counts={modeCounts}
                   />
                 )}
-              />
+              />}
 
               {/* Подсказка режима — только у листов с собственной формой:
                   у реестра ту же роль выполняет портрет со скоупом. */}
@@ -339,11 +357,10 @@ export function MonitoringPage() {
 
               {/* Районные листы при выбранном управлении режутся только решением
                   владельца — пока показываются целиком, и об этом сказано словами. */}
-              {deptScope !== null && (mode.kind === 'svod' || mode.kind === 'journal' || mode.kind === 'directory') && (
+              {deptScope !== null && mode.kind === 'directory' && (
                 <p className="text-[11px] text-amber-700 dark:text-amber-400">
                   В шапке выбрано управление, но лист «{mode.sheet ?? mode.label}» — районный и
-                  показан целиком: срез по управлению к нему не применяется, резать этот лист
-                  продукт не берётся (решение — за владельцем).
+                  показан целиком: срез по управлению к нему не применяется, справочник показывает организации всего округа. Процедурные разрезы здесь не применяются.
                 </p>
               )}
 
@@ -359,9 +376,22 @@ export function MonitoringPage() {
                 </p>
               )}
 
-              {mode.kind === 'registry' && (
+              {(mode.kind === 'registry' || mode.kind === 'svod') && (
                 <PortraitNumbers portrait={portrait} scopeLabel={scopeLabel} readAtLabel={readAtLabel} />
               )}
+
+              {data.source.schema === 'canonical' && (mode.kind === 'registry' || mode.kind === 'svod') && <div className="flex flex-wrap items-center gap-3 text-sm">
+                <label>Представление <select aria-label="Представление реестра" value={slices.view ?? 'all'}
+                  onChange={(event) => setSlices((prev) => ({ ...prev, view: event.target.value as SliceState['view'] }))}
+                  className={`${CONTROL} ml-2 p-2`}>
+                  <option value="all">Все процедуры{deptScope !== null ? ' выбранных управлений' : ''}</option>
+                  <option value="withoutContract">Без контракта</option>
+                  <option value="joint">Совместные</option>
+                  <option value="successful">Успешно завершённые процедуры</option>
+                </select></label>
+                {slices.view === 'withoutContract' && <p className="text-zinc-500">Нет заявок, отмены и передачи наследникам — по результатам источника. Процедуры в работе показаны в своей очереди.</p>}
+                {slices.view === 'successful' && <p className="text-zinc-500">Результат «Состоялась»; исполнение контракта этим не подтверждается.</p>}
+              </div>}
 
               {/* ── Содержимое режима ── */}
               {mode.kind === 'work' && <WorkQueue queue={data.work} procedures={filtered} readAtLabel={readAtLabel} onOpen={openProcedure} />}
@@ -397,20 +427,20 @@ export function MonitoringPage() {
                 )
               )}
 
-              {mode.kind === 'svod' && (
-                data.svod === null
-                  ? <PendingSheet name="Сводный аналитический лист" onReload={() => load(true)} />
-                  : data.svod.rows.length === 0
-                    ? <ReadButEmptySheet name="Сводный аналитический лист" onReload={() => load(true)} />
-                    : <SvodTable svod={data.svod} readAtLabel={readAtLabel} />
-              )}
+              {mode.kind === 'svod' && <details className={`${CARD} p-4`}>
+                <summary className="cursor-pointer text-sm font-semibold">Сверка книги · весь округ</summary>
+                <p className="my-3 text-sm text-zinc-500">Районный свод показан целиком. Управления и разрезы выше к этой сверке не применяются; портрет выше описывает выбранные процедуры.</p>
+                {data.svod === null ? <PendingSheet name="Сводный аналитический лист" onReload={() => load(true)} />
+                  : data.svod.rows.length === 0 ? <ReadButEmptySheet name="Сводный аналитический лист" onReload={() => load(true)} />
+                    : <SvodTable svod={data.svod} readAtLabel={readAtLabel} />}
+              </details>}
 
               {mode.kind === 'journal' && (
                 data.journal === null
                   ? <PendingSheet name="Рабочий реестр процедур" onReload={() => load(true)} />
                   : data.journal.rows.length === 0
                     ? <ReadButEmptySheet name="Рабочий реестр процедур" onReload={() => load(true)} />
-                    : <JournalTable journal={data.journal} readAtLabel={readAtLabel} query={slices.query} />
+                    : <JournalTable journal={filteredJournal ?? data.journal} readAtLabel={readAtLabel} onOpenCode={onOpenCode} />
               )}
 
               {mode.kind === 'directory' && (
@@ -452,7 +482,7 @@ export function MonitoringPage() {
               {/* ── Аналитика книги — ниже реестра (канон п.101а, спека §3–§4).
                   Секция остаётся смонтированной при смене режима (класс hidden),
                   чтобы не перечитывать аналитику при каждом переключении листа. ── */}
-              <div className={mode.kind === 'registry' ? 'space-y-3' : 'hidden'}>
+              <div className={mode.kind === 'svod' ? 'space-y-3' : 'hidden'}>
                 {/* Прежняя янтарная строка «аналитика ниже — районная» отсюда
                     убрана намеренно: одна фраза обещала поведение сразу девяти
                     блокам (болезнь A1 карты «Аналитики»), а теперь то же самое
@@ -462,10 +492,15 @@ export function MonitoringPage() {
                     числа, а не над секцией. */}
                 <MonitoringAnalyticsSection
                   procedures={data.procedures}
+                  registryReadAt={data.source.readAt}
+                  sharedMatch={match}
+                  sharedMatchError={matchError}
+                  onReloadMatch={() => load(true)}
                   onPickDiscountBucket={(bucketKey) => {
                     // Клик по столбу гистограммы — разрез реестра той же
                     // корзиной (п.119: от числа к строкам-основаниям).
                     // Корзину считает ядро с обеих сторон, разойтись нечему.
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices((prev) => ({ ...prev, reductionBucket: bucketKey }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -476,6 +511,7 @@ export function MonitoringPage() {
                     // ЧЕСТНО ХУЖЕ: одно общество, записанное дважды, разойдётся.
                     // Обе ветки ведут в один и тот же реестр выше — читатель не
                     // уходит со вкладки и видит основания числа целиком.
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices(inn === null
                       ? { ...emptySlices(), query: name }
                       : { ...emptySlices(), winnerInn: inn });
@@ -483,6 +519,7 @@ export function MonitoringPage() {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   onPickDept={(dept) => {
+                    setModeId(ALL_DEPTS_MODE.id);
                     // Изоляция п.127 включается ГЛОБАЛЬНЫМ фильтром шапки, а не
                     // местным разрезом вкладки: у управления один дом отбора на
                     // всё приложение, и второй здесь означал бы два разных
@@ -516,6 +553,7 @@ export function MonitoringPage() {
                     // сложила. Нормализация здесь была бы вредна: число обещало
                     // строки одного написания, и привести к другому их числу
                     // значит обмануть в момент клика.
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices({ ...emptySlices(), customer });
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -523,11 +561,13 @@ export function MonitoringPage() {
                   onPickZeroReduction={() => {
                     // Корзину «снижения не было» считает ядро с обеих сторон —
                     // и в гистограмме, и в разрезе реестра, — разойтись нечему.
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices({ ...emptySlices(), reductionBucket: 'zero' });
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   onPickMethod={(method) => {
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices({ ...emptySlices(), method });
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -535,6 +575,7 @@ export function MonitoringPage() {
                   onPickYear={(procedureYear) => {
                     // Год берётся из кода процедуры, а не из даты, — и разрез
                     // реестра сравнивает ровно тот же суффикс.
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices({ ...emptySlices(), procedureYear });
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -544,6 +585,7 @@ export function MonitoringPage() {
                     // аукцион»; заказчик-признак «Совместный …» ловится тем же
                     // разрезом только частично, и это честно хуже — но общей
                     // колонки «совместная закупка» в книге нет.
+                    setModeId(ALL_DEPTS_MODE.id);
                     setSlices({ ...emptySlices(), method: 'ЭАС' });
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -619,11 +661,14 @@ export function MonitoringPage() {
           )}
         </>
       )}
-      <Drawer open={selected !== null} onOpenChange={(open) => { if (!open) { setSelected(null); setNavigationNote(null); } }}
+      <Drawer open={selected !== null} onOpenChange={(open) => { if (!open) { setSelected(null); setCardHistory([]); setNavigationNote(null); } }}
         title={selectedProcedure?.code ?? 'Карточка процедуры'}
         description="Действие, данные и источники. Закрытие возвращает к прежнему списку."
         className="!max-h-[100dvh] h-[100dvh] !rounded-none sm:left-auto sm:w-[min(56rem,90vw)]"
         onCloseAutoFocus={(event) => { event.preventDefault(); opener.current?.focus(); }}>
+        {cardHistory.length > 0 && <button type="button" className="mb-3 text-sm text-sky-700 underline" onClick={() => {
+          setSelected(cardHistory[cardHistory.length - 1]); setCardHistory((history) => history.slice(0, -1)); setNavigationNote(null);
+        }}>Назад к предыдущей процедуре</button>}
         {navigationNote && <p role="alert" className="mb-3 text-sm text-amber-700">{navigationNote}</p>}
         {selectedProcedure ? <ProcedureCard p={selectedProcedure}
           bookUrl={data?.source.schema === 'canonical' ? data.source.bookUrl : null}

@@ -80,6 +80,7 @@ export function reductionBucketId(p: RegistryProcedure): string | null {
 export type PeriodBasis = 'publication' | 'auction';
 
 export interface SliceState {
+  view?: 'all' | 'withoutContract' | 'joint' | 'successful';
   /** Канонический ид управления либо null — все восемь листов. */
   dept: string | null;
   stage: string | null;
@@ -104,6 +105,7 @@ export interface SliceState {
 
 export function emptySlices(): SliceState {
   return {
+    view: 'all',
     dept: null,
     stage: null,
     method: null,
@@ -124,7 +126,7 @@ export function emptySlices(): SliceState {
 /** Есть ли хоть один действующий разрез — от этого зависят слова пустого экрана. */
 export function hasAnySlice(s: SliceState): boolean {
   return (
-    s.dept !== null || s.stage !== null || s.method !== null
+    (s.view !== undefined && s.view !== 'all') || s.dept !== null || s.stage !== null || s.method !== null
     || s.periodYear !== null || s.periodQuarter !== null || s.periodMonth !== null
     || s.customer !== null || s.winnerInn !== null || s.nmckBucket !== null
     || s.reductionBucket !== null
@@ -224,6 +226,9 @@ function periodDate(p: RegistryProcedure, basis: PeriodBasis): string | null {
 
 export function applySlices(rows: readonly RegistryProcedure[], s: SliceState): RegistryProcedure[] {
   return rows.filter((p) => {
+    if (s.view === 'withoutContract' && !['no_result', 'reissued'].includes(p.stage)) return false;
+    if (s.view === 'joint' && !p.joint) return false;
+    if (s.view === 'successful' && p.stage !== 'awarded') return false;
     if (s.dept !== null && p.dept !== s.dept) return false;
     if (s.stage !== null && p.stage !== s.stage) return false;
     if (s.method !== null && p.method !== s.method) return false;
@@ -268,6 +273,10 @@ export interface SliceCrumb {
  */
 export function describeSlices(s: SliceState, deptName?: (dept: string) => string): SliceCrumb[] {
   const out: SliceCrumb[] = [];
+  if (s.view && s.view !== 'all') {
+    const labels = { withoutContract: 'Без контракта', joint: 'Совместные', successful: 'Успешно завершённые процедуры' };
+    out.push({ key: 'view', label: labels[s.view] });
+  }
   if (s.dept !== null) out.push({ key: 'dept', label: `управление: ${deptName ? deptName(s.dept) : s.dept}` });
   if (s.stage !== null) out.push({ key: 'stage', label: `стадия: ${s.stage}` });
   if (s.method !== null) out.push({ key: 'method', label: `способ: ${s.method}` });

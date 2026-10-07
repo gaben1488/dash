@@ -39,6 +39,14 @@ function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {
   };
 }
 
+it('представления сохраняют отмены и наследников отдельно от успешных процедур', () => {
+  const rows = [proc(), proc({ stage: 'no_result', result: 'Нет заявок', auctionPrice: null }),
+    proc({ stage: 'reissued', auctionPrice: 100 }), proc({ stage: 'bidding', auctionPrice: 100 })];
+  expect(applySlices(rows, { ...emptySlices(), view: 'withoutContract' }).map((p) => p.stage)).toEqual(['no_result', 'reissued']);
+  expect(applySlices(rows, { ...emptySlices(), view: 'successful' }).map((p) => p.stage)).toEqual(['awarded']);
+  expect(applySlices(rows, { ...emptySlices(), view: 'all' })).toHaveLength(4);
+});
+
 describe('доли совместных процедур', () => {
   it.each([false, true])('срез управления сохраняет допуск денежного факта: %s', (factsEligible) => {
     const p = proc({ dept: 'Совместные', factsEligible, participants: [

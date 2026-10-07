@@ -860,7 +860,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
     if (p.stage === 'awarded' && p.factsEligible !== false && p.auctionPrice !== null) {
       awardedCount += 1;
       awardedPrice += p.auctionPrice;
-      if (p.nmck !== null) {
+      if (p.nmck !== null && p.nmck > 0) {
         pairedPrice += p.auctionPrice;
         awardedNmck += p.nmck;
         if (p.nmck > 0) reductions.push(((p.nmck - p.auctionPrice) / p.nmck) * 100);

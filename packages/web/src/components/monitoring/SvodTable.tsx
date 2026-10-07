@@ -29,7 +29,7 @@ function Pair({ book, product, kind = 'money' }: {
   kind?: 'money' | 'count';
 }) {
   const fmt = kind === 'money' ? fmtRubExact : fmtCount;
-  const differs = book !== null && product !== null && (kind === 'count' ? book !== product : Math.abs(book - product) > 0.01 + 1e-8);
+  const differs = (book === null) !== (product === null) || book !== null && product !== null && (kind === 'count' ? book !== product : Math.abs(book - product) > 0.01 + 1e-8);
   if (!differs) {
     return <span className="tabular-nums text-zinc-700 dark:text-zinc-200">{fmt(book ?? product)}</span>;
   }

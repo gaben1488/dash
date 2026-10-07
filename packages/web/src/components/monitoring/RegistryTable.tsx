@@ -414,7 +414,7 @@ export function RegistryTable({
                       if (onOpenProcedure) onOpenProcedure(p); else toggleRow(p, open);
                     }
                   }}
-                  aria-expanded={open}
+                  aria-expanded={onOpenProcedure ? undefined : open}
                   className={`${RULE_ROW} align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
                 >
                   <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
@@ -434,7 +434,12 @@ export function RegistryTable({
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap"><CodeCell p={p} /></td>
+                  <td className="px-2 py-1.5 whitespace-nowrap"><button type="button"
+                    aria-label={`Открыть процедуру ${p.code ?? `в строке ${p.row}`}`}
+                    aria-haspopup={onOpenProcedure ? 'dialog' : undefined}
+                    aria-expanded={onOpenProcedure ? undefined : open}
+                    onClick={(event) => { event.stopPropagation(); if (onOpenProcedure) onOpenProcedure(p); else toggleRow(p, open); }}
+                    className="text-left underline decoration-zinc-300 underline-offset-4"><CodeCell p={p} /></button></td>
                   <td className="px-2 py-1.5 max-w-[12rem] truncate text-zinc-600 dark:text-zinc-300" title={p.customer}>
                     {p.customer || '—'}
                   </td>

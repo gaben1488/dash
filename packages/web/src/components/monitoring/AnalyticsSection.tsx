@@ -62,6 +62,10 @@ import { MonitoringPerimeterProvider } from './PerimeterProvider';
 import { CONTROL } from './surfaces';
 
 export interface MonitoringAnalyticsSectionProps {
+  registryReadAt?: string;
+  sharedMatch?: MatchViewPayload | null;
+  sharedMatchError?: string | null;
+  onReloadMatch?: () => void;
   /**
    * Строки реестра, которые читатель сейчас видит. Нужны для денег воронки и
    * разреза по способу закупки; без них эти два места честно молчат.
@@ -107,7 +111,7 @@ export interface MonitoringAnalyticsSectionProps {
 }
 
 export function MonitoringAnalyticsSection({
-  procedures, onPickDiscountBucket, onPickSupplier, onPickDept,
+  procedures, onPickDiscountBucket, onPickSupplier, onPickDept, registryReadAt, sharedMatch, sharedMatchError, onReloadMatch,
   journalRows, onPickCustomer, onPickZeroReduction, onPickMethod,
   onPickYear, onPickJoint, onPickFate,
 }: MonitoringAnalyticsSectionProps) {
@@ -129,6 +133,7 @@ export function MonitoringAnalyticsSection({
   }, []);
 
   const loadMatch = useCallback(() => {
+    if (onReloadMatch) { onReloadMatch(); return; }
     setMatchError(null);
     fetchMonitoringMatchView()
       .then((m) => setMatch(m))
@@ -136,10 +141,10 @@ export function MonitoringAnalyticsSection({
         setMatch(null);
         setMatchError(humanizeRequestError(e));
       });
-  }, []);
+  }, [onReloadMatch]);
 
-  useEffect(() => { load(basis); }, [load, basis]);
-  useEffect(() => { loadMatch(); }, [loadMatch]);
+  useEffect(() => { load(basis); }, [load, basis, registryReadAt]);
+  useEffect(() => { if (sharedMatch === undefined) loadMatch(); }, [loadMatch, sharedMatch]);
 
   const periodLabel = data === null
     ? 'аналитика ещё считается'
@@ -167,27 +172,30 @@ export function MonitoringAnalyticsSection({
   }
 
   const a = data.analytics;
-  const money = procedures === undefined ? null : funnelMoney(procedures);
-  const byMethod = procedures === undefined ? null : reductionByMethod(procedures);
+  const sameRead = registryReadAt === undefined || registryReadAt === data.source.readAt;
+  const money = procedures === undefined || !sameRead ? null : funnelMoney(procedures);
+  const byMethod = procedures === undefined || !sameRead ? null : reductionByMethod(procedures);
 
   // Шесть разрезов витрины считаются по строкам реестра прямо здесь. Счёт
   // дешёвый (один проход по нескольким сотням строк), а вот `useMemo` на
   // каждый разрез стоил бы шести зависимостей и шести поводов рассинхронить
   // их между собой — экономия не окупает риска.
-  const bi = procedures === undefined ? null : {
+  const bi = procedures === undefined || !sameRead ? null : {
     customers: customerConcentration(procedures),
     budget: budgetSavings(procedures),
     zero: zeroReduction(procedures),
     carry: carryOver(procedures),
     joint: jointComparison(procedures),
   };
-  const fates = journalRows === undefined
+  const fates = journalRows === undefined || !sameRead
     ? null
     : rejoinedFates(journalRows, PROCEDURE_FATE_LABELS);
 
   return (
     <MonitoringPerimeterProvider readAt={data.source.readAt}>
     <section className="space-y-3">
+      <p className="text-sm text-zinc-500">Районная аналитика · весь округ. Прочитана отдельно: {periodLabel}. Фильтры выбранных процедур к этим показателям не применяются.</p>
+      {!sameRead && <p role="status" className="text-sm text-amber-700">Время чтения аналитики отличается от реестра. Сочетание чисел из разных чтений не показывается; обновите книгу для общей сверки.</p>}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
@@ -301,7 +309,7 @@ export function MonitoringAnalyticsSection({
         {...(onPickDept !== undefined ? { onPickDept } : {})}
       />
       <AnomalyList anomalies={a.anomalies} unsuccessful={a.unsuccessful} periodLabel={periodLabel} />
-      <MatchPanel match={match} error={matchError} periodLabel={periodLabel} onReload={loadMatch} />
+      <MatchPanel match={sharedMatch === undefined ? match : sharedMatch} error={sharedMatch === undefined ? matchError : sharedMatchError ?? null} periodLabel={periodLabel} onReload={loadMatch} />
 
       {data.notes.length > 0 && (
         <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">

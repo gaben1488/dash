@@ -139,8 +139,8 @@ function renderPage() {
 
 describe('ежедневный сценарий канонического реестра', () => {
   function canonical() {
-    const p = proc({ sheet: 'Рабочий реестр процедур', code: null, requiredAction: 'Исправить: код', qualityNote: 'Код не заполнен' });
-    return payload({ source: { schema: 'canonical', bookName: 'План-реестр', readAt: '2026-10-07T02:00:00Z', moneyUnit: 'руб', sheetsRead: ['Рабочий реестр процедур'], sheetsFailed: {} },
+    const p = proc({ sheet: 'Рабочий реестр процедур', code: null, requiredAction: 'Исправить: код', qualityNote: 'Код не заполнен', participants: [{ row: 4, dept: 'УО', customer: 'Участник', nmck: null, price: null, savings: null }]  });
+    return payload({ source: { schema: 'canonical', bookName: 'План-реестр', bookUrl: 'https://docs.google.com/spreadsheets/d/source-book/edit', readAt: '2026-10-07T02:00:00Z', moneyUnit: 'руб', sheetsRead: ['Рабочий реестр процедур'], sheetsFailed: {} },
       procedures: [p], work: { asOf: '2026-10-07', active: [{ procedure: p, action: 'Исправить: код' }], closed: [] } });
   }
 
@@ -152,6 +152,8 @@ describe('ежедневный сценарий канонического ре�
     fireEvent.click(button);
     const card = await screen.findByRole('dialog');
     expect(within(card).getByText('Код не заполнен')).toBeTruthy();
+    expect(within(card).getByRole('link', { name: 'Действие в источнике' }).getAttribute('href')).toContain(encodeURIComponent("'Рабочий реестр процедур'!X3"));
+    expect(within(card).getByRole('region', { name: 'Участники совместной закупки' })).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: 'Закрыть' }));
     expect(screen.getByRole('table', { name: 'Процедуры в работе' })).toBeTruthy();
   });
@@ -305,7 +307,7 @@ describe('Мониторинг: режимы листов', () => {
     renderPage();
 
     const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
-    fireEvent.click(within(tabs).getByRole('button', { name: /Сводный/u }));
+    fireEvent.click(within(tabs).getByRole('button', { name: /Обзор/u }));
 
     expect(await screen.findByText('Лист «Сводный аналитический лист» сервер пока не отдаёт')).toBeTruthy();
     expect(screen.getByText(/незаконченная труба чтения, а не пустой лист/u)).toBeTruthy();
@@ -365,17 +367,17 @@ describe('Мониторинг: режимы листов', () => {
     renderPage();
 
     const tabs = await screen.findByRole('navigation', { name: /Листы книги/u });
-    fireEvent.click(within(tabs).getByRole('button', { name: /Сводный/u }));
+    fireEvent.click(within(tabs).getByRole('button', { name: /Обзор/u }));
 
     const svod = await screen.findByRole('region', { name: 'Свод книги' });
     // Оба числа стоят рядом: книжное и продуктовое — вместе с причиной разницы.
     // Числа стоят и в строке управления, и в итоге — важно, что оба вида
     // числа (книжное и продуктовое) показаны, а не одно вместо другого.
-    expect(within(svod).getAllByText('229 452 024').length).toBeGreaterThan(0);
-    expect(within(svod).getAllByText('303 422 921').length).toBeGreaterThan(0);
+    expect(within(svod).getAllByText('229 452 023,50').length).toBeGreaterThan(0);
+    expect(within(svod).getAllByText('303 422 920,85').length).toBeGreaterThan(0);
     expect(within(svod).getByText(/формула СУММ её не видит/u)).toBeTruthy();
     // Контроль, которого своду книги не хватает.
-    expect(within(svod).getByText('9 001 583')).toBeTruthy();
+    expect(within(svod).getByText('9 001 582,73')).toBeTruthy();
   });
 });
 
@@ -384,7 +386,7 @@ describe('Мониторинг: три разные пустоты', () => {
     fetchJSON.mockRejectedValue(new Error('Книга недоступна'));
     renderPage();
 
-    expect(await screen.findByText('Книга «Ежедневный мониторинг» не прочитана')).toBeTruthy();
+    expect(await screen.findByText('Рабочая книга не прочитана')).toBeTruthy();
     expect(screen.getByText(/отказ чтения, а не «в книге пусто»/u)).toBeTruthy();
   });
 

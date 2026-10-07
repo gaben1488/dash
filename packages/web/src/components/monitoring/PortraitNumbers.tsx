@@ -92,7 +92,7 @@ export function PortraitNumbers({ portrait, scopeLabel, readAtLabel }: PortraitN
           value={fmtRub(p.nmckTotal)}
           caption={p.nmckMissing > 0
             ? `НМЦК, руб. · у ${pluralCount(p.nmckMissing, 'строки', 'строк', 'строк')} сумма не читается числом`
-            : 'НМЦК всех процедур, руб.'}
+            : 'НМЦК плана, руб. · без переданных наследнику'}
         />
         <Figure
           kbKey="monitoring_contract_price"

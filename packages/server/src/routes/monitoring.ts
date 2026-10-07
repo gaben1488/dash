@@ -157,7 +157,7 @@ function commonNotes(book: MonitoringBookSnapshot): string[] {
 const BOOK_UNAVAILABLE = {
   error: 'ServiceUnavailable',
   message:
-    'Рабочий реестр процедур не прочитан. Книга «Ежедневный мониторинг» не может быть показана целиком. '
+    'Рабочий реестр процедур не прочитан. План-реестр не может быть показан целиком. '
     + 'Повторите запрос позже.',
   statusCode: 503,
 };
