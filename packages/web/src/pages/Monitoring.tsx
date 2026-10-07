@@ -6,6 +6,7 @@ import { SkeletonKPIRow, SkeletonTable } from '../components/Skeleton';
 import { BookPeriodBadge } from '../components/monitoring/BookPeriodBadge';
 import { BookStatusStrip } from '../components/monitoring/BookStatusStrip';
 import { PortraitNumbers } from '../components/monitoring/PortraitNumbers';
+import { MoneyFlow } from '../components/monitoring/MoneyFlow';
 import { SheetModeTabs } from '../components/monitoring/SheetModeTabs';
 import { SliceBar } from '../components/monitoring/SliceBar';
 import { RegistryTable } from '../components/monitoring/RegistryTable';
@@ -380,6 +381,12 @@ export function MonitoringPage() {
 
               {(mode.kind === 'registry' || mode.kind === 'svod') && (
                 <PortraitNumbers portrait={portrait} scopeLabel={scopeLabel} readAtLabel={readAtLabel} />
+              )}
+              {data.source.schema === 'canonical' && (mode.kind === 'registry' || mode.kind === 'svod') && (
+                <MoneyFlow procedures={filtered} onPick={(moneyCategory) => {
+                  setSlices((prev) => ({ ...prev, moneyCategory }));
+                  setModeId(ALL_DEPTS_MODE.id);
+                }} />
               )}
 
               {data.source.schema === 'canonical' && (mode.kind === 'registry' || mode.kind === 'svod') && <div className="flex flex-wrap items-center gap-3 text-sm">

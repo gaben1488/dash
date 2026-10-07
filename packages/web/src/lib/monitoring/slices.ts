@@ -15,6 +15,7 @@
 import { discountBucketOf } from '@aemr/core';
 import { parseProcedureRef } from '@aemr/shared';
 import type { ProcedureDefect, RegistryProcedure } from './contract';
+import { MONEY_CATEGORY_LABELS, moneyCategoryOf, type MoneyCategory } from './money-flow';
 import { dateQuarter, dateSortKey, dateYear, daysBetween } from './format';
 
 // ── Корзины НМЦК ─────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ export function reductionBucketId(p: RegistryProcedure): string | null {
 export type PeriodBasis = 'publication' | 'auction';
 
 export interface SliceState {
+  moneyCategory?: MoneyCategory | null;
   view?: 'all' | 'withoutContract' | 'joint' | 'successful';
   /** Канонический ид управления либо null — все восемь листов. */
   dept: string | null;
@@ -127,6 +129,7 @@ export function emptySlices(): SliceState {
 /** Есть ли хоть один действующий разрез — от этого зависят слова пустого экрана. */
 export function hasAnySlice(s: SliceState): boolean {
   return (
+    s.moneyCategory != null ||
     (s.view !== undefined && s.view !== 'all') || s.dept !== null || s.stage !== null || s.method !== null
     || s.periodYear !== null || s.periodQuarter !== null || s.periodMonth !== null
     || s.customer !== null || s.winnerInn !== null || s.nmckBucket !== null
@@ -229,6 +232,7 @@ function periodDate(p: RegistryProcedure, basis: PeriodBasis): string | null {
 
 export function applySlices(rows: readonly RegistryProcedure[], s: SliceState): RegistryProcedure[] {
   return rows.filter((p) => {
+    if (s.moneyCategory != null && moneyCategoryOf(p) !== s.moneyCategory) return false;
     if (s.view === 'withoutContract' && !['no_result', 'reissued'].includes(p.stage)) return false;
     if (s.view === 'joint' && !p.joint) return false;
     if (s.view === 'successful' && p.stage !== 'awarded') return false;
@@ -276,6 +280,7 @@ export interface SliceCrumb {
  */
 export function describeSlices(s: SliceState, deptName?: (dept: string) => string): SliceCrumb[] {
   const out: SliceCrumb[] = [];
+  if (s.moneyCategory != null) out.push({ key: 'moneyCategory', label: MONEY_CATEGORY_LABELS[s.moneyCategory] });
   if (s.view && s.view !== 'all') {
     const labels = { withoutContract: 'Без контракта', joint: 'Совместные', successful: 'Успешно завершённые процедуры' };
     out.push({ key: 'view', label: labels[s.view] });

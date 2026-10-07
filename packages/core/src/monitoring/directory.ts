@@ -55,8 +55,14 @@ export const MONITORING_DIRECTORY_HEADER_V2: readonly string[] = [
 ];
 
 function currentDirectorySchema(grid: unknown[][]): boolean {
-  const header = new Set((grid[0] ?? []).map((value) => monitoringText(value)).filter(Boolean));
-  return MONITORING_DIRECTORY_HEADER_V2.every((value) => header.has(value));
+  const header = (grid[0] ?? []).map((value) => monitoringText(value));
+  // Coordinates belong to the schema; labels may be clarified without changing meaning.
+  return [
+    [0, ['№ п/п']], [2, ['Управление']],
+    [3, ['Новый каноничный справочник полных наименований', 'Полное наименование']],
+    [4, ['Новый каноничный справочник кратких наименований', 'Сокращённое наименование']],
+    [8, ['Алиасы и варианты написания', 'Другие написания']],
+  ].every(([column, names]) => (names as string[]).includes(header[column as number] ?? ''));
 }
 
 function directoryAliases(raw: unknown[], modern: boolean): string[] {

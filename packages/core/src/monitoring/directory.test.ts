@@ -50,6 +50,22 @@ const USAGE = [
 ];
 
 describe('parseMonitoringDirectory', () => {
+  it('accepts clear headers without falling back to the old four-column mapping', () => {
+    const header = [...CURRENT_GRID[0]];
+    header[3] = 'Полное наименование';
+    header[4] = 'Сокращённое наименование';
+    header[8] = 'Другие написания';
+    const row = [...CURRENT_GRID[1]];
+    row[16] = ''; row[17] = '';
+    const directory = parseMonitoringDirectory([header, row], [
+      { customer: 'УД АЕМО', customerNormalized: 'уд аемо', dept: 'УД' },
+    ]);
+    expect(directory.entries[0]).toMatchObject({
+      grbs: 'Управление делами', fullName: 'Управление делами Администрации района',
+      shortName: 'Управление делами Администрации района', usageCount: 1,
+    });
+    expect(directory.customersOutside).toEqual([]);
+  });
   it('помечает строки, где сокращение дословно повторяет полное наименование', () => {
     const directory = parseMonitoringDirectory(GRID);
     expect(directory.entries).toHaveLength(3);
