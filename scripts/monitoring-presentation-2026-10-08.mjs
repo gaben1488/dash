@@ -3,6 +3,213 @@
  * Changes copy and disclosure only; no financial inputs, master schema or stage conditional fills.
  */
 /** Compact daily queue; apply once after inspecting existing dimension groups. */
+/** Final layouts grounded in each sheet's actual headers; ranges are 0-based.
+ * Archived GRBS column B stays visible because it also contains the department selector.
+ * Inspect/delete existing groups before applying a new layout; never stack another depth.
+ */
+export const reviewedSecondaryLayouts = [
+  {
+    "sheetId": 2526403,
+    "groups": [
+      [
+        8,
+        20
+      ]
+    ],
+    "widths": [
+      [
+        0,
+        110
+      ],
+      [
+        1,
+        150
+      ],
+      [
+        2,
+        100
+      ],
+      [
+        3,
+        150
+      ],
+      [
+        4,
+        220
+      ],
+      [
+        5,
+        145
+      ],
+      [
+        6,
+        145
+      ],
+      [
+        7,
+        145
+      ]
+    ],
+    "columns": "Код, вид строки, управление, заказчик, предмет, НМЦК, цена, экономия"
+  },
+  {
+    "sheetId": 2526402,
+    "groups": [
+      [
+        8,
+        14
+      ],
+      [
+        15,
+        20
+      ]
+    ],
+    "widths": [
+      [
+        0,
+        110
+      ],
+      [
+        1,
+        75
+      ],
+      [
+        2,
+        95
+      ],
+      [
+        3,
+        155
+      ],
+      [
+        4,
+        200
+      ],
+      [
+        5,
+        140
+      ],
+      [
+        6,
+        140
+      ],
+      [
+        7,
+        140
+      ],
+      [
+        14,
+        110
+      ]
+    ],
+    "columns": "Код, вид строки, управление, заказчик, предмет, НМЦК, цена, экономия, проверка участников"
+  },
+  {
+    "sheetId": 2526401,
+    "groups": [
+      [
+        5,
+        6
+      ],
+      [
+        7,
+        9
+      ],
+      [
+        10,
+        11
+      ],
+      [
+        12,
+        17
+      ]
+    ],
+    "widths": [
+      [
+        0,
+        115
+      ],
+      [
+        1,
+        100
+      ],
+      [
+        2,
+        170
+      ],
+      [
+        3,
+        230
+      ],
+      [
+        4,
+        150
+      ],
+      [
+        6,
+        170
+      ],
+      [
+        9,
+        115
+      ],
+      [
+        11,
+        190
+      ]
+    ],
+    "columns": "Код, управление, заказчик, предмет, НМЦК, результат, следующая процедура, замечания"
+  },
+  {
+    "sheetId": 837564274,
+    "groups": [
+      [
+        5,
+        12
+      ],
+      [
+        13,
+        15
+      ],
+      [
+        16,
+        18
+      ]
+    ],
+    "widths": [
+      [
+        0,
+        40
+      ],
+      [
+        1,
+        120
+      ],
+      [
+        2,
+        140
+      ],
+      [
+        3,
+        300
+      ],
+      [
+        4,
+        220
+      ],
+      [
+        12,
+        125
+      ],
+      [
+        15,
+        135
+      ]
+    ],
+    "columns": "Номер, группа, управление, полное и сокращённое название, ИНН, код ЕИС"
+  }
+];
+
 export const reviewedQueuePresentation = [
   {
     "addDimensionGroup": {
