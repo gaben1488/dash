@@ -111,8 +111,13 @@ export function procedureStage(
 }
 
 /** Исторический импорт сохраняет прежний смысл; канон требует первичного результата. */
-export function monetaryFactAllowed(p: Pick<MonitoringProcedure, 'result' | 'stage' | 'factsEligible'>): boolean {
+export function monetaryFactAllowed(p: Pick<MonitoringProcedure, 'result' | 'factsEligible'> & { readonly stage: string }): boolean {
   return p.result === undefined || (p.stage === 'awarded' && p.factsEligible !== false);
+}
+
+/** Переданный предок хранится в истории, а текущий план учитывается у преемника. */
+export function monetaryPlanAllowed(p: { readonly stage: string }): boolean {
+  return p.stage !== 'reissued';
 }
 
 // ── Дефекты строки ───────────────────────────────────────────────────
@@ -846,7 +851,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
     const year = p.year === null ? 'без кода' : String(2000 + p.year);
     byYear[year] = (byYear[year] ?? 0) + 1;
 
-    if (p.nmck !== null && p.stage !== 'reissued') nmckTotal += p.nmck;
+    if (p.nmck !== null && monetaryPlanAllowed(p)) nmckTotal += p.nmck;
     if (monetaryFactAllowed(p)) {
       if (p.savingsTotal !== null) savingsBookTotal += p.savingsTotal;
       if (p.savingsMb !== null) savingsMb += p.savingsMb;

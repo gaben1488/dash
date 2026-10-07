@@ -26,6 +26,11 @@
  * значит отобрать у него эту возможность.
  */
 import type { RegistryProcedure } from './contract';
+import { monetaryFactAllowed, monetaryPlanAllowed } from '@aemr/core';
+
+function plannedNmck(p: RegistryProcedure): number | null {
+  return monetaryPlanAllowed(p) ? p.nmck : null;
+}
 
 /** Доля в процентах; null — знаменатель пуст, делить нечего. */
 function sharePct(part: number, whole: number): number | null {
@@ -41,7 +46,7 @@ function sum(rows: readonly RegistryProcedure[], pick: (p: RegistryProcedure) =>
 
 /** Состоявшаяся процедура с обеими суммами — знаменатель всех разрезов цены. */
 function isPriced(p: RegistryProcedure): boolean {
-  return p.stage === 'awarded' && p.nmck !== null && p.nmck > 0 && p.auctionPrice !== null;
+  return monetaryFactAllowed(p) && p.stage === 'awarded' && p.nmck !== null && p.nmck > 0 && p.auctionPrice !== null;
 }
 
 // ── §1. Где деньги: концентрация заказчиков ──────────────────────────
@@ -91,7 +96,7 @@ export function customerConcentration(
     if (key === '') continue;
     const b = acc.get(key) ?? { count: 0, nmck: 0 };
     b.count += 1;
-    b.nmck += p.nmck ?? 0;
+    b.nmck += plannedNmck(p) ?? 0;
     acc.set(key, b);
   }
 
@@ -213,6 +218,7 @@ const BUDGET_LABELS: Record<BudgetLevelKey, { short: string; label: string }> = 
  * Витрина показывает разрыв с адресами строк, вывод делает человек.
  */
 export function budgetSavings(procedures: readonly RegistryProcedure[]): BudgetSavings {
+  procedures = procedures.filter(monetaryFactAllowed);
   const mb = sum(procedures, (p) => p.savingsMb);
   const kb = sum(procedures, (p) => p.savingsKb);
   const fb = sum(procedures, (p) => p.savingsFb);
@@ -383,7 +389,7 @@ export interface CarryOver {
  */
 export function carryOver(procedures: readonly RegistryProcedure[]): CarryOver {
   const totalCount = procedures.length;
-  const totalNmck = sum(procedures, (p) => p.nmck);
+  const totalNmck = sum(procedures, plannedNmck);
 
   const acc = new Map<number | null, {
     count: number; nmck: number; stages: Map<string, number>; depts: Map<string, number>;
@@ -392,7 +398,7 @@ export function carryOver(procedures: readonly RegistryProcedure[]): CarryOver {
     const key = p.year;
     const b = acc.get(key) ?? { count: 0, nmck: 0, stages: new Map(), depts: new Map() };
     b.count += 1;
-    b.nmck += p.nmck ?? 0;
+    b.nmck += plannedNmck(p) ?? 0;
     b.stages.set(p.stage, (b.stages.get(p.stage) ?? 0) + 1);
     b.depts.set(p.dept, (b.depts.get(p.dept) ?? 0) + 1);
     acc.set(key, b);
@@ -422,9 +428,9 @@ export function carryOver(procedures: readonly RegistryProcedure[]): CarryOver {
     rows,
     currentYear,
     carriedCount: carried.length,
-    carriedNmckRub: sum(carried, (p) => p.nmck),
+    carriedNmckRub: sum(carried, plannedNmck),
     carriedCountSharePct: sharePct(carried.length, totalCount),
-    carriedMoneySharePct: sharePct(sum(carried, (p) => p.nmck), totalNmck),
+    carriedMoneySharePct: sharePct(sum(carried, plannedNmck), totalNmck),
     unknownYearCount: procedures.filter((p) => p.year === null).length,
   };
 }
@@ -468,7 +474,7 @@ export function jointComparison(procedures: readonly RegistryProcedure[]): Joint
     const priced = rows.filter(isPriced);
     const nmck = sum(priced, (p) => p.nmck);
     const price = sum(priced, (p) => p.auctionPrice);
-    const allNmck = sum(rows, (p) => p.nmck);
+    const allNmck = sum(rows, plannedNmck);
     return {
       count: rows.length,
       nmckRub: allNmck,
@@ -485,15 +491,15 @@ export function jointComparison(procedures: readonly RegistryProcedure[]): Joint
   for (const p of jointRows) {
     const b = deptAcc.get(p.dept) ?? { count: 0, nmckRub: 0 };
     b.count += 1;
-    b.nmckRub += p.nmck ?? 0;
+    b.nmckRub += plannedNmck(p) ?? 0;
     deptAcc.set(p.dept, b);
   }
 
-  const totalNmck = sum(procedures, (p) => p.nmck);
+  const totalNmck = sum(procedures, plannedNmck);
   return {
     joint: side(jointRows),
     solo: side(soloRows),
-    jointMoneySharePct: sharePct(sum(jointRows, (p) => p.nmck), totalNmck),
+    jointMoneySharePct: sharePct(sum(jointRows, plannedNmck), totalNmck),
     jointCountSharePct: sharePct(jointRows.length, procedures.length),
     jointByDept: [...deptAcc.entries()]
       .map(([dept, b]) => ({ dept, ...b }))

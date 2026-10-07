@@ -307,16 +307,17 @@ export function ProcedureCard({
               <span>{match.summary}</span>
             </p>
             {match.kind === 'matched' && (
-              <>
-                <Line label="Начальная цена, книга, руб." value={fmtRubExact(match.nmck?.bookRub ?? null)} />
-                <Line label="Начальная цена, мониторинг, руб." value={fmtRubExact(match.nmck?.monitoringRub ?? null)} />
+              (match.comparisons ?? [{ bookLabel: match.bookLabel ?? '', bookRowKey: match.bookRowKey ?? '', nmck: match.nmck, fact: match.fact }]).map((comparison) => <div key={comparison.bookRowKey} className="space-y-1">
+                {(match.comparisons?.length ?? 0) > 1 && <p className="pt-2 text-sm font-medium">Доля · {comparison.bookRowKey}</p>}
+                <Line label="Начальная цена, книга, руб." value={fmtRubExact(comparison.nmck?.bookRub ?? null)} />
+                <Line label="Начальная цена, мониторинг, руб." value={fmtRubExact(comparison.nmck?.monitoringRub ?? null)} />
                 <Line
                   label="Факт книги, руб."
-                  value={fmtRubExact(match.fact?.bookRub ?? null)}
-                  tone={match.fact?.agrees === false ? 'warn' : 'plain'}
+                  value={fmtRubExact(comparison.fact?.bookRub ?? null)}
+                  tone={comparison.fact?.agrees === false ? 'warn' : 'plain'}
                 />
-                <Line label="Цена победителя, руб." value={fmtRubExact(match.fact?.monitoringRub ?? null)} />
-              </>
+                <Line label="Цена победителя, руб." value={fmtRubExact(comparison.fact?.monitoringRub ?? null)} />
+              </div>)
             )}
             <ul className="space-y-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
               {match.verdicts.map((v) => <li key={v}>{v}</li>)}

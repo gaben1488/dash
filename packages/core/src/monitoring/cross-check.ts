@@ -159,8 +159,9 @@ export function summarizeMatch(
     else factDisagree += 1;
   }
 
-  const monitoringCodes = result.matched.length + result.monitoringOnly.length
-    + result.ambiguous.filter((a) => a.procedures.length > 0).length;
+  const coveredCodes = new Set([...result.matched.map((m) => m.code),
+    ...result.ambiguous.filter((a) => a.procedures.length > 0).map((a) => a.code)]);
+  const monitoringCodes = new Set([...coveredCodes, ...result.monitoringOnly.map((m) => m.code)]).size;
 
   return {
     bookRowsWithCode,
@@ -173,7 +174,7 @@ export function summarizeMatch(
     listCells: result.listCells.length,
     coveragePct: monitoringCodes === 0
       ? null
-      : ((monitoringCodes - result.monitoringOnly.length) / monitoringCodes) * 100,
+      : (coveredCodes.size / monitoringCodes) * 100,
     nmckAgree,
     nmckDisagree,
     nmckNoComparison,

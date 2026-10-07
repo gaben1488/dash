@@ -64,7 +64,7 @@ function Select({
   wide?: boolean;
 }) {
   return (
-    <label className="flex flex-col gap-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+    <label className="flex flex-col gap-0.5 text-xs text-zinc-500 dark:text-zinc-400">
       {label}
       <select
         value={value}
@@ -112,8 +112,8 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
   return (
     <section aria-label="Разрезы реестра" className="space-y-2">
       {/* ── Один ряд: режимы листов · поиск · кнопка разрезов (п.128-2) ── */}
+      {leading && <div>{leading}</div>}
       <div className="flex flex-wrap items-center gap-2">
-        {leading}
         <div className="relative flex-1 min-w-[14rem]">
           <Search
             size={13}
@@ -126,14 +126,14 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
             onChange={(e) => set({ query: e.target.value })}
             placeholder="Поиск по коду, предмету, заказчику и ИНН победителя"
             aria-label="Поиск по реестру"
-            className={`w-full ${CONTROL} bg-white dark:bg-zinc-800 pl-8 pr-2 py-1.5 text-xs text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-400`}
+            className={`min-h-11 w-full ${CONTROL} bg-white dark:bg-zinc-800 pl-8 pr-2 py-2 text-base md:text-sm text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-500`}
           />
         </div>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className={`shrink-0 inline-flex items-center gap-1 ${CONTROL} bg-white dark:bg-zinc-800/60 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
+          className={`min-h-11 shrink-0 inline-flex items-center gap-2 ${CONTROL} bg-white dark:bg-zinc-800/60 px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
         >
           <SlidersHorizontal size={13} aria-hidden="true" />
           Разрезы
@@ -238,7 +238,7 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
       {/* ── Крошки: видны всегда, в том числе со сложенной панелью ── */}
       {active && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">
             показано {fmtCount(shownCount)} из {fmtCount(rows.length)}:
           </span>
           {crumbs.map((c) => (
@@ -246,7 +246,7 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
               key={String(c.key)}
               type="button"
               onClick={() => onChange(clearSlice(slices, c.key))}
-              className="inline-flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-700/50 px-2 py-0.5 text-[10px] text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              className="inline-flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-700/50 px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
             >
               {c.label}
               <X size={9} aria-hidden="true" />
@@ -256,7 +256,7 @@ export function SliceBar({ rows, slices, onChange, shownCount, leading }: SliceB
           <button
             type="button"
             onClick={() => onChange(emptySlices())}
-            className="text-[10px] text-zinc-500 dark:text-zinc-400 hover:underline"
+            className="text-xs text-zinc-500 dark:text-zinc-400 hover:underline"
           >
             снять все
           </button>

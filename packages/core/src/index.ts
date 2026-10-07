@@ -90,7 +90,7 @@ export {
   MONITORING_DATA_SHEETS, MONITORING_DEPT_COLUMNS, MONITORING_DEPT_HEADER_LABELS,
   MONITORING_DIRECTORY_SHEET, MONITORING_JOURNAL_SHEET, MONITORING_SVOD_SHEET,
   MONITORING_MASTER_SHEET, MONITORING_WORK_SHEET, MONITORING_MASTER_HEADERS,
-  PROCEDURE_STAGE_ORDER, normalizeCustomer, monitoringDept, monitoringWorkQueue,
+  PROCEDURE_STAGE_ORDER, normalizeCustomer, monitoringDept, monitoringWorkQueue, monetaryFactAllowed, monetaryPlanAllowed,
 } from './monitoring/procedures.js';
 export type {
   MonitoringAggregates, MonitoringDefect, MonitoringDefectKind, MonitoringProcedure,

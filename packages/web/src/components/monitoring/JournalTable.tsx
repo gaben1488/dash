@@ -67,7 +67,7 @@ export function JournalTable({ journal, readAtLabel, query = '', onOpenCode, cod
               <li key={chain.codes.join('→')} className="text-[11px]">
                 <span className="flex flex-wrap items-center gap-1.5">
                   {chain.codes.map((c, i) => (
-                    <span key={c} className="inline-flex items-center gap-1.5">
+                    <span key={`${i}:${c}`} className="inline-flex items-center gap-1.5">
                       {i > 0 && <ArrowRight size={10} className="text-zinc-400" aria-hidden="true" />}
                       <button type="button" onClick={() => onOpenCode?.(c)} className="font-mono text-sky-700 underline dark:text-sky-300">{codeLabel(c)}</button>
                     </span>

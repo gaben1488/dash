@@ -25,6 +25,14 @@ import {
   seasonShortLabel, supplierTop,
 } from './charts';
 
+it('денежные ступени и снижение по способам исключают недопущенный факт', () => {
+  const rows = [proc({ result: 'Состоялась', factsEligible: false }),
+    proc({ result: 'Состоялась', factsEligible: true, nmck: 200, auctionPrice: 150, savingsSplitSum: 50 })];
+  expect(funnelMoney(rows).filter((s) => ['priced', 'split'].includes(s.key)))
+    .toMatchObject([{ key: 'priced', count: 1, nmckRub: 200, priceRub: 150 }, { key: 'split', count: 1, nmckRub: 200, priceRub: 150 }]);
+  expect(reductionByMethod(rows)).toMatchObject([{ count: 1, nmckRub: 200, priceRub: 150, portfolioPct: 25 }]);
+});
+
 // ── Заготовки ────────────────────────────────────────────────────────
 
 function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {

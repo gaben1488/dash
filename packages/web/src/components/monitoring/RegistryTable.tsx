@@ -293,7 +293,7 @@ export function RegistryTable({
           книги управлений ведутся в тысячах, и перепутать их с рублями книги
           мониторинга значит ошибиться ровно в тысячу раз. ── */}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+        <p className="text-xs leading-tight text-zinc-400 dark:text-zinc-500">
           Источник: {sourceLabel ?? 'книга «Ежедневный мониторинг» · листы управлений'}; деньги —
           рубли книги{readAtLabel !== undefined && `; ${readAtLabel}`}
         </p>
@@ -302,8 +302,8 @@ export function RegistryTable({
 
       {/* ── Широкий экран: форма книги ── */}
       <div className={`hidden sm:block ${CARD} overflow-x-auto`}>
-        <table className="w-full text-xs">
-          <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
+        <table className="w-full text-sm">
+          <thead className="text-xs text-zinc-500 dark:text-zinc-400">
             <tr className={RULE_HEAD}>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Адрес</th>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">
@@ -504,11 +504,11 @@ export function RegistryTable({
                       {p.winnerName ?? p.outcome ?? '—'}
                     </span>
                     {p.winnerInn !== null && (
-                      <span className="block font-mono text-[10px] text-zinc-400 dark:text-zinc-500">{p.winnerInn}</span>
+                      <span className="block font-mono text-xs text-zinc-400 dark:text-zinc-500">{p.winnerInn}</span>
                     )}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
-                    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] ${stageBadgeClass(p.stage)}`} title={stageMeaning(p.stage)}>
+                    <span className={`inline-block rounded px-1.5 py-0.5 text-xs ${stageBadgeClass(p.stage)}`} title={stageMeaning(p.stage)}>
                       {stageShort(p.stage)}
                     </span>
                   </td>
@@ -542,12 +542,12 @@ export function RegistryTable({
               >
                 <div className="flex items-center justify-between gap-2">
                   <CodeCell p={p} />
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${stageBadgeClass(p.stage)}`}>
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${stageBadgeClass(p.stage)}`}>
                     {stageShort(p.stage)}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-2">{p.subject}</p>
-                <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300 line-clamp-2">{p.subject}</p>
+                <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
                   <dt className="text-zinc-500 dark:text-zinc-400">НМЦК, руб.</dt>
                   <dd className="text-right tabular-nums text-zinc-800 dark:text-zinc-100">{fmtRub(p.nmck)}</dd>
                   <dt className="text-zinc-500 dark:text-zinc-400">цена, руб.</dt>
@@ -555,7 +555,7 @@ export function RegistryTable({
                   <dt className="text-zinc-500 dark:text-zinc-400">снижение</dt>
                   <dd className="text-right tabular-nums text-zinc-600 dark:text-zinc-300">{fmtPct(p.reductionPct)}</dd>
                 </dl>
-                <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+                <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                   {p.sheet} · строка {p.row}
                   {p.ppNum !== null && ` · № ${p.ppNum}`}
                 </p>

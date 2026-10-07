@@ -265,6 +265,7 @@ export function MonitoringAnalyticsSection({
           />
           <JointPurchasesCard
             comparison={bi.joint}
+            canonicalSource={procedures?.some((p) => p.result !== undefined) ?? false}
             periodLabel={periodLabel}
             {...(onPickJoint !== undefined ? { onPickJoint } : {})}
             {...(onPickDept !== undefined ? { onPickDept } : {})}
