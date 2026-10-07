@@ -1,4 +1,31 @@
 /** Pure transformations for the native Sheets migration; no credentials or workbook data. */
+/** Source-side input convenience. A remains the key read by every consumer. */
+export function procedureCodeFormula(row) {
+  if (!Number.isInteger(row) || row < 3) throw new Error('CODE_AUTOFILL_ROW');
+  // Strict book format; preserve leading zeros and lots, never repair a guessed code.
+  const pattern = '(?:ЭАС|ЭЗК|ЭЕП|ЭА|ЭК)[0-9]{2,}(?:/[0-9]+)?-[0-9]{2}';
+  return `=LET(текст;TRIM(SUBSTITUTE(G${row}&"";CHAR(160);" "));образец;"${pattern}";код;IFERROR(REGEXEXTRACT(текст;"^("&образец&")(?:[[:space:]]|$)");"");остаток;IF(код="";"";MID(текст;LEN(код)+1;LEN(текст)));IF(OR(код="";REGEXMATCH(остаток;"(?:^|[^0-9А-Яа-яA-Za-z])"&образец&"(?:[^0-9А-Яа-яA-Za-z]|$)"));"";код))`;
+}
+
+/** Bounded, idempotent Sheets requests. Existing manual values/formulas are overrides. */
+export function planProcedureCodeAutofill(rows, sheetId, rowCount) {
+  if (!Number.isInteger(sheetId) || !Number.isInteger(rowCount) || rowCount < 3 || rows.length !== rowCount) throw new Error('CODE_AUTOFILL_BOUNDS');
+  if (rows[1]?.values?.[0]?.userEnteredValue?.stringValue !== 'Код процедуры') throw new Error('CODE_AUTOFILL_HEADER');
+  const requests = [];
+  for (let start = 2; start < rowCount; start++) {
+    if (rows[start]?.values?.[0]?.userEnteredValue) continue;
+    let end = start + 1;
+    while (end < rowCount && !rows[end]?.values?.[0]?.userEnteredValue) end++;
+    const source = { sheetId, startRowIndex: start, endRowIndex: start + 1, startColumnIndex: 0, endColumnIndex: 1 };
+    requests.push({ updateCells: { start: { sheetId, rowIndex: start, columnIndex: 0 },
+      rows: [{ values: [{ userEnteredValue: { formulaValue: procedureCodeFormula(start + 1) } }] }], fields: 'userEnteredValue' } });
+    if (end > start + 1) requests.push({ copyPaste: { source,
+      destination: { ...source, startRowIndex: start + 1, endRowIndex: end }, pasteType: 'PASTE_FORMULA' } });
+    start = end - 1;
+  }
+  return requests;
+}
+
 export function splitQueueFormula(formula) {
   const start = formula.lastIndexOf(';{блок1;');
   const end = formula.lastIndexOf('});');

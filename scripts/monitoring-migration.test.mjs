@@ -53,3 +53,23 @@ test('действия закрывают конкретную причину и
   assert.match(f, /Ошибка:\|Проверить:\|Неполно:/u);
   assert.throws(() => withQualityAction('константа', 3), /ACTION_FORMULA_CONTRACT/u);
 });
+
+test('автокод заполняет только пустые A внутри прочитанных границ и сохраняет ручной код', async () => {
+  const { planProcedureCodeAutofill, procedureCodeFormula } = await import('./monitoring-migration.mjs');
+  const rows = [{ values: [{ userEnteredValue: { stringValue: 'Код' } }] },
+    { values: [{ userEnteredValue: { stringValue: 'Код процедуры' } }] },
+    { values: [{ userEnteredValue: { stringValue: 'ЭАС09-26' } }] },
+    { values: [{}] }, { values: [{}] },
+    { values: [{ userEnteredValue: { formulaValue: '=G6' } }] }, { values: [{}] }];
+  const requests = planProcedureCodeAutofill(rows, 2526300, 7);
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[0].updateCells.start, { sheetId: 2526300, rowIndex: 3, columnIndex: 0 });
+  assert.equal(requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue, procedureCodeFormula(4));
+  assert.deepEqual(requests[1].copyPaste.destination, { sheetId: 2526300, startRowIndex: 4, endRowIndex: 5, startColumnIndex: 0, endColumnIndex: 1 });
+  assert.equal(requests[2].updateCells.start.rowIndex, 6);
+  assert.equal(requests[0].updateCells.fields, 'userEnteredValue');
+  assert.throws(() => planProcedureCodeAutofill(rows, 1, 8), /CODE_AUTOFILL_BOUNDS/);
+  assert.throws(() => planProcedureCodeAutofill(rows.slice(2), 1, 5), /CODE_AUTOFILL_HEADER/);
+  assert.throws(() => procedureCodeFormula(2), /CODE_AUTOFILL_ROW/);
+  assert.match(procedureCodeFormula(1002), /G1002/);
+});
