@@ -12,13 +12,11 @@
  * ЧТО СТАЛО. Разбор привязан к номеру содержимого книги (`version` из
  * services/monitoring.ts). Номер растёт только тогда, когда содержимое
  * действительно другое: перечитка, вернувшая те же строки, его не двигает.
- * Значит, разобранная книга живёт ровно столько, сколько живёт её содержимое,
- * а не столько, сколько отмерил TTL.
+ * Допуск денежных итогов зависит также от даты чтения на Камчатке: разбор
+ * переиспользуется в пределах одного дня при той же версии содержимого.
  *
- * ПОЧЕМУ НЕ ПО ВРЕМЕНИ. Кэш по времени отвечает на вопрос «давно ли», а нужен
- * ответ на вопрос «то же ли самое». Первый ошибается в обе стороны: держит
- * устаревший разбор, пока не вышел срок, и выбрасывает годный, когда срок
- * вышел, хотя в книге ничего не менялось.
+ * Ключ использует календарную дату, а не произвольный срок хранения:
+ * новый камчатский день меняет смысл будущих итогов в той же книге.
  *
  * ГРАНИЦА. Здесь только разбор и производные счётчики — ни одного решения о
  * том, что показать. Тексты, оговорки и коды ответа остаются в маршруте.
@@ -54,6 +52,8 @@ export interface ParsedMonitoringBook {
   comparison: SvodComparison;
   /** Номер содержимого, для которого всё это верно. */
   version: number;
+  /** Камчатская дата чтения: будущий итог становится фактом в этот день. */
+  asOf: string;
 }
 
 let cache: ParsedMonitoringBook | null = null;
@@ -62,8 +62,8 @@ let cache: ParsedMonitoringBook | null = null;
 let reused = 0;
 let computed = 0;
 
-function parseFresh(book: MonitoringBookSnapshot): ParsedMonitoringBook {
-  const registry = parseMonitoringProcedures(book.sheets, new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date(book.readAt)));
+function parseFresh(book: MonitoringBookSnapshot, asOf: string): ParsedMonitoringBook {
+  const registry = parseMonitoringProcedures(book.sheets, asOf);
   const journal = registry.schema === 'canonical' ? journalFromProcedures(registry.procedures) : parseMonitoringJournal(book.sheets[MONITORING_JOURNAL_SHEET]);
   const svod = parseMonitoringSvod(book.sheets[MONITORING_SVOD_SHEET]);
   const directory = parseMonitoringDirectory(
@@ -82,21 +82,23 @@ function parseFresh(book: MonitoringBookSnapshot): ParsedMonitoringBook {
     aggregates: aggregateMonitoring(registry),
     comparison: compareSvodWithProduct(svod, productTotalsByDept(registry.procedures)),
     version: book.version,
+    asOf,
   };
 }
 
 /**
- * Разобранная книга. Тот же номер содержимого — тот же разбор, без счёта.
+ * Тот же номер содержимого и та же дата чтения — тот же разбор, без счёта.
  *
  * Номер 0 означает «книгу не читали»: такой снимок не кэшируется вовсе, иначе
  * пустота заняла бы место годного разбора до первого настоящего чтения.
  */
 export function parsedMonitoringBook(book: MonitoringBookSnapshot): ParsedMonitoringBook {
-  if (cache && book.version > 0 && cache.version === book.version) {
+  const asOf = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date(book.readAt));
+  if (cache && book.version > 0 && cache.version === book.version && cache.asOf === asOf) {
     reused++;
     return cache;
   }
-  const parsed = parseFresh(book);
+  const parsed = parseFresh(book, asOf);
   computed++;
   if (book.version > 0) cache = parsed;
   return parsed;

@@ -391,10 +391,12 @@ export function monitoringWorkQueue(procedures: readonly MonitoringProcedure[], 
     const isActive = ['application', 'published', 'bidding'].includes(p.stage);
     const isClosed = ['awarded', 'no_result', 'reissued'].includes(p.stage);
     if (!isActive && !isClosed) continue;
-    if (isActive ? !p.requiredAction : !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
-    const action = p.requiredAction || 'Разобрать замечания';
-    const referenceDate = isActive && action.startsWith('Исправить: ') ? monitoringDate(asOf)
-      : isActive && action === 'Разместить извещение' ? p.applicationDate : p.auctionDate;
+    if (!isActive && !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
+    const action = p.requiredAction || (isActive ? 'Проверить действие в реестре' : 'Разобрать замечания');
+    // Формула A3 рабочей книги: заявку показываем как факт поступления,
+    // но срок размещения и срок исправления данных в источнике не заданы.
+    const referenceDate = !isActive || action.startsWith('Исправить: ') || action === 'Разместить извещение'
+      ? null : p.auctionDate;
     (isActive ? active : closed).push({ procedure: p, action, referenceDate, daysToDate: daysBetween(asOf, referenceDate?.iso ?? null) });
   }
   active.sort((a, b) => (a.referenceDate?.iso ?? '').localeCompare(b.referenceDate?.iso ?? '') || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));

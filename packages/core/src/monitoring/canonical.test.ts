@@ -112,13 +112,28 @@ describe('канонический реестр', () => {
     expect(p[0].defects).toHaveLength(0);
     expect(monitoringWorkQueue(p, '2026-10-06').closed).toHaveLength(0);
   });
-  it('разделяет действия УО и исправление закрытых строк; отрицательные дни не становятся правовым нарушением', () => {
+  it('разделяет действия УО и закрытые проверки; дата заявки не становится сроком размещения', () => {
     const a = row('ЭА100-26', '', 'Заявка в уполномоченном органе'); a[23] = 'Разместить извещение';
     const b = row('ЭА101-26', 'Состоялась', 'Состоялась'); b[24] = 'Проверить: ИНН — S';
     const c = row('ЭА102-26', 'Отмена по решению заказчика', 'Не состоялась');
     const q = monitoringWorkQueue(parse([a, b, c]).procedures, '2026-10-06');
     expect(q.active).toHaveLength(1); expect(q.closed).toHaveLength(1);
-    expect(q.active[0]).toMatchObject({ action: 'Разместить извещение', daysToDate: -35, referenceDate: { iso: '2026-09-01' } });
+    expect(q.active[0]).toMatchObject({ action: 'Разместить извещение', daysToDate: null, referenceDate: null });
+    expect(q.active[0].procedure.applicationDate?.iso).toBe('2026-09-01');
+    expect(q.closed[0]).toMatchObject({ referenceDate: null, daysToDate: null });
     expect(q.closed[0].action).toBe('Разобрать замечания');
+  });
+  it('исправление данных не получает выдуманный срок сегодня, а итог сохраняет свою дату', () => {
+    const a = row('ЭА100-26'); a[23] = 'Исправить: НМЦК';
+    const b = row('ЭА101-26'); b[23] = 'Подвести итоги';
+    const q = monitoringWorkQueue(parse([a, b]).procedures, '2026-10-06');
+    expect(q.active[0]).toMatchObject({ referenceDate: null, daysToDate: null });
+    expect(q.active[1]).toMatchObject({ referenceDate: { iso: '2026-10-12' }, daysToDate: 6 });
+  });
+  it('пустое действие в источнике не скрывает активную процедуру', () => {
+    const p = parse([row('ЭА100-26')]).procedures;
+    const q = monitoringWorkQueue(p, '2026-10-06');
+    expect(q.active).toHaveLength(1);
+    expect(q.active[0].action).toBe('Проверить действие в реестре');
   });
 });

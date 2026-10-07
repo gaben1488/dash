@@ -17,6 +17,7 @@ import {
   sortProcedures,
 } from './slices';
 import { portraitFrom } from './portrait';
+import { scopeProcedures } from './dept-scope';
 
 function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {
   return {
@@ -37,6 +38,21 @@ function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {
     ...over,
   };
 }
+
+describe('доли совместных процедур', () => {
+  it.each([false, true])('срез управления сохраняет допуск денежного факта: %s', (factsEligible) => {
+    const p = proc({ dept: 'Совместные', factsEligible, participants: [
+      { row: 4, dept: 'УО', customer: 'Синтетический заказчик', nmck: 40, price: 30, savings: 10, savingsMb: 10, savingsKb: 0, savingsFb: 0 },
+      { row: 5, dept: 'УЭР', customer: 'Другой заказчик', nmck: 60, price: 50, savings: 10, savingsMb: 10, savingsKb: 0, savingsFb: 0 },
+    ] });
+    const scoped = scopeProcedures([p], new Set(['УО']));
+    expect(scoped[0].nmck).toBe(40);
+    expect(scoped[0].auctionPrice).toBe(30);
+    expect(scoped[0].reductionRub).toBe(factsEligible ? 10 : null);
+    expect(scoped[0].reductionPct).toBe(factsEligible ? 25 : null);
+    expect(portraitFrom(scoped).priceTotal).toBe(factsEligible ? 30 : 0);
+  });
+});
 
 describe('разрезы реестра', () => {
   const rows = [
