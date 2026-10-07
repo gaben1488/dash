@@ -484,7 +484,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
     const stage = result === 'Состоялась' ? 'awarded' : successorCodes.length > 0 ? 'reissued'
       : ['Нет заявок', 'Отмена по решению заказчика', 'Отмена по предписанию ФАС'].includes(result ?? '') ? 'no_result'
         : computedStage && ['application', 'published', 'bidding'].includes(computedStage) ? computedStage : 'unknown';
-    const factsEligible = stage === 'awarded' && (!asOf || !dates[3]?.iso || dates[3].iso <= asOf);
+    const factsEligible = stage === 'awarded' && !isBrokenDate(dates[3]) && (!asOf || !dates[3]?.iso || dates[3].iso <= asOf);
     const qualityNote = monitoringText(r[24]);
     for (const note of qualityNote?.split('; ') ?? []) {
       if (note.startsWith('Справка:')) continue;
@@ -492,7 +492,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
       const col = note.match(/ — ([A-Y])/u)?.[1] ?? 'Y';
       defects.push({ kind, address: `${sheet}!${col}${row}`, note });
     }
-    if (stage === 'awarded' && !factsEligible && !defects.some((d) => /будущ/iu.test(d.note))) defects.push({ kind: 'source-warning', address: `${sheet}!L${row}`, note: 'Дата итогов позже даты снимка. Проверьте дату; цена и экономия пока не входят в денежный факт.' });
+    if (stage === 'awarded' && asOf && dates[3]?.iso && dates[3].iso > asOf && !defects.some((d) => /будущ/iu.test(d.note))) defects.push({ kind: 'source-warning', address: `${sheet}!L${row}`, note: 'Дата итогов позже даты снимка. Проверьте дату; цена и экономия пока не входят в денежный факт.' });
     if (stage === 'unknown') defects.push({ kind: 'source-error', address: `${sheet}!W${row}`, note: 'Стадия не определена; требуется проверить результат и даты в реестре.' });
     const nmck = monitoringNumber(r[7]); const auctionPrice = monitoringNumber(r[12]);
     const savingsTotal = monitoringNumber(r[16]); const savingsFb = monitoringNumber(r[13]);

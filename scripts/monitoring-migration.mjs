@@ -1,4 +1,11 @@
 /** Pure transformations for the native Sheets migration; no credentials or workbook data. */
+/** Every connected node is reachable within |V|-1 expansions; no fixed chain ceiling. */
+export function repairArchiveFamilyExpansion(formula) {
+  const old = 'expand(expand(expand(expand(expand(expand("; "&нач&"; "))))))';
+  if (typeof formula !== 'string' || !formula.startsWith('=') || formula.split(old).length !== 2) throw new Error('ARCHIVE_FAMILY_CONTRACT');
+  return formula.replace(old, 'REDUCE("; "&нач&"; ";SEQUENCE(MAX(1;ROWS(лкКод)-1));LAMBDA(набор;шаг;expand(набор)))');
+}
+
 /** Repairs the existing 235-row analytical layout without touching master inputs. */
 export function planAnalyticalRepair(cells, sheetId, rowCount) {
   const byAddress = new Map(cells.map(c => [`${c.row}:${c.column}`, c.cell]));
@@ -234,6 +241,8 @@ export function normalizeMasterRules(rules, sheetId, rowCount) {
  * Participant shares inherit the primary outcome; money/date admission stays separate.
  */
 export function completedArchiveFormula(formula) {
+  // Blank dates retain the accumulated-history policy; unreadable dates never admit facts.
+  formula = formula.replaceAll('DATEVALUE(датаФакта))<=Сегодня;TRUE)', 'DATEVALUE(датаФакта))<=Сегодня;FALSE)');
   const oldPrimary = 'процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0))';
   const primary = oldPrimary.slice(0, -1) + '*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)))';
   const oldMask = 'м;ARRAYFORMULA(--((свои+процБезДолей)>0))';

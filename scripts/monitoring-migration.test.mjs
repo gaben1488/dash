@@ -2,6 +2,21 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeMasterRules, splitQueueFormula, removeCancellationClockWarning, auditMasterFormulas, withQualityAction } from './monitoring-migration.mjs';
 
+test('архив расширяет семью по размеру графа, сохраняя остальную формулу', async () => {
+  const { repairArchiveFamilyExpansion } = await import('./monitoring-migration.mjs');
+  const old = '=LET(семья;expand(expand(expand(expand(expand(expand("; "&нач&"; "))))));SUM(семья))';
+  assert.equal(repairArchiveFamilyExpansion(old), '=LET(семья;REDUCE("; "&нач&"; ";SEQUENCE(MAX(1;ROWS(лкКод)-1));LAMBDA(набор;шаг;expand(набор)));SUM(семья))');
+  assert.throws(() => repairArchiveFamilyExpansion('=SUM(A1:A2)'), /ARCHIVE_FAMILY_CONTRACT/u);
+});
+
+test('повторный ремонт архива сохраняет допуск пустой даты, но исключает ошибку разбора', async () => {
+  const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
+  const f = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0)*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)));м;ARRAYFORMULA(--((свои+процБезДолей)>0)*EXACT(стд;"Состоялась"));IF(TRIM(датаФакта&"")="";TRUE;IFERROR(IF(ISNUMBER(датаФакта);датаФакта;DATEVALUE(датаФакта))<=Сегодня;TRUE)))';
+  const fixed = completedArchiveFormula(f);
+  assert.equal(fixed, f.replace('<=Сегодня;TRUE)', '<=Сегодня;FALSE)'));
+  assert.equal(completedArchiveFormula(fixed), fixed);
+});
+
 test('ремонт свода сохраняет введённые деньги и отвергает другую раскладку', async () => {
   const { planAnalyticalRepair } = await import('./monitoring-migration.mjs');
   const cells = [{ row: 2, column: 0, cell: { userEnteredValue: { stringValue: 'Управление' } } },

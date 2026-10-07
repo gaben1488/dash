@@ -17,6 +17,22 @@ function row(code: string, result = '', stage = 'Объявлена'): unknown[]
 function parse(rows: unknown[][]) { return parseMonitoringProcedures({ [sheet]: [[], headers, ...rows] }); }
 
 describe('канонический реестр', () => {
+  it.each(['2026-10-08', undefined])('нечитаемая дата исключает денежный факт при срезе %s', (asOf) => {
+    const r = row('ЭА100-26', 'Состоялась', 'Состоялась');
+    r[11] = 'неизвестная дата'; r[12] = 80; r[16] = 20; r[15] = 20;
+    const registry = parseMonitoringProcedures({ [sheet]: [[], headers, r] }, asOf);
+    expect(registry.procedures[0].factsEligible).toBe(false);
+    expect(registry.procedures[0].stage).toBe('awarded');
+    expect(aggregateMonitoring(registry).awarded.priceTotal).toBe(0);
+    expect(aggregateMonitoring(registry).savingsBookTotal).toBe(0);
+    expect(registry.procedures[0].defects.some((d) => /позже даты снимка/u.test(d.note))).toBe(false);
+  });
+  it('пустая дата допускает накопительный результат неполной истории', () => {
+    const r = row('ЭА100-26', 'Состоялась', 'Состоялась'); r[11] = ''; r[12] = 80;
+    const registry = parseMonitoringProcedures({ [sheet]: [[], headers, r] }, '2026-10-08');
+    expect(registry.procedures[0].factsEligible).toBe(true);
+    expect(aggregateMonitoring(registry).awarded.priceTotal).toBe(80);
+  });
   it('неизвестная стадия доступна для разбора без увеличения активных или закрытых процедур', () => {
     const r = row('ЭА100-26', '', 'Неизвестная стадия'); r[23] = 'Исправить: стадию';
     const q = monitoringWorkQueue(parse([r]).procedures, '2026-10-06');
