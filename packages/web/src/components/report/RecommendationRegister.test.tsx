@@ -87,7 +87,7 @@ it('retains official recommendation text when concurrent update is rejected', as
   fireEvent.click(await screen.findByRole('button', { name: /Новая рекомендация/ }));
   fireEvent.change(screen.getByRole('textbox', { name: /^Текст рекомендации/ }),
     { target: { value: 'Это предложение с сохранённым введённым текстом' } });
-  fireEvent.click(screen.getByRole('button', { name: /Сохранить черновик/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Сохранить рекомендацию/ }));
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('409'));
   expect(screen.getByRole('textbox', { name: /^Текст рекомендации/ })).toHaveProperty(
     'value', 'Это предложение с сохранённым введённым текстом');
