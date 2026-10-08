@@ -43,4 +43,30 @@ describe('выгрузка текущего отбора мониторинга'
     expect(csv).toContain("\"'=Комментарий источника; потребность пересмотрена\"");
     expect(rows[0].comment).toBe('=Комментарий источника; потребность пересмотрена');
   });
+
+  it('выгружает сырой факт отдельно от принятого, не включает переданную НМЦК в текущий план и пишет JSON-паспорт', () => {
+    const rows = normalizeMonitoring({ procedures: [
+      { code: 'ЭА350-26', stage: 'awarded', result: 'Состоялась', factsEligible: false,
+        nmck: 100.01, auctionPrice: 80.02, savingsTotal: 19.99 },
+      { code: 'ЭА52-26', stage: 'reissued', nmck: 200.02, auctionPrice: null, savingsTotal: null },
+    ] }).procedures;
+    const csv = buildMonitoringCsv(rows, { readAt: '2026-10-08T12:00:00Z', asOf: '2026-10-08' },
+      'УО · последний срез', {
+        slices: { view: 'withoutContract', dept: 'УО', method: null, customer: null,
+          stage: null, moneyCategory: null, periodBasis: 'auction',
+          periodYear: 2026, periodQuarter: null, periodMonth: null,
+          winnerInn: null, nmckBucket: null, reductionBucket: null,
+          procedureYear: null, defectsOnly: false, query: '' },
+        sortKey: 'code', sortDir: 'desc', asOf: '2026-10-08',
+      });
+    expect(csv).toContain('Параметры отбора (JSON)');
+    expect(csv).toContain('Денежный результат допущен');
+    expect(csv).toContain('Дата итогов не допускает денежный факт');
+    expect(csv).toContain('Переоформленная попытка — только история');
+    expect(csv).toContain('100,01;нет;;;');
+    expect(csv).toContain('""periodBasis"":""auction""');
+    expect(csv).toContain('""direction"":""desc""');
+    expect(csv).toContain('""asOf"":""2026-10-08""');
+  });
+
 });
