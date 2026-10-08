@@ -16,16 +16,16 @@ vi.mock('../../api', () => ({
 }));
 const ledger = {
   revision: 'a'.repeat(64),
-  counts: { active: 1, historical: 1, drafts: 0, archivedDrafts: 0 },
+  counts: { active: 1, historical: 1, uerAuthored: 0 },
   records: [
     { id: 'REC-ONE', grbs: 'УО', text: 'Вынести закупку на электронный аукцион',
-      sourceIds: ['42'], stage: 'ACTIVE', type: 'CHANGE_METHOD_EA',
+      sourceIds: ['42'], stage: 'ACTIVE', editable: false, type: 'CHANGE_METHOD_EA',
       firstSeen: '25.09.2026', lastSeen: '25.09.2026',
       statusLabel: 'Требует проверки', statusAsOf: '25.09.2026',
       grbsResponse: 'Принято', uerDecision: 'Нужно уточнить', note: '',
       updatedAt: '', history: [] },
     { id: 'REC-TWO', grbs: 'УД', text: 'Ранее действовавшая рекомендация',
-      sourceIds: ['84'], stage: 'HISTORY', type: 'MERGE_PROCUREMENTS',
+      sourceIds: ['84'], stage: 'HISTORY', editable: false, type: 'MERGE_PROCUREMENTS',
       firstSeen: '01.08.2026', lastSeen: '25.08.2026',
       statusLabel: 'Замещено', statusAsOf: '25.09.2026',
       grbsResponse: '', uerDecision: '', note: 'История сохранена',
@@ -61,18 +61,18 @@ it('keeps historical wording immutable but allows a working note', async () => {
     { expectedRevision: ledger.revision, note: 'Сверить связь с текущим планом' }));
 });
 
-it('creates only an editable draft and never promises official Word publication', async () => {
+it('registers official UЭР recommendation immediately without a separate draft', async () => {
   calls.get.mockResolvedValue(ledger);
   calls.create.mockResolvedValue({ revision: 'b'.repeat(64), record: {} });
   render(<RecommendationRegister />);
   fireEvent.click(await screen.findByRole('button', { name: /Новая рекомендация/ }));
-  expect(screen.getByText(/Черновик не попадёт в официальный Word/)).toBeTruthy();
+  expect(screen.getByText(/Сохранение регистрирует официальную рекомендацию УЭР/)).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: /Управление/ }), { target: { value: 'УЭР' } });
   fireEvent.change(screen.getByRole('textbox', { name: /^Текст рекомендации/ }),
     { target: { value: 'Проверить целесообразность объединения закупочных позиций' } });
   fireEvent.change(screen.getByRole('textbox', { name: /Номера закупочных позиций/ }),
     { target: { value: '42, 43' } });
-  fireEvent.click(screen.getByRole('button', { name: /Сохранить черновик/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Сохранить рекомендацию/ }));
   await waitFor(() => expect(calls.create).toHaveBeenCalledWith({
     expectedRevision: ledger.revision, grbs: 'УЭР',
     text: 'Проверить целесообразность объединения закупочных позиций',
@@ -80,7 +80,7 @@ it('creates only an editable draft and never promises official Word publication'
   }));
 });
 
-it('retains typed content if a concurrent update is rejected', async () => {
+it('retains official recommendation text when concurrent update is rejected', async () => {
   calls.get.mockResolvedValue(ledger);
   calls.create.mockRejectedValue(new Error('409 — данные изменились'));
   render(<RecommendationRegister />);
@@ -98,4 +98,30 @@ it('does not turn an unavailable ledger into a false empty result', async () => 
   render(<RecommendationRegister />);
   expect(await screen.findByText(/Хранилище недоступно/)).toBeTruthy();
   expect(screen.queryByText('Рекомендаций пока нет')).toBeNull();
+});
+
+
+it('edits an official UЭР recommendation and keeps historical originals read-only', async () => {
+  calls.get.mockResolvedValue({
+    ...ledger,
+    counts: { ...ledger.counts, active: 2, uerAuthored: 1 },
+    records: [...ledger.records, {
+      ...ledger.records[0], id: 'REC-UER-123', editable: true, grbs: 'УЭР',
+      text: 'Официальное предложение по закупке 42',
+      sourceIds: ['42'], history: [],
+    }],
+  });
+  calls.update.mockResolvedValue({ revision: 'b'.repeat(64), record: {} });
+  render(<RecommendationRegister />);
+  fireEvent.click(await screen.findByRole('button', { name: /Официальное предложение по закупке 42/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Редактировать рекомендацию/ }));
+  fireEvent.change(screen.getByRole('textbox', { name: /^Текст рекомендации/ }), {
+    target: { value: 'Обновлённая официальная рекомендация по закупке 42' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Сохранить новую редакцию/ }));
+  await waitFor(() => expect(calls.update).toHaveBeenCalledWith('REC-UER-123', {
+    expectedRevision: ledger.revision, grbs: 'УЭР',
+    text: 'Обновлённая официальная рекомендация по закупке 42',
+    sourceIds: ['42'], note: '',
+  }));
 });
