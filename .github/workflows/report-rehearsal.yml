@@ -45,6 +45,17 @@ jobs:
             trap 'rm -rf "$work"' EXIT
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
+            python3 - <<'PYENDPOINT'
+            import json, re
+            from pathlib import Path
+            for line in Path('.env.production').read_text().splitlines():
+                if line.startswith('DOMAIN='):
+                    domain = line.split('=', 1)[1].strip().strip('"').strip("'").split(',', 1)[0].strip()
+                    if re.fullmatch(r'[A-Za-z0-9.-]+', domain):
+                        print(json.dumps({'configured_public_endpoint': 'https://' + domain}))
+                    elif domain == ':80':
+                        print(json.dumps({'configured_public_endpoint': 'http://193.233.91.162', 'tls': False}))
+            PYENDPOINT
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
             image=$(docker inspect --format '{{.Image}}' "$server")
@@ -106,6 +117,7 @@ jobs:
             closure = audit_formula_dependencies(capture)
             print(json.dumps({"reviewed_live_source_closure": {"status": "PASS" if closure["closed"] else "BLOCKED", "source_count": len(capture["sources"]), "issue_counts": dict(Counter(issue["code"] for issue in closure["issues"]))}}, sort_keys=True))
             print(json.dumps({"unverified_formula_tokens": sorted({token for issue in closure["issues"] if issue["code"] == "FORMULA_FUNCTION_UNVERIFIED" for token in issue["functions"]})}, sort_keys=True))
+            print(json.dumps({"unregistered_formula_dependencies": [issue for issue in closure["issues"] if issue["code"] == "FORMULA_DEPENDENCY_NOT_CAPTURED"]}, sort_keys=True))
             if not closure["closed"]:
                 raise SystemExit(2)
             with tempfile.TemporaryDirectory() as temporary:

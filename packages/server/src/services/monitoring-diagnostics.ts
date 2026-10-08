@@ -100,24 +100,22 @@ export function formulaShape(formula: string, row: number): string {
 
 export function nativeRuleDefects(cells: sheets_v4.Schema$CellData[][]): { formulas: string[]; inputs: string[] } {
   const formulas: string[] = [], inputs: string[] = [];
+  const formulaTemplates = Object.entries(template.formulas).map(([letter, formula]) => [letter, formulaShape(formula, template.row)] as const);
+  const ruleShape = (rule: sheets_v4.Schema$DataValidationRule | null | undefined, row: number) => JSON.stringify({ condition: rule?.condition && {
+    type: rule.condition.type, values: (rule.condition.values ?? []).map(v => formulaShape(v.userEnteredValue ?? '', row)) }, strict: !!rule?.strict });
+  const inputTemplates = Object.entries(template.validations).map(([letter, rule]) => [letter, ruleShape(rule, template.row)] as const);
   // The entire prepared grid is a template, including not-yet-used rows.
   for (let offset = 0; offset < 1000; offset++) {
     const row = offset + 3;
-    for (const [letter, expected] of Object.entries(template.formulas)) {
+    for (const [letter, expected] of formulaTemplates) {
       const entered = cells[offset]?.[letter.charCodeAt(0) - 65]?.userEnteredValue;
       const actual = entered?.formulaValue;
       if (letter === 'S' && !actual && /^(?:[0-9]{10}|[0-9]{12})$/.test(String(entered?.stringValue ?? entered?.numberValue ?? '').trim())) continue;
-      if (!actual || formulaShape(actual, row) !== formulaShape(expected, template.row)) formulas.push(`${template.sheet}!${letter}${row}`);
+      if (!actual || formulaShape(actual, row) !== expected) formulas.push(`${template.sheet}!${letter}${row}`);
     }
-    for (const [letter, expected] of Object.entries(template.validations)) {
+    for (const [letter, expected] of inputTemplates) {
       const actual = cells[offset]?.[letter.charCodeAt(0) - 65]?.dataValidation;
-      const normalize = (rule: typeof actual) => JSON.stringify({ condition: rule?.condition && {
-        type: rule.condition.type, values: (rule.condition.values ?? []).map(v =>
-          formulaShape(v.userEnteredValue ?? '', row)) }, strict: !!rule?.strict });
-      const canonical = { ...expected, condition: { ...expected.condition,
-        values: expected.condition.values?.map(v => ({ userEnteredValue:
-          formulaShape(v.userEnteredValue, template.row) })) } };
-      if (normalize(actual) !== normalize(canonical)) inputs.push(`${template.sheet}!${letter}${row}`);
+      if (ruleShape(actual, row) !== expected) inputs.push(`${template.sheet}!${letter}${row}`);
     }
   }
   return { formulas, inputs };

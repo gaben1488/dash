@@ -26,7 +26,7 @@ describe('independent native monitoring diagnostics', () => {
     delete cells[999][7].dataValidation;
     expect(nativeRuleDefects(cells)).toEqual({ formulas: ['Рабочий реестр процедур!W1002'], inputs: ['Рабочий реестр процедур!H1002'] });
     expect(formulaShape('=IF(G4="G4";G4;$G$4)', 4)).toBe('=IF(G{row}="G4";G{row};$G$4)');
-  });
+  }, 15000); // Full 1000-row native grid with long formulas under parallel CI load.
   it('names both the missing master row and the extra native row without normalizing source codes', () => {
     const master = source();
     const queue: unknown[][] = [[], [], ['', '', '', 'ЭА002-26']];

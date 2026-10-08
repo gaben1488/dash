@@ -249,6 +249,23 @@ def review_registry(original, sealed, client):
                 raise ValueError('MONITORING_SCHEMA_SUPPLIER_HEADER_MISMATCH')
             registry['sources'].append({**spec, 'source_id': 'canonical-monitoring-suppliers-v1', 'provider_id': provider})
             changed += 1
+        # C1 of the analytical sheet explicitly reads this retained native QA
+        # source. Capture its values and formulas; do not infer that QA passed.
+        if not any(s['provider_id'] == provider and s['sheet_id'] == 913657450 for s in registry['sources']):
+            patch = next(p for p in REVIEWS if p['sheet'] == '_Проверки')
+            grid = client.grid(provider, 913657450)
+            rows = client.values(provider, '_Проверки', 1, 2, 8)
+            if (grid['title'] != '_Проверки' or grid['gridProperties']['columnCount'] != 8
+                or header_hash(rows, 2, volatile_cells=patch['volatile_cells']) != patch['fingerprint']
+                or semantic_header_hash(rows, 2, 8, volatile_cells=patch['volatile_cells']) != patch['semantic']):
+                raise ValueError('MONITORING_SCHEMA_CHECKS_HEADER_MISMATCH')
+            registry['sources'].append({'source_id': 'canonical-monitoring-checks-v1', 'provider_id': provider,
+                'sheet_id': 913657450, 'sheet': '_Проверки', 'role': 'historical_control_dependency',
+                'columns': 8, 'header_rows': 2, 'units': 'control', 'grbs': None,
+                'schema_fingerprint': patch['fingerprint'], 'semantic_header_fingerprint': patch['semantic'],
+                'previous_semantic_header_fingerprint': patch['semantic'], 'schema_change_reason': REASON,
+                'volatile_header_cells': patch['volatile_cells']})
+            changed += 1
     if not revision or client.revision(provider) != revision:
         raise ValueError('MONITORING_SCHEMA_SOURCE_CHANGED')
     changed += _review_ud_header(registry, sealed, client)

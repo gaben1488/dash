@@ -22,7 +22,7 @@ def test_dynamic_header_counts_do_not_change_the_schema_but_static_labels_do():
     assert header_hash(before, 1, volatile_cells=volatile) != header_hash(after, 1, volatile_cells=volatile)
 
 
-@pytest.mark.parametrize('drift', [None, 'directory', 'supplier', 'joint', 'department'])
+@pytest.mark.parametrize('drift', [None, 'directory', 'supplier', 'joint', 'department', 'checks'])
 def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, drift):
     from procurement_engine import monitoring_schema as module
 
@@ -36,7 +36,7 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
              ('supplier', '_Поставщики', 110002, 6,
               '78f3cdb4b1c5e59f3d35b433e3bad2e4305c245235f79381d076c852f6b822f5',
               '530bd5d15273718352e3a9527323fa97b78e0ac01cf89f1e33eb53c817df9a10')]
-    selected = [p for p in module.REVIEWS if p['sheet'] in {s[1] for s in specs}]
+    selected = [p for p in module.REVIEWS if p['sheet'] in {s[1] for s in specs} | {'_Проверки'}]
     monkeypatch.setattr(module, 'REVIEWS', selected)
     monkeypatch.setattr(module, 'RETIRED', [])
     canonical = '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E'
@@ -53,12 +53,15 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
     original['sources'].append(ud)
     sealed['department'] = (deepcopy(ud), '2488b3c0690154103023303e35a7cc8cb119b825336d0403ee37011fec08507e')
     keys['ВСЕ'] = 'department'
+    keys['_Проверки'] = 'checks'
 
     class Client:
         def revision(self, provider):
             return 'stable'
 
         def grid(self, provider, sheet_id):
+            if sheet_id == 913657450:
+                return {'title': '_Проверки', 'gridProperties': {'columnCount': 8}}
             source = next(s for s in original['sources'] if s['sheet_id'] == sheet_id)
             return {'title': source['sheet'], 'gridProperties': {'columnCount': 19 if source['source_id'] == 'directory' else source['columns']}}
 
@@ -73,10 +76,11 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
             review_registry(original, sealed, Client())
     else:
         reviewed, changes = review_registry(original, sealed, Client())
-        assert changes == 4
+        assert changes == 5
         assert original['sources'][-1] == ud
         assert review_registry(reviewed, sealed, Client())[1] == 0
-        assert reviewed['sources'][-1]['schema_fingerprint'] == ud['schema_fingerprint']
+        assert next(s for s in reviewed['sources'] if s['source_id'] == 'department')['schema_fingerprint'] == ud['schema_fingerprint']
+        assert reviewed['sources'][-1]['sheet'] == '_Проверки'
 
 
 def fixture(tmp_path, monkeypatch):
