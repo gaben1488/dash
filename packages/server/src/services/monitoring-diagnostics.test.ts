@@ -21,6 +21,23 @@ describe('independent native monitoring diagnostics', () => {
       { address: 'Рабочий реестр процедур!A3', note: 'В витрине D отсутствует ЭА001-26' },
     ]);
   });
+  it('enforces blank J and assigns an exact address if a signal is written into the separator', () => {
+    const master = source();
+    const queue: unknown[][] = [[], [], ['', '', 'Подвести итоги', 'ЭА001-26']];
+    const book: MonitoringBookSnapshot = {
+      sheets: { 'Рабочий реестр процедур': master, 'Процедуры в работе': queue },
+      readAt: '2026-10-08T12:00:00Z', failed: {}, version: 1, changed: [],
+    };
+    const parsed = parseMonitoringProcedures(book.sheets, '2026-10-09');
+    const before = queueDriftSignals(book, parsed.procedures);
+    expect(before.flatMap(s => s.addresses ?? []).some(a => a.address === 'Процедуры в работе!J3')).toBe(false);
+    queue[2][9] = 'Ошибка: устаревший сигнал в J';
+    const after = queueDriftSignals(book, parsed.procedures);
+    expect(after.flatMap(s => s.addresses ?? [])).toContainEqual({
+      address: 'Процедуры в работе!J3',
+      note: 'Столбец J должен быть пустым разделителем. Сигналы активных процедур выводятся вместе с действием в C.',
+    });
+  });
   it('a plausible stage value does not count as an intact formula; empty source rows are ignored', () => {
     const master = [...source(), []];
     const formulas = structuredClone(master);
