@@ -6,6 +6,7 @@ Production can be mounted read-only and networking disabled for this command.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import re
 import shutil
@@ -586,6 +587,14 @@ def main(argv=None):
         sqlite_error = getattr(error, 'sqlite_errorname', None)
         if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error
+        if isinstance(error, OSError):
+            # Never print filenames, private exception messages, or host paths.
+            # Only documented errno names can escape private rehearsal state.
+            allowed = {errno.ENOSPC: 'NO_SPACE_LEFT', errno.EDQUOT: 'QUOTA_EXCEEDED',
+                       errno.EIO: 'IO_FAILURE', errno.ENOMEM: 'MEMORY_UNAVAILABLE',
+                       errno.EACCES: 'ACCESS_DENIED', errno.EROFS: 'READ_ONLY_FS',
+                       errno.EFBIG: 'FILE_TOO_LARGE', errno.EMFILE: 'TOO_MANY_FILES'}
+            result['os_failure_class'] = allowed.get(error.errno, 'OTHER_OS_ERROR')
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     if args.published_summary:
         return 0 if result.get('published_evidence_read') == 'PASS' else 2
