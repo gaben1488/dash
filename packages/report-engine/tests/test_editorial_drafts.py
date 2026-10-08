@@ -2,7 +2,6 @@
 import json
 
 import pytest
-
 from procurement_engine.recommendation_history import issued_recommendations
 from procurement_engine.runtime import run_once
 from test_recorded_release import CompleteGoogle
