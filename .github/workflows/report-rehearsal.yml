@@ -15,6 +15,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  runtime-diagnostics:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'codex/report-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read fixed migration error codes without private log contents
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            docker run --rm -i --network none --read-only --volumes-from "$server":ro \
+              --entrypoint /opt/report-env/bin/python "$image" - <<'PYDIAG'
+            import ast, json, re
+            from datetime import datetime, timezone
+            from pathlib import Path
+            from procurement_engine import monitoring_schema, schema_migrations
+            from procurement_engine.deployment_diagnostics import PUBLIC_CODES, PUBLIC_TYPES
+            allowed = set(PUBLIC_CODES)
+            for module in (monitoring_schema, schema_migrations):
+                tree = ast.parse(Path(module.__file__).read_text())
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                        for arg in node.exc.args:
+                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and re.fullmatch(r'(SCHEMA_MIGRATION|MONITORING_SCHEMA)_[A-Z_]+', arg.value):
+                                allowed.add(arg.value)
+            root = Path('/app/packages/server/data/reports')
+            result = {}
+            for name in ('schema-migration.log', 'monitoring-schema-migration.log'):
+                path = root / name
+                item = {'present': path.is_file()}
+                if path.is_file():
+                    item['modified_at'] = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+                    errors = []
+                    for line in path.read_text().splitlines():
+                        match = re.fullmatch(r'([A-Za-z]+Error): (.*)', line)
+                        if match:
+                            code = match[2].split(':', 1)[0]
+                            errors.append({'type': match[1] if match[1] in PUBLIC_TYPES else 'OtherError',
+                                           'code': code if code in allowed else 'UNRECOGNIZED_ERROR'})
+                    item['errors'] = errors
+                result[name] = item
+            print(json.dumps({'migration_runtime_diagnostics': result}, sort_keys=True))
+            PYDIAG
   source-schema:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
