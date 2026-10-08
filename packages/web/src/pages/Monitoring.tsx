@@ -42,7 +42,7 @@ import {
 } from '../lib/monitoring/triple-contract';
 import { ALL_DEPTS_MODE, WORK_MODE, deptSheetName, modeById, type SheetMode } from '../lib/monitoring/modes';
 import {
-  applySlices, emptySlices, hasAnySlice, sortProcedures,
+  applySlices, emptySlices, hasAnySlice, sortProcedures, slicesForMonitoringMode,
   type SliceState, type SortDir, type SortKey,
 } from '../lib/monitoring/slices';
 import { portraitFrom } from '../lib/monitoring/portrait';
@@ -120,6 +120,17 @@ export function MonitoringPage() {
       window.removeEventListener('monitoring-updated', update); }; }, [load]);
 
   const mode = modeById(modeId);
+  // "Представление" describes only the registry; the work queue and lineage
+  // are independent surfaces. A fate drill-down searches the journal itself.
+  const effectiveSlices = useMemo(() => slicesForMonitoringMode(slices, mode.kind), [slices, mode.kind]);
+  const changeMode = useCallback((target: SheetMode) => {
+    setModeId(target.id);
+    setOpenCode(null);
+    if (target.kind !== 'registry') setSlices((previous) => previous.view === 'all' ? previous : { ...previous, view: 'all' });
+    if (target.kind !== 'journal') {
+      setSlices((previous) => /^(Предок|Наследник):/u.test(previous.query) ? { ...previous, query: '' } : previous);
+    }
+  }, []);
 
   // Изоляция по управлению (канон п.127): выбранное в шапке управление сужает
   // и реестр процедур, и сигналы книги — чужие листы в срез не попадают.
@@ -152,11 +163,11 @@ export function MonitoringPage() {
   const modeRows = procedures;
 
   const filtered = useMemo(() => {
-    if (slices.dept === null) return applySlices(modeRows, slices);
-    if (deptScope !== null && !deptScope.has(slices.dept)) return [];
-    const localRows = scopeProcedures(data?.procedures ?? [], new Set([slices.dept]));
-    return applySlices(localRows, { ...slices, dept: null });
-  }, [modeRows, slices, deptScope, data]);
+    if (effectiveSlices.dept === null) return applySlices(modeRows, effectiveSlices);
+    if (deptScope !== null && !deptScope.has(effectiveSlices.dept)) return [];
+    const localRows = scopeProcedures(data?.procedures ?? [], new Set([effectiveSlices.dept]));
+    return applySlices(localRows, { ...effectiveSlices, dept: null });
+  }, [modeRows, effectiveSlices, deptScope, data]);
   const sorted = useMemo(() => sortProcedures(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
   const portrait = useMemo(() => portraitFrom(filtered), [filtered]);
 
@@ -353,7 +364,7 @@ export function MonitoringPage() {
           ) : (
             <>
               {/* ── Один ряд управления вкладкой: режимы · поиск · разрезы (п.128-2) ── */}
-              {mode.kind === 'directory' ? <SheetModeTabs activeId={modeId} onSelect={(m: SheetMode) => setModeId(m.id)} pendingIds={pendingIds} counts={modeCounts} /> : <SliceBar
+              {mode.kind === 'directory' ? <SheetModeTabs activeId={modeId} onSelect={changeMode} pendingIds={pendingIds} counts={modeCounts} /> : <SliceBar
                 rows={modeRows}
                 slices={slices}
                 onChange={(next) => { setSlices(next); setOpenCode(null); }}
@@ -361,7 +372,7 @@ export function MonitoringPage() {
                 leading={(
                   <SheetModeTabs
                     activeId={modeId}
-                    onSelect={(m: SheetMode) => { setModeId(m.id); setOpenCode(null); }}
+                    onSelect={changeMode}
                     pendingIds={pendingIds}
                     counts={modeCounts}
                   />
@@ -471,14 +482,14 @@ export function MonitoringPage() {
                     : <SvodTable svod={data.svod} readAtLabel={readAtLabel} />}
               </details>}
 
-              {mode.kind === 'journal' && <SelectionTotals rows={filtered} label="Связи · выбранные процедуры" />}
+              {mode.kind === 'journal' && slices.query.trim() === '' && <SelectionTotals rows={filtered} label="Связи · выбранные процедуры" />}
                 {mode.kind === 'journal' &&
                   (
                 data.journal === null
                   ? <PendingSheet name="Рабочий реестр процедур" onReload={() => load(true)} />
                   : data.journal.rows.length === 0
                     ? <ReadButEmptySheet name="Рабочий реестр процедур" onReload={() => load(true)} />
-                    : <JournalTable journal={filteredJournal ?? data.journal} readAtLabel={readAtLabel} onOpenCode={onOpenCode} codeLabel={codeLabel} />
+                    : <JournalTable journal={filteredJournal ?? data.journal} query={slices.query} readAtLabel={readAtLabel} onOpenCode={onOpenCode} codeLabel={codeLabel} />
               )}
 
               {mode.kind === 'directory' && (
@@ -637,7 +648,7 @@ export function MonitoringPage() {
                     // записана в переходящем реестре, и показывать её строки на
                     // листе управления было бы подлогом — там этой колонки нет.
                     setModeId('journal');
-                    setSlices((prev) => ({ ...prev, query: sample }));
+                    setSlices((prev) => ({ ...prev, view: 'all', query: sample }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
