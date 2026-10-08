@@ -16,6 +16,49 @@ import {
   TrustScoreSchema,
 } from '@aemr/shared';
 
+export type RecommendationStage = 'ACTIVE' | 'HISTORY' | 'DRAFT' | 'ARCHIVED_DRAFT';
+
+export interface LedgerRecommendation {
+  id: string;
+  grbs: string;
+  text: string;
+  sourceIds: string[];
+  stage: RecommendationStage;
+  type: string;
+  firstSeen: string;
+  lastSeen: string;
+  statusLabel: string;
+  statusAsOf: string;
+  grbsResponse: string;
+  uerDecision: string;
+  note: string;
+  updatedAt: string;
+  history: Array<{ at: string; kind: 'created' | 'updated' | 'note'; fields: string[]; previousNote?: string }>;
+}
+
+export interface RecommendationLedgerResponse {
+  revision: string;
+  records: LedgerRecommendation[];
+  counts: { active: number; historical: number; drafts: number; archivedDrafts: number };
+}
+
+export interface RecommendationDraftInput {
+  expectedRevision: string;
+  grbs: string;
+  text: string;
+  sourceIds: string[];
+  note: string;
+}
+
+export interface RecommendationDraftEdit extends RecommendationDraftInput {
+  stage: 'DRAFT' | 'ARCHIVED_DRAFT';
+}
+
+export interface LedgerSaveResponse {
+  revision: string;
+  record: LedgerRecommendation | null;
+}
+
 const API_BASE = '/api';
 
 /**
@@ -419,6 +462,19 @@ export const api = {
     const search = params ? new URLSearchParams(params).toString() : '';
     return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
   },
+
+  // Один работающий RecommendationLedger. Сохраняемые черновики не
+  // становятся автоматически выпущенными рекомендациями.
+  getReportRecommendations: () => fetchJSON<RecommendationLedgerResponse>('/report-recommendations'),
+  createReportRecommendation: (entry: RecommendationDraftInput) =>
+    fetchJSON<LedgerSaveResponse>('/report-recommendations', {
+      method: 'POST', body: JSON.stringify(entry),
+    }),
+  updateReportRecommendation: (id: string, entry: RecommendationDraftEdit | {
+    expectedRevision: string; note: string;
+  }) => fetchJSON<LedgerSaveResponse>(`/report-recommendations/${encodeURIComponent(id)}`, {
+    method: 'PUT', body: JSON.stringify(entry),
+  }),
 
   // Отчёт — проекция buildReport (@aemr/core); квартал и дата среза опциональны.
   // Без asOf — прямой эфир (числа на сейчас); asOf открывает снимок той недели.
