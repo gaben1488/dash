@@ -261,13 +261,16 @@ jobs:
               --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage-summary
             echo "=== end current-release diagnostic ==="
+            # The candidate full replay has already passed above. Check the
+            # sealed weekly input once, without rebuilding the same DOCX twice.
+            # A bad immutable weekly input still fails this strict audit job.
             docker run --rm --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=1g \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
-              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage
+              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only
             # Startup success is insufficient: observe a later timer attempt.
             worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
             if [ -z "$worker" ]; then
