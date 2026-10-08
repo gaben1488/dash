@@ -187,3 +187,24 @@ test('calculated summary discloses independent acceptance discrepancies without 
   assert.equal(withIndependentQaStatus(f), f, 'Repeated migration must be idempotent');
   assert.throws(() => withIndependentQaStatus('text instead of formula'), /QA_STATUS_FORMULA_CONTRACT/u);
 });
+
+test('manual supplier INNs are reviewable facts, never silently overwritten by formula rollout', async () => {
+  const { auditManualInnOverrides } = await import('./monitoring-migration.mjs');
+  const row = (n, inn) => ({
+    row: n,
+    cells: Array.from({length: 25}, (_, i) =>
+      i === 0 ? {formattedValue: `ЭА${n}-26`} :
+      i === 18 ? {userEnteredValue:{numberValue:inn}} : {}),
+  });
+  const findings = auditManualInnOverrides([
+    row(67, 410200615520),
+    row(202, 300033529),
+    {row: 203, cells: Array.from({length: 25}, (_, i) =>
+      i === 18 ? {userEnteredValue: {formulaValue: '=1'}} : {})},
+  ]);
+  assert.equal(findings.length, 2);
+  assert.deepEqual(findings.map(x => x.address), ['S67', 'S202']);
+  assert.equal(findings[0].validShape, true);
+  assert.equal(findings[1].validShape, false);
+  assert.ok(findings.every(x => x.requiresPrimaryEvidence));
+});
