@@ -126,3 +126,33 @@ def test_another_migration_holding_the_lock_cannot_be_overwritten(tmp_path):
         with pytest.raises(ValueError, match='SCHEMA_MIGRATION_ALREADY_RUNNING'):
             apply_google_schema_migrations(registry, client=Client(package))
     assert json.loads(registry.read_text()) == before
+
+
+def test_reviewed_migration_updates_full_semantic_header_proof_and_is_idempotent(tmp_path):
+    from procurement_engine.semantic_headers import semantic_header_hash
+    registry, package, before = migration(tmp_path)
+    patch = package['migrations'][0]
+    old = semantic_header_hash(patch['old_headers'], 1, 2)
+    new = semantic_header_hash(patch['new_headers'], 1, 2)
+    before['sources'][-1]['semantic_header_fingerprint'] = old
+    registry.write_text(json.dumps(before))
+    patch.update(old_semantic_fingerprint=old, new_semantic_fingerprint=new)
+    assert apply_google_schema_migrations(registry, client=Client(package)) == 1
+    source = json.loads(registry.read_text())['sources'][-1]
+    assert source['semantic_header_fingerprint'] == new
+    assert source['previous_semantic_header_fingerprint'] == old
+    assert source['schema_change_reason'] == patch['reason']
+    assert apply_google_schema_migrations(registry, client=Client(package)) == 0
+
+
+def test_unproved_full_semantic_header_change_keeps_registry_intact(tmp_path):
+    from procurement_engine.semantic_headers import semantic_header_hash
+    registry, package, before = migration(tmp_path)
+    patch = package['migrations'][0]
+    old = semantic_header_hash(patch['old_headers'], 1, 2)
+    before['sources'][-1]['semantic_header_fingerprint'] = old
+    registry.write_text(json.dumps(before))
+    patch.update(old_semantic_fingerprint=old, new_semantic_fingerprint='unproved')
+    with pytest.raises(ValueError, match='SCHEMA_MIGRATION_SEMANTIC_PROOF_INVALID'):
+        apply_google_schema_migrations(registry, client=Client(package))
+    assert json.loads(registry.read_text()) == before

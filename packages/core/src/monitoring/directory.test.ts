@@ -143,3 +143,20 @@ describe('листы-предки', () => {
     ]);
   });
 });
+
+// Conflicting aliases cannot silently choose the first institution.
+it('retains both directory addresses and stops matching a colliding name', () => {
+  const parsed = parseMonitoringDirectory(
+    [
+      ['№ п/п', 'ГРБС', 'Наименованиеучрежения', 'Сокращеное наименование учреждения'],
+      [1, 'УО', 'Первое учреждение', 'Общее'],
+      [2, 'УД', 'Второе учреждение', 'Общее'],
+    ],
+    [{ customer: 'Общее', customerNormalized: 'общее', dept: 'УО' }],
+  );
+  expect(parsed.customersMatched).toBe(0);
+  expect(parsed.entries.map((e) => e.usageCount)).toEqual([0, 0]);
+  expect(parsed.collisions).toEqual([
+    { normalized: 'общее', addresses: ['Справочник заказчиков!D2', 'Справочник заказчиков!D3'] },
+  ]);
+});

@@ -65,6 +65,7 @@ let cachedAtMs = 0;
 let inFlight: Promise<MonitoringBookSnapshot> | null = null;
 let prints: Record<string, string> | null = null;
 let version = 0;
+let retryRequired = false;
 
 /** Прочитать все листы одним пакетом. Отказ — общий на всю книгу. */
 async function readBookInOneRequest(): Promise<Record<string, unknown[][]>> {
@@ -103,7 +104,7 @@ async function readBookSheetBySheet(): Promise<{
 /**
  * Прочитать листы книги мониторинга (с кэшем).
  *
- * Кэшируется только снимок, где прочитан хоть один лист: полный отказ
+ * Кэшируется только полный снимок: полный отказ
  * источника не должен занимать TTL и держать «пустоту» пять минут —
  * следующий запрос честно попробует снова.
  */
@@ -132,7 +133,8 @@ export function getMonitoringBook(force = false): Promise<MonitoringBookSnapshot
     // но номер содержимого обязано получить — иначе «версия 0» означала бы
     // одновременно «книгу не читали» и «книга не менялась».
     if (prints === null || changed.length > 0) version++;
-    prints = next;
+    retryRequired = Object.keys(failed).length > 0;
+    if (!retryRequired) prints = next;
 
     const snapshot: MonitoringBookSnapshot = {
       sheets,
@@ -141,7 +143,7 @@ export function getMonitoringBook(force = false): Promise<MonitoringBookSnapshot
       version,
       changed,
     };
-    if (Object.keys(sheets).length > 0) {
+    if (Object.keys(sheets).length > 0 && Object.keys(failed).length === 0) {
       cached = snapshot;
       cachedAtMs = Date.now();
     }
@@ -170,6 +172,7 @@ export function resetMonitoringState(): void {
   invalidateMonitoringCache();
   prints = null;
   version = 0;
+retryRequired = false;
 }
 
 /** Итог адресной перечитки книги по уведомлению. */
@@ -182,6 +185,8 @@ export interface MonitoringRefreshResult {
   version: number;
   /** Почему не читали — для журнала. Пусто, если читали. */
   skippedBecause?: string;
+  /** Partial reading must remain retryable. */
+  failed?: Record<string, string>;
 }
 
 /**
@@ -207,7 +212,7 @@ export async function refreshMonitoringBook(options: {
 } = {}): Promise<MonitoringRefreshResult> {
   if (options.askDrive ?? true) {
     const verdict = await checkFileChanged(MONITORING_SPREADSHEET_ID);
-    if (verdict === 'same') {
+    if (verdict === 'same'&& !retryRequired) {
       return {
         read: false,
         changed: [],
@@ -221,7 +226,7 @@ export async function refreshMonitoringBook(options: {
 
   invalidateMonitoringCache();
   const book = await getMonitoringBook(true);
-  return { read: true, changed: book.changed, version: book.version };
+  return { read: true, changed: book.changed, version: book.version , failed: book.failed };
 }
 
 /** Номер содержимого последней прочитанной книги; 0 — книгу ещё не читали. */

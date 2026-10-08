@@ -35,6 +35,9 @@ export type MonitoringSignalKind =
   | 'monitoring_missing_stage'
   | 'monitoring_false_calm'
   | 'monitoring_customer_unknown'
+  | 'monitoring_customer_collision'
+  | 'monitoring_queue_drift'
+  | 'monitoring_formula_missing'
   | 'monitoring_no_successor'
   | 'monitoring_map_book_only'
   | 'monitoring_map_no_book_row'
@@ -236,6 +239,23 @@ export function buildMonitoringSignals(input: {
         }],
       });
     }
+  }
+
+  const collisions = input.directory?.collisions ?? [];
+  if (collisions.length) {
+    const addresses = collisions.flatMap((c) =>
+      c.addresses.map((address) => ({ address, note: `Неоднозначное написание: ${c.normalized}` })),
+    );
+    signals.push({
+      kind: 'monitoring_customer_collision',
+      title: 'Конфликт названий в справочнике',
+      severity: 'medium',
+      mechanism:
+        'Одно нормализованное название относится к нескольким учреждениям. Автоматическое сопоставление остановлено.',
+      action: 'Уточните полное название и алиасы по адресам справочника.',
+      count: addresses.length,
+      addresses,
+    });
   }
 
   // 11. Заказчик не найден в справочнике.

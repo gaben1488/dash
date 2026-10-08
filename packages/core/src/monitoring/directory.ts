@@ -94,6 +94,7 @@ export interface DirectoryEntry {
   readonly fullMissing: boolean;
   /** Сколько строк реестра ссылается на это учреждение (наша нормализация). */
   readonly usageCount: number;
+readonly aliases?: readonly string[];
 }
 
 /** Написание заказчика, которому в справочнике нет пары. */
@@ -108,6 +109,7 @@ export interface CustomerOutsideDirectory {
 
 export interface MonitoringDirectory {
   readonly entries: DirectoryEntry[];
+  readonly collisions?: Array<{ normalized: string; addresses: string[] }>;
   /** Написания заказчика вне справочника, по убыванию частоты. */
   readonly customersOutside: CustomerOutsideDirectory[];
   /** Сколько написаний заказчика нашли пару в справочнике. */
@@ -147,6 +149,7 @@ export function parseMonitoringDirectory(
   const modern = currentDirectorySchema(grid);
   const C = modern ? CURRENT_DIRECTORY_COLUMNS : LEGACY_DIRECTORY_COLUMNS;
   const index = new Map<string, number>();
+  const owners = new Map<string, Set<number>>();
   const drafts: Array<Omit<DirectoryEntry, 'usageCount'>> = [];
 
   for (let i = 0; i < grid.length; i++) {
@@ -174,7 +177,12 @@ export function parseMonitoringDirectory(
       : [fullName, shortName].filter((value): value is string => value !== null);
     for (const name of knownNames) {
       const normalized = normalizeCustomer(name);
-      if (normalized && !index.has(normalized)) index.set(normalized, draftIndex);
+      if (!normalized ) continue;
+      const candidates = owners.get(normalized)?? new Set<number>();
+      candidates.add(draftIndex);
+      owners.set(normalized, candidates);
+      if (candidates.size === 1) index.set(normalized, draftIndex);
+      else index.delete(normalized);
     }
 
     drafts.push({
@@ -186,6 +194,7 @@ export function parseMonitoringDirectory(
       shortName,
       shortIsFull: normFull !== null && normShort !== null && normFull === normShort,
       fullMissing: fullName === null,
+      aliases: [...new Set(knownNames)],
     });
   }
 
@@ -208,6 +217,12 @@ export function parseMonitoringDirectory(
 
   return {
     entries,
+    collisions: [...owners]
+      .filter(([, candidates]) => candidates.size > 1)
+      .map(([normalized, candidates]) => ({
+        normalized,
+        addresses: [...candidates].map((i) => `${MONITORING_DIRECTORY_SHEET}!D${drafts[i].row}`),
+      })),
     customersOutside: collectCustomers(usage, index),
     customersMatched,
     withoutShortName: entries.filter((e) => e.shortIsFull).length,

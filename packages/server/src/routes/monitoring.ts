@@ -63,7 +63,9 @@ import {
 } from '@aemr/core';
 import { MONITORING_SPREADSHEET_ID, getMonitoringBook, type MonitoringBookSnapshot } from '../services/monitoring.js';
 import { parsedMonitoringBook, type ParsedMonitoringBook } from '../services/monitoring-parsed.js';
-import { getDeptSheetValues } from '../services/snapshot.js';
+import { getDeptSheetCache, getDeptSheetValues } from '../services/snapshot.js';
+
+import { monitoringFormulaDiagnostics, monitoringSuppliers, queueDriftSignals } from '../services/monitoring-diagnostics.js';
 
 /** Плашка периметра: откуда числа, на какой момент и в чём измерены. */
 export interface MonitoringSource {
@@ -72,6 +74,8 @@ export interface MonitoringSource {
   bookName: string;
   /** Момент чтения книги (ISO) — «данные на …» (п.58). */
   readAt: string;
+  version: number;
+  asOf: string;
   /** Единица денег ответа. Книги ГРБС — тысячи; здесь — рубли (18.08). */
   moneyUnit: 'руб';
   sheetsRead: string[];
@@ -96,6 +100,7 @@ export interface MonitoringResponsePayload {
   journal: MonitoringJournal;
   /** Справочник учреждений и написания заказчика вне его. */
   directory: MonitoringDirectory;
+  suppliers?: Awaited<ReturnType<typeof monitoringSuppliers>>;
   /** Скрытые листы-предки: показываются формой, данных там ноль. */
   ancestors: {
     sheets: typeof MONITORING_ANCESTOR_SHEETS;
@@ -131,6 +136,8 @@ function sourceOf(book: MonitoringBookSnapshot): MonitoringSource {
     bookUrl: `https://docs.google.com/spreadsheets/d/${MONITORING_SPREADSHEET_ID}/edit`,
     bookName: 'План-реестр процедур определения поставщика',
     readAt: book.readAt,
+    version: book.version,
+    asOf: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date(book.readAt)),
     moneyUnit: 'руб',
     sheetsRead: MONITORING_DATA_SHEETS.filter((sheet) => sheet in book.sheets),
     sheetsFailed: book.failed,
@@ -178,7 +185,9 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       svod,
     });
 
-    const notes = commonNotes(book);
+    const [diagnostic, suppliers] = await Promise.all([monitoringFormulaDiagnostics(book), monitoringSuppliers(book)]);
+    signals.push(...queueDriftSignals(book, registry.procedures), ...diagnostic.signals);
+    const notes = [...commonNotes(book), ...diagnostic.notes];
     if (registry.unparsedCodes.length > 0) {
       notes.push(
         `Строк с нераспознанным кодом процедуры: ${registry.unparsedCodes.length} — они входят в счётчики, адреса перечислены отдельно.`,
@@ -206,6 +215,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
       svod: { book: svod, comparison },
       journal,
       directory,
+      suppliers,
       ancestors: {
         sheets: MONITORING_ANCESTOR_SHEETS,
         missingFields: MONITORING_MISSING_FIELDS,
@@ -299,7 +309,9 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       source: sourceOf(book),
-      books: { read: booksRead, rowsWithCode: bookRows.length },
+      books: { read: booksRead, rowsWithCode: bookRows.length ,
+        sources: booksRead.map((dept) => ({ dept, readAt: getDeptSheetCache()[dept]?.readAt ?? null })),
+      },
       summary,
       matched: result.matched,
       bookOnly: result.bookOnly,

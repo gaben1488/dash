@@ -10,6 +10,7 @@ from .raw_pipeline import header_hash
 from .runtime import _write
 from .runtime_inputs import validate_inputs
 from .snapshot import canonical_semantic_hash
+from .semantic_headers import semantic_header_hash
 
 NAME = 'aemr-report-schema-migrations-v1.json'
 
@@ -81,8 +82,31 @@ def _apply_google_schema_migrations(path, *, client):
         if (grid['title'] != source['sheet'] or grid['gridProperties']['columnCount'] < source['columns']
             or header_hash(headers, source['header_rows']) != patch['new_fingerprint']):
             raise ValueError('SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH')
-        if source['schema_fingerprint'] != patch['new_fingerprint']:
-            source['schema_fingerprint'] = patch['new_fingerprint']; changed += 1
+        update = {'schema_fingerprint': patch['new_fingerprint']}
+        remove_volatile = False
+        if 'new_semantic_fingerprint' in patch:
+            old_volatile = patch.get('old_volatile_header_cells', ())
+            new_volatile = patch.get('new_volatile_header_cells', ())
+            old_semantic = semantic_header_hash(patch['old_headers'], source['header_rows'], source['columns'], volatile_cells=old_volatile)
+            new_semantic = semantic_header_hash(patch['new_headers'], source['header_rows'], source['columns'], volatile_cells=new_volatile)
+            if (old_semantic != patch.get('old_semantic_fingerprint')
+                or new_semantic != patch['new_semantic_fingerprint']
+                or source.get('semantic_header_fingerprint') not in (old_semantic, new_semantic)):
+                raise ValueError('SCHEMA_MIGRATION_SEMANTIC_PROOF_INVALID')
+            if semantic_header_hash(headers, source['header_rows'], source['columns'], volatile_cells=new_volatile) != new_semantic:
+                raise ValueError('SCHEMA_MIGRATION_LIVE_SEMANTIC_MISMATCH')
+            update.update(semantic_header_fingerprint=new_semantic,
+                previous_semantic_header_fingerprint=old_semantic,
+                schema_change_reason=patch['reason'])
+            if new_volatile:
+                update['volatile_header_cells'] = list(new_volatile)
+            else:
+                remove_volatile = 'volatile_header_cells' in source
+        if remove_volatile or any(source.get(key) != value for key, value in update.items()):
+            source.update(update)
+            if remove_volatile:
+                source.pop('volatile_header_cells', None)
+            changed += 1
     if changed:
         validate_inputs(registry, json.loads((path.parent / 'ledger.json').read_text()))
         if canonical_semantic_hash(json.loads(path.read_text())) != original_hash:

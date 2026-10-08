@@ -85,6 +85,12 @@ function refreshMonitoring(log: RouteLog, claimed: readonly QueueEntry[] = []): 
     .then((r) => {
       // «Не читали, потому что не менялась» — успех, а не отказ: цель записи
       // очереди достигнута тем, что состояние сверено с Drive.
+      if (Object.keys(r.failed ?? {}).length > 0) {
+        settleMonitoring(claimed, false, `Не прочитаны листы: ${Object.keys(r.failed!).join(', ')}`);
+        scheduleQueueRetry(log);
+        log.warn(`Вебхук: неполное чтение мониторинга; повтор поставлен в очередь`);
+        return;
+      }
       settleMonitoring(claimed, true);
       if (!r.read) {
         log.info(`Вебхук: книга мониторинга не перечитана — ${r.skippedBecause ?? 'изменений нет'}`);
