@@ -124,6 +124,18 @@ def _origin_registered(rec, as_of, verified_origin):
         return None
     text = rec.get('recommendation_text') or ''
     digest = hashlib.sha256(text.encode()).hexdigest()
+    if verified_origin.get('origin_kind') == 'UER_DASH_OFFICIAL_ENTRY_V1':
+        for evidence in rec.get('origin_evidence') or []:
+            if (isinstance(evidence, dict)
+                    and evidence.get('kind') == 'UER_DASH_OFFICIAL_ENTRY_V1'
+                    and evidence.get('recommendation_id') == rec.get('recommendation_id')
+                    and evidence.get('grbs') == rec.get('grbs')
+                    and evidence.get('text_sha256') == digest
+                    and evidence.get('recorded_at') == verified_origin.get('recorded_at')
+                    and parse_date(evidence.get('document_date')) == verified_origin.get('document_date')
+                    and verified_origin['document_date'] <= as_of):
+                return dict(verified_origin)
+        return None
     for evidence in rec.get('origin_evidence') or []:
         if not isinstance(evidence, dict):
             continue
