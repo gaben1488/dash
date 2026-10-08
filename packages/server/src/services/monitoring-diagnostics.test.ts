@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MONITORING_MASTER_HEADERS, parseMonitoringProcedures } from '@aemr/core';
-import { missingFormulaAddresses, queueDriftSignals } from './monitoring-diagnostics.js';
+import { formulaTemplateDriftAddresses, missingFormulaAddresses, queueDriftSignals } from './monitoring-diagnostics.js';
 import type { MonitoringBookSnapshot } from './monitoring.js';
 
 function source() {
@@ -76,4 +76,22 @@ describe('independent native monitoring diagnostics', () => {
     for (const column of [0, 16, 18, 21, 23, 24]) formulas[2][column] = '=IF(A3="";"";1)';
     expect(missingFormulaAddresses(master, formulas)).toEqual(['Рабочий реестр процедур!W3']);
   });
+  it('flags formulas that reference the previous row even though a formula exists', () => {
+    const master = source();
+    const second = [...master[2]]; second[0] = 'ЭА002-26'; second[6] = 'ЭА002-26 Поставка';
+    master.push(second);
+    const grid = structuredClone(master);
+    for (const col of [0, 16, 21, 22, 23, 24]) {
+      grid[2][col] = '=IF(A3="";"";G3)';
+      grid[3][col] = '=IF(A4="";"";G4)';
+    }
+    grid[2][18] = '4105041770'; grid[3][18] = '4105041770'; // user-entered INN must not masquerade as a template defect
+    expect(formulaTemplateDriftAddresses(master, grid)).toEqual([]);
+    grid[3][0] = '=IF(A3="";"";G3)';
+    expect(formulaTemplateDriftAddresses(master, grid)).toEqual(['Рабочий реестр процедур!A4']);
+    grid[3][0] = 'ЭА002-26';
+    expect(formulaTemplateDriftAddresses(master, grid)).toEqual([]); // missing formula reported by the other detector
+    expect(missingFormulaAddresses(master, grid)).toContain('Рабочий реестр процедур!A4');
+  });
+
 });
