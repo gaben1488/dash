@@ -59,11 +59,19 @@ backup plus the explicitly reviewed canonical transition. Unknown edits, missing
 history, identity/unit changes and broken backup proofs retain the existing
 failure behavior. Live capture and publication gates remain mandatory.
 
-### Queue task-type label, 2026-10-09
+## Reviewed queue task caption, 2026-10-08
 
-The live queue O2 was renamed from «Уровень» to «Тип задачи» after the v3
-production rehearsal. Reconstructing only that cell yields both exact installed
-v3 header hashes. The v4 review records this single label transition explicitly;
-the 24-column geometry, source identity and monetary fields are unchanged.
-Unknown labels still fail. The exact v3 review is retained for recognition of
-recorded private migration successors; it is not inferred from live headers.
+The live queue changed only static O2 from `Уровень` to `Тип задачи`.
+Native reads compared all 24 columns and both header rows; A1/O1 summary
+formulas changed their wording to actions and remain the same two volatile
+data cells. Column P still identifies the procedure; N remains the divider.
+The reviewed transition retains sheet ID 2526400, width 24, two header rows,
+roles and units. Its new masked raw/semantic hashes are
+`d5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb` and
+`cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61`.
+The previous exact 24-column hashes remain an accepted migration predecessor.
+Other static-label changes still fail; retries after this transition are no-ops.
+The exact original v3 review remains available for recognition of its immutable
+history. Private predecessor proof uses the matched recorded review, rather than
+substituting today's review. Only the two explicit complete review definitions
+are eligible; backup hashes, source identity and installed contracts still match.

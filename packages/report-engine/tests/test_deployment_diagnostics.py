@@ -98,3 +98,70 @@ def test_sqlite_prefix_is_not_an_allowlist():
     for value in ('SQLITE_PRIVATE_CUSTOMER_NAME', 'SQLITE_PASSWORD_12345', 'SQLITE_' + 'X' * 10000):
         assert 'sqlite_error' not in summarize_status({'status': 'NOT_ISSUED', 'sqlite_error': value})
     assert summarize_status({'status': 'NOT_ISSUED', 'sqlite_error': 'SQLITE_BUSY_SNAPSHOT'})['sqlite_error'] == 'SQLITE_BUSY_SNAPSHOT'
+
+
+def test_schema_migration_failure_reports_current_log_code_without_private_details(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    directory = tmp_path / 'data/reports'
+    directory.mkdir(parents=True)
+    (directory / 'schema-migration.log').write_text(
+        'Traceback (most recent call last):\n  private customer and path\n'
+        'ValueError: SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH: private workbook\n')
+    result = subprocess.run([sys.executable, '-m', 'procurement_engine.deployment_diagnostics',
+                             'schema_migration', '2026-10-08T11:42:00+00:00'], cwd=tmp_path,
+        env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1] / 'src')},
+        capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == {
+        'failed_deployment_stage': 'schema_migration', 'last_report_status': 'UNAVAILABLE',
+        'migration_error_code': 'SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH',
+        'migration_error_type': 'ValueError', 'migration_step': 'google_schema'}
+
+
+def test_migration_log_projection_rejects_arbitrary_exception_text():
+    from procurement_engine import deployment_diagnostics as diagnostics
+
+    project = getattr(diagnostics, 'summarize_migration_log', lambda text: {})
+    assert project('ValueError: private customer and credentials\n') == {
+        'migration_error_code': 'GENERATION_FAILED', 'migration_error_type': 'ValueError'}
+    assert project('private customer: SCHEMA_MIGRATION_BASE_MISMATCH\n') == {}
+    assert project('ValueError: SCHEMA_MIGRATION_PRIVATE_CUSTOMER\n') == {
+        'migration_error_code': 'GENERATION_FAILED', 'migration_error_type': 'ValueError'}
+
+
+def test_monitoring_schema_failure_keeps_its_known_code():
+    from procurement_engine.deployment_diagnostics import summarize_migration_log
+
+    assert summarize_migration_log('ValueError: MONITORING_SCHEMA_LIVE_HEADER_MISMATCH\n') == {
+        'migration_error_code': 'MONITORING_SCHEMA_LIVE_HEADER_MISMATCH',
+        'migration_error_type': 'ValueError'}
+
+
+def test_deployment_ignores_stale_schema_log_and_reports_newer_monitoring_failure(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    directory = tmp_path / 'data/reports'
+    directory.mkdir(parents=True)
+    old = directory / 'schema-migration.log'
+    old.write_text('ValueError: SCHEMA_MIGRATION_BASE_MISMATCH\n')
+    os.utime(old, (0, 0))
+    command = [sys.executable, '-m', 'procurement_engine.deployment_diagnostics',
+               'schema_migration', '2026-10-08T11:42:00+00:00']
+    environment = {**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1] / 'src')}
+    run = lambda: json.loads(subprocess.run(command, cwd=tmp_path, env=environment,
+        capture_output=True, text=True, check=True).stdout)
+    assert run() == {'failed_deployment_stage': 'schema_migration', 'last_report_status': 'UNAVAILABLE'}
+    (directory / 'monitoring-schema-migration.log').write_text(
+        'ValueError: MONITORING_SCHEMA_LIVE_HEADER_MISMATCH: private subject\n')
+    assert run() == {
+        'failed_deployment_stage': 'schema_migration', 'last_report_status': 'UNAVAILABLE',
+        'migration_error_code': 'MONITORING_SCHEMA_LIVE_HEADER_MISMATCH',
+        'migration_error_type': 'ValueError', 'migration_step': 'monitoring_schema'}

@@ -64,6 +64,16 @@ test('presentation follows the closed code header after separator insertion', ()
   assert.throws(()=>nativeMoneyPresentationRequests([], []), /QUEUE_HEADER_CONTRACT/);
 });
 
+test('task header follows the closed block without overwriting the divider or code', () => {
+  const headers = Array(24).fill(''); headers[3]='Код'; headers[15]='Код';
+  const requests = nativeMoneyPresentationRequests([], headers);
+  const heading = requests.find(request => request.updateCells?.range?.startRowIndex === 1)?.updateCells;
+  assert.ok(heading);
+  assert.equal(heading.range.startColumnIndex,14);
+  assert.equal(heading.range.endColumnIndex,15);
+  assert.equal(heading.rows[0].values[0].userEnteredValue.stringValue,'Тип задачи');
+});
+
 
 
 

@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: report-readonly-rehearsal
+  group: report-readonly-rehearsal-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -72,6 +72,14 @@ jobs:
             from procurement_engine.publication_store import PublicationStore
             from procurement_engine.readonly_catalog import copied_catalog
             root = Path("/app/packages/server/data/reports")
+            from procurement_engine.deployment_diagnostics import summarize_migration_log
+            for name in ('schema-migration.log', 'monitoring-schema-migration.log'):
+                log = root / name
+                if log.is_file():
+                    with log.open('rb') as stream:
+                        stream.seek(max(0, log.stat().st_size - 65536))
+                        summary = summarize_migration_log(stream.read().decode('utf-8', errors='replace'))
+                    print(json.dumps({'last_migration_log': name, **summary}, sort_keys=True))
             registry = json.loads((root / "inputs/registry.json").read_text())
             store = PublicationStore(root / "published", readonly=True)
             with copied_catalog(store.database_path) as catalog:

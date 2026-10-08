@@ -17,15 +17,14 @@ NAME = 'aemr-report-schema-migrations-v1.json'
 
 def _recorded_monitoring_successor(path, source, patch):
     """Recognize only a proven installed successor of an obsolete private patch."""
-    from .monitoring_schema import PREVIOUS_REVIEWS, REASON, RETIRED, REVIEW, REVIEWS
+    from .monitoring_schema import REASON, RECORDED_REVIEWS_V3, RETIRED, REVIEW, REVIEWS
 
     history = path.parent / 'registry-history'
     records = [json.loads(p.read_text()) for p in history.glob('*.migration.json')]
     if not any(patch in r.get('package', {}).get('migrations', []) for r in records):
         return False
     for record in records:
-        accepted = {REVIEW: REVIEWS, **PREVIOUS_REVIEWS}.get(record.get('review'))
-        if (accepted is None or record.get('patches') != accepted
+        if (record.get('review') != REVIEW or record.get('patches') not in (REVIEWS, RECORDED_REVIEWS_V3)
             or record.get('retired') != json.loads(json.dumps(RETIRED))):
             continue
         digest = record.get('previous_registry_hash')
@@ -46,7 +45,7 @@ def _recorded_monitoring_successor(path, source, patch):
             or prior['schema_fingerprint'] != patch['new_fingerprint']
             or ('new_semantic_fingerprint' in patch and prior.get('semantic_header_fingerprint') != patch['new_semantic_fingerprint'])):
             continue
-        for review in REVIEWS:
+        for review in record['patches']:
             if prior['sheet'] != review['sheet'] or prior['role'] != review['role']:
                 continue
             previous = source.get('previous_semantic_header_fingerprint')
