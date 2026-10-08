@@ -58,3 +58,16 @@ backup proves the installed private result, and the current source equals that
 backup plus the explicitly reviewed canonical transition. Unknown edits, missing
 history, identity/unit changes and broken backup proofs retain the existing
 failure behavior. Live capture and publication gates remain mandatory.
+
+## Reviewed queue task caption, 2026-10-08
+
+The live queue changed only static O2 from `Уровень` to `Тип задачи`.
+Native reads compared all 24 columns and both header rows; A1/O1 summary
+formulas changed their wording to actions and remain the same two volatile
+data cells. Column P still identifies the procedure; N remains the divider.
+The reviewed transition retains sheet ID 2526400, width 24, two header rows,
+roles and units. Its new masked raw/semantic hashes are
+`d5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb` and
+`cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61`.
+The previous exact 24-column hashes remain an accepted migration predecessor.
+Other static-label changes still fail; retries after this transition are no-ops.
