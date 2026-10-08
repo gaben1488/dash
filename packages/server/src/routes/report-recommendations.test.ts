@@ -132,3 +132,45 @@ it('rejects invalid records, missing ledger and public read-only access instead 
   expect((await app.inject('/api/report-recommendations')).statusCode).toBe(503);
   await app.close();
 });
+
+
+it('UER registers an official recommendation immediately and can correct it with a full history', async () => {
+  const { app, stateDir } = await fixture();
+  let revision = (await app.inject('/api/report-recommendations')).json().revision;
+  const created = await app.inject({
+    method: 'POST', url: '/api/report-recommendations',
+    payload: { expectedRevision: revision, grbs: 'УО', section: 'ep',
+      text: 'Рассмотреть изменение способа закупки № 42', sourceIds: ['42'], note: '' },
+  });
+  expect(created.statusCode).toBe(201);
+  expect(created.json().record.stage).toBe('ACTIVE');
+  const id = created.json().record.id;
+  expect(id).toMatch(/^REC-UER-[A-F0-9]{16}$/);
+  let items = JSON.parse(await readFile(join(stateDir, 'inputs', 'ledger.json'), 'utf8'));
+  const added = items.find((x: { recommendation_id: string }) => x.recommendation_id === id);
+  expect(added).toMatchObject({
+    grbs: 'УО', section: 'ep', active_in_current_slice: true,
+    editorial_state: 'ISSUED', issued_by: 'УЭР', recommendation_type: 'OTHER',
+  });
+  expect(added.first_seen).toMatch(/^20\d\d-\d\d-\d\d$/);
+  expect(added.origin_evidence[0]).toMatchObject({
+    kind: 'UER_DASH_OFFICIAL_ENTRY_V1', recommendation_id: id, grbs: 'УО',
+  });
+  revision = created.json().revision;
+  const changed = await app.inject({
+    method: 'PUT', url: `/api/report-recommendations/${id}`,
+    payload: { expectedRevision: revision, grbs: 'УО', section: 'ep',
+      text: 'Рекомендовать провести электронный аукцион № 42',
+      sourceIds: ['42'], note: 'По уточнённым сведениям', stage: 'ACTIVE' },
+  });
+  expect(changed.statusCode).toBe(200);
+  items = JSON.parse(await readFile(join(stateDir, 'inputs', 'ledger.json'), 'utf8'));
+  const latest = items.find((x: { recommendation_id: string }) => x.recommendation_id === id);
+  expect(latest.recommendation_text).toBe('Рекомендовать провести электронный аукцион № 42');
+  expect(latest.editorial_history).toHaveLength(2);
+  expect(latest.editorial_history[1].previousValues.recommendation_text)
+    .toBe('Рассмотреть изменение способа закупки № 42');
+  expect(latest.origin_evidence[0].text_sha256).not.toBe(added.origin_evidence[0].text_sha256);
+  expect(items[0]).toEqual(historical);
+  await app.close();
+});
