@@ -21,21 +21,22 @@ describe('independent native monitoring diagnostics', () => {
       { address: 'Рабочий реестр процедур!A3', note: 'В витрине D отсутствует ЭА001-26' },
     ]);
   });
-  it('enforces blank J and assigns an exact address if a signal is written into the separator', () => {
+  it('keeps the active signal in J and reports an accidental value in separator N', () => {
     const master = source();
-    const queue: unknown[][] = [[], [], ['', '', 'Подвести итоги', 'ЭА001-26']];
+    const row: unknown[] = Array(24).fill('');
+    row[2] = 'Подвести итоги'; row[3] = 'ЭА001-26';
+    row[9] = 'Проверить: уточнить документ'; // J is a legitimate signal, not a divider.
+    const queue: unknown[][] = [[], [], row];
     const book: MonitoringBookSnapshot = {
       sheets: { 'Рабочий реестр процедур': master, 'Процедуры в работе': queue },
       readAt: '2026-10-08T12:00:00Z', failed: {}, version: 1, changed: [],
     };
     const parsed = parseMonitoringProcedures(book.sheets, '2026-10-09');
-    const before = queueDriftSignals(book, parsed.procedures);
-    expect(before.flatMap(s => s.addresses ?? []).some(a => a.address === 'Процедуры в работе!J3')).toBe(false);
-    queue[2][9] = 'Ошибка: устаревший сигнал в J';
-    const after = queueDriftSignals(book, parsed.procedures);
-    expect(after.flatMap(s => s.addresses ?? [])).toContainEqual({
-      address: 'Процедуры в работе!J3',
-      note: 'Столбец J должен быть пустым разделителем. Сигналы активных процедур выводятся вместе с действием в C.',
+    expect(queueDriftSignals(book, parsed.procedures)).toEqual([]);
+    row[13] = 'Неожиданные данные'; // N is reserved for the visible gap.
+    expect(queueDriftSignals(book, parsed.procedures)[0]?.addresses).toContainEqual({
+      address: 'Процедуры в работе!N3',
+      note: 'Столбец N должен оставаться пустым визуальным разделителем. Сигналы активных процедур отображаются в J, действия — в C.',
     });
   });
   it('checks the closed procedure code in P, not the severity label in O', () => {
