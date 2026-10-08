@@ -380,3 +380,38 @@ def test_published_evidence_summary_requires_existing_publication(tmp_path, caps
     result = json.loads(capsys.readouterr().out)
     assert result['replay_status'] == 'FAIL'
     assert result['error_code'] in {'PUBLICATION_NOT_FOUND', 'GENERATION_FAILED'}
+
+
+def test_weekly_only_cli_reports_archive_error_without_candidate_replay(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+    from procurement_engine.archive_runtime import ArchiveError
+
+    def broken_weekly(_state):
+        err = ArchiveError('ARCHIVE_BUILD_FAILED')
+        err.blockers = [{'code': 'SOURCE_QA_ERRORS'},
+                        {'code': 'SECTION_SOURCE_MISMATCH',
+                         'context': {'sections': ['procedure_source_contract']}}]
+        err.source_issues = [{'code': 'DUPLICATE_PROCEDURE_CODE', 'severity': 'ERROR'}]
+        raise err
+
+    def candidate_should_never_run(*args, **kwargs):
+        raise AssertionError('Candidate report is not part of the weekly-only gate')
+
+    monkeypatch.setattr(rehearsal, 'rehearse_latest', candidate_should_never_run)
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', broken_weekly)
+    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['internal_code'] == 'ARCHIVE_BUILD_FAILED'
+    assert result['source_error_counts'] == {'DUPLICATE_PROCEDURE_CODE': 1}
+    assert result['section_errors'] == {'procedure_source_contract': 1}
+    assert 'candidate' not in json.dumps(result).lower()
+
+
+def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', lambda _state: None)
+    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
