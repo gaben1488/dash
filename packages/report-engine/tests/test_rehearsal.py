@@ -319,3 +319,31 @@ def test_diagnostic_summary_does_not_waive_failed_weekly_archive(tmp_path, monke
     assert 'recommendation_ids' not in json.dumps(public)
     assert 'PRIVATE_WEEKLY_INPUT' not in json.dumps(public)
     assert business_files(state) == before
+
+def test_replay_delta_catches_lost_proof_without_exposing_identifiers():
+    from procurement_engine.rehearsal import _recommendation_replay_delta
+
+    previous = {'recommendation_records': [
+        {'recommendation_id': 'private-1', 'current_link': {'status': 'CONFIRMED'},
+         'dimensions': {'compliance_status': 'IMPLEMENTED'}},
+        {'recommendation_id': 'private-2', 'current_link': {'status': 'ORIGIN_UNPROVEN'},
+         'dimensions': {'compliance_status': 'UNKNOWN'}},
+    ]}
+    candidate = {'recommendation_records': [
+        {'recommendation_id': 'private-1', 'current_link': {'status': 'ORIGIN_UNPROVEN'},
+         'dimensions': {'compliance_status': 'UNKNOWN'}},
+        {'recommendation_id': 'private-2', 'current_link': {'status': 'CONFIRMED'},
+         'dimensions': {'compliance_status': 'IMPLEMENTED'}},
+    ]}
+    value = _recommendation_replay_delta(previous, candidate)
+    assert value == {
+        'published_recommendation_count': 2,
+        'candidate_recommendation_count': 2,
+        'historical_ids_missing_from_candidate': 0,
+        'candidate_ids_not_in_published': 0,
+        'confirmed_links_lost': 1, 'confirmed_links_gained': 1,
+        'known_compliance_became_unknown': 1,
+        'unknown_compliance_became_known': 1,
+        'compliance_changed': 2,
+    }
+    assert 'private-' not in json.dumps(value)
