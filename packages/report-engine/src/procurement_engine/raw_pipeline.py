@@ -53,8 +53,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc23'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc23+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc24'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc24+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -149,6 +149,9 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
     # A changed historical ledger or source contract must produce a different evidence identity.
     for sid, role, value in (('HISTORICAL_RECOMMENDATIONS', 'historical_ledger', ledger or []),
                              ('SOURCE_CONTRACT', 'rule_contract', registry),
+                             *([('AUTHORITY_LEDGER_INPUT', 'authoritative_ledger_input',
+                                 capture['authoritative_ledger_source'])]
+                               if 'authoritative_ledger_source' in capture else []),
                              *([('REPORT_SCOPE', 'report_scope', capture['report_scope'])] if 'report_scope' in capture else []),
                              *([('ARCHIVE_ORIGIN', 'archive_origin', capture['archive_origin'])] if 'archive_origin' in capture else []),
                              *([('IDENTITY_REVIEWS', 'identity_reviews', identity_evidence)]
@@ -560,6 +563,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
+    model['contract']['official_ledger_authority'] = (
+        'REMOTE' if capture.get('authoritative_ledger_source') else 'LOCAL_BOOTSTRAP')
     model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v13'
     model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
