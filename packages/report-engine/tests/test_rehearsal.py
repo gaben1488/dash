@@ -347,3 +347,36 @@ def test_replay_delta_catches_lost_proof_without_exposing_identifiers():
         'compliance_changed': 2,
     }
     assert 'private-' not in json.dumps(value)
+
+
+def test_published_evidence_summary_is_readonly_and_does_not_claim_replay(tmp_path, capsys):
+    from procurement_engine import rehearsal
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    release = run_once(registry, ledger, state, client=CompleteGoogle())
+    assert release['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    before = business_files(state)
+    result = rehearsal.published_evidence_summary(state)
+    assert result['published_evidence_read'] == 'PASS'
+    assert result['candidate_replay'] == 'NOT_RUN'
+    assert result['weekly_replay'] == 'NOT_CHECKED'
+    assert result['legacy_fingerprint_backfill'] == 'NOT_RUN'
+    assert isinstance(result['identity_chain_break_counts'], dict)
+    assert isinstance(result['identity_unresolved_scope_counts'], dict)
+    assert 'recommendation_gap_index' not in result
+    assert 'recommendation_identity_gap_index' not in result
+    assert rehearsal.main(['--state', str(state), '--published-summary']) == 0
+    public = json.loads(capsys.readouterr().out)
+    assert public == result
+    assert business_files(state) == before
+
+
+def test_published_evidence_summary_requires_existing_publication(tmp_path, capsys):
+    from procurement_engine import rehearsal
+
+    state = tmp_path / 'state'
+    assert rehearsal.main(['--state', str(state), '--published-summary']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['error_code'] in {'PUBLICATION_NOT_FOUND', 'GENERATION_FAILED'}
