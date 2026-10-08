@@ -45,6 +45,7 @@ export type MonitoringSignalKind =
   | 'monitoring_map_duplicate_in_book'
   | 'monitoring_map_nmck_mismatch'
   | 'monitoring_map_fact_mismatch'
+  | 'monitoring_stage_vs_grbs_comment'
   | 'monitoring_source_error'
   | 'monitoring_source_warning'
   | 'monitoring_source_incomplete';
@@ -313,6 +314,23 @@ export function buildMonitoringSignals(input: {
   );
 }
 
+/**
+ * Only an unambiguous, explicitly marked current status in a GRBS note is
+ * comparable with master W. Unlabelled prose, prior results, dates and words
+ * like "отмена" may be historical: never reinterpret them as current state.
+ */
+export function explicitGrbsCurrentStage(comment: unknown): 'awarded' | 'no_result' | 'reissued' | null {
+  if (typeof comment !== 'string') return null;
+  const matches = [...comment.matchAll(
+    /(?:^|[;\n(\[])\s*(?:текущий статус|актуальный статус|статус процедуры)\s*[:=]\s*(не состоялась|состоялась|переоформлена)(?=\s*(?:[;\n)\].,]|$))/giu,
+  )];
+  if (matches.length !== 1) return null;
+  const outcome = matches[0]?.[1]?.toLowerCase();
+  return outcome === 'состоялась' ? 'awarded'
+    : outcome === 'не состоялась' ? 'no_result'
+      : outcome === 'переоформлена' ? 'reissued' : null;
+}
+
 /** Пять сигналов, рождающихся прямо из построчной сверки с книгами ГРБС. */
 export function mappingSignals(
   result: MonitoringMatchResult,
@@ -395,6 +413,43 @@ export function mappingSignals(
         address: `${m.bookRow.rowKey} ↔ ${m.primary.procKey}`,
         note: `${m.code}: факт книги ${(m.fact.bookRub ?? 0).toFixed(2)} руб., цена победителя ${(m.fact.monitoringRub ?? 0).toFixed(2)} руб.`,
       })),
+    });
+  }
+
+  const disagreements: MonitoringSignalAddress[] = [];
+  const seen = new Set<string>();
+  for (const match of result.matched) {
+    if (!match.primary.canonical || !match.primary.stage || match.primary.stage === 'unknown') continue;
+    const declared = explicitGrbsCurrentStage(match.bookRow.ag);
+    if (!declared || declared === match.primary.stage) continue;
+    const key = match.bookRow.rowKey + ':' + match.code;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const label = { awarded: 'Состоялась', no_result: 'Не состоялась', reissued: 'Переоформлена' };
+    const actual = {
+      application: 'Заявка в уполномоченном органе',
+      published: 'Объявлена',
+      bidding: 'Итог не внесён',
+      awarded: 'Состоялась',
+      no_result: 'Не состоялась',
+      reissued: 'Переоформлена',
+      unknown: 'Неизвестно',
+    };
+    disagreements.push({
+      address: match.bookRow.rowKey + ' (AG) ↔ ' + match.primary.procKey + ' (W)',
+      note: match.code + ': явный статус комментария — «' + label[declared]
+        + '», рабочий реестр — «' + actual[match.primary.stage] + '».',
+    });
+  }
+  if (disagreements.length > 0) {
+    out.push({
+      kind: 'monitoring_stage_vs_grbs_comment',
+      title: 'Статус в комментарии ГРБС расходится с реестром',
+      severity: 'medium',
+      mechanism: 'Сравниваются только однозначные пометки «текущий статус», «актуальный статус» или «статус процедуры». Свободные исторические комментарии намеренно не трактуются как текущая стадия.',
+      action: 'Сверить обе записи с актуальным решением и датой. Устаревший комментарий уточнить в книге ГРБС; неверный результат реестра исправить по документу. Автоматически стадию не менять.',
+      count: disagreements.length,
+      addresses: disagreements.slice(0, limit),
     });
   }
 
