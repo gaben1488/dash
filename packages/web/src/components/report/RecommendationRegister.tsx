@@ -5,52 +5,47 @@ import {
 } from 'lucide-react';
 import { ALL_DEPT_IDS } from '@aemr/shared';
 import { api, humanizeRequestError, type LedgerRecommendation,
-  type RecommendationDraftEdit, type RecommendationDraftInput,
+  type RecommendationEntryEdit, type RecommendationEntryInput,
   type RecommendationLedgerResponse, type RecommendationStage } from '../../api';
 
 const PAGE_SIZE = 12;
-type Scope = 'active' | 'history' | 'drafts' | 'all';
-type DraftValues = Omit<RecommendationDraftInput, 'expectedRevision'> & { stage: 'DRAFT' | 'ARCHIVED_DRAFT' };
-const INITIAL_DRAFT: DraftValues = { grbs: 'УЭР', text: '', sourceIds: [], note: '', stage: 'DRAFT' };
+type Scope = 'active' | 'history' | 'uer' | 'all';
+type EntryValues = Omit<RecommendationEntryInput, 'expectedRevision'>;
+const INITIAL_ENTRY: EntryValues = { grbs: 'УЭР', text: '', sourceIds: [], note: '' };
 
 function stageLabel(stage: RecommendationStage) {
   switch (stage) {
-    case 'DRAFT': return 'Черновик';
-    case 'ARCHIVED_DRAFT': return 'Черновик отложен';
     case 'ACTIVE': return 'В действующем списке';
     case 'HISTORY': return 'Историческая запись';
   }
 }
 function statusClass(stage: RecommendationStage) {
-  if (stage === 'DRAFT') return 'bg-amber-50 text-amber-800 dark:bg-amber-200/10 dark:text-amber-200';
-  if (stage === 'ARCHIVED_DRAFT') return 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400';
   if (stage === 'ACTIVE') return 'bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300';
   return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300';
 }
 
 interface EditorProps {
-  initial: DraftValues;
+  initial: EntryValues;
   busy: boolean;
   saveLabel: string;
   onCancel: () => void;
-  onSave: (entry: DraftValues) => void;
+  onSave: (entry: EntryValues) => void;
 }
-function DraftEditor({ initial, busy, saveLabel, onCancel, onSave }: EditorProps) {
+function RecommendationEditor({ initial, busy, saveLabel, onCancel, onSave }: EditorProps) {
   const [grbs, setGrbs] = useState(initial.grbs);
   const [text, setText] = useState(initial.text);
   const [numbers, setNumbers] = useState(initial.sourceIds.join(', '));
   const [note, setNote] = useState(initial.note);
-  const [stage, setStage] = useState(initial.stage);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const sourceIds = numbers.split(/[,;\n]+/).map(v => v.trim()).filter(Boolean);
-    onSave({ grbs, text: text.trim(), sourceIds, note: note.trim(), stage });
+    onSave({ grbs, text: text.trim(), sourceIds, note: note.trim() });
   }
   return (
     <form onSubmit={submit} className="mt-3 space-y-4 rounded-xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-transparent dark:bg-zinc-900/60">
       <div className="flex items-start gap-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
         <Info size={15} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
-        <span><strong>Черновик не попадёт в официальный Word.</strong> Он сохранится в этом реестре и останется доступен для дальнейшей работы. Официальный выпуск — отдельное установленное действие, которое эта форма не подменяет.</span>
+        <span><strong>Сохранение регистрирует официальную рекомендацию УЭР.</strong> Генератор включит её в следующий проверенный Word-выпуск. Факт исполнения проверяется отдельно; изменение текста сохранит прежнюю редакцию в истории.</span>
       </div>
       <div className="grid gap-3 md:grid-cols-[minmax(0,230px)_1fr]">
         <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-200">
@@ -83,16 +78,6 @@ function DraftEditor({ initial, busy, saveLabel, onCancel, onSave }: EditorProps
           placeholder="Что нужно уточнить, на какой документ опираемся…"
           className="mt-1.5 block w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-transparent dark:bg-zinc-800 dark:text-zinc-100" />
       </label>
-      {initial.stage === 'ARCHIVED_DRAFT' || saveLabel !== 'Сохранить черновик' ? (
-        <label className="flex items-center gap-3 text-xs text-zinc-600 dark:text-zinc-300">
-          Состояние проекта
-          <select value={stage} aria-label="Состояние проекта" onChange={e => setStage(e.target.value as DraftValues['stage'])}
-            className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-transparent dark:bg-zinc-800">
-            <option value="DRAFT">В работе</option>
-            <option value="ARCHIVED_DRAFT">Отложен</option>
-          </select>
-        </label>
-      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <button type="submit" disabled={busy}
           className="inline-flex items-center gap-2 rounded-lg bg-amber-200 px-4 py-2.5 text-sm font-semibold text-zinc-900 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-200 dark:hover:bg-amber-100">
@@ -107,25 +92,25 @@ function DraftEditor({ initial, busy, saveLabel, onCancel, onSave }: EditorProps
   );
 }
 
-function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveNote, onSaveDraft }: {
+function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveNote, onSaveEntry }: {
   record: LedgerRecommendation;
   editing: boolean;
   busy: boolean;
   onStartEdit: () => void;
   onStopEdit: () => void;
   onSaveNote: (note: string) => void;
-  onSaveDraft: (values: DraftValues) => void;
+  onSaveEntry: (values: EntryValues) => void;
 }) {
   const [note, setNote] = useState(record.note);
   useEffect(() => { setNote(record.note); }, [record.note]);
-  const draft = record.stage === 'DRAFT' || record.stage === 'ARCHIVED_DRAFT';
+  const authored = record.editable;
   return (
     <div className="border-t border-zinc-100 px-4 pb-4 pt-4 dark:border-transparent sm:px-5">
-      {draft && editing ? (
-        <DraftEditor key={record.id} initial={{
+      {authored && editing ? (
+        <RecommendationEditor key={record.id} initial={{
           grbs: record.grbs, text: record.text, sourceIds: record.sourceIds,
-          note: record.note, stage: record.stage === 'ARCHIVED_DRAFT' ? 'ARCHIVED_DRAFT' : 'DRAFT',
-        }} busy={busy} saveLabel="Сохранить изменения" onCancel={onStopEdit} onSave={onSaveDraft} />
+          note: record.note,
+        }} busy={busy} saveLabel="Сохранить новую редакцию" onCancel={onStopEdit} onSave={onSaveEntry} />
       ) : (
         <div className="space-y-3">
           {record.sourceIds.length > 0 && (
@@ -136,7 +121,7 @@ function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveN
               </div>
             </div>
           )}
-          {!draft && (
+          {!authored && (
             <div className="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/50">
               <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
                 Исходный текст и ответы не переписываются — сохраняется история выпущенного документа.
@@ -149,7 +134,7 @@ function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveN
               </p>}
             </div>
           )}
-          {!draft && editing ? (
+          {!authored && editing ? (
             <form onSubmit={event => { event.preventDefault(); onSaveNote(note.trim()); }} className="space-y-2">
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-200">
                 Рабочее пояснение
@@ -174,7 +159,7 @@ function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveN
               <button type="button" onClick={onStartEdit}
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-transparent dark:text-zinc-200 dark:hover:bg-zinc-800">
                 <Pencil size={13} aria-hidden />
-                {draft ? 'Редактировать черновик' : record.note ? 'Изменить рабочее пояснение' : 'Добавить рабочее пояснение'}
+                {authored ? 'Редактировать рекомендацию' : record.note ? 'Изменить рабочее пояснение' : 'Добавить рабочее пояснение'}
               </button>
             </>
           )}
@@ -189,8 +174,11 @@ function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveN
             {record.history.slice().reverse().map((item, index) => (
               <li key={item.at + index} className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 {item.at ? new Date(item.at).toLocaleString('ru-RU') : 'Без даты'} — {
-                  item.kind === 'created' ? 'создан черновик' : item.kind === 'note' ? 'обновлено пояснение' : 'изменён черновик'
+                  item.kind === 'created' ? 'зарегистрирована рекомендация УЭР' : item.kind === 'note' ? 'обновлено пояснение' : 'изменена редакция рекомендации'
                 }.
+                {item.previous && <span className="block mt-1 rounded-lg bg-zinc-100 p-2 dark:bg-zinc-800">
+                  Предыдущий текст: {item.previous.text}
+                </span>}
                 {item.previousNote && <span className="block mt-0.5">Предыдущее пояснение: {item.previousNote}</span>}
               </li>
             ))}
@@ -240,7 +228,7 @@ export function RecommendationRegister() {
     return records.filter(record => {
       if (scope === 'active' && record.stage !== 'ACTIVE') return false;
       if (scope === 'history' && record.stage !== 'HISTORY') return false;
-      if (scope === 'drafts' && record.stage !== 'DRAFT' && record.stage !== 'ARCHIVED_DRAFT') return false;
+      if (scope === 'uer' && !record.editable) return false;
       if (dept !== 'all' && record.grbs !== dept) return false;
       if (search && ![record.id, record.grbs, record.text, record.note, ...record.sourceIds]
         .some(value => value.toLocaleLowerCase('ru-RU').includes(search))) return false;
@@ -273,7 +261,7 @@ export function RecommendationRegister() {
   const scopeButtons: { key: Scope; name: string; count: number | null }[] = [
     { key: 'active', name: 'Действующие', count: counts?.active ?? null },
     { key: 'history', name: 'История', count: counts?.historical ?? null },
-    { key: 'drafts', name: 'Черновики', count: counts ? counts.drafts + counts.archivedDrafts : null },
+    { key: 'uer', name: 'Добавлены УЭР', count: counts?.uerAuthored ?? null },
     { key: 'all', name: 'Все записи', count: data?.records.length ?? null },
   ];
   return (
@@ -288,7 +276,7 @@ export function RecommendationRegister() {
             <div>
               <h3 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Реестр рекомендаций</h3>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-                Накопительная история УЭР и рабочие черновики. Это один реестр, а не список автоматических замечаний из «Контроля».
+                Официальные рекомендации УЭР и накопительная история. Сохранённые записи попадут в следующий проверенный отчёт; это не список технических замечаний.
               </p>
             </div>
           </div>
@@ -314,13 +302,13 @@ export function RecommendationRegister() {
             className="ml-2 font-semibold underline underline-offset-2">Обновить записи</button>
         </div>}
         {creating && data && (
-          <DraftEditor initial={INITIAL_DRAFT} busy={busy} saveLabel="Сохранить черновик"
+          <RecommendationEditor initial={INITIAL_ENTRY} busy={busy} saveLabel="Сохранить рекомендацию"
             onCancel={() => setCreating(false)}
             onSave={entry => { void save(() => api.createReportRecommendation({
               expectedRevision: data.revision, grbs: entry.grbs, text: entry.text,
               sourceIds: entry.sourceIds, note: entry.note,
-            }), 'Черновик сохранён. Он не включён в официальный отчёт.', () => {
-              setCreating(false); changeScope('drafts');
+            }), 'Рекомендация УЭР зарегистрирована. Она войдёт в следующий проверенный выпуск.', () => {
+              setCreating(false); changeScope('uer');
             }); }} />
         )}
       </div>
@@ -396,12 +384,12 @@ export function RecommendationRegister() {
                     <span className="min-w-0 flex-1">
                       <span className="mb-1.5 flex flex-wrap items-center gap-1.5">
                         <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">{record.grbs}</span>
-                        <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${statusClass(record.stage)}`}>{stageLabel(record.stage)}</span>
+                        <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${statusClass(record.stage)}`}>{record.editable ? 'Официальная · УЭР' : stageLabel(record.stage)}</span>
                         {record.sourceIds.length > 0 && <span className="text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">№ {record.sourceIds.slice(0, 3).join(', ')}{record.sourceIds.length > 3 ? ` +${record.sourceIds.length - 3}` : ''}</span>}
                       </span>
                       <span className="block text-sm font-medium leading-relaxed text-zinc-800 dark:text-zinc-100">{record.text}</span>
                       {record.statusLabel && <span className="mt-1 block text-[11px] text-zinc-500 dark:text-zinc-400">
-                        Историческая оценка{record.statusAsOf ? ` · ${record.statusAsOf}` : ''}: {record.statusLabel}
+                        Оценка исполнения{record.statusAsOf ? ` · ${record.statusAsOf}` : ''}: {record.statusLabel}
                       </span>}
                     </span>
                   </button>
@@ -414,11 +402,11 @@ export function RecommendationRegister() {
                         onSaveNote={value => { void save(() => api.updateReportRecommendation(record.id, {
                           expectedRevision: data.revision, note: value,
                         }), 'Рабочее пояснение сохранено.', () => setEditing(null)); }}
-                        onSaveDraft={value => { const payload: RecommendationDraftEdit = {
+                        onSaveEntry={value => { const payload: RecommendationEntryEdit = {
                           expectedRevision: data.revision, grbs: value.grbs, text: value.text,
-                          sourceIds: value.sourceIds, note: value.note, stage: value.stage,
+                          sourceIds: value.sourceIds, note: value.note,
                         }; void save(() => api.updateReportRecommendation(record.id, payload),
-                          'Черновик обновлён.', () => setEditing(null)); }}
+                          'Новая редакция официальной рекомендации сохранена.', () => setEditing(null)); }}
                       />
                     </div>
                   )}
@@ -436,7 +424,7 @@ export function RecommendationRegister() {
           )}
           <div className="border-t border-zinc-100 bg-zinc-50/70 px-4 py-3 text-[11px] leading-relaxed text-zinc-500 dark:border-transparent dark:bg-zinc-900/60 dark:text-zinc-400 sm:px-5">
             <Info size={13} className="mr-1 inline align-[-2px]" aria-hidden />
-            Реестр отражает сохранённую рабочую историю. Статусы выполнения в официальных документах проверяются генератором по отдельным доказательствам. Черновик не равен выпущенной рекомендации.
+            Реестр отражает сохранённую рабочую историю. Рекомендация УЭР становится официальной при сохранении. Следующий Word-выпуск использует единый реестр; результаты исполнения устанавливаются по отдельным подтверждениям.
           </div>
         </>
       ) : null}
