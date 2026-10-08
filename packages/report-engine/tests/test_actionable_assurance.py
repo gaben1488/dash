@@ -88,3 +88,14 @@ def test_conditional_or_historical_colon_does_not_turn_hypothesis_into_fact():
                     'Ранее сообщалось: финансирование отсутствует.',
                     'Пример: договор заключен 01.10.2026.'):
         assert source_events(replace(row(), grbs_comment=comment)) == []
+
+def test_conflicting_link_proofs_stay_engine_work_with_specific_cause():
+    record = {'recommendation_id': 'R1', 'grbs': 'УО', 'active_in_current_slice': True,
+        'current_link': {'status': 'AMBIGUOUS',
+            'conflict_kind': 'AUTOMATIC_REVIEWED_UID_DISAGREEMENT'},
+        'dimensions': {'compliance_status': 'UNKNOWN'}}
+    result = assurance([], [record])
+    assert result['engine_action_count'] == 1
+    assert result['user_action_count'] == 0
+    assert result['actions'][0]['code'] == 'ENGINE_RECOMMENDATION_LINK'
+    assert 'разные закупки' in result['actions'][0]['cause']
