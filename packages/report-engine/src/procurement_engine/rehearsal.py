@@ -209,6 +209,16 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
     """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
     identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
     unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
+    # Missing UIDs in auxiliary/ineligible source rows are not missing
+    # identities for the counted procurement population. Preserve both totals.
+    scope = {row.get('physical_row_key'): row.get('included')
+             for row in candidate.get('details') or []}
+    scope_counts = Counter(
+        'ELIGIBLE' if scope.get(row.get('source_row_key')) is True
+        else 'OTHER_SOURCE_ROW' if scope.get(row.get('source_row_key')) is False
+        else 'UNCLASSIFIED'
+        for row in unresolved
+    )
     candidate_buckets = Counter()
     for row in unresolved:
         evidence = row.get('evidence') or {}
@@ -293,6 +303,7 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
         **_identity_gap_diagnostics(candidate, identity_history or identities, identity_snapshot_id=identity_snapshot_id),
         'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
         'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
+        'identity_unresolved_scope_counts': dict(sorted(scope_counts.items())),
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
         'origin_date_identity_bindable_count': origin_date_bindable,
         'text_reference_missing_subject_shapes': dict(sorted(subject_only.items())),
@@ -301,7 +312,7 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
     }
 
 
-def rehearse_latest(state_dir, *, coverage=False):
+def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
     PASS means the candidate can process that saved input. It does NOT establish
@@ -401,9 +412,14 @@ def rehearse_latest(state_dir, *, coverage=False):
                     *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
                 result['identity_recovery'] = recovery_diagnostics
                 result.update(_coverage_details(candidate, identities, history, identity_snapshot_id=manifest['snapshot_id']))
-            weekly = rehearse_weekly(state)
-            if weekly is not None:
-                result['weekly'] = weekly
+            if skip_weekly:
+                # Diagnostic entry point only. The normal --coverage command
+                # still checks and fails on an invalid sealed weekly archive.
+                result['weekly_replay'] = 'NOT_CHECKED'
+            else:
+                weekly = rehearse_weekly(state)
+                if weekly is not None:
+                    result['weekly'] = weekly
         return result
 
 
@@ -411,13 +427,36 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', required=True)
     parser.add_argument('--coverage', action='store_true')
+    parser.add_argument('--coverage-summary', action='store_true',
+                        help='Sanitized current-release diagnostic without the independent weekly gate')
     parser.add_argument('--failed-attempt', action='store_true')
     args = parser.parse_args(argv)
     try:
         if args.failed_attempt:
             print(json.dumps({'failed_attempt': diagnose_failed_attempt(args.state)}, ensure_ascii=False))
             return 0
-        result = rehearse_latest(args.state, coverage=args.coverage)
+        if args.coverage_summary:
+            full = rehearse_latest(args.state, coverage=True, skip_weekly=True)
+            # Explicit allowlist: no coordinates, business text or UID-bearing
+            # recommendation indexes may appear in shared workflow output.
+            fields = ('replay_status', 'independent_audit', 'two_docx_rebuilt',
+                'headline_changed', 'error_counts', 'weekly_replay',
+                'identity_recovery', 'identity_unresolved_count',
+                'identity_status_counts', 'identity_chain_break_counts',
+                'identity_unresolved_candidate_uid_buckets',
+                'identity_unresolved_scope_counts', 'recommendation_gap_shapes',
+                'text_reference_missing_subject_shapes', 'origin_date_identity_bindable_count',
+                'automation')
+            result = {key: full[key] for key in fields if key in full}
+            action_codes = full.get('action_code_counts') or {}
+            safe = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
+                'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
+            result['action_code_counts'] = {key: action_codes[key] for key in sorted(safe)
+                                            if key in action_codes}
+            result['other_action_count'] = sum(value for key, value in action_codes.items()
+                                                if key not in safe)
+        else:
+            result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
         message = str(error)
         result = {
