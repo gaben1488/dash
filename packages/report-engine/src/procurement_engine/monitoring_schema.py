@@ -91,7 +91,9 @@ REVIEWS = [{'old_sheet': 'Процедуры в работе',
   'previous_semantic': '594117f4a78542aaee93605b400d737e6b08692748aee1faf5df20359cc66ea5',
   'semantic': 'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1',
   'volatile_cells': [],
-  'optional': True},
+  'optional': True,
+  'previous_geometry': [[18, 1, '04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3']],
+  'previous_semantics': ['be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe']},
  {'old_sheet': '_Проверки',
   'sheet': '_Проверки',
   'role': 'historical_control_dependency',
@@ -105,7 +107,34 @@ REVIEWS = [{'old_sheet': 'Процедуры в работе',
   'semantic': 'c40c927d527a6f7593800636f6d13734dccfbebdaf7dd5d670db82ab9e2317e2',
   'volatile_cells': [[1, 2], [1, 4], [1, 8]],
   'optional': True,
-  'sealed_baseline': True}]
+  'sealed_baseline': True},
+ {'old_sheet': 'Лист Совместных закупок',
+  'sheet': 'Лист Совместных закупок',
+  'role': 'procedure_lifecycle',
+  'sheet_id': 2526402,
+  'old_columns': 20,
+  'columns': 20,
+  'old_header_rows': 1,
+  'header_rows': 1,
+  'old_fingerprint': '49b9390505ad81f75260f76c3debb2e99d34de4a8013966365255b56c3c5b377',
+  'fingerprint': 'afef389d5963824b4b2c570923ec5edfecf88a89dd1ea78e0d92077c87d45d13',
+  'previous_semantic': '1f22e2ea69429ffcfd6d988daa4c43153d080a39e6ef13b46f25acfb421581d1',
+  'semantic': '4badb510776e3b751b1fc93911457967a7e01de872cdcf5487e2b54032e69f2f',
+  'volatile_cells': [[1, 19]]},
+ {'old_sheet': '_Поставщики',
+  'sheet': '_Поставщики',
+  'role': 'formula_dependency',
+  'sheet_id': 110002,
+  'old_columns': 6,
+  'columns': 6,
+  'old_header_rows': 1,
+  'header_rows': 1,
+  'old_fingerprint': '78f3cdb4b1c5e59f3d35b433e3bad2e4305c245235f79381d076c852f6b822f5',
+  'fingerprint': '0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c',
+  'previous_semantic': '530bd5d15273718352e3a9527323fa97b78e0ac01cf89f1e33eb53c817df9a10',
+  'semantic': 'd631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170',
+  'volatile_cells': [],
+  'optional': True}]
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
   6,
@@ -157,7 +186,8 @@ def review_registry(original, sealed, client):
         if len(matches) != 1:
             raise ValueError('MONITORING_SCHEMA_SOURCE_NOT_UNIQUE')
         source = matches[0]
-        if source['provider_id'] != provider or source['role'] != patch['role']:
+        if (source['provider_id'] != provider or source['role'] != patch['role']
+            or ('sheet_id' in patch and source['sheet_id'] != patch['sheet_id'])):
             raise ValueError('MONITORING_SCHEMA_IDENTITY_MISMATCH')
         old_geometry = (patch['old_columns'], patch['old_header_rows'], patch['old_fingerprint'])
         new_geometry = (patch['columns'], patch['header_rows'], patch['fingerprint'])
@@ -221,7 +251,46 @@ def review_registry(original, sealed, client):
             changed += 1
     if not revision or client.revision(provider) != revision:
         raise ValueError('MONITORING_SCHEMA_SOURCE_CHANGED')
+    changed += _review_ud_header(registry, sealed, client)
     return registry, changed
+
+
+def _review_ud_header(registry, sealed, client):
+    """Reviewed cosmetic A1 change: ordinal 1 to blank; all 34 business labels stay identical."""
+    provider = '1zrpgVaCyS4S4KBNMFuDleMJS-PSTonHmPY_bRLgTVsg'
+    matches = [s for s in registry['sources'] if s['provider_id'] == provider and s['sheet_id'] == 1489829974]
+    if not matches:
+        return 0
+    if len(matches) != 1:
+        raise ValueError('MONITORING_SCHEMA_UD_NOT_UNIQUE')
+    source = matches[0]
+    fingerprint = '9f99bae48efdc4516559fdf23f81c4f7634fc4eb15d3a3b65bea7e0e8580b88e'
+    old_hash = '2488b3c0690154103023303e35a7cc8cb119b825336d0403ee37011fec08507e'
+    new_hash = 'd6dd9b17798157b993694b8b204c218666df869aec6ec3e85b5ddfb9409351fc'
+    if (source['sheet'], source['role'], source['grbs'], source['columns'], source['header_rows'], source['schema_fingerprint']) != ('ВСЕ', 'master', 'УД', 34, 3, fingerprint):
+        raise ValueError('MONITORING_SCHEMA_UD_IDENTITY_MISMATCH')
+    prior = sealed.get(source['source_id'])
+    if not prior or prior[1] not in {old_hash, new_hash} or any(prior[0].get(k) != source.get(k) for k in ('provider_id', 'sheet_id', 'role', 'grbs')):
+        raise ValueError('MONITORING_SCHEMA_UD_SEALED_MISMATCH')
+    revision = client.revision(provider)
+    grid = client.grid(provider, source['sheet_id'])
+    rows = client.values(provider, 'ВСЕ', 1, 3, 34)
+    if (grid['title'] != 'ВСЕ' or grid['gridProperties']['columnCount'] != 34
+        or header_hash(rows, 3) != fingerprint or semantic_header_hash(rows, 3, 34) != new_hash):
+        raise ValueError('MONITORING_SCHEMA_UD_HEADER_MISMATCH')
+    # Reconstruct the sealed header as an independent proof of the single-cell edit.
+    before = deepcopy(rows); before[0][0] = 1
+    if semantic_header_hash(before, 3, 34) != old_hash:
+        raise ValueError('MONITORING_SCHEMA_UD_PROOF_MISMATCH')
+    if not revision or client.revision(provider) != revision:
+        raise ValueError('MONITORING_SCHEMA_SOURCE_CHANGED')
+    update = {'semantic_header_fingerprint': new_hash,
+        'previous_semantic_header_fingerprint': old_hash,
+        'schema_change_reason': 'Reviewed УД ВСЕ A1: cosmetic ordinal 1 cleared; primary business headers, physical identity and data unchanged.'}
+    if all(source.get(k) == v for k, v in update.items()):
+        return 0
+    source.update(update)
+    return 1
 
 
 def apply_monitoring_schema(registry_path, state, *, client=None):

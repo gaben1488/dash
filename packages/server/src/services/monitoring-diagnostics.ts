@@ -132,7 +132,7 @@ export function monitoringFormulaDiagnostics(book: MonitoringBookSnapshot) {
       const signals: MonitoringSignal[] = addresses.length ? [{ kind: 'monitoring_formula_drift', title: 'Вычисляемое поле отличается от канонической формулы', severity: 'high',
         mechanism: 'Формулы A/Q/S/V/W/X/Y сравнены с проверенным шаблоном по всей подготовленной сетке. Проверка обнаружила замену значением, пустоту либо изменение формулы или её ссылки.',
         action: 'Проверьте указанную ячейку и восстановите каноническую формулу после проверки исходных данных.', count: addresses.length,
-        addresses: addresses.map(address => ({ address, note: 'В обязательной вычисляемой колонке нет формулы.' })) }] : [];
+        addresses: addresses.map(address => ({ address, note: 'Формула отсутствует или отличается от канонического шаблона.' })) }] : [];
       if (defects.inputs.length) signals.push({ kind: 'monitoring_input_rules', title: 'Правило ввода отличается от проверенного шаблона', severity: 'medium',
         mechanism: 'Нативные проверки ввода A3:Y1002 сравнены с согласованным шаблоном, включая тип условия, допустимые значения, относительные ссылки и запрет неверного ввода.',
         action: 'Восстановите правило ввода в указанных ячейках после сверки шаблона. Защита диапазона не требуется.', count: defects.inputs.length,

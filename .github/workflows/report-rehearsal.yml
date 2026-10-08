@@ -70,7 +70,7 @@ jobs:
             client = GoogleReadClient()
             results = []
             for index, source in enumerate(registry["sources"]):
-                item = {"registry_index": index, "sheet": source["sheet"], "role": source["role"], "columns": source["columns"], "header_rows": source["header_rows"], "old_fingerprint": source["schema_fingerprint"]}
+                item = {"registry_index": index, "sheet": source["sheet"], "grbs": source.get("grbs"), "role": source["role"], "columns": source["columns"], "header_rows": source["header_rows"], "old_fingerprint": source["schema_fingerprint"]}
                 try:
                     grid = client.grid(source["provider_id"], source["sheet_id"])
                     columns = grid["gridProperties"]["columnCount"]
@@ -92,7 +92,11 @@ jobs:
             validate_inputs(reviewed, json.loads((root / "inputs/ledger.json").read_text()))
             original_primary = [source for source in registry["sources"] if source["role"] == "master" or source["sheet"] == "Рабочий реестр процедур"]
             reviewed_primary = [source for source in reviewed["sources"] if source["role"] == "master" or source["sheet"] == "Рабочий реестр процедур"]
-            print(json.dumps({"reviewed_monitoring_preview": {"status": "PASS", "changes": changes, "sources_before": len(registry["sources"]), "sources_after": len(reviewed["sources"]), "primary_contracts_unchanged": original_primary == reviewed_primary}}, sort_keys=True))
+            identity_keys = ("source_id", "provider_id", "sheet_id", "sheet", "role", "grbs", "units", "columns", "header_rows", "schema_fingerprint")
+            original_identities = [{k: s.get(k) for k in identity_keys} for s in original_primary]
+            reviewed_identities = [{k: s.get(k) for k in identity_keys} for s in reviewed_primary]
+            assert original_identities == reviewed_identities
+            print(json.dumps({"reviewed_monitoring_preview": {"status": "PASS", "changes": changes, "sources_before": len(registry["sources"]), "sources_after": len(reviewed["sources"]), "primary_identity_unchanged": True}}, sort_keys=True))
             from collections import Counter
             from procurement_engine.google_adapter import capture_google
             from procurement_engine.formula_dependencies import audit_formula_dependencies
