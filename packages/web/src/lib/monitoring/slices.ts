@@ -107,6 +107,16 @@ export interface SliceState {
   query: string;
 }
 
+/** Views belong to the registry. Work must not inherit "no contract",
+ * and journal text search is applied to journal fate rows, not registry text.
+ * Keep all other selected axes unchanged across modes.
+ */
+export function slicesForMonitoringMode(s: SliceState, kind: 'work'|'registry'|'svod'|'journal'|'directory'|'ancestors'): SliceState {
+  if (kind === 'work') return { ...s, view: 'all' };
+  if (kind === 'journal') return { ...s, view: 'all', query: '' };
+  return s;
+}
+
 export function emptySlices(): SliceState {
   return {
     view: 'all',
