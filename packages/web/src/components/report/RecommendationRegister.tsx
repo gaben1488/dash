@@ -117,6 +117,7 @@ function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveN
   onSaveDraft: (values: DraftValues) => void;
 }) {
   const [note, setNote] = useState(record.note);
+  useEffect(() => { setNote(record.note); }, [record.note]);
   const draft = record.stage === 'DRAFT' || record.stage === 'ARCHIVED_DRAFT';
   return (
     <div className="border-t border-zinc-100 px-4 pb-4 pt-4 dark:border-zinc-800 sm:px-5">
