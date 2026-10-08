@@ -61,18 +61,18 @@ it('keeps historical wording immutable but allows a working note', async () => {
     { expectedRevision: ledger.revision, note: 'Сверить связь с текущим планом' }));
 });
 
-it('creates only an editable draft and never promises official Word publication', async () => {
+it('creates a formal UER recommendation for the next report without another approval step', async () => {
   calls.get.mockResolvedValue(ledger);
   calls.create.mockResolvedValue({ revision: 'b'.repeat(64), record: {} });
   render(<RecommendationRegister />);
   fireEvent.click(await screen.findByRole('button', { name: /Новая рекомендация/ }));
-  expect(screen.getByText(/Черновик не попадёт в официальный Word/)).toBeTruthy();
+  expect(screen.getByText(/официальной рекомендацией УЭР/)).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: /Управление/ }), { target: { value: 'УЭР' } });
   fireEvent.change(screen.getByRole('textbox', { name: /^Текст рекомендации/ }),
     { target: { value: 'Проверить целесообразность объединения закупочных позиций' } });
   fireEvent.change(screen.getByRole('textbox', { name: /Номера закупочных позиций/ }),
     { target: { value: '42, 43' } });
-  fireEvent.click(screen.getByRole('button', { name: /Сохранить черновик/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Сохранить рекомендацию/ }));
   await waitFor(() => expect(calls.create).toHaveBeenCalledWith({
     expectedRevision: ledger.revision, grbs: 'УЭР',
     text: 'Проверить целесообразность объединения закупочных позиций',
@@ -80,7 +80,7 @@ it('creates only an editable draft and never promises official Word publication'
   }));
 });
 
-it('retains typed content if a concurrent update is rejected', async () => {
+it('retains official recommendation input if a concurrent update is rejected', async () => {
   calls.get.mockResolvedValue(ledger);
   calls.create.mockRejectedValue(new Error('409 — данные изменились'));
   render(<RecommendationRegister />);
