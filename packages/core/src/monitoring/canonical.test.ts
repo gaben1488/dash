@@ -18,6 +18,23 @@ function row(code: string, result = '', stage = 'Объявлена'): unknown[]
 function parse(rows: unknown[][]) { return parseMonitoringProcedures({ [sheet]: [[], headers, ...rows] }); }
 
 describe('канонический реестр', () => {
+  it('без хотя бы одной полной пары НМЦК/цена снижение неизвестно, не равно нулю', () => {
+    const first=row('ЭА401-26','Состоялась','Состоялась');
+    const second=row('ЭА402-26','Состоялась','Состоялась');
+    first[7]=''; first[12]=40; first[11]='';
+    second[7]=0; second[12]=50; second[11]='';
+    const registry=parseMonitoringProcedures({[sheet]:[[],headers,first,second]},'2026-10-08');
+    const awarded=aggregateMonitoring(registry).awarded;
+    expect(awarded.count).toBe(2);
+    expect(awarded.priceTotal).toBe(90);
+    expect(awarded.savingsTotal).toBeNull();
+    expect(awarded.avgReductionPct).toBeNull();
+    const paired=row('ЭА403-26','Состоялась','Состоялась');
+    paired[7]=100; paired[12]=75; paired[11]='';
+    const withPair=parseMonitoringProcedures({[sheet]:[[],headers,first,second,paired]},'2026-10-08');
+    expect(aggregateMonitoring(withPair).awarded.savingsTotal).toBe(25);
+  });
+
   it.each(['2026-10-08', undefined])('нечитаемая дата исключает денежный факт при срезе %s', (asOf) => {
     const r = row('ЭА100-26', 'Состоялась', 'Состоялась');
     r[11] = 'неизвестная дата'; r[12] = 80; r[16] = 20; r[15] = 20;
