@@ -38,6 +38,26 @@ describe('independent native monitoring diagnostics', () => {
       note: 'Столбец J должен быть пустым разделителем. Сигналы активных процедур выводятся вместе с действием в C.',
     });
   });
+  it('checks the closed procedure code in P, not the severity label in O', () => {
+    const master = source();
+    master[2][22] = 'Состоялась';
+    master[2][23] = 'Проверить сведения';
+    master[2][24] = 'Проверить: основание — S';
+    const row = Array<unknown>(24).fill('');
+    row[14] = 'Проверить'; row[15] = 'ЭА001-26';
+    const book: MonitoringBookSnapshot = {
+      sheets: { 'Рабочий реестр процедур': master, 'Процедуры в работе': [[], [], row] },
+      readAt: '2026-10-08T12:00:00Z', failed: {}, version: 1, changed: [],
+    };
+    const parsed = parseMonitoringProcedures(book.sheets, '2026-10-09');
+    expect(queueDriftSignals(book, parsed.procedures)).toEqual([]);
+    row[15] = 'ЭА002-26';
+    const changed = queueDriftSignals(book, parsed.procedures);
+    expect(changed[0]?.addresses).toEqual([
+      { address: 'Процедуры в работе!P3', note: 'Лишняя строка витрины: ЭА002-26' },
+      { address: 'Рабочий реестр процедур!A3', note: 'В витрине P отсутствует ЭА001-26' },
+    ]);
+  });
   it('a plausible stage value does not count as an intact formula; empty source rows are ignored', () => {
     const master = [...source(), []];
     const formulas = structuredClone(master);
