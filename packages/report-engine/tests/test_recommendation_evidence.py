@@ -84,7 +84,7 @@ def test_structured_action_targets_are_checked_against_current_fields(kind, targ
     assert result['semantic_status'] == 'IMPLEMENTED'
 
 
-def test_real_publication_accepts_proven_positive_and_updates_counts(tmp_path):
+def test_real_publication_without_original_does_not_promote_reviewed_status(tmp_path):
     import json
 
     from procurement_engine.identity_store import IdentityStore
@@ -121,13 +121,14 @@ def test_real_publication_accepts_proven_positive_and_updates_counts(tmp_path):
         locator=observation['source_row_key'], uid=observation['procurement_uid'],
         reviewer='Проверяющий', reviewed_at=model['report_clock']['cutoff_at'], evidence=proof()['evidence'])
     after = run_once(registry, ledger, state, client=WithRow())
-    assert after['status'] == 'VERIFIED'
+    # A dated UID review by itself does not authenticate the original DOCX.
+    assert after['status'] == 'VERIFIED_WITH_WARNINGS'
     assert after['snapshot_id'] != before['snapshot_id']
     release = after['publication']['release_id']
     model = json.loads(read_publication(state, 'dashboard', release))
-    assert model['recommendations']['tables']['1'][0]['semantic_status'] == 'IMPLEMENTED'
-    assert model['management_summary']['recommendation_compliance_counts'] == {'Реализовано': 1}
-    assert model['management_summary']['recommendation_execution_counts'] == {'Факт не внесён': 1}
+    assert model['recommendations']['tables']['1'][0]['semantic_status'] == 'REVIEW_REQUIRED'
+    assert model['management_summary']['recommendation_compliance_counts'] == {'Не подтверждено': 1}
+    assert model['management_summary']['recommendation_execution_counts'] == {'Не подтверждено': 1}
     assert read_publication(state, 'main', release).startswith(b'PK')
     assert read_publication(state, 'supplement', release).startswith(b'PK')
 
@@ -240,3 +241,64 @@ def test_delta_amount_is_not_a_verified_final_amount():
 ])
 def test_explicit_action_ids_must_match_the_verified_historical_objects(record, reviews):
     assert resolve(record, proofs=reviews)['dimensions']['compliance_status'] == 'UNKNOWN'
+
+def test_v13_reviewed_identity_updates_current_link_with_verified_original():
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original()
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA',
+                  source_procurement_ids=['42'])
+    reviewed = proof(uid='PUR-synthetic', evidence={**proof()['evidence'],
+        'recommendation_id': 'synthetic', 'source_procurement_ids': ['42']})
+    result = review_recommendations([record], [replace(current_row(), planned_year=2027)],
+        'snapshot', '30.09.2026', identity_evidence=[reviewed],
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v13')[0]
+    assert result['current_link']['status'] == 'CONFIRMED'
+    assert result['current_link']['required_business_ids'] == ['42']
+    assert result['current_link']['procurement_uids'] == ['PUR-synthetic']
+    assert result['current_link']['review_ids'] == ['REV-1']
+    assert result['current_link']['matches'][0]['match_basis'] == 'REVIEWED_HISTORICAL_IDENTITY'
+    assert result['dimensions']['evidence_quality'] == 'REVIEWED_IDENTITY+PRIMARY_FIELDS'
+
+
+def test_v13_review_without_original_cannot_establish_current_compliance():
+    record = recommendation()
+    result = review_recommendations([record], [row(method='ЭА', procurement_uid='PUR-1')],
+        'snapshot', '30.09.2026', identity_evidence=[proof()],
+        link_contract='verified-original-and-current-plan-v13')[0]
+    assert result['current_link']['status'] == 'ORIGIN_UNPROVEN'
+    assert result['semantic_status'] == 'REVIEW_REQUIRED'
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'
+
+
+def test_v13_conflicting_automatic_and_reviewed_uid_fails_closed():
+    from test_recommendation_links import TEST_DOCUMENTS
+    from test_recommendation_links import recommendation as original
+    from test_recommendation_links import row as current_row
+
+    record = original()
+    record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA',
+                  source_procurement_ids=['42'])
+    # Prove an independently valid automatic target (same original plan year)
+    # before testing disagreement with a separate reviewed UID.
+    actual = replace(current_row(), planned_year=2026)
+    other = replace(actual, row_number=7, procurement_id='99',
+                    source_row_no='99', subject='Отдельная закупка',
+                    procurement_uid='PUR-other')
+    reviewed = proof(uid='PUR-other', evidence={**proof()['evidence'],
+        'recommendation_id': 'synthetic', 'source_procurement_ids': ['42']})
+    from procurement_engine.recommendation_evidence import confirmed_result
+    verified_review = confirmed_result(record, [actual, other], [reviewed], '30.09.2026',
+                                       compile_original=True)
+    assert verified_review is not None, 'Expected a unique synthetic reviewed UID'
+    result = review_recommendations([record], [actual, other],
+        'snapshot', '30.09.2026', identity_evidence=[reviewed],
+        documents=TEST_DOCUMENTS, link_contract='verified-original-and-current-plan-v13')[0]
+    assert result['current_link']['status'] == 'AMBIGUOUS'
+    assert result['current_link']['conflict_kind'] == 'AUTOMATIC_REVIEWED_UID_DISAGREEMENT'
+    assert result['current_link']['procurement_uids'] == []
+    assert result['current_procurement_ids'] == []
+    assert result['semantic_status'] == 'REVIEW_REQUIRED'
+    assert result['dimensions']['compliance_status'] == 'UNKNOWN'

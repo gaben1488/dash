@@ -193,7 +193,11 @@ def assess_automation(model, sources=()):
         compliance = (record.get('dimensions') or {}).get('compliance_status', 'UNKNOWN')
         semantics[compliance] += 1
         if link != 'CONFIRMED' and not record.get('current_procurement_uids'):
-            cause = ENGINE_LINK_CAUSES.get(link, 'Не завершена проверка текущей исторической связи.')
+            cause = (('Автоматическая связь и датированное подтверждение указывают на '
+                      'разные закупки; до независимой проверки нельзя выбрать одну из них.')
+                     if (record.get('current_link') or {}).get('conflict_kind')
+                        == 'AUTOMATIC_REVIEWED_UID_DISAGREEMENT'
+                     else ENGINE_LINK_CAUSES.get(link, 'Не завершена проверка текущей исторической связи.'))
             actions.append(_signal('ENGINE_RECOMMENDATION_LINK', rec=record, owner_kind='ENGINE',
                 title='Генератор не завершил сопоставление исторической рекомендации', cause=cause,
                 effect='По этой рекомендации не заявляется текущий результат исполнения.',

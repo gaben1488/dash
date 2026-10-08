@@ -192,7 +192,8 @@ def _identity_gap_diagnostics(candidate, identities, *, identity_snapshot_id=Non
             if _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
                 shared_group_subject=True, extended_literal_reference=True,
                 joint_method_reference=candidate.get('contract', {}).get('recommendation_link_contract')
-                in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'})] if numbers else [
+                in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12',
+                    'verified-original-and-current-plan-v13'})] if numbers else [
             row for row in rows.values() if row.grbs == record.get('grbs') and _exact_subject_mention(text, row.subject)]
         gaps.append({'grbs': record.get('grbs'), 'table_no': record.get('table_no'), 'row_no': record.get('row_no'),
             'explicit_reference_count': len(numbers), 'missing_primary_number_count': sum(not group for group in groups),
@@ -209,6 +210,16 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
     """Safe aggregate diagnostics for engine-owned gaps; never emit business text or IDs."""
     identity_rows = (candidate.get('identity_observations') or {}).get('rows') or []
     unresolved = [row for row in identity_rows if not row.get('procurement_uid')]
+    # Missing UIDs in auxiliary/ineligible source rows are not missing
+    # identities for the counted procurement population. Preserve both totals.
+    scope = {row.get('physical_row_key'): row.get('included')
+             for row in candidate.get('details') or []}
+    scope_counts = Counter(
+        'ELIGIBLE' if scope.get(row.get('source_row_key')) is True
+        else 'OTHER_SOURCE_ROW' if scope.get(row.get('source_row_key')) is False
+        else 'UNCLASSIFIED'
+        for row in unresolved
+    )
     candidate_buckets = Counter()
     for row in unresolved:
         evidence = row.get('evidence') or {}
@@ -293,6 +304,7 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
         **_identity_gap_diagnostics(candidate, identity_history or identities, identity_snapshot_id=identity_snapshot_id),
         'identity_status_counts': dict(sorted(Counter(row.get('status') or 'UNKNOWN' for row in identity_rows).items())),
         'identity_unresolved_candidate_uid_buckets': dict(sorted(candidate_buckets.items())),
+        'identity_unresolved_scope_counts': dict(sorted(scope_counts.items())),
         'recommendation_gap_shapes': dict(sorted(gap_shapes.items())),
         'origin_date_identity_bindable_count': origin_date_bindable,
         'text_reference_missing_subject_shapes': dict(sorted(subject_only.items())),
@@ -301,7 +313,90 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
     }
 
 
-def rehearse_latest(state_dir, *, coverage=False):
+
+def published_evidence_summary(state_dir):
+    """Fast, sealed-current evidence inventory, independent of the weekly replay.
+
+    It is NOT a test of new rules or a claim that today's Google inputs are fresh.
+    Only the last hash-verified, published model and a copy of identity history
+    are read. Diagnostics are allowlisted: no source texts, locations or UIDs.
+    """
+    from .readonly_catalog import copied_catalog
+
+    state = Path(state_dir).resolve()
+    store = PublicationStore(state / 'published', readonly=True)
+    with copied_catalog(store.database_path) as catalog:
+        store.database_path = catalog
+        receipt = store.latest()
+    if receipt is None:
+        raise ValueError('PUBLICATION_NOT_FOUND')
+    model = _json(store.releases / receipt['release_id'] / 'report_model.json')
+    if model.get('snapshot', {}).get('snapshot_id') != receipt['snapshot_id']:
+        raise ValueError('SNAPSHOT_MODEL_MISMATCH')
+    with copied_catalog(state / 'identity.sqlite') as history_path:
+        history = IdentityStore(history_path)
+        details = _coverage_details(
+            model, history, history, identity_snapshot_id=receipt['snapshot_id'])
+
+    assurance = model.get('automation_assurance') or {}
+    codes = Counter(item.get('code') for item in assurance.get('actions', [])
+                    if isinstance(item, dict))
+    safe_codes = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
+                  'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
+    keys = ('identity_chain_break_counts', 'identity_status_counts',
+            'identity_unresolved_candidate_uid_buckets', 'identity_unresolved_scope_counts',
+            'recommendation_gap_shapes', 'text_reference_missing_subject_shapes',
+            'origin_date_identity_bindable_count')
+    return {
+        'published_evidence_read': 'PASS',
+        'report_date': receipt['report_date'],
+        'candidate_replay': 'NOT_RUN',
+        'weekly_replay': 'NOT_CHECKED',
+        'legacy_fingerprint_backfill': 'NOT_RUN',
+        'identity_unresolved_count': (model.get('identity_observations') or {}).get('unresolved_count'),
+        'automation': {k: assurance.get(k) for k in
+            ('fully_automated', 'user_action_count', 'engine_action_count',
+             'active_recommendations', 'link_status_counts', 'action_status_counts')},
+        'action_code_counts': {key: codes[key] for key in sorted(safe_codes) if key in codes},
+        'other_action_count': sum(value for key, value in codes.items() if key not in safe_codes),
+        **{key: details[key] for key in keys if key in details},
+    }
+
+
+
+def _recommendation_replay_delta(published, candidate):
+    """Compare the same sealed input under old/new rules; disclose counts only.
+
+    Changes here are candidates for review, never proof of a source fact or an
+    automatic reason to rewrite an existing published report.
+    """
+    before = {r['recommendation_id']: r for r in published.get('recommendation_records') or []}
+    after = {r['recommendation_id']: r for r in candidate.get('recommendation_records') or []}
+    common = set(before) & set(after)
+    known = {'IMPLEMENTED', 'NOT_IMPLEMENTED', 'PARTIAL'}
+
+    def linked(record):
+        return (record.get('current_link') or {}).get('status') == 'CONFIRMED'
+
+    def compliance(record):
+        return (record.get('dimensions') or {}).get('compliance_status') or 'UNKNOWN'
+
+    return {
+        'published_recommendation_count': len(before),
+        'candidate_recommendation_count': len(after),
+        'historical_ids_missing_from_candidate': len(set(before) - set(after)),
+        'candidate_ids_not_in_published': len(set(after) - set(before)),
+        'confirmed_links_lost': sum(linked(before[k]) and not linked(after[k]) for k in common),
+        'confirmed_links_gained': sum(not linked(before[k]) and linked(after[k]) for k in common),
+        'known_compliance_became_unknown': sum(compliance(before[k]) in known
+            and compliance(after[k]) == 'UNKNOWN' for k in common),
+        'unknown_compliance_became_known': sum(compliance(before[k]) == 'UNKNOWN'
+            and compliance(after[k]) in known for k in common),
+        'compliance_changed': sum(compliance(before[k]) != compliance(after[k]) for k in common),
+    }
+
+
+def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
     PASS means the candidate can process that saved input. It does NOT establish
@@ -387,6 +482,7 @@ def rehearse_latest(state_dir, *, coverage=False):
             assurance = candidate.get('automation_assurance') or {}
             result['automation'] = {key: assurance.get(key) for key in ('fully_automated', 'user_action_count',
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
+            result['recommendation_replay_delta'] = _recommendation_replay_delta(previous, candidate)
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
             # The sealed release intentionally contains one identity snapshot.
@@ -401,9 +497,14 @@ def rehearse_latest(state_dir, *, coverage=False):
                     *state.glob('archives/*/snapshot_bundle')], recover_chain=True, diagnostics=recovery_diagnostics)
                 result['identity_recovery'] = recovery_diagnostics
                 result.update(_coverage_details(candidate, identities, history, identity_snapshot_id=manifest['snapshot_id']))
-            weekly = rehearse_weekly(state)
-            if weekly is not None:
-                result['weekly'] = weekly
+            if skip_weekly:
+                # Diagnostic entry point only. The normal --coverage command
+                # still checks and fails on an invalid sealed weekly archive.
+                result['weekly_replay'] = 'NOT_CHECKED'
+            else:
+                weekly = rehearse_weekly(state)
+                if weekly is not None:
+                    result['weekly'] = weekly
         return result
 
 
@@ -411,13 +512,48 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', required=True)
     parser.add_argument('--coverage', action='store_true')
+    parser.add_argument('--weekly-only', action='store_true',
+                        help='Validate the immutable latest weekly archive without rebuilding the current release')
+    parser.add_argument('--published-summary', action='store_true',
+                        help='Read last verified release and identity history without rebuilding DOCX')
+    parser.add_argument('--coverage-summary', action='store_true',
+                        help='Sanitized current-release diagnostic without the independent weekly gate')
     parser.add_argument('--failed-attempt', action='store_true')
     args = parser.parse_args(argv)
     try:
         if args.failed_attempt:
             print(json.dumps({'failed_attempt': diagnose_failed_attempt(args.state)}, ensure_ascii=False))
             return 0
-        result = rehearse_latest(args.state, coverage=args.coverage)
+        if args.published_summary:
+            result = published_evidence_summary(args.state)
+        elif args.weekly_only:
+            weekly = rehearse_weekly(args.state)
+            if weekly is None:
+                raise ValueError('ARCHIVE_NOT_FOUND')
+            result = {'replay_status': weekly['replay_status'], 'weekly': weekly}
+        elif args.coverage_summary:
+            full = rehearse_latest(args.state, coverage=True, skip_weekly=True)
+            # Explicit allowlist: no coordinates, business text or UID-bearing
+            # recommendation indexes may appear in shared workflow output.
+            fields = ('replay_status', 'independent_audit', 'two_docx_rebuilt',
+                'headline_changed', 'error_counts', 'weekly_replay',
+                'identity_recovery', 'identity_unresolved_count',
+                'recommendation_replay_delta',
+                'identity_status_counts', 'identity_chain_break_counts',
+                'identity_unresolved_candidate_uid_buckets',
+                'identity_unresolved_scope_counts', 'recommendation_gap_shapes',
+                'text_reference_missing_subject_shapes', 'origin_date_identity_bindable_count',
+                'automation')
+            result = {key: full[key] for key in fields if key in full}
+            action_codes = full.get('action_code_counts') or {}
+            safe = {'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK',
+                'ENGINE_RECOMMENDATION_ACTION', 'FACT_MONEY_WITHOUT_DATE'}
+            result['action_code_counts'] = {key: action_codes[key] for key in sorted(safe)
+                                            if key in action_codes}
+            result['other_action_count'] = sum(value for key, value in action_codes.items()
+                                                if key not in safe)
+        else:
+            result = rehearse_latest(args.state, coverage=args.coverage)
     except Exception as error:  # noqa: BLE001 — CLI boundary never prints private source text or tracebacks.
         message = str(error)
         result = {
@@ -449,6 +585,8 @@ def main(argv=None):
         if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
+    if args.published_summary:
+        return 0 if result.get('published_evidence_read') == 'PASS' else 2
     return 0 if result['replay_status'] == 'PASS' else 2
 
 

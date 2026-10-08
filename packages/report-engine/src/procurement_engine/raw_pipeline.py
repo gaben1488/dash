@@ -53,8 +53,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc22'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc22+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc23'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc23+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -228,6 +228,57 @@ def contributors(rows, year, quarter, as_of=None):
     return out
 
 
+
+def _reviewed_current_link(reviewed, rows, verified_origin, snapshot_id):
+    """Expose only an original-backed and uniquely reviewed current identity.
+
+    A reviewed UID can bridge a documented historical change but cannot replace
+    verification of the original recommendation document. A duplicated current
+    UID is not an unambiguous link.
+    """
+    if verified_origin is None:
+        return None
+    evidence = reviewed.get('binding_evidence') or {}
+    uids = list(evidence.get('current_procurement_uids') or [])
+    required = list(evidence.get('source_procurement_ids') or [])
+    review_ids = list(evidence.get('review_ids') or [])
+    if (not uids or not required or not review_ids or len(uids) != len(set(uids))
+            or any(not value for value in uids + required + review_ids)):
+        return None
+    by_uid = defaultdict(list)
+    for row in rows:
+        if row.procurement_uid in uids:
+            by_uid[row.procurement_uid].append(row)
+    if any(len(by_uid[uid]) != 1 for uid in uids):
+        return None
+    from .normalize import to_decimal
+
+    linked = [by_uid[uid][0] for uid in uids]
+    return {
+        'status': 'CONFIRMED',
+        'procurement_uids': uids,
+        'business_ids': sorted({normalize_id(row.source_row_no) for row in linked if row.source_row_no}),
+        'required_business_ids': sorted({normalize_id(value) for value in required}),
+        'source_row_keys': [row.physical_row_key for row in linked],
+        'fulfillment': 'UNKNOWN',
+        'evidence_snapshot_id': snapshot_id,
+        'origin': verified_origin,
+        'review_ids': sorted(review_ids),
+        'matches': [{
+            'source_row_key': row.physical_row_key,
+            'procurement_uid': row.procurement_uid,
+            'business_id': row.source_row_no,
+            'subject': row.subject,
+            'plan_amount_thousand_decimal': format(to_decimal(row.plan_total), 'f'),
+            'planned_year': row.planned_year,
+            'method': row.method,
+            'recorded_fact_date': row.actual_date,
+            'match_basis': 'REVIEWED_HISTORICAL_IDENTITY',
+            'amount_is_identity_key': False,
+        } for row in linked],
+    }
+
+
 def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_evidence=None, documents=None, legacy=False,
                            link_contract='verified-original-and-current-plan-v2', context_contract=None, budget_years=None):
     """Current observations and candidates, never inheritance of old current statuses.
@@ -273,16 +324,16 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
         gaps.append('Совпадение номера не подтверждает постоянную идентичность; исполнение не установлено.')
         proof = verify_saved_report_origin(old, documents or {})
         link = resolve_current_link(old, rows, report_date=report_date, snapshot_id=snapshot_id, verified_origin=proof,
-            legacy_group_rules=link_contract not in {'verified-original-and-current-plan-v2', 'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            entity_link_rules=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            exact_subject_fallback=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            shared_group_subject=link_contract in {'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            joint_group_target=link_contract in {'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            extended_literal_reference=link_contract in {'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            budget_years=budget_years if link_contract in {'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'} else None,
-            inflected_supply_subject=link_contract in {'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            joint_method_reference=link_contract in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-            inflected_service_subject=link_contract == 'verified-original-and-current-plan-v12')
+            legacy_group_rules=link_contract not in {'verified-original-and-current-plan-v2', 'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            entity_link_rules=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            exact_subject_fallback=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            shared_group_subject=link_contract in {'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            joint_group_target=link_contract in {'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            extended_literal_reference=link_contract in {'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            budget_years=budget_years if link_contract in {'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'} else None,
+            inflected_supply_subject=link_contract in {'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            joint_method_reference=link_contract in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+            inflected_service_subject=link_contract in {'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'})
         confirmed = active and link['status'] == 'CONFIRMED'
         r.update(semantic_status=('CURRENT_LINK_CONFIRMED' if confirmed else 'REVIEW_REQUIRED') if active else 'SUPERSEDED',
             semantic_status_ru='', current_link=link,
@@ -297,13 +348,36 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
             from .recommendation_evidence import confirmed_result
 
             reviewed = confirmed_result(old, rows, identity_evidence, report_date,
-                compile_original=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                literal_open_quote=link_contract in {'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                inflected_supply_subject=link_contract in {'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'})
+                compile_original=link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                literal_open_quote=link_contract in {'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                inflected_supply_subject=link_contract in {'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'})
             if reviewed is not None:
-                r.update(reviewed)
+                if link_contract == 'verified-original-and-current-plan-v13':
+                    reviewed_link = _reviewed_current_link(reviewed, rows, proof, snapshot_id)
+                    if reviewed_link is not None:
+                        if (link['status'] == 'CONFIRMED'
+                                and set(link['procurement_uids']) != set(reviewed_link['procurement_uids'])):
+                            # Two independent evidence paths disagree: neither may win by order.
+                            r['current_link'] = {**link, 'status': 'AMBIGUOUS',
+                                'procurement_uids': [], 'business_ids': [],
+                                'source_row_keys': [], 'matches': [],
+                                'conflict_kind': 'AUTOMATIC_REVIEWED_UID_DISAGREEMENT'}
+                            r['current_procurement_ids'] = []
+                            r['semantic_status'] = 'REVIEW_REQUIRED'
+                            r['semantic_status_ru'] = 'СВЯЗЬ НЕ ПОДТВЕРЖДЕНА: ПРОТИВОРЕЧИЕ ДОКАЗАТЕЛЬСТВ'
+                            r['dimensions']['evidence_quality'] = 'CONFLICTING_IDENTITY_EVIDENCE'
+                            r['status_evidence'] = (
+                                'Автоматическая и проверенная историческая связи противоречат друг другу. '
+                                'Текущее исполнение рекомендации не установлено.')
+                        else:
+                            r['current_link'] = reviewed_link
+                            r.update(reviewed)
+                    # Missing verified original or an ambiguous UID never inherits
+                    # a positive reviewed status under the new link contract.
+                else:
+                    r.update(reviewed)
             elif confirmed:
                 from .recommendation_evidence import (
                     action_target_proven,
@@ -313,15 +387,15 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
                 linked_rows = [row for row in rows if row.procurement_uid in link['procurement_uids']]
                 source_ids = link.get('required_business_ids') or link['business_ids']
                 spec = link.get('action_spec')
-                if spec is None and link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'}:
+                if spec is None and link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'}:
                     from .action_spec import compile_action
                     spec = compile_action(old.get('recommendation_text'), source_ids=source_ids,
                         subjects=[(row.source_row_no, row.subject) for row in linked_rows],
-                        reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                        subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                        literal_open_quote=link_contract in {'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'},
-                        inflected_supply_subject=link_contract in {'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'})
-                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'} or action_target_proven(old, source_ids):
+                        reference_grammar=link_contract in {'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                        subject_reference_grammar=link_contract in {'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                        literal_open_quote=link_contract in {'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'},
+                        inflected_supply_subject=link_contract in {'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'})
+                if link_contract in {'verified-original-and-current-plan-v3', 'verified-original-and-current-plan-v4', 'verified-original-and-current-plan-v5', 'verified-original-and-current-plan-v6', 'verified-original-and-current-plan-v7', 'verified-original-and-current-plan-v8', 'verified-original-and-current-plan-v9', 'verified-original-and-current-plan-v10', 'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12', 'verified-original-and-current-plan-v13'} or action_target_proven(old, source_ids):
                     relation_proofs = ([{'evidence': {'relation': 'MERGES_INTO',
                         'source_procurement_ids': source_ids}}]
                         if link.get('relation') == 'MERGES_INTO' else [])
@@ -468,7 +542,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     from .recommendation_links import primary_budget_years
 
     budget_years = primary_budget_years(capture['sources'])
-    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence, context_contract='source-context-v1', link_contract='verified-original-and-current-plan-v12', budget_years=budget_years)
+    replay=review_recommendations(ledger,rows,bundle.manifest['snapshot_id'],capture['report_date'], documents=documents, identity_evidence=identity_evidence, context_contract='source-context-v1', link_contract='verified-original-and-current-plan-v13', budget_years=budget_years)
     unresolved_recs=[r['recommendation_id'] for r in replay if r['active_in_current_slice'] and r['semantic_status']=='REVIEW_REQUIRED']
     if unresolved_recs:
         issues.append({'severity':'WARN','code':'RECOMMENDATION_LINK_UNCONFIRMED',
@@ -486,7 +560,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             raise ValueError('COMPARISON_BASELINE_NOT_VERIFIED')
         history=[{k:receipt[k] for k in ('snapshot_id','report_date','published_at','rules_version','renderer_version')}]
     model=build_report_model_v3(snap,replay,contributor_index=ci,issues=issues,procedures=active,publication_history=history)
-    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v12'
+    model['contract']['recommendation_link_contract'] = 'verified-original-and-current-plan-v13'
     model['recommendation_records'] = replay
     # Legacy v2 heuristics must not turn UNKNOWN identities into 'removed' or 'planned'.
     model['recommendations_v2']['dimensions_by_id']={r['recommendation_id']:r['dimensions'] for r in replay if r['active_in_current_slice']}

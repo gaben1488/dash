@@ -290,3 +290,128 @@ def test_failed_attempt_cli_sanitizes_unexpected_failure(monkeypatch, capsys):
     monkeypatch.setattr(rehearsal, 'diagnose_failed_attempt', failure)
     assert rehearsal.main(['--state', '/unused', '--failed-attempt']) == 2
     assert 'PRIVATE_SOURCE_TEXT' not in capsys.readouterr().out
+
+def test_diagnostic_summary_does_not_waive_failed_weekly_archive(tmp_path, monkeypatch, capsys):
+    from procurement_engine import rehearsal
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    assert run_once(registry, ledger, state, client=CompleteGoogle())['status'] in {
+        'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    before = business_files(state)
+
+    def broken_weekly(_state):
+        raise ValueError('PRIVATE_WEEKLY_INPUT_HAS_DUPLICATE_PROCEDURE')
+
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', broken_weekly)
+    with pytest.raises(ValueError, match='PRIVATE_WEEKLY_INPUT_HAS_DUPLICATE_PROCEDURE'):
+        rehearsal.rehearse_latest(state, coverage=True)
+    summary = rehearsal.rehearse_latest(state, coverage=True, skip_weekly=True)
+    assert summary['weekly_replay'] == 'NOT_CHECKED'
+    assert isinstance(summary['identity_unresolved_scope_counts'], dict)
+    assert sum(summary['identity_unresolved_scope_counts'].values()) == summary['identity_unresolved_count']
+    assert rehearsal.main(['--state', str(state), '--coverage-summary']) == 0
+    public = json.loads(capsys.readouterr().out)
+    assert public['weekly_replay'] == 'NOT_CHECKED'
+    assert public['replay_status'] == 'PASS'
+    assert 'recommendation_gap_index' not in public
+    assert 'recommendation_identity_gap_index' not in public
+    assert 'recommendation_ids' not in json.dumps(public)
+    assert 'PRIVATE_WEEKLY_INPUT' not in json.dumps(public)
+    assert business_files(state) == before
+
+def test_replay_delta_catches_lost_proof_without_exposing_identifiers():
+    from procurement_engine.rehearsal import _recommendation_replay_delta
+
+    previous = {'recommendation_records': [
+        {'recommendation_id': 'private-1', 'current_link': {'status': 'CONFIRMED'},
+         'dimensions': {'compliance_status': 'IMPLEMENTED'}},
+        {'recommendation_id': 'private-2', 'current_link': {'status': 'ORIGIN_UNPROVEN'},
+         'dimensions': {'compliance_status': 'UNKNOWN'}},
+    ]}
+    candidate = {'recommendation_records': [
+        {'recommendation_id': 'private-1', 'current_link': {'status': 'ORIGIN_UNPROVEN'},
+         'dimensions': {'compliance_status': 'UNKNOWN'}},
+        {'recommendation_id': 'private-2', 'current_link': {'status': 'CONFIRMED'},
+         'dimensions': {'compliance_status': 'IMPLEMENTED'}},
+    ]}
+    value = _recommendation_replay_delta(previous, candidate)
+    assert value == {
+        'published_recommendation_count': 2,
+        'candidate_recommendation_count': 2,
+        'historical_ids_missing_from_candidate': 0,
+        'candidate_ids_not_in_published': 0,
+        'confirmed_links_lost': 1, 'confirmed_links_gained': 1,
+        'known_compliance_became_unknown': 1,
+        'unknown_compliance_became_known': 1,
+        'compliance_changed': 2,
+    }
+    assert 'private-' not in json.dumps(value)
+
+
+def test_published_evidence_summary_is_readonly_and_does_not_claim_replay(tmp_path, capsys):
+    from procurement_engine import rehearsal
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    release = run_once(registry, ledger, state, client=CompleteGoogle())
+    assert release['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    before = business_files(state)
+    result = rehearsal.published_evidence_summary(state)
+    assert result['published_evidence_read'] == 'PASS'
+    assert result['candidate_replay'] == 'NOT_RUN'
+    assert result['weekly_replay'] == 'NOT_CHECKED'
+    assert result['legacy_fingerprint_backfill'] == 'NOT_RUN'
+    assert isinstance(result['identity_chain_break_counts'], dict)
+    assert isinstance(result['identity_unresolved_scope_counts'], dict)
+    assert 'recommendation_gap_index' not in result
+    assert 'recommendation_identity_gap_index' not in result
+    assert rehearsal.main(['--state', str(state), '--published-summary']) == 0
+    public = json.loads(capsys.readouterr().out)
+    assert public == result
+    assert business_files(state) == before
+
+
+def test_published_evidence_summary_requires_existing_publication(tmp_path, capsys):
+    from procurement_engine import rehearsal
+
+    state = tmp_path / 'state'
+    assert rehearsal.main(['--state', str(state), '--published-summary']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['error_code'] in {'PUBLICATION_NOT_FOUND', 'GENERATION_FAILED'}
+
+
+def test_weekly_only_cli_reports_archive_error_without_candidate_replay(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+    from procurement_engine.archive_runtime import ArchiveError
+
+    def broken_weekly(_state):
+        err = ArchiveError('ARCHIVE_BUILD_FAILED')
+        err.blockers = [{'code': 'SOURCE_QA_ERRORS'},
+                        {'code': 'SECTION_SOURCE_MISMATCH',
+                         'context': {'sections': ['procedure_source_contract']}}]
+        err.source_issues = [{'code': 'DUPLICATE_PROCEDURE_CODE', 'severity': 'ERROR'}]
+        raise err
+
+    def candidate_should_never_run(*args, **kwargs):
+        raise AssertionError('Candidate report is not part of the weekly-only gate')
+
+    monkeypatch.setattr(rehearsal, 'rehearse_latest', candidate_should_never_run)
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', broken_weekly)
+    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['internal_code'] == 'ARCHIVE_BUILD_FAILED'
+    assert result['source_error_counts'] == {'DUPLICATE_PROCEDURE_CODE': 1}
+    assert result['section_errors'] == {'procedure_source_contract': 1}
+    assert 'candidate' not in json.dumps(result).lower()
+
+
+def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', lambda _state: None)
+    assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
