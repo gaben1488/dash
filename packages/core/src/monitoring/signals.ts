@@ -322,7 +322,7 @@ export function buildMonitoringSignals(input: {
 export function explicitGrbsCurrentStage(comment: unknown): 'awarded' | 'no_result' | 'reissued' | null {
   if (typeof comment !== 'string') return null;
   const matches = [...comment.matchAll(
-    /(?:^|[;\n(\[])\s*(?:текущий статус|актуальный статус|статус процедуры)\s*[:=]\s*(не состоялась|состоялась|переоформлена)(?=\s*(?:[;\n)\].,]|$))/giu,
+    /(?:^|[;\n(])\s*(?:текущий статус|актуальный статус|статус процедуры)\s*[:=]\s*(не состоялась|состоялась|переоформлена)(?=\s*(?:[;\n)\].,]|$))/giu,
   )];
   if (matches.length !== 1) return null;
   const outcome = matches[0]?.[1]?.toLowerCase();
