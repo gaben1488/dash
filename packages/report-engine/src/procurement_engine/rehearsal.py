@@ -312,6 +312,38 @@ def _coverage_details(candidate, identities=None, identity_history=None, *, iden
     }
 
 
+def _recommendation_replay_delta(published, candidate):
+    """Compare the same sealed input under old/new rules; disclose counts only.
+
+    Changes here are candidates for review, never proof of a source fact or an
+    automatic reason to rewrite an existing published report.
+    """
+    before = {r['recommendation_id']: r for r in published.get('recommendation_records') or []}
+    after = {r['recommendation_id']: r for r in candidate.get('recommendation_records') or []}
+    common = set(before) & set(after)
+    known = {'IMPLEMENTED', 'NOT_IMPLEMENTED', 'PARTIAL'}
+
+    def linked(record):
+        return (record.get('current_link') or {}).get('status') == 'CONFIRMED'
+
+    def compliance(record):
+        return (record.get('dimensions') or {}).get('compliance_status') or 'UNKNOWN'
+
+    return {
+        'published_recommendation_count': len(before),
+        'candidate_recommendation_count': len(after),
+        'historical_ids_missing_from_candidate': len(set(before) - set(after)),
+        'candidate_ids_not_in_published': len(set(after) - set(before)),
+        'confirmed_links_lost': sum(linked(before[k]) and not linked(after[k]) for k in common),
+        'confirmed_links_gained': sum(not linked(before[k]) and linked(after[k]) for k in common),
+        'known_compliance_became_unknown': sum(compliance(before[k]) in known
+            and compliance(after[k]) == 'UNKNOWN' for k in common),
+        'unknown_compliance_became_known': sum(compliance(before[k]) == 'UNKNOWN'
+            and compliance(after[k]) in known for k in common),
+        'compliance_changed': sum(compliance(before[k]) != compliance(after[k]) for k in common),
+    }
+
+
 def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
     """Check old artifact integrity and rebuild frozen evidence with installed rules.
 
@@ -398,6 +430,7 @@ def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
             assurance = candidate.get('automation_assurance') or {}
             result['automation'] = {key: assurance.get(key) for key in ('fully_automated', 'user_action_count',
                 'engine_action_count', 'active_recommendations', 'link_status_counts', 'action_status_counts')}
+            result['recommendation_replay_delta'] = _recommendation_replay_delta(previous, candidate)
             result['identity_unresolved_count'] = candidate['identity_observations']['unresolved_count']
             result['action_code_counts'] = dict(Counter(action['code'] for action in assurance.get('actions', [])))
             # The sealed release intentionally contains one identity snapshot.
@@ -442,6 +475,7 @@ def main(argv=None):
             fields = ('replay_status', 'independent_audit', 'two_docx_rebuilt',
                 'headline_changed', 'error_counts', 'weekly_replay',
                 'identity_recovery', 'identity_unresolved_count',
+                'recommendation_replay_delta',
                 'identity_status_counts', 'identity_chain_break_counts',
                 'identity_unresolved_candidate_uid_buckets',
                 'identity_unresolved_scope_counts', 'recommendation_gap_shapes',
