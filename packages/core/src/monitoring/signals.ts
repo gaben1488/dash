@@ -39,6 +39,7 @@ export type MonitoringSignalKind =
   | 'monitoring_queue_drift'
   | 'monitoring_formula_missing'
   | 'monitoring_formula_drift'
+  | 'monitoring_input_rules'
   | 'monitoring_no_successor'
   | 'monitoring_map_book_only'
   | 'monitoring_map_no_book_row'

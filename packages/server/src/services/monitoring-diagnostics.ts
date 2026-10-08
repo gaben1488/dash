@@ -1,5 +1,7 @@
 import { MONITORING_MASTER_SHEET, monitoringWorkQueue, type MonitoringProcedure, type MonitoringSignal } from '@aemr/core';
-import { batchGetSheetValues } from './google-sheets.js';
+import { batchGetSheetValues, getMonitoringMasterCells } from './google-sheets.js';
+import template from './monitoring-template.json' with { type: 'json' };
+import type { sheets_v4 } from 'googleapis';
 import { MONITORING_SPREADSHEET_ID, type MonitoringBookSnapshot } from './monitoring.js';
 
 /** Compare the native projection independently; duplicate codes retain their multiplicity. */
@@ -88,24 +90,54 @@ export function formulaTemplateDriftAddresses(values: unknown[][], formulas: unk
 }
 
 const checks = new WeakMap<MonitoringBookSnapshot, Promise<{ checked: boolean; signals: MonitoringSignal[]; notes: string[] }>>();
+
+/** Relative same-row references move; quoted strings and absolute references do not. */
+export function formulaShape(formula: string, row: number): string {
+  return formula.split(/("(?:[^"]|"")*")/g).map((part, i) => i % 2 ? part :
+    part.replace(/\b(\$?[A-Z]{1,3})(\$?)(\d+)\b/g, (token, col: string, absolute: string, n: string) =>
+      !absolute && Number(n) === row ? `${col}{row}` : token)).join('');
+}
+
+export function nativeRuleDefects(cells: sheets_v4.Schema$CellData[][]): { formulas: string[]; inputs: string[] } {
+  const formulas: string[] = [], inputs: string[] = [];
+  // The entire prepared grid is a template, including not-yet-used rows.
+  for (let offset = 0; offset < 1000; offset++) {
+    const row = offset + 3;
+    for (const [letter, expected] of Object.entries(template.formulas)) {
+      const entered = cells[offset]?.[letter.charCodeAt(0) - 65]?.userEnteredValue;
+      const actual = entered?.formulaValue;
+      if (letter === 'S' && !actual && /^(?:[0-9]{10}|[0-9]{12})$/.test(String(entered?.stringValue ?? entered?.numberValue ?? '').trim())) continue;
+      if (!actual || formulaShape(actual, row) !== formulaShape(expected, template.row)) formulas.push(`${template.sheet}!${letter}${row}`);
+    }
+    for (const [letter, expected] of Object.entries(template.validations)) {
+      const actual = cells[offset]?.[letter.charCodeAt(0) - 65]?.dataValidation;
+      const normalize = (rule: typeof actual) => JSON.stringify({ condition: rule?.condition && {
+        type: rule.condition.type, values: (rule.condition.values ?? []).map(v =>
+          formulaShape(v.userEnteredValue ?? '', row)) }, strict: !!rule?.strict });
+      const canonical = { ...expected, condition: { ...expected.condition,
+        values: expected.condition.values?.map(v => ({ userEnteredValue:
+          formulaShape(v.userEnteredValue, template.row) })) } };
+      if (normalize(actual) !== normalize(canonical)) inputs.push(`${template.sheet}!${letter}${row}`);
+    }
+  }
+  return { formulas, inputs };
+}
 export function monitoringFormulaDiagnostics(book: MonitoringBookSnapshot) {
   const existing = checks.get(book);
   if (existing) return existing;
   const pending = (async () => {
     try {
-      const grids = await batchGetSheetValues([MONITORING_MASTER_SHEET], MONITORING_SPREADSHEET_ID, 'FORMULA');
-      if (!grids[MONITORING_MASTER_SHEET]) throw new Error('Диапазон формул не получен');
-      const addresses = missingFormulaAddresses(book.sheets[MONITORING_MASTER_SHEET] ?? [], grids[MONITORING_MASTER_SHEET]);
-      const drift = formulaTemplateDriftAddresses(book.sheets[MONITORING_MASTER_SHEET] ?? [], grids[MONITORING_MASTER_SHEET]);
-      const signals: MonitoringSignal[] = addresses.length ? [{ kind: 'monitoring_formula_missing', title: 'Вычисляемое поле заменено значением или пусто', severity: 'high',
-        mechanism: 'Отдельное чтение формул A/Q/S/V/W/X/Y обнаружило ячейки без формулы. Правдоподобное значение не доказывает исправность вычисления.',
+      const defects = nativeRuleDefects(await getMonitoringMasterCells(MONITORING_SPREADSHEET_ID));
+      const addresses = defects.formulas;
+      const signals: MonitoringSignal[] = addresses.length ? [{ kind: 'monitoring_formula_drift', title: 'Вычисляемое поле отличается от канонической формулы', severity: 'high',
+        mechanism: 'Формулы A/Q/S/V/W/X/Y сравнены с проверенным шаблоном по всей подготовленной сетке. Проверка обнаружила замену значением, пустоту либо изменение формулы или её ссылки.',
         action: 'Проверьте указанную ячейку и восстановите каноническую формулу после проверки исходных данных.', count: addresses.length,
         addresses: addresses.map(address => ({ address, note: 'В обязательной вычисляемой колонке нет формулы.' })) }] : [];
-      if (drift.length) signals.push({ kind: 'monitoring_formula_drift', title: 'Формулы расходятся с построчным шаблоном', severity: 'high',
-        mechanism: 'Вычисление присутствует, но его ссылки или логика не совпадают с эталонной строкой. Контроль сравнивает A/Q/V/W/X/Y.',
-        action: 'Проверьте перечисленные строки и восстановите корректный шаблон без защиты диапазонов.', count: drift.length,
-        addresses: drift.map(address => ({ address, note: 'Формула отличается от согласованного шаблона данного столбца.' })) });
-      return { checked: true, signals, notes: ['Проверены наличие и согласованность формул A/Q/V/W/X/Y; ручные значения S отмечаются отдельно. Защита диапазонов не применяется.'] };
+      if (defects.inputs.length) signals.push({ kind: 'monitoring_input_rules', title: 'Правило ввода отличается от проверенного шаблона', severity: 'medium',
+        mechanism: 'Нативные проверки ввода A3:Y1002 сравнены с согласованным шаблоном, включая тип условия, допустимые значения, относительные ссылки и запрет неверного ввода.',
+        action: 'Восстановите правило ввода в указанных ячейках после сверки шаблона. Защита диапазона не требуется.', count: defects.inputs.length,
+        addresses: defects.inputs.map(address => ({ address, note: 'Правило отсутствует или изменено.' })) });
+      return { checked: true, signals, notes: ['Формулы A/Q/S/V/W/X/Y и нативные правила ввода A3:Y1002 сравнены с шаблоном от 08.10.2026. Ручной ИНН S из 10 или 12 цифр допускается. Диапазоны остаются редактируемыми.'] };
     } catch {
       return { checked: false, signals: [], notes: ['Формулы мастера не прочитаны; целость вычисляемых колонок не подтверждена.'] };
     }

@@ -81,6 +81,7 @@ function directoryAliases(raw: unknown[], modern: boolean): string[] {
 }
 
 export interface DirectoryEntry {
+  readonly institutionId?: string | null;
   readonly sheet: string;
   readonly row: number;
   readonly ordinal: number | null;
@@ -108,6 +109,7 @@ export interface CustomerOutsideDirectory {
 }
 
 export interface MonitoringDirectory {
+  readonly identityIssues?: Array<{ address: string; note: string }>;
   readonly entries: DirectoryEntry[];
   readonly collisions?: Array<{ normalized: string; addresses: string[] }>;
   /** Написания заказчика вне справочника, по убыванию частоты. */
@@ -151,6 +153,8 @@ export function parseMonitoringDirectory(
   const index = new Map<string, number>();
   const owners = new Map<string, Set<number>>();
   const drafts: Array<Omit<DirectoryEntry, 'usageCount'>> = [];
+  const identityEnabled = modern && monitoringText(grid[0]?.[18]) === 'ID учреждения';
+  const identityIssues: Array<{ address: string; note: string }> = [];
 
   for (let i = 0; i < grid.length; i++) {
     const raw = grid[i] ?? [];
@@ -186,6 +190,7 @@ export function parseMonitoringDirectory(
     }
 
     drafts.push({
+      institutionId: identityEnabled ? monitoringText(raw[18]) : null,
       sheet: MONITORING_DIRECTORY_SHEET,
       row: i + 1,
       ordinal: monitoringNumber(raw[C.ORDINAL]),
@@ -199,6 +204,16 @@ export function parseMonitoringDirectory(
   }
 
   const usageCounts = new Array<number>(drafts.length).fill(0);
+  if (identityEnabled) {
+    const ids = Map.groupBy(drafts.filter(d => d.institutionId), d => d.institutionId!);
+    for (let i = 0; i < drafts.length; i++) {
+      const id = drafts[i].institutionId;
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) || (ids.get(id)?.length ?? 0) > 1) {
+        identityIssues.push({ address: `${MONITORING_DIRECTORY_SHEET}!S${drafts[i].row}`, note: !id ? 'ID отсутствует: обновите справочник.' : 'ID неверен или повторяется: сверьте записи, автоматическое объединение по ID остановлено.' });
+        drafts[i] = { ...drafts[i], institutionId: null };
+      }
+    }
+  }
   let customersMatched = 0;
   const matchedNormalized = new Set<string>();
   for (const row of usage) {
@@ -217,6 +232,7 @@ export function parseMonitoringDirectory(
 
   return {
     entries,
+    identityIssues,
     collisions: [...owners]
       .filter(([, candidates]) => candidates.size > 1)
       .map(([normalized, candidates]) => ({

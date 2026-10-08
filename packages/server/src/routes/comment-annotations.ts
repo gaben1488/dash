@@ -19,10 +19,12 @@
  * на экране это отдельная секция «Комментарии против структуры».
  */
 import type { FastifyInstance } from 'fastify';
-import { buildCellDict, findDept } from '@aemr/shared';
+import { buildCellDict, findDept, parseProcedureRef } from '@aemr/shared';
 import { detectCommentInconsistencies, type CommentAnnotation } from '@aemr/core';
 import { readDeptRows } from '../services/dept-rows.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
+import { getMonitoringBook } from '../services/monitoring.js';
+import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 
 /** Аннотация ответа: карточка ядра + явный адрес (книга и строка листа). */
 export interface CommentAnnotationDto extends CommentAnnotation {
@@ -55,6 +57,20 @@ export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<vo
     }
 
     const asOfDate = new Date(reading.asOf);
+    const monitoring = await getMonitoringBook();
+    const procedures = monitoring.sheets['Рабочий реестр процедур']
+      ? parsedMonitoringBook(monitoring).registry.procedures : [];
+    const byCode = Map.groupBy(procedures.filter(p => p.code !== null), p => p.code!);
+    const bookRefs = new Map<string, number>();
+    for (const [sheetName, rows] of Object.entries(reading.rowsByDept)) {
+      const dept = findDept(sheetName);
+      if (!dept) continue;
+      rows.forEach((row, idx) => {
+        if (!Array.isArray(row) || !isDataRow(buildRowDto(row, idx, { deptId: dept.id }))) return;
+        const code = parseProcedureRef(buildCellDict(row)['AG'])?.code;
+        if (code) { const key = `${dept.id}:${code}`; bookRefs.set(key, (bookRefs.get(key) ?? 0) + 1); }
+      });
+    }
     const annotations: CommentAnnotationDto[] = [];
     let rowsScanned = 0;
 
@@ -66,10 +82,16 @@ export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<vo
         const dto = buildRowDto(row, idx, { deptId: dept.id });
         if (!isDataRow(dto)) return; // служебные строки листа — не закупки
         rowsScanned += 1;
+        const cells = buildCellDict(row);
+        const code = parseProcedureRef(cells['AG'])?.code;
+        const candidates = code ? byCode.get(code) ?? [] : [];
+        const p = candidates.length === 1 && bookRefs.get(`${dept.id}:${code}`) === 1 ? candidates[0] : undefined;
+        const sameDepartment = p && (p.dept === dept.id || p.participants?.some(part => part.dept === dept.id));
         const found = detectCommentInconsistencies(
           { book: dept.id, sheetRow: dto.rowIndex },
-          buildCellDict(row),
+          cells,
           asOfDate,
+          p && sameDepartment ? { stage: p.stage, code: p.code!, address: `${p.sheet}!W${p.row}`, readAt: monitoring.readAt } : undefined,
         );
         // «№ п/п» (сырьё колонки A) — стабильный второй адрес строки (п.98б).
         const rowSeq = String(dto.id ?? '').trim() || undefined;
@@ -88,6 +110,7 @@ export async function commentAnnotationsRoutes(app: FastifyInstance): Promise<vo
       asOf: reading.asOf,
       /** 'live' — живой кэш книг; 'snapshot' — последний сохранённый снимок. */
       source: reading.source,
+      monitoring: { readAt: procedures.length ? monitoring.readAt : null, available: !!monitoring.sheets['Рабочий реестр процедур'], failed: monitoring.failed },
       /** Сколько счётных строк реально просканировано (честность пустоты). */
       rowsScanned,
       total: annotations.length,

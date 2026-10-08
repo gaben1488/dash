@@ -68,7 +68,6 @@ test('presentation follows the closed code header after separator insertion', ()
 
 
 test('archive omits future monetary facts from detail while keeping source columns and provenance', () => {
-  const { admitCompletedArchiveFactsByDate }=requireDateModule;
   const fixture='=LET(код;ФильтрВитрин;вид;INDEX(ДанныеМастера;0;2);проц;TRUE;нмцкИсточник;INDEX(ДанныеМастера;0;8);ценаИсточник;INDEX(ДанныеМастера;0;13);фбИсточник;INDEX(ДанныеМастера;0;14);стадия;INDEX(ДанныеМастера;0;23);есть;TRUE;выбор;TRIM($B$1&"");процБезДолей;TRUE;м;TRUE;FILTER(ARRAYFORMULA(цена);м);FILTER(ARRAYFORMULA(экономия);м);FILTER(ARRAYFORMULA(фб);м);FILTER(ARRAYFORMULA(кб);м);FILTER(ARRAYFORMULA(мб);м);FILTER(INDEX(ДанныеМастера;0;25);м))';
   const fixed=admitCompletedArchiveFactsByDate(fixture);
   assert.match(fixed,/табДата;IFERROR/u);

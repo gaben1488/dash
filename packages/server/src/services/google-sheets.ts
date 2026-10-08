@@ -422,6 +422,19 @@ export async function getSpreadsheetMetadata(spreadsheetId?: string): Promise<{
   };
 }
 
+/** Native rules, bounded to the reviewed master grid; no source writes. */
+export async function getMonitoringMasterCells(spreadsheetId: string): Promise<sheets_v4.Schema$CellData[][]> {
+  const response = await readWithRetry('чтение правил ввода реестра', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.get({ spreadsheetId, ranges: ["'Рабочий реестр процедур'!A3:Y1002"],
+      fields: 'sheets(data(startRow,startColumn,rowData(values(userEnteredValue,dataValidation))))' },
+    { timeout: SHEETS_TIMEOUT_MS });
+  });
+  const data = response.data.sheets?.[0]?.data?.[0];
+  if (!data || data.startRow !== 2 || (data.startColumn ?? 0) !== 0) throw new Error('Правила ввода не прочитаны');
+  return (data.rowData ?? []).map(row => row.values ?? []);
+}
+
 export async function getSheetDataFromSpreadsheet(
   spreadsheetId: string,
   sheetName: string,

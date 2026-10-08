@@ -45,6 +45,7 @@ const NON_DEPT_SHEETS = new Set([
   'SHDYU_MONTHLY_SHEET_NAME',
   'SHDYU_SHEET_NAME',
   'CHANGELOG_SHEET_NAME',
+  'MONITORING_DIRECTORY_SHEET', // Справочник отдельной книги мониторинга; не агрегат строк ГРБС.
 ]);
 
 /** Кому прямое чтение разрешено — с причиной. Список растёт только осознанно. */

@@ -20,6 +20,7 @@
  */
 
 import { dayNumberOf, detectForeignText, extractProcedureRefs, isoOfDayNumber } from '@aemr/shared';
+import { PROCEDURE_STAGE_LABELS, type ProcedureStage } from '../monitoring/procedures.js';
 
 // ────────────────────────────────────────────────────────────
 // Типы
@@ -41,10 +42,8 @@ export type CommentColumn = 'M' | 'U' | 'AE' | 'AF' | 'AG' | 'AH';
  * - `past_promise_no_fact` — правило (б): текст обещает «будет
  *   заключен/подписан/размещён [до] ДД.ММ[.ГГГГ]», дата обещания прошла
  *   относительно даты снимка, а дата заключения (Q) — заглушка.
- * - `stage_vs_monitoring` — правило (в), ЗАГЛУШКА ИНТЕРФЕЙСА: устаревшая
- *   стадия против книги «Ежедневный мониторинг». Тип объявлен, карточки этого
- *   вида НЕ эмитятся — реализация после связки строк книг ГРБС со строками
- *   мониторинга (отдельная волна, п.72(в)).
+ * - `stage_vs_monitoring` — текущая подача заявок в комментарии при завершённой
+ *   процедуре. Только единственная структурная связь AG; карточка просит сверить актуальность.
  * - `foreign_text_in_ag` — правило (г), канон п.74(б): в колонке AG (структурный
  *   ключ «номер процедуры», п.74(а)) посторонний текст — либо приписка рядом с
  *   валидным номером, либо содержимое вовсе без распознаваемого номера
@@ -122,13 +121,13 @@ export interface CommentAnnotation {
 }
 
 /**
- * ЗАГЛУШКА под правило (в) — контекст стадии из книги «Ежедневный мониторинг».
- * Пока связка «строка книги ГРБС ↔ строка мониторинга» не построена, параметр
- * не используется и карточки `stage_vs_monitoring` не эмитятся.
+ * Контекст единственной структурной связи по AG с процедурой того же управления.
  */
 export interface MonitoringStageContext {
-  /** Стадия процедуры по мониторингу (свободная форма листа мониторинга). */
-  stage?: string;
+  stage: ProcedureStage;
+  code: string;
+  address: string;
+  readAt: string;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -321,15 +320,14 @@ function ruDateOfDay(day: number): string {
  * @param cells — сырые колонки строки: словарь «буква колонки → значение»
  * @param snapshotDate — дата снимка данных; «сейчас» правил (б). Никаких
  *   Date.now внутри: воспроизводимость на историческом снимке обязательна.
- * @param _monitoring — ЗАГЛУШКА правила (в), не используется до связки
- *   с «Ежедневным мониторингом»
+ * @param monitoring — стадия и доказательство единственной связи с мониторингом
  * @returns карточки несогласованности; пусто — противоречий не найдено
  */
 export function detectCommentInconsistencies(
   ref: CommentRowRef,
   cells: Record<string, unknown>,
   snapshotDate: Date,
-  _monitoring?: MonitoringStageContext,
+  monitoring?: MonitoringStageContext,
 ): CommentAnnotation[] {
   const annotations: CommentAnnotation[] = [];
   const rowKey = `${ref.book}:r${ref.sheetRow}`;
@@ -411,8 +409,20 @@ export function detectCommentInconsistencies(
   }
 
   // ── Правило (в): устаревшая стадия против «Ежедневного мониторинга» ──
-  // ЗАГЛУШКА (п.72(в)): реализация после связки строк ГРБС со строками
-  // мониторинга. Тип 'stage_vs_monitoring' объявлен, карточки не эмитятся.
+  // Only an exact, unique structural link is supplied by the caller. Past
+  // narratives are not current status; this annotation asks for a review.
+  if (factDay === null && monitoring && ['awarded', 'no_result', 'reissued'].includes(monitoring.stage)) {
+    for (const column of STAGE_SCAN_COLUMNS) {
+      const text = textOf(cells, column);
+      if (!text || /ранее|истори[яи]|был[аи]?\s|находил[а-яё]*|не\s+находится/iu.test(text)) continue;
+      const current = /(?:находится|процедура\s+(?:сейчас\s+)?на|в\s+настоящее\s+время)[^.;]{0,40}?(?:стадии|этапе)\s+подачи\s+заявок/iu.exec(text);
+      if (!current) continue;
+      annotations.push({ rowKey, column, cell: `${column}${ref.sheetRow}`, kind: 'stage_vs_monitoring',
+        excerpt: excerptAround(text, current.index, current.index + current[0].length),
+        mechanism: `Комментарий описывает текущую подачу заявок. По единственному коду ${monitoring.code} в ${monitoring.address} стадия «${PROCEDURE_STAGE_LABELS[monitoring.stage]}» (чтение ${monitoring.readAt}). Результат процедуры не подтверждает заключение контракта; дата Q${ref.sheetRow} не заполнена.`,
+        action: `Владельцу книги «${ref.book}»: сверьте комментарий ${column}${ref.sheetRow} с ${monitoring.address}. Обновите текущее состояние либо обозначьте текст как историю процедуры.` });
+    }
+  }
 
   // ── Правило (г): посторонний текст в колонке номера процедуры (п.74(б)) ──
   // AG — структурный ключ «номер процедуры» (канон п.74(а)), основной мост к

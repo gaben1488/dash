@@ -63,10 +63,14 @@ def dump(value, path):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str, allow_nan=False), encoding='utf-8')
 
 
-def header_hash(values, header_rows):
+def header_hash(values, header_rows, *, volatile_cells=()):
     # Numeric header enumeration is identical between Sheets (int) and XLSX (float).
     normalized = [[str(int(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == int(v)
                    else clean_text(v) for v in row] for row in values[header_rows-1:header_rows]]
+    for row, column in volatile_cells:
+        if row == header_rows and normalized:
+            normalized[0].extend([''] * max(0, column - len(normalized[0])))
+            normalized[0][column - 1] = ''
     for row in normalized:
         while row and not row[-1]:
             row.pop()
@@ -117,7 +121,7 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
             if semantic_header_hash(values, headers, contract['columns'],
                 volatile_cells=contract.get('volatile_header_cells', ())) != contract['semantic_header_fingerprint']:
                 raise ValueError(f'SOURCE_SEMANTIC_HEADER_CHANGED:{sid}')
-        fingerprint = header_hash(values, contract['header_rows'])
+        fingerprint = header_hash(values, contract['header_rows'], volatile_cells=contract.get('volatile_header_cells', ()))
         if fingerprint != contract['schema_fingerprint']:
             raise ValueError(f'SOURCE_SCHEMA_CHANGED:{sid}')
         for n, row in enumerate(values, 1):

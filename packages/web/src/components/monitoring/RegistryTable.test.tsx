@@ -34,6 +34,20 @@ it('рабочий вид показывает семь колонок и дей
   expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(7);
 });
 
+it('скрывает отдельную денежную колонку и сохраняет выбор после повторного открытия', () => {
+  const props = { rows: fixture(), sortKey: 'row' as const, sortDir: 'asc' as const, onSort: vi.fn(), compact: true };
+  const first = render(<TooltipProvider><RegistryTable {...props} /></TooltipProvider>);
+  fireEvent.click(screen.getByText('Настроить колонки'));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'НМЦК, руб. (колонка)' }));
+  expect(within(screen.getByRole('table')).queryByRole('columnheader', { name: /НМЦК/u })).toBeNull();
+  first.unmount();
+  render(<TooltipProvider><RegistryTable {...props} /></TooltipProvider>);
+  expect(within(screen.getByRole('table')).queryByRole('columnheader', { name: /НМЦК/u })).toBeNull();
+  fireEvent.click(screen.getByText('Настроить колонки'));
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуть все колонки' }));
+  expect(within(screen.getByRole('table')).getByRole('columnheader', { name: /НМЦК/u })).toBeTruthy();
+});
+
 it('порция ограничивает только показ и позволяет открыть последнюю процедуру отбора', () => {
   const rows = fixture(51);
   const onOpen = vi.fn();

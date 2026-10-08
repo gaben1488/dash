@@ -23,6 +23,7 @@ import { config } from '../config.js';
 import { batchGetSheetValues, getSheetDataFromSpreadsheet } from './google-sheets.js';
 import { bookFingerprints, changedSheets } from './sheet-fingerprint.js';
 import { checkFileChanged } from './file-revision.js';
+import { assignMissingCustomerIds } from './customer-identities.js';
 
 /**
  * Книга оперативного мониторинга/процедур. Значение централизовано в config:
@@ -215,7 +216,15 @@ export async function refreshMonitoringBook(options: {
   }
 
   invalidateMonitoringCache();
-  const book = await getMonitoringBook(true);
+  let book = await getMonitoringBook(true);
+  const directory = book.sheets['Справочник заказчиков'];
+  if (directory?.[0]?.[18] === 'ID учреждения' && directory.slice(1).some(row => (row[3] || row[4]) && !row[18])) {
+    try {
+      if (await assignMissingCustomerIds(MONITORING_SPREADSHEET_ID)) book = await getMonitoringBook(true);
+    } catch (error) {
+      book = { ...book, failed: { ...book.failed, 'ID учреждения': error instanceof Error ? error.message : 'Идентификаторы не сохранены; повторите обновление.' } };
+    }
+  }
   return { read: true, changed: book.changed, version: book.version , failed: book.failed };
 }
 

@@ -15,6 +15,17 @@ const SNAPSHOT = new Date(2026, 7, 14); // 14.08.2026 — дата снятия 
 
 const ref = (book: string, sheetRow: number): CommentRowRef => ({ book, sheetRow });
 
+it('сверяет только текущую подачу заявок, не историю и не заключение контракта', () => {
+  const monitoring = { stage: 'no_result' as const, code: 'ЭА152-26', address: 'Рабочий реестр процедур!W3', readAt: '2026-10-08T08:00:00Z' };
+  const cards = detectCommentInconsistencies(ref('УО', 12), { Q: '', AG: 'ЭА152-26', AF: 'Процедура находится в стадии подачи заявок' }, SNAPSHOT, monitoring);
+  expect(cards.filter(c => c.kind === 'stage_vs_monitoring')).toHaveLength(1);
+  expect(cards.find(c => c.kind === 'stage_vs_monitoring')?.mechanism).toContain('Результат процедуры не подтверждает заключение контракта');
+  for (const AF of ['Ранее процедура находилась в стадии подачи заявок', 'История: процедура находится в стадии подачи заявок', 'Процедура не находится в стадии подачи заявок']) {
+    expect(detectCommentInconsistencies(ref('УО', 12), { Q: '', AF }, SNAPSHOT, monitoring).some(c => c.kind === 'stage_vs_monitoring')).toBe(false);
+  }
+  expect(detectCommentInconsistencies(ref('УО', 12), { Q: '', AF: 'Процедура находится в стадии подачи заявок' }, SNAPSHOT).some(c => c.kind === 'stage_vs_monitoring')).toBe(false);
+});
+
 describe('правило (а): этапность при заключённом контракте', () => {
   it('УД r14: «в стадии окончания подачи заявок» в AF при Q=27.04.2026 → карточка', () => {
     // Живая строка: УД, лист r14, A=11 (пледы), Q=27.04.2026, AG=ЭА179-26

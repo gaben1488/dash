@@ -41,7 +41,7 @@ def validate_inputs(registry, ledger):
         if 'volatile_header_cells' in s:
             from .semantic_headers import semantic_header_hash
 
-            if (s['role'] not in {'procedure_lifecycle', 'formula_dependency'}
+            if (s['role'] not in {'procedure_lifecycle', 'formula_dependency', 'historical_control_dependency'}
                 or not isinstance(s['volatile_header_cells'], list) or not s['volatile_header_cells']
                 or not s.get('semantic_header_fingerprint')
                 or not s.get('previous_semantic_header_fingerprint')

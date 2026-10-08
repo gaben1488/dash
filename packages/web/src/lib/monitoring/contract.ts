@@ -290,6 +290,7 @@ export interface JournalPayload {
 // ── Справочник учреждений ────────────────────────────────────────────
 
 export interface DirectoryRow {
+  institutionId?: string | null;
   sourceAddress?: string;
   aliases?: string[];
   num: string | null;
@@ -773,6 +774,7 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
       const d = rec(x);
       return {
         sourceAddress: `${text(d.sheet)}!D${count(d.row)}`,
+        institutionId: str(d.institutionId),
         aliases: strList(d.aliases),
         num: num(d.ordinal) === null ? null : String(num(d.ordinal)),
         grbs: str(d.grbs),
@@ -792,6 +794,7 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
     }).filter((u) => u.name !== '');
     return { rows: entries, unmatchedCustomers: outside, notes: [
         ...strList(r.notes) ,
+        ...arr(r.identityIssues).map(x => { const issue = rec(x); return `${text(issue.address)}: ${text(issue.note)}`; }),
         ...arr(r.collisions).map((x) => {
           const c = rec(x);
           return `Конфликт названия «${text(c.normalized)}»: ${strList(c.addresses).join(', ')}. Автоматическое сопоставление остановлено.`;

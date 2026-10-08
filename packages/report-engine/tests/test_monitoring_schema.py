@@ -12,6 +12,15 @@ from procurement_engine.semantic_headers import semantic_header_hash
 from test_runtime import inputs
 
 
+def test_dynamic_header_counts_do_not_change_the_schema_but_static_labels_do():
+    before = [['Code', 'No successor count', 23, 1000]]
+    after = [['Code', 'No successor count', 24, 2000]]
+    volatile = [[1, 3], [1, 4]]
+    assert header_hash(before, 1, volatile_cells=volatile) == header_hash(after, 1, volatile_cells=volatile)
+    after[0][0] = 'Different key'
+    assert header_hash(before, 1, volatile_cells=volatile) != header_hash(after, 1, volatile_cells=volatile)
+
+
 def fixture(tmp_path, monkeypatch):
     from procurement_engine import monitoring_schema as module
 

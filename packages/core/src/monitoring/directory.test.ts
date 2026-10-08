@@ -50,6 +50,17 @@ const USAGE = [
 ];
 
 describe('parseMonitoringDirectory', () => {
+  it('сохраняет ID при перестановке и переименовании, отклоняет повторный ID', () => {
+    const header = [...CURRENT_GRID[0], 'ID учреждения'];
+    const id = '32e0191e-2ed9-48a7-83da-8a4ade214da2';
+    const row = [...CURRENT_GRID[1], id];
+    expect(parseMonitoringDirectory([header, [], row]).entries[0]).toMatchObject({ institutionId: id, row: 3 });
+    row[3] = 'Новое имя'; row[16] = 'Новое окружное имя';
+    expect(parseMonitoringDirectory([header, row]).entries[0].institutionId).toBe(id);
+    const duplicate = parseMonitoringDirectory([header, row, [...row]]);
+    expect(duplicate.entries.every(r => r.institutionId === null)).toBe(true);
+    expect(duplicate.identityIssues).toHaveLength(2);
+  });
   it('accepts clear headers without falling back to the old four-column mapping', () => {
     const header = [...CURRENT_GRID[0]];
     header[3] = 'Полное наименование';

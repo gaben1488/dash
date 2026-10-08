@@ -131,7 +131,8 @@ test('семейные суммы блокируются только колли
   const control = plan.find(r => r.updateCells?.start?.rowIndex === 225 && r.updateCells?.start?.columnIndex === 1);
   assert.equal(control.updateCells.rows[0].values[0].userEnteredValue.formulaValue, familyLinkedDuplicateGuardFormula());
   const header = plan.find(r => r.updateCells?.start?.rowIndex === 0 && r.updateCells?.start?.columnIndex === 2);
-  assert.equal(header.updateCells.rows[0].values[0].userEnteredValue.formulaValue, canonicalAnalyticalStatusFormula());
+  assert.match(header.updateCells.rows[0].values[0].userEnteredValue.formulaValue, /Контрольная сверка — расхождения/u);
+  assert.ok(header.updateCells.rows[0].values[0].userEnteredValue.formulaValue.includes(canonicalAnalyticalStatusFormula().slice(1)));
 });
 
 test('архив ГРБС отделяет состоявшиеся и соблюдает выбранное управление', async () => {
@@ -220,6 +221,8 @@ test('formula guard does not mistake documented manual supplier IDs for broken f
   });
   const review = auditMasterFormulas([row(3),row(4)]);
   assert.deepEqual(review,{constants:[],deviations:[],errors:[]});
-  const enforcedS = auditMasterFormulas([row(3),row(4)],[18]);
+  const baseline = row(3);
+  baseline.cells[18] = { userEnteredValue: { formulaValue: '=G3' } };
+  const enforcedS = auditMasterFormulas([baseline,row(4),row(5)],[18]);
   assert.equal(enforcedS.constants.length,2, 'Explicit S-only audit still detects overrides');
 });

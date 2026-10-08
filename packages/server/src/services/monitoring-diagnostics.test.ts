@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MONITORING_MASTER_HEADERS, parseMonitoringProcedures } from '@aemr/core';
-import { formulaTemplateDriftAddresses, missingFormulaAddresses, queueDriftSignals } from './monitoring-diagnostics.js';
+import { formulaShape, formulaTemplateDriftAddresses, missingFormulaAddresses, nativeRuleDefects, queueDriftSignals } from './monitoring-diagnostics.js';
+import template from './monitoring-template.json' with { type: 'json' };
+import type { sheets_v4 } from 'googleapis';
 import type { MonitoringBookSnapshot } from './monitoring.js';
 
 function source() {
@@ -11,6 +13,20 @@ function source() {
 }
 
 describe('independent native monitoring diagnostics', () => {
+  it('detects a changed formula reference and removed validation in an unused prepared row', () => {
+    const cells: sheets_v4.Schema$CellData[][] = Array.from({ length: 1000 }, (_, offset) => {
+      const row: sheets_v4.Schema$CellData[] = Array.from({ length: 25 }, () => ({}));
+      const move = (value: string) => formulaShape(value, 3).replaceAll('{row}', String(offset + 3));
+      for (const [letter, formula] of Object.entries(template.formulas)) row[letter.charCodeAt(0) - 65].userEnteredValue = { formulaValue: move(formula) };
+      for (const [letter, rule] of Object.entries(template.validations)) row[letter.charCodeAt(0) - 65].dataValidation = { ...rule, condition: { ...rule.condition, values: rule.condition.values?.map(v => ({ userEnteredValue: move(v.userEnteredValue) })) } };
+      return row;
+    });
+    expect(nativeRuleDefects(cells)).toEqual({ formulas: [], inputs: [] });
+    cells[999][22].userEnteredValue = { formulaValue: '=A3' };
+    delete cells[999][7].dataValidation;
+    expect(nativeRuleDefects(cells)).toEqual({ formulas: ['Рабочий реестр процедур!W1002'], inputs: ['Рабочий реестр процедур!H1002'] });
+    expect(formulaShape('=IF(G4="G4";G4;$G$4)', 4)).toBe('=IF(G{row}="G4";G{row};$G$4)');
+  });
   it('names both the missing master row and the extra native row without normalizing source codes', () => {
     const master = source();
     const queue: unknown[][] = [[], [], ['', '', '', 'ЭА002-26']];
