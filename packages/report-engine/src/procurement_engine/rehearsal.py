@@ -193,7 +193,7 @@ def _identity_gap_diagnostics(candidate, identities, *, identity_snapshot_id=Non
                 shared_group_subject=True, extended_literal_reference=True,
                 joint_method_reference=candidate.get('contract', {}).get('recommendation_link_contract')
                 in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12',
-                    'verified-original-and-current-plan-v13'})] if numbers else [
+                    'verified-original-and-current-plan-v13', 'verified-original-and-current-plan-v14'})] if numbers else [
             row for row in rows.values() if row.grbs == record.get('grbs') and _exact_subject_mention(text, row.subject)]
         gaps.append({'grbs': record.get('grbs'), 'table_no': record.get('table_no'), 'row_no': record.get('row_no'),
             'explicit_reference_count': len(numbers), 'missing_primary_number_count': sum(not group for group in groups),
