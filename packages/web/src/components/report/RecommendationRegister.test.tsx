@@ -61,7 +61,7 @@ it('keeps historical wording immutable but allows a working note', async () => {
     { expectedRevision: ledger.revision, note: 'Сверить связь с текущим планом' }));
 });
 
-it('creates a formal UER recommendation for the next report without another approval step', async () => {
+it('registers a UER recommendation for the next report immediately', async () => {
   calls.get.mockResolvedValue(ledger);
   calls.create.mockResolvedValue({ revision: 'b'.repeat(64), record: {} });
   render(<RecommendationRegister />);
@@ -76,7 +76,7 @@ it('creates a formal UER recommendation for the next report without another appr
   await waitFor(() => expect(calls.create).toHaveBeenCalledWith({
     expectedRevision: ledger.revision, grbs: 'УЭР',
     text: 'Проверить целесообразность объединения закупочных позиций',
-    sourceIds: ['42', '43'], note: '',
+    sourceIds: ['42', '43'], section: 'ep', note: '',
   }));
 });
 
