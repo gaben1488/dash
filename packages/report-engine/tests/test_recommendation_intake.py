@@ -3,11 +3,13 @@ import copy
 import json
 
 import pytest
-from procurement_engine.recommendation_intake import (
-    read_registered_ledger, validate_append_only, verify_new_official_records,
-    previous_published_ledger,
-)
 from procurement_engine.recommendation_history import read_google_history
+from procurement_engine.recommendation_intake import (
+    previous_published_ledger,
+    read_registered_ledger,
+    validate_append_only,
+    verify_new_official_records,
+)
 from procurement_engine.runtime import run_once
 from test_recommendation_history import fixture
 from test_recorded_release import CompleteGoogle
@@ -26,7 +28,7 @@ def existing_and_new():
 
 
 def test_append_only_addition_and_explicit_supersession():
-    old, new, package = existing_and_new()
+    old, new, _package = existing_and_new()
     assert validate_append_only(old, old + [new]) == ('REC-second',)
     changed = copy.deepcopy(old)
     changed[0]['active_in_current_slice'] = False
@@ -117,7 +119,7 @@ def test_new_official_id_without_original_is_rejected():
 
 
 def test_registered_new_recommendation_is_frozen_and_reused_in_real_release(tmp_path):
-    old, new, history = existing_and_new()
+    old, _new, history = existing_and_new()
     remote = {'format': 'aemr-report-runtime-inputs-v1',
               'registry': {}, 'ledger': old}
     client = AuthorizedDrive(remote, history)
