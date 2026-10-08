@@ -102,10 +102,10 @@ def test_conflicting_link_proofs_stay_engine_work_with_specific_cause():
 
 
 def test_ineligible_identity_observations_are_not_false_procurement_actions():
-    from procurement_engine.automation_assurance import assess_automation
-
-    from test_recommendation_links import row as source_row
     from dataclasses import asdict, replace
+
+    from procurement_engine.automation_assurance import assess_automation
+    from test_recommendation_links import row as source_row
 
     a = replace(source_row(), procurement_uid=None)
     eligible = {**asdict(a), 'physical_row_key': 'book:4', 'included': True}
