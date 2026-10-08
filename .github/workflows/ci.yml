@@ -165,18 +165,23 @@ jobs:
             trap restore_worker_on_failure EXIT
 
             # Storage is a deployment prerequisite, not a post-failure repair.
-            # Keep rollback-tagged images, but discard only unused image/build cache.
+            # Keep rollback-tagged images and reusable build layers. Removing
+            # all build cache on every deploy forces a slow full frontend build.
             docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
             docker image prune --force >/dev/null
-            docker builder prune --all --force >/dev/null
             if docker image inspect aemr-server:latest >/dev/null 2>&1; then
               echo "Recovering canonical weekly evidence and compacting transient report payloads before build."
               docker compose --env-file .env.production run --rm --no-deps \
                 --entrypoint /opt/report-env/bin/python server -c \
                 'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
             fi
-            df -h /
             free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            if [ "${free_kb:-0}" -lt 8388608 ]; then
+              echo "Less than 8 GiB free; reclaiming unused build cache."
+              docker builder prune --all --force >/dev/null
+              free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+            fi
+            df -h /
             if [ "${free_kb:-0}" -lt 4194304 ]; then
               echo "Deployment aborted: less than 4 GiB free after safe recovery." >&2
               exit 1
