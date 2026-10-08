@@ -133,7 +133,7 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
           </div>
 
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">
                 Десять крупнейших поставщиков {by === 'money' ? 'по сумме контрактов' : 'по числу побед'}
               </caption>
@@ -163,11 +163,11 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
                           {r.name}
                         </button>
                       )}
-                      <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">
                         {r.inn === null ? 'ИНН в книге не указан' : `ИНН ${r.inn}`}
                       </span>
                       {r.customers.length > 0 && (
-                        <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
                           заказчики: {r.customers.slice(0, 3).join('; ')}
                           {r.customers.length > 3 && ` и ещё ${r.customers.length - 3}`}
                         </div>
@@ -179,7 +179,7 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
                           строки концентрация читалась только числом сверху,
                           а механизма за ней видно не было (п.104). */}
                       {r.depts.length > 0 && (
-                        <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
                           {r.depts.length === 1
                             ? `лист управления: ${r.depts[0]}`
                             : `листы ${fmtCount(r.depts.length)} управлений: ${r.depts.join('; ')}`}
@@ -198,13 +198,13 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
       )}
 
       {/* ── Концентрация ── */}
-      <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+      <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
         Насколько рынок собран в немногих руках
       </h4>
       <div className="mt-1.5 space-y-2">
         {concentration.map((c) => (
           <div key={c.label}>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[11px]">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
               <span className="text-zinc-600 dark:text-zinc-300">{c.label}</span>
               <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
                 побед {fmtPct(c.winsPct, 0)} · денег {fmtPct(c.moneyPct, 0)}
@@ -217,7 +217,7 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
           </div>
         ))}
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+      <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
         {profile.singleWinSharePct === null
           ? 'Долю поставщиков с единственной победой считать не из чего.'
           : `Выиграли ровно один раз ${fmtCount(profile.singleWinCount)} поставщиков — это ${fmtPct(profile.singleWinSharePct, 0)} всех победителей.`}
@@ -232,7 +232,7 @@ export function SupplierTop({ profile, periodLabel, onPickSupplier }: SupplierTo
 function Meter({ value, color, label }: { value: number | null; color: string; label: string }) {
   if (value === null) {
     return (
-      <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{label}: считать не из чего</p>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}: считать не из чего</p>
     );
   }
   return (
@@ -244,7 +244,7 @@ function Meter({ value, color, label }: { value: number | null; color: string; l
           role="presentation"
         />
       </div>
-      <span className="w-24 shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{label}</span>
+      <span className="w-24 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
     </div>
   );
 }

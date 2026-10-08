@@ -266,6 +266,7 @@ export function ingestLiveEvent(event: Record<string, unknown>): void {
   }
   if (event.kind === 'monitoring-updated') {
     useStore.getState().invalidateLiveStavka();
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('monitoring-updated'));
   }
   if (state.recentRows.length > 0) scheduleFlashPrune();
 }

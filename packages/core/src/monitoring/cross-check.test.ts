@@ -55,6 +55,17 @@ describe('bookRowsForMatch — переходник к книгам ГРБС', (
 });
 
 describe('сверка с книгами ГРБС', () => {
+  it('две доли дают два сравнения, но один покрытый код процедуры', () => {
+    const result = matchMonitoring([
+      { rowKey: 'УО:3', book: 'УО', ag: 'ЭАС06-26', planTotalThousands: 0.1, factTotalThousands: 0.08 },
+      { rowKey: 'УЭР:4', book: 'УЭР', ag: 'ЭАС06-26', planTotalThousands: 0.2, factTotalThousands: 0.16 },
+    ], [
+      { procKey: 'мастер:3', sheet: 'мастер', nameCell: 'ЭАС06-26', canonical: true, nmckRub: 300, winnerPriceRub: 240,
+        allocations: [{ dept: 'УО', nmck: 100, price: 80 }, { dept: 'УЭР', nmck: 200, price: 160 }] },
+      { procKey: 'мастер:4', sheet: 'мастер', nameCell: 'ЭА07-26', nmckRub: 100, winnerPriceRub: null },
+    ]);
+    expect(summarizeMatch(result, 2, 2)).toMatchObject({ matched: 2, nmckAgree: 2, coveragePct: 50 });
+  });
   const { procedures } = parseMonitoringProcedures({
     '1. УЭР': [
       ...HEADERS,

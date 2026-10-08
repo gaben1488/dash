@@ -10,6 +10,11 @@
  * никогда — ноль в цене аукциона содержателен («торги без результата»).
  */
 
+/** Для пользователя код выглядит так же, как в первичной книге. */
+export function procedureCodeLabel(p: { code: string | null; sourceCode?: string | null }): string | null {
+  return p.sourceCode ?? p.code;
+}
+
 /** Рубли с разрядами, без копеек: копейки в реестре — шум, точность — в title. */
 export function fmtRub(v: number | null): string {
   return v === null ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
@@ -32,14 +37,14 @@ export function fmtCount(v: number | null): string {
   return v === null ? '—' : v.toLocaleString('ru-RU');
 }
 
-/** Момент чтения книги: «18.08.2026, 14:05» по часам читателя (п.58). */
+/** Момент чтения книги: «18.08.2026, 14:05» по времени Камчатки. */
 export function fmtReadAt(iso: string): string {
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return iso;
   return new Date(ms).toLocaleString('ru-RU', {
     day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka',
+  }) + ' (Камчатка)';
 }
 
 /** Дата книги как есть: «дд.мм.гггг» уже пришла строкой, чинить её нельзя. */
@@ -135,4 +140,12 @@ export function plural(n: number, one: string, few: string, many: string): strin
 /** «374 процедуры» — число со склонённым словом. */
 export function pluralCount(n: number, one: string, few: string, many: string): string {
   return `${fmtCount(n)} ${plural(n, one, few, many)}`;
+}
+
+/** Ссылка только на принятую книгу; имя листа задаёт адрес без предположения о gid. */
+export function sourceCellUrl(bookUrl: string | null | undefined, sheet: string, cell: string): string | null {
+  if (!bookUrl || !/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit$/.test(bookUrl)
+    || !/^[A-Z]+[1-9]\d*$/.test(cell)) return null;
+  const range = `'${sheet.replaceAll("'", "''")}'!${cell}`;
+  return `${bookUrl}?range=${encodeURIComponent(range)}`;
 }

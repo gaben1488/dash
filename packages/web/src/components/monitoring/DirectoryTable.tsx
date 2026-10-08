@@ -26,11 +26,13 @@ import { CARD, RULE_HEAD, RULE_ROW } from './surfaces';
 export interface DirectoryTableProps {
   directory: DirectoryPayload;
   readAtLabel: string;
+  sourceSheetName?: string;
+  sourceBookName?: string;
   /** Нажатие на написание заказчика — отобрать его в реестре. */
   onPickCustomer?: (name: string) => void;
 }
 
-export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: DirectoryTableProps) {
+export function DirectoryTable({ directory, readAtLabel, onPickCustomer, sourceSheetName = 'Перечень ГРБС', sourceBookName = 'Ежедневный мониторинг' }: DirectoryTableProps) {
   const shortMissing = directory.rows.filter((r) => r.shortMissing).length;
   const unused = directory.rows.filter((r) => r.usedInBook === 0).length;
 
@@ -42,8 +44,8 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Лист «Перечень ГРБС»</h2>
-            <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-2xl">
+            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Лист «{sourceSheetName}»</h2>
+            <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-2xl">
               {pluralCount(directory.rows.length, 'учреждение', 'учреждения', 'учреждений')} района и их
               владельцы-ГРБС. Из них у {fmtCount(shortMissing)} сокращённое наименование дословно
               повторяет полное, а на {fmtCount(unused)} не ссылается ни одна строка реестра.
@@ -51,16 +53,16 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
           </div>
           <div className="shrink-0 text-right">
             <BookPeriodBadge label={readAtLabel} note="справочник живёт отдельно от реестра и обновляется реже" />
-            <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
-              Источник: лист «Перечень ГРБС» книги «Ежедневный мониторинг»
+            <p className="mt-1 text-xs leading-tight text-zinc-500 dark:text-zinc-400">
+              Источник: лист «{sourceSheetName}» книги «{sourceBookName}»
             </p>
             <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs min-w-[40rem]">
-            <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
+          <table className="w-full text-sm min-w-[40rem]">
+            <thead className="text-xs text-zinc-500 dark:text-zinc-400">
               <tr className={RULE_HEAD}>
                 <th className="px-2 py-1.5 text-left font-medium">№</th>
                 <th className="px-2 py-1.5 text-left font-medium">ГРБС-владелец</th>
@@ -71,10 +73,22 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
             </thead>
             <tbody>
               {directory.rows.map((r, i) => (
-                <tr key={`${r.num ?? i}:${r.fullName ?? i}`} className={`${RULE_ROW} align-top`}>
-                  <td className="px-2 py-1.5 tabular-nums text-zinc-400 dark:text-zinc-500">{r.num ?? '—'}</td>
+                <tr key={r.institutionId ?? r.sourceAddress ?? `${r.num ?? i}:${r.fullName ?? i}`} className={`${RULE_ROW} align-top`}>
+                  <td className="px-2 py-1.5 tabular-nums text-zinc-500 dark:text-zinc-400">{r.num ?? '—'}</td>
                   <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-300">{r.grbs ?? '—'}</td>
-                  <td className="px-2 py-1.5 max-w-[24rem] text-zinc-700 dark:text-zinc-200">{r.fullName ?? '—'}</td>
+                  <td className="px-2 py-1.5 max-w-[24rem] text-zinc-700 dark:text-zinc-200">{r.fullName ?? '—'}
+                    {r.sourceAddress && <p className="mt-1 text-xs text-[var(--ink-muted)]">{r.sourceAddress}</p>}
+                    {r.institutionId && <details className="mt-1 text-xs text-[var(--ink-muted)]"><summary className="cursor-pointer">Идентификатор учреждения</summary><p className="mt-1 break-all font-mono">{r.institutionId}</p></details>}
+                    {(r.aliases?.length ?? 0) > 1 && (
+                      <details className="mt-1 text-xs">
+                        <summary className="cursor-pointer">Названия и алиасы</summary>
+                        <ul>
+                          {r.aliases!.map((name) => (
+                            <li key={name}>{name}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}</td>
                   <td className="px-2 py-1.5 max-w-[16rem] text-zinc-600 dark:text-zinc-300">
                     {r.shortMissing
                       ? (
@@ -86,9 +100,9 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums">
                     {r.usedInBook === null
-                      ? <span className="text-zinc-400 dark:text-zinc-500" title="Совпадения не считались">—</span>
+                      ? <span className="text-zinc-500 dark:text-zinc-400" title="Совпадения не считались">—</span>
                       : r.usedInBook === 0
-                        ? <span className="text-zinc-400 dark:text-zinc-500" title="Ни одна строка реестра на это учреждение не ссылается">0</span>
+                        ? <span className="text-zinc-500 dark:text-zinc-400" title="Ни одна строка реестра на это учреждение не ссылается">0</span>
                         : <span className="text-zinc-700 dark:text-zinc-200">{fmtCount(r.usedInBook)}</span>}
                   </td>
                 </tr>
@@ -107,7 +121,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
             Написания заказчика, которых в справочнике нет —{' '}
             {pluralCount(directory.unmatchedCustomers.length, 'написание', 'написания', 'написаний')}
           </h3>
-          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-3xl">
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-3xl">
             По убыванию частоты. Пока написание не совпадает со справочником, закупки одного
             учреждения расходятся по разным строкам разреза «по заказчику» и выглядят как разные
             учреждения. Нажатие отбирает написание в реестре.
@@ -118,7 +132,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
                 <button
                   type="button"
                   onClick={() => onPickCustomer?.(u.name)}
-                  className="inline-flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-700/50 px-2 py-0.5 text-[10px] text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 max-w-full"
+                  className="inline-flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-700/50 px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 max-w-full"
                 >
                   <span className="truncate">{u.name}</span>
                   <span className="tabular-nums opacity-60">{u.count}</span>
@@ -130,7 +144,7 @@ export function DirectoryTable({ directory, readAtLabel, onPickCustomer }: Direc
       )}
 
       {directory.notes.length > 0 && (
-        <div className="space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {directory.notes.map((n) => <p key={n}>{n}</p>)}
         </div>
       )}

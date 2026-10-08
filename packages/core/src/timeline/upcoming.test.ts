@@ -109,6 +109,25 @@ describe('buildUpcoming — риск-контекст', () => {
     expect(r.monitoringStage).toBeNull();
   });
 
+  it('emits stage_vs_monitoring only from an unambiguous success and retains source addresses', () => {
+    const rows = [
+      row(4, { G: 'Нет контракта', N: '01.07.2026', Q: 'Х', AG: 'ЭА152-26' }),
+      row(5, { G: 'Живая причина', N: '01.07.2026', Q: '', AG: 'ЭА153-26', U: 'в связи отсутствием финансирования закупка переносится на 30.09.2026' }),
+      row(6, { G: 'Не состоялась', N: '01.07.2026', Q: '', AG: 'ЭА154-26', U: 'нет финансирования' }),
+      row(7, { G: 'Код отсутствует', N: '01.07.2026', Q: 'Х' }),
+    ];
+    const stages = new Map([['ЭА152-26', 'Состоялась'], ['ЭА153-26', 'Состоялась'], ['ЭА154-26', 'Не состоялась']]);
+    const result = buildUpcoming(rows, { asOfDay: TODAY, days: 14, monitoringStages: stages });
+    expect(result.find((x) => x.sheetRow === 4)?.stageVsMonitoring).toMatchObject({
+      kind: 'success_without_contract_date', address: 'УЭР!Q4',
+    });
+    expect(result.find((x) => x.sheetRow === 5)?.stageVsMonitoring).toMatchObject({
+      kind: 'live_reason_after_success', address: 'УЭР!U5',
+    });
+    expect(result.find((x) => x.sheetRow === 6)?.stageVsMonitoring).toBeNull();
+    expect(result.find((x) => x.sheetRow === 7)?.stageVsMonitoring).toBeNull();
+  });
+
   it('сумма плана читается в операторском формате «1 234,56»', () => {
     const rows = [row(4, { G: 'Деньги', L: 'ЭА', K: '1 234,56', N: '01.07.2026', Q: 'Х' })];
     const [r] = buildUpcoming(rows, { asOfDay: TODAY, days: 14 });

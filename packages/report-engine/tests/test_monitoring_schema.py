@@ -1,5 +1,6 @@
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from procurement_engine.google_adapter import GoogleReadError
@@ -10,6 +11,76 @@ from procurement_engine.monitoring_schema import (
 from procurement_engine.raw_pipeline import header_hash
 from procurement_engine.semantic_headers import semantic_header_hash
 from test_runtime import inputs
+
+
+def test_dynamic_header_counts_do_not_change_the_schema_but_static_labels_do():
+    before = [['Code', 'No successor count', 23, 1000]]
+    after = [['Code', 'No successor count', 24, 2000]]
+    volatile = [[1, 3], [1, 4]]
+    assert header_hash(before, 1, volatile_cells=volatile) == header_hash(after, 1, volatile_cells=volatile)
+    after[0][0] = 'Different key'
+    assert header_hash(before, 1, volatile_cells=volatile) != header_hash(after, 1, volatile_cells=volatile)
+
+
+@pytest.mark.parametrize('drift', [None, 'directory', 'supplier', 'joint', 'department', 'checks'])
+def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, drift):
+    from procurement_engine import monitoring_schema as module
+
+    headers = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json').read_text())
+    specs = [('directory', 'Справочник заказчиков', 837564274, 18,
+              '04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3',
+              'be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe'),
+             ('joint', 'Лист Совместных закупок', 2526402, 20,
+              '49b9390505ad81f75260f76c3debb2e99d34de4a8013966365255b56c3c5b377',
+              '1f22e2ea69429ffcfd6d988daa4c43153d080a39e6ef13b46f25acfb421581d1'),
+             ('supplier', '_Поставщики', 110002, 6,
+              '78f3cdb4b1c5e59f3d35b433e3bad2e4305c245235f79381d076c852f6b822f5',
+              '530bd5d15273718352e3a9527323fa97b78e0ac01cf89f1e33eb53c817df9a10')]
+    selected = [p for p in module.REVIEWS if p['sheet'] in {s[1] for s in specs} | {'_Проверки'}]
+    monkeypatch.setattr(module, 'REVIEWS', selected)
+    monkeypatch.setattr(module, 'RETIRED', [])
+    canonical = '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E'
+    original = {'sources': [{'source_id': 'anchor', 'provider_id': canonical, 'sheet': 'Рабочий реестр процедур', 'sheet_id': 2526300}]}
+    sealed = {}; keys = {}
+    for name, title, sheet_id, columns, raw, semantic in specs:
+        patch = next(p for p in selected if p['sheet'] == title)
+        source = {'source_id': name, 'provider_id': canonical, 'sheet': title, 'sheet_id': sheet_id,
+                  'columns': columns, 'header_rows': 1, 'schema_fingerprint': raw, 'role': patch['role'], 'grbs': None, 'units': 'rub'}
+        original['sources'].append(source); sealed[name] = (deepcopy(source), semantic); keys[title] = name
+    ud = {'source_id': 'department', 'provider_id': '1zrpgVaCyS4S4KBNMFuDleMJS-PSTonHmPY_bRLgTVsg', 'sheet': 'ВСЕ', 'sheet_id': 1489829974,
+          'role': 'master', 'grbs': 'УД', 'columns': 34, 'header_rows': 3, 'units': 'thousand_rub',
+          'schema_fingerprint': '9f99bae48efdc4516559fdf23f81c4f7634fc4eb15d3a3b65bea7e0e8580b88e'}
+    original['sources'].append(ud)
+    sealed['department'] = (deepcopy(ud), '2488b3c0690154103023303e35a7cc8cb119b825336d0403ee37011fec08507e')
+    keys['ВСЕ'] = 'department'
+    keys['_Проверки'] = 'checks'
+
+    class Client:
+        def revision(self, provider):
+            return 'stable'
+
+        def grid(self, provider, sheet_id):
+            if sheet_id == 913657450:
+                return {'title': '_Проверки', 'gridProperties': {'columnCount': 8}}
+            source = next(s for s in original['sources'] if s['sheet_id'] == sheet_id)
+            return {'title': source['sheet'], 'gridProperties': {'columnCount': 19 if source['source_id'] == 'directory' else source['columns']}}
+
+        def values(self, provider, title, start, end, columns):
+            result = deepcopy(headers[keys[title]])
+            if keys[title] == drift:
+                result[-1][0] = 'Unreviewed business label'
+            return result
+
+    if drift:
+        with pytest.raises(ValueError, match='MONITORING_SCHEMA_'):
+            review_registry(original, sealed, Client())
+    else:
+        reviewed, changes = review_registry(original, sealed, Client())
+        assert changes == 5
+        assert original['sources'][-1] == ud
+        assert review_registry(reviewed, sealed, Client())[1] == 0
+        assert next(s for s in reviewed['sources'] if s['source_id'] == 'department')['schema_fingerprint'] == ud['schema_fingerprint']
+        assert reviewed['sources'][-1]['sheet'] == '_Проверки'
 
 
 def fixture(tmp_path, monkeypatch):

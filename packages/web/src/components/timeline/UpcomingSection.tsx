@@ -109,6 +109,15 @@ function UpcomingItem({
               {row.monitoringStage}
             </span>
           )}
+          {row.stageVsMonitoring && (
+            <span
+              className="rounded bg-[var(--surface-raised)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--data-warn)]"
+              title={`${row.stageVsMonitoring.message} Источник: ${row.stageVsMonitoring.address}`}
+              aria-label={`Требует проверки: ${row.stageVsMonitoring.message} Источник: ${row.stageVsMonitoring.address}`}
+            >
+              сверить стадии
+            </span>
+          )}
           {opening
             ? <Loader2 size={13} className="animate-spin text-[var(--ink-faint)]" aria-hidden="true" />
             : <ChevronRight size={13} className="text-[var(--ink-faint)]" aria-hidden="true" />}

@@ -117,13 +117,23 @@ describe('parseMonitoringJournal', () => {
 });
 
 describe('buildLineageChains', () => {
+  it('сохраняет внутреннюю ветвь и её продолжение', () => {
+    const edges = [['ЭА1-26', 'ЭА2-26'], ['ЭА2-26', 'ЭА3-26'],
+      ['ЭА2-26', 'ЭА4-26'], ['ЭА4-26', 'ЭА5-26']].map(([from, to]) => ({ from, to, sourceRow: 3, sourceText: to }));
+    const chains = buildLineageChains(edges);
+    expect(chains.map((c) => c.codes)).toEqual([
+      ['ЭА1-26', 'ЭА2-26', 'ЭА3-26'], ['ЭА2-26', 'ЭА4-26', 'ЭА5-26'],
+    ]);
+    expect(chains.flatMap((c) => c.edges)).toHaveLength(4);
+  });
   it('взаимная ссылка двух процедур не даёт бесконечной цепочки', () => {
     const chains = buildLineageChains([
       { from: 'ЭА54-26', to: 'ЭА214-26', sourceRow: 10, sourceText: 'Повторный аукцион ЭА214-26' },
       { from: 'ЭА214-26', to: 'ЭА54-26', sourceRow: 20, sourceText: 'Повторный (ЭА54-26)' },
     ]);
     expect(chains).toHaveLength(1);
-    expect(chains[0].codes).toEqual(['ЭА54-26', 'ЭА214-26']);
+    expect(chains[0].codes).toEqual(['ЭА54-26', 'ЭА214-26', 'ЭА54-26']);
+    expect(chains[0].edges).toHaveLength(2);
   });
 
   it('две отменённые процедуры, сошедшиеся в одну новую, дают две цепочки', () => {

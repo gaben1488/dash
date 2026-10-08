@@ -6,7 +6,10 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 
-const BOOK_ID = process.env.BOOK_ID || '1iVY7c7unCk1uyE4xRhWS8EG2vE1Hy2FEvjw5GRGsqec';
+const BOOK_ID = process.env.BOOK_ID;
+if (!BOOK_ID || process.env.CONFIRM_HISTORICAL_REPAIR !== BOOK_ID || BOOK_ID === '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E') {
+  throw new Error('Historical repair requires explicit BOOK_ID and matching CONFIRM_HISTORICAL_REPAIR; the canonical workbook is forbidden.');
+}
 
 function loadEnv(p) {
   if (!fs.existsSync(p)) return;

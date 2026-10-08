@@ -2,6 +2,42 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeMasterRules, splitQueueFormula, removeCancellationClockWarning, auditMasterFormulas, withQualityAction } from './monitoring-migration.mjs';
 
+test('архив расширяет семью по размеру графа, сохраняя остальную формулу', async () => {
+  const { repairArchiveFamilyExpansion } = await import('./monitoring-migration.mjs');
+  const old = '=LET(семья;expand(expand(expand(expand(expand(expand("; "&нач&"; "))))));SUM(семья))';
+  assert.equal(repairArchiveFamilyExpansion(old), '=LET(семья;REDUCE("; "&нач&"; ";SEQUENCE(MAX(1;ROWS(лкКод)-1));LAMBDA(набор;шаг;expand(набор)));SUM(семья))');
+  assert.throws(() => repairArchiveFamilyExpansion('=SUM(A1:A2)'), /ARCHIVE_FAMILY_CONTRACT/u);
+});
+
+test('повторный ремонт архива сохраняет допуск пустой даты, но исключает ошибку разбора', async () => {
+  const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
+  const f = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0)*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)));м;ARRAYFORMULA(--((свои+процБезДолей)>0)*EXACT(стд;"Состоялась"));IF(TRIM(датаФакта&"")="";TRUE;IFERROR(IF(ISNUMBER(датаФакта);датаФакта;DATEVALUE(датаФакта))<=Сегодня;TRUE)))';
+  const fixed = completedArchiveFormula(f);
+  assert.equal(fixed, f.replace('<=Сегодня;TRUE)', '<=Сегодня;FALSE)'));
+  assert.equal(completedArchiveFormula(fixed), fixed);
+});
+
+test('основная совместная процедура без долей сохраняет деньги в архиве', async () => {
+  const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
+  const f = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0)*IF(EXACT(выбор;"все");1;--EXACT(упр;выбор)));м;ARRAYFORMULA(--((свои+процБезДолей)>0)*EXACT(стд;"Состоялась"));вПоказателях;ARRAYFORMULA(м*NOT(процБезДолей));FILTER(ARRAYFORMULA(IF(процБезДолей;"";нмцк));м))';
+  const fixed = completedArchiveFormula(f);
+  assert.equal(fixed, f.replace('м*NOT(процБезДолей)', 'м').replace('IF(процБезДолей;"";нмцк)', 'нмцк'));
+});
+
+test('ремонт свода сохраняет введённые деньги и отвергает другую раскладку', async () => {
+  const { planAnalyticalRepair } = await import('./monitoring-migration.mjs');
+  const cells = [{ row: 2, column: 0, cell: { userEnteredValue: { stringValue: 'Управление' } } },
+    { row: 152, column: 1, cell: { userEnteredValue: { formulaValue: '=SUM(A1:A2)' } } },
+    { row: 153, column: 1, cell: { userEnteredValue: { numberValue: 0.01 } } }];
+  const requests = planAnalyticalRepair(cells, 2526800, 235);
+  const writes = requests.filter(r => r.updateCells).map(r => r.updateCells);
+  assert(writes.some(r => r.start.rowIndex === 152 && r.rows[0].values[0].userEnteredValue.formulaValue));
+  assert(writes.some(r => r.start.rowIndex === 219 && r.rows[0].values[0].userEnteredValue.formulaValue));
+  assert(writes.every(r => r.start.sheetId === 2526800 && r.start.rowIndex < 235));
+  assert(writes.every(r => r.fields === 'userEnteredValue,note'));
+  assert.throws(() => planAnalyticalRepair([], 2526800, 235), /ANALYTICAL_SCHEMA/);
+});
+
 test('разрастание первой очереди не сдвигает формулу второй', () => {
   const old = '=IFERROR(LET(код;ФильтрВитрин;блок1;FILTER(код;код<>"");блок2;FILTER(код;код="X");{блок1;{""};{"Данные по закрытым строкам"};блок2});"ошибка")';
   const { active, closed } = splitQueueFormula(old);
@@ -26,8 +62,8 @@ test('УФ проверяет нужную колонку этой строки,
   assert.deepEqual(normalized[1].ranges, [{ sheetId: 1, startRowIndex: 2, endRowIndex: 1002, startColumnIndex: 13, endColumnIndex: 16 }]);
   assert.match(normalized[1].booleanRule.condition.values[0].userEnteredValue, /\$Y3/u);
   assert.match(normalized[0].booleanRule.condition.values[0].userEnteredValue, /TRIM\(\$A3/u);
-  assert.equal(normalized[2].ranges[0].startColumnIndex, 22);
-  assert.equal(normalized[2].ranges[0].endColumnIndex, 23);
+  assert.equal(normalized[2].ranges[0].startColumnIndex, 0);
+  assert.equal(normalized[2].ranges[0].endColumnIndex, 25);
 });
 
 test('отмена не становится ошибкой только потому, что сегодня прошло больше времени', () => {
@@ -52,4 +88,141 @@ test('действия закрывают конкретную причину и
   assert.match(f, /Дополнить даты/u);
   assert.match(f, /Ошибка:\|Проверить:\|Неполно:/u);
   assert.throws(() => withQualityAction('константа', 3), /ACTION_FORMULA_CONTRACT/u);
+});
+
+test('автокод в каждой строке пересчитывается из G, без ручных исключений и защит', async () => {
+  const { planProcedureCodeAutofill, procedureCodeFormula } = await import('./monitoring-migration.mjs');
+  const row = (code, source) => {
+    const values = Array.from({ length: 7 }, () => ({}));
+    if (code) values[0] = { userEnteredValue: { stringValue: code }, formattedValue: code };
+    if (source) values[6] = { userEnteredValue: { stringValue: source }, formattedValue: source };
+    return { values };
+  };
+  const rows = [row('Код', ''), row('Код процедуры', ''),
+    row('ЭАС09-26', 'ЭАС09-26 Поставка'),
+    row('', 'ЭА10-26 Поставка'),
+    row('', ''), row('ЭА12-26', 'ЭА12-26 Услуга'),
+    row('', 'ЭАС13-26 Поставка')];
+  const requests = planProcedureCodeAutofill(rows, 2526300, 7);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0].updateCells.start, { sheetId: 2526300, rowIndex: 2, columnIndex: 0 });
+  assert.equal(requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue, procedureCodeFormula(3));
+  assert.deepEqual(requests[1].copyPaste.destination, { sheetId: 2526300, startRowIndex: 3, endRowIndex: 7, startColumnIndex: 0, endColumnIndex: 1 });
+  assert.match(procedureCodeFormula(449), /G449/u);
+  assert.match(procedureCodeFormula(3), /CHAR\(10\)/u);
+  assert.match(procedureCodeFormula(3), /UPPER\(текст\)/u);
+  assert.ok(requests.every(request => !('addProtectedRange' in request) && !('updateProtectedRange' in request)));
+  assert.throws(() => planProcedureCodeAutofill(rows, 1, 8), /CODE_AUTOFILL_BOUNDS/u);
+  assert.throws(() => planProcedureCodeAutofill(rows.slice(2), 1, 5), /CODE_AUTOFILL_HEADER/u);
+  assert.throws(() => procedureCodeFormula(2), /CODE_AUTOFILL_ROW/u);
+  const invalid = rows.map(r => structuredClone(r));
+  invalid[2] = row('ЭАС09-25', 'ЭАС09-26 Поставка');
+  assert.throws(() => planProcedureCodeAutofill(invalid, 2526300, 7), /CODE_AUTOFILL_SOURCE_CONFLICT:A3:G3/u);
+});
+
+test('семейные суммы блокируются только коллизией задействованного кода', async () => {
+  const { familyValuationFormula, familyLinkedDuplicateGuardFormula, canonicalAnalyticalStatusFormula, planAnalyticalRepair } = await import('./monitoring-migration.mjs');
+  assert.match(familyValuationFormula(), /\$B\$226>0/u);
+  assert.doesNotMatch(familyValuationFormula(), /\$B\$171>0/u);
+  assert.match(familyLinkedDuplicateGuardFormula(), /Код повторяется у строк не вида/u);
+  assert.match(familyLinkedDuplicateGuardFormula(), /предки/u);
+  assert.match(canonicalAnalyticalStatusFormula(), /Свод рассчитан/u);
+  const plan = planAnalyticalRepair([{ row: 2, column: 0, cell: { userEnteredValue: { stringValue: 'Управление' } } }], 2526800, 235);
+  const control = plan.find(r => r.updateCells?.start?.rowIndex === 225 && r.updateCells?.start?.columnIndex === 1);
+  assert.equal(control.updateCells.rows[0].values[0].userEnteredValue.formulaValue, familyLinkedDuplicateGuardFormula());
+  const header = plan.find(r => r.updateCells?.start?.rowIndex === 0 && r.updateCells?.start?.columnIndex === 2);
+  assert.match(header.updateCells.rows[0].values[0].userEnteredValue.formulaValue, /Контрольная сверка — расхождения/u);
+  assert.ok(header.updateCells.rows[0].values[0].userEnteredValue.formulaValue.includes(canonicalAnalyticalStatusFormula().slice(1)));
+});
+
+test('архив ГРБС отделяет состоявшиеся и соблюдает выбранное управление', async () => {
+  const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
+  const base = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0));свои;ARRAYFORMULA(есть);м;ARRAYFORMULA(--((свои+процБезДолей)>0));FILTER(код;м))';
+  const result = completedArchiveFormula(base);
+  assert.match(result, /долейКода=0\)\*IF\(EXACT\(выбор;"все"\);1;--EXACT\(упр;выбор\)\)/u);
+  assert.match(result, /м;ARRAYFORMULA\(--\(\(свои\+процБезДолей\)>0\)\*EXACT\(стд;"Состоялась"\)\)/u);
+  assert.equal(completedArchiveFormula(result), result);
+  assert.throws(() => completedArchiveFormula('=SUM(A1:A3)'), /ARCHIVE_FORMULA_CONTRACT/u);
+});
+
+test('денежный расчёт не требует дополнительного листа и сохраняет критерии периода и стадии', async () => {
+  const { inlineMoneyAttributionFormula } = await import('./monitoring-migration.mjs');
+  const f = '=SUMIFS(INDEX(ДенежныеРазрезы;0;8);INDEX(ДенежныеРазрезы;0;5);$R3;INDEX(ДенежныеРазрезы;0;23);"<>Переоформлена")';
+  const result = inlineMoneyAttributionFormula(f);
+  assert(!result.includes('ДенежныеРазрезы'));
+  assert(!result.includes('SUMIFS'));
+  assert(result.includes('(department=$R3)'));
+  assert(result.includes('(stage<>"Переоформлена")'));
+  assert(result.includes('QUERY(FILTER('));
+  assert.throws(() => inlineMoneyAttributionFormula('=COUNTIFS(A1:A2;"да")'), /MONEY_FORMULA_CONTRACT/u);
+});
+
+
+test('diagnostics explain code collisions in X/Y without changing the key and survive repeat runs', async () => {
+  const { explainProcedureCollisionAction,explainProcedureCollisionRemarks,planMasterCodeDiagnostics }=await import('./monitoring-migration.mjs');
+  const action='=IF(A3="";"";Y3)';
+  const remarks='=IF(TRIM(A3&"")="";"";LET(код;A3;TEXTJOIN("; ";TRUE;"Ошибка: Код повторяется у строк не вида «доля» — A";"Ошибка: Дубль доли — A")))';
+  const upgradedAction=explainProcedureCollisionAction(action,3);
+  const upgradedRemarks=explainProcedureCollisionRemarks(remarks,3);
+  assert.match(upgradedAction,/КОНФЛИКТ/u);
+  assert.match(upgradedAction,/строки/u);
+  assert.match(upgradedRemarks,/Код из G не распознан/u);
+  assert.match(upgradedRemarks,/Автокод в A перезаписан/u);
+  assert.equal(explainProcedureCollisionAction(upgradedAction,3),upgradedAction);
+  assert.equal(explainProcedureCollisionRemarks(upgradedRemarks,3),upgradedRemarks);
+  const requests=planMasterCodeDiagnostics(action,remarks,2526300,1002);
+  assert.equal(requests.length,2);
+  assert.equal(requests[0].updateCells.start.columnIndex,23);
+  assert.equal(requests[1].copyPaste.destination.endRowIndex,1002);
+  assert.ok(requests.every(req=>!('addProtectedRange' in req)));
+});
+
+test('calculated summary discloses independent acceptance discrepancies without blocking monetary facts', async () => {
+  const { withIndependentQaStatus, canonicalAnalyticalStatusFormula } = await import('./monitoring-migration.mjs');
+  const input = canonicalAnalyticalStatusFormula();
+  const f = withIndependentQaStatus(input);
+  assert.match(f, /Свод рассчитан/u);
+  assert.match(f, /Контрольная сверка — расхождения:/u);
+  assert.match(f, /'_Проверки'!\$B\$1/u);
+  assert.match(f, /РАСХОЖДЕНИЕ/u);
+  assert.equal(withIndependentQaStatus(f), f, 'Repeated migration must be idempotent');
+  assert.throws(() => withIndependentQaStatus('text instead of formula'), /QA_STATUS_FORMULA_CONTRACT/u);
+});
+
+test('manual supplier INNs are reviewable facts, never silently overwritten by formula rollout', async () => {
+  const { auditManualInnOverrides } = await import('./monitoring-migration.mjs');
+  const row = (n, inn) => ({
+    row: n,
+    cells: Array.from({length: 25}, (_, i) =>
+      i === 0 ? {formattedValue: `ЭА${n}-26`} :
+      i === 18 ? {userEnteredValue:{numberValue:inn}} : {}),
+  });
+  const findings = auditManualInnOverrides([
+    row(67, 410200615520),
+    row(202, 300033529),
+    {row: 203, cells: Array.from({length: 25}, (_, i) =>
+      i === 18 ? {userEnteredValue: {formulaValue: '=1'}} : {})},
+  ]);
+  assert.equal(findings.length, 2);
+  assert.deepEqual(findings.map(x => x.address), ['S67', 'S202']);
+  assert.equal(findings[0].validShape, true);
+  assert.equal(findings[1].validShape, false);
+  assert.ok(findings.every(x => x.requiresPrimaryEvidence));
+});
+
+test('formula guard does not mistake documented manual supplier IDs for broken formulas', () => {
+  const row = (n) => ({
+    row: n,
+    cells: Array.from({length: 25}, (_, i) => i === 18
+      ? {userEnteredValue:{numberValue:4101147092}}
+      : i === 0 || [16,21,22,23,24].includes(i)
+        ? {userEnteredValue:{formulaValue:`=IF(A${n}="";"";G${n})`}}
+        : {}),
+  });
+  const review = auditMasterFormulas([row(3),row(4)]);
+  assert.deepEqual(review,{constants:[],deviations:[],errors:[]});
+  const baseline = row(3);
+  baseline.cells[18] = { userEnteredValue: { formulaValue: '=G3' } };
+  const enforcedS = auditMasterFormulas([baseline,row(4),row(5)],[18]);
+  assert.equal(enforcedS.constants.length,2, 'Explicit S-only audit still detects overrides');
 });

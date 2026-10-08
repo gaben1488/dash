@@ -42,6 +42,8 @@ import {
 import { db, schema } from '../db/index.js';
 import { config } from '../config.js';
 import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
+import { getMonitoringBook } from '../services/monitoring.js';
+import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 
 /** «Сегодня» календаря продукта (Камчатка +12), как у /api/report и /api/changes. */
@@ -183,15 +185,30 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const asOfDay = productToday();
-    const upcoming = buildUpcoming(inputRows, { asOfDay, days });
+    const stages = new Map<string, string>();
+    let monitoringReadAt: string | null = null;
+    let monitoringError: string | null = null;
+    try {
+      const book = await getMonitoringBook();
+      if (!book.sheets['Рабочий реестр процедур']) throw new Error('Рабочий реестр мониторинга не прочитан');
+      const procedures = parsedMonitoringBook(book).registry.procedures;
+      const counts = new Map<string, number>();
+      for (const p of procedures) if (p.code) counts.set(p.code, (counts.get(p.code) ?? 0) + 1);
+      for (const p of procedures) if (p.code && counts.get(p.code) === 1) stages.set(p.code, p.stage);
+      monitoringReadAt = book.readAt;
+    } catch (error) {
+      monitoringError = error instanceof Error ? error.message : String(error);
+    }
+    const upcoming = buildUpcoming(inputRows, { asOfDay, days , monitoringStages: stages });
     return reply.send({
       asOf: isoOfDayNumber(asOfDay),
       days,
       total: upcoming.length,
       rows: upcoming,
-      // Стадия мониторинга появится со вкладкой «Ежедневный мониторинг»;
-      // пока связки нет — поле у строк честно null, и это сказано вслух.
-      monitoringLinked: false,
+      // Только однозначный код связывает строку со стадией мониторинга.
+      monitoringLinked: monitoringReadAt !== null,
+      monitoringReadAt,
+      monitoringError,
     });
   });
 

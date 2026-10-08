@@ -7,21 +7,11 @@
  * промисом, отказ отдельного листа не валит цикл, а честно записывается в
  * failed (читатель увидит плашку неполноты, а не тишину).
  *
- * ЧИТАЕМ ОДИННАДЦАТЬ ВИДИМЫХ ЛИСТОВ, а не восемь: восемь реестров управлений,
- * «СВОДНЫЙ» (итог книги и его разрыв с нашим счётом), «25-26» (переходящий
- * реестр с победителями, ИНН и родословной переобъявлений) и «Справочник заказчиков»
- * (канонический справочник учреждений и алиасов). Три скрытых листа-предка данными не читаются — там
- * ноль строк, и продукт показывает их как форму, а не как данные.
- *
- * ОДНО ОБРАЩЕНИЕ ВМЕСТО ОДИННАДЦАТИ (21.08.2026). Листы читались одиннадцатью
- * параллельными вызовами values.get. Параллельность не удешевляла их ни на
- * копейку: дорог здесь не процесс, а квота Google и время ответа сети — залп
- * из одиннадцати запросов стоит одиннадцати обращений и упирается в потолок
- * «слишком часто». Книга одна, значит и обращение одно: values.batchGet со
- * всеми диапазонами (документация Sheets, samples/reading — «Read multiple
- * ranges»). Пакетное чтение — всё или ничего: переименованный лист роняет
- * ВЕСЬ запрос, поэтому на отказе пакета остаётся прежний путь по одному листу,
- * и продукт получает частичный результат с честным списком непрочитанных.
+ * Четыре текущих источника: мастер, рабочая очередь, аналитический свод,
+ * справочник заказчиков. Архивы и совместные закупки Dash выводит из мастера;
+ * справочник поставщиков читается отдельно с собственным статусом отказа.
+ * Один values.batchGet получает всю основную книгу. Если пакет не проходит,
+ * читаем листы отдельно и сохраняем имена непрочитанных источников.
  *
  * Чего этот слой НЕ делает: не разбирает строки (это @aemr/core), не решает,
  * что считать ошибкой, и не сглаживает неполноту. Лист не ответил — его имя
@@ -33,6 +23,7 @@ import { config } from '../config.js';
 import { batchGetSheetValues, getSheetDataFromSpreadsheet } from './google-sheets.js';
 import { bookFingerprints, changedSheets } from './sheet-fingerprint.js';
 import { checkFileChanged } from './file-revision.js';
+import { assignMissingCustomerIds } from './customer-identities.js';
 
 /**
  * Книга оперативного мониторинга/процедур. Значение централизовано в config:
@@ -65,6 +56,7 @@ let cachedAtMs = 0;
 let inFlight: Promise<MonitoringBookSnapshot> | null = null;
 let prints: Record<string, string> | null = null;
 let version = 0;
+let retryRequired = false;
 
 /** Прочитать все листы одним пакетом. Отказ — общий на всю книгу. */
 async function readBookInOneRequest(): Promise<Record<string, unknown[][]>> {
@@ -103,7 +95,7 @@ async function readBookSheetBySheet(): Promise<{
 /**
  * Прочитать листы книги мониторинга (с кэшем).
  *
- * Кэшируется только снимок, где прочитан хоть один лист: полный отказ
+ * Кэшируется только полный снимок: полный отказ
  * источника не должен занимать TTL и держать «пустоту» пять минут —
  * следующий запрос честно попробует снова.
  */
@@ -132,7 +124,8 @@ export function getMonitoringBook(force = false): Promise<MonitoringBookSnapshot
     // но номер содержимого обязано получить — иначе «версия 0» означала бы
     // одновременно «книгу не читали» и «книга не менялась».
     if (prints === null || changed.length > 0) version++;
-    prints = next;
+    retryRequired = Object.keys(failed).length > 0;
+    if (!retryRequired) prints = next;
 
     const snapshot: MonitoringBookSnapshot = {
       sheets,
@@ -141,7 +134,7 @@ export function getMonitoringBook(force = false): Promise<MonitoringBookSnapshot
       version,
       changed,
     };
-    if (Object.keys(sheets).length > 0) {
+    if (Object.keys(sheets).length > 0 && Object.keys(failed).length === 0) {
       cached = snapshot;
       cachedAtMs = Date.now();
     }
@@ -170,6 +163,7 @@ export function resetMonitoringState(): void {
   invalidateMonitoringCache();
   prints = null;
   version = 0;
+retryRequired = false;
 }
 
 /** Итог адресной перечитки книги по уведомлению. */
@@ -182,6 +176,8 @@ export interface MonitoringRefreshResult {
   version: number;
   /** Почему не читали — для журнала. Пусто, если читали. */
   skippedBecause?: string;
+  /** Partial reading must remain retryable. */
+  failed?: Record<string, string>;
 }
 
 /**
@@ -207,7 +203,7 @@ export async function refreshMonitoringBook(options: {
 } = {}): Promise<MonitoringRefreshResult> {
   if (options.askDrive ?? true) {
     const verdict = await checkFileChanged(MONITORING_SPREADSHEET_ID);
-    if (verdict === 'same') {
+    if (verdict === 'same'&& !retryRequired) {
       return {
         read: false,
         changed: [],
@@ -220,8 +216,16 @@ export async function refreshMonitoringBook(options: {
   }
 
   invalidateMonitoringCache();
-  const book = await getMonitoringBook(true);
-  return { read: true, changed: book.changed, version: book.version };
+  let book = await getMonitoringBook(true);
+  const directory = book.sheets['Справочник заказчиков'];
+  if (directory?.[0]?.[18] === 'ID учреждения' && directory.slice(1).some(row => (row[3] || row[4]) && !row[18])) {
+    try {
+      if (await assignMissingCustomerIds(MONITORING_SPREADSHEET_ID)) book = await getMonitoringBook(true);
+    } catch (error) {
+      book = { ...book, failed: { ...book.failed, 'ID учреждения': error instanceof Error ? error.message : 'Идентификаторы не сохранены; повторите обновление.' } };
+    }
+  }
+  return { read: true, changed: book.changed, version: book.version , failed: book.failed };
 }
 
 /** Номер содержимого последней прочитанной книги; 0 — книгу ещё не читали. */

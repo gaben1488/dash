@@ -111,8 +111,13 @@ export function procedureStage(
 }
 
 /** Исторический импорт сохраняет прежний смысл; канон требует первичного результата. */
-export function monetaryFactAllowed(p: Pick<MonitoringProcedure, 'result' | 'stage' | 'factsEligible'>): boolean {
+export function monetaryFactAllowed(p: Pick<MonitoringProcedure, 'result' | 'factsEligible'> & { readonly stage: string }): boolean {
   return p.result === undefined || (p.stage === 'awarded' && p.factsEligible !== false);
+}
+
+/** Переданный предок хранится в истории, а текущий план учитывается у преемника. */
+export function monetaryPlanAllowed(p: { readonly stage: string }): boolean {
+  return p.stage !== 'reissued';
 }
 
 // ── Дефекты строки ───────────────────────────────────────────────────
@@ -155,6 +160,7 @@ export interface MonitoringDefect {
 // ── Строка реестра ───────────────────────────────────────────────────
 
 export interface MonitoringProcedure {
+  readonly protocolFlag?: string | null;
   /** Поля действующего мастера. Отсутствуют у исторического импорта. */
   readonly result?: string | null;
   /** Денежный факт допустим на дату снимка; исходная цена сохраняется. */
@@ -176,8 +182,10 @@ export interface MonitoringProcedure {
   readonly customer: string;
   /** Заказчик, приведённый к сравнимому виду НАШЕЙ нормализацией (не книги). */
   readonly customerNormalized: string;
-  /** Канонический код процедуры («ЭА152-26») либо null — код не разобран. */
+  /** Нормализованный ключ сопоставления либо null — код не разобран. */
   readonly code: string | null;
+  /** Код колонки A для отображения; ведущие нули сохраняются. code — ключ сопоставления. */
+  readonly sourceCode?: string | null;
   /**
    * Объяснение нечитаемого кода: «в книге „ЭКЗ301-26“ — похоже на ЭЗК301-26
    * (буквы переставлены местами)». null — код разобран либо кода в ячейке
@@ -384,25 +392,25 @@ export interface MonitoringWorkItem {
   readonly daysToDate: number | null;
 }
 export function monitoringWorkQueue(procedures: readonly MonitoringProcedure[], asOf: string): {
-  asOf: string; active: MonitoringWorkItem[]; closed: MonitoringWorkItem[];
+  asOf: string; active: MonitoringWorkItem[]; closed: MonitoringWorkItem[]; triage: MonitoringWorkItem[];
 } {
-  const active: MonitoringWorkItem[] = []; const closed: MonitoringWorkItem[] = [];
+  const active: MonitoringWorkItem[] = []; const closed: MonitoringWorkItem[] = []; const triage: MonitoringWorkItem[] = [];
   for (const p of procedures) {
     const isActive = ['application', 'published', 'bidding'].includes(p.stage);
     const isClosed = ['awarded', 'no_result', 'reissued'].includes(p.stage);
-    if (!isActive && !isClosed) continue;
-    if (!isActive && !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
-    const action = p.requiredAction || (isActive ? 'Проверить действие в реестре' : 'Разобрать замечания');
+    if (isClosed && !(p.requiredAction || /(?:^|; )(?:Ошибка|Проверить|Неполно):/u.test(p.qualityNote ?? '') || p.defects.length)) continue;
+    const action = p.requiredAction || (isActive ? 'Проверить действие в реестре' : isClosed ? 'Разобрать замечания' : 'Уточнить стадию процедуры');
     // Формула A3 рабочей книги: заявку показываем как факт поступления,
     // но срок размещения и срок исправления данных в источнике не заданы.
     const referenceDate = !isActive || action.startsWith('Исправить: ') || action === 'Разместить извещение'
       ? null : p.auctionDate;
-    (isActive ? active : closed).push({ procedure: p, action, referenceDate, daysToDate: daysBetween(asOf, referenceDate?.iso ?? null) });
+    (isActive ? active : isClosed ? closed : triage).push({ procedure: p, action, referenceDate, daysToDate: daysBetween(asOf, referenceDate?.iso ?? null) });
   }
   active.sort((a, b) => (a.referenceDate?.iso ?? '').localeCompare(b.referenceDate?.iso ?? '') || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
   const severity = (p: MonitoringProcedure) => p.qualityNote?.includes('Ошибка:') ? 0 : p.qualityNote?.includes('Проверить:') ? 1 : 2;
   closed.sort((a, b) => severity(a.procedure) - severity(b.procedure) || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
-  return { asOf, active, closed };
+  triage.sort((a, b) => severity(a.procedure) - severity(b.procedure) || (a.procedure.code ?? '').localeCompare(b.procedure.code ?? ''));
+  return { asOf, active, closed, triage };
 }
 
 export const MONITORING_MASTER_HEADERS = ['Код процедуры', 'Вид строки', 'Флаг протокола', 'Комментарий', 'Управление', 'Заказчик', 'Наименование объекта закупки', 'НМЦК', 'Дата поступления заявки в уполномоченный орган', 'Дата публикации', 'Дата окончания подачи заявок', 'Дата подведения итогов', 'Цена по итогам', 'ФБ', 'КБ', 'МБ', 'Экономия', 'Победитель', 'ИНН победителя', 'Результат', 'Предок', 'Наследник', 'Стадия', 'Требуемое действие', 'Замечания'] as const;
@@ -440,7 +448,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
   for (let i = 2; i < grid.length; i++) {
     const r = grid[i] ?? [];
     const codeText = monitoringText(r[0]);
-    if (codeText === null && r.every((v) => monitoringText(v) === null)) continue;
+    if (codeText === null && r.every((v, col) => col === 3 || monitoringText(v) === null)) continue;
     const row = i + 1;
     const dept = monitoringDept(r[4]);
     if (monitoringText(r[1]) === 'доля') {
@@ -476,7 +484,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
     const stage = result === 'Состоялась' ? 'awarded' : successorCodes.length > 0 ? 'reissued'
       : ['Нет заявок', 'Отмена по решению заказчика', 'Отмена по предписанию ФАС'].includes(result ?? '') ? 'no_result'
         : computedStage && ['application', 'published', 'bidding'].includes(computedStage) ? computedStage : 'unknown';
-    const factsEligible = stage === 'awarded' && (!asOf || !dates[3]?.iso || dates[3].iso <= asOf);
+    const factsEligible = stage === 'awarded' && !isBrokenDate(dates[3]) && (!asOf || !dates[3]?.iso || dates[3].iso <= asOf);
     const qualityNote = monitoringText(r[24]);
     for (const note of qualityNote?.split('; ') ?? []) {
       if (note.startsWith('Справка:')) continue;
@@ -484,7 +492,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
       const col = note.match(/ — ([A-Y])/u)?.[1] ?? 'Y';
       defects.push({ kind, address: `${sheet}!${col}${row}`, note });
     }
-    if (stage === 'awarded' && !factsEligible && !defects.some((d) => /будущ/iu.test(d.note))) defects.push({ kind: 'source-warning', address: `${sheet}!L${row}`, note: 'Дата итогов позже даты снимка. Проверьте дату; цена и экономия пока не входят в денежный факт.' });
+    if (stage === 'awarded' && asOf && dates[3]?.iso && dates[3].iso > asOf && !defects.some((d) => /будущ/iu.test(d.note))) defects.push({ kind: 'source-warning', address: `${sheet}!L${row}`, note: 'Дата итогов позже даты снимка. Проверьте дату; цена и экономия пока не входят в денежный факт.' });
     if (stage === 'unknown') defects.push({ kind: 'source-error', address: `${sheet}!W${row}`, note: 'Стадия не определена; требуется проверить результат и даты в реестре.' });
     const nmck = monitoringNumber(r[7]); const auctionPrice = monitoringNumber(r[12]);
     const savingsTotal = monitoringNumber(r[16]); const savingsFb = monitoringNumber(r[13]);
@@ -498,12 +506,13 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
     const subject = codeText && subjectCell.startsWith(`${codeText} `) ? subjectCell.slice(codeText.length).trim() : subjectCell;
     procedures.push({ sheet, row, ordinal: null, dept, customer: monitoringText(r[5]) ?? '',
       customerNormalized: normalizeCustomer(monitoringText(r[5]) ?? ''), code: ref?.code ?? null,
+      sourceCode: ref ? codeText : null,
       codeNote: ref === null ? 'Проверьте код в колонке A.' : null, method: ref?.family ?? null, year: ref?.yy ?? null,
       subject, nmck, applicationDate: dates[0], publicationDate: dates[1], deadlineDate: dates[2], auctionDate: dates[3],
       auctionPrice, savingsTotal, savingsFb, savingsKb, savingsMb, savingsSplitSum,
       controlGapRub, controlAgrees: controlGapRub === null ? null : Math.abs(controlGapRub) <= 0.01,
       selfCheck: null, winner: { ...winner, inn: inn && /^(\d{10}|\d{12})$/u.test(inn) ? inn : null },
-      comment: monitoringText(r[3]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
+      comment: monitoringText(r[3]), protocolFlag: monitoringText(r[2]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
       joint: monitoringText(r[1]) === 'процедура' || ref?.family === 'ЭАС',
       durations: { toPublication: daysBetween(dates[0]?.iso ?? null, dates[1]?.iso ?? null), toDeadline: daysBetween(dates[1]?.iso ?? null, dates[2]?.iso ?? null), toAuction: daysBetween(dates[2]?.iso ?? null, dates[3]?.iso ?? null), total: daysBetween(dates[0]?.iso ?? null, dates[3]?.iso ?? null) },
       defects, result, factsEligible, requiredAction: monitoringText(r[23]), qualityNote, ancestorCodes: links(r[20]), successorCodes,
@@ -792,8 +801,8 @@ export interface MonitoringAggregates {
     readonly nmckTotal: number;
     /** Сумма цен победителей, руб. */
     readonly priceTotal: number;
-    /** Экономия на торгах: НМЦК − цена по состоявшимся, руб. */
-    readonly savingsTotal: number;
+    /** Экономия на торгах по полным парам НМЦК/цены, руб.; null при отсутствии сопоставимых пар. */
+    readonly savingsTotal: number | null;
     /**
      * Средний процент снижения — СРЕДНЕЕ ПОСТРОЧНЫХ процентов. Это один из
      * трёх коэффициентов (спека §3.2), и подменять им портфельный нельзя:
@@ -829,6 +838,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
   let awardedCount = 0;
   let awardedNmck = 0;
   let awardedPrice = 0;
+  let pairedPrice = 0;
   let noReductionCount = 0;
   let jointCount = 0;
   let winnersWithoutInn = 0;
@@ -841,7 +851,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
     const year = p.year === null ? 'без кода' : String(2000 + p.year);
     byYear[year] = (byYear[year] ?? 0) + 1;
 
-    if (p.nmck !== null && p.stage !== 'reissued') nmckTotal += p.nmck;
+    if (p.nmck !== null && monetaryPlanAllowed(p)) nmckTotal += p.nmck;
     if (monetaryFactAllowed(p)) {
       if (p.savingsTotal !== null) savingsBookTotal += p.savingsTotal;
       if (p.savingsMb !== null) savingsMb += p.savingsMb;
@@ -858,7 +868,8 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
     if (p.stage === 'awarded' && p.factsEligible !== false && p.auctionPrice !== null) {
       awardedCount += 1;
       awardedPrice += p.auctionPrice;
-      if (p.nmck !== null) {
+      if (p.nmck !== null && p.nmck > 0) {
+        pairedPrice += p.auctionPrice;
         awardedNmck += p.nmck;
         if (p.nmck > 0) reductions.push(((p.nmck - p.auctionPrice) / p.nmck) * 100);
         if (p.nmck === p.auctionPrice) noReductionCount += 1;
@@ -882,7 +893,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
       count: awardedCount,
       nmckTotal: round3(awardedNmck),
       priceTotal: round3(awardedPrice),
-      savingsTotal: round3(awardedNmck - awardedPrice),
+      savingsTotal: reductions.length > 0 ? round3(awardedNmck - pairedPrice) : null,
       avgReductionPct: reductions.length > 0
         ? reductions.reduce((a, b) => a + b, 0) / reductions.length
         : null,

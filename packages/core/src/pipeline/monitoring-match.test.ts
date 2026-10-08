@@ -104,6 +104,22 @@ describe('indexMonitoringProcedures', () => {
 });
 
 describe('matchMonitoring — классы исходов на реальных парах', () => {
+  it('две книги совместной процедуры сверяются с собственными долями вместо неоднозначности', () => {
+    const p: MonitoringProcedureRow = { ...procUER5, canonical: true, nameCell: 'ЭАС06-26',
+      nmckRub: 300, winnerPriceRub: 240, allocations: [
+        { dept: 'УО', nmck: 100, price: 80 }, { dept: 'УЭР', nmck: 200, price: 160 },
+      ] };
+    const books: MonitoringBookRow[] = [
+      { rowKey: 'УО:3', book: 'УО', ag: 'ЭАС06-26', planTotalThousands: 0.1, factTotalThousands: 0.08 },
+      { rowKey: 'УЭР:4', book: 'УЭР', ag: 'ЭАС06-26', planTotalThousands: 0.2, factTotalThousands: 0.16 },
+    ];
+    const matched = matchMonitoring(books, [p]);
+    expect(matched.ambiguous).toHaveLength(0);
+    expect(matched.matched.map((m) => [m.bookRow.book, m.nmck.monitoringRub, m.fact.monitoringRub]))
+      .toEqual([['УО', 100, 80], ['УЭР', 200, 160]]);
+    expect(matchMonitoring([books[0], { ...books[0], rowKey: 'УО:5' }], [p]).ambiguous).toHaveLength(1);
+    expect(matchMonitoring(books, [{ ...p, allocations: [p.allocations![0]] }]).ambiguous).toHaveLength(1);
+  });
   it('matched: УЭР:5 ↔ ЭЗК426-25, обе строки мониторинга в паре, сверки сходятся', () => {
     const res = matchMonitoring([bookUER5], [procUER5, procJournal55]);
     expect(res.matched).toHaveLength(1);

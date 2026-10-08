@@ -89,6 +89,18 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
         </>
       )}
     >
+      {match.books.sources?.length ? (
+        <p className="mb-3 text-xs text-[var(--ink-muted)]">
+          Данные книг ГРБС:{' '}
+          {match.books.sources
+            .map(
+              (source) =>
+                `${source.dept} — ${source.readAt ? new Date(source.readAt).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' }) : 'момент чтения не записан'}`,
+            )
+            .join('; ')}
+          . Время Камчатки.
+        </p>
+      ) : null}
       {/* ── Итог сравнения сумм ── */}
       <div className="grid gap-2 sm:grid-cols-2">
         <SumsVerdict
@@ -111,7 +123,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
       </ul>
 
       {/* ── Расхождения сумм с адресами обеих сторон ── */}
-      <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+      <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
         Расхождения сумм по сошедшимся парам
       </h4>
       {disagreements.length === 0 ? (
@@ -123,7 +135,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
         </div>
       ) : (
         <div className="mt-1.5 overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-sm">
             <caption className="sr-only">Расхождения сумм между книгой управления и мониторингом</caption>
             <thead>
               <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -142,7 +154,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
                 >
                   <td className="py-1 pr-2">
                     <span className="font-medium">{d.code}</span>
-                    <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                    <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
                       книга {d.bookAddress} · мониторинг {d.monitoringAddress}
                     </div>
                   </td>
@@ -152,7 +164,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
                   <td className="py-1 text-right tabular-nums">
                     {fmtRubExact(d.deltaRub)}
                     {d.relDiff !== null && (
-                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      <div className="text-xs text-zinc-500 dark:text-zinc-400">
                         {fmtPct(d.relDiff * 100)}
                       </div>
                     )}
@@ -161,7 +173,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             Какая из двух записей верна, продукт не решает: показаны обе суммы и оба адреса.
           </p>
         </div>
@@ -171,7 +183,7 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
       <InternalDiffBlock match={match} />
 
       {match.notes.length > 0 && (
-        <div className="mt-3 space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <div className="mt-3 space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {match.notes.map((n) => <p key={n}>{n}</p>)}
         </div>
       )}
@@ -185,11 +197,11 @@ function SumsVerdict({
 }: { title: string; agree: number; disagree: number; noComparison: number }) {
   return (
     <div className={`${TILE} p-3`}>
-      <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{title}</p>
-      <p className="mt-0.5 text-[11px] tabular-nums text-zinc-700 dark:text-zinc-200">
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">{title}</p>
+      <p className="mt-0.5 text-xs tabular-nums text-zinc-700 dark:text-zinc-200">
         сошлось {fmtCount(agree)} · разошлось {fmtCount(disagree)} · сравнивать нечего {fmtCount(noComparison)}
       </p>
-      <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
         «Сравнивать нечего» — не совпадение и не расхождение: одной из двух сумм в источнике нет.
       </p>
     </div>
@@ -202,13 +214,13 @@ function MatchClassCard({ row }: { row: ReturnType<typeof matchClasses>[number] 
     <li className={`${TILE} p-3`}>
       <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">
         {row.title}
-        <span className="ml-1.5 text-[10px] font-normal tabular-nums text-zinc-400 dark:text-zinc-500">
+        <span className="ml-1.5 text-xs font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
           {pluralCount(row.count, 'случай', 'случая', 'случаев')}
         </span>
       </p>
-      <p className="mt-1 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">{row.mechanism}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-200">
-        <span className="text-zinc-400 dark:text-zinc-500">Что сделать: </span>{row.action}
+      <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">{row.mechanism}</p>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-700 dark:text-zinc-200">
+        <span className="text-zinc-500 dark:text-zinc-400">Что сделать: </span>{row.action}
       </p>
       {row.examples.length > 0 && (
         <>
@@ -216,13 +228,13 @@ function MatchClassCard({ row }: { row: ReturnType<typeof matchClasses>[number] 
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
-            className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 hover:underline"
+            className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400 hover:underline"
           >
             <ChevronDown size={10} aria-hidden="true" className={open ? 'rotate-180' : ''} />
             {open ? 'скрыть примеры' : `показать примеры с адресами (${fmtCount(row.examples.length)})`}
           </button>
           {open && (
-            <ul className="mt-1 max-h-60 space-y-0.5 overflow-y-auto text-[10px] text-zinc-500 dark:text-zinc-400">
+            <ul className="mt-1 max-h-60 space-y-0.5 overflow-y-auto text-xs text-zinc-500 dark:text-zinc-400">
               {row.examples.map((e) => (
                 <li key={e.code} className="font-mono">
                   {e.code} — {e.addresses.join(' · ')}
@@ -245,10 +257,10 @@ function InternalDiffBlock({ match }: { match: MatchViewPayload }) {
   const rows = match.internal.rows.filter((r) => r.kind === 'sums-differ');
   return (
     <>
-      <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+      <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
         Внутренняя сверка книги: лист управления ↔ переходящий реестр «25-26»
       </h4>
-      <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
         Кодов на листах управлений — {fmtCount(match.internal.codesOnSheets)}, в переходящем
         реестре — {fmtCount(match.internal.codesInJournal)}, в обоих местах —{' '}
         {fmtCount(match.internal.codesInBoth)}. Совместная закупка расходится по природе формы:
@@ -262,7 +274,7 @@ function InternalDiffBlock({ match }: { match: MatchViewPayload }) {
         </div>
       ) : (
         <div className="mt-1.5 overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-sm">
             <caption className="sr-only">Расхождения листов управлений с переходящим реестром</caption>
             <thead>
               <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -277,13 +289,13 @@ function InternalDiffBlock({ match }: { match: MatchViewPayload }) {
                 <tr key={r.code} className={`${RULE_ROW_TOP} align-top`}>
                   <td className="py-1 pr-2">
                     <span className="font-medium">{r.code}</span>
-                    <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                    <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
                       {r.sheetRows.map((s) => `${s.sheet} · строка ${s.row}`).join(' · ')}
                       {r.journalRows.length > 0 && ' ↔ '}
                       {r.journalRows.map((j) => `${j.sheet} · строка ${j.row}`).join(' · ')}
                     </div>
                     {r.joint && (
-                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      <div className="text-xs text-zinc-500 dark:text-zinc-400">
                         совместная закупка: доли управлений против целого
                       </div>
                     )}
@@ -296,7 +308,7 @@ function InternalDiffBlock({ match }: { match: MatchViewPayload }) {
             </tbody>
           </table>
           {rows.length > 25 && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Показаны 25 расхождений из {fmtCount(rows.length)}.
             </p>
           )}

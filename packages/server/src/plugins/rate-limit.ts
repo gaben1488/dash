@@ -127,7 +127,7 @@ export const HEAVY_ROUTE_RULES: readonly HeavyRouteRule[] = [
     // журналов: ответ кэшируется на пять минут, и вкладка живёт переключением
     // режимов, а не одним запросом.
     methods: ['GET'],
-    path: /^\/api\/monitoring(\/(analytics|match))?$/,
+    path: /^\/api\/monitoring(\/(analytics|match|triple))?$/,
     limit: 30,
     windowMs: MINUTE_MS,
     subject: 'Реестр процедур определения поставщика',

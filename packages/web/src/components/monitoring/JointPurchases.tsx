@@ -34,6 +34,7 @@ import { AnalyticsCard, CardEmpty } from './AnalyticsCard';
 import { RULE_ROW_TOP, TILE } from './surfaces';
 
 export interface JointPurchasesProps {
+  canonicalSource?: boolean;
   comparison: JointComparison;
   periodLabel: string;
   /** Клик по стороне «совместные» — разрез реестра совместным аукционом. */
@@ -43,7 +44,7 @@ export interface JointPurchasesProps {
 }
 
 export function JointPurchasesCard({
-  comparison, periodLabel, onPickJoint, onPickDept,
+  comparison, periodLabel, onPickJoint, onPickDept, canonicalSource = false,
 }: JointPurchasesProps) {
   const isDark = useTheme((s) => s.theme) === 'dark';
   const tooltip = getTooltipStyle(isDark);
@@ -69,10 +70,11 @@ export function JointPurchasesCard({
       periodLabel={periodLabel}
       method={(
         <>
-          Сторона «совместные» — строки, отмеченные признаком совместной закупки: способ «электронный
-          аукцион совместный» либо заказчик-признак «Совместный …». Снижение считается портфельно:
+          Сторона «совместные» — процедуры с признаком совместной закупки в реестре. Снижение считается портфельно:
           сумма начальных цен минус сумма цен аукционов, делённая на сумму начальных цен, по
           состоявшимся процедурам с обеими суммами.
+          Цены с недопущенным денежным фактом не входят в снижение. НМЦК текущего плана
+          исключает переданных предков; число процедур сохраняет историю.
         </>
       )}
     >
@@ -85,42 +87,42 @@ export function JointPurchasesCard({
           <div className="grid gap-2 sm:grid-cols-4">
             <KBTooltip {...biKbProps(BI_KB.joint_purchases)} showIcon>
               <div className={`${TILE} p-3 text-left`}>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Совместных процедур</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Совместных процедур</p>
                 <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                   {fmtCount(joint.count)}
                 </p>
-                <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                   {fmtPct(comparison.jointCountSharePct)} строк книги
                 </p>
               </div>
             </KBTooltip>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Их доля в деньгах</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Их доля в деньгах</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtPct(comparison.jointMoneySharePct)}
               </p>
-              <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                 {fmtRub(joint.nmckRub)} руб. начальных цен
               </p>
             </div>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Средний совместный лот</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Средний совместный лот</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtRub(joint.avgNmckRub)}
               </p>
-              <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                 руб. · одиночный — {fmtRub(solo.avgNmckRub)} руб.
               </p>
             </div>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Экономия совместных</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Экономия совместных</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtRub(joint.reductionRub)}
               </p>
-              <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                 руб. · одиночные — {fmtRub(solo.reductionRub)} руб.
               </p>
             </div>
@@ -182,28 +184,25 @@ export function JointPurchasesCard({
           )}
 
           {onPickJoint !== undefined && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Клик по полосе «совместные» ставит реестру выше разрез способом «совместный аукцион» —
               видно сами строки за числом.
             </p>
           )}
 
           {/* ── Двойной счёт: главная оговорка разреза, сказанная словами ── */}
-          <p className="mt-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-            Одна совместная процедура записана на листах всех участвующих управлений — по строке на
-            управление. Её начальная цена входит в сумму листов столько раз, сколько листов её несут,
-            и сумма листов расходится с итогом свода книги именно поэтому. Витрина этого не
-            исправляет: она читает книгу как есть, а расхождение разбирает лист «СВОДНЫЙ».
+          <p className="mt-3 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+            {canonicalSource ? 'Каждая совместная процедура учитывается один раз. Доли участников раскрываются в карточке и не увеличивают число процедур. Сверка с книгами управлений проводится по соответствующим долям.' : 'В исторической книге совместная процедура могла повторяться на листах управлений. Сумма копий не подтверждает общий объём процедуры; расхождение следует разобрать по источникам.'}
           </p>
 
           {/* ── Где лежат совместные строки ── */}
           {comparison.jointByDept.length > 0 && (
             <>
-              <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+              <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
                 На чьих листах лежат совместные строки
               </h4>
               <div className="mt-1.5 overflow-x-auto">
-                <table className="w-full text-[11px]">
+                <table className="w-full text-sm">
                   <caption className="sr-only">Совместные закупки в разрезе управлений</caption>
                   <thead>
                     <tr className="text-left text-zinc-500 dark:text-zinc-400">

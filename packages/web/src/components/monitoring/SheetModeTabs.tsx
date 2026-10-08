@@ -32,7 +32,7 @@ export interface SheetModeTabsProps {
 export function SheetModeTabs({ activeId, onSelect, pendingIds = [], counts = {} }: SheetModeTabsProps) {
   return (
     <nav
-      aria-label="Листы книги «Ежедневный мониторинг»"
+      aria-label="Разделы мониторинга процедур"
       className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1"
     >
       {SHEET_MODES.map((mode) => {
@@ -47,7 +47,7 @@ export function SheetModeTabs({ activeId, onSelect, pendingIds = [], counts = {}
             aria-current={active ? 'page' : undefined}
             title={pending ? `${mode.hint} Сервер этот лист ещё не отдаёт.` : mode.hint}
             className={[
-              'shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition',
+              'min-h-11 shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600',
               active
                 ? 'bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900'
                 : `${CONTROL_EDGE} bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`,

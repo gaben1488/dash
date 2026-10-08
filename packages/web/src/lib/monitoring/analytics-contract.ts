@@ -70,6 +70,8 @@ function bool(v: unknown): boolean {
 // ── Периметр ответа ──────────────────────────────────────────────────
 
 export interface AnalyticsSource {
+  version?: number;
+  asOf?: string;
   bookName: string;
   /** Момент чтения книги (ISO) — плашка периода данных (п.58). */
   readAt: string;
@@ -87,6 +89,8 @@ function readSource(v: unknown): AnalyticsSource {
     if (typeof val === 'string') failed[k] = val;
   }
   return {
+    ...(num(s.version) !== null ? { version: num(s.version)! } : {}),
+    ...(str(s.asOf) !== null ? { asOf: str(s.asOf)! } : {}),
     bookName: str(s.bookName) ?? 'Ежедневный мониторинг',
     readAt: text(s.readAt),
     moneyUnit: str(s.moneyUnit) ?? 'руб',
@@ -817,7 +821,7 @@ function readInternal(v: unknown): InternalDiff {
 export interface MatchViewPayload {
   source: AnalyticsSource;
   /** Какие книги управлений прочитаны и сколько их строк несут код. */
-  books: { read: string[]; rowsWithCode: number };
+  books: { read: string[]; rowsWithCode: number ; sources?: Array<{ dept: string; readAt: string | null }> };
   summary: MatchSummary;
   matched: MatchedPair[];
   bookOnly: UnmatchedCode[];
@@ -833,7 +837,16 @@ export function normalizeMatchView(raw: unknown): MatchViewPayload {
   const books = rec(r.books);
   return {
     source: readSource(r.source),
-    books: { read: strList(books.read), rowsWithCode: count(books.rowsWithCode) },
+    books: { read: strList(books.read), rowsWithCode: count(books.rowsWithCode) ,
+      ...(books.sources !== undefined
+        ? {
+            sources: arr(books.sources).map((x) => {
+              const s = rec(x);
+              return { dept: text(s.dept), readAt: str(s.readAt) };
+            }),
+          }
+        : {}),
+    },
     summary: readSummary(r.summary),
     matched: readMatched(r.matched),
     bookOnly: readBookOnly(r.bookOnly),
@@ -850,7 +863,7 @@ export function normalizeMatchView(raw: unknown): MatchViewPayload {
  * либо книги управлений не прочитаны — и это не повод не показать аналитику.
  * Отказ возвращается словами, а не молчанием.
  */
-export async function fetchMonitoringMatchView(): Promise<MatchViewPayload> {
-  const raw = await fetchJSON<unknown>('/monitoring/match');
+export async function fetchMonitoringMatchView(refresh = false): Promise<MatchViewPayload> {
+  const raw = await fetchJSON<unknown>(`/monitoring/match${refresh ? '?refresh=true' : ''}`);
   return normalizeMatchView(raw);
 }

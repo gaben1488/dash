@@ -1,29 +1,9 @@
 /**
- * Секция «Аналитика мониторинга» — семь блоков, которые книга сама не умеет
- * (канон п.101а: «своя аналитика, свои визуальные метрики и графики; своя
- * сверка и подтяжка к нашим данным»; спека §3, §4).
- *
- * ПОЧЕМУ СЕКЦИЯ САМОДОСТАТОЧНА. Реестр и аналитика приезжают разными
- * запросами: реестр читается всегда, аналитика тяжелее и может не подняться,
- * а сверка зависит ещё и от восьми чужих книг. Секция сама ходит за своими
- * данными и сама показывает свои пустоты — экран реестра из-за неподнятой
- * сверки не падает и не ждёт.
- *
- * КУДА ВСТАВЛЯТЬ. В `pages/Monitoring.tsx`, на место с пометкой «Место
- * аналитики», одной строкой:
- *
- *     <MonitoringAnalyticsSection procedures={filtered} />
- *
- * `procedures` необязателен и нужен ровно для двух вещей: денег на ступенях
- * воронки и разреза снижения по способу закупки — их ядро счётом не отдаёт.
- * Без них оба места честно говорят «считается вместе с реестром», а не
- * показывают нули.
- *
- * ТРИ РАЗНЫЕ ПУСТОТЫ И ЗДЕСЬ (п.36): «аналитика не получена» (отказ),
- * «в срезе нет строк для этого блока» (пустой знаменатель) и «сверка не
- * поднята» — три новости с тремя действиями, и путать их нельзя.
+ * Аналитика текущей выборки реестра и того же снимка данных.
+ * Внешняя сверка ГРБС загружается отдельно; её отказ не скрывает реестр.
+ * Без переданного снимка сохраняется самостоятельное чтение для старых маршрутов.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { EmptyState } from '../EmptyState';
 import { SkeletonTable } from '../Skeleton';
@@ -33,6 +13,7 @@ import {
   type AnalyticsPayload, type MatchViewPayload, type SeasonBasis,
 } from '../../lib/monitoring/analytics-contract';
 import type { RegistryProcedure } from '../../lib/monitoring/contract';
+import { selectedAnalytics } from '../../lib/monitoring/selection-analytics';
 import { funnelMoney, reductionByMethod } from '../../lib/monitoring/charts';
 import {
   budgetSavings, carryOver, customerConcentration, jointComparison,
@@ -62,6 +43,10 @@ import { MonitoringPerimeterProvider } from './PerimeterProvider';
 import { CONTROL } from './surfaces';
 
 export interface MonitoringAnalyticsSectionProps {
+  registryReadAt?: string;
+  sharedMatch?: MatchViewPayload | null;
+  sharedMatchError?: string | null;
+  onReloadMatch?: () => void;
   /**
    * Строки реестра, которые читатель сейчас видит. Нужны для денег воронки и
    * разреза по способу закупки; без них эти два места честно молчат.
@@ -107,11 +92,11 @@ export interface MonitoringAnalyticsSectionProps {
 }
 
 export function MonitoringAnalyticsSection({
-  procedures, onPickDiscountBucket, onPickSupplier, onPickDept,
+  procedures, onPickDiscountBucket, onPickSupplier, onPickDept, registryReadAt, sharedMatch, sharedMatchError, onReloadMatch,
   journalRows, onPickCustomer, onPickZeroReduction, onPickMethod,
   onPickYear, onPickJoint, onPickFate,
 }: MonitoringAnalyticsSectionProps) {
-  const [data, setData] = useState<AnalyticsPayload | null>(null);
+  const [remoteData, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [basis, setBasis] = useState<SeasonBasis>('publication');
@@ -129,6 +114,7 @@ export function MonitoringAnalyticsSection({
   }, []);
 
   const loadMatch = useCallback(() => {
+    if (onReloadMatch) { onReloadMatch(); return; }
     setMatchError(null);
     fetchMonitoringMatchView()
       .then((m) => setMatch(m))
@@ -136,10 +122,18 @@ export function MonitoringAnalyticsSection({
         setMatch(null);
         setMatchError(humanizeRequestError(e));
       });
-  }, []);
+  }, [onReloadMatch]);
 
-  useEffect(() => { load(basis); }, [load, basis]);
-  useEffect(() => { loadMatch(); }, [loadMatch]);
+  useEffect(() => { if (procedures === undefined || registryReadAt === undefined) load(basis); }, [load, basis, registryReadAt, procedures]);
+  const localData = useMemo(
+    () =>
+      procedures !== undefined && registryReadAt !== undefined
+        ? selectedAnalytics(procedures, registryReadAt, basis)
+        : null,
+    [procedures, registryReadAt, basis],
+  );
+  const data = localData ?? remoteData;
+  useEffect(() => { if (sharedMatch === undefined) loadMatch(); }, [loadMatch, sharedMatch]);
 
   const periodLabel = data === null
     ? 'аналитика ещё считается'
@@ -167,33 +161,38 @@ export function MonitoringAnalyticsSection({
   }
 
   const a = data.analytics;
-  const money = procedures === undefined ? null : funnelMoney(procedures);
-  const byMethod = procedures === undefined ? null : reductionByMethod(procedures);
+  const sameRead = registryReadAt === undefined || registryReadAt === data.source.readAt;
+  const money = procedures === undefined || !sameRead ? null : funnelMoney(procedures);
+  const byMethod = procedures === undefined || !sameRead ? null : reductionByMethod(procedures);
 
   // Шесть разрезов витрины считаются по строкам реестра прямо здесь. Счёт
   // дешёвый (один проход по нескольким сотням строк), а вот `useMemo` на
   // каждый разрез стоил бы шести зависимостей и шести поводов рассинхронить
   // их между собой — экономия не окупает риска.
-  const bi = procedures === undefined ? null : {
+  const bi = procedures === undefined || !sameRead ? null : {
     customers: customerConcentration(procedures),
     budget: budgetSavings(procedures),
     zero: zeroReduction(procedures),
     carry: carryOver(procedures),
     joint: jointComparison(procedures),
   };
-  const fates = journalRows === undefined
+  const fates = journalRows === undefined || !sameRead
     ? null
     : rejoinedFates(journalRows, PROCEDURE_FATE_LABELS);
 
   return (
     <MonitoringPerimeterProvider readAt={data.source.readAt}>
     <section className="space-y-3">
+      <p className="text-sm text-zinc-500">{localData !== null
+            ? `Аналитика выбранных процедур · ${procedures?.length ?? 0}. ${periodLabel}.`
+            : `Районная аналитика · весь округ. Отдельное чтение: ${periodLabel}.`}</p>
+      {!sameRead && <p role="status" className="text-sm text-amber-700">Время чтения аналитики отличается от реестра. Сочетание чисел из разных чтений не показывается; обновите книгу для общей сверки.</p>}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
             Аналитика мониторинга
           </h2>
-          <p className="mt-0.5 max-w-2xl text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             То, чего книга не считает сама. Витрина отвечает на три вопроса: <span className="font-medium">где
             деньги</span> — у каких заказчиков, в чьих бюджетах, в совместных или одиночных лотах;{' '}
             <span className="font-medium">где риск</span> — сколько прошло без торга, где цена не
@@ -205,7 +204,7 @@ export function MonitoringAnalyticsSection({
         </div>
         <button
           type="button"
-          onClick={() => { load(basis); loadMatch(); }}
+          onClick={() => { if (localData === null) load(basis); loadMatch(); }}
           className={`inline-flex items-center gap-1 ${CONTROL} px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
         >
           <RotateCcw size={12} aria-hidden="true" /> Пересчитать аналитику
@@ -213,11 +212,12 @@ export function MonitoringAnalyticsSection({
       </div>
 
       {error !== null && (
-        <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+        <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
           Последний пересчёт не удался ({error}); ниже — числа предыдущего успешного чтения книги.
         </p>
       )}
 
+      <details open className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Итоги и деньги</summary>
       <StageFunnel funnel={a.funnel} money={money} periodLabel={periodLabel} />
 
       {/* ── Где деньги: у кого они и чей рубль сэкономлен ── */}
@@ -257,6 +257,7 @@ export function MonitoringAnalyticsSection({
           />
           <JointPurchasesCard
             comparison={bi.joint}
+            canonicalSource={procedures?.some((p) => p.result !== undefined) ?? false}
             periodLabel={periodLabel}
             {...(onPickJoint !== undefined ? { onPickJoint } : {})}
             {...(onPickDept !== undefined ? { onPickDept } : {})}
@@ -264,12 +265,16 @@ export function MonitoringAnalyticsSection({
         </>
       )}
 
+      </details>
+      <details className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Поставщики</summary>
       <SupplierTop
         profile={a.suppliers}
         periodLabel={periodLabel}
         {...(onPickSupplier !== undefined ? { onPickSupplier } : {})}
       />
       <SupplierPairs pairs={a.pairs} periodLabel={periodLabel} />
+      </details>
+      <details className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Сроки и повторные процедуры</summary>
       <StageDurationBox durations={a.durations} periodLabel={periodLabel} />
 
       {/* ── Где затык: наследство прошлого года и причины повторного круга ── */}
@@ -295,16 +300,20 @@ export function MonitoringAnalyticsSection({
         {...(onPickFate !== undefined ? { onPickFate } : {})}
       />
 
+      </details>
+      <details className="space-y-4"><summary className="cursor-pointer py-3 text-lg font-semibold">Сравнение управлений и проверки</summary>
       <DeptCompare
         depts={a.depts}
         periodLabel={periodLabel}
         {...(onPickDept !== undefined ? { onPickDept } : {})}
       />
       <AnomalyList anomalies={a.anomalies} unsuccessful={a.unsuccessful} periodLabel={periodLabel} />
-      <MatchPanel match={match} error={matchError} periodLabel={periodLabel} onReload={loadMatch} />
+      <MatchPanel match={sharedMatch === undefined ? match : sharedMatch} error={sharedMatch === undefined ? matchError : sharedMatchError ?? null} periodLabel={periodLabel} onReload={loadMatch} />
+
+      </details>
 
       {data.notes.length > 0 && (
-        <div className="space-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {data.notes.map((n) => <p key={n}>{n}</p>)}
         </div>
       )}

@@ -36,6 +36,7 @@ import type {
 } from './analytics-contract';
 import type { RegistryProcedure } from './contract';
 import { pluralCount } from './format';
+import { monetaryFactAllowed } from '@aemr/core';
 
 // ── Воронка стадий ───────────────────────────────────────────────────
 
@@ -92,10 +93,10 @@ export function funnelMoney(procedures: readonly RegistryProcedure[]): FunnelMon
     { key: 'application', hit: (p) => p.applicationDate !== null, priced: false },
     { key: 'published', hit: (p) => p.publicationDate !== null, priced: false },
     { key: 'auction', hit: (p) => p.auctionDate !== null, priced: false },
-    { key: 'priced', hit: (p) => p.auctionPrice !== null && p.auctionPrice > 0, priced: true },
+    { key: 'priced', hit: (p) => monetaryFactAllowed(p) && p.auctionPrice !== null && p.auctionPrice > 0, priced: true },
     {
       key: 'split',
-      hit: (p) => p.savingsSplitSum !== null && p.controlAgrees === true,
+      hit: (p) => monetaryFactAllowed(p) && p.savingsSplitSum !== null && p.controlAgrees === true,
       priced: true,
     },
   ];
@@ -110,7 +111,7 @@ export function funnelMoney(procedures: readonly RegistryProcedure[]): FunnelMon
       count += 1;
       if (p.nmck === null) nmckMissing += 1;
       else nmckRub += p.nmck;
-      if (p.auctionPrice !== null) priceRub += p.auctionPrice;
+      if (monetaryFactAllowed(p) && p.auctionPrice !== null) priceRub += p.auctionPrice;
     }
     return {
       key: def.key,
@@ -226,7 +227,7 @@ export function reductionByMethod(
 ): ReductionByMethodRow[] {
   const acc = new Map<string, { count: number; nmck: number; price: number; equal: number }>();
   for (const p of procedures) {
-    if (p.stage !== 'awarded' || p.auctionPrice === null || p.nmck === null || p.nmck <= 0) continue;
+    if (!monetaryFactAllowed(p) || p.stage !== 'awarded' || p.auctionPrice === null || p.nmck === null || p.nmck <= 0) continue;
     const key = p.method ?? 'способ не определён';
     const b = acc.get(key) ?? { count: 0, nmck: 0, price: 0, equal: 0 };
     b.count += 1;

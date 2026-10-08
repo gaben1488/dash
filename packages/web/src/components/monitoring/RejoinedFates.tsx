@@ -99,29 +99,29 @@ export function RejoinedFatesCard({
           <div className="grid gap-2 sm:grid-cols-3">
             <KBTooltip {...biKbProps(BI_KB.rejoined_fates)} showIcon>
               <div className={`${TILE} p-3 text-left`}>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Строк с пометкой судьбы</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Строк с пометкой судьбы</p>
                 <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                   {fmtCount(fates.markedRows)}
                 </p>
-                <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                   из {fmtCount(fates.totalRows)} строк листа · {fmtPct(fates.markedSharePct)}
                 </p>
               </div>
             </KBTooltip>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Разных причин</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Разных причин</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtCount(fates.rows.length)}
               </p>
-              <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 классов словаря встретилось в книге
               </p>
             </div>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Это нижняя граница</p>
-              <p className="mt-1 text-[10px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Это нижняя граница</p>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
                 Пометка ставится рукой и не обязательна. Процедуру могли объявить заново, ничего не
                 записав, — такой случай сюда не попадёт.
               </p>
@@ -164,7 +164,7 @@ export function RejoinedFatesCard({
 
           {/* Текстовый дубль с сырыми написаниями: класс без исходника не проверить. */}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">Судьбы процедур по пометкам переходящего реестра</caption>
               <thead>
                 <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -202,7 +202,7 @@ export function RejoinedFatesCard({
             </table>
           </div>
 
-          <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+          <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
             Складывать классы в «общее число неудач» нельзя: жалоба в антимонопольную службу и
             последовавший за ней повторный аукцион — один путь, записанный двумя строками.
             {onPickFate !== undefined && ' Клик по написанию открывает переходящий реестр с поиском по нему — видно сами строки за числом.'}

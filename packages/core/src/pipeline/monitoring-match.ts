@@ -54,6 +54,8 @@ export interface MonitoringBookRow {
 /** Строка-процедура «Ежедневного мониторинга» (листы управлений и журнал «25-26»). */
 export interface MonitoringProcedureRow {
   readonly canonical?: boolean;
+  /** Stage is the explicit canonical master outcome, not a guess from a free-form GRBS note. */
+  readonly stage?: 'application' | 'published' | 'bidding' | 'awarded' | 'no_result' | 'reissued' | 'unknown';
   /** Canonical joint allocations; a participant is selected by its department, never by nearest price. */
   readonly allocations?: readonly { dept: string; nmck: number | null; price: number | null }[];
   /** Адрес процедуры: «1. УЭР:7» (лист + номер строки). */
@@ -255,8 +257,23 @@ export function matchMonitoring(
   const ambiguous: AmbiguousCode[] = [];
   for (const [code, rows] of singleByCode) {
     const procedures = procIndex.get(code) ?? [];
+    // Несколько книг — доказанные доли одной канонической процедуры.
+    // Повтор в одной книге, две основные процедуры или отсутствующая доля
+    // остаются неоднозначностью, а не выбираются по удобной сумме.
+    const books = new Set(rows.map((r) => r.book));
+    const joint = procedures.length === 1 && procedures[0].canonical && books.size === rows.length
+      && rows.every((r) => procedures[0].allocations?.filter((a) => a.dept === r.book).length === 1);
+    if (joint) {
+      for (const bookRow of rows) {
+        const allocation = procedures[0].allocations!.find((a) => a.dept === bookRow.book)!;
+        const primary = { ...procedures[0], nmckRub: allocation.nmck, winnerPriceRub: allocation.price };
+        matched.push({ outcome: 'matched', code, bookRow, procedures, primary,
+          nmck: compareMoney(bookRow.planTotalThousands, primary.nmckRub),
+          fact: compareMoney(bookRow.factTotalThousands, primary.winnerPriceRub) });
+      }
+      continue;
+    }
     if (rows.length > 1 || (procedures.length > 1 && procedures.some((p) => p.canonical))) {
-      const books = new Set(rows.map((r) => r.book));
       ambiguous.push({
         outcome: 'ambiguous',
         code,

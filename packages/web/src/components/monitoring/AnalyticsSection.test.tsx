@@ -245,3 +245,10 @@ describe('секция аналитики мониторинга', () => {
     expect(screen.getByText(/Ни у одной процедуры нет выбранной даты/)).toBeTruthy();
   });
 });
+
+it('считает выбранный реестр на его снимке без второго запроса аналитики', async () => {
+  fetchJSON.mockClear();
+  render(<MonitoringAnalyticsSection procedures={[]} registryReadAt="2026-10-08T00:00:00Z" sharedMatch={null} />);
+  expect(await screen.findByText(/Аналитика выбранных процедур/)).toBeTruthy();
+  expect(fetchJSON.mock.calls.some(([url]) => String(url).startsWith('/monitoring/analytics'))).toBe(false);
+});

@@ -55,8 +55,14 @@ export const MONITORING_DIRECTORY_HEADER_V2: readonly string[] = [
 ];
 
 function currentDirectorySchema(grid: unknown[][]): boolean {
-  const header = new Set((grid[0] ?? []).map((value) => monitoringText(value)).filter(Boolean));
-  return MONITORING_DIRECTORY_HEADER_V2.every((value) => header.has(value));
+  const header = (grid[0] ?? []).map((value) => monitoringText(value));
+  // Coordinates belong to the schema; labels may be clarified without changing meaning.
+  return [
+    [0, ['№ п/п']], [2, ['Управление']],
+    [3, ['Новый каноничный справочник полных наименований', 'Полное наименование']],
+    [4, ['Новый каноничный справочник кратких наименований', 'Сокращённое наименование']],
+    [8, ['Алиасы и варианты написания', 'Другие написания']],
+  ].every(([column, names]) => (names as string[]).includes(header[column as number] ?? ''));
 }
 
 function directoryAliases(raw: unknown[], modern: boolean): string[] {
@@ -75,6 +81,7 @@ function directoryAliases(raw: unknown[], modern: boolean): string[] {
 }
 
 export interface DirectoryEntry {
+  readonly institutionId?: string | null;
   readonly sheet: string;
   readonly row: number;
   readonly ordinal: number | null;
@@ -88,6 +95,7 @@ export interface DirectoryEntry {
   readonly fullMissing: boolean;
   /** Сколько строк реестра ссылается на это учреждение (наша нормализация). */
   readonly usageCount: number;
+readonly aliases?: readonly string[];
 }
 
 /** Написание заказчика, которому в справочнике нет пары. */
@@ -101,7 +109,9 @@ export interface CustomerOutsideDirectory {
 }
 
 export interface MonitoringDirectory {
+  readonly identityIssues?: Array<{ address: string; note: string }>;
   readonly entries: DirectoryEntry[];
+  readonly collisions?: Array<{ normalized: string; addresses: string[] }>;
   /** Написания заказчика вне справочника, по убыванию частоты. */
   readonly customersOutside: CustomerOutsideDirectory[];
   /** Сколько написаний заказчика нашли пару в справочнике. */
@@ -141,7 +151,10 @@ export function parseMonitoringDirectory(
   const modern = currentDirectorySchema(grid);
   const C = modern ? CURRENT_DIRECTORY_COLUMNS : LEGACY_DIRECTORY_COLUMNS;
   const index = new Map<string, number>();
+  const owners = new Map<string, Set<number>>();
   const drafts: Array<Omit<DirectoryEntry, 'usageCount'>> = [];
+  const identityEnabled = modern && monitoringText(grid[0]?.[18]) === 'ID учреждения';
+  const identityIssues: Array<{ address: string; note: string }> = [];
 
   for (let i = 0; i < grid.length; i++) {
     const raw = grid[i] ?? [];
@@ -168,10 +181,16 @@ export function parseMonitoringDirectory(
       : [fullName, shortName].filter((value): value is string => value !== null);
     for (const name of knownNames) {
       const normalized = normalizeCustomer(name);
-      if (normalized && !index.has(normalized)) index.set(normalized, draftIndex);
+      if (!normalized ) continue;
+      const candidates = owners.get(normalized)?? new Set<number>();
+      candidates.add(draftIndex);
+      owners.set(normalized, candidates);
+      if (candidates.size === 1) index.set(normalized, draftIndex);
+      else index.delete(normalized);
     }
 
     drafts.push({
+      institutionId: identityEnabled ? monitoringText(raw[18]) : null,
       sheet: MONITORING_DIRECTORY_SHEET,
       row: i + 1,
       ordinal: monitoringNumber(raw[C.ORDINAL]),
@@ -180,10 +199,21 @@ export function parseMonitoringDirectory(
       shortName,
       shortIsFull: normFull !== null && normShort !== null && normFull === normShort,
       fullMissing: fullName === null,
+      aliases: [...new Set(knownNames)],
     });
   }
 
   const usageCounts = new Array<number>(drafts.length).fill(0);
+  if (identityEnabled) {
+    const ids = Map.groupBy(drafts.filter(d => d.institutionId), d => d.institutionId!);
+    for (let i = 0; i < drafts.length; i++) {
+      const id = drafts[i].institutionId;
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) || (ids.get(id)?.length ?? 0) > 1) {
+        identityIssues.push({ address: `${MONITORING_DIRECTORY_SHEET}!S${drafts[i].row}`, note: !id ? 'ID отсутствует: обновите справочник.' : 'ID неверен или повторяется: сверьте записи, автоматическое объединение по ID остановлено.' });
+        drafts[i] = { ...drafts[i], institutionId: null };
+      }
+    }
+  }
   let customersMatched = 0;
   const matchedNormalized = new Set<string>();
   for (const row of usage) {
@@ -202,6 +232,13 @@ export function parseMonitoringDirectory(
 
   return {
     entries,
+    identityIssues,
+    collisions: [...owners]
+      .filter(([, candidates]) => candidates.size > 1)
+      .map(([normalized, candidates]) => ({
+        normalized,
+        addresses: [...candidates].map((i) => `${MONITORING_DIRECTORY_SHEET}!D${drafts[i].row}`),
+      })),
     customersOutside: collectCustomers(usage, index),
     customersMatched,
     withoutShortName: entries.filter((e) => e.shortIsFull).length,

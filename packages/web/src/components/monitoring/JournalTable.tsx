@@ -1,5 +1,5 @@
 /**
- * Режим «Переходящий реестр 25-26» (спека §2.3).
+ * Режим «Результаты и связи» (спека §2.3).
  *
  * ЗАЧЕМ ЛИСТУ ОТДЕЛЬНЫЙ РЕЖИМ. Он несёт то, чего на листах управлений нет:
  * победителя и ИНН по процедурам, которые до листов ещё не дошли, и
@@ -30,16 +30,18 @@ export interface JournalTableProps {
   readAtLabel: string;
   /** Поисковая строка разрезов — журнал слушает её так же, как реестр. */
   query?: string;
+  onOpenCode?: (code: string) => void;
+  codeLabel?: (code: string) => string;
 }
 
-export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableProps) {
+export function JournalTable({ journal, readAtLabel, query = '', onOpenCode, codeLabel = (code) => code }: JournalTableProps) {
   const [showHidden, setShowHidden] = useState(true);
   const needle = query.trim().toLowerCase();
 
   const rows = journal.rows.filter((r) => {
     if (!showHidden && r.hiddenInBook) return false;
     if (needle === '') return true;
-    return [r.code, r.subject, r.customer, r.winnerName, r.winnerInn, r.fate]
+    return [r.code, r.code ? codeLabel(r.code) : null, r.subject, r.customer, r.winnerName, r.winnerInn, r.fate, r.fateRaw, r.linkedCode, ...(r.linkedCodes ?? [])]
       .some((v) => v !== null && v.toLowerCase().includes(needle));
   });
 
@@ -57,18 +59,17 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
           <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
             Цепочки переобъявлений — {pluralCount(journal.lineage.length, 'цепочка', 'цепочки', 'цепочек')}
           </h3>
-          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-3xl">
-            Собраны из колонки «Судьба» листа: там, где человек записал, из какой процедуры выросла
-            нынешняя. Каждая стрелка — отдельный заход на ту же закупку.
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-3xl">
+            Связи из полей «Предок» и «Наследник» рабочего реестра. Связь сама по себе не подтверждает повторное объявление.
           </p>
           <ul className="mt-2 space-y-1.5">
             {journal.lineage.map((chain) => (
-              <li key={chain.codes.join('→')} className="text-[11px]">
+              <li key={chain.codes.join('→')} className="text-xs">
                 <span className="flex flex-wrap items-center gap-1.5">
                   {chain.codes.map((c, i) => (
-                    <span key={c} className="inline-flex items-center gap-1.5">
+                    <span key={`${i}:${c}`} className="inline-flex items-center gap-1.5">
                       {i > 0 && <ArrowRight size={10} className="text-zinc-400" aria-hidden="true" />}
-                      <span className="font-mono text-zinc-700 dark:text-zinc-200">{c}</span>
+                      <button type="button" onClick={() => onOpenCode?.(c)} className="font-mono text-sky-700 underline dark:text-sky-300">{codeLabel(c)}</button>
                     </span>
                   ))}
                 </span>
@@ -82,27 +83,27 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
       )}
 
       <section
-        aria-label="Переходящий реестр 25-26"
+        aria-label="Результаты и связи"
         className={`${CARD} p-3 sm:p-4 space-y-3`}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Лист «25-26»</h2>
-            <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-2xl">
-              Переходящий реестр двух лет: {pluralCount(journal.rows.length, 'строка', 'строки', 'строк')},
-              победители с ИНН и судьба каждой процедуры.
+            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Результаты и связи</h2>
+            <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-2xl">
+              В выбранном наборе: {pluralCount(journal.rows.length, 'строка', 'строки', 'строк')},
+              результаты, поставщики и явные связи процедур.
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <BookPeriodBadge label={readAtLabel} kind="period" note="лист переходящий: в нём соседствуют 2025 и 2026 годы" />
-            <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
-              Источник: лист «25-26» книги «Ежедневный мониторинг»
+            <BookPeriodBadge label={readAtLabel} kind="period" note="результаты и связи текущего набора процедур" />
+            <p className="mt-1 text-xs leading-tight text-zinc-500 dark:text-zinc-400">
+              Источник: рабочий реестр процедур
             </p>
-            <MonitoringPerimeterCaption scope="district" className="max-w-[18rem]" />
+            <MonitoringPerimeterCaption scope="registry" className="max-w-[18rem]" />
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
           <label className="inline-flex items-center gap-1.5">
             <input
               type="checkbox"
@@ -123,8 +124,8 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs min-w-[52rem]">
-            <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
+          <table className="w-full text-sm min-w-[52rem]">
+            <thead className="text-xs text-zinc-500 dark:text-zinc-400">
               <tr className={RULE_HEAD}>
                 <th className="px-2 py-1.5 text-left font-medium">Строка</th>
                 <th className="px-2 py-1.5 text-left font-medium">Судьба</th>
@@ -143,7 +144,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
             <tbody>
               {rows.map((r) => (
                 <tr key={r.row} className={`${RULE_ROW} align-top`}>
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
+                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
                     {r.row}
                     {r.hiddenInBook && (
                       <EyeOff size={10} className="inline ml-1" aria-label="строка спрятана в книге" />
@@ -153,13 +154,13 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
                     )}
                   </td>
                   <td className="px-2 py-1.5 max-w-[10rem] text-zinc-600 dark:text-zinc-300" title={r.fateRaw ?? undefined}>
-                    {r.fate ?? '—'}
+                    {r.fateRaw ?? r.fate ?? '—'}
                   </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
-                    {r.linkedCode ?? '—'}
+                  <td className="px-2 py-1.5 whitespace-nowrap font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                    {(r.linkedCodes?.length ? r.linkedCodes : r.linkedCode ? [r.linkedCode] : []).map((code) => <button key={code} type="button" onClick={() => onOpenCode?.(code)} className="mr-2 text-sky-700 underline dark:text-sky-300">{codeLabel(code)}</button>)}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap font-mono text-zinc-800 dark:text-zinc-100">
-                    {r.code ?? '—'}
+                    {r.code ? <button type="button" onClick={() => onOpenCode?.(r.code!)} className="text-sky-700 underline dark:text-sky-300">{codeLabel(r.code)}</button> : '—'}
                   </td>
                   <td className="px-2 py-1.5 max-w-[10rem] truncate text-zinc-600 dark:text-zinc-300" title={r.customer}>
                     {r.customer || '—'}
@@ -187,7 +188,7 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
                       {r.winnerName ?? r.outcome ?? '—'}
                     </span>
                     {r.winnerInn !== null && (
-                      <span className="block font-mono text-[10px] text-zinc-400 dark:text-zinc-500">{r.winnerInn}</span>
+                      <span className="block font-mono text-xs text-zinc-500 dark:text-zinc-400">{r.winnerInn}</span>
                     )}
                   </td>
                 </tr>
@@ -197,14 +198,14 @@ export function JournalTable({ journal, readAtLabel, query = '' }: JournalTableP
         </div>
 
         {rows.length === 0 && (
-          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
             Под поиск и переключатель скрытых строк не попала ни одна строка листа. Это отбор
             экрана, а не пустота листа: всего в нём {fmtCount(journal.rows.length)}.
           </p>
         )}
 
         {journal.notes.length > 0 && (
-          <div className={`space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 ${RULE_SECTION} pt-2`}>
+          <div className={`space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400 ${RULE_SECTION} pt-2`}>
             {journal.notes.map((n) => <p key={n}>{n}</p>)}
           </div>
         )}

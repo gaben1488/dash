@@ -29,7 +29,7 @@ export const STAGE_ORDER: readonly string[] = [
 const STAGE_LABELS: Readonly<Record<string, string>> = {
   application: 'Заявка в уполномоченном органе',
   published: 'Объявлена, итога нет',
-  bidding: 'Торги прошли',
+  bidding: 'Итог не внесён',
   awarded: 'Состоялась',
   no_result: 'Без результата',
   reissued: 'Переоформлена',
@@ -40,7 +40,7 @@ const STAGE_LABELS: Readonly<Record<string, string>> = {
 const STAGE_SHORT: Readonly<Record<string, string>> = {
   application: 'Заявка',
   published: 'Объявлена',
-  bidding: 'Торги прошли',
+  bidding: 'Итог не внесён',
   awarded: 'Состоялась',
   no_result: 'Без результата',
   reissued: 'Переоформлена',
@@ -54,9 +54,10 @@ const STAGE_MEANING: Readonly<Record<string, string>> = {
   published:
     'Процедура объявлена — дата публикации есть, итога нет. Ждём торгов либо внесения результата.',
   bidding:
-    'Торги прошли: дата торгов в книге есть, но цена победителя ещё не внесена.',
+    'Дата подведения итогов наступила, но результат процедуры ещё не внесён. Цена по протоколу не подтверждает контракт.',
   awarded:
     'В поле результата указано «Состоялась». Это не подтверждение заключения контракта.',
+  reissued: 'Процедура передана явному наследнику; её НМЦК исключена из плана, чтобы избежать двойного учёта.',
   no_result:
     'Указан результат «Нет заявок» либо отмена закупки. Причина показывается в исходной строке.',
 };
@@ -117,6 +118,7 @@ export function stagesPresent(stages: Iterable<string>): string[] {
  */
 const METHOD_LABELS: Readonly<Record<string, string>> = {
   ЭА: 'электронный аукцион',
+  ЭК: 'электронный конкурс',
   ЭАС: 'совместный электронный аукцион',
   ЭЗК: 'запрос котировок в электронной форме',
   ЭЕП: 'закупка у единственного поставщика',
@@ -128,4 +130,4 @@ export function methodLabel(method: string | null): string {
 }
 
 /** Известные способы в порядке убывания частоты в книге — для кнопок разреза. */
-export const METHOD_ORDER: readonly string[] = ['ЭА', 'ЭЕП', 'ЭЗК', 'ЭАС'];
+export const METHOD_ORDER: readonly string[] = ['ЭА', 'ЭЕП', 'ЭЗК', 'ЭАС', 'ЭК'];

@@ -235,7 +235,7 @@ describe('JointPurchasesCard', () => {
   it('двойной счёт совместных строк назван словами, а не починен тихо', () => {
     show(
       <JointPurchasesCard comparison={jointComparison(rows)} periodLabel={PERIOD} />);
-    expect(screen.getByText(/сумма листов расходится с итогом свода книги именно поэтому/u)).toBeTruthy();
+    expect(screen.getByText(/Сумма копий не подтверждает общий объём процедуры/u)).toBeTruthy();
   });
 
   it('без состоявшихся сторон снижение не показывается нулём', () => {

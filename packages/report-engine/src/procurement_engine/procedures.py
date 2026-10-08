@@ -199,21 +199,25 @@ def validate_procedure_shares(attempts: list, shares: list) -> list[ValidationIs
 
 
 def _closed_check_view(queue_values):
-    return any(len(row) >= 23 and [clean_text(c) for c in row[13:23]] == [
-        'Уровень', 'Код', 'Действие', 'Управление', 'Заказчик', 'Предмет',
-        'НМЦК', 'Стадия', 'Сигнал', 'Открыть'] for row in queue_values)
+    headers = ['Уровень', 'Код', 'Действие', 'Управление', 'Заказчик',
+               'Предмет', 'НМЦК', 'Стадия', 'Сигнал', 'Открыть']
+    for row in queue_values:
+        for offset in (13, 14):  # N:W before separator J; O:X after it.
+            if [clean_text(c) for c in row[offset:offset + 10]] == headers:
+                return offset
+    return None
 
 
 def operational_cells(raw, offset):
     """Map reviewed physical columns without changing the retained source cells."""
-    if offset != 13:
+    if offset not in (13, 14):
         return raw
     c = lambda i: raw[i] if i < len(raw) else ''
     return ['', '', c(2), c(1), *[c(i) for i in range(3, 9)]]
 
 
 def iter_operational_rows(queue_values):
-    """Read stacked queues, A:J / M:V queues and the N:W closed checks.
+    """Read stacked queues, A:J / M:V queues and N:W or O:X closed checks.
 
     Column offset is kept with each physical row so the source address stays verifiable.
     """
@@ -225,7 +229,7 @@ def iter_operational_rows(queue_values):
         if row and clean_text(row[0]).casefold() == 'данные по закрытым строкам':
             block = 'closed_quality'
             continue
-        blocks = [('active', 0), ('closed_quality', 13)] if checks else (
+        blocks = [('active', 0), ('closed_quality', checks)] if checks is not None else (
             [('active', 0), ('closed_quality', 12)] if parallel else [(block, 0)])
         for current, offset in blocks:
             cells = row[offset:offset + 10]

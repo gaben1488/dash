@@ -1,0 +1,115 @@
+/** Native presentation changes only. Source facts, IDs and stage fills stay intact. */
+export function addressedRemarkRules(sheet) {
+  const id = sheet.properties.sheetId;
+  const configs = {
+    2526403: { row: 4, note: '$P4', map: { A:'A', B:'B', C:'E', D:'F', E:'G', F:'H', G:'M', H:'Q', I:'N', J:'O', K:'P', L:'R', M:'T', N:'W', O:'V', P:'Y' } },
+    2526402: { row: 2, note: '$P2', map: { A:'A', B:'B', C:'E', D:'F', E:'G', F:'H', G:'M', H:'Q', I:'N', J:'O', K:'P', L:'T', M:'W', N:'R', O:'B', P:'Y' } },
+    2526401: { row: 2, note: 'IF(COUNTIFS(INDEX(ДанныеМастера;0;1);$A2;INDEX(ДанныеМастера;0;2);"<>доля")=1;IFERROR(INDEX(FILTER(INDEX(ДанныеМастера;0;25);INDEX(ДанныеМастера;0;1)=$A2;INDEX(ДанныеМастера;0;2)<>"доля");1);"");"")', map: { A:'A', B:'E', C:'F', D:'G', E:'H', F:'L', G:'T', H:'W', J:'V', L:'X' } },
+  };
+  const config = configs[id];
+  if (!config) return [];
+  const requests = [];
+  const rules = sheet.conditionalFormats ?? [];
+  const generic = rules.flatMap((r,i) => {
+    const f = r.booleanRule?.condition?.values?.[0]?.userEnteredValue ?? '';
+    return /FIND\("; (Ошибка|Проверить|Неполно): /u.test(f) && r.ranges.some(x => (x.endColumnIndex - x.startColumnIndex) > 1) ? [i] : [];
+  });
+  if (!generic.length) return requests;
+  for (const index of generic.reverse()) requests.push({ deleteConditionalFormatRule: { sheetId:id, index } });
+  const shades = { 'Ошибка': { red:1,green:.886,blue:.886 }, 'Проверить': { red:1,green:.957,blue:.827 }, 'Неполно': { red:.898,green:.949,blue:1 } };
+  const width = Math.max(...Object.keys(config.map).map(col => col.charCodeAt(0)-64));
+  const note = config.note.replaceAll('ДанныеМастера', 'INDIRECT("ДанныеМастера")');
+  const source = `CHOOSE(COLUMN(A${config.row});${Array.from({length:width},(_,i)=>`"${config.map[String.fromCharCode(65+i)] ?? 'NONE'}"`).join(';')})`;
+  for (const [level, color] of Object.entries(shades)) {
+    const match = `IF(${source}="Y";ISNUMBER(SEARCH("${level}:";${note}));REGEXMATCH(${note}&"";"(?:^|; )${level}: [^;]* — "&${source}&"(?:$|;)"))`;
+    requests.push({ addConditionalFormatRule: { index:0, rule: { ranges:[{sheetId:id,startRowIndex:config.row-1,endRowIndex:sheet.properties.gridProperties.rowCount,startColumnIndex:0,endColumnIndex:width}], booleanRule:{condition:{type:'CUSTOM_FORMULA',values:[{userEnteredValue:`=AND($A${config.row}<>"";${match})`}]},format:{backgroundColor:color}} } } });
+  }
+  return requests;
+}
+
+export function nativeMoneyPresentationRequests(sheets, queueHeaders) {
+  const closedColumn = queueHeaders ? queueHeaders.findIndex((value,index)=>index>3 && value==='Код') : 15;
+  if (![14,15].includes(closedColumn)) throw new Error('QUEUE_HEADER_CONTRACT');
+  const closedCode = String.fromCharCode(65 + closedColumn);
+  const closedMoney = String.fromCharCode(65 + closedColumn + 5);
+  const requests = sheets.flatMap(addressedRemarkRules);
+  const show = (id,start,end,width) => requests.push({updateDimensionProperties:{range:{sheetId:id,dimension:'COLUMNS',startIndex:start,endIndex:end},properties:{hiddenByUser:false,pixelSize:width},fields:'hiddenByUser,pixelSize'}});
+  show(2526400,7,8,155); show(2526401,12,13,265); show(2526401,13,14,75); show(2526401,14,16,160); show(2526402,17,18,265); show(2526402,18,20,160);
+  requests.push(...workQueueDividerPresentationRequests());
+  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:1},rows:[{values:[{userEnteredValue:{formulaValue:`="В работе: "&COUNTIF(D3:D1002;"?*")&" · НМЦК: "&TEXT(SUM(H3:H1002);"#,##0.00")&" ₽. Код открывает строку реестра. Дата — ориентир. Проверки закрытых процедур: "&COUNTIF(${closedCode}3:${closedCode}1002;"?*")&" — справа."`}}]}],fields:'userEnteredValue'}});
+  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:closedColumn-1,endColumnIndex:closedColumn},rows:[{values:[{userEnteredValue:{formulaValue:`="Проверки данных закрытых процедур: "&COUNTIF(${closedCode}3:${closedCode}1002;"?*")&" · НМЦК строк: "&TEXT(SUM(${closedMoney}3:${closedMoney}1002);"#,##0.00")&" ₽"`}}]}],fields:'userEnteredValue'}});
+  return requests;
+}
+
+
+/** Canonical workplace layout: A:J active, K:M hidden, N visible blank, O:X closed checks. */
+export function workQueueDividerPresentationRequests(rowCount = 1002) {
+  const sheetId = 2526400;
+  const columnRange = (startIndex, endIndex) => ({ sheetId, dimension: 'COLUMNS', startIndex, endIndex });
+  return [
+    { updateDimensionProperties: { range: columnRange(9, 10), properties: { hiddenByUser: false, pixelSize: 185 }, fields: 'hiddenByUser,pixelSize' } },
+    { updateDimensionProperties: { range: columnRange(10, 13), properties: { hiddenByUser: true }, fields: 'hiddenByUser' } },
+    { updateDimensionProperties: { range: columnRange(13, 14), properties: { hiddenByUser: false, pixelSize: 36 }, fields: 'hiddenByUser,pixelSize' } },
+    { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: rowCount, startColumnIndex: 13, endColumnIndex: 14 },
+      cell: { userEnteredFormat: { backgroundColorStyle: { rgbColor: { red: .932, green: .944, blue: .960 } }, borders: {} } },
+      fields: 'userEnteredFormat.backgroundColorStyle,userEnteredFormat.borders' } },
+  ];
+}
+
+/** Show registered outcomes in the history, but blank their price/savings in the
+ * completed-archive view until their result date is eligible. Master facts stay intact.
+ * Idempotent, conditional-format friendly and never changes source values.
+ */
+export function admitCompletedArchiveFactsByDate(formula) {
+  if (typeof formula !== 'string' || !formula.startsWith('=')) throw new Error('COMPLETED_ARCHIVE_DATE_CONTRACT');
+  if (formula.includes('табДата;IFERROR(FILTER(') && formula.includes('Денежный факт вне расчётной даты')) return formula;
+  if (!formula.includes('нмцкИсточник;') || !formula.includes('ценаИсточник;') || !formula.includes('фбИсточник;') || !formula.includes('процБезДолей;')) return formula;
+  const replace = (oldValue,newValue) => {
+    if (formula.split(oldValue).length !== 2) throw new Error('COMPLETED_ARCHIVE_DATE_CONTRACT:' + oldValue.slice(0,35));
+    formula=formula.replace(oldValue,newValue);
+  };
+  replace('стадия;INDEX(ДанныеМастера;0;23);есть;', 'стадия;INDEX(ДанныеМастера;0;23);итоги;INDEX(ДанныеМастера;0;12);есть;');
+  replace('выбор;TRIM($B$1&"");процБезДолей;', `табДата;IFERROR(FILTER({код\\итоги};проц);{""\\""});датаФакта;ARRAYFORMULA(IF(EXACT(вид;"доля");IFERROR(VLOOKUP(код;табДата;2;FALSE);"");итоги));допуск;ARRAYFORMULA(IF(TRIM(датаФакта&"")="";TRUE;IFERROR(IF(ISNUMBER(датаФакта);датаФакта;DATEVALUE(датаФакта))<=Сегодня;FALSE)));выбор;TRIM($B$1&"");процБезДолей;`);
+  for (const field of ['цена','экономия','фб','кб','мб']) {
+    replace(`FILTER(ARRAYFORMULA(${field});м)`, `FILTER(ARRAYFORMULA(IF(допуск;${field};""));м)`);
+  }
+  replace('FILTER(INDEX(ДанныеМастера;0;25);м)', 'FILTER(ARRAYFORMULA(IF(NOT(допуск);"Денежный факт вне расчётной даты или дата некорректна — не учтён; ";"")&INDEX(ДанныеМастера;0;25));м)');
+  return formula;
+}
+
+/** Keep unallocated participant money at the primary department, including partial allocations. */
+export function archiveResidualFormula(formula) {
+  if (formula.includes('нмцкИсточник;')) return admitCompletedArchiveFactsByDate(formula);
+  const fields = { нмцк:8, цена:13, экономия:17, фб:14, кб:15, мб:16 };
+  const used = [];
+  for (const [name, column] of Object.entries(fields)) {
+    const old = `${name};INDEX(ДанныеМастера;0;${column});`;
+    if (!formula.includes(old)) continue;
+    used.push(name);
+    const raw = `${name}Источник`;
+    const totals = `IFERROR(QUERY(FILTER({код\\ARRAYFORMULA(N(${raw}))};вид="доля");"select Col1, sum(Col2) group by Col1 label sum(Col2) ''";0);{""\\0})`;
+    formula = formula.replace(old, `${raw};INDEX(ДанныеМастера;0;${column});${name};ARRAYFORMULA(IF(вид="доля";${raw};IF(ISNUMBER(${raw});${raw}-IFERROR(VLOOKUP(код;${totals};2;FALSE);0);"")));`);
+  }
+  if (!used.includes('нмцк') || !formula.includes('(долейКода=0)')) throw new Error('ARCHIVE_RESIDUAL_CONTRACT');
+  const residual = used.map(name => `(ABS(N(${name}))>1/100)`).join('+');
+  return admitCompletedArchiveFactsByDate(formula.replace('(долейКода=0)', `(((долейКода=0)+(${residual})+NOT(ISNUMBER(нмцкИсточник)))>0)`));
+}
+
+export function preserveFateComment(formula) {
+  const old = 'IF(REGEXMATCH(LOWER(INDEX(ДанныеМастера;0;4)&"");"потребность пересмотрена");"В источнике: потребность пересмотрена";';
+  const replacement = 'IF(INDEX(ДанныеМастера;0;4)<>"";"Комментарий источника: "&INDEX(ДанныеМастера;0;4);';
+  if (formula.includes(replacement)) return formula;
+  if (!formula.includes(old)) throw new Error('FATE_COMMENT_CONTRACT');
+  return formula.replace(old, replacement);
+}
+
+export function jointMoneySummaryRequest() {
+  const col = n => `INDEX(ДанныеМастера;0;${n})`;
+  const primary = `(${col(1)}<>"")*(${col(2)}<>"доля")*((${col(2)}="процедура")+REGEXMATCH(${col(1)}&"";"^ЭАС")>0)`;
+  const admitted = `${primary}*(${col(23)}="Состоялась")*IF(TRIM(${col(12)}&"")="";TRUE;IFERROR(IF(ISNUMBER(${col(12)});${col(12)};DATEVALUE(${col(12)}))<=Сегодня;FALSE))`;
+  const sum = (mask,n) => `SUMPRODUCT(${mask};N(${col(n)}))`;
+  const count = mask => `SUMPRODUCT(${mask})`;
+  const entries = [['НМЦК текущих процедур',`${primary}*(${col(23)}<>"Переоформлена")`,8],['НМЦК учтённых результатов',admitted,8],['Цена по учтённым итогам',admitted,13],['Экономия учтённых результатов',admitted,17],['Экономия · ФБ',admitted,14],['Экономия · КБ',admitted,15],['Экономия · МБ',admitted,16],['Переоформленные · история',`${primary}*(${col(23)}="Переоформлена")`,8]];
+  const cell = value => ({userEnteredValue:value.startsWith('=') ? {formulaValue:value} : {stringValue:value}});
+  return {updateCells:{start:{sheetId:2526402,rowIndex:2,columnIndex:17},rows:[{values:['Показатель','Процедур','Сумма, руб.'].map(cell)},...entries.map(([label,mask,n])=>({values:[label,`=${count(mask)}`,`=${sum(mask,n)}`].map(cell)}))],fields:'userEnteredValue'}};
+}

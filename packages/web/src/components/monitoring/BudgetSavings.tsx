@@ -85,13 +85,13 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
             {budget.levels.map((l) => (
               <KBTooltip key={l.key} {...biKbProps(BI_KB.budget_savings)} showIcon>
                 <div className={`${TILE} p-3 text-left`}>
-                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {l.short} — {l.label}
                   </p>
                   <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                     {fmtRub(l.rub)}
                   </p>
-                  <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                  <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                     руб. · {fmtPct(l.sharePct)} расписанной экономии
                   </p>
                 </div>
@@ -99,7 +99,7 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
             ))}
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Без адреса бюджета</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Без адреса бюджета</p>
               <p className={`mt-0.5 text-lg font-semibold tabular-nums ${
                 Math.abs(budget.unallocatedRub) > 0.005
                   ? 'text-amber-700 dark:text-amber-400'
@@ -108,13 +108,13 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
               >
                 {fmtRub(budget.unallocatedRub)}
               </p>
-              <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 руб. · «ВСЕГО» минус сумма трёх бюджетов
               </p>
             </div>
           </div>
 
-          <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+          <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
             Книга записала экономии {fmtRub(budget.bookTotalRub)} руб., расписала по бюджетам{' '}
             {fmtRub(budget.splitTotalRub)} руб.
             {Math.abs(budget.unallocatedRub) <= 0.005
@@ -172,14 +172,14 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
           )}
 
           {/* Легенда словами: три бюджета названы полностью, а не буквами. */}
-          <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             МБ — местный бюджет, КБ — краевой, ФБ — федеральный.
             {onPickDept !== undefined && ' Клик по столбу ставит реестру разрез листом этого управления.'}
           </p>
 
           {/* ── Строки, где разбивки нет либо контроль книги спорит ── */}
           {(budget.rowsWithoutSplit > 0 || budget.rowsControlError > 0) && (
-            <details className={`${TILE} mt-3 px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-300`}>
+            <details className={`${TILE} mt-3 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-300`}>
               <summary className="cursor-pointer">
                 Где именно экономия без адреса:{' '}
                 {pluralCount(budget.rowsWithoutSplit, 'строка', 'строки', 'строк')} без разбивки и{' '}
@@ -204,7 +204,7 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
                   <h5 className="mt-3 font-medium text-zinc-700 dark:text-zinc-200">
                     Самопроверка книги показывает «ошибка»
                   </h5>
-                  <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                     Колонка «Проверка данных» сравнивает «ВСЕГО» с суммой трёх бюджетов. Ниже —
                     разрыв в рублях по каждой спорной строке.
                   </p>
@@ -216,7 +216,7 @@ export function BudgetSavingsCard({ budget, periodLabel, onPickDept }: BudgetSav
 
           {/* Текстовый дубль столбцов. */}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">Экономия по бюджетам в разрезе управлений</caption>
               <thead>
                 <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -254,7 +254,7 @@ function RefTable({
   return (
     <>
       <div className="mt-1 overflow-x-auto">
-        <table className="w-full text-[11px]">
+        <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-zinc-500 dark:text-zinc-400">
               <th className="py-1 pr-2 font-normal">Адрес в книге</th>
@@ -266,8 +266,8 @@ function RefTable({
           <tbody className="text-zinc-700 dark:text-zinc-200">
             {shown.map((r) => (
               <tr key={`${r.sheet}:${r.row}`} className={RULE_ROW_TOP}>
-                <td className="py-1 pr-2 font-mono text-[10px]">{r.sheet}!{r.row}</td>
-                <td className="py-1 pr-2 font-mono text-[10px]">{r.code ?? '—'}</td>
+                <td className="py-1 pr-2 font-mono text-xs">{r.sheet}!{r.row}</td>
+                <td className="py-1 pr-2 font-mono text-xs">{r.code ?? '—'}</td>
                 <td className="py-1 pr-2">{r.customer}</td>
                 <td className="py-1 text-right tabular-nums">{fmtRub(r.rub)}</td>
               </tr>
@@ -276,7 +276,7 @@ function RefTable({
         </table>
       </div>
       {refs.length > shown.length && (
-        <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Показаны первые {fmtCount(shown.length)} адресов из {fmtCount(refs.length)}; остальные
           видны в реестре разрезом «только строки с находками».
         </p>

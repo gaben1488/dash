@@ -50,6 +50,33 @@ const USAGE = [
 ];
 
 describe('parseMonitoringDirectory', () => {
+  it('сохраняет ID при перестановке и переименовании, отклоняет повторный ID', () => {
+    const header = [...CURRENT_GRID[0], 'ID учреждения'];
+    const id = '32e0191e-2ed9-48a7-83da-8a4ade214da2';
+    const row = [...CURRENT_GRID[1], id];
+    expect(parseMonitoringDirectory([header, [], row]).entries[0]).toMatchObject({ institutionId: id, row: 3 });
+    row[3] = 'Новое имя'; row[16] = 'Новое окружное имя';
+    expect(parseMonitoringDirectory([header, row]).entries[0].institutionId).toBe(id);
+    const duplicate = parseMonitoringDirectory([header, row, [...row]]);
+    expect(duplicate.entries.every(r => r.institutionId === null)).toBe(true);
+    expect(duplicate.identityIssues).toHaveLength(2);
+  });
+  it('accepts clear headers without falling back to the old four-column mapping', () => {
+    const header = [...CURRENT_GRID[0]];
+    header[3] = 'Полное наименование';
+    header[4] = 'Сокращённое наименование';
+    header[8] = 'Другие написания';
+    const row = [...CURRENT_GRID[1]];
+    row[16] = ''; row[17] = '';
+    const directory = parseMonitoringDirectory([header, row], [
+      { customer: 'УД АЕМО', customerNormalized: 'уд аемо', dept: 'УД' },
+    ]);
+    expect(directory.entries[0]).toMatchObject({
+      grbs: 'Управление делами', fullName: 'Управление делами Администрации района',
+      shortName: 'Управление делами Администрации района', usageCount: 1,
+    });
+    expect(directory.customersOutside).toEqual([]);
+  });
   it('помечает строки, где сокращение дословно повторяет полное наименование', () => {
     const directory = parseMonitoringDirectory(GRID);
     expect(directory.entries).toHaveLength(3);
@@ -126,4 +153,21 @@ describe('листы-предки', () => {
       'Отчет по процедурам Свод', 'СВОД', 'ГРБС',
     ]);
   });
+});
+
+// Conflicting aliases cannot silently choose the first institution.
+it('retains both directory addresses and stops matching a colliding name', () => {
+  const parsed = parseMonitoringDirectory(
+    [
+      ['№ п/п', 'ГРБС', 'Наименованиеучрежения', 'Сокращеное наименование учреждения'],
+      [1, 'УО', 'Первое учреждение', 'Общее'],
+      [2, 'УД', 'Второе учреждение', 'Общее'],
+    ],
+    [{ customer: 'Общее', customerNormalized: 'общее', dept: 'УО' }],
+  );
+  expect(parsed.customersMatched).toBe(0);
+  expect(parsed.entries.map((e) => e.usageCount)).toEqual([0, 0]);
+  expect(parsed.collisions).toEqual([
+    { normalized: 'общее', addresses: ['Справочник заказчиков!D2', 'Справочник заказчиков!D3'] },
+  ]);
 });

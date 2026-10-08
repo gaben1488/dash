@@ -17,7 +17,7 @@
  * нет. Разница объясняется, а не сглаживается.
  */
 import type { SvodPayload, SvodRow } from '../../lib/monitoring/contract';
-import { fmtCount, fmtRub } from '../../lib/monitoring/format';
+import { fmtCount, fmtRubExact } from '../../lib/monitoring/format';
 import { BookPeriodBadge } from './BookPeriodBadge';
 import { MonitoringPerimeterCaption } from './PerimeterProvider';
 import { CARD, RULE_COL, RULE_COL_HEAD, RULE_HEAD, RULE_ROW, RULE_SECTION, RULE_TOTAL } from './surfaces';
@@ -28,17 +28,15 @@ function Pair({ book, product, kind = 'money' }: {
   product: number | null;
   kind?: 'money' | 'count';
 }) {
-  const fmt = kind === 'money' ? fmtRub : fmtCount;
-  // Расхождением считается разница больше рубля: копеечный след округления
-  // формул книги — не новость, и поднимать из-за него две колонки незачем.
-  const differs = book !== null && product !== null && Math.abs(book - product) > 1;
+  const fmt = kind === 'money' ? fmtRubExact : fmtCount;
+  const differs = (book === null) !== (product === null) || book !== null && product !== null && (kind === 'count' ? book !== product : Math.abs(book - product) > 0.01 + 1e-8);
   if (!differs) {
     return <span className="tabular-nums text-zinc-700 dark:text-zinc-200">{fmt(book ?? product)}</span>;
   }
   return (
     <span className="inline-flex flex-col items-end leading-tight">
       <span className="tabular-nums text-zinc-700 dark:text-zinc-200" title="как считает книга">{fmt(book)}</span>
-      <span className="tabular-nums text-[10px] text-amber-700 dark:text-amber-400" title="как считает продукт по строкам листа">
+      <span className="tabular-nums text-xs text-amber-700 dark:text-amber-400" title="как считает продукт по строкам листа">
         {fmt(product)}
       </span>
     </span>
@@ -49,7 +47,7 @@ function ControlCell({ row }: { row: SvodRow }) {
   if (row.budgetGap === null) {
     return <span className="text-zinc-300 dark:text-zinc-600" title="Разбивки по бюджетам в строке свода нет">·</span>;
   }
-  const ok = Math.abs(row.budgetGap) <= 1;
+  const ok = Math.abs(row.budgetGap) <= 0.01 + 1e-8;
   return (
     <span
       className={`tabular-nums ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
@@ -57,7 +55,7 @@ function ControlCell({ row }: { row: SvodRow }) {
         ? 'ВСЕГО сходится с суммой МБ, КБ и ФБ'
         : 'ВСЕГО не собирается из долей: разрыв показан рублями'}
     >
-      {ok ? 'сходится' : fmtRub(row.budgetGap)}
+      {ok ? 'сходится' : fmtRubExact(row.budgetGap)}
     </span>
   );
 }
@@ -71,7 +69,7 @@ function Row({ row, total = false }: { row: SvodRow; total?: boolean }) {
       <td className="px-2 py-1.5 text-zinc-700 dark:text-zinc-200">
         {row.bookLabel || row.sheet}
         {row.bookLabel !== '' && row.sheet !== '' && row.bookLabel !== row.sheet && (
-          <span className="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500" title="так этот же лист назван в книге">
+          <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400" title="так этот же лист назван в книге">
             ({row.sheet})
           </span>
         )}
@@ -82,9 +80,9 @@ function Row({ row, total = false }: { row: SvodRow; total?: boolean }) {
       <td className={`px-2 py-1.5 text-right ${RULE_COL}`}>
         <Pair book={row.book.savingsTotal} product={row.product.savingsTotal} />
       </td>
-      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.mb)}</span></td>
-      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.kb)}</span></td>
-      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(row.book.fb)}</span></td>
+      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRubExact(row.book.mb)}</span></td>
+      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRubExact(row.book.kb)}</span></td>
+      <td className="px-2 py-1.5 text-right"><span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRubExact(row.book.fb)}</span></td>
       <td className={`px-2 py-1.5 text-right ${RULE_COL}`}><ControlCell row={row} /></td>
     </tr>
   );
@@ -106,14 +104,14 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Сводный аналитический лист</h2>
-          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 max-w-2xl">
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-2xl">
             Управления, совместные процедуры и итог — как в книге. Где свод книги и пересчёт реестра расходятся,
             стоят два числа: сверху книжное, под ним — продуктовое. Причина разницы названа под таблицей.
           </p>
         </div>
         <div className="shrink-0 text-right">
           <BookPeriodBadge label={readAtLabel} note="свод книги пересчитывается формулами при каждом открытии книги" />
-          <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+          <p className="mt-1 text-xs leading-tight text-zinc-500 dark:text-zinc-400">
             Источник: сводный аналитический лист рабочего реестра
           </p>
           {/* Свод — районный лист: выбранное в шапке управление его числа не
@@ -123,13 +121,13 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[44rem]">
-          <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
+        <table className="w-full text-sm min-w-[44rem]">
+          <thead className="text-xs text-zinc-500 dark:text-zinc-400">
             <tr className={RULE_HEAD}>
               <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Управление</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Кол-во</th>
               <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">НМЦК, руб.</th>
-              <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Цена аукциона, руб.</th>
+              <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">Цена по итогам, руб.</th>
               <th colSpan={4} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
                 Экономия, руб.
               </th>
@@ -153,11 +151,11 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
 
       {diverging.length > 0 && (
         <div className={`space-y-1 ${RULE_SECTION} pt-2.5`}>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Почему книга и продукт считают по-разному
           </p>
           {diverging.map((r) => (
-            <p key={r.sheet} className="text-[11px] text-zinc-600 dark:text-zinc-300">
+            <p key={r.sheet} className="text-xs text-zinc-600 dark:text-zinc-300">
               <span className="font-medium">{r.bookLabel || r.sheet}:</span> {r.divergenceNote}
             </p>
           ))}
@@ -165,7 +163,7 @@ export function SvodTable({ svod, readAtLabel }: SvodTableProps) {
       )}
 
       {svod.notes.length > 0 && (
-        <div className="space-y-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {svod.notes.map((n) => <p key={n}>{n}</p>)}
         </div>
       )}
@@ -201,19 +199,19 @@ export function SheetTotalsRow({ row }: { row: SvodRow }) {
           листа целиком, а таблица выше может быть срезана разрезами панели.
           Молчание об этом читалось бы как «итог показанных строк» — и любое
           несовпадение суммы выглядело бы ошибкой счёта. */}
-      <p className="mt-0.5 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
-        Источник: лист «{row.sheet}» и строка свода книги «Ежедневный мониторинг». Числа — за ВЕСЬ
+      <p className="mt-0.5 text-xs leading-tight text-zinc-500 dark:text-zinc-400">
+        Источник: лист «{row.sheet}» и строка сводного аналитического листа. Числа — за ВЕСЬ
         лист: разрезы панели, которыми сужена таблица выше, к этому итогу не применяются.
       </p>
       <dl className="mt-2 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
         {cells.map((c) => (
           <div key={c.label}>
-            <dt className="text-[10px] text-zinc-500 dark:text-zinc-400">{c.label}</dt>
+            <dt className="text-xs text-zinc-500 dark:text-zinc-400">{c.label}</dt>
             <dd className="text-sm"><Pair book={c.book} product={c.product} kind={c.kind} /></dd>
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-[10px] text-zinc-400 dark:text-zinc-500">
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
         Верхнее число — как считает свод книги, нижнее янтарное (если есть) — как считает продукт
         по строкам листа.{row.divergenceNote !== null && ` ${row.divergenceNote}`}
       </p>

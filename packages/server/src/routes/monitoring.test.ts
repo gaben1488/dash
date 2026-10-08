@@ -66,6 +66,7 @@ describe('мониторинг нового рабочего реестра', ()
     expect(b.source.sheetsRead).toEqual([MASTER, 'Сводный аналитический лист', 'Справочник заказчиков']);
     expect(Object.keys(b.source.sheetsFailed)).toEqual(['Процедуры в работе']);
     expect(b.procedures).toHaveLength(5);
+    expect(b.suppliers).toMatchObject({ rows: [], readAt: null, error: expect.any(String) });
     expect(b.procedures[0]).toMatchObject({ sheet: MASTER, row: 3, result: 'Состоялась', stage: 'awarded', auctionPrice: 90_000 });
     expect(b.procedures[1].stage).toBe('published');
     expect(b.procedures[2]).toMatchObject({ stage: 'no_result', auctionPrice: null, savingsTotal: null });

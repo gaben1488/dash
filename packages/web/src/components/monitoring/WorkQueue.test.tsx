@@ -6,6 +6,29 @@ import { WorkQueue } from './WorkQueue';
 
 afterEach(cleanup);
 
+it('неизвестная стадия открывается из отдельного разбора данных в текущем срезе', () => {
+  const own = { sheet: 'Рабочий реестр процедур', row: 3, dept: 'УО', code: 'ЭА100-26', stage: 'unknown' };
+  const other = { ...own, row: 4, dept: 'УЭР', code: 'ЭА101-26' };
+  const data = normalizeMonitoring({ procedures: [own], work: { active: [], closed: [], triage:
+    [own, other].map((procedure) => ({ procedure, action: 'Уточнить стадию процедуры' })) } });
+  const onOpen = vi.fn();
+  render(<WorkQueue queue={data.work} procedures={data.procedures} readAtLabel="Снимок" onOpen={onOpen} />);
+  fireEvent.click(screen.getByRole('button', { name: /Разобрать данные 1/u }));
+  expect(screen.queryByRole('columnheader', { name: 'Дата ориентира' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'ЭА101-26' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'ЭА100-26' }));
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ stage: 'unknown', row: 3 }));
+});
+
+it('показывает код книги с нулями и открывает ту же процедуру по ключу сопоставления', () => {
+  const procedure = { sheet: 'Рабочий реестр процедур', row: 3, code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' };
+  const data = normalizeMonitoring({ procedures: [procedure], work: { active: [{ procedure, action: 'Разместить извещение' }], closed: [] } });
+  const onOpen = vi.fn();
+  render(<WorkQueue queue={data.work} procedures={data.procedures} readAtLabel="Снимок" onOpen={onOpen} />);
+  fireEvent.click(screen.getByRole('button', { name: 'ЭАС06-25' }));
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' }));
+});
+
 it('показывает дату заявки отдельно от незаданного срока и открывает её процедуру', () => {
   const procedure = { sheet: 'Рабочий реестр процедур', row: 3, dept: 'УО', code: 'ЭА100-26',
     customer: 'Синтетический заказчик', subject: 'Синтетический предмет', stage: 'application',
@@ -19,7 +42,7 @@ it('показывает дату заявки отдельно от незад�
   expect(screen.getByText('Заявка поступила 01.09.2026')).toBeTruthy();
   expect(screen.queryByText(/Дата ориентира — дата заявки/u)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'ЭА100-26' }));
-  expect(onOpen).toHaveBeenCalledWith('ЭА100-26');
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ code: 'ЭА100-26' }));
   fireEvent.click(screen.getByRole('button', { name: /Проверки закрытых/u }));
   expect(screen.getByText('В выбранном срезе очередь пуста.')).toBeTruthy();
 });

@@ -254,7 +254,7 @@ class GoogleSheetSourceAdapter:
             if full_columns>c['columns']:
                 metadata['formula_evidence']['extra_values']=extra_values
         return SourcePayload(self.source_id,self.role,self.provider_id,values,str(c['sheet_id']),
-            header_hash(values,c['header_rows']),metadata=metadata)
+            header_hash(values,c['header_rows'], volatile_cells=c.get('volatile_header_cells', ())),metadata=metadata)
 
 
 def capture_google(registry,client=None,*,timezone_name='Asia/Kamchatka',max_attempts=3):

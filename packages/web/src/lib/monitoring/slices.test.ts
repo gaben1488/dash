@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeMonitoring, type RegistryProcedure } from './contract';
 import {
-  applySlices, emptySlices, hasAnySlice, nmckBucketId, procedureDefects, reductionBucketId,
+  applySlices, emptySlices, hasAnySlice, nmckBucketId, procedureDefects, reductionBucketId, slicesForMonitoringMode,
   sortProcedures,
 } from './slices';
 import { portraitFrom } from './portrait';
@@ -39,7 +39,73 @@ function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {
   };
 }
 
+it('поиск принимает исходный код с ведущими нулями и ключ сопоставления', () => {
+  const p = proc({ code: 'ЭАС6-25', sourceCode: 'ЭАС06-25' });
+  expect(applySlices([p], { ...emptySlices(), query: 'ЭАС06-25' })).toEqual([p]);
+  expect(applySlices([p], { ...emptySlices(), query: 'ЭАС6-25' })).toEqual([p]);
+});
+
+it('поиск полного кода сопоставляет разные числа нулей и сохраняет различие лотов', () => {
+  const rows = [proc({ code: 'ЭАС6/2-25', sourceCode: 'ЭАС06/02-25' }), proc({ code: 'ЭАС6/3-25' })];
+  expect(applySlices(rows, { ...emptySlices(), query: 'эас0006/002-25' })).toEqual([rows[0]]);
+  expect(applySlices([proc({ code: 'ЭА1-26' })], { ...emptySlices(), query: 'ЭА001-26' })).toHaveLength(1);
+});
+
+it('представления сохраняют отмены и наследников отдельно от успешных процедур', () => {
+  const rows = [proc(), proc({ stage: 'no_result', result: 'Нет заявок', auctionPrice: null }),
+    proc({ stage: 'reissued', auctionPrice: 100 }), proc({ stage: 'bidding', auctionPrice: 100 })];
+  expect(applySlices(rows, { ...emptySlices(), view: 'withoutContract' }).map((p) => p.stage)).toEqual(['no_result', 'reissued']);
+  expect(applySlices(rows, { ...emptySlices(), view: 'successful' }).map((p) => p.stage)).toEqual(['awarded']);
+  expect(applySlices(rows, { ...emptySlices(), view: 'all' })).toHaveLength(4);
+});
+
+it('режимы разделяют реестровое представление и рабочую очередь', () => {
+  const rows = [proc({ stage: 'no_result' }), proc({ stage: 'application', code: 'ЭА200-26' }), proc({ stage: 'awarded', code: 'ЭА300-26' })];
+  const s = { ...emptySlices(), view: 'withoutContract' as const, query: 'Предок: ЭА200-26', dept: 'УЭР' };
+  expect(applySlices(rows, s)).toHaveLength(0);
+  const work = slicesForMonitoringMode(s, 'work');
+  expect(work.view).toBe('all');
+  expect(work.query).toBe(s.query);
+  expect(work.dept).toBe('УЭР');
+  const journal = slicesForMonitoringMode(s, 'journal');
+  expect(journal.view).toBe('all');
+  expect(journal.query).toBe('');
+  expect(journal.dept).toBe('УЭР');
+  expect(applySlices(rows, journal)).toHaveLength(3);
+  expect(slicesForMonitoringMode(s, 'registry')).toBe(s);
+  expect(s.view).toBe('withoutContract');
+});
+
 describe('доли совместных процедур', () => {
+  it('остаток неполных долей сохраняется в срезе основной процедуры', () => {
+    const p = proc({
+      dept: 'Совместные',
+      nmck: 100,
+      auctionPrice: 80,
+      savingsTotal: 20,
+      participants: [
+        {
+          row: 4,
+          dept: 'УО',
+          customer: 'Заказчик',
+          nmck: 60,
+          price: 50,
+          savings: 10,
+          savingsMb: 10,
+          savingsKb: 0,
+          savingsFb: 0,
+        },
+      ],
+    });
+    const [owner] = scopeProcedures([p], new Set(['Совместные']));
+    expect(owner.nmck).toBe(40);
+    expect(owner.auctionPrice).toBe(30);
+    expect(owner.participants).toEqual([]);
+    const [both] = scopeProcedures([p], new Set(['Совместные', 'УО']));
+    expect(both.nmck).toBe(100);
+    expect(both.auctionPrice).toBe(80);
+  });
+
   it.each([false, true])('срез управления сохраняет допуск денежного факта: %s', (factsEligible) => {
     const p = proc({ dept: 'Совместные', factsEligible, participants: [
       { row: 4, dept: 'УО', customer: 'Синтетический заказчик', nmck: 40, price: 30, savings: 10, savingsMb: 10, savingsKb: 0, savingsFb: 0 },

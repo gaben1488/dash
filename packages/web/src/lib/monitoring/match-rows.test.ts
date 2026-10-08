@@ -9,6 +9,15 @@ import { describe, expect, it } from 'vitest';
 import type { MatchViewPayload, MoneyComparison } from './analytics-contract';
 import { buildMatchIndex } from './match-rows';
 
+it('карточка сохраняет сверки обеих долей и не выбирает последнюю книгу по коду', () => {
+  const pairs = ['УО', 'УЭР'].map((book, i) => ({ code: 'ЭАС6-26', book, bookRowKey: `${book}:${i + 3}`,
+    sheet: 'Рабочий реестр процедур', procKey: 'Рабочий реестр процедур:3', nmck: money({ agrees: true }), fact: money({ agrees: true }) }));
+  const idx = buildMatchIndex(view({ matched: pairs }));
+  const row = idx?.byCode.get('ЭАС6-26');
+  expect(row?.comparisons?.map((c) => c.bookRowKey)).toEqual(['УО:3', 'УЭР:4']);
+  expect(row?.nmck).toBeNull();
+});
+
 function money(p: Partial<MoneyComparison>): MoneyComparison {
   return {
     bookRub: null, monitoringRub: null, deltaRub: null, relDiff: null, agrees: null, ...p,

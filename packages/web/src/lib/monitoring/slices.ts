@@ -13,7 +13,10 @@
  * обязан экран — тремя разными словами и тремя разными кнопками (п.36).
  */
 import { discountBucketOf } from '@aemr/core';
+import { parseProcedureRef } from '@aemr/shared';
 import type { ProcedureDefect, RegistryProcedure } from './contract';
+import { MONEY_CATEGORY_LABELS, moneyCategoryOf, type MoneyCategory } from './money-flow';
+import { scopeProcedures } from './dept-scope';
 import { dateQuarter, dateSortKey, dateYear, daysBetween } from './format';
 
 // ── Корзины НМЦК ─────────────────────────────────────────────────────
@@ -80,6 +83,8 @@ export function reductionBucketId(p: RegistryProcedure): string | null {
 export type PeriodBasis = 'publication' | 'auction';
 
 export interface SliceState {
+  moneyCategory?: MoneyCategory | null;
+  view?: 'all' | 'withoutContract' | 'joint' | 'successful';
   /** Канонический ид управления либо null — все восемь листов. */
   dept: string | null;
   stage: string | null;
@@ -102,8 +107,19 @@ export interface SliceState {
   query: string;
 }
 
+/** Views belong to the registry. Work must not inherit "no contract",
+ * and journal text search is applied to journal fate rows, not registry text.
+ * Keep all other selected axes unchanged across modes.
+ */
+export function slicesForMonitoringMode(s: SliceState, kind: 'work'|'registry'|'svod'|'journal'|'directory'|'ancestors'): SliceState {
+  if (kind === 'work') return { ...s, view: 'all' };
+  if (kind === 'journal') return { ...s, view: 'all', query: '' };
+  return s;
+}
+
 export function emptySlices(): SliceState {
   return {
+    view: 'all',
     dept: null,
     stage: null,
     method: null,
@@ -124,7 +140,8 @@ export function emptySlices(): SliceState {
 /** Есть ли хоть один действующий разрез — от этого зависят слова пустого экрана. */
 export function hasAnySlice(s: SliceState): boolean {
   return (
-    s.dept !== null || s.stage !== null || s.method !== null
+    s.moneyCategory != null ||
+    (s.view !== undefined && s.view !== 'all') || s.dept !== null || s.stage !== null || s.method !== null
     || s.periodYear !== null || s.periodQuarter !== null || s.periodMonth !== null
     || s.customer !== null || s.winnerInn !== null || s.nmckBucket !== null
     || s.reductionBucket !== null
@@ -214,8 +231,15 @@ export function procedureDefects(p: RegistryProcedure): ProcedureDefect[] {
 function matchesQuery(p: RegistryProcedure, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (needle === '') return true;
-  return [p.code, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome]
-    .some((v) => v !== null && v.toLowerCase().includes(needle));
+  const ref = parseProcedureRef(q);
+  if (ref !== null && ref.code === p.code) return true;
+  return [p.code, p.sourceCode, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome,
+    p.result,
+    p.comment,
+    p.requiredAction,
+    p.qualityNote,
+  ]
+    .some((v) => v != null && v.toLowerCase().includes(needle));
 }
 
 function periodDate(p: RegistryProcedure, basis: PeriodBasis): string | null {
@@ -223,8 +247,12 @@ function periodDate(p: RegistryProcedure, basis: PeriodBasis): string | null {
 }
 
 export function applySlices(rows: readonly RegistryProcedure[], s: SliceState): RegistryProcedure[] {
-  return rows.filter((p) => {
-    if (s.dept !== null && p.dept !== s.dept) return false;
+  const scoped = s.dept === null ? rows : scopeProcedures(rows, new Set([s.dept]));
+  return scoped.filter((p) => {
+    if (s.moneyCategory != null && moneyCategoryOf(p) !== s.moneyCategory) return false;
+    if (s.view === 'withoutContract' && !['no_result', 'reissued'].includes(p.stage)) return false;
+    if (s.view === 'joint' && !p.joint) return false;
+    if (s.view === 'successful' && p.stage !== 'awarded') return false;
     if (s.stage !== null && p.stage !== s.stage) return false;
     if (s.method !== null && p.method !== s.method) return false;
     if (s.customer !== null && p.customer !== s.customer) return false;
@@ -268,6 +296,11 @@ export interface SliceCrumb {
  */
 export function describeSlices(s: SliceState, deptName?: (dept: string) => string): SliceCrumb[] {
   const out: SliceCrumb[] = [];
+  if (s.moneyCategory != null) out.push({ key: 'moneyCategory', label: MONEY_CATEGORY_LABELS[s.moneyCategory] });
+  if (s.view && s.view !== 'all') {
+    const labels = { withoutContract: 'Без контракта', joint: 'Совместные', successful: 'Успешно завершённые процедуры' };
+    out.push({ key: 'view', label: labels[s.view] });
+  }
   if (s.dept !== null) out.push({ key: 'dept', label: `управление: ${deptName ? deptName(s.dept) : s.dept}` });
   if (s.stage !== null) out.push({ key: 'stage', label: `стадия: ${s.stage}` });
   if (s.method !== null) out.push({ key: 'method', label: `способ: ${s.method}` });

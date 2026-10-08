@@ -65,20 +65,20 @@ export function AnalyticsCard({
     <section className={`${CARD} p-4`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{kicker}</p>
+          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{kicker}</p>
           <h3 className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-100">{title}</h3>
         </div>
         <div className="shrink-0 text-right">
           <BookPeriodBadge label={periodLabel} {...(periodNote !== undefined ? { note: periodNote } : {})} />
-          <p className="mt-1 text-[10px] leading-tight text-zinc-400 dark:text-zinc-500 max-w-[16rem] break-words">
+          <p className="mt-1 text-xs leading-tight text-zinc-500 dark:text-zinc-400 max-w-[16rem] break-words">
             Источник: {source}
           </p>
           <MonitoringPerimeterCaption scope="district" className="max-w-[16rem]" />
         </div>
       </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-        <span className="text-zinc-400 dark:text-zinc-500">Как посчитано: </span>{method}
+      <p className="mt-2 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+        <span className="text-zinc-500 dark:text-zinc-400">Как посчитано: </span>{method}
       </p>
 
       {controls !== undefined && <div className="mt-3 flex flex-wrap gap-1.5">{controls}</div>}
@@ -101,7 +101,7 @@ export function CardToggle({
       onClick={onClick}
       aria-pressed={active}
       {...(title !== undefined ? { title } : {})}
-      className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${
+      className={`rounded-lg border px-2 py-1 text-xs transition-colors ${
         active
           ? 'border-zinc-400 dark:border-transparent bg-zinc-100 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 font-medium'
           : `${CONTROL_EDGE} text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700/40`
@@ -124,7 +124,7 @@ export function CardToggle({
  */
 export function CardEmpty({ children }: { children: ReactNode }) {
   return (
-    <p className={`${TILE} border-dashed px-3 py-6 text-center text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400`}>
+    <p className={`${TILE} border-dashed px-3 py-6 text-center text-xs leading-relaxed text-zinc-500 dark:text-zinc-400`}>
       {children}
     </p>
   );

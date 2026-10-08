@@ -3,6 +3,16 @@ import { normalizeMonitoring } from './contract';
 import { scopeProcedures } from './dept-scope';
 import { portraitFrom } from './portrait';
 
+it('сохраняет явные цепочки, все связанные коды и дату из канонического ответа ядра', () => {
+  const journal = normalizeMonitoring({ journal: { rows: [{ row: 3, code: 'ЭА100-26',
+    fateText: 'Предок: ЭА99-26', linkedCodes: ['ЭА99-26', 'ЭА101-26'],
+    resultDate: { raw: '07.10.2026', iso: '2026-10-07' }, price: 80,
+    winner: { name: 'Поставщик', inn: '1234567890' } }],
+    chains: [{ codes: ['ЭА99-26', 'ЭА100-26'], edges: [{ sourceText: 'Предок U' }] }] } }).journal;
+  expect(journal?.rows[0]).toMatchObject({ fateRaw: 'Предок: ЭА99-26', linkedCodes: ['ЭА99-26', 'ЭА101-26'], resultDate: '07.10.2026', auctionPrice: 80, winnerName: 'Поставщик' });
+  expect(journal?.lineage[0].codes).toEqual(['ЭА99-26', 'ЭА100-26']);
+});
+
 it('новый результат и очередь не теряются между API и экраном; доля не превращается в районную сумму', () => {
   const raw = { sheet: 'Рабочий реестр процедур', row: 3, code: 'ЭАС100-26', dept: 'Совместные',
     nmck: 100, auctionPrice: 80, savingsTotal: 20, stage: 'awarded', result: 'Состоялась',

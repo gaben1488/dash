@@ -31,10 +31,13 @@ import type { MonitoringParticipant } from '@aemr/core';
 // ── Источник и состояние книги ───────────────────────────────────────
 
 export interface MonitoringSource {
+  bookUrl?: string | null;
   schema?: string | null;
   bookName: string;
   /** Момент чтения книги (ISO) — плашка периода данных (п.58). */
   readAt: string;
+  version?: number | null;
+  asOf?: string | null;
   /** Единица денег ответа. Книги ГРБС — тысячи; здесь — рубли. */
   moneyUnit: string;
   /** Листы книги, прочитанные сервером, в каноническом порядке книги. */
@@ -85,6 +88,9 @@ export interface ProcedureDurations {
 }
 
 export interface RegistryProcedure {
+  ancestorCodes?: string[];
+  successorCodes?: string[];
+  protocolFlag?: string | null;
   result?: string | null;
   factsEligible?: boolean;
   requiredAction?: string | null;
@@ -102,6 +108,8 @@ export interface RegistryProcedure {
   customer: string;
   /** Канонический код процедуры («ЭА152-26») либо null — код не разобран. */
   code: string | null;
+  /** Запись кода в источнике; отдельно от ключа сопоставления code. */
+  sourceCode?: string | null;
   /**
    * Объяснение нечитаемого кода: «В книге записано „ЭКЗ301-26“ — похоже на
    * ЭЗК301-26 (буквы переставлены местами).» null — код разобран либо кода
@@ -235,6 +243,7 @@ export interface SvodPayload {
 // ── Переходящий реестр «25-26» ───────────────────────────────────────
 
 export interface JournalRow {
+  linkedCodes?: string[];
   row: number;
   /** Колонка A, разобранная на словарь: «С отклонением участника», «ФАС», … */
   fate: string | null;
@@ -281,6 +290,9 @@ export interface JournalPayload {
 // ── Справочник учреждений ────────────────────────────────────────────
 
 export interface DirectoryRow {
+  institutionId?: string | null;
+  sourceAddress?: string;
+  aliases?: string[];
   num: string | null;
   grbs: string | null;
   fullName: string | null;
@@ -339,8 +351,13 @@ export interface WorkQueueItem {
   referenceDate: string | null;
   daysToDate: number | null;
 }
-export interface WorkQueuePayload { asOf: string; active: WorkQueueItem[]; closed: WorkQueueItem[]; }
+export interface WorkQueuePayload { asOf: string; active: WorkQueueItem[]; closed: WorkQueueItem[]; triage?: WorkQueueItem[]; }
 
+export interface SupplierDirectoryPayload {
+  readAt: string | null;
+  error: string | null;
+  rows: Array<{ id: string; name: string; inn: string | null; legalForm: string | null; note: string | null; evidence: string | null; address: string; ambiguous: boolean }>;
+}
 export interface MonitoringPayload {
   work?: WorkQueuePayload | null;
 
@@ -352,6 +369,7 @@ export interface MonitoringPayload {
   svod: SvodPayload | null;
   journal: JournalPayload | null;
   directory: DirectoryPayload | null;
+  suppliers?: SupplierDirectoryPayload | null;
   signals: MonitoringSignal[] | null;
   /**
    * Скрытые листы-предки, названные сервером. `null` — сервер их не назвал, и
@@ -482,8 +500,10 @@ function readProcedure(raw: unknown): RegistryProcedure {
   const dur = rec(r.durations);
   return {
     ...(r.result !== undefined ? { result: str(r.result) } : {}),
+    ancestorCodes: strList(r.ancestorCodes), successorCodes: strList(r.successorCodes),
     ...(typeof r.factsEligible === 'boolean' ? { factsEligible: r.factsEligible } : {}),
     requiredAction: str(r.requiredAction), qualityNote: str(r.qualityNote),
+    protocolFlag: str(r.protocolFlag),
     participants: arr(r.participants).map((value) => { const v = rec(value); return {
       row: count(v.row), dept: text(v.dept), customer: text(v.customer), nmck: num(v.nmck), price: num(v.price), savings: num(v.savings),
       savingsMb: num(v.savingsMb), savingsKb: num(v.savingsKb), savingsFb: num(v.savingsFb),
@@ -496,6 +516,7 @@ function readProcedure(raw: unknown): RegistryProcedure {
     ppNum: str(r.ppNum) ?? str(r.ordinal),
     customer: text(r.customer),
     code,
+    sourceCode: str(r.sourceCode),
     codeNote: str(r.codeNote),
     // Способ и год сервер может ещё не присылать — выводим из кода сами, но
     // ровно так же, как их выводит ядро: префикс букв и суффикс после дефиса.
@@ -708,35 +729,36 @@ function readJournal(raw: unknown): JournalPayload | null {
     return {
       row: count(j.row),
       fate: str(j.fate),
-      fateRaw: str(j.fateRaw),
-      linkedCode: str(j.linkedCode),
+      fateRaw: str(j.fateRaw) ?? str(j.fateText),
+      linkedCode: str(j.linkedCode) ?? strList(j.linkedCodes)[0] ?? null,
+      linkedCodes: strList(j.linkedCodes),
       customer: text(j.customer),
       code: str(j.code),
       subject: text(j.subject),
       nmck: num(j.nmck),
-      applicationDate: str(j.applicationDate),
-      publicationDate: str(j.publicationDate),
-      deadlineDate: str(j.deadlineDate),
-      resultDate: str(j.resultDate),
-      auctionPrice: num(j.auctionPrice),
-      savingsTotal: num(j.savingsTotal),
+      applicationDate: readDate(j.applicationDate),
+      publicationDate: readDate(j.publicationDate),
+      deadlineDate: readDate(j.deadlineDate),
+      resultDate: readDate(j.resultDate),
+      auctionPrice: num(j.auctionPrice ?? j.price),
+      savingsTotal: num(j.savingsTotal ?? j.savings),
       savingsMb: num(j.savingsMb),
       savingsKb: num(j.savingsKb),
       savingsFb: num(j.savingsFb),
-      winnerName: str(j.winnerName),
-      winnerInn: str(j.winnerInn),
-      outcome: str(j.outcome),
+      winnerName: str(j.winnerName) ?? str(rec(j.winner).name),
+      winnerInn: str(j.winnerInn) ?? str(rec(j.winner).inn),
+      outcome: str(j.outcome) ?? str(rec(j.winner).outcomeText),
       hiddenInBook: bool(j.hiddenInBook),
-      outsideFilter: bool(j.outsideFilter),
+      outsideFilter: bool(j.outsideFilter ?? j.outsideBookFilter),
     };
   });
   // Прочитанный, но пустой лист — НЕ «сервер лист не отдаёт» (п.36, три рода
   // пустоты). Схлопывая ноль строк в null, маппер отправлял читателя чинить
   // трубу чтения там, где чинить нечего: лист прочитан, и это ответ. Пустой
   // раздел доезжает до экрана как есть, а словами о нём говорит вкладка.
-  const lineage = arr(r.lineage).map((x): LineageChain => {
+  const lineage = arr(r.lineage ?? r.chains).map((x): LineageChain => {
     const l = rec(x);
-    return { codes: strList(l.codes), notes: strList(l.notes) };
+    return { codes: strList(l.codes), notes: l.notes === undefined ? arr(l.edges).map((edge) => str(rec(edge).sourceText)).filter((note): note is string => note !== null) : strList(l.notes) };
   });
   return { rows, lineage, notes: strList(r.notes) };
 }
@@ -751,6 +773,9 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
     const entries = arr(r.entries).map((x): DirectoryRow => {
       const d = rec(x);
       return {
+        sourceAddress: `${text(d.sheet)}!D${count(d.row)}`,
+        institutionId: str(d.institutionId),
+        aliases: strList(d.aliases),
         num: num(d.ordinal) === null ? null : String(num(d.ordinal)),
         grbs: str(d.grbs),
         fullName: str(d.fullName),
@@ -767,7 +792,15 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
       const u = rec(x);
       return { name: text(u.name), count: count(u.count) };
     }).filter((u) => u.name !== '');
-    return { rows: entries, unmatchedCustomers: outside, notes: strList(r.notes) };
+    return { rows: entries, unmatchedCustomers: outside, notes: [
+        ...strList(r.notes) ,
+        ...arr(r.identityIssues).map(x => { const issue = rec(x); return `${text(issue.address)}: ${text(issue.note)}`; }),
+        ...arr(r.collisions).map((x) => {
+          const c = rec(x);
+          return `Конфликт названия «${text(c.normalized)}»: ${strList(c.addresses).join(', ')}. Автоматическое сопоставление остановлено.`;
+        }),
+      ],
+    };
   }
   const rows = arr(r.rows).map((x): DirectoryRow => {
     const d = rec(x);
@@ -843,10 +876,13 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
   return {
     source: {
       schema: str(src.schema),
+      bookUrl: str(src.bookUrl),
       bookName: str(src.bookName) ?? 'Ежедневный мониторинг',
       readAt: text(src.readAt),
       moneyUnit: str(src.moneyUnit) ?? 'руб',
       sheetsRead: strList(src.sheetsRead),
+      version: num(src.version),
+      asOf: str(src.asOf),
       sheetsFailed: recordOfStrings(src.sheetsFailed),
       sheetsExpected: num(src.sheetsExpected),
     },
@@ -854,6 +890,7 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
     work: r.work && typeof r.work === 'object' ? {
       asOf: text(rec(r.work).asOf),
       active: arr(rec(r.work).active).map(readWorkItem), closed: arr(rec(r.work).closed).map(readWorkItem),
+      triage: arr(rec(r.work).triage).map(readWorkItem),
     } : null,
     aggregates: readAggregates(r.aggregates),
     unparsedCodes: arr(r.unparsedCodes).map((x) => {
@@ -869,6 +906,13 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
     svod: readSvod(r.svod),
     journal: readJournal(r.journal),
     directory: readDirectory(r.directory),
+    ...(r.suppliers !== undefined ? { suppliers: {
+      readAt: str(rec(r.suppliers).readAt), error: str(rec(r.suppliers).error),
+      rows: arr(rec(r.suppliers).rows).map(x => { const row = rec(x); return {
+        id: text(row.id), name: text(row.name), inn: str(row.inn), legalForm: str(row.legalForm),
+        note: str(row.note), evidence: str(row.evidence), address: text(row.address), ambiguous: bool(row.ambiguous),
+      }; }),
+    } } : {}),
     signals: readSignals(r.signals),
     ancestors: readAncestors(r.ancestors),
     notes: strList(r.notes),

@@ -58,6 +58,8 @@ export interface RowMatch {
   readonly nmck: MoneyComparison | null;
   /** Факт книги против цены победителя. Нет пары — null. */
   readonly fact: MoneyComparison | null;
+  /** Отдельные доказанные доли; сумма целого не подменяет их сравнения. */
+  readonly comparisons?: readonly { bookLabel: string; bookRowKey: string; nmck: MoneyComparison; fact: MoneyComparison }[];
   /** Адреса другой стороны при неоднозначности либо ячейке-списке. */
   readonly addresses: readonly string[];
   /** Что произошло — одной фразой, тоном механизма (п.104). */
@@ -117,19 +119,26 @@ export function buildMatchIndex(view: MatchViewPayload | null): MatchIndex | nul
   const byCode = new Map<string, RowMatch>();
 
   for (const m of view.matched) {
+    const previous = byCode.get(m.code);
+    const comparisons = [...(previous?.comparisons ?? []), { bookLabel: m.book, bookRowKey: m.bookRowKey, nmck: m.nmck, fact: m.fact }];
+    const multiple = comparisons.length > 1;
     byCode.set(m.code, {
       code: m.code,
       kind: 'matched',
-      bookLabel: m.book === '' ? null : m.book,
-      bookRowKey: m.bookRowKey === '' ? null : m.bookRowKey,
+      bookLabel: multiple || m.book === '' ? null : m.book,
+      bookRowKey: multiple || m.bookRowKey === '' ? null : m.bookRowKey,
       sheetRowKey: m.procKey === '' ? null : m.procKey,
-      nmck: m.nmck,
-      fact: m.fact,
+      nmck: multiple ? null : m.nmck,
+      fact: multiple ? null : m.fact,
+      comparisons,
       addresses: [],
-      summary: m.bookRowKey === ''
+      summary: multiple ? `Доли сверены отдельно: ${comparisons.map((c) => c.bookRowKey).join(', ')}.` : m.bookRowKey === ''
         ? 'Пара в книге управления найдена.'
         : `Пара найдена: книга ${m.book}, строка ${m.bookRowKey}.`,
-      verdicts: [
+      verdicts: multiple ? comparisons.flatMap((c) => [
+        `${c.bookRowKey}: ${moneyVerdict('Начальная цена доли', c.nmck)}`,
+        `${c.bookRowKey}: ${moneyVerdict('Факт книги против цены доли', c.fact)}`,
+      ]) : [
         moneyVerdict('Начальная цена', m.nmck),
         moneyVerdict('Факт книги против цены победителя', m.fact),
       ],

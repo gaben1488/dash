@@ -97,38 +97,38 @@ export function ZeroReductionCard({
           <div className="grid gap-2 sm:grid-cols-3">
             <KBTooltip {...biKbProps(BI_KB.zero_reduction)} showIcon>
               <div className={`${TILE} p-3 text-left`}>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Процедур без снижения</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Процедур без снижения</p>
                 <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                   {fmtCount(zero.zeroCount)}
                 </p>
-                <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                   из {fmtCount(zero.pricedCount)} состоявшихся · {fmtPct(zero.countSharePct)}
                 </p>
               </div>
             </KBTooltip>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Их начальные цены</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Их начальные цены</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtRub(zero.zeroNmckRub)}
               </p>
-              <p className="mt-1 text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                 руб. · {fmtPct(zero.moneySharePct)} денег состоявшихся
               </p>
             </div>
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Разрыв двух долей</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Разрыв двух долей</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {gap === null ? '—' : `${gap > 0 ? '+' : ''}${fmtPct(gap)}`}
               </p>
-              <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 деньги минус счёт — крупнее ли средней бесторговая закупка
               </p>
             </div>
           </div>
 
-          <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+          <p className="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
             {gap === null
               ? 'Сравнить две доли не из чего.'
               : gap > 2
@@ -188,17 +188,17 @@ export function ZeroReductionCard({
           </div>
 
           {onPickZeroBucket !== undefined && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Клик по полосе ставит реестру выше разрез «снижения не было» — видно сами строки за
               числом.
             </p>
           )}
 
           {/* ── Разбивка по способу: она и объясняет большую часть нулей ── */}
-          <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+          <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
             Откуда берутся нули: разрез по способу определения поставщика
           </h4>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             У закупки у единственного поставщика снижения нет по природе способа. Доля внутри способа
             показывает, насколько «нулевой» именно этот способ, а не сколько нулей он дал книге.
           </p>
@@ -210,10 +210,10 @@ export function ZeroReductionCard({
           />
 
           {/* ── Разбивка по управлениям ── */}
-          <h4 className="mt-4 text-[11px] font-medium text-zinc-700 dark:text-zinc-200">
+          <h4 className="mt-4 text-xs font-medium text-zinc-700 dark:text-zinc-200">
             Где нули лежат: разрез по управлениям
           </h4>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
             Управление с высокой долей внутри себя — не нарушитель: доля объясняется набором способов
             и предметов его закупок. Это адрес для разговора, а не оценка.
           </p>
@@ -247,7 +247,7 @@ function SplitTable({
   }
   return (
     <div className="mt-1.5 overflow-x-auto">
-      <table className="w-full text-[11px]">
+      <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-zinc-500 dark:text-zinc-400">
             <th className="py-1 pr-2 font-normal">{headName}</th>

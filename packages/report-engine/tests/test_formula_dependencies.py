@@ -38,6 +38,8 @@ def test_absolute_references_are_local_cells_not_unknown_names():
 
 
 @pytest.mark.parametrize('formula', ['=ISBLANK(A1)', '=LOWER(A1)', '=SUBSTITUTE(A1;"a";"b")',
+                                     '=DATE(2026;10;8)', '=UPPER(A1)', '=HSTACK(A1:B3;C1:C3)',
+                                     '=VSTACK(A1:C2;A3:C3)', '=QUERY(A1:C3;"select A, B";1)',
                                      '=SEARCH("a";A1)', '=COLUMNS(A1:C3)', '=IFERROR(DATEVALUE(A1);0)',
                                      '=REDUCE(0;A1:A3;LAMBDA(accumulator;value;accumulator+value))'])
 def test_native_text_and_range_inspection_functions_are_local(formula):
@@ -46,6 +48,8 @@ def test_native_text_and_range_inspection_functions_are_local(formula):
 
 
 @pytest.mark.parametrize('formula', ['=IMPORTRANGE("url";"A1")', '=INDIRECT("Support!A1")',
+                                     '=QUERY(IMPORTRANGE("url";"A1:C3");"select Col1";1)',
+                                     '=HSTACK(A1:B3;CUSTOM_REMOTE(C1:C3))',
                                      '=GOOGLEFINANCE("TEST")', '=CUSTOM_REMOTE(A1)'])
 def test_unverified_external_or_dynamic_functions_block(formula):
     result = audit([source(formulas=[{'row': 1, 'column': 1, 'formula': formula}])])

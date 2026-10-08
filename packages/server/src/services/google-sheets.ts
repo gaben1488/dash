@@ -314,6 +314,7 @@ export async function getSheetData(sheetName: string, spreadsheetId?: string): P
 export async function batchGetSheetValues(
   sheetNames: readonly string[],
   spreadsheetId?: string,
+valueRenderOption: 'FORMULA' | 'UNFORMATTED_VALUE' = 'UNFORMATTED_VALUE',
 ): Promise<Record<string, unknown[][]>> {
   if (sheetNames.length === 0) return {};
 
@@ -325,7 +326,7 @@ export async function batchGetSheetValues(
         {
           spreadsheetId: spreadsheetId ?? config.google.spreadsheetId,
           ranges: sheetNames.map((s) => sheetValuesRange(s)),
-          valueRenderOption: 'UNFORMATTED_VALUE',
+          valueRenderOption,
           dateTimeRenderOption: 'FORMATTED_STRING',
           majorDimension: 'ROWS',
         },
@@ -419,6 +420,19 @@ export async function getSpreadsheetMetadata(spreadsheetId?: string): Promise<{
       colCount: s.properties?.gridProperties?.columnCount ?? 0,
     })),
   };
+}
+
+/** Native rules, bounded to the reviewed master grid; no source writes. */
+export async function getMonitoringMasterCells(spreadsheetId: string): Promise<sheets_v4.Schema$CellData[][]> {
+  const response = await readWithRetry('чтение правил ввода реестра', async () => {
+    const api = await getSheetsApi();
+    return api.spreadsheets.get({ spreadsheetId, ranges: ["'Рабочий реестр процедур'!A3:Y1002"],
+      fields: 'sheets(data(startRow,startColumn,rowData(values(userEnteredValue,dataValidation))))' },
+    { timeout: SHEETS_TIMEOUT_MS });
+  });
+  const data = response.data.sheets?.[0]?.data?.[0];
+  if (!data || data.startRow !== 2 || (data.startColumn ?? 0) !== 0) throw new Error('Правила ввода не прочитаны');
+  return (data.rowData ?? []).map(row => row.values ?? []);
 }
 
 export async function getSheetDataFromSpreadsheet(
@@ -601,6 +615,7 @@ export async function getSheetFormulaColumns(
 }
 
 export interface DeptSheetResult {
+  readAt?: string;
   values: unknown[][];
   formulas: unknown[][];
   sheetName: string;
@@ -734,10 +749,14 @@ export async function readDeptSheet(
       const values = await getSheetDataFromSpreadsheet(ssId, candidate);
       if (values.length === 0) continue;
       if (!options.withFormulas) {
-        return { values, formulas: [], sheetName: candidate, startRow: 1, formulasRead: false };
+        return { values, formulas: [], sheetName: candidate, readAt: new Date().toISOString(),
+          startRow: 1, formulasRead: false ,
+        };
       }
       const { formulas } = await getSheetFormulaColumns(ssId, candidate);
-      return { values, formulas, sheetName: candidate, startRow: 1, formulasRead: true };
+      return { values, formulas, sheetName: candidate, readAt: new Date().toISOString(),
+        startRow: 1, formulasRead: true ,
+      };
     } catch (err) {
       lastError = err;
       if (isNonRecoverableSheetError(err)) {

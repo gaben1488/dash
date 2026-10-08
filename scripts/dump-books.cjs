@@ -15,7 +15,7 @@ const OUT = process.env.DUMP_OUT || '/out';
 
 const BOOKS = [
   { key: 'svod',       name: 'СВОД_для_Google',        id: '1i692JdP-FqWMSfVgBjTmDCoUakacbJpZMq9tJhQlRhg' },
-  { key: 'monitoring', name: 'Ежедневный мониторинг',  id: '15VKFyOPbyP2vJVvmAFVXD0lV14ZwgJ0nxwbhBdjJMps' },
+  { key: 'monitoring', name: 'План-реестр процедур определения поставщика', id: process.env.MONITORING_SPREADSHEET_ID || '1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E' },
   { key: 'grbs-UER',   name: 'ГРБС УЭР',               id: '15NEAE1zK0qc5li4BCwT4Jq-MH6uuA_SFFMG22ZrM4t4' },
   { key: 'grbs-UIO',   name: 'ГРБС УИО',               id: '1qCBY5EDSASxK6_ZPQbxzdF8cKIjcwcuykbnOc45Ukn8' },
   { key: 'grbs-UAGZO', name: 'ГРБС УАГЗО',             id: '1DgO0t_Zx-PXmtLBp5ddkQvb2_pTkmyFKP_PaDqjOyXk' },

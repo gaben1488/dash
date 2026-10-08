@@ -66,6 +66,23 @@ function proc(over: Partial<RegistryProcedure> = {}): RegistryProcedure {
 // ── §1. Концентрация заказчиков ──────────────────────────────────────
 
 describe('customerConcentration', () => {
+  it('переданный предок остаётся в истории, но не удваивает текущую плановую НМЦК', () => {
+    const rows = [proc({ stage: 'reissued', year: 25, nmck: 200, joint: true }),
+      proc({ year: 26, nmck: 300 })];
+    expect(customerConcentration(rows)).toMatchObject({ nmckTotalRub: 300, rows: [{ count: 2, nmckRub: 300 }] });
+    expect(carryOver(rows)).toMatchObject({ carriedCount: 1, carriedNmckRub: 0, carriedMoneySharePct: 0 });
+    expect(jointComparison(rows)).toMatchObject({ joint: { count: 1, nmckRub: 0 }, solo: { nmckRub: 300 }, jointMoneySharePct: 0 });
+  });
+  it('будущие итоги не входят в бюджеты и знаменатели снижения', () => {
+    const future = proc({ result: 'Состоялась', factsEligible: false, reductionRub: 0, reductionPct: 0,
+      nmck: 500, auctionPrice: 500, savingsTotal: 70, savingsMb: 70, savingsSplitSum: 70 });
+    const accepted = proc({ result: 'Состоялась', factsEligible: true, nmck: 200, auctionPrice: 150,
+      savingsTotal: 50, savingsMb: 50, savingsSplitSum: 50 });
+    expect(budgetSavings([future, accepted])).toMatchObject({ bookTotalRub: 50, splitTotalRub: 50, byDept: [{ mbRub: 50 }] });
+    expect(zeroReduction([future, accepted])).toMatchObject({ pricedCount: 1, zeroCount: 0 });
+    expect(jointComparison([future, accepted]).solo.reductionPct).toBe(25);
+    expect(future.auctionPrice).toBe(500);
+  });
   it('складывает деньги заказчика и накапливает доли сверху вниз', () => {
     const c = customerConcentration([
       proc({ customer: 'Школа', nmck: 600 }),

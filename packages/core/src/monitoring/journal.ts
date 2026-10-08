@@ -343,61 +343,45 @@ export function parseMonitoringJournal(
  * бесконечной цепочки на экране быть не должно.
  */
 export function buildLineageChains(edges: readonly LineageEdge[]): LineageChain[] {
-  if (edges.length === 0) return [];
-  const seen = new Set<string>();
-  const unique: LineageEdge[] = [];
-  for (const e of edges) {
-    const key = `${e.from}→${e.to}`;
-    if (seen.has(key) || e.from === e.to) continue;
-    seen.add(key);
-    unique.push(e);
+  const unique = new Map<string, LineageEdge>();
+  for (const edge of edges) {
+    const key = `${edge.from}→${edge.to}`;
+    if (!unique.has(key)) unique.set(key, edge);
   }
-
   const out = new Map<string, LineageEdge[]>();
   const incoming = new Set<string>();
-  for (const e of unique) {
-    const bucket = out.get(e.from);
-    if (bucket === undefined) out.set(e.from, [e]);
-    else bucket.push(e);
-    incoming.add(e.to);
+  for (const edge of unique.values()) {
+    const bucket = out.get(edge.from) ?? [];
+    bucket.push(edge); out.set(edge.from, bucket); incoming.add(edge.to);
   }
-
   const chains: LineageChain[] = [];
-  const roots = [...new Set(unique.map((e) => e.from))].filter((code) => !incoming.has(code));
-  // Циклы (ЭА54-26 ↔ ЭА214-26) корня не имеют — берём любой их узел, иначе
-  // цепочка пропала бы с экрана вовсе.
-  const orphanCycles = [...new Set(unique.map((e) => e.from))].filter((code) => incoming.has(code) && !roots.includes(code));
-  const covered = new Set<string>();
-
+  const covered = new Set<LineageEdge>();
+  const positions = new Map<string, number>();
   const walk = (root: string): void => {
-    const codes: string[] = [root];
-    const used: LineageEdge[] = [];
-    const visited = new Set<string>([root]);
+    const codes = [root]; const used: LineageEdge[] = [];
+    const visited = new Set([root]);
     let current = root;
     for (;;) {
-      const next = (out.get(current) ?? []).find((e) => !visited.has(e.to));
+      const bucket = out.get(current) ?? [];
+      let position = positions.get(current) ?? 0;
+      while (position < bucket.length && covered.has(bucket[position])) position += 1;
+      const next = bucket[position];
+      positions.set(current, position + 1);
       if (next === undefined) break;
-      codes.push(next.to);
-      used.push(next);
-      visited.add(next.to);
-      current = next.to;
+      covered.add(next); used.push(next); codes.push(next.to);
+      // Сохраняем замыкающее ребро цикла, затем прекращаем обход.
+      if (visited.has(next.to)) break;
+      visited.add(next.to); current = next.to;
     }
-    // Ветвление: остальные рёбра корня показываются отдельными цепочками.
-    for (const branch of out.get(root) ?? []) {
-      if (!used.includes(branch) && !codes.includes(branch.to)) {
-        chains.push({ codes: [root, branch.to], edges: [branch] });
-        covered.add(branch.to);
-      }
-    }
-    if (codes.length > 1) {
-      chains.push({ codes, edges: used });
-      for (const c of codes) covered.add(c);
-    }
+    if (used.length > 0) chains.push({ codes, edges: used });
   };
-
-  for (const root of roots) walk(root);
-  for (const code of orphanCycles) {
-    if (!covered.has(code)) walk(code);
+  for (const root of out.keys()) {
+    if (!incoming.has(root)) walk(root);
+  }
+  // Покрытие рёбер, а не узлов: внутренние ветви и циклы тоже доступны.
+  // Каждое ребро показывается один раз, без экспоненциального перебора путей.
+  for (const edge of unique.values()) {
+    if (!covered.has(edge)) walk(edge.from);
   }
   return chains;
 }

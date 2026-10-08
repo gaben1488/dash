@@ -36,7 +36,7 @@
  * строкой, разложенной в столбик. Горизонтально едет только таблица внутри
  * своего контейнера; корпус страницы стоит.
  */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type {
   JournalRow, LineageChain, RegistryProcedure,
@@ -46,7 +46,7 @@ import type { SortDir, SortKey } from '../../lib/monitoring/slices';
 import { procedureDefects } from '../../lib/monitoring/slices';
 import { KBTooltip } from '../ui/kb-tooltip';
 import { MONITORING_KB_ADDITIONS, kbCardProps } from '../../pages/kb-additions';
-import { fmtCount, fmtDate, fmtDays, fmtPct, fmtRub, pluralCount } from '../../lib/monitoring/format';
+import { fmtCount, fmtDate, fmtDays, fmtPct, fmtRub, pluralCount, procedureCodeLabel } from '../../lib/monitoring/format';
 import { methodLabel, stageBadgeClass, stageMeaning, stageShort } from '../../lib/monitoring/stage-labels';
 import { ProcedureCard } from './ProcedureCard';
 import { MonitoringPerimeterCaption } from './PerimeterProvider';
@@ -54,6 +54,9 @@ import { CARD, CONTROL, RULE_COL, RULE_COL_HEAD, RULE_HEAD, RULE_ROW } from './s
 
 /** Сколько строк показывается сразу; остальное — по кнопке. */
 const CHUNK = 200;
+interface TableColumn { key: string; label: string; sortKey?: SortKey; group?: 'dates' | 'result' | 'savings'; right?: boolean; cell: (p: RegistryProcedure) => ReactNode }
+const COLUMNS_PREF_KEY = 'aemr.monitoring.hidden-columns.v1';
+const OPTIONAL_COLUMNS = ['dept', 'protocol', 'comment', 'result', 'ancestors', 'successors', 'fullAction', 'quality'];
 
 /**
  * Ключи памяти гармошек (п.128-4). Версия в ключе — чтобы смена смысла
@@ -116,7 +119,7 @@ function DatesFoldedCell({ p }: { p: RegistryProcedure }) {
   if (p.durations.total === null) {
     return (
       <span
-        className="text-zinc-400 dark:text-zinc-500"
+        className="text-zinc-500 dark:text-zinc-400"
         title={`Путь не измерить: одной из крайних дат в книге нет. ${detail}`}
       >
         —
@@ -197,13 +200,14 @@ function CodeCell({ p }: { p: RegistryProcedure }) {
   }
   return (
     <span className="font-mono font-medium text-zinc-800 dark:text-zinc-100" title={methodLabel(p.method)}>
-      {p.code}
+      {procedureCodeLabel(p)}
     </span>
   );
 }
 
 export interface RegistryTableProps {
   rows: readonly RegistryProcedure[];
+  compact?: boolean;
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
@@ -222,6 +226,8 @@ export interface RegistryTableProps {
   /** Откуда строки: листы управлений либо назван срез шапки. */
   sourceLabel?: string;
   onOpenCode?: (code: string) => void;
+  onOpenProcedure?: (p: RegistryProcedure) => void;
+  bookUrl?: string | null;
   /** Код, чья карточка должна быть раскрыта извне (переход по родословной). */
   openCode?: string | null;
   /**
@@ -233,12 +239,21 @@ export interface RegistryTableProps {
 }
 
 export function RegistryTable({
-  rows, sortKey, sortDir, onSort,
+  rows, sortKey, sortDir, onSort, compact = false,
   lineageByCode, journalByCode, matchIndex, readAtLabel, sourceLabel,
-  onOpenCode, openCode = null, onCloseOpenCode,
+  onOpenCode, openCode = null, onCloseOpenCode, onOpenProcedure, bookUrl,
 }: RegistryTableProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [limit, setLimit] = useState(CHUNK);
+  const chunk = compact ? 50 : CHUNK;
+  const [limit, setLimit] = useState(chunk);
+  const [compactView, setCompactView] = useState(() => {
+    try {
+      const saved = localStorage.getItem('monitoring:compact');
+      return saved === null ? compact: saved === 'true';
+    } catch {
+      return compact;
+    }
+  });
   const [datesOpen, setDatesOpen] = useState(() => loadPref(DATES_PREF_KEY));
   const [budgetsOpen, setBudgetsOpen] = useState(() => loadPref(BUDGETS_PREF_KEY));
 
@@ -249,10 +264,16 @@ export function RegistryTable({
     setBudgetsOpen((v) => { savePref(BUDGETS_PREF_KEY, !v); return !v; });
   };
 
-  // Колонок в нижнем этаже: 5 слева + даты (4 или 1) + 2 итога торгов
-  // + экономия (5 или 2) + победитель + стадия. Ячейка раскрытия обязана
-  // накрывать все — иначе хвост строки торчит из-под карточки.
-  const columnCount = 5 + (datesOpen ? 4 : 1) + 2 + (budgetsOpen ? 5 : 2) + 2;
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
+    try { const stored: unknown = JSON.parse(localStorage.getItem(COLUMNS_PREF_KEY) ?? JSON.stringify(OPTIONAL_COLUMNS));
+      return Array.isArray(stored) ? stored.filter((v): v is string => typeof v === 'string' && v !== 'code') : [];
+    } catch { return [...OPTIONAL_COLUMNS]; }
+  });
+  const visible = (key: string) => !hiddenColumns.includes(key);
+  const saveColumns = (keys: string[]) => {
+    setHiddenColumns(keys);
+    try { localStorage.setItem(COLUMNS_PREF_KEY, JSON.stringify(keys)); } catch { /* Session preference remains usable. */ }
+  };
 
   const idOf = (p: RegistryProcedure): string => `${p.sheet}:${p.row}`;
   const shown = rows.slice(0, limit);
@@ -272,6 +293,7 @@ export function RegistryTable({
 
   const cardFor = (p: RegistryProcedure) => (
     <ProcedureCard
+                        bookUrl={bookUrl}
       p={p}
       lineage={p.code !== null ? lineageByCode?.get(p.code) ?? null : null}
       journalRow={p.code !== null ? journalByCode?.get(p.code) ?? null : null}
@@ -281,6 +303,63 @@ export function RegistryTable({
     />
   );
 
+  const codeCell = (p: RegistryProcedure) => <button type="button"
+    aria-label={`Открыть процедуру ${procedureCodeLabel(p)}`}
+    aria-haspopup={onOpenProcedure ? 'dialog' : undefined}
+    onClick={event => { event.stopPropagation(); if (onOpenProcedure) onOpenProcedure(p); else toggleRow(p, isOpen(p)); }}
+    className="rounded text-left underline decoration-zinc-300 underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"><CodeCell p={p} /></button>;
+  const stageCell = (p: RegistryProcedure) => <span className={`rounded px-1.5 py-0.5 text-xs ${stageBadgeClass(p.stage)}`} title={stageMeaning(p.stage)}>{stageShort(p.stage)}</span>;
+  const working: TableColumn[] = [
+    { key: 'code', label: 'Код', sortKey: 'code', cell: codeCell },
+    { key: 'action', label: 'Требуемое действие', cell: p => <><p>{p.requiredAction || 'Действие не указано'}</p>{p.qualityNote && <details className="mt-2 text-xs"><summary className="cursor-pointer">Замечания</summary><p>{p.qualityNote}</p></details>}</> },
+    { key: 'subjectCustomer', label: 'Предмет и заказчик', cell: p => <><p>{p.subject}</p><p className="mt-1 text-xs">{p.customer}</p></> },
+    { key: 'stageResult', label: 'Стадия и результат', cell: p => <>{stageCell(p)}<p className="mt-2 text-xs">{p.result || 'Результат не внесён'}</p></> },
+    { key: 'auctionDate', label: 'Дата итогов', sortKey: 'auctionDate', cell: p => p.auctionDate ? fmtDate(p.auctionDate) : 'Не внесена' },
+    { key: 'nmck', label: 'НМЦК, руб.', sortKey: 'nmck', right: true, cell: p => fmtRub(p.nmck) },
+    { key: 'auctionPrice', label: 'Цена по итогам, руб.', sortKey: 'auctionPrice', right: true, cell: p => <>{fmtRub(p.auctionPrice)}{p.factsEligible === false && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">Цена пока не учтена в денежных итогах</p>}</> },
+  ];
+  const full: TableColumn[] = [
+    { key: 'address', label: 'Адрес', cell: p => <><ChevronDown size={11} aria-hidden="true" className={`inline mr-1 ${isOpen(p) ? 'rotate-180' : ''}`} />{p.row}{p.ppNum !== null && ` · № ${p.ppNum}`}{procedureDefects(p).length > 0 && <span className="ml-1 text-amber-600" title={pluralCount(procedureDefects(p).length, 'сигнал', 'сигнала', 'сигналов')}>!</span>}</> },
+    { key: 'code', label: 'Код', sortKey: 'code', cell: codeCell },
+    { key: 'customer', label: 'Заказчик', sortKey: 'customer', cell: p => p.customer || '—' },
+    { key: 'subject', label: 'Предмет закупки', cell: p => p.subject },
+    { key: 'nmck', label: 'НМЦК, руб.', sortKey: 'nmck', right: true, cell: p => fmtRub(p.nmck) },
+    { key: 'applicationDate', label: 'заявка', group: 'dates', cell: p => fmtDate(p.applicationDate) },
+    { key: 'publicationDate', label: 'публикация', sortKey: 'publicationDate', group: 'dates', cell: p => fmtDate(p.publicationDate) },
+    { key: 'deadlineDate', label: 'окончание подачи', group: 'dates', cell: p => fmtDate(p.deadlineDate) },
+    { key: 'auctionDate', label: 'торги', sortKey: 'auctionDate', group: 'dates', cell: p => fmtDate(p.auctionDate) },
+    { key: 'auctionPrice', label: 'цена, руб.', sortKey: 'auctionPrice', group: 'result', right: true, cell: p => fmtRub(p.auctionPrice) },
+    { key: 'reductionPct', label: 'снижение', sortKey: 'reductionPct', group: 'result', right: true, cell: p => fmtPct(p.reductionPct) },
+    { key: 'savingsTotal', label: 'ВСЕГО', sortKey: 'savingsTotal', group: 'savings', right: true, cell: p => <>{fmtRub(p.savingsTotal)}{p.savingsManual && <span className="ml-1 text-amber-600" title="Внесено числом, а не формулой: связь с ценой разорвана">✎</span>}</> },
+    { key: 'control', label: 'проверка', group: 'savings', cell: p => <ControlDot p={p} /> },
+    { key: 'savingsMb', label: 'МБ', group: 'savings', right: true, cell: p => fmtRub(p.savingsMb) },
+    { key: 'savingsKb', label: 'КБ', group: 'savings', right: true, cell: p => fmtRub(p.savingsKb) },
+    { key: 'savingsFb', label: 'ФБ', group: 'savings', right: true, cell: p => fmtRub(p.savingsFb) },
+    { key: 'winner', label: 'Победитель', cell: p => <>{p.winnerName ?? p.outcome ?? '—'}{p.winnerInn && <p className="mt-1 font-mono text-xs">{p.winnerInn}</p>}</> },
+    { key: 'stage', label: 'Стадия', cell: stageCell },
+    { key: 'dept', label: 'Управление', cell: p => p.dept },
+    { key: 'protocol', label: 'Протокол', cell: p => p.protocolFlag || '—' },
+    { key: 'comment', label: 'Комментарий', cell: p => p.comment || '—' },
+    { key: 'result', label: 'Результат', cell: p => p.result || 'Не внесён' },
+    { key: 'ancestors', label: 'Предки', cell: p => p.ancestorCodes?.join('; ') || '—' },
+    { key: 'successors', label: 'Наследники', cell: p => p.successorCodes?.join('; ') || '—' },
+    { key: 'fullAction', label: 'Требуемое действие', cell: p => p.requiredAction || 'Не указано' },
+    { key: 'quality', label: 'Замечания', cell: p => p.qualityNote || '—' },
+  ];
+  let columns = (compactView ? working : full).filter(c => visible(c.key));
+  if (!compactView) {
+    if (!datesOpen) {
+      const firstDate = columns.findIndex(c => c.group === 'dates');
+      columns = columns.filter(c => c.group !== 'dates');
+      if (firstDate >= 0) columns.splice(firstDate, 0, { key: 'dates', label: 'Сроки', cell: p => <DatesFoldedCell p={p} /> });
+    }
+    if (!budgetsOpen) columns = columns.filter(c => !['savingsMb', 'savingsKb', 'savingsFb'].includes(c.key));
+  }
+  const heading = (c: TableColumn) => c.key === 'dates'
+    ? <FoldButton open={false} onToggle={toggleDates} labelOpen="Даты" labelClosed="Сроки" />
+    : c.sortKey ? <SortButton label={c.label} sortKey={c.sortKey} active={sortKey === c.sortKey} dir={sortDir} onSort={onSort} align={c.right ? 'right' : 'left'} />
+    : c.key === 'control' ? <KBTooltip {...kbCardProps(MONITORING_KB_ADDITIONS.monitoring_self_check)}><span>{c.label}</span></KBTooltip> : c.label;
+  const groups = new Set<string>();
   return (
     <section aria-label="Реестр процедур" className="space-y-2">
       {/* ── Провенанс таблицы: откуда каждое число этих строк и на какой
@@ -290,226 +369,62 @@ export function RegistryTable({
           книги управлений ведутся в тысячах, и перепутать их с рублями книги
           мониторинга значит ошибиться ровно в тысячу раз. ── */}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[10px] leading-tight text-zinc-400 dark:text-zinc-500">
+        <p className="text-xs leading-tight text-zinc-500 dark:text-zinc-400">
           Источник: {sourceLabel ?? 'книга «Ежедневный мониторинг» · листы управлений'}; деньги —
           рубли книги{readAtLabel !== undefined && `; ${readAtLabel}`}
         </p>
         <MonitoringPerimeterCaption scope="registry" className="text-right" />
       </div>
 
-      {/* ── Широкий экран: форма книги ── */}
-      <div className={`hidden sm:block ${CARD} overflow-x-auto`}>
-        <table className="w-full text-xs">
-          <thead className="text-[10px] text-zinc-500 dark:text-zinc-400">
-            <tr className={RULE_HEAD}>
-              <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Адрес</th>
-              <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">
-                <SortButton label="Код" sortKey="code" active={sortKey === 'code'} dir={sortDir} onSort={onSort} />
-              </th>
-              <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">
-                <SortButton label="Заказчик" sortKey="customer" active={sortKey === 'customer'} dir={sortDir} onSort={onSort} />
-              </th>
-              <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Предмет закупки</th>
-              <th rowSpan={2} className="px-2 py-1.5 text-right font-medium align-bottom">
-                <SortButton label="НМЦК, руб." sortKey="nmck" active={sortKey === 'nmck'} dir={sortDir} onSort={onSort} align="right" />
-              </th>
-              {datesOpen ? (
-                <th colSpan={4} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
-                  <FoldButton
-                    open
-                    onToggle={toggleDates}
-                    labelOpen="Даты — свернуть в «Сроки»"
-                    labelClosed="Сроки"
-                  />
-                </th>
-              ) : (
-                <th rowSpan={2} className={`px-2 py-1.5 text-left font-medium align-bottom ${RULE_COL_HEAD}`}>
-                  <FoldButton
-                    open={false}
-                    onToggle={toggleDates}
-                    labelOpen="Даты"
-                    labelClosed="Сроки"
-                  />
-                </th>
-              )}
-              <th colSpan={2} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
-                Итог торгов
-              </th>
-              <th colSpan={budgetsOpen ? 5 : 2} className={`px-2 py-1 text-center font-medium ${RULE_COL_HEAD}`}>
-                <span className="inline-flex items-center gap-1.5">
-                  Экономия, руб.
-                  <FoldButton
-                    open={budgetsOpen}
-                    onToggle={toggleBudgets}
-                    labelOpen="свернуть МБ/КБ/ФБ"
-                    labelClosed="по бюджетам"
-                  />
-                </span>
-              </th>
-              <th rowSpan={2} className={`px-2 py-1.5 text-left font-medium align-bottom ${RULE_COL_HEAD}`}>
-                Победитель
-              </th>
-              <th rowSpan={2} className="px-2 py-1.5 text-left font-medium align-bottom">Стадия</th>
-            </tr>
-            <tr className={RULE_HEAD}>
-              {datesOpen && (
-                <>
-                  <th className={`px-2 py-1 text-left font-normal ${RULE_COL_HEAD}`}>заявка</th>
-                  <th className="px-2 py-1 text-left font-normal">
-                    <SortButton label="публикация" sortKey="publicationDate" active={sortKey === 'publicationDate'} dir={sortDir} onSort={onSort} />
-                  </th>
-                  <th className="px-2 py-1 text-left font-normal">окончание подачи</th>
-                  <th className="px-2 py-1 text-left font-normal">
-                    <SortButton label="торги" sortKey="auctionDate" active={sortKey === 'auctionDate'} dir={sortDir} onSort={onSort} />
-                  </th>
-                </>
-              )}
-              <th className={`px-2 py-1 text-right font-normal ${RULE_COL_HEAD}`}>
-                <SortButton label="цена, руб." sortKey="auctionPrice" active={sortKey === 'auctionPrice'} dir={sortDir} onSort={onSort} align="right" />
-              </th>
-              <th className="px-2 py-1 text-right font-normal">
-                <SortButton label="снижение" sortKey="reductionPct" active={sortKey === 'reductionPct'} dir={sortDir} onSort={onSort} align="right" />
-              </th>
-              <th className={`px-2 py-1 text-right font-normal ${RULE_COL_HEAD}`}>
-                <SortButton label="ВСЕГО" sortKey="savingsTotal" active={sortKey === 'savingsTotal'} dir={sortDir} onSort={onSort} align="right" />
-              </th>
-              <th className="px-2 py-1 text-center font-normal">
-                {/* Подсказка БЗ у колонки, которую чаще всего понимают неверно:
-                    по бюджетам расписана ЭКОНОМИЯ, а не начальная цена. */}
-                <KBTooltip {...kbCardProps(MONITORING_KB_ADDITIONS.monitoring_self_check)}>
-                  <span>проверка</span>
-                </KBTooltip>
-              </th>
-              {budgetsOpen && (
-                <>
-                  <th className="px-2 py-1 text-right font-normal">МБ</th>
-                  <th className="px-2 py-1 text-right font-normal">КБ</th>
-                  <th className="px-2 py-1 text-right font-normal">ФБ</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((p, i) => {
-              const open = isOpen(p);
-              const defects = procedureDefects(p);
-              // Тихая полосатость чётных строк (п.129): строки разводит
-              // светлота, а не рамки — рамка между строками и так самая тонкая.
-              // В тёмной теме полоса ПОДНИМАЕТ светлоту, а не опускает:
-              // `zinc-900/25` поверх карточки `zinc-800/60` давал разницу
-              // порядка сотой доли — полосатости не было видно вовсе, и
-              // строки на деле разводила одна рамка.
-              const stripe = i % 2 === 1 ? 'bg-zinc-50/60 dark:bg-white/[0.03]' : '';
-              return [
-                <tr
-                  key={idOf(p)}
-                  onClick={() => toggleRow(p, open)}
-                  aria-expanded={open}
-                  className={`${RULE_ROW} align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${stripe}`}
-                >
-                  <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-400 dark:text-zinc-500">
-                    <ChevronDown
-                      size={11}
-                      aria-hidden="true"
-                      className={`inline mr-0.5 ${open ? 'rotate-180' : ''}`}
-                    />
-                    {p.row}
-                    {p.ppNum !== null && <span className="ml-1">· № {p.ppNum}</span>}
-                    {defects.length > 0 && (
-                      <span
-                        className="ml-1 text-amber-600 dark:text-amber-400"
-                        title={`${pluralCount(defects.length, 'сигнал', 'сигнала', 'сигналов')} по этой строке`}
-                      >
-                        !
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap"><CodeCell p={p} /></td>
-                  <td className="px-2 py-1.5 max-w-[12rem] truncate text-zinc-600 dark:text-zinc-300" title={p.customer}>
-                    {p.customer || '—'}
-                  </td>
-                  <td className="px-2 py-1.5 max-w-[20rem] truncate text-zinc-600 dark:text-zinc-300" title={p.subject}>
-                    {p.subject}
-                  </td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100">
-                    {fmtRub(p.nmck)}
-                  </td>
-                  {datesOpen ? (
-                    <>
-                      <td className={`px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400 ${RULE_COL}`}>
-                        {fmtDate(p.applicationDate)}
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-                        {fmtDate(p.publicationDate)}
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-                        {fmtDate(p.deadlineDate)}
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">
-                        {fmtDate(p.auctionDate)}
-                      </td>
-                    </>
-                  ) : (
-                    <td className={`px-2 py-1.5 whitespace-nowrap ${RULE_COL}`}>
-                      <DatesFoldedCell p={p} />
-                    </td>
-                  )}
-                  <td
-                    className={`px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-800 dark:text-zinc-100 ${RULE_COL}`}
-                    title={p.auctionPrice === 0 ? 'Ноль — содержательный исход: торги прошли без результата' : undefined}
-                  >
-                    {fmtRub(p.auctionPrice)}
-                  </td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums">
-                    <span className={p.reductionPct !== null && p.reductionPct > 0
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-zinc-500 dark:text-zinc-400'}
-                    >
-                      {fmtPct(p.reductionPct)}
-                    </span>
-                  </td>
-                  <td className={`px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-700 dark:text-zinc-200 ${RULE_COL}`}>
-                    {fmtRub(p.savingsTotal)}
-                    {p.savingsManual && (
-                      <span className="ml-0.5 text-amber-600 dark:text-amber-400" title="Внесено числом, а не формулой: связь с ценой разорвана">
-                        ✎
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1.5 text-center"><ControlDot p={p} /></td>
-                  {budgetsOpen && (
-                    <>
-                      <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsMb)}</td>
-                      <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsKb)}</td>
-                      <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-zinc-500 dark:text-zinc-400">{fmtRub(p.savingsFb)}</td>
-                    </>
-                  )}
-                  <td className={`px-2 py-1.5 max-w-[14rem] ${RULE_COL}`} title={p.winner ?? undefined}>
-                    <span className="block truncate text-zinc-600 dark:text-zinc-300">
-                      {p.winnerName ?? p.outcome ?? '—'}
-                    </span>
-                    {p.winnerInn !== null && (
-                      <span className="block font-mono text-[10px] text-zinc-400 dark:text-zinc-500">{p.winnerInn}</span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap">
-                    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] ${stageBadgeClass(p.stage)}`} title={stageMeaning(p.stage)}>
-                      {stageShort(p.stage)}
-                    </span>
-                  </td>
-                </tr>,
-                open && (
-                  <tr key={`${idOf(p)}:card`} className={RULE_HEAD}>
-                    {/* Раскрытая карточка — вложенная поверхность, и в тёмной
-                        теме она светлее таблицы, а не темнее (п.129). */}
-                    <td colSpan={columnCount} className="p-2 bg-zinc-50/60 dark:bg-white/[0.05]">
-                      {cardFor(p)}
-                    </td>
-                  </tr>
-                ),
-              ];
+      {compact && <button type="button" onClick={() => setCompactView(v => {
+              try {
+                localStorage.setItem('monitoring:compact', String(!v));
+              } catch {
+                /* Optional preference. */
+              }
+              return !v;
             })}
-          </tbody>
+        className={`${CONTROL} px-3 py-2 text-sm`}>
+        {compactView ? 'Все колонки' : 'Рабочий вид'}
+      </button>}
+      <details className="text-sm">
+        <summary className={`${CONTROL} inline-flex cursor-pointer px-3 py-2`}>Настроить колонки</summary>
+        <fieldset className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-3">
+          <legend className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Выбор сохраняется в этом браузере. Код остаётся видимым для открытия процедуры.</legend>
+          {(compactView ? working : full).map(column => <label key={column.key} className="flex items-center gap-2 py-1">
+            <input type="checkbox" checked={visible(column.key)} disabled={column.key === 'code'}
+              onChange={event => {
+                saveColumns(event.target.checked ? hiddenColumns.filter(key => key !== column.key) : [...hiddenColumns, column.key]);
+                if (event.target.checked && column.group === 'dates') { setDatesOpen(true); savePref(DATES_PREF_KEY, true); }
+                if (event.target.checked && ['savingsMb', 'savingsKb', 'savingsFb'].includes(column.key)) { setBudgetsOpen(true); savePref(BUDGETS_PREF_KEY, true); }
+              }} />{column.group === 'savings' ? `Экономия: ${column.label}` : column.label} (колонка)
+          </label>)}
+        </fieldset>
+        <button type="button" className={`${CONTROL} mt-2 px-3 py-2`} onClick={() => { saveColumns([]); setDatesOpen(true); savePref(DATES_PREF_KEY, true); setBudgetsOpen(true); savePref(BUDGETS_PREF_KEY, true); }}>Вернуть все колонки</button>
+      </details>
+      <div className={`hidden sm:block ${CARD} overflow-x-auto`}>
+        <table className="w-full text-sm">
+          <thead className="text-xs text-zinc-500 dark:text-zinc-400">
+            <tr className={RULE_HEAD}>{columns.map(column => {
+              if (!compactView && column.group) {
+                if (groups.has(column.group)) return null;
+                groups.add(column.group);
+                return <th key={column.group} colSpan={columns.filter(c => c.group === column.group).length} className={`px-2 py-2 text-center font-medium ${RULE_COL_HEAD}`}>
+                  {column.group === 'dates' ? <FoldButton open onToggle={toggleDates} labelOpen="Даты — свернуть в «Сроки»" labelClosed="Сроки" />
+                    : column.group === 'result' ? 'Итог торгов' : <span className="inline-flex items-center gap-2">Экономия, руб.<FoldButton open={budgetsOpen} onToggle={toggleBudgets} labelOpen="свернуть МБ/КБ/ФБ" labelClosed="по бюджетам" /></span>}
+                </th>;
+              }
+              return <th key={column.key} rowSpan={compactView ? 1 : 2} className={`px-3 py-2 align-bottom font-medium ${column.right ? 'text-right' : 'text-left'}`}>{heading(column)}</th>;
+            })}</tr>
+            {!compactView && <tr className={RULE_HEAD}>{columns.filter(c => c.group).map(column => <th key={column.key} className={`px-3 py-2 font-normal ${column.right ? 'text-right' : 'text-left'}`}>{heading(column)}</th>)}</tr>}
+          </thead>
+          <tbody>{shown.map((p, i) => [<tr key={idOf(p)}
+            onClick={() => onOpenProcedure ? onOpenProcedure(p) : toggleRow(p, isOpen(p))}
+            tabIndex={0} aria-expanded={onOpenProcedure ? undefined : isOpen(p)}
+            onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); if (onOpenProcedure) onOpenProcedure(p); else toggleRow(p, isOpen(p)); } }}
+            className={`${RULE_ROW} align-top cursor-pointer hover:bg-zinc-100/70 dark:hover:bg-zinc-700/20 ${i % 2 ? 'bg-zinc-50/60 dark:bg-white/[0.03]' : ''}`}>
+            {columns.map(column => <td key={column.key} className={`px-3 py-3 ${column.right ? 'text-right whitespace-nowrap tabular-nums' : 'text-left'} ${column.group ? RULE_COL : ''} ${['subject','customer','subjectCustomer','action','winner'].includes(column.key) ? 'min-w-[12rem] max-w-[24rem] break-words' : 'whitespace-nowrap'}`}>{column.cell(p)}</td>)}
+          </tr>, isOpen(p) && !onOpenProcedure && <tr key={`${idOf(p)}:card`}><td colSpan={columns.length} className="p-3">{cardFor(p)}</td></tr>])}</tbody>
         </table>
       </div>
 
@@ -521,30 +436,20 @@ export function RegistryTable({
             <li key={idOf(p)} className={`${CARD} p-3`}>
               <button
                 type="button"
-                onClick={() => toggleRow(p, open)}
+                onClick={() => onOpenProcedure ? onOpenProcedure(p) : toggleRow(p, open)}
                 aria-expanded={open}
                 className="w-full text-left"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <CodeCell p={p} />
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${stageBadgeClass(p.stage)}`}>
-                    {stageShort(p.stage)}
-                  </span>
-                </div>
-                <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-2">{p.subject}</p>
-                <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
-                  <dt className="text-zinc-500 dark:text-zinc-400">НМЦК, руб.</dt>
-                  <dd className="text-right tabular-nums text-zinc-800 dark:text-zinc-100">{fmtRub(p.nmck)}</dd>
-                  <dt className="text-zinc-500 dark:text-zinc-400">цена, руб.</dt>
-                  <dd className="text-right tabular-nums text-zinc-800 dark:text-zinc-100">{fmtRub(p.auctionPrice)}</dd>
-                  <dt className="text-zinc-500 dark:text-zinc-400">снижение</dt>
-                  <dd className="text-right tabular-nums text-zinc-600 dark:text-zinc-300">{fmtPct(p.reductionPct)}</dd>
-                </dl>
-                <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-                  {p.sheet} · строка {p.row}
-                  {p.ppNum !== null && ` · № ${p.ppNum}`}
-                </p>
+                <CodeCell p={p} />
+                <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">Открыть процедуру</span>
               </button>
+              <dl className="mt-2 space-y-2 text-sm">
+                {columns.filter(column => column.key !== 'code').map(column => <div key={column.key}>
+                  <dt className="text-xs text-zinc-500 dark:text-zinc-400">{column.group === 'savings' ? `Экономия: ${column.label}, руб.` : column.label}</dt>
+                  <dd className="mt-0.5 break-words tabular-nums">{column.cell(p)}</dd>
+                </div>)}
+              </dl>
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{p.sheet} · строка {p.row}</p>
               {open && <div className="mt-2">{cardFor(p)}</div>}
             </li>
           );
@@ -555,10 +460,10 @@ export function RegistryTable({
         <div className="text-center">
           <button
             type="button"
-            onClick={() => setLimit((v) => v + CHUNK)}
+            onClick={() => setLimit((v) => v + chunk)}
             className={`${CONTROL} px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
           >
-            Показано {fmtCount(limit)} из {fmtCount(rows.length)} — показать ещё {fmtCount(Math.min(CHUNK, rows.length - limit))}
+            Показано {fmtCount(limit)} из {fmtCount(rows.length)} — показать ещё {fmtCount(Math.min(chunk, rows.length - limit))}
           </button>
         </div>
       )}

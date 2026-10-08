@@ -53,7 +53,7 @@ export const ALL_DEPTS_MODE: SheetMode = {
 export const SVOD_MODE: SheetMode = {
   id: 'svod',
   kind: 'svod',
-  label: 'Сводный',
+  label: 'Обзор',
   hint: 'Сводный аналитический лист: процедуры и деньги по рабочему реестру, рядом — независимый пересчёт.',
   sheet: 'Сводный аналитический лист',
   dept: null,
@@ -62,7 +62,7 @@ export const SVOD_MODE: SheetMode = {
 export const JOURNAL_MODE: SheetMode = {
   id: 'journal',
   kind: 'journal',
-  label: 'Результаты и связи',
+  label: 'Связи',
   hint: 'Результаты и явные связи «Предок» / «Наследник» из рабочего реестра.',
   sheet: 'Рабочий реестр процедур',
   dept: null,
@@ -71,7 +71,7 @@ export const JOURNAL_MODE: SheetMode = {
 export const DIRECTORY_MODE: SheetMode = {
   id: 'directory',
   kind: 'directory',
-  label: 'Справочник учреждений',
+  label: 'Справочники',
   hint: 'Лист «Справочник заказчиков»: учреждения района и их владельцы-ГРБС.',
   sheet: 'Справочник заказчиков',
   dept: null,

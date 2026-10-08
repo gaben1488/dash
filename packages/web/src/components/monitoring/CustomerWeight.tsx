@@ -64,8 +64,8 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
       periodLabel={periodLabel}
       method={(
         <>
-          Строки реестра сложены по заказчику; сумма — начальные цены. Доля считается от начальных
-          цен всей книги, накопленная доля читается сверху вниз. Заказчики группируются по написанию
+          Строки реестра сложены по заказчику; сумма — НМЦК текущего плана без переданных предков.
+          История и число процедур сохраняются. Накопленная доля читается сверху вниз. Заказчики группируются по написанию
           книги: одно учреждение, записанное двумя способами, даёт две строки — ровно так же, как в
           реестре, куда ведёт клик.
         </>
@@ -82,11 +82,11 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
           <div className="grid gap-2 sm:grid-cols-4">
             <KBTooltip {...biKbProps(BI_KB.customer_concentration)} showIcon>
               <div className={`${TILE} p-3 text-left`}>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Заказчиков в книге</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Заказчиков в книге</p>
                 <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                   {fmtCount(concentration.customersTotal)}
                 </p>
-                <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   по написанию колонки «Заказчик»
                 </p>
               </div>
@@ -104,11 +104,11 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
             />
 
             <div className={`${TILE} p-3`}>
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Медианный заказчик</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Медианный заказчик</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
                 {fmtRub(concentration.medianCustomerRub)}
               </p>
-              <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                 руб. начальных цен — против средней по району
               </p>
             </div>
@@ -182,7 +182,7 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
           </div>
 
           {onPickCustomer !== undefined && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Клик по столбу ставит реестру выше разрез «Заказчик» тем же написанием — видно сами
               строки за числом.
             </p>
@@ -191,7 +191,7 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
           {/* Текстовый дубль: печать бывает чёрно-белой, а часть читателей не
               различает тона. Числа обязаны быть словами тоже. */}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full text-sm">
               <caption className="sr-only">Заказчики по начальным ценам книги мониторинга</caption>
               <thead>
                 <tr className="text-left text-zinc-500 dark:text-zinc-400">
@@ -227,7 +227,7 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
           </div>
 
           {concentration.customersTotal > SHOWN && (
-            <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               Показаны {SHOWN} крупнейших из {fmtCount(concentration.customersTotal)}; остальные
               видны в реестре разрезом «Заказчик». Ни один заказчик не выброшен — обрезан только
               показ.
@@ -242,11 +242,11 @@ export function CustomerWeight({ concentration, periodLabel, onPickCustomer }: C
 function ShareTile({ title, value, note }: { title: string; value: number | null; note: string }) {
   return (
     <div className={`${TILE} p-3`}>
-      <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{title}</p>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">{title}</p>
       <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
         {fmtPct(value)}
       </p>
-      <p className="mt-1 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">{note}</p>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{note}</p>
     </div>
   );
 }

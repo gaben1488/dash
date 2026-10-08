@@ -3,7 +3,8 @@ import { aggregateMonitoring, monitoringWorkQueue, parseMonitoringProcedures } f
 import { buildMonitoringSignals } from './signals.js';
 import { procedureRowsForMatch } from './cross-check.js';
 import { matchMonitoring } from '../pipeline/monitoring-match.js';
-import { parseMonitoringSvod } from './svod.js';
+import { parseMonitoringSvod, productTotalsByDept } from './svod.js';
+import { deptComparison } from './analytics.js';
 
 const sheet = 'Рабочий реестр процедур';
 const headers = ['Код процедуры', 'Вид строки', 'Флаг протокола', 'Комментарий', 'Управление', 'Заказчик', 'Наименование объекта закупки', 'НМЦК', 'Дата поступления заявки в уполномоченный орган', 'Дата публикации', 'Дата окончания подачи заявок', 'Дата подведения итогов', 'Цена по итогам', 'ФБ', 'КБ', 'МБ', 'Экономия', 'Победитель', 'ИНН победителя', 'Результат', 'Предок', 'Наследник', 'Стадия', 'Требуемое действие', 'Замечания'];
@@ -17,11 +18,69 @@ function row(code: string, result = '', stage = 'Объявлена'): unknown[]
 function parse(rows: unknown[][]) { return parseMonitoringProcedures({ [sheet]: [[], headers, ...rows] }); }
 
 describe('канонический реестр', () => {
-  it('ведущие нули кода допустимы и не создают ложные задачи', () => {
-    const parent = row('ЭАС06-25', 'Состоялась', 'Состоялась'); parent[1] = 'процедура';
-    const share = row('ЭАС06-25'); share[1] = 'доля'; share[7] = 40;
+  it('без хотя бы одной полной пары НМЦК/цена снижение неизвестно, не равно нулю', () => {
+    const first=row('ЭА401-26','Состоялась','Состоялась');
+    const second=row('ЭА402-26','Состоялась','Состоялась');
+    first[7]=''; first[12]=40; first[11]='';
+    second[7]=0; second[12]=50; second[11]='';
+    const registry=parseMonitoringProcedures({[sheet]:[[],headers,first,second]},'2026-10-08');
+    const awarded=aggregateMonitoring(registry).awarded;
+    expect(awarded.count).toBe(2);
+    expect(awarded.priceTotal).toBe(90);
+    expect(awarded.savingsTotal).toBeNull();
+    expect(awarded.avgReductionPct).toBeNull();
+    const paired=row('ЭА403-26','Состоялась','Состоялась');
+    paired[7]=100; paired[12]=75; paired[11]='';
+    const withPair=parseMonitoringProcedures({[sheet]:[[],headers,first,second,paired]},'2026-10-08');
+    expect(aggregateMonitoring(withPair).awarded.savingsTotal).toBe(25);
+  });
+
+  it.each(['2026-10-08', undefined])('нечитаемая дата исключает денежный факт при срезе %s', (asOf) => {
+    const r = row('ЭА100-26', 'Состоялась', 'Состоялась');
+    r[11] = 'неизвестная дата'; r[12] = 80; r[16] = 20; r[15] = 20;
+    const registry = parseMonitoringProcedures({ [sheet]: [[], headers, r] }, asOf);
+    expect(registry.procedures[0].factsEligible).toBe(false);
+    expect(registry.procedures[0].stage).toBe('awarded');
+    expect(aggregateMonitoring(registry).awarded.priceTotal).toBe(0);
+    expect(aggregateMonitoring(registry).savingsBookTotal).toBe(0);
+    expect(registry.procedures[0].defects.some((d) => /позже даты снимка/u.test(d.note))).toBe(false);
+  });
+  it('пустая дата допускает накопительный результат неполной истории', () => {
+    const r = row('ЭА100-26', 'Состоялась', 'Состоялась'); r[11] = ''; r[12] = 80;
+    const registry = parseMonitoringProcedures({ [sheet]: [[], headers, r] }, '2026-10-08');
+    expect(registry.procedures[0].factsEligible).toBe(true);
+    expect(aggregateMonitoring(registry).awarded.priceTotal).toBe(80);
+  });
+  it('неизвестная стадия доступна для разбора без увеличения активных или закрытых процедур', () => {
+    const r = row('ЭА100-26', '', 'Неизвестная стадия'); r[23] = 'Исправить: стадию';
+    const q = monitoringWorkQueue(parse([r]).procedures, '2026-10-06');
+    expect(q.active).toHaveLength(0); expect(q.closed).toHaveLength(0);
+    expect(q.triage).toHaveLength(1);
+    expect(q.triage[0]).toMatchObject({ action: 'Исправить: стадию', referenceDate: null, daysToDate: null });
+  });
+  it('не вычитает цену без НМЦК из экономии полного портфеля', () => {
+    const a = row('ЭА100-26', 'Состоялась', 'Состоялась');
+    a[7] = ''; a[11] = '01.09.2026'; a[12] = 100;
+    const b = row('ЭА101-26', 'Состоялась', 'Состоялась');
+    b[7] = 200; b[11] = '01.09.2026'; b[12] = 150;
+    const p = aggregateMonitoring(parse([a, b]));
+    expect(p.awarded.priceTotal).toBe(250);
+    expect(p.awarded.savingsTotal).toBe(50);
+  });
+  it('канонический ответ сохраняет комментарий D и отдельно флаг протокола C', () => {
+    const a = row('ЭА100-26'); a[2] = 'Флаг из источника'; a[3] = 'Свободный комментарий';
+    expect(parse([a]).procedures[0]).toMatchObject({ comment: 'Свободный комментарий', protocolFlag: 'Флаг из источника' });
+  });
+  it('один свободный комментарий не создаёт процедуру без кода', () => {
+    const note = Array(25).fill(''); note[3] = 'Свободная заметка';
+    expect(parse([note]).procedures).toEqual([]);
+  });
+  it.each([['ЭАС06-25', 'ЭАС6-25'], ['ЭАС06/02-25', 'ЭАС6/2-25']])('код %s сохраняется для отображения, доля сопоставляется', (sourceCode, key) => {
+    const parent = row(sourceCode, 'Состоялась', 'Состоялась'); parent[1] = 'процедура';
+    const share = row(sourceCode); share[1] = 'доля'; share[7] = 40;
     const registry = parse([parent, share]);
-    expect(registry.procedures[0].code).toBe('ЭАС6-25');
+    expect(registry.procedures[0].code).toBe(key);
+    expect(registry.procedures[0].sourceCode).toBe(sourceCode);
     expect(registry.procedures[0].defects).toEqual([]);
     expect(registry.procedures[0].participants).toHaveLength(1);
     expect(registry.sourceIssues).toEqual([]);
@@ -136,4 +195,16 @@ describe('канонический реестр', () => {
     expect(q.active).toHaveLength(1);
     expect(q.active[0].action).toBe('Проверить действие в реестре');
   });
+});
+
+it('деньги совместной процедуры распределяются по участникам, остаток остаётся у основной строки', () => {
+  const parent = row('ЭАС100-26', 'Состоялась', 'Состоялась'); parent[1] = 'процедура'; parent[4] = 'Совместные'; parent[12] = 80; parent[16] = 20; parent[11] = '';
+  const part = row('ЭАС100-26'); part[1] = 'доля'; part[7] = 60; part[12] = 50; part[16] = 10;
+  const totals = productTotalsByDept(parse([parent, part]).procedures);
+  expect(totals.find(x => x.dept === 'УО')).toMatchObject({ count: 0, nmck: 60, price: 50, savingsTotal: 10 });
+  expect(totals.find(x => x.dept === 'Совместные')).toMatchObject({ count: 1, nmck: 40, price: 30, savingsTotal: 10 });
+  expect(totals.reduce((sum, x) => sum + x.nmck, 0)).toBe(100);
+  const comparison = deptComparison(parse([parent, part]).procedures);
+  expect(comparison.find(x => x.dept === 'УО')).toMatchObject({ count: 0, nmckRub: 60, priceRub: 50, savingsBookRub: 10 });
+  expect(comparison.find(x => x.dept === 'Совместные')).toMatchObject({ count: 1, nmckRub: 40, priceRub: 30, savingsBookRub: 10 });
 });
