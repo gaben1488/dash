@@ -40,13 +40,16 @@ jobs:
             from procurement_engine.deployment_diagnostics import PUBLIC_CODES, public_error_code
             from procurement_engine.procedures import normalize_procedure_values, validate_operational_view, validate_procedure_lineage, validate_procedure_shares, validate_procedure_uniqueness
             from procurement_engine.qa import validate_master_values
+            from procurement_engine.publication_store import PublicationStore
+            from procurement_engine.readonly_catalog import copied_catalog
             root = Path('/app/packages/server/data/reports')
             allowed = PUBLIC_CODES | frozenset(SOURCE_ISSUES) | frozenset({
                 'DUPLICATE_PROCEDURE_CODE', 'PROCEDURE_LINEAGE_CONFLICT', 'PROCEDURE_LINEAGE_CYCLE',
                 'PROCEDURE_SHARE_PARENT_MISSING', 'PROCEDURE_SHARE_AMOUNT_INVALID',
                 'PROCEDURE_SHARE_PARTICIPANT_AMBIGUOUS', 'PROCEDURE_SHARE_BALANCE_MISMATCH',
                 'PROCEDURE_STAGE_DATE_MISMATCH', 'PROCEDURE_QUEUE_DUPLICATE',
-                'PROCEDURE_QUEUE_MISSING', 'PROCEDURE_QUEUE_UNEXPECTED', 'PROCEDURE_QUEUE_MISMATCH',
+                'PROCEDURE_QUEUE_COVERAGE_MISMATCH', 'PROCEDURE_QUEUE_RECORD_MISMATCH',
+                'PROCEDURE_ANCESTOR_NOT_IN_CURRENT_REGISTRY', 'PROCEDURE_SUCCESSOR_NOT_IN_CURRENT_REGISTRY',
                 'FACT_MONEY_WITHOUT_DATE', 'CONFLICTING_FUNDING_STATEMENTS',
                 'PLAN_YEAR_STATEMENT_CONFLICT', 'FACT_DATE_STATEMENT_CONFLICT',
                 'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK', 'ENGINE_RECOMMENDATION_ACTION',
@@ -55,8 +58,11 @@ jobs:
                 return dict(sorted(Counter(item['code'] if item.get('code') in allowed else 'GENERATION_FAILED'
                     for item in items).items()))
             try:
-                status = json.loads((root / 'status.json').read_text())
-                assurance = status.get('automation_assurance') or (status.get('publication') or {}).get('automation_assurance') or {}
+                store = PublicationStore(root / 'published', readonly=True)
+                with copied_catalog(store.database_path) as catalog:
+                    store.database_path = catalog
+                    receipt = store.latest()
+                assurance = (receipt or {}).get('automation_assurance') or {}
                 print(json.dumps({'current_action_code_counts': counts(assurance.get('actions') or [])}, sort_keys=True))
                 source = sorted(root.glob('archives/WEEKLY-*'))[-1]
                 day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
@@ -70,7 +76,8 @@ jobs:
                 queue = next(item for item in capture['sources'] if item['sheet'] == 'Процедуры в работе')
                 attempts, shares = normalize_procedure_values(main['values'])
                 issues.extend(issue.as_dict() for issue in validate_procedure_uniqueness(attempts) + validate_procedure_lineage(attempts) + validate_procedure_shares(attempts, shares) + validate_operational_view(main['values'], queue['values'], as_of=day.isoformat()))
-                print(json.dumps({'frozen_input_qa': {'report_date': day.isoformat(), 'error_code_counts': counts([item for item in issues if item.get('severity') == 'ERROR']), 'warning_code_counts': counts([item for item in issues if item.get('severity') == 'WARN'])}}, sort_keys=True))
+                retained_duplicate = sum(item.procedure_code == 'ЭА366-25' for item in attempts) > 1
+                print(json.dumps({'frozen_input_qa': {'report_date': day.isoformat(), 'owner_corrected_duplicate_retained': retained_duplicate, 'error_code_counts': counts([item for item in issues if item.get('severity') == 'ERROR']), 'warning_code_counts': counts([item for item in issues if item.get('severity') == 'WARN'])}}, sort_keys=True))
             except Exception as error:
                 print(json.dumps({'diagnostic_error_code': public_error_code(str(error))}, sort_keys=True))
                 raise SystemExit(2)
