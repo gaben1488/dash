@@ -85,6 +85,14 @@ export interface UpcomingRiskRow {
   procedureCode: string | null;
   /** Стадия процедуры в «Ежедневном мониторинге»; null — связки нет. */
   monitoringStage: string | null;
+  /** Только структурный сигнал: результат мониторинга расходится с отсутствием
+   * даты контракта в ГРБС либо с живой причиной из канонического словаря.
+   * Комментарий не становится новой стадией или фактом заключения контракта. */
+  stageVsMonitoring: {
+    kind: 'success_without_contract_date' | 'live_reason_after_success';
+    address: string;
+    message: string;
+  } | null;
 }
 
 /**
@@ -133,6 +141,24 @@ export function buildUpcoming(
 
     const reason = findReason(row.cells, row.sheetRow);
     const procedureCode = parseProcedureRef(row.cells['AG'])?.code ?? null;
+    const monitoringStage = procedureCode !== null
+      ? options.monitoringStages?.get(procedureCode) ?? null : null;
+    // Do not promote comments to factual stages. The absence of the Q date
+    // is a structural discrepancy only when the *unique* monitored procedure
+    // explicitly says "Состоялась". Preserve the observed comment address.
+    const stageVsMonitoring = monitoringStage === 'Состоялась'
+      ? reason?.kind === 'live'
+        ? {
+          kind: 'live_reason_after_success' as const,
+          address: row.dept + '!' + reason.cell,
+          message: 'Мониторинг: «Состоялась», но в книге ГРБС сохраняется действующая причина. Проверить актуальность комментария и дату контракта.',
+        }
+        : {
+          kind: 'success_without_contract_date' as const,
+          address: row.dept + '!Q' + row.sheetRow,
+          message: 'Мониторинг: «Состоялась», однако дата контракта в книге ГРБС не заполнена. Проверить источник; статус не меняется автоматически.',
+        }
+      : null;
 
     out.push({
       rowKey: `${row.dept}:${row.sheetRow}`,
@@ -149,8 +175,8 @@ export function buildUpcoming(
       reason,
       hasLiveReason: reason?.kind === 'live',
       procedureCode,
-      monitoringStage:
-        procedureCode !== null ? options.monitoringStages?.get(procedureCode) ?? null : null,
+      monitoringStage,
+      stageVsMonitoring,
     });
   }
 
