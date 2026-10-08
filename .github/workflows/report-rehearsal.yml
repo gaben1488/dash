@@ -58,9 +58,16 @@ jobs:
             PYENDPOINT
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
+            # Pin the durable compose volume independently of the ephemeral server
+            # container. Deploys may replace that container during a long replay.
             image=$(docker inspect --format '{{.Image}}' "$server")
+            data_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$server")
+            case "$data_volume" in
+              ''|*[!A-Za-z0-9_.-]*) echo 'Report read-only source volume was not identified' >&2; exit 1 ;;
+            esac
+            docker volume inspect "$data_volume" >/dev/null
             docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
-              --env-file .env.production --volumes-from "$server":ro \
+              --env-file .env.production -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" - <<'PYREAD'
             import json, shutil, tempfile
@@ -152,7 +159,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 28
     steps:
       - name: Replay saved production evidence without changing service or data
         uses: appleboy/ssh-action@v1.2.0
@@ -161,7 +168,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 13m
+          command_timeout: 26m
           # Bash owns failure handling; per-line SSH injection breaks shell blocks.
           script_stop: false
           script: |
@@ -182,16 +189,34 @@ jobs:
             cd deploy
             server=$(docker compose --env-file .env.production ps --status running --quiet server)
             test -n "$server"
+            # Pin the durable compose volume independently of the ephemeral server
+            # container. Deploys may replace that container during a long replay.
             image=$(docker inspect --format '{{.Image}}' "$server")
+            data_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$server")
+            case "$data_volume" in
+              ''|*[!A-Za-z0-9_.-]*) echo 'Report read-only source volume was not identified' >&2; exit 1 ;;
+            esac
+            docker volume inspect "$data_volume" >/dev/null
             cd ..
             git fetch --quiet origin "$candidate"
+            # Keep the Git archive in a private small temporary directory.
+            # The large candidate reconstruction uses an anonymous Docker
+            # scratch volume, automatically destroyed by docker run --rm.
+            # None of the existing business volumes can be written here.
             work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
             trap 'rm -rf "$work"' EXIT
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
+            # Verify the image user can create and remove scratch files before
+            # a lengthy replay. Anonymous volumes are removed on exit.
+            docker run --rm --network none --read-only \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              --entrypoint /bin/sh "$image" \
+              -ec 'test -w /tmp; : > /tmp/rehearsal-permission-check; rm /tmp/rehearsal-permission-check'
             echo "=== report state aggregate footprint (no source contents) ==="
             docker run --rm --network none --read-only \
-              --volumes-from "$server":ro \
+              -v "$data_volume:/app/packages/server/data:ro" \
               --entrypoint /bin/sh "$image" \
               -ec 'root=/app/packages/server/data/reports;
                    for name in attempts published archives archive_intake inputs; do
@@ -205,14 +230,14 @@ jobs:
                    printf "weekly_dirs "; find "$root/archives" -mindepth 1 -maxdepth 1 -type d -name "WEEKLY-*" 2>/dev/null | wc -l'
             echo "=== installed source contract geometry (no source contents) ==="
             docker run --rm --network none --read-only \
-              --volumes-from "$server":ro \
+              -v "$data_volume:/app/packages/server/data:ro" \
               --entrypoint /opt/report-env/bin/python "$image" \
               -c 'import json; from pathlib import Path; r=json.loads(Path("/app/packages/server/data/reports/inputs/registry.json").read_text()); keys=("sheet","role","columns","header_rows","schema_fingerprint","semantic_header_fingerprint","previous_semantic_header_fingerprint"); print(json.dumps({"installed_source_contracts":[{k:s[k] for k in keys if k in s} for s in r["sources"]]},ensure_ascii=False,sort_keys=True))'
             echo "=== end installed source contract geometry ==="
             echo "=== latest live release aggregate footprint ==="
             docker run --rm --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=128m \
-              --volumes-from "$server":ro \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
@@ -220,7 +245,7 @@ jobs:
             echo "=== published unresolved recommendation index ==="
             docker run --rm --network none --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=128m \
-              --volumes-from "$server":ro \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
@@ -228,7 +253,7 @@ jobs:
             echo "=== end unresolved recommendation index ==="
             echo "=== candidate retention dry run ==="
             docker run --rm --network none --read-only \
-              --volumes-from "$server":ro \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
@@ -237,16 +262,16 @@ jobs:
 
             echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
-              --volumes-from "$server":ro \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --failed-attempt
             echo "=== fast published-evidence inventory (no candidate replay) ==="
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
-              --volumes-from "$server":ro \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
@@ -254,8 +279,8 @@ jobs:
             echo "=== end published-evidence inventory ==="
             echo "=== sanitized current-release diagnostic (weekly archive checked separately) ==="
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
-              --volumes-from "$server":ro \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
@@ -265,8 +290,8 @@ jobs:
             # sealed weekly input once, without rebuilding the same DOCX twice.
             # A bad immutable weekly input still fails this strict audit job.
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
-              --volumes-from "$server":ro \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
@@ -280,7 +305,7 @@ jobs:
             started=$(docker inspect --format '{{.State.StartedAt}}' "$worker")
             interval=$(docker exec "$worker" /bin/sh -c 'printf "%s" "${REPORT_POLL_SECONDS:-900}"')
             docker run --rm --network none --read-only \
-              --volumes-from "$server":ro \
+              -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \

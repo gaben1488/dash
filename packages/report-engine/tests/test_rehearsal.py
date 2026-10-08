@@ -415,3 +415,20 @@ def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
     assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
     result = json.loads(capsys.readouterr().out)
     assert result['replay_status'] == 'FAIL'
+
+
+def test_rehearsal_os_errors_disclose_only_safe_errno_not_private_path(monkeypatch, capsys):
+    import errno
+
+    from procurement_engine import rehearsal
+
+    def private_disk_error(*_args, **_kwargs):
+        raise OSError(errno.ENOSPC, 'no space left', '/private/source/secret-ledger.json')
+
+    monkeypatch.setattr(rehearsal, 'rehearse_latest', private_disk_error)
+    assert rehearsal.main(['--state', '/unused']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['os_error_code'] == 'ENOSPC'
+    assert 'private' not in json.dumps(result)
+    assert 'secret' not in json.dumps(result)
