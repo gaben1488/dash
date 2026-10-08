@@ -124,6 +124,13 @@ def _origin_registered(rec, as_of, verified_origin):
         return None
     text = rec.get('recommendation_text') or ''
     digest = hashlib.sha256(text.encode()).hexdigest()
+    if verified_origin.get('kind') == 'UER_REPORT_REGISTER_ENTRY_V1':
+        # Issuance is attested by the authenticated, revisioned working ledger,
+        # not by a Word file generated after the entry was created.
+        from .recommendation_history import uer_entry_origin
+
+        validated = uer_entry_origin(rec, as_of=as_of)
+        return validated if validated == verified_origin else None
     for evidence in rec.get('origin_evidence') or []:
         if not isinstance(evidence, dict):
             continue
