@@ -71,3 +71,27 @@ export function jointMoneySummaryRequest() {
   const cell = value => ({userEnteredValue:value.startsWith('=') ? {formulaValue:value} : {stringValue:value}});
   return {updateCells:{start:{sheetId:2526402,rowIndex:2,columnIndex:17},rows:[{values:['Показатель','Процедур','Сумма, руб.'].map(cell)},...entries.map(([label,mask,n])=>({values:[label,`=${count(mask)}`,`=${sum(mask,n)}`].map(cell)}))],fields:'userEnteredValue'}};
 }
+
+
+/** Convert legacy ten-column A:J queue spill to A:I without losing signals.
+ * Column J belongs exclusively to the visual separator. Must read A3 live
+ * before applying, and preserve code D / money H / right queue O:X.
+ */
+export function queueFormulaWithEmptyJSeparator(formula) {
+  const oldColumns = '{due\\days\\act\\links\\dept\\cust\\subj\\money\\st\\msg}';
+  const newColumns = '{due\\days\\actionWithSignal\\links\\dept\\cust\\subj\\money\\st}';
+  const combinedAction = 'actionWithSignal;ARRAYFORMULA(IF(msg="";act;IF(act="";msg;act&CHAR(10)&msg)))';
+  if (formula.includes(newColumns) && formula.includes(combinedAction)) return formula;
+  if (!formula.includes(oldColumns) || !formula.includes(';IF(SUM(m)=0;')) {
+    throw new Error('QUEUE_EMPTY_J_CONTRACT');
+  }
+  let next = formula.replace(oldColumns, newColumns);
+  next = next.replace(';IF(SUM(m)=0;', ';' + combinedAction + ';IF(SUM(m)=0;');
+  const begin = next.indexOf('{"Нет процедур в работе"');
+  const end = next.indexOf(';SORT', begin);
+  if (begin < 0 || end < 0 || next.slice(begin, end).split('\\').length !== 10) {
+    throw new Error('QUEUE_EMPTY_J_FALLBACK_CONTRACT');
+  }
+  const fallback = '{"Нет процедур в работе"' + Array(8).fill('\\' + '""').join('') + '}';
+  return next.slice(0, begin) + fallback + next.slice(end);
+}
