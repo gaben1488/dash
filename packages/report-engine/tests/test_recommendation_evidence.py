@@ -281,7 +281,9 @@ def test_v13_conflicting_automatic_and_reviewed_uid_fails_closed():
     record = original()
     record.update(active_in_current_slice=True, recommendation_type='CHANGE_METHOD_EA',
                   source_procurement_ids=['42'])
-    actual = current_row()
+    # Prove an independently valid automatic target (same original plan year)
+    # before testing disagreement with a separate reviewed UID.
+    actual = replace(current_row(), planned_year=2026)
     other = replace(actual, row_number=7, procurement_id='99',
                     source_row_no='99', subject='Отдельная закупка',
                     procurement_uid='PUR-other')
