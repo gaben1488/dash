@@ -92,8 +92,9 @@ def test_unrecorded_applied_fingerprint_still_requires_live_proof(tmp_path):
 
 
 @pytest.mark.parametrize('changed_width', [False, True])
+@pytest.mark.parametrize('history_review', ['current', 'previous'])
 @pytest.mark.parametrize('damage', [None, 'private_history', 'review_history', 'backup', 'identity', 'units', 'fingerprint'])
-def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch, changed_width, damage):
+def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch, changed_width, damage, history_review):
     from procurement_engine import monitoring_schema as module
     from procurement_engine.semantic_headers import semantic_header_hash
     from procurement_engine.snapshot import canonical_semantic_hash
@@ -110,12 +111,13 @@ def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch
              'previous_semantic': old_semantic, 'volatile_cells': []}
     monkeypatch.setattr(module, 'REVIEWS', [review])
     monkeypatch.setattr(module, 'RETIRED', [])
+    monkeypatch.setattr(module, 'PREVIOUS_REVIEWS', {'previous-reviewed-version': [review]})
     digest = canonical_semantic_hash(prior_registry)
     history = tmp_path / 'registry-history'
     backup = history / (digest + '.json')
     backup.write_text(json.dumps(prior_registry))
     record = history / 'canonical.migration.json'
-    record.write_text(json.dumps({'review': module.REVIEW, 'patches': [review],
+    record.write_text(json.dumps({'review': module.REVIEW if history_review == 'current' else 'previous-reviewed-version', 'patches': [review],
                                  'retired': [], 'previous_registry_hash': digest}))
     current = deepcopy(prior_registry)
     current['sources'][-1].update(columns=columns, schema_fingerprint=review['fingerprint'],

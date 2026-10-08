@@ -58,3 +58,12 @@ backup proves the installed private result, and the current source equals that
 backup plus the explicitly reviewed canonical transition. Unknown edits, missing
 history, identity/unit changes and broken backup proofs retain the existing
 failure behavior. Live capture and publication gates remain mandatory.
+
+### Queue task-type label, 2026-10-09
+
+The live queue O2 was renamed from «Уровень» to «Тип задачи» after the v3
+production rehearsal. Reconstructing only that cell yields both exact installed
+v3 header hashes. The v4 review records this single label transition explicitly;
+the 24-column geometry, source identity and monetary fields are unchanged.
+Unknown labels still fail. The exact v3 review is retained for recognition of
+recorded private migration successors; it is not inferred from live headers.

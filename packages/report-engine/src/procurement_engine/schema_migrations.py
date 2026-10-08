@@ -17,14 +17,15 @@ NAME = 'aemr-report-schema-migrations-v1.json'
 
 def _recorded_monitoring_successor(path, source, patch):
     """Recognize only a proven installed successor of an obsolete private patch."""
-    from .monitoring_schema import REASON, RETIRED, REVIEW, REVIEWS
+    from .monitoring_schema import PREVIOUS_REVIEWS, REASON, RETIRED, REVIEW, REVIEWS
 
     history = path.parent / 'registry-history'
     records = [json.loads(p.read_text()) for p in history.glob('*.migration.json')]
     if not any(patch in r.get('package', {}).get('migrations', []) for r in records):
         return False
     for record in records:
-        if (record.get('review') != REVIEW or record.get('patches') != REVIEWS
+        accepted = {REVIEW: REVIEWS, **PREVIOUS_REVIEWS}.get(record.get('review'))
+        if (accepted is None or record.get('patches') != accepted
             or record.get('retired') != json.loads(json.dumps(RETIRED))):
             continue
         digest = record.get('previous_registry_hash')

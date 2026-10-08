@@ -22,6 +22,24 @@ def test_dynamic_header_counts_do_not_change_the_schema_but_static_labels_do():
     assert header_hash(before, 1, volatile_cells=volatile) != header_hash(after, 1, volatile_cells=volatile)
 
 
+def test_queue_label_transition_reconstructs_exact_installed_v3_contract():
+    from procurement_engine import monitoring_schema as module
+
+    rows = json.loads((Path(__file__).parent / 'fixtures/reviewed_queue_headers_20261009.json').read_text())
+    current = module.REVIEWS[0]
+    previous = module.PREVIOUS_REVIEWS['canonical-monitoring-v3-2026-10-08'][0]
+    assert rows[1][14] == 'Тип задачи'
+    assert header_hash(rows, 2, volatile_cells=current['volatile_cells']) == current['fingerprint']
+    assert semantic_header_hash(rows, 2, 24, volatile_cells=current['volatile_cells']) == current['semantic']
+    rows[1][14] = 'Уровень'
+    assert header_hash(rows, 2, volatile_cells=previous['volatile_cells']) == previous['fingerprint']
+    assert semantic_header_hash(rows, 2, 24, volatile_cells=previous['volatile_cells']) == previous['semantic']
+    assert [24, 2, previous['fingerprint']] in current['previous_geometry']
+    assert previous['semantic'] in current['previous_semantics']
+    rows[1][14] = 'Unreviewed field'
+    assert header_hash(rows, 2, volatile_cells=current['volatile_cells']) != current['fingerprint']
+
+
 @pytest.mark.parametrize('drift', [None, 'directory', 'supplier', 'joint', 'department', 'checks'])
 def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, drift):
     from procurement_engine import monitoring_schema as module

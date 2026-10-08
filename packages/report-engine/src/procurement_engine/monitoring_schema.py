@@ -135,6 +135,18 @@ REVIEWS = [{'old_sheet': 'Процедуры в работе',
   'semantic': 'd631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170',
   'volatile_cells': [],
   'optional': True}]
+# Preserve the exact installed v3 review: private reference migrations still
+# prove their successor through that immutable history on repeat deployments.
+PREVIOUS_REVIEWS = {REVIEW: deepcopy(REVIEWS)}
+REVIEW = 'canonical-monitoring-v4-2026-10-09'
+# Explicit O2 label transition, verified by reconstructing "Уровень" and
+# obtaining both exact v3 hashes. Geometry, data fields and volatile cells agree.
+queue_review = REVIEWS[0]
+queue_review['previous_geometry'].append([24, 2, queue_review['fingerprint']])
+queue_review['previous_semantics'].append(queue_review['semantic'])
+queue_review.update(
+    fingerprint='d5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb',
+    semantic='cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61')
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
   6,
