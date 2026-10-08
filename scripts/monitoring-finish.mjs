@@ -31,8 +31,24 @@ export function nativeMoneyPresentationRequests(sheets) {
   const requests = sheets.flatMap(addressedRemarkRules);
   const show = (id,start,end,width) => requests.push({updateDimensionProperties:{range:{sheetId:id,dimension:'COLUMNS',startIndex:start,endIndex:end},properties:{hiddenByUser:false,pixelSize:width},fields:'hiddenByUser,pixelSize'}});
   show(2526400,7,8,155); show(2526401,12,13,265); show(2526401,13,14,75); show(2526401,14,16,160); show(2526402,17,18,265); show(2526402,18,20,160);
-  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:1},rows:[{values:[{userEnteredValue:{formulaValue:'="В работе: "&COUNTIF(D3:D1002;"?*")&" · НМЦК: "&TEXT(SUM(H3:H1002);"#,##0.00")&" ₽. Код открывает строку реестра. Дата — ориентир. Проверки закрытых процедур: "&COUNTIF(O3:O1002;"?*")&" — справа."'}}]}],fields:'userEnteredValue'}});
+  requests.push(...workQueueDividerPresentationRequests());
+  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:1},rows:[{values:[{userEnteredValue:{formulaValue:'="В работе: "&COUNTIF(D3:D1002;"?*")&" · НМЦК: "&TEXT(SUM(H3:H1002);"#,##0.00")&" ₽. Код открывает строку реестра. Дата — ориентир. Проверки закрытых процедур: "&COUNTIF(P3:P1002;"?*")&" — справа."'}}]}],fields:'userEnteredValue'}});
   return requests;
+}
+
+
+/** Canonical workplace layout: A:J active, K:M hidden, N visible blank, O:X closed checks. */
+export function workQueueDividerPresentationRequests(rowCount = 1002) {
+  const sheetId = 2526400;
+  const columnRange = (startIndex, endIndex) => ({ sheetId, dimension: 'COLUMNS', startIndex, endIndex });
+  return [
+    { updateDimensionProperties: { range: columnRange(9, 10), properties: { hiddenByUser: false, pixelSize: 185 }, fields: 'hiddenByUser,pixelSize' } },
+    { updateDimensionProperties: { range: columnRange(10, 13), properties: { hiddenByUser: true }, fields: 'hiddenByUser' } },
+    { updateDimensionProperties: { range: columnRange(13, 14), properties: { hiddenByUser: false, pixelSize: 36 }, fields: 'hiddenByUser,pixelSize' } },
+    { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: rowCount, startColumnIndex: 13, endColumnIndex: 14 },
+      cell: { userEnteredFormat: { backgroundColorStyle: { rgbColor: { red: .932, green: .944, blue: .960 } }, borders: {} } },
+      fields: 'userEnteredFormat.backgroundColorStyle,userEnteredFormat.borders' } },
+  ];
 }
 
 /** Keep unallocated participant money at the primary department, including partial allocations. */
@@ -70,28 +86,4 @@ export function jointMoneySummaryRequest() {
   const entries = [['НМЦК текущих процедур',`${primary}*(${col(23)}<>"Переоформлена")`,8],['НМЦК учтённых результатов',admitted,8],['Цена по учтённым итогам',admitted,13],['Экономия учтённых результатов',admitted,17],['Экономия · ФБ',admitted,14],['Экономия · КБ',admitted,15],['Экономия · МБ',admitted,16],['Переоформленные · история',`${primary}*(${col(23)}="Переоформлена")`,8]];
   const cell = value => ({userEnteredValue:value.startsWith('=') ? {formulaValue:value} : {stringValue:value}});
   return {updateCells:{start:{sheetId:2526402,rowIndex:2,columnIndex:17},rows:[{values:['Показатель','Процедур','Сумма, руб.'].map(cell)},...entries.map(([label,mask,n])=>({values:[label,`=${count(mask)}`,`=${sum(mask,n)}`].map(cell)}))],fields:'userEnteredValue'}};
-}
-
-
-/** Convert legacy ten-column A:J queue spill to A:I without losing signals.
- * Column J belongs exclusively to the visual separator. Must read A3 live
- * before applying, and preserve code D / money H / right queue O:X.
- */
-export function queueFormulaWithEmptyJSeparator(formula) {
-  const oldColumns = '{due\\days\\act\\links\\dept\\cust\\subj\\money\\st\\msg}';
-  const newColumns = '{due\\days\\actionWithSignal\\links\\dept\\cust\\subj\\money\\st}';
-  const combinedAction = 'actionWithSignal;ARRAYFORMULA(IF(msg="";act;IF(act="";msg;act&CHAR(10)&msg)))';
-  if (formula.includes(newColumns) && formula.includes(combinedAction)) return formula;
-  if (!formula.includes(oldColumns) || !formula.includes(';IF(SUM(m)=0;')) {
-    throw new Error('QUEUE_EMPTY_J_CONTRACT');
-  }
-  let next = formula.replace(oldColumns, newColumns);
-  next = next.replace(';IF(SUM(m)=0;', ';' + combinedAction + ';IF(SUM(m)=0;');
-  const begin = next.indexOf('{"Нет процедур в работе"');
-  const end = next.indexOf(';SORT', begin);
-  if (begin < 0 || end < 0 || next.slice(begin, end).split('\\').length !== 10) {
-    throw new Error('QUEUE_EMPTY_J_FALLBACK_CONTRACT');
-  }
-  const fallback = '{"Нет процедур в работе"' + Array(8).fill('\\' + '""').join('') + '}';
-  return next.slice(0, begin) + fallback + next.slice(end);
 }
