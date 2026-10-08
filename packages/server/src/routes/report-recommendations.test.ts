@@ -38,7 +38,7 @@ it('shows the real historical ledger, not a generated list of dashboard issues',
   expect(reply.statusCode).toBe(200);
   expect(reply.headers['cache-control']).toBe('private, no-store');
   expect(reply.json()).toMatchObject({
-    counts: { active: 1, historical: 0, drafts: 0 },
+    counts: { active: 1, historical: 0, uerAuthored: 0 },
     records: [{ id: 'REC-ORIGINAL', grbs: 'УО', text: historical.recommendation_text,
       statusLabel: 'Исторический статус', statusAsOf: '25.09.2026' }],
   });
@@ -46,7 +46,7 @@ it('shows the real historical ledger, not a generated list of dashboard issues',
   await app.close();
 });
 
-it('saves an editable draft to the SAME ledger, not to an official release', async () => {
+it('saves an official УЭР recommendation into the SAME ledger at one click', async () => {
   const { app, stateDir } = await fixture();
   const { revision } = (await app.inject('/api/report-recommendations')).json();
   const reply = await app.inject({
@@ -57,22 +57,26 @@ it('saves an editable draft to the SAME ledger, not to an official release', asy
   expect(reply.statusCode).toBe(201);
   const result = reply.json();
   expect(result.record).toMatchObject({
-    grbs: 'УО', text: 'Рассмотреть объединение позиций', stage: 'DRAFT',
+    grbs: 'УО', text: 'Рассмотреть объединение позиций', stage: 'ACTIVE', editable: true,
     sourceIds: ['42', '43'], note: 'Нужно сверить предмет',
   });
-  expect(result.record.id).toMatch(/^REC-DRAFT-[A-F0-9]{16}$/);
+  expect(result.record.id).toMatch(/^REC-UER-[A-F0-9]{16}$/);
   const saved = JSON.parse(await readFile(join(stateDir, 'inputs', 'ledger.json'), 'utf8'));
   expect(saved).toHaveLength(2);
   expect(saved[0]).toEqual(historical);
-  expect(saved[1].editorial_state).toBe('DRAFT');
-  expect(saved[1].active_in_current_slice).toBe(false);
+  expect(saved[1].editorial_state).toBe('ISSUED');
+  expect(saved[1].origin_evidence[0]).toMatchObject({
+    kind: 'UER_REPORT_REGISTER_ENTRY_V1', grbs: 'УО', recommendation_id: result.record.id,
+  });
+  expect(saved[1].table_no).toBe(9);
+  expect(saved[1].active_in_current_slice).toBe(true);
   expect(saved[1].editorial_history).toHaveLength(1);
   const directory = await import('node:fs/promises').then(fs => fs.readdir(join(stateDir, 'inputs', 'ledger-versions')));
   expect(directory).toHaveLength(1);
   await app.close();
 });
 
-it('edits a draft inline, supports archival, and rejects stale simultaneous saves', async () => {
+it('revisions an issued recommendation without overwriting its original or concurrent edits', async () => {
   const { app } = await fixture();
   let revision = (await app.inject('/api/report-recommendations')).json().revision;
   const created = (await app.inject({ method: 'POST', url: '/api/report-recommendations',
@@ -82,16 +86,18 @@ it('edits a draft inline, supports archival, and rejects stale simultaneous save
   revision = created.revision;
   const changed = await app.inject({ method: 'PUT', url: `/api/report-recommendations/${id}`,
     payload: { expectedRevision: revision, grbs: 'УО',
-      text: 'Уточнённое предложение', sourceIds: ['55'], note: 'После проверки',
-      stage: 'ARCHIVED_DRAFT' } });
+      text: 'Уточнённое предложение', sourceIds: ['55'], note: 'После проверки' } });
   expect(changed.statusCode).toBe(200);
   expect(changed.json().record).toMatchObject({
-    id, grbs: 'УО', stage: 'ARCHIVED_DRAFT', sourceIds: ['55'],
+    id, grbs: 'УО', stage: 'ACTIVE', sourceIds: ['55'], editable: true,
   });
   const conflict = await app.inject({ method: 'PUT', url: `/api/report-recommendations/${id}`,
     payload: { expectedRevision: stale, grbs: 'УО', text: 'Перезаписать',
-      sourceIds: [], stage: 'DRAFT' } });
+      sourceIds: [], note: '' } });
   expect(conflict.statusCode).toBe(409);
+  // The old wording survives in the revision log; the new one is the effective source.
+  expect(changed.json().record.history.find((e: { previous?: { text: string } }) => e.previous)?.previous.text)
+    .toBe('Предложение');
   expect((await app.inject('/api/report-recommendations')).json().records.find((r: { id: string }) => r.id === id)
     .text).toBe('Уточнённое предложение');
   await app.close();
