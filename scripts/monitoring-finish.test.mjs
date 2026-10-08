@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addressedRemarkRules, archiveResidualFormula, preserveFateComment, jointMoneySummaryRequest } from './monitoring-finish.mjs';
+import { addressedRemarkRules, archiveResidualFormula, preserveFateComment, jointMoneySummaryRequest, queueFormulaWithEmptyJSeparator } from './monitoring-finish.mjs';
 
 test('archive keeps partially allocated money and does not migrate the same formula twice', () => {
   const old = '=LET(код;ФильтрВитрин;вид;INDEX(ДанныеМастера;0;2);нмцк;INDEX(ДанныеМастера;0;8);цена;INDEX(ДанныеМастера;0;13);м;(долейКода=0);нмцк)';
@@ -29,4 +29,19 @@ test('joint totals use main procedures and separate date-admitted facts from cur
   assert.equal(rows.length,9);
   assert.match(rows[1].values[2].userEnteredValue.formulaValue, /<>"доля"/);
   assert.match(rows[3].values[2].userEnteredValue.formulaValue, /<=Сегодня;FALSE/);
+});
+
+
+test('J stays an empty separator while full active signals move into C', () => {
+  const tenColumnArray = '{due\\days\\act\\links\\dept\\cust\\subj\\money\\st\\msg}';
+  const oldFallback = '{"Нет процедур в работе"' + Array(9).fill('\\' + '""').join('') + '}';
+  const formula = '=LET(m;1;act;"Действие";msg;"Сигнал";IF(SUM(m)=0;' + oldFallback
+    + ';SORT(FILTER(' + tenColumnArray + ';m);1;TRUE)))';
+  const updated = queueFormulaWithEmptyJSeparator(formula);
+  assert.match(updated, /actionWithSignal;ARRAYFORMULA/);
+  assert.ok(updated.includes('{due\\days\\actionWithSignal\\links\\dept\\cust\\subj\\money\\st}'));
+  assert.ok(!updated.includes(tenColumnArray));
+  assert.equal(updated.slice(updated.indexOf('{"Нет процедур в работе"'), updated.indexOf(';SORT')).split('\\').length, 9);
+  assert.equal(queueFormulaWithEmptyJSeparator(updated), updated);
+  assert.throws(() => queueFormulaWithEmptyJSeparator('=1'), /QUEUE_EMPTY_J_CONTRACT/);
 });
