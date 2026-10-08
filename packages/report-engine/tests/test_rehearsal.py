@@ -419,6 +419,7 @@ def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
 
 def test_sanitized_os_error_exposes_errno_class_not_sensitive_exception(tmp_path, capsys, monkeypatch):
     import errno
+
     from procurement_engine import rehearsal
 
     def failure(*_a, **_kw):
