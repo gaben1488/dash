@@ -7,8 +7,12 @@ export function queueDriftSignals(book: MonitoringBookSnapshot, procedures: read
   const grid = book.sheets['Процедуры в работе'];
   if (!grid) return [];
   const work = monitoringWorkQueue(procedures, new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date(book.readAt)));
+  const headers = grid[1] ?? [];
+  const codeColumns = headers.flatMap((value, index) => String(value ?? '').trim() === 'Код' ? [index] : []);
+  const closedColumn = codeColumns.find(index => index > 3) ?? 15;
   const addresses: Array<{ address: string; note: string }> = [];
-  for (const [items, column, letter] of [[work.active, 3, 'D'], [work.closed, 15, 'P']] as const) {
+  for (const [items, column] of [[work.active, 3], [work.closed, closedColumn]] as const) {
+    const letter = String.fromCharCode(65 + column);
     const expected = new Map<string, number>();
     for (const { procedure: p } of items) {
       const code = p.sourceCode ?? p.code;
@@ -43,7 +47,7 @@ export function queueDriftSignals(book: MonitoringBookSnapshot, procedures: read
 
 export function missingFormulaAddresses(values: unknown[][], formulas: unknown[][]): string[] {
   const out: string[] = [];
-  const columns = [[16, 'Q'], [18, 'S'], [21, 'V'], [22, 'W'], [23, 'X'], [24, 'Y']] as const;
+  const columns = [[0, 'A'], [16, 'Q'], [18, 'S'], [21, 'V'], [22, 'W'], [23, 'X'], [24, 'Y']] as const;
   values.slice(2).forEach((row, offset) => {
     if (!String(row[0] ?? '').trim() && !String(row[6] ?? '').trim()) return;
     for (const [index, letter] of columns) {
@@ -63,10 +67,10 @@ export function monitoringFormulaDiagnostics(book: MonitoringBookSnapshot) {
       if (!grids[MONITORING_MASTER_SHEET]) throw new Error('Диапазон формул не получен');
       const addresses = missingFormulaAddresses(book.sheets[MONITORING_MASTER_SHEET] ?? [], grids[MONITORING_MASTER_SHEET]);
       const signals: MonitoringSignal[] = addresses.length ? [{ kind: 'monitoring_formula_missing', title: 'Вычисляемое поле заменено значением или пусто', severity: 'high',
-        mechanism: 'Отдельное чтение формул Q/S/V/W/X/Y обнаружило ячейки без формулы. Правдоподобное значение не доказывает исправность вычисления.',
+        mechanism: 'Отдельное чтение формул A/Q/S/V/W/X/Y обнаружило ячейки без формулы. Правдоподобное значение не доказывает исправность вычисления.',
         action: 'Проверьте указанную ячейку и восстановите каноническую формулу после проверки исходных данных.', count: addresses.length,
         addresses: addresses.map(address => ({ address, note: 'В обязательной вычисляемой колонке нет формулы.' })) }] : [];
-      return { checked: true, signals, notes: ['Проверено наличие формул Q/S/V/W/X/Y. Проверки ввода и защиты этим чтением не проверяются.'] };
+      return { checked: true, signals, notes: ['Проверено наличие формул A/Q/S/V/W/X/Y. Проверки ввода и защиты этим чтением не проверяются.'] };
     } catch {
       return { checked: false, signals: [], notes: ['Формулы мастера не прочитаны; целость вычисляемых колонок не подтверждена.'] };
     }

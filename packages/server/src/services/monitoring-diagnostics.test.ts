@@ -41,6 +41,7 @@ describe('independent native monitoring diagnostics', () => {
   });
   it('checks the closed procedure code in P, not the severity label in O', () => {
     const master = source();
+    master[2][19] = 'Состоялась';
     master[2][22] = 'Состоялась';
     master[2][23] = 'Проверить сведения';
     master[2][24] = 'Проверить: основание — S';
@@ -59,10 +60,20 @@ describe('independent native monitoring diagnostics', () => {
       { address: 'Рабочий реестр процедур!A3', note: 'В витрине P отсутствует ЭА001-26' },
     ]);
   });
+  it('uses the P code header beside the N separator instead of severity in O', () => {
+    const master = source(); master[2][19] = 'Состоялась'; master[2][22] = 'Состоялась';
+    const queue: unknown[][] = [[], Array(24).fill(''), Array(24).fill('')];
+    queue[1][3] = 'Код'; queue[1][14] = 'Уровень'; queue[1][15] = 'Код';
+    queue[2][14] = 'Проверить'; queue[2][15] = 'ЭА001-26';
+    const book: MonitoringBookSnapshot = { sheets: { 'Рабочий реестр процедур': master, 'Процедуры в работе': queue }, readAt: '2026-10-08T12:00:00Z', failed: {}, version: 1, changed: [] };
+    expect(queueDriftSignals(book, parseMonitoringProcedures(book.sheets, '2026-10-09').procedures)).toEqual([]);
+    queue[2][15] = 'ЭА002-26';
+    expect(queueDriftSignals(book, parseMonitoringProcedures(book.sheets, '2026-10-09').procedures)[0].addresses[0].address).toBe('Процедуры в работе!P3');
+  });
   it('a plausible stage value does not count as an intact formula; empty source rows are ignored', () => {
     const master = [...source(), []];
     const formulas = structuredClone(master);
-    for (const column of [16, 18, 21, 23, 24]) formulas[2][column] = '=IF(A3="";"";1)';
+    for (const column of [0, 16, 18, 21, 23, 24]) formulas[2][column] = '=IF(A3="";"";1)';
     expect(missingFormulaAddresses(master, formulas)).toEqual(['Рабочий реестр процедур!W3']);
   });
 });

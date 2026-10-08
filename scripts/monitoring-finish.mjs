@@ -27,12 +27,17 @@ export function addressedRemarkRules(sheet) {
   return requests;
 }
 
-export function nativeMoneyPresentationRequests(sheets) {
+export function nativeMoneyPresentationRequests(sheets, queueHeaders) {
+  const closedColumn = queueHeaders ? queueHeaders.findIndex((value,index)=>index>3 && value==='Код') : 15;
+  if (![14,15].includes(closedColumn)) throw new Error('QUEUE_HEADER_CONTRACT');
+  const closedCode = String.fromCharCode(65 + closedColumn);
+  const closedMoney = String.fromCharCode(65 + closedColumn + 5);
   const requests = sheets.flatMap(addressedRemarkRules);
   const show = (id,start,end,width) => requests.push({updateDimensionProperties:{range:{sheetId:id,dimension:'COLUMNS',startIndex:start,endIndex:end},properties:{hiddenByUser:false,pixelSize:width},fields:'hiddenByUser,pixelSize'}});
   show(2526400,7,8,155); show(2526401,12,13,265); show(2526401,13,14,75); show(2526401,14,16,160); show(2526402,17,18,265); show(2526402,18,20,160);
   requests.push(...workQueueDividerPresentationRequests());
-  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:1},rows:[{values:[{userEnteredValue:{formulaValue:'="В работе: "&COUNTIF(D3:D1002;"?*")&" · НМЦК: "&TEXT(SUM(H3:H1002);"#,##0.00")&" ₽. Код открывает строку реестра. Дата — ориентир. Проверки закрытых процедур: "&COUNTIF(P3:P1002;"?*")&" — справа."'}}]}],fields:'userEnteredValue'}});
+  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:1},rows:[{values:[{userEnteredValue:{formulaValue:`="В работе: "&COUNTIF(D3:D1002;"?*")&" · НМЦК: "&TEXT(SUM(H3:H1002);"#,##0.00")&" ₽. Код открывает строку реестра. Дата — ориентир. Проверки закрытых процедур: "&COUNTIF(${closedCode}3:${closedCode}1002;"?*")&" — справа."`}}]}],fields:'userEnteredValue'}});
+  requests.push({updateCells:{range:{sheetId:2526400,startRowIndex:0,endRowIndex:1,startColumnIndex:closedColumn-1,endColumnIndex:closedColumn},rows:[{values:[{userEnteredValue:{formulaValue:`="Проверки данных закрытых процедур: "&COUNTIF(${closedCode}3:${closedCode}1002;"?*")&" · НМЦК строк: "&TEXT(SUM(${closedMoney}3:${closedMoney}1002);"#,##0.00")&" ₽"`}}]}],fields:'userEnteredValue'}});
   return requests;
 }
 

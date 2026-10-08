@@ -52,3 +52,16 @@ test('workplace keeps J as the active signal and gives N a visible blank gutter'
   assert.ok(liveStyle.some(r => r.repeatCell?.range?.startColumnIndex === 13));
   assert.ok(!liveStyle.some(r => r.updateCells?.range?.startColumnIndex === 9));
 });
+
+test('presentation follows the closed code header after separator insertion', () => {
+  const headers = Array(24).fill(''); headers[3]='Код'; headers[15]='Код';
+  const requests = nativeMoneyPresentationRequests([], headers);
+  const formula = requests.find(request=>request.updateCells).updateCells.rows[0].values[0].userEnteredValue.formulaValue;
+  assert.match(formula, /COUNTIF\(P3:P1002/);
+  const closed = requests.filter(request=>request.updateCells)[1].updateCells;
+  assert.equal(closed.range.startColumnIndex,14);
+  assert.match(closed.rows[0].values[0].userEnteredValue.formulaValue, /SUM\(U3:U1002/);
+  assert.throws(()=>nativeMoneyPresentationRequests([], []), /QUEUE_HEADER_CONTRACT/);
+});
+
+
