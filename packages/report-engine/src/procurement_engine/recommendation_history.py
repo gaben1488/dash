@@ -37,7 +37,7 @@ def enroll_history_package(package, ledger):
     if not isinstance(package, dict) or package.get('format') != 'aemr-report-recommendation-history-v1':
         raise ValueError('HISTORY_PACKAGE_FORMAT_INVALID')
     encoded = package.get('documents'); records = package.get('records')
-    if (not isinstance(encoded, dict) or not encoded or len(encoded) > 8
+    if (not isinstance(encoded, dict) or not encoded or len(encoded) > 64
         or not isinstance(records, list) or not records or not isinstance(ledger, list)):
         raise ValueError('HISTORY_PACKAGE_STRUCTURE_INVALID')
     documents = {}
