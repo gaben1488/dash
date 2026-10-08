@@ -90,27 +90,51 @@ test('действия закрывают конкретную причину и
   assert.throws(() => withQualityAction('константа', 3), /ACTION_FORMULA_CONTRACT/u);
 });
 
-test('автокод заполняет только пустые A внутри прочитанных границ и сохраняет ручной код', async () => {
+test('автокод в каждой строке пересчитывается из G, без ручных исключений и защит', async () => {
   const { planProcedureCodeAutofill, procedureCodeFormula } = await import('./monitoring-migration.mjs');
-  const rows = [{ values: [{ userEnteredValue: { stringValue: 'Код' } }] },
-    { values: [{ userEnteredValue: { stringValue: 'Код процедуры' } }] },
-    { values: [{ userEnteredValue: { stringValue: 'ЭАС09-26' } }] },
-    { values: [{}] }, { values: [{}] },
-    { values: [{ userEnteredValue: { formulaValue: '=G6' } }] }, { values: [{}] }];
+  const row = (code, source) => {
+    const values = Array.from({ length: 7 }, () => ({}));
+    if (code) values[0] = { userEnteredValue: { stringValue: code }, formattedValue: code };
+    if (source) values[6] = { userEnteredValue: { stringValue: source }, formattedValue: source };
+    return { values };
+  };
+  const rows = [row('Код', ''), row('Код процедуры', ''),
+    row('ЭАС09-26', 'ЭАС09-26 Поставка'),
+    row('', 'ЭА10-26 Поставка'),
+    row('', ''), row('ЭА12-26', 'ЭА12-26 Услуга'),
+    row('', 'ЭАС13-26 Поставка')];
   const requests = planProcedureCodeAutofill(rows, 2526300, 7);
-  assert.equal(requests.length, 3);
-  assert.deepEqual(requests[0].updateCells.start, { sheetId: 2526300, rowIndex: 3, columnIndex: 0 });
-  assert.equal(requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue, procedureCodeFormula(4));
-  assert.deepEqual(requests[1].copyPaste.destination, { sheetId: 2526300, startRowIndex: 4, endRowIndex: 5, startColumnIndex: 0, endColumnIndex: 1 });
-  assert.equal(requests[2].updateCells.start.rowIndex, 6);
-  assert.equal(requests[0].updateCells.fields, 'userEnteredValue');
-  assert.throws(() => planProcedureCodeAutofill(rows, 1, 8), /CODE_AUTOFILL_BOUNDS/);
-  assert.throws(() => planProcedureCodeAutofill(rows.slice(2), 1, 5), /CODE_AUTOFILL_HEADER/);
-  assert.throws(() => procedureCodeFormula(2), /CODE_AUTOFILL_ROW/);
-  assert.match(procedureCodeFormula(1002), /G1002/);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0].updateCells.start, { sheetId: 2526300, rowIndex: 2, columnIndex: 0 });
+  assert.equal(requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue, procedureCodeFormula(3));
+  assert.deepEqual(requests[1].copyPaste.destination, { sheetId: 2526300, startRowIndex: 3, endRowIndex: 7, startColumnIndex: 0, endColumnIndex: 1 });
+  assert.match(procedureCodeFormula(449), /G449/u);
+  assert.match(procedureCodeFormula(3), /CHAR\(10\)/u);
+  assert.match(procedureCodeFormula(3), /UPPER\(текст\)/u);
+  assert.ok(requests.every(request => !('addProtectedRange' in request) && !('updateProtectedRange' in request)));
+  assert.throws(() => planProcedureCodeAutofill(rows, 1, 8), /CODE_AUTOFILL_BOUNDS/u);
+  assert.throws(() => planProcedureCodeAutofill(rows.slice(2), 1, 5), /CODE_AUTOFILL_HEADER/u);
+  assert.throws(() => procedureCodeFormula(2), /CODE_AUTOFILL_ROW/u);
+  const invalid = rows.map(r => structuredClone(r));
+  invalid[2] = row('ЭАС09-25', 'ЭАС09-26 Поставка');
+  assert.throws(() => planProcedureCodeAutofill(invalid, 2526300, 7), /CODE_AUTOFILL_SOURCE_CONFLICT:A3:G3/u);
 });
 
- test('архив ГРБС отделяет состоявшиеся и соблюдает выбранное управление', async () => {
+test('семейные суммы блокируются только коллизией задействованного кода', async () => {
+  const { familyValuationFormula, familyLinkedDuplicateGuardFormula, canonicalAnalyticalStatusFormula, planAnalyticalRepair } = await import('./monitoring-migration.mjs');
+  assert.match(familyValuationFormula(), /\$B\$226>0/u);
+  assert.doesNotMatch(familyValuationFormula(), /\$B\$171>0/u);
+  assert.match(familyLinkedDuplicateGuardFormula(), /Код повторяется у строк не вида/u);
+  assert.match(familyLinkedDuplicateGuardFormula(), /предки/u);
+  assert.match(canonicalAnalyticalStatusFormula(), /Свод рассчитан/u);
+  const plan = planAnalyticalRepair([{ row: 2, column: 0, cell: { userEnteredValue: { stringValue: 'Управление' } } }], 2526800, 235);
+  const control = plan.find(r => r.updateCells?.start?.rowIndex === 225 && r.updateCells?.start?.columnIndex === 1);
+  assert.equal(control.updateCells.rows[0].values[0].userEnteredValue.formulaValue, familyLinkedDuplicateGuardFormula());
+  const header = plan.find(r => r.updateCells?.start?.rowIndex === 0 && r.updateCells?.start?.columnIndex === 2);
+  assert.equal(header.updateCells.rows[0].values[0].userEnteredValue.formulaValue, canonicalAnalyticalStatusFormula());
+});
+
+test('архив ГРБС отделяет состоявшиеся и соблюдает выбранное управление', async () => {
   const { completedArchiveFormula } = await import('./monitoring-migration.mjs');
   const base = '=LET(процБезДолей;ARRAYFORMULA(есть*EXACT(вид;"процедура")*(долейКода=0));свои;ARRAYFORMULA(есть);м;ARRAYFORMULA(--((свои+процБезДолей)>0));FILTER(код;м))';
   const result = completedArchiveFormula(base);
