@@ -365,6 +365,9 @@ def review_recommendations(ledger, rows, snapshot_id, report_date, *, identity_e
                                 'source_row_keys': [], 'matches': [],
                                 'conflict_kind': 'AUTOMATIC_REVIEWED_UID_DISAGREEMENT'}
                             r['current_procurement_ids'] = []
+                            r['semantic_status'] = 'REVIEW_REQUIRED'
+                            r['semantic_status_ru'] = 'СВЯЗЬ НЕ ПОДТВЕРЖДЕНА: ПРОТИВОРЕЧИЕ ДОКАЗАТЕЛЬСТВ'
+                            r['dimensions']['evidence_quality'] = 'CONFLICTING_IDENTITY_EVIDENCE'
                             r['status_evidence'] = (
                                 'Автоматическая и проверенная историческая связи противоречат друг другу. '
                                 'Текущее исполнение рекомендации не установлено.')
