@@ -89,6 +89,7 @@ export function procedureRowsForMatch(
     out.push({
       procKey: `${p.sheet}:${p.row}`,
       canonical: p.result !== undefined,
+      stage: p.stage,
       sheet: p.sheet,
       nameCell: `${p.code} ${p.subject}`.trim(),
       nmckRub: p.nmck,
