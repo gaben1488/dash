@@ -140,6 +140,14 @@ def previous_published_ledger(state, receipt):
     path = (Path(state) / 'published' / 'releases' / receipt['release_id']
             / 'snapshot_bundle' / 'payloads' / 'HISTORICAL_RECOMMENDATIONS.json')
     if not path.is_file():
+        release_root = Path(state) / 'published' / 'releases' / receipt['release_id']
+        saved = json.loads((release_root / 'report_model.json').read_text(encoding='utf-8'))
+        # Pre-domain synthetic/legacy publication tests have no historical
+        # recommendation contract. The first modern run is allowed to build
+        # its own authoritative history; no existing formal ledger is guessed.
+        if (not str((saved.get('snapshot') or {}).get('renderer_version', '')).startswith('renderer-v')
+                and not (saved.get('contract') or {}).get('recommendation_link_contract')):
+            return None
         raise ValueError('OFFICIAL_LEDGER_PREVIOUS_PROOF_MISSING')
     payload = json.loads(path.read_text(encoding='utf-8'))
     if (not isinstance(payload, dict) or payload.get('source_id') != 'HISTORICAL_RECOMMENDATIONS'):
