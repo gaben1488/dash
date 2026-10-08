@@ -42,6 +42,8 @@ jobs:
             from procurement_engine.qa import validate_master_values
             from procurement_engine.publication_store import PublicationStore
             from procurement_engine.readonly_catalog import copied_catalog
+            from procurement_engine.identity_store import IdentityStore
+            from procurement_engine.rehearsal import _identity_gap_diagnostics
             root = Path('/app/packages/server/data/reports')
             allowed = PUBLIC_CODES | frozenset(SOURCE_ISSUES) | frozenset({
                 'DUPLICATE_PROCEDURE_CODE', 'PROCEDURE_LINEAGE_CONFLICT', 'PROCEDURE_LINEAGE_CYCLE',
@@ -64,6 +66,22 @@ jobs:
                     receipt = store.latest()
                 assurance = (receipt or {}).get('automation_assurance') or {}
                 print(json.dumps({'current_action_code_counts': counts(assurance.get('actions') or [])}, sort_keys=True))
+                model_path = root / 'published/releases' / receipt['release_id'] / 'report_model.json'
+                if model_path.stat().st_size > 64 * 1024 * 1024:
+                    print(json.dumps({'identity_diagnostic': 'MODEL_SIZE_LIMIT'}))
+                else:
+                    model = json.loads(model_path.read_text())
+                    with copied_catalog(root / 'identity.sqlite') as history:
+                        gaps = _identity_gap_diagnostics(model, IdentityStore(history), identity_snapshot_id=model['snapshot']['snapshot_id'])
+                    print(json.dumps({'identity_chain_break_counts': gaps['identity_chain_break_counts']}, sort_keys=True))
+                    shapes = Counter()
+                    for item in gaps['recommendation_identity_gap_index']:
+                        if item['explicit_reference_count'] == 0: shapes['NO_EXPLICIT_PRIMARY_NUMBER'] += 1
+                        if item['missing_primary_number_count']: shapes['PRIMARY_NUMBER_NOT_IN_CURRENT_ROWS'] += 1
+                        if item['duplicate_primary_number_count']: shapes['PRIMARY_NUMBER_NOT_UNIQUE'] += 1
+                        if item['full_literal_subject_match_count'] == 0: shapes['FULL_LITERAL_SUBJECT_NOT_FOUND'] += 1
+                        if item['full_literal_subject_match_count'] > item['matched_current_uid_count']: shapes['MATCHED_ROW_WITHOUT_UID'] += 1
+                    print(json.dumps({'recommendation_gap_shape_counts': dict(sorted(shapes.items()))}, sort_keys=True))
                 source = sorted(root.glob('archives/WEEKLY-*'))[-1]
                 day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
                 capture, registry, ledger, _ = load_frozen_input(source, day=day.isoformat(), year=day.year, quarter=(day.month - 1) // 3 + 1)
