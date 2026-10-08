@@ -51,6 +51,10 @@ export function missingFormulaAddresses(values: unknown[][], formulas: unknown[]
   values.slice(2).forEach((row, offset) => {
     if (!String(row[0] ?? '').trim() && !String(row[6] ?? '').trim()) return;
     for (const [index, letter] of columns) {
+      // S can be an intentional human-supplied INN. A valid 10/12-digit
+      // value is substantive data, not a broken formula. An invalid shape
+      // stays in the diagnostic queue; no range protection or silent fix.
+      if (index === 18 && /^(?:[0-9]{10}|[0-9]{12})$/u.test(String(row[18] ?? '').trim())) continue;
       if (typeof formulas[offset + 2]?.[index] !== 'string' || !(formulas[offset + 2][index] as string).startsWith('=')) out.push(`${MONITORING_MASTER_SHEET}!${letter}${offset + 3}`);
     }
   });
