@@ -3,10 +3,55 @@ import base64
 import binascii
 import copy
 import hashlib
+import json
 import re
+from datetime import datetime
 from urllib.parse import quote
 
 from .recommendation_links import verify_saved_report_origin
+
+def uer_entry_origin(record, *, as_of=None):
+    """A saved UЭР register entry is its own source, not a past Word file.
+
+    This checks integrity and dating of the recorded issuance/revision. It does
+    not claim any procurement linkage or evidence of implementation.
+    """
+    from .normalize import parse_date
+
+    evidence = record.get('origin_evidence') or []
+    if not isinstance(evidence, list):
+        return None
+    text = record.get('recommendation_text')
+    ids = record.get('source_procurement_ids')
+    if not isinstance(text, str) or not isinstance(ids, list):
+        return None
+    content_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+    ids_hash = hashlib.sha256(json.dumps(ids, ensure_ascii=False,
+        separators=(',', ':')).encode('utf-8')).hexdigest()
+    first_seen = parse_date(record.get('first_seen'))
+    for item in reversed(evidence):
+        if not isinstance(item, dict) or item.get('kind') != 'UER_REPORT_REGISTER_ENTRY_V1':
+            continue
+        issue_day = parse_date(item.get('document_date'))
+        instant = item.get('registered_at')
+        try:
+            moment = datetime.fromisoformat(instant.replace('Z', '+00:00')) if isinstance(instant, str) else None
+        except ValueError:
+            moment = None
+        if (not moment or moment.tzinfo is None or not issue_day
+                or not first_seen or issue_day < first_seen
+                or (as_of and issue_day > parse_date(as_of))
+                or item.get('recommendation_id') != record.get('recommendation_id')
+                or item.get('grbs') != record.get('grbs')
+                or item.get('text_sha256') != content_hash
+                or item.get('source_ids_sha256') != ids_hash):
+            continue
+        return {'kind': 'UER_REPORT_REGISTER_ENTRY_V1',
+                'document_date': issue_day, 'grbs': item['grbs'],
+                'text_sha256': content_hash, 'recommendation_id': item['recommendation_id'],
+                'source_ids_sha256': ids_hash, 'registered_at': instant}
+    return None
+
 
 EDITOR_ONLY_FIELDS = frozenset({
     'editorial_state', 'editorial_updated_at', 'editorial_history', 'editor_note',
@@ -31,6 +76,8 @@ def issued_recommendations(records):
             continue
         if stage not in (None, '', 'ISSUED'):
             raise ValueError('RECOMMENDATION_EDITORIAL_STATE_INVALID')
+        if stage == 'ISSUED' and uer_entry_origin(record) is None:
+            raise ValueError('UER_RECOMMENDATION_SOURCE_INVALID')
         issued.append({key: value for key, value in record.items()
                        if key not in EDITOR_ONLY_FIELDS})
     return issued
