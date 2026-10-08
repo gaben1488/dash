@@ -46,7 +46,7 @@ it('shows the real historical ledger, not a generated list of dashboard issues',
   await app.close();
 });
 
-it('saves an editable draft to the SAME ledger, not to an official release', async () => {
+it('registers official UER recommendation in the same ledger', async () => {
   const { app, stateDir } = await fixture();
   const { revision } = (await app.inject('/api/report-recommendations')).json();
   const reply = await app.inject({
@@ -57,22 +57,22 @@ it('saves an editable draft to the SAME ledger, not to an official release', asy
   expect(reply.statusCode).toBe(201);
   const result = reply.json();
   expect(result.record).toMatchObject({
-    grbs: 'УО', text: 'Рассмотреть объединение позиций', stage: 'DRAFT',
+    grbs: 'УО', text: 'Рассмотреть объединение позиций', stage: 'ACTIVE',
     sourceIds: ['42', '43'], note: 'Нужно сверить предмет',
   });
-  expect(result.record.id).toMatch(/^REC-DRAFT-[A-F0-9]{16}$/);
+  expect(result.record.id).toMatch(/^REC-UER-[A-F0-9]{16}$/);
   const saved = JSON.parse(await readFile(join(stateDir, 'inputs', 'ledger.json'), 'utf8'));
   expect(saved).toHaveLength(2);
   expect(saved[0]).toEqual(historical);
-  expect(saved[1].editorial_state).toBe('DRAFT');
-  expect(saved[1].active_in_current_slice).toBe(false);
+  expect(saved[1].editorial_state).toBe('ISSUED');
+  expect(saved[1].active_in_current_slice).toBe(true);
   expect(saved[1].editorial_history).toHaveLength(1);
   const directory = await import('node:fs/promises').then(fs => fs.readdir(join(stateDir, 'inputs', 'ledger-versions')));
   expect(directory).toHaveLength(1);
   await app.close();
 });
 
-it('edits a draft inline, supports archival, and rejects stale simultaneous saves', async () => {
+it('edits an issued UER recommendation with history and rejects stale concurrent saves', async () => {
   const { app } = await fixture();
   let revision = (await app.inject('/api/report-recommendations')).json().revision;
   const created = (await app.inject({ method: 'POST', url: '/api/report-recommendations',
@@ -83,14 +83,14 @@ it('edits a draft inline, supports archival, and rejects stale simultaneous save
   const changed = await app.inject({ method: 'PUT', url: `/api/report-recommendations/${id}`,
     payload: { expectedRevision: revision, grbs: 'УО',
       text: 'Уточнённое предложение', sourceIds: ['55'], note: 'После проверки',
-      stage: 'ARCHIVED_DRAFT' } });
+      stage: 'HISTORY' } });
   expect(changed.statusCode).toBe(200);
   expect(changed.json().record).toMatchObject({
-    id, grbs: 'УО', stage: 'ARCHIVED_DRAFT', sourceIds: ['55'],
+    id, grbs: 'УО', stage: 'HISTORY', sourceIds: ['55'],
   });
   const conflict = await app.inject({ method: 'PUT', url: `/api/report-recommendations/${id}`,
     payload: { expectedRevision: stale, grbs: 'УО', text: 'Перезаписать',
-      sourceIds: [], stage: 'DRAFT' } });
+      sourceIds: [], stage: 'ACTIVE' } });
   expect(conflict.statusCode).toBe(409);
   expect((await app.inject('/api/report-recommendations')).json().records.find((r: { id: string }) => r.id === id)
     .text).toBe('Уточнённое предложение');
