@@ -160,6 +160,7 @@ def build_archived_release(source, state_dir, *, day, year, quarter):
             _write(work / 'failure.json', {'blockers': model['release']['blockers']})
             error = ArchiveError('ARCHIVE_BUILD_FAILED')
             error.blockers = model['release']['blockers']
+            error.source_issues = model.get('issues', [])
             raise error
         expected = _read(temp / 'bundle/snapshot_bundle/bundle.json')['after']
         def frozen_barrier():

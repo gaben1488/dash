@@ -32,15 +32,27 @@ def test_archive_rehearsal_reports_only_fixed_blocker_codes(monkeypatch, capsys)
 
     error = ArchiveError('ARCHIVE_BUILD_FAILED')
     error.blockers = [{'code': 'SOURCE_QA_ERRORS', 'message': 'Private customer'},
+                     {'code': 'SECTION_SOURCE_MISMATCH', 'context': {'sections':
+                         ['procedure_source_contract', 'Private source', 'procedures']}},
                      {'code': 'Private customer and credentials'},
                      {'code': 'SECTION_SOURCE_MISMATCH: private source'},
                      {'message': 'Private source without code'}]
+    error.source_issues = [
+        {'severity': 'ERROR', 'code': 'PROCEDURE_QUEUE_COVERAGE_MISMATCH', 'message': 'Private customer'},
+        {'severity': 'ERROR', 'code': 'PROCEDURE_QUEUE_COVERAGE_MISMATCH'},
+        {'severity': 'ERROR', 'code': 'Private source'},
+        {'severity': 'WARN', 'code': 'DUPLICATE_PROCEDURE_CODE'},
+    ]
     def fail(*args, **kwargs):
         raise error
     monkeypatch.setattr(rehearsal, 'rehearse_latest', fail)
     assert rehearsal.main(['--state', '/unused']) == 2
     result = json.loads(capsys.readouterr().out)
     assert result['blocker_codes'] == ['GENERATION_FAILED', 'SECTION_SOURCE_MISMATCH', 'SOURCE_QA_ERRORS']
+    assert result['section_errors'] == {'procedure_source_contract': 1, 'procedures': 1,
+                                       'UNRECOGNIZED_SECTION': 1}
+    assert result['source_error_counts'] == {'PROCEDURE_QUEUE_COVERAGE_MISMATCH': 2,
+                                            'UNRECOGNIZED_ERROR': 1}
     assert 'Private' not in json.dumps(result)
 
 

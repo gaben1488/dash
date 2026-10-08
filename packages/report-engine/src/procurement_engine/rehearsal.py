@@ -22,6 +22,11 @@ from .publication_store import PublicationError, PublicationStore, _validate
 from .raw_pipeline import build_from_capture
 from .runtime_inputs import validate_inputs
 
+PUBLIC_SECTIONS = frozenset({'source_context', 'remaining_population', 'identity_evidence',
+    'recommendation_records', 'recommendation_evidence', 'future_plan', 'procedure_source_contract',
+    'procedures', 'closed_procedure_quality', 'active_procedures_count',
+    'management_summary.procedure_rows', 'management_summary.procedure_count', 'automation_assurance'})
+
 
 def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
@@ -46,14 +51,10 @@ def diagnose_failed_attempt(state):
         _validate(root)
     except PublicationError as error:
         evidence = getattr(error, 'evidence', {})
-        allowed = {'source_context', 'remaining_population', 'identity_evidence', 'recommendation_records',
-            'recommendation_evidence', 'future_plan', 'procedure_source_contract', 'procedures',
-            'closed_procedure_quality', 'active_procedures_count', 'management_summary.procedure_rows',
-            'management_summary.procedure_count', 'automation_assurance'}
         return {'error_code': public_error_code(str(error)),
             **{key: evidence[key] for key in ('formula_closed', 'arithmetic_pass')
                if type(evidence.get(key)) is bool},
-            'section_errors': dict(Counter(code if code in allowed else 'UNRECOGNIZED_SECTION'
+            'section_errors': dict(Counter(code if code in PUBLIC_SECTIONS else 'UNRECOGNIZED_SECTION'
                 for code in evidence.get('section_errors', [])))}
     return {'recheck_status': 'PASS'}
 
@@ -432,6 +433,18 @@ def main(argv=None):
             result['blocker_codes'] = sorted({public_error_code(item['code'])
                 for item in getattr(error, 'blockers', [])
                 if isinstance(item, dict) and isinstance(item.get('code'), str)})
+            sections = [code for item in getattr(error, 'blockers', [])
+                if isinstance(item, dict) and item.get('code') == 'SECTION_SOURCE_MISMATCH'
+                and isinstance(item.get('context'), dict)
+                for code in item['context'].get('sections', [])]
+            result['section_errors'] = dict(Counter(
+                code if isinstance(code, str) and code in PUBLIC_SECTIONS else 'UNRECOGNIZED_SECTION'
+                for code in sections))
+            result['source_error_counts'] = dict(Counter(
+                item['code'] if isinstance(item.get('code'), str) and item['code'] in PUBLIC_CODES
+                else 'UNRECOGNIZED_ERROR'
+                for item in getattr(error, 'source_issues', [])
+                if isinstance(item, dict) and item.get('severity') == 'ERROR'))
         sqlite_error = getattr(error, 'sqlite_errorname', None)
         if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error
