@@ -434,6 +434,8 @@ def rehearse_latest(state_dir, *, coverage=False, skip_weekly=False):
             capture['archived_file_evidence'] = payload['semantic_values']
         if payload['role'] == 'historical_report_evidence':
             capture['recommendation_history_evidence'] = payload['semantic_values']
+        if payload['role'] == 'authoritative_ledger_input':
+            capture['authoritative_ledger_source'] = payload['semantic_values']
         if 'sheet_title' not in meta:
             continue
         sid = payload['source_id']
