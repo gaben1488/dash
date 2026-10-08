@@ -121,6 +121,18 @@ def test_uer_official_entry_creates_next_verified_release_without_second_approva
     assert claims[0]['current_link']['origin']['kind'] == 'UER_REPORT_REGISTER_ENTRY_V1'
     assert claims[0]['dimensions']['execution_status'] == 'UNKNOWN'
     assert model['recommendations']['historical_unique'] == 1
+    # A new official source must appear in the actual generated Word file,
+    # not only in a backstage JSON projection.
+    from docx import Document
+
+    main_word = Document(state / 'published' / 'releases'
+                         / second['publication']['release_id'] / 'main_report.docx')
+    visible_words = [cell.text for table in main_word.tables for row in table.rows
+                     for cell in row.cells]
+    assert record['recommendation_text'] in visible_words
+    # The earlier publication is immutable even after the second generation.
+    assert (state / 'published' / 'releases' / first['publication']['release_id']
+            / 'main_report.docx').is_file()
 
 
 def test_invalid_uer_origin_blocks_new_publication_and_preserves_previous(tmp_path):
