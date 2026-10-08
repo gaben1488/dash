@@ -184,3 +184,32 @@ describe('mappingSignals — пять сигналов из построчной
     expect(bookRow('ЭА1-26', 700, 90)[32]).toBe('ЭА1-26');
   });
 });
+
+
+describe('B15: explicit current GRBS note versus canonical stage', () => {
+  it('ignores historic commentary and ambiguous notes, while detecting a clear current contradiction', async () => {
+    const { explicitGrbsCurrentStage } = await import('./signals.js');
+    expect(explicitGrbsCurrentStage('ЭА99-26; предыдущие торги не состоялись, затем контракт')).toBeNull();
+    expect(explicitGrbsCurrentStage('ЭА99-26; текущий статус: не состоялась')).toBe('no_result');
+    expect(explicitGrbsCurrentStage('ЭА99-26; статус процедуры: Состоялась')).toBe('awarded');
+    expect(explicitGrbsCurrentStage('ЭА99-26; текущий статус: не состоялась; текущий статус: состоялась')).toBeNull();
+    const books = [{
+      rowKey: 'УО:45', book: 'УО',
+      ag: 'ЭА99-26; текущий статус: не состоялась',
+      planTotalThousands: 100, factTotalThousands: null,
+    }];
+    const procedures = [{
+      procKey: 'Рабочий реестр процедур:449', sheet: 'Рабочий реестр процедур',
+      nameCell: 'ЭА99-26 Поставка', nmckRub: 100_000, winnerPriceRub: 90_000,
+      canonical: true, stage: 'awarded' as const,
+    }];
+    const contradicting = mappingSignals(matchMonitoring(books, procedures));
+    const signal = contradicting.find(s => s.kind === 'monitoring_stage_vs_grbs_comment');
+    expect(signal?.count).toBe(1);
+    expect(signal?.addresses[0]?.address).toContain('УО:45 (AG) ↔ Рабочий реестр процедур:449 (W)');
+    expect(signal?.addresses[0]?.note).toContain('Не состоялась');
+    expect(signal?.action).toContain('не менять');
+    const matched = mappingSignals(matchMonitoring(books, [{...procedures[0], stage: 'no_result' as const}]));
+    expect(matched.some(s => s.kind === 'monitoring_stage_vs_grbs_comment')).toBe(false);
+  });
+});
