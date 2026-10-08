@@ -16,7 +16,7 @@ import {
   TrustScoreSchema,
 } from '@aemr/shared';
 
-export type RecommendationStage = 'ACTIVE' | 'HISTORY' | 'DRAFT' | 'ARCHIVED_DRAFT';
+export type RecommendationStage = 'ACTIVE' | 'HISTORY';
 
 export interface LedgerRecommendation {
   id: string;
@@ -24,6 +24,7 @@ export interface LedgerRecommendation {
   text: string;
   sourceIds: string[];
   stage: RecommendationStage;
+  editable: boolean;
   type: string;
   firstSeen: string;
   lastSeen: string;
@@ -33,16 +34,17 @@ export interface LedgerRecommendation {
   uerDecision: string;
   note: string;
   updatedAt: string;
-  history: Array<{ at: string; kind: 'created' | 'updated' | 'note'; fields: string[]; previousNote?: string }>;
+  history: Array<{ at: string; kind: 'created' | 'updated' | 'note'; fields: string[];
+    previousNote?: string; previous?: { grbs: string; text: string; sourceIds: string[] } }>;
 }
 
 export interface RecommendationLedgerResponse {
   revision: string;
   records: LedgerRecommendation[];
-  counts: { active: number; historical: number; drafts: number; archivedDrafts: number };
+  counts: { active: number; historical: number; uerAuthored: number };
 }
 
-export interface RecommendationDraftInput {
+export interface RecommendationEntryInput {
   expectedRevision: string;
   grbs: string;
   text: string;
@@ -50,9 +52,7 @@ export interface RecommendationDraftInput {
   note: string;
 }
 
-export interface RecommendationDraftEdit extends RecommendationDraftInput {
-  stage: 'DRAFT' | 'ARCHIVED_DRAFT';
-}
+export type RecommendationEntryEdit = RecommendationEntryInput;
 
 export interface LedgerSaveResponse {
   revision: string;
@@ -463,14 +463,14 @@ export const api = {
     return fetchJSON<any>(`/rows/scatter${search ? `?${search}` : ''}`);
   },
 
-  // Один работающий RecommendationLedger. Сохраняемые черновики не
-  // становятся автоматически выпущенными рекомендациями.
+  // Один работающий RecommendationLedger. Новая запись УЭР является
+  // официальной рекомендацией с момента успешного сохранения.
   getReportRecommendations: () => fetchJSON<RecommendationLedgerResponse>('/report-recommendations'),
-  createReportRecommendation: (entry: RecommendationDraftInput) =>
+  createReportRecommendation: (entry: RecommendationEntryInput) =>
     fetchJSON<LedgerSaveResponse>('/report-recommendations', {
       method: 'POST', body: JSON.stringify(entry),
     }),
-  updateReportRecommendation: (id: string, entry: RecommendationDraftEdit | {
+  updateReportRecommendation: (id: string, entry: RecommendationEntryEdit | {
     expectedRevision: string; note: string;
   }) => fetchJSON<LedgerSaveResponse>(`/report-recommendations/${encodeURIComponent(id)}`, {
     method: 'PUT', body: JSON.stringify(entry),
