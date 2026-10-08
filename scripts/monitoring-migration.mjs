@@ -253,7 +253,8 @@ export function removeCancellationClockWarning(formula) {
   return formula.replace(pattern, '""');
 }
 
-export function auditMasterFormulas(rows, columns = [0, 16, 18, 21, 22, 23, 24]) {
+/** Formula contract covers A/Q/V/W/X/Y. S can contain explicit evidence-based INN values and is audited separately. */
+export function auditMasterFormulas(rows, columns = [0, 16, 21, 22, 23, 24]) {
   if (!rows.length) throw new Error('EMPTY_FORMULA_BASELINE');
   const normalize = (formula, row) => formula.replace(new RegExp(`(\\$?[A-Z]{1,2})${row}(?![0-9])`, 'gu'), '$1{row}');
   const baseline = new Map(columns.map((col) => {
