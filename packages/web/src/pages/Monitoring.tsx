@@ -432,7 +432,7 @@ export function MonitoringPage() {
               {mode.kind === 'registry' && <div className="flex flex-wrap items-center gap-3 text-sm">
                 <button type="button" disabled={sorted.length === 0} className={`${CONTROL} px-3 py-2 disabled:opacity-50`}
                   onClick={() => {
-                    const url = URL.createObjectURL(new Blob([buildMonitoringCsv(sorted, data.source, scopeLabel)], { type: 'text/csv;charset=utf-8' }));
+                    const url = URL.createObjectURL(new Blob([buildMonitoringCsv(sorted, data.source, scopeLabel, { slices, sortKey, sortDir, asOf: data.source.asOf })], { type: 'text/csv;charset=utf-8' }));
                     const link = document.createElement('a');
                     link.href = url; link.download = 'Реестр процедур.csv'; link.click(); URL.revokeObjectURL(url);
                   }}>Скачать текущий отбор · {sorted.length} строк</button>
