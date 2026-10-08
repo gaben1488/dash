@@ -131,8 +131,8 @@ def test_registered_new_recommendation_is_frozen_and_reused_in_real_release(tmp_
     from procurement_engine.publication_reader import read_publication
 
     dashboard = json.loads(read_publication(state, 'dashboard', first['publication']['release_id']))
-    assert len(dashboard['recommendation_records']) == 1 or len(
-        dashboard.get('recommendations', {}).get('tables', {}).get('1', [])) == 1
+    assert (len(dashboard.get('recommendation_records') or []) == 1
+        or len(dashboard.get('recommendations', {}).get('tables', {}).get('1', [])) == 1)
     assert json.loads(ledger.read_text()) == []
     frozen = previous_published_ledger(state, first['publication'])
     assert frozen and {r['recommendation_id'] for r in frozen} == {'synthetic'}
