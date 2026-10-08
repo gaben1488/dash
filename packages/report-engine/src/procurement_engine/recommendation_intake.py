@@ -8,6 +8,7 @@ never written by this module.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -141,8 +142,6 @@ def previous_published_ledger(state, receipt):
             / 'snapshot_bundle' / 'payloads' / 'HISTORICAL_RECOMMENDATIONS.json')
     if not path.is_file():
         raise ValueError('OFFICIAL_LEDGER_PREVIOUS_PROOF_MISSING')
-    import json
-
     payload = json.loads(path.read_text(encoding='utf-8'))
     if (not isinstance(payload, dict) or payload.get('source_id') != 'HISTORICAL_RECOMMENDATIONS'):
         raise ValueError('OFFICIAL_LEDGER_PREVIOUS_PROOF_INVALID')
