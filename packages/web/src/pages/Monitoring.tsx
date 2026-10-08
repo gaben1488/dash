@@ -56,12 +56,12 @@ export function MonitoringPage() {
   const [data, setData] = useState<MonitoringPayload | null>(null);
   const [match, setMatch] = useState<MatchViewPayload | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
-  // Сверка трёх источников едет отдельным запросом и отдельной судьбой: её
+  // В старой книге сверка трёх источников едет отдельным запросом: её
   // состояние — не «данные или null», а один из исходов, среди которых три
   // РАЗНЫЕ пустоты (расхождений нет / книга не прочитана / сопоставлять
   // нечего). Схлопнуть их в null значило бы соврать читателю о поступке.
-  // Само null означает здесь одно: ответа ещё нет, и раздел не рисуется вовсе —
-  // «идёт чтение» и «читать нечего» тоже разные новости.
+  // null означает отсутствие ответа либо неприменимость к новой книге.
+  // Каноническая книга не запрашивает эту историческую сверку.
   const [triple, setTriple] = useState<TripleState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +94,11 @@ export function MonitoringPage() {
           throw new Error('Основной реестр не прочитан; предыдущие данные сохранены.');
         }
         setData(resp);
+        // The legacy triple check has no canonical-book projection.
+        if (resp.source.schema === 'canonical') setTriple(null);
+        else void fetchMonitoringTriple(refresh).then((value) => {
+          if (sequence === loadSequence.current) setTriple(value);
+        });
         if (!modeInitialized.current) {
           setModeId(resp.source.schema === 'canonical' ? WORK_MODE.id : ALL_DEPTS_MODE.id);
           modeInitialized.current = true;
@@ -109,9 +114,6 @@ export function MonitoringPage() {
     // «сверка не подключена» при работающем сервере. Один сигнал — один дом.
     setMatchError(null);
     void fetchMonitoringMatchView(refresh).then((value) => { if (sequence === loadSequence.current) setMatch(value); }).catch((e: unknown) => { if (sequence === loadSequence.current) { setMatch(null); setMatchError(humanizeRequestError(e)); } });
-    // Тройная сверка сама разводит свои исходы и не бросает: у неё нет
-    // состояния «ошибка вкладки» — только состояние собственного раздела.
-    void fetchMonitoringTriple(refresh).then((value) => { if (sequence === loadSequence.current) setTriple(value); });
   }, []);
 
   useEffect(() => { load(); const update = () => load(true);
