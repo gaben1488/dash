@@ -290,3 +290,32 @@ def test_failed_attempt_cli_sanitizes_unexpected_failure(monkeypatch, capsys):
     monkeypatch.setattr(rehearsal, 'diagnose_failed_attempt', failure)
     assert rehearsal.main(['--state', '/unused', '--failed-attempt']) == 2
     assert 'PRIVATE_SOURCE_TEXT' not in capsys.readouterr().out
+
+def test_diagnostic_summary_does_not_waive_failed_weekly_archive(tmp_path, monkeypatch, capsys):
+    from procurement_engine import rehearsal
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    assert run_once(registry, ledger, state, client=CompleteGoogle())['status'] in {
+        'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    before = business_files(state)
+
+    def broken_weekly(_state):
+        raise ValueError('PRIVATE_WEEKLY_INPUT_HAS_DUPLICATE_PROCEDURE')
+
+    monkeypatch.setattr(rehearsal, 'rehearse_weekly', broken_weekly)
+    with pytest.raises(ValueError, match='PRIVATE_WEEKLY_INPUT_HAS_DUPLICATE_PROCEDURE'):
+        rehearsal.rehearse_latest(state, coverage=True)
+    summary = rehearsal.rehearse_latest(state, coverage=True, skip_weekly=True)
+    assert summary['weekly_replay'] == 'NOT_CHECKED'
+    assert isinstance(summary['identity_unresolved_scope_counts'], dict)
+    assert sum(summary['identity_unresolved_scope_counts'].values()) == summary['identity_unresolved_count']
+    assert rehearsal.main(['--state', str(state), '--coverage-summary']) == 0
+    public = json.loads(capsys.readouterr().out)
+    assert public['weekly_replay'] == 'NOT_CHECKED'
+    assert public['replay_status'] == 'PASS'
+    assert 'recommendation_gap_index' not in public
+    assert 'recommendation_identity_gap_index' not in public
+    assert 'recommendation_ids' not in json.dumps(public)
+    assert 'PRIVATE_WEEKLY_INPUT' not in json.dumps(public)
+    assert business_files(state) == before
