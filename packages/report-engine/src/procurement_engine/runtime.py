@@ -95,8 +95,8 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                     verify_new_official_records(ledger, changes_since_release,
                                                 historical_documents, report_date=capture['report_date'])
                 previous_model = _load(state / 'published' / 'releases' / latest['release_id'] / 'report_model.json')
-                if (previous_model.get('contract') or {}).get('official_ledger_authority') == 'REMOTE'
-                        and authority_metadata is None:
+                if ((previous_model.get('contract') or {}).get('official_ledger_authority') == 'REMOTE'
+                        and authority_metadata is None):
                     raise ValueError('OFFICIAL_LEDGER_SOURCE_DISAPPEARED')
             captured_id = bundle_from_capture(capture, registry, ledger, identity_evidence=identity_evidence).manifest['snapshot_id']
             if latest and latest['snapshot_id'] == captured_id:
