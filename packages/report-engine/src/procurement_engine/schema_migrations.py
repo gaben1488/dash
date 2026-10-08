@@ -15,6 +15,53 @@ from .snapshot import canonical_semantic_hash
 NAME = 'aemr-report-schema-migrations-v1.json'
 
 
+def _recorded_monitoring_successor(path, source, patch):
+    """Recognize only a proven installed successor of an obsolete private patch."""
+    from .monitoring_schema import REASON, RETIRED, REVIEW, REVIEWS
+
+    history = path.parent / 'registry-history'
+    records = [json.loads(p.read_text()) for p in history.glob('*.migration.json')]
+    if not any(patch in r.get('package', {}).get('migrations', []) for r in records):
+        return False
+    for record in records:
+        if (record.get('review') != REVIEW or record.get('patches') != REVIEWS
+            or record.get('retired') != json.loads(json.dumps(RETIRED))):
+            continue
+        digest = record.get('previous_registry_hash')
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+            continue
+        backup = history / (digest + '.json')
+        if not backup.is_file():
+            continue
+        before = json.loads(backup.read_text())
+        if canonical_semantic_hash(before) != digest:
+            continue
+        matches = [s for s in before['sources'] if s['source_id'] == patch['source_id']]
+        if len(matches) != 1:
+            continue
+        prior = matches[0]
+        if (patch.get('role') != 'formula_dependency'
+            or any(prior.get(k) != patch.get(k) for k in ('provider_id', 'sheet_id', 'sheet', 'role', 'columns', 'header_rows'))
+            or prior['schema_fingerprint'] != patch['new_fingerprint']
+            or ('new_semantic_fingerprint' in patch and prior.get('semantic_header_fingerprint') != patch['new_semantic_fingerprint'])):
+            continue
+        for review in REVIEWS:
+            if prior['sheet'] != review['sheet'] or prior['role'] != review['role']:
+                continue
+            previous = source.get('previous_semantic_header_fingerprint')
+            if previous not in {review['previous_semantic'], *review.get('previous_semantics', [])}:
+                continue
+            expected = {**prior, 'sheet': review['sheet'], 'columns': review['columns'],
+                'header_rows': review['header_rows'], 'schema_fingerprint': review['fingerprint'],
+                'semantic_header_fingerprint': review['semantic'],
+                'previous_semantic_header_fingerprint': previous, 'schema_change_reason': REASON}
+            if review['volatile_cells']:
+                expected['volatile_header_cells'] = review['volatile_cells']
+            if source == expected:
+                return True
+    return False
+
+
 def apply_google_schema_migrations(registry_path, *, client=None):
     path = Path(registry_path)
     with (path.parent / '.schema-migrations.lock').open('a') as lock:
@@ -62,6 +109,8 @@ def _apply_google_schema_migrations(path, *, client):
         if len(matches) != 1:
             raise ValueError('SCHEMA_MIGRATION_SOURCE_NOT_FOUND')
         source = matches[0]
+        if _recorded_monitoring_successor(path, source, patch):
+            continue
         if any(source.get(key) != patch.get(key) for key in ('provider_id','sheet_id','sheet','role','columns','header_rows')):
             raise ValueError('SCHEMA_MIGRATION_CONTRACT_MISMATCH')
         if source['role'] != 'formula_dependency':
