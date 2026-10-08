@@ -15,7 +15,11 @@ INPUT_NAME = 'aemr-report-runtime-inputs-v1.json'
 
 
 def validate_inputs(registry, ledger):
-    validate_ledger_contract(ledger)
+    # The working ledger may contain private drafts or editorial notes;
+    # only issued recommendations are authoritative report inputs.
+    from .recommendation_history import issued_recommendations
+
+    validate_ledger_contract(issued_recommendations(ledger))
     sources = registry.get('sources') if isinstance(registry, dict) else None
     if not isinstance(sources, list) or not all(isinstance(x, dict) for x in sources):
         raise ValueError('INPUT_REGISTRY_INVALID')
