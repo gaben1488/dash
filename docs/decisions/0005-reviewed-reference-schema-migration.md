@@ -47,3 +47,14 @@ Queue checks retain their original physical cells and column offset. The current
 source formula leaves publication/repair deadlines unset; application dates do
 not become invented publication deadlines. Closed checks have no deadline field.
 Legacy frozen queue formats remain supported with their original semantics.
+
+## Reapplying a private migration after a reviewed successor, 2026-10-08
+
+Deployment may be retried after the canonical migration has already changed a
+reference source's fingerprint or width. An old private patch must not roll that
+source back or reject its known successor. Skip it only when the exact private
+patch is recorded, the exact current canonical review is recorded, its hashed
+backup proves the installed private result, and the current source equals that
+backup plus the explicitly reviewed canonical transition. Unknown edits, missing
+history, identity/unit changes and broken backup proofs retain the existing
+failure behavior. Live capture and publication gates remain mandatory.
