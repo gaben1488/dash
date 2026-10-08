@@ -18,8 +18,12 @@ from .raw_pipeline import (
     bundle_from_capture,
 )
 from .recommendation_history import read_google_history
-from .recommendation_intake import (read_registered_ledger, validate_append_only,
-                                    verify_new_official_records, previous_published_ledger)
+from .recommendation_intake import (
+    previous_published_ledger,
+    read_registered_ledger,
+    validate_append_only,
+    verify_new_official_records,
+)
 from .snapshot import canonical_semantic_hash
 
 
