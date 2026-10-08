@@ -123,7 +123,7 @@ function RecordDetails({ record, editing, busy, onStartEdit, onStopEdit, onSaveN
       {draft && editing ? (
         <DraftEditor key={record.id} initial={{
           grbs: record.grbs, text: record.text, sourceIds: record.sourceIds,
-          note: record.note, stage: record.stage,
+          note: record.note, stage: record.stage === 'ARCHIVED_DRAFT' ? 'ARCHIVED_DRAFT' : 'DRAFT',
         }} busy={busy} saveLabel="Сохранить изменения" onCancel={onStopEdit} onSave={onSaveDraft} />
       ) : (
         <div className="space-y-3">
@@ -221,6 +221,10 @@ export function RecommendationRegister() {
     setLoading(true);
     api.getReportRecommendations().then(value => {
       if (!active) return;
+      if (!value || !Array.isArray(value.records) || !value.counts
+          || typeof value.revision !== 'string') {
+        throw new Error('Сервер вернул неполный реестр рекомендаций. Данные не изменены.');
+      }
       setData(value); setError(null);
     }).catch(err => {
       if (!active) return;
