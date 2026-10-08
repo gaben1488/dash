@@ -72,6 +72,7 @@ import { pickWeekSnapshots } from '../lib/report/week-delta';
 import { DeltaBadge } from '../components/DeltaBadge';
 import { ChangesSection } from '../components/report/ChangesSection';
 import { ReportFilterNotices } from '../components/report/FilterNotices';
+import { RecommendationRegister } from '../components/report/RecommendationRegister';
 import { fmtMetricValue } from '../lib/delta-format';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonKPIRow, SkeletonChart } from '../components/Skeleton';
@@ -1108,6 +1109,14 @@ export function ReportPage() {
             неделя из фильтра не применена
           </span>
         )}
+        <button
+          type="button"
+          onClick={() => document.getElementById('report-recommendations')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className="ml-auto rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+          title="Открыть накопительный редактируемый реестр рекомендаций УЭР"
+        >
+          Рекомендации ↓
+        </button>
         {/* Кнопка-якорь к ленте изменений (п.73б): блок живёт в самом низу
             страницы (п.35), и без якоря до него — вся страница колесом. */}
         {report && (
@@ -1136,6 +1145,10 @@ export function ReportPage() {
         onScrollUnfunded={() => document.getElementById('report-unfunded')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
       </div>
+
+      {/* Рабочая история рекомендаций не зависит от режима отображения
+          KPI и остаётся доступной даже если текущий /api/report не отвечает. */}
+      <RecommendationRegister />
 
       {error ? (
         // Пустое состояние с причиной и действием (критерий «честная пустота»):
