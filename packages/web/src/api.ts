@@ -24,7 +24,9 @@ export interface LedgerRecommendation {
   text: string;
   sourceIds: string[];
   stage: RecommendationStage;
+  editable: boolean;
   type: string;
+  section: 'ep' | 'competitive';
   firstSeen: string;
   lastSeen: string;
   statusLabel: string;
@@ -42,16 +44,17 @@ export interface RecommendationLedgerResponse {
   counts: { active: number; historical: number; drafts: number; archivedDrafts: number };
 }
 
-export interface RecommendationDraftInput {
+export interface RecommendationEntryInput {
   expectedRevision: string;
   grbs: string;
   text: string;
   sourceIds: string[];
+  section: 'ep' | 'competitive';
   note: string;
 }
 
-export interface RecommendationDraftEdit extends RecommendationDraftInput {
-  stage: 'DRAFT' | 'ARCHIVED_DRAFT';
+export interface RecommendationEntryEdit extends RecommendationEntryInput {
+  stage: 'ACTIVE' | 'HISTORY';
 }
 
 export interface LedgerSaveResponse {
@@ -466,11 +469,11 @@ export const api = {
   // Один работающий RecommendationLedger. Сохраняемые черновики не
   // становятся автоматически выпущенными рекомендациями.
   getReportRecommendations: () => fetchJSON<RecommendationLedgerResponse>('/report-recommendations'),
-  createReportRecommendation: (entry: RecommendationDraftInput) =>
+  createReportRecommendation: (entry: RecommendationEntryInput) =>
     fetchJSON<LedgerSaveResponse>('/report-recommendations', {
       method: 'POST', body: JSON.stringify(entry),
     }),
-  updateReportRecommendation: (id: string, entry: RecommendationDraftEdit | {
+  updateReportRecommendation: (id: string, entry: RecommendationEntryEdit | {
     expectedRevision: string; note: string;
   }) => fetchJSON<LedgerSaveResponse>(`/report-recommendations/${encodeURIComponent(id)}`, {
     method: 'PUT', body: JSON.stringify(entry),
