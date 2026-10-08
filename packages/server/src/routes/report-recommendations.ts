@@ -5,7 +5,7 @@
  * The generator excludes drafts before creating any official snapshot.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { lstat, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { ALL_DEPT_IDS } from '@aemr/shared';
@@ -120,7 +120,11 @@ async function persist(directory: string, old: Snapshot, rows: Entry[]): Promise
   await mkdir(versionDir, { recursive: true, mode: 0o700 });
   const backup = join(versionDir, old.revision + '.json');
   try {
-    await writeFile(backup, old.bytes, { flag: 'wx', mode: 0o600 });
+    const saved = await open(backup, 'wx', 0o600);
+    try { await saved.writeFile(old.bytes); await saved.sync(); }
+    finally { await saved.close(); }
+    const dir = await open(versionDir, 'r');
+    try { await dir.sync(); } finally { await dir.close(); }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     if (digest(await readFile(backup)) !== old.revision) {
