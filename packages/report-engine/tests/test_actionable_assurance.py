@@ -117,3 +117,23 @@ def test_ineligible_identity_observations_are_not_false_procurement_actions():
     assert len(alerts) == 1
     assert result['nonprocurement_identity_observations'] == 1
     assert result['engine_action_count'] == 1
+
+
+def test_v1_archived_assurance_remains_readable_after_v2_scoped_tasks():
+    from dataclasses import asdict, replace
+
+    from procurement_engine.automation_assurance import assess_automation
+    from test_recommendation_links import row as source_row
+
+    purchase = replace(source_row(), procurement_uid=None)
+    other = {**asdict(purchase), 'physical_row_key': 'book:5', 'included': False}
+    model = {'details': [other], 'recommendation_records': [], 'issues': [],
+             'identity_observations': {'rows': []}, 'snapshot': {'report_date': '09.10.2026'}}
+    former = assess_automation(model, legacy_scope=True)
+    current = assess_automation(model)
+    assert former['contract'] == 'actionable-assurance-v1'
+    assert former['engine_action_count'] == 1
+    assert 'nonprocurement_identity_observations' not in former
+    assert current['contract'] == 'actionable-assurance-v2'
+    assert current['engine_action_count'] == 0
+    assert current['nonprocurement_identity_observations'] == 1
