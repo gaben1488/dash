@@ -192,7 +192,8 @@ def _identity_gap_diagnostics(candidate, identities, *, identity_snapshot_id=Non
             if _exact_subject_reference(text, row.subject, normalize_id(row.source_row_no),
                 shared_group_subject=True, extended_literal_reference=True,
                 joint_method_reference=candidate.get('contract', {}).get('recommendation_link_contract')
-                in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12'})] if numbers else [
+                in {'verified-original-and-current-plan-v11', 'verified-original-and-current-plan-v12',
+                    'verified-original-and-current-plan-v13'})] if numbers else [
             row for row in rows.values() if row.grbs == record.get('grbs') and _exact_subject_mention(text, row.subject)]
         gaps.append({'grbs': record.get('grbs'), 'table_no': record.get('table_no'), 'row_no': record.get('row_no'),
             'explicit_reference_count': len(numbers), 'missing_primary_number_count': sum(not group for group in groups),
@@ -511,6 +512,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', required=True)
     parser.add_argument('--coverage', action='store_true')
+    parser.add_argument('--weekly-only', action='store_true',
+                        help='Validate the immutable latest weekly archive without rebuilding the current release')
     parser.add_argument('--published-summary', action='store_true',
                         help='Read last verified release and identity history without rebuilding DOCX')
     parser.add_argument('--coverage-summary', action='store_true',
@@ -523,6 +526,11 @@ def main(argv=None):
             return 0
         if args.published_summary:
             result = published_evidence_summary(args.state)
+        elif args.weekly_only:
+            weekly = rehearse_weekly(args.state)
+            if weekly is None:
+                raise ValueError('ARCHIVE_NOT_FOUND')
+            result = {'replay_status': weekly['replay_status'], 'weekly': weekly}
         elif args.coverage_summary:
             full = rehearse_latest(args.state, coverage=True, skip_weekly=True)
             # Explicit allowlist: no coordinates, business text or UID-bearing
