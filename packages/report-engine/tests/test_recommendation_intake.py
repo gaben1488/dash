@@ -144,3 +144,57 @@ def test_registered_new_recommendation_is_frozen_and_reused_in_real_release(tmp_
     assert unavailable['status'] == 'NOT_ISSUED'
     assert unavailable['error_code'] in {'OFFICIAL_LEDGER_HISTORY_MISSING', 'GENERATION_FAILED'}
     assert previous_published_ledger(state, first['publication']) == frozen
+
+
+def test_next_official_recommendation_appears_in_second_unmodified_source_cycle(tmp_path):
+    """Two consecutive accepted releases: only the registered business evidence changes."""
+    import base64
+    import hashlib
+    from io import BytesIO
+
+    from docx import Document
+    from procurement_engine.publication_reader import read_publication
+
+    old, new, history = existing_and_new()
+    remote = {'format': 'aemr-report-runtime-inputs-v1',
+              'registry': {}, 'ledger': copy.deepcopy(old)}
+    source = AuthorizedDrive(remote, history)
+    registry, bootstrap = inputs(tmp_path)
+    state = tmp_path / 'state'
+    first = run_once(registry, bootstrap, state, client=source)
+    assert first['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+
+    # The second official text is in a separate authenticated original DOCX.
+    doc = Document()
+    doc.add_paragraph('ОТЧЕТ')
+    doc.add_paragraph('срез на 25.09.2026')
+    doc.add_paragraph('УЭР')
+    doc.add_table(rows=2, cols=2).cell(1, 1).text = new['recommendation_text']
+    buffer = BytesIO()
+    doc.save(buffer)
+    payload = buffer.getvalue()
+    digest = hashlib.sha256(payload).hexdigest()
+    text = new['recommendation_text']
+    new['origin_evidence'] = []
+    source.body['ledger'].append(new)
+    source.history['documents'][digest] = base64.b64encode(payload).decode()
+    source.history['records'].append({
+        'recommendation_id': new['recommendation_id'], 'grbs': new['grbs'],
+        'recommendation_text': text,
+        'origin_evidence': [{
+            'kind': 'SAVED_REPORT_RECOMMENDATION_TEXT',
+            'document_sha256': digest, 'document_date': '2026-09-25',
+            'table': 1, 'row': 2, 'cell': 2, 'grbs_heading': 'УЭР',
+            'text': text, 'text_sha256': hashlib.sha256(text.encode()).hexdigest(),
+        }],
+    })
+    second = run_once(registry, bootstrap, state, client=source)
+    assert second['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}, second
+    assert second['snapshot_id'] != first['snapshot_id']
+    frozen = previous_published_ledger(state, second['publication'])
+    assert {record['recommendation_id'] for record in frozen} == {'synthetic', 'REC-second'}
+    dashboard = json.loads(read_publication(state, 'dashboard',
+                                            second['publication']['release_id']))
+    assert len(dashboard.get('recommendation_records') or
+               dashboard['recommendations']['tables']['1']) == 2
+    assert json.loads(bootstrap.read_text()) == []
