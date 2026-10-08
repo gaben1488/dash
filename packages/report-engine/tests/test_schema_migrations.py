@@ -91,6 +91,65 @@ def test_unrecorded_applied_fingerprint_still_requires_live_proof(tmp_path):
         apply_google_schema_migrations(registry, client=NextHeader(package))
 
 
+@pytest.mark.parametrize('changed_width', [False, True])
+@pytest.mark.parametrize('damage', [None, 'private_history', 'review_history', 'backup', 'identity', 'units', 'fingerprint'])
+def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch, changed_width, damage):
+    from procurement_engine import monitoring_schema as module
+    from procurement_engine.semantic_headers import semantic_header_hash
+    from procurement_engine.snapshot import canonical_semantic_hash
+
+    registry, package, _ = migration(tmp_path)
+    assert apply_google_schema_migrations(registry, client=Client(package)) == 1
+    prior_registry = json.loads(registry.read_text())
+    prior = prior_registry['sources'][-1]
+    columns = 3 if changed_width else 2
+    headers = [['Key', 'Canonical caption', 'Institution ID'][:columns]]
+    old_semantic = semantic_header_hash(package['migrations'][0]['new_headers'], 1, 2)
+    review = {'sheet': prior['sheet'], 'role': prior['role'], 'columns': columns, 'header_rows': 1,
+             'fingerprint': header_hash(headers, 1), 'semantic': semantic_header_hash(headers, 1, columns),
+             'previous_semantic': old_semantic, 'volatile_cells': []}
+    monkeypatch.setattr(module, 'REVIEWS', [review])
+    monkeypatch.setattr(module, 'RETIRED', [])
+    digest = canonical_semantic_hash(prior_registry)
+    history = tmp_path / 'registry-history'
+    backup = history / (digest + '.json')
+    backup.write_text(json.dumps(prior_registry))
+    record = history / 'canonical.migration.json'
+    record.write_text(json.dumps({'review': module.REVIEW, 'patches': [review],
+                                 'retired': [], 'previous_registry_hash': digest}))
+    current = deepcopy(prior_registry)
+    current['sources'][-1].update(columns=columns, schema_fingerprint=review['fingerprint'],
+        semantic_header_fingerprint=review['semantic'], previous_semantic_header_fingerprint=old_semantic,
+        schema_change_reason=module.REASON)
+    if damage == 'private_history':
+        for p in history.glob('*.migration.json'):
+            if p != record:
+                p.unlink()
+    elif damage == 'review_history':
+        record.unlink()
+    elif damage == 'backup':
+        backup.write_text('{}')
+    elif damage == 'identity':
+        current['sources'][-1]['provider_id'] = 'another-provider'
+    elif damage == 'units':
+        current['sources'][-1]['units'] = 'changed-unit'
+    elif damage == 'fingerprint':
+        current['sources'][-1]['schema_fingerprint'] = '0' * 64
+    registry.write_text(json.dumps(current))
+    unchanged = registry.read_bytes()
+
+    class ObsoleteProposal(Client):
+        def values(self, *_):
+            raise AssertionError('A recorded predecessor must not reread its obsolete live headers')
+
+    if damage:
+        with pytest.raises(ValueError, match='SCHEMA_MIGRATION_'):
+            apply_google_schema_migrations(registry, client=ObsoleteProposal(package))
+    else:
+        assert apply_google_schema_migrations(registry, client=ObsoleteProposal(package)) == 0
+    assert registry.read_bytes() == unchanged
+
+
 @pytest.mark.parametrize('mutation', ['wrong_source', 'wrong_hash', 'wrong_geometry', 'not_current'])
 def test_unreviewed_or_misaddressed_migration_cannot_replace_the_contract(tmp_path, mutation):
     registry, package, before = migration(tmp_path)
