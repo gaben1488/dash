@@ -1,8 +1,8 @@
 /**
  * Editable workspace over the EXISTING procurement report RecommendationLedger.
- * The working JSON stays the sole ledger: a draft is a flagged entry, not a
- * parallel registry. Original official statements are immutable from this UI.
- * The generator excludes drafts before creating any official snapshot.
+ * The existing JSON stays the sole source; an authenticated УЭР save immediately issues an
+ * official recommendation. Previous historical statements remain immutable.
+ * The generator reads UЭР entries in its next official snapshot.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
@@ -12,8 +12,9 @@ import { ALL_DEPT_IDS } from '@aemr/shared';
 import { z } from 'zod';
 
 type Entry = Record<string, unknown>;
-type Stage = 'DRAFT' | 'ARCHIVED_DRAFT' | 'ACTIVE' | 'HISTORY';
-type EditorialEvent = { at: string; kind: 'created' | 'updated' | 'note'; fields: string[]; previousNote?: string };
+type Stage = 'ACTIVE' | 'HISTORY';
+type EditorialEvent = { at: string; kind: 'created' | 'updated' | 'note'; fields: string[];
+  previousNote?: string; previous?: { grbs: string; text: string; sourceIds: string[] } };
 interface Snapshot { entries: Entry[]; bytes: Buffer; revision: string; }
 
 class LedgerProblem extends Error {
@@ -23,23 +24,39 @@ const token = z.string().regex(/^[a-f0-9]{64}$/);
 const note = z.string().trim().max(2000);
 const sourceIds = z.array(z.string().trim().min(1).max(80)).max(64)
   .refine(v => new Set(v).size === v.length, 'Один номер закупки указан несколько раз');
-const draftFields = {
+const editableFields = {
   grbs: z.string().trim().min(1),
   text: z.string().trim().min(10).max(6000),
   sourceIds,
   note: note.default(''),
 };
-const CreateSchema = z.object({ expectedRevision: token, ...draftFields }).strict();
-const DraftUpdateSchema = z.object({
-  expectedRevision: token, ...draftFields, stage: z.enum(['DRAFT', 'ARCHIVED_DRAFT']),
-}).strict();
+const CreateSchema = z.object({ expectedRevision: token, ...editableFields }).strict();
+const IssuedUpdateSchema = z.object({ expectedRevision: token, ...editableFields }).strict();
 const NoteUpdateSchema = z.object({ expectedRevision: token, note }).strict();
 
 const textOf = (value: unknown): string => typeof value === 'string' ? value : '';
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 function stageOf(entry: Entry): Stage {
-  if (entry.editorial_state === 'DRAFT' || entry.editorial_state === 'ARCHIVED_DRAFT') return entry.editorial_state;
   return entry.active_in_current_slice === true ? 'ACTIVE' : 'HISTORY';
+}
+function isUerIssued(entry: Entry): boolean {
+  return entry.editorial_state === 'ISSUED' && textOf(entry.recommendation_id).startsWith('REC-UER-');
+}
+function kamchatkaDate(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const take = (name: string) => parts.find(part => part.type === name)?.value ?? '';
+  return `${take('day')}.${take('month')}.${take('year')}`;
+}
+function issuanceProof(entry: Entry, at: Date) {
+  return {
+    kind: 'UER_REPORT_REGISTER_ENTRY_V1',
+    recommendation_id: entry.recommendation_id, grbs: entry.grbs,
+    document_date: kamchatkaDate(at), registered_at: at.toISOString(),
+    text_sha256: createHash('sha256').update(textOf(entry.recommendation_text), 'utf8').digest('hex'),
+    source_ids_sha256: createHash('sha256').update(JSON.stringify(entry.source_procurement_ids), 'utf8').digest('hex'),
+  };
 }
 function editableHistory(entry: Entry): EditorialEvent[] {
   if (entry.editorial_history === undefined) return [];
@@ -56,6 +73,7 @@ function view(entry: Entry) {
     sourceIds: Array.isArray(entry.source_procurement_ids)
       ? entry.source_procurement_ids.filter((x): x is string => typeof x === 'string') : [],
     stage: stageOf(entry),
+    editable: isUerIssued(entry),
     type: textOf(entry.recommendation_type),
     firstSeen: textOf(entry.first_seen),
     lastSeen: textOf(entry.last_seen),
@@ -105,13 +123,20 @@ function ensureDept(value: string) {
     throw new LedgerProblem(400, 'LEDGER_DEPT_INVALID', 'Выберите управление из списка восьми ГРБС.');
   }
 }
-function event(kind: EditorialEvent['kind'], fields: string[], previousNote?: string): EditorialEvent {
-  return { at: new Date().toISOString(), kind, fields, ...(previousNote ? { previousNote } : {}) };
+function event(kind: EditorialEvent['kind'], fields: string[], previous?: Entry): EditorialEvent {
+  const before = previous && kind === 'updated' ? {
+    grbs: textOf(previous.grbs), text: textOf(previous.recommendation_text),
+    sourceIds: Array.isArray(previous.source_procurement_ids)
+      ? previous.source_procurement_ids.filter((x): x is string => typeof x === 'string') : [],
+  } : undefined;
+  return { at: new Date().toISOString(), kind, fields,
+    ...(previous && textOf(previous.editor_note) ? { previousNote: textOf(previous.editor_note) } : {}),
+    ...(before ? { previous: before } : {}) };
 }
 function update(entry: Entry, patch: Partial<Entry>, kind: EditorialEvent['kind'], fields: string[]): Entry {
   const now = new Date().toISOString();
   return { ...entry, ...patch, editorial_updated_at: now,
-    editorial_history: [...editableHistory(entry), event(kind, fields, textOf(entry.editor_note))] };
+    editorial_history: [...editableHistory(entry), event(kind, fields, entry)] };
 }
 
 /** POSIX rename provides an atomic reader-visible switch to the new ledger. */
@@ -197,8 +222,7 @@ export async function reportRecommendationRoutes(app: FastifyInstance,
         counts: {
           active: records.filter(r => r.stage === 'ACTIVE').length,
           historical: records.filter(r => r.stage === 'HISTORY').length,
-          drafts: records.filter(r => r.stage === 'DRAFT').length,
-          archivedDrafts: records.filter(r => r.stage === 'ARCHIVED_DRAFT').length,
+          uerAuthored: records.filter(r => r.editable).length,
         } };
     } catch (error) { return sendProblem(error, reply); }
   });
@@ -213,16 +237,26 @@ export async function reportRecommendationRoutes(app: FastifyInstance,
       ensureDept(parsed.data.grbs);
       const result = await mutate(stateDir, parsed.data.expectedRevision, rows => {
         let id: string;
-        do { id = 'REC-DRAFT-' + randomBytes(8).toString('hex').toUpperCase(); }
+        do { id = 'REC-UER-' + randomBytes(8).toString('hex').toUpperCase(); }
         while (rows.some(r => r.recommendation_id === id));
-        const created = update({
+        const now = new Date();
+        const seen = kamchatkaDate(now);
+        const rowNumber = 1 + Math.max(0, ...rows.filter(r => r.table_no === 9)
+          .map(r => Number(r.row_no) || 0));
+        const base: Entry = {
           recommendation_id: id, grbs: parsed.data.grbs,
-          recommendation_text: parsed.data.text,
-          source_procurement_ids: parsed.data.sourceIds,
-          active_in_current_slice: false, editorial_state: 'DRAFT',
+          recommendation_text: parsed.data.text, source_procurement_ids: parsed.data.sourceIds,
+          section: 'uer', table_no: 9, row_no: rowNumber,
+          first_seen: seen, last_seen: seen, status_as_of: seen,
+          recommendation_type: 'UER_ENTRY', semantic_status: 'REVIEW_REQUIRED',
+          semantic_status_ru: 'Текущее исполнение ещё не проверено',
+          historical_acceptance: null,
+          active_in_current_slice: true, editorial_state: 'ISSUED',
           editor_note: parsed.data.note,
           grbs_response_original: '', uer_decision_original: '',
-        }, {}, 'created', ['grbs', 'recommendation_text', 'source_procurement_ids']);
+        };
+        const created = update({ ...base, origin_evidence: [issuanceProof(base, now)] },
+          {}, 'created', ['grbs', 'recommendation_text', 'source_procurement_ids']);
         rows.push(created);
         return created;
       });
@@ -246,23 +280,34 @@ export async function reportRecommendationRoutes(app: FastifyInstance,
           if (index < 0) throw new LedgerProblem(404, 'LEDGER_NOT_FOUND',
             'Рекомендация не найдена в текущем реестре.');
           const original = rows[index];
-          if (stageOf(original) === 'DRAFT' || stageOf(original) === 'ARCHIVED_DRAFT') {
-            const body = DraftUpdateSchema.safeParse(request.body);
+          if (isUerIssued(original)) {
+            const body = IssuedUpdateSchema.safeParse(request.body);
             if (!body.success) throw new LedgerProblem(400, 'LEDGER_INPUT_INVALID',
-              'Проверьте заполнение черновика: все изменения должны быть явными.');
+              'Проверьте управление, текст, номера закупок и пояснение.');
             ensureDept(body.data.grbs);
-            const fields = ['grbs', 'recommendation_text', 'source_procurement_ids', 'editor_note', 'editorial_state'];
-            const item = update(original, {
+            const patch: Partial<Entry> = {
               grbs: body.data.grbs, recommendation_text: body.data.text,
               source_procurement_ids: body.data.sourceIds, editor_note: body.data.note,
-              editorial_state: body.data.stage,
-            }, 'updated', fields);
+            };
+            if (['grbs', 'recommendation_text', 'source_procurement_ids'].every(
+              field => JSON.stringify(patch[field]) === JSON.stringify(original[field]))) {
+              if (body.data.note === textOf(original.editor_note)) return null;
+              const noted = update(original, { editor_note: body.data.note }, 'note', ['editor_note']);
+              rows[index] = noted;
+              return noted;
+            }
+            const now = new Date();
+            const enriched = { ...original, ...patch, last_seen: kamchatkaDate(now),
+              origin_evidence: [...(Array.isArray(original.origin_evidence) ? original.origin_evidence : []),
+                issuanceProof({ ...original, ...patch }, now)] };
+            const fields = ['grbs', 'recommendation_text', 'source_procurement_ids', 'editor_note'];
+            const item = update(original, enriched, 'updated', fields);
             rows[index] = item;
             return item;
           }
           const body = NoteUpdateSchema.safeParse(request.body);
           if (!body.success) throw new LedgerProblem(400, 'LEDGER_HISTORICAL_IMMUTABLE',
-            'Исходный текст и статус выпущенной рекомендации не переписываются. Можно добавить рабочее пояснение.');
+            'Ранее выпущенный текст и статус не переписываются. Можно добавить рабочее пояснение.');
           if (body.data.note === textOf(original.editor_note)) return null;
           const item = update(original, { editor_note: body.data.note }, 'note', ['editor_note']);
           rows[index] = item;
