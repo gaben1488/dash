@@ -81,7 +81,7 @@ export function planAnalyticalRepair(cells, sheetId, rowCount) {
   status.userEnteredValue.formulaValue = status.userEnteredValue.formulaValue.replace('IF(OR(COUNTIF(E16:E25;', '"Требуют внимания · процедур: "&B218&CHAR(10)&"Учтённая цена: "&TEXT(I12;"#,##0.00")&" ₽ · экономия: "&TEXT(J12;"#,##0.00")&" ₽"&CHAR(10)&IF(OR(COUNTIF(E16:E25;').replace('&" · результатов внесено "', '&CHAR(10)&"Результатов внесено "');
   put(226, 0, 'Дубли кодов, влияющие на связи / семейную аналитику');
   put(226, 1, familyLinkedDuplicateGuardFormula(), 'Только пересечения кодов внутри связей и переоформленных попыток блокируют граф. Остальные дубли остаются явными ошибками.');
-  status.userEnteredValue.formulaValue = canonicalAnalyticalStatusFormula();
+  status.userEnteredValue.formulaValue = withIndependentQaStatus(canonicalAnalyticalStatusFormula());
   return requests;
 }
 
@@ -141,6 +141,13 @@ export function planAnalyticalLinks(sheetId, masterSheetId, viewIds) {
  */
 export function familyLinkedDuplicateGuardFormula() {
   return "=IF($B$171=0;0;IFERROR(LET(коды;INDEX(ДанныеМастера;0;1);виды;INDEX(ДанныеМастера;0;2);предки;INDEX(ДанныеМастера;0;21);наследники;INDEX(ДанныеМастера;0;22);стадии;INDEX(ДанныеМастера;0;23);ошибки;INDEX(ДанныеМастера;0;25);повторы;UNIQUE(FILTER(коды;REGEXMATCH(ошибки&\"\";\"Код повторяется у строк не вида «доля»\")));SUM(MAP(повторы;LAMBDA(повтор;N(OR(SUMPRODUCT(EXACT(коды;повтор)*NOT(EXACT(виды;\"доля\"))*(((TRIM(предки&\"\")<>\"\")+(TRIM(наследники&\"\")<>\"\")+(стадии=\"Переоформлена\"))>0))>0;SUMPRODUCT(--ISNUMBER(FIND(\"; \"&повтор&\"; \";\"&предки&\"; \")))>0;SUMPRODUCT(--ISNUMBER(FIND(\"; \"&повтор&\"; \";\"&наследники&\"; \")))>0))))));\"не рассчитано\"))";
+}
+
+/** Control cases are a separate acceptance gate, not an excuse to suppress money. */
+export function withIndependentQaStatus(formula) {
+  if (typeof formula !== 'string' || !formula.startsWith('=')) throw new Error('QA_STATUS_FORMULA_CONTRACT');
+  if (formula.includes('Контрольная сверка — расхождения:')) return formula;
+  return `=LET(свод;${formula.slice(1)};контроль;IFERROR('_Проверки'!$B$1;"недоступно");IF(ISNUMBER(контроль);IF(контроль>0;свод&CHAR(10)&"Контрольная сверка — расхождения: "&контроль&"; коды: "&IFERROR(TEXTJOIN(", ";TRUE;UNIQUE(FILTER('_Проверки'!$B$3:$B$600;REGEXMATCH('_Проверки'!$G$3:$G$600&"";"^РАСХОЖДЕНИЕ"))));"не указаны")&". Проверьте основание.";свод);свод&CHAR(10)&"Контрольная сверка недоступна"))`;
 }
 
 /** A computed summary can coexist with explicitly disclosed non-family issues. */
