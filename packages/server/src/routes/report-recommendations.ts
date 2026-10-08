@@ -13,7 +13,7 @@ import { z } from 'zod';
 
 type Entry = Record<string, unknown>;
 type Stage = 'DRAFT' | 'ARCHIVED_DRAFT' | 'ACTIVE' | 'HISTORY';
-type EditorialEvent = { at: string; kind: 'created' | 'updated' | 'note'; fields: string[]; previousNote?: string };
+type EditorialEvent = { at: string; kind: 'created' | 'updated' | 'note'; fields: string[]; previousNote?: string; previousValues?: Record<string, unknown> };
 interface Snapshot { entries: Entry[]; bytes: Buffer; revision: string; }
 
 class LedgerProblem extends Error {
@@ -23,15 +23,16 @@ const token = z.string().regex(/^[a-f0-9]{64}$/);
 const note = z.string().trim().max(2000);
 const sourceIds = z.array(z.string().trim().min(1).max(80)).max(64)
   .refine(v => new Set(v).size === v.length, 'Один номер закупки указан несколько раз');
-const draftFields = {
+const officialFields = {
   grbs: z.string().trim().min(1),
   text: z.string().trim().min(10).max(6000),
   sourceIds,
+  section: z.enum(['ep', 'competitive']).default('ep'),
   note: note.default(''),
 };
-const CreateSchema = z.object({ expectedRevision: token, ...draftFields }).strict();
-const DraftUpdateSchema = z.object({
-  expectedRevision: token, ...draftFields, stage: z.enum(['DRAFT', 'ARCHIVED_DRAFT']),
+const CreateSchema = z.object({ expectedRevision: token, ...officialFields }).strict();
+const OfficialUpdateSchema = z.object({
+  expectedRevision: token, ...officialFields, stage: z.enum(['ACTIVE', 'HISTORY']),
 }).strict();
 const NoteUpdateSchema = z.object({ expectedRevision: token, note }).strict();
 
@@ -57,6 +58,9 @@ function view(entry: Entry) {
       ? entry.source_procurement_ids.filter((x): x is string => typeof x === 'string') : [],
     stage: stageOf(entry),
     type: textOf(entry.recommendation_type),
+    section: textOf(entry.section) || 'ep',
+    editable: entry.editorial_state === 'ISSUED' || entry.editorial_state === 'DRAFT'
+      || entry.editorial_state === 'ARCHIVED_DRAFT',
     firstSeen: textOf(entry.first_seen),
     lastSeen: textOf(entry.last_seen),
     statusLabel: textOf(entry.semantic_status_ru),
@@ -105,13 +109,45 @@ function ensureDept(value: string) {
     throw new LedgerProblem(400, 'LEDGER_DEPT_INVALID', 'Выберите управление из списка восьми ГРБС.');
   }
 }
-function event(kind: EditorialEvent['kind'], fields: string[], previousNote?: string): EditorialEvent {
-  return { at: new Date().toISOString(), kind, fields, ...(previousNote ? { previousNote } : {}) };
+function event(kind: EditorialEvent['kind'], fields: string[], previousNote?: string,
+  previousValues?: Record<string, unknown>): EditorialEvent {
+  return { at: new Date().toISOString(), kind, fields,
+    ...(previousNote ? { previousNote } : {}),
+    ...(previousValues ? { previousValues } : {}) };
 }
-function update(entry: Entry, patch: Partial<Entry>, kind: EditorialEvent['kind'], fields: string[]): Entry {
+function kamchatkaDay(timestamp: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(timestamp);
+  const pick = (kind: string) => parts.find(p => p.type === kind)?.value ?? '';
+  return `${pick('year')}-${pick('month')}-${pick('day')}`;
+}
+function officialEvidence(record: Entry, at: string) {
+  return [{
+    kind: 'UER_DASH_OFFICIAL_ENTRY_V1',
+    recommendation_id: record.recommendation_id,
+    grbs: record.grbs,
+    issued_by: 'УЭР',
+    document_date: kamchatkaDay(new Date(at)),
+    recorded_at: at,
+    text_sha256: createHash('sha256').update(textOf(record.recommendation_text)).digest('hex'),
+  }];
+}
+function assignTable(rows: Entry[], grbs: string, section: string): number {
+  const matching = rows.find(r => r.grbs === grbs && r.section === section
+    && typeof r.table_no === 'number' && r.table_no > 0);
+  if (matching) return matching.table_no as number;
+  const sameDept = rows.find(r => r.grbs === grbs
+    && typeof r.table_no === 'number' && r.table_no > 0);
+  if (sameDept) return sameDept.table_no as number;
+  return Math.max(0, ...rows.map(r => typeof r.table_no === 'number' ? r.table_no : 0)) + 1;
+}
+function update(entry: Entry, patch: Partial<Entry>, kind: EditorialEvent['kind'], fields: string[],
+  previousValues?: Record<string, unknown>): Entry {
   const now = new Date().toISOString();
   return { ...entry, ...patch, editorial_updated_at: now,
-    editorial_history: [...editableHistory(entry), event(kind, fields, textOf(entry.editor_note))] };
+    editorial_history: [...editableHistory(entry),
+      event(kind, fields, textOf(entry.editor_note), previousValues)] };
 }
 
 /** POSIX rename provides an atomic reader-visible switch to the new ledger. */
@@ -213,16 +249,31 @@ export async function reportRecommendationRoutes(app: FastifyInstance,
       ensureDept(parsed.data.grbs);
       const result = await mutate(stateDir, parsed.data.expectedRevision, rows => {
         let id: string;
-        do { id = 'REC-DRAFT-' + randomBytes(8).toString('hex').toUpperCase(); }
+        do { id = 'REC-UER-' + randomBytes(8).toString('hex').toUpperCase(); }
         while (rows.some(r => r.recommendation_id === id));
-        const created = update({
+        const at = new Date().toISOString();
+        const date = kamchatkaDay(new Date(at));
+        const tableNo = assignTable(rows, parsed.data.grbs, parsed.data.section);
+        const number = Math.max(0, ...rows.filter(r => r.table_no === tableNo)
+          .map(r => typeof r.row_no === 'number' ? r.row_no : 0)) + 1;
+        const first: Entry = {
           recommendation_id: id, grbs: parsed.data.grbs,
+          section: parsed.data.section, table_no: tableNo, row_no: number,
           recommendation_text: parsed.data.text,
+          recommendation_type: 'OTHER',
           source_procurement_ids: parsed.data.sourceIds,
-          active_in_current_slice: false, editorial_state: 'DRAFT',
+          active_in_current_slice: true, editorial_state: 'ISSUED',
+          issued_by: 'УЭР', issued_at: at, first_seen: date, last_seen: date,
+          semantic_status: 'REVIEW_REQUIRED',
+          semantic_status_ru: 'Исполнение пока не подтверждено', status_as_of: date,
+          status_evidence: 'Официально зарегистрирована УЭР через рабочий реестр Dash.',
+          historical_acceptance: null,
           editor_note: parsed.data.note,
           grbs_response_original: '', uer_decision_original: '',
-        }, {}, 'created', ['grbs', 'recommendation_text', 'source_procurement_ids']);
+        };
+        first.origin_evidence = officialEvidence(first, at);
+        const created = update(first, {}, 'created',
+          ['grbs', 'recommendation_text', 'source_procurement_ids', 'issued_at']);
         rows.push(created);
         return created;
       });
@@ -246,17 +297,44 @@ export async function reportRecommendationRoutes(app: FastifyInstance,
           if (index < 0) throw new LedgerProblem(404, 'LEDGER_NOT_FOUND',
             'Рекомендация не найдена в текущем реестре.');
           const original = rows[index];
-          if (stageOf(original) === 'DRAFT' || stageOf(original) === 'ARCHIVED_DRAFT') {
-            const body = DraftUpdateSchema.safeParse(request.body);
+          if (original.editorial_state === 'ISSUED'
+              || original.editorial_state === 'DRAFT'
+              || original.editorial_state === 'ARCHIVED_DRAFT') {
+            const body = OfficialUpdateSchema.safeParse(request.body);
             if (!body.success) throw new LedgerProblem(400, 'LEDGER_INPUT_INVALID',
-              'Проверьте заполнение черновика: все изменения должны быть явными.');
+              'Проверьте управление, исходный текст, номера закупок и состояние рекомендации.');
             ensureDept(body.data.grbs);
-            const fields = ['grbs', 'recommendation_text', 'source_procurement_ids', 'editor_note', 'editorial_state'];
-            const item = update(original, {
+            if (body.data.stage === 'HISTORY' && !body.data.note.trim()) {
+              throw new LedgerProblem(400, 'LEDGER_HISTORY_REASON_REQUIRED',
+                'При снятии рекомендации с действующих укажите основание в рабочем пояснении.');
+            }
+            const at = new Date().toISOString();
+            const date = kamchatkaDay(new Date(at));
+            const prior = {
+              grbs: original.grbs, recommendation_text: original.recommendation_text,
+              section: original.section, source_procurement_ids: original.source_procurement_ids,
+              active_in_current_slice: original.active_in_current_slice,
+              origin_evidence: original.origin_evidence,
+            };
+            const patch: Entry = {
               grbs: body.data.grbs, recommendation_text: body.data.text,
-              source_procurement_ids: body.data.sourceIds, editor_note: body.data.note,
-              editorial_state: body.data.stage,
-            }, 'updated', fields);
+              source_procurement_ids: body.data.sourceIds, section: body.data.section,
+              editor_note: body.data.note, active_in_current_slice: body.data.stage === 'ACTIVE',
+              editorial_state: 'ISSUED',
+              issued_by: 'УЭР', issued_at: original.issued_at || at,
+              first_seen: original.first_seen || date, last_seen: date,
+              status_as_of: date,
+            };
+            const item = update(original, patch, 'updated',
+              ['grbs', 'recommendation_text', 'source_procurement_ids',
+               'section', 'active_in_current_slice'], prior);
+            item.origin_evidence = officialEvidence(item, at);
+            if (item.section !== original.section || item.grbs !== original.grbs) {
+              item.table_no = assignTable(rows.filter(r => r.recommendation_id !== id),
+                body.data.grbs, body.data.section);
+              item.row_no = Math.max(0, ...rows.filter(r => r.table_no === item.table_no)
+                .map(r => typeof r.row_no === 'number' ? r.row_no : 0)) + 1;
+            }
             rows[index] = item;
             return item;
           }
