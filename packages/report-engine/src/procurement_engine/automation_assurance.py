@@ -177,8 +177,13 @@ def assess_automation(model, sources=()):
                 effect='Полная автоматическая проверка этого участка не подтверждена.',
                 action='От вас исправление кода или выбор технической связи не требуется. Сопровождение должно разобрать сохранённую попытку и устранить причину; до этого нельзя заявлять полное покрытие.',
                 resolved_when='Повторная проверка участка проходит по исходным доказательствам.'))
+    nonprocurement_unresolved = sum(
+        not row.get('procurement_uid') and row.get('included') is False
+        for row in model.get('details', []))
     for row in model.get('details', []):
-        if not row.get('procurement_uid'):
+        # Technical observations outside the eligible procurement population
+        # remain counted separately, but are not current procurement work.
+        if not row.get('procurement_uid') and row.get('included') is True:
             actions.append(_signal('ENGINE_IDENTITY_CONTINUITY', row=row, sources=sources, columns=('A',), owner_kind='ENGINE',
                 title='История закупки не связана однозначно',
                 cause='Текущая строка сохранена, но её постоянная идентичность не установлена.',
@@ -214,6 +219,7 @@ def assess_automation(model, sources=()):
     user_count = sum(item['user_action_required'] for item in actions)
     engine_count = sum(item['owner_kind'] == 'ENGINE' for item in actions)
     return {'contract': CONTRACT, 'fully_automated': not actions,
+            'nonprocurement_identity_observations': nonprocurement_unresolved,
             'user_action_count': user_count, 'engine_action_count': engine_count,
             'active_recommendations': len(active), 'link_status_counts': dict(sorted(links.items())),
             'action_status_counts': dict(sorted(semantics.items())),
