@@ -27,18 +27,18 @@ export function queueDriftSignals(book: MonitoringBookSnapshot, procedures: read
       }
     }
   }
-  // Native workbook contract: J is entirely empty; active signals appear in C.
+  // Native workbook contract: J displays active signals; N is the empty visible divider.
   grid.forEach((row, index) => {
-    if (String(row[9] ?? '').trim()) {
+    if (String(row[13] ?? '').trim()) {
       addresses.push({
-        address: `Процедуры в работе!J${index + 1}`,
-        note: 'Столбец J должен быть пустым разделителем. Сигналы активных процедур выводятся вместе с действием в C.',
+        address: `Процедуры в работе!N${index + 1}`,
+        note: 'Столбец N должен оставаться пустым визуальным разделителем. Сигналы активных процедур отображаются в J, действия — в C.',
       });
     }
   });
   return addresses.length ? [{ kind: 'monitoring_queue_drift', title: 'Очередь книги или её разметка расходятся с реестром', severity: 'medium',
-    mechanism: 'Независимое сравнение кодов и повторений, а также контроль пустого разделителя J обнаружили отклонение.',
-    action: 'Проверьте формулы, диапазоны и пустоту J листа «Процедуры в работе». Очередь Dash рассчитана из мастера.', count: addresses.length, addresses }] : [];
+    mechanism: 'Независимое сравнение кодов и повторений, а также контроль пустого разделителя N обнаружили отклонение.',
+    action: 'Проверьте формулы, диапазоны и пустоту N листа «Процедуры в работе». Очередь Dash рассчитана из мастера.', count: addresses.length, addresses }] : [];
 }
 
 export function missingFormulaAddresses(values: unknown[][], formulas: unknown[][]): string[] {
