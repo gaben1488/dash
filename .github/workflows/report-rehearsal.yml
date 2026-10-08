@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: report-readonly-rehearsal
+  group: report-readonly-rehearsal-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

@@ -203,7 +203,8 @@ def _closed_check_view(queue_values):
                'Предмет', 'НМЦК', 'Стадия', 'Сигнал', 'Открыть']
     for row in queue_values:
         for offset in (13, 14):  # N:W before separator J; O:X after it.
-            if [clean_text(c) for c in row[offset:offset + 10]] == headers:
+            fields = [clean_text(c) for c in row[offset:offset + 10]]
+            if fields and fields[0] in {'Уровень', 'Тип задачи'} and fields[1:] == headers[1:]:
                 return offset
     return None
 

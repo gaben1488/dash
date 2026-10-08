@@ -26,6 +26,24 @@ def test_frozen_rehearsal_rebuilds_both_documents_without_publishing(tmp_path):
     assert business_files(state) == before
 
 
+def test_archive_rehearsal_reports_only_fixed_blocker_codes(monkeypatch, capsys):
+    from procurement_engine import rehearsal
+    from procurement_engine.archive_runtime import ArchiveError
+
+    error = ArchiveError('ARCHIVE_BUILD_FAILED')
+    error.blockers = [{'code': 'SOURCE_QA_ERRORS', 'message': 'Private customer'},
+                     {'code': 'Private customer and credentials'},
+                     {'code': 'SECTION_SOURCE_MISMATCH: private source'},
+                     {'message': 'Private source without code'}]
+    def fail(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(rehearsal, 'rehearse_latest', fail)
+    assert rehearsal.main(['--state', '/unused']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['blocker_codes'] == ['GENERATION_FAILED', 'SECTION_SOURCE_MISMATCH', 'SOURCE_QA_ERRORS']
+    assert 'Private' not in json.dumps(result)
+
+
 
 def test_coverage_reports_only_aggregate_gap_shapes(tmp_path):
     registry, ledger = inputs(tmp_path)

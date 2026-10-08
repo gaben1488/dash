@@ -428,6 +428,10 @@ def main(argv=None):
         # restricted grammar; arbitrary exception text can contain source data.
         if message in PUBLIC_CODES:
             result['internal_code'] = message
+        if message == 'ARCHIVE_BUILD_FAILED':
+            result['blocker_codes'] = sorted({public_error_code(item['code'])
+                for item in getattr(error, 'blockers', [])
+                if isinstance(item, dict) and isinstance(item.get('code'), str)})
         sqlite_error = getattr(error, 'sqlite_errorname', None)
         if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error

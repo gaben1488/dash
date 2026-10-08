@@ -1,3 +1,4 @@
+import pytest
 from procurement_engine.procedures import (
     iter_operational_rows,
     operational_cells,
@@ -6,10 +7,11 @@ from procurement_engine.procedures import (
 from test_procedure_clock import master, queue
 
 
-def test_visible_n_separator_preserves_closed_records_and_source_offsets():
+@pytest.mark.parametrize('label', ['Уровень', 'Тип задачи'])
+def test_visible_n_separator_preserves_closed_records_and_source_offsets(label):
     active = master('ЭА1-26', 'Объявлена')
     closed = master('ЭА2-26', 'Состоялась', 'Состоялась', action='Уточнить даты итогов')
-    headers = [''] * 14 + ['Уровень', 'Код', 'Действие', 'Управление', 'Заказчик',
+    headers = [''] * 14 + [label, 'Код', 'Действие', 'Управление', 'Заказчик',
                            'Предмет', 'НМЦК', 'Стадия', 'Сигнал', 'Открыть']
     checks = ['Проверить', closed[0], closed[23], '', '', closed[6], 0,
               closed[22], closed[24], 'В реестр']
