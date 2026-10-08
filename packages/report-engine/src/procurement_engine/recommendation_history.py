@@ -8,8 +8,6 @@ from urllib.parse import quote
 
 from .recommendation_links import verify_saved_report_origin
 
-
-
 EDITOR_ONLY_FIELDS = frozenset({
     'editorial_state', 'editorial_updated_at', 'editorial_history', 'editor_note',
 })
@@ -36,6 +34,7 @@ def issued_recommendations(records):
         issued.append({key: value for key, value in record.items()
                        if key not in EDITOR_ONLY_FIELDS})
     return issued
+
 
 def read_google_history(client, ledger, *, include_package=False):
     name = 'aemr-report-recommendation-history-v1.json'
