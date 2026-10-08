@@ -99,3 +99,21 @@ def test_conflicting_link_proofs_stay_engine_work_with_specific_cause():
     assert result['user_action_count'] == 0
     assert result['actions'][0]['code'] == 'ENGINE_RECOMMENDATION_LINK'
     assert 'разные закупки' in result['actions'][0]['cause']
+
+
+def test_ineligible_identity_observations_are_not_false_procurement_actions():
+    from procurement_engine.automation_assurance import assess_automation
+
+    from test_recommendation_links import row as source_row
+    from dataclasses import asdict, replace
+
+    a = replace(source_row(), procurement_uid=None)
+    eligible = {**asdict(a), 'physical_row_key': 'book:4', 'included': True}
+    excluded = {**eligible, 'physical_row_key': 'book:5', 'included': False}
+    result = assess_automation({'details': [eligible, excluded],
+        'recommendation_records': [], 'issues': [],
+        'identity_observations': {'rows': []}, 'snapshot': {'report_date': '09.10.2026'}})
+    alerts = [r for r in result['actions'] if r['code'] == 'ENGINE_IDENTITY_CONTINUITY']
+    assert len(alerts) == 1
+    assert result['nonprocurement_identity_observations'] == 1
+    assert result['engine_action_count'] == 1
