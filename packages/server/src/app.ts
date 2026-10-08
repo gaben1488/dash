@@ -6,6 +6,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { config } from './config.js';
 import { reportReleaseRoutes } from './routes/report-releases.js';
+import { reportRecommendationRoutes } from './routes/report-recommendations.js';
 import { SVOD_SHEET_NAME } from '@aemr/shared';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { metricsRoutes } from './routes/metrics.js';
@@ -234,6 +235,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(reconciliationRoutes);
   await app.register(reportRoutes);
   await app.register(reportReleaseRoutes);
+  await app.register(reportRecommendationRoutes);
   await app.register(healthRoutes);
   await app.register(webhookRoutes);
   await app.register(timelineRoutes);

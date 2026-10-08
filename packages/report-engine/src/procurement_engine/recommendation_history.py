@@ -8,6 +8,33 @@ from urllib.parse import quote
 
 from .recommendation_links import verify_saved_report_origin
 
+EDITOR_ONLY_FIELDS = frozenset({
+    'editorial_state', 'editorial_updated_at', 'editorial_history', 'editor_note',
+})
+
+
+def issued_recommendations(records):
+    """Project the ONE working ledger onto its official source corpus.
+
+    Historical recommendations with no editorial_state retain their accepted
+    semantics. Drafts and internal commentary never change document metrics,
+    snapshot identity, archived original text or the current official release.
+    """
+    if not isinstance(records, list):
+        raise ValueError('RECOMMENDATION_LEDGER_SCHEMA_INVALID')  # noqa: TRY004 — stable public contract
+    issued = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError('RECOMMENDATION_LEDGER_SCHEMA_INVALID')  # noqa: TRY004 — stable public contract
+        stage = record.get('editorial_state')
+        if stage in ('DRAFT', 'ARCHIVED_DRAFT'):
+            continue
+        if stage not in (None, '', 'ISSUED'):
+            raise ValueError('RECOMMENDATION_EDITORIAL_STATE_INVALID')
+        issued.append({key: value for key, value in record.items()
+                       if key not in EDITOR_ONLY_FIELDS})
+    return issued
+
 
 def read_google_history(client, ledger, *, include_package=False):
     name = 'aemr-report-recommendation-history-v1.json'
