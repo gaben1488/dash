@@ -1,7 +1,7 @@
 /** Reviewed native workbook presentation patch. Sheet IDs and schema coordinates are intentional.
  * Already applied to the rehearsal and live workbook; do not replay dimension groups blindly.
  * Changes copy and disclosure only; no financial inputs, master schema or stage conditional fills.
- * 08.10: J in «Процедуры в работе» is strictly empty and 28px wide.
+ * 08.10 correction: A:J active, K:M hidden; N is the empty visible 36px gutter, O:X closed checks.
  */
 /** Compact daily queue; apply once after inspecting existing dimension groups. */
 /** Final layouts grounded in each sheet's actual headers; ranges are 0-based.
@@ -462,9 +462,26 @@ export const reviewedQueuePresentation = [
         "endIndex": 10
       },
       "properties": {
-        "pixelSize": 28
+        "pixelSize": 185
       },
       "fields": "pixelSize"
+    }
+  },
+  {
+    "updateDimensionProperties": {
+      "range": { "sheetId": 2526400, "dimension": "COLUMNS", "startIndex": 13, "endIndex": 14 },
+      "properties": { "hiddenByUser": false, "pixelSize": 36 },
+      "fields": "hiddenByUser,pixelSize"
+    }
+  },
+  {
+    "repeatCell": {
+      "range": { "sheetId": 2526400, "startRowIndex": 0, "endRowIndex": 1002, "startColumnIndex": 13, "endColumnIndex": 14 },
+      "cell": { "userEnteredFormat": {
+        "backgroundColorStyle": { "rgbColor": { "red": 0.932, "green": 0.944, "blue": 0.960 } },
+        "borders": {}
+      } },
+      "fields": "userEnteredFormat.backgroundColorStyle,userEnteredFormat.borders"
     }
   },
   {
@@ -479,7 +496,7 @@ export const reviewedQueuePresentation = [
           "values": [
             {
               "userEnteredValue": {
-                "formulaValue": "=\"В работе: \"&COUNTIF(D3:D1002;\"?*\")&\". Код открывает строку реестра. Дата — ориентир из источника, не назначенный срок. Проверки закрытых процедур: \"&COUNTIF(O3:O1002;\"?*\")&\" — справа.\""
+                "formulaValue": "=\"В работе: \"&COUNTIF(D3:D1002;\"?*\")&\". Код открывает строку реестра. Дата — ориентир из источника, не назначенный срок. Проверки закрытых процедур: \"&COUNTIF(P3:P1002;\"?*\")&\" — справа.\""
               }
             }
           ]
@@ -1134,14 +1151,12 @@ export const reviewedWorkbookPresentation = [
         {
           "values": [
             {
-              "userEnteredValue": {
-                "stringValue": "Слева — действия по процедурам в работе; справа — проверки данных завершённых процедур. Нажмите «Открыть», чтобы перейти к строке реестра. Дата — ориентир по исходным сведениям, а не установленный срок исполнения. Если срока нет, он не назначается автоматически."
-              }
+              "note": "Слева — действия по процедурам в работе (A:J); справа — проверки данных завершённых процедур (O:X). Между ними видимый пустой разделитель N. Дата — ориентир по исходным сведениям, а не установленный срок исполнения."
             }
           ]
         }
       ],
-      "fields": "userEnteredValue"
+      "fields": "note"
     }
   },
   {
