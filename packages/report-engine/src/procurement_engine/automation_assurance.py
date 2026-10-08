@@ -16,7 +16,7 @@ from urllib.parse import quote
 from .normalize import clean_text, parse_date, to_decimal
 from .source_context import explanations
 
-CONTRACT = 'actionable-assurance-v1'
+CONTRACT = 'actionable-assurance-v2'
 
 SOURCE_ISSUES = {
     'PLAN_TOTAL_MISMATCH': (('H', 'I', 'J', 'K'), 'Итог плана не равен сумме источников', 'Сверьте H:I:J с утверждённым планом и восстановите сумму в K. Не подгоняйте компоненты под ошибочный итог.'),
@@ -105,7 +105,7 @@ ENGINE_LINK_CAUSES = {
 }
 
 
-def assess_automation(model, sources=()):
+def assess_automation(model, sources=(), *, legacy_scope=False):
     actions, observations = [], []
     for value in model.get('details', []):
         row = asdict(value) if is_dataclass(value) else value
@@ -177,8 +177,14 @@ def assess_automation(model, sources=()):
                 effect='Полная автоматическая проверка этого участка не подтверждена.',
                 action='От вас исправление кода или выбор технической связи не требуется. Сопровождение должно разобрать сохранённую попытку и устранить причину; до этого нельзя заявлять полное покрытие.',
                 resolved_when='Повторная проверка участка проходит по исходным доказательствам.'))
+    # An excluded source observation is not a current procurement needing
+    # history repair. Keep it visible in diagnostics without falsely assigning
+    # engine work. Missing inclusion flag is conservatively still included.
+    nonprocurement_uid_gaps = sum(
+        row.get('included') is False and not row.get('procurement_uid')
+        for row in model.get('details', []))
     for row in model.get('details', []):
-        if not row.get('procurement_uid'):
+        if not row.get('procurement_uid') and (legacy_scope or row.get('included') is not False):
             actions.append(_signal('ENGINE_IDENTITY_CONTINUITY', row=row, sources=sources, columns=('A',), owner_kind='ENGINE',
                 title='История закупки не связана однозначно',
                 cause='Текущая строка сохранена, но её постоянная идентичность не установлена.',
@@ -213,9 +219,13 @@ def assess_automation(model, sources=()):
     actions = list({item['signal_id']: item for item in actions}.values())
     user_count = sum(item['user_action_required'] for item in actions)
     engine_count = sum(item['owner_kind'] == 'ENGINE' for item in actions)
-    return {'contract': CONTRACT, 'fully_automated': not actions,
-            'user_action_count': user_count, 'engine_action_count': engine_count,
-            'active_recommendations': len(active), 'link_status_counts': dict(sorted(links.items())),
-            'action_status_counts': dict(sorted(semantics.items())),
-            'source_observations': observations, 'actions': actions,
-            'meaning': 'Arithmetic verification does not imply complete semantic automation.'}
+    outcome = {'contract': 'actionable-assurance-v1' if legacy_scope else CONTRACT,
+        'fully_automated': not actions,
+        'user_action_count': user_count, 'engine_action_count': engine_count,
+        'active_recommendations': len(active), 'link_status_counts': dict(sorted(links.items())),
+        'action_status_counts': dict(sorted(semantics.items())),
+        'source_observations': observations, 'actions': actions,
+        'meaning': 'Arithmetic verification does not imply complete semantic automation.'}
+    if not legacy_scope:
+        outcome['nonprocurement_identity_observations'] = nonprocurement_uid_gaps
+    return outcome
