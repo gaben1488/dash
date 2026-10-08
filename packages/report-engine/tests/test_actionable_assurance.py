@@ -99,3 +99,43 @@ def test_conflicting_link_proofs_stay_engine_work_with_specific_cause():
     assert result['user_action_count'] == 0
     assert result['actions'][0]['code'] == 'ENGINE_RECOMMENDATION_LINK'
     assert 'разные закупки' in result['actions'][0]['cause']
+
+
+def test_out_of_scope_uid_observations_are_not_false_live_engine_tasks():
+    from procurement_engine.automation_assurance import assess_automation
+
+    model = {'details': [
+        {'source_id': 'b', 'sheet_name': 'ВСЕ', 'row_number': 4,
+         'physical_row_key': 'b:4', 'procurement_uid': None, 'included': True, 'grbs': 'УО'},
+        {'source_id': 'b', 'sheet_name': 'ВСЕ', 'row_number': 5,
+         'physical_row_key': 'b:5', 'procurement_uid': None, 'included': False, 'grbs': 'УО'},
+        {'source_id': 'b', 'sheet_name': 'ВСЕ', 'row_number': 6,
+         'physical_row_key': 'b:6', 'procurement_uid': None, 'grbs': 'УО'},
+    ], 'recommendation_records': [], 'issues': [], 'snapshot': {'report_date': '09.10.2026'}}
+    now = assess_automation(model)
+    legacy = assess_automation(model, legacy_scope=True)
+    recent = [item for item in now['actions'] if item['code'] == 'ENGINE_IDENTITY_CONTINUITY']
+    before = [item for item in legacy['actions'] if item['code'] == 'ENGINE_IDENTITY_CONTINUITY']
+    assert len(before) == 3
+    assert len(recent) == 2
+    assert now['nonprocurement_identity_observations'] == 1
+    assert now['contract'] == 'actionable-assurance-v2'
+    assert legacy['contract'] == 'actionable-assurance-v1'
+    assert 'nonprocurement_identity_observations' not in legacy
+    assert {entry['locations'][0]['row'] for entry in recent} == {4, 6}
+
+
+def test_v1_legacy_assurance_json_stays_byte_compatible_with_old_published_contract():
+    from procurement_engine.automation_assurance import assess_automation
+
+    model = {'details': [
+        {'source_id': 'b', 'sheet_name': 'ВСЕ', 'row_number': 4, 'grbs': 'УО',
+         'physical_row_key': 'b:4', 'procurement_uid': None, 'included': False},
+    ], 'recommendation_records': [], 'issues': [], 'snapshot': {'report_date': '09.10.2026'}}
+    old = assess_automation(model, legacy_scope=True)
+    assert set(old) == {
+        'contract', 'fully_automated', 'user_action_count', 'engine_action_count',
+        'active_recommendations', 'link_status_counts', 'action_status_counts',
+        'source_observations', 'actions', 'meaning',
+    }
+    assert old['engine_action_count'] == 1
