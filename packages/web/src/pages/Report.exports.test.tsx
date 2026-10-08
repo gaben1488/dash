@@ -12,6 +12,12 @@ const backend = vi.hoisted(() => ({ archiveUnavailable: false }));
 vi.mock('../api', async importOriginal => {
   const original = await importOriginal<typeof import('../api')>();
   return { ...original, api: { ...original.api,
+    // The editable UЭР ledger is an independent feature. Never let its
+    // background request consume the Word-bundle mock's canned response.
+    getReportRecommendations: async () => ({
+      revision: 'a'.repeat(64), records: [],
+      counts: { active: 0, historical: 0, uerAuthored: 0 },
+    }),
     getHistorySnapshots: async () => [],
     getReport: async (year: number, quarter = 3, asOf?: string) => {
       if (asOf && backend.archiveUnavailable) throw new Error('503 legacy archive unavailable');
@@ -72,7 +78,15 @@ it('changing quarter clears the previous download and explains a missing matchin
   await waitFor(() => expect(main).toHaveProperty('disabled', false));
   fireEvent.click(screen.getByRole('button', { name: '4 кв' }));
   expect(main).toHaveProperty('disabled', true);
-  expect(await screen.findByText(/Для выбранной даты, года и квартала проверенный комплект ещё не выпущен/)).toBeTruthy();
+  // First confirm that the export hook actually requested the *new* quarter.
+  // Under the full test suite, an independent report/ledger effect can still
+  // be settling when the quarter button has already changed.
+  await waitFor(() => expect(request.mock.calls.some(([url]) =>
+    String(url).includes('quarter=4') && String(url).includes('/report-releases?'))).toBe(true),
+  { timeout: 10_000 });
+  await waitFor(() => expect(document.getElementById('report-word-status')?.textContent)
+    .toContain('Для выбранной даты, года и квартала проверенный комплект ещё не выпущен'),
+  { timeout: 10_000 });
   fireEvent.click(main);
   expect(saved).toHaveLength(0);
 });
