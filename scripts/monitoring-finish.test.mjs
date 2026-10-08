@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addressedRemarkRules, archiveResidualFormula, preserveFateComment, jointMoneySummaryRequest, nativeMoneyPresentationRequests, workQueueDividerPresentationRequests } from './monitoring-finish.mjs';
+import { addressedRemarkRules, admitCompletedArchiveFactsByDate, archiveResidualFormula, preserveFateComment, jointMoneySummaryRequest, nativeMoneyPresentationRequests, workQueueDividerPresentationRequests } from './monitoring-finish.mjs';
 
 test('archive keeps partially allocated money and does not migrate the same formula twice', () => {
   const old = '=LET(код;ФильтрВитрин;вид;INDEX(ДанныеМастера;0;2);нмцк;INDEX(ДанныеМастера;0;8);цена;INDEX(ДанныеМастера;0;13);м;(долейКода=0);нмцк)';
@@ -65,3 +65,15 @@ test('presentation follows the closed code header after separator insertion', ()
 });
 
 
+
+
+test('archive omits future monetary facts from detail while keeping source columns and provenance', () => {
+  const { admitCompletedArchiveFactsByDate }=requireDateModule;
+  const fixture='=LET(код;ФильтрВитрин;вид;INDEX(ДанныеМастера;0;2);проц;TRUE;нмцкИсточник;INDEX(ДанныеМастера;0;8);ценаИсточник;INDEX(ДанныеМастера;0;13);фбИсточник;INDEX(ДанныеМастера;0;14);стадия;INDEX(ДанныеМастера;0;23);есть;TRUE;выбор;TRIM($B$1&"");процБезДолей;TRUE;м;TRUE;FILTER(ARRAYFORMULA(цена);м);FILTER(ARRAYFORMULA(экономия);м);FILTER(ARRAYFORMULA(фб);м);FILTER(ARRAYFORMULA(кб);м);FILTER(ARRAYFORMULA(мб);м);FILTER(INDEX(ДанныеМастера;0;25);м))';
+  const fixed=admitCompletedArchiveFactsByDate(fixture);
+  assert.match(fixed,/табДата;IFERROR/u);
+  assert.match(fixed,/IF\(допуск;цена;""\)/u);
+  assert.match(fixed,/Денежный факт вне расчётной даты/u);
+  assert.equal(admitCompletedArchiveFactsByDate(fixed),fixed);
+  assert.throws(()=>admitCompletedArchiveFactsByDate('broken'),/COMPLETED_ARCHIVE_DATE_CONTRACT/u);
+});
