@@ -53,8 +53,8 @@ from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
 
-RENDERER_VERSION = 'renderer-v1.5.0rc23'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc23+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc24'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc24+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -605,7 +605,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['contract']['context_presentation_contract'] = CONTRACT
     model['source_context_groups'] = group_context(model['source_context'], year=year, as_of=report_date)
     from .automation_assurance import assess_automation
-    model['contract']['automation_assurance_contract'] = 'actionable-assurance-v1'
+    model['contract']['automation_assurance_contract'] = 'actionable-assurance-v2'
     model['automation_assurance'] = assess_automation(model, capture['sources'])
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     from .traceability import complete_trace_catalog
