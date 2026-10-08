@@ -8,7 +8,7 @@ export function queueDriftSignals(book: MonitoringBookSnapshot, procedures: read
   if (!grid) return [];
   const work = monitoringWorkQueue(procedures, new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kamchatka' }).format(new Date(book.readAt)));
   const addresses: Array<{ address: string; note: string }> = [];
-  for (const [items, column, letter] of [[work.active, 3, 'D'], [work.closed, 14, 'O']] as const) {
+  for (const [items, column, letter] of [[work.active, 3, 'D'], [work.closed, 15, 'P']] as const) {
     const expected = new Map<string, number>();
     for (const { procedure: p } of items) {
       const code = p.sourceCode ?? p.code;
