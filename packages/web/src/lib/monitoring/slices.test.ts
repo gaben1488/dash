@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeMonitoring, type RegistryProcedure } from './contract';
 import {
-  applySlices, emptySlices, hasAnySlice, nmckBucketId, procedureDefects, reductionBucketId,
+  applySlices, emptySlices, hasAnySlice, nmckBucketId, procedureDefects, reductionBucketId, slicesForMonitoringMode,
   sortProcedures,
 } from './slices';
 import { portraitFrom } from './portrait';
@@ -57,6 +57,23 @@ it('представления сохраняют отмены и наследн
   expect(applySlices(rows, { ...emptySlices(), view: 'withoutContract' }).map((p) => p.stage)).toEqual(['no_result', 'reissued']);
   expect(applySlices(rows, { ...emptySlices(), view: 'successful' }).map((p) => p.stage)).toEqual(['awarded']);
   expect(applySlices(rows, { ...emptySlices(), view: 'all' })).toHaveLength(4);
+});
+
+it('режимы разделяют реестровое представление и рабочую очередь', () => {
+  const rows = [proc({ stage: 'no_result' }), proc({ stage: 'application', code: 'ЭА200-26' }), proc({ stage: 'awarded', code: 'ЭА300-26' })];
+  const s = { ...emptySlices(), view: 'withoutContract' as const, query: 'Предок: ЭА200-26', dept: 'УЭР' };
+  expect(applySlices(rows, s)).toHaveLength(0);
+  const work = slicesForMonitoringMode(s, 'work');
+  expect(work.view).toBe('all');
+  expect(work.query).toBe(s.query);
+  expect(work.dept).toBe('УЭР');
+  const journal = slicesForMonitoringMode(s, 'journal');
+  expect(journal.view).toBe('all');
+  expect(journal.query).toBe('');
+  expect(journal.dept).toBe('УЭР');
+  expect(applySlices(rows, journal)).toHaveLength(3);
+  expect(slicesForMonitoringMode(s, 'registry')).toBe(s);
+  expect(s.view).toBe('withoutContract');
 });
 
 describe('доли совместных процедур', () => {
