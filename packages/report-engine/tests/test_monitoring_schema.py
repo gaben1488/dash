@@ -22,6 +22,52 @@ def test_dynamic_header_counts_do_not_change_the_schema_but_static_labels_do():
     assert header_hash(before, 1, volatile_cells=volatile) != header_hash(after, 1, volatile_cells=volatile)
 
 
+@pytest.mark.parametrize('unknown_label', [False, True])
+def test_reviewed_queue_task_heading_migrates_once_without_accepting_other_label_changes(monkeypatch, unknown_label):
+    from procurement_engine import monitoring_schema as module
+
+    patch = next(p for p in module.REVIEWS if p['sheet'] == 'Процедуры в работе')
+    monkeypatch.setattr(module, 'REVIEWS', [patch])
+    monkeypatch.setattr(module, 'RETIRED', [])
+    queue = {'source_id': 'queue', 'provider_id': 'private-monitoring', 'sheet_id': 2526400,
+        'sheet': 'Процедуры в работе', 'role': 'procedure_lifecycle', 'grbs': None, 'units': 'rub',
+        'columns': 24, 'header_rows': 2,
+        'schema_fingerprint': '7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe',
+        'semantic_header_fingerprint': '40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf'}
+    original = {'sources': [
+        {'source_id': 'anchor', 'provider_id': 'private-monitoring', 'sheet': 'Рабочий реестр процедур', 'sheet_id': 2526300},
+        queue]}
+    sealed = {'queue': (deepcopy(queue), queue['semantic_header_fingerprint'])}
+    rows = json.loads((Path(__file__).parent / 'fixtures/reviewed_queue_task_headers_20261008.json').read_text())
+    if unknown_label:
+        rows[1][15] = 'Unknown procedure identity'
+
+    class Client:
+        def revision(self, provider):
+            return 'stable'
+
+        def grid(self, provider, sheet_id):
+            assert sheet_id == 2526400
+            return {'title': 'Процедуры в работе', 'gridProperties': {'columnCount': 24}}
+
+        def values(self, provider, title, start, end, columns):
+            return deepcopy(rows)
+
+    before = deepcopy(original)
+    if unknown_label:
+        with pytest.raises(ValueError, match='MONITORING_SCHEMA_LIVE_HEADER_MISMATCH'):
+            review_registry(original, sealed, Client())
+    else:
+        reviewed, changes = review_registry(original, sealed, Client())
+        assert changes == 1
+        assert reviewed['sources'][0] == original['sources'][0]
+        assert all(reviewed['sources'][1][key] == queue[key] for key in
+                   ('source_id', 'provider_id', 'sheet_id', 'role', 'grbs', 'units', 'columns', 'header_rows'))
+        assert reviewed['sources'][1]['schema_fingerprint'] == 'd5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb'
+        assert review_registry(reviewed, sealed, Client())[1] == 0
+    assert original == before
+
+
 @pytest.mark.parametrize('drift', [None, 'directory', 'supplier', 'joint', 'department', 'checks'])
 def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, drift):
     from procurement_engine import monitoring_schema as module

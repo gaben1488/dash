@@ -19,7 +19,7 @@ SUPPLIER_SOURCE = {
     'schema_fingerprint': '0f0393b3199a2877eb76e8c938fb467462ffd4e7aa75921be24048e9f97ac75c',
     'semantic_header_fingerprint': 'd631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170',
 }
-REVIEWS = [{'old_sheet': 'Процедуры в работе',
+RECORDED_REVIEWS_V3 = [{'old_sheet': 'Процедуры в работе',
   'sheet': 'Процедуры в работе',
   'role': 'procedure_lifecycle',
   'old_columns': 13,
@@ -135,6 +135,17 @@ REVIEWS = [{'old_sheet': 'Процедуры в работе',
   'semantic': 'd631bfa16d234d0548beeaa0c16fd3eb823cdfba7372c59d54a5ed0b84c97170',
   'volatile_cells': [],
   'optional': True}]
+# Preserve the exact historical review recorded on production. Later caption
+# transitions cannot invalidate an unrelated private migration's predecessor proof.
+REVIEWS = deepcopy(RECORDED_REVIEWS_V3)
+REVIEWS[0].update(
+    sheet_id=2526400,
+    fingerprint='d5a8ca1c915713c86af01eb3e712b88788e65a66bad5988b699bc5347663a4fb',
+    semantic='cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61',
+    previous_geometry=[*REVIEWS[0]['previous_geometry'],
+        [24, 2, '7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe']],
+    previous_semantics=[*REVIEWS[0]['previous_semantics'],
+        '40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf'])
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
   6,

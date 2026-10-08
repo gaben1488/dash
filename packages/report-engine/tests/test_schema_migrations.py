@@ -92,7 +92,7 @@ def test_unrecorded_applied_fingerprint_still_requires_live_proof(tmp_path):
 
 
 @pytest.mark.parametrize('changed_width', [False, True])
-@pytest.mark.parametrize('damage', [None, 'private_history', 'review_history', 'backup', 'identity', 'units', 'fingerprint'])
+@pytest.mark.parametrize('damage', [None, 'private_history', 'review_history', 'backup', 'identity', 'units', 'fingerprint', 'later_review'])
 def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch, changed_width, damage):
     from procurement_engine import monitoring_schema as module
     from procurement_engine.semantic_headers import semantic_header_hash
@@ -117,6 +117,11 @@ def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch
     record = history / 'canonical.migration.json'
     record.write_text(json.dumps({'review': module.REVIEW, 'patches': [review],
                                  'retired': [], 'previous_registry_hash': digest}))
+    if damage == 'later_review':
+        # A later queue-caption review must not invalidate an unrelated, exactly
+        # recorded reference transition or change the old immutable history.
+        monkeypatch.setattr(module, 'RECORDED_REVIEWS_V3', [review], raising=False)
+        monkeypatch.setattr(module, 'REVIEWS', [review, {'sheet': 'Unrelated queue review'}])
     current = deepcopy(prior_registry)
     current['sources'][-1].update(columns=columns, schema_fingerprint=review['fingerprint'],
         semantic_header_fingerprint=review['semantic'], previous_semantic_header_fingerprint=old_semantic,
@@ -142,7 +147,7 @@ def test_private_patch_after_recorded_monitoring_successor(tmp_path, monkeypatch
         def values(self, *_):
             raise AssertionError('A recorded predecessor must not reread its obsolete live headers')
 
-    if damage:
+    if damage and damage != 'later_review':
         with pytest.raises(ValueError, match='SCHEMA_MIGRATION_'):
             apply_google_schema_migrations(registry, client=ObsoleteProposal(package))
     else:

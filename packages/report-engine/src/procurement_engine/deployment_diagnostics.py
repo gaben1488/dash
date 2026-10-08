@@ -104,11 +104,44 @@ PUBLIC_CODES = PUBLIC_CODES | frozenset({'CONTEXT_PRESENTATION_MISSING', 'ARCHIV
     'REPORT_SCOPE_INVALID', 'ARCHIVE_NOT_FOUND', 'ARCHIVE_INPUT_INCOMPLETE', 'ARCHIVE_CORRUPT',
     'ARCHIVE_CHANGED', 'ARCHIVE_BUILD_FAILED', 'ARCHIVE_BUSY', 'ARCHIVE_INTAKE_FAILED'})
 
+PUBLIC_CODES = PUBLIC_CODES | frozenset({
+    'SCHEMA_MIGRATION_ALREADY_RUNNING', 'SCHEMA_MIGRATION_FILE_NOT_UNIQUE',
+    'SCHEMA_MIGRATION_METADATA_INVALID', 'SCHEMA_MIGRATION_FILE_CHANGED',
+    'SCHEMA_MIGRATION_FORMAT_INVALID', 'SCHEMA_MIGRATION_REVIEW_MISSING',
+    'SCHEMA_MIGRATION_DUPLICATE_SOURCE', 'SCHEMA_MIGRATION_SOURCE_NOT_FOUND',
+    'SCHEMA_MIGRATION_CONTRACT_MISMATCH', 'SCHEMA_MIGRATION_ROLE_NOT_SUPPORTED',
+    'SCHEMA_MIGRATION_HEADER_PROOF_INVALID', 'SCHEMA_MIGRATION_BASE_MISMATCH',
+    'SCHEMA_MIGRATION_SEMANTIC_PROOF_INVALID', 'SCHEMA_MIGRATION_SOURCE_CHANGED',
+    'SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH', 'SCHEMA_MIGRATION_LIVE_SEMANTIC_MISMATCH',
+    'SCHEMA_MIGRATION_REGISTRY_CHANGED', 'SCHEMA_MIGRATION_BACKUP_MISMATCH',
+    'SCHEMA_MIGRATION_HISTORY_MISMATCH',
+    'MONITORING_SCHEMA_PRIMARY_MISSING', 'MONITORING_SCHEMA_SOURCE_NOT_UNIQUE',
+    'MONITORING_SCHEMA_IDENTITY_MISMATCH', 'MONITORING_SCHEMA_BASE_MISMATCH',
+    'MONITORING_SCHEMA_SEALED_BASE_MISMATCH', 'MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH',
+    'MONITORING_SCHEMA_LIVE_HEADER_MISMATCH', 'MONITORING_SCHEMA_RETIRED_NOT_UNIQUE',
+    'MONITORING_SCHEMA_RETIRED_BASE_MISMATCH', 'MONITORING_SCHEMA_RETIRED_STILL_PRESENT',
+    'MONITORING_SCHEMA_SUPPLIER_HEADER_MISMATCH', 'MONITORING_SCHEMA_CHECKS_HEADER_MISMATCH',
+    'MONITORING_SCHEMA_SOURCE_CHANGED', 'MONITORING_SCHEMA_UD_NOT_UNIQUE',
+    'MONITORING_SCHEMA_UD_IDENTITY_MISMATCH', 'MONITORING_SCHEMA_UD_SEALED_MISMATCH',
+    'MONITORING_SCHEMA_UD_HEADER_MISMATCH', 'MONITORING_SCHEMA_UD_PROOF_MISMATCH',
+    'MONITORING_SCHEMA_REGISTRY_CHANGED', 'MONITORING_SCHEMA_HISTORY_MISMATCH',
+})
+
 
 def public_error_code(message):
     """Separate known machine codes from private suffixes and arbitrary exceptions."""
     prefix = message.split(':', 1)[0]
     return prefix if prefix in PUBLIC_CODES else 'GENERATION_FAILED'
+
+
+def summarize_migration_log(text):
+    """Project the final exception to a fixed vocabulary, never echo a log line."""
+    for line in reversed(text.splitlines()):
+        error_type, separator, message = line.partition(': ')
+        if separator and error_type in PUBLIC_TYPES:
+            return {'migration_error_code': public_error_code(message),
+                    'migration_error_type': error_type}
+    return {}
 
 
 PUBLIC_SQLITE_CODES = frozenset(name for name in dir(sqlite3)
@@ -159,4 +192,20 @@ if __name__ == '__main__':
                 summary = {'last_report_status': 'NOT_CURRENT'}
     except (OSError, ValueError, TypeError, AttributeError):
         summary = {'last_report_status': 'UNAVAILABLE'}
+    if stage == 'schema_migration' and len(sys.argv) == 3:
+        try:
+            started = datetime.fromisoformat(sys.argv[2]).timestamp()
+            logs = [(Path('data/reports/schema-migration.log'), 'google_schema'),
+                    (Path('data/reports/monitoring-schema-migration.log'), 'monitoring_schema')]
+            current = [(path.stat().st_mtime, path, step) for path, step in logs
+                       if path.is_file() and path.stat().st_mtime >= started]
+            if current:
+                _, path, step = max(current)
+                with path.open('rb') as log:
+                    log.seek(max(0, path.stat().st_size - 65536))
+                    projected = summarize_migration_log(log.read().decode('utf-8', errors='replace'))
+                if projected:
+                    summary.update(projected, migration_step=step)
+        except (OSError, ValueError, TypeError):
+            pass
     print(json.dumps({'failed_deployment_stage': stage, **summary}))
