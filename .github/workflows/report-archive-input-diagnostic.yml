@@ -1,0 +1,77 @@
+name: Read-only archived input diagnosis
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/report-archive-input-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  archived-inputs:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/report-archive-input-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect frozen input QA and action codes without source contents or writes
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 30s
+          command_timeout: 2m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            docker run --rm -i --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --volumes-from "$server":ro --entrypoint /opt/report-env/bin/python "$image" - <<'PY'
+            import json
+            from collections import Counter
+            from datetime import date
+            from pathlib import Path
+            from procurement_engine.archive_runtime import load_frozen_input
+            from procurement_engine.automation_assurance import SOURCE_ISSUES
+            from procurement_engine.deployment_diagnostics import PUBLIC_CODES, public_error_code
+            from procurement_engine.procedures import normalize_procedure_values, validate_operational_view, validate_procedure_lineage, validate_procedure_shares, validate_procedure_uniqueness
+            from procurement_engine.qa import validate_master_values
+            root = Path('/app/packages/server/data/reports')
+            allowed = PUBLIC_CODES | frozenset(SOURCE_ISSUES) | frozenset({
+                'DUPLICATE_PROCEDURE_CODE', 'PROCEDURE_LINEAGE_CONFLICT', 'PROCEDURE_LINEAGE_CYCLE',
+                'PROCEDURE_SHARE_PARENT_MISSING', 'PROCEDURE_SHARE_AMOUNT_INVALID',
+                'PROCEDURE_SHARE_PARTICIPANT_AMBIGUOUS', 'PROCEDURE_SHARE_BALANCE_MISMATCH',
+                'PROCEDURE_STAGE_DATE_MISMATCH', 'PROCEDURE_QUEUE_DUPLICATE',
+                'PROCEDURE_QUEUE_MISSING', 'PROCEDURE_QUEUE_UNEXPECTED', 'PROCEDURE_QUEUE_MISMATCH',
+                'FACT_MONEY_WITHOUT_DATE', 'CONFLICTING_FUNDING_STATEMENTS',
+                'PLAN_YEAR_STATEMENT_CONFLICT', 'FACT_DATE_STATEMENT_CONFLICT',
+                'ENGINE_IDENTITY_CONTINUITY', 'ENGINE_RECOMMENDATION_LINK', 'ENGINE_RECOMMENDATION_ACTION',
+            })
+            def counts(items):
+                return dict(sorted(Counter(item['code'] if item.get('code') in allowed else 'GENERATION_FAILED'
+                    for item in items).items()))
+            try:
+                status = json.loads((root / 'status.json').read_text())
+                assurance = status.get('automation_assurance') or (status.get('publication') or {}).get('automation_assurance') or {}
+                print(json.dumps({'current_action_code_counts': counts(assurance.get('actions') or [])}, sort_keys=True))
+                source = sorted(root.glob('archives/WEEKLY-*'))[-1]
+                day = date.fromisoformat(source.name.removeprefix('WEEKLY-'))
+                capture, registry, ledger, _ = load_frozen_input(source, day=day.isoformat(), year=day.year, quarter=(day.month - 1) // 3 + 1)
+                issues = []
+                for item in capture['sources']:
+                    if item['role'] == 'master':
+                        headers = item.get('header_rows', 3)
+                        issues.extend(issue.as_dict() for issue in validate_master_values(item['values'][headers:], grbs=item['grbs'], source_id=item['provider_id'], sheet_name=item['sheet'], first_sheet_row=headers + 1))
+                main = next(item for item in capture['sources'] if item['sheet'] == 'Рабочий реестр процедур')
+                queue = next(item for item in capture['sources'] if item['sheet'] == 'Процедуры в работе')
+                attempts, shares = normalize_procedure_values(main['values'])
+                issues.extend(issue.as_dict() for issue in validate_procedure_uniqueness(attempts) + validate_procedure_lineage(attempts) + validate_procedure_shares(attempts, shares) + validate_operational_view(main['values'], queue['values'], as_of=day.isoformat()))
+                print(json.dumps({'frozen_input_qa': {'report_date': day.isoformat(), 'error_code_counts': counts([item for item in issues if item.get('severity') == 'ERROR']), 'warning_code_counts': counts([item for item in issues if item.get('severity') == 'WARN'])}}, sort_keys=True))
+            except Exception as error:
+                print(json.dumps({'diagnostic_error_code': public_error_code(str(error))}, sort_keys=True))
+                raise SystemExit(2)
+            PY
