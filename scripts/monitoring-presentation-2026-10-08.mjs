@@ -1,6 +1,7 @@
 /** Reviewed native workbook presentation patch. Sheet IDs and schema coordinates are intentional.
  * Already applied to the rehearsal and live workbook; do not replay dimension groups blindly.
  * Changes copy and disclosure only; no financial inputs, master schema or stage conditional fills.
+ * 08.10: J in «Процедуры в работе» is strictly empty and 28px wide.
  */
 /** Compact daily queue; apply once after inspecting existing dimension groups. */
 /** Final layouts grounded in each sheet's actual headers; ranges are 0-based.
@@ -461,7 +462,7 @@ export const reviewedQueuePresentation = [
         "endIndex": 10
       },
       "properties": {
-        "pixelSize": 185
+        "pixelSize": 28
       },
       "fields": "pixelSize"
     }
