@@ -155,3 +155,23 @@ test('денежный расчёт не требует дополнительн
   assert(result.includes('QUERY(FILTER('));
   assert.throws(() => inlineMoneyAttributionFormula('=COUNTIFS(A1:A2;"да")'), /MONEY_FORMULA_CONTRACT/u);
 });
+
+
+test('diagnostics explain code collisions in X/Y without changing the key and survive repeat runs', async () => {
+  const { explainProcedureCollisionAction,explainProcedureCollisionRemarks,planMasterCodeDiagnostics }=await import('./monitoring-migration.mjs');
+  const action='=IF(A3="";"";Y3)';
+  const remarks='=IF(TRIM(A3&"")="";"";LET(код;A3;TEXTJOIN("; ";TRUE;"Ошибка: Код повторяется у строк не вида «доля» — A";"Ошибка: Дубль доли — A")))';
+  const upgradedAction=explainProcedureCollisionAction(action,3);
+  const upgradedRemarks=explainProcedureCollisionRemarks(remarks,3);
+  assert.match(upgradedAction,/КОНФЛИКТ/u);
+  assert.match(upgradedAction,/строки/u);
+  assert.match(upgradedRemarks,/Код из G не распознан/u);
+  assert.match(upgradedRemarks,/Автокод в A перезаписан/u);
+  assert.equal(explainProcedureCollisionAction(upgradedAction,3),upgradedAction);
+  assert.equal(explainProcedureCollisionRemarks(upgradedRemarks,3),upgradedRemarks);
+  const requests=planMasterCodeDiagnostics(action,remarks,2526300,1002);
+  assert.equal(requests.length,2);
+  assert.equal(requests[0].updateCells.start.columnIndex,23);
+  assert.equal(requests[1].copyPaste.destination.endRowIndex,1002);
+  assert.ok(requests.every(req=>!('addProtectedRange' in req)));
+});
