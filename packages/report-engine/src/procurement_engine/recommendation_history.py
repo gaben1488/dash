@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 from .recommendation_links import verify_saved_report_origin
 
+
 def uer_entry_origin(record, *, as_of=None):
     """A saved UЭР register entry is its own source, not a past Word file.
 
