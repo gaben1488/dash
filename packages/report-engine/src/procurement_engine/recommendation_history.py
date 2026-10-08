@@ -4,7 +4,9 @@ import binascii
 import copy
 import hashlib
 import re
+from datetime import datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from .recommendation_links import verify_saved_report_origin
 
@@ -34,6 +36,50 @@ def issued_recommendations(records):
         issued.append({key: value for key, value in record.items()
                        if key not in EDITOR_ONLY_FIELDS})
     return issued
+
+
+
+def verify_uer_official_origin(record, *, report_date):
+    """The first-party UER input event is an original, not a prior Word copy.
+
+    This authenticates the exact recorded text against its stored registration
+    event. It does NOT imply fulfillment, approval by a separate manager,
+    contractual performance or payment.
+    """
+    from .normalize import parse_date
+
+    as_of = parse_date(report_date)
+    text = record.get('recommendation_text')
+    if not as_of or not isinstance(text, str) or record.get('issued_by') != 'УЭР':
+        return None
+    expected = hashlib.sha256(text.encode()).hexdigest()
+    for event in record.get('origin_evidence') or ():
+        if not isinstance(event, dict) or event.get('kind') != 'UER_DASH_OFFICIAL_ENTRY_V1':
+            continue
+        if (event.get('recommendation_id') != record.get('recommendation_id')
+                or event.get('grbs') != record.get('grbs')
+                or event.get('issued_by') != 'УЭР'
+                or event.get('text_sha256') != expected):
+            continue
+        try:
+            recorded = datetime.fromisoformat(event['recorded_at'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if recorded.tzinfo is None:
+            continue
+        when = recorded.astimezone(ZoneInfo('Asia/Kamchatka')).date().isoformat()
+        if (when != parse_date(event.get('document_date')) or when > as_of
+                or (record.get('first_seen') and parse_date(record['first_seen']) > when)):
+            continue
+        return {
+            'origin_kind': 'UER_DASH_OFFICIAL_ENTRY_V1',
+            'source_ref': record.get('recommendation_id'),
+            'document_date': when,
+            'recorded_at': event['recorded_at'],
+            'text_sha256': expected,
+            'grbs': record['grbs'],
+        }
+    return None
 
 
 def read_google_history(client, ledger, *, include_package=False):
