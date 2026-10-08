@@ -208,3 +208,18 @@ test('manual supplier INNs are reviewable facts, never silently overwritten by f
   assert.equal(findings[1].validShape, false);
   assert.ok(findings.every(x => x.requiresPrimaryEvidence));
 });
+
+test('formula guard does not mistake documented manual supplier IDs for broken formulas', () => {
+  const row = (n) => ({
+    row: n,
+    cells: Array.from({length: 25}, (_, i) => i === 18
+      ? {userEnteredValue:{numberValue:4101147092}}
+      : i === 0 || [16,21,22,23,24].includes(i)
+        ? {userEnteredValue:{formulaValue:`=IF(A${n}="";"";G${n})`}}
+        : {}),
+  });
+  const review = auditMasterFormulas([row(3),row(4)]);
+  assert.deepEqual(review,{constants:[],deviations:[],errors:[]});
+  const enforcedS = auditMasterFormulas([row(3),row(4)],[18]);
+  assert.equal(enforcedS.constants.length,2, 'Explicit S-only audit still detects overrides');
+});
