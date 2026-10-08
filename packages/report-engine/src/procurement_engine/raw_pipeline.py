@@ -79,6 +79,9 @@ def header_hash(values, header_rows, *, volatile_cells=()):
 
 def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=None):
     """Validate a completed connector capture. Never simulate revision rereads."""
+    from .recommendation_history import issued_recommendations
+
+    ledger = issued_recommendations(ledger if ledger is not None else [])
     if capture.get('archived_file_evidence') is not None:
         from .archived_evidence import verify_archived_values
         verify_archived_values(capture, registry=registry, ledger=ledger)
@@ -475,6 +478,9 @@ def monthly_projection(rows, year, as_of=None, *, grbs_order=None):
 
 
 def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, identity_store=None, previous_publication=None):
+    from .recommendation_history import issued_recommendations
+
+    ledger = issued_recommendations(ledger)
     validate_ledger_contract(ledger)
     out = Path(out_dir)
     if out.exists() and any(out.iterdir()):
