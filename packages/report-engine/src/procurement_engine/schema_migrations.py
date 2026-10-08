@@ -9,8 +9,8 @@ from .google_adapter import GoogleReadClient
 from .raw_pipeline import header_hash
 from .runtime import _write
 from .runtime_inputs import validate_inputs
-from .snapshot import canonical_semantic_hash
 from .semantic_headers import semantic_header_hash
+from .snapshot import canonical_semantic_hash
 
 NAME = 'aemr-report-schema-migrations-v1.json'
 
