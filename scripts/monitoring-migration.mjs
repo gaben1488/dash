@@ -188,6 +188,46 @@ export function planProcedureCodeAutofill(rows, sheetId, rowCount) {
   ];
 }
 
+/** Retain the clean key in A; explain collisions and parser failures in X/Y.
+ * The request is idempotent; first run on a full, freshly inspected A:Y grid.
+ */
+export function explainProcedureCollisionAction(formula, row) {
+  if (!Number.isInteger(row) || row < 3 || typeof formula !== 'string' || !formula.startsWith('=')) throw new Error('CODE_ACTION_CONTRACT');
+  if (formula.includes('⚠ КОНФЛИКТ ') && formula.includes('Нет формулы кода в A')) return formula;
+  if (!formula.includes(`Y${row}`)) throw new Error('CODE_ACTION_DIAGNOSTIC_REQUIRED');
+  const conflicts=`TEXTJOIN(", ";TRUE;FILTER(ROW($A$3:$A$1002);EXACT($A$3:$A$1002;A${row});NOT(EXACT($B$3:$B$1002;"доля"))))`;
+  return `=IF(AND(TRIM(G${row}&"")<>"";NOT(ISFORMULA(A${row})));"⚠ Нет формулы кода в A — восстановить";IF(AND(TRIM(G${row}&"")<>"";TRIM(A${row}&"")="");"⚠ Код в G не распознан — исправить начало G";IF(ISNUMBER(FIND("Ошибка: Код повторяется у строк не вида «доля» — A";Y${row}));"⚠ КОНФЛИКТ "&A${row}&": строки "&${conflicts}&". Сверить G по документу";IF(ISNUMBER(FIND("Ошибка: Дубль доли — A";Y${row}));"⚠ Дубль доли "&A${row}&" / "&E${row}&" — см. Y";${formula.slice(1)}))))`;
+}
+
+export function explainProcedureCollisionRemarks(formula, row) {
+  if (!Number.isInteger(row) || row < 3 || typeof formula !== 'string' || !formula.startsWith('=')) throw new Error('CODE_REMARK_CONTRACT');
+  if (formula.includes('Автокод в A перезаписан') && formula.includes('Код из G не распознан')) return formula;
+  const first=`=IF(TRIM(A${row}&"")="";"";LET(`;
+  if (!formula.startsWith(first)) throw new Error('CODE_REMARK_BASELINE');
+  const once=(oldText,nextText)=>{if(formula.split(oldText).length!==2)throw new Error('CODE_REMARK_TEMPLATE');formula=formula.replace(oldText,nextText)};
+  once(first,`=IF(TRIM(A${row}&"")="";IF(TRIM(G${row}&"")<>"";"Ошибка: Код из G не распознан — A/G";"");LET(`);
+  const codeRows=`TEXTJOIN(", ";TRUE;FILTER(ROW($A$3:$A$1002);EXACT($A$3:$A$1002;код);NOT(EXACT($B$3:$B$1002;"доля"))))`;
+  const shareRows=`TEXTJOIN(", ";TRUE;FILTER(ROW($A$3:$A$1002);EXACT($A$3:$A$1002;код);EXACT($B$3:$B$1002;"доля");EXACT($E$3:$E$1002;E${row})))`;
+  once('"Ошибка: Код повторяется у строк не вида «доля» — A"', `"Ошибка: Код повторяется у строк не вида «доля» — A: "&код&"; строки "&${codeRows}&" — сверить G"`);
+  once('"Ошибка: Дубль доли — A"', `"Ошибка: Дубль доли — A: "&код&" / "&E${row}&"; строки "&${shareRows}`);
+  return `=IF(AND(TRIM(G${row}&"")<>"";NOT(ISFORMULA(A${row})));"Ошибка: Автокод в A перезаписан — A";${formula.slice(1)})`;
+}
+
+/** All diagnostic rows have one template; do not hide or clear conflicting keys. */
+export function planMasterCodeDiagnostics(actionFormula,remarkFormula,sheetId,rowCount=1002) {
+  if (!Number.isInteger(sheetId) || rowCount < 4) throw new Error('CODE_DIAGNOSTIC_BOUNDS');
+  const x=explainProcedureCollisionAction(actionFormula,3);
+  const y=explainProcedureCollisionRemarks(remarkFormula,3);
+  return [
+    { updateCells: { start: { sheetId,rowIndex:2,columnIndex:23 },
+      rows: [{values:[{userEnteredValue:{formulaValue:x}},{userEnteredValue:{formulaValue:y}}]}],
+      fields:'userEnteredValue' } },
+    { copyPaste: { source: {sheetId,startRowIndex:2,endRowIndex:3,startColumnIndex:23,endColumnIndex:25},
+      destination: {sheetId,startRowIndex:3,endRowIndex:rowCount,startColumnIndex:23,endColumnIndex:25},
+      pasteType:'PASTE_FORMULA',pasteOrientation:'NORMAL' } },
+  ];
+}
+
 export function splitQueueFormula(formula) {
   const start = formula.lastIndexOf(';{блок1;');
   const end = formula.lastIndexOf('});');
@@ -206,7 +246,7 @@ export function removeCancellationClockWarning(formula) {
   return formula.replace(pattern, '""');
 }
 
-export function auditMasterFormulas(rows, columns = [16, 18, 21, 22, 23, 24]) {
+export function auditMasterFormulas(rows, columns = [0, 16, 18, 21, 22, 23, 24]) {
   if (!rows.length) throw new Error('EMPTY_FORMULA_BASELINE');
   const normalize = (formula, row) => formula.replace(new RegExp(`(\\$?[A-Z]{1,2})${row}(?![0-9])`, 'gu'), '$1{row}');
   const baseline = new Map(columns.map((col) => {
