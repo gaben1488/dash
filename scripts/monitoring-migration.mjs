@@ -273,6 +273,28 @@ export function auditMasterFormulas(rows, columns = [0, 16, 18, 21, 22, 23, 24])
   return { constants, deviations, errors };
 }
 
+
+/** Review manual supplier IDs without replacing facts or locking any cells. */
+export function auditManualInnOverrides(rows) {
+  const overrides = [];
+  for (const { row, cells } of rows) {
+    const cell = cells[18];
+    const entered = cell?.userEnteredValue;
+    if (!entered || entered.formulaValue) continue;
+    const raw = entered.stringValue ?? entered.numberValue;
+    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+    const inn = String(raw).trim();
+    overrides.push({
+      address: `S${row}`,
+      code: cells[0]?.formattedValue ?? '',
+      inn,
+      validShape: /^(?:\d{10}|\d{12})$/u.test(inn),
+      requiresPrimaryEvidence: true,
+    });
+  }
+  return overrides;
+}
+
 export function withQualityAction(formula, row) {
   if (!formula.startsWith('=')) throw new Error('ACTION_FORMULA_CONTRACT');
   return `=LET(основное;${formula.slice(1)};замеч;Y${row}&"";IF(основное<>"";основное;IF(AND(TRIM(A${row}&"")<>"";NOT(EXACT(B${row};"доля"));REGEXMATCH(замеч;"Ошибка:|Проверить:|Неполно:"));IF(REGEXMATCH(замеч;"ИНН|Поставщик|Победитель");"Уточнить поставщика и ИНН";IF(REGEXMATCH(замеч;"дат[аы]|Дата");"Дополнить даты";IF(REGEXMATCH(замеч;"разбивк|Разбивк|бюджет|Экономия не разложена");"Разнести экономию по бюджетам";"Проверить сведения")));"")))`;
