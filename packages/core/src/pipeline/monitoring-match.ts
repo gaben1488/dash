@@ -54,6 +54,8 @@ export interface MonitoringBookRow {
 /** Строка-процедура «Ежедневного мониторинга» (листы управлений и журнал «25-26»). */
 export interface MonitoringProcedureRow {
   readonly canonical?: boolean;
+  /** Stage is the explicit canonical master outcome, not a guess from a free-form GRBS note. */
+  readonly stage?: 'application' | 'published' | 'bidding' | 'awarded' | 'no_result' | 'reissued' | 'unknown';
   /** Canonical joint allocations; a participant is selected by its department, never by nearest price. */
   readonly allocations?: readonly { dept: string; nmck: number | null; price: number | null }[];
   /** Адрес процедуры: «1. УЭР:7» (лист + номер строки). */
