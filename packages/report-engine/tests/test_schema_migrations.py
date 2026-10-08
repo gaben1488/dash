@@ -59,6 +59,38 @@ def test_reviewed_header_migration_keeps_contract_geometry_and_immutable_backup(
     assert len([p for p in (tmp_path / 'registry-history').glob('*.json') if not p.name.endswith('.migration.json')]) == 1
 
 
+def test_recorded_migration_does_not_replay_old_proposal_but_live_capture_stays_strict(tmp_path):
+    from procurement_engine.atomic_snapshot import AtomicSnapshotError
+    from procurement_engine.google_adapter import capture_google
+
+    registry, package, _ = migration(tmp_path)
+    assert apply_google_schema_migrations(registry, client=Client(package)) == 1
+    installed = registry.read_bytes()
+
+    class NextHeader(Client):
+        def values(self, *_):
+            return [['Key', 'Next unreviewed caption']]
+
+    assert apply_google_schema_migrations(registry, client=NextHeader(package)) == 0
+    assert registry.read_bytes() == installed
+    source = json.loads(installed)['sources'][-1]
+    with pytest.raises(AtomicSnapshotError, match='SOURCE_SCHEMA_CHANGED'):
+        capture_google({'sources': [source]}, client=NextHeader(package))
+
+
+def test_unrecorded_applied_fingerprint_still_requires_live_proof(tmp_path):
+    registry, package, before = migration(tmp_path)
+    before['sources'][-1]['schema_fingerprint'] = package['migrations'][0]['new_fingerprint']
+    registry.write_text(json.dumps(before))
+
+    class NextHeader(Client):
+        def values(self, *_):
+            return [['Key', 'Next unreviewed caption']]
+
+    with pytest.raises(ValueError, match='SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH'):
+        apply_google_schema_migrations(registry, client=NextHeader(package))
+
+
 @pytest.mark.parametrize('mutation', ['wrong_source', 'wrong_hash', 'wrong_geometry', 'not_current'])
 def test_unreviewed_or_misaddressed_migration_cannot_replace_the_contract(tmp_path, mutation):
     registry, package, before = migration(tmp_path)

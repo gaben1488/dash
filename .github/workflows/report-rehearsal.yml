@@ -63,7 +63,7 @@ jobs:
               --env-file .env.production --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" - <<'PYREAD'
-            import json, tempfile
+            import json, shutil, tempfile
             from pathlib import Path
             from procurement_engine.google_adapter import GoogleReadClient, GoogleReadError
             from procurement_engine.raw_pipeline import header_hash
@@ -79,6 +79,15 @@ jobs:
                 receipt = store.latest()
             sealed = _headers(root / "published/releases" / receipt["release_id"]) if receipt else {}
             client = GoogleReadClient()
+            # Rehearse the real deploy order in temporary inputs. The production
+            # registry, history, ledger and published catalog remain read-only.
+            from procurement_engine.schema_migrations import apply_google_schema_migrations
+            with tempfile.TemporaryDirectory() as temporary:
+                inputs = Path(temporary) / 'inputs'
+                shutil.copytree(root / 'inputs', inputs)
+                private_changes = apply_google_schema_migrations(inputs / 'registry.json', client=client)
+                registry = json.loads((inputs / 'registry.json').read_text())
+                print(json.dumps({'private_schema_preflight': {'status': 'PASS', 'changes': private_changes}}, sort_keys=True))
             results = []
             for index, source in enumerate(registry["sources"]):
                 item = {"registry_index": index, "sheet": source["sheet"], "grbs": source.get("grbs"), "role": source["role"], "columns": source["columns"], "header_rows": source["header_rows"], "old_fingerprint": source["schema_fingerprint"]}

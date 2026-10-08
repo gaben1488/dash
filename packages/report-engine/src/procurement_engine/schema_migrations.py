@@ -74,14 +74,6 @@ def _apply_google_schema_migrations(path, *, client):
                 raise ValueError('SCHEMA_MIGRATION_HEADER_PROOF_INVALID')
         if source['schema_fingerprint'] not in {patch['old_fingerprint'], patch['new_fingerprint']}:
             raise ValueError('SCHEMA_MIGRATION_BASE_MISMATCH')
-        revision = client.revision(source['provider_id'])
-        grid = client.grid(source['provider_id'], source['sheet_id'])
-        headers = client.values(source['provider_id'], source['sheet'], 1, source['header_rows'], source['columns'])
-        if not revision or revision != client.revision(source['provider_id']):
-            raise ValueError('SCHEMA_MIGRATION_SOURCE_CHANGED')
-        if (grid['title'] != source['sheet'] or grid['gridProperties']['columnCount'] < source['columns']
-            or header_hash(headers, source['header_rows']) != patch['new_fingerprint']):
-            raise ValueError('SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH')
         update = {'schema_fingerprint': patch['new_fingerprint']}
         remove_volatile = False
         if 'new_semantic_fingerprint' in patch:
@@ -93,8 +85,6 @@ def _apply_google_schema_migrations(path, *, client):
                 or new_semantic != patch['new_semantic_fingerprint']
                 or source.get('semantic_header_fingerprint') not in (old_semantic, new_semantic)):
                 raise ValueError('SCHEMA_MIGRATION_SEMANTIC_PROOF_INVALID')
-            if semantic_header_hash(headers, source['header_rows'], source['columns'], volatile_cells=new_volatile) != new_semantic:
-                raise ValueError('SCHEMA_MIGRATION_LIVE_SEMANTIC_MISMATCH')
             update.update(semantic_header_fingerprint=new_semantic,
                 previous_semantic_header_fingerprint=old_semantic,
                 schema_change_reason=patch['reason'])
@@ -102,6 +92,25 @@ def _apply_google_schema_migrations(path, *, client):
                 update['volatile_header_cells'] = list(new_volatile)
             else:
                 remove_volatile = 'volatile_header_cells' in source
+        # An exact recorded migration is already installed. Do not replay its
+        # obsolete live-header proposal before the next reviewed transition.
+        # This says only "nothing to migrate"; capture still validates the live
+        # schema and full-header continuity before any publication.
+        if not remove_volatile and all(source.get(key) == value for key, value in update.items()):
+            records = (path.parent / 'registry-history').glob('*.migration.json')
+            if any(patch in json.loads(record.read_text()).get('package', {}).get('migrations', []) for record in records):
+                continue
+        revision = client.revision(source['provider_id'])
+        grid = client.grid(source['provider_id'], source['sheet_id'])
+        headers = client.values(source['provider_id'], source['sheet'], 1, source['header_rows'], source['columns'])
+        if not revision or revision != client.revision(source['provider_id']):
+            raise ValueError('SCHEMA_MIGRATION_SOURCE_CHANGED')
+        if (grid['title'] != source['sheet'] or grid['gridProperties']['columnCount'] < source['columns']
+            or header_hash(headers, source['header_rows']) != patch['new_fingerprint']):
+            raise ValueError('SCHEMA_MIGRATION_LIVE_HEADER_MISMATCH')
+        if 'new_semantic_fingerprint' in patch and semantic_header_hash(
+            headers, source['header_rows'], source['columns'], volatile_cells=new_volatile) != new_semantic:
+            raise ValueError('SCHEMA_MIGRATION_LIVE_SEMANTIC_MISMATCH')
         if remove_volatile or any(source.get(key) != value for key, value in update.items()):
             source.update(update)
             if remove_volatile:
