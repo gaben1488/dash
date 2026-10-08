@@ -79,6 +79,9 @@ export function planAnalyticalRepair(cells, sheetId, rowCount) {
   const derived = ['J210', 'I147', 'B152', 'B153', 'B220', ...Array.from({ length: 9 }, (_, i) => `I${39 + 12 * i}`)];
   status.userEnteredValue.formulaValue = status.userEnteredValue.formulaValue.replace('B224<>"схема соответствует")', `B224<>"схема соответствует";B225<>"охват соответствует сетке";NOT(AND(${derived.map(a => `ISFORMULA(${a})`).join(';')})))`);
   status.userEnteredValue.formulaValue = status.userEnteredValue.formulaValue.replace('IF(OR(COUNTIF(E16:E25;', '"Требуют внимания · процедур: "&B218&CHAR(10)&"Учтённая цена: "&TEXT(I12;"#,##0.00")&" ₽ · экономия: "&TEXT(J12;"#,##0.00")&" ₽"&CHAR(10)&IF(OR(COUNTIF(E16:E25;').replace('&" · результатов внесено "', '&CHAR(10)&"Результатов внесено "');
+  put(226, 0, 'Дубли кодов, влияющие на связи / семейную аналитику');
+  put(226, 1, familyLinkedDuplicateGuardFormula(), 'Только пересечения кодов внутри связей и переоформленных попыток блокируют граф. Остальные дубли остаются явными ошибками.');
+  status.userEnteredValue.formulaValue = canonicalAnalyticalStatusFormula();
   return requests;
 }
 
@@ -133,37 +136,56 @@ export function planAnalyticalLinks(sheetId, masterSheetId, viewIds) {
   } }));
 }
 
+/** A code collision only blocks family calculations when the conflicted identifier
+ * belongs to a replacement/ancestry chain. Other collisions remain visible errors.
+ */
+export function familyLinkedDuplicateGuardFormula() {
+  return "=IF($B$171=0;0;IFERROR(LET(коды;INDEX(ДанныеМастера;0;1);виды;INDEX(ДанныеМастера;0;2);предки;INDEX(ДанныеМастера;0;21);наследники;INDEX(ДанныеМастера;0;22);стадии;INDEX(ДанныеМастера;0;23);ошибки;INDEX(ДанныеМастера;0;25);повторы;UNIQUE(FILTER(коды;REGEXMATCH(ошибки&\"\";\"Код повторяется у строк не вида «доля»\")));SUM(MAP(повторы;LAMBDA(повтор;N(OR(SUMPRODUCT(EXACT(коды;повтор)*NOT(EXACT(виды;\"доля\"))*(((TRIM(предки&\"\")<>\"\")+(TRIM(наследники&\"\")<>\"\")+(стадии=\"Переоформлена\"))>0))>0;SUMPRODUCT(--ISNUMBER(FIND(\"; \"&повтор&\"; \";\"&предки&\"; \")))>0;SUMPRODUCT(--ISNUMBER(FIND(\"; \"&повтор&\"; \";\"&наследники&\"; \")))>0))))));\"не рассчитано\"))";
+}
+
+/** A computed summary can coexist with explicitly disclosed non-family issues. */
+export function canonicalAnalyticalStatusFormula() {
+  return "=IFERROR(IF(OR(NOT(ISNUMBER(B220));B220<=0;COUNTIF(B157:B209;\"не рассчитано\")>0;NOT(ISNUMBER(B226));NOT(ISNUMBER(I147));B224<>\"схема соответствует\";B225<>\"охват соответствует сетке\";NOT(AND(ISFORMULA(J210);ISFORMULA(I147);ISFORMULA(B152);ISFORMULA(B153);ISFORMULA(B220);ISFORMULA(I39);ISFORMULA(I51);ISFORMULA(I63);ISFORMULA(I75);ISFORMULA(I87);ISFORMULA(I99);ISFORMULA(I111);ISFORMULA(I123);ISFORMULA(I135))));\"Свод не рассчитан: блокирующие ошибки семей, схемы или формул — см. B215, B168, B226, J210\";\"Свод рассчитан · требуют внимания: \"&B218&\" процедур · конфликтные коды: \"&B171&\" (в семейных связях: \"&B226&\")\"&CHAR(10)&\"Экономия требует распределения / проверки: \"&TEXT(B152;\"#,##0.00\")&\" ₽\"&CHAR(10)&IF(OR(COUNTIF(E16:E25;\"<>сошлось\")>0;ROUND(D150;2)<>0;ROUND(D151;2)<>0;B215<>0);\"Есть несогласованность расчётов\";\"Арифметика согласована\")&CHAR(10)&\"Результатов внесено \"&C12&\", учтено \"&B216&\", требуют проверки даты \"&B217&IF(B217>0;\" (\"&C217&\")\";\"\")&\" · без даты итогов \"&B221);\"Свод не рассчитан — проверьте формулы и контроль\")";
+}
+
 /** One native calculation for all nine views, including branches and merged roots. */
 export function familyValuationFormula() {
   const col = n => `INDEX(ДанныеМастера;0;${n})`;
   const empty = 'VSTACK(HSTACK($R$3:$R$11;MAP($R$3:$R$11;LAMBDA(группа;0)));HSTACK("Итого";0))';
-  return `=IFERROR(IF(OR($B$215<>0;$B$168>0;$B$171>0);"не рассчитано";LET(маска;ARRAYFORMULA((TRIM(${col(1)}&"")<>"")*(${col(2)}<>"доля"));всеКоды;FILTER(${col(1)};маска);всеПредки;FILTER(${col(21)};маска);всеГруппы;FILTER(${col(5)};маска);всеСуммы;FILTER(${col(8)};маска);всеСтадии;FILTER(${col(23)};маска);IF(OR(COUNTIF(всеПредки;"<>")=0;COUNTIF(всеСтадии;"Переоформлена")=0);${empty};LET(связанные;MAP(всеКоды;всеПредки;LAMBDA(код;предки;OR(TRIM(предки&"")<>"";SUM(ARRAYFORMULA(--ISNUMBER(FIND("; "&код&"; ";"; "&всеПредки&"; "))))>0)));коды;FILTER(всеКоды;связанные);предки;FILTER(всеПредки;связанные);группы;FILTER(всеГруппы;связанные);суммы;FILTER(всеСуммы;связанные);стадии;FILTER(всеСтадии;связанные);число;ROWS(коды);семьи;REDUCE(SEQUENCE(число);SEQUENCE(число);LAMBDA(метки;шаг;MAP(коды;предки;LAMBDA(код;егоПредки;MIN(FILTER(метки;ARRAYFORMULA((коды=код)+ISNUMBER(FIND("; "&код&"; ";"; "&предки&"; "))+ISNUMBER(FIND("; "&коды&"; ";"; "&егоПредки&"; ")))))))));семьиЗамены;UNIQUE(FILTER(семьи;стадии="Переоформлена"));изменения;MAP(семьиЗамены;LAMBDA(семья;ROUND(SUMPRODUCT(--(семьи=семья);суммы;--(стадии<>"Переоформлена"))-SUMPRODUCT(--(семьи=семья);суммы;--(TRIM(предки&"")=""));2)));группыСемей;MAP(семьиЗамены;LAMBDA(семья;TEXTJOIN(" | ";TRUE;UNIQUE(FILTER(группы;семьи=семья;стадии="Переоформлена")))));VSTACK(HSTACK($R$3:$R$11;MAP($R$3:$R$11;LAMBDA(группа;IF(SUM(ARRAYFORMULA(--ISNUMBER(FIND(группа;группыСемей))*--ISNUMBER(FIND(" | ";группыСемей))))>0;"семья в двух группах";ROUND(SUMPRODUCT(--(группыСемей=группа);изменения);2)))));HSTACK("Итого";ROUND(SUM(изменения);2)))))));"не рассчитано")`;
+  return `=IFERROR(IF(OR($B$215<>0;$B$168>0;NOT(ISNUMBER($B$226));$B$226>0);"не рассчитано";LET(маска;ARRAYFORMULA((TRIM(${col(1)}&"")<>"")*(${col(2)}<>"доля"));всеКоды;FILTER(${col(1)};маска);всеПредки;FILTER(${col(21)};маска);всеГруппы;FILTER(${col(5)};маска);всеСуммы;FILTER(${col(8)};маска);всеСтадии;FILTER(${col(23)};маска);IF(OR(COUNTIF(всеПредки;"<>")=0;COUNTIF(всеСтадии;"Переоформлена")=0);${empty};LET(связанные;MAP(всеКоды;всеПредки;LAMBDA(код;предки;OR(TRIM(предки&"")<>"";SUM(ARRAYFORMULA(--ISNUMBER(FIND("; "&код&"; ";"; "&всеПредки&"; "))))>0)));коды;FILTER(всеКоды;связанные);предки;FILTER(всеПредки;связанные);группы;FILTER(всеГруппы;связанные);суммы;FILTER(всеСуммы;связанные);стадии;FILTER(всеСтадии;связанные);число;ROWS(коды);семьи;REDUCE(SEQUENCE(число);SEQUENCE(число);LAMBDA(метки;шаг;MAP(коды;предки;LAMBDA(код;егоПредки;MIN(FILTER(метки;ARRAYFORMULA((коды=код)+ISNUMBER(FIND("; "&код&"; ";"; "&предки&"; "))+ISNUMBER(FIND("; "&коды&"; ";"; "&егоПредки&"; ")))))))));семьиЗамены;UNIQUE(FILTER(семьи;стадии="Переоформлена"));изменения;MAP(семьиЗамены;LAMBDA(семья;ROUND(SUMPRODUCT(--(семьи=семья);суммы;--(стадии<>"Переоформлена"))-SUMPRODUCT(--(семьи=семья);суммы;--(TRIM(предки&"")=""));2)));группыСемей;MAP(семьиЗамены;LAMBDA(семья;TEXTJOIN(" | ";TRUE;UNIQUE(FILTER(группы;семьи=семья;стадии="Переоформлена")))));VSTACK(HSTACK($R$3:$R$11;MAP($R$3:$R$11;LAMBDA(группа;IF(SUM(ARRAYFORMULA(--ISNUMBER(FIND(группа;группыСемей))*--ISNUMBER(FIND(" | ";группыСемей))))>0;"семья в двух группах";ROUND(SUMPRODUCT(--(группыСемей=группа);изменения);2)))));HSTACK("Итого";ROUND(SUM(изменения);2)))))));"не рассчитано")`;
 }
 /** Source-side input convenience. A remains the key read by every consumer. */
+/** Always derive A from G; a manual code is not a permanent override. */
 export function procedureCodeFormula(row) {
   if (!Number.isInteger(row) || row < 3) throw new Error('CODE_AUTOFILL_ROW');
-  // Strict book format; preserve leading zeros and lots, never repair a guessed code.
-  const pattern = '(?:ЭАС|ЭЗК|ЭЕП|ЭА|ЭК)[0-9]{2,}(?:/[0-9]+)?-[0-9]{2}';
-  return `=LET(текст;TRIM(SUBSTITUTE(G${row}&"";CHAR(160);" "));образец;"${pattern}";код;IFERROR(REGEXEXTRACT(текст;"^("&образец&")(?:[[:space:]]|$)");"");остаток;IF(код="";"";MID(текст;LEN(код)+1;LEN(текст)));IF(OR(код="";REGEXMATCH(остаток;"(?:^|[^0-9А-Яа-яA-Za-z])"&образец&"(?:[^0-9А-Яа-яA-Za-z]|$)"));"";код))`;
+  return "=LET(текст;TRIM(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(G3&\"\";CHAR(160);\" \");CHAR(10);\" \");CHAR(13);\" \");CHAR(9);\" \"));образец;\"(?:ЭАС|ЭЗК|ЭЕП|ЭА|ЭК)[0-9]{2,}(?:/[0-9]+)?-[0-9]{2}\";код;IFERROR(REGEXEXTRACT(UPPER(текст);\"^(\"&образец&\")(?:[[:space:][:punct:]«»—–]|$)\");\"\");остаток;IF(код=\"\";\"\";MID(UPPER(текст);LEN(код)+1;LEN(текст)));IF(OR(код=\"\";REGEXMATCH(остаток;\"(?:^|[^0-9А-ЯЁA-Za-z])\"&образец&\"(?:[^0-9А-ЯЁA-Za-z]|$)\"));\"\";код))".replace('G3&', `G${row}&`);
 }
 
-/** Bounded, idempotent Sheets requests. Existing manual values/formulas are overrides. */
+/** One authoritative formula for every data row. G changes must recalculate A.
+ * Read the full A:G rectangle and refuse to overwrite a contradictory existing key.
+ * Never infer or silently "repair" a year, method code or source identifier.
+ */
 export function planProcedureCodeAutofill(rows, sheetId, rowCount) {
-  if (!Number.isInteger(sheetId) || !Number.isInteger(rowCount) || rowCount < 3 || rows.length !== rowCount) throw new Error('CODE_AUTOFILL_BOUNDS');
+  if (!Number.isInteger(sheetId) || !Number.isInteger(rowCount) || rowCount < 4 || rows.length !== rowCount) throw new Error('CODE_AUTOFILL_BOUNDS');
   if (rows[1]?.values?.[0]?.userEnteredValue?.stringValue !== 'Код процедуры') throw new Error('CODE_AUTOFILL_HEADER');
-  const requests = [];
-  for (let start = 2; start < rowCount; start++) {
-    if (rows[start]?.values?.[0]?.userEnteredValue) continue;
-    let end = start + 1;
-    while (end < rowCount && !rows[end]?.values?.[0]?.userEnteredValue) end++;
-    const source = { sheetId, startRowIndex: start, endRowIndex: start + 1, startColumnIndex: 0, endColumnIndex: 1 };
-    requests.push({ updateCells: { start: { sheetId, rowIndex: start, columnIndex: 0 },
-      rows: [{ values: [{ userEnteredValue: { formulaValue: procedureCodeFormula(start + 1) } }] }], fields: 'userEnteredValue' } });
-    if (end > start + 1) requests.push({ copyPaste: { source,
-      destination: { ...source, startRowIndex: start + 1, endRowIndex: end }, pasteType: 'PASTE_FORMULA' } });
-    start = end - 1;
+  const validPrefix = /^(?:ЭАС|ЭЗК|ЭЕП|ЭА|ЭК)[0-9]{2,}(?:\/[0-9]+)?-[0-9]{2}(?=[\s.,;:()«»—–]|$)/u;
+  const codeInside = /(?:ЭАС|ЭЗК|ЭЕП|ЭА|ЭК)[0-9]{2,}(?:\/[0-9]+)?-[0-9]{2}/u;
+  for (let index = 2; index < rowCount; index++) {
+    const cells = rows[index]?.values ?? [];
+    const recorded = String(cells[0]?.formattedValue ?? cells[0]?.effectiveValue?.stringValue ?? cells[0]?.userEnteredValue?.stringValue ?? '').trim();
+    const source = String(cells[6]?.formattedValue ?? cells[6]?.effectiveValue?.stringValue ?? cells[6]?.userEnteredValue?.stringValue ?? '').replace(/[\u00a0\n\r\t]/gu, ' ').trim().toUpperCase();
+    if (!recorded) continue;
+    const match = validPrefix.exec(source);
+    const trailing = match ? source.slice(match[0].length) : '';
+    if (!match || match[0] !== recorded || codeInside.test(trailing)) throw new Error(`CODE_AUTOFILL_SOURCE_CONFLICT:A${index + 1}:G${index + 1}`);
   }
-  return requests;
+  const first = { sheetId, startRowIndex: 2, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 1 };
+  return [
+    { updateCells: { start: { sheetId, rowIndex: 2, columnIndex: 0 },
+      rows: [{ values: [{ userEnteredValue: { formulaValue: procedureCodeFormula(3) } }] }], fields: 'userEnteredValue' } },
+    { copyPaste: { source: first,
+      destination: { ...first, startRowIndex: 3, endRowIndex: rowCount }, pasteType: 'PASTE_FORMULA', pasteOrientation: 'NORMAL' } },
+  ];
 }
 
 export function splitQueueFormula(formula) {
