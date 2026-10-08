@@ -801,8 +801,8 @@ export interface MonitoringAggregates {
     readonly nmckTotal: number;
     /** Сумма цен победителей, руб. */
     readonly priceTotal: number;
-    /** Экономия на торгах: НМЦК − цена по состоявшимся, руб. */
-    readonly savingsTotal: number;
+    /** Экономия на торгах по полным парам НМЦК/цены, руб.; null при отсутствии сопоставимых пар. */
+    readonly savingsTotal: number | null;
     /**
      * Средний процент снижения — СРЕДНЕЕ ПОСТРОЧНЫХ процентов. Это один из
      * трёх коэффициентов (спека §3.2), и подменять им портфельный нельзя:
@@ -893,7 +893,7 @@ export function aggregateMonitoring(registry: MonitoringRegistry): MonitoringAgg
       count: awardedCount,
       nmckTotal: round3(awardedNmck),
       priceTotal: round3(awardedPrice),
-      savingsTotal: round3(awardedNmck - pairedPrice),
+      savingsTotal: reductions.length > 0 ? round3(awardedNmck - pairedPrice) : null,
       avgReductionPct: reductions.length > 0
         ? reductions.reduce((a, b) => a + b, 0) / reductions.length
         : null,
