@@ -76,6 +76,20 @@ describe('independent native monitoring diagnostics', () => {
     for (const column of [0, 16, 18, 21, 23, 24]) formulas[2][column] = '=IF(A3="";"";1)';
     expect(missingFormulaAddresses(master, formulas)).toEqual(['Рабочий реестр процедур!W3']);
   });
+  it('accepts valid human-entered INNs and flags a malformed nine-digit value', () => {
+    const master = source();
+    const formulas = structuredClone(master);
+    for (const col of [0, 16, 21, 22, 23, 24]) formulas[2][col] = '=IF(G3="";"";1)';
+    for (const inn of [4105041770, 410200615520]) {
+      master[2][18] = inn;
+      formulas[2][18] = inn;
+      expect(missingFormulaAddresses(master, formulas)).toEqual([]);
+    }
+    master[2][18] = 300033529;
+    formulas[2][18] = 300033529;
+    expect(missingFormulaAddresses(master, formulas)).toEqual(['Рабочий реестр процедур!S3']);
+  });
+
   it('flags formulas that reference the previous row even though a formula exists', () => {
     const master = source();
     const second = [...master[2]]; second[0] = 'ЭА002-26'; second[6] = 'ЭА002-26 Поставка';
