@@ -175,3 +175,15 @@ test('diagnostics explain code collisions in X/Y without changing the key and su
   assert.equal(requests[1].copyPaste.destination.endRowIndex,1002);
   assert.ok(requests.every(req=>!('addProtectedRange' in req)));
 });
+
+test('calculated summary discloses independent acceptance discrepancies without blocking monetary facts', async () => {
+  const { withIndependentQaStatus, canonicalAnalyticalStatusFormula } = await import('./monitoring-migration.mjs');
+  const input = canonicalAnalyticalStatusFormula();
+  const f = withIndependentQaStatus(input);
+  assert.match(f, /Свод рассчитан/u);
+  assert.match(f, /Контрольная сверка — расхождения:/u);
+  assert.match(f, /'_Проверки'!\$B\$1/u);
+  assert.match(f, /РАСХОЖДЕНИЕ/u);
+  assert.equal(withIndependentQaStatus(f), f, 'Repeated migration must be idempotent');
+  assert.throws(() => withIndependentQaStatus('text instead of formula'), /QA_STATUS_FORMULA_CONTRACT/u);
+});
