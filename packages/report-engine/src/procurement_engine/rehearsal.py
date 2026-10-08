@@ -6,6 +6,7 @@ Production can be mounted read-only and networking disabled for this command.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import re
 import shutil
@@ -581,6 +582,13 @@ def main(argv=None):
                 else 'UNRECOGNIZED_ERROR'
                 for item in getattr(error, 'source_issues', [])
                 if isinstance(item, dict) and item.get('severity') == 'ERROR'))
+        if isinstance(error, OSError):
+            # OS paths and exception messages may expose protected source data;
+            # only an allowlisted standard errno label is safe for public CI.
+            code = errno.errorcode.get(error.errno)
+            result['os_error_code'] = (code if code in
+                {'ENOSPC', 'ENOMEM', 'EIO', 'EROFS', 'EACCES', 'EMFILE', 'ENFILE'}
+                else 'OTHER_OS_ERROR')
         sqlite_error = getattr(error, 'sqlite_errorname', None)
         if safe_sqlite_error(sqlite_error) is not None:
             result['sqlite_error'] = sqlite_error
