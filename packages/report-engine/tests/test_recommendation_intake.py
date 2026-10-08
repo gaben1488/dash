@@ -198,3 +198,25 @@ def test_next_official_recommendation_appears_in_second_unmodified_source_cycle(
     assert len(dashboard.get('recommendation_records') or
                dashboard['recommendations']['tables']['1']) == 2
     assert json.loads(bootstrap.read_text()) == []
+
+
+def test_legacy_pre_domain_receipt_does_not_claim_unknown_historical_ledger(tmp_path):
+    from procurement_engine.publication_store import PublicationStore
+    from test_publication_store import candidate, revisions
+
+    store = PublicationStore(tmp_path / 'state' / 'published')
+    receipt = store.publish(candidate(tmp_path / 'pre-domain'), read_revisions=revisions)
+    assert previous_published_ledger(tmp_path / 'state', receipt) is None
+
+
+def test_modern_receipt_cannot_silently_lose_frozen_recommendation_history(tmp_path):
+    state = tmp_path / 'state'
+    release_id = 'REL-' + '1' * 64
+    path = state / 'published' / 'releases' / release_id
+    path.mkdir(parents=True)
+    (path / 'report_model.json').write_text(json.dumps({
+        'snapshot': {'renderer_version': 'renderer-v1.5.0rc23'},
+        'contract': {'recommendation_link_contract': 'verified-original-and-current-plan-v13'},
+    }))
+    with pytest.raises(ValueError, match='OFFICIAL_LEDGER_PREVIOUS_PROOF_MISSING'):
+        previous_published_ledger(state, {'release_id': release_id})
