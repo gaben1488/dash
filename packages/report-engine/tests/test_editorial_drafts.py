@@ -76,3 +76,65 @@ def test_existing_input_bootstrap_and_validation_survive_draft_and_editor_note(t
 
     install_google_inputs(target, client=NoDrive())
     assert json.loads((target / 'ledger.json').read_text()) == saved
+
+
+def test_uer_official_entry_creates_next_verified_release_without_second_approval(tmp_path):
+    import hashlib
+
+    from procurement_engine.recommendation_history import uer_entry_origin
+
+    registry, ledger_path = inputs(tmp_path)
+    state = tmp_path / 'state'
+    first = run_once(registry, ledger_path, state, client=CompleteGoogle())
+    assert first['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    record = {
+        'recommendation_id': 'REC-UER-0011223344556677',
+        'grbs': 'УЭР', 'recommendation_text': 'Рассмотреть изменение способа закупки по позиции 42',
+        'source_procurement_ids': ['42'],
+        'active_in_current_slice': True,
+        'editorial_state': 'ISSUED',
+        'first_seen': '25.09.2026', 'last_seen': '25.09.2026', 'status_as_of': '25.09.2026',
+        'table_no': 9, 'row_no': 1, 'section': 'uer',
+        'recommendation_type': 'UER_ENTRY',
+        'grbs_response_original': '', 'uer_decision_original': '',
+        'origin_evidence': [{
+            'kind': 'UER_REPORT_REGISTER_ENTRY_V1',
+            'recommendation_id': 'REC-UER-0011223344556677',
+            'grbs': 'УЭР', 'document_date': '25.09.2026',
+            'registered_at': '2026-09-25T01:00:00+12:00',
+            'text_sha256': hashlib.sha256(
+                'Рассмотреть изменение способа закупки по позиции 42'.encode()).hexdigest(),
+            'source_ids_sha256': hashlib.sha256(b'["42"]').hexdigest(),
+        }],
+    }
+    assert uer_entry_origin(record, as_of='30.09.2026')['kind'] == 'UER_REPORT_REGISTER_ENTRY_V1'
+    ledger_path.write_text(json.dumps([record], ensure_ascii=False))
+    second = run_once(registry, ledger_path, state, client=CompleteGoogle())
+    assert second['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}, second
+    assert second['snapshot_id'] != first['snapshot_id']
+    assert second['publication']['release_id'] != first['publication']['release_id']
+    model = json.loads((state / 'published' / 'releases'
+                        / second['publication']['release_id'] / 'report_model.json').read_text())
+    claims = [r for r in model['recommendation_records'] if r['recommendation_id'] == record['recommendation_id']]
+    assert len(claims) == 1
+    assert claims[0]['active_in_current_slice'] is True
+    assert claims[0]['current_link']['origin']['kind'] == 'UER_REPORT_REGISTER_ENTRY_V1'
+    assert claims[0]['dimensions']['execution_status'] == 'UNKNOWN'
+    assert model['recommendations']['historical_unique'] == 1
+
+
+def test_invalid_uer_origin_blocks_new_publication_and_preserves_previous(tmp_path):
+    registry, ledger_path = inputs(tmp_path)
+    state = tmp_path / 'state'
+    first = run_once(registry, ledger_path, state, client=CompleteGoogle())
+    assert first['status'] in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}
+    ledger_path.write_text(json.dumps([{
+        'recommendation_id': 'REC-UER-BAD',
+        'grbs': 'УЭР', 'recommendation_text': 'Официальный текст без доказательства',
+        'active_in_current_slice': True, 'source_procurement_ids': [],
+        'editorial_state': 'ISSUED',
+    }], ensure_ascii=False))
+    blocked = run_once(registry, ledger_path, state, client=CompleteGoogle())
+    assert blocked['status'] == 'NOT_ISSUED'
+    from procurement_engine.publication_store import PublicationStore
+    assert PublicationStore(state / 'published').latest()['release_id'] == first['publication']['release_id']
