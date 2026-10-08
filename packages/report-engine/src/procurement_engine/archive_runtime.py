@@ -158,7 +158,9 @@ def build_archived_release(source, state_dir, *, day, year, quarter):
         model = build_from_capture(capture, registry, ledger, temp / 'bundle', identity_store=identity)
         if not model['release']['official_release_allowed']:
             _write(work / 'failure.json', {'blockers': model['release']['blockers']})
-            raise ArchiveError('ARCHIVE_BUILD_FAILED')
+            error = ArchiveError('ARCHIVE_BUILD_FAILED')
+            error.blockers = model['release']['blockers']
+            raise error
         expected = _read(temp / 'bundle/snapshot_bundle/bundle.json')['after']
         def frozen_barrier():
             if before != _frozen_fingerprint(source):
