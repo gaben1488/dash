@@ -60,6 +60,35 @@ it('представления сохраняют отмены и наследн
 });
 
 describe('доли совместных процедур', () => {
+  it('остаток неполных долей сохраняется в срезе основной процедуры', () => {
+    const p = proc({
+      dept: 'Совместные',
+      nmck: 100,
+      auctionPrice: 80,
+      savingsTotal: 20,
+      participants: [
+        {
+          row: 4,
+          dept: 'УО',
+          customer: 'Заказчик',
+          nmck: 60,
+          price: 50,
+          savings: 10,
+          savingsMb: 10,
+          savingsKb: 0,
+          savingsFb: 0,
+        },
+      ],
+    });
+    const [owner] = scopeProcedures([p], new Set(['Совместные']));
+    expect(owner.nmck).toBe(40);
+    expect(owner.auctionPrice).toBe(30);
+    expect(owner.participants).toEqual([]);
+    const [both] = scopeProcedures([p], new Set(['Совместные', 'УО']));
+    expect(both.nmck).toBe(100);
+    expect(both.auctionPrice).toBe(80);
+  });
+
   it.each([false, true])('срез управления сохраняет допуск денежного факта: %s', (factsEligible) => {
     const p = proc({ dept: 'Совместные', factsEligible, participants: [
       { row: 4, dept: 'УО', customer: 'Синтетический заказчик', nmck: 40, price: 30, savings: 10, savingsMb: 10, savingsKb: 0, savingsFb: 0 },

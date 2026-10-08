@@ -19,10 +19,13 @@ import { MonitoringAnalyticsSection } from '../components/monitoring/AnalyticsSe
 import { Drawer } from '../components/ui/drawer';
 import { ProcedureCard } from '../components/monitoring/ProcedureCard';
 import { WorkQueue } from '../components/monitoring/WorkQueue';
+import { SupplierDirectory } from '../components/monitoring/SupplierDirectory';
+import { SelectionTotals } from '../components/monitoring/SelectionTotals';
 import { TripleCheck } from '../components/monitoring/TripleCheck';
 import { MonitoringPerimeterProvider } from '../components/monitoring/PerimeterProvider';
 import { humanizeRequestError } from '../api';
 import { useStore } from '../store';
+import { readWorkspace, saveWorkspace } from '../lib/monitoring/workspace-state';
 import { deptScopeOf, inDeptScope } from '../lib/selectors/dept-isolation';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { scopeProcedures, scopeSignals } from '../lib/monitoring/dept-scope';
@@ -63,17 +66,22 @@ export function MonitoringPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [modeId, setModeId] = useState<string>(WORK_MODE.id);
-  const modeInitialized = useRef(false);
+  const [restoredWorkspace] = useState(readWorkspace);
+  const [modeId, setModeId] = useState<string>(restoredWorkspace?.modeId ?? WORK_MODE.id);
+  const modeInitialized = useRef(restoredWorkspace !== null);
   const loadSequence = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
   const [selected, setSelected] = useState<RegistryProcedure | null>(null);
   const [cardHistory, setCardHistory] = useState<RegistryProcedure[]>([]);
   const [navigationNote, setNavigationNote] = useState<string | null>(null);
-  const [slices, setSlices] = useState<SliceState>(emptySlices);
-  const [sortKey, setSortKey] = useState<SortKey>('row');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [slices, setSlices] = useState<SliceState>(() => restoredWorkspace?.slices ?? emptySlices());
+  const [sortKey, setSortKey] = useState<SortKey>(restoredWorkspace?.sortKey ?? 'row');
+  const [sortDir, setSortDir] = useState<SortDir>(restoredWorkspace?.sortDir ?? 'asc');
   const [openCode, setOpenCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    saveWorkspace({ modeId, slices, sortKey, sortDir });
+  }, [modeId, slices, sortKey, sortDir]);
 
   const load = useCallback((refresh = false) => {
     const sequence = ++loadSequence.current;
@@ -106,7 +114,10 @@ export function MonitoringPage() {
     void fetchMonitoringTriple(refresh).then((value) => { if (sequence === loadSequence.current) setTriple(value); });
   }, []);
 
-  useEffect(() => { load(); return () => { loadSequence.current += 1; }; }, [load]);
+  useEffect(() => { load(); const update = () => load(true);
+    window.addEventListener('monitoring-updated', update);
+    return () => { loadSequence.current += 1;
+      window.removeEventListener('monitoring-updated', update); }; }, [load]);
 
   const mode = modeById(modeId);
 
@@ -140,7 +151,12 @@ export function MonitoringPage() {
   // сужает периметр шапки, а не кнопка внутри вкладки.
   const modeRows = procedures;
 
-  const filtered = useMemo(() => applySlices(modeRows, slices), [modeRows, slices]);
+  const filtered = useMemo(() => {
+    if (slices.dept === null) return applySlices(modeRows, slices);
+    if (deptScope !== null && !deptScope.has(slices.dept)) return [];
+    const localRows = scopeProcedures(data?.procedures ?? [], new Set([slices.dept]));
+    return applySlices(localRows, { ...slices, dept: null });
+  }, [modeRows, slices, deptScope, data]);
   const sorted = useMemo(() => sortProcedures(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
   const portrait = useMemo(() => portraitFrom(filtered), [filtered]);
 
@@ -455,7 +471,9 @@ export function MonitoringPage() {
                     : <SvodTable svod={data.svod} readAtLabel={readAtLabel} />}
               </details>}
 
-              {mode.kind === 'journal' && (
+              {mode.kind === 'journal' && <SelectionTotals rows={filtered} label="Связи · выбранные процедуры" />}
+                {mode.kind === 'journal' &&
+                  (
                 data.journal === null
                   ? <PendingSheet name="Рабочий реестр процедур" onReload={() => load(true)} />
                   : data.journal.rows.length === 0
@@ -475,12 +493,14 @@ export function MonitoringPage() {
                       sourceBookName={data.source.bookName}
                       onPickCustomer={(name) => {
                         setModeId(ALL_DEPTS_MODE.id);
-                        setSlices({ ...emptySlices(), customer: name });
+                        setSlices((prev) => ({ ...prev, customer: name }));
                       }}
                     />
                   )
                   : <PendingSheet name="Справочник заказчиков" onReload={() => load(true)} />
               )}
+
+              {mode.kind === 'directory' && <SupplierDirectory reading={data.suppliers} procedures={filtered} />}
 
               {mode.kind === 'ancestors' && (
                 <AncestorSheets ancestors={data.ancestors} readAtLabel={readAtLabel} />
@@ -513,7 +533,7 @@ export function MonitoringPage() {
                     Один сигнал живёт в одном доме, и дом у него теперь у самого
                     числа, а не над секцией. */}
                 <MonitoringAnalyticsSection
-                  procedures={data.procedures}
+                  procedures={filtered}
                   registryReadAt={data.source.readAt}
                   sharedMatch={match}
                   sharedMatchError={matchError}
@@ -534,9 +554,9 @@ export function MonitoringPage() {
                     // Обе ветки ведут в один и тот же реестр выше — читатель не
                     // уходит со вкладки и видит основания числа целиком.
                     setModeId(ALL_DEPTS_MODE.id);
-                    setSlices(inn === null
-                      ? { ...emptySlices(), query: name }
-                      : { ...emptySlices(), winnerInn: inn });
+                    setSlices((prev) => (inn === null
+                      ? { ...prev, query: name }
+                      : { ...prev, winnerInn: inn }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
@@ -568,7 +588,7 @@ export function MonitoringPage() {
                   // Пометки книги «25-26» отдаются целиком, а не выжимкой: разбор
                   // рукописной пометки в класс делает ядро, и вторая копия этого
                   // разбора на клиенте рано или поздно разошлась бы с первой.
-                  journalRows={data.journal?.rows}
+                  journalRows={filteredJournal?.rows}
 
                   onPickCustomer={(customer) => {
                     // Заказчик отбирается тем же написанием, каким витрина его
@@ -576,7 +596,7 @@ export function MonitoringPage() {
                     // строки одного написания, и привести к другому их числу
                     // значит обмануть в момент клика.
                     setModeId(ALL_DEPTS_MODE.id);
-                    setSlices({ ...emptySlices(), customer });
+                    setSlices((prev) => ({ ...prev, customer }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
@@ -584,13 +604,13 @@ export function MonitoringPage() {
                     // Корзину «снижения не было» считает ядро с обеих сторон —
                     // и в гистограмме, и в разрезе реестра, — разойтись нечему.
                     setModeId(ALL_DEPTS_MODE.id);
-                    setSlices({ ...emptySlices(), reductionBucket: 'zero' });
+                    setSlices((prev) => ({ ...prev, reductionBucket: 'zero' }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   onPickMethod={(method) => {
                     setModeId(ALL_DEPTS_MODE.id);
-                    setSlices({ ...emptySlices(), method });
+                    setSlices((prev) => ({ ...prev, method }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
@@ -598,7 +618,7 @@ export function MonitoringPage() {
                     // Год берётся из кода процедуры, а не из даты, — и разрез
                     // реестра сравнивает ровно тот же суффикс.
                     setModeId(ALL_DEPTS_MODE.id);
-                    setSlices({ ...emptySlices(), procedureYear });
+                    setSlices((prev) => ({ ...prev, procedureYear }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
@@ -608,7 +628,7 @@ export function MonitoringPage() {
                     // разрезом только частично, и это честно хуже — но общей
                     // колонки «совместная закупка» в книге нет.
                     setModeId(ALL_DEPTS_MODE.id);
-                    setSlices({ ...emptySlices(), method: 'ЭАС' });
+                    setSlices((prev) => ({ ...prev, view: 'joint' }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
@@ -617,7 +637,7 @@ export function MonitoringPage() {
                     // записана в переходящем реестре, и показывать её строки на
                     // листе управления было бы подлогом — там этой колонки нет.
                     setModeId('journal');
-                    setSlices({ ...emptySlices(), query: sample });
+                    setSlices((prev) => ({ ...prev, query: sample }));
                     setOpenCode(null);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}

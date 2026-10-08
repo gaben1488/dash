@@ -254,3 +254,105 @@ export function completedArchiveFormula(formula) {
   if (!formula.startsWith('=') || !formula.includes(oldPrimary) || !formula.includes(oldMask)) throw new Error('ARCHIVE_FORMULA_CONTRACT');
   return formula.replace(oldPrimary, primary).replace(oldMask, mask);
 }
+
+export function withPendingFateAction(formula, row) {
+  if (!formula.startsWith('=')) throw new Error('FATE_ACTION_FORMULA_CONTRACT');
+  const d = `LOWER(D${row}&"")`;
+  return `=LET(действие;${formula.slice(1)};IF(действие<>"";действие;IF(AND(A${row}<>"";B${row}<>"доля";W${row}="Не состоялась");IF(REGEXMATCH(${d};"потребность пересмотрена|потребность отменена|реализовано другим способом");"";IF(REGEXMATCH(${d};"родословная: *э[а-я]+[0-9]+-[0-9]{2}");"Проверить связь, указанную в комментарии";IF(REGEXMATCH(${d};"на доработке|на доработку");"Уточнить результат доработки у заказчика";"Уточнить дальнейшее решение по потребности")));"")))`;
+}
+
+/** Svod full-grid A1:R235; counts and family graphs always retain the master. */
+export function planMoneyAttribution(svod, sheetId) {
+  const requests = [];
+  const append = (r, c) => {
+    const old = svod[r]?.[c];
+    if (typeof old !== 'string' || !old.startsWith('=') || !/INDEX\(ДанныеМастера;0;(8|13|14|15|16|17)\)/u.test(old)) return;
+    requests.push({ updateCells: { range: { sheetId, startRowIndex: r, endRowIndex: r + 1, startColumnIndex: c, endColumnIndex: c + 1 }, rows: [{ values: [{ userEnteredValue: { formulaValue: inlineMoneyAttributionFormula(old) } }] }], fields: 'userEnteredValue' } });
+  };
+  for (let r = 2; r < 11; r++) for (const c of [6, 7, 8, 9, 11, 12, 13, 15, 16]) append(r, c);
+  for (let r = 29; r < 135; r++) for (let c = 2; c <= 8; c++) {
+    if (c !== 8 || String(svod[r]?.[c]).includes('SUMIFS')) append(r, c);
+  }
+  return requests;
+}
+
+function formulaArguments(text) {
+  const parts = []; let depth = 0; let quoted = false; let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '"') { if (quoted && text[i + 1] === '"') { i++; continue; } quoted = !quoted; }
+    if (quoted) continue;
+    if (text[i] === '(' || text[i] === '{') depth++;
+    if (text[i] === ')' || text[i] === '}') depth--;
+    if (text[i] === ';' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+  }
+  parts.push(text.slice(start)); return parts;
+}
+
+/** SUMIFS requires ranges; SUMPRODUCT also accepts the computed arrays below. */
+function arraySumCriteria(body) {
+  return body.split('SUMIFS(').map((piece, index) => {
+    if (index === 0) return piece;
+    let depth = 1; let quoted = false; let end = 0;
+    for (; end < piece.length; end++) {
+      if (piece[end] === '"') { if (quoted && piece[end + 1] === '"') { end++; continue; } quoted = !quoted; }
+      if (quoted) continue;
+      if (piece[end] === '(') depth++;
+      if (piece[end] === ')' && --depth === 0) break;
+    }
+    const args = formulaArguments(piece.slice(0, end));
+    if (args.length < 3 || args.length % 2 !== 1) throw new Error('SUMIFS_CONTRACT');
+    const masks = [];
+    for (let i = 1; i < args.length; i += 2) {
+      const criteria = args[i + 1]; const literal = /^"(<>|<=|>=|=|<|>)(.*)"$/u.exec(criteria);
+      masks.push(`(${args[i]}${literal?.[1] ?? '='}${literal ? `"${literal[2]}"` : criteria})`);
+    }
+    return `SUMPRODUCT(N(${args[0]});${masks.join(';')})${piece.slice(end + 1)}`;
+  }).join('');
+}
+
+/** Known shares transfer money; the unallocated balance stays at the primary owner. */
+export function inlineMoneyAttributionFormula(formula) {
+  if (formula.startsWith("=LET(sourceCode;")) return formula;
+  const original = formula.replaceAll('ДенежныеРазрезы', 'ДанныеМастера');
+  const field = /INDEX\(ДанныеМастера;0;(\d+)\)/gu;
+  const columns = [...original.matchAll(field)].map(m => Number(m[1]));
+  const monetary = columns.find(n => [8, 13, 14, 15, 16, 17].includes(n));
+  if (!original.startsWith('=') || monetary === undefined || !/SUM(?:PRODUCT|IFS)\(/u.test(original)) throw new Error('MONEY_FORMULA_CONTRACT');
+  const names = { 1: 'code', 2: 'rowKind', 5: 'department', 8: 'cash', 10: 'publication', 12: 'resultDate', 13: 'cash', 14: 'cash', 15: 'cash', 16: 'cash', 17: 'cash', 20: 'result', 23: 'stage' };
+  const direct = n => `INDEX(ДанныеМастера;0;${n})`;
+  const definitions = [
+    `sourceCode;${direct(1)}`, `sourceKind;${direct(2)}`,
+    'primaryRows;IFERROR(FILTER(ДанныеМастера;(sourceCode<>"")*(sourceKind<>"доля"));ДанныеМастера)',
+    'hasParent;ARRAYFORMULA(IFERROR(MATCH(sourceCode;INDEX(primaryRows;0;1);0);0)>0)',
+    `sourceAmount;${direct(monetary)}`,
+    `partTotals;IFERROR(QUERY(FILTER({sourceCode\\ARRAYFORMULA(N(sourceAmount))};sourceKind="доля");"select Col1, sum(Col2) group by Col1 label sum(Col2) ''";0);{""\\0})`,
+    'cash;ARRAYFORMULA(IF(sourceKind="доля";IF(hasParent;N(sourceAmount);0);N(sourceAmount)-IFERROR(VLOOKUP(sourceCode;partTotals;2;FALSE);0)))',
+  ];
+  for (const n of new Set(columns)) {
+    if (n === monetary) continue;
+    const name = names[n]; if (!name) throw new Error(`MONEY_COLUMN_CONTRACT_${n}`);
+    const value = n === 1 ? 'ARRAYFORMULA(IF((sourceKind="доля")*NOT(hasParent);"";sourceCode))'
+      : n === 5 ? direct(n) : `ARRAYFORMULA(IF(sourceKind="доля";IFERROR(VLOOKUP(sourceCode;primaryRows;${n};FALSE);"");${direct(n)}))`;
+    definitions.push(`${name};${value}`);
+  }
+  const body = arraySumCriteria(original.slice(1)).replace(field, (_, n) => names[Number(n)]);
+  return `=LET(${definitions.join(';')};${body})`;
+}
+
+/** View-only labels and exact master links; source names and long subjects stay unchanged. */
+export function archiveReadingFormula(formula, { fate = false, masterSheetId = 2526300 } = {}) {
+  if (!formula.startsWith('=') || !formula.includes('упр;INDEX(ДанныеМастера;0;5);') || !formula.includes('FILTER(код;м)')) throw new Error('ARCHIVE_READING_CONTRACT');
+  const names = `'Сводный аналитический лист'!$R$3:$R$11\\'Сводный аналитический лист'!$A$3:$A$11`;
+  let result = formula.replace('упр;INDEX(ДанныеМастера;0;5);', `упр;INDEX(ДанныеМастера;0;5);кратко;ARRAYFORMULA(IFERROR(VLOOKUP(упр;{${names}};2;FALSE);упр));`)
+    .replace('зак;INDEX(ДанныеМастера;0;6);', 'зак;INDEX(ДанныеМастера;0;6);краткийЗаказчик;ARRAYFORMULA(LEFT(зак;90)&IF(LEN(зак)>90;"…";""));')
+    .replace('предмет;INDEX(ДанныеМастера;0;7);', 'предмет;INDEX(ДанныеМастера;0;7);краткийПредмет;ARRAYFORMULA(LEFT(предмет;110)&IF(LEN(предмет)>110;"…";""));')
+    .replace('IFERROR(SORT({FILTER(код;м)', `IFERROR(SORT({MAP(FILTER(код;м);FILTER(SEQUENCE(ROWS(ДанныеМастера);1;3);м);LAMBDA(к;стр;HYPERLINK("#gid=${masterSheetId}&range=A"&стр;к)))`)
+    .replace('\\FILTER(упр;м)\\', '\\FILTER(кратко;м)\\')
+    .replace('\\FILTER(зак;м)\\', '\\FILTER(краткийЗаказчик;м)\\')
+    .replace('\\FILTER(предмет;м)\\', '\\FILTER(краткийПредмет;м)\\');
+  if (fate) {
+    const text = 'ARRAYFORMULA(IF(стадия="Переоформлена";"Продолжение: "&наследник;IF(REGEXMATCH(LOWER(INDEX(ДанныеМастера;0;4)&"");"потребность пересмотрена");"В источнике: потребность пересмотрена";IF(INDEX(ДанныеМастера;0;24)<>"";INDEX(ДанныеМастера;0;24);"Уточнить дальнейшее решение по потребности")))&IF(INDEX(ДанныеМастера;0;25)<>"";" · "&LEFT(INDEX(ДанныеМастера;0;25);140);""))';
+    result = result.replace('\\FILTER(INDEX(ДанныеМастера;0;25);м)', `\\FILTER(${text};м)`);
+  }
+  return result;
+}

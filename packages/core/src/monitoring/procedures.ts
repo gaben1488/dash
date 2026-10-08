@@ -512,7 +512,7 @@ function parseCanonicalProcedures(grid: unknown[][], asOf?: string): MonitoringR
       auctionPrice, savingsTotal, savingsFb, savingsKb, savingsMb, savingsSplitSum,
       controlGapRub, controlAgrees: controlGapRub === null ? null : Math.abs(controlGapRub) <= 0.01,
       selfCheck: null, winner: { ...winner, inn: inn && /^(\d{10}|\d{12})$/u.test(inn) ? inn : null },
-      comment: null, protocolFlag: monitoringText(r[2]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
+      comment: monitoringText(r[3]), protocolFlag: monitoringText(r[2]), stage, reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null,
       joint: monitoringText(r[1]) === 'процедура' || ref?.family === 'ЭАС',
       durations: { toPublication: daysBetween(dates[0]?.iso ?? null, dates[1]?.iso ?? null), toDeadline: daysBetween(dates[1]?.iso ?? null, dates[2]?.iso ?? null), toAuction: daysBetween(dates[2]?.iso ?? null, dates[3]?.iso ?? null), total: daysBetween(dates[0]?.iso ?? null, dates[3]?.iso ?? null) },
       defects, result, factsEligible, requiredAction: monitoringText(r[23]), qualityNote, ancestorCodes: links(r[20]), successorCodes,

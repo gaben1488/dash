@@ -16,6 +16,7 @@ import { discountBucketOf } from '@aemr/core';
 import { parseProcedureRef } from '@aemr/shared';
 import type { ProcedureDefect, RegistryProcedure } from './contract';
 import { MONEY_CATEGORY_LABELS, moneyCategoryOf, type MoneyCategory } from './money-flow';
+import { scopeProcedures } from './dept-scope';
 import { dateQuarter, dateSortKey, dateYear, daysBetween } from './format';
 
 // ── Корзины НМЦК ─────────────────────────────────────────────────────
@@ -222,7 +223,12 @@ function matchesQuery(p: RegistryProcedure, q: string): boolean {
   if (needle === '') return true;
   const ref = parseProcedureRef(q);
   if (ref !== null && ref.code === p.code) return true;
-  return [p.code, p.sourceCode, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome]
+  return [p.code, p.sourceCode, p.subject, p.customer, p.winnerInn, p.winnerName, p.outcome,
+    p.result,
+    p.comment,
+    p.requiredAction,
+    p.qualityNote,
+  ]
     .some((v) => v != null && v.toLowerCase().includes(needle));
 }
 
@@ -231,12 +237,12 @@ function periodDate(p: RegistryProcedure, basis: PeriodBasis): string | null {
 }
 
 export function applySlices(rows: readonly RegistryProcedure[], s: SliceState): RegistryProcedure[] {
-  return rows.filter((p) => {
+  const scoped = s.dept === null ? rows : scopeProcedures(rows, new Set([s.dept]));
+  return scoped.filter((p) => {
     if (s.moneyCategory != null && moneyCategoryOf(p) !== s.moneyCategory) return false;
     if (s.view === 'withoutContract' && !['no_result', 'reissued'].includes(p.stage)) return false;
     if (s.view === 'joint' && !p.joint) return false;
     if (s.view === 'successful' && p.stage !== 'awarded') return false;
-    if (s.dept !== null && p.dept !== s.dept) return false;
     if (s.stage !== null && p.stage !== s.stage) return false;
     if (s.method !== null && p.method !== s.method) return false;
     if (s.customer !== null && p.customer !== s.customer) return false;

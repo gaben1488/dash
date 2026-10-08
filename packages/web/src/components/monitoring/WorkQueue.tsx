@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { RegistryProcedure, WorkQueuePayload } from '../../lib/monitoring/contract';
 import { stageBadgeClass, stageShort } from '../../lib/monitoring/stage-labels';
-import { procedureCodeLabel } from '../../lib/monitoring/format';
+import { fmtRubExact, procedureCodeLabel } from '../../lib/monitoring/format';
+import { SelectionTotals } from './SelectionTotals';
 
 const BLOCKS = { active: 'В работе', closed: 'Проверки закрытых', triage: 'Разобрать данные' } as const;
 
@@ -15,8 +16,12 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
   if (!queue) return <p className="text-sm text-[var(--ink-muted)]">Очередь ещё не получена от сервера.</p>;
   const allowed = new Map(procedures.map((p) => [`${p.sheet}:${p.row}`, p]));
   const scoped = (key: keyof typeof BLOCKS) => (queue[key] ?? []).filter((item) => allowed.has(`${item.procedure.sheet}:${item.procedure.row}`));
-  const items = scoped(block);
-  const columns = ['Процедура', 'Действие', 'Заказчик и предмет', ...(block === 'active' ? ['Дата ориентира', 'Дней к дате'] : []), 'Стадия'];
+  const items = scoped(block).map((item) => ({
+    ...item,
+    procedure: allowed.get(`${item.procedure.sheet}:${item.procedure.row}`)!,
+  }));
+  const columns = ['Процедура', 'Действие', 'Заказчик и предмет',
+    'НМЦК, руб.', ...(block === 'active' ? ['Дата ориентира', 'Дней к дате'] : []), 'Стадия'];
   return <section className="space-y-4" aria-label="Ежедневная очередь процедур">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Вид очереди">
@@ -27,6 +32,7 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
       </div>
       <p className="text-xs text-[var(--ink-muted)]">{readAtLabel}</p>
     </div>
+      <SelectionTotals rows={items.map((item) => item.procedure)} label={BLOCKS[block]} />
     <div className="max-w-[75ch] space-y-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
       <p>{block === 'active' ? 'Откройте процедуру, чтобы выполнить действие и перейти к нужному полю книги.' : block === 'closed' ? 'Закрытые процедуры с замечаниями или недостающими сведениями.' : 'Стадия этих процедур не определена. Уточните данные в источнике.'}</p>
       <details><summary className="cursor-pointer">Как читать очередь</summary>
@@ -52,7 +58,8 @@ export function WorkQueue({ queue, procedures, readAtLabel, onOpen }: {
                 <div className="mt-2 space-y-1 break-words text-[var(--ink-muted)] md:hidden"><p>{p.customer}</p><p>{p.subject}</p><p>{stageShort(p.stage)}{block === 'active' && ` · ${dateLabel} · дней к дате: ${item.daysToDate ?? '—'}`}</p></div>
                 {p.qualityNote && <details className="mt-2 text-[var(--ink-muted)]"><summary className="cursor-pointer">Замечания</summary><p className="mt-2 whitespace-pre-wrap leading-relaxed">{p.qualityNote}</p></details>}</td>
               <td className="hidden max-w-xl px-3 py-4 md:table-cell"><p className="text-[var(--ink-muted)]">{p.customer}</p><p className="mt-1 leading-relaxed">{p.subject}</p></td>
-              {block === 'active' && <><td className="hidden whitespace-nowrap px-3 py-4 tabular-nums md:table-cell">{dateLabel}</td>
+              <td className="whitespace-nowrap px-3 py-4 text-right tabular-nums">{fmtRubExact(p.nmck)}</td>
+                    {block === 'active' && <><td className="hidden whitespace-nowrap px-3 py-4 tabular-nums md:table-cell">{dateLabel}</td>
               <td className="hidden px-3 py-4 tabular-nums text-[var(--ink-muted)] md:table-cell">{item.daysToDate ?? '—'}</td></>}
               <td className="hidden px-3 py-4 md:table-cell"><span className={`inline-block rounded px-2 py-1 ${stageBadgeClass(p.stage)}`}>{stageShort(p.stage)}</span></td>
             </tr>;

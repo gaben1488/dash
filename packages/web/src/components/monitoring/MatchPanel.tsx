@@ -89,6 +89,18 @@ export function MatchPanel({ match, error, periodLabel, onReload }: MatchPanelPr
         </>
       )}
     >
+      {match.books.sources?.length ? (
+        <p className="mb-3 text-xs text-[var(--ink-muted)]">
+          Данные книг ГРБС:{' '}
+          {match.books.sources
+            .map(
+              (source) =>
+                `${source.dept} — ${source.readAt ? new Date(source.readAt).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' }) : 'момент чтения не записан'}`,
+            )
+            .join('; ')}
+          . Время Камчатки.
+        </p>
+      ) : null}
       {/* ── Итог сравнения сумм ── */}
       <div className="grid gap-2 sm:grid-cols-2">
         <SumsVerdict

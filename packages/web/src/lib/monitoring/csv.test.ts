@@ -30,7 +30,7 @@ describe('выгрузка текущего отбора мониторинга'
     const rows = normalizeMonitoring({ procedures: [
       { subject: '=SUM(1;2)', customer: ' \t+cmd', requiredAction: 'Разместить извещение', qualityNote: 'Неполно: Заказчик — F',
         ancestorCodes: ['ЭА09-26'], successorCodes: ['ЭА13-26'], protocolFlag: 'протокол с отклонениями',
-        winner: { name: '@supplier', inn: '0200123456' }, comment: 'НЕ ЧИТАТЬ КОММЕНТАРИЙ' },
+        winner: { name: '@supplier', inn: '0200123456' }, comment: '=Комментарий источника; потребность пересмотрена' },
     ] }).procedures;
     const csv = buildMonitoringCsv(rows, { readAt: '2026-10-07T12:30:00Z' }, 'Весь округ');
     expect(csv).toContain("'=SUM(1;2)");
@@ -40,6 +40,7 @@ describe('выгрузка текущего отбора мониторинга'
     expect(csv).toContain('Неполно: Заказчик — F');
     expect(csv).toContain('ЭА09-26;ЭА13-26');
     expect(csv).toContain('протокол с отклонениями');
-    expect(csv).not.toContain('НЕ ЧИТАТЬ КОММЕНТАРИЙ');
+    expect(csv).toContain("\"'=Комментарий источника; потребность пересмотрена\"");
+    expect(rows[0].comment).toBe('=Комментарий источника; потребность пересмотрена');
   });
 });

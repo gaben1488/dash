@@ -203,6 +203,44 @@ export function productTotalsByDept(
     }
   }
 
+  // Transfer known participant amounts; retain the residual at the primary owner.
+  // Counts continue to describe primary procedures and are never transferred.
+  for (const p of procedures) {
+    const owner = acc.get(p.dept)!;
+    for (const part of p.participants ?? []) {
+      let target = acc.get(part.dept);
+      if (!target) {
+        target = {
+          count: 0,
+          nmck: 0,
+          price: 0,
+          savingsTotal: 0,
+          savingsMb: 0,
+          savingsKb: 0,
+          savingsFb: 0,
+          textNumbers: [],
+        };
+        acc.set(part.dept, target);
+      }
+      const transfer = (
+        key: 'nmck' | 'price' | 'savingsTotal' | 'savingsMb' | 'savingsKb' | 'savingsFb',
+        amount: number | null,
+      ) => {
+        if (amount === null) return;
+        owner[key] -= amount;
+        target[key] += amount;
+      };
+      if (p.stage !== 'reissued') transfer('nmck', part.nmck);
+      if (monetaryFactAllowed(p)) {
+        transfer('price', part.price);
+        transfer('savingsTotal', part.savings);
+        transfer('savingsMb', part.savingsMb);
+        transfer('savingsKb', part.savingsKb);
+        transfer('savingsFb', part.savingsFb);
+      }
+    }
+  }
+
   return [...acc.entries()].map(([dept, b]) => ({
     dept,
     count: b.count,

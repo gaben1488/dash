@@ -249,7 +249,14 @@ export function RegistryTable({
   const [expanded, setExpanded] = useState<string | null>(null);
   const chunk = compact ? 50 : CHUNK;
   const [limit, setLimit] = useState(chunk);
-  const [compactView, setCompactView] = useState(compact);
+  const [compactView, setCompactView] = useState(() => {
+    try {
+      const saved = localStorage.getItem('monitoring:compact');
+      return saved === null ? compact: saved === 'true';
+    } catch {
+      return compact;
+    }
+  });
   const [datesOpen, setDatesOpen] = useState(() => loadPref(DATES_PREF_KEY));
   const [budgetsOpen, setBudgetsOpen] = useState(() => loadPref(BUDGETS_PREF_KEY));
 
@@ -309,7 +316,14 @@ export function RegistryTable({
         <MonitoringPerimeterCaption scope="registry" className="text-right" />
       </div>
 
-      {compact && <button type="button" onClick={() => setCompactView(v => !v)}
+      {compact && <button type="button" onClick={() => setCompactView(v => {
+              try {
+                localStorage.setItem('monitoring:compact', String(!v));
+              } catch {
+                /* Optional preference. */
+              }
+              return !v;
+            })}
         className={`${CONTROL} px-3 py-2 text-sm`}>
         {compactView ? 'Все колонки' : 'Рабочий вид'}
       </button>}

@@ -119,3 +119,15 @@ test('автокод заполняет только пустые A внутри
   assert.equal(completedArchiveFormula(result), result);
   assert.throws(() => completedArchiveFormula('=SUM(A1:A3)'), /ARCHIVE_FORMULA_CONTRACT/u);
 });
+
+test('денежный расчёт не требует дополнительного листа и сохраняет критерии периода и стадии', async () => {
+  const { inlineMoneyAttributionFormula } = await import('./monitoring-migration.mjs');
+  const f = '=SUMIFS(INDEX(ДенежныеРазрезы;0;8);INDEX(ДенежныеРазрезы;0;5);$R3;INDEX(ДенежныеРазрезы;0;23);"<>Переоформлена")';
+  const result = inlineMoneyAttributionFormula(f);
+  assert(!result.includes('ДенежныеРазрезы'));
+  assert(!result.includes('SUMIFS'));
+  assert(result.includes('(department=$R3)'));
+  assert(result.includes('(stage<>"Переоформлена")'));
+  assert(result.includes('QUERY(FILTER('));
+  assert.throws(() => inlineMoneyAttributionFormula('=COUNTIFS(A1:A2;"да")'), /MONEY_FORMULA_CONTRACT/u);
+});

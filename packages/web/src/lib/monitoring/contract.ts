@@ -36,6 +36,8 @@ export interface MonitoringSource {
   bookName: string;
   /** Момент чтения книги (ISO) — плашка периода данных (п.58). */
   readAt: string;
+  version?: number | null;
+  asOf?: string | null;
   /** Единица денег ответа. Книги ГРБС — тысячи; здесь — рубли. */
   moneyUnit: string;
   /** Листы книги, прочитанные сервером, в каноническом порядке книги. */
@@ -288,6 +290,8 @@ export interface JournalPayload {
 // ── Справочник учреждений ────────────────────────────────────────────
 
 export interface DirectoryRow {
+  sourceAddress?: string;
+  aliases?: string[];
   num: string | null;
   grbs: string | null;
   fullName: string | null;
@@ -348,6 +352,11 @@ export interface WorkQueueItem {
 }
 export interface WorkQueuePayload { asOf: string; active: WorkQueueItem[]; closed: WorkQueueItem[]; triage?: WorkQueueItem[]; }
 
+export interface SupplierDirectoryPayload {
+  readAt: string | null;
+  error: string | null;
+  rows: Array<{ id: string; name: string; inn: string | null; legalForm: string | null; note: string | null; evidence: string | null; address: string; ambiguous: boolean }>;
+}
 export interface MonitoringPayload {
   work?: WorkQueuePayload | null;
 
@@ -359,6 +368,7 @@ export interface MonitoringPayload {
   svod: SvodPayload | null;
   journal: JournalPayload | null;
   directory: DirectoryPayload | null;
+  suppliers?: SupplierDirectoryPayload | null;
   signals: MonitoringSignal[] | null;
   /**
    * Скрытые листы-предки, названные сервером. `null` — сервер их не назвал, и
@@ -762,6 +772,8 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
     const entries = arr(r.entries).map((x): DirectoryRow => {
       const d = rec(x);
       return {
+        sourceAddress: `${text(d.sheet)}!D${count(d.row)}`,
+        aliases: strList(d.aliases),
         num: num(d.ordinal) === null ? null : String(num(d.ordinal)),
         grbs: str(d.grbs),
         fullName: str(d.fullName),
@@ -778,7 +790,14 @@ function readDirectory(raw: unknown): DirectoryPayload | null {
       const u = rec(x);
       return { name: text(u.name), count: count(u.count) };
     }).filter((u) => u.name !== '');
-    return { rows: entries, unmatchedCustomers: outside, notes: strList(r.notes) };
+    return { rows: entries, unmatchedCustomers: outside, notes: [
+        ...strList(r.notes) ,
+        ...arr(r.collisions).map((x) => {
+          const c = rec(x);
+          return `Конфликт названия «${text(c.normalized)}»: ${strList(c.addresses).join(', ')}. Автоматическое сопоставление остановлено.`;
+        }),
+      ],
+    };
   }
   const rows = arr(r.rows).map((x): DirectoryRow => {
     const d = rec(x);
@@ -859,6 +878,8 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
       readAt: text(src.readAt),
       moneyUnit: str(src.moneyUnit) ?? 'руб',
       sheetsRead: strList(src.sheetsRead),
+      version: num(src.version),
+      asOf: str(src.asOf),
       sheetsFailed: recordOfStrings(src.sheetsFailed),
       sheetsExpected: num(src.sheetsExpected),
     },
@@ -882,6 +903,13 @@ export function normalizeMonitoring(raw: unknown): MonitoringPayload {
     svod: readSvod(r.svod),
     journal: readJournal(r.journal),
     directory: readDirectory(r.directory),
+    ...(r.suppliers !== undefined ? { suppliers: {
+      readAt: str(rec(r.suppliers).readAt), error: str(rec(r.suppliers).error),
+      rows: arr(rec(r.suppliers).rows).map(x => { const row = rec(x); return {
+        id: text(row.id), name: text(row.name), inn: str(row.inn), legalForm: str(row.legalForm),
+        note: str(row.note), evidence: str(row.evidence), address: text(row.address), ambiguous: bool(row.ambiguous),
+      }; }),
+    } } : {}),
     signals: readSignals(r.signals),
     ancestors: readAncestors(r.ancestors),
     notes: strList(r.notes),

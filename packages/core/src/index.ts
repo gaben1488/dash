@@ -213,3 +213,5 @@ export type {
   PlanEvent, PlanEventKind, PlanColumn, JournalRecord, PlanRowInput,
   ParsedJournalRowKey, BookProvenanceSummary,
 } from './provenance/plan-provenance.js';
+
+export { monitoringDate } from './monitoring/cells.js';

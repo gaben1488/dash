@@ -7,7 +7,7 @@ const HEADERS = ['Код процедуры', 'Управление', 'Зака�
   'Экономия, руб.', 'Экономия ФБ, руб.', 'Экономия КБ, руб.', 'Экономия МБ, руб.',
   'Поступление заявки', 'Публикация', 'Окончание подачи', 'Подведение итогов', 'Победитель', 'ИНН победителя',
   'Флаг протокола', 'Предок', 'Наследник', 'Участники', 'Лист источника', 'Строка источника', 'Ссылка на источник',
-  'Данные на', 'Область просмотра'];
+  'Данные на', 'Область просмотра', 'Комментарий источника'];
 
 const money = (n: number | null) => n === null ? '' : n.toFixed(2).replace('.', ',');
 const text = (s: string | null | undefined) => {
@@ -24,7 +24,7 @@ export function buildMonitoringCsv(rows: readonly RegistryProcedure[], source: P
     ...[p.nmck, p.auctionPrice, p.reductionRub, p.reductionPct, p.savingsTotal, p.savingsFb, p.savingsKb, p.savingsMb].map(money),
     ...[p.applicationDate, p.publicationDate, p.deadlineDate, p.auctionDate, p.winnerName, p.winnerInn, p.protocolFlag,
       p.ancestorCodes?.join('; '), p.successorCodes?.join('; '), p.participants?.map((r) => `${r.dept}: ${r.customer}`).join('; '),
-      p.sheet, String(p.row), sourceCellUrl(source.bookUrl, p.sheet, `A${p.row}`), fmtReadAt(source.readAt), scope].map(text),
+      p.sheet, String(p.row), sourceCellUrl(source.bookUrl, p.sheet, `A${p.row}`), fmtReadAt(source.readAt), scope, p.comment].map(text),
   ].join(';'));
   return '\uFEFF' + HEADERS.join(';') + '\r\n' + lines.join('\r\n');
 }

@@ -24,9 +24,29 @@ export function scopeProcedures(
   return procedures.flatMap((p) => {
     if (!(p.participants?.length)) return inDeptScope(scope, p.dept) ? [p] : [];
     const parts = p.participants.filter((part) => inDeptScope(scope, part.dept));
-    if (!parts.length) return [];
-    const sum = (key: 'nmck' | 'price' | 'savings' | 'savingsMb' | 'savingsKb' | 'savingsFb'): number | null =>
-      parts.some((part) => part[key] === null) ? null : parts.reduce((total, part) => total + (part[key] ?? 0), 0);
+    const includesOwner = inDeptScope(scope, p.dept);
+    if (!parts.length&& !includesOwner) return [];
+    const sourceMoney = {
+      nmck: p.nmck,
+      price: p.auctionPrice,
+      savings: p.savingsTotal,
+      savingsMb: p.savingsMb,
+      savingsKb: p.savingsKb,
+      savingsFb: p.savingsFb,
+    };
+    const sum = (key: keyof typeof sourceMoney): number | null =>
+      {
+      if (includesOwner) {
+        const original = sourceMoney[key];
+        return original === null
+          ? null
+          : original -
+              p
+                .participants!.filter((part) => !inDeptScope(scope, part.dept))
+                .reduce((total, part) => total + (part[key] ?? 0), 0);
+      }
+      return parts.some((part) => part[key] === null) ? null : parts.reduce((total, part) => total + (part[key] ?? 0), 0);
+    };
     const nmck = sum('nmck'); const auctionPrice = sum('price');
     const reductionRub = p.stage === 'awarded' && p.factsEligible !== false && nmck !== null && auctionPrice !== null && auctionPrice > 0
       ? nmck - auctionPrice : null;
@@ -34,7 +54,8 @@ export function scopeProcedures(
     const savingsTotal = sum('savings');
     const savingsSplitSum = savingsMb === null || savingsKb === null || savingsFb === null ? null : savingsMb + savingsKb + savingsFb;
     const controlGapRub = savingsTotal === null || savingsSplitSum === null ? null : savingsTotal - savingsSplitSum;
-    return [{ ...p, dept: parts.length === 1 ? parts[0].dept : p.dept, nmck, auctionPrice, savingsTotal, savingsMb, savingsKb, savingsFb,
+    return [{ ...p, participants: parts,
+        dept: !includesOwner && parts.length === 1 ? parts[0].dept : p.dept, nmck, auctionPrice, savingsTotal, savingsMb, savingsKb, savingsFb,
       savingsSplitSum, controlGapRub, controlAgrees: controlGapRub === null ? null : Math.abs(controlGapRub) <= .01,
       reductionRub, reductionPct: reductionRub !== null && nmck !== null && nmck > 0 ? reductionRub / nmck * 100 : null }];
   });

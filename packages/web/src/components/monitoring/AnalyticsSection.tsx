@@ -1,29 +1,9 @@
 /**
- * Секция «Аналитика мониторинга» — семь блоков, которые книга сама не умеет
- * (канон п.101а: «своя аналитика, свои визуальные метрики и графики; своя
- * сверка и подтяжка к нашим данным»; спека §3, §4).
- *
- * ПОЧЕМУ СЕКЦИЯ САМОДОСТАТОЧНА. Реестр и аналитика приезжают разными
- * запросами: реестр читается всегда, аналитика тяжелее и может не подняться,
- * а сверка зависит ещё и от восьми чужих книг. Секция сама ходит за своими
- * данными и сама показывает свои пустоты — экран реестра из-за неподнятой
- * сверки не падает и не ждёт.
- *
- * КУДА ВСТАВЛЯТЬ. В `pages/Monitoring.tsx`, на место с пометкой «Место
- * аналитики», одной строкой:
- *
- *     <MonitoringAnalyticsSection procedures={filtered} />
- *
- * `procedures` необязателен и нужен ровно для двух вещей: денег на ступенях
- * воронки и разреза снижения по способу закупки — их ядро счётом не отдаёт.
- * Без них оба места честно говорят «считается вместе с реестром», а не
- * показывают нули.
- *
- * ТРИ РАЗНЫЕ ПУСТОТЫ И ЗДЕСЬ (п.36): «аналитика не получена» (отказ),
- * «в срезе нет строк для этого блока» (пустой знаменатель) и «сверка не
- * поднята» — три новости с тремя действиями, и путать их нельзя.
+ * Аналитика текущей выборки реестра и того же снимка данных.
+ * Внешняя сверка ГРБС загружается отдельно; её отказ не скрывает реестр.
+ * Без переданного снимка сохраняется самостоятельное чтение для старых маршрутов.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { EmptyState } from '../EmptyState';
 import { SkeletonTable } from '../Skeleton';
@@ -33,6 +13,7 @@ import {
   type AnalyticsPayload, type MatchViewPayload, type SeasonBasis,
 } from '../../lib/monitoring/analytics-contract';
 import type { RegistryProcedure } from '../../lib/monitoring/contract';
+import { selectedAnalytics } from '../../lib/monitoring/selection-analytics';
 import { funnelMoney, reductionByMethod } from '../../lib/monitoring/charts';
 import {
   budgetSavings, carryOver, customerConcentration, jointComparison,
@@ -115,7 +96,7 @@ export function MonitoringAnalyticsSection({
   journalRows, onPickCustomer, onPickZeroReduction, onPickMethod,
   onPickYear, onPickJoint, onPickFate,
 }: MonitoringAnalyticsSectionProps) {
-  const [data, setData] = useState<AnalyticsPayload | null>(null);
+  const [remoteData, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [basis, setBasis] = useState<SeasonBasis>('publication');
@@ -143,7 +124,15 @@ export function MonitoringAnalyticsSection({
       });
   }, [onReloadMatch]);
 
-  useEffect(() => { load(basis); }, [load, basis, registryReadAt]);
+  useEffect(() => { if (procedures === undefined || registryReadAt === undefined) load(basis); }, [load, basis, registryReadAt, procedures]);
+  const localData = useMemo(
+    () =>
+      procedures !== undefined && registryReadAt !== undefined
+        ? selectedAnalytics(procedures, registryReadAt, basis)
+        : null,
+    [procedures, registryReadAt, basis],
+  );
+  const data = localData ?? remoteData;
   useEffect(() => { if (sharedMatch === undefined) loadMatch(); }, [loadMatch, sharedMatch]);
 
   const periodLabel = data === null
@@ -194,7 +183,9 @@ export function MonitoringAnalyticsSection({
   return (
     <MonitoringPerimeterProvider readAt={data.source.readAt}>
     <section className="space-y-3">
-      <p className="text-sm text-zinc-500">Районная аналитика · весь округ. Прочитана отдельно: {periodLabel}. Фильтры выбранных процедур к этим показателям не применяются.</p>
+      <p className="text-sm text-zinc-500">{localData !== null
+            ? `Аналитика выбранных процедур · ${procedures?.length ?? 0}. ${periodLabel}.`
+            : `Районная аналитика · весь округ. Отдельное чтение: ${periodLabel}.`}</p>
       {!sameRead && <p role="status" className="text-sm text-amber-700">Время чтения аналитики отличается от реестра. Сочетание чисел из разных чтений не показывается; обновите книгу для общей сверки.</p>}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -213,7 +204,7 @@ export function MonitoringAnalyticsSection({
         </div>
         <button
           type="button"
-          onClick={() => { load(basis); loadMatch(); }}
+          onClick={() => { if (localData === null) load(basis); loadMatch(); }}
           className={`inline-flex items-center gap-1 ${CONTROL} px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/40`}
         >
           <RotateCcw size={12} aria-hidden="true" /> Пересчитать аналитику

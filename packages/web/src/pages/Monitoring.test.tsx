@@ -58,6 +58,7 @@ afterEach(() => {
   useStore.setState({ selectedDepartments: new Set<string>() });
   try {
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/');
   } catch {
     /* хранилища нет — сбрасывать нечего */
   }

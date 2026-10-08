@@ -28,6 +28,7 @@
 import { isoMonth, isoQuarter, round3 } from './cells.js';
 import { monetaryFactAllowed, type MonitoringProcedure } from './procedures.js';
 import { supplierKey } from './winner.js';
+import { productTotalsByDept } from './svod.js';
 
 // ── Статистика: медиана и квартили ───────────────────────────────────
 
@@ -736,6 +737,40 @@ export function deptComparison(
       if (p.nmck - p.auctionPrice > 0.005) b.reduced += 1;
     }
     if (p.durations.total !== null) b.totals.push(p.durations.total);
+  }
+
+  if (procedures.some((p) => p.result !== undefined)) {
+    const facts = new Map(
+      productTotalsByDept(
+        procedures.filter((p) => monetaryFactAllowed(p) && p.nmck !== null && p.nmck > 0 && p.auctionPrice !== null),
+      ).map((p) => [p.dept, p]),
+    );
+    for (const money of productTotalsByDept(procedures)) {
+      let b = acc.get(money.dept);
+      if (b === undefined) {
+        b = {
+          sheet: procedures[0]?.sheet ?? '',
+          count: 0,
+          nmck: 0,
+          price: 0,
+          savings: 0,
+          awardedNmck: 0,
+          awardedPrice: 0,
+          awarded: 0,
+          reduced: 0,
+          noResult: 0,
+          controlErrors: 0,
+          splitMissing: 0,
+          totals: [],
+        };
+        acc.set(money.dept, b);
+      }
+      b.nmck = money.nmck;
+      b.price = money.price;
+      b.savings = money.savingsTotal;
+      b.awardedNmck = facts.get(money.dept)?.nmck ?? 0;
+      b.awardedPrice = facts.get(money.dept)?.price ?? 0;
+    }
   }
 
   return [...acc.entries()]

@@ -74,7 +74,7 @@ export function DeptCompare({ depts, periodLabel, onPickDept }: DeptCompareProps
           {m.label}
         </CardToggle>
       ))}
-      method={metric.meaning}
+      method={`${metric.meaning} Количество и сроки относятся к основным процедурам по ответственности; деньги распределены по участникам ГРБС.`}
     >
       {rows.length === 0 ? (
         <CardEmpty>
