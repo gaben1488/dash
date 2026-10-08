@@ -41,7 +41,7 @@ export function JournalTable({ journal, readAtLabel, query = '', onOpenCode, cod
   const rows = journal.rows.filter((r) => {
     if (!showHidden && r.hiddenInBook) return false;
     if (needle === '') return true;
-    return [r.code, r.code ? codeLabel(r.code) : null, r.subject, r.customer, r.winnerName, r.winnerInn, r.fate]
+    return [r.code, r.code ? codeLabel(r.code) : null, r.subject, r.customer, r.winnerName, r.winnerInn, r.fate, r.fateRaw, r.linkedCode, ...(r.linkedCodes ?? [])]
       .some((v) => v !== null && v.toLowerCase().includes(needle));
   });
 
