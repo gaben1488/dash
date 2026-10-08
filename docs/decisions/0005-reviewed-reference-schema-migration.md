@@ -71,3 +71,7 @@ roles and units. Its new masked raw/semantic hashes are
 `cd0140b397950845c3aea61c243ef26fc12d037c7dc0fa315a43b779eb266d61`.
 The previous exact 24-column hashes remain an accepted migration predecessor.
 Other static-label changes still fail; retries after this transition are no-ops.
+The exact original v3 review remains available for recognition of its immutable
+history. Private predecessor proof uses the matched recorded review, rather than
+substituting today's review. Only the two explicit complete review definitions
+are eligible; backup hashes, source identity and installed contracts still match.
