@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
-
 INPUT_NAME = 'aemr-report-runtime-inputs-v1.json'
 FORMAT = 'aemr-report-runtime-inputs-v1'
 
