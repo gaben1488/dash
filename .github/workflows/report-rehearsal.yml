@@ -20,7 +20,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Inspect registered live headers without source contents or writes
         uses: appleboy/ssh-action@v1.2.0
@@ -29,7 +29,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 8m
+          command_timeout: 18m
           script_stop: false
           script: |
             set -euo pipefail
@@ -96,24 +96,8 @@ jobs:
                 private_changes = apply_google_schema_migrations(inputs / 'registry.json', client=client)
                 registry = json.loads((inputs / 'registry.json').read_text())
                 print(json.dumps({'private_schema_preflight': {'status': 'PASS', 'changes': private_changes}}, sort_keys=True))
-            results = []
-            for index, source in enumerate(registry["sources"]):
-                item = {"registry_index": index, "sheet": source["sheet"], "grbs": source.get("grbs"), "role": source["role"], "columns": source["columns"], "header_rows": source["header_rows"], "old_fingerprint": source["schema_fingerprint"]}
-                try:
-                    grid = client.grid(source["provider_id"], source["sheet_id"])
-                    columns = grid["gridProperties"]["columnCount"]
-                    if not 1 <= source["header_rows"] <= 4 or not 1 <= columns <= 64:
-                        item["status"] = "HEADER_BOUNDS_REVIEW_REQUIRED"
-                    else:
-                        before = client.revision(source["provider_id"])
-                        rows = client.values(source["provider_id"], grid["title"], 1, source["header_rows"], columns)
-                        item.update(live_sheet=grid["title"], live_columns=columns, live_fingerprint=header_hash(rows, source["header_rows"]), live_semantic_fingerprint=semantic_header_hash(rows, source["header_rows"], columns), status="STABLE" if before == client.revision(source["provider_id"]) else "SOURCE_CHANGED")
-                    if source["source_id"] in sealed:
-                        item["sealed_semantic_fingerprint"] = sealed[source["source_id"]][1]
-                except GoogleReadError as error:
-                    item["status"] = str(error) if str(error) == "GOOGLE_SHEET_ID_NOT_FOUND" else "GOOGLE_HEADER_READ_FAILED"
-                results.append(item)
-            print(json.dumps({"installed_contract_preflight": results}, ensure_ascii=False, sort_keys=True))
+            # The full acquisition below checks every registered grid and header.
+            # Duplicate per-source Google reads here add substantial quota/time.
             from procurement_engine.monitoring_schema import review_registry
             from procurement_engine.runtime_inputs import validate_inputs
             reviewed, changes = review_registry(registry, sealed, client)
@@ -131,6 +115,25 @@ jobs:
             from procurement_engine.raw_pipeline import bundle_from_capture
             capture = capture_google(reviewed, client)
             bundle_from_capture(capture, reviewed, json.loads((root / "inputs/ledger.json").read_text()))
+            by_source = {item["source_id"]: item for item in capture["sources"]}
+            header_results = []
+            for index, source in enumerate(reviewed["sources"]):
+                captured = by_source[source["source_id"]]
+                actual = header_hash(captured["values"], source["header_rows"],
+                    volatile_cells=source.get("volatile_header_cells", ()))
+                expected_semantic = source.get("semantic_header_fingerprint")
+                semantic = (semantic_header_hash(captured["values"], source["header_rows"],
+                    source["columns"], volatile_cells=source.get("volatile_header_cells", ()))
+                    if expected_semantic else None)
+                if (actual != source["schema_fingerprint"]
+                        or (expected_semantic and semantic != expected_semantic)):
+                    raise ValueError("SOURCE_SCHEMA_CHANGED")
+                header_results.append({"registry_index": index, "role": source["role"],
+                    "header_hash_match": True,
+                    "semantic_hash_match": True if expected_semantic else None,
+                    "sealed_comparison_available": source["source_id"] in sealed})
+            print(json.dumps({"captured_header_preflight": {"status": "PASS",
+                "source_count": len(header_results), "sources": header_results}}, sort_keys=True))
             closure = audit_formula_dependencies(capture)
             print(json.dumps({"reviewed_live_source_closure": {"status": "PASS" if closure["closed"] else "BLOCKED", "source_count": len(capture["sources"]), "issue_counts": dict(Counter(issue["code"] for issue in closure["issues"]))}}, sort_keys=True))
             print(json.dumps({"unverified_formula_tokens": sorted({token for issue in closure["issues"] if issue["code"] == "FORMULA_FUNCTION_UNVERIFIED" for token in issue["functions"]})}, sort_keys=True))
