@@ -610,7 +610,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['contract']['context_presentation_contract'] = CONTRACT
     model['source_context_groups'] = group_context(model['source_context'], year=year, as_of=report_date)
     from .automation_assurance import assess_automation
-    model['contract']['automation_assurance_contract'] = 'actionable-assurance-v1'
+    model['contract']['automation_assurance_contract'] = 'actionable-assurance-v2'
     model['automation_assurance'] = assess_automation(model, capture['sources'])
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
     from .traceability import complete_trace_catalog
