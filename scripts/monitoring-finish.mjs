@@ -56,9 +56,30 @@ export function workQueueDividerPresentationRequests(rowCount = 1002) {
   ];
 }
 
+/** Show registered outcomes in the history, but blank their price/savings in the
+ * completed-archive view until their result date is eligible. Master facts stay intact.
+ * Idempotent, conditional-format friendly and never changes source values.
+ */
+export function admitCompletedArchiveFactsByDate(formula) {
+  if (typeof formula !== 'string' || !formula.startsWith('=')) throw new Error('COMPLETED_ARCHIVE_DATE_CONTRACT');
+  if (formula.includes('табДата;IFERROR(FILTER(') && formula.includes('Денежный факт вне расчётной даты')) return formula;
+  if (!formula.includes('нмцкИсточник;') || !formula.includes('ценаИсточник;') || !formula.includes('фбИсточник;') || !formula.includes('процБезДолей;')) return formula;
+  const replace = (oldValue,newValue) => {
+    if (formula.split(oldValue).length !== 2) throw new Error('COMPLETED_ARCHIVE_DATE_CONTRACT:' + oldValue.slice(0,35));
+    formula=formula.replace(oldValue,newValue);
+  };
+  replace('стадия;INDEX(ДанныеМастера;0;23);есть;', 'стадия;INDEX(ДанныеМастера;0;23);итоги;INDEX(ДанныеМастера;0;12);есть;');
+  replace('выбор;TRIM($B$1&"");процБезДолей;', `табДата;IFERROR(FILTER({код\\итоги};проц);{""\\""});датаФакта;ARRAYFORMULA(IF(EXACT(вид;"доля");IFERROR(VLOOKUP(код;табДата;2;FALSE);"");итоги));допуск;ARRAYFORMULA(IF(TRIM(датаФакта&"")="";TRUE;IFERROR(IF(ISNUMBER(датаФакта);датаФакта;DATEVALUE(датаФакта))<=Сегодня;FALSE)));выбор;TRIM($B$1&"");процБезДолей;`);
+  for (const field of ['цена','экономия','фб','кб','мб']) {
+    replace(`FILTER(ARRAYFORMULA(${field});м)`, `FILTER(ARRAYFORMULA(IF(допуск;${field};""));м)`);
+  }
+  replace('FILTER(INDEX(ДанныеМастера;0;25);м)', 'FILTER(ARRAYFORMULA(IF(NOT(допуск);"Денежный факт вне расчётной даты или дата некорректна — не учтён; ";"")&INDEX(ДанныеМастера;0;25));м)');
+  return formula;
+}
+
 /** Keep unallocated participant money at the primary department, including partial allocations. */
 export function archiveResidualFormula(formula) {
-  if (formula.includes('нмцкИсточник;')) return formula;
+  if (formula.includes('нмцкИсточник;')) return admitCompletedArchiveFactsByDate(formula);
   const fields = { нмцк:8, цена:13, экономия:17, фб:14, кб:15, мб:16 };
   const used = [];
   for (const [name, column] of Object.entries(fields)) {
@@ -71,7 +92,7 @@ export function archiveResidualFormula(formula) {
   }
   if (!used.includes('нмцк') || !formula.includes('(долейКода=0)')) throw new Error('ARCHIVE_RESIDUAL_CONTRACT');
   const residual = used.map(name => `(ABS(N(${name}))>1/100)`).join('+');
-  return formula.replace('(долейКода=0)', `(((долейКода=0)+(${residual})+NOT(ISNUMBER(нмцкИсточник)))>0)`);
+  return admitCompletedArchiveFactsByDate(formula.replace('(долейКода=0)', `(((долейКода=0)+(${residual})+NOT(ISNUMBER(нмцкИсточник)))>0)`));
 }
 
 export function preserveFateComment(formula) {
