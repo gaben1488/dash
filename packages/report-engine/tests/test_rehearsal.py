@@ -415,3 +415,19 @@ def test_weekly_only_cli_fails_if_no_archives(monkeypatch, capsys):
     assert rehearsal.main(['--state', '/unused', '--weekly-only']) == 2
     result = json.loads(capsys.readouterr().out)
     assert result['replay_status'] == 'FAIL'
+
+
+def test_sanitized_os_error_exposes_errno_class_not_sensitive_exception(tmp_path, capsys, monkeypatch):
+    import errno
+    from procurement_engine import rehearsal
+
+    def failure(*_a, **_kw):
+        raise OSError(errno.ENOSPC, 'Private source path /personnel/sensitive.xlsx')
+
+    monkeypatch.setattr(rehearsal, 'rehearse_latest', failure)
+    assert rehearsal.main(['--state', str(tmp_path), '--coverage-summary']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['replay_status'] == 'FAIL'
+    assert result['os_failure_class'] == 'NO_SPACE_LEFT'
+    assert 'personnel' not in json.dumps(result)
+    assert 'sensitive' not in json.dumps(result)
