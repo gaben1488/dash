@@ -23,11 +23,11 @@ def issued_recommendations(records):
     snapshot identity, archived original text or the current official release.
     """
     if not isinstance(records, list):
-        raise ValueError('RECOMMENDATION_LEDGER_SCHEMA_INVALID')
+        raise ValueError('RECOMMENDATION_LEDGER_SCHEMA_INVALID')  # noqa: TRY004 — stable public contract
     issued = []
     for record in records:
         if not isinstance(record, dict):
-            raise ValueError('RECOMMENDATION_LEDGER_SCHEMA_INVALID')
+            raise ValueError('RECOMMENDATION_LEDGER_SCHEMA_INVALID')  # noqa: TRY004 — stable public contract
         stage = record.get('editorial_state')
         if stage in ('DRAFT', 'ARCHIVED_DRAFT'):
             continue
