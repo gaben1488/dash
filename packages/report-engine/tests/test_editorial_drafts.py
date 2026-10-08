@@ -76,3 +76,28 @@ def test_existing_input_bootstrap_and_validation_survive_draft_and_editor_note(t
 
     install_google_inputs(target, client=NoDrive())
     assert json.loads((target / 'ledger.json').read_text()) == saved
+
+
+def test_uer_official_registration_is_included_in_source_ledger_and_not_mislabelled_draft():
+    from procurement_engine.recommendation_history import issued_recommendations, verify_uer_official_origin
+    from hashlib import sha256
+
+    content = 'Рекомендовать провести электронный аукцион № 42'
+    record = {'recommendation_id': 'REC-UER-ABCDEF0123456789', 'grbs': 'УО',
+        'recommendation_text': content, 'source_procurement_ids': ['42'],
+        'active_in_current_slice': True, 'editorial_state': 'ISSUED',
+        'section': 'ep', 'table_no': 8, 'row_no': 99,
+        'first_seen': '09.10.2026',
+        'issued_by': 'УЭР', 'issued_at': '2026-10-09T03:00:00+12:00',
+        'origin_evidence': [{'kind': 'UER_DASH_OFFICIAL_ENTRY_V1',
+            'recommendation_id': 'REC-UER-ABCDEF0123456789', 'grbs': 'УО',
+            'text_sha256': sha256(content.encode()).hexdigest(),
+            'document_date': '2026-10-09', 'issued_by': 'УЭР',
+            'recorded_at': '2026-10-09T03:00:00+12:00'}]}
+    issued = issued_recommendations([record])
+    assert len(issued) == 1
+    assert 'editorial_state' not in issued[0]
+    assert verify_uer_official_origin(issued[0], report_date='09.10.2026') is not None
+    altered = {**issued[0], 'recommendation_text': 'Подменённый текст'}
+    assert verify_uer_official_origin(altered, report_date='09.10.2026') is None
+    assert verify_uer_official_origin(issued[0], report_date='08.10.2026') is None
