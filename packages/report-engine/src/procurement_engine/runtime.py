@@ -18,6 +18,8 @@ from .raw_pipeline import (
     bundle_from_capture,
 )
 from .recommendation_history import read_google_history
+from .recommendation_intake import (read_registered_ledger, validate_append_only,
+                                    verify_new_official_records, previous_published_ledger)
 from .snapshot import canonical_semantic_hash
 
 
@@ -64,14 +66,21 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
         stage = 'inputs'
         try:
             registry = _load(registry_path)
-            ledger = _load(ledger_path)
+            baseline_ledger = _load(ledger_path)
             from .runtime_inputs import validate_inputs
 
-            validate_inputs(registry, ledger)
+            validate_inputs(registry, baseline_ledger)
             stage = 'acquisition'
             client = client or GoogleReadClient()
-            ledger, _, history_metadata, history_package = read_google_history(client, ledger, include_package=True)
+            ledger, authority_metadata, new_from_bootstrap = read_registered_ledger(client, baseline_ledger)
+            ledger, historical_documents, history_metadata, history_package = read_google_history(
+                client, ledger, include_package=True)
             capture = capture_google(registry, client)
+            if new_from_bootstrap:
+                verify_new_official_records(ledger, new_from_bootstrap, historical_documents,
+                                            report_date=capture['report_date'])
+            if authority_metadata is not None:
+                capture['authoritative_ledger_source'] = {'metadata': authority_metadata}
             identities = IdentityStore(state / 'identity.sqlite')
             identity_evidence = identities.review_evidence(as_of=capture['captured_at'])
             if history_metadata is not None:
@@ -79,6 +88,16 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             stage = 'publication_selection'
             publications = PublicationStore(state / 'published')
             latest = publications.latest()
+            previous_ledger = previous_published_ledger(state, latest)
+            if previous_ledger is not None:
+                changes_since_release = validate_append_only(previous_ledger, ledger)
+                if changes_since_release:
+                    verify_new_official_records(ledger, changes_since_release,
+                                                historical_documents, report_date=capture['report_date'])
+                previous_model = _load(state / 'published' / 'releases' / latest['release_id'] / 'report_model.json')
+                if (previous_model.get('contract') or {}).get('official_ledger_authority') == 'REMOTE'
+                        and authority_metadata is None:
+                    raise ValueError('OFFICIAL_LEDGER_SOURCE_DISAPPEARED')
             captured_id = bundle_from_capture(capture, registry, ledger, identity_evidence=identity_evidence).manifest['snapshot_id']
             if latest and latest['snapshot_id'] == captured_id:
                 status.update(status=latest['status'], publication=latest, snapshot_id=captured_id,
@@ -107,9 +126,13 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                 def final_revisions():
                     providers = {s['provider_id'] for s in registry['sources']}
                     versions = {provider: client.revision(provider) for provider in providers}
-                    current_ledger, _, metadata = read_google_history(client, _load(ledger_path))
+                    raw_ledger, latest_authority, _ = read_registered_ledger(client, baseline_ledger)
+                    current_ledger, _, metadata = read_google_history(client, raw_ledger)
                     history_revision = {'RECOMMENDATION_HISTORY_EVIDENCE': canonical_semantic_hash(metadata)} if metadata is not None else {}
-                    return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']}, **history_revision,
+                    authority_revision = ({'AUTHORITY_LEDGER_INPUT': canonical_semantic_hash(
+                        {'metadata': latest_authority})} if latest_authority is not None else {})
+                    return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']},
+                            **history_revision, **authority_revision,
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(current_ledger),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path)),
                             'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at']))}
