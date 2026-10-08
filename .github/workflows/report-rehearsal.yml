@@ -152,7 +152,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 28
     steps:
       - name: Replay saved production evidence without changing service or data
         uses: appleboy/ssh-action@v1.2.0
@@ -161,7 +161,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
-          command_timeout: 13m
+          command_timeout: 26m
           # Bash owns failure handling; per-line SSH injection breaks shell blocks.
           script_stop: false
           script: |
@@ -185,7 +185,12 @@ jobs:
             image=$(docker inspect --format '{{.Image}}' "$server")
             cd ..
             git fetch --quiet origin "$candidate"
-            work=$(mktemp -d /tmp/report-rehearsal.XXXXXX)
+            # Identity-history reconstruction can exceed a 1 GiB in-memory
+            # tmpfs; use a private, automatically removed disk-backed scratch.
+            # The production report volume is still mounted strictly read-only.
+            work=$(mktemp -d /var/tmp/report-rehearsal.XXXXXX)
+            mkdir -p "$work/tmp"
+            chmod 1777 "$work/tmp"
             trap 'rm -rf "$work"' EXIT
             git archive "$candidate" packages/report-engine | tar -x -C "$work"
             cd deploy
@@ -237,7 +242,7 @@ jobs:
 
             echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+              -v "$work/tmp:/tmp:rw" \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
@@ -245,7 +250,7 @@ jobs:
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --failed-attempt
             echo "=== fast published-evidence inventory (no candidate replay) ==="
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+              -v "$work/tmp:/tmp:rw" \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
@@ -254,7 +259,7 @@ jobs:
             echo "=== end published-evidence inventory ==="
             echo "=== sanitized current-release diagnostic (weekly archive checked separately) ==="
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+              -v "$work/tmp:/tmp:rw" \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
@@ -265,7 +270,7 @@ jobs:
             # sealed weekly input once, without rebuilding the same DOCX twice.
             # A bad immutable weekly input still fails this strict audit job.
             docker run --rm --network none --read-only \
-              --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+              -v "$work/tmp:/tmp:rw" \
               --volumes-from "$server":ro \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
