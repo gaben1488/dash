@@ -333,6 +333,7 @@ def _internal_annotation(value):
     return bool(re.match(
         r'^(?:\[сверка кодов\]|(?:identity|review)_required\b|'
         r'⚠\s*(?:нет формулы|формула|автокод)|'
+        r'(?:глазами не проверено|требуется подтверждение связи)[.!]?$|'
         r'(?:ошибка формулы|отсутствует формула кода)\b)', text, re.IGNORECASE))
 
 
