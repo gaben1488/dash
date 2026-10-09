@@ -35,8 +35,9 @@ def test_operational_report_is_published_atomically_with_both_existing_word_file
         assert sidecar["snapshot_id"] == model["snapshot"]["snapshot_id"]
     doc = Document(saved / "operational_report.docx")
     text = "\n".join(x.text for x in doc.paragraphs)
-    for phrase in ("ОПЕРАТИВНЫЙ ОТЧЁТ", "Исполнение плана конкурентных", "Единственный поставщик",
-                   "Финансовые остатки", "ИЗМЕНЕНИЯ ПО СРАВНЕНИЮ"):
+    for phrase in ("Оперативный отчёт", "Исполнение по", "Годовое исполнение и остатки",
+                   "Экономия — оперативный лист", "Важное!", "Единственный поставщик",
+                   "ИЗМЕНЕНИЯ ПО СРАВНЕНИЮ"):
         assert phrase in text
     assert "identity_review_required" not in text.lower()
     assert "[сверка кодов]" not in text.lower()
