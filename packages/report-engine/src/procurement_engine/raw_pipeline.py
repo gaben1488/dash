@@ -594,6 +594,9 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['identity_review_evidence']=identity_evidence or []
     model['future_plan']=future
     model['closed_procedure_quality']=closed_quality
+    from .operational_evidence import CONTRACT as OPERATIONAL_PROCEDURE_CONTRACT, build_operational_evidence
+    model['contract']['operational_procedure_contract'] = OPERATIONAL_PROCEDURE_CONTRACT
+    model['operational_procedure_evidence'] = build_operational_evidence(attempts, shares, main['values'])
     model['report_clock']={'business_as_of':report_date,'business_timezone':capture['timezone'],
         'cutoff_at':capture['captured_at'],
         'acquisition_started_at':capture.get('acquisition_started_at'),
