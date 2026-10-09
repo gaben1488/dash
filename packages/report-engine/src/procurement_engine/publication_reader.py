@@ -53,10 +53,10 @@ def read_publication(state_dir, view, release_id=None, *, selection=None):
         else:
             result = {'latest': store.latest() if store else None, 'attempt': attempt}
         return json.dumps(result, ensure_ascii=False, allow_nan=False).encode()
-    if view not in {'dashboard', 'main', 'supplement'}:
+    if view not in {'dashboard', 'main', 'supplement', 'operational'}:
         raise PublicationError('PUBLICATION_VIEW_INVALID')
     if store is None:
         raise PublicationError('PUBLICATION_NOT_FOUND')
     names = {'dashboard': 'dashboard.json', 'main': 'main_report.docx',
-             'supplement': 'management_report.docx'}
+             'supplement': 'management_report.docx', 'operational': 'operational_report.docx'}
     return store.read_artifact(release_id, names[view])
