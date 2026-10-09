@@ -47,7 +47,7 @@ RUN pnpm rebuild
 # ============================================================================
 FROM node:${NODE_VERSION} AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl python3 python3-venv \
+RUN apt-get update && apt-get install -y --no-install-recommends curl python3 python3-venv util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -62,6 +62,10 @@ COPY --from=builder /app /app
 COPY packages/report-engine /app/packages/report-engine
 RUN python3 -m venv /opt/report-env \
     && /opt/report-env/bin/pip install --no-cache-dir /app/packages/report-engine
+
+# The recommendation Ledger uses POSIX flock for crash-released writer
+# serialization. Fail-closed if the OS lock helper is absent.
+RUN command -v flock >/dev/null
 
 # data/ — volume для SQLite
 RUN mkdir -p /app/packages/server/data && chown -R node:node /app
