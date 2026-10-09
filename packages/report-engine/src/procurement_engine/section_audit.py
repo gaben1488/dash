@@ -238,6 +238,13 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
             legacy_scope=assurance_contract == 'actionable-assurance-v1')
         if model.get('automation_assurance') != replay:
             errors.append('automation_assurance')
+    if (model.get('contract') or {}).get('weekly_evidence_contract') == 'weekly-evidence-v1':
+        from .weekly_evidence import build_weekly_evidence, freeze_weekly_baseline
+
+        expected_weekly = build_weekly_evidence(
+            model, capture.get('weekly_baseline') or freeze_weekly_baseline(None))
+        if model.get('weekly_evidence') != expected_weekly:
+            errors.append('weekly_evidence')
     return errors
 
 
