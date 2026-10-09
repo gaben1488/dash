@@ -36,7 +36,7 @@ def test_operational_report_is_published_atomically_with_both_existing_word_file
     doc = Document(saved / "operational_report.docx")
     text = "\n".join(x.text for x in doc.paragraphs)
     for phrase in ("ОПЕРАТИВНЫЙ ОТЧЁТ", "Исполнение плана конкурентных", "Единственный поставщик",
-                   "Финансовые остатки", "Что изменилось с"):
+                   "Финансовые остатки", "ИЗМЕНЕНИЯ ПО СРАВНЕНИЮ"):
         assert phrase in text
     assert "identity_review_required" not in text.lower()
     assert "[сверка кодов]" not in text.lower()
