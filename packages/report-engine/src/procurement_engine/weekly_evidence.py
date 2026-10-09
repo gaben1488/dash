@@ -94,8 +94,8 @@ def _eligible_rows(model):
 def _event(kind, old, new, before, after):
     return {
         "kind": kind, "grbs": new["grbs"], "subject": new["subject"],
-        "uid": new["procurement_uid"], "before": str(before or ""),
-        "after": str(after or ""),
+        "uid": new["procurement_uid"], "before": str(before if before is not None else ""),
+        "after": str(after if after is not None else ""),
         "previous_source_ref": old.get("physical_row_key"),
         "current_source_ref": new.get("physical_row_key"),
         "amount_thousand": str(_money(new.get("plan_amount"))),
