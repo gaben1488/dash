@@ -60,8 +60,8 @@ export function PublishedWeeklySummaryCard({ value }: { value: PublishedWeeklySu
           )}
           {value.unmatched_positions > 0 && (
             <p className="mt-2 border-l-2 border-amber-500 pl-3 text-xs text-zinc-600 dark:text-zinc-400">
-              {value.unmatched_positions} наблюдений пока нельзя однозначно сопоставить с прошлой неделей.
-              Они не признаны новыми или отменёнными закупками.
+              Записей, связь которых с прошлой неделей пока не подтверждена: {value.unmatched_positions}.
+              Их нельзя считать новыми или отменёнными закупками.
             </p>
           )}
           <p className="mt-3 text-[11px] text-zinc-500 dark:text-zinc-400">
