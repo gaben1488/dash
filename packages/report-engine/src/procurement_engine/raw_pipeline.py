@@ -677,7 +677,11 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             as_of=capture['captured_at'],
         )
     if render_docx:
-        from .docx_renderer import render_main_docx, render_management_docx, render_operational_docx
+        from .docx_renderer import (
+            render_main_docx,
+            render_management_docx,
+            render_operational_docx,
+        )
         render_main_docx(model,out/'main_report.docx')
         render_management_docx(model,out/'management_report.docx')
         render_operational_docx(model,out/'operational_report.docx')
