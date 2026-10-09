@@ -242,6 +242,8 @@ def _add_annual_cases(doc, model, index):
     grbs_metrics.sort(key=lambda x: (
         x[1]["remain_count"] == 0,
         (x[1]["fact_count"] / x[1]["plan_count"]) if x[1]["plan_count"] else 2, x[0]))
+    all_groups = sum(len(_groups(source["remaining"][grbs]["comp"]["year"]))
+                     for grbs, _ in grbs_metrics)
     used_groups = 0
     omitted_groups = 0
     for grbs, summary in grbs_metrics:
@@ -254,11 +256,12 @@ def _add_annual_cases(doc, model, index):
         _paragraph(doc, label, size=9, bold=True, source=summary, keep_with_next=bool(summary["remain_count"]))
         rows = source["remaining"][grbs]["comp"]["year"]
         groups = _groups(rows)
-        # Two largest examples per administration, then optional third when
-        # needed for traceable significant purchases, bounded as a short memo.
-        size = min(len(groups), 3 if len(groups) <= 3 else 2)
-        if used_groups + size > 20:
-            size = max(0, 20 - used_groups)
+        # Reproduce all named outstanding positions when the whole case list
+        # fits a concise reference-style memo; otherwise retain the three
+        # largest cases per GRBS and point to the exhaustive main report.
+        size = len(groups) if all_groups <= 24 else min(len(groups), 3)
+        if used_groups + size > 24:
+            size = max(0, 24 - used_groups)
         for group in groups[:size]:
             _compact_case(doc, grbs, group, source_rows=details, index=index, period="year")
         used_groups += size
