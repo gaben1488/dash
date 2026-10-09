@@ -30,7 +30,7 @@ class DocumentPlan:
         keys = ('snapshot', 'headline', 'grbs_order', 'report_content', 'grbs_metrics',
                 'management_summary', 'procedures', 'narratives', 'publication', 'comparison',
                 'recommendations', 'recommendations_by_grbs', 'recommendation_tables_by_grbs',
-                'source_context', 'source_context_groups', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract', 'weekly_evidence')
+                'source_context', 'source_context_groups', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract', 'weekly_evidence', 'operational_procedure_evidence')
         projection = {key: model[key] for key in keys if key in model}
         if 'details' in projection:
             fields = {'physical_row_key', 'subject'}
