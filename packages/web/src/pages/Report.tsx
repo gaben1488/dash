@@ -1000,7 +1000,7 @@ export function ReportPage() {
             Архив недели
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-1 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <button
             onClick={onCopy}
             disabled={!report}
@@ -1014,8 +1014,8 @@ export function ReportPage() {
             onClick={() => void word.download('main')}
             disabled={!word.release || word.saving !== null}
             aria-describedby="report-word-status"
-            title="Основной отчёт из проверенного серверного комплекта"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+            title="Скачать основной Word из проверенного комплекта"
+            className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-amber-200 dark:text-zinc-900 dark:hover:bg-amber-100 transition-colors"
           >
             <FileDown size={12} />
             {word.saving === 'main' ? 'Загружаем отчёт…' : 'Отчёт в Word'}
@@ -1024,8 +1024,8 @@ export function ReportPage() {
             onClick={() => void word.download('extra')}
             disabled={!word.release || word.saving !== null}
             aria-describedby="report-word-status"
-            title="Дополнение из того же проверенного серверного комплекта"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+            title="Скачать дополнение из того же проверенного комплекта"
+            className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
             {word.saving === 'extra' ? 'Загружаем дополнение…' : 'Доп. отчёт в Word'}
@@ -1033,6 +1033,10 @@ export function ReportPage() {
         </div>
       </div>
 
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        Основной отчёт и дополнение формируются из одного проверенного среза. Дата чтения указана ниже.
+        Скачивание не создаёт новый срез: данные обновляет сервер.
+      </p>
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 
