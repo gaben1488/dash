@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-type View = 'status' | 'dashboard' | 'main' | 'supplement';
+type View = 'status' | 'dashboard' | 'main' | 'supplement' | 'operational';
 const execute = promisify(execFile);
 const ContextSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
@@ -107,7 +107,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
     }
   });
   for (const [suffix, view] of [['', 'status'], ['/dashboard', 'dashboard'],
-    ['/main.docx', 'main'], ['/supplement.docx', 'supplement']] as const) {
+    ['/main.docx', 'main'], ['/supplement.docx', 'supplement'], ['/operational.docx', 'operational']] as const) {
     app.get<{ Params: { releaseId?: string } }>(`/api/report-releases${suffix ? '/:releaseId' + suffix : ''}`,
       async (request, reply) => {
         const id = request.params.releaseId;
@@ -125,7 +125,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
         }
         try {
           const data = context ? await read(view, id, context) : await read(view, id);
-          if (view === 'main' || view === 'supplement') {
+          if (view === 'main' || view === 'supplement' || view === 'operational') {
             reply.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             reply.header('Content-Disposition', `attachment; filename="${id}-${view}.docx"`);
             return reply.send(data);
