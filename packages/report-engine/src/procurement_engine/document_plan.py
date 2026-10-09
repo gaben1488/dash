@@ -342,8 +342,9 @@ def _add_weekly_review(doc, model, *, detailed=False):
     if weekly['status'] != 'COMPARABLE':
         _paragraph(doc, weekly['message'], color=ORANGE, italic=True, size=8)
         return
-    _paragraph(doc, f"База сравнения — проверенный отчёт от {weekly['baseline_date']}. "
-               "Учтены изменения в записях планов-реестров, а не только календарные даты событий.",
+    baseline_human = '.'.join(reversed(weekly['baseline_date'].split('-')))
+    _paragraph(doc, f"Сравнение с проверенным отчётом от {baseline_human}. "
+               "Показаны изменения записей, а не только события по дате заключения.",
                size=8, italic=True, color=GRAY)
     for kind, label in (('competitive', 'Конкурентные закупки'), ('single_supplier', 'Единственный поставщик')):
         block = weekly['totals'][kind]
@@ -363,11 +364,11 @@ def _add_weekly_review(doc, model, *, detailed=False):
         _paragraph(doc, 'По однозначно сопоставленным закупкам изменений реквизитов не обнаружено.',
                    size=8, source=weekly)
     if weekly['recommendations_added']:
-        _paragraph(doc, f"В официальном реестре УЭР появилось {weekly['recommendations_added']} "
-                   f"новых для сравниваемых выпусков рекомендаций.", size=8, source=weekly)
+        _paragraph(doc, f"Новых официальных рекомендаций УЭР относительно прошлого выпуска: "
+                   f"{weekly['recommendations_added']}.", size=8, source=weekly)
     if weekly.get('recommendations_revised'):
-        _paragraph(doc, f"Уточнены формулировки {weekly['recommendations_revised']} "
-                   "рекомендаций УЭР. Ранее выпущенные редакции сохранены.",
+        _paragraph(doc, f"Рекомендаций УЭР с изменённой формулировкой: "
+                   f"{weekly['recommendations_revised']}. Ранее опубликованные редакции сохранены.",
                    size=8, source=weekly)
     if weekly.get('procedure_stage_changes'):
         _paragraph(doc, 'Изменения стадий процедур, остающихся в работе:', size=8,
@@ -389,8 +390,8 @@ def _add_weekly_review(doc, model, *, detailed=False):
         _paragraph(doc, f"Остальные {extra} изменений сохранены в проверенной аналитике этого выпуска.",
                    size=8, color=GRAY, source=weekly)
     if weekly['unmatched_positions']:
-        _paragraph(doc, f"Для {weekly['unmatched_positions']} наблюдений связь между двумя состояниями "
-                   "не подтверждена. Они не объявлены новыми или отменёнными закупками.",
+        _paragraph(doc, f"Записей, связь которых с прошлой неделей пока не подтверждена: "
+                   f"{weekly['unmatched_positions']}. Их нельзя считать новыми или отменёнными закупками.",
                    size=8, color=ORANGE, italic=True, source=weekly)
 
 def build_main_plan(report_model: dict, *, narrative_mode: str = "GENERIC_TEMPLATE") -> dict:
