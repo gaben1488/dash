@@ -193,7 +193,7 @@ async function persist(directory: string, old: Snapshot, rows: Entry[]): Promise
  * Node retains the descriptor and thus the lock through the whole mutation.
  * Closing that descriptor in finally releases it. No stale .lock cleanup.
  */
-async function withLedgerLock<T>(directory: string, action: () => Promise<T>): Promise<T> {
+export async function withLedgerLock<T>(directory: string, action: () => Promise<T>): Promise<T> {
   let handle;
   try {
     handle = await open(join(directory, '.ledger-editor.lock'),
