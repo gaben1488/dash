@@ -136,6 +136,9 @@ export function useReportExport(context: ExportContext | null) {
   }
   async function refresh() {
     if (!key || archiveMode || refreshState?.key === key && refreshState.busy) return;
+    // A user explicitly requesting new data releases the old download pair pin.
+    // Background updates remain pinned until such an explicit action.
+    setPinned(null);
     setRefreshState({ key, busy: true, notice: 'Запрашиваем новый срез исходных таблиц…' });
     try {
       const data = await fetchParsed('/report-releases/refresh', ReportRefreshResponseSchema, {
