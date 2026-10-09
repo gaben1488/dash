@@ -9,7 +9,11 @@ from dataclasses import replace
 import pytest
 from docx import Document
 from procurement_engine.diagnostics import project_diagnostics
-from procurement_engine.docx_renderer import render_main_docx, render_management_docx
+from procurement_engine.docx_renderer import (
+    render_main_docx,
+    render_management_docx,
+    render_operational_docx,
+)
 from procurement_engine.google_adapter import capture_google
 from procurement_engine.identity_store import IdentityStore
 from procurement_engine.projections import project_dashboard
@@ -63,6 +67,8 @@ def rewrite(root, model):
     dump(project_diagnostics(model), root / 'diagnostic_protocol.json')
     render_main_docx(model, root / 'main_report.docx')
     render_management_docx(model, root / 'management_report.docx')
+    if (model.get('contract') or {}).get('operational_document_contract') == 'operational-report-v1':
+        render_operational_docx(model, root / 'operational_report.docx')
 
 
 @pytest.mark.parametrize('column,field', [(12, 'single_supplier_reason'), (20, 'deviation_reason'),
