@@ -290,6 +290,26 @@ class PublicationStore:
                 return None
             return {'receipt': receipt, 'model': _json(self.releases / receipt['release_id'] / 'report_model.json')}
 
+    def previous_weekly_model(self, report_date):
+        """Latest verified Thursday/Friday publication of the *preceding* week.
+
+        Ordinary daily reports are never silently used as the weekly baseline.
+        """
+        from .weekly_evidence import previous_week_window
+
+        start, end = previous_week_window(report_date)
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            rows = db.execute('''SELECT receipt, files FROM publications
+                WHERE report_date BETWEEN ? AND ?
+                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (start, end))
+            receipt = self._first_live(rows)
+            if receipt is None:
+                return None
+            if receipt.get('status') not in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}:
+                return None
+            return {'receipt': receipt,
+                    'model': _json(self.releases / receipt['release_id'] / 'report_model.json')}
+
     def read_artifact(self, release_id, name):
         if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):
             raise PublicationError('PUBLICATION_ID_INVALID')
