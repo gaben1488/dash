@@ -578,6 +578,7 @@ export const PublishedReleaseSchema = z.object({
   rules_version: z.string().min(1),
   renderer_version: z.string().min(1),
   status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
+  operational_available: z.boolean().optional(),
   automation_assurance: ReportAssuranceSchema.optional(),
   weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
