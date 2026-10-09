@@ -642,6 +642,7 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     from .section_audit import audit_source_sections
     section_errors = audit_source_sections({**capture, 'identity_evidence': identity_result}, model, ledger=ledger, identity_evidence=identity_evidence)
     from .document_content import planned_documents
+    model['contract']['operational_document_contract'] = 'operational-report-v1'
     model['contract']['document_content_contract'] = 'document-plan-v1'
     model['contract']['narrative_source_contract'] = 'recorded-business-v1'
     model['document_plans'] = planned_documents(model)
@@ -676,6 +677,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
             as_of=capture['captured_at'],
         )
     if render_docx:
-        from .docx_renderer import render_main_docx, render_management_docx
-        render_main_docx(model,out/'main_report.docx');render_management_docx(model,out/'management_report.docx')
+        from .docx_renderer import render_main_docx, render_management_docx, render_operational_docx
+        render_main_docx(model,out/'main_report.docx')
+        render_management_docx(model,out/'management_report.docx')
+        render_operational_docx(model,out/'operational_report.docx')
     return model
