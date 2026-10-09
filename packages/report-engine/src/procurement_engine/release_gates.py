@@ -181,6 +181,9 @@ def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=
         if not require_weekly or not isinstance(model.get('weekly_evidence'), dict):
             issues.append(ValidationIssue('ERROR', 'WEEKLY_EVIDENCE_MISSING',
                 'Недельная аналитика должна быть частью проверенного выпуска.'))
+        if (model.get('contract') or {}).get('operational_document_contract') != 'operational-report-v1':
+            issues.append(ValidationIssue('ERROR', 'OPERATIONAL_DOCUMENT_MISSING',
+                'Для нового выпуска требуется оперативный Word.'))
 
 
     def require(condition, code, message):
