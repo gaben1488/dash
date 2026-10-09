@@ -4,7 +4,7 @@ import { fetchBlob, fetchParsed } from '../../api';
 import type { ReportMode } from './request';
 
 export interface ExportContext { date: string; year: number; quarter: number; mode: ReportMode }
-type Kind = 'main' | 'extra';
+type Kind = 'main' | 'extra' | 'operational';
 type Release = NonNullable<SelectedReportReleaseStatus['selected']>;
 const timestamp = new Intl.DateTimeFormat('ru-RU', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Kamchatka',
@@ -111,19 +111,20 @@ export function useReportExport(context: ExportContext | null) {
   if (release && current?.error) status += ` ${current.error}`;
 
   async function download(kind: Kind) {
+    if (kind === 'operational' && !release?.operational_available) return;
     if (!key || !release || saving || downloadController.current && !downloadController.current.signal.aborted) return;
     const controller = new AbortController();
     downloadController.current = controller;
     setPinned({ key, release });
     setTransfer({ key, saving: kind, error: '' });
     try {
-      const file = kind === 'main' ? 'main.docx' : 'supplement.docx';
+      const file = kind === 'main' ? 'main.docx' : kind === 'extra' ? 'supplement.docx' : 'operational.docx';
       const blob = await fetchBlob(`/report-releases/${release.release_id}/${file}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${kind === 'main' ? 'Отчёт' : 'Дополнение'}-${release.report_date}.docx`;
+      link.download = `${kind === 'main' ? 'Отчёт' : kind === 'extra' ? 'Дополнение' : 'Оперативный отчёт'}-${release.report_date}.docx`;
       document.body.append(link);
       try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
       setTransfer({ key, saving: null, error: '' });
