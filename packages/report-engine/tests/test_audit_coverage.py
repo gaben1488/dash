@@ -3,7 +3,11 @@ import json
 from copy import deepcopy
 
 import pytest
-from procurement_engine.docx_renderer import render_main_docx, render_management_docx
+from procurement_engine.docx_renderer import (
+    render_main_docx,
+    render_management_docx,
+    render_operational_docx,
+)
 from procurement_engine.google_adapter import capture_google
 from procurement_engine.identity_store import IdentityStore
 from procurement_engine.independent_audit import audit_model
@@ -79,6 +83,7 @@ def test_publisher_rejects_wrong_grbs_total_after_matching_render_and_hashes(fin
     (root / 'dashboard.json').write_text(json.dumps(project_dashboard(model)))
     render_main_docx(model, root / 'main_report.docx')
     render_management_docx(model, root / 'management_report.docx')
+    render_operational_docx(model, root / 'operational_report.docx')
     revisions = json.loads((root / 'snapshot_bundle/bundle.json').read_text())['after']
     store = PublicationStore(tmp_path / 'published')
     with pytest.raises(PublicationError, match='SAVED_SOURCE_RECHECK_FAILED'):
