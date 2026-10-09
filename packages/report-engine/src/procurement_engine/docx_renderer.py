@@ -179,3 +179,9 @@ def render_main_docx(report_model, output_path, *, narrative_mode='GENERIC_TEMPL
 def render_management_docx(report_model, output_path, *, narrative_mode='SMART_NARRATIVE'):
     from .document_plan import build_management_plan
     return _render_plan(report_model, build_management_plan(report_model, narrative_mode=narrative_mode), output_path)
+
+
+
+def render_operational_docx(report_model, output_path):
+    from .operational_plan import build_operational_plan
+    return _render_plan(report_model, build_operational_plan(report_model), output_path)
