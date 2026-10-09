@@ -46,7 +46,14 @@ def check_exports(fetch):
     dashboard = json.loads(fetch(prefix + '/dashboard'))
     if any(dashboard[key] != release[key] for key in ('snapshot_id', 'report_date', 'rules_version', 'renderer_version')):
         raise ValueError('REPORT_EXPORT_SNAPSHOT_MISMATCH')
-    for file in ('main.docx', 'supplement.docx'):
+    needs_operational = str(release.get('renderer_version') or '').startswith('renderer-v1.5.0rc25')
+    available_operational = release.get('operational_available') is True
+    if needs_operational and not available_operational:
+        raise ValueError('REPORT_EXPORT_DOCUMENT_INVALID')
+    files = ['main.docx', 'supplement.docx']
+    if available_operational:
+        files.append('operational.docx')
+    for file in files:
         try:
             with zipfile.ZipFile(io.BytesIO(fetch(prefix + '/' + file))) as archive:
                 if archive.getinfo('word/document.xml').file_size > 16 * 1024 * 1024:
@@ -58,7 +65,9 @@ def check_exports(fetch):
                 raise ValueError('document context differs')
         except (ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
             raise ValueError('REPORT_EXPORT_DOCUMENT_INVALID') from exc
-    return {'context': 'PASS', 'main': 'PASS', 'supplement': 'PASS', 'snapshot': 'PASS'}
+    return {'context': 'PASS', 'main': 'PASS', 'supplement': 'PASS',
+            'operational': 'PASS' if available_operational else 'LEGACY_NOT_AVAILABLE',
+            'snapshot': 'PASS'}
 
 
 def check_worker_cycle(read_status, since, *, sleep=time.sleep, attempts=91):
@@ -76,7 +85,9 @@ def check_worker_cycle(read_status, since, *, sleep=time.sleep, attempts=91):
                 finished = datetime.fromisoformat(status.get('finished_at', ''))
                 publication = status.get('publication') or {}
                 if (finished.tzinfo is None or finished < started or not status.get('snapshot_id')
-                        or status['snapshot_id'] != publication.get('snapshot_id')):
+                        or status['snapshot_id'] != publication.get('snapshot_id')
+                        or (str(publication.get('renderer_version') or '').startswith('renderer-v1.5.0rc25')
+                            and publication.get('operational_available') is not True)):
                     raise ValueError('REPORT_WORKER_CYCLE_FAILED')
                 result = {'worker': 'PASS'}
                 assurance = status.get('automation_assurance') or publication.get('automation_assurance')
