@@ -68,7 +68,7 @@ def test_report_week_matches_same_uid_and_separates_late_entry_from_new_contract
         "FACT_DATE_RECORDED": 1, "METHOD_CHANGED": 1, "PLAN_QUARTER_CHANGED": 1}
     date_change = next(x for x in result["events"] if x["kind"] == "FACT_DATE_RECORDED")
     text = event_sentence(date_change, baseline_date="2026-10-02")
-    assert "ранее" in text
+    assert "более раннему периоду" in text
     assert "договор заключен" not in text.casefold()
     assert "PUR-proven" not in text
     assert "book::" not in text
