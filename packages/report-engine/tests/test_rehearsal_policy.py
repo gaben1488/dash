@@ -1,7 +1,6 @@
 """An archived bad historical source does not become a new engine regression."""
 from procurement_engine.rehearsal_policy import compare_weekly_replay
 
-
 LEGACY = {
     "replay_status": "FAIL",
     "error_code": "ARCHIVE_BUILD_FAILED",
