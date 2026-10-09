@@ -52,9 +52,10 @@ from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
+from .weekly_evidence import CONTRACT as WEEKLY_CONTRACT, build_weekly_evidence, freeze_weekly_baseline
 
-RENDERER_VERSION = 'renderer-v1.5.0rc24'
-RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc24+reviewed-actions-v1+verified-original-links-v1+grid-coverage-v1+archive-scope-v1'
+RENDERER_VERSION = 'renderer-v1.5.0rc25'
+RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1+archive-scope-v1+weekly-evidence-v1'
 
 FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ERROR!', '#SPILL!'}
 
@@ -162,6 +163,18 @@ def bundle_from_capture(capture, registry, ledger=None, *, identity_evidence=Non
         source_manifest.append({'source_id':sid, 'provider_id':sid, 'role':role,
             'revision_or_modified_at':token, 'content_hash':token, 'canonical_semantic_hash':token,
             'content_hash_kind':'canonical_semantic_values'})
+    # Pin the weekly comparison input inside the immutable report snapshot.
+    # The prior publication is never reopened from present-day Google Sheets.
+    weekly_baseline = capture.get('weekly_baseline') or freeze_weekly_baseline(None)
+    if weekly_baseline.get('contract') != WEEKLY_CONTRACT:
+        raise ValueError('WEEKLY_BASELINE_CONTRACT_INVALID')
+    sid = 'WEEKLY_BASELINE'
+    token = canonical_semantic_hash(weekly_baseline)
+    payloads.append(SourcePayload(sid, 'weekly_baseline', sid, weekly_baseline))
+    before[sid] = after[sid] = token
+    source_manifest.append({'source_id': sid, 'provider_id': sid, 'role': 'weekly_baseline',
+        'revision_or_modified_at': token, 'content_hash': token, 'canonical_semantic_hash': token,
+        'content_hash_kind': 'canonical_semantic_values'})
     if capture.get('archived_file_evidence') is not None:
         value = capture['archived_file_evidence']; sid = 'ARCHIVED_FILE_EVIDENCE'
         token = canonical_semantic_hash(value)
@@ -618,6 +631,8 @@ def build_from_capture(capture, registry, ledger, out_dir, *, render_docx=True, 
     model['contract']['automation_assurance_contract'] = 'actionable-assurance-v2'
     model['automation_assurance'] = assess_automation(model, capture['sources'])
     model['comparison']=compare_published_models(model,previous_publication['model'] if previous_publication else None)
+    model['contract']['weekly_evidence_contract'] = WEEKLY_CONTRACT
+    model['weekly_evidence'] = build_weekly_evidence(model, capture.get('weekly_baseline') or freeze_weekly_baseline(None))
     from .traceability import complete_trace_catalog
     model['contract']['trace_catalog_contract'] = 'complete-trace-v1'
     model['trace_records'] = complete_trace_catalog(model)
