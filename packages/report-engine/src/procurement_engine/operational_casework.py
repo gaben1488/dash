@@ -6,10 +6,10 @@ result is NEVER treated as a contract signature or as confirmed budget savings.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from decimal import Decimal
 from difflib import SequenceMatcher
-import re
 
 from .normalize import normalize_grbs, normalize_procedure_code, parse_date
 
