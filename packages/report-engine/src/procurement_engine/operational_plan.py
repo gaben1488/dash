@@ -34,6 +34,17 @@ from .operational_casework import (
 from .renderer_guard import assert_renderer_inputs
 
 
+def _plural_ru(n, forms):
+    n = abs(int(n))
+    if 11 <= n % 100 <= 14:
+        return forms[2]
+    if n % 10 == 1:
+        return forms[0]
+    if 2 <= n % 10 <= 4:
+        return forms[1]
+    return forms[2]
+
+
 def _focus_quarter(model):
     """The October reference still focuses on the just-closed third quarter."""
     day = date.fromisoformat(parse_date(model["snapshot"]["report_date"]))
@@ -94,7 +105,7 @@ def _compact_case(doc, grbs, group, *, source_rows, index, period):
     details = [source_rows.get(r["source_row_key"]) for r in group]
     subject = group[0]["subject"].strip()
     total = _money(_money_group(group))
-    heading = (f"{grbs}: {len(group)} позиции с одинаковым предметом — {subject}"
+    heading = (f"{grbs}: {len(group)} {_position_word(len(group))} с одинаковым предметом — {subject}"
                if len(group) > 1 else f"{grbs}: {subject}")
     dates = sorted({d["planned_date"] for d in details if d and d.get("planned_date")})
     text = f"• {heading} — {total} тыс. руб.{_budget_group(details)}."
@@ -215,7 +226,7 @@ def _add_quarter_cases(doc, model, quarter, index):
     for grbs, group in cases[:12]:
         _compact_case(doc, grbs, group, source_rows=source_rows, index=index, period="quarter")
     if len(cases) > 12:
-        _paragraph(doc, f"Ещё {len(cases)-12} групп незакрытых позиций "
+        _paragraph(doc, f"Ещё {len(cases)-12} {_plural_ru(len(cases)-12, ('группа', 'группы', 'групп'))} незакрытых позиций "
                    "приведены в основном отчёте; из суммы выше они не исключены.",
                    size=8, color=GRAY)
 
@@ -268,7 +279,7 @@ def _add_annual_cases(doc, model, index):
         if len(groups) > size:
             omitted_groups += len(groups) - size
             if size:
-                _paragraph(doc, f"Остальные {len(groups)-size} групп позиций {grbs} "
+                _paragraph(doc, f"Остальные {len(groups)-size} {_plural_ru(len(groups)-size, ('группа', 'группы', 'групп'))} позиций {grbs} "
                            "приведены в основном отчёте.", size=8, source=summary, color=GRAY)
     if omitted_groups:
         _paragraph(doc, "Сведения по всем незакрытым позициям учтены в годовых итогах; "
@@ -288,7 +299,7 @@ def _add_unlinked_procedures(doc, model, index):
     for item in cases:
         _paragraph(doc, "• " + procedure_candidate_sentence(item), size=9, source=item, first_line_mm=3)
     if omitted:
-        _paragraph(doc, f"Ещё {omitted} процедур с неподтверждёнными кодовыми связями "
+        _paragraph(doc, f"Ещё {omitted} {_plural_ru(omitted, ('процедура', 'процедуры', 'процедур'))} с неподтверждёнными кодовыми связями "
                    "доступны в рабочем реестре. Отсутствие ссылки не означает отсутствия плана.",
                    size=8, color=ORANGE)
 
@@ -307,8 +318,8 @@ def _add_actions(doc, model, quarter, index):
     _paragraph(doc, "Важное!", size=9, bold=True, keep_with_next=True)
     q = model["report_content"]["global"]["comp"][f"q{quarter}"]
     if q["remain_count"]:
-        _paragraph(doc, f"По {q['remain_count']} незакрытым позициям "
-                   f"{_roman(quarter)} квартала следует проверить дату заключения "
+        _paragraph(doc, f"Проверить даты заключения по {q['remain_count']} "
+                   f"{_position_word(q['remain_count'])} {_roman(quarter)} квартала "
                    "в планах-реестрах. Завершение торгов само по себе не подтверждает заключение контракта.",
                    size=9, source=q)
     else:
