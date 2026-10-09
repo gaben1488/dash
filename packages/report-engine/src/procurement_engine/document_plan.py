@@ -6,6 +6,7 @@ The publication reader rebuilds this plan and compares ordered OOXML content.
 This is not an NLP assertion that arbitrary source prose is factually true.
 """
 import json
+import re
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any
@@ -29,11 +30,18 @@ class DocumentPlan:
         keys = ('snapshot', 'headline', 'grbs_order', 'report_content', 'grbs_metrics',
                 'management_summary', 'procedures', 'narratives', 'publication', 'comparison',
                 'recommendations', 'recommendations_by_grbs', 'recommendation_tables_by_grbs',
-                'source_context', 'source_context_groups', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract')
+                'source_context', 'source_context_groups', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract', 'weekly_evidence', 'operational_procedure_evidence')
         projection = {key: model[key] for key in keys if key in model}
         if 'details' in projection:
+            fields = {'physical_row_key', 'subject'}
+            if (model.get('contract') or {}).get('operational_document_contract') == 'operational-report-v1':
+                fields.update({'grbs', 'institution', 'planned_date', 'actual_date',
+                               'plan_amount', 'plan_fb', 'plan_kb', 'plan_mb',
+                               'deviation_reason', 'grbs_comment', 'necessity_reason',
+                               'procedure_code', 'procurement_uid', 'source_row_no',
+                               'included', 'planned_year'})
             projection['details'] = [{key: value for key, value in row.items()
-                                      if key in {'physical_row_key', 'subject'}} for row in model['details']]
+                                      if key in fields} for row in model['details']]
         if 'recommendations' in projection:
             projection['recommendations'] = {key: value for key, value in model['recommendations'].items()
                                               if key in {'active', 'historical_unique', 'superseded'}}
@@ -269,7 +277,10 @@ def _add_operational_control(doc, model):
         if len(deadline) == 10 and deadline[4] == '-':
             deadline = '.'.join(reversed(deadline.split('-')))
         date_note = f" Срок: {deadline}." if deadline else ''
-        action = f" {row['action']}" if row.get('action') else ''
+        action_value = row.get('action') or ''
+        if _executive_contract(doc) and _internal_annotation(action_value):
+            action_value = ''
+        action = f" {action_value}" if action_value else ''
         _paragraph(doc, f"- {row['procedure_code']}: {row['stage']}. {row['subject']}.{date_note}{action}",
                    size=8, first_line_mm=4)
 
@@ -289,6 +300,8 @@ def _add_recommendations(doc, rows, report_date):
     for idx, record in enumerate(rows, 1):
         status = str(record.get("semantic_status_ru") or "")
         finding = str(record.get("business_finding") or "")
+        if _executive_contract(doc) and _internal_annotation(finding):
+            finding = ""
         decision = str(record.get("uer_decision") or "")
         last = "\n".join(x for x in [decision, f"{report_date}: {status}" if status else "", finding] if x)
         values.append([str(record.get("row_no") or idx), record.get("recommendation") or "",
@@ -299,7 +312,7 @@ def _add_recommendations(doc, rows, report_date):
 @section_rule('DOC.NARRATIVES', roots=None)
 def _add_narratives(doc, blocks: list[dict], *, include_describe: bool = False) -> None:
     blocks = [b for b in blocks if include_describe or str(b.get("stage") or "").lower() != "describe"]
-    if not blocks:
+    if not blocks or _executive_contract(doc):
         return
     _paragraph(doc, "АНАЛИТИЧЕСКИЙ КОНТЕКСТ:", bold=True, keep_with_next=True)
     for b in blocks:
@@ -307,6 +320,87 @@ def _add_narratives(doc, blocks: list[dict], *, include_describe: bool = False) 
         label = {"DESCRIBE": "Факт", "EXPLAIN": "Объяснение", "JUDGE": "Оценка", "ACT": "Действие"}.get(stage, stage or "Контекст")
         _paragraph(doc, f"{label}: {b.get('text') or ''}", size=8, italic=stage in {"EXPLAIN", "JUDGE"}, color=GRAY, first_line_mm=8, source=b)
 
+
+
+
+def _executive_contract(doc):
+    return doc.model.get('contract', {}).get('weekly_evidence_contract') == 'weekly-evidence-v1'
+
+
+def _internal_annotation(value):
+    """Narrow signatures of machine notes, never arbitrary business explanations."""
+    text = str(value or '').strip()
+    return bool(re.match(
+        r'^(?:\[сверка кодов\]|(?:identity|review)_required\b|'
+        r'⚠\s*(?:нет формулы|формула|автокод)|'
+        r'(?:глазами не проверено|требуется подтверждение связи)[.!]?$|'
+        r'(?:ошибка формулы|отсутствует формула кода)\b)', text, re.IGNORECASE))
+
+
+@section_rule('DOC.WEEKLY_REVIEW', roots=['weekly_evidence'])
+def _add_weekly_review(doc, model, *, detailed=False):
+    """Executive explanation from immutable, source-proven before/after positions."""
+    from .weekly_evidence import LABELS, event_sentence
+
+    weekly = model.get('weekly_evidence')
+    if not weekly:
+        return
+    _paragraph(doc, 'ИЗМЕНЕНИЯ ПО СРАВНЕНИЮ С ПРОШЛОЙ НЕДЕЛЕЙ',
+               bold=True, color=BLUE, keep_with_next=True)
+    if weekly['status'] != 'COMPARABLE':
+        _paragraph(doc, weekly['message'], color=ORANGE, italic=True, size=8)
+        return
+    baseline_human = '.'.join(reversed(weekly['baseline_date'].split('-')))
+    _paragraph(doc, f"Сравнение с проверенным отчётом от {baseline_human}. "
+               "Показаны изменения записей, а не только события по дате заключения.",
+               size=8, italic=True, color=GRAY)
+    for kind, label in (('competitive', 'Конкурентные закупки'), ('single_supplier', 'Единственный поставщик')):
+        block = weekly['totals'][kind]
+        count = block['plan_count']; fact = block['fact_count']
+        def shift(value):
+            number = int(value)
+            return f"+{number}" if number > 0 else str(number)
+        _paragraph(doc, f"{label}: план на год {count['before']} → {count['after']} "
+                   f"({shift(count['delta'])}); позиций с датой факта {fact['before']} → {fact['after']} "
+                   f"({shift(fact['delta'])}).", size=8, source=block)
+    counts = weekly.get('event_counts') or {}
+    if counts:
+        selected = [f"{LABELS[k].lower()} — {n}" for k, n in counts.items() if n]
+        _paragraph(doc, 'По подтверждённым связям закупок: ' + '; '.join(selected) + '.',
+                   size=8, source=weekly['event_counts'])
+    else:
+        _paragraph(doc, 'По однозначно сопоставленным закупкам изменений реквизитов не обнаружено.',
+                   size=8, source=weekly)
+    if weekly['recommendations_added']:
+        _paragraph(doc, f"Новых официальных рекомендаций УЭР относительно прошлого выпуска: "
+                   f"{weekly['recommendations_added']}.", size=8, source=weekly)
+    if weekly.get('recommendations_revised'):
+        _paragraph(doc, f"Рекомендаций УЭР с изменённой формулировкой: "
+                   f"{weekly['recommendations_revised']}. Ранее опубликованные редакции сохранены.",
+                   size=8, source=weekly)
+    if weekly.get('procedure_stage_changes'):
+        _paragraph(doc, 'Изменения стадий процедур, остающихся в работе:', size=8,
+                   bold=True, source=weekly)
+        for row in weekly['procedure_stage_changes'][:(8 if detailed else 3)]:
+            _paragraph(doc, f"— {row['code']}: {row['before']} → {row['after']}. "
+                       f"{row['subject']}", size=8, first_line_mm=4, source=row)
+        remaining = len(weekly['procedure_stage_changes']) - (8 if detailed else 3)
+        if remaining > 0:
+            _paragraph(doc, f"Ещё {remaining} изменений стадий отражены в данных выпуска.",
+                       color=GRAY, size=8, source=weekly)
+
+    limit = 12 if detailed else 4
+    for event in (weekly.get('events') or [])[:limit]:
+        _paragraph(doc, '— ' + event_sentence(event, baseline_date=weekly['baseline_date']),
+                   size=8, source=event, first_line_mm=4)
+    extra = len(weekly.get('events') or []) - limit
+    if extra > 0:
+        _paragraph(doc, f"Остальные {extra} изменений сохранены в проверенной аналитике этого выпуска.",
+                   size=8, color=GRAY, source=weekly)
+    if weekly['unmatched_positions']:
+        _paragraph(doc, f"Записей, связь которых с прошлой неделей пока не подтверждена: "
+                   f"{weekly['unmatched_positions']}. Их нельзя считать новыми или отменёнными закупками.",
+                   size=8, color=ORANGE, italic=True, source=weekly)
 
 def build_main_plan(report_model: dict, *, narrative_mode: str = "GENERIC_TEMPLATE") -> dict:
     assert_renderer_inputs(report_model=report_model)
@@ -341,6 +435,8 @@ def build_main_plan(report_model: dict, *, narrative_mode: str = "GENERIC_TEMPLA
         _add_metric_section(doc, "ЕДИНСТВЕННЫЙ ПОСТАВЩИК:", h["single_supplier"]["year"], h["single_supplier"]["quarter"], color=ORANGE, unit="position")
     _add_narratives(doc, (report_model.get("narratives") or {}).get(narrative_mode) or [])
     _add_financial_metrics(doc, report_model)
+    if _executive_contract(doc):
+        _add_weekly_review(doc, report_model, detailed=False)
 
     for grbs in report_model.get("grbs_order") or []:
         gm = (report_model.get("grbs_metrics") or {}).get(grbs)
@@ -408,10 +504,13 @@ def build_management_plan(report_model: dict, *, narrative_mode: str = "SMART_NA
             _paragraph(doc, f"- {row['grbs']}: {row['remain_count']} {_position_word(row['remain_count'])} на {_money(row['remain_amount'])} тыс. руб.;", size=8, first_line_mm=4, source=row)
 
     _add_financial_metrics(doc, report_model)
-    _add_published_comparison(doc, report_model)
+    if _executive_contract(doc):
+        _add_weekly_review(doc, report_model, detailed=True)
+    else:
+        _add_published_comparison(doc, report_model)
     pub = report_model.get("publication") or {}
     diff_counts = mgmt.get("diff_counts") or {}
-    if diff_counts:
+    if diff_counts and not _executive_contract(doc):
         previous_date = pub.get("previous_official_report_date") or "базового среза"
         _paragraph(doc, "ИЗМЕНЕНИЯ ОТНОСИТЕЛЬНО ПРЕДЫДУЩЕГО ОФИЦИАЛЬНОГО СРЕЗА:", bold=True, keep_with_next=True)
         if previous_date != "базового среза":
@@ -435,6 +534,9 @@ def build_management_plan(report_model: dict, *, narrative_mode: str = "SMART_NA
         _paragraph(doc, "Текущее исполнение: " + "; ".join(f"{k} — {v}" for k, v in execution.items()) + ".", size=8, source=mgmt["recommendation_execution_counts"])
     _add_source_context(doc, report_model)
     _add_future_plan(doc, report_model)
+    if _executive_contract(doc):
+        _paragraph(doc, 'Сведения о свободных остатках местного бюджета из оперативного финансового учёта '
+                   'в этот выпуск пока не включены.', color=ORANGE, size=8, italic=True)
     _add_data_notices(doc, report_model)
     return doc.export()
 
@@ -545,7 +647,7 @@ def _add_source_context(doc, model):
             _paragraph(doc, f"{row['grbs']}{number}: {row['subject']}. Год плана — {period}; плановая дата — {date}.",
                        size=8, bold=True, keep_with_next=True)
             for entry in row['explanations']:
-                if entry['visibility'] != 'business':
+                if entry['visibility'] != 'business' or (_executive_contract(doc) and _internal_annotation(entry['text'])):
                     continue
                 with doc.binding('DOC.SOURCE_EXPLANATION', [doc.path(entry)]):
                     _paragraph(doc, f"{entry['label']}: «{entry['text']}».", size=8, first_line_mm=4)
@@ -553,6 +655,10 @@ def _add_source_context(doc, model):
 
 def _add_grouped_context(doc, model):
     groups = model.get('source_context_groups', [])
+    if _executive_contract(doc):
+        groups = [group for group in groups if any(
+            not _internal_annotation(entry['text'])
+            for entry in group.get('explanations', []))]
     if not groups:
         return
     _paragraph(doc, 'ПОЯСНЕНИЯ К ПОЗИЦИЯМ ПЛАНА', bold=True, keep_with_next=True)
@@ -566,6 +672,8 @@ def _add_grouped_context(doc, model):
             _paragraph(doc, f"{group['grbs']}, план {group['planned_year']} года: {', '.join(labels)}. "
                        f"Предмет: {subjects}; плановая дата — {plan}.", size=8, bold=True, keep_with_next=True)
             for entry in group['explanations']:
+                if _executive_contract(doc) and _internal_annotation(entry['text']):
+                    continue
                 # The entry lists EVERY source in the group, not only the first.
                 with doc.binding('DOC.GROUPED_EXPLANATION', [doc.path(entry), *[doc.path(member) for member in members]]):
                     _paragraph(doc, f"{entry['label']}: «{entry['text']}».", size=8, first_line_mm=4)

@@ -32,6 +32,7 @@ const receipt = {
   release_id: `REL-${'a'.repeat(64)}`, snapshot_id: 'SNP-test', report_date: '30.09.2026',
   report_year: 2026, quarter: 3, cutoff_at: '2026-09-29T16:00:00Z', published_at: '2026-09-29T16:05:00Z',
   model_sha256: 'a'.repeat(64), rules_version: 'test', renderer_version: 'test', status: 'VERIFIED',
+  operational_available: true,
 };
 const request = vi.fn();
 let saved: string[];
@@ -53,12 +54,12 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it('keeps exactly two native Word actions and downloads the server bundle instead of the browser renderer', async () => {
+it('keeps three native Word actions on one frozen release instead of the browser renderer', async () => {
   localStorage.setItem('aemr_api_key', 'test-token');
   render(<TooltipProvider><ReportPage /></TooltipProvider>);
   const main = await screen.findByRole('button', { name: 'Отчёт в Word' });
   await waitFor(() => expect(main).toHaveProperty('disabled', false));
-  expect(screen.getAllByRole('button', { name: /Word/ })).toHaveLength(2);
+  expect(screen.getAllByRole('button', { name: /Word/ })).toHaveLength(3);
   expect(screen.queryByText('Показатели выпуска')).toBeNull();
   expect(screen.queryByText('Данные среза · JSON')).toBeNull();
   fireEvent.click(main);
@@ -70,6 +71,10 @@ it('keeps exactly two native Word actions and downloads the server bundle instea
   fireEvent.click(screen.getByRole('button', { name: 'Доп. отчёт в Word' }));
   await waitFor(() => expect(saved).toHaveLength(2));
   expect(request.mock.calls.some(([url]) => url === `/api/report-releases/${receipt.release_id}/supplement.docx`)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Оперативный в Word' }));
+  await waitFor(() => expect(saved).toHaveLength(3));
+  expect(request.mock.calls.some(([url]) => url === `/api/report-releases/${receipt.release_id}/operational.docx`)).toBe(true);
+  expect(saved[2]).toContain('Оперативный');
 });
 
 it('changing quarter clears the previous download and explains a missing matching bundle', async () => {

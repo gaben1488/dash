@@ -95,6 +95,17 @@ def _setup_management(doc: Document) -> None:
     sec.right_margin = Mm(12.7)
 
 
+def _setup_operational(doc: Document) -> None:
+    """Portrait memo proportions follow the adopted two-page DE reference."""
+    sec = doc.sections[0]
+    sec.page_width = Mm(216)
+    sec.page_height = Mm(279)
+    sec.top_margin = Mm(15)
+    sec.bottom_margin = Mm(15)
+    sec.left_margin = Mm(30)
+    sec.right_margin = Mm(15)
+
+
 def _artifact_manifest(model: dict, *, view: str, narrative_mode: str, output: Path) -> dict:
     payload = json.dumps(model, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return {
@@ -155,8 +166,9 @@ def _write_table(doc, rows):
 
 def _render_plan(model, plan, output_path):
     doc = Document()
-    (_setup_main if plan['view'] == 'main' else _setup_management)(doc)
-    alignments = {'left': WD_ALIGN_PARAGRAPH.LEFT, 'right': WD_ALIGN_PARAGRAPH.RIGHT,
+    (_setup_operational if plan['view'] == 'operational' else
+     _setup_main if plan['view'] == 'main' else _setup_management)(doc)
+    alignments = {'left': WD_ALIGN_PARAGRAPH.LEFT, 'right': WD_ALIGN_PARAGRAPH.RIGHT, 'center': WD_ALIGN_PARAGRAPH.CENTER,
                   'justify': WD_ALIGN_PARAGRAPH.JUSTIFY}
     for block in plan['blocks']:
         if block['kind'] == 'paragraph':
@@ -179,3 +191,9 @@ def render_main_docx(report_model, output_path, *, narrative_mode='GENERIC_TEMPL
 def render_management_docx(report_model, output_path, *, narrative_mode='SMART_NARRATIVE'):
     from .document_plan import build_management_plan
     return _render_plan(report_model, build_management_plan(report_model, narrative_mode=narrative_mode), output_path)
+
+
+
+def render_operational_docx(report_model, output_path):
+    from .operational_plan import build_operational_plan
+    return _render_plan(report_model, build_operational_plan(report_model), output_path)

@@ -13,8 +13,9 @@
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
 import { ReportAssurancePanel } from '../lib/report/ReportAssurancePanel';
+import { PublishedWeeklySummaryCard } from '../lib/report/PublishedWeeklySummaryCard';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
+import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
@@ -1000,7 +1001,7 @@ export function ReportPage() {
             Архив недели
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-1 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <button
             onClick={onCopy}
             disabled={!report}
@@ -1009,13 +1010,24 @@ export function ReportPage() {
             {copied ? <ClipboardCheck size={12} /> : <ClipboardCopy size={12} />}
             {copied ? 'Скопировано' : 'Копировать текстом'}
           </button>
+          <button
+            type="button"
+            onClick={() => void word.refresh()}
+            disabled={!word.canRefresh || word.refreshing}
+            aria-describedby="report-refresh-status"
+            title="Запустить новое чтение текущих источников. Архивные срезы при этом не меняются."
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            <RefreshCw size={13} className={word.refreshing ? 'animate-spin' : ''} />
+            {word.refreshing ? 'Запускаем обновление…' : 'Сформировать свежий отчёт'}
+          </button>
           {/* Обе выгрузки закреплены за одним проверенным комплектом выбранного среза. */}
           <button
             onClick={() => void word.download('main')}
             disabled={!word.release || word.saving !== null}
             aria-describedby="report-word-status"
-            title="Основной отчёт из проверенного серверного комплекта"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+            title="Скачать основной Word из проверенного комплекта"
+            className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-amber-200 dark:text-zinc-900 dark:hover:bg-amber-100 transition-colors"
           >
             <FileDown size={12} />
             {word.saving === 'main' ? 'Загружаем отчёт…' : 'Отчёт в Word'}
@@ -1024,16 +1036,38 @@ export function ReportPage() {
             onClick={() => void word.download('extra')}
             disabled={!word.release || word.saving !== null}
             aria-describedby="report-word-status"
-            title="Дополнение из того же проверенного серверного комплекта"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-40 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+            title="Скачать дополнение из того же проверенного комплекта"
+            className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 transition-colors"
           >
             <FileDown size={12} />
             {word.saving === 'extra' ? 'Загружаем дополнение…' : 'Доп. отчёт в Word'}
           </button>
+          <button
+            onClick={() => void word.download('operational')}
+            disabled={!word.release?.operational_available || word.saving !== null}
+            aria-describedby="report-word-status"
+            title={word.release?.operational_available
+              ? 'Краткий оперативный доклад для комиссии по муниципальным программам'
+              : 'Оперативный отчёт доступен в новых проверенных выпусках'}
+            className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+          >
+            <FileDown size={15} />
+            {word.saving === 'operational' ? 'Загружаем оперативный…' : 'Оперативный в Word'}
+          </button>
         </div>
       </div>
 
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        Основной, дополнительный и оперативный отчёты формируются из одного проверенного среза. Дата чтения указана ниже.
+        Скачивание не создаёт новый срез: данные обновляет сервер.
+      </p>
+      {word.refreshNotice && (
+        <p id="report-refresh-status" role="status" className="rounded-md border-l-2 border-blue-500 bg-blue-50/50 p-2 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+          {word.refreshNotice}
+        </p>
+      )}
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
+      <PublishedWeeklySummaryCard value={word.release?.weekly_summary} />
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 
       <ReportAssurancePanel value={word.assurance} label={`Ограничения выбранного Word-выпуска${word.release ? ` от ${word.release.report_date}` : ''}`} />

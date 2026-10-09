@@ -212,6 +212,14 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
         + validate_procedure_uniqueness(attempts)+validate_procedure_lineage(attempts)
         + validate_procedure_shares(attempts,shares))
     if any(i.severity=='ERROR' for i in raw_issues):errors.append('procedure_source_contract')
+    if (model.get('contract') or {}).get('operational_procedure_contract') == 'operational-procedure-evidence-v1':
+        from .operational_evidence import build_operational_evidence
+        recorded_attempts, recorded_shares = normalize_procedure_values(
+            master['values'], source_ref_prefix=master['provider_id'] + '::' + master['sheet'])
+        expected_operational = build_operational_evidence(
+            recorded_attempts, recorded_shares, master['values'])
+        if model.get('operational_procedure_evidence') != expected_operational:
+            errors.append('operational_procedure_evidence')
     active=[];closed=[]
     for block,rn,offset,row in iter_operational_rows(queue['values']):
         cells = operational_cells(row, offset)
@@ -238,6 +246,13 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
             legacy_scope=assurance_contract == 'actionable-assurance-v1')
         if model.get('automation_assurance') != replay:
             errors.append('automation_assurance')
+    if (model.get('contract') or {}).get('weekly_evidence_contract') == 'weekly-evidence-v1':
+        from .weekly_evidence import build_weekly_evidence, freeze_weekly_baseline
+
+        expected_weekly = build_weekly_evidence(
+            model, capture.get('weekly_baseline') or freeze_weekly_baseline(None))
+        if model.get('weekly_evidence') != expected_weekly:
+            errors.append('weekly_evidence')
     return errors
 
 

@@ -162,3 +162,30 @@ it('names the missing archived inputs and does not spin up another build on ever
   expect(result.current.status).not.toContain('Готовится');
   expect(result.current.release).toBeNull();
 });
+
+
+it('offers one-click fresh release only in live mode and keeps Word available while starting it', async () => {
+  request.mockImplementation(async (url: string) => {
+    if (url === '/api/report-releases/refresh') {
+      return { ok: true, json: async () => ({ status: 'STARTED',
+        message: 'Проверка актуальных данных запущена.' }) };
+    }
+    return response(receipt);
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  expect(result.current.canRefresh).toBe(true);
+  await act(() => result.current.refresh());
+  expect(result.current.refreshNotice).toContain('Проверка актуальных данных');
+  expect(result.current.release?.release_id).toBe(receipt.release_id);
+  expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(1);
+});
+
+it('cannot overwrite historical inputs through the live refresh action', async () => {
+  request.mockResolvedValue(response(receipt));
+  const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  expect(result.current.canRefresh).toBe(false);
+  await act(() => result.current.refresh());
+  expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(0);
+});

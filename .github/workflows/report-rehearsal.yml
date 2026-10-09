@@ -286,16 +286,32 @@ jobs:
               --entrypoint /opt/report-env/bin/python "$image" \
               -m procurement_engine.rehearsal --state /app/packages/server/data/reports --coverage-summary
             echo "=== end current-release diagnostic ==="
-            # The candidate full replay has already passed above. Check the
-            # sealed weekly input once, without rebuilding the same DOCX twice.
-            # A bad immutable weekly input still fails this strict audit job.
-            docker run --rm --network none --read-only \
+            # Check the latest sealed weekly archive against both the CURRENT
+            # DEPLOYED report-engine and the CANDIDATE, with the same read-only
+            # volume and no network. An immutable historical defect may already
+            # be present; never mislabel it as candidate regression or as PASS.
+            # Any new/changed failure still blocks CI; only the exact known
+            # inherited duplicate-procedure defect is explicitly classified.
+            baseline_weekly=$(docker run --rm --network none --read-only \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only || true)
+            candidate_weekly=$(docker run --rm --network none --read-only \
               --mount type=volume,dst=/tmp \
               -v "$data_volume:/app/packages/server/data:ro" \
               -v "$work/packages/report-engine:/candidate:ro" \
               -e PYTHONPATH=/candidate/src \
               --entrypoint /opt/report-env/bin/python "$image" \
-              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only
+              -m procurement_engine.rehearsal --state /app/packages/server/data/reports --weekly-only || true)
+            docker run --rm --network none --read-only \
+              --mount type=volume,dst=/tmp \
+              -v "$work/packages/report-engine:/candidate:ro" \
+              -e PYTHONPATH=/candidate/src \
+              -e BASELINE_WEEKLY="$baseline_weekly" \
+              -e CANDIDATE_WEEKLY="$candidate_weekly" \
+              --entrypoint /opt/report-env/bin/python "$image" \
+              -c 'import json,os,sys; from procurement_engine.rehearsal_policy import compare_weekly_replay; baseline=json.loads(os.environ["BASELINE_WEEKLY"]); candidate=json.loads(os.environ["CANDIDATE_WEEKLY"]); result=compare_weekly_replay(baseline,candidate); print(json.dumps({"weekly_archive_comparison":result},ensure_ascii=False,sort_keys=True)); sys.exit(0 if result["ready"] else 2)'
             # Startup success is insufficient: observe a later timer attempt.
             worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
             if [ -z "$worker" ]; then

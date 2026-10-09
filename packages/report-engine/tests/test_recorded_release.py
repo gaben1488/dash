@@ -247,6 +247,7 @@ def test_publisher_rechecks_domain_contract_even_with_matching_document_hashes(t
     from procurement_engine.docx_renderer import (
         render_main_docx,
         render_management_docx,
+        render_operational_docx,
     )
     from procurement_engine.projections import project_dashboard
 
@@ -260,6 +261,7 @@ def test_publisher_rechecks_domain_contract_even_with_matching_document_hashes(t
     (bundle / 'dashboard.json').write_text(json.dumps(project_dashboard(model)))
     render_main_docx(model, bundle / 'main_report.docx')
     render_management_docx(model, bundle / 'management_report.docx')
+    render_operational_docx(model, bundle / 'operational_report.docx')
     versions = json.loads((bundle / 'snapshot_bundle/bundle.json').read_text())['after']
     other = PublicationStore(tmp_path / 'other')
     with pytest.raises(PublicationError, match='DOMAIN_RELEASE_CONTRACT_FAILED'):
@@ -271,6 +273,7 @@ def test_legacy_verified_bundle_remains_readable_after_recommendation_upgrade(tm
     from procurement_engine.docx_renderer import (
         render_main_docx,
         render_management_docx,
+        render_operational_docx,
     )
     from procurement_engine.projections import project_dashboard
 
@@ -287,6 +290,7 @@ def test_legacy_verified_bundle_remains_readable_after_recommendation_upgrade(tm
     (bundle / 'dashboard.json').write_text(json.dumps(project_dashboard(model)))
     render_main_docx(model, bundle / 'main_report.docx')
     render_management_docx(model, bundle / 'management_report.docx')
+    render_operational_docx(model, bundle / 'operational_report.docx')
     versions = json.loads((bundle / 'snapshot_bundle/bundle.json').read_text())['after']
     receipt = PublicationStore(tmp_path / 'legacy').publish(bundle, read_revisions=lambda: versions)
     assert receipt['status'] == 'VERIFIED'
@@ -338,6 +342,7 @@ def test_runtime_freezes_original_history_and_publishes_confirmed_link_with_unkn
     from procurement_engine.docx_renderer import (
         render_main_docx,
         render_management_docx,
+        render_operational_docx,
     )
     from procurement_engine.projections import project_dashboard
 
@@ -348,6 +353,7 @@ def test_runtime_freezes_original_history_and_publishes_confirmed_link_with_unkn
     (bundle.parent / 'diagnostic_protocol.json').write_text(json.dumps(project_diagnostics(forged)))
     render_main_docx(forged, bundle.parent / 'main_report.docx')
     render_management_docx(forged, bundle.parent / 'management_report.docx')
+    render_operational_docx(forged, bundle.parent / 'operational_report.docx')
     revisions = json.loads((bundle / 'bundle.json').read_text())['after']
     with pytest.raises(PublicationError, match='IDENTITY_BACKUP_MODEL_MISMATCH'):
         PublicationStore(tmp_path / 'forged').publish(bundle.parent, read_revisions=lambda: revisions)

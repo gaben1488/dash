@@ -53,6 +53,7 @@ def test_publisher_rejects_future_section_mutation_after_coherent_rerender(tmp_p
     from procurement_engine.docx_renderer import (
         render_main_docx,
         render_management_docx,
+        render_operational_docx,
     )
     from procurement_engine.projections import project_dashboard
     from procurement_engine.publication_store import PublicationError, PublicationStore
@@ -72,6 +73,7 @@ def test_publisher_rejects_future_section_mutation_after_coherent_rerender(tmp_p
     (bundle/'dashboard.json').write_text(json.dumps(project_dashboard(model)))
     render_main_docx(model,bundle/'main_report.docx')
     render_management_docx(model,bundle/'management_report.docx')
+    render_operational_docx(model,bundle/'operational_report.docx')
     versions=json.loads((bundle/'snapshot_bundle/bundle.json').read_text())['after']
     with pytest.raises(PublicationError,match='SAVED_SOURCE_RECHECK_FAILED'):
         PublicationStore(tmp_path/'other').publish(bundle,read_revisions=lambda:versions)

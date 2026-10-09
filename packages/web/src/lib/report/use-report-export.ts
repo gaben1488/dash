@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { SelectedReportReleaseStatusSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
+import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
 import { fetchBlob, fetchParsed } from '../../api';
 import type { ReportMode } from './request';
 
 export interface ExportContext { date: string; year: number; quarter: number; mode: ReportMode }
-type Kind = 'main' | 'extra';
+type Kind = 'main' | 'extra' | 'operational';
 type Release = NonNullable<SelectedReportReleaseStatus['selected']>;
 const timestamp = new Intl.DateTimeFormat('ru-RU', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Kamchatka',
@@ -22,10 +22,12 @@ export function useReportExport(context: ExportContext | null) {
   const [pinned, setPinned] = useState<{ key: string; release: Release } | null>(null);
   const [transfer, setTransfer] = useState<{ key: string; saving: Kind | null; error: string } | null>(null);
   const downloadController = useRef<AbortController | null>(null);
+  const [refreshState, setRefreshState] = useState<{ key: string; busy: boolean; notice: string } | null>(null);
 
   useEffect(() => {
     setPinned(null);
     setTransfer(null);
+    setRefreshState(null);
     if (!key || !query) return;
     const controller = new AbortController();
     let loading = false;
@@ -83,11 +85,11 @@ export function useReportExport(context: ExportContext | null) {
   if (release) {
     status = `Word: ${release.status === 'VERIFIED' ? 'проверен' : 'проверен, есть замечания'}. Источники прочитаны ${timestamp.format(new Date(release.cutoff_at))} (Камчатка).`;
     const assurance = release.automation_assurance;
-    if (assurance) {
-      status += ` Проверок, требующих действий владельцев данных: ${assurance.user_action_count}; задач сопровождения: ${assurance.engine_action_count}.`;
-    } else {
-      status += ' Полнота обработки пояснений этим выпуском не оценена.';
+    if (assurance?.user_action_count) {
+      status += ' Есть вопросы по исходным данным; подробности можно открыть ниже.';
     }
+    // Engine-only historical uncertainty is kept in the collapsed diagnostics,
+    // never framed as an error in an otherwise verified Word release.
     if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
   }
   if (archiveMode && !release && current?.data?.archive) {
@@ -109,19 +111,20 @@ export function useReportExport(context: ExportContext | null) {
   if (release && current?.error) status += ` ${current.error}`;
 
   async function download(kind: Kind) {
+    if (kind === 'operational' && !release?.operational_available) return;
     if (!key || !release || saving || downloadController.current && !downloadController.current.signal.aborted) return;
     const controller = new AbortController();
     downloadController.current = controller;
     setPinned({ key, release });
     setTransfer({ key, saving: kind, error: '' });
     try {
-      const file = kind === 'main' ? 'main.docx' : 'supplement.docx';
+      const file = kind === 'main' ? 'main.docx' : kind === 'extra' ? 'supplement.docx' : 'operational.docx';
       const blob = await fetchBlob(`/report-releases/${release.release_id}/${file}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${kind === 'main' ? 'Отчёт' : 'Дополнение'}-${release.report_date}.docx`;
+      link.download = `${kind === 'main' ? 'Отчёт' : kind === 'extra' ? 'Дополнение' : 'Оперативный отчёт'}-${release.report_date}.docx`;
       document.body.append(link);
       try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
       setTransfer({ key, saving: null, error: '' });
@@ -131,9 +134,30 @@ export function useReportExport(context: ExportContext | null) {
       controller.abort();
     }
   }
+  async function refresh() {
+    if (!key || archiveMode || refreshState?.key === key && refreshState.busy) return;
+    // A user explicitly requesting new data releases the old download pair pin.
+    // Background updates remain pinned until such an explicit action.
+    setPinned(null);
+    setRefreshState({ key, busy: true, notice: 'Запрашиваем новый срез исходных таблиц…' });
+    try {
+      const data = await fetchParsed('/report-releases/refresh', ReportRefreshResponseSchema, {
+        method: 'POST',
+      });
+      setRefreshState({ key, busy: false, notice: data.message });
+    } catch {
+      setRefreshState({ key, busy: false,
+        notice: 'Запустить обновление сейчас не удалось. Последний проверенный Word остаётся доступен.' });
+    }
+  }
+  const canRefresh = Boolean(key && !archiveMode);
+  const refreshing = refreshState?.key === key && refreshState.busy;
+  const refreshNotice = refreshState?.key === key ? refreshState.notice : '';
+
   // Do not mix newer attempts with a pinned Word file. Both sets remain explicitly labelled.
   const assurance = release?.automation_assurance ?? null;
   const failedAttemptAssurance = attemptApplies && attempt?.status === 'NOT_ISSUED'
     ? attempt.automation_assurance ?? null : null;
-  return { release, status, saving, downloadError, download, assurance, failedAttemptAssurance };
+  return { release, status, saving, downloadError, download, assurance, failedAttemptAssurance,
+    canRefresh, refreshing, refreshNotice, refresh };
 }
