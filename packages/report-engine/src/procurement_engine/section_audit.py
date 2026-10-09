@@ -212,6 +212,11 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
         + validate_procedure_uniqueness(attempts)+validate_procedure_lineage(attempts)
         + validate_procedure_shares(attempts,shares))
     if any(i.severity=='ERROR' for i in raw_issues):errors.append('procedure_source_contract')
+    if (model.get('contract') or {}).get('operational_procedure_contract') == 'operational-procedure-evidence-v1':
+        from .operational_evidence import build_operational_evidence
+        expected_operational = build_operational_evidence(attempts, shares, master['values'])
+        if model.get('operational_procedure_evidence') != expected_operational:
+            errors.append('operational_procedure_evidence')
     active=[];closed=[]
     for block,rn,offset,row in iter_operational_rows(queue['values']):
         cells = operational_cells(row, offset)
