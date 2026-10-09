@@ -542,6 +542,25 @@ export const ReportAssuranceSchema = z.object({
 });
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 
+/** Brief weekly facts from the frozen Word publication, not the live dashboard. */
+export const PublishedWeeklySummarySchema = z.object({
+  status: z.enum(['NOT_AVAILABLE', 'INCOMPARABLE', 'COMPARABLE']),
+  baseline_date: z.string().nullable(),
+  message: z.string(),
+  totals: z.array(z.object({
+    label: z.string(),
+    plan_before: z.number(), plan_after: z.number(),
+    fact_before: z.number(), fact_after: z.number(),
+  })),
+  changes: z.array(z.object({ label: z.string(), count: z.number().int().nonnegative() })),
+  examples: z.array(z.string()),
+  unmatched_positions: z.number().int().nonnegative(),
+  recommendations_added: z.number().int().nonnegative(),
+  recommendations_revised: z.number().int().nonnegative(),
+  procedure_stage_changes: z.number().int().nonnegative(),
+});
+export type PublishedWeeklySummary = z.infer<typeof PublishedWeeklySummarySchema>;
+
 /** Сохранённый выпуск: дата и идентификатор не зависят от живого дашборда. */
 export const PublishedReleaseSchema = z.object({
   release_id: z.string().regex(/^REL-[a-f0-9]{64}$/),
@@ -554,6 +573,7 @@ export const PublishedReleaseSchema = z.object({
   renderer_version: z.string().min(1),
   status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
   automation_assurance: ReportAssuranceSchema.optional(),
+  weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
 
 export const ReportReleaseStatusSchema = z.object({
