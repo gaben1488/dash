@@ -19,6 +19,7 @@ from .raw_pipeline import (
 )
 from .recommendation_history import issued_recommendations, read_google_history
 from .snapshot import canonical_semantic_hash
+from .weekly_evidence import freeze_weekly_baseline
 
 
 def _load(path):
@@ -79,6 +80,7 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
             stage = 'publication_selection'
             publications = PublicationStore(state / 'published')
             latest = publications.latest()
+            capture['weekly_baseline'] = freeze_weekly_baseline(publications.previous_weekly_model(capture['report_date']))
             captured_id = bundle_from_capture(capture, registry, ledger, identity_evidence=identity_evidence).manifest['snapshot_id']
             if latest and latest['snapshot_id'] == captured_id:
                 status.update(status=latest['status'], publication=latest, snapshot_id=captured_id,
@@ -112,7 +114,8 @@ def run_once(registry_path, ledger_path, state_dir, *, client=None):
                     return {**{s['source_id']: versions[s['provider_id']] for s in registry['sources']}, **history_revision,
                             'HISTORICAL_RECOMMENDATIONS': canonical_semantic_hash(current_ledger),
                             'SOURCE_CONTRACT': canonical_semantic_hash(_load(registry_path)),
-                            'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at']))}
+                            'IDENTITY_REVIEWS': canonical_semantic_hash(identities.review_evidence(as_of=capture['captured_at'])),
+                            'WEEKLY_BASELINE': canonical_semantic_hash(capture['weekly_baseline'])}
 
                 stage = 'publication'
                 receipt = publications.publish(attempt / 'bundle', read_revisions=final_revisions)
