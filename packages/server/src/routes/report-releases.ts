@@ -38,11 +38,44 @@ async function prepareStoredArchive(context: Context): Promise<Buffer> {
   return result.stdout;
 }
 
+/** One manual on-demand attempt, using the same lock and verification as report-worker. */
+async function refreshStoredReport(): Promise<void> {
+  await execute(process.env.REPORT_ENGINE_BIN ?? '/opt/report-env/bin/proc-report', [
+    'run-google',
+    '--registry', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports', 'inputs/registry.json'),
+    '--ledger', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports', 'inputs/ledger.json'),
+    '--state', resolve(process.env.REPORT_STATE_DIR ?? 'data/reports'),
+  ], { encoding: 'buffer', timeout: 600_000, maxBuffer: 1024 * 1024, shell: false });
+}
+
 export async function reportReleaseRoutes(app: FastifyInstance,
   options: { read?: (view: View, releaseId?: string, context?: Context) => Promise<Buffer>;
-    prepare?: (context: Context) => Promise<Buffer> } = {}): Promise<void> {
+    prepare?: (context: Context) => Promise<Buffer>; refresh?: () => Promise<void> } = {}): Promise<void> {
   const read = options.read ?? readStoredRelease;
   const prepare = options.prepare ?? prepareStoredArchive;
+  const refresh = options.refresh ?? refreshStoredReport;
+  let refreshInProgress: Promise<void> | null = null;
+  app.post('/api/report-releases/refresh', { bodyLimit: 256 }, async (request, reply) => {
+    if (Object.keys(request.query as object).length ||
+        request.body != null && (typeof request.body !== 'object' || Object.keys(request.body).length > 0)) {
+      return reply.code(400).send({ code: 'REPORT_REFRESH_CONTEXT_INVALID',
+        message: 'Для обновления отчёта дополнительные параметры не требуются.' });
+    }
+    reply.header('Cache-Control', 'private, no-store');
+    if (refreshInProgress) {
+      return reply.code(202).send({ status: 'RUNNING',
+        message: 'Чтение исходных таблиц уже запущено. Готовность отчёта обновится автоматически.' });
+    }
+    const task = Promise.resolve().then(() => refresh()).catch(() => {
+      // Never return or log source paths, private document contents or credentials.
+      app.log.warn('Manual report refresh did not publish a release; diagnostics saved by report-engine');
+    }).finally(() => {
+      if (refreshInProgress === task) refreshInProgress = null;
+    });
+    refreshInProgress = task;
+    return reply.code(202).send({ status: 'STARTED',
+      message: 'Проверка актуальных данных запущена. Два Word станут доступны после успешного выпуска.' });
+  });
   // One expensive archive build per server. Repeated requests for the same
   // context share its result; another context retries via the existing polling.
   let running: { key: string; task: Promise<Buffer> } | null = null;
