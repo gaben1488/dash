@@ -12,6 +12,7 @@ from pathlib import Path
 from lxml import etree
 
 from .document_plan import build_main_plan, build_management_plan
+from .operational_plan import build_operational_plan
 from .snapshot import canonical_semantic_hash
 
 CONTRACT = 'document-plan-v1'
@@ -20,7 +21,10 @@ MAX_UNPACKED = 64 * 1024 * 1024
 
 
 def planned_documents(model):
-    return {'main': build_main_plan(model), 'management': build_management_plan(model)}
+    plans = {'main': build_main_plan(model), 'management': build_management_plan(model)}
+    if (model.get('contract') or {}).get('operational_document_contract') == 'operational-report-v1':
+        plans['operational'] = build_operational_plan(model)
+    return plans
 
 
 def _value(model, pointer):
