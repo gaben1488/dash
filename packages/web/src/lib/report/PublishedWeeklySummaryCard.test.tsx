@@ -20,7 +20,7 @@ it('shows exactly the previous verified weekly context and explains late entry',
   expect(screen.getByText(/Сравнение с 02.10.2026/)).toBeTruthy();
   expect(screen.getByText(/План: 20 → 19/)).toBeTruthy();
   expect(screen.getByText(/Новых в сравнении рекомендаций УЭР: 1/)).toBeTruthy();
-  expect(screen.getByText(/2 наблюдений пока нельзя однозначно сопоставить/)).toBeTruthy();
+  expect(screen.getByText(/с прошлой неделей пока не подтверждена: 2/)).toBeTruthy();
   expect(screen.queryByText(/UNKNOWN|UID|snapshot_id/)).toBeNull();
 });
 
