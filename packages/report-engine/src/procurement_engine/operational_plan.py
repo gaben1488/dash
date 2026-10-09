@@ -24,7 +24,7 @@ from .document_plan import (
     _position_word,
     section_rule,
 )
-from .normalize import parse_date
+from .normalize import normalize_procedure_code, parse_date
 from .operational_casework import (
     build_case_index,
     describe_linked_procedure,
@@ -90,6 +90,7 @@ def _budget_group(details):
 
 
 def _compact_case(doc, grbs, group, *, source_rows, index, period):
+    """One compact narrative bullet like the DE source, not a diagnostic dump."""
     details = [source_rows.get(r["source_row_key"]) for r in group]
     subject = group[0]["subject"].strip()
     total = _money(_money_group(group))
@@ -98,8 +99,8 @@ def _compact_case(doc, grbs, group, *, source_rows, index, period):
     dates = sorted({d["planned_date"] for d in details if d and d.get("planned_date")})
     text = f"• {heading} — {total} тыс. руб.{_budget_group(details)}."
     if dates:
-        show = ", ".join(_date_ru(day) for day in dates[:3])
-        text += f" Плановое заключение: {show}"
+        shown = ", ".join(_date_ru(day) for day in dates[:3])
+        text += f" Плановое заключение: {shown}"
         if len(dates) > 3:
             text += " и другие даты"
         text += "."
@@ -108,26 +109,40 @@ def _compact_case(doc, grbs, group, *, source_rows, index, period):
     report_day = parse_date(doc.model["snapshot"]["report_date"])
     if any(d and d.get("planned_date") and d["planned_date"] < report_day for d in details):
         text += " Плановый срок прошёл; дата заключения не отражена."
-    with doc.binding("DOC.OPERATIONAL_CASE", [doc.path(x) for x in group]):
-        _paragraph(doc, text, size=9, first_line_mm=3, source=group[0])
-        # Never combine unrelated procedure evidence merely because the subject matches.
-        for item in details[:3]:
-            if not item:
-                continue
-            summary, uncertainty = describe_linked_procedure(item, index)
-            if summary:
-                _paragraph(doc, "  " + summary, size=8, color=GRAY, source=item, first_line_mm=4)
-            if uncertainty:
-                _paragraph(doc, "  Нужно уточнить: " + uncertainty, size=8,
-                           color=ORANGE, italic=True, source=item, first_line_mm=4)
-        comments = list(dict.fromkeys(
-            _relevant_comment(item) for item in details if item and _relevant_comment(item)))
-        for note in comments[:1]:
-            _paragraph(doc, "  По информации управления: " + note,
-                       size=8, source=group[0], first_line_mm=4)
-        if len(details) > 3:
-            _paragraph(doc, "  Остальные позиции с тем же предметом показаны в основном отчёте.",
-                       size=8, color=GRAY, source=group[0])
+
+    linked = []
+    warnings = []
+    proof = [group[0]]
+    mentioned = set()
+    for item in details:
+        if not item:
+            continue
+        code = normalize_procedure_code(item.get("procedure_code"))
+        if code in mentioned:
+            continue
+        mentioned.add(code)
+        summary, warning = describe_linked_procedure(item, index)
+        if summary:
+            linked.append(summary)
+            procedure = index[0].get(code)
+            if procedure is not None:
+                proof.append(procedure)
+        if warning:
+            warnings.append(warning)
+        if len(linked) >= 2:
+            break
+    if linked:
+        text += " " + " ".join(linked)
+    comments = list(dict.fromkeys(
+        _relevant_comment(item) for item in details if item and _relevant_comment(item)))
+    if comments:
+        text += " По сведениям управления: " + comments[0]
+    # Explicit paths cover plan rows AND any cited registered procedure.
+    with doc.binding("DOC.OPERATIONAL_CASE", [doc.path(r) for r in group]):
+        _paragraph(doc, text, size=9, first_line_mm=3, sources=proof)
+        for warning in warnings[:2]:
+            _paragraph(doc, "Нужно уточнить: " + warning, size=8,
+                       color=ORANGE, italic=True, source=group[0], first_line_mm=4)
 
 
 @section_rule("DOC.OPERATIONAL_QUARTER", roots=["report_content"])
