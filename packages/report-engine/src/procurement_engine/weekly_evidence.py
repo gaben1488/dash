@@ -74,6 +74,7 @@ def freeze_weekly_baseline(previous):
             "grbs_order": model.get("grbs_order"),
             "headline": model.get("headline"),
             "details": model.get("details", []),
+            "procedures": model.get("procedures", []),
             "recommendation_records": model.get("recommendation_records", []),
         },
     }
@@ -164,7 +165,8 @@ def build_weekly_evidence(current, frozen):
             "baseline_date": None, "baseline_release_id": None,
             "message": "Срез за предыдущую отчётную неделю не подтверждён. Недельное сравнение не составлено.",
             "totals": {}, "event_counts": {}, "events": [],
-            "matched_positions": 0, "unmatched_positions": 0, "recommendations_added": 0}
+            "matched_positions": 0, "unmatched_positions": 0, "recommendations_added": 0,
+            "recommendations_revised": 0, "procedure_stage_changes": []}
     if frozen.get("contract") != CONTRACT or frozen.get("status") != "AVAILABLE":
         return info
     earlier = frozen["model"]
@@ -198,10 +200,28 @@ def build_weekly_evidence(current, frozen):
         totals[key] = {field: {"before": a_block[field], "after": b_block[field],
                                "delta": round(float(b_block[field]) - float(a_block[field]), 2)}
                        for field in ("plan_count", "fact_count")}
-    before_recs = {r.get("recommendation_id") for r in earlier.get("recommendation_records", [])
-                   if r.get("recommendation_id")}
-    now_recs = {r.get("recommendation_id") for r in current.get("recommendation_records", [])
-                if r.get("recommendation_id")}
+    before_rec_rows = {r["recommendation_id"]: r for r in earlier.get("recommendation_records", [])
+                       if r.get("recommendation_id")}
+    after_rec_rows = {r["recommendation_id"]: r for r in current.get("recommendation_records", [])
+                      if r.get("recommendation_id")}
+    rec_revised = sum(
+        before_rec_rows[rid].get("recommendation_text") != after_rec_rows[rid].get("recommendation_text")
+        for rid in before_rec_rows.keys() & after_rec_rows.keys())
+    # A procedure's absence from the current queue is not proof of its cancellation.
+    def unique_procedures(records):
+        counts = Counter(p.get("procedure_code") for p in records if p.get("procedure_code"))
+        return {p["procedure_code"]: p for p in records
+                if p.get("procedure_code") and counts[p["procedure_code"]] == 1}
+
+    previous_procedures = unique_procedures(earlier.get("procedures", []))
+    current_procedures = unique_procedures(current.get("procedures", []))
+    stages = [{"code": code, "subject": current_procedures[code].get("subject") or "",
+               "before": previous_procedures[code].get("stage") or "не указана",
+               "after": current_procedures[code].get("stage") or "не указана",
+               "previous_source_ref": previous_procedures[code].get("source_ref"),
+               "current_source_ref": current_procedures[code].get("source_ref")}
+              for code in sorted(previous_procedures.keys() & current_procedures.keys())
+              if previous_procedures[code].get("stage") != current_procedures[code].get("stage")]
     unknown = old_uncertain + new_uncertain + len(set(old) ^ set(new))
     info.update(
         status="COMPARABLE",
@@ -209,6 +229,7 @@ def build_weekly_evidence(current, frozen):
                  "Изменения строк приведены только при подтверждённой идентичности."),
         totals=totals, event_counts=dict(sorted(counts.items())), events=events,
         matched_positions=len(common), unmatched_positions=unknown,
-        recommendations_added=len(now_recs - before_recs),
+        recommendations_added=len(after_rec_rows.keys() - before_rec_rows.keys()),
+        recommendations_revised=rec_revised, procedure_stage_changes=stages,
     )
     return info
