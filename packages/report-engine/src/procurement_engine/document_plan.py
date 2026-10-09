@@ -365,6 +365,21 @@ def _add_weekly_review(doc, model, *, detailed=False):
     if weekly['recommendations_added']:
         _paragraph(doc, f"В официальном реестре УЭР появилось {weekly['recommendations_added']} "
                    f"новых для сравниваемых выпусков рекомендаций.", size=8, source=weekly)
+    if weekly.get('recommendations_revised'):
+        _paragraph(doc, f"Уточнены формулировки {weekly['recommendations_revised']} "
+                   "рекомендаций УЭР. Ранее выпущенные редакции сохранены.",
+                   size=8, source=weekly)
+    if weekly.get('procedure_stage_changes'):
+        _paragraph(doc, 'Изменения стадий процедур, остающихся в работе:', size=8,
+                   bold=True, source=weekly)
+        for row in weekly['procedure_stage_changes'][:(8 if detailed else 3)]:
+            _paragraph(doc, f"— {row['code']}: {row['before']} → {row['after']}. "
+                       f"{row['subject']}", size=8, first_line_mm=4, source=row)
+        remaining = len(weekly['procedure_stage_changes']) - (8 if detailed else 3)
+        if remaining > 0:
+            _paragraph(doc, f"Ещё {remaining} изменений стадий отражены в данных выпуска.",
+                       color=GRAY, size=8, source=weekly)
+
     limit = 12 if detailed else 4
     for event in (weekly.get('events') or [])[:limit]:
         _paragraph(doc, '— ' + event_sentence(event, baseline_date=weekly['baseline_date']),
