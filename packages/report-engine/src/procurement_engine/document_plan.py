@@ -38,7 +38,8 @@ class DocumentPlan:
                 fields.update({'grbs', 'institution', 'planned_date', 'actual_date',
                                'plan_amount', 'plan_fb', 'plan_kb', 'plan_mb',
                                'deviation_reason', 'grbs_comment', 'necessity_reason',
-                               'procedure_code', 'procurement_uid', 'source_row_no'})
+                               'procedure_code', 'procurement_uid', 'source_row_no',
+                               'included', 'planned_year'})
             projection['details'] = [{key: value for key, value in row.items()
                                       if key in fields} for row in model['details']]
         if 'recommendations' in projection:
