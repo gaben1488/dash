@@ -13,6 +13,7 @@
  * отдаёт плоский текст generateReportText для вставки в письмо.
  */
 import { ReportAssurancePanel } from '../lib/report/ReportAssurancePanel';
+import { PublishedWeeklySummaryCard } from '../lib/report/PublishedWeeklySummaryCard';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
 import clsx from 'clsx';
@@ -1038,6 +1039,7 @@ export function ReportPage() {
         Скачивание не создаёт новый срез: данные обновляет сервер.
       </p>
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
+      <PublishedWeeklySummaryCard value={word.release?.weekly_summary} />
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
 
       <ReportAssurancePanel value={word.assurance} label={`Ограничения выбранного Word-выпуска${word.release ? ` от ${word.release.report_date}` : ''}`} />
