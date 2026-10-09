@@ -329,6 +329,8 @@ class PublicationStore:
             row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
             if self._checked(row) is None:
                 raise PublicationError('PUBLICATION_NOT_FOUND')
+            if name not in json.loads(row[1]):
+                raise PublicationError('PUBLICATION_VIEW_NOT_AVAILABLE')
             data = (self.releases / release_id / name).read_bytes()
             if hashlib.sha256(data).hexdigest() != json.loads(row[1]).get(name):
                 raise PublicationError('PUBLISHED_BUNDLE_CORRUPT')
