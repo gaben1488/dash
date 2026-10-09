@@ -176,6 +176,12 @@ def validate_product_contract(report_model: dict, *, require_metric_contributors
 def validate_recorded_state_model(model: dict, *, ledger: list[dict], documents=None, budget_years=None) -> list[ValidationIssue]:
     """ADR-003: admit proven current facts with explicit historical evidence gaps."""
     issues = validate_product_contract(model)
+    if str((model.get('snapshot') or {}).get('renderer_version', '')).startswith('renderer-v1.5.0rc25'):
+        require_weekly = (model.get('contract') or {}).get('weekly_evidence_contract') == 'weekly-evidence-v1'
+        if not require_weekly or not isinstance(model.get('weekly_evidence'), dict):
+            issues.append(ValidationIssue('ERROR', 'WEEKLY_EVIDENCE_MISSING',
+                'Недельная аналитика должна быть частью проверенного выпуска.'))
+
 
     def require(condition, code, message):
         if not condition:
