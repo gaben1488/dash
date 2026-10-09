@@ -1042,11 +1042,23 @@ export function ReportPage() {
             <FileDown size={12} />
             {word.saving === 'extra' ? 'Загружаем дополнение…' : 'Доп. отчёт в Word'}
           </button>
+          <button
+            onClick={() => void word.download('operational')}
+            disabled={!word.release?.operational_available || word.saving !== null}
+            aria-describedby="report-word-status"
+            title={word.release?.operational_available
+              ? 'Краткий оперативный доклад для комиссии по муниципальным программам'
+              : 'Оперативный отчёт доступен в новых проверенных выпусках'}
+            className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+          >
+            <FileDown size={15} />
+            {word.saving === 'operational' ? 'Загружаем оперативный…' : 'Оперативный в Word'}
+          </button>
         </div>
       </div>
 
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Основной отчёт и дополнение формируются из одного проверенного среза. Дата чтения указана ниже.
+        Основной, дополнительный и оперативный отчёты формируются из одного проверенного среза. Дата чтения указана ниже.
         Скачивание не создаёт новый срез: данные обновляет сервер.
       </p>
       {word.refreshNotice && (
