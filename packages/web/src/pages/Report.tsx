@@ -15,7 +15,7 @@
 import { ReportAssurancePanel } from '../lib/report/ReportAssurancePanel';
 import { PublishedWeeklySummaryCard } from '../lib/report/PublishedWeeklySummaryCard';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History } from 'lucide-react';
+import { BookOpen, Building2, ClipboardCopy, ClipboardCheck, ExternalLink, FileDown, History, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import {
   SEVERITY_COLORS,
@@ -1010,6 +1010,17 @@ export function ReportPage() {
             {copied ? <ClipboardCheck size={12} /> : <ClipboardCopy size={12} />}
             {copied ? 'Скопировано' : 'Копировать текстом'}
           </button>
+          <button
+            type="button"
+            onClick={() => void word.refresh()}
+            disabled={!word.canRefresh || word.refreshing}
+            aria-describedby="report-refresh-status"
+            title="Запустить новое чтение текущих источников. Архивные срезы при этом не меняются."
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            <RefreshCw size={13} className={word.refreshing ? 'animate-spin' : ''} />
+            {word.refreshing ? 'Запускаем обновление…' : 'Сформировать свежий отчёт'}
+          </button>
           {/* Обе выгрузки закреплены за одним проверенным комплектом выбранного среза. */}
           <button
             onClick={() => void word.download('main')}
@@ -1038,6 +1049,11 @@ export function ReportPage() {
         Основной отчёт и дополнение формируются из одного проверенного среза. Дата чтения указана ниже.
         Скачивание не создаёт новый срез: данные обновляет сервер.
       </p>
+      {word.refreshNotice && (
+        <p id="report-refresh-status" role="status" className="rounded-md border-l-2 border-blue-500 bg-blue-50/50 p-2 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+          {word.refreshNotice}
+        </p>
+      )}
       <p id="report-word-status" role="status" className="text-xs text-zinc-600 dark:text-zinc-300">{word.status}</p>
       <PublishedWeeklySummaryCard value={word.release?.weekly_summary} />
       {word.downloadError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{word.downloadError}</p>}
