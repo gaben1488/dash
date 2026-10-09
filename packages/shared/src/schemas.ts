@@ -542,6 +542,12 @@ export const ReportAssuranceSchema = z.object({
 });
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 
+export const ReportRefreshResponseSchema = z.object({
+  status: z.enum(['STARTED', 'RUNNING']),
+  message: z.string(),
+});
+export type ReportRefreshResponse = z.infer<typeof ReportRefreshResponseSchema>;
+
 /** Brief weekly facts from the frozen Word publication, not the live dashboard. */
 export const PublishedWeeklySummarySchema = z.object({
   status: z.enum(['NOT_AVAILABLE', 'INCOMPARABLE', 'COMPARABLE']),
