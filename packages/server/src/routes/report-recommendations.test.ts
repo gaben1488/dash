@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
 import { afterEach, expect, it } from 'vitest';
-import { reportRecommendationRoutes } from './report-recommendations.js';
+import { reportRecommendationRoutes, withLedgerLock } from './report-recommendations.js';
 
 const folders: string[] = [];
 const historical = {
@@ -225,5 +225,31 @@ it('does not lose an authorized recommendation when concurrent saves race', asyn
   expect(saved).toHaveLength(2);
   expect(saved[0]).toEqual(historical);
   expect(saved[1].editorial_state).toBe('ISSUED');
+  await app.close();
+});
+
+
+it('the Node-held file descriptor keeps the kernel lock after the helper exits', async () => {
+  const { app, stateDir } = await fixture();
+  const dir = join(stateDir, 'inputs');
+  const lock = join(dir, '.ledger-editor.lock');
+  let enter!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const worker = withLedgerLock(dir, async () => {
+    enter();
+    await held;
+  });
+  try {
+    await entered;
+    // The short-lived flock helper has already exited. The parent Node
+    // descriptor MUST still hold the kernel lock during this awaited action.
+    expect(spawnSync('flock', ['--exclusive', '--nonblock', lock, 'true']).status).toBe(1);
+  } finally {
+    release();
+    await worker;
+  }
+  expect(spawnSync('flock', ['--exclusive', '--nonblock', lock, 'true']).status).toBe(0);
   await app.close();
 });
