@@ -25,6 +25,14 @@ from .snapshot_bundle_io import verify_persisted_bundle
 class PublicationError(ValueError):
     pass
 
+def _document_artifacts(model):
+    """Older verified releases are immutable two-Word publications."""
+    items = [('main_report.docx', 'main'), ('management_report.docx', 'management')]
+    if (model.get('contract') or {}).get('operational_document_contract') == 'operational-report-v1':
+        items.append(('operational_report.docx', 'operational'))
+    return items
+
+
 
 def _json(path):
     try:
@@ -84,7 +92,7 @@ def _validate(root):
                                separators=(',', ':'), allow_nan=False).encode()).hexdigest()
     if _json(root / 'dashboard.json') != project_dashboard(model):
         raise PublicationError('DASHBOARD_MODEL_MISMATCH')
-    for name, view in [('main_report.docx', 'main'), ('management_report.docx', 'management')]:
+    for name, view in _document_artifacts(model):
         artifact = root / name
         meta = _json(root / (name + '.manifest.json'))
         if not artifact.is_file() or meta.get('artifact_sha256') != _hash(artifact):
@@ -213,7 +221,7 @@ def _validate(root):
             if not has_domain_contract and not validate_document_plans(model):
                 raise ValueError('DOCUMENT_CONTENT_PLAN_MISMATCH')
             plans = model['document_plans']
-            for name, view in [('main_report.docx', 'main'), ('management_report.docx', 'management')]:
+            for name, view in _document_artifacts(model):
                 validate_document_content(root / name, plans[view])
         except ValueError as exc:
             raise PublicationError(str(exc)) from exc
@@ -315,7 +323,7 @@ class PublicationStore:
     def read_artifact(self, release_id, name):
         if not re.fullmatch(r'REL-[a-f0-9]{64}', release_id or ''):
             raise PublicationError('PUBLICATION_ID_INVALID')
-        if name not in {'dashboard.json', 'main_report.docx', 'management_report.docx'}:
+        if name not in {'dashboard.json', 'main_report.docx', 'management_report.docx', 'operational_report.docx'}:
             raise PublicationError('PUBLICATION_VIEW_INVALID')
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
             row = db.execute('SELECT receipt, files FROM publications WHERE release_id=?', (release_id,)).fetchone()
@@ -378,6 +386,7 @@ class PublicationStore:
                               'model_sha256': model_hash, 'rules_version': model['snapshot']['rules_version'],
                               'renderer_version': model['snapshot']['renderer_version'],
                               'published_at': datetime.now(timezone.utc).isoformat(),
+                              'operational_available': 'operational' in (model.get('document_plans') or {}),
                               'source_revisions_at_publish': observed,
                               'status': 'VERIFIED_WITH_WARNINGS' if model.get('issues') or (model.get('automation_assurance') or {}).get('actions') else 'VERIFIED'}
                     if model['snapshot'].get('archive_origin'):
