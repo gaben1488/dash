@@ -386,6 +386,10 @@ class PublicationStore:
                         record['source_revisions_at_capture'] = record.pop('source_revisions_at_publish')
                     if model.get('automation_assurance') is not None:
                         record['automation_assurance'] = model['automation_assurance']
+                    if model.get('weekly_evidence') is not None:
+                        from .weekly_evidence import public_weekly_summary
+
+                        record['weekly_summary'] = public_weekly_summary(model['weekly_evidence'])
                     db.execute('INSERT INTO publications VALUES (?, ?, ?, ?, ?)',
                         (release_id, report_date, cutoff, json.dumps(record, ensure_ascii=False), json.dumps(files)))
                 _sync_directory(self.root)
