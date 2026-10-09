@@ -648,7 +648,7 @@ def _add_grouped_context(doc, model):
     groups = model.get('source_context_groups', [])
     if _executive_contract(doc):
         groups = [group for group in groups if any(
-            entry['visibility'] == 'business' and not _internal_annotation(entry['text'])
+            not _internal_annotation(entry['text'])
             for entry in group.get('explanations', []))]
     if not groups:
         return
