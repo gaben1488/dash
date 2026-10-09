@@ -4,8 +4,10 @@
  * official recommendation. Previous historical statements remain immutable.
  * The generator reads UЭР entries in its next official snapshot.
  */
+import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { link, lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { ALL_DEPT_IDS } from '@aemr/shared';
@@ -144,17 +146,27 @@ async function persist(directory: string, old: Snapshot, rows: Entry[]): Promise
   const versionDir = join(directory, 'ledger-versions');
   await mkdir(versionDir, { recursive: true, mode: 0o700 });
   const backup = join(versionDir, old.revision + '.json');
+  // Write + fsync a private staging file, then atomically hard-link it into
+  // place. A killed process may leave an ignored staging file, never a truncated
+  // authoritative version. EEXIST is trusted only after verifying the SHA.
+  const stage = join(versionDir, '.backup-' + randomBytes(12).toString('hex') + '.tmp');
   try {
-    const saved = await open(backup, 'wx', 0o600);
-    try { await saved.writeFile(old.bytes); await saved.sync(); }
-    finally { await saved.close(); }
+    const file = await open(stage, 'wx', 0o600);
+    try { await file.writeFile(old.bytes); await file.sync(); }
+    finally { await file.close(); }
+    try {
+      await link(stage, backup);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (digest(await readFile(backup)) !== old.revision) {
+        throw new LedgerProblem(503, 'LEDGER_BACKUP_MISMATCH',
+          'Не совпадает контрольная копия реестра.');
+      }
+    }
     const dir = await open(versionDir, 'r');
     try { await dir.sync(); } finally { await dir.close(); }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    if (digest(await readFile(backup)) !== old.revision) {
-      throw new LedgerProblem(503, 'LEDGER_BACKUP_MISMATCH', 'Не совпадает контрольная копия реестра.');
-    }
+  } finally {
+    await unlink(stage).catch(() => {});
   }
   const next = Buffer.from(JSON.stringify(rows, null, 2) + '\n', 'utf8');
   if (next.length > 16 * 1024 * 1024) {
@@ -172,16 +184,47 @@ async function persist(directory: string, old: Snapshot, rows: Entry[]): Promise
   }
   return digest(next);
 }
-async function mutate(stateDir: string, expected: string, change: (rows: Entry[]) => Entry | null) {
-  const directory = join(stateDir, 'inputs');
-  const lock = join(directory, '.ledger-editor.lock');
+/**
+ * Kernel-backed file lock. Unlike O_EXCL lock-file existence, flock releases
+ * automatically when the owning Node process dies (even on SIGKILL).
+ *
+ * The short-lived flock child acquires a lock on fd 3, which is the SAME open
+ * file description as the descriptor held by Node. Once the helper exits,
+ * Node retains the descriptor and thus the lock through the whole mutation.
+ * Closing that descriptor in finally releases it. No stale .lock cleanup.
+ */
+async function withLedgerLock<T>(directory: string, action: () => Promise<T>): Promise<T> {
   let handle;
   try {
-    handle = await open(lock, 'wx', 0o600);
+    handle = await open(join(directory, '.ledger-editor.lock'),
+      constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   } catch {
-    throw new LedgerProblem(423, 'LEDGER_BUSY', 'Другой сотрудник сохраняет реестр. Повторите запрос.');
+    throw new LedgerProblem(503, 'LEDGER_LOCK_UNAVAILABLE',
+      'Не удалось открыть блокировку реестра. Изменения не выполнялись.');
   }
   try {
+    const fd = handle.fd;
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('flock', ['--exclusive', '--nonblock', '3'],
+        { stdio: ['ignore', 'ignore', 'ignore', fd] });
+      child.once('error', () => reject(new LedgerProblem(503, 'LEDGER_LOCK_UNAVAILABLE',
+        'Системная блокировка недоступна. Изменения не выполнялись.')));
+      child.once('close', (status) => {
+        if (status === 0) resolve();
+        else if (status === 1) reject(new LedgerProblem(423, 'LEDGER_BUSY',
+          'Другой сотрудник сохраняет реестр. Повторите запрос.'));
+        else reject(new LedgerProblem(503, 'LEDGER_LOCK_UNAVAILABLE',
+          'Не удалось получить блокировку реестра. Изменения не выполнялись.'));
+      });
+    });
+    return await action();
+  } finally {
+    await handle.close();
+  }
+}
+async function mutate(stateDir: string, expected: string, change: (rows: Entry[]) => Entry | null) {
+  const directory = join(stateDir, 'inputs');
+  return withLedgerLock(directory, async () => {
     const current = await snapshot(join(directory, 'ledger.json'));
     if (current.revision !== expected) {
       throw new LedgerProblem(409, 'LEDGER_CHANGED',
@@ -192,11 +235,9 @@ async function mutate(stateDir: string, expected: string, change: (rows: Entry[]
     if (!entry) return { revision: current.revision, record: null };
     const revision = await persist(directory, current, rows);
     return { revision, record: view(entry) };
-  } finally {
-    await handle.close();
-    await unlink(lock).catch(() => {});
-  }
+  });
 }
+
 function sendProblem(error: unknown, reply: { code: (status: number) => { send: (body: unknown) => unknown } }) {
   if (error instanceof LedgerProblem) return reply.code(error.status).send({ code: error.code, message: error.message });
   return reply.code(503).send({ code: 'LEDGER_WRITE_FAILED',
