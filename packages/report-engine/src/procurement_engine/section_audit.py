@@ -214,7 +214,10 @@ def audit_source_sections(capture,model,*,ledger=None,identity_evidence=None):
     if any(i.severity=='ERROR' for i in raw_issues):errors.append('procedure_source_contract')
     if (model.get('contract') or {}).get('operational_procedure_contract') == 'operational-procedure-evidence-v1':
         from .operational_evidence import build_operational_evidence
-        expected_operational = build_operational_evidence(attempts, shares, master['values'])
+        recorded_attempts, recorded_shares = normalize_procedure_values(
+            master['values'], source_ref_prefix=master['provider_id'] + '::' + master['sheet'])
+        expected_operational = build_operational_evidence(
+            recorded_attempts, recorded_shares, master['values'])
         if model.get('operational_procedure_evidence') != expected_operational:
             errors.append('operational_procedure_evidence')
     active=[];closed=[]
