@@ -7,17 +7,27 @@ historical genre, not today's business facts or new instructions.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-import re
 
 from .document_plan import (
-    BLUE, GRAY, ORANGE, DocumentPlan, _add_weekly_review, _budget_text,
-    _internal_annotation, _money, _paragraph, _pct, _position_word, section_rule,
+    BLUE,
+    GRAY,
+    ORANGE,
+    DocumentPlan,
+    _add_weekly_review,
+    _budget_text,
+    _internal_annotation,
+    _money,
+    _paragraph,
+    _pct,
+    _position_word,
+    section_rule,
 )
-from .renderer_guard import assert_renderer_inputs
 from .normalize import parse_date
+from .renderer_guard import assert_renderer_inputs
 
 
 def _focus_quarter(model):
@@ -28,9 +38,9 @@ def _focus_quarter(model):
     """
     day = date.fromisoformat(parse_date(model["snapshot"]["report_date"]))
     current = int(model["headline"]["current_quarter"])
-    if current > 1 and day.month in {4, 7, 10} and day.day <= 14:
-        if current == (day.month - 1) // 3 + 1:
-            return current - 1
+    if (current > 1 and day.month in {4, 7, 10} and day.day <= 14
+            and current == (day.month - 1) // 3 + 1):
+        return current - 1
     return current
 
 
@@ -132,7 +142,6 @@ def _add_remainders(doc, model, *, quarter, max_quarter_groups=16, max_year_grou
     remainder = [(grbs, row) for grbs, row in all_year if row["source_row_key"] not in quarter_refs]
     print_groups(remainder, limit=max_year_groups,
                  header="Крупные незакрытые позиции остальных кварталов")
-    return
 
 
 @section_rule("DOC.OPERATIONAL_PROCEDURES", roots=["procedures"])
