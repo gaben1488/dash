@@ -2,7 +2,7 @@
 import json
 
 from docx import Document
-from procurement_engine.document_content import planned_documents, validate_document_content
+from procurement_engine.document_content import validate_document_content
 from procurement_engine.operational_plan import _focus_quarter, _relevant_comment
 from procurement_engine.publication_reader import read_publication
 from procurement_engine.publication_store import _document_artifacts
