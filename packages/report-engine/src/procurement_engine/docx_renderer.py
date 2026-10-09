@@ -155,7 +155,7 @@ def _write_table(doc, rows):
 
 def _render_plan(model, plan, output_path):
     doc = Document()
-    (_setup_main if plan['view'] == 'main' else _setup_management)(doc)
+    (_setup_main if plan['view'] in {'main', 'operational'} else _setup_management)(doc)
     alignments = {'left': WD_ALIGN_PARAGRAPH.LEFT, 'right': WD_ALIGN_PARAGRAPH.RIGHT,
                   'justify': WD_ALIGN_PARAGRAPH.JUSTIFY}
     for block in plan['blocks']:
