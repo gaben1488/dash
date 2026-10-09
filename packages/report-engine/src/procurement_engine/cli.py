@@ -75,7 +75,7 @@ def main(argv=None):
     prune.add_argument("--apply", action="store_true")
     read = sub.add_parser("read-publication", help="Read a committed release without live recalculation")
     read.add_argument("--state", required=True)
-    read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement'], required=True)
+    read.add_argument("--view", choices=['status', 'dashboard', 'main', 'supplement', 'operational'], required=True)
     read.add_argument("--release-id")
     read.add_argument("--report-date")
     read.add_argument("--report-year", type=int)
