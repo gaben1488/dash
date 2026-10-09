@@ -28,7 +28,7 @@ def test_explicit_plan_code_and_compatible_subject_show_a_procedure_not_a_contra
     index = build_case_index(data, [row()], year=2026)
     description, warning = describe_linked_procedure(row(), index)
     assert not warning
-    assert "процедура" in description.casefold()
+    assert "в реестре процедур" in description.casefold()
     assert "450,26 тыс. руб." in description
     assert "договор заключ" not in description.casefold()
     assert "02.10.2026" in description
