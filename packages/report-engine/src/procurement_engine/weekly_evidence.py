@@ -233,3 +233,39 @@ def build_weekly_evidence(current, frozen):
         recommendations_revised=rec_revised, procedure_stage_changes=stages,
     )
     return info
+
+
+def public_weekly_summary(weekly):
+    """Small, evidence-aligned wording for the native report page.
+
+    Never expose internal IDs, file paths, database traces or support diagnostics.
+    The Word and dashboard use the same verified model, not separate calculations.
+    """
+    change_counts = [
+        {"label": LABELS[k], "count": n}
+        for k, n in weekly.get("event_counts", {}).items() if n
+    ]
+    totals = [
+        {"label": label,
+         "plan_before": weekly["totals"][kind]["plan_count"]["before"],
+         "plan_after": weekly["totals"][kind]["plan_count"]["after"],
+         "fact_before": weekly["totals"][kind]["fact_count"]["before"],
+         "fact_after": weekly["totals"][kind]["fact_count"]["after"]}
+        for kind, label in (("competitive", "Конкурентные закупки"),
+                            ("single_supplier", "Единственный поставщик"))
+    ] if weekly["status"] == "COMPARABLE" else []
+    return {
+        "status": weekly["status"],
+        "baseline_date": weekly.get("baseline_date"),
+        "message": weekly["message"],
+        "totals": totals,
+        "changes": change_counts,
+        "examples": [
+            event_sentence(event, baseline_date=weekly["baseline_date"])
+            for event in weekly.get("events", [])[:4]
+        ],
+        "unmatched_positions": weekly.get("unmatched_positions", 0),
+        "recommendations_added": weekly.get("recommendations_added", 0),
+        "recommendations_revised": weekly.get("recommendations_revised", 0),
+        "procedure_stage_changes": len(weekly.get("procedure_stage_changes") or []),
+    }
