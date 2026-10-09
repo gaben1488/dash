@@ -44,7 +44,7 @@ docker compose --env-file .env.production exec -T server sh -eu -c '
   /opt/report-env/bin/python -c '\''import json; from pathlib import Path; s=json.loads(Path("data/reports/status.json").read_text()); assert s["status"] in {"VERIFIED", "VERIFIED_WITH_WARNINGS"}'\''
 '
 deployment_stage=http
-echo 'Report generated. Checking the native report context and both Word downloads.'
+echo 'Report generated. Checking the native report context and all three Word downloads.'
 docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_smoke
 deployment_stage=worker
 worker_started_at=$(date -u +'%Y-%m-%dT%H:%M:%S+00:00')
