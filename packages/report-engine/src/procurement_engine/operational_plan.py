@@ -12,13 +12,24 @@ from datetime import date
 from decimal import Decimal
 
 from .document_plan import (
-    GRAY, ORANGE, DocumentPlan, _add_weekly_review, _budget_text,
-    _internal_annotation, _money, _paragraph, _pct, _position_word, section_rule,
+    GRAY,
+    ORANGE,
+    DocumentPlan,
+    _add_weekly_review,
+    _budget_text,
+    _internal_annotation,
+    _money,
+    _paragraph,
+    _pct,
+    _position_word,
+    section_rule,
 )
 from .normalize import parse_date
 from .operational_casework import (
-    build_case_index, describe_linked_procedure,
-    procedure_candidate_sentence, unlinked_procedure_candidates,
+    build_case_index,
+    describe_linked_procedure,
+    procedure_candidate_sentence,
+    unlinked_procedure_candidates,
 )
 from .renderer_guard import assert_renderer_inputs
 
