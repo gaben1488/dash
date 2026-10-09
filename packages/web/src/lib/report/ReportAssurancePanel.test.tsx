@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ReportAssuranceSchema, type ReportAssurance } from '@aemr/shared';
 import { ReportAssurancePanel } from './ReportAssurancePanel';
 
@@ -22,10 +22,15 @@ const value: ReportAssurance = {
 };
 it('shows concrete ownership, location and action without a grey-only status', () => {
   render(<ReportAssurancePanel value={value} label="Выбранный выпуск" />);
-  expect(screen.getByRole('heading', { name: 'Нужны уточнения в первичных данных: 1' })).toBeTruthy();
-  expect(screen.getByText(/Сумма без даты.*УЭР.*Q4/)).toBeTruthy();
-  // Details may be collapsed, but the exact address is already present in its summary.
+  expect(screen.getByText(/Уточнений по данным: 1/)).toBeTruthy();
+  const allDetails = document.querySelectorAll('details');
+  // The weekly report remains short; diagnostics are disclosed on demand.
+  expect(allDetails[0]?.open).toBe(false);
+  fireEvent.click(screen.getByText(/Пояснения к проверке отчёта/));
+  fireEvent.click(screen.getByText(/Что нужно уточнить в исходных таблицах/));
+  fireEvent.click(screen.getByText(/Сумма без даты/));
   expect(screen.getByText('Внесите подтверждённую дату в Q', { exact: false })).toBeTruthy();
+  expect(screen.getByText(/Открыть ВСЕ, Q4/)).toBeTruthy();
 });
 it('does not offer an injected source link as a clickable action', () => {
   const unsafe = structuredClone(value); unsafe.actions[0]!.locations[0]!.url = 'javascript:alert(1)';
