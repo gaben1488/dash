@@ -52,7 +52,8 @@ from .snapshot import _snapshot_id, canonical_semantic_hash
 from .snapshot_bundle_io import persist_atomic_bundle, verify_persisted_bundle
 from .source_contract import registry_grbs_order
 from .validation import validate_snapshot
-from .weekly_evidence import CONTRACT as WEEKLY_CONTRACT, build_weekly_evidence, freeze_weekly_baseline
+from .weekly_evidence import CONTRACT as WEEKLY_CONTRACT
+from .weekly_evidence import build_weekly_evidence, freeze_weekly_baseline
 
 RENDERER_VERSION = 'renderer-v1.5.0rc25'
 RAW_RULES_VERSION = DEFAULT_RULE_CATALOG.version + '+raw-v1.5.0rc25+reviewed-actions-v1verified-original-links-v1+grid-coverage-v1+archive-scope-v1+weekly-evidence-v1'
