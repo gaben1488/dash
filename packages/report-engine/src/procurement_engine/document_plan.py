@@ -33,8 +33,14 @@ class DocumentPlan:
                 'source_context', 'source_context_groups', 'future_plan', 'issues', 'details', 'exact_metrics', 'release', 'contract', 'weekly_evidence')
         projection = {key: model[key] for key in keys if key in model}
         if 'details' in projection:
+            fields = {'physical_row_key', 'subject'}
+            if (model.get('contract') or {}).get('operational_document_contract') == 'operational-report-v1':
+                fields.update({'grbs', 'institution', 'planned_date', 'actual_date',
+                               'plan_amount', 'plan_fb', 'plan_kb', 'plan_mb',
+                               'deviation_reason', 'grbs_comment', 'necessity_reason',
+                               'procedure_code', 'procurement_uid', 'source_row_no'})
             projection['details'] = [{key: value for key, value in row.items()
-                                      if key in {'physical_row_key', 'subject'}} for row in model['details']]
+                                      if key in fields} for row in model['details']]
         if 'recommendations' in projection:
             projection['recommendations'] = {key: value for key, value in model['recommendations'].items()
                                               if key in {'active', 'historical_unique', 'superseded'}}
