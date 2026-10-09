@@ -89,7 +89,7 @@ def test_http_failure_output_discloses_only_fixed_status_code(monkeypatch, capsy
     assert capsys.readouterr().err == 'REPORT_EXPORT_HTTP_503\n'
 
 
-def test_http_acceptance_checks_native_context_and_both_pinned_documents(tmp_path):
+def test_http_acceptance_checks_native_context_and_three_pinned_documents(tmp_path):
     from procurement_engine.deployment_smoke import check_exports
 
     registry, ledger = inputs(tmp_path)
@@ -111,14 +111,65 @@ def test_http_acceptance_checks_native_context_and_both_pinned_documents(tmp_pat
             return read_publication(state, 'status', selection=(params['date'][0],
                 int(params['year'][0]), int(params['quarter'][0])))
         suffix = path.rsplit('/', 1)[-1]
-        view = {'main.docx': 'main', 'supplement.docx': 'supplement', 'dashboard': 'dashboard'}[suffix]
+        view = {'main.docx': 'main', 'supplement.docx': 'supplement',
+                'operational.docx': 'operational', 'dashboard': 'dashboard'}[suffix]
         return read_publication(state, view, receipt['release_id'])
 
-    assert check_exports(fetch) == {'context': 'PASS', 'main': 'PASS', 'supplement': 'PASS', 'snapshot': 'PASS'}
+    assert check_exports(fetch) == {'context': 'PASS', 'main': 'PASS',
+                                    'supplement': 'PASS', 'operational': 'PASS',
+                                    'snapshot': 'PASS'}
     assert f"/api/report-releases/{receipt['release_id']}/main.docx" in calls
     assert f"/api/report-releases/{receipt['release_id']}/supplement.docx" in calls
+    assert f"/api/report-releases/{receipt['release_id']}/operational.docx" in calls
     with pytest.raises(ValueError, match='REPORT_EXPORT_CONTEXT_MISSING'):
         check_exports(lambda path: json.dumps({'period': period}).encode() if path == '/api/report'
                       else b'{"selected":null}')
     with pytest.raises(ValueError, match='REPORT_EXPORT_DOCUMENT_INVALID'):
         check_exports(lambda path: b'old browser format' if path.endswith('.docx') else fetch(path))
+
+
+
+def test_worker_acceptance_requires_third_word_on_rc25():
+    from procurement_engine.deployment_smoke import check_worker_cycle
+
+    since = '2026-10-09T07:00:00+00:00'
+    release = {'snapshot_id': 'SNP-test', 'renderer_version': 'renderer-v1.5.0rc25'}
+    cycle = {
+        'started_at': '2026-10-09T07:01:00+00:00',
+        'finished_at': '2026-10-09T07:02:00+00:00',
+        'status': 'VERIFIED',
+        'snapshot_id': 'SNP-test',
+        'publication': release,
+    }
+    with pytest.raises(ValueError, match='REPORT_WORKER_CYCLE_FAILED'):
+        check_worker_cycle(lambda: cycle, since, sleep=lambda _: None, attempts=1)
+    cycle['publication'] = {**release, 'operational_available': True}
+    assert check_worker_cycle(lambda: cycle, since, sleep=lambda _: None, attempts=1) == {'worker': 'PASS'}
+
+
+def test_three_word_acceptance_rejects_a_missing_or_corrupt_operational_document(tmp_path):
+    from procurement_engine.deployment_smoke import check_exports
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    status = run_once(registry, ledger, state, client=CompleteGoogle())
+    assert status['status'] == 'VERIFIED'
+    receipt = status['publication']
+    dashboard = json.loads(read_publication(state, 'dashboard', receipt['release_id']))
+    day = date.fromisoformat('-'.join(reversed(receipt['report_date'].split('.'))))
+    period = {'year': day.year, 'quarter': dashboard['headline']['current_quarter'],
+              'asOfDay': (day - date(1970, 1, 1)).days, 'live': True}
+    def fetch(path):
+        if path == '/api/report':
+            return json.dumps({'period': period}).encode()
+        if path.startswith('/api/report-releases?'):
+            params = parse_qs(urlsplit(path).query)
+            return read_publication(state, 'status', selection=(params['date'][0],
+                int(params['year'][0]), int(params['quarter'][0])))
+        if path.endswith('/operational.docx'):
+            return b'corrupt word'
+        view = 'dashboard' if path.endswith('/dashboard') else (
+            'main' if path.endswith('/main.docx') else 'supplement')
+        return read_publication(state, view, receipt['release_id'])
+    with pytest.raises(ValueError, match='REPORT_EXPORT_DOCUMENT_INVALID'):
+        check_exports(fetch)
