@@ -111,6 +111,8 @@ def load_frozen_input(root, *, day, year, quarter):
                 capture['archived_file_evidence'] = payload['semantic_values']
             if payload['role'] == 'historical_report_evidence':
                 capture['recommendation_history_evidence'] = payload['semantic_values']
+            if payload['role'] == 'weekly_baseline':
+                capture['weekly_baseline'] = payload['semantic_values']
             if 'sheet_title' not in meta:
                 continue
             sid = payload['source_id']
