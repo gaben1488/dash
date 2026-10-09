@@ -83,11 +83,11 @@ export function useReportExport(context: ExportContext | null) {
   if (release) {
     status = `Word: ${release.status === 'VERIFIED' ? 'проверен' : 'проверен, есть замечания'}. Источники прочитаны ${timestamp.format(new Date(release.cutoff_at))} (Камчатка).`;
     const assurance = release.automation_assurance;
-    if (assurance) {
-      status += ` Проверок, требующих действий владельцев данных: ${assurance.user_action_count}; задач сопровождения: ${assurance.engine_action_count}.`;
-    } else {
-      status += ' Полнота обработки пояснений этим выпуском не оценена.';
+    if (assurance?.user_action_count) {
+      status += ' Есть вопросы по исходным данным; подробности можно открыть ниже.';
     }
+    // Engine-only historical uncertainty is kept in the collapsed diagnostics,
+    // never framed as an error in an otherwise verified Word release.
     if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
   }
   if (archiveMode && !release && current?.data?.archive) {
