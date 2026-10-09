@@ -105,3 +105,38 @@ it('coalesces the same archive request and bounds expensive concurrent builds', 
   expect(prepare).toHaveBeenCalledOnce();
   await app.close();
 });
+
+
+it('starts a single manual refresh and responds without waiting for full Google capture', async () => {
+  const app = Fastify();
+  let done!: () => void;
+  const refresh = vi.fn(() => new Promise<void>(resolve => { done = resolve; }));
+  await app.register(reportReleaseRoutes, { refresh });
+  await app.ready();
+  const first = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
+  expect(first.statusCode).toBe(202);
+  expect(first.json().status).toBe('STARTED');
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  const other = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
+  expect(other.statusCode).toBe(202);
+  expect(other.json().status).toBe('RUNNING');
+  expect(refresh).toHaveBeenCalledOnce();
+  done();
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  await app.close();
+});
+
+it('rejects user-provided refresh sources, archived dates and credentials', async () => {
+  const app = Fastify();
+  const refresh = vi.fn(async () => {});
+  await app.register(reportReleaseRoutes, { refresh });
+  for (const payload of [{ date: '2026-10-09' }, { registry: '/tmp/unsafe' }, { ledger: [] }]) {
+    expect((await app.inject({
+      method: 'POST', url: '/api/report-releases/refresh', payload,
+    })).statusCode).toBe(400);
+  }
+  expect((await app.inject({ method: 'POST',
+    url: '/api/report-releases/refresh?year=2026', payload: {} })).statusCode).toBe(400);
+  expect(refresh).not.toHaveBeenCalled();
+  await app.close();
+});
