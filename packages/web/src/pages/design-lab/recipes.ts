@@ -138,7 +138,7 @@ export function searchRecipes(query: string, category?: UiRecipe['category']): U
   const needle = query.trim().toLocaleLowerCase('ru');
   return UI_RECIPES.filter((item) =>
     (!category || item.category === category) &&
-    (!needle || [item.title, item.answer, item.rationale, item.mistake].some((text) =>
+    (!needle || [item.title, item.answer, item.rationale, item.mistake, ...item.criteria].some((text) =>
       text.toLocaleLowerCase('ru').includes(needle)))
   );
 }
