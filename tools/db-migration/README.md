@@ -40,8 +40,8 @@ the tool must not infer class or year from empty cells. The companion CLI
 does NOT fetch Google data, connect to SQLite, or create hashes.
 
 Approved decisions are an array of
-\`{from,to,fromHash,toHash,entityId}\` objects. \`from\` and \`to\` are the
-JSON-encoded observation locators returned by \`observationKey(row)\`.
+`{from,to,fromHash,toHash,entityId}` objects. `from` and `to` are the
+JSON-encoded observation locators returned by `observationKey(row)`.
 A decision MUST be approved and authenticated by the host workflow; the
 tool only checks reference validity and exact frozen payload hashes, not
 the human's identity or authority. No decisions means no natural-key
@@ -49,15 +49,15 @@ auto-matching.
 
 ## Deliberate semantics
 
-- A known immutable, externally managed \`entityId\` present once in each
+- A known immutable, externally managed `entityId` present once in each
   snapshot is matched. Duplicate IDs or contradictory human decisions block.
 - A stable **displayed** number A plus workbook/sheet is a *candidate only*,
   even with the same organization ID and subject. It **never** allocates or
-  carries an ID automatically. \`173\`, \`173/1\` and \`173/18\` differ; a
-  Google DATE serial like 46045 must not replace visible A=\`23/1\`.
+  carries an ID automatically. `173`, `173/1` and `173/18` differ; a
+  Google DATE serial like 46045 must not replace visible A=`23/1`.
 - A natural-key collision on either side stops automated pairing. Empty A
   never creates a candidate. Different workbooks never match by A alone.
-- \`sourceRow\` appears only in an observation locator. Inserting rows does
+- `sourceRow` appears only in an observation locator. Inserting rows does
   not create an identity change; nor does it prove two purchases are the same.
 - All unmatched items remain **unresolved** even when a review candidate is
   proposed. A pending or dismissed question is not a verified identity.
@@ -74,5 +74,5 @@ This tool safely exercises G1 rules on synthetic fixtures only. A production
 adapter, real crosswalk and live comparison are separate acceptance gates.
 
 References: PR #70 document
-\`docs/superpowers/audits/2026-10-10-dash-foundation/DB-MIGRATION-READINESS.md\`
+`docs/superpowers/audits/2026-10-10-dash-foundation/DB-MIGRATION-READINESS.md`
 and integrated remediation PR #79.
