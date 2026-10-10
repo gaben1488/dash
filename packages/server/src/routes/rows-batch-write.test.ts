@@ -25,9 +25,16 @@ process.env.GOOGLE_PRIVATE_KEY = '';
 process.env.GOOGLE_API_KEY = '';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
+const readLiveRowCells = vi.fn(async (_id: string, _sheet: string, idx: number) => ({
+  A: idx - 3, B: '', C: '', G: `Закупка ${idx - 3}`,
+}));
+function expectedRow(idx: number) {
+  return { A: idx - 3, B: '', C: '', G: `Закупка ${idx - 3}` };
+}
 
 vi.mock('../services/google-sheets.js', () => ({
   writeCellValue,
+  readLiveRowCells,
   resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
   batchGetCells: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
   batchGetFormulas: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
@@ -78,6 +85,10 @@ afterAll(async () => {
 
 beforeEach(() => {
   writeCellValue.mockClear();
+  readLiveRowCells.mockClear();
+  readLiveRowCells.mockImplementation(async (_id: string, _sheet: string, idx: number) => ({
+    A: idx - 3, B: '', C: '', G: `Закупка ${idx - 3}`,
+  }));
   writeCellValue.mockImplementation(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
   setDeptSheetCache({ 'УО': { values: sheetValues(), formulas: [], sheetName: 'ВСЕ' } });
 });
@@ -87,7 +98,7 @@ describe('POST /api/data/rows — код ответа не врёт (п.16)', ()
     const res = await app.inject({
       method: 'POST',
       url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Новый предмет' } }] },
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { G: 'Новый предмет' } }] },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ ok: boolean; successCount: number; failCount: number }>();
@@ -101,7 +112,7 @@ describe('POST /api/data/rows — код ответа не врёт (п.16)', ()
     const res = await app.inject({
       method: 'POST',
       url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Предмет', H: 10 } }] },
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { G: 'Предмет', H: 10 } }] },
     });
     expect(res.statusCode).not.toBe(200);
     expect(res.statusCode).toBe(207);
@@ -115,7 +126,7 @@ describe('POST /api/data/rows — код ответа не врёт (п.16)', ()
     const res = await app.inject({
       method: 'POST',
       url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Предмет', K: 100 } }] },
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { G: 'Предмет', K: 100 } }] },
     });
     expect(res.statusCode).toBe(207);
     const body = res.json<{ ok: boolean; successCount: number; failCount: number }>();
@@ -129,7 +140,7 @@ describe('серверная валидация ввода: числа, даты
   it('не отбрасывает хвост денежной строки и не принимает Infinity', async () => {
     for (const bad of ['12abc', '1.2.3', '1e309', 'Infinity']) {
       const res = await app.inject({ method: 'POST', url: '/api/data/rows',
-        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: bad } }] } });
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { H: bad } }] } });
       expect(res.statusCode).toBe(207);
       expect(res.json<{ ok: boolean }>().ok).toBe(false);
     }
@@ -138,7 +149,7 @@ describe('серверная валидация ввода: числа, даты
 
   it('принимает русские разделители и записывает полное число', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: '1 234,50' } }] } });
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { H: '1 234,50' } }] } });
     expect(res.statusCode).toBe(200);
     expect(writeCellValue).toHaveBeenCalledWith(expect.any(String), 'ВСЕ', 'H4', 1234.5);
   });
@@ -146,7 +157,7 @@ describe('серверная валидация ввода: числа, даты
   it('не считает календарную ошибку корректной датой', async () => {
     for (const bad of ['31.02.2026', '2026-13-99', '2026-01-14garbage']) {
       const res = await app.inject({ method: 'POST', url: '/api/data/rows',
-        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { N: bad } }] } });
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { N: bad } }] } });
       expect(res.statusCode).toBe(207);
     }
     expect(writeCellValue).not.toHaveBeenCalled();
@@ -154,12 +165,36 @@ describe('серверная валидация ввода: числа, даты
 
   it('отклоняет большой или некорректный пакет до первой записи', async () => {
     const over = await app.inject({ method: 'POST', url: '/api/data/rows',
-      payload: { rows: Array.from({ length: 51 }, () => ({ deptId: 'УО', rowIndex: 4, changes: { G: 'a' } })) } });
+      payload: { rows: Array.from({ length: 51 }, () => ({ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { G: 'a' } })) } });
     expect(over.statusCode).toBe(413);
     const malformed = await app.inject({ method: 'POST', url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'a' } }, { deptId: 'УО', rowIndex: 5, changes: null }] } });
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { G: 'a' } }, { deptId: 'УО', rowIndex: 5, expectedRow: expectedRow(5), changes: null }] } });
     expect(malformed.statusCode).toBe(400);
     expect(writeCellValue).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/data/rows — stale source identity', () => {
+  it('never writes when source row was moved after client loaded it', async () => {
+    readLiveRowCells.mockResolvedValueOnce({ A: 99, B: '', C: '', G: 'Другая закупка' });
+    const res = await app.inject({
+      method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4),
+        changes: { H: 999 } }] },
+    });
+    expect(res.statusCode).toBe(207);
+    expect(res.json<{ failCount: number }>().failCount).toBe(1);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('stops writes lacking a previously seen row identity', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: 999 } }] },
+    });
+    expect(res.statusCode).toBe(207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+    expect(readLiveRowCells).not.toHaveBeenCalled();
   });
 });
 
@@ -194,7 +229,7 @@ describe('правка ячейки и прочитанные книги (п.14)
     await app.inject({
       method: 'POST',
       url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Отражено' } }] },
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { G: 'Отражено' } }] },
     });
     expect(getDeptSheetValues()['УО']?.[3]?.[6]).toBe('Отражено');
   });
@@ -212,7 +247,7 @@ describe('правка ячейки и прочитанные книги (п.14)
     await app.inject({
       method: 'POST',
       url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 5, changes: { G: 'Пакетная правка' } }] },
+      payload: { rows: [{ deptId: 'УО', rowIndex: 5, expectedRow: expectedRow(5), changes: { G: 'Пакетная правка' } }] },
     });
     expect(getDeptCacheFilledAt()).toBe(filledAtBefore);
     expect(getDeptSheetValues()['УО']?.[3]?.[6]).toBe('Одиночная правка');
@@ -233,7 +268,7 @@ describe('правка ячейки и прочитанные книги (п.14)
     await app.inject({
       method: 'POST',
       url: '/api/data/rows',
-      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: 42 } }] },
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, expectedRow: expectedRow(4), changes: { H: 42 } }] },
     });
 
     const values = getDeptSheetValues()['УО'];

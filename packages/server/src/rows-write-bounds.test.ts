@@ -21,9 +21,13 @@ process.env.SQLITE_PATH = ':memory:';
 process.env.LOG_LEVEL = 'silent';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1 }));
+const readLiveRowCells = vi.fn(async (_id: string, _sheet: string, idx: number) => ({
+  A: idx - 3, B: '', C: '', G: `Закупка ${idx - 3}`,
+}));
 
 vi.mock('./services/google-sheets.js', () => ({
   writeCellValue,
+  readLiveRowCells,
   getSheetData: vi.fn(async () => []),
   getSheetDataFromSpreadsheet: vi.fn(async () => []),
   readDeptSheet: vi.fn(async () => ({ values: [], formulas: [], sheetName: 'ВСЕ' })),
@@ -74,7 +78,13 @@ afterAll(async () => {
   await app?.close();
 });
 
-beforeEach(() => writeCellValue.mockClear());
+beforeEach(() => {
+  writeCellValue.mockClear();
+  readLiveRowCells.mockClear();
+  readLiveRowCells.mockImplementation(async (_id: string, _sheet: string, idx: number) => ({
+    A: idx - 3, B: '', C: '', G: `Закупка ${idx - 3}`,
+  }));
+});
 
 describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя граница строки', () => {
   it('блокирует обе дополнительные строки шапки: 2 и 3', async () => {
@@ -115,11 +125,28 @@ describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя границ�
       expect(writeCellValue).not.toHaveBeenCalled();
   }, 30_000);
 
+  it('отказывает в записи без исходной идентичности строки', async () => {
+    const res = await app.inject({ method: 'PUT', url: '/api/rows/uo/4/field',
+      payload: { field: 'G', value: 'нет исходной закупки' } });
+    expect(res.statusCode).toBe(428);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('отказывает при изменении живой строки между чтением и записью', async () => {
+    readLiveRowCells.mockResolvedValueOnce({ A: 999, B: '', C: '', G: 'Другая закупка' });
+    const res = await app.inject({ method: 'PUT', url: '/api/rows/uo/4/field',
+      payload: { field: 'G', value: 'не перезаписывать',
+        expectedRow: { A: 1, B: '', C: '', G: 'Закупка 1' } } });
+    expect(res.statusCode).toBe(409);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
   it('пропускает последнюю существующую строку', async () => {
       const res = await app.inject({
         method: 'PUT',
         url: '/api/rows/uo/5/field',
-        payload: { field: 'G', value: 'валидная правка' },
+        payload: { field: 'G', value: 'валидная правка',
+          expectedRow: { A: 2, B: '', C: '', G: 'Закупка 2' } },
       });
 
       expect(res.statusCode).toBe(200);
