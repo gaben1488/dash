@@ -78,6 +78,90 @@ describe('buildBarData (извлечено из useFilteredData §10)', () => {
     expect(b.epCount).toBe(1);
   });
 
+  it('только ЕП: денежный бар и процент считаются по ЕП, не по всем закупкам', () => {
+    const sliced = {
+      ...dept,
+      quarters: {
+        q1: {
+          ...dept.quarters.q1, planCount: 3, factCount: 2,
+          kpPlanTotal: 100, kpFactTotal: 50, kpFactCount: 1,
+          epPlanTotal: 40, epFactTotal: 10, epFactCount: 1,
+        },
+      },
+      byActivity: {
+        q1: { program: {
+          planCount: 3, factCount: 2,
+          byMethod: {
+            competitive: { plan: 2, fact: 1, planSum: 100, factSum: 50,
+              planFB: 60, planKB: 40, planMB: 0, factFB: 30, factKB: 20, factMB: 0 },
+            ep: { plan: 1, fact: 1, planSum: 40, factSum: 10,
+              planFB: 10, planKB: 30, planMB: 0, factFB: 4, factKB: 6, factMB: 0 },
+          },
+        } },
+      },
+    };
+    const [b] = buildBarData([sliced], makeOpts({ showKP: false, showEP: true }));
+    expect(b).toMatchObject({
+      kpCount: 0, epCount: 1, planTotal: 40, factTotal: 10, pct: 25, execCountPct: 100,
+    });
+    const [fb] = buildBarData([sliced], makeOpts({
+      showKP: false, showEP: true,
+      isBudgetFiltered: true,
+      budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
+    }));
+    expect(fb).toMatchObject({ planTotal: 10, factTotal: 4, pct: 40 });
+  });
+
+  it('месяц с выбранным КП показывает только конкурентные суммы и позиции', () => {
+    const monthly = {
+      ...dept,
+      months: { 1: {
+        planCount: 3, factCount: 2, planTotal: 60, factTotal: 25,
+        kpCount: 2, kpFactCount: 1, kpPlanTotal: 35, kpFactTotal: 15,
+        epCount: 1, epFactCount: 1, epPlanTotal: 25, epFactTotal: 10,
+      } },
+      byActivity: { m1: { current_non_program: {
+        planCount: 3, factCount: 2,
+        byMethod: {
+          competitive: { plan: 2, fact: 1, planSum: 35, factSum: 15,
+            planFB: 35, planKB: 0, planMB: 0, factFB: 15, factKB: 0, factMB: 0 },
+          ep: { plan: 1, fact: 1, planSum: 25, factSum: 10,
+            planFB: 25, planKB: 0, planMB: 0, factFB: 10, factKB: 0, factMB: 0 },
+        },
+      } } },
+    };
+    const [b] = buildBarData([monthly], makeOpts({
+      periodKey: 'year', activeMonths: new Set([1]), hasMonthData: true,
+      showKP: true, showEP: false,
+    }));
+    expect(b).toMatchObject({ planTotal: 35, factTotal: 15, kpCount: 2, epCount: 0, execCountPct: 50 });
+  });
+
+  it('подвед + только ЕП не наследует полные суммы управления при выбранном квартале', () => {
+    const scoped = {
+      department: { id: 'uo', nameShort: 'УО' },
+      _subFiltered: true,
+      planTotal: 80, factTotal: 40, competitiveCount: 2, soleCount: 1,
+      quarters: { q1: {
+        planCount: 3, factCount: 2, planTotal: 80, factTotal: 40,
+        kpCount: 90, kpPlanTotal: 900, epPlanTotal: 100,
+      } },
+      byActivity: { q1: { program: {
+        planCount: 3, factCount: 2,
+        byMethod: {
+          competitive: { plan: 2, fact: 1, planSum: 60, factSum: 34,
+            planFB: 60, planKB: 0, planMB: 0, factFB: 34, factKB: 0, factMB: 0 },
+          ep: { plan: 1, fact: 1, planSum: 20, factSum: 6,
+            planFB: 20, planKB: 0, planMB: 0, factFB: 6, factKB: 0, factMB: 0 },
+        },
+      } } },
+    };
+    const [b] = buildBarData([scoped], makeOpts({ showKP: false, showEP: true }));
+    expect(b).toMatchObject({
+      planTotal: 20, factTotal: 6, pct: 30, kpCount: 0, epCount: 1, execCountPct: 100,
+    });
+  });
+
   it('бюджет-фильтр: план/факт из per-budget полей, pct пересчитан', () => {
     const [b] = buildBarData([dept], makeOpts({
       isBudgetFiltered: true, budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
