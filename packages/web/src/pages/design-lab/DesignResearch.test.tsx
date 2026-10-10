@@ -14,7 +14,7 @@ describe('Design Research: real decisions, not inert decoration', () => {
     expect(screen.getByRole('heading', { name: 'Лазурь, которую потеряли' })).toBeTruthy();
     expect(container.querySelectorAll('.dr-variant-grid button')).toHaveLength(5);
     expect(container.querySelectorAll('.dr-family-grid button')).toHaveLength(39);
-    expect(screen.getByText(/39 подлинных пар/)).toBeTruthy();
+    expect(container.querySelector('.dr-audit-stat')?.textContent).toContain('39подлинных пар');
     fireEvent.click(screen.getByRole('button', { name: /7 августа · исторический синий и бронза/ }));
     expect(screen.getByText(/контраст не проходит/i)).toBeTruthy();
     expect(container.querySelector('.dr-aurora-stage')?.getAttribute('data-finish')).toBe('candy');
