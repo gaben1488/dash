@@ -14,6 +14,13 @@ afterEach(() => {
   try { window.localStorage.clear(); } catch { /* Storage may be disabled */ }
 });
 
+/** Radix Tabs activates through left mouse-down (or Enter), not a bare click. */
+function openTab(name: string): void {
+  const tab = screen.getByRole('tab', { name });
+  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  expect(tab.getAttribute('data-state')).toBe('active');
+}
+
 describe('DesignLab (isolated developer showroom)', () => {
   it('opens on palettes and updates the exact original planet colors', () => {
     const { container } = render(<DesignLabPage onExit={() => {}} />);
@@ -41,7 +48,7 @@ describe('DesignLab (isolated developer showroom)', () => {
 
   it('distinguishes waiting/error from ready and does not auto-apply detected updates', () => {
     render(<DesignLabPage onExit={() => {}} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Состояния' }));
+    openTab('Состояния');
     fireEvent.click(screen.getByRole('button', { name: 'Ошибка' }));
     expect(screen.getByRole('alert').textContent).toContain('Новую версию не удалось прочитать');
     expect(screen.getByText('Учебная версия v1 активна')).toBeTruthy();
@@ -54,11 +61,11 @@ describe('DesignLab (isolated developer showroom)', () => {
 
   it('switches layout without dropping the working table, and compares two versions', () => {
     const { container } = render(<DesignLabPage onExit={() => {}} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Компоновки' }));
+    openTab('Компоновки');
     fireEvent.click(screen.getByRole('button', { name: /Разбор/ }));
     expect(container.querySelector('.dash-design-preview')?.getAttribute('data-layout')).toBe('inspection');
     expect(screen.getByRole('button', { name: '173/1' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'Сравнение' }));
+    openTab('Сравнение');
     const previews = container.querySelectorAll('.dash-design-preview');
     expect(previews).toHaveLength(2);
     expect(previews[0].getAttribute('data-layout')).toBe('inspection');
@@ -67,7 +74,7 @@ describe('DesignLab (isolated developer showroom)', () => {
 
   it('saves a strict local recipe and rejects invalid imported data', () => {
     render(<DesignLabPage onExit={() => {}} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Код и наборы' }));
+    openTab('Код и наборы');
     fireEvent.change(screen.getByLabelText('Название текущего набора'), { target: { value: 'Тестовая версия' } });
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
     expect(window.localStorage.getItem(LAB_STORAGE_KEY)).toContain('Тестовая версия');
