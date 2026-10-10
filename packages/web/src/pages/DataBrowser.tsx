@@ -572,8 +572,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
     const deptId = String(data._dept ?? '');
     const rowIndex = Number(data._rowIndex ?? 0);
-
-    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes }]);
+    const expectedRevision = original._rowRevision;
+    if (typeof expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(expectedRevision)) {
+      throw new Error('Исходная версия строки не установлена. Обновите реестр перед сохранением.');
+    }
+    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes, expectedRevision }]);
 
     // Сервер отвечает 200 и при отказе отдельных ячеек: раньше отказ проходил
     // молча — правка исчезала из отметки «изменено», а в книгу не попадала.
@@ -849,6 +852,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       _id: `${r.dept}-${r.rowIndex ?? idx}`,
       _dept: r.dept,
       _rowIndex: r.rowIndex,
+      _rowRevision: r.rowRevision,
       id: r.id,
       // Ключ управления остаётся в _dept для записи; на экран идёт имя.
       dept: deptDisplayName(r.dept),

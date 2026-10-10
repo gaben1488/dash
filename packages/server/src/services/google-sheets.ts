@@ -460,6 +460,38 @@ export async function getSheetDataFromSpreadsheet(
   return (response.data.values as unknown[][]) ?? [];
 }
 
+/**
+ * Read exactly one source row immediately before an addressed write.
+ * Unlike readDeptRows(), this never trusts a cache or a mirrored sheet.
+ */
+export async function readCurrentDeptRow(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+): Promise<unknown[]> {
+  if (!Number.isSafeInteger(rowIndex) || rowIndex < 4) {
+    throw new Error('ROW_ADDRESS_INVALID');
+  }
+  const response = await readWithRetry(
+    'проверка исходной строки перед правкой',
+    async () => {
+      const api = await getSheetsApi();
+      return api.spreadsheets.values.get(
+        {
+          spreadsheetId,
+          range: sheetValuesRange(sheetName, `A${rowIndex}:AH${rowIndex}`),
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'FORMATTED_STRING',
+          majorDimension: 'ROWS',
+        },
+        { timeout: SHEETS_TIMEOUT_MS },
+      );
+    },
+    (r) => r.data.values?.[0]?.length ?? 0,
+  );
+  return (response.data.values as unknown[][] | undefined)?.[0] ?? [];
+}
+
 export async function getSheetDataWithFormulas(
   spreadsheetId: string,
   sheetName: string,
