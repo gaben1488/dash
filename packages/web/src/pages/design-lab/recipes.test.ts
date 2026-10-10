@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { COMPONENT_INDEX, UI_RECIPES, searchRecipes } from './recipes';
+import { EXPERIMENTAL_SURFACES } from './catalog';
+import { contrastRatio } from './presets';
 
 describe('Dash recipe library: source-backed and extensible', () => {
   it('lists real existing components without duplicates or phantom paths', () => {
@@ -10,6 +12,19 @@ describe('Dash recipe library: source-backed and extensible', () => {
       expect(item.path.startsWith('packages/web/src/')).toBe(true);
       const path = new URL('../../../../../' + item.path, import.meta.url);
       expect(existsSync(path), item.path).toBe(true);
+    }
+  });
+
+  it('keeps all seven experimental surface modes legible for body text and control borders', () => {
+    for (const surface of EXPERIMENTAL_SURFACES) {
+      for (const mode of ['dark', 'light'] as const) {
+        const tokens = surface[mode];
+        expect(contrastRatio(tokens.ink, tokens.bg), surface.id + ' ' + mode).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(tokens.ink, tokens.card), surface.id + ' ' + mode).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(tokens.muted, tokens.card), surface.id + ' ' + mode).toBeGreaterThanOrEqual(4.5);
+        // Border role intentionally uses muted ink. The ordinary line token is decorative only.
+        expect(contrastRatio(tokens.muted, tokens.bg), surface.id + ' ' + mode).toBeGreaterThanOrEqual(3);
+      }
     }
   });
 
