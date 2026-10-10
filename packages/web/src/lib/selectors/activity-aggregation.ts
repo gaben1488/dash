@@ -21,6 +21,8 @@ export interface MethodActivityValue {
 interface ActivityValue {
   planCount?: number;
   factCount?: number;
+  planTotal?: number;
+  factTotal?: number;
   byMethod?: Partial<Record<ProcurementGroup, MethodActivityValue>>;
 }
 
@@ -50,6 +52,20 @@ export interface SelectedActivityMethod {
   value: MethodActivityValue;
 }
 
+/** Did selected month/quarter/year have known source rows despite missing
+ * activity breakdown? If so, absent byActivity is a coverage gap, not zero. */
+function hasSourceRowsForPeriod(dept: any, periodKey: string): boolean {
+  const month = /^m(1[0-2]|[1-9])$/.exec(periodKey);
+  const source = month
+    ? dept.months?.[Number(month[1])]
+    : periodKey === 'year'
+      ? (dept.quarters?.year ?? dept)
+      : dept.quarters?.[periodKey];
+  return ['planCount', 'factCount', 'planTotal', 'factTotal']
+    .some(field => typeof source?.[field] === 'number' &&
+      Number.isFinite(source[field]) && source[field] !== 0);
+}
+
 /**
  * Missing byMethod in an older persisted snapshot is UNVERIFIED coverage, not
  * evidence that there are no EP procurements. Do not infer method from total.
@@ -69,17 +85,41 @@ export function selectActivityMethods(depts: any[], opts: {
     for (const pk of periodKeys) {
       const period = byActivity[pk];
       if (!period) {
-        // A selected period may simply have no data; only a subordinate
-        // projection without provenance is explicitly unverified.
+        // A populated source period with no activity partition is NOT a clean
+        // zero. Empty time periods remain legitimate and keep their zero.
+        if (hasSourceRowsForPeriod(d, pk)) complete = false;
         continue;
+      }
+      // A period can contain one perfectly valid group while entire other
+      // activities disappeared. Compare coverage BEFORE applying the UI filter.
+      const month = /^m(1[0-2]|[1-9])$/.exec(pk);
+      const source = month ? d.months?.[Number(month[1])]
+        : pk === 'year' ? (d.quarters?.year ?? d)
+        : d.quarters?.[pk];
+      if (typeof source?.planCount === 'number' && Number.isFinite(source.planCount)) {
+        const classified = ALL_ACTIVITY_KEYS.reduce(
+          (sum, key) => sum + (period[key]?.planCount ?? 0), 0);
+        if (classified !== source.planCount) complete = false;
       }
       for (const ak of actKeys) {
         const activity = period[ak] as ActivityValue | undefined;
         if (!activity) continue;
+        const populated = (activity.planCount ?? 0) !== 0 ||
+          (activity.factCount ?? 0) !== 0 || (activity.planTotal ?? 0) !== 0 ||
+          (activity.factTotal ?? 0) !== 0;
         if (!activity.byMethod) {
-          if ((activity.planCount ?? 0) !== 0 || (activity.factCount ?? 0) !== 0) complete = false;
+          if (populated) complete = false;
           continue;
         }
+        if (populated && (!activity.byMethod.competitive || !activity.byMethod.ep)) complete = false;
+        // The two method counts must reconcile to the activity count.
+        // A truncated read with both method keys present is still incomplete.
+        const methodPlan = (activity.byMethod.competitive?.plan ?? 0) +
+          (activity.byMethod.ep?.plan ?? 0);
+        const methodFact = (activity.byMethod.competitive?.fact ?? 0) +
+          (activity.byMethod.ep?.fact ?? 0);
+        if (typeof activity.planCount === 'number' && activity.planCount !== methodPlan) complete = false;
+        if (typeof activity.factCount === 'number' && activity.factCount !== methodFact) complete = false;
         if (showKP && activity.byMethod.competitive) {
           entries.push({ method: 'competitive', value: activity.byMethod.competitive });
         }
@@ -125,6 +165,28 @@ export function recalcTotalsByActivity(depts: any[], opts: {
     if (method === 'competitive') totalKP += value.plan;
     else totalEP += value.plan;
   }
+
+  // Legacy snapshots may contain correct activity-level money but no
+  // activity×method provenance. Preserve their *known total* when neither
+  // method is filtered out; never invent the missing KP/EP distribution.
+  // Existing independent whole-versus-parts checks must remain meaningful.
+  if ((opts.showKP ?? true) && (opts.showEP ?? true)) {
+    for (const d of depts) {
+      for (const pk of opts.periodKeys) {
+        const period = d.byActivity?.[pk];
+        if (!period) continue;
+        for (const ak of opts.actKeys) {
+          const activity = period[ak];
+          if (!activity || activity.byMethod) continue;
+          const money = opts.budgetPlanFact(activity);
+          totalPlan += money.plan;
+          totalFact += money.fact;
+          planCount += activity.planCount ?? 0;
+          factCount += activity.factCount ?? 0;
+        }
+      }
+    }
+  }
   return { totalPlan, totalFact, totalKP, totalEP, planCount, factCount, complete: selected.complete };
 }
 
@@ -151,13 +213,17 @@ export function mergeSubordinateActivityPeriods(subordinates: any[]): Record<str
       }
       aggregated.execCountPct = aggregated.planCount > 0
         ? aggregated.factCount / aggregated.planCount : null;
-      aggregated.byMethod = {};
+      // If a contributing subordinate lacks method provenance, the merged
+      // group is unverified, not zero EP/KP. The caller preserves known
+      // combined money but refuses to invent the split.
+      const methodComplete = contributors.every(a => Boolean(a.byMethod?.competitive && a.byMethod?.ep));
+      if (methodComplete) aggregated.byMethod = {};
       for (const method of ['competitive', 'ep'] as const) {
         const metric: Record<string, number> = {};
         for (const field of amountFields) {
           metric[field] = contributors.reduce((sum, a) => sum + (a.byMethod?.[method]?.[field] ?? 0), 0);
         }
-        aggregated.byMethod[method] = metric;
+        if (methodComplete) aggregated.byMethod[method] = metric;
       }
       target[activity] = aggregated;
     }

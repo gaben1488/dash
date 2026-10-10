@@ -17,8 +17,8 @@ import {
   normalizeMethod,
   PROCUREMENT_METHODS,
   classifyActivity,
-  dayNumberOf,
   factCountsOn,
+  dayNumberOf,
   toNumber,
   type ProcurementMethodCode,
 } from '@aemr/shared';
@@ -308,13 +308,16 @@ function defaultQuarterExtractor(row: RawRow): string | null {
 
 function defaultMonthExtractor(row: RawRow): number | null {
   const raw = row[COL.PLAN_DATE];
-  // Preserve the source calendar date independently of the server timezone.
-  // The shared parser rejects impossible dates and floors fractional serials.
-  const dateValue = typeof raw === 'string'
-    ? raw.trim().replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, '$1.$2.$3')
+  // Historical DD/MM/YYYY strings are allowed only as complete real calendar
+  // dates. All eight currently configured GRBS books predominantly return
+  // numeric Google serials in N; never use local getMonth() for those dates.
+  const value = typeof raw === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw.trim())
+    ? raw.trim().replace(/\//g, '.')
     : raw;
-  const day = dayNumberOf(dateValue);
-  return day === null ? null : new Date(day * 86400000).getUTCMonth() + 1;
+  const day = dayNumberOf(value);
+  if (day === null) return null;
+  // The shared calendar day is invariant under the Node/server timezone.
+  return new Date(day * 86400000).getUTCMonth() + 1;
 }
 
 function defaultMethodExtractor(row: RawRow): MethodGroup {
