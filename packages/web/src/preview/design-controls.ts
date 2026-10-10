@@ -1,4 +1,4 @@
-import palettes from './palettes.json';
+import palettes from '../components/source-drum/palettes.json';
 import { useStore } from '../store';
 
 /* QA-only toolbar: use the real router and actual visible DOM controls. */
