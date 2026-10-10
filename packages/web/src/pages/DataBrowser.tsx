@@ -544,7 +544,9 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
 
   const handleEditorSaveRow = useCallback(async (rowId: string, data: Record<string, unknown>) => {
     const original = editorOriginals[rowId];
-    if (!original) return;
+    if (!original) {
+      throw new Error('Исходная запись не найдена. Обновите реестр: правка не сохранена.');
+    }
 
     // Поле редактора → колонка листа. Итоги (план/факт) не пишутся: их считает
     // формула книги, запись затёрла бы её значением.
