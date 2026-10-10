@@ -18,6 +18,7 @@ import {
   PROCUREMENT_METHODS,
   classifyActivity,
   factCountsOn,
+  dayNumberOf,
   toNumber,
   type ProcurementMethodCode,
 } from '@aemr/shared';
@@ -306,28 +307,17 @@ function defaultQuarterExtractor(row: RawRow): string | null {
 }
 
 function defaultMonthExtractor(row: RawRow): number | null {
-  const dateStr = String(row[COL.PLAN_DATE] ?? '').trim();
-  if (!dateStr) return null;
-  // DD.MM.YYYY or DD/MM/YYYY
-  const dotMatch = dateStr.match(/\d{1,2}[./](\d{1,2})[./]\d{2,4}/);
-  if (dotMatch) {
-    const m = parseInt(dotMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // ISO: YYYY-MM-DD
-  const isoMatch = dateStr.match(/\d{4}-(\d{2})-\d{2}/);
-  if (isoMatch) {
-    const m = parseInt(isoMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // Excel serial date
-  const n = parseFloat(dateStr);
-  if (!isNaN(n) && n > 40000 && n < 60000) {
-    const date = new Date((n - 25569) * 86400000);
-    const m = date.getMonth() + 1;
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  return null;
+  const raw = row[COL.PLAN_DATE];
+  // Historical DD/MM/YYYY strings are allowed only as complete real calendar
+  // dates. All eight currently configured GRBS books predominantly return
+  // numeric Google serials in N; never use local getMonth() for those dates.
+  const value = typeof raw === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw.trim())
+    ? raw.trim().replace(/\//g, '.')
+    : raw;
+  const day = dayNumberOf(value);
+  if (day === null) return null;
+  // The shared calendar day is invariant under the Node/server timezone.
+  return new Date(day * 86400000).getUTCMonth() + 1;
 }
 
 function defaultMethodExtractor(row: RawRow): MethodGroup {
