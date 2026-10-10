@@ -7,7 +7,9 @@ const header=rd(base+'components/Header.tsx'), app=rd(base+'App.tsx');
 const org=rd(base+'components/OrgStrip.tsx'),report=rd(base+'pages/Report.tsx');
 const quality=rd(base+'pages/Quality.tsx'),settings=rd(base+'pages/Settings.tsx');
 const monitoring=rd(base+'lib/monitoring/modes.ts'),data=rd(base+'pages/DataBrowser.tsx');
-const palette=JSON.parse(rd(base+'preview/palettes.json'));
+const palette=JSON.parse(rd(base+'components/source-drum/palettes.json'));
+const sourceNav=rd(base+'components/source-drum/SourceNavigation.tsx');
+const drumMarkup=rd(base+'components/source-drum/navigation.html');
 const entry=rd(base+'preview/entry.ts'),mock=rd(base+'preview/synthetic-api.ts');
 const overrides=rd(base+'preview/theme.css');
 
@@ -16,11 +18,18 @@ test('preview boots production main and preserves actual pages',()=>{
  for(const component of ['ReportPage','MonitoringPage','QualityPage','OrgStrip'])
    assert.ok(app.includes('<'+component),component);
  assert.match(entry,/installSyntheticApi\(\)/);
+ assert.ok(header.includes('<SourceNavigation'), 'source cylinder is absent from Header');
+ assert.ok(!header.includes('<NavPills activePage='), 'legacy compact pills still in live Header');
+ assert.match(sourceNav,/input\[name="razdel"\]/);
+ assert.match(sourceNav,/ArrowDown/);
+ assert.match(sourceNav,/ResizeObserver/);
 });
 test('all 13 production navigation routes have original source palette pairs',()=>{
  const nav=header.split('export const NAV_ITEMS')[1]?.split('];')[0];
  assert.ok(nav);
  const labels=[...nav.matchAll(/id:\s*'[^']+',\s*label:\s*'([^']+)'/g)].map(m=>m[1]);
+ const physicalTabs=(drumMarkup.match(/<input type="radio" name="razdel"/g)??[]).length;
+ assert.equal(physicalTabs,13);
  assert.equal(labels.length,13);
  assert.equal(new Set(labels).size,13);
  assert.deepEqual(palette.map(p=>p.name),['Космос','Камчатка','Минералы']);
