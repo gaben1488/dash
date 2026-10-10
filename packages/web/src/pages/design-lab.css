@@ -442,3 +442,5 @@
   .dl-original-viewport { padding:6px; }
   .dl-original-toolbar fieldset { width:100%; }
 }
+
+.dl-original-code { margin:0; max-height:750px; overflow:auto; padding:18px; color:var(--lab-text); background:var(--lab-card); font-family:ui-monospace,Consolas,monospace; font-size:11px; line-height:1.6; white-space:pre; tab-size:2; }
