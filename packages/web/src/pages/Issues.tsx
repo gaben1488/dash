@@ -687,6 +687,12 @@ export function IssuesPage() {
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
             Одно дело — одна проверяемая причина и исходные доказательства
           </span>
+          {(hasLocalFilter || trustFilterOn) && (
+            <p className="w-full text-[11px] text-zinc-500 dark:text-zinc-400">
+              Отбор показывает подходящие вопросы целиком: внутри сохранены все связанные замечания
+              и их решения, даже если отдельные записи не соответствуют выбранному статусу.
+            </p>
+          )}
         </div>
         {actionableCases.length > 0 && (
           <div className="mt-3 space-y-2">
