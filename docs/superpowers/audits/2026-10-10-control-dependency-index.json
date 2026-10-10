@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 17,
+  "scannedPaths": 25,
   "errors": [],
   "records": [
     {
@@ -159,6 +159,93 @@
       "path": "packages/core/src/analytics/workload.ts",
       "sha": "b1cdeb68498a8b356e1de32ad0ee7deaf3df0891",
       "loc": 150,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/economic.ts",
+      "sha": "6a3064a7e6001508afb8c41cc92ecc84a673fa09",
+      "loc": 735,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/index.ts",
+      "sha": "0abdff4929be91e9060d332c87e1dc166ce2fe05",
+      "loc": 4,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/kb-uplift.ts",
+      "sha": "07740f5e17083587e36948b4745f28336a0f43ed",
+      "loc": 1133,
+      "refs": {
+        "scores": {
+          "count": 4,
+          "lines": [
+            91,
+            106,
+            144,
+            157
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/metrics/quarter-execution.ts",
+      "sha": "9978530b5fc584b9b4e1ae35d62b507e6e7735bc",
+      "loc": 113,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/registry.ts",
+      "sha": "5f533308928d3c27014bc2ed6bdb35fbfdd2f9db",
+      "loc": 1265,
+      "refs": {
+        "issues": {
+          "count": 4,
+          "lines": [
+            695,
+            871,
+            889,
+            898
+          ]
+        },
+        "signals": {
+          "count": 8,
+          "lines": [
+            1094,
+            1108,
+            1123,
+            1156,
+            1169,
+            1183,
+            1197,
+            1211
+          ]
+        },
+        "scores": {
+          "count": 1,
+          "lines": [
+            610
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/metrics/types.ts",
+      "sha": "b71bcdd43d0d659682454aedf36aa9f312b215fc",
+      "loc": 98,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/analytics.ts",
+      "sha": "34a6a52f11c4b1e9046b7e18d6ba819a35a3b0e4",
+      "loc": 1050,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/cells.ts",
+      "sha": "95e7a6ffbb95b7b90a2531f786a80d25a4965e3c",
+      "loc": 171,
       "refs": {}
     }
   ]
