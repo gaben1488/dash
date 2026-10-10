@@ -188,11 +188,6 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       for (const dept of DEPARTMENTS) {
         const rows = deptCache[dept.nameShort];
         if (!rows || rows.length === 0) continue;
-        // Empty Google grid / formula-tail rows are not procurement work.
-        // Apply the same classifier as CalcEngine, not the physical sheet length.
-        // Scope matches unfiltered, all-year book issues; Q1-specific scores
-        // remain a separate, explicitly labeled, legacy methodology.
-        const substantiveRowCount = countAssessedBookRows(rows.slice(DEPT_HEADER_ROWS));
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
@@ -238,6 +233,9 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
       for (const profile of profiles) {
         const rows = deptCache[profile.grbsShort] ?? [];
+        // Same substantive-row classifier as CalcEngine: padded formula
+        // tails are not part of the quality-score denominator.
+        const substantiveRowCount = countAssessedBookRows(rows.slice(DEPT_HEADER_ROWS));
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
