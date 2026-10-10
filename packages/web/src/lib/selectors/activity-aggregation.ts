@@ -21,6 +21,8 @@ export interface MethodActivityValue {
 interface ActivityValue {
   planCount?: number;
   factCount?: number;
+  planTotal?: number;
+  factTotal?: number;
   byMethod?: Partial<Record<ProcurementGroup, MethodActivityValue>>;
 }
 
@@ -76,10 +78,14 @@ export function selectActivityMethods(depts: any[], opts: {
       for (const ak of actKeys) {
         const activity = period[ak] as ActivityValue | undefined;
         if (!activity) continue;
+        const populated = (activity.planCount ?? 0) !== 0 ||
+          (activity.factCount ?? 0) !== 0 || (activity.planTotal ?? 0) !== 0 ||
+          (activity.factTotal ?? 0) !== 0;
         if (!activity.byMethod) {
-          if ((activity.planCount ?? 0) !== 0 || (activity.factCount ?? 0) !== 0) complete = false;
+          if (populated) complete = false;
           continue;
         }
+        if (populated && (!activity.byMethod.competitive || !activity.byMethod.ep)) complete = false;
         if (showKP && activity.byMethod.competitive) {
           entries.push({ method: 'competitive', value: activity.byMethod.competitive });
         }
@@ -173,13 +179,17 @@ export function mergeSubordinateActivityPeriods(subordinates: any[]): Record<str
       }
       aggregated.execCountPct = aggregated.planCount > 0
         ? aggregated.factCount / aggregated.planCount : null;
-      aggregated.byMethod = {};
+      // If a contributing subordinate lacks method provenance, the merged
+      // group is unverified, not zero EP/KP. The caller preserves known
+      // combined money but refuses to invent the split.
+      const methodComplete = contributors.every(a => Boolean(a.byMethod?.competitive && a.byMethod?.ep));
+      if (methodComplete) aggregated.byMethod = {};
       for (const method of ['competitive', 'ep'] as const) {
         const metric: Record<string, number> = {};
         for (const field of amountFields) {
           metric[field] = contributors.reduce((sum, a) => sum + (a.byMethod?.[method]?.[field] ?? 0), 0);
         }
-        aggregated.byMethod[method] = metric;
+        if (methodComplete) aggregated.byMethod[method] = metric;
       }
       target[activity] = aggregated;
     }
