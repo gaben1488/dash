@@ -11,7 +11,9 @@ import {
   isMetaRow,
   isOrgItself,
 } from '@aemr/shared';
-import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
+import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow } from '../services/google-sheets.js';
+import { rowRevision } from '../services/row-revision.js';
+import { withRowWriteLock } from '../services/row-write-lock.js';
 import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
@@ -305,7 +307,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const body = request.body as { field?: string; value?: unknown } | null;
+    const body = request.body as { field?: string; value?: unknown; expectedRevision?: string } | null;
     const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
     if (!body || typeof body.field !== 'string' || !body.field.trim() || body.value === undefined) {
@@ -390,6 +392,38 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     const cellAddress = `${field}${idx}`;
     const now = new Date().toISOString();
+    const expectedRevision = body.expectedRevision;
+    if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
+        process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
+      return reply.status(409).send({ error: 'Обновите реестр: для безопасной правки нужна версия исходной строки' });
+    }
+    return withRowWriteLock(`${spreadsheetId}:${sheetName}:${idx}`, async () => {
+      let originalRow: unknown[];
+      try {
+        originalRow = expectedRevision
+          ? await readCurrentDeptRow(spreadsheetId, sheetName, idx)
+          : (getDeptSheetValues()[dept.nameShort]?.[idx - 1] ?? []);
+      } catch (readErr) {
+        app.log.warn({ err: readErr }, 'field-update: source preflight failed');
+        return reply.status(503).send({ error: 'Исходная строка не прочитана — правка не выполнялась' });
+      }
+      if (expectedRevision && rowRevision(originalRow) !== expectedRevision) {
+        return reply.status(409).send({ error: 'Строка изменилась или переместилась. Обновите реестр; правка не выполнена.' });
+      }
+      const previousValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+      try {
+        db.insert(schema.auditLog).values({
+          action: 'cell_edit_intent', entity: 'row',
+          entityId: `${deptId}:${idx}:${field}`,
+          departmentId: deptId, rowIndex: idx, field,
+          oldValue: String(previousValue ?? ''), newValue: String(normalizedValue ?? ''),
+          details: JSON.stringify({ expectedRevision: expectedRevision ?? null }),
+          timestamp: now,
+        }).run();
+      } catch (auditErr) {
+        app.log.error({ err: auditErr }, 'field-update: audit intent unavailable');
+        return reply.status(503).send({ error: 'Журнал изменений недоступен — запись в книгу не выполнялась' });
+      }
 
     try {
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
@@ -403,18 +437,26 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           action: 'cell_edit',
           entity: 'row',
           entityId: `${deptId}:${idx}:${field}`,
+          departmentId: deptId,
+          rowIndex: idx, field,
+          oldValue: String(previousValue ?? ''), newValue: String(normalizedValue ?? ''),
           details: JSON.stringify({
             department: deptId,
             row: idx,
             field,
-            oldValue: null, // Would need pre-read for old value
+            oldValue: previousValue,
             newValue: normalizedValue,
             sheetRange: result.updatedRange,
           }),
           timestamp: now,
         }).run();
       } catch (logErr) {
-        app.log.warn({ logErr }, 'field-update: failed to write audit log');
+        app.log.error({ err: logErr }, 'field-update: source saved but confirmation audit failed');
+        return reply.status(503).send({
+          error: 'Значение записано в Google Таблицу, но журнал не подтвердил операцию',
+          savedToSource: true,
+          action: 'refresh_and_reconcile',
+        });
       }
 
       return reply.send({
@@ -436,7 +478,6 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({
           error: `Нет прав на запись в книгу управления «${dept.nameShort}»`,
           reason: 'Учётной записи сервиса выдан доступ только на чтение. Откройте доступ на редактирование книги и повторите правку',
-          details: err.message,
         });
       }
 
@@ -445,9 +486,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send({
         error: `Не удалось сохранить значение в ячейку ${cellAddress}`,
         reason: 'Google Таблицы не приняли правку. Повторите через минуту; если повторяется — проверьте доступ к книге',
-        details: err.message ?? String(err),
       });
     }
+    });
   });
 
   /**

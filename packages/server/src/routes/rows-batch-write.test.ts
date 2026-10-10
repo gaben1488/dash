@@ -20,6 +20,7 @@ process.env.NODE_ENV = 'test';
 process.env.AEMR_API_KEY = '';
 process.env.SQLITE_PATH = ':memory:';
 process.env.LOG_LEVEL = 'silent';
+process.env.AEMR_ALLOW_LEGACY_WRITES = 'true';
 process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
 process.env.GOOGLE_PRIVATE_KEY = '';
 process.env.GOOGLE_API_KEY = '';

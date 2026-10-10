@@ -19,6 +19,7 @@ process.env.NODE_ENV = 'test';
 process.env.AEMR_API_KEY = '';
 process.env.SQLITE_PATH = ':memory:';
 process.env.LOG_LEVEL = 'silent';
+process.env.AEMR_ALLOW_LEGACY_WRITES = 'true';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1 }));
 
