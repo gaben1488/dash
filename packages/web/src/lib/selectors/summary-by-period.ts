@@ -23,11 +23,13 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     let kpCount = 0, kpFactCount = 0, kpPlan = 0, kpFact = 0;
     let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
     let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
+    let coverageComplete = true;
 
     if (isActivityFiltered) {
       const selected = selectActivityMethods(depts, {
         actKeys, periodKeys: [pk], showKP, showEP,
       });
+      coverageComplete = selected.complete;
       for (const { method, value } of selected.entries) {
         const money = methodPlanFact(value, budgetPlanFact);
         if (method === 'competitive') {
@@ -48,7 +50,7 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
         kbFact += value.factKB ?? 0;
         mbFact += value.factMB ?? 0;
       }
-        } else {
+    } else {
       for (const d of depts) {
         const q = d.quarters?.[pk];
         if (!q) continue;
@@ -83,7 +85,7 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
       epCount, epFactCount, epPlan, epFact,
       epPercent: epCount > 0 ? epFactCount / epCount : 0,
       fbPlan, kbPlan, mbPlan, fbFact, kbFact, mbFact,
-      source: 'filtered',
+      source: coverageComplete ? 'filtered' : 'unverified_activity_method',
     };
   }
   return filteredSummary;
