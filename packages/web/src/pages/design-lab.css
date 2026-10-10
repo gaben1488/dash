@@ -401,3 +401,10 @@
 .dash-design-preview[data-motion="off"] .dl-nav-chip[aria-pressed="true"]::before {
   animation: none !important; will-change: auto;
 }
+
+
+/* Row evidence is separated by meaning: source cell, formula, cell note, discussion. */
+.dl-source-evidence { margin: 10px 0; display: grid; gap: 8px; }
+.dl-source-evidence div { padding: 6px 0; border-bottom: 1px solid var(--dl-line); }
+.dl-source-evidence dt { font-size: 10px; color: var(--dl-muted); font-weight: 650; }
+.dl-source-evidence dd { margin: 3px 0 0; font-size: 11px; line-height: 1.45; color: var(--dl-ink); overflow-wrap: anywhere; }
