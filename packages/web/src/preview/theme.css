@@ -36,33 +36,34 @@
  --ink:#514437;--ink-muted:#76695b;--ink-faint:#998a7d;
  --line-soft:#e8dfd3;--line-strong:#d8caba;--line-card:#e1d3c2;
 }
-:root:not([data-preview-family='original']) .np-btn-active .np-content {
- background:linear-gradient(165deg,var(--np-color),var(--np-color-light))!important;
- color:var(--qa-ink,#fff)!important;
- box-shadow:inset 0 1px 0 #ffffff23,inset 0 -2px 0 #00000030,
-   0 2px 10px color-mix(in srgb,var(--np-color) 32%,transparent);
+/* Source-consolidated material recipes, applied to actual source cylinder,
+   NEVER to production data tables or document content. */
+:root:not([data-preview-family='original']) .dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  color:var(--z-ink,#fff)!important;
+  background:linear-gradient(165deg,var(--z-top),var(--z-bottom))!important;
+  box-shadow:inset 0 1px 0 #ffffff25,inset 0 -1px 0 #0003,0 3px 10px color-mix(in srgb,var(--z-top) 27%,transparent);
 }
-:root:not([data-preview-family='original']) .np-btn-active .np-content svg {color:inherit!important;}
-:root:not([data-preview-family='original'])[data-preview-finish='metal'] .np-btn-active .np-content {
- background:linear-gradient(170deg,var(--np-color),var(--np-color-light) 40%,var(--np-color) 49%,var(--np-color-light))!important;
+:root[data-preview-finish='metal'] .dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  background:linear-gradient(167deg,var(--z-top),var(--z-bottom) 42%,var(--z-top) 48%,var(--z-bottom) 58%,var(--z-top))!important;
 }
-:root:not([data-preview-family='original'])[data-preview-finish='matte'] .np-btn-active .np-content {box-shadow:none;}
-:root:not([data-preview-family='original'])[data-preview-finish='pearl'] .np-btn-active .np-content {
- background:radial-gradient(ellipse at 20% 0%,#ffffff48,transparent 70%),linear-gradient(160deg,var(--np-color),var(--np-color-light))!important;
+:root[data-preview-finish='pearl'] .dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  background:radial-gradient(ellipse at 20% 0%,#fff4,transparent 70%),linear-gradient(165deg,var(--z-top),var(--z-bottom))!important;
 }
-:root:not([data-preview-family='original'])[data-preview-finish='glass'] .np-btn-active .np-content {
- box-shadow:inset 0 1px 1px #fff5,inset 0 -2px 2px #0003,0 3px 13px #0004;
+:root[data-preview-finish='xirallic'] .dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  background:radial-gradient(circle at 20% 18%,#fff9 0 1px,transparent 1.5px),
+    radial-gradient(circle at 80% 75%,#fff7 0 1px,transparent 1.5px),
+    linear-gradient(165deg,var(--z-top),var(--z-bottom))!important;
 }
-:root:not([data-preview-family='original'])[data-preview-finish='xirallic'] .np-btn-active .np-content {
- background:radial-gradient(circle at 20% 18%,#fff8 0 1px,transparent 1.5px),
- radial-gradient(circle at 80% 75%,#fff8 0 1px,transparent 1.5px),
- linear-gradient(165deg,var(--np-color),var(--np-color-light))!important;
+:root[data-preview-finish='matte'] .dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  box-shadow:none!important;background:linear-gradient(170deg,var(--z-top),var(--z-bottom))!important;
 }
-:root:not([data-preview-family='original']) .np-glow {
- background:conic-gradient(from var(--np-angle,0deg),var(--np-color),transparent 13%,var(--np-color-light) 32%,transparent 55%,var(--np-color));
+:root[data-preview-finish='glass'] .dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  box-shadow:inset 0 1px 1px #fff5,inset 0 -2px 2px #0004,0 3px 12px #0003!important;
 }
 :root:not([data-preview-family='original']) #main-content :focus-visible {outline-color:var(--qa-current-top,#94b8e5);}
-@media(prefers-reduced-motion:reduce){:root:not([data-preview-family='original']) .np-glow{animation:none!important;}}
+@media(prefers-reduced-motion:reduce){
+  .dash-source-navigation .navig-lenta,.dash-source-navigation .vkladki-stroka {transition:none!important;}
+}
 
 /* Floating QA control: it is not a replacement navigation bar. */
 #dash-qa.dash-qa {
