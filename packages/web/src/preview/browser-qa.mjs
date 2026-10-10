@@ -142,6 +142,30 @@ try{
     localScroller:localTableScroller??null,nodes,ancestry};
  });
  report.mobile=widths;
+ if(widths.viewportScrolled>2){
+   report.mobileExperiments=await mobile.evaluate(()=>{
+     const trialRules=[
+       '#main-content .overflow-x-auto:has(>table){contain:paint!important;}',
+       '#main-content section:has(.overflow-x-auto > table){contain:paint!important;}',
+       '#main-content{contain:paint!important;}',
+       '#root{contain:paint!important;}',
+       '.flex.flex-1.overflow-hidden{contain:paint!important;}',
+       'body{contain:paint!important;}',
+       'html{overflow-x:clip!important;}',
+       'body{overflow-x:clip!important;}',
+     ];
+     const out=[];
+     for(const css of trialRules){
+       const node=document.createElement('style');node.textContent=css;document.head.append(node);
+       window.scrollTo(9999,0);
+       out.push({css,scrollWidth:document.documentElement.scrollWidth,viewportScrolled:window.scrollX,
+         body:document.body.scrollWidth});
+       window.scrollTo(0,0);node.remove();
+     }
+     return out;
+   });
+   console.log('MOBILE_CLIP_EXPERIMENTS '+JSON.stringify(report.mobileExperiments));
+ }
  if(widths.viewportScrolled>2 || widths.bodyScroll>widths.client+2){
    fail('Mobile viewport actually scrolls sideways: '+JSON.stringify(widths));
  }
