@@ -60,7 +60,7 @@ test('read-only fixture blocks writes and never goes to external APIs',()=>{
 });
 test('CSS changes tokens not OrgStrip, report or table layout',()=>{
  assert.match(overrides,/--surface-page:/);
- assert.match(overrides,/\.np-btn-active \.np-content/);
+ assert.match(overrides,/\.dash-source-navigation \.vkladka:has\(input:checked\)/);
  assert.ok(!/\.ob-strip\s*\{/.test(overrides));
  assert.ok(!/\.(report-layout|report-paper|work-layout|registry-table)\s*\{/.test(overrides));
 });
