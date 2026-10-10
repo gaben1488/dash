@@ -1,4 +1,5 @@
 import { SourceHeader, SourceOrganizations } from './SourceHeader.jsx';
+import { hashForPage, pageFromHash } from './ui-parity.mjs';
 import React, { useEffect, useRef, useState, useReducer } from 'react';
 import {
   ShieldCheck,
@@ -120,7 +121,7 @@ function Modal({ title, onClose, children }) {
   );
 }
 export function App() {
-  const [page, setPage] = useState('data'),
+  const [page, setPage] = useState(() => pageFromHash(window.location.hash)),
     [group, setGroup] = useState(1),
     [dark, setDark] = useState(true),
     [selected, setSelected] = useState(null),
@@ -153,6 +154,22 @@ export function App() {
   const pair = palette.tabs.find(t=>t.name===current[1]);
   const accent = { '--planet-top': pair.top, '--planet-bottom': pair.bottom, '--planet-ink': pair.ink };
   const restore = () => dispatchFilterSession({ type: 'restore' });
+  // The QA parity map can deep-link into existing demo pages, without touching its layout.
+  useEffect(() => {
+    const sync = () => {
+      const next = pageFromHash(window.location.hash);
+      setPage(next);
+      setGroup(GROUPS.findIndex(g => g.ids.includes(next)));
+      setSelected(null);
+      setPopup(null);
+    };
+    window.addEventListener('popstate', sync);
+    window.addEventListener('hashchange', sync);
+    return () => {
+      window.removeEventListener('popstate', sync);
+      window.removeEventListener('hashchange', sync);
+    };
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.classList.toggle('tma', dark);
@@ -190,6 +207,7 @@ export function App() {
     }));
   };
   const go = (id) => {
+    if (window.location.hash !== hashForPage(id)) window.history.pushState({}, '', hashForPage(id));
     setPage(id);
     setSelected(null);
     setPopup(null);
