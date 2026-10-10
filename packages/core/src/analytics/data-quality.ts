@@ -12,7 +12,7 @@ import { CHECK_REGISTRY, TRUST_COMPONENT_CONFIG } from '@aemr/shared';
 import type { Issue } from '@aemr/shared';
 import { standardRowFilter, type RawRow } from '../pipeline/calc-engine.js';
 
-type QualityIssue = Pick<Issue, 'departmentId' | 'checkId' | 'group' | 'category' | 'origin' | 'row'>;
+type QualityIssue = Pick<Issue, 'departmentId' | 'checkId' | 'group' | 'category' | 'origin' | 'row' | 'status'>;
 
 /**
  * Count exactly the rows considered substantive by the current calculation
@@ -77,6 +77,10 @@ export function dataQualityScore(
   const affected = new Set<number>();
   for (const issue of issues) {
     if (issue.departmentId !== grbsId && issue.departmentId !== grbsShort) continue;
+    // A documented reviewer decision that the alarm was false is not a data
+    // defect. Conversely, 'resolved' alone does not prove that the source
+    // re-read cleared the original condition; it requires independent replay.
+    if (issue.status === 'false_positive') continue;
     if (!isQualityFinding(issue)) continue;
     // Sheet-level finding: one affected unit, never all its rows by fiat.
     affected.add(issue.row ?? -1);
