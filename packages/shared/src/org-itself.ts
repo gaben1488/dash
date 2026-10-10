@@ -40,8 +40,12 @@ export function subordinateKey(c: unknown): string {
  * и не из нового ID в рабочих планах. Исторические имена не теряются.
  */
 function normalizeSubordinateSpelling(raw: unknown): string {
-  const key = normalizeSubordinateSpelling(raw);
-  return HISTORIC_SUBORDINATE_NAMES.get(key) ?? key;
+  return String(raw).trim().toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е')
+    .replace(/[«»„“”"]/g, '"')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*№\s*/g, '№')
+    .replace(/\s*\.\s*/g, '.');
 }
 
 const HISTORIC_SUBORDINATE_NAMES = new Map<string, string>();
@@ -62,10 +66,6 @@ for (const entry of SUBORDINATE_REGISTRY) {
  */
 export function subordinateNameMatchKey(raw: unknown): string {
   if (raw === ORG_ITSELF_SENTINEL || isOrgItself(raw)) return ORG_ITSELF_SENTINEL;
-  return String(raw).trim().toLocaleLowerCase('ru-RU')
-    .replace(/ё/g, 'е')
-    .replace(/[«»„“”"]/g, '"')
-    .replace(/\s+/g, ' ')
-    .replace(/\s*№\s*/g, '№')
-    .replace(/\s*\.\s*/g, '.');
+  const key = normalizeSubordinateSpelling(raw);
+  return HISTORIC_SUBORDINATE_NAMES.get(key) ?? key;
 }
