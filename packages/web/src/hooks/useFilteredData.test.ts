@@ -88,3 +88,52 @@ describe('computeFilteredData — тренд KPI', () => {
     expect(result.topKpis.find(k => k.metricKey === 'competitive.q2.percent')?.trend).toBe('stable');
   });
 });
+
+describe('computeFilteredData — exact procurement method across linked metrics', () => {
+  it('method only EP with federal budget uses identical money in headline, bar and quarter', () => {
+    const input = makeInputs('q1', []);
+    const method = (
+      plan: number, fact: number, planSum: number, factSum: number,
+      planFB: number, factFB: number,
+    ) => ({
+      plan, fact, planSum, factSum, planFB, factFB,
+      planKB: planSum - planFB, factKB: factSum - factFB,
+      planMB: 0, factMB: 0,
+    });
+    input.dashboardData.departmentSummaries = [{
+      department: { id: 'uo', nameShort: 'УО' },
+      planTotal: 140, factTotal: 70, competitiveCount: 2, soleCount: 1,
+      quarters: { q1: {
+        planCount: 3, factCount: 2,
+        planTotal: 140, factTotal: 70,
+        kpCount: 2, epCount: 1,
+        kpPlanTotal: 100, kpFactTotal: 50,
+        epPlanTotal: 40, epFactTotal: 20,
+        planFB: 90, factFB: 45, planKB: 50, factKB: 25,
+      } },
+      byActivity: { q1: { program: {
+        planCount: 3, factCount: 2,
+        byMethod: {
+          competitive: method(2, 1, 100, 50, 80, 40),
+          ep: method(1, 1, 40, 20, 10, 5),
+        },
+      } } },
+      subordinates: [], issueCount: 0, criticalIssueCount: 0,
+    }];
+    input.selectedMethods = new Set(['single']);
+    input.selectedBudgets = new Set(['fb']);
+    const fd = computeFilteredData(input);
+    expect(fd.activityMethodCoverage).toBe(true);
+    expect(fd.totalPlan).toBe(10);
+    expect(fd.totalFact).toBe(5);
+    expect(fd.totalKP).toBe(0);
+    expect(fd.totalEP).toBe(1);
+    expect(fd.barData[0]).toMatchObject({
+      planTotal: 10, factTotal: 5, kpCount: 0, epCount: 1, pct: 50,
+    });
+    expect(fd.summaryByPeriod.q1).toMatchObject({
+      kpCount: 0, epCount: 1, epPlan: 10, // selected federal budget, not all-method EP plan
+      fbPlan: 10, fbFact: 5, kbPlan: 0, mbPlan: 0,
+    });
+  });
+});

@@ -18,7 +18,8 @@ jobs:
   source-schema:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
+      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
+       github.head_ref == 'codex/dash-audit-integrated-20261010')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -157,7 +158,8 @@ jobs:
   frozen-replay:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace')
+      (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
+       github.head_ref == 'codex/dash-audit-integrated-20261010')
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:

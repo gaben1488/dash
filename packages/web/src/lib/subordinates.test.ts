@@ -3,6 +3,7 @@
  * не должен вытеснять канон — только дополнять его.
  */
 import { describe, expect, it } from 'vitest';
+import { SUBORDINATE_REGISTRY, subordinateNameMatchKey } from '@aemr/shared';
 import { mergeSubordinates } from './subordinates';
 import { SUBORDINATES_FALLBACK } from '../store';
 
@@ -13,6 +14,48 @@ const FALLBACK = {
 };
 
 describe('mergeSubordinates', () => {
+  it('живые нынешние имена имеют приоритет независимо от порядка с историческими', () => {
+    const historical = 'МБУК «Елизовский районный зоопарк»';
+    const current = 'МБУК ЕРЗ';
+    for (const order of [[historical, current], [current, historical]]) {
+      expect(mergeSubordinates({ 'УКСиМП': [current] }, { 'УКСиМП': order })['УКСиМП'])
+        .toEqual([current]);
+    }
+    expect(mergeSubordinates({ 'УКСиМП': [current] }, { 'УКСиМП': [historical] })['УКСиМП'])
+      .toEqual([historical]);
+  });
+
+  it('70 действующих имён и исторические алиасы сохраняют единственный пункт и все суммы строк', () => {
+    const entries = SUBORDINATE_REGISTRY.filter((e) => !e.isOrgItself);
+    expect(entries).toHaveLength(70);
+    const byDept = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const group = byDept.get(entry.grbsId) ?? [];
+      group.push(entry);
+      byDept.set(entry.grbsId, group);
+    }
+    for (const [dept, group] of byDept) {
+      const current = group.map((e) => e.canonicalName);
+      const historical = group.map((e) => e.legacyCanonicalName ?? e.canonicalName);
+      expect(new Set(current).size, dept).toBe(group.length);
+      const union = mergeSubordinates({ [dept]: current }, { [dept]: [...historical, ...current] })[dept];
+      expect(new Set(union), dept).toEqual(new Set(current));
+
+      const byIdentity = new Map<string, number>();
+      let total = 0;
+      for (let i = 0; i < group.length; i++) {
+        for (const spelling of [historical[i], current[i]]) {
+          const amount = i + 1; // каждая запись — отдельная закупка, не дубль
+          total += amount;
+          const key = subordinateNameMatchKey(spelling);
+          byIdentity.set(key, (byIdentity.get(key) ?? 0) + amount);
+        }
+      }
+      expect(byIdentity.size, dept).toBe(group.length);
+      expect([...byIdentity.values()].reduce((a, b) => a + b, 0), dept).toBe(total);
+    }
+  });
+
   it('неполный ответ API не вытесняет канон — объединение, не замена', () => {
     const api = { edu: ['Школа № 2'] }; // книга прочитана частично
     const merged = mergeSubordinates(FALLBACK, api);
@@ -36,6 +79,15 @@ describe('mergeSubordinates', () => {
     expect(FALLBACK.culture).toEqual(['ДК Елизово']);
   });
 
+  it('разные кавычки и пробелы в справочнике и живой книге — одна позиция', () => {
+    const data = mergeSubordinates(
+      { 'УКСиМП': ['МБУ ДО "КДМШ"', 'МБУ ДО "НДШИ"'], 'УО': ['МБОУ «Елизовская средняя школа №3»'] },
+      { 'УКСиМП': ['МБУ ДО «КДМШ»', 'МБУ ДО «НДШИ»'], 'УО': ['МБОУ «Елизовская средняя школа № 3»'] },
+    );
+    expect(data['УКСиМП']).toEqual(['МБУ ДО «КДМШ»', 'МБУ ДО «НДШИ»']);
+    expect(data['УО']).toEqual(['МБОУ «Елизовская средняя школа № 3»']);
+  });
+
   it('п.51: живой список = канон (canonicalName ⇔ колонка C) → без дублей и роста', () => {
     // Страж класса «счётчик подведов завышен» (УКСиМП 23 вместо 22):
     // fallback обязан состоять из canonicalName — дословных значений
@@ -49,5 +101,62 @@ describe('mergeSubordinates', () => {
     );
     expect(merged['УКСиМП']).toHaveLength(uksimp.length); // 21: без роста
     expect(new Set(merged['УКСиМП']).size).toBe(merged['УКСиМП'].length); // без дублей
+  });
+
+  it('миграция R→E: все 5 контуров с подведами читают текущие имена без вторых пунктов', () => {
+    const live: Record<string, string[]> = {
+      'УКСиМП': [
+        'МБУ ДО КДМШ', 'МБУ ДО НДШИ', 'МБУ ДО РДМШ',
+        'МБУ ДО ДШИ п. Термальный', 'МБУ ДО ЕДМШ',
+        'МБУ ДО ЕДХШ', 'МБУК ЕРКМ', 'МБУК ЕРЗ',
+        'МКУ ЦБАХО', 'Совместные закупки (УКСиМП)',
+      ],
+      'УО': [
+        'МАДОУ "Детский сад № 1 "Ласточка"',
+        'МБДОУ "Детский сад № 9 "Звездочка"',
+        'МБДОУ № 36', 'МБОУ "ЕСШ № 3"',
+        'УО (Администрирование)', 'УО (Опека)', 'Совместные закупки (УО)',
+      ],
+      'УАГЗО': ['МКУ "Елизовское РУС"'],
+      'УД': ['МКУ "ЕДДС ЕМР"'],
+      'УЭР': ['МКУ "ЦЭР"'],
+    };
+    for (const [dept, names] of Object.entries(live)) {
+      const fallback = SUBORDINATES_FALLBACK[dept] ?? [];
+      for (const name of names) expect(fallback, `${dept}: ${name}`).toContain(name);
+      const merged = mergeSubordinates({ [dept]: fallback }, { [dept]: names })[dept];
+      expect(merged).toHaveLength(fallback.length);
+    }
+    expect(SUBORDINATES_FALLBACK['УО']).toHaveLength(46);
+    expect(SUBORDINATES_FALLBACK['УКСиМП']).toHaveLength(21);
+  });
+
+  it('историческое имя и текущее R→E равны по явно проверенному алиасу, не по нестрогому сходству', () => {
+    const cases: [string, string, string][] = [
+      ['УО', 'МАДОУ ДС № 1 «Ласточка»', 'МАДОУ "Детский сад № 1 "Ласточка"'],
+      ['УКСиМП', 'МБУ ДО «КДМШ»', 'МБУ ДО КДМШ'],
+      ['УКСиМП', 'МБУК «Елизовский районный зоопарк»', 'МБУК ЕРЗ'],
+      ['УД', 'МКУ «ЕДДС»', 'МКУ "ЕДДС ЕМР"'],
+      ['УАГЗО', 'МКУ «Елизовское РУС»', 'МКУ "Елизовское РУС"'],
+    ];
+    for (const [dept, historical, current] of cases) {
+      const merged = mergeSubordinates(
+        { [dept]: [current] }, { [dept]: [historical, current] },
+      )[dept];
+      expect(merged, dept).toHaveLength(1);
+      expect(merged[0], dept).toBe(current);
+    }
+    // МАДОУ и МБДОУ не эквивалентны — запрещено объединять разные ОПФ.
+    const distinctLegalForms = mergeSubordinates(
+      { 'УО': ['МАДОУ "Детский сад № 1 "Ласточка"'] },
+      { 'УО': ['МБДОУ ДС № 1 «Ласточка»'] },
+    );
+    expect(distinctLegalForms['УО']).toHaveLength(2);
+
+    const distinct = mergeSubordinates(
+      { 'УКСиМП': ['МБУ ДО КДМШ'] },
+      { 'УКСиМП': ['МБУ ДО РДМШ'] },
+    );
+    expect(distinct['УКСиМП']).toHaveLength(2);
   });
 });

@@ -2,7 +2,7 @@
  * grbs-registry.ts — Канонический реестр ГРБС (Главных распорядителей бюджетных средств).
  *
  * Источник истины: AEMR_SOURCE_AUDIT.md §2, СВОД-25-26/ГРБС (75 строк).
- * Восемь канонических ГРБС администрации Елизовского муниципального района
+ * Восемь канонических ГРБС Елизовского муниципального округа
  * Камчатского края (АЕМР КК).
  *
  * Назначение:
@@ -16,6 +16,7 @@
  */
 
 import type { DepartmentId } from '../types.js';
+import { DEPARTMENT_REGISTRY, getDept } from '../department-registry.js';
 
 // ────────────────────────────────────────────────────────────
 // 1. Канонические идентификаторы
@@ -60,7 +61,7 @@ export interface GrbsEntry {
   svodSheetName: string;
   /**
    * Есть ли подведомственные учреждения (отдельные листы в dept-файле).
-   * У УО — 45 подведов, УКСиМП — 20, УД — 1, УЭР — 1, УАГЗО — 1, УДТХ — 0.
+   * У УО — 43 учреждения (+3 категории), УКСиМП — 20 (+1 категория), УД/УЭР/УАГЗО — по 1.
    */
   hasSubordinates: boolean;
   /** Число подведомственных учреждений (из СВОД-25-26/ГРБС) */
@@ -74,16 +75,16 @@ export interface GrbsEntry {
 export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   {
     id: 'УО',
-    fullName: 'Управление образования Администрации Елизовского муниципального района',
+    fullName: getDept('УО').fullName,
     shortName: 'УО',
     svodSheetName: 'УО',
     hasSubordinates: true,
-    subordinateCount: 45,
+    subordinateCount: 43,
     // TODO: заполнить из СВОД/Settings при следующей синхронизации dept-файлов
   },
   {
     id: 'УКСиМП',
-    fullName: 'Управление культуры, спорта и молодёжной политики',
+    fullName: getDept('УКСиМП').fullName,
     shortName: 'УКСиМП',
     svodSheetName: 'УКСиМП',
     hasSubordinates: true,
@@ -91,7 +92,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УАГиЗО',
-    fullName: 'Управление архитектуры, градостроительства и земельных отношений',
+    fullName: getDept('УАГЗО').fullName,
     shortName: 'УАГиЗО',
     svodSheetName: 'УАГЗО',   // без «и» в файле — намеренно
     hasSubordinates: true,
@@ -99,7 +100,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УИО',
-    fullName: 'Управление имущественных отношений',
+    fullName: getDept('УИО').fullName,
     shortName: 'УИО',
     svodSheetName: 'УИО',
     hasSubordinates: false,
@@ -107,7 +108,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УФБП',
-    fullName: 'Управление финансово-бюджетной политики',
+    fullName: getDept('УФБП').fullName,
     shortName: 'УФБП',
     svodSheetName: 'УФБП',
     hasSubordinates: false,
@@ -116,7 +117,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УД',
-    fullName: 'Управление делами',
+    fullName: getDept('УД').fullName,
     shortName: 'УД',
     svodSheetName: 'ВСЕ',     // dept-файл содержит лист «ВСЕ» как агрегатор
     hasSubordinates: true,
@@ -124,7 +125,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УЭР',
-    fullName: 'Управление экономического развития',
+    fullName: getDept('УЭР').fullName,
     shortName: 'УЭР',
     svodSheetName: 'УЭР',
     hasSubordinates: true,
@@ -132,7 +133,7 @@ export const GRBS_REGISTRY: readonly GrbsEntry[] = [
   },
   {
     id: 'УДТХ',
-    fullName: 'Управление дорожно-транспортного хозяйства',
+    fullName: getDept('УДТХ').fullName,
     shortName: 'УДТХ',
     svodSheetName: 'УДТХ',
     hasSubordinates: false,
@@ -167,6 +168,20 @@ export const GRBS_ALIAS_MAP: Record<string, GrbsId> = {
   'УД': 'УД',
   'УЭР': 'УЭР',
   'УДТХ': 'УДТХ',
+
+  // Исторические полные наименования: действующее имя — только в DEPARTMENT_REGISTRY.
+  'Управление архитектуры, градостроительства и земельных отношений': 'УАГиЗО',
+  'Управление дорожно-транспортного хозяйства': 'УДТХ',
+  'Управление имущественных отношений': 'УИО',
+  'Управление культуры, спорта и молодёжной политики': 'УКСиМП',
+  'Управление образования Администрации Елизовского муниципального района': 'УО',
+  'Управление образования': 'УО', // прежняя краткая подпись из исторических процедур
+  'Управление финансово-бюджетной политики': 'УФБП',
+  'Управление экономического развития': 'УЭР',
+
+  // Текущие полные имена производятся от основного реестра ГРБС.
+  ...Object.fromEntries(DEPARTMENT_REGISTRY.map((d) => [d.fullName,
+    d.id === 'УАГЗО' ? 'УАГиЗО' : d.id])),
 
   // Варианты с суффиксом «АЕМР»
   'УО АЕМР': 'УО',
