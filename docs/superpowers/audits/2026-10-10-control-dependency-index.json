@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 93,
+  "scannedPaths": 101,
   "errors": [],
   "records": [
     {
@@ -1221,6 +1221,71 @@
           ]
         }
       }
+    },
+    {
+      "path": "packages/web/src/components/recon/RootCauseCard.tsx",
+      "sha": "a7dfdb2599df53fa398438e5f6d129bcc94bcc45",
+      "loc": 161,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/report/ReasonsPanel.tsx",
+      "sha": "c9bb4001b8f14bb48dee75c55412acc0a9cc2357",
+      "loc": 159,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/report/RecommendationRegister.tsx",
+      "sha": "f2b372ab32ae8fec37d274baed103c6af92ae9ce",
+      "loc": 434,
+      "refs": {
+        "actions": {
+          "count": 3,
+          "lines": [
+            9,
+            193,
+            268
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/rows/RowStatusChip.tsx",
+      "sha": "adceee2fa3327dca92b9898bad08f094e56a4203",
+      "loc": 48,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/rows/SignalChip.tsx",
+      "sha": "bdf8a32fa3ba3dd0a1d2c4a2ddd7b8c0b7fdd7ff",
+      "loc": 75,
+      "refs": {
+        "signals": {
+          "count": 2,
+          "lines": [
+            31,
+            36
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/scorecard/ScorecardSection.tsx",
+      "sha": "480222e048d53642fc39466fc5c7c7ce748bc5c2",
+      "loc": 255,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/scorecard/ScorecardTable.tsx",
+      "sha": "cc02dbcc9f6cacdaafa840d34cdc6737d70b377f",
+      "loc": 209,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/workload/WorkloadSection.tsx",
+      "sha": "d20699b8c7d9b09629f9282610ccb558e63edc9a",
+      "loc": 281,
+      "refs": {}
     }
   ],
   "webTargetCount": 37
