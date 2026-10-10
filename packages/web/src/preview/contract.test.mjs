@@ -15,7 +15,7 @@ const overrides=rd(base+'preview/theme.css');
 
 test('preview boots production main and preserves actual pages',()=>{
  assert.match(entry,/import\('\.\.\/main'\)/);
- for(const component of ['ReportPage','MonitoringPage','QualityPage','OrgStrip'])
+ for(const component of ['ReportPage','MonitoringPage','QualityPage','ResponsiveOrganizations'])
    assert.ok(app.includes('<'+component),component);
  assert.match(entry,/installSyntheticApi\(\)/);
  assert.ok(header.includes('<SourceNavigation'), 'source cylinder is absent from Header');
@@ -47,7 +47,8 @@ test('reviewed production subtabs must survive',()=>{
    assert.ok(data.includes(s),s);
  for(const s of ["setMode('live')","setMode('archive')",'Отчёт в Word','Доп. отчёт в Word','Оперативный в Word'])
    assert.ok(report.includes(s),s);
- assert.match(app,/page\s*!==\s*'report'\s*&&\s*<OrgStrip/);
+ assert.match(app,/page\s*!==\s*'report'\s*&&\s*<ResponsiveOrganizations/);
+ assert.match(rd(base+'components/ResponsiveOrganizations.tsx'),/<OrgStrip\s*\/>/);
  assert.match(org,/clearDeptOnly/);
 });
 test('read-only fixture blocks writes and never goes to external APIs',()=>{
