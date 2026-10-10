@@ -51,6 +51,10 @@ describe('/api/timeline/*', () => {
 
   beforeAll(async () => {
     vi.resetModules();
+    // В тестах дата фиксирована: CI может пересечь полночь по Камчатке.
+    // Замораживаем Date, но не таймеры Fastify или БД.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T10:00:00.000Z'));
     process.env = {
       ...ORIGINAL_ENV,
       NODE_ENV: 'test',
@@ -150,6 +154,7 @@ describe('/api/timeline/*', () => {
   afterAll(async () => {
     await app?.close();
     process.env = { ...ORIGINAL_ENV };
+    vi.useRealTimers();
     vi.resetModules();
   });
 
