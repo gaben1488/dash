@@ -12,9 +12,12 @@ From the repository root:
     node tools/db-migration/compare-snapshots.mjs /secure/old.json /secure/new.json /secure/decisions.json /secure/report.json
 
 The last two arguments are optional: an omitted decisions file means zero
-approved identity links; omitted report path prints the **locator-only**
-report to stdout. Prefer a secure local output file. **Never commit inputs
-or live reports** to the public repository.
+approved identity links. Without the report path the CLI prints **aggregated
+counts only**, not observation locators. With a report path, the full JSON
+is written to a new file with permissions 0600; it never overwrites an
+existing file. Exit 0 means fully linked; 1 means review/conflicts; 2 means
+invalid input. **Never commit input files or live reports** to the public
+repository.
 
 Input observations in each JSON file are an array; example with invented
 values:
