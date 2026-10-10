@@ -119,6 +119,12 @@ export interface DimensionExtractors {
   activity: (row: RawRow) => string;
 }
 
+/** Collision-free key for subordinate + period + activity (+ method) groups.
+ * Some official organisation names contain periods and punctuation. */
+export function activityContextKey(subordinate: string, period: string, activity: string, method = ''): string {
+  return JSON.stringify([subordinate, period, activity, method]);
+}
+
 /** Row filter: determines if a row should be processed at all. */
 export type RowFilter = (row: RawRow) => boolean;
 
@@ -171,6 +177,11 @@ export interface GroupedResults {
   byActivity: Map<string, Map<string, AccumulatedValue>>;
   /** By quarter × activity (e.g., q1.program, year.program). */
   byQuarterActivity: Map<string, Map<string, AccumulatedValue>>;
+  /** Exact period × activity × procurement method intersection (q1..q4/year/m1..m12). */
+  byPeriodActivityMethod: Map<string, Map<string, AccumulatedValue>>;
+  /** Exact subordinate × period × activity intersections, including method splits. */
+  bySubordinatePeriodActivity: Map<string, Map<string, AccumulatedValue>>;
+  bySubordinatePeriodActivityMethod: Map<string, Map<string, AccumulatedValue>>;
   /** By subordinate × activity (e.g., "МКУ ЦЭР.program"). */
   bySubordinateActivity: Map<string, Map<string, AccumulatedValue>>;
   /** By activity × method (e.g., "program.competitive"). */
@@ -585,6 +596,9 @@ export class CalcEngine {
       bySubordinateMethod: new Map(),
       byActivity: new Map(),
       byQuarterActivity: new Map(),
+      byPeriodActivityMethod: new Map(),
+      bySubordinatePeriodActivity: new Map(),
+      bySubordinatePeriodActivityMethod: new Map(),
       bySubordinateActivity: new Map(),
       byActivityMethod: new Map(),
       byMonthActivity: new Map(),
@@ -686,6 +700,22 @@ export class CalcEngine {
           // By quarter × activity
           const qaKey = `${quarter}.${activity}`;
           this.accumulateInGroup(result.byQuarterActivity, qaKey, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            activityContextKey(subordinate, quarter, activity), m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            activityContextKey(subordinate, 'year', activity), m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `${quarter}.${activity}.${method}`, m.key, val, i);
+            // Official year is the sum of eligible planned quarters, not
+            // all raw rows with an orphaned factual date.
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `year.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              activityContextKey(subordinate, quarter, activity, method), m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              activityContextKey(subordinate, 'year', activity, method), m.key, val, i);
+          }
         } else if (hasFact) {
           // Orphan: has fact but no plan quarter → tracked separately for year total derivation
           this.accumulateInGroup(result.byQuarter, '_orphan', m.key, val, i);
@@ -712,6 +742,14 @@ export class CalcEngine {
           }
           // By month × activity
           this.accumulateInGroup(result.byMonthActivity, `m${month}.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            activityContextKey(subordinate, `m${month}`, activity), m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `m${month}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              activityContextKey(subordinate, `m${month}`, activity, method), m.key, val, i);
+          }
         }
 
         // By method
@@ -786,6 +824,9 @@ export class CalcEngine {
     for (const group of result.bySubordinateMethod.values()) this.computeDerived(group);
     for (const group of result.byActivity.values()) this.computeDerived(group);
     for (const group of result.byQuarterActivity.values()) this.computeDerived(group);
+    for (const group of result.byPeriodActivityMethod.values()) this.computeDerived(group);
+    for (const group of result.bySubordinatePeriodActivity.values()) this.computeDerived(group);
+    for (const group of result.bySubordinatePeriodActivityMethod.values()) this.computeDerived(group);
     for (const group of result.bySubordinateActivity.values()) this.computeDerived(group);
     for (const group of result.byActivityMethod.values()) this.computeDerived(group);
     for (const group of result.byMonthActivity.values()) this.computeDerived(group);
