@@ -171,3 +171,6 @@ export * from './signal-answer.js';
 
 // One read model of reviewable cases for Issues, Recommendations and API.
 export * from './control-cases.js';
+
+// One human-oriented, read-only explanation for each canonical control case.
+export * from './control-case-guide.js';
