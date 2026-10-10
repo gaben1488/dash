@@ -52,6 +52,7 @@ export function validateData(
   // ложных падений валидации ШДЮ; УКСиМП/УАГЗО корректно идут как department).
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
+  const failedRules = new Set<string>();
   const sheetClass = classifySheet(sheetName);
 
   // Тихие провалы запрещены (AGENTS.md carve-out): нераспознанный лист молча
@@ -98,7 +99,26 @@ export function validateData(
       try {
         result = rule.check(ctx);
       } catch (_err) {
-        // Skip broken rule, don't crash entire validation
+        // Одна диагностическая запись на правило и лист: ошибку нельзя
+        // превращать в успешную проверку, но и тысячи дублей не нужны.
+        if (!failedRules.has(rule.id)) {
+          failedRules.add(rule.id);
+          issues.push({
+            id: issueIdentity(['validation_error', sheetName, rule.id]),
+            severity: 'error',
+            origin: 'runtime_error',
+            category: 'validation_error',
+            title: `Проверка «${rule.name}» не выполнена`,
+            description: `При проверке листа «${sheetName}» возникла ошибка (первая строка: ${row.rowIndex}). Отсутствие других замечаний по этому правилу не означает, что данные проверены.`,
+            sheet: sheetName,
+            row: row.rowIndex,
+            departmentId: sheetClass.latinId,
+            recommendation: 'Перед повторной проверкой устранить ошибку правила или источника; исходные данные не изменять.',
+            status: 'open',
+            detectedAt: now,
+            detectedBy: `rule:${rule.id}`,
+          });
+        }
         continue;
       }
       if (!result.passed) {
