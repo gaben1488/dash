@@ -107,7 +107,7 @@ describe('Design Research: real decisions, not inert decoration', () => {
     expect(links.some(link=>link.getAttribute('href')?.includes('/cards-map/monitoring.md'))).toBe(true);
     fireEvent.change(search,{target:{value:'нет_такого_раздела'}});
     expect(screen.getByText('По этому поиску разделов нет.')).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toContain('По этому поиску');
+    expect(screen.getAllByRole('status').some(node => node.textContent?.includes('По этому поиску'))).toBe(true);
   });
 
 });
