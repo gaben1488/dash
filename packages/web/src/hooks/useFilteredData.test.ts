@@ -88,3 +88,53 @@ describe('computeFilteredData — тренд KPI', () => {
     expect(result.topKpis.find(k => k.metricKey === 'competitive.q2.percent')?.trend).toBe('stable');
   });
 });
+
+
+describe('computeFilteredData — combined activity and procurement filters', () => {
+  it('does not reuse unsliced official KPI cards or label EP as competitive', () => {
+    const input = makeInputs('q1', cardsFor('q1'));
+    const program = {
+      planCount: 3, factCount: 1, planTotal: 60, factTotal: 10,
+      byMethod: {
+        competitive: { plan: 1, fact: 0, planSum: 40, factSum: 0 },
+        ep: { plan: 2, fact: 1, planSum: 20, factSum: 10 },
+      },
+    };
+    input.dashboardData.departmentSummaries = [{
+      department: { id: 'uer', nameShort: 'УЭР' },
+      quarters: { q1: {
+        planCount: 3, factCount: 1, kpCount: 1, epCount: 2,
+        planTotal: 60, factTotal: 10,
+      } },
+      byActivity: { q1: { program } },
+      subordinates: [],
+    }];
+    input.selectedActivities = new Set(['program']);
+    input.selectedMethods = new Set(['single']);
+    const result = computeFilteredData(input);
+    expect(result).toMatchObject({
+      totalKP: 0, totalEP: 2, totalPlan: 20, totalFact: 10,
+      totalPlanCount: 2, totalFactCount: 1,
+      overallExecCountPct: 50, activityMethodBreakdownAvailable: true,
+    });
+    // The district-wide original cards have not been reinterpreted as EP
+    // or used as "proof" of selected activity scope.
+    expect(result.topKpis.every(k => k.metricKey.startsWith('_derived.'))).toBe(true);
+    expect(result.topKpis.find(k => k.metricKey === '_derived.competitive_ratio')?.value).toBe('0.0%');
+  });
+
+  it('incompatible saved snapshots suppress derived KPI claims', () => {
+    const input = makeInputs('q1', cardsFor('q1'));
+    input.dashboardData.departmentSummaries = [{
+      department: { id: 'uer', nameShort: 'УЭР' },
+      quarters: { q1: { planCount: 3, factCount: 2 } },
+      byActivity: { q1: { program: { planCount: 3, planTotal: 60 } } },
+      subordinates: [],
+    }];
+    input.selectedActivities = new Set(['program']);
+    const result = computeFilteredData(input);
+    expect(result.activityMethodBreakdownAvailable).toBe(false);
+    expect(result.topKpis).toEqual([]);
+    expect(result.summaryByPeriod.q1.source).toBe('not_comparable');
+  });
+});
