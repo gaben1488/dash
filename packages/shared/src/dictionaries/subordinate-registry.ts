@@ -5,8 +5,9 @@
  * подведомственного учреждения). Сверка с живыми данными: 14.08.2026.
  * canonicalName хранит ДОСЛОВНОЕ значение ячейки C (включая вид кавычек),
  * чтобы сличение со строками книг работало строковым равенством.
- * Повторная read-only сверка всех восьми рабочих книг 10.10.2026
- * исправила 22 устаревших написания, постоянные ID не изменялись.
+ * Повторная сверка после миграции R→E от 10.10.2026 привела 65 названий
+ * к текущей колонке C, сохранила slug-ID и прежние значения как aliases.
+ * Исторические дубли фильтра не могут восстанавливаться из старых срезов.
  *
  * Структура по книгам (14.08.2026):
  *   УО      — 43 учреждения (21 детсад, 18 школ, 3 доп. обр., 1 МКУ)
@@ -54,6 +55,8 @@ export interface SubordinateEntry {
   id: string;
   /** Дословное значение колонки C листа «ВСЕ» (ключ сличения с книгой) */
   canonicalName: string;
+  /** Проверенная прежняя запись колонки C; только для преемственности исторических срезов. */
+  legacyCanonicalName?: string;
   /** Отображаемое имя в UI (сокращённое, но однозначное) */
   displayName: string;
   /** Очень короткое обозначение для таблиц и легенд */
@@ -107,57 +110,100 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   },
 
   // Детские сады (21)
-  { id: 'uo_ds01_lastochka', canonicalName: 'МАДОУ "Детский сад № 1 "Ласточка"', displayName: 'ДС № 1 «Ласточка»', shortName: 'ДС 1', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds02_zhemchuzhinka', canonicalName: 'МБДОУ "Детский сад № 2 "Жемчужинка"', displayName: 'ДС № 2 «Жемчужинка»', shortName: 'ДС 2', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds03_zharptitsa', canonicalName: 'МБДОУ "Детский сад № 3 "Жар-птица"', displayName: 'ДС № 3 «Жар-Птица»', shortName: 'ДС 3', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds04_malysh', canonicalName: 'МБДОУ "Детский сад № 4 "Малыш"', displayName: 'ДС № 4 «Малыш»', shortName: 'ДС 4', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds05_romashka', canonicalName: 'МБДОУ "Детский сад № 5 "Ромашка"', displayName: 'ДС № 5 «Ромашка»', shortName: 'ДС 5', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds08_alyonushka', canonicalName: 'МБДОУ "Детский сад № 8 "Алёнушка"', displayName: 'ДС № 8 «Алёнушка»', shortName: 'ДС 8', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds09_zvezdochka', canonicalName: 'МБДОУ "Детский сад № 9 "Звездочка"', displayName: 'ДС № 9 «Звёздочка»', shortName: 'ДС 9', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds10_raduga', canonicalName: 'МБДОУ "Детский сад № 10 "Радуга"', displayName: 'ДС № 10 «Радуга»', shortName: 'ДС 10', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds11_umka', canonicalName: 'МБДОУ "Детский сад № 11 "Умка"', displayName: 'ДС № 11 «Умка»', shortName: 'ДС 11', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds12_ulybka', canonicalName: 'МБДОУ "Детский сад № 12 "Улыбка"', displayName: 'ДС № 12 «Улыбка»', shortName: 'ДС 12', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds14_skazka', canonicalName: 'МБДОУ "Детский сад № 14 "Сказка"', displayName: 'ДС № 14 «Сказка»', shortName: 'ДС 14', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds20_antoshka', canonicalName: 'МБДОУ "Детский сад № 20 "Антошка"', displayName: 'ДС № 20 «Антошка»', shortName: 'ДС 20', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds22_veselinka', canonicalName: 'МБДОУ "Детский сад № 22 "Веселинка"', displayName: 'ДС № 22 «Веселинка»', shortName: 'ДС 22', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds23_vasilyok', canonicalName: 'МБДОУ "Детский сад № 23 "Василек"', displayName: 'ДС № 23 «Василёк»', shortName: 'ДС 23', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds24_zhuravlik', canonicalName: 'МБДОУ "Детский сад № 24 "Журавлик"', displayName: 'ДС № 24 «Журавлик»', shortName: 'ДС 24', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds26_rosinka', canonicalName: 'МБДОУ "Детский сад № 26 "Росинка"', displayName: 'ДС № 26 «Росинка»', shortName: 'ДС 26', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds27_pochemuchka', canonicalName: 'МБДОУ "Детский сад № 27 "Почемучка"', displayName: 'ДС № 27 «Почемучка»', shortName: 'ДС 27', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds28_ryabinushka', canonicalName: 'МБДОУ "Детский сад № 28 "Рябинушка"', displayName: 'ДС № 28 «Рябинушка»', shortName: 'ДС 28', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds31_solnyshko', canonicalName: 'МБДОУ "Детский сад № 31 "Солнышко"', displayName: 'ДС № 31 «Солнышко»', shortName: 'ДС 31', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds36_rucheyok', canonicalName: 'МБДОУ № 36', displayName: 'ДС № 36 «Ручеёк»', shortName: 'ДС 36', grbsId: 'УО', orgType: 'kindergarten' },
-  { id: 'uo_ds37_belochka', canonicalName: 'МБДОУ "Детский сад № 37 "Белочка"', displayName: 'ДС № 37 «Белочка»', shortName: 'ДС 37', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds01_lastochka', canonicalName: 'МАДОУ "Детский сад № 1 "Ласточка"',
+    legacyCanonicalName: 'МАДОУ ДС № 1 «Ласточка»', displayName: 'ДС № 1 «Ласточка»', shortName: 'ДС 1', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds02_zhemchuzhinka', canonicalName: 'МБДОУ "Детский сад № 2 "Жемчужинка"',
+    legacyCanonicalName: 'МБДОУ ДС № 2 «Жемчужинка»', displayName: 'ДС № 2 «Жемчужинка»', shortName: 'ДС 2', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds03_zharptitsa', canonicalName: 'МБДОУ "Детский сад № 3 "Жар-птица"',
+    legacyCanonicalName: 'МБДОУ ДС № 3 «Жар-Птица»', displayName: 'ДС № 3 «Жар-Птица»', shortName: 'ДС 3', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds04_malysh', canonicalName: 'МБДОУ "Детский сад № 4 "Малыш"',
+    legacyCanonicalName: 'МБДОУ ДС № 4 «Малыш»', displayName: 'ДС № 4 «Малыш»', shortName: 'ДС 4', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds05_romashka', canonicalName: 'МБДОУ "Детский сад № 5 "Ромашка"',
+    legacyCanonicalName: 'МБДОУ ДС № 5 «Ромашка»', displayName: 'ДС № 5 «Ромашка»', shortName: 'ДС 5', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds08_alyonushka', canonicalName: 'МБДОУ "Детский сад № 8 "Алёнушка"',
+    legacyCanonicalName: 'МБДОУ ДС № 8 «Алёнушка»', displayName: 'ДС № 8 «Алёнушка»', shortName: 'ДС 8', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds09_zvezdochka', canonicalName: 'МБДОУ "Детский сад № 9 "Звездочка"',
+    legacyCanonicalName: 'МБДОУ ДС № 9 «Звёздочка»', displayName: 'ДС № 9 «Звёздочка»', shortName: 'ДС 9', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds10_raduga', canonicalName: 'МБДОУ "Детский сад № 10 "Радуга"',
+    legacyCanonicalName: 'МБДОУ ДС № 10 «Радуга»', displayName: 'ДС № 10 «Радуга»', shortName: 'ДС 10', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds11_umka', canonicalName: 'МБДОУ "Детский сад № 11 "Умка"',
+    legacyCanonicalName: 'МБДОУ ДС № 11 «Умка»', displayName: 'ДС № 11 «Умка»', shortName: 'ДС 11', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds12_ulybka', canonicalName: 'МБДОУ "Детский сад № 12 "Улыбка"',
+    legacyCanonicalName: 'МБДОУ ДС № 12 «Улыбка»', displayName: 'ДС № 12 «Улыбка»', shortName: 'ДС 12', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds14_skazka', canonicalName: 'МБДОУ "Детский сад № 14 "Сказка"',
+    legacyCanonicalName: 'МБДОУ ДС № 14 «Сказка»', displayName: 'ДС № 14 «Сказка»', shortName: 'ДС 14', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds20_antoshka', canonicalName: 'МБДОУ "Детский сад № 20 "Антошка"',
+    legacyCanonicalName: 'МБДОУ ДС № 20 «Антошка»', displayName: 'ДС № 20 «Антошка»', shortName: 'ДС 20', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds22_veselinka', canonicalName: 'МБДОУ "Детский сад № 22 "Веселинка"',
+    legacyCanonicalName: 'МБДОУ ДС № 22 «Веселинка»', displayName: 'ДС № 22 «Веселинка»', shortName: 'ДС 22', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds23_vasilyok', canonicalName: 'МБДОУ "Детский сад № 23 "Василек"',
+    legacyCanonicalName: 'МБДОУ ДС № 23 «Василёк»', displayName: 'ДС № 23 «Василёк»', shortName: 'ДС 23', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds24_zhuravlik', canonicalName: 'МБДОУ "Детский сад № 24 "Журавлик"',
+    legacyCanonicalName: 'МБДОУ ДС № 24 «Журавлик»', displayName: 'ДС № 24 «Журавлик»', shortName: 'ДС 24', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds26_rosinka', canonicalName: 'МБДОУ "Детский сад № 26 "Росинка"',
+    legacyCanonicalName: 'МБДОУ ДС № 26 «Росинка»', displayName: 'ДС № 26 «Росинка»', shortName: 'ДС 26', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds27_pochemuchka', canonicalName: 'МБДОУ "Детский сад № 27 "Почемучка"',
+    legacyCanonicalName: 'МБДОУ ДС № 27 «Почемучка»', displayName: 'ДС № 27 «Почемучка»', shortName: 'ДС 27', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds28_ryabinushka', canonicalName: 'МБДОУ "Детский сад № 28 "Рябинушка"',
+    legacyCanonicalName: 'МБДОУ ДС № 28 «Рябинушка»', displayName: 'ДС № 28 «Рябинушка»', shortName: 'ДС 28', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds31_solnyshko', canonicalName: 'МБДОУ "Детский сад № 31 "Солнышко"',
+    legacyCanonicalName: 'МБДОУ ДС № 31 «Солнышко»', displayName: 'ДС № 31 «Солнышко»', shortName: 'ДС 31', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds36_rucheyok', canonicalName: 'МБДОУ № 36',
+    legacyCanonicalName: 'МБДОУ ДС № 36 «Ручеёк»', displayName: 'ДС № 36 «Ручеёк»', shortName: 'ДС 36', grbsId: 'УО', orgType: 'kindergarten' },
+  { id: 'uo_ds37_belochka', canonicalName: 'МБДОУ "Детский сад № 37 "Белочка"',
+    legacyCanonicalName: 'МБДОУ ДС № 37 «Белочка»', displayName: 'ДС № 37 «Белочка»', shortName: 'ДС 37', grbsId: 'УО', orgType: 'kindergarten' },
 
   // Школы (18)
-  { id: 'uo_school_nsh5', canonicalName: 'МБОУ Елизовская НШ № 5', displayName: 'ЕНШ № 5', shortName: 'НШ 5', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_osh4', canonicalName: 'МБОУ ЕОШ№ 4', displayName: 'ЕОШ № 4', shortName: 'ОШ 4', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_ssh1', canonicalName: 'МБОУ ЕСШ № 1 им.М.В.Ломоносова', displayName: 'ЕСШ № 1 им. Ломоносова', shortName: 'СШ 1', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_ssh2', canonicalName: 'МБОУ "ЕСШ № 2 им. Героя Советского Союза Г.С. Кузнецова"', displayName: 'ЕСШ № 2 им. Кузнецова', shortName: 'СШ 2', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_ssh3', canonicalName: 'МБОУ "ЕСШ № 3"', displayName: 'ЕСШ № 3', shortName: 'СШ 3', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_ssh7', canonicalName: 'МБОУ ЕСШ № 7 им. О.Н. Мамченкова', displayName: 'ЕСШ № 7 им. Мамченкова', shortName: 'СШ 7', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_ssh8', canonicalName: 'МБОУ "ЕСШ № 8 им. В.Н.Орловского"', displayName: 'ЕСШ № 8 им. Орловского', shortName: 'СШ 8', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_ssh9', canonicalName: 'МБОУ "ЕСШ № 9 им. Р.В.Федины"', displayName: 'ЕСШ № 9 им. Федины', shortName: 'СШ 9', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_koryakskaya', canonicalName: 'МБОУ "Корякская СШ"', displayName: 'Корякская СШ', shortName: 'Корякская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_lesnovskaya', canonicalName: 'МБОУ "Лесновская ОШ"', displayName: 'Лесновская ОШ', shortName: 'Лесновская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_nagornenskaya', canonicalName: 'МБОУ "Нагорненская СШ"', displayName: 'Нагорненская СШ', shortName: 'Нагорненская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_nachikinskaya', canonicalName: 'МБОУ "Начикинская СШ"', displayName: 'Начикинская СШ', shortName: 'Начикинская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_nikolaevskaya', canonicalName: 'МБОУ Николаевская СШ', displayName: 'Николаевская СШ', shortName: 'Николаевская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_paratunskaya', canonicalName: 'МБОУ "Паратунская СШ"', displayName: 'Паратунская СШ', shortName: 'Паратунская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_pionerskaya', canonicalName: 'МБОУ Пионерская СШ', displayName: 'Пионерская СШ им. Евсюковой', shortName: 'Пионерская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_razdolnenskaya', canonicalName: 'МБОУ "Раздольненская СШ"', displayName: 'Раздольненская СШ им. Ролдугина', shortName: 'Раздольненская', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_vulkannogo', canonicalName: 'МБОУ "СШ Вулканного ГП"', displayName: 'СШ Вулканного ГП', shortName: 'Вулканная', grbsId: 'УО', orgType: 'school' },
-  { id: 'uo_school_termalnenskaya', canonicalName: 'МБОУ "Термальненская СШ" им. Героя Российской Федерации А. Н. Попова', displayName: 'Термальненская СШ им. Попова', shortName: 'Термальненская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_nsh5', canonicalName: 'МБОУ Елизовская НШ № 5',
+    legacyCanonicalName: 'МБОУ «Елизовская начальная школа № 5»', displayName: 'ЕНШ № 5', shortName: 'НШ 5', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_osh4', canonicalName: 'МБОУ ЕОШ№ 4',
+    legacyCanonicalName: 'МБОУ «Елизовская основная школа № 4»', displayName: 'ЕОШ № 4', shortName: 'ОШ 4', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_ssh1', canonicalName: 'МБОУ ЕСШ № 1 им.М.В.Ломоносова',
+    legacyCanonicalName: 'МБОУ «Елизовская средняя школа № 1 имени М.В.Ломоносова»', displayName: 'ЕСШ № 1 им. Ломоносова', shortName: 'СШ 1', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_ssh2', canonicalName: 'МБОУ "ЕСШ № 2 им. Героя Советского Союза Г.С. Кузнецова"',
+    legacyCanonicalName: 'МБОУ «Елизовская средняя школа № 2 им. Героя Советского Союза Г.С. Кузнецова»', displayName: 'ЕСШ № 2 им. Кузнецова', shortName: 'СШ 2', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_ssh3', canonicalName: 'МБОУ "ЕСШ № 3"',
+    legacyCanonicalName: 'МБОУ «Елизовская средняя школа № 3»', displayName: 'ЕСШ № 3', shortName: 'СШ 3', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_ssh7', canonicalName: 'МБОУ ЕСШ № 7 им. О.Н. Мамченкова',
+    legacyCanonicalName: 'МБОУ «Елизовская средняя школа № 7 им. О.Н. Мамченкова»', displayName: 'ЕСШ № 7 им. Мамченкова', shortName: 'СШ 7', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_ssh8', canonicalName: 'МБОУ "ЕСШ № 8 им. В.Н.Орловского"',
+    legacyCanonicalName: 'МБОУ «Елизовская средняя школа № 8 им. В.Н. Орловского»', displayName: 'ЕСШ № 8 им. Орловского', shortName: 'СШ 8', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_ssh9', canonicalName: 'МБОУ "ЕСШ № 9 им. Р.В.Федины"',
+    legacyCanonicalName: 'МБОУ «Елизовская средняя школа № 9 им. Р.В.Федины»', displayName: 'ЕСШ № 9 им. Федины', shortName: 'СШ 9', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_koryakskaya', canonicalName: 'МБОУ "Корякская СШ"',
+    legacyCanonicalName: 'МБОУ «Корякская средняя школа»', displayName: 'Корякская СШ', shortName: 'Корякская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_lesnovskaya', canonicalName: 'МБОУ "Лесновская ОШ"',
+    legacyCanonicalName: 'МБОУ «Лесновская основная школа»', displayName: 'Лесновская ОШ', shortName: 'Лесновская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_nagornenskaya', canonicalName: 'МБОУ "Нагорненская СШ"',
+    legacyCanonicalName: 'МБОУ «Нагорненская средняя школа»', displayName: 'Нагорненская СШ', shortName: 'Нагорненская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_nachikinskaya', canonicalName: 'МБОУ "Начикинская СШ"',
+    legacyCanonicalName: 'МБОУ «Начикинская средняя школа»', displayName: 'Начикинская СШ', shortName: 'Начикинская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_nikolaevskaya', canonicalName: 'МБОУ Николаевская СШ',
+    legacyCanonicalName: 'МБОУ «Николаевская средняя школа»', displayName: 'Николаевская СШ', shortName: 'Николаевская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_paratunskaya', canonicalName: 'МБОУ "Паратунская СШ"',
+    legacyCanonicalName: 'МБОУ «Паратунская средняя школа»', displayName: 'Паратунская СШ', shortName: 'Паратунская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_pionerskaya', canonicalName: 'МБОУ Пионерская СШ',
+    legacyCanonicalName: 'МБОУ «Пионерская средняя школа имени М. А. Евсюковой»', displayName: 'Пионерская СШ им. Евсюковой', shortName: 'Пионерская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_razdolnenskaya', canonicalName: 'МБОУ "Раздольненская СШ"',
+    legacyCanonicalName: 'МБОУ «Раздольненская средняя школа имени В.Н. Ролдугина»', displayName: 'Раздольненская СШ им. Ролдугина', shortName: 'Раздольненская', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_vulkannogo', canonicalName: 'МБОУ "СШ Вулканного ГП"',
+    legacyCanonicalName: 'МБОУ «Средняя школа Вулканного городского поселения»', displayName: 'СШ Вулканного ГП', shortName: 'Вулканная', grbsId: 'УО', orgType: 'school' },
+  { id: 'uo_school_termalnenskaya', canonicalName: 'МБОУ "Термальненская СШ" им. Героя Российской Федерации А. Н. Попова',
+    legacyCanonicalName: 'МБОУ «Термальненская средняя школа» им. Героя РФ А.Н. Попова', displayName: 'Термальненская СШ им. Попова', shortName: 'Термальненская', grbsId: 'УО', orgType: 'school' },
 
   // Дополнительное образование (3)
-  { id: 'uo_do_luch', canonicalName: 'МБУ ДО "Центр "Луч"', displayName: 'Центр «Луч»', shortName: 'Луч', grbsId: 'УО', orgType: 'additional_education' },
-  { id: 'uo_do_patriot', canonicalName: 'МБУ ДО ПЦ "Патриот"', displayName: 'ПЦ «Патриот»', shortName: 'Патриот', grbsId: 'УО', orgType: 'additional_education' },
-  { id: 'uo_do_tsdt', canonicalName: 'МБУДО "ЦДТ"', displayName: 'ЦДТ', shortName: 'ЦДТ', grbsId: 'УО', orgType: 'additional_education' },
+  { id: 'uo_do_luch', canonicalName: 'МБУ ДО "Центр "Луч"',
+    legacyCanonicalName: 'МБУ ДО «Центр «Луч»', displayName: 'Центр «Луч»', shortName: 'Луч', grbsId: 'УО', orgType: 'additional_education' },
+  { id: 'uo_do_patriot', canonicalName: 'МБУ ДО ПЦ "Патриот"',
+    legacyCanonicalName: 'МБУДО Подростковый центр «Патриот»', displayName: 'ПЦ «Патриот»', shortName: 'Патриот', grbsId: 'УО', orgType: 'additional_education' },
+  { id: 'uo_do_tsdt', canonicalName: 'МБУДО "ЦДТ"',
+    legacyCanonicalName: 'ЦДТ', displayName: 'ЦДТ', shortName: 'ЦДТ', grbsId: 'УО', orgType: 'additional_education' },
 
   // МКУ (1)
   {
     id: 'uo_mku_cboimto',
     canonicalName: 'МКУ ЦБОИМТО',
+    legacyCanonicalName: 'Муниципальное казённое учреждение «Центр бухгалтерского обслуживания и материально-технического обеспечения»',
     displayName: 'МКУ ЦБОиМТО',
     shortName: 'ЦБОиМТО',
     grbsId: 'УО',
@@ -165,9 +211,12 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   },
 
   // Категории строк книги УО (не юрлица)
-  { id: 'uo_cat_administrirovanie', canonicalName: 'УО (Администрирование)', displayName: 'Администрирование', shortName: 'Админ.', grbsId: 'УО', isCategory: true, orgType: 'other' },
-  { id: 'uo_cat_opeka', canonicalName: 'УО (Опека)', displayName: 'Опека', shortName: 'Опека', grbsId: 'УО', isCategory: true, orgType: 'other' },
-  { id: 'uo_cat_sovmestnye', canonicalName: 'Совместные закупки (УО)', displayName: 'Совместные закупки', shortName: 'СЗ', grbsId: 'УО', isCategory: true, orgType: 'other' },
+  { id: 'uo_cat_administrirovanie', canonicalName: 'УО (Администрирование)',
+    legacyCanonicalName: 'Администрирование', displayName: 'Администрирование', shortName: 'Админ.', grbsId: 'УО', isCategory: true, orgType: 'other' },
+  { id: 'uo_cat_opeka', canonicalName: 'УО (Опека)',
+    legacyCanonicalName: 'Опека', displayName: 'Опека', shortName: 'Опека', grbsId: 'УО', isCategory: true, orgType: 'other' },
+  { id: 'uo_cat_sovmestnye', canonicalName: 'Совместные закупки (УО)',
+    legacyCanonicalName: 'Совместные закупки', displayName: 'Совместные закупки', shortName: 'СЗ', grbsId: 'УО', isCategory: true, orgType: 'other' },
 
   // ── УКСиМП: Управление культуры, спорта и молодёжной политики ─
   //    (20 учреждений + «Совместная закупка» + _org_itself = 22 позиции Пульта)
@@ -183,34 +232,49 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   },
 
   // Школы искусств и музыкальные школы (7)
-  { id: 'uksimp_kdmsh', canonicalName: 'МБУ ДО КДМШ', displayName: 'КДМШ', shortName: 'КДМШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
-  { id: 'uksimp_ndshi', canonicalName: 'МБУ ДО НДШИ', displayName: 'НДШИ', shortName: 'НДШИ', grbsId: 'УКСиМП', orgType: 'additional_education' },
-  { id: 'uksimp_rdmsh', canonicalName: 'МБУ ДО РДМШ', displayName: 'РДМШ', shortName: 'РДМШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
-  { id: 'uksimp_dshi_termalny', canonicalName: 'МБУ ДО ДШИ п. Термальный', displayName: 'ДШИ п. Термальный', shortName: 'ДШИ Терм.', grbsId: 'УКСиМП', orgType: 'additional_education' },
-  { id: 'uksimp_edmsh', canonicalName: 'МБУ ДО ЕДМШ', displayName: 'ЕДМШ', shortName: 'ЕДМШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
-  { id: 'uksimp_edhsh', canonicalName: 'МБУ ДО ЕДХШ', displayName: 'ЕДХШ', shortName: 'ЕДХШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
+  { id: 'uksimp_kdmsh', canonicalName: 'МБУ ДО КДМШ',
+    legacyCanonicalName: 'МБУ ДО «КДМШ»', displayName: 'КДМШ', shortName: 'КДМШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
+  { id: 'uksimp_ndshi', canonicalName: 'МБУ ДО НДШИ',
+    legacyCanonicalName: 'МБУ ДО «НДШИ»', displayName: 'НДШИ', shortName: 'НДШИ', grbsId: 'УКСиМП', orgType: 'additional_education' },
+  { id: 'uksimp_rdmsh', canonicalName: 'МБУ ДО РДМШ',
+    legacyCanonicalName: 'МБУ ДО «РДМШ»', displayName: 'РДМШ', shortName: 'РДМШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
+  { id: 'uksimp_dshi_termalny', canonicalName: 'МБУ ДО ДШИ п. Термальный',
+    legacyCanonicalName: 'МБУ ДО «ДШИ п. Термальный»', displayName: 'ДШИ п. Термальный', shortName: 'ДШИ Терм.', grbsId: 'УКСиМП', orgType: 'additional_education' },
+  { id: 'uksimp_edmsh', canonicalName: 'МБУ ДО ЕДМШ',
+    legacyCanonicalName: 'МБУ ДО «ЕДМШ»', displayName: 'ЕДМШ', shortName: 'ЕДМШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
+  { id: 'uksimp_edhsh', canonicalName: 'МБУ ДО ЕДХШ',
+    legacyCanonicalName: 'МБУ ДО «ЕДХШ»', displayName: 'ЕДХШ', shortName: 'ЕДХШ', grbsId: 'УКСиМП', orgType: 'additional_education' },
   { id: 'uksimp_vdshi', canonicalName: 'МБУ ДО ВДШИ', displayName: 'ВДШИ', shortName: 'ВДШИ', grbsId: 'УКСиМП', orgType: 'additional_education' },
 
   // Спортивные учреждения (5)
-  { id: 'uksimp_ssh_lider', canonicalName: 'МБУ ДО СШ "Лидер"', displayName: 'СШ «Лидер»', shortName: 'Лидер', grbsId: 'УКСиМП', orgType: 'sport' },
-  { id: 'uksimp_ssh_ratibor', canonicalName: 'МБУ ДО СШ "Ратибор"', displayName: 'СШ «Ратибор»', shortName: 'Ратибор', grbsId: 'УКСиМП', orgType: 'sport' },
-  { id: 'uksimp_sshor_krechet', canonicalName: 'МБУ ДО СШОР единоборств "Кречет"', displayName: 'СШОР единоборств «Кречет»', shortName: 'Кречет', grbsId: 'УКСиМП', orgType: 'sport' },
+  { id: 'uksimp_ssh_lider', canonicalName: 'МБУ ДО СШ "Лидер"',
+    legacyCanonicalName: 'МБУ ДО СШ «Лидер»', displayName: 'СШ «Лидер»', shortName: 'Лидер', grbsId: 'УКСиМП', orgType: 'sport' },
+  { id: 'uksimp_ssh_ratibor', canonicalName: 'МБУ ДО СШ "Ратибор"',
+    legacyCanonicalName: 'МБУ ДО СШ «Ратибор»', displayName: 'СШ «Ратибор»', shortName: 'Ратибор', grbsId: 'УКСиМП', orgType: 'sport' },
+  { id: 'uksimp_sshor_krechet', canonicalName: 'МБУ ДО СШОР единоборств "Кречет"',
+    legacyCanonicalName: 'МБУ ДО СШОР единоборств «КРЕЧЕТ»', displayName: 'СШОР единоборств «Кречет»', shortName: 'Кречет', grbsId: 'УКСиМП', orgType: 'sport' },
   { id: 'uksimp_sshor_lvs', canonicalName: 'МБУ ДО СШОР по ЛВС', displayName: 'СШОР по ЛВС', shortName: 'СШОР ЛВС', grbsId: 'УКСиМП', orgType: 'sport' },
   { id: 'uksimp_tsfks', canonicalName: 'МБУ ЦФКС ЕМР', displayName: 'ЦФКС ЕМР', shortName: 'ЦФКС', grbsId: 'УКСиМП', orgType: 'sport' },
 
   // Учреждения культуры (7)
-  { id: 'uksimp_erkm', canonicalName: 'МБУК ЕРКМ', displayName: 'ЕРКМ (музей)', shortName: 'Музей', grbsId: 'УКСиМП', orgType: 'culture' },
-  { id: 'uksimp_zoopark', canonicalName: 'МБУК ЕРЗ', displayName: 'Елизовский зоопарк', shortName: 'Зоопарк', grbsId: 'УКСиМП', orgType: 'culture' },
-  { id: 'uksimp_erdk', canonicalName: 'МБУК ЕРДК', displayName: 'ЕРДК', shortName: 'ЕРДК', grbsId: 'УКСиМП', orgType: 'culture' },
-  { id: 'uksimp_dk_galaktika', canonicalName: 'МБУК ДК "Галактика"', displayName: 'ДК «Галактика»', shortName: 'Галактика', grbsId: 'УКСиМП', orgType: 'culture' },
+  { id: 'uksimp_erkm', canonicalName: 'МБУК ЕРКМ',
+    legacyCanonicalName: 'МБУК «ЕРКМ» (Музей)', displayName: 'ЕРКМ (музей)', shortName: 'Музей', grbsId: 'УКСиМП', orgType: 'culture' },
+  { id: 'uksimp_zoopark', canonicalName: 'МБУК ЕРЗ',
+    legacyCanonicalName: 'МБУК «Елизовский районный зоопарк»', displayName: 'Елизовский зоопарк', shortName: 'Зоопарк', grbsId: 'УКСиМП', orgType: 'culture' },
+  { id: 'uksimp_erdk', canonicalName: 'МБУК ЕРДК',
+    legacyCanonicalName: 'МБУК «ЕРДК»', displayName: 'ЕРДК', shortName: 'ЕРДК', grbsId: 'УКСиМП', orgType: 'culture' },
+  { id: 'uksimp_dk_galaktika', canonicalName: 'МБУК ДК "Галактика"',
+    legacyCanonicalName: 'МБУК ДК «Галактика»', displayName: 'ДК «Галактика»', shortName: 'Галактика', grbsId: 'УКСиМП', orgType: 'culture' },
   { id: 'uksimp_erk_rv', canonicalName: 'МБУК ЕРК по РВ', displayName: 'ЕРК по РВ', shortName: 'ЕРК РВ', grbsId: 'УКСиМП', orgType: 'culture' },
-  { id: 'uksimp_mdkm_yunost', canonicalName: 'МБУК МДКМ "Юность"', displayName: 'МДКМ «Юность»', shortName: 'Юность', grbsId: 'УКСиМП', orgType: 'culture' },
+  { id: 'uksimp_mdkm_yunost', canonicalName: 'МБУК МДКМ "Юность"',
+    legacyCanonicalName: 'МБУК МДКМ «Юность»', displayName: 'МДКМ «Юность»', shortName: 'Юность', grbsId: 'УКСиМП', orgType: 'culture' },
   { id: 'uksimp_mtsbs', canonicalName: 'МБУК МЦБС', displayName: 'МЦБС', shortName: 'МЦБС', grbsId: 'УКСиМП', orgType: 'culture' },
 
   // МКУ (1)
   {
     id: 'uksimp_mku_tsb_aho',
     canonicalName: 'МКУ ЦБАХО',
+    legacyCanonicalName: 'МКУ «Центр бухгалтерского и административно-хозяйственного обеспечения учреждений культуры и спорта»',
     displayName: 'МКУ ЦБ и АХО культуры и спорта',
     shortName: 'ЦБ АХО КиС',
     grbsId: 'УКСиМП',
@@ -218,7 +282,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   },
 
   // Категория строк книги УКСиМП (не юрлицо)
-  { id: 'uksimp_cat_sovmestnaya', canonicalName: 'Совместные закупки (УКСиМП)', displayName: 'Совместная закупка', shortName: 'СЗ', grbsId: 'УКСиМП', isCategory: true, orgType: 'other' },
+  { id: 'uksimp_cat_sovmestnaya', canonicalName: 'Совместные закупки (УКСиМП)',
+    legacyCanonicalName: 'Совместная закупка', displayName: 'Совместная закупка', shortName: 'СЗ', grbsId: 'УКСиМП', isCategory: true, orgType: 'other' },
 
   // ── УАГиЗО: Управление архитектуры, градостроительства и земельных отношений
 
@@ -234,6 +299,7 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   {
     id: 'uagizo_mku_elrус',
     canonicalName: 'МКУ "Елизовское РУС"',
+    legacyCanonicalName: 'МКУ «Елизовское РУС»',
     displayName: 'МКУ Елизовское РУС',
     shortName: 'Елизово РУС',
     grbsId: 'УАГиЗО',
@@ -286,6 +352,7 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   {
     id: 'ud_mku_edds',
     canonicalName: 'МКУ "ЕДДС ЕМР"',
+    legacyCanonicalName: 'МКУ «ЕДДС»',
     displayName: 'МКУ ЕДДС',
     shortName: 'ЕДДС',
     grbsId: 'УД',
@@ -308,6 +375,7 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
   {
     id: 'uer_mku_tser',
     canonicalName: 'МКУ "ЦЭР"',
+    legacyCanonicalName: 'МКУ «ЦЭР»',
     displayName: 'МКУ ЦЭР',
     shortName: 'МКУ ЦЭР',
     grbsId: 'УЭР',
