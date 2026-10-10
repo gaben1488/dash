@@ -126,3 +126,23 @@ test('order of source input does not change audit result', () => {
   const newer = [row('after', 8, '10'), row('after', 22, '19')];
   assert.deepEqual(result(older, newer), result([...older].reverse(), [...newer].reverse()));
 });
+
+test('two approved decisions cannot assign one UUID to distinct entities', () => {
+  const a = row('before', 1, '1'), b = row('before', 2, '2');
+  const c = row('after', 1, '1'), d = row('after', 2, '2');
+  const decision = (from, to) => ({
+    from: observationKey(from), to: observationKey(to),
+    fromHash: A, toHash: A, entityId: 'UUID-SAME',
+  });
+  const out = result([a, b], [c, d], [decision(a, c), decision(b, d)]);
+  assert.equal(out.summary.confirmedLinks, 1);
+  assert.ok(out.conflicts.some(x => x.kind === 'decision_reuses_identity'));
+});
+
+test('mixed source snapshots on one side fail closed', () => {
+  assert.throws(() => result(
+    [row('before', 1, '1'), row('another-old', 2, '2')],
+    [row('after', 3, '3')],
+  ), /mixed snapshotIds/);
+  assert.throws(() => result([row('same', 1, '1')], [row('same', 2, '1')]), /different snapshotIds/);
+});
