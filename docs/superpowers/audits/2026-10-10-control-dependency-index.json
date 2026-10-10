@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 25,
+  "scannedPaths": 33,
   "errors": [],
   "records": [
     {
@@ -246,6 +246,54 @@
       "path": "packages/core/src/monitoring/cells.ts",
       "sha": "95e7a6ffbb95b7b90a2531f786a80d25a4965e3c",
       "loc": 171,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/cross-check.ts",
+      "sha": "f308e53c467e86b9d7ca5b0b9415a63b1c8ef485",
+      "loc": 354,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/directory.ts",
+      "sha": "1f927b84c7b4bfbb74dab8c74b6cf457d6de7b15",
+      "loc": 335,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/journal.ts",
+      "sha": "46ac1801e805261b2d3a8db9b29ceef37926c4d5",
+      "loc": 388,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/procedures.ts",
+      "sha": "c7c6644bd5832fdba206a0799acc21430f762af6",
+      "loc": 908,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/signals.ts",
+      "sha": "d1609a29b7a9fc4da0996008b4496ea9aec14bcd",
+      "loc": 459,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/svod.ts",
+      "sha": "32bafdadd1c858fb9ed61e2e999814f471d85508",
+      "loc": 373,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/triple-check.ts",
+      "sha": "94a68a960b435a7608298a39d626388187d3e16d",
+      "loc": 873,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/winner.ts",
+      "sha": "b8b443ed9df39459ade6756ec94e695f88338473",
+      "loc": 145,
       "refs": {}
     }
   ]
