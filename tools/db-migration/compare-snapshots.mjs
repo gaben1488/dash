@@ -16,7 +16,8 @@ if (!oldPath || !newPath) {
     });
     const output = JSON.stringify(result, null, 2) + '\n';
     if (reportPath) writeFileSync(reportPath, output, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-    else process.stdout.write(output);
+    // Avoid spilling file IDs or observation locators into shared build logs.
+    process.stdout.write(JSON.stringify(result.summary, null, 2) + '\n');
     if (result.summary.conflicts || result.summary.unresolvedOld || result.summary.unresolvedNew) process.exitCode = 1;
   } catch (error) {
     process.stderr.write('Migration audit input error: ' + String(error?.message ?? error) + '\n');
