@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getGrbs, resolveGrbsAlias } from './grbs-registry';
 import { SUBORDINATE_REGISTRY } from './subordinate-registry';
+import { getDept } from '../department-registry';
 
 /** Снимок только восьми публикуемых названий, без строк организаций или ID таблиц. */
 const ACTIVE: ReadonlyArray<readonly [Parameters<typeof getGrbs>[0], string, string]> = [
@@ -19,6 +20,8 @@ describe('округ: действующее полное имя и истори
     expect(ACTIVE).toHaveLength(8);
     for (const [id, current] of ACTIVE) {
       expect(getGrbs(id).fullName).toBe(current);
+      const departmentId = id === 'УАГиЗО' ? 'УАГЗО' : id;
+      expect(getDept(departmentId).fullName).toBe(current);
       expect(resolveGrbsAlias(current)).toBe(id);
     }
   });
