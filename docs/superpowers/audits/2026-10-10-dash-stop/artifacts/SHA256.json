@@ -1,0 +1,52 @@
+[
+  {
+    "file": "artifacts/Dash-design.md",
+    "bytes": 10831,
+    "sha256": "7139b1a79511ac927f5d91435be34ff3ebe47e5180def23e01b2eaec6b8ccef2"
+  },
+  {
+    "file": "artifacts/Dash.html",
+    "bytes": 343257,
+    "sha256": "61cc57d270b82f788c5001db9f09feabdee44cd72b5ea7ee66af5777cf684617"
+  },
+  {
+    "file": "artifacts/dash-report-20261010.jpg",
+    "bytes": 108776,
+    "sha256": "52c313017aaa4e3779a40a660de00ad7cdbb1a67cbadc68aa27c0d45c79226c9"
+  },
+  {
+    "file": "artifacts/dash-light-final-20261010.jpg",
+    "bytes": 85034,
+    "sha256": "ecc0f935aebeae8e9bdb733910c4740a48eb9edba781b8ee00f0e90ade6fd72c"
+  },
+  {
+    "file": "artifacts/Dash-preview.jpg",
+    "bytes": 83889,
+    "sha256": "4f75548793c65d3ad2d9cb022c1869712e2a625f918b6a2375c22cf1b5c391e1"
+  },
+  {
+    "file": "artifacts/Dash-source.zip",
+    "bytes": 375615,
+    "sha256": "e5c809ce1ad279bf81cd214602a9f7e2c59046871a910f0b94589f12c80f8654"
+  },
+  {
+    "file": "artifacts/Dash-QA.md",
+    "bytes": 9072,
+    "sha256": "e01e5d1db01b0c4f06f8acda1679f897427b7c0765b7e680c71d3da057a6781a"
+  },
+  {
+    "file": "artifacts/PROCUREMENT_ARCHITECTURE_AUDIT_2026-10-10.md",
+    "bytes": 34492,
+    "sha256": "494306522ca0df14ae0cfcf5ac54bfa936b920c0a5e528eefb77bf418b1cef50"
+  },
+  {
+    "file": "artifacts/PROCUREMENT_WORKFLOW_2026-10-10.md",
+    "bytes": 17388,
+    "sha256": "42c6346963462782d62b53c280b2bec78480d04e143baa92e6832ffe60c132e3"
+  },
+  {
+    "file": "artifacts/DASH_DATA_STRUCTURE_RU_2026-10-10.md",
+    "bytes": 23990,
+    "sha256": "e42a0e7fd564dfc668e37554ddcb832096e963d6467ddf07552bf23bccabb254"
+  }
+]

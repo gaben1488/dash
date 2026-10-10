@@ -1,0 +1,14 @@
+{
+  "gallery": {
+    "path": "docs/superpowers/mockups/zarya-vystavka.html",
+    "sha256": "0cd437b8b28bab70d2efb2799c3e4d11b32c92adda9375af160ecd0e23ab7770"
+  },
+  "organizations": {
+    "path": "packages/web/src/index.css",
+    "sha256": "f0b87837bf39352021e7a40056242eb52864593469011715fcfe4d98de542b65"
+  },
+  "filters": {
+    "path": "packages/web/src/store.ts",
+    "sha256": "0b4e44dd109257f071fcfda1622f19c4942b37d2409bacbab218fb43ace9d470"
+  }
+}

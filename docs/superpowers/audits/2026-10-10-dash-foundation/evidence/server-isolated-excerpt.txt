@@ -1,0 +1,59 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+ RUN  v4.1.11 /workspace/scratch/76db5b439005/dash-stop-handoff/packages/server
+
+ ❯ src/services/weekly-table-context.test.ts (4 tests | 4 failed) 19741ms
+     × привязывает шапки, формулы и все процедурные листы к тому же snapshot.id 6911ms
+     × несовпадение хотя бы одной master-строки с уже сохранённым rowsByDept запрещает seal 5021ms
+     × отсутствие формульного чтения хотя бы одной книги запрещает seal 7089ms
+     × неполный процедурный периметр запрещает seal независимо от заявленного expectedSheets 707ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > привязывает шапки, формулы и все процедурные листы к тому же snapshot.id
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/services/weekly-table-context.test.ts:98:3
+     96|
+     97| describe('sealWeeklyTableContext — недельный snapshot таблиц', () => {
+     98|   it('привязывает шапки, формулы и все процедурные листы к тому же sna…
+       |   ^
+     99|     const { snapshotModule, monitoring, createdAt, readContext } = awa…
+    100|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > несовпадение хотя бы одной master-строки с уже сохранённым rowsByDept запрещает seal
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/services/weekly-table-context.test.ts:113:3
+    111|   });
+    112|
+    113|   it('несовпадение хотя бы одной master-строки с уже сохранённым rowsB…
+       |   ^
+    114|     const { snapshotModule, monitoring, readContext } = await fixture(…
+    115|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > отсутствие формульного чтения хотя бы одной книги запрещает seal
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/services/weekly-table-context.test.ts:121:3
+    119|   });
+    120|
+    121|   it('отсутствие формульного чтения хотя бы одной книги запрещает seal…
+       |   ^
+    122|     const { snapshotModule, monitoring, readContext } = await fixture(…
+    123|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > неполный процедурный периметр запрещает seal независимо от заявленного expectedSheets
+AssertionError: expected { …(4) } to be undefined
+
+
+[Fixture value omitted; assertion expected undefined, received weeklyTableContext.]
+ Test Files  1 failed | 1 passed (2)
+      Tests  4 failed | 5 passed (9)
+   Duration  28.03s (transform 11.51s, setup 0ms, import 861ms, tests 24.22s, environment 1ms)

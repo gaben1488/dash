@@ -1,0 +1,8 @@
+
+/workspace/scratch/76db5b439005/dash-stop-handoff/docs/superpowers/mockups/dash-consolidated/src/styles.css (imported by main.jsx)
+  line 2: [overused-font] font-family:Inter
+    → Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.
+  line 1: [overused-font] Google Fonts: inter
+    → Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.
+
+2 anti-patterns found.

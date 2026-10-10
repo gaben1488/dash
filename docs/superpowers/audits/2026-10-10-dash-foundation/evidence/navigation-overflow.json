@@ -1,0 +1,26 @@
+{
+  "source": "docs/superpowers/mockups/pulse.html",
+  "method": "read-only DOM measurement after keyboard End in navigation drum",
+  "viewport": {
+    "width": 1363,
+    "height": 936
+  },
+  "labels": [
+    {
+      "text": "Не обеспеченные",
+      "clientWidth": 105,
+      "scrollWidth": 117
+    },
+    {
+      "text": "В течение года",
+      "clientWidth": 95,
+      "scrollWidth": 103
+    },
+    {
+      "text": "Мониторинг",
+      "clientWidth": 84,
+      "scrollWidth": 90
+    }
+  ],
+  "note": "Prototype only; not a measurement of current React app"
+}
