@@ -238,7 +238,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/rows/:deptId/:rowIndex', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const idx = parseInt(rowIndex, 10);
+    const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
@@ -264,7 +264,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     if (!Number.isInteger(idx)) {
       return reply.status(400).send({ error: `Номер строки «${rowIndex}» не похож на число` });
     }
-    if (idx < 2 || idx - 1 >= rawRows.length) {
+    if (idx <= DEPT_HEADER_ROWS || idx - 1 >= rawRows.length) {
       return reply.status(404).send({
         error: `Строки ${idx} в книге управления «${dept.nameShort}» нет — сейчас там ${rawRows.length} строк`,
       });
@@ -502,7 +502,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.post('/api/data/rows', async (request, reply) => {
     const body = request.body as {
-      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>;
+      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRevision?: string }>;
     };
 
     if (!body?.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
@@ -555,9 +555,40 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
 
-      // Ленивый резолв РЕАЛЬНОГО имени вкладки: только когда есть что писать
-      // (после всех валидаций) — невалидные запросы отклоняются без сетевого вызова.
-      let sheetName: string | null = null;
+      const expectedRevision = entry.expectedRevision;
+      if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
+          process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
+        for (const field of Object.keys(entry.changes)) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: 'Обновите реестр: исходная версия строки отсутствует' });
+        }
+        continue;
+      }
+      await withRowWriteLock(`${spreadsheetId}:${entry.rowIndex}`, async () => {
+        let sheetName: string | null = null;
+        let originalRow: unknown[];
+        if (expectedRevision) {
+          try {
+            sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
+            originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+          } catch (readErr) {
+            app.log.warn({ err: readErr }, 'batch-save: source preflight failed');
+            for (const field of Object.keys(entry.changes)) {
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+                success: false, error: 'Исходная строка не прочитана — запись не выполнялась' });
+            }
+            return;
+          }
+          if (rowRevision(originalRow) !== expectedRevision) {
+            for (const field of Object.keys(entry.changes)) {
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+                success: false, error: 'Строка изменена или перемещена — перечитайте реестр; запись не выполнялась' });
+            }
+            return;
+          }
+        } else {
+          originalRow = [...(getDeptSheetValues()[dept.nameShort]?.[entry.rowIndex - 1] ?? [])];
+        }
 
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
@@ -624,6 +655,22 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const cellAddress = `${field}${entry.rowIndex}`;
+        const oldValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+        try {
+          db.insert(schema.auditLog).values({
+            action: 'batch_cell_edit_intent', entity: 'row',
+            entityId: `${entry.deptId}:${entry.rowIndex}:${field}`,
+            departmentId: entry.deptId, rowIndex: entry.rowIndex, field,
+            oldValue: String(oldValue ?? ''), newValue: String(normalizedValue ?? ''),
+            details: JSON.stringify({ expectedRevision: expectedRevision ?? null }),
+            timestamp: now,
+          }).run();
+        } catch (logErr) {
+          app.log.error({ err: logErr }, 'batch-save: audit intent unavailable');
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: 'Журнал изменений недоступен — ячейка не изменялась' });
+          continue;
+        }
 
         try {
           sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
@@ -641,11 +688,13 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               departmentId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
+              oldValue: String(oldValue ?? ''),
               newValue: String(normalizedValue ?? ''),
               details: JSON.stringify({
                 department: entry.deptId,
                 row: entry.rowIndex,
                 field,
+                oldValue,
                 newValue: normalizedValue,
                 updatedRange: writeResult.updatedRange,
                 batchSave: true,
@@ -653,7 +702,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               timestamp: now,
             }).run();
           } catch (logErr) {
-            app.log.warn({ logErr }, 'batch-save: failed to write audit log');
+            app.log.error({ err: logErr }, 'batch-save: source saved but confirmation audit failed');
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false,
+              error: 'Ячейка записана в источник, но подтверждение в журнале не сохранилось — обновите реестр, не повторяйте правку вслепую',
+            });
+            continue;
           }
 
           results.push({
@@ -678,6 +732,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           });
         }
       }
+      });
     }
 
     const totalChanges = results.length;
