@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Command } from 'cmdk';
-import { Check, CircleHelp, Command as CommandIcon, Eye, Layers, Search, ShieldAlert, SlidersHorizontal, X } from 'lucide-react';
+import { Check, CircleHelp, Command as CommandIcon, Layers, Search, ShieldAlert, X } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { FINISHES, ORIGINAL_FAMILIES, type FamilyId, type FinishId, type NavSection } from './catalog';
 import type { LabPreset } from './presets';
-import { LAB_DEMO_ROWS, LAB_DEMO_TOTAL_THOUSANDS } from './demo-data';
+import { LAB_DEMO_ROWS } from './demo-data';
 import { getChartColors } from '@/lib/chart-colors';
 import { AURORA_STATES, AURORA_VARIANTS, auroraColors, auroraMatrix, familyMatrix, type AuroraVariantId, type AuroraState } from './aurora-research';
 import { AtomAtlas } from './AtomAtlas';
