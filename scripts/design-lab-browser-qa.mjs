@@ -122,6 +122,93 @@ try {
     assert.equal(patternCount, 14);
     report.scenarios.push('recipe-gallery-' + viewport.width);
 
+
+    // Newly researched historical azure, saved original geometry and Pulse hero.
+    await tab(page, 'Мастерская продукта');
+    await page.waitForSelector('.dr-aurora-stage', { timeout: 30000 });
+    const auroraBaseline = await page.evaluate(() => ({
+      variants: document.querySelectorAll('.dr-variant-grid button').length,
+      familyPairs: document.querySelectorAll('.dr-family-grid button').length,
+      contrast: document.querySelector('.dr-readable')?.getAttribute('data-valid'),
+      exactTop: document.querySelector('.dr-aurora-stage')?.style.getPropertyValue('--dr-top'),
+    }));
+    assert.equal(auroraBaseline.variants, 5);
+    assert.equal(auroraBaseline.familyPairs, 39);
+    assert.equal(auroraBaseline.contrast, 'true');
+    assert.equal(auroraBaseline.exactTop, '#5b99f8');
+    await capture(page, '06-azure-recovered-' + viewport.width);
+    report.scenarios.push('historical-azure-and-39-source-pairs-' + viewport.width);
+
+    await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('.dr-variant-grid button')];
+      const history = buttons.find(b => b.textContent?.includes('7 августа'));
+      if (!history) throw new Error('Historical blue/cream proof missing');
+      history.click();
+    });
+    assert.equal(await page.$eval('.dr-readable', el => el.getAttribute('data-valid')), 'false',
+      'Historical white-on-blue must NOT silently be accepted');
+    await page.evaluate(() => {
+      const recovered = [...document.querySelectorAll('.dr-variant-grid button')]
+        .find(b => b.textContent?.includes('Восстановленная лазурь'));
+      recovered.click();
+    });
+    assert.equal(await page.$eval('.dr-readable', el => el.getAttribute('data-valid')), 'true');
+    report.scenarios.push('inaccessible-history-rejected-' + viewport.width);
+
+    await page.evaluate(() => {
+      const target = [...document.querySelectorAll('.dr-view-tabs button')]
+        .find(b => b.textContent?.includes('Большой круг'));
+      if (!target) throw Error('Missing Pulse experiment');
+      target.click();
+    });
+    await page.waitForSelector('.dr-pulse-composition[data-layout="hero"] .recharts-wrapper', { timeout: 30000 });
+    const pulseBefore = await page.evaluate(() => ({
+      sum: document.querySelector('.dr-pulse-center strong')?.textContent,
+      layout: document.querySelector('.dr-pulse-composition')?.getAttribute('data-layout'),
+      segments: document.querySelectorAll('.dr-pulse-legend button[aria-label^="Открыть состав"]').length,
+    }));
+    assert.equal(pulseBefore.layout, 'hero');
+    assert.ok(pulseBefore.sum?.includes('13'));
+    assert.equal(pulseBefore.segments, 2);
+    await capture(page, '07-pulse-hero-' + viewport.width);
+    await page.evaluate(() => {
+      const button = document.querySelector('button[aria-label="Открыть состав УО"]');
+      if (!button) throw Error('Department drill missing');
+      button.click();
+    });
+    await page.waitForFunction(() => document.querySelector('.dr-pulse-heading h3')?.textContent === 'Состав УО');
+    const deepTotal = await page.$eval('.dr-pulse-center strong', el => el.textContent);
+    assert.ok(deepTotal.includes('5') && deepTotal.includes('820'));
+    const back = await page.$('.dr-back');
+    assert.ok(back);
+    await back.click();
+    await page.waitForFunction(() => document.querySelector('.dr-pulse-heading h3')?.textContent === 'Доли по управлениям');
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('.dr-pulse-units button')].find(b => b.textContent === 'млн ₽');
+      btn.click();
+    });
+    const millions = await page.$eval('.dr-pulse-center strong', el => el.textContent);
+    assert.ok(millions?.includes('13,62'));
+    report.scenarios.push('pulse-large-drill-and-units-' + viewport.width);
+
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyK');
+    await page.keyboard.up('Control');
+    await page.waitForSelector('[role="dialog"][aria-label="Поиск действий"]', { timeout: 10000 });
+    await page.evaluate(() => {
+      const command = [...document.querySelectorAll('[cmdk-item]')]
+        .find(el => el.textContent?.includes('Изучить механики'));
+      if (!command) throw Error('No keyboard-reachable workflow action');
+      command.click();
+    });
+    await page.waitForFunction(() => document.querySelector('.dr-workflow-grid') !== null);
+    const dialogGone = await page.$('[role="dialog"][aria-label="Поиск действий"]');
+    assert.equal(dialogGone.length, 0);
+    await capture(page, '08-product-mechanics-' + viewport.width);
+    report.scenarios.push('keyboard-command-palette-' + viewport.width);
+    const noWholeOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2);
+    assert.ok(noWholeOverflow, 'Product research creates whole page horizontal overflow at ' + viewport.width);
+
     if (viewport.width === 1280 || viewport.width === 390) {
       await tab(page, 'Исходные HTML');
       await page.waitForSelector('iframe[title^="Архивный оригинал"]', { timeout: 30000 });
