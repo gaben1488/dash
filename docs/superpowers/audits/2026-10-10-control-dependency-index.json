@@ -1,0 +1,102 @@
+{
+  "schema": "dash-control-dependency-index-v1",
+  "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
+  "ref": "codex/dash-control-signal-rethink-20261010",
+  "expectedSourcePaths": 85,
+  "scannedPaths": 9,
+  "errors": [],
+  "records": [
+    {
+      "path": "packages/core/src/analytics/anomaly-detection.ts",
+      "sha": "6f0436e2b9e11b8ee3b4f6ff19897776079c787b",
+      "loc": 1222,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/anomaly.ts",
+      "sha": "373ffaf1bafbc94ff9ccb18116ef8b4b9eeef595",
+      "loc": 206,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/anticorruption.ts",
+      "sha": "b26ab30b46e5bc5dcd41bdcf295d5d27c60e2d47",
+      "loc": 261,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/centralization.ts",
+      "sha": "161c1b2b82ff68fe11ea0fe42a25468398c9b4e6",
+      "loc": 162,
+      "refs": {
+        "actions": {
+          "count": 2,
+          "lines": [
+            47,
+            149
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/compliance-44fz.ts",
+      "sha": "79c1bd07e0c1e2326ad3b4b0cbd62763b31747d2",
+      "loc": 244,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/data-quality.ts",
+      "sha": "0a22af1a155b0e1d405a2c84c4774bcb228b8d37",
+      "loc": 91,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            12,
+            15
+          ]
+        },
+        "signals": {
+          "count": 2,
+          "lines": [
+            57,
+            58
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            4,
+            11,
+            42
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/discipline-index.ts",
+      "sha": "6f01119005084fceae188e22ea8e84eaf09b9aef",
+      "loc": 92,
+      "refs": {
+        "scores": {
+          "count": 1,
+          "lines": [
+            45
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/ep-justification.ts",
+      "sha": "8b0f5bc98f572ccf72b7e8edf2f29022a18c2f79",
+      "loc": 351,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/forecast.ts",
+      "sha": "9fb8e20eea4cb50642125ca4d34f6eeba4d51322",
+      "loc": 190,
+      "refs": {}
+    }
+  ]
+}
