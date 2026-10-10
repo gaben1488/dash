@@ -161,6 +161,12 @@ export function productDayParts(now: Date = new Date()): DayParts {
   return { y: shifted.getUTCFullYear(), m: shifted.getUTCMonth() + 1, d: shifted.getUTCDate() };
 }
 
+/** ISO date label in the jurisdiction's calendar, independent of viewer timezone. */
+export function productTodayIso(now: Date = new Date()): string {
+  const { y, m, d } = productDayParts(now);
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 /**
  * Месяц позже текущего? Текущий месяц будущим НЕ считается. `now` — момент
  * (часы зрителя любые), календарный день из него берётся по продуктовому
