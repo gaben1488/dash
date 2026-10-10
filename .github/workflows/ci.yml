@@ -112,7 +112,7 @@ jobs:
       - name: Biome check
         run: pnpm biome:check || true
 
-  deploy-scope:
+  deploy_scope:
     name: Classify push before deploying
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -131,8 +131,8 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    needs: [verify, report-engine, server-image, deploy-scope]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.deploy-scope.outputs.runtime_changed == 'true'
+    needs: [verify, report-engine, server-image, deploy_scope]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.deploy_scope.outputs.runtime_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
