@@ -58,6 +58,7 @@ import { formatPct } from '../lib/economy/format';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { subordinateLabel } from '../lib/subordinate-label';
 import { restoreEditorPage, sameEditorSource, type EditorDraft } from '../lib/rows/editor-drafts';
+import { parseEditorNumber } from '../lib/rows/editor-number';
 import {
   REGISTRY_SLICE_PRESETS,
   findSlicePreset,
@@ -504,10 +505,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   }, []);
 
   /** Проверка числового поля редактора — одна на все денежные колонки. */
-  const moneyCell = useCallback((v: unknown): string | null => {
-    if (v === null || v === '' || v === undefined) return null;
-    return isNaN(parseFloat(String(v))) ? 'Ожидается число, например 1250,50' : null;
-  }, []);
+  const moneyCell = useCallback((v: unknown): string | null =>
+    typeof parseEditorNumber(v) === 'string' ? 'Ожидается целое число или дробь, например 1250,50' : null, []);
 
   const defaultEditorColumns: ColumnConfig[] = useMemo(() => [
     // Ширины — стартовые: столбцы редактора тянутся мышью, и выбор пользователя
@@ -536,11 +535,16 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   ], [moneyCell]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */
-  const sumBudgets = useCallback((row: RowData, keys: string[]): number => {
-    return keys.reduce((acc, key) => {
-      const n = parseFloat(String(row[key] ?? ''));
-      return acc + (isNaN(n) ? 0 : n);
-    }, 0);
+  const sumBudgets = useCallback((row: RowData, keys: string[]): number | null => {
+    let total = 0;
+    for (const key of keys) {
+      const value = parseEditorNumber(row[key]);
+      // Incomplete input means the derived total is UNKNOWN, not an invented
+      // amount from parseFloat('12abc') or an invalid cell silently counted 0.
+      if (typeof value === 'string') return null;
+      total += value ?? 0;
+    }
+    return total;
   }, []);
 
   const handleEditorCellChange = useCallback((rowId: string, colKey: string, value: unknown) => {

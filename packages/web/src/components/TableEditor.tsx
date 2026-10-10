@@ -7,6 +7,7 @@ import {
 import clsx from 'clsx';
 import { formatDateCell } from '../lib/sheet-date';
 import { pluralRu } from '../lib/economy-copy';
+import { parseEditorNumber } from '../lib/rows/editor-number';
 
 // ────────────────────────────────────────────────────────────
 // Типы
@@ -639,13 +640,7 @@ export function TableEditor({
 
     let parsedValue: unknown = editValue;
     if (col?.type === 'number' || col?.type === 'currency') {
-      const cleaned = editValue.replace(/\s/g, '').replace(/,/g, '.').replace(/₽/g, '').trim();
-      if (cleaned === '' || cleaned === EMPTY_CELL) {
-        parsedValue = null;
-      } else {
-        const num = parseFloat(cleaned);
-        parsedValue = isNaN(num) ? editValue : num;
-      }
+      parsedValue = parseEditorNumber(editValue);
     }
 
     const errKey = `${rowId}:${colKey}`;
