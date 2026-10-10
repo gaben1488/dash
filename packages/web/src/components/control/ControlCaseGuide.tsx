@@ -87,7 +87,7 @@ export function ControlCaseGuide({ item, onClose, onOpenEvidence, onOpenRegistry
               <ul className="space-y-2" aria-label="Исходные замечания по делу">
                 {item.evidence.map((issue) => (
                   <li key={issue.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200/70 dark:border-zinc-700/60 px-3 py-2">
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200/70 dark:border-transparent bg-zinc-50/60 dark:bg-white/[0.05] px-3 py-2">
                     <div className="min-w-[160px] flex-1">
                       <p className="text-xs text-zinc-800 dark:text-zinc-100">{issue.title}</p>
                       <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
