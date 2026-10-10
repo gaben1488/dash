@@ -153,6 +153,7 @@ REVIEWS[0].update(
 directory_review = next(p for p in REVIEWS if p['sheet'] == 'Справочник заказчиков')
 directory_review.update(
     sheet_id=837564274,
+    reason='Reviewed 2026-10-10: 13 ZMO evidence fields appended to the unchanged 19-column customer-directory header; no historical rows or identities rewritten.',
     columns=32,
     fingerprint='1d9f66c2f5372d0c4dc6f3064561018fb1584adcc438527354b3d2380e9f4064',
     semantic='a20ac644d7f02ead1920415bf1c322040ac7b1cb19bd6df8bb2678234b60db7b',
@@ -240,7 +241,7 @@ def review_registry(original, sealed, client):
         updated = {**source, 'sheet': patch['sheet'], 'columns': patch['columns'],
             'header_rows': patch['header_rows'], 'schema_fingerprint': patch['fingerprint'],
             'semantic_header_fingerprint': patch['semantic'],
-            'previous_semantic_header_fingerprint': prior[1] if prior and prior[1] != patch['semantic'] else source.get('previous_semantic_header_fingerprint', patch['previous_semantic']), 'schema_change_reason': REASON}
+            'previous_semantic_header_fingerprint': prior[1] if prior and prior[1] != patch['semantic'] else source.get('previous_semantic_header_fingerprint', patch['previous_semantic']), 'schema_change_reason': patch.get('reason', REASON)}
         if patch['volatile_cells']:
             updated['volatile_header_cells'] = patch['volatile_cells']
         if source != updated:
