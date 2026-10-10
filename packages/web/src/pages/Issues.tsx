@@ -290,12 +290,18 @@ export function IssuesPage() {
    * но переход, о разделе не просивший, открывать вкладку не тем разделом не
    * должен.
    */
+  const issuesSectionSeed = useStore(s => s.issuesSectionSeed);
   const [view, setView] = useState<'checks' | 'hygiene' | 'formulas'>(
     () => useStore.getState().issuesSectionSeed ?? 'checks',
   );
+  // A source link may target a different sub-section while IssuesPage remains
+  // mounted. The old one-shot effect left the wrong list displayed.
   useEffect(() => {
-    if (useStore.getState().issuesSectionSeed) useStore.getState().clearIssuesSectionSeed();
-  }, []);
+    if (issuesSectionSeed) {
+      setView(issuesSectionSeed);
+      useStore.getState().clearIssuesSectionSeed();
+    }
+  }, [issuesSectionSeed]);
   const [sevFilter, setSevFilter] = useState<Set<Severity>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
