@@ -327,11 +327,21 @@ export function SettingsPage() {
     }
     setSaveSourceFeedback(prev => ({ ...prev, [srcId]: { state: 'loading' } }));
     try {
-      await api.updateSource(srcName, value);
+      const response: { success?: boolean; persisted?: boolean; message?: string } =
+        await api.updateSource(srcName, value);
+      if (response.success !== true) throw new Error('Сервер не подтвердил изменение источника');
       setSources(prev => prev.map(s => s.id === srcId ? { ...s, spreadsheetId: value } : s));
       setEditingSource(null);
-      setSaveSourceFeedback(prev => ({ ...prev, [srcId]: { state: 'success', message: 'Сохранено' } }));
-      setTimeout(() => setSaveSourceFeedback(prev => ({ ...prev, [srcId]: { state: 'idle' } })), 3000);
+      const persistent = response.persisted === true;
+      setSaveSourceFeedback(prev => ({ ...prev, [srcId]: {
+        state: persistent ? 'success' : 'error',
+        message: persistent
+          ? 'Адрес источника сохранён'
+          : response.message ?? 'Адрес действует только до перезапуска. Измените постоянную конфигурацию сервера.',
+      } }));
+      if (persistent) {
+        setTimeout(() => setSaveSourceFeedback(prev => ({ ...prev, [srcId]: { state: 'idle' } })), 3000);
+      }
     } catch (err) {
       setSaveSourceFeedback(prev => ({ ...prev, [srcId]: { state: 'error', message: humanizeRequestError(err) } }));
     }
