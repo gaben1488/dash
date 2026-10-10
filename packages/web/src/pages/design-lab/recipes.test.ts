@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { COMPONENT_INDEX, UI_RECIPES, searchRecipes } from './recipes';
 
@@ -26,6 +26,15 @@ describe('Dash recipe library: source-backed and extensible', () => {
       expect(recipe.components.length).toBeGreaterThan(0);
       expect(recipe.components.every(x => known.has(x)), recipe.id).toBe(true);
     }
+  });
+
+  it('stays behind the original development-only Kit rather than a production route', () => {
+    const entry = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8');
+    const kit = readFileSync(new URL('../Kit.tsx', import.meta.url), 'utf8');
+    expect(entry).toContain('import.meta.env.DEV');
+    expect(entry).toContain("import('./pages/Kit')");
+    expect(entry).not.toContain('PatternGallery');
+    expect(kit).toContain("import { DesignLabPage } from './DesignLab'");
   });
 
   it('searches use cases and mistakes in Russian without modifying the source catalogue', () => {
