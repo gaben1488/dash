@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 33,
+  "scannedPaths": 41,
   "errors": [],
   "records": [
     {
@@ -294,6 +294,86 @@
       "path": "packages/core/src/monitoring/winner.ts",
       "sha": "b8b443ed9df39459ade6756ec94e695f88338473",
       "loc": 145,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/anomalies.ts",
+      "sha": "536c248cc992195f12e32f8b83a8e2396562a142",
+      "loc": 392,
+      "refs": {
+        "signals": {
+          "count": 2,
+          "lines": [
+            13,
+            241
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/pipeline/dataset-signals.ts",
+      "sha": "d1486f68b6189220ad16031e78087b546d6b1f2b",
+      "loc": 719,
+      "refs": {
+        "signals": {
+          "count": 5,
+          "lines": [
+            18,
+            462,
+            499,
+            550,
+            551
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/pipeline/input-control.ts",
+      "sha": "8268f87269bd43a4e8939a61f71122a587740df5",
+      "loc": 268,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/issue-identity.ts",
+      "sha": "cdcb750e688dfa46f854a40d6349e6a39b330db7",
+      "loc": 65,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            9
+          ]
+        },
+        "checks": {
+          "count": 1,
+          "lines": [
+            12
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/pipeline/monitoring-match.ts",
+      "sha": "6617219e875fd698b24b09a66c450348b4f3f370",
+      "loc": 335,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/normalizer-rules.ts",
+      "sha": "8d2deb4e435b43322b405655ea689231a2683ede",
+      "loc": 353,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/recon-causes.ts",
+      "sha": "01a3f1bc941e7611371c580bd75a0e37c2fdcdfe",
+      "loc": 140,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/recon-classify.ts",
+      "sha": "6cb830d229185cc57b125654b301eba89bbc31a3",
+      "loc": 466,
       "refs": {}
     }
   ]
