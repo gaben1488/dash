@@ -1,0 +1,55 @@
+name: Dash source-parity HTML preview
+on:
+  push:
+    branches:
+      - codex/dash-source-parity-preview-20261010
+    paths:
+      - 'packages/web/src/preview/**'
+      - 'packages/web/src/components/source-drum/**'
+      - 'packages/web/src/components/Header.tsx'
+      - 'packages/web/src/App.tsx'
+      - 'packages/web/src/components/ResponsiveOrganizations.tsx'
+      - 'packages/web/src/components/responsive-organizations.css'
+      - 'packages/web/preview.html'
+      - 'packages/web/vite.preview.config.ts'
+      - 'packages/web/scripts/build-source-preview.mjs'
+      - '.github/workflows/dash-source-parity-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install locked monorepo
+        run: pnpm install --frozen-lockfile
+      - name: Build real React app with read-only synthetic API
+        run: pnpm --dir packages/web exec vite build --config vite.preview.config.ts
+      - name: Pack actual routes to one HTML
+        run: node packages/web/scripts/build-source-preview.mjs
+      - name: Check all production route and subtab gates
+        run: node --test packages/web/src/preview/contract.test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dash-source-bound-interactive-HTML
+          path: docs/superpowers/mockups/dash-source-parity/Dash-source-bound-preview.html
+          if-no-files-found: error
+      - name: Publish built HTML to isolated preview branch only
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/dash-source-parity-preview-20261010'
+        run: |
+          git config user.name 'dash-preview-bot'
+          git config user.email 'dash-preview-bot@users.noreply.github.com'
+          git add -f docs/superpowers/mockups/dash-source-parity/Dash-source-bound-preview.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'build(preview): standalone original Dash React review'
+            git push origin HEAD:refs/heads/codex/dash-source-parity-preview-20261010
+          fi

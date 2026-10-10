@@ -9,9 +9,11 @@ import {
   CalendarX2, Repeat, Radar,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { SourceNavigation } from './source-drum/SourceNavigation';
+import './source-drum/source-header.css';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
-import { SelectionTokens } from './SelectionTokens';
+import { SourceFilterCorner } from './source-drum/SourceFilterCorner';
 import { ProvenanceHub } from './live/ProvenanceHub';
 import { LiveHistory } from './live/LiveHistory';
 import { useLiveEvents } from '../hooks/useLiveEvents';
@@ -716,7 +718,7 @@ const NAV_GROUPS: { name: string; ids: Page[] }[] = [
   { name: 'Надзор',  ids: ['quality', 'settings'] },
 ];
 
-function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Page) => void }) {
+export function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Page) => void }) {
   // Честные счётчики корзин (п.73в): числа считает сервер теми же предикатами,
   // что страницы-фильтры; null (нет ответа) — кнопка живёт БЕЗ числа, ноль
   // не выдумывается.
@@ -888,7 +890,7 @@ export function Header() {
       )}
 
       {/* ══════ ONE CONTINUOUS HORIZONTAL BAR ══════ */}
-      <div className="hbar">
+      <div className="hbar dash-source-layout">
         {/* 1. Shield Hub — animated logo with status */}
         <ShieldHub
           page={page}
@@ -899,7 +901,7 @@ export function Header() {
         />
 
         {/* 2. Nav pills — 6 horizontal buttons */}
-        <NavPills activePage={activePage} setPage={setPage} />
+        <SourceNavigation activePage={activePage as Page} setPage={setPage} />
 
         {/* 3. Time drums */}
         {showTime && (
@@ -909,7 +911,8 @@ export function Header() {
           </div>
         )}
 
-        {/* 4. Filter drums */}
+        {/* 4. Source design's second row: keep every production filter/handler. */}
+        <div className="dash-source-filters" role="group" aria-label="Фильтры и режимы расчёта">
         {showMethod && (
           <div className="vf-drum" role="group" aria-label="Способ закупки">
             {/* Симметрично кнопке ЕП: активный КП снимается, чужой выбор
@@ -1011,6 +1014,7 @@ export function Header() {
           </div>
         )}
 
+        </div>
         {/* Правый угол линейки (контракт пробы «угол», срез 1): эфир-история
             (мини-барабан правок с журналом) над жетонами состояния отбора.
             Заменил FilterBreadcrumb variant="inline" — умения строчных чипов
@@ -1018,7 +1022,7 @@ export function Header() {
             variant="panel" на Пульте живёт как жил. */}
         <div className="hdr-ugol">
           <LiveHistory />
-          <SelectionTokens />
+          <SourceFilterCorner />
         </div>
 
         {/* 5. Tools (right edge) — тема, сброс фильтров, узел провенанса */}
