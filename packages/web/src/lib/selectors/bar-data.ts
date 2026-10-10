@@ -38,7 +38,7 @@ export function buildBarData(depts: any[], opts: {
     // это различие держал с самого начала, денежный процент — нет
     // (реестр расхождений §2 «Ноль вместо „нет базы“»).
     let pct: number | null, plan = 0, fact = 0, kp = 0, ep = 0;
-    let execCountPct: number | null = null;
+    let execCountPct: number | null;
     let activityBreakdownAvailable = true;
 
     if (isActivityFiltered) {
