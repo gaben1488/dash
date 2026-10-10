@@ -132,10 +132,20 @@ try{
       overflowX:computed.overflowX,minWidth:computed.minWidth,maxWidth:computed.maxWidth,display:computed.display});
     current=current.parentElement;
   }
-  return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,nodes,ancestry};
+  const initialX=window.scrollX;
+  window.scrollTo({left:9999,top:0,behavior:'instant'});
+  const viewportScrolled=window.scrollX;
+  window.scrollTo({left:initialX,top:0,behavior:'instant'});
+  const localTableScroller=ancestry.find(x=>x.overflowX==='auto' && x.scrollWidth>x.clientWidth);
+  return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,
+    bodyScroll:document.body.scrollWidth,viewportScrolled,
+    localScroller:localTableScroller??null,nodes,ancestry};
  });
  report.mobile=widths;
- if(widths.scroll>widths.client+2)fail('Mobile page overflows: '+JSON.stringify(widths));
+ if(widths.viewportScrolled>2 || widths.bodyScroll>widths.client+2){
+   fail('Mobile viewport actually scrolls sideways: '+JSON.stringify(widths));
+ }
+ if(!widths.localScroller)fail('Full procurement table lacks internal horizontal scrolling: '+JSON.stringify(widths));
  await mobile.screenshot({path:out+'/mobile-pult.png',fullPage:true});
  report.screenshots.push('mobile-pult.png');
  await mobile.close();
