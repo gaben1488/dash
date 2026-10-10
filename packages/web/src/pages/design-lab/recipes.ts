@@ -60,7 +60,7 @@ export const UI_RECIPES: readonly UiRecipe[] = [
     criteria: ['Число не подменяет отсутствие данных нулём', 'У источника есть двойной адрес', 'Неудачная сверка содержит действие'],
     components: ['stat', 'origin', 'freshness'],
     status: 'production-parts',
-    code: "import { Stat } from '@/components/ui/stat';\nimport { FreshnessMark } from '@/components/ui/freshness';\nimport { Origin } from '@/components/ui/origin';\n\n<Stat label=\"План\" value=\"7 800\" unit=\"тыс. ₽\" scope=\"2026 · учебный пример\" />\n<Origin metric=\"План\" source=\"ДЕМО — книга\" howSourceCounts=\"Значение поля без пересчёта\" match=\"initiative\" sheetRef=\"Лист · D14\" rowAddress=\"строка 14 · № п/п 173/1\"><span>Откуда число</span></Origin>\n<FreshnessMark info={{ state: 'uncovered', reason: 'Сверка не настроена', whatToDo: 'Проверьте исходный лист' }} />",
+    code: "import { Stat } from '@/components/ui/stat';\nimport { FreshnessMark } from '@/components/ui/freshness';\nimport { Origin } from '@/components/ui/origin';\n\n<Stat label=\"План\" value=\"4 200\" unit=\"тыс. ₽\" scope=\"2026 · учебный пример\" />\n<Origin metric=\"План\" source=\"ДЕМО — книга\" howSourceCounts=\"Значение поля без пересчёта\" match=\"initiative\" sheetRef=\"Лист · D14\" rowAddress=\"строка 14 · № п/п 173/1\"><span>Откуда число</span></Origin>\n<FreshnessMark info={{ state: 'uncovered', reason: 'Сверка не настроена', whatToDo: 'Проверьте исходный лист' }} />",
   },
   {
     id: 'source-row', title: 'Строка и её проблема', category: 'Основания',
@@ -70,7 +70,7 @@ export const UI_RECIPES: readonly UiRecipe[] = [
     criteria: ['Номер 173/1 остаётся строкой', 'Признак формулы виден в заголовке', 'Проблема названа текстом'],
     components: ['data-table'],
     status: 'production-parts',
-    code: "import { DataTable, THead, TBody, Tr, Th, Td, RowAddress, RowSignals } from '@/components/ui/data-table';\n<DataTable caption=\"ДЕМО · реестр · 2026\">\n  <THead><Tr><Th>Адрес</Th><Th formula>Сумма</Th><Th>Что исправить</Th></Tr></THead>\n  <TBody><Tr signalTone=\"warn\"><Td><RowAddress row={14} seq=\"173/1\" /></Td><Td formula numeric>7 800</Td><Td><RowSignals signals={[{label:'Нужен источник',tone:'warn'}]} /></Td></Tr></TBody>\n</DataTable>",
+    code: "import { DataTable, THead, TBody, Tr, Th, Td, RowAddress, RowSignals } from '@/components/ui/data-table';\n<DataTable caption=\"ДЕМО · реестр · 2026\">\n  <THead><Tr><Th>Адрес</Th><Th formula>Сумма</Th><Th>Что исправить</Th></Tr></THead>\n  <TBody><Tr signalTone=\"warn\"><Td><RowAddress row={14} seq=\"173/1\" /></Td><Td formula numeric>4 200</Td><Td><RowSignals signals={[{label:'Нужен источник',tone:'warn'}]} /></Td></Tr></TBody>\n</DataTable>",
   },
   {
     id: 'triage', title: 'Провести человека через исправление', category: 'Рабочие действия',
