@@ -4,7 +4,7 @@
  * registry or requests a read; it NEVER claims a source edit or verified fix.
  */
 import { useState } from 'react';
-import { ArrowRight, BookOpen, CheckCircle2, ClipboardCheck, ExternalLink, RefreshCw, X } from 'lucide-react';
+import { ArrowRight, BookOpen, ClipboardCheck, ExternalLink, RefreshCw, X } from 'lucide-react';
 import type { ControlCase, ControlGuideStepId } from '@aemr/shared';
 import { buildControlCaseGuide } from '@aemr/shared';
 import clsx from 'clsx';
@@ -45,10 +45,10 @@ export function ControlCaseGuide({ item, onClose, onOpenEvidence, onOpenRegistry
       </div>
 
       <div className="px-4 pt-3">
-        <div role="tablist" aria-label="Шаги разбора" className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+        <div role="group" aria-label="Шаги разбора" className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
           {guide.steps.map((step, i) => (
-            <button key={step.id} type="button" role="tab"
-              aria-selected={step.id === selectedStep}
+            <button key={step.id} type="button"
+              aria-pressed={step.id === selectedStep}
               aria-controls="control-guide-step-panel"
               id={`control-guide-step-${step.id}`}
               onClick={() => setSelectedStep(step.id)}
