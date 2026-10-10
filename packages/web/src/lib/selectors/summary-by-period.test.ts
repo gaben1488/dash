@@ -34,6 +34,33 @@ describe('recalcSummaryByPeriod (извлечено из useFilteredData §11)',
     expect(s.q1.epCount).toBe(1);
   });
 
+  it('способ ЕП без активности: бюджетная раскладка тоже относится только к ЕП', () => {
+    const m = (plan: number, fact: number, amount: number, fb: number) => ({
+      plan, fact, planSum: amount, factSum: amount / 2,
+      planFB: fb, planKB: amount - fb, planMB: 0,
+      factFB: fb / 2, factKB: (amount - fb) / 2, factMB: 0,
+    });
+    const withSource = [{
+      quarters: { q1: { ...q1, planCount: 3, factCount: 2 } },
+      byActivity: { q1: { program: {
+        planCount: 3, factCount: 2,
+        byMethod: {
+          competitive: m(2, 1, 100, 80),
+          ep: m(1, 1, 40, 10),
+        },
+      } } },
+    }];
+    const s = recalcSummaryByPeriod(withSource, {
+      isActivityFiltered: false, actKeys: [], budgetPlanFact: noBudget,
+      showKP: false, showEP: true,
+    });
+    expect(s.q1).toMatchObject({
+      kpCount: 0, kpPlan: 0, epCount: 1, epPlan: 40,
+      fbPlan: 10, kbPlan: 30, mbPlan: 0,
+      fbFact: 5, kbFact: 15, mbFact: 0,
+    });
+  });
+
   it('activity-ветвь: квартальная сводка сохраняет КП и ЕП раздельно', () => {
     const m = (plan: number, fact: number, sum: number) => ({
       plan, fact, planSum: sum, factSum: sum / 2,
