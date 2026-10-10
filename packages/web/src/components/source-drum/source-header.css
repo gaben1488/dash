@@ -13,7 +13,7 @@
   min-height:0;
 }
 .hbar.dash-source-layout>.shield-hub{grid-area:shield;justify-self:center;align-self:center}
-.hbar.dash-source-layout>.dash-source-navigation{grid-area:navigation;width:100%;max-width:none;min-width:0}
+.hbar.dash-source-layout>.dash-source-navigation{grid-area:navigation;width:100%;max-width:none;min-width:0;z-index:30}
 .hbar.dash-source-layout>.time-machine{grid-area:time;min-width:0;justify-content:flex-start}
 .hbar.dash-source-layout>.hdr-ugol{grid-area:live;min-width:0;align-items:stretch;margin:0}
 .hbar.dash-source-layout>.nav-tools{grid-area:tools;min-width:0;margin:0;justify-content:flex-end}
