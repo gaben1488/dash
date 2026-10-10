@@ -53,6 +53,63 @@ describe('Design Lab pattern gallery', () => {
     expect(container.querySelector('.dl-pat-stage')).toBeNull();
   });
 
+  it('does not report a destructive demo action as completed before confirmation', () => {
+    render(<PatternGallery preset={DEFAULT_PRESET} />);
+    visit('Действие без ложного успеха');
+    expect(screen.queryByText('Строка помечена удалённой только в демо.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Запросить удаление' }));
+    expect(screen.getByRole('button', { name: 'Подтвердить в демо' })).toBeTruthy();
+    expect(screen.queryByText('Строка помечена удалённой только в демо.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Отказаться' }));
+    expect(screen.getByRole('button', { name: 'Запросить удаление' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Запросить удаление' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить в демо' }));
+    expect(screen.getByRole('status').textContent).toContain('Строка помечена удалённой');
+  });
+
+  it('keeps one worst freshness mark and exposes the full reasoning on demand', () => {
+    const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
+    visit('Один самый важный сигнал');
+    expect(container.querySelectorAll('.dl-pat-stage [data-freshness]')).toHaveLength(1);
+    expect(container.querySelector('.dl-pat-stage [data-freshness]')?.getAttribute('data-freshness')).toBe('stale');
+    fireEvent.click(screen.getByText('Все проверки · 3'));
+    expect(container.querySelectorAll('.dl-pat-stage [data-freshness]')).toHaveLength(4);
+  });
+
+  it('separates measured zero from a missing source base', () => {
+    render(<PatternGallery preset={DEFAULT_PRESET} />);
+    visit('Нулевое значение или нет базы');
+    expect(screen.getByText('0')).toBeTruthy();
+    expect(screen.getByText('Исходный лист не прочитан — число неизвестно')).toBeTruthy();
+  });
+
+  it('switches the unit only, with one stable source amount and scope', () => {
+    render(<PatternGallery preset={DEFAULT_PRESET} />);
+    visit('Единицы без изменения закупок');
+    expect(screen.getByText('7 800')).toBeTruthy();
+    fireEvent.click(screen.getByText('Миллионы'));
+    expect(screen.getByText('7,8')).toBeTruthy();
+    expect(screen.getByText('млн ₽')).toBeTruthy();
+    expect(screen.getByText('Исходная величина: 7 800 тыс. ₽. Количество строк остаётся 3.')).toBeTruthy();
+  });
+
+  it('keeps long institution names and controls instead of cutting to an ellipsis', () => {
+    render(<PatternGallery preset={DEFAULT_PRESET} />);
+    visit('Длинные названия и масштаб');
+    expect(screen.getByText(/Средняя общеобразовательная школа № 3 имени выдающегося исследователя Камчатского края/)).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'ДЕМО · организации, предметы, номера и суммы' })).toBeTruthy();
+  });
+
+  it('distinguishes a confirmed fact from inference and unavailable evidence', () => {
+    const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
+    visit('Факт, предположение, не проверено');
+    expect(container.querySelector('.dl-pat-stage [data-freshness]')?.getAttribute('data-freshness')).toBe('uncovered');
+    fireEvent.click(screen.getByRole('button', { name: 'Подтверждено' }));
+    expect(container.querySelector('.dl-pat-stage [data-freshness]')?.getAttribute('data-freshness')).toBe('verified');
+    fireEvent.click(screen.getByRole('button', { name: 'Неизвестно' }));
+    expect(container.querySelector('.dl-pat-stage [data-freshness]')?.getAttribute('data-freshness')).toBe('unmeasurable');
+  });
+
   it('shows production components with compound row numbering and formula metadata', () => {
     const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Строка и её проблема');
