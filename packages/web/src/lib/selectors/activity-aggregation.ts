@@ -61,7 +61,8 @@ function hasSourceRowsForPeriod(dept: any, periodKey: string): boolean {
     : periodKey === 'year'
       ? (dept.quarters?.year ?? dept)
       : dept.quarters?.[periodKey];
-  return ['planCount', 'factCount', 'planTotal', 'factTotal']
+  return ['planCount', 'factCount', 'planTotal', 'factTotal',
+    'kpCount', 'epCount', 'kpPlanTotal', 'epPlanTotal', 'kpFactTotal', 'epFactTotal']
     .some(field => typeof source?.[field] === 'number' &&
       Number.isFinite(source[field]) && source[field] !== 0);
 }
