@@ -9,6 +9,7 @@ import {
   productLabel,
   resolveYearlongKind,
   subordinateKey,
+  subordinateNameMatchKey,
   sumInitiativeRows,
   type YearlongKindId,
 } from '@aemr/shared';
@@ -806,7 +807,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
    * разбивка, поэтому число в её строке и число под таблицей совпадают.
    */
   const filtered = useMemo(
-    () => (subFocus === null ? scopedRows : scopedRows.filter((r) => rowSubordinateKey(r) === subFocus)),
+    () => (subFocus === null ? scopedRows : scopedRows.filter((r) =>
+      subordinateNameMatchKey(rowSubordinateKey(r)) === subordinateNameMatchKey(subFocus))),
     [scopedRows, subFocus],
   );
 
