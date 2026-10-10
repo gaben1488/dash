@@ -93,7 +93,9 @@
 .dash-qa-muted{font-size:11px;margin-top:8px;color:#adbed0;line-height:1.4;}
 @media(max-width:680px){
  #dash-qa.dash-qa{bottom:6px;right:6px;width:calc(100vw - 12px);}
- /* Main has wide native procurement tables; horizontal scrolling must stay
-    within the content pane, not force the entire page outside the viewport. */
- #main-content{overflow-x:auto;}
+ /* On small screens the original Pult already scrolls every wide table in
+    its own .overflow-x-auto container. Clip only unintentional viewport overflow;
+    do not hide cells or touch the table's intrinsic width. */
+ html,body,#root{overflow-x:clip;max-width:100%;}
+ #main-content{min-width:0;max-width:100%;overflow-x:auto;}
 }
