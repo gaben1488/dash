@@ -70,11 +70,12 @@ function AzureStage({ preset, variant, finish, state, setState }: {
   );
 }
 
-function AuroraResearch({ preset, onSelect }: {
+function AuroraResearch({ preset, onSelect, variant, onVariant }: {
   preset: LabPreset;
   onSelect: (update: { family?: FamilyId; section?: NavSection }) => void;
+  variant: AuroraVariantId;
+  onVariant: (variant: AuroraVariantId) => void;
 }) {
-  const [variant, setVariant] = useState<AuroraVariantId>('recovered');
   const [finish, setFinish] = useState<FinishId>('candy');
   const [state, setState] = useState<AuroraState>('selected');
   const pairs = familyMatrix();
@@ -90,7 +91,7 @@ function AuroraResearch({ preset, onSelect }: {
         {AURORA_VARIANTS.map(item => {
           const pair = auroraColors(item.id, preset.family, preset.section);
           return <button type="button" key={item.id} aria-pressed={item.id === variant}
-            className="dr-variant" onClick={() => setVariant(item.id)}>
+            className="dr-variant" onClick={() => onVariant(item.id)}>
             <span className="dr-variant-swatch" style={{ background: 'linear-gradient(180deg, ' + pair.top + ', ' + pair.bottom + ')', color: pair.ink }}>
               {item.id === 'historical' ? '07.08' : item.id === 'cream' ? '14.08' : preset.section}
             </span>
@@ -136,7 +137,7 @@ function AuroraResearch({ preset, onSelect }: {
               {family.sections.map(part => <button type="button"
                 key={part.name}
                 aria-pressed={preset.family === family.id && preset.section === part.name}
-                onClick={() => { onSelect({ family: family.id, section: part.name }); setVariant('family'); }}>
+                onClick={() => { onSelect({ family: family.id, section: part.name }); onVariant('family'); }}>
                 <span style={{ background: 'linear-gradient(180deg, ' + part.top + ', ' + part.bottom + ')', color: part.ink }}>{part.name}</span>
                 <small>{part.motif}</small>
               </button>)}
@@ -360,11 +361,6 @@ export function DesignResearch({ preset, onPresetChange }: {
     return () => window.removeEventListener('keydown', shortcut);
   }, []);
 
-  const chooseVariant = (variant: AuroraVariantId) => {
-    // A command opens the relevant view; this variant is passed through a
-    // small controlled data attribute and can be selected in its own UI.
-    setCommandVariant(variant);
-  };
   const [commandVariant, setCommandVariant] = useState<AuroraVariantId>('recovered');
 
   return <div className="dr-root">
@@ -385,11 +381,11 @@ export function DesignResearch({ preset, onPresetChange }: {
         <button type="button" key={key} aria-pressed={view === key} onClick={() => setView(key)}>{label}</button>
       )}
     </div>
-    {view === 'aurora' && <AuroraResearch preset={preset} onSelect={onPresetChange} />}
+    {view === 'aurora' && <AuroraResearch preset={preset} onSelect={onPresetChange} variant={commandVariant} onVariant={setCommandVariant} />}
     {view === 'pulse' && <PulseResearch preset={preset} />}
     {view === 'workflows' && <WorkflowResearch onOpenCommands={() => setCommandOpen(true)} />}
     {commandOpen && <CommandPalette onClose={() => { setCommandOpen(false); launch.current?.focus(); }}
-      onView={setView} onFamily={family => onPresetChange({ family })} onVariant={chooseVariant} />}
+      onView={setView} onFamily={family => onPresetChange({ family })} onVariant={setCommandVariant} />}
     <span className="dr-sr" aria-live="polite">Выбранное историческое направление: {commandVariant}</span>
   </div>;
 }
