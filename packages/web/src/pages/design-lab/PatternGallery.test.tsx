@@ -19,7 +19,7 @@ describe('Design Lab pattern gallery', () => {
   it('renders a real component gallery under isolated alternative theme variables', () => {
     const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
     expect(screen.getByRole('heading', { name: 'Библиотека рабочих практик' })).toBeTruthy();
-    expect(container.querySelectorAll('.dl-pat-links button')).toHaveLength(8);
+    expect(container.querySelectorAll('.dl-pat-links button')).toHaveLength(14);
     const stage = container.querySelector<HTMLElement>('.dl-pat-stage');
     expect(stage).not.toBeNull();
     expect(stage!.style.getPropertyValue('--accent')).toBe('#4a6da6');
@@ -38,7 +38,7 @@ describe('Design Lab pattern gallery', () => {
     fireEvent.change(input, { target: { value: 'несуществующая_тема' } });
     expect(screen.getByText('Совпадений нет. Измените фильтр.')).toBeTruthy();
     fireEvent.change(input, { target: { value: '' } });
-    expect(container.querySelectorAll('.dl-pat-links button')).toHaveLength(8);
+    expect(container.querySelectorAll('.dl-pat-links button')).toHaveLength(14);
   });
 
   it('does not leave an invisible selected recipe open after a search or zero results', () => {
