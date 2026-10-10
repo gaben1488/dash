@@ -1,28 +1,27 @@
 import { DEFAULT_FILTERS } from './model.mjs';
 
-// A filter change is a new decision: the undo of an earlier reset must
-// never overwrite it. Keep both pieces of state in one reducer so the
-// reset/restore transition cannot be split by React batching.
+// The filter context, units, week and Reset/Undo are one transaction.
+// Every new user decision invalidates the previous Reset's Undo.
 export function initialFilterSession() {
-  return { filters: { ...DEFAULT_FILTERS }, undo: null };
+  return { filters: { ...DEFAULT_FILTERS }, unit: 'тыс', week: 41, undo: null };
 }
+const evaluate = (current, next) => typeof next === 'function' ? next(current) : next;
 
 export function filterSession(state, action) {
   switch (action.type) {
     case 'change':
-      return {
-        filters: typeof action.next === 'function' ? action.next(state.filters) : action.next,
-        undo: null,
-      };
+      return { ...state, filters: evaluate(state.filters, action.next), undo: null };
+    case 'unit':
+      return { ...state, unit: evaluate(state.unit, action.next), undo: null };
+    case 'week':
+      return { ...state, week: evaluate(state.week, action.next), undo: null };
     case 'reset':
       return {
-        filters: { ...DEFAULT_FILTERS },
-        undo: { filters: state.filters, unit: action.unit, week: action.week },
+        filters: { ...DEFAULT_FILTERS }, unit: 'тыс', week: 41,
+        undo: { filters: state.filters, unit: state.unit, week: state.week },
       };
     case 'restore':
-      return state.undo
-        ? { filters: state.undo.filters, undo: null }
-        : state;
+      return state.undo ? { ...state, ...state.undo, undo: null } : state;
     default:
       return state;
   }
