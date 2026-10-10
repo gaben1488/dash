@@ -537,6 +537,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     }> = [];
 
     const now = new Date().toISOString();
+    const rowRevisions: Record<string, string> = {};
 
     for (const entry of body.rows) {
       const dept = DEPARTMENTS.find(d => d.id === entry.deptId || d.nameShort === entry.deptId);
@@ -732,6 +733,15 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           });
         }
       }
+      if (expectedRevision && sheetName && results.some(r =>
+        r.deptId === entry.deptId && r.rowIndex === entry.rowIndex && r.success)) {
+        try {
+          const confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+          rowRevisions[`${entry.deptId}:${entry.rowIndex}`] = rowRevision(confirmed);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'batch-save: saved but final source row version unavailable');
+        }
+      }
       });
     }
 
@@ -754,6 +764,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       successCount,
       failCount,
       results,
+      rowRevisions,
       timestamp: now,
     });
   });
