@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DeltaResult } from '@aemr/shared';
-import { assessReconciliation } from './reconciliation-assurance';
+import { assessReconciliation, hasCompleteComparisonEvidence } from './reconciliation-assurance';
 
 function delta(values: Partial<DeltaResult>): DeltaResult {
   return {
@@ -53,4 +53,14 @@ describe('assessReconciliation', () => {
       state: 'not_checked', unavailable: 1, comparable: 0,
     });
   });
+  it('does not promote no comparison or partial comparison to a full reliability score', () => {
+    expect(hasCompleteComparisonEvidence(assessReconciliation([]))).toBe(false);
+    expect(hasCompleteComparisonEvidence(assessReconciliation([
+      delta({}), delta({ metricKey: 'm2', calculatedValue: null }),
+    ]))).toBe(false);
+    expect(hasCompleteComparisonEvidence(assessReconciliation([
+      delta({}), delta({ metricKey: 'm2', withinTolerance: false, calculatedValue: 12 }),
+    ]))).toBe(true);
+  });
+
 });
