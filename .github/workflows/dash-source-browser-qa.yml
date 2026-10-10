@@ -1,0 +1,53 @@
+name: Dash source-parity browser gate
+on:
+  push:
+    branches: [codex/dash-source-parity-preview-20261010]
+    paths:
+      - 'packages/web/src/preview/**'
+      - 'packages/web/preview.html'
+      - 'packages/web/vite.preview.config.ts'
+      - '.github/workflows/dash-source-browser-qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install exact application dependencies and browser runner
+        run: |
+          pnpm install --frozen-lockfile
+          npm install --prefix /tmp/dash-qa --no-save playwright-core@1.56.1
+          command -v google-chrome
+          google-chrome --version
+      - name: Bundle real Dash frontend with synthetic API
+        run: pnpm --dir packages/web exec vite build --config vite.preview.config.ts
+      - name: Serve the same frontend that is packed into HTML
+        run: |
+          pnpm --dir packages/web exec vite preview --config vite.preview.config.ts \
+            --host 127.0.0.1 --port 4173 --strictPort > /tmp/dash-preview-server.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/preview.html > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dash-preview-server.log
+          exit 1
+      - name: Inspect actual production React routes and QA states
+        run: |
+          CHROME_BIN="$(command -v google-chrome)" \
+          node packages/web/src/preview/browser-qa.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Dash-original-UI-browser-qa-evidence
+          path: /tmp/dash-browser-qa/
+          if-no-files-found: warn
