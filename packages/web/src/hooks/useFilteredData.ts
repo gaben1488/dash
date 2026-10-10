@@ -5,7 +5,7 @@ import { getFilteredEconomyTotal } from '../lib/economy-metrics';
 import { bothDeptKeyForms } from '../lib/dept-key';
 import { aggregateSignalCounts } from '../lib/signal-counts';
 import { shouldShowYearMismatch } from '../lib/year-mismatch';
-import { resolvePeriodSelection, activePeriodKeys } from '../lib/selectors/period-resolution';
+import { resolvePeriodSelection } from '../lib/selectors/period-resolution';
 import { filterDeptsByDepartments, markDeptOnlyMode, filterDeptsBySearch } from '../lib/selectors/dept-filtering';
 import { applySubordinateFilter } from '../lib/selectors/subordinate-override';
 import { filterIssues, splitIssuesBySeverity } from '../lib/selectors/issues-filtering';
