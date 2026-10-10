@@ -587,6 +587,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       flag: 'AD', commentGRBS: 'AF',
     };
 
+    // A custom column in this editor has no source address in the Google
+    // workbook. Never acknowledge a draft-only value as durably saved.
+    const localOnlyChanges = Object.keys(data)
+      .filter(key => key.startsWith('custom_') && data[key] !== original[key] &&
+        data[key] !== null && data[key] !== undefined && data[key] !== '');
+    if (localOnlyChanges.length > 0) {
+      throw new Error('Добавленные здесь столбцы не связаны с книгой управления и не сохраняются. '
+        + 'Скопируйте значения перед закрытием либо внесите столбец в исходную книгу.');
+    }
     const changes: Record<string, unknown> = {};
     for (const [editorKey, sheetCol] of Object.entries(FIELD_TO_COL)) {
       if (data[editorKey] !== original[editorKey]) {
@@ -620,11 +629,17 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       .filter((r) => !r?.success)
       .map((r) => `${r.field ?? ''}${r.rowIndex ?? ''}: ${r.error ?? 'причина не названа'}`);
     if (failures.length > 0) {
-      throw new Error(`Книга не приняла правку — ${failures.join('; ')}`);
+      const accepted = (response.results ?? []).filter(r => r.success).length;
+      throw new Error(accepted > 0
+        ? `Часть полей уже записана (${accepted}), но остальные отклонены: ${failures.join('; ')}. Обновите строку и сверьте её перед повтором.`
+        : `Книга не приняла правку — ${failures.join('; ')}`);
     }
 
     editorDraftsRef.current.delete(rowId);
     setDraftVersion(v => v + 1);
+    setEditorRows(prev => prev.map(row =>
+      row._id === rowId ? { ...row, _sourceOriginalSubject: row.subject } : row
+    ));
     setEditorOriginals(prev => ({
       ...prev,
       [rowId]: { ...data, _id: rowId, _sourceOriginalSubject: data.subject } as RowData,
@@ -1644,7 +1659,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             notice={
               `Редактор правит страницу реестра — сейчас это ${paged.length} ${pluralRu(paged.length, 'строка', 'строки', 'строк')} `
               + `из ${filtered.length} в выборке; остальные листаются кнопками рядом с выбором размера страницы. `
-              + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист.'
+              + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист. '
+              + 'Добавленные в этом окне собственные столбцы временные: они не записываются в книгу.'
               + (editorDraftsRef.current.size > 0
                 ? ` Несохранённых черновиков в текущем Реестре: ${editorDraftsRef.current.size} (включая другие страницы). Не закрывайте раздел, пока не сохраните или не отмените их.`
                 : '')
