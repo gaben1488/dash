@@ -15,6 +15,7 @@ import {
   type LabPreset,
 } from './design-lab/presets';
 import { PatternGallery } from './design-lab/PatternGallery';
+import { LAB_DEMO_ROWS as DEMO_ROWS, demoFilterRows } from './design-lab/demo-data';
 import { OriginalSources } from './design-lab/OriginalSources';
 import './design-lab.css';
 
@@ -32,11 +33,6 @@ const INITIAL_SESSION: PreviewSession = {
   query: '', dept: 'all', selectedRow: '173/1', sourceOpen: false, updatePhase: 'seen',
 };
 
-const DEMO_ROWS = [
-  { id: '173/1', org: 'УО', work: 'ДЕМО · Оснащение школы', plan: '4 200', state: 'Нужен источник', issue: true, source: 'Учебный лист · D14', formula: 'D14: 4 200 тыс. ₽; источник не подтверждён', note: 'Примечание ячейки: уточнить основание суммы', discussion: 'Обсуждение: вопрос направлен исполнителю, ответа нет', action: 'Сверить исходную ячейку и основание суммы.' },
-  { id: '173/2', org: 'УКСиМП', work: 'ДЕМО · Ремонт учреждения', plan: '7 800', state: 'Проверено', issue: false, source: 'Учебный лист · D15', formula: 'D15: 7 800 тыс. ₽ (учебный пример)', note: 'Примечаний нет', discussion: 'Обсуждений нет', action: 'В этом учебном примере дополнительных действий нет.' },
-  { id: '174', org: 'УО', work: 'ДЕМО · Приобретение оборудования', plan: '1 620', state: 'Нужен комментарий', issue: true, source: 'Учебный лист · D16', formula: 'D16: 1 620 тыс. ₽ (учебный пример)', note: 'Примечание ячейки: ожидаем пояснение', discussion: 'Обсуждение: уточнить срок и ответственное лицо', action: 'Запросить пояснение к строке 174.' },
-] as const;
 
 function previewStyle(recipe: LabPreset): CSSProperties {
   const pair = findPair(recipe.family, recipe.section);
@@ -78,11 +74,7 @@ function Preview({
 }) {
   const { query, dept, selectedRow, sourceOpen, updatePhase } = session;
   const changeSession = (change: Partial<PreviewSession>) => onSessionChange?.(change);
-  const filtered = DEMO_ROWS.filter((row) =>
-    (dept === 'all' || row.org === dept) &&
-    (row.id.toLocaleLowerCase('ru') + ' ' + row.work.toLocaleLowerCase('ru'))
-      .includes(query.trim().toLocaleLowerCase('ru'))
-  );
+  const filtered = demoFilterRows(query, dept);
   const rows = demoMode === 'empty' ? [] : filtered;
   const issues = rows.filter((row) => row.issue).length;
   const checked = rows.length - issues;
@@ -220,7 +212,7 @@ function Preview({
             </table>
           </div>
           <div className="dl-table-foot">
-            <span>Показано: {rows.length} из 3 · режим: {demoMode === 'empty' ? 'нет данных' : 'учебная версия'}</span>
+            <span>Показано: {rows.length} из {DEMO_ROWS.length} · режим: {demoMode === 'empty' ? 'нет данных' : 'учебная версия'}</span>
             {sourceOpen && selectedRow && (
               <button type="button" onClick={() => changeSession({ sourceOpen: false })}>Скрыть основание</button>
             )}
