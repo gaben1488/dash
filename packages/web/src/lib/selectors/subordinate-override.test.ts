@@ -64,6 +64,51 @@ describe('applySubordinateFilter (извлечено из useFilteredData §2, �
     expect(out[0].months[1].executionPct).toBe(100);
   });
 
+  it('does not leak the full department activity totals into one selected institution', () => {
+    const periods = [
+      'q1', 'q2', 'q3', 'q4', 'year',
+      ...Array.from({ length: 12 }, (_, i) => `m${i + 1}`),
+    ];
+    const mkActivity = (epCount: number, compCount: number) => ({
+      planCount: epCount + compCount, planTotal: epCount * 100 + compCount * 50,
+      byMethod: {
+        ep: { plan: epCount, fact: 0, planSum: epCount * 100, factSum: 0 },
+        competitive: { plan: compCount, fact: 0, planSum: compCount * 50, factSum: 0 },
+      },
+    });
+    const zero = mkActivity(0, 0);
+    const withPeriods = (sub: typeof school | typeof sad, ep: number, kp: number) => ({
+      ...sub,
+      byActivityPeriod: Object.fromEntries(periods.map(period => [period, {
+        program: period === 'q1' || period === 'year' ? mkActivity(ep, kp) : zero,
+        current_program: zero, current_non_program: zero,
+      }])),
+    });
+    const selected = withPeriods(school, 1, 2);
+    const other = withPeriods(sad, 4, 1);
+    const parent = {
+      ...makeUer(),
+      byActivity: { q1: { program: mkActivity(100, 100) } },
+      subordinates: [selected, other],
+    };
+    const [filtered] = applySubordinateFilter([parent], new Set([school.name]), subordinatesMap);
+    expect(filtered._activityBreakdownAvailable).toBe(true);
+    expect(filtered.byActivity.q1.program.byMethod.ep.plan).toBe(1);
+    expect(filtered.byActivity.q1.program.byMethod.competitive.plan).toBe(2);
+    expect(filtered.byActivity.q1.program.byMethod.ep.planSum).toBe(100);
+    expect(filtered.byActivity.q1.program.byMethod.competitive.planSum).toBe(100);
+  });
+
+  it('legacy subordinate snapshots without cross axes never fall back to whole-department activity', () => {
+    const parent = {
+      ...makeUer(),
+      byActivity: { q1: { program: { planCount: 1000, planTotal: 999999 } } },
+    };
+    const [filtered] = applySubordinateFilter([parent], new Set([school.name]), subordinatesMap);
+    expect(filtered._activityBreakdownAvailable).toBe(false);
+    expect(filtered.byActivity).toEqual({});
+  });
+
   it('«аппарат управления» (_org_itself) без записи в subordinatesMap не сужает депты (Б4)', () => {
     const depts = [makeUer(), uio];
     const out = applySubordinateFilter(depts, new Set(['_org_itself']), subordinatesMap);
