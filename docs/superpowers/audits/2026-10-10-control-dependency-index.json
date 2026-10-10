@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 117,
+  "scannedPaths": 122,
   "errors": [],
   "records": [
     {
@@ -1610,6 +1610,124 @@
       "sha": "7ed084e694626f40ff80d509156588255bfac201",
       "loc": 772,
       "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Quality.tsx",
+      "sha": "b212abda9f9a56ba775fe35e82bb3090039fa833",
+      "loc": 149,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Recon.tsx",
+      "sha": "fbd1393922ec2cf9c457be17061265ac3f9903c7",
+      "loc": 358,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Recs.tsx",
+      "sha": "d15bf509fdb728bd503661d64ea05a3b0947afbb",
+      "loc": 493,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            89,
+            112
+          ]
+        },
+        "actions": {
+          "count": 6,
+          "lines": [
+            7,
+            77,
+            97,
+            106,
+            109,
+            289
+          ]
+        },
+        "control": {
+          "count": 3,
+          "lines": [
+            2,
+            89,
+            99
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Report.tsx",
+      "sha": "62682c69761c977857877c77c30f1d3f4c816304",
+      "loc": 1506,
+      "refs": {
+        "actions": {
+          "count": 3,
+          "lines": [
+            234,
+            235,
+            1148
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Trust.tsx",
+      "sha": "6c7faf067a2cb31ef50e64cfbcefa908e99c612e",
+      "loc": 855,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            263
+          ]
+        },
+        "signals": {
+          "count": 14,
+          "lines": [
+            5,
+            827,
+            828,
+            829,
+            830,
+            839,
+            843,
+            844,
+            845,
+            846,
+            847,
+            848,
+            849,
+            850
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            20,
+            110,
+            111
+          ]
+        },
+        "scores": {
+          "count": 13,
+          "lines": [
+            50,
+            249,
+            253,
+            256,
+            288,
+            335,
+            340,
+            343,
+            347,
+            352,
+            469,
+            573,
+            608
+          ]
+        }
+      }
     }
   ],
   "webTargetCount": 37
