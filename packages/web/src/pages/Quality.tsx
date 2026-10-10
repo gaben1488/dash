@@ -22,6 +22,7 @@ import { RecsPage } from './Recs';
 import { JournalPage } from './Journal';
 import { CommentAnnotationsSection } from '../components/quality/CommentAnnotationsSection';
 import { IntegritySection } from '../components/analytics-extra/IntegritySection';
+import { ControlPortfolioSection } from '../components/control/ControlPortfolioSection';
 import { ScorecardSection } from '../components/scorecard/ScorecardSection';
 import { PageHeader } from '../components/ui/page-header';
 
@@ -125,6 +126,7 @@ export function QualityPage() {
         {qualityTab === 'recon' && <ReconPage />}
         {qualityTab === 'issues' && (
           <div className="space-y-4">
+            <ControlPortfolioSection />
             <IssuesPage />
             {/* Слой аннотаций (пп. 72а/78/74б): ОТДЕЛЬНАЯ секция, не смешана
                 с замечаниями конвейера — у них разные словари и жизненные
