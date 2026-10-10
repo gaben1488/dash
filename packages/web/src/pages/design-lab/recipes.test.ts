@@ -28,7 +28,16 @@ describe('Dash recipe library: source-backed and extensible', () => {
     }
   });
 
-  it('supplies exactly 8 behavior-first recipes with actionable acceptance criteria', () => {
+  it('does not silently use unregistered Design Lab shell color tokens', () => {
+    const shell = readFileSync(new URL('../design-lab.css', import.meta.url), 'utf8');
+    const recipes = readFileSync(new URL('./patterns.css', import.meta.url), 'utf8');
+    const defined = new Set([...shell.matchAll(/(--lab-[\w-]+)\s*:/g)].map(match => match[1]));
+    const used = [...recipes.matchAll(/var\((--lab-[\w-]+)/g)].map(match => match[1]);
+    expect(used.length).toBeGreaterThan(8);
+    expect([...new Set(used.filter(token => !defined.has(token)))]).toEqual([]);
+  });
+
+  it('supplies at least 14 behavior-first recipes with actionable acceptance criteria', () => {
     expect(UI_RECIPES).toHaveLength(14);
     expect(new Set(UI_RECIPES.map(item => item.id)).size).toBe(UI_RECIPES.length);
     const known = new Set<string>(COMPONENT_INDEX.map(item => item.id));
