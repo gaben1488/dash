@@ -203,7 +203,7 @@ try {
     });
     await page.waitForFunction(() => document.querySelector('.dr-workflow-grid') !== null);
     const dialogGone = await page.$('[role="dialog"][aria-label="Поиск действий"]');
-    assert.equal(dialogGone.length, 0);
+    assert.equal(dialogGone, null, 'Command dialog must close after selection');
     await capture(page, '08-product-mechanics-' + viewport.width);
     report.scenarios.push('keyboard-command-palette-' + viewport.width);
     const noWholeOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2);
