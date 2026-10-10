@@ -9,6 +9,7 @@ import {
   CalendarX2, Repeat, Radar,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { SourceNavigation } from './source-drum/SourceNavigation';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
 import { SelectionTokens } from './SelectionTokens';
@@ -716,7 +717,7 @@ const NAV_GROUPS: { name: string; ids: Page[] }[] = [
   { name: 'Надзор',  ids: ['quality', 'settings'] },
 ];
 
-function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Page) => void }) {
+export function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Page) => void }) {
   // Честные счётчики корзин (п.73в): числа считает сервер теми же предикатами,
   // что страницы-фильтры; null (нет ответа) — кнопка живёт БЕЗ числа, ноль
   // не выдумывается.
@@ -899,7 +900,7 @@ export function Header() {
         />
 
         {/* 2. Nav pills — 6 horizontal buttons */}
-        <NavPills activePage={activePage} setPage={setPage} />
+        <SourceNavigation activePage={activePage as Page} setPage={setPage} />
 
         {/* 3. Time drums */}
         {showTime && (
