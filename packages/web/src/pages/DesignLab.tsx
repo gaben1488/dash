@@ -291,21 +291,25 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
   const update = (fields: Partial<LabPreset>) => setPreset((previous) => ({ ...previous, ...fields }));
 
   const notify = (kind: 'ok' | 'error' | 'note', text: string) => setFeedback({ kind, text });
-  const persist = (list: LabPreset[], success: string) => {
+  const persist = (list: LabPreset[], success: string): boolean => {
     try {
       writeStoredPresets(localStorage, list);
       setSaved(list);
       notify('ok', success);
+      return true;
     } catch (error) {
       notify('error', 'Не удалось сохранить в браузере: ' + (error instanceof Error ? error.message : 'неизвестная ошибка'));
+      return false;
     }
   };
 
   const save = () => {
     try {
       const candidate = { ...preset, name: name.trim() };
-      persist(upsertPreset(saved, candidate), 'Набор сохранён локально. Рабочий Dash не изменился.');
-      update({ name: candidate.name });
+      if (persist(upsertPreset(saved, candidate), 'Набор сохранён локально. Рабочий Dash не изменился.')) {
+        update({ name: candidate.name });
+        setUndo(null);
+      }
     } catch (error) { notify('error', error instanceof Error ? error.message : 'Неверный набор.'); }
   };
 
@@ -314,8 +318,10 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
       const items = parsePresetPackJSON(raw);
       let next = saved;
       for (const item of items) next = upsertPreset(next, item);
-      persist(next, 'Принято наборов: ' + items.length + '. Данные и настройки Dash не затронуты.');
-      if (items[0]) { setPreset(items[0]); setName(items[0].name); }
+      if (persist(next, 'Принято наборов: ' + items.length + '. Данные и настройки Dash не затронуты.')) {
+        if (items[0]) { setPreset(items[0]); setName(items[0].name); }
+        setUndo(null);
+      }
     } catch (error) { notify('error', error instanceof Error ? error.message : 'Импорт отклонён.'); }
   };
 
@@ -327,13 +333,13 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
     } catch (error) { notify('error', error instanceof Error ? error.message : 'Файл не прочитан.'); }
   };
 
-  const downloadJSON = () => {
+  const downloadJSON = (choice: 'current' | 'saved') => {
     try {
-      const body = exportPresetPack(saved.length ? saved : [{ ...preset, name }]);
+      const body = exportPresetPack(choice === 'current' ? [{ ...preset, name: name.trim() }] : saved);
       const url = URL.createObjectURL(new Blob([body], { type: 'application/json;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'dash-design-lab-presets.json';
+      link.download = choice === 'current' ? 'dash-design-current.json' : 'dash-design-saved.json';
       link.click();
       URL.revokeObjectURL(url);
       notify('note', 'Запрошена выгрузка набора JSON. Содержит только параметры оформления.');
@@ -542,10 +548,11 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
                     {saved.length === 0 && <p>Наборов пока нет. Ваш выбор уже можно сохранить.</p>}
                   </div>
                   {undo && <button className="dl-quiet" type="button" onClick={() => {
-                    try { persist(upsertPreset(saved, undo), 'Удаление отменено.'); setUndo(null); } catch (error) { notify('error', error instanceof Error ? error.message : 'Ошибка восстановления.'); }
+                    try { if (persist(upsertPreset(saved, undo), 'Удаление отменено.')) setUndo(null); } catch (error) { notify('error', error instanceof Error ? error.message : 'Ошибка восстановления.'); }
                   }}>Вернуть удалённый набор</button>}
                   <div className="dl-file-controls">
-                    <button type="button" onClick={downloadJSON}><Download size={15} aria-hidden="true" /> Экспорт JSON</button>
+                    <button type="button" onClick={() => downloadJSON('current')}><Download size={15} aria-hidden="true" /> Экспорт текущего</button>
+                    <button type="button" disabled={saved.length === 0} onClick={() => downloadJSON('saved')}><Download size={15} aria-hidden="true" /> Экспорт сохранённых</button>
                     <label>Импорт из файла
                       <input type="file" accept=".json,application/json" onChange={(event) => {
                         void fileImport(event.currentTarget.files?.[0]); event.currentTarget.value = '';
