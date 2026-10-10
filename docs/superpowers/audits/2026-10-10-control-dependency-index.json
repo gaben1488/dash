@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 81,
+  "scannedPaths": 85,
   "errors": [],
   "records": [
     {
@@ -1060,6 +1060,69 @@
             811,
             827,
             843
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/recon-root-cause.ts",
+      "sha": "beb1cc0660ab0fe487b7a2beff30eeca24221635",
+      "loc": 274,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/report-map.ts",
+      "sha": "f94a1bd3722db6ca85233273f97036f7eff939c3",
+      "loc": 827,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/rule-book.ts",
+      "sha": "f3800a4f899f49cdc1516a8c63e23dd5e6ad0c60",
+      "loc": 1524,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            1459
+          ]
+        },
+        "checks": {
+          "count": 5,
+          "lines": [
+            728,
+            980,
+            981,
+            1486,
+            1522
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/signal-answer.ts",
+      "sha": "8a508ada1e28ec2b4f1ff7d0affd2844af863491",
+      "loc": 510,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            31,
+            402
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            19,
+            27,
+            432
+          ]
+        },
+        "actions": {
+          "count": 1,
+          "lines": [
+            480
           ]
         }
       }
