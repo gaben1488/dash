@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 9,
+  "scannedPaths": 17,
   "errors": [],
   "records": [
     {
@@ -96,6 +96,69 @@
       "path": "packages/core/src/analytics/forecast.ts",
       "sha": "9fb8e20eea4cb50642125ca4d34f6eeba4d51322",
       "loc": 190,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/grbs-grade.ts",
+      "sha": "54a8a4ec123e8b397e809a6bf865db858919841b",
+      "loc": 129,
+      "refs": {
+        "scores": {
+          "count": 1,
+          "lines": [
+            84
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/grbs-profile.ts",
+      "sha": "f6a41137240de1446bcf33d3776dcceba5259e27",
+      "loc": 151,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/index.ts",
+      "sha": "605ccb0bc693f303cb77236499583a5268d51848",
+      "loc": 122,
+      "refs": {
+        "scores": {
+          "count": 2,
+          "lines": [
+            5,
+            6
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/journal-events.ts",
+      "sha": "7e80370c94b9dd51f68eacbac4b4aeb9be0f5498",
+      "loc": 137,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/subject-classify.ts",
+      "sha": "0b32babf10029ae5a00dfa3e3055dd4794a9fa1d",
+      "loc": 116,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/subject-fuzzy.ts",
+      "sha": "1c742cfaf5639fb6dff98e898173f3024efa278f",
+      "loc": 294,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/vanished-rows.ts",
+      "sha": "40b2bf8105bcae34e625336e77343507f196db8a",
+      "loc": 156,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/workload.ts",
+      "sha": "b1cdeb68498a8b356e1de32ad0ee7deaf3df0891",
+      "loc": 150,
       "refs": {}
     }
   ]
