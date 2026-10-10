@@ -136,6 +136,67 @@ try {
     assert.equal(auroraBaseline.familyPairs, 39);
     assert.equal(auroraBaseline.contrast, 'true');
     assert.equal(auroraBaseline.exactTop, '#5b99f8');
+    // Audit every documented family color across all seven UI states and six
+    // physical finishes. Computed CSS is tested; pixel contrast remains manual.
+    if (viewport.width === 1280) {
+      const matrix = await page.evaluate(() => {
+        const cells = [...document.querySelectorAll('.dr-family-grid button > span')];
+        function channels(str) {
+          return [...str.matchAll(/rgba?\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)/g)]
+            .map(m => [Number(m[1]), Number(m[2]), Number(m[3])]);
+        }
+        function luminance(rgb) {
+          const [r,g,b]=rgb.map(value=>{
+            const c=value/255;
+            return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4);
+          });
+          return 0.2126*r+0.7152*g+0.0722*b;
+        }
+        function contrast(a,b) {
+          const l=luminance(a),r=luminance(b);
+          return (Math.max(l,r)+.05)/(Math.min(l,r)+.05);
+        }
+        const parsed=cells.map(el=>{
+          const colors=channels(el.style.backgroundImage);
+          const ink=channels(getComputedStyle(el).color)[0];
+          const sample=Array.from({length:11},(_,i)=>{
+            const t=i/10;
+            return colors.length===2?colors[0].map((v,n)=>v+(colors[1][n]-v)*t):null;
+          });
+          return { colors,ink,minimum:ink&&sample.every(Boolean)?
+            Math.min(...sample.map(c=>contrast(ink,c))):0 };
+        });
+        const fails=parsed.map((x,i)=>({i,min:x.minimum})).filter(x=>x.min<4.5);
+        const finishes=['matte','candy','metallic','pearl','xirallic','glass'];
+        const states=['idle','selected','hover','focus','partial','disabled','danger'];
+        const stage=document.querySelector('.dr-aurora-stage');
+        const oldFinish=stage.getAttribute('data-finish');
+        const control=stage.querySelector('.dr-hardware-control');
+        const oldState=control.getAttribute('data-state');
+        const seen=[];
+        for(const finish of finishes)for(const state of states){
+          stage.setAttribute('data-finish',finish);
+          control.setAttribute('data-state',state);
+          const css=getComputedStyle(control);
+          seen.push({finish,state,color:css.color,background:css.backgroundImage,
+            border:css.borderColor});
+        }
+        stage.setAttribute('data-finish',oldFinish);
+        control.setAttribute('data-state',oldState);
+        return {familyCount:cells.length,failedIntermediateContrasts:fails,
+          finishes:finishes.length,states:states.length,materialStates:seen.length,
+          missingPaint:seen.filter(x=>x.color==='transparent'||x.color==='').length,
+          dangerousStates:seen.filter(x=>x.state==='danger'&&!x.color.includes('255')).length};
+      });
+      assert.equal(matrix.familyCount,39);
+      assert.deepEqual(matrix.failedIntermediateContrasts,[],'An original family swatch fails intermediate gradient contrast');
+      assert.equal(matrix.materialStates,42);
+      assert.equal(matrix.missingPaint,0);
+      assert.equal(matrix.dangerousStates,0);
+      report.scenarios.push('39-families-intermediate-contrast');
+      report.scenarios.push('42-finish-state-computed-css');
+      report.paletteMatrix=matrix;
+    }
     await capture(page, '06-azure-recovered-' + viewport.width);
     report.scenarios.push('historical-azure-and-39-source-pairs-' + viewport.width);
 
@@ -170,6 +231,17 @@ try {
     assert.equal(pulseBefore.layout, 'hero');
     assert.ok(pulseBefore.sum?.includes('13'));
     assert.equal(pulseBefore.segments, 2);
+    const arcGeometry = await page.evaluate(() => {
+      const outer = document.querySelector('.dr-pulse-chart').getBoundingClientRect();
+      const sectors = [...document.querySelectorAll('.dr-pulse-chart .recharts-sector')];
+      return {sectors:sectors.length, clipped:sectors.map(el=>{
+        const r=el.getBoundingClientRect();
+        return {l:r.left-outer.left,r:r.right-outer.right,t:r.top-outer.top,b:r.bottom-outer.bottom};
+      }).filter(r=>r.l < -2 || r.r > outer.width+2 || r.t < -2 || r.b > outer.height+2)};
+    });
+    assert.ok(arcGeometry.sectors>0,'The big circle drew no sectors');
+    assert.deepEqual(arcGeometry.clipped,[],'Focused circle sectors spill outside chart viewport');
+    report.scenarios.push('big-circle-uncropped-'+viewport.width);
     await capture(page, '07-pulse-hero-' + viewport.width);
     await page.evaluate(() => {
       const button = document.querySelector('button[aria-label="Открыть состав УО"]');
@@ -208,6 +280,20 @@ try {
     report.scenarios.push('keyboard-command-palette-' + viewport.width);
     const noWholeOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2);
     assert.ok(noWholeOverflow, 'Product research creates whole page horizontal overflow at ' + viewport.width);
+
+    // The source-facing inspector is a navigable contract map, not a new
+    // datastore. All 13 routes must stay selectable, with exact source links.
+    await page.evaluate(() => {
+      const item=[...document.querySelectorAll('.dr-view-tabs button')]
+        .find(b=>b.textContent?.includes('Атомы и связи'));
+      if(!item)throw Error('Missing source dependency inspector');
+      item.click();
+    });
+    await page.waitForSelector('.dr-atlas-list', {timeout:10000});
+    const routes=await page.$eval('.dr-atlas-list button',els=>els.length);
+    assert.equal(routes,13,'The atom viewer hides a real Dash route');
+    await capture(page,'09-atom-contracts-'+viewport.width);
+    report.scenarios.push('13-interactive-atom-contracts-'+viewport.width);
 
     if (viewport.width === 1280 || viewport.width === 390) {
       await tab(page, 'Исходные HTML');
