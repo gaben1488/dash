@@ -137,7 +137,13 @@ export function reconcileSnapshots({ older, newer, decisions = [] }) {
       conflicts.push({ kind: 'stale_or_unknown_decision', from, to });
       continue;
     }
-    if (corruptIds.has(entityId) || (a.entityId && a.entityId !== entityId) ||
+    // The approved ID may already belong to a different observation in either
+    // frozen snapshot. It must not be reassigned by a new decision.
+    const idAlreadyOnOtherRow =
+      (oldById.get(entityId)?.some(row => row.key !== a.key) ?? false) ||
+      (newById.get(entityId)?.some(row => row.key !== b.key) ?? false);
+    if (corruptIds.has(entityId) || idAlreadyOnOtherRow ||
+        (a.entityId && a.entityId !== entityId) ||
         (b.entityId && b.entityId !== entityId)) {
       conflicts.push({ kind: 'identity_conflict', from, to, entityId });
       continue;
