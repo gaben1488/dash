@@ -96,8 +96,8 @@ describe('computeFilteredData — combined activity and procurement filters', ()
     const program = {
       planCount: 3, factCount: 1, planTotal: 60, factTotal: 10,
       byMethod: {
-        competitive: { plan: 1, fact: 0, planSum: 40, factSum: 0 },
-        ep: { plan: 2, fact: 1, planSum: 20, factSum: 10 },
+        competitive: { plan: 1, fact: 0, planSum: 40, factSum: 0, economyTotal: 50 },
+        ep: { plan: 2, fact: 1, planSum: 20, factSum: 10, economyTotal: 5 },
       },
     };
     input.dashboardData.departmentSummaries = [{
@@ -113,7 +113,7 @@ describe('computeFilteredData — combined activity and procurement filters', ()
     input.selectedMethods = new Set(['single']);
     const result = computeFilteredData(input);
     expect(result).toMatchObject({
-      totalKP: 0, totalEP: 2, totalPlan: 20, totalFact: 10,
+      totalKP: 0, totalEP: 2, totalPlan: 20, totalFact: 10, totalEconomy: 5,
       totalPlanCount: 2, totalFactCount: 1,
       overallExecCountPct: 50, activityMethodBreakdownAvailable: true,
     });
