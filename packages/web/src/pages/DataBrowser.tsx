@@ -564,7 +564,9 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     if (!original) {
       throw new Error('Исходная запись не найдена. Обновите реестр: правка не сохранена.');
     }
-    if (!sameEditorSource(original, data as RowData)) {
+    // The subject itself may be edited. Compare the immutable source anchor,
+    // not the new text the operator is trying to save.
+    if (!sameEditorSource(original, { ...data, subject: data._sourceOriginalSubject } as RowData)) {
       throw new Error('Источник изменил закупку по этому адресу. Черновик сохранён, но запись в чужую строку запрещена.');
     }
 
@@ -621,7 +623,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     setDraftVersion(v => v + 1);
     setEditorOriginals(prev => ({
       ...prev,
-      [rowId]: { ...data, _id: rowId } as RowData,
+      [rowId]: { ...data, _id: rowId, _sourceOriginalSubject: data.subject } as RowData,
     }));
   }, [editorOriginals]);
 
@@ -889,6 +891,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       id: r.id,
       _sourceManagementName: r.managementName,
       _sourceSubordinate: r.subordinate,
+      _sourceOriginalSubject: r.subject,
       // Ключ управления остаётся в _dept для записи; на экран идёт имя.
       dept: deptDisplayName(r.dept),
       subject: r.subject,
@@ -923,7 +926,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     const out: Record<string, string[]> = {};
     for (const row of editorRows) {
       const draft = editorDraftsRef.current.get(row._id);
-      if (!draft || !sameEditorSource(draft.baseline, row)) continue;
+      if (!draft || !sameEditorSource(draft.baseline, { ...row, subject: row._sourceOriginalSubject })) continue;
       const fields = ['subject', 'method', 'planFB', 'planKB', 'planMB',
         'factFB', 'factKB', 'factMB', 'planDate', 'factDate', 'flag', 'commentGRBS'];
       const changed = fields.filter(field => row[field] !== draft.baseline[field]);
