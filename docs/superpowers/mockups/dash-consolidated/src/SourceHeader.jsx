@@ -6,6 +6,7 @@ import { MONTHS, ROWS, DEPTS } from './model.mjs';
 import './source-shell/original.css';
 import './source-shell/organizations.css';
 import { selectionAxes, weekWindow } from './shell-model.mjs';
+import { toggleSelection } from './selection.mjs';
 import PAGE_FILTERS from './source-shell/page-filters.json';
 const ids = [
   'dashboard',
@@ -339,7 +340,7 @@ export function SourceHeader({
               className="разрез-кн"
               key={v}
               aria-pressed={(filters.budgets ?? (filters.budget ? [filters.budget] : [])).includes(v)}
-              onClick={() => { const old = filters.budgets ?? (filters.budget ? [filters.budget] : []); const next = old.includes(v) ? old.filter(x=>x!==v) : [...old,v]; setFilters(f=>({...f,budget:'',budgets:next.length ? next : null})); }}
+              onClick={() => { const old = filters.budgets ?? (filters.budget ? [filters.budget] : []); const next = toggleSelection(old, v); setFilters(f=>({...f,budget:'',budgets:next})); }}
             >
               {v}
             </button>
@@ -375,12 +376,12 @@ export function SourceOrganizations({ filters, setFilters, page }) {
   const selectedOrgs = filters.orgs ?? (filters.org ? [filters.org] : []);
   const orgsFor = d => [...new Set(ROWS.filter(r=>r.dept===d).map(r=>r.org))];
   const chooseDept = d => {
-    const next = chosen.includes(d) ? chosen.filter(x=>x!==d) : [...chosen,d];
-    setFilters(f=>({...f,dept:'',depts:next.length ? next : null,org:'',orgs:null}));
+    const next = toggleSelection(chosen, d);
+    setFilters(f=>({...f,dept:'',depts:next,org:'',orgs:null}));
   };
   const chooseOrg = o => {
-    const next = selectedOrgs.includes(o) ? selectedOrgs.filter(x=>x!==o) : [...selectedOrgs,o];
-    setFilters(f=>({...f,dept:'',depts:null,org:'',orgs:next.length ? next : null}));
+    const next = toggleSelection(selectedOrgs, o);
+    setFilters(f=>({...f,dept:'',depts:null,org:'',orgs:next}));
   };
   return (
     <aside className="ob-strip source-organizations" aria-label="Управления и учреждения">
