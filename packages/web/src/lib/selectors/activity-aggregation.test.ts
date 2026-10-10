@@ -2,49 +2,74 @@ import { describe, expect, it } from 'vitest';
 import { ALL_ACTIVITY_KEYS, recalcTotalsByActivity, resolveActivityKeys } from './activity-aggregation';
 import { makeBudgetPlanFact } from './budget-filter';
 
-describe('resolveActivityKeys (извлечено из useFilteredData §9b)', () => {
-  it('фильтр пуст — все виды деятельности', () => {
+const noBudget = makeBudgetPlanFact(new Set());
+const a = {
+  planCount: 3, factCount: 2, planTotal: 60, factTotal: 30,
+  byMethod: {
+    competitive: { plan: 1, fact: 1, planSum: 40, factSum: 25, planFB: 30, factFB: 20, planKB: 10, factKB: 5 },
+    ep: { plan: 2, fact: 1, planSum: 20, factSum: 5, planFB: 20, factFB: 5 },
+  },
+};
+const dept = { byActivity: { q1: { program: a } } };
+
+describe('resolveActivityKeys', () => {
+  it('without a selection, all activities are eligible', () => {
     expect(resolveActivityKeys(new Set())).toBe(ALL_ACTIVITY_KEYS);
   });
-
-  it('выбранные — только они', () => {
+  it('selected activities are preserved', () => {
     expect(resolveActivityKeys(new Set(['program']))).toEqual(['program']);
   });
 });
 
-describe('recalcTotalsByActivity (извлечено из useFilteredData §9b)', () => {
-  const noBudget = makeBudgetPlanFact(new Set());
-  const dept = {
-    byActivity: {
-      q1: {
-        program: { planCount: 2, planTotal: 50, factTotal: 25 },
-        current_program: { planCount: 1, planTotal: 30, factTotal: 10 },
-      },
-    },
-  };
-
-  it('суммирует выбранные виды по активным периодам; ЕП обнуляется (byActivity не делит КП/ЕП)', () => {
-    const t = recalcTotalsByActivity([dept], { actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget });
-    expect(t).toEqual({ totalPlan: 50, totalFact: 25, totalKP: 2, totalEP: 0 });
-  });
-
-  it('все ключи (фильтр пуст) — сумма всех видов', () => {
-    const t = recalcTotalsByActivity([dept], { actKeys: ALL_ACTIVITY_KEYS, periodKeys: ['q1'], budgetPlanFact: noBudget });
-    expect(t.totalPlan).toBe(80);
-    expect(t.totalKP).toBe(3);
-  });
-
-  it('нет byActivity за период — нули', () => {
-    const t = recalcTotalsByActivity([dept], { actKeys: ['program'], periodKeys: ['q2'], budgetPlanFact: noBudget });
-    expect(t.totalPlan).toBe(0);
-  });
-
-  it('учитывает бюджет-фильтр через budgetPlanFact', () => {
-    const d = { byActivity: { q1: { program: { planCount: 1, planTotal: 50, factTotal: 25, planFB: 40, factFB: 20 } } } };
-    const t = recalcTotalsByActivity([d], {
-      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
+describe('recalcTotalsByActivity from exact activity × method evidence', () => {
+  it('preserves competitive and EP separately in the same activity', () => {
+    const t = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+      showKP: true, showEP: true,
     });
-    expect(t.totalPlan).toBe(40);
-    expect(t.totalFact).toBe(20);
+    expect(t).toMatchObject({
+      totalPlan: 60, totalFact: 30, totalKP: 1, totalEP: 2,
+      totalPlanCount: 3, totalFactCount: 2, methodBreakdownAvailable: true,
+    });
+  });
+
+  it('EP-only does not claim competitive money or counts', () => {
+    const t = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+      showKP: false, showEP: true,
+    });
+    expect(t).toMatchObject({
+      totalPlan: 20, totalFact: 5, totalKP: 0, totalEP: 2,
+      totalPlanCount: 2, totalFactCount: 1, methodBreakdownAvailable: true,
+    });
+  });
+
+  it('a selected budget is applied INSIDE the method intersection', () => {
+    const t = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: ['q1'],
+      budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
+      showKP: true, showEP: true,
+    });
+    expect(t).toMatchObject({ totalPlan: 50, totalFact: 25, totalKP: 1, totalEP: 2 });
+  });
+
+  it('a zero selected period is zero and is still comparable', () => {
+    const t = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: ['q2'], budgetPlanFact: noBudget,
+    });
+    expect(t.totalPlan).toBe(0);
+    expect(t.methodBreakdownAvailable).toBe(true);
+  });
+
+  it('does not manufacture competitive purchases from legacy snapshots without method splits', () => {
+    const t = recalcTotalsByActivity([{
+      byActivity: { q1: { program: { planCount: 3, planTotal: 60, factTotal: 30 } } },
+    }], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+      showKP: true, showEP: true,
+    });
+    expect(t).toMatchObject({
+      totalPlan: 0, totalKP: 0, totalEP: 0, methodBreakdownAvailable: false,
+    });
   });
 });
