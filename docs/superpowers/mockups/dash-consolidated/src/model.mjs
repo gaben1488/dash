@@ -7,9 +7,11 @@ export function selectRows(rows, filters = {}) {
         : !filters.year || r.year === Number(filters.year)) &&
       (filters.depts ? filters.depts.includes(r.dept) : !filters.dept || r.dept === filters.dept) &&
       (!filters.org || r.org === filters.org) &&
+      (!filters.orgs || filters.orgs.includes(r.org)) &&
       (!filters.month || r.month === Number(filters.month)) &&
       (!filters.method || r.method === filters.method) &&
       (!filters.budget || r.budget === filters.budget) &&
+      (!filters.budgets || filters.budgets.includes(r.budget)) &&
       (!q || [r.number, r.subject, r.org, r.procedure].join(' ').toLocaleLowerCase('ru').includes(q)) &&
       (!filters.attention || r.issue) &&
       (!filters.linked || r.procedure),
@@ -339,9 +341,11 @@ export const DEFAULT_FILTERS = {
   dept: '',
   depts: null,
   org: '',
+  orgs: null,
   month: null,
   method: '',
   budget: '',
+  budgets: null,
   search: '',
   attention: false,
   linked: false,

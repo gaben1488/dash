@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, ChevronsUpDown, Sun, Moon, X, History } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsUpDown, Sun, Moon, X, History, Palette, Radio, RotateCcw } from 'lucide-react';
 import navigationHtml from './source-shell/navigation.html?raw';
 import shieldHtml from './source-shell/shield.html?raw';
 import { MONTHS, ROWS, DEPTS } from './model.mjs';
 import './source-shell/original.css';
+import './source-shell/organizations.css';
+import { selectionAxes, weekWindow } from './shell-model.mjs';
+import PAGE_FILTERS from './source-shell/page-filters.json';
 const ids = [
   'dashboard',
   'report',
@@ -58,8 +61,14 @@ export function SourceHeader({
   refresh,
   filterItems,
   setPopup,
+  palette,
+  mode,
+  reset,
+  undo,
+  restore,
 }) {
   const nav = useRef(null),
+    weeksRef = useRef(null),
     latest = useRef(null),
     [center, setCenter] = useState(1);
   latest.current = { page, go };
@@ -120,8 +129,38 @@ export function SourceHeader({
       row.setAttribute('aria-hidden', String(!position));
       row.querySelectorAll('input').forEach((input) => (input.tabIndex = position ? 0 : -1));
     });
-    nav.current.querySelector('.navig-lenta').style.transform = `translateY(${-(center - 1) * rows[0].offsetHeight}px)`;
+    const fit = () => {
+      const height = Math.max(26, ...[...nav.current.querySelectorAll('.vkladka-telo')].map(e => e.offsetHeight + 3));
+      nav.current.style.setProperty('--navig-rh', `${height}px`);
+      nav.current.querySelector('.navig-lenta').style.transform = `translateY(${-(center - 1) * height}px)`;
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    nav.current.querySelectorAll('.vkladka-telo').forEach(e => observer.observe(e));
+    return () => observer.disconnect();
   }, [center]);
+  useEffect(() => {
+    const labels = [...nav.current.querySelectorAll('.vkladka')];
+    labels.forEach((label, i) => {
+      const title = label.querySelector('.vkladka-telo>span').textContent;
+      const pair = palette.tabs.find(t => t.name === title);
+      if (!pair) return;
+      label.style.setProperty('--z-top', pair.top);
+      label.style.setProperty('--z-bottom', pair.bottom);
+      label.style.setProperty('--z-ink', pair.ink);
+      label.style.setProperty('--ton', pair.top);
+      label.setAttribute('data-world', pair.image);
+    });
+  }, [palette]);
+  useEffect(() => {
+    const el = weeksRef.current;
+    const wheel = e => { e.preventDefault(); setWeek(w => Math.max(1, Math.min(53, w + (e.deltaY > 0 ? 1 : -1)))); };
+    el.addEventListener('wheel', wheel, {passive:false});
+    return () => el.removeEventListener('wheel', wheel);
+  }, [setWeek]);
+  const axes = selectionAxes(filters, unit, week);
+  const selectedAxes = axes.filter(a => a.active);
+  const capabilities = PAGE_FILTERS[page] || [];
   const periods = currentPeriods(filters);
   const togglePeriods = (keys) => {
     const next = new Set(periods);
@@ -135,7 +174,7 @@ export function SourceHeader({
       <div className="верх-щит">
         <button
           className={'shield ' + (source === 'reading' ? 'shield-goryachiy' : '')}
-          style={{ '--shield-tone': 'var(--tone-reestr)' }}
+          style={{ '--shield-tone': 'var(--planet-top)' }}
           aria-label="Проиграть обновление источников"
           onClick={refresh}
           dangerouslySetInnerHTML={{ __html: shieldHtml }}
@@ -155,7 +194,7 @@ export function SourceHeader({
           </button>
         </div>
       </div>
-      <div className="верх-период">
+      <div className="верх-период" hidden={!capabilities.includes('period')}>
         <div className="baraban">
           <div className="baraban-gody" role="group" aria-label="Годы, кварталы и месяцы">
             <button
@@ -171,6 +210,7 @@ export function SourceHeader({
                 <button
                   className="god"
                   aria-label={'Выбрать весь ' + y + ' год'}
+                  aria-pressed={monthKeys(y).every(k=>periods.includes(k)) ? true : monthKeys(y).some(k=>periods.includes(k)) ? 'mixed' : false}
                   onClick={() => togglePeriods(monthKeys(y))}
                 >
                   {y}
@@ -180,6 +220,7 @@ export function SourceHeader({
                     <button
                       className="kvartal-yarlyk"
                       aria-label={`${q + 1} квартал ${y}`}
+                      aria-pressed={monthKeys(y).slice(q*3,q*3+3).every(k=>periods.includes(k)) ? true : monthKeys(y).slice(q*3,q*3+3).some(k=>periods.includes(k)) ? 'mixed' : false}
                       onClick={() => togglePeriods(monthKeys(y).slice(q * 3, q * 3 + 3))}
                     >
                       {q + 1}кв
@@ -214,6 +255,7 @@ export function SourceHeader({
       <div className="верх-недели">
         <div
           className="baraban-nedeli"
+          ref={weeksRef}
           tabIndex={0}
           role="group"
           aria-label="Недельный срез"
@@ -230,69 +272,50 @@ export function SourceHeader({
               disabled={w < 1 || w > 53}
               className={'nedelya ' + (i === 1 ? 'nedelya-tekushchaya' : 'nedelya-kray')}
               onClick={() => setWeek(w)}
-              aria-label={`Неделя ${w}${w === 41 ? ' · демонстрационный срез' : ' · примера среза нет'}`}
+              aria-label={`Неделя ${w}, ${weekWindow(w).label}${w === 41 ? ' · текущая, демонстрация' : w > 41 ? ' · ещё не наступила' : ' · примера среза нет'}`}
             >
               <span className="nedelya-nomer">{w}</span>
               <span className="nedelya-podpis">
                 <span className="nedelya-dni">
-                  {w === 40 ? '28–4' : w === 41 ? '5–11' : w === 42 ? '12–18' : 'Неделя'}
+                  {weekWindow(w).days}
                 </span>
-                <span className="nedelya-mesyats">{w >= 40 && w <= 44 ? 'октября' : 'срез'}</span>
+                <span className="nedelya-mesyats">{weekWindow(w).month}</span>
               </span>
             </button>
           ))}
         </div>
       </div>
       <div className="верх-эфир">
-        <button className="lv source-live" onClick={() => setPopup('updates')} aria-label="История и источники">
-          <span className="lv-state">
-            <span className="lv-state-row">
-              <i className="lv-dot" />
-              <b className="lv-state-t">
-                {source === 'reading' ? 'чтение' : source === 'offline' ? 'нет связи' : 'срез'}
-              </b>
-            </span>
-            <span className="lv-state-n">9 октября</span>
-          </span>
+        <button className="lv source-live" onClick={() => setPopup('updates')} aria-label="Эфир: изменения, комментарии и источники">
+          <span className="live-passport"><Radio size={12}/><b>{source === 'reading' ? 'Чтение' : source === 'failed' ? 'Ошибка чтения' : source === 'waiting' ? 'Готовы новые данные' : source === 'seen' ? 'Правка получена' : mode === 'webhook' ? 'По вебхуку' : mode === 'schedule' ? 'По расписанию' : 'Режим неизвестен'}</b><span>Демо</span></span>
           <span className="lv-tape">
             <i className="lv-lens" />
             {[
-              ['09:18', 'УО', 'Связь с процедурой'],
+              ['09:18', 'УО', source === 'seen' ? 'Правка замечена' : source === 'reading' ? 'Читаем книгу' : 'Связь с процедурой'],
               ['09:16', 'УДТХ', 'Без изменений'],
               ['09:14', 'УО', 'Открыт вопрос'],
             ].map((r, i) => (
               <span className={'lv-row ' + ['lv-row--top', 'lv-row--mid', 'lv-row--bot'][i]} key={r[0]}>
-                <span className="t">{r[0]}</span>
-                <span className="b">{r[1]}</span>
-                <span className="w">{r[2]}</span>
+                <span className="t">{r[0]}</span><span className="b">{r[1]}</span><span className="w">{r[2]}</span>
               </span>
             ))}
           </span>
         </button>
       </div>
       <div className="верх-угол">
-        <button
-          className="кнопка-темы"
-          aria-label={dark ? 'Включить светлую тему' : 'Включить тёмную тему'}
-          onClick={() => setDark(!dark)}
-        >
-          {dark ? <Sun /> : <Moon />}
-        </button>
-        <button
-          className={'прибор ' + (!filterItems.length ? 'тихий' : '')}
-          aria-label={'Отбор, условий: ' + filterItems.length}
-          onClick={() => setPopup('filters')}
-        >
+        <button className={'прибор ' + (!selectedAxes.length ? 'тихий' : '')}
+          aria-label={'Отбор, осей: ' + selectedAxes.length} onClick={() => setPopup('filters')}>
           <span className="сетка-б" aria-hidden="true">
-            {Array.from({ length: 12 }, (_, i) => (
-              <i key={i} className={i < filterItems.length ? 'горит' : ''} />
-            ))}
+            {axes.map(a => <i key={a.key} data-axis={a.key} data-kind={a.kind} className={a.active ? 'горит' : ''} title={a.name} />)}
           </span>
-          <span className="счёт">{filterItems.length}</span>
+          {selectedAxes.length > 0 && <span className="счёт">{selectedAxes.length}</span>}
         </button>
+        <button className="corner-reset" aria-label={undo ? 'Вернуть отбор' : 'Сбросить отбор'} disabled={!selectedAxes.length && !undo && !filterItems.length} onClick={undo ? restore : reset}><RotateCcw /></button>
+        <button className="кнопка-темы" aria-label={dark ? 'Включить светлую тему' : 'Включить тёмную тему'} onClick={() => setDark(!dark)}>{dark ? <Sun /> : <Moon />}</button>
+        <button className="corner-appearance" aria-label="Палитры и отделки" onClick={() => setPopup('appearance')}><Palette /></button>
       </div>
       <div className="верх-разрезы">
-        <div className="разрез-группа">
+        {capabilities.includes('procurement') && <div className="разрез-группа">
           <span className="разрез-имя">способ</span>
           {[
             ['ЭА', 'КП'],
@@ -308,94 +331,79 @@ export function SourceHeader({
               {t}
             </button>
           ))}
-        </div>
-        <div className="разрез-группа">
+        </div>}
+        {capabilities.includes('budget') && <div className="разрез-группа">
           <span className="разрез-имя">бюджет</span>
           {['ФБ', 'КБ', 'МБ'].map((v) => (
             <button
               className="разрез-кн"
               key={v}
-              aria-pressed={filters.budget === v}
-              onClick={() => change('budget', filters.budget === v ? '' : v)}
+              aria-pressed={(filters.budgets ?? (filters.budget ? [filters.budget] : [])).includes(v)}
+              onClick={() => { const old = filters.budgets ?? (filters.budget ? [filters.budget] : []); const next = old.includes(v) ? old.filter(x=>x!==v) : [...old,v]; setFilters(f=>({...f,budget:'',budgets:next.length ? next : null})); }}
             >
               {v}
             </button>
           ))}
-        </div>
-        <div className="разрез-группа">
+        </div>}
+        {capabilities.includes('currency') && <div className="разрез-группа">
           <span className="разрез-имя">единицы</span>
           {['тыс', 'млн'].map((v) => (
             <button className="разрез-кн" key={v} aria-pressed={unit === v} onClick={() => setUnit(v)}>
               {v}
             </button>
           ))}
-        </div>
-        <button
+        </div>}
+        {capabilities.includes('period') && <button
           className="разрез-кн"
           aria-pressed={!filters.year && !filters.periods}
           onClick={() => setFilters((f) => ({ ...f, year: null, month: null, periods: null }))}
         >
           Все годы
-        </button>
+        </button>}
         <span className="source-demo-label">Макет · вымышленные данные</span>
       </div>
     </header>
   );
 }
-const orgColors = ['uer', 'uio', 'uagzo', 'ufbp', 'ud', 'udtx', 'uksimp', 'uo'];
-export function SourceOrganizations({ filters, change, setFilters, setPopup }) {
-  const [expanded, setExpanded] = useState(null);
-  const chosen = filters.depts ?? (filters.dept ? [filters.dept] : DEPTS);
-  const toggle = (d) => {
-    const next = chosen.includes(d) ? chosen.filter((x) => x !== d) : [...chosen, d];
-    setFilters((f) => ({ ...f, dept: '', depts: next.length === DEPTS.length ? null : next, org: '' }));
+const orgColors = ['#d6bf85','#a78bfa','#06b6d4','#f59e0b','#10b981','#ef4444','#ec4899','#84cc16'];
+const isOwn = name => !name.includes('· пример');
+export function SourceOrganizations({ filters, setFilters, page }) {
+  const capabilities = PAGE_FILTERS[page] || [];
+  if (!capabilities.includes('department') || page === 'report') return null;
+  const all = !filters.dept && filters.depts == null && !filters.org && filters.orgs == null;
+  const chosen = filters.depts ?? (filters.dept ? [filters.dept] : []);
+  const selectedOrgs = filters.orgs ?? (filters.org ? [filters.org] : []);
+  const orgsFor = d => [...new Set(ROWS.filter(r=>r.dept===d).map(r=>r.org))];
+  const chooseDept = d => {
+    const next = chosen.includes(d) ? chosen.filter(x=>x!==d) : [...chosen,d];
+    setFilters(f=>({...f,dept:'',depts:next.length ? next : null,org:'',orgs:null}));
+  };
+  const chooseOrg = o => {
+    const next = selectedOrgs.includes(o) ? selectedOrgs.filter(x=>x!==o) : [...selectedOrgs,o];
+    setFilters(f=>({...f,dept:'',depts:null,org:'',orgs:next.length ? next : null}));
   };
   return (
-    <aside className="source-organizations source-shell" aria-label="Управления и учреждения">
-      <div className="organizations-top">
-        <strong>Организации</strong>
-        <button onClick={() => change('dept', '')}>Все</button>
-      </div>
-      {DEPTS.map((d, i) => (
-        <section className="upravlenie" key={d} style={{ '--org-ton': `var(--org-${orgColors[i]})` }}>
-          <div className="source-org-heading">
-            <label className="upravlenie-plashka">
-              <input aria-label={d} type="checkbox" checked={chosen.includes(d)} onChange={() => toggle(d)} />
-              <span className="upravlenie-polosa" />
-              <span className="upravlenie-imya">{d}</span>
-              <span className="upravlenie-schet">{ROWS.filter((r) => r.dept === d).length}</span>
-            </label>
-            <button
-              className="org-unfold"
-              aria-label={'Учреждения ' + d}
-              aria-expanded={expanded === d}
-              onClick={() => setExpanded(expanded === d ? null : d)}
-            >
-              <ChevronDown />
-            </button>
-          </div>
-          {expanded === d && (
-            <div className="podvedy">
-              {[...new Set(ROWS.filter((r) => r.dept === d).map((r) => r.org))].map((o) => (
-                <label className="podved" key={o}>
-                  <input
-                    type="checkbox"
-                    checked={filters.org === o}
-                    onChange={() =>
-                      setFilters((f) => ({ ...f, dept: d, depts: null, org: filters.org === o ? '' : o }))
-                    }
-                  />
-                  {o}
-                </label>
-              ))}
-            </div>
-          )}
-        </section>
-      ))}
-      <button className="organizations-all" onClick={() => setPopup('organizations')}>
-        Все учреждения <ChevronDown size={13} />
+    <aside className="ob-strip source-organizations" aria-label="Управления и учреждения">
+      <button className={'ob-vse '+(all?'ob-vse-active':'')} aria-pressed={all} onClick={()=>setFilters(f=>({...f,dept:'',depts:null,org:'',orgs:null}))}>
+        <span className="ob-vse-dot"/><span className="ob-vse-label">Все организации</span>
       </button>
-      <p>Количество записей в демонстрационном наборе</p>
+      <div className="ob-scroll">
+      {DEPTS.map((d,i) => {
+        const organizations = orgsFor(d), subs = organizations.filter(o=>!isOwn(o)), own = organizations.filter(isOwn);
+        const active = all || chosen.includes(d) || organizations.some(o=>selectedOrgs.includes(o));
+        return <section className="ob-dept" data-active={active || undefined} key={d}>
+          <button className={'ob-dept-btn '+(active?'ob-dept-active':'')} aria-label={d+' с подведомственными'} aria-pressed={chosen.includes(d)} onClick={()=>chooseDept(d)}>
+            <span className="ob-dept-bar" style={{background:orgColors[i]}}/><span className="ob-dept-name">{d}</span>
+            <span className="ob-dept-num" title="Организаций в демонстрационном наборе">{organizations.length}</span>
+          </button>
+          {subs.length>0 && capabilities.includes('subordinate') && <>
+            {own.length>0 && <button className={'ob-dept-only '+(own.every(o=>selectedOrgs.includes(o))?'ob-dept-only-active':'')} aria-pressed={own.every(o=>selectedOrgs.includes(o))} onClick={()=>setFilters(f=>({...f,dept:'',depts:null,org:'',orgs:own}))}>только управление</button>}
+            <div className="ob-chips">{subs.map(o=><button key={o} className={'ob-chip '+((all || chosen.includes(d) || selectedOrgs.includes(o))?'ob-chip-active':'')} aria-pressed={selectedOrgs.includes(o)} onClick={()=>chooseOrg(o)} title={o}>{o.replace(' · пример','')}</button>)}</div>
+          </>}
+        </section>;
+      })}
+      </div>
+      <p className="org-count-note">Числа — организации в демонаборе</p>
     </aside>
   );
 }

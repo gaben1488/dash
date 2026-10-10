@@ -1,5 +1,5 @@
 import { SourceHeader, SourceOrganizations } from './SourceHeader.jsx';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useReducer } from 'react';
 import {
   ShieldCheck,
   ChevronUp,
@@ -44,6 +44,10 @@ import {
   Filter,
 } from 'lucide-react';
 import { ROWS, DEPTS, MONTHS, DEFAULT_FILTERS, selectRows, summarize } from './model.mjs';
+import PALETTES from './source-shell/palettes.json';
+import PAGE_FILTERS from './source-shell/page-filters.json';
+import { AppearancePanel, AxisPanel, LivePanel, UpdateNotice } from './ConsolidationControls.jsx';
+import { initialUpdate, updateState } from './shell-model.mjs';
 const NAV = [
   ['dashboard', 'Пульс', '#2f7a50', '#1f5236'],
   ['report', 'Отчёт', '#8a6a1f', '#5f470f'],
@@ -124,7 +128,10 @@ export function App() {
     [popup, setPopup] = useState(null),
     [undo, setUndo] = useState(null),
     [toast, setToast] = useState(''),
-    [source, setSource] = useState('ready'),
+    [family, setFamily] = useState('Космос'),
+    [finish, setFinish] = useState('candy'),
+    [motion, setMotion] = useState(true),
+    [mode, setMode] = useState('webhook'),
     [week, setWeek] = useState(41),
     [density, setDensity] = useState('normal'),
     [replies, setReplies] = useState([]),
@@ -134,12 +141,18 @@ export function App() {
   const returnTo = useRef(null),
     closeDetail = useRef(null),
     toastTimer = useRef(null);
+  const [update, dispatch] = useReducer(updateState, initialUpdate);
+  const source = update.phase;
+  const palette = PALETTES.find(p => p.name === family);
   const resolved = Boolean(closedThreads[selected?.id]);
   const current = navInfo(page);
-  const accent = { '--planet-top': current[2], '--planet-bottom': current[3] };
+  const pair = palette.tabs.find(t=>t.name===current[1]);
+  const accent = { '--planet-top': pair.top, '--planet-bottom': pair.bottom, '--planet-ink': pair.ink };
+  const restore = () => { if (!undo) return; setFilters(undo.filters); setUnit(undo.unit); setWeek(undo.week); setUndo(null); };
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.classList.toggle('tma', dark);
+    document.documentElement.classList.toggle('dark', dark);
   }, [dark]);
   useEffect(() => {
     if (selected) closeDetail.current?.focus({ preventScroll: true });
@@ -166,7 +179,9 @@ export function App() {
     setFilters((f) => ({
       ...f,
       [key]: value,
-      ...(key === 'dept' ? { org: '', depts: null } : {}),
+      ...(key === 'dept' ? { org: '', orgs: null, depts: null } : {}),
+      ...(key === 'org' ? {orgs:null} : {}),
+      ...(key === 'budget' ? {budgets:null} : {}),
       ...(key === 'year' || key === 'month' ? { periods: null } : {}),
     }));
     setUndo(null);
@@ -197,6 +212,8 @@ export function App() {
       dept: v,
       depts: 'Управления: ' + (v?.join?.(', ') || 'нет'),
       org: v,
+      orgs: 'Учреждения: ' + (v?.join?.(', ') || 'нет'),
+      budgets: 'Бюджеты: ' + (v?.join?.(', ') || 'нет'),
       month: MONTHS[Number(v) - 1],
       periods: 'Выбрано месяцев: ' + (v?.length || 0),
       method: v === 'ЭА' ? 'Конкурентные' : v,
@@ -205,9 +222,16 @@ export function App() {
       attention: 'Требуют внимания',
       linked: 'С процедурами',
     })[k];
-  const effective = ['monitoring'].includes(page)
-    ? { dept: filters.dept, depts: filters.depts, org: filters.org, search: filters.search }
-    : { ...filters, ...(page === 'competition' ? { method: '' } : {}) };
+  const capabilities = PAGE_FILTERS[page] || [];
+  const effective = {
+    ...(capabilities.includes('period') ? {year:filters.year,month:filters.month,periods:filters.periods} : {}),
+    ...(capabilities.includes('department') ? {dept:filters.dept,depts:filters.depts} : {}),
+    ...(capabilities.includes('subordinate') ? {org:filters.org,orgs:filters.orgs} : {}),
+    ...(capabilities.includes('procurement') ? {method:filters.method} : {}),
+    ...(capabilities.includes('budget') ? {budget:filters.budget,budgets:filters.budgets} : {}),
+    ...(capabilities.includes('search') ? {search:filters.search} : {}),
+    attention:filters.attention, linked:filters.linked,
+  };
   const base =
     page === 'unfunded'
       ? ROWS.filter((r) => !r.year)
@@ -216,11 +240,13 @@ export function App() {
         : page === 'monitoring'
           ? ROWS.filter((r) => r.procedure)
           : ROWS;
-  const visible = selectRows(base, page === 'unfunded' ? { ...effective, year: null } : effective);
+  const visible = selectRows(base, page === 'unfunded' ? { ...effective, year: null, month:null, periods:null } : effective);
   const sums = summarize(visible),
     orgRows = selectRows(ROWS, { year: filters.year });
   const reset = () => {
-    setUndo({ ...filters });
+    setUndo({ filters: { ...filters }, unit, week });
+    setUnit('тыс');
+    setWeek(41);
     setFilters({ ...DEFAULT_FILTERS });
     setPopup(null);
   };
@@ -239,11 +265,8 @@ export function App() {
   };
   const groupStep = (delta) => setGroup((g) => (g + delta + GROUPS.length) % GROUPS.length);
   const refresh = () => {
-    setSource('reading');
-    setTimeout(() => {
-      setSource('ready');
-      say('Демонстрация завершена. Состав среза не изменился.');
-    }, 1200);
+    dispatch({type:'read'});
+    setTimeout(() => dispatch({type:'complete', blocked: Boolean(reply.trim() || selected || popup)}), 1200);
   };
   const showSource = (row) => open(row, 'source');
   function register() {
@@ -685,9 +708,9 @@ export function App() {
             {[
               ['ready', 'Срез доступен'],
               ['reading', 'Чтение источников'],
-              ['offline', 'Связь потеряна'],
+              ['failed', 'Ошибка чтения'],
             ].map(([v, l]) => (
-              <button className={source === v ? 'active' : ''} key={v} onClick={() => setSource(v)}>
+              <button className={source === v ? 'active' : ''} key={v} onClick={() => dispatch({type:v==='ready'?'reset':v==='reading'?'read':'fail'})}>
                 {l}
               </button>
             ))}
@@ -704,7 +727,7 @@ export function App() {
     );
   }
   return (
-    <div className="app" style={accent}>
+    <div className="app" style={accent} data-finish={finish} data-motion={motion ? "live" : "still"}>
       <a className="skip-link" href="#workspace">
         К содержимому
       </a>
@@ -725,17 +748,11 @@ export function App() {
           refresh,
           filterItems,
           setPopup,
+          palette, reset, undo, restore, mode,
         }}
       />
-      {source === 'offline' && (
-        <div className="connection-banner">
-          <WifiOff size={15} />
-          <span>Источник недоступен. Вы продолжаете работать со срезом 9 октября.</span>
-          <button onClick={refresh}>Повторить чтение</button>
-        </div>
-      )}
-      <div className="source-workspace">
-        <SourceOrganizations {...{ filters, change, setFilters, setPopup }} />
+      <div className={"source-workspace " + (!capabilities.includes('department') || page === 'report' ? 'without-organizations' : '')}>
+        <SourceOrganizations {...{ filters, change, setFilters, setPopup, page }} />
         <main id="workspace">
           <div className="page-heading">
             <div>
@@ -775,10 +792,10 @@ export function App() {
           {week !== 41 ? (
             <div className="empty standalone">
               <CalendarDays />
-              <h2>Для этой недели нет демонстрационного среза</h2>
+              <h2>{week > 41 ? 'Неделя ещё не наступила' : 'Для этой недели нет демонстрационного среза'}</h2>
               <p>Числа другой недели не подставляются вместо отсутствующего снимка.</p>
               <button className="primary" onClick={() => setWeek(41)}>
-                Вернуться к 5–11 октября
+                Вернуться к 9–16 октября
               </button>
             </div>
           ) : (
@@ -1121,29 +1138,13 @@ export function App() {
           </footer>
         </main>
       </div>
-      {undo && (
-        <div className="undo-banner" role="status">
-          Показан весь 2026 год
-          <button
-            onClick={() => {
-              setFilters(undo);
-              setUndo(null);
-            }}
-          >
-            <RotateCcw size={14} />
-            Вернуть отбор
-          </button>
-          <IconButton label="Скрыть возврат" onClick={() => setUndo(null)}>
-            <X size={14} />
-          </IconButton>
-        </div>
-      )}
       {toast && (
         <div className="toast" role="status">
           <Check size={17} />
           {toast}
         </div>
       )}
+      <UpdateNotice {...{update,dispatch,refresh}} hasDraft={Boolean(reply.trim())}/>
       {popup && (
         <Modal
           title={
@@ -1153,10 +1154,12 @@ export function App() {
               provenance: 'Откуда числа',
               updates: 'История и источники',
               organizations: 'Организации',
+              appearance: 'Заря, палитры и материалы',
             }[popup]
           }
           onClose={() => setPopup(null)}
         >
+          {popup === 'appearance' && <AppearancePanel {...{family, setFamily, finish, setFinish, motion, setMotion}}/>}
           {popup === 'sections' && (
             <div className="section-picker">
               {GROUPS.map((g) => (
@@ -1178,6 +1181,7 @@ export function App() {
           )}
           {popup === 'filters' && (
             <div className="filter-dialog">
+              <AxisPanel {...{filters,unit,week}}/>
               <p>Условия ограничивают закупки. Единицы меняют только отображение сумм.</p>
               <div className="current-filters">
                 {filterItems.length ? (
@@ -1293,56 +1297,7 @@ export function App() {
               </button>
             </div>
           )}
-          {popup === 'updates' && (
-            <div className="updates-dialog">
-              <div className="update-state">
-                {source === 'offline' ? (
-                  <WifiOff />
-                ) : source === 'reading' ? (
-                  <RefreshCw className="spin" />
-                ) : (
-                  <CheckCircle2 />
-                )}
-                <div>
-                  <h3>
-                    {source === 'offline'
-                      ? 'Книги временно недоступны'
-                      : source === 'reading'
-                        ? 'Читаем источники'
-                        : 'Демонстрационный срез доступен'}
-                  </h3>
-                  <p>Последний показанный срез: 9 октября 2026.</p>
-                </div>
-              </div>
-              <div className="timeline">
-                <div>
-                  <span className="timeline-dot" />
-                  <time>09:18 · УО</time>
-                  <h3>Прочитаны значения и формулы</h3>
-                  <p>Две строки связаны с одной процедурой. Состав связи требует проверки.</p>
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setPopup(null);
-                      go('quality');
-                    }}
-                  >
-                    Открыть вопрос <ArrowRight size={14} />
-                  </button>
-                </div>
-                <div>
-                  <span className="timeline-dot" />
-                  <time>09:16 · УДТХ</time>
-                  <h3>Изменений не обнаружено</h3>
-                  <p>Успешное чтение без изменений отличается от недоступности книги.</p>
-                </div>
-              </div>
-              <button className="secondary" onClick={refresh}>
-                <RefreshCw size={15} />
-                Проиграть обновление
-              </button>
-            </div>
-          )}
+          {popup === 'updates' && <LivePanel {...{update,dispatch,refresh,mode,setMode}} row={ROWS[0]} onOpen={(row,tab)=>{setPopup(null);setPage('data');open(row,tab);}}/>}
           {popup === 'organizations' && (
             <div className="organization-picker">
               {DEPTS.map((d) => (
