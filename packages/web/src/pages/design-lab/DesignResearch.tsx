@@ -7,9 +7,10 @@ import type { LabPreset } from './presets';
 import { LAB_DEMO_ROWS, LAB_DEMO_TOTAL_THOUSANDS } from './demo-data';
 import { getChartColors } from '@/lib/chart-colors';
 import { AURORA_STATES, AURORA_VARIANTS, auroraColors, auroraMatrix, familyMatrix, type AuroraVariantId, type AuroraState } from './aurora-research';
+import { AtomAtlas } from './AtomAtlas';
 import './design-research.css';
 
-type ResearchView = 'aurora' | 'pulse' | 'workflows';
+type ResearchView = 'aurora' | 'pulse' | 'workflows' | 'atlas';
 type PulseLayout = 'current' | 'hero' | 'focus';
 
 const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
@@ -321,6 +322,7 @@ function CommandPalette({ onClose, onView, onFamily, onVariant }: {
             <Command.Item onSelect={() => action(() => onView('aurora'))}>Исследовать лазурь и палитры</Command.Item>
             <Command.Item onSelect={() => action(() => onView('pulse'))}>Сравнить крупный круг «Пульса»</Command.Item>
             <Command.Item onSelect={() => action(() => onView('workflows'))}>Изучить механики и кнопки</Command.Item>
+            <Command.Item onSelect={() => action(() => onView('atlas'))}>Проверить атомы и зависимости интерфейса</Command.Item>
           </Command.Group>
           <Command.Group heading="Проверяемые цвета">
             <Command.Item onSelect={() => action(() => { onVariant('recovered'); onView('aurora'); })}>Вернуть читаемую лазурь 7 августа</Command.Item>
@@ -381,6 +383,7 @@ export function DesignResearch({ preset, onPresetChange }: {
         ['aurora', 'Лазурь и отделки'],
         ['pulse', 'Большой круг «Пульса»'],
         ['workflows', 'Механизмы'],
+        ['atlas', 'Атомы и связи'],
       ] as const).map(([key,label]) =>
         <button type="button" key={key} aria-pressed={view === key} onClick={() => setView(key)}>{label}</button>
       )}
@@ -388,6 +391,7 @@ export function DesignResearch({ preset, onPresetChange }: {
     {view === 'aurora' && <AuroraResearch preset={preset} onSelect={onPresetChange} variant={commandVariant} onVariant={setCommandVariant} />}
     {view === 'pulse' && <PulseResearch preset={preset} />}
     {view === 'workflows' && <WorkflowResearch onOpenCommands={() => setCommandOpen(true)} />}
+    {view === 'atlas' && <AtomAtlas />}
     {commandOpen && <CommandPalette onClose={() => { setCommandOpen(false); launch.current?.focus(); }}
       onView={setView} onFamily={family => onPresetChange({ family })} onVariant={setCommandVariant} />}
     <span className="dr-sr" aria-live="polite">Выбранное историческое направление: {commandVariant}</span>
