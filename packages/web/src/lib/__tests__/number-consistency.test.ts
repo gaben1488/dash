@@ -264,7 +264,17 @@ function subPeriodBlock(rows: Row[]): Record<string, number | null> {
 
 function activityBlock(rows: Row[]) {
   const of = (kind: Activity) => {
-    const a = agg(rows.filter(r => r.activity === kind));
+    const activityRows = rows.filter(r => r.activity === kind);
+    const a = agg(activityRows);
+    const methodOf = (method: Method) => {
+      const m = agg(activityRows.filter(r => r.method === method));
+      return {
+        plan: m.planCount, fact: m.factCount,
+        planSum: m.planTotal, factSum: m.factTotal,
+        planFB: m.planFB, planKB: m.planKB, planMB: m.planMB,
+        factFB: m.factFB, factKB: m.factKB, factMB: m.factMB,
+      };
+    };
     return {
       planCount: a.planCount, factCount: a.factCount,
       planTotal: a.planTotal, factTotal: a.factTotal,
@@ -273,6 +283,7 @@ function activityBlock(rows: Row[]) {
       economyTotal: a.economyTotal,
       economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
       execCountPct: pct1(a.factCount, a.planCount),
+      byMethod: { competitive: methodOf('kp'), ep: methodOf('ep') },
     };
   };
   const zero = of('pm');
@@ -295,6 +306,15 @@ function subEntry(name: string, rows: Row[]) {
     const mr = rows.filter(r => r.month === mi);
     if (mr.length > 0) months[mi] = subPeriodBlock(mr);
   }
+  const activityByPeriod: Record<string, ReturnType<typeof activityBlock>> = {
+    year: activityBlock(rows),
+  };
+  for (const qk of QUARTER_KEYS) {
+    activityByPeriod[qk] = activityBlock(rows.filter(r => `q${r.quarter}` === qk));
+  }
+  for (let mi = 1; mi <= 12; mi++) {
+    activityByPeriod[`m${mi}`] = activityBlock(rows.filter(r => r.month === mi));
+  }
   return {
     name,
     rowCount: rows.length,
@@ -307,7 +327,7 @@ function subEntry(name: string, rows: Row[]) {
     epCount: a.epCount,
     economyTotal: a.economyTotal,
     economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
-    quarters, months,
+    quarters, months, activityByPeriod,
   };
 }
 
@@ -334,6 +354,9 @@ function buildDashboardData() {
       byActivity[qk] = activityBlock(deptRows.filter(r => `q${r.quarter}` === qk));
     }
     byActivity.year = activityBlock(deptRows);
+    for (let mi = 1; mi <= 12; mi++) {
+      byActivity[`m${mi}`] = activityBlock(deptRows.filter(r => r.month === mi));
+    }
 
     return {
       department: { id: DEPT_META[short].id, nameShort: short, name: DEPT_META[short].name },
