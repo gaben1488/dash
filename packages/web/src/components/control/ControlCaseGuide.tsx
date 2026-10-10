@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { ArrowRight, BookOpen, ClipboardCheck, ExternalLink, RefreshCw, X } from 'lucide-react';
 import type { ControlCase, ControlGuideStepId } from '@aemr/shared';
-import { buildControlCaseGuide, productLabel } from '@aemr/shared';
+import { buildControlCaseGuide, ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
 import clsx from 'clsx';
 import { CARD, RULE_HEAD, TILE } from './surfaces';
 
@@ -84,10 +84,28 @@ export function ControlCaseGuide({ item, onClose, onOpenEvidence, onOpenRegistry
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                 Сохранено {item.observationCount} исходных наблюдений. Один вопрос не удаляет и не переписывает их историю.
               </p>
-              <button type="button" onClick={() => onOpenEvidence(item.issueIds[0])}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline">
-                <BookOpen size={13} /> Открыть исходные замечания <ArrowRight size={13} />
-              </button>
+              <ul className="space-y-2" aria-label="Исходные замечания по делу">
+                {item.evidence.map((issue) => (
+                  <li key={issue.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200/70 dark:border-zinc-700/60 px-3 py-2">
+                    <div className="min-w-[160px] flex-1">
+                      <p className="text-xs text-zinc-800 dark:text-zinc-100">{issue.title}</p>
+                      <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {ISSUE_STATUS_LABELS[issue.status] ?? 'Статус не установлен'}
+                        {issue.sheet ? ` · лист «${issue.sheet}»` : ''}
+                        {issue.row != null ? ` · строка ${issue.row}` : ''}
+                        {issue.cell ? ` · ячейка ${issue.cell}` : ''}
+                      </p>
+                    </div>
+                    <button type="button"
+                      aria-label={`Показать исходное замечание: ${issue.title} (${issue.id})`}
+                      onClick={() => onOpenEvidence(issue.id)}
+                      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-600 text-[11px] font-medium text-blue-700 dark:text-blue-300 hover:bg-zinc-100 dark:hover:bg-white/10">
+                      <BookOpen size={12} /> Показать <ArrowRight size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
               <details className="text-[11px] text-zinc-600 dark:text-zinc-300">
                 <summary className="cursor-pointer select-none">Технические идентификаторы наблюдений</summary>
                 <ul className="mt-2 space-y-1 pl-3">
