@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot, invalidateCache, setSvodGridCache, getDeptLoadMeta, getDeptSheetCache } from '../services/snapshot.js';
 import { getSheetData } from '../services/google-sheets.js';
+import { overlayPersistedIssueStatus } from '../services/issue-status-overlay.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
@@ -131,6 +132,11 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       app.log.warn('dashboard: snapshot unavailable: %s', (err as Error).message);
       return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
     }
+
+    // A snapshot is immutable evidence; human dispositions live in SQLite.
+    // Project the saved statuses into the response so Issues, Dashboard and
+    // Trust do not disagree immediately after reloading the page.
+    snapshot = { ...snapshot, issues: overlayPersistedIssueStatus(snapshot.issues ?? []) };
 
     // Формируем KPI-карточки
     const kpiCards: KPICard[] = [];
@@ -459,7 +465,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         .filter(([key]) => key.startsWith(deptPrefix))
         .map(([key, val]) => [key, val as NormalizedMetric]),
     );
-    const deptIssues = snapshot.issues?.filter((i: Issue) => i.departmentId === dept.id) ?? [];
+    const deptIssues = overlayPersistedIssueStatus(snapshot.issues ?? [])
+      .filter((i: Issue) => i.departmentId === dept.id);
     const deptDeltas = snapshot.deltas?.filter(
       (d: DeltaResult) => d.metricKey?.startsWith(deptPrefix),
     ) ?? [];
