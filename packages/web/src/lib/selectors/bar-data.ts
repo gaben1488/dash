@@ -1,6 +1,7 @@
 import type { BudgetPlanFactFn } from './budget-filter';
 import type { PeriodResolution } from './period-resolution';
 import { aggregateNodeTotals } from './totals-aggregation';
+import { activityMethodSlice } from './activity-method';
 
 /**
  * Данные бар-чарта исполнения per-департамент (план/факт/%, КП/ЕП, счётное
@@ -38,43 +39,51 @@ export function buildBarData(depts: any[], opts: {
     // (реестр расхождений §2 «Ноль вместо „нет базы“»).
     let pct: number | null, plan = 0, fact = 0, kp = 0, ep = 0;
     let execCountPct: number | null = null;
+    let activityBreakdownAvailable = true;
 
-    // Subordinate-filtered: считаем ТЕМ ЖЕ ядром, что итоги страницы.
-    // Баг #4 реестра охоты 08.08: раньше ветвь брала годовые значения узла и
-    // суммировала все 4 квартала независимо от выбранного периода — бар
-    // управления показывал год под заголовком квартала. aggregateNodeTotals
-    // сам разбирает _subFiltered-узел периодной ветвью (см. totals-aggregation).
-    if (d._subFiltered) {
+    if (isActivityFiltered) {
+      // Use exact activity × method × period × budget intersection. This
+      // branch also works for selected subordinates: their byActivity is
+      // replaced by the selected subordinate slices before arriving here.
+      const periodKeys = useMonthLevel && hasActiveMonths
+        ? [...resolution.fullQuarters, ...resolution.partialMonths.map(m => `m${m}`)]
+        : hasActiveMonths && coveredQuarters.length > 0 ? coveredQuarters : [periodKey];
+      let countPlan = 0, countFact = 0;
+      for (const pk of periodKeys) {
+        const ba = d.byActivity?.[pk];
+        if (!ba) {
+          if (d._subFiltered && d._activityBreakdownAvailable === false) activityBreakdownAvailable = false;
+          continue;
+        }
+        for (const ak of actKeys) {
+          const a = ba[ak];
+          if (!a) continue;
+          const slice = activityMethodSlice(a, showKP, showEP, budgetPlanFact);
+          if (!slice.exact) {
+            activityBreakdownAvailable = false;
+            continue;
+          }
+          plan += slice.planTotal;
+          fact += slice.factTotal;
+          kp += slice.kpCount;
+          ep += slice.epCount;
+          countPlan += slice.planCount;
+          countFact += slice.factCount;
+        }
+      }
+      pct = activityBreakdownAvailable && plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+      execCountPct = activityBreakdownAvailable && countPlan > 0
+        ? +((countFact / countPlan) * 100).toFixed(1) : null;
+    } else if (d._subFiltered) {
+      // The original subordinate-only path keeps its exact quarter/month
+      // aggregation through aggregateNodeTotals.
       const n = aggregateNodeTotals(d, resolution, { showKP: true, showEP: true, activeMonths, hasMonthData });
       kp = n.kp;
       ep = n.ep;
-      // budgetPlanFact без фильтра вернёт planTotal/factTotal, с фильтром —
-      // сумму выбранных бюджетов из периодной разбивки узла.
       const bf = budgetPlanFact({ ...n.budget, planTotal: n.planTotal, factTotal: n.factTotal });
       plan = bf.plan; fact = bf.fact;
       pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? null);
       execCountPct = n.planCount > 0 ? +((n.factCount / n.planCount) * 100).toFixed(1) : null;
-    } else if (isActivityFiltered) {
-      // Use byActivity breakdown for activity-filtered bar data
-      const ba = d.byActivity ?? {};
-      const periodKeys = hasActiveMonths && coveredQuarters.length > 0
-        ? coveredQuarters
-        : [periodKey];
-
-      for (const pk of periodKeys) {
-        const qAct = ba[pk];
-        if (!qAct) continue;
-        for (const ak of actKeys) {
-          const a = qAct[ak];
-          if (!a) continue;
-          // Apply budget filter when active; ActivityMetrics has planFB/factFB fields
-          const bf = budgetPlanFact(a);
-          plan += bf.plan;
-          fact += bf.fact;
-          kp += a.planCount ?? 0;
-        }
-      }
-      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
     } else if (useMonthLevel) {
       // Aggregate selected months for this department
       let dPC = 0, dFC = 0;
@@ -115,11 +124,12 @@ export function buildBarData(depts: any[], opts: {
       nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
       id: d.department?.id,
       pct,
-      planTotal: plan,
-      factTotal: fact,
-      kpCount: showKP ? kp : 0,
-      epCount: showEP ? ep : 0,
+      planTotal: isActivityFiltered && !activityBreakdownAvailable ? null : plan,
+      factTotal: isActivityFiltered && !activityBreakdownAvailable ? null : fact,
+      kpCount: isActivityFiltered && !activityBreakdownAvailable ? null : showKP ? kp : 0,
+      epCount: isActivityFiltered && !activityBreakdownAvailable ? null : showEP ? ep : 0,
       execCountPct,
+      ...(isActivityFiltered ? { activityBreakdownAvailable } : {}),
     };
   });
 }
