@@ -9,6 +9,16 @@ on:
       - 'packages/web/src/pages/design-lab.css'
       - 'packages/web/src/pages/Kit.tsx'
       - 'scripts/design-lab-browser-qa.mjs'
+      - 'scripts/dash-ui-atom-inventory.mjs'
+      - '.github/workflows/design-lab-browser-qa.yml'
+  push:
+    branches: [codex/dash-design-library-patterns-20261010]
+    paths:
+      - 'packages/web/src/pages/DesignLab*'
+      - 'packages/web/src/pages/design-lab/**'
+      - 'packages/web/src/pages/design-lab.css'
+      - 'scripts/design-lab-browser-qa.mjs'
+      - 'scripts/dash-ui-atom-inventory.mjs'
       - '.github/workflows/design-lab-browser-qa.yml'
   workflow_dispatch:
 
@@ -32,6 +42,16 @@ jobs:
           cache: pnpm
       - name: Install workspace dependencies without changing the lockfile
         run: pnpm install --frozen-lockfile
+      - name: Inventory all UI atoms, source addresses and dependencies
+        run: node scripts/dash-ui-atom-inventory.mjs
+      - name: Upload source-level evidence graph
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dash-ui-atom-map-${{ github.run_number }}
+          path: artifacts/dash-ui-atom-inventory/
+          retention-days: 30
+          if-no-files-found: warn
       - name: Install test-only browser control outside repository
         run: npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/dash-browser-qa" puppeteer-core@24.18.0
       - name: Start Vite dev-only Kit
