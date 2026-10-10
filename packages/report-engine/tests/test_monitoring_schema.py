@@ -29,6 +29,10 @@ ZMO_DIRECTORY_EXTENSION = [
     'Дата отчёта ЗМО',
     'Источник ЗМО',
 ]
+WORKING_NAME_EXTENSION = [
+    'Рабочее сокращение',
+    'Действующее краткое название',
+]
 
 
 def test_dynamic_header_counts_do_not_change_the_schema_but_static_labels_do():
@@ -127,13 +131,13 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
             if sheet_id == 913657450:
                 return {'title': '_Проверки', 'gridProperties': {'columnCount': 8}}
             source = next(s for s in original['sources'] if s['sheet_id'] == sheet_id)
-            return {'title': source['sheet'], 'gridProperties': {'columnCount': 32 if source['source_id'] == 'directory' else source['columns']}}
+            return {'title': source['sheet'], 'gridProperties': {'columnCount': 34 if source['source_id'] == 'directory' else source['columns']}}
 
         def values(self, provider, title, start, end, columns):
             result = deepcopy(headers[keys[title]])
             if keys[title] == 'directory':
                 assert len(result[-1]) == 19
-                result[-1].extend(ZMO_DIRECTORY_EXTENSION)
+                result[-1].extend(ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION)
             if keys[title] == drift:
                 result[-1][0] = 'Unreviewed business label'
             return result
@@ -150,35 +154,38 @@ def test_installed_october_headers_have_exact_reviewed_transitions(monkeypatch, 
         assert reviewed['sources'][-1]['sheet'] == '_Проверки'
 
 
-def test_customer_directory_32_col_extension_preserves_all_previous_business_labels():
-    """A pin on the added ZMO columns, not permission to accept arbitrary drift."""
+def test_customer_directory_34_col_extension_preserves_19_and_32_predecessors():
+    """Two observed additive transitions are pinned; unknown drift is rejected."""
     from procurement_engine import monitoring_schema as module
 
     previous = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json').read_text())['directory']
     assert len(previous) == 1 and len(previous[0]) == 19
-    current = [previous[0] + ZMO_DIRECTORY_EXTENSION]
+    current = [previous[0] + ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION]
     patch = next(p for p in module.REVIEWS if p['sheet'] == 'Справочник заказчиков')
     assert patch['sheet_id'] == 837564274
-    assert patch['columns'] == 32
-    assert len(current[0]) == 32
+    assert patch['columns'] == 34
+    assert len(current[0]) == 34
     assert header_hash(current, 1) == patch['fingerprint']
-    assert semantic_header_hash(current, 1, 32) == patch['semantic']
+    assert semantic_header_hash(current, 1, 34) == patch['semantic']
     assert (19, 1, header_hash(previous, 1)) in [tuple(g) for g in patch['previous_geometry']]
     assert semantic_header_hash(previous, 1, 19) in patch['previous_semantics']
-    # Even a cosmetically different last ZMO label must not be silently enrolled.
+    intermediate = [previous[0] + ZMO_DIRECTORY_EXTENSION]
+    assert (32, 1, header_hash(intermediate, 1)) in [tuple(g) for g in patch['previous_geometry']]
+    assert semantic_header_hash(intermediate, 1, 32) in patch['previous_semantics']
+    # The last working-name label is also part of the mandatory source contract.
     current[0][-1] += ' (other interpretation)'
     assert header_hash(current, 1) != patch['fingerprint']
 
 
-def test_customer_directory_32_column_registry_rejects_changed_extra_header(monkeypatch):
-    """Fail before changing the installed registry when one of 13 new headers drifts."""
+def test_customer_directory_34_column_registry_rejects_changed_extra_header(monkeypatch):
+    """Reject changed evidence/working-name headers before touching the registry."""
     from procurement_engine import monitoring_schema as module
 
     patch = next(p for p in module.REVIEWS if p['sheet'] == 'Справочник заказчиков')
     monkeypatch.setattr(module, 'REVIEWS', [patch])
     monkeypatch.setattr(module, 'RETIRED', [])
     old = json.loads((Path(__file__).parent / 'fixtures/reviewed_headers_20261008.json').read_text())['directory']
-    current = [old[0] + ZMO_DIRECTORY_EXTENSION]
+    current = [old[0] + ZMO_DIRECTORY_EXTENSION + WORKING_NAME_EXTENSION]
     source = {'source_id': 'customer-dir', 'provider_id': 'private-monitoring',
               'sheet_id': 837564274, 'sheet': 'Справочник заказчиков',
               'role': 'formula_dependency', 'grbs': None, 'units': 'directory',
@@ -197,22 +204,25 @@ def test_customer_directory_32_column_registry_rejects_changed_extra_header(monk
 
         def grid(self, provider, sheet_id):
             return {'title': 'Справочник заказчиков',
-                    'gridProperties': {'columnCount': 32}}
+                    'gridProperties': {'columnCount': 34}}
 
         def values(self, provider, title, start, end, columns):
-            assert columns == 32
+            assert columns == 34
             return deepcopy(current)
 
     reviewed, changes = review_registry(original, sealed, Client())
     assert changes == 1
     assert original['sources'][1] == source
-    assert reviewed['sources'][1]['columns'] == 32
+    assert reviewed['sources'][1]['columns'] == 34
     assert reviewed['sources'][1]['schema_fingerprint'] == patch['fingerprint']
     assert review_registry(reviewed, sealed, Client())[1] == 0
 
-    current[0][24] = 'Unreviewed evidence interpretation'
-    with pytest.raises(ValueError, match='MONITORING_SCHEMA_LIVE_HEADER_MISMATCH'):
-        review_registry(original, sealed, Client())
+    for column in (24, 32, 33):
+        original_value = current[0][column]
+        current[0][column] = 'Unreviewed business interpretation'
+        with pytest.raises(ValueError, match='MONITORING_SCHEMA_LIVE_HEADER_MISMATCH'):
+            review_registry(original, sealed, Client())
+        current[0][column] = original_value
     assert original['sources'][1] == source
 
 
