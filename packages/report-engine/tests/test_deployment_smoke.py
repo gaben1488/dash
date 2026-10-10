@@ -173,3 +173,61 @@ def test_three_word_acceptance_rejects_a_missing_or_corrupt_operational_document
         return read_publication(state, view, receipt['release_id'])
     with pytest.raises(ValueError, match='REPORT_EXPORT_DOCUMENT_INVALID'):
         check_exports(fetch)
+
+
+@pytest.mark.parametrize(('last', 'reason'), [
+    ({'started_at': '2026-10-06T08:00:00+00:00', 'status': 'VERIFIED'},
+     'NO_NEW_ATTEMPT'),
+    ({'started_at': '2026-10-06T08:02:00+00:00', 'status': 'RUNNING'},
+     'ATTEMPT_NOT_COMPLETE'),
+    ({'started_at': '2026-10-06T08:02:00+00:00', 'status': 'FAILED'},
+     'FAILED_ATTEMPT'),
+    ({'started_at': '2026-10-06T08:02:00+00:00', 'status': 'NOT_ISSUED'},
+     'NOT_ISSUED'),
+    ({'started_at': '2026-10-06T08:02:00+00:00', 'status': 'VERIFIED',
+      'finished_at': '2026-10-06T08:03:00+00:00',
+      'snapshot_id': 'one', 'publication': {'snapshot_id': 'two'}},
+     'SNAPSHOT_MISMATCH'),
+    ({'started_at': '2026-10-06T08:02:00+00:00', 'status': 'VERIFIED',
+      'finished_at': 'broken', 'snapshot_id': 'one',
+      'publication': {'snapshot_id': 'one'}},
+     'INVALID_FINISH_TIME'),
+])
+def test_worker_cycle_failure_has_safe_reason_category(last, reason):
+    from procurement_engine.deployment_smoke import (
+        WorkerCycleFailure,
+        check_worker_cycle,
+    )
+
+    with pytest.raises(WorkerCycleFailure) as caught:
+        check_worker_cycle(lambda: last, '2026-10-06T08:01:00+00:00',
+            sleep=lambda _: None, attempts=2)
+    assert str(caught.value) == 'REPORT_WORKER_CYCLE_FAILED'
+    assert caught.value.reason == reason
+
+
+def test_worker_cycle_missing_status_is_not_confused_with_stale_worker():
+    from procurement_engine.deployment_smoke import (
+        WorkerCycleFailure,
+        check_worker_cycle,
+    )
+
+    def unavailable():
+        raise FileNotFoundError('/do-not-log-private-status-file.json')
+    with pytest.raises(WorkerCycleFailure) as caught:
+        check_worker_cycle(unavailable, '2026-10-06T08:01:00+00:00',
+            sleep=lambda _: None, attempts=2)
+    assert caught.value.reason == 'STATUS_UNREADABLE'
+    assert '/do-not-log-private-status-file.json' not in str(caught.value)
+
+
+def test_cli_worker_failure_reports_only_fixed_reason(monkeypatch, capsys):
+    from procurement_engine import deployment_smoke
+
+    def failure(*args, **kwargs):
+        raise deployment_smoke.WorkerCycleFailure('SNAPSHOT_MISMATCH')
+    monkeypatch.setattr(deployment_smoke, 'check_worker_cycle', failure)
+    assert deployment_smoke.main(['--worker-since', '2026-10-06T08:01:00+00:00']) == 1
+    text = capsys.readouterr()
+    assert text.out == ''
+    assert text.err == 'REPORT_WORKER_CYCLE_FAILED:SNAPSHOT_MISMATCH\n'
