@@ -145,6 +145,22 @@ try{
  await mobile.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
  await mobile.locator('.dash-source-navigation input[data-route]').first().waitFor({state:'attached',timeout:30000});
  await delay(700);
+ const mobilePicker=mobile.locator('.dash-org-mobile-toggle');
+ if(await mobilePicker.count()!==1)fail('Mobile lost the organization selector toggle');
+ else{
+   const visible=await mobilePicker.isVisible();
+   if(!visible)fail('Mobile org picker button is hidden');
+   else{
+     await mobilePicker.click({timeout:5000});
+     const drawer=mobile.locator('.dash-org-container-open .ob-strip');
+     if(await drawer.count()!==1)fail('Mobile picker did not open the same production OrgStrip');
+     if(await drawer.locator('.ob-dept-btn').count()!==8)fail('Mobile picker lacks eight real organization groups');
+     await mobile.locator('.dash-org-mobile-head button').click();
+   }
+ }
+ const mainWidth=await mobile.locator('#main-content').evaluate(el=>el.getBoundingClientRect().width);
+ report.mobileMainWidth=mainWidth;
+ if(mainWidth<350)fail('Mobile main area still narrowed by OrgStrip: '+mainWidth);
  const widths=await mobile.evaluate(()=>{
   const nodes=[...document.querySelectorAll('body *')].map(el=>{
     const r=el.getBoundingClientRect();const cs=getComputedStyle(el);
