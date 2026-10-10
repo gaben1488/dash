@@ -24,7 +24,7 @@
  *    поводом выбросить строку.
  */
 
-import { DEPARTMENT_REGISTRY, explainDistortedCode, extractProcedureRefs, parseProcedureRef, type ProcedureFamily } from '@aemr/shared';
+import { DEPARTMENT_REGISTRY, GRBS_ID_TO_DEPARTMENT_ID, resolveGrbsAlias, explainDistortedCode, extractProcedureRefs, parseProcedureRef, type ProcedureFamily } from '@aemr/shared';
 import {
   cellAddress,
   daysBetween,
@@ -428,7 +428,9 @@ const CANONICAL_DEPTS: Readonly<Record<string, string>> = {
 };
 export function monitoringDept(raw: unknown): string {
   const text = monitoringText(raw) ?? '';
-  return CANONICAL_DEPTS[text] ?? text;
+  // Исторические названия распознаются проверенным словарём, без нечёткого объединения.
+  const grbs = resolveGrbsAlias(text);
+  return grbs ? GRBS_ID_TO_DEPARTMENT_ID[grbs] : (CANONICAL_DEPTS[text] ?? text);
 }
 
 const CANONICAL_STAGES: Readonly<Record<string, ProcedureStage>> = {

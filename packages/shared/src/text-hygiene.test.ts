@@ -173,13 +173,13 @@ describe('расстояние Левенштейна с потолком', () =
 
 describe('детектор 6 — отступление имени подведа от справочника', () => {
   it('живой кейс «Жар-Птица»: № без пробела → канон справочника целиком', () => {
-    const [f] = detectSubordinateNameHygiene('МБДОУ "Детский сад №3 "Жар-птица"');
+    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 «Жар-Птица»');
     expect(f.kind).toBe('registry_mismatch');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
 
   it('тот же кейс с кавычками-лапками: нормализация кавычек не мешает найти канон', () => {
-    const [f] = detectSubordinateNameHygiene('МБДОУ „Детский сад №3 „Жар-птица“');
+    const [f] = detectSubordinateNameHygiene('МБДОУ ДС №3 „Жар-Птица“');
     expect(f.kind).toBe('registry_mismatch');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
@@ -190,7 +190,17 @@ describe('детектор 6 — отступление имени подвед�
     expect(f.fix).toBe('МБУ ДО СШОР по ЛВС');
   });
 
-  it('дословное имя справочника молчит — вид кавычек и «№» правит владелец, не сигнал', () => {
+  it('подтверждённые прежние имена не рождают замечания в архиве', () => {
+    for (const name of [
+      'МБУ ДО «КДМШ»', 'МБУК «Елизовский районный зоопарк»',
+      'МКУ «ЕДДС»', 'МБДОУ ДС № 3 «Жар-Птица»',
+    ]) {
+      expect(detectSubordinateNameHygiene(name), name).toEqual([]);
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
+    }
+  });
+
+  it('дословные имена актуального справочника молчат — вид кавычек правит владелец', () => {
     expect(detectSubordinateNameHygiene('МБДОУ "Детский сад № 3 "Жар-птица"')).toEqual([]);
     expect(detectSubordinateNameHygiene('МБУ ДО КДМШ')).toEqual([]);
     expect(detectSubordinateNameHygiene('МБУ ДО СШОР единоборств "Кречет"')).toEqual([]);
@@ -214,13 +224,9 @@ describe('детектор 6 — отступление имени подвед�
     expect(detectSubordinateNameHygiene('МБУ ДО «ЕДШ»')).toEqual([]);
   });
 
-  it('исторический вариант сохраняет однозначную подсказку, но не становится вторым учреждением', () => {
-    const [finding] = detectSubordinateNameHygiene('МБУ ДО «ЕДМШ»');
-    expect(finding.kind).toBe('registry_mismatch');
-    expect(finding.fix).toBe('МБУ ДО ЕДМШ');
-  });
-
   it('nearestCanonicalSubordinate на каноничном имени возвращает null (нет находки)', () => {
     expect(nearestCanonicalSubordinate('МБУ ДО ЕДМШ')).toBeNull();
+    // Прежнее официальное написание — известный алиас, а не новый подвед.
+    expect(nearestCanonicalSubordinate('МБУ ДО «ЕДМШ»')).toBeNull();
   });
 });

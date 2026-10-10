@@ -78,6 +78,7 @@ export * from './absence.js';
 // Re-export орг-классификатор по ОПФ (ось C: аппарат/ПБС/бюджетное/автономное/…; см. classifyOrg)
 export * from './org-classify.js';
 export * from './parse-sheet-date.js';
+export * from './editable-amount.js';
 export * from './svod-grid.js';
 export * from './time-selection.js';
 export * from './recon-root-cause.js';

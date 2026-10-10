@@ -64,6 +64,18 @@ describe('applySubordinateFilter (извлечено из useFilteredData §2, �
     expect(out[0].months[1].executionPct).toBe(100);
   });
 
+  it('исторический вариант имени не оставляет показатели всего ГРБС вместо одного подведа', () => {
+    const renamed = { ...school, name: 'Школа № 1' };
+    const target = { ...makeUer(), subordinates: [renamed, sad] };
+    const out = applySubordinateFilter([target, uio], new Set(['Школа №1']), {
+      'УЭР': ['Школа № 1', 'Сад №2'], 'УИО': [],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]._subFiltered).toBe(true);
+    expect(out[0].planTotal).toBe(40);
+    expect(out[0].factTotal).toBe(20);
+  });
+
   it('«аппарат управления» (_org_itself) без записи в subordinatesMap не сужает депты (Б4)', () => {
     const depts = [makeUer(), uio];
     const out = applySubordinateFilter(depts, new Set(['_org_itself']), subordinatesMap);

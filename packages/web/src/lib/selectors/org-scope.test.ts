@@ -85,6 +85,16 @@ describe('groupRowsBySubordinate — разбивка строк по колон
     expect(groups[0].rows.map((r) => r.n).sort()).toEqual([1, 2, 3]);
   });
 
+  it('два написания одного подведа дают одну группу и сохраняют обе строки', () => {
+    const rows: Row[] = [
+      { c: 'МБОУ «Елизовская средняя школа №3»', n: 1 },
+      { c: 'МБОУ «Елизовская средняя школа № 3»', n: 2 },
+    ];
+    const groups = groupRowsBySubordinate(rows, keyOf, ['МБОУ «Елизовская средняя школа № 3»']);
+    expect(groups).toHaveLength(2); // аппарат + одна школа
+    expect(groups[1].rows.map(r => r.n)).toEqual([1, 2]);
+  });
+
   it('подведы отсортированы по алфавиту (ru) после аппарата', () => {
     const groups = groupRowsBySubordinate<Row>([], keyOf, ['Яблоко', 'Азбука']);
     expect(groups.map((g) => g.label)).toEqual([ORG_ITSELF_LABEL, 'Азбука', 'Яблоко']);

@@ -29,12 +29,12 @@ vi.mock('../services/google-sheets.js', () => ({
  * Строка конкурентной закупки с экономией 50 % от плана: без гейта это
  * гарантированный вердикт «высокая экономия» (порог 25 %).
  */
-function rowWithEconomy(flag: string, factDate: string): unknown[] {
+function rowWithEconomy(flag: string, factDate: string, method = 'ЭА'): unknown[] {
   const row = Array<unknown>(34).fill('');
   row[DEPT_COLUMNS.ID] = 1;
   row[DEPT_COLUMNS.SUBJECT] = 'Ремонт кровли';
   row[DEPT_COLUMNS.TOTAL_PLAN] = 100;
-  row[DEPT_COLUMNS.METHOD] = 'ЭА';
+  row[DEPT_COLUMNS.METHOD] = method;
   row[DEPT_COLUMNS.FACT_DATE] = factDate;
   row[DEPT_COLUMNS.TOTAL_FACT] = 50;
   row[DEPT_COLUMNS.ECONOMY_FB] = 50;
@@ -88,6 +88,14 @@ describe('GET /api/analytics/compliance — антидемпинг считае�
   it('флаг стоит, но контракт не заключён (дата факта пуста) → вердикта нет', async () => {
     setDeptSheetCache({ 'УО': { values: [[], [], [], rowWithEconomy('да', '')], formulas: [], sheetName: 'ВСЕ' } });
     expect(await antiDumpingIssues()).toEqual([]);
+  }, 30_000);
+
+  it('алиас конкурентного способа «ЭА (МЭП)» не исчезает из правовых проверок', async () => {
+    setDeptSheetCache({ 'УО': { values: [[], [], [],
+      rowWithEconomy('да', '15.03.2026', 'ЭА (МЭП)')], formulas: [], sheetName: 'ВСЕ' } });
+    const issues = await antiDumpingIssues();
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.rowIndex).toBe(4);
   }, 30_000);
 
   it('экономия утверждена и контракт заключён → вердикт с адресом строки', async () => {

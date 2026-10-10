@@ -90,7 +90,11 @@ function buildQuarterMetrics(
   };
 }
 
-function buildActivityEntry(map: Map<string, AccumulatedValue> | undefined): ActivityMetrics {
+function buildActivityEntry(
+  map: Map<string, AccumulatedValue> | undefined,
+  competitive: Map<string, AccumulatedValue> | undefined,
+  ep: Map<string, AccumulatedValue> | undefined,
+): ActivityMetrics {
   const pc = get(map, 'plan_count');
   const fc = get(map, 'fact_count');
   return {
@@ -109,17 +113,26 @@ function buildActivityEntry(map: Map<string, AccumulatedValue> | undefined): Act
     economyMB: get(map, 'economy_mb'),
     economyTotal: get(map, 'economy_total'),
     execCountPct: pct(fc, pc),
+    byMethod: { competitive: buildMethodMetrics(competitive), ep: buildMethodMetrics(ep) },
   };
 }
 
 function buildActivityBreakdown(
   grouped: GroupedResults,
   prefix: string,
+  byActivity: Map<string, Map<string, AccumulatedValue>> = grouped.byQuarterActivity,
+  byActivityMethod: Map<string, Map<string, AccumulatedValue>> = grouped.byPeriodActivityMethod,
 ): ActivityBreakdown {
+  function forActivity(activity: string): ActivityMetrics {
+    const key = `${prefix}.${activity}`;
+    return buildActivityEntry(byActivity.get(key),
+      byActivityMethod.get(`${key}.competitive`),
+      byActivityMethod.get(`${key}.ep`));
+  }
   return {
-    program: buildActivityEntry(grouped.byQuarterActivity.get(`${prefix}.program`)),
-    current_program: buildActivityEntry(grouped.byQuarterActivity.get(`${prefix}.current_program`)),
-    current_non_program: buildActivityEntry(grouped.byQuarterActivity.get(`${prefix}.current_non_program`)),
+    program: forActivity('program'),
+    current_program: forActivity('current_program'),
+    current_non_program: forActivity('current_non_program'),
   };
 }
 
@@ -229,6 +242,10 @@ export function adaptToRecalcMetrics(
     q3: buildActivityBreakdown(grouped, 'q3'),
     q4: buildActivityBreakdown(grouped, 'q4'),
     year: buildActivityBreakdown(grouped, 'year'),
+    ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => {
+      const key = `m${i + 1}`;
+      return [key, buildActivityBreakdown(grouped, key, grouped.byMonthActivity)];
+    })),
   };
 
   // bySubordinate: extract from grouped.bySubordinate + cross-dimensional maps
@@ -321,6 +338,14 @@ export function adaptToRecalcMetrics(
       months,
       byMethod,
       byActivity: bySubActivity,
+      activityByPeriod: Object.fromEntries(
+        ['q1', 'q2', 'q3', 'q4', 'year',
+          ...Array.from({ length: 12 }, (_, i) => `m${i + 1}`)].map(period => [
+          period,
+          buildActivityBreakdown(grouped, `${name}.${period}`,
+            grouped.bySubordinatePeriodActivity, grouped.bySubordinatePeriodActivityMethod),
+        ]),
+      ),
     });
   }
   bySubordinate.sort((a, b) => b.planTotal - a.planTotal);
