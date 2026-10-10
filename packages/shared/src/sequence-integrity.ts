@@ -77,27 +77,17 @@ export interface SequenceReport {
   note: string;
 }
 
-/** Отрезки-пропуски: подряд идущие пропущенные номера сворачиваются в один. */
-function foldGaps(missing: readonly number[]): SequenceGap[] {
-  const out: SequenceGap[] = [];
-  let start: number | null = null;
-  let prev: number | null = null;
-  for (const n of missing) {
-    if (start === null) {
-      start = n;
-      prev = n;
-      continue;
-    }
-    if (prev !== null && n === prev + 1) {
-      prev = n;
-      continue;
-    }
-    out.push({ from: start, to: prev as number, count: (prev as number) - start + 1 });
-    start = n;
-    prev = n;
+/** Пропущенные интервалы между реально встреченными целыми номерами.
+ * Память и время O(N) по записям, а не O(max-min) по ширине диапазона.
+ */
+function gapsBetweenPresent(sortedPresent: readonly number[]): SequenceGap[] {
+  const gaps: SequenceGap[] = [];
+  for (let i = 1; i < sortedPresent.length; i += 1) {
+    const from = sortedPresent[i - 1] + 1;
+    const to = sortedPresent[i] - 1;
+    if (from <= to) gaps.push({ from, to, count: to - from + 1 });
   }
-  if (start !== null && prev !== null) out.push({ from: start, to: prev, count: prev - start + 1 });
-  return out;
+  return gaps;
 }
 
 /** Показывать в карточке столько отрезков и строк — остальное свернуто числом. */
@@ -137,12 +127,8 @@ export function checkSequenceIntegrity(rows: readonly SequenceRow[]): SequenceRe
   )].sort((a, b) => a - b);
 
   const range = numeric.length > 0 ? { min: numeric[0], max: numeric[numeric.length - 1] } : null;
-  const present = new Set(numeric);
-  const missing: number[] = [];
-  if (range) {
-    for (let n = range.min; n <= range.max; n += 1) if (!present.has(n)) missing.push(n);
-  }
-  const gaps = foldGaps(missing);
+  const gaps = gapsBetweenPresent(numeric);
+  const gapCount = gaps.reduce((total, gap) => total + gap.count, 0);
 
   const coveragePct = countableRows.length > 0
     ? Math.round(((countableRows.length - countableNoSeq.length) / countableRows.length) * 1000) / 10
@@ -155,9 +141,9 @@ export function checkSequenceIntegrity(rows: readonly SequenceRow[]): SequenceRe
       `перестаёт быть однозначной.`,
     );
   }
-  if (missing.length > 0) {
+  if (gapCount > 0) {
     notes.push(
-      `Пропущено номеров: ${missing.length} (отрезков ${gaps.length}). Пропуск — след ` +
+      `Пропущено номеров: ${gapCount} (отрезков ${gaps.length}). Пропуск — след ` +
       `удалённой строки: журнал книги удаление не записывает, и нумерация остаётся ` +
       `единственным следом пропажи.`,
     );
@@ -184,7 +170,7 @@ export function checkSequenceIntegrity(rows: readonly SequenceRow[]): SequenceRe
     coveragePct,
     range,
     gaps: gaps.slice(0, SHOWN_GAPS),
-    gapCount: missing.length,
+    gapCount,
     duplicates,
     unnumbered: [...countableNoSeq]
       .sort((a, b) => (b.planSum ?? 0) - (a.planSum ?? 0))
