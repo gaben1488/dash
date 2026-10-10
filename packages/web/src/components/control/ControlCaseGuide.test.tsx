@@ -60,7 +60,8 @@ describe('ControlCaseGuide integrated workflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /02\\s*Доказательства/ }));
     expect(screen.getByText(/Исходных наблюдений: 2/)).toBeTruthy();
-    expect(screen.getByText(/В работе|Не рассмотрено/)).toBeTruthy();
+    expect(screen.getByText('Открыто')).toBeTruthy();
+    expect(screen.getByText('Исправлено')).toBeTruthy();
     const links = screen.getAllByRole('button', { name: /Показать исходное замечание/ });
     expect(links).toHaveLength(2);
     fireEvent.click(links[1]);
