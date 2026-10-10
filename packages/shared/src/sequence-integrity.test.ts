@@ -87,6 +87,25 @@ describe('целостность нумерации рабочего листа'
     expect(r.note).toContain('как адрес нумерация');
   });
 
+  it('ошибочно большой номер не расходует память пропорционально диапазону', () => {
+    const r = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '1' }),
+      row({ sheetRow: 5, rowSeq: '100000000' }),
+    ]);
+    expect(r.gapCount).toBe(99999998);
+    expect(r.gaps).toEqual([{ from: 2, to: 99999999, count: 99999998 }]);
+  });
+
+  it('составные номера остаются разными адресами', () => {
+    const r = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '173' }),
+      row({ sheetRow: 5, rowSeq: '173/1' }),
+      row({ sheetRow: 6, rowSeq: '173/2' }),
+    ]);
+    expect(r.duplicates).toEqual([]);
+    expect(r.gapCount).toBe(0);
+  });
+
   it('пустой лист не ломает проверку', () => {
     const r = checkSequenceIntegrity([]);
     expect(r).toMatchObject({ rows: 0, countable: 0, gapCount: 0, range: null, coveragePct: null });

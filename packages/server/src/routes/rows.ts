@@ -5,6 +5,7 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
   DEPT_HEADER_ROWS,
+  dayNumberOf,
   FACT_DATE_PLACEHOLDERS,
   buildCellDict,
   isMetaRow,
@@ -50,6 +51,34 @@ function columnTitle(letter: string): string {
   return key ? DEPT_HEADER_LABELS[key] : letter;
 }
 
+/** Shared validation for both PUT and batch-save; parseFloat truncates "12abc". */
+function parseEditableAmount(raw: unknown): { ok: true; value: number | null } | { ok: false } {
+  if (raw === null || raw === '') return { ok: true, value: null };
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? { ok: true, value: raw } : { ok: false };
+  }
+  if (typeof raw !== 'string') return { ok: false };
+  const str = raw.trim();
+  if (!str) return { ok: true, value: null };
+  // Accept ordinary decimal and grouped thousands; never partial parse/exponents.
+  if (!/^[+-]?(?:\d+|\d{1,3}(?:[ \u00a0\u202f]\d{3})+)(?:[.,]\d+)?$/.test(str)) {
+    return { ok: false };
+  }
+  const value = Number(str.replace(/[ \u00a0\u202f]/g, '').replace(',', '.'));
+  return Number.isFinite(value) ? { ok: true, value } : { ok: false };
+}
+
+/** Date input must be a real calendar date, not merely match a prefix. */
+function validEditableDate(raw: unknown): string | null {
+  const str = String(raw ?? '').trim();
+  if (!str) return '';
+  if (!/^(?:\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})$/.test(str)) return null;
+  return dayNumberOf(str) === null ? null : str;
+}
+
+const MAX_BATCH_ROWS = 50;
+const MAX_BATCH_CELLS = 100;
+
 /**
  * Причина недоступности книги управления — человеческой фразой с действием.
  * Одно место на все роуты чтения: пользователь должен понять, к кому идти
@@ -65,13 +94,13 @@ function sourceUnavailableMessage(deptShortName: string, reason: 'read-error' | 
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
  * Возвращает текст ошибки или null, если писать можно.
  *
- * Нижняя граница: строка 1 — заголовок. Верхняя: строка обязана существовать в листе
+ * Нижняя граница: первые три строки — шапка. Верхняя: строка обязана существовать в листе
  * (иначе writeCellValue создаст ячейку за пределами данных и побьёт итоговые формулы,
  * а кэш этого не заметит — values[idx-1] просто undefined).
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
-  if (!Number.isInteger(idx) || idx < 2) return `Номер строки «${display}» не подходит: строки данных начинаются со второй`;
+  if (!Number.isSafeInteger(idx) || idx <= DEPT_HEADER_ROWS) return `Номер строки «${display}» не подходит: строки данных начинаются с ${DEPT_HEADER_ROWS + 1}-й`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
@@ -276,10 +305,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const body = request.body as { field?: string; value?: unknown };
-    const idx = parseInt(rowIndex, 10);
+    const body = request.body as { field?: string; value?: unknown } | null;
+    const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
-    if (!body.field || body.value === undefined) {
+    if (!body || typeof body.field !== 'string' || !body.field.trim() || body.value === undefined) {
       return reply.status(400).send({ error: 'Не указано, какой столбец и какое значение сохранять' });
     }
 
@@ -316,7 +345,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         details: `запрошенный столбец: ${body.field}`,
       });
     }
-    // idx обязан быть integer >= 2 (строка 1 — заголовок) И существовать в листе,
+    // idx обязан быть integer >= 4 (строки 1–3 — шапка) И существовать в листе,
     // иначе cellAddress "GNaN"/"G-1"/header либо запись за пределами данных.
     const boundsError = rowWriteError(idx, dept.nameShort, rowIndex);
     if (boundsError) {
@@ -327,29 +356,25 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     // Type validation and normalization
     if (NUMERIC_COLUMNS.has(field)) {
-      const num = typeof body.value === 'number' ? body.value
-        : parseFloat(String(body.value).replace(/\s/g, '').replace(/,/g, '.'));
-      if (isNaN(num)) {
+      const parsed = parseEditableAmount(body.value);
+      if (!parsed.ok) {
         return reply.status(400).send({
           error: `Столбец «${columnTitle(field)}» принимает только число — например 1 234,56`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = num;
+      normalizedValue = parsed.value;
     } else if (DATE_COLUMNS.has(field)) {
-      // Accept DD.MM.YYYY or ISO format
-      const str = String(body.value).trim();
-      const ddmmyyyy = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!ddmmyyyy && !iso && str !== '') {
+      const date = validEditableDate(body.value);
+      if (date === null) {
         return reply.status(400).send({
-          error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+          error: `Столбец «${columnTitle(field)}» принимает действительную дату — например 15.03.2026`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = str;
+      normalizedValue = date;
     }
     // TEXT_COLUMNS: accept any string value
 
@@ -439,8 +464,23 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>;
     };
 
-    if (!body.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
+    if (!body?.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
       return reply.status(400).send({ error: 'Не переданы строки для сохранения' });
+    }
+    // Bound Google API writes BEFORE any side effect; JSON bodyLimit alone is not
+    // a limit on the number of potentially expensive sequential cell updates.
+    if (body.rows.length > MAX_BATCH_ROWS) {
+      return reply.status(413).send({ error: `В одном сохранении допускается до ${MAX_BATCH_ROWS} строк` });
+    }
+    if (body.rows.some(entry => !entry || typeof entry !== 'object' ||
+      typeof entry.deptId !== 'string' || !Number.isSafeInteger(entry.rowIndex) ||
+      !entry.changes || typeof entry.changes !== 'object' ||
+      Array.isArray(entry.changes) || Object.keys(entry.changes).length === 0)) {
+      return reply.status(400).send({ error: 'Каждая строка должна содержать управление, номер и изменяемые поля' });
+    }
+    const cellCount = body.rows.reduce((sum, entry) => sum + Object.keys(entry.changes).length, 0);
+    if (cellCount > MAX_BATCH_CELLS) {
+      return reply.status(413).send({ error: `В одном сохранении допускается до ${MAX_BATCH_CELLS} ячеек` });
     }
 
     const FORMULA_COLUMNS = new Set(['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC']);
@@ -515,10 +555,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         // Normalize value
         let normalizedValue: unknown = rawValue;
         if (NUMERIC_COLUMNS.has(field)) {
-          const num = typeof rawValue === 'number'
-            ? rawValue
-            : parseFloat(String(rawValue).replace(/\s/g, '').replace(/,/g, '.'));
-          if (isNaN(num) && rawValue !== null && rawValue !== '') {
+          const parsed = parseEditableAmount(rawValue);
+          if (!parsed.ok) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
@@ -528,20 +566,20 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
             });
             continue;
           }
-          normalizedValue = isNaN(num) ? null : num;
+          normalizedValue = parsed.value;
         } else if (DATE_COLUMNS.has(field)) {
-          const str = String(rawValue ?? '').trim();
-          if (str && !/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str) && !/^\d{4}-\d{2}-\d{2}/.test(str)) {
+          const date = validEditableDate(rawValue);
+          if (date === null) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
               success: false,
-              error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+              error: `Столбец «${columnTitle(field)}» принимает действительную дату — например 15.03.2026`,
             });
             continue;
           }
-          normalizedValue = str;
+          normalizedValue = date;
         }
 
         const cellAddress = `${field}${entry.rowIndex}`;

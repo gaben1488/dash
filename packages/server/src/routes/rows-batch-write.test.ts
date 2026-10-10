@@ -125,6 +125,44 @@ describe('POST /api/data/rows — код ответа не врёт (п.16)', ()
   });
 });
 
+describe('серверная валидация ввода: числа, даты и размер пакета', () => {
+  it('не отбрасывает хвост денежной строки и не принимает Infinity', async () => {
+    for (const bad of ['12abc', '1.2.3', '1e309', 'Infinity']) {
+      const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: bad } }] } });
+      expect(res.statusCode).toBe(207);
+      expect(res.json<{ ok: boolean }>().ok).toBe(false);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('принимает русские разделители и записывает полное число', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: '1 234,50' } }] } });
+    expect(res.statusCode).toBe(200);
+    expect(writeCellValue).toHaveBeenCalledWith(expect.any(String), 'ВСЕ', 'H4', 1234.5);
+  });
+
+  it('не считает календарную ошибку корректной датой', async () => {
+    for (const bad of ['31.02.2026', '2026-13-99', '2026-01-14garbage']) {
+      const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { N: bad } }] } });
+      expect(res.statusCode).toBe(207);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('отклоняет большой или некорректный пакет до первой записи', async () => {
+    const over = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: Array.from({ length: 51 }, () => ({ deptId: 'УО', rowIndex: 4, changes: { G: 'a' } })) } });
+    expect(over.statusCode).toBe(413);
+    const malformed = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'a' } }, { deptId: 'УО', rowIndex: 5, changes: null }] } });
+    expect(malformed.statusCode).toBe(400);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/data/rows — граница строки листа (п.3)', () => {
   it('номер строки за пределами книги не уходит в запись', async () => {
     const res = await app.inject({

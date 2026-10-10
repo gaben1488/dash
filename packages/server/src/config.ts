@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { resolve } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { AppConfig } from '@aemr/shared';
 import { DEPARTMENT_SPREADSHEET_IDS, SVOD_SPREADSHEET_ID as SHARED_SVOD_ID } from '@aemr/shared';
@@ -160,12 +161,23 @@ export const SHDYU_SPREADSHEET_ID = SVOD_SPREADSHEET_ID;
 // Load overrides from data/sources.json if it exists
 const SOURCES_CONFIG_PATH = resolve(process.cwd(), 'data', 'sources.json');
 
-function loadSourceOverrides(): Record<string, string> {
+function loadSourceOverrides(strict = false): Record<string, string> {
   try {
     if (existsSync(SOURCES_CONFIG_PATH)) {
-      return JSON.parse(readFileSync(SOURCES_CONFIG_PATH, 'utf-8'));
+      const parsed: unknown = JSON.parse(readFileSync(SOURCES_CONFIG_PATH, 'utf-8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+          Object.entries(parsed).some(([name, id]) =>
+            !(name in DEFAULT_DEPARTMENT_SPREADSHEETS) ||
+            typeof id !== 'string' || !validateSpreadsheetIdForSourceChange(id).success)) {
+        throw new Error('SOURCE_OVERRIDES_INVALID');
+      }
+      return parsed as Record<string, string>;
     }
-  } catch { /* ignore corrupt file */ }
+  } catch (err) {
+    // Never overwrite a damaged file with {} during an interactive update.
+    if (strict) throw err;
+    console.error('Source overrides could not be loaded; using configured defaults');
+  }
   return {};
 }
 
@@ -175,16 +187,25 @@ export const DEPARTMENT_SPREADSHEETS: Record<string, string> = {
   ...loadSourceOverrides(),
 };
 
-/** Save a spreadsheet ID override and update the live config */
+/** Persist an override atomically before publishing it to the live configuration. */
 export function updateSpreadsheetId(name: string, spreadsheetId: string): void {
-  DEPARTMENT_SPREADSHEETS[name] = spreadsheetId;
-  const overrides = loadSourceOverrides();
-  overrides[name] = spreadsheetId;
+  if (!(name in DEFAULT_DEPARTMENT_SPREADSHEETS)) throw new Error('UNKNOWN_DEPARTMENT_SOURCE');
+  const validated = validateSpreadsheetIdForSourceChange(spreadsheetId);
+  if (!validated.success) throw new Error('SOURCE_SPREADSHEET_ID_INVALID');
+  const overrides = loadSourceOverrides(true);
+  overrides[name] = validated.spreadsheetId;
+  const dir = resolve(process.cwd(), 'data');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const stage = `${SOURCES_CONFIG_PATH}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   try {
-    const dir = resolve(process.cwd(), 'data');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(SOURCES_CONFIG_PATH, JSON.stringify(overrides, null, 2), 'utf-8');
-  } catch { /* best-effort */ }
+    writeFileSync(stage, JSON.stringify(overrides, null, 2), {
+      encoding: 'utf-8', flag: 'wx', mode: 0o600,
+    });
+    renameSync(stage, SOURCES_CONFIG_PATH);
+  } finally {
+    if (existsSync(stage)) unlinkSync(stage);
+  }
+  DEPARTMENT_SPREADSHEETS[name] = validated.spreadsheetId;
 }
 
 /**
