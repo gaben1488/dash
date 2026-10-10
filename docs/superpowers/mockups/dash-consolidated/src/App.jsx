@@ -44,6 +44,8 @@ import {
   Filter,
 } from 'lucide-react';
 import { ROWS, DEPTS, MONTHS, DEFAULT_FILTERS, selectRows, summarize } from './model.mjs';
+import { filterSession, initialFilterSession } from './filter-session.mjs';
+import { serializeSelectionCsv } from './export-csv.mjs';
 import PALETTES from './source-shell/palettes.json';
 import PAGE_FILTERS from './source-shell/page-filters.json';
 import { AppearancePanel, AxisPanel, LivePanel, UpdateNotice } from './ConsolidationControls.jsx';
@@ -120,13 +122,11 @@ function Modal({ title, onClose, children }) {
 export function App() {
   const [page, setPage] = useState('data'),
     [group, setGroup] = useState(1),
-    [filters, setFilters] = useState({ ...DEFAULT_FILTERS }),
     [dark, setDark] = useState(true),
     [unit, setUnit] = useState('тыс'),
     [selected, setSelected] = useState(null),
     [detailTab, setDetailTab] = useState('overview'),
     [popup, setPopup] = useState(null),
-    [undo, setUndo] = useState(null),
     [toast, setToast] = useState(''),
     [family, setFamily] = useState('Космос'),
     [finish, setFinish] = useState('candy'),
@@ -138,6 +138,10 @@ export function App() {
     [reply, setReply] = useState(''),
     [closedThreads, setClosedThreads] = useState({}),
     [reportType, setReportType] = useState('Оперативный');
+  const [{ filters, undo }, dispatchFilterSession] = useReducer(filterSession, undefined, initialFilterSession);
+  // Every change from periods, organizations, search, or page controls
+  // invalidates stale Undo. Only reset/restore bypass this path.
+  const setFilters = (next) => dispatchFilterSession({ type: 'change', next });
   const returnTo = useRef(null),
     closeDetail = useRef(null),
     toastTimer = useRef(null);
@@ -148,7 +152,7 @@ export function App() {
   const current = navInfo(page);
   const pair = palette.tabs.find(t=>t.name===current[1]);
   const accent = { '--planet-top': pair.top, '--planet-bottom': pair.bottom, '--planet-ink': pair.ink };
-  const restore = () => { if (!undo) return; setFilters(undo.filters); setUnit(undo.unit); setWeek(undo.week); setUndo(null); };
+  const restore = () => { if (!undo) return; dispatchFilterSession({ type: 'restore' }); setUnit(undo.unit); setWeek(undo.week); };
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.classList.toggle('tma', dark);
@@ -184,7 +188,6 @@ export function App() {
       ...(key === 'budget' ? {budgets:null} : {}),
       ...(key === 'year' || key === 'month' ? { periods: null } : {}),
     }));
-    setUndo(null);
   };
   const go = (id) => {
     setPage(id);
@@ -244,17 +247,13 @@ export function App() {
   const sums = summarize(visible),
     orgRows = selectRows(ROWS, { year: filters.year });
   const reset = () => {
-    setUndo({ filters: { ...filters }, unit, week });
+    dispatchFilterSession({ type: 'reset', unit, week });
     setUnit('тыс');
     setWeek(41);
-    setFilters({ ...DEFAULT_FILTERS });
     setPopup(null);
   };
   const exportCsv = () => {
-    const csv = [
-      '№;Управление;Предмет;План, тыс. руб.;Факт, тыс. руб.',
-      ...visible.map((r) => [r.number, r.dept, r.subject, r.plan, r.fact ?? ''].join(';')),
-    ].join('\r\n');
+    const csv = serializeSelectionCsv(visible);
     const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
@@ -1319,8 +1318,7 @@ export function App() {
                       key={o}
                       onClick={() => {
                         setFilters((f) => ({ ...f, dept: d, org: o }));
-                        setUndo(null);
-                        setPopup(null);
+                                            setPopup(null);
                       }}
                     >
                       <CornerDownRight size={13} />
