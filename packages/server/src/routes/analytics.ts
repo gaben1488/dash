@@ -21,6 +21,7 @@ import {
   gradeGRBS,
   disciplineIndex,
   dataQualityScore,
+  countAssessedBookRows,
   type ComplianceIssue,
   type AntiCorruptionRow,
   type AntiCorruptionResult,
@@ -186,6 +187,11 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       for (const dept of DEPARTMENTS) {
         const rows = deptCache[dept.nameShort];
         if (!rows || rows.length === 0) continue;
+        // Empty Google grid / formula-tail rows are not procurement work.
+        // Apply the same classifier as CalcEngine, not the physical sheet length.
+        // Scope matches unfiltered, all-year book issues; Q1-specific scores
+        // remain a separate, explicitly labeled, legacy methodology.
+        const substantiveRowCount = countAssessedBookRows(rows.slice(DEPT_HEADER_ROWS));
         const rowData: AntiCorruptionRow[] = rows.slice(DEPT_HEADER_ROWS).map((row: any, i: number) => ({
           rowIndex: i + DEPT_HEADER_ROWS + 1,
           method: String(row?.[DEPT_COLUMNS.METHOD] ?? '').trim(),
@@ -291,7 +297,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
           dynamicsScore: c01(0.6 + profile.execDeviation),
           epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: dataQualityScore(snapshot.issues, profile.grbsId, profile.grbsShort, rowData.length),
+          dataScore: dataQualityScore(snapshot.issues, profile.grbsId, profile.grbsShort, substantiveRowCount),
           anomalyScore: c01(1 - anomalyCount * 0.3),
           complianceScore: c01(1 - violations * 0.15),
           anticorruptionPenalty: anticorruption.disciplinaryPenalty,
