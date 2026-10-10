@@ -45,7 +45,7 @@
 - `packages/web/src/pages/design-lab/presets.ts` — схема рецептов, парсинг, хранение, CSS-экспорт, подсчёт контраста.
 - `packages/web/src/pages/design-lab/presets.test.ts` — защита исходных палитр, читаемости, границ формата, хранения.
 
-Ни один новый runtime dependency не установлен: используются уже имеющиеся React, Radix, lucide, Vitest. Детальная основа переноса из исторических HTML: [CONSOLIDATION-CONTRACT.md](../dash-consolidated/CONSOLIDATION-CONTRACT.md), [HTML-REVIEW.md](../../audits/2026-10-10-dash-foundation/HTML-REVIEW.md) (в ветке PR #70, не на исходном main).
+Ни один новый runtime dependency не установлен: используются уже имеющиеся React, Radix, lucide, Vitest. Детальная основа переноса из исторических HTML: [CONSOLIDATION-CONTRACT.md](https://github.com/gaben1488/dash/blob/codex/dash-design-stop-handoff-20261010/docs/superpowers/mockups/dash-consolidated/CONSOLIDATION-CONTRACT.md), [HTML-REVIEW.md](https://github.com/gaben1488/dash/blob/codex/dash-design-stop-handoff-20261010/docs/superpowers/audits/2026-10-10-dash-foundation/HTML-REVIEW.md) (в ветке PR #70, не на исходном main).
 
 ## Проверки и статус приёмки
 
