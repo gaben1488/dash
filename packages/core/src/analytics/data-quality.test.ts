@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataQualityScore } from './data-quality.js';
+import { dataQualityScore, countAssessedBookRows } from './data-quality.js';
 import type { Issue } from '@aemr/shared';
 
 function issue(overrides: Partial<Issue>): Issue {
@@ -47,6 +47,33 @@ describe('data-quality component of the existing scorecard', () => {
 
   it('keeps legacy snapshots with no group or checkId observable', () => {
     expect(dataQualityScore([issue({ checkId: undefined, group: undefined })], 'uo', 'УО', 10)).toBe(0.9);
+  });
+
+  it('measures eligible procurement rows, not padded Google Sheets grid height', () => {
+    const countable = Array.from({ length: 34 }, () => null) as unknown[];
+    countable[0] = '173/1';
+    countable[5] = 'Текущая деятельность';
+    countable[6] = 'Поставка оборудования';
+    countable[7] = 150;
+    countable[10] = 150;
+    countable[11] = 'ЕП';
+
+    // Empty formula tails may span hundreds of rows; they are not workload.
+    const formulaTail = Array.from({ length: 100 }, () => Array.from({ length: 34 }, () => 0));
+    const rows = [countable, ...formulaTail, [], Array.from({ length: 34 }, () => null)];
+    expect(countAssessedBookRows(rows)).toBe(1);
+    expect(dataQualityScore([issue({ row: 4 })], 'uo', 'УО', countAssessedBookRows(rows))).toBe(0);
+  });
+
+  it('includes a substantive incomplete record when the calculator can classify it', () => {
+    const missingMethod = Array.from({ length: 34 }, () => null) as unknown[];
+    missingMethod[0] = '2';
+    missingMethod[5] = 'Текущая деятельность';
+    missingMethod[6] = 'Ремонт';
+    missingMethod[7] = 200;
+    missingMethod[10] = 200;
+    // Missing L is a data quality issue, not a reason to erase the denominator.
+    expect(countAssessedBookRows([missingMethod])).toBe(1);
   });
 
   it('does not infer wrongdoing when there are no source rows to assess', () => {
