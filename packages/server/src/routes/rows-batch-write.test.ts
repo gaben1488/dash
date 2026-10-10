@@ -26,9 +26,15 @@ process.env.GOOGLE_PRIVATE_KEY = '';
 process.env.GOOGLE_API_KEY = '';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
+const readCurrentDeptRow = vi.fn(async () => {
+  const row: unknown[] = Array(34).fill('');
+  row[0] = 1; row[6] = 'Закупка 1';
+  return row;
+});
 
 vi.mock('../services/google-sheets.js', () => ({
   writeCellValue,
+  readCurrentDeptRow,
   resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
   batchGetCells: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
   batchGetFormulas: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
@@ -79,8 +85,50 @@ afterAll(async () => {
 
 beforeEach(() => {
   writeCellValue.mockClear();
+  readCurrentDeptRow.mockClear();
+  readCurrentDeptRow.mockImplementation(async () => sheetValues()[3]);
   writeCellValue.mockImplementation(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
   setDeptSheetCache({ 'УО': { values: sheetValues(), formulas: [], sheetName: 'ВСЕ' } });
+});
+
+describe('guarded row writes against live source movement', () => {
+  it('refuses a stale row revision without touching Google', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3];
+    const expectedRevision = rowRevision(source);
+    readCurrentDeptRow.mockResolvedValueOnce(sheetValues()[4]);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Чужая правка' }, expectedRevision }] } });
+    expect(response.statusCode).toBe(207);
+    expect(response.json<{ results: Array<{ success: boolean; error: string }> }>().results[0]).toMatchObject({
+      success: false, error: expect.stringContaining('перемещена'),
+    });
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('accepts an unchanged source row and performs the write', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const expectedRevision = rowRevision(sheetValues()[3]);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Допустимая правка' }, expectedRevision }] } });
+    expect(response.statusCode).toBe(200);
+    expect(readCurrentDeptRow).toHaveBeenCalledTimes(1);
+    expect(writeCellValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects unversioned production writes even when the cache is populated', async () => {
+    const old = process.env.AEMR_ALLOW_LEGACY_WRITES;
+    delete process.env.AEMR_ALLOW_LEGACY_WRITES;
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Без версии' } }] } });
+      expect(response.statusCode).toBe(207);
+      expect(writeCellValue).not.toHaveBeenCalled();
+    } finally {
+      if (old === undefined) delete process.env.AEMR_ALLOW_LEGACY_WRITES;
+      else process.env.AEMR_ALLOW_LEGACY_WRITES = old;
+    }
+  });
 });
 
 describe('POST /api/data/rows — код ответа не врёт (п.16)', () => {
