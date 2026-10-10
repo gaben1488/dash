@@ -132,7 +132,7 @@ describe('computeFilteredData — exact procurement method across linked metrics
       planTotal: 10, factTotal: 5, kpCount: 0, epCount: 1, pct: 50,
     });
     expect(fd.summaryByPeriod.q1).toMatchObject({
-      kpCount: 0, epCount: 1, epPlan: 40,
+      kpCount: 0, epCount: 1, epPlan: 10, // selected federal budget, not all-method EP plan
       fbPlan: 10, fbFact: 5, kbPlan: 0, mbPlan: 0,
     });
   });
