@@ -1,0 +1,348 @@
+{
+  "baseline": "2461209c8d0172c4acf94f5606452c589cd4f510",
+  "snapshotDate": "2026-10-10",
+  "kind": "offline replay of selected production functions; not deployed UI run",
+  "exactDuplicateLabels": {
+    "УФБП": {},
+    "УАГЗО": {},
+    "УКСиМП": {},
+    "УДТХ": {},
+    "УИО": {
+      "72": [
+        53,
+        73
+      ]
+    },
+    "УО": {},
+    "УД": {
+      "174": [
+        155,
+        156
+      ],
+      "175": [
+        157,
+        158
+      ],
+      "176": [
+        159,
+        160
+      ],
+      "178": [
+        162,
+        163
+      ],
+      "179": [
+        164,
+        165
+      ],
+      "180": [
+        166,
+        167
+      ],
+      "181": [
+        168,
+        169
+      ],
+      "182": [
+        170,
+        223
+      ],
+      "183": [
+        171,
+        224
+      ],
+      "173/18": [
+        203,
+        204
+      ]
+    },
+    "УЭР": {}
+  },
+  "coercionExamples": [
+    {
+      "value": "173",
+      "coerced": 173
+    },
+    {
+      "value": "173/1",
+      "coerced": 173
+    },
+    {
+      "value": "173/18",
+      "coerced": 173
+    },
+    {
+      "value": "121/1",
+      "coerced": 121
+    },
+    {
+      "value": "33/1",
+      "coerced": 33
+    }
+  ],
+  "mapping": {
+    "matched": 335,
+    "bookOnly": 7,
+    "monitoringOnly": 94,
+    "ambiguousAcrossBooks": 0,
+    "ambiguousSameBook": 6,
+    "listCells": 4,
+    "coveragePct": 78.19025522041764,
+    "nmckAgree": 302,
+    "nmckDisagree": 33,
+    "nmckNoComparison": 0,
+    "factAgree": 321,
+    "factDisagree": 11,
+    "factNoComparison": 3
+  },
+  "ambiguous": [
+    {
+      "code": "ЭА138-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УДТХ:13",
+          "plan": 3818.61349
+        },
+        {
+          "row": "УДТХ:64",
+          "plan": 169.47669
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:214"
+      ]
+    },
+    {
+      "code": "ЭА23-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:4",
+          "plan": 3844.10664
+        },
+        {
+          "row": "УО:1004",
+          "plan": 3844.10664
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:99"
+      ]
+    },
+    {
+      "code": "ЭА36-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:36",
+          "plan": 2320
+        },
+        {
+          "row": "УО:1836",
+          "plan": 2320
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:111"
+      ]
+    },
+    {
+      "code": "ЭА25-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:75",
+          "plan": 40.67
+        },
+        {
+          "row": "УО:1871",
+          "plan": 40.67
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:100"
+      ]
+    },
+    {
+      "code": "ЭА26-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:77",
+          "plan": 91.5
+        },
+        {
+          "row": "УО:1872",
+          "plan": 88.75
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:101"
+      ]
+    },
+    {
+      "code": "ЭА101-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:1094",
+          "plan": 100
+        },
+        {
+          "row": "УО:1101",
+          "plan": 129.85
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:178"
+      ]
+    }
+  ],
+  "rules": {
+    "УФБП": {
+      "status_on_data_rows": 4,
+      "row_numbering": 1,
+      "late_signed": 2
+    },
+    "УАГЗО": {
+      "row_numbering": 1,
+      "text_hygiene": 1,
+      "late_signed": 20
+    },
+    "УКСиМП": {
+      "status_on_data_rows": 27,
+      "text_hygiene": 1,
+      "late_signed": 24
+    },
+    "УДТХ": {
+      "row_numbering": 1,
+      "overdue_reason_missing": 1,
+      "late_signed": 7
+    },
+    "УИО": {
+      "status_on_data_rows": 1,
+      "row_numbering": 1,
+      "late_signed": 10
+    },
+    "УО": {
+      "status_on_data_rows": 6,
+      "row_numbering": 1,
+      "text_hygiene": 1,
+      "overdue_reason_missing": 2,
+      "late_signed": 96,
+      "out_of_44fz_perimeter": 41
+    },
+    "УД": {
+      "status_on_data_rows": 20,
+      "row_numbering": 1,
+      "text_hygiene": 1,
+      "late_signed": 1
+    },
+    "СВОД ТД-ПМ": {
+      "budget_sum_plan": 25,
+      "budget_sum_fact": 21,
+      "execution_percentage": 23,
+      "deviation_calc": 19,
+      "fact_vs_plan": 13
+    },
+    "СВОД с месяцами": {
+      "budget_sum_plan": 201
+    },
+    "УЭР": {
+      "row_numbering": 1,
+      "text_hygiene": 1,
+      "overdue_reason_missing": 3,
+      "late_signed": 25
+    }
+  },
+  "registeredRowSignalsAfterSuppression": {
+    "УФБП": {
+      "planYearMissing": 1,
+      "factDateBeforePlan": 2,
+      "epFactDeviation": 11,
+      "unmappedReasonEP": 7
+    },
+    "УАГЗО": {
+      "highEconomy": 19,
+      "factDateBeforePlan": 7,
+      "overdue": 3,
+      "planYearMissing": 3,
+      "epRisk": 2,
+      "unmappedReasonEP": 12,
+      "epFactDeviation": 1
+    },
+    "УКСиМП": {
+      "epRisk": 15,
+      "epFactDeviation": 54,
+      "factDateBeforePlan": 16,
+      "highEconomy": 4
+    },
+    "УДТХ": {
+      "unmappedReasonEP": 17,
+      "factDateBeforePlan": 8,
+      "epRisk": 1,
+      "epFactDeviation": 4,
+      "overdue": 2,
+      "planYearMissing": 2,
+      "epJustificationMissing": 1
+    },
+    "УИО": {
+      "epFactDeviation": 2,
+      "unmappedReasonEP": 3,
+      "highEconomy": 4,
+      "factDateBeforePlan": 17,
+      "planYearMissing": 2
+    },
+    "УО": {
+      "highEconomy": 36,
+      "epRisk": 58,
+      "methodReasonMismatch": 10,
+      "factDateBeforePlan": 17,
+      "planYearMissing": 499,
+      "unmappedReasonEP": 60,
+      "overdue": 8,
+      "earlyClosure": 3,
+      "epFactDeviation": 2
+    },
+    "УД": {
+      "economyConflict": 1,
+      "highEconomy": 24,
+      "factDateBeforePlan": 53,
+      "epFactDeviation": 4,
+      "unmappedReasonEP": 13,
+      "earlyClosure": 1,
+      "epRisk": 2,
+      "planYearMissing": 2,
+      "epJustificationMissing": 1
+    },
+    "УЭР": {
+      "highEconomy": 11,
+      "epFactDeviation": 10,
+      "factDateBeforePlan": 12,
+      "overdue": 5
+    }
+  },
+  "procedures": {
+    "count": 442,
+    "sourceIssues": [],
+    "unparsed": [],
+    "duplicateCodes": {},
+    "participantCount": 6
+  },
+  "ruleExceptions": [],
+  "falseMissingNumberPositions": 5565,
+  "realMissingNumberPositions": {
+    "УЭР": [
+      80,
+      81
+    ]
+  },
+  "limitations": [
+    "Full pnpm typecheck/test gate was not run",
+    "No complete pipeline snapshot, browser or deployed incident reproduction",
+    "Current snapshots captured sequentially, not atomically",
+    "Mapping run uses canonical master only; historical journal and read-time changes may differ",
+    "Unknown price allocations are not assigned automatically"
+  ]
+}

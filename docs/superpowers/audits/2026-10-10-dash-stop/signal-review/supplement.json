@@ -1,0 +1,358 @@
+{
+  "exactDuplicateLabels": {
+    "УФБП": {},
+    "УАГЗО": {},
+    "УКСиМП": {},
+    "УДТХ": {},
+    "УИО": {
+      "72": [
+        53,
+        73
+      ]
+    },
+    "УО": {},
+    "УД": {
+      "174": [
+        155,
+        156
+      ],
+      "175": [
+        157,
+        158
+      ],
+      "176": [
+        159,
+        160
+      ],
+      "178": [
+        162,
+        163
+      ],
+      "179": [
+        164,
+        165
+      ],
+      "180": [
+        166,
+        167
+      ],
+      "181": [
+        168,
+        169
+      ],
+      "182": [
+        170,
+        223
+      ],
+      "183": [
+        171,
+        224
+      ],
+      "173/18": [
+        203,
+        204
+      ]
+    },
+    "УЭР": {}
+  },
+  "coercionExamples": [
+    {
+      "value": "173",
+      "coerced": 173
+    },
+    {
+      "value": "173/1",
+      "coerced": 173
+    },
+    {
+      "value": "173/18",
+      "coerced": 173
+    },
+    {
+      "value": "121/1",
+      "coerced": 121
+    },
+    {
+      "value": "33/1",
+      "coerced": 33
+    }
+  ],
+  "filteredSignals": {
+    "УФБП": {
+      "planYearMissing": 1,
+      "factDateBeforePlan": 2,
+      "epFactDeviation": 11,
+      "unmappedReasonEP": 7
+    },
+    "УАГЗО": {
+      "highEconomy": 19,
+      "factDateBeforePlan": 7,
+      "overdue": 3,
+      "planYearMissing": 3,
+      "epRisk": 2,
+      "unmappedReasonEP": 12,
+      "epFactDeviation": 1
+    },
+    "УКСиМП": {
+      "epRisk": 15,
+      "epFactDeviation": 54,
+      "factDateBeforePlan": 16,
+      "highEconomy": 4
+    },
+    "УДТХ": {
+      "unmappedReasonEP": 17,
+      "factDateBeforePlan": 8,
+      "epRisk": 1,
+      "epFactDeviation": 4,
+      "overdue": 2,
+      "planYearMissing": 2,
+      "epJustificationMissing": 1
+    },
+    "УИО": {
+      "epFactDeviation": 2,
+      "unmappedReasonEP": 3,
+      "highEconomy": 4,
+      "factDateBeforePlan": 17,
+      "planYearMissing": 2
+    },
+    "УО": {
+      "highEconomy": 36,
+      "epRisk": 58,
+      "methodReasonMismatch": 10,
+      "factDateBeforePlan": 17,
+      "planYearMissing": 499,
+      "unmappedReasonEP": 60,
+      "overdue": 8,
+      "earlyClosure": 3,
+      "epFactDeviation": 2
+    },
+    "УД": {
+      "economyConflict": 1,
+      "highEconomy": 24,
+      "factDateBeforePlan": 53,
+      "epFactDeviation": 4,
+      "unmappedReasonEP": 13,
+      "earlyClosure": 1,
+      "epRisk": 2,
+      "planYearMissing": 2,
+      "epJustificationMissing": 1
+    },
+    "УЭР": {
+      "highEconomy": 11,
+      "epFactDeviation": 10,
+      "factDateBeforePlan": 12,
+      "overdue": 5
+    }
+  },
+  "sheetProfiles": {
+    "УФБП": {
+      "kind": "department",
+      "grbsId": "УФБП",
+      "latinId": "ufbp"
+    },
+    "УАГЗО": {
+      "kind": "department",
+      "grbsId": "УАГЗО",
+      "latinId": "uagzo"
+    },
+    "УКСиМП": {
+      "kind": "department",
+      "grbsId": "УКСиМП",
+      "latinId": "uksimp"
+    },
+    "УДТХ": {
+      "kind": "department",
+      "grbsId": "УДТХ",
+      "latinId": "udtx"
+    },
+    "УИО": {
+      "kind": "department",
+      "grbsId": "УИО",
+      "latinId": "uio"
+    },
+    "УО": {
+      "kind": "department",
+      "grbsId": "УО",
+      "latinId": "uo"
+    },
+    "УД": {
+      "kind": "department",
+      "grbsId": "УД",
+      "latinId": "ud"
+    },
+    "Рабочий реестр процедур": {
+      "kind": "unknown"
+    },
+    "СВОД ТД-ПМ": {
+      "kind": "svod"
+    },
+    "СВОД с месяцами": {
+      "kind": "shdyu_monthly"
+    },
+    "УЭР": {
+      "kind": "department",
+      "grbsId": "УЭР",
+      "latinId": "uer"
+    }
+  },
+  "match": {
+    "matched": 335,
+    "bookOnly": 7,
+    "monitoringOnly": 94,
+    "ambiguousAcrossBooks": 0,
+    "ambiguousSameBook": 6,
+    "listCells": 4,
+    "coveragePct": 78.19025522041764,
+    "nmckAgree": 302,
+    "nmckDisagree": 33,
+    "nmckNoComparison": 0,
+    "factAgree": 321,
+    "factDisagree": 11,
+    "factNoComparison": 3
+  },
+  "ambiguous": [
+    {
+      "code": "ЭА138-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УДТХ:13",
+          "plan": 3818.61349
+        },
+        {
+          "row": "УДТХ:64",
+          "plan": 169.47669
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:214"
+      ]
+    },
+    {
+      "code": "ЭА23-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:4",
+          "plan": 3844.10664
+        },
+        {
+          "row": "УО:1004",
+          "plan": 3844.10664
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:99"
+      ]
+    },
+    {
+      "code": "ЭА36-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:36",
+          "plan": 2320
+        },
+        {
+          "row": "УО:1836",
+          "plan": 2320
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:111"
+      ]
+    },
+    {
+      "code": "ЭА25-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:75",
+          "plan": 40.67
+        },
+        {
+          "row": "УО:1871",
+          "plan": 40.67
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:100"
+      ]
+    },
+    {
+      "code": "ЭА26-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:77",
+          "plan": 91.5
+        },
+        {
+          "row": "УО:1872",
+          "plan": 88.75
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:101"
+      ]
+    },
+    {
+      "code": "ЭА101-26",
+      "sameBook": true,
+      "rows": [
+        {
+          "row": "УО:1094",
+          "plan": 100
+        },
+        {
+          "row": "УО:1101",
+          "plan": 129.85
+        }
+      ],
+      "procedures": [
+        "Рабочий реестр процедур:178"
+      ]
+    }
+  ],
+  "listCells": [
+    {
+      "row": "УД:45",
+      "codes": [
+        "ЭА160-26",
+        "ЭА141-26"
+      ],
+      "missing": [
+        "ЭА141-26"
+      ]
+    },
+    {
+      "row": "УЭР:21",
+      "codes": [
+        "ЭЕП103-26",
+        "ЭЕП104-26",
+        "ЭЕП106-26",
+        "ЭЕП107-26",
+        "ЭЕП108-26"
+      ],
+      "missing": []
+    },
+    {
+      "row": "УЭР:28",
+      "codes": [
+        "ЭЕП123-26",
+        "ЭЕП124-26",
+        "ЭЕП125-26",
+        "ЭЕП128-26"
+      ],
+      "missing": []
+    },
+    {
+      "row": "УЭР:66",
+      "codes": [
+        "ЭЕП324-26",
+        "ЭЕП327-26"
+      ],
+      "missing": []
+    }
+  ]
+}
