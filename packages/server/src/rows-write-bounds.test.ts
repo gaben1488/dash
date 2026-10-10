@@ -2,7 +2,7 @@
  * Границы записи в живую Google-таблицу.
  *
  * Инвариант: запись разрешена только в существующую строку данных.
- * Нижняя граница (idx >= 2, строка 1 — заголовок) уже проверялась; ВЕРХНЕЙ не было:
+ * Нижняя граница — после трёх строк шапки (DEPT_HEADER_ROWS=3); верхняя граница:
  * PUT /api/rows/uo/99999/field проходил валидацию и звал writeCellValue('G99999')
  * на боевой таблице — за пределами данных, потенциально по итоговым/формульным строкам.
  * Кэш при этом молча не обновлялся (values[idx-1] === undefined), поэтому сервер
@@ -30,7 +30,7 @@ vi.mock('./services/google-sheets.js', () => ({
   resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
 }));
 
-/** Лист: 3 строки заголовка + N строк данных. Валидные для записи sheet-строки: 2..(3+N). */
+/** Лист: 3 строки заголовка + N строк данных. Валидные для записи sheet-строки: 4..(3+N). */
 function makeDataRow(id: number): unknown[] {
   const row = Array<unknown>(32).fill('');
   row[0] = id; // A
@@ -45,7 +45,7 @@ function makeDataRow(id: number): unknown[] {
  * четыре полных сборки графа сервера давали 50+ секунд и плавающий
  * таймаут под нагрузкой — тест падал не из-за логики, а из-за занятого
  * процессора. Все четыре теста работают с одной и той же фикстурой
- * (3 строки заголовка + 2 строки данных, валидные строки листа 2..5),
+ * (3 строки заголовка + 2 строки данных, валидные строки листа 4..5),
  * изоляция между ними нужна только по счётчику вызовов записи — его и
  * сбрасываем.
  */
@@ -129,5 +129,48 @@ describe('POST /api/data/rows (batch) — та же верхняя границ�
       const body = res.json<{ results: Array<{ success: boolean; error?: string }> }>();
       expect(body.results[0].success).toBe(false);
       expect(writeCellValue).not.toHaveBeenCalled();
+  }, 30_000);
+});
+
+describe('регрессия аудита 10.10: шапка и ввод не могут попасть в Google', () => {
+  it('PUT отвергает все три строки шапки и не принимает частично разобранный индекс', async () => {
+    for (const idx of ['1', '2', '3', '4garbage', '4.5']) {
+      const res = await app.inject({
+        method: 'PUT', url: `/api/rows/uo/${idx}/field`,
+        payload: { field: 'G', value: 'нельзя писать в шапку' },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('POST отвергает строки шапки и сохраняет адреса невалидных действий', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/data/rows',
+      payload: { rows: [1, 2, 3].map(rowIndex => ({
+        deptId: 'uo', rowIndex, changes: { G: 'нельзя в шапку' },
+      })) },
+    });
+    expect(res.statusCode).toBe(207);
+    const results = res.json<{ results: Array<{ rowIndex: number; success: boolean }> }>().results;
+    expect(results).toHaveLength(3);
+    expect(results.every(r => !r.success)).toBe(true);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('PUT и POST отвергают испорченные суммы и невозможные даты до сетевого вызова', async () => {
+    for (const [field, value] of [['H', '12abc'], ['H', '1e309'], ['N', '31.02.2026'], ['Q', '2026-13-99']]) {
+      const single = await app.inject({
+        method: 'PUT', url: '/api/rows/uo/4/field',
+        payload: { field, value },
+      });
+      expect(single.statusCode).toBe(400);
+      const batch = await app.inject({
+        method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'uo', rowIndex: 4, changes: { [field]: value } }] },
+      });
+      expect(batch.statusCode).toBe(207);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
   }, 30_000);
 });
