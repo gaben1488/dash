@@ -209,7 +209,7 @@ describe('детектор 6 — отступление имени подвед�
   });
 
   it('каноничное имя с краевым пробелом — только обрезка, имя не переписывается', () => {
-    const [f] = detectSubordinateNameHygiene(' МБДОУ ДС № 3 «Жар-Птица» ');
+    const [f] = detectSubordinateNameHygiene(' МБДОУ "Детский сад № 3 "Жар-птица" ');
     expect(f.kind).toBe('edge_space');
     expect(f.fix).toBe('МБДОУ "Детский сад № 3 "Жар-птица"');
   });
