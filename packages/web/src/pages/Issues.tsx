@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, buildControlCases, controlCaseCounters } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
@@ -396,6 +396,29 @@ export function IssuesPage() {
     });
   }, [issues, search, sevFilter, statusFilter, trustFilterOn, trustCheckIds]);
 
+  // The same case projection is used by the server and by Recommendations.
+  // Filter AFTER the common header/local filters; do not invent a new list
+  // with different dates, organizations or legal assumptions.
+  const filteredCases = useMemo(() => {
+    const visibleIds = new Set(filtered.map(i => i.id));
+    return buildControlCases(fd.issues
+      .filter(i => visibleIds.has(i.id))
+      .map(i => ({ ...i, status: statusOverrides[i.id] ?? i.status })));
+  }, [fd.issues, filtered, statusOverrides]);
+  const caseCounters = useMemo(() => controlCaseCounters(filteredCases), [filteredCases]);
+
+  const caseImpactLabel = (kind: string): string => {
+    switch (kind) {
+      case 'observed_discrepancy': return 'Подтверждено расхождение расчётов';
+      case 'source_unavailable': return 'Проверка не выполнилась';
+      case 'calculation_possible': return 'Возможное влияние на расчёты';
+      case 'legal_review': return 'Нужно установить правовое основание';
+      case 'source_data': return 'Качество исходных данных';
+      case 'process_review': return 'Нужно разобрать состояние закупки';
+      default: return 'Последствия ещё не установлены';
+    }
+  };
+
   // Карточки диагноста (канон п.53): одна группа = один механизм проверки.
   // Простыня «строка N: предмет» удалена решением владельца (п.69д) — список
   // строк живёт внутри группы, заголовок группы называет механизм, не предмет.
@@ -612,6 +635,59 @@ export function IssuesPage() {
           );
         })}
       </div>
+
+      {/* One work queue, with original observations retained below as evidence.
+          A status marked "resolved" without a source re-read is NOT a
+          verified correction; unconfirmed financial effect stays unknown. */}
+      <section aria-label="Общая очередь вопросов контроля"
+        className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-200/70 dark:border-transparent p-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-white">
+              Единые вопросы контроля — {caseCounters.cases}
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              Исходных наблюдений: {caseCounters.observations}.
+              {' '}Требуют разбора: {caseCounters.openForReview}.
+              {' '}Отмечено исправленным, ожидает независимой перепроверки: {caseCounters.awaitingIndependentRecheck}.
+              {' '}Обоснованно признаны ложными: {caseCounters.validatedAsFalsePositive}.
+            </p>
+          </div>
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+            Одно дело — одна проверяемая причина и исходные доказательства
+          </span>
+        </div>
+        {filteredCases.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {filteredCases.filter(c => c.workState !== 'false_positive' && c.workState !== 'exception_recorded')
+              .slice(0, 4).map(c => (
+              <button key={c.caseKey} type="button"
+                className="w-full text-left flex flex-wrap items-center gap-3 rounded-lg bg-zinc-50/60 dark:bg-white/[0.05] px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-700/60 transition focus-visible:outline focus-visible:outline-2"
+                onClick={() => {
+                  const target = c.issueIds[0];
+                  const group = mechanismGroups.find(g => g.issues.some(i => i.id === target));
+                  if (group) setOpenGroups(prev => new Set([...prev, group.key]));
+                  setExpandedId(target);
+                }}>
+                <span className="flex-1 min-w-[180px]">
+                  <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-100">{c.label}</span>
+                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    {deptLabel(c.departmentId ?? '')}
+                    {c.row != null ? ` · строка ${c.row}` : ''}
+                    {c.observationCount > 1 ? ` · ${c.observationCount} подтверждения источников` : ''}
+                  </span>
+                </span>
+                <span className="text-[11px] text-zinc-600 dark:text-zinc-300">{caseImpactLabel(c.impact)}</span>
+                <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">Разобрать <span aria-hidden="true">→</span></span>
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-3">
+          Влияние на суммы и причины предполагаемых отклонений определяются только повторной проверкой.
+          Порядок ниже — по характеру последствий, не оценка работы сотрудников.
+        </p>
+      </section>
 
       {/* Какие оси шапки здесь работают, а какие нечем применить */}
       {deadAxes.length > 0 && (
