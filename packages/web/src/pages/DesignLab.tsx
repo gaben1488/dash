@@ -20,11 +20,21 @@ import './design-lab.css';
 type Mode = 'ready' | 'pending' | 'error' | 'empty';
 type Dept = 'all' | 'УО' | 'УКСиМП';
 type Feedback = { kind: 'ok' | 'error' | 'note'; text: string } | null;
+interface PreviewSession {
+  query: string;
+  dept: Dept;
+  selectedRow: string | null;
+  sourceOpen: boolean;
+  updatePhase: 'seen' | 'read' | 'applied';
+}
+const INITIAL_SESSION: PreviewSession = {
+  query: '', dept: 'all', selectedRow: '173/1', sourceOpen: false, updatePhase: 'seen',
+};
 
 const DEMO_ROWS = [
-  { id: '173/1', org: 'УО', work: 'ДЕМО · Оснащение школы', plan: '4 200', state: 'Нужен источник', issue: true },
-  { id: '173/2', org: 'УКСиМП', work: 'ДЕМО · Ремонт учреждения', plan: '7 800', state: 'Проверено', issue: false },
-  { id: '174', org: 'УО', work: 'ДЕМО · Приобретение оборудования', plan: '1 620', state: 'Нужен комментарий', issue: true },
+  { id: '173/1', org: 'УО', work: 'ДЕМО · Оснащение школы', plan: '4 200', state: 'Нужен источник', issue: true, source: 'Учебный лист · D14', formula: 'D14: 4 200 тыс. ₽; источник не подтверждён', note: 'Примечание ячейки: уточнить основание суммы', discussion: 'Обсуждение: вопрос направлен исполнителю, ответа нет', action: 'Сверить исходную ячейку и основание суммы.' },
+  { id: '173/2', org: 'УКСиМП', work: 'ДЕМО · Ремонт учреждения', plan: '7 800', state: 'Проверено', issue: false, source: 'Учебный лист · D15', formula: 'D15: 7 800 тыс. ₽ (учебный пример)', note: 'Примечаний нет', discussion: 'Обсуждений нет', action: 'В этом учебном примере дополнительных действий нет.' },
+  { id: '174', org: 'УО', work: 'ДЕМО · Приобретение оборудования', plan: '1 620', state: 'Нужен комментарий', issue: true, source: 'Учебный лист · D16', formula: 'D16: 1 620 тыс. ₽ (учебный пример)', note: 'Примечание ячейки: ожидаем пояснение', discussion: 'Обсуждение: уточнить срок и ответственное лицо', action: 'Запросить пояснение к строке 174.' },
 ] as const;
 
 function previewStyle(recipe: LabPreset): CSSProperties {
@@ -55,25 +65,27 @@ function ContrastLabel({ preset }: { preset: LabPreset }) {
 }
 
 function Preview({
-  recipe, onSelectSection, demoMode, onMode, readOnly = false,
+  recipe, onSelectSection, demoMode, onMode, session, onSessionChange, readOnly = false,
 }: {
   recipe: LabPreset;
   onSelectSection?: (section: NavSection) => void;
   demoMode: Mode;
   onMode?: (mode: Mode) => void;
   readOnly?: boolean;
+  session: PreviewSession;
+  onSessionChange?: (change: Partial<PreviewSession>) => void;
 }) {
-  const [query, setQuery] = useState('');
-  const [dept, setDept] = useState<Dept>('all');
-  const [selectedRow, setSelectedRow] = useState<string | null>('173/1');
-  const [sourceOpen, setSourceOpen] = useState(false);
-  const [updatePhase, setUpdatePhase] = useState<'seen' | 'read' | 'applied'>('seen');
+  const { query, dept, selectedRow, sourceOpen, updatePhase } = session;
+  const changeSession = (change: Partial<PreviewSession>) => onSessionChange?.(change);
   const filtered = DEMO_ROWS.filter((row) =>
     (dept === 'all' || row.org === dept) &&
     (row.id.toLocaleLowerCase('ru') + ' ' + row.work.toLocaleLowerCase('ru'))
       .includes(query.trim().toLocaleLowerCase('ru'))
   );
   const rows = demoMode === 'empty' ? [] : filtered;
+  const issues = rows.filter((row) => row.issue).length;
+  const checked = rows.length - issues;
+  const activeRow = rows.find((row) => row.id === selectedRow) ?? rows[0] ?? null;
   const pair = findPair(recipe.family, recipe.section);
 
   return (
@@ -121,11 +133,11 @@ function Preview({
       <div className="dl-preview-body">
         <section className="dl-preview-summary" aria-label="Обзор тестовых данных">
           <span className="dl-small-label">Срез данных</span>
-          <div className="dl-big-number">3 <span>учебные строки</span></div>
+          <div className="dl-big-number" aria-live="polite">{rows.length} <span>учебные строки в отборе</span></div>
           <p>Эти записи вымышлены. Номер 173/1 не превращается в 173 и не считается дублем без доказательства.</p>
           <div className="dl-summary-metrics">
-            <div><strong>2</strong><span>нужны действия</span></div>
-            <div><strong>1</strong><span>проверена</span></div>
+            <div><strong>{issues}</strong><span>нужны действия</span></div>
+            <div><strong>{checked}</strong><span>проверены</span></div>
           </div>
           <ContrastLabel preset={recipe} />
         </section>
@@ -144,7 +156,7 @@ function Preview({
               <span className="dl-sr">Поиск по демонстрационным строкам</span>
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => changeSession({ query: event.target.value })}
                 placeholder="Номер или предмет"
                 disabled={readOnly}
               />
@@ -152,7 +164,7 @@ function Preview({
             <select
               aria-label="Фильтр демо-организаций"
               value={dept}
-              onChange={(event) => setDept(event.target.value as Dept)}
+              onChange={(event) => changeSession({ dept: event.target.value as Dept })}
               disabled={readOnly}
             >
               <option value="all">Все ГРБС</option>
@@ -161,7 +173,7 @@ function Preview({
             </select>
             {!readOnly && (
               <button className="dl-tool-button" type="button"
-                onClick={() => { setQuery(''); setDept('all'); onMode?.('ready'); }}>
+                onClick={() => { changeSession({ query: '', dept: 'all', selectedRow: '173/1', sourceOpen: false }); onMode?.('ready'); }}>
                 <RotateCcw size={13} aria-hidden="true" /> Сброс
               </button>
             )}
@@ -188,9 +200,9 @@ function Preview({
               </tr></thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} data-selected={selectedRow === row.id}>
+                  <tr key={row.id} data-selected={activeRow?.id === row.id}>
                     <td>
-                      <button type="button" disabled={readOnly} onClick={() => { setSelectedRow(row.id); setSourceOpen(true); }}>
+                      <button type="button" disabled={readOnly} onClick={() => changeSession({ selectedRow: row.id, sourceOpen: true })}>
                         {row.id}
                       </button>
                     </td>
@@ -209,24 +221,29 @@ function Preview({
           <div className="dl-table-foot">
             <span>Показано: {rows.length} из 3 · режим: {demoMode === 'empty' ? 'нет данных' : 'учебная версия'}</span>
             {sourceOpen && selectedRow && (
-              <button type="button" onClick={() => setSourceOpen(false)}>Скрыть основание</button>
+              <button type="button" onClick={() => changeSession({ sourceOpen: false })}>Скрыть основание</button>
             )}
           </div>
         </section>
 
         <aside className="dl-preview-evidence" aria-label="Основание и следующие действия">
           <span className="dl-small-label">Объяснения</span>
-          <h4>Что исправить</h4>
-          <p>В строке 173/1 требуется открыть основание и уточнить источник суммы. Оценка без действия — шум.</p>
-          <button className="dl-feature-action" type="button" disabled={readOnly}
-            onClick={() => { setSelectedRow('173/1'); setSourceOpen(!sourceOpen); }}>
+          <h4>{activeRow?.issue ? 'Что исправить' : activeRow ? 'Результат проверки' : 'Нет выбранной строки'}</h4>
+          <p>{activeRow?.action ?? 'Под этим отбором учебных записей нет. Измените фильтр, чтобы открыть основание.'}</p>
+          <button className="dl-feature-action" type="button" disabled={readOnly || !activeRow}
+            onClick={() => changeSession({ selectedRow: activeRow?.id ?? null, sourceOpen: !sourceOpen })}>
             <Eye size={15} aria-hidden="true" /> {sourceOpen ? 'Скрыть источник' : 'Показать источник'}
           </button>
-          {sourceOpen && (
+          {sourceOpen && activeRow && (
             <div className="dl-source-detail">
-              <strong>ДЕМО · Строка {selectedRow ?? '173/1'}</strong>
-              <p>Откуда: учебная таблица; формула, примечание и человеческий комментарий показываются отдельно.</p>
-              <span>Подтверждённое изменение в реестре не выполняется.</span>
+              <strong>ДЕМО · Строка {activeRow.id}</strong>
+              <dl className="dl-source-evidence">
+                <div><dt>Адрес исходной ячейки</dt><dd>{activeRow.source}</dd></div>
+                <div><dt>Значение / формула</dt><dd>{activeRow.formula}</dd></div>
+                <div><dt>Примечание ячейки</dt><dd>{activeRow.note}</dd></div>
+                <div><dt>Обсуждение</dt><dd>{activeRow.discussion}</dd></div>
+              </dl>
+              <span>Поля учебные, рабочая книга не читалась.</span>
             </div>
           )}
         </aside>
@@ -239,10 +256,10 @@ function Preview({
           <span>{updatePhase === 'seen' ? ' Изменение замечено, но не прочитано' : updatePhase === 'read' ? ' Прочитано, но ещё не применено' : ' Можно снова проверить этапы'}</span>
         </div>
         {!readOnly && (updatePhase === 'seen'
-          ? <button type="button" onClick={() => setUpdatePhase('read')}>Прочитал</button>
+          ? <button type="button" onClick={() => changeSession({ updatePhase: 'read' })}>Прочитал</button>
           : updatePhase === 'read'
-            ? <button type="button" onClick={() => setUpdatePhase('applied')}>Применить ДЕМО</button>
-            : <button type="button" onClick={() => setUpdatePhase('seen')}>Повторить сценарий</button>)}
+            ? <button type="button" disabled={demoMode === 'error' || demoMode === 'pending'} onClick={() => changeSession({ updatePhase: 'applied' })}>Применить ДЕМО</button>
+            : <button type="button" onClick={() => changeSession({ updatePhase: 'seen' })}>Повторить сценарий</button>)}
       </div>
     </div>
   );
@@ -258,6 +275,8 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
   const [preset, setPreset] = useState<LabPreset>(DEFAULT_PRESET);
   const [panel, setPanel] = useState('palettes');
   const [mode, setMode] = useState<Mode>('ready');
+  const [session, setSession] = useState<PreviewSession>(INITIAL_SESSION);
+  const changeSession = (change: Partial<PreviewSession>) => setSession((prev) => ({ ...prev, ...change }));
   const [compareFamily, setCompareFamily] = useState<FamilyId>('kamchatka');
   const [compareSurface, setCompareSurface] = useState<SurfaceId>('ocean');
   const [saved, setSaved] = useState<LabPreset[]>(() => {
@@ -416,7 +435,7 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
             <p>Показатель проверяет только концы градиента. Отделку, эффекты и реальное масштабирование проверяют отдельно.</p>
           </div>
           <button className="dl-reset" type="button" onClick={() => {
-            setPreset(DEFAULT_PRESET); setName(DEFAULT_PRESET.name); setMode('ready'); notify('note', 'Исходный рецепт восстановлен.');
+            setPreset(DEFAULT_PRESET); setName(DEFAULT_PRESET.name); setMode('ready'); setSession(INITIAL_SESSION); notify('note', 'Исходный рецепт восстановлен.');
           }}>
             <RotateCcw size={14} aria-hidden="true" /> Вернуть исходный вид
           </button>
@@ -455,7 +474,7 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
                   </button>;
                 })}
               </div>
-              <Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode={mode} onMode={setMode} />
+              <Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode={mode} onMode={setMode} session={session} onSessionChange={changeSession} />
             </Tabs.Content>
 
             <Tabs.Content value="states" className="dl-tab-panel">
@@ -471,7 +490,7 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
                 <div><span className="dl-small-label">НЕДОСТУПНО</span><span className="dl-specimen dl-specimen-disabled">Нет полномочий</span></div>
                 <div><span className="dl-small-label">ТРЕБУЕТ ДЕЙСТВИЯ</span><span className="dl-specimen dl-specimen-danger">Уточнить источник</span></div>
               </div>
-              <Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode={mode} onMode={setMode} />
+              <Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode={mode} onMode={setMode} session={session} onSessionChange={changeSession} />
             </Tabs.Content>
 
             <Tabs.Content value="layouts" className="dl-tab-panel">
@@ -480,7 +499,7 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
                 {LAYOUTS.map((item) => <button key={item.id} type="button" aria-pressed={preset.layout === item.id}
                   onClick={() => update({ layout: item.id })}><Layers size={15} aria-hidden="true" /><strong>{item.label}</strong><span>{item.use}</span></button>)}
               </div>
-              <Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode={mode} onMode={setMode} />
+              <Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode={mode} onMode={setMode} session={session} onSessionChange={changeSession} />
             </Tabs.Content>
 
             <Tabs.Content value="compare" className="dl-tab-panel">
@@ -498,9 +517,9 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
                 </label>
               </div>
               <div className="dl-compare-grid">
-                <div><h3>Вариант A · редактируемый</h3><Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode="ready" /></div>
+                <div><h3>Вариант A · редактируемый</h3><Preview recipe={preset} onSelectSection={(section) => update({ section })} demoMode="ready" session={session} onSessionChange={changeSession} /></div>
                 <div><h3>Вариант Б · сравнение</h3><Preview recipe={{ ...preset, family: compareFamily, surface: compareSurface }}
-                  demoMode="ready" readOnly /></div>
+                  demoMode="ready" readOnly session={session} /></div>
               </div>
             </Tabs.Content>
 
