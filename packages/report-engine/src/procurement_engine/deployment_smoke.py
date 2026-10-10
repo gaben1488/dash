@@ -70,25 +70,55 @@ def check_exports(fetch):
             'snapshot': 'PASS'}
 
 
+class WorkerCycleFailure(ValueError):
+    """Fixed failure categories only; no business data or source identifiers."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__('REPORT_WORKER_CYCLE_FAILED')
+
+
 def check_worker_cycle(read_status, since, *, sleep=time.sleep, attempts=91):
-    """Require a completed automatic attempt after startup, not preflight success."""
-    marker = datetime.fromisoformat(since)
+    """Wait for a complete *new* cycle and state precisely why acceptance failed."""
+    try:
+        marker = datetime.fromisoformat(since)
+    except (TypeError, ValueError) as exc:
+        raise WorkerCycleFailure('INVALID_MARKER') from exc
     if marker.tzinfo is None:
-        raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+        raise WorkerCycleFailure('INVALID_MARKER')
+
+    last_reason = 'NO_NEW_ATTEMPT'
     for attempt in range(attempts):
-        status = read_status()
-        started = datetime.fromisoformat(status['started_at'])
+        try:
+            status = read_status()
+            started = datetime.fromisoformat(status['started_at'])
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            # A missing or malformed status file is not evidence of no work.
+            last_reason = 'STATUS_UNREADABLE'
+            if attempt < attempts - 1:
+                sleep(3)
+            continue
+
         if started.tzinfo is not None and started >= marker:
-            if status.get('status') == 'NOT_ISSUED':
-                raise ValueError('REPORT_WORKER_CYCLE_FAILED')
-            if status.get('status') in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}:
-                finished = datetime.fromisoformat(status.get('finished_at', ''))
+            outcome = status.get('status')
+            last_reason = 'ATTEMPT_NOT_COMPLETE'
+            if outcome == 'NOT_ISSUED':
+                raise WorkerCycleFailure('NOT_ISSUED')
+            if outcome in {'FAILED', 'PLAN_CHANGED'}:
+                raise WorkerCycleFailure('FAILED_ATTEMPT')
+            if outcome in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}:
+                try:
+                    finished = datetime.fromisoformat(status.get('finished_at', ''))
+                except (TypeError, ValueError) as exc:
+                    raise WorkerCycleFailure('INVALID_FINISH_TIME') from exc
                 publication = status.get('publication') or {}
-                if (finished.tzinfo is None or finished < started or not status.get('snapshot_id')
-                        or status['snapshot_id'] != publication.get('snapshot_id')
-                        or (str(publication.get('renderer_version') or '').startswith('renderer-v1.5.0rc25')
-                            and publication.get('operational_available') is not True)):
-                    raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+                if (finished.tzinfo is None or finished < started):
+                    raise WorkerCycleFailure('INVALID_FINISH_TIME')
+                if not status.get('snapshot_id') or status['snapshot_id'] != publication.get('snapshot_id'):
+                    raise WorkerCycleFailure('SNAPSHOT_MISMATCH')
+                if (str(publication.get('renderer_version') or '').startswith('renderer-v1.5.0rc25')
+                        and publication.get('operational_available') is not True):
+                    raise WorkerCycleFailure('THIRD_DOCUMENT_MISSING')
                 result = {'worker': 'PASS'}
                 assurance = status.get('automation_assurance') or publication.get('automation_assurance')
                 if assurance:
@@ -98,7 +128,7 @@ def check_worker_cycle(read_status, since, *, sleep=time.sleep, attempts=91):
                 return result
         if attempt < attempts - 1:
             sleep(3)
-    raise ValueError('REPORT_WORKER_CYCLE_FAILED')
+    raise WorkerCycleFailure(last_reason)
 
 
 def main(argv=()):
@@ -130,6 +160,9 @@ def main(argv=()):
                    'REPORT_WORKER_CYCLE_FAILED'}
         public = code if code in allowed else ('REPORT_WORKER_CYCLE_FAILED' if args.worker_since
                                                else 'REPORT_EXPORT_HTTP_CHECK_FAILED')
+        if isinstance(error, WorkerCycleFailure) and args.worker_since:
+            # All reasons are closed, static categories. No private row/ID data.
+            public = 'REPORT_WORKER_CYCLE_FAILED:' + error.reason
         if isinstance(error, HTTPError) and error.code in {400, 401, 403, 404, 429, 500, 502, 503, 504}:
             public = 'REPORT_EXPORT_HTTP_' + str(error.code)
         print(public, file=sys.stderr)
