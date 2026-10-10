@@ -30,17 +30,17 @@ describe('ControlCaseGuide integrated workflow', () => {
     expect(screen.getByText(/№ п\/п 173\/1/)).toBeTruthy();
     expect(screen.getByText(/K17/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /02 Доказательства/ }));
+    fireEvent.click(screen.getByRole('button', { name: /02\\s*Доказательства/ }));
     expect(screen.getByText(/Исходных наблюдений: 1/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Открыть исходные замечания/ }));
     expect(onOpenEvidence).toHaveBeenCalledWith('legacy-row-17');
 
-    fireEvent.click(screen.getByRole('button', { name: /03 Действие/ }));
+    fireEvent.click(screen.getByRole('button', { name: /03\\s*Действие/ }));
     expect(screen.getByText(/Автоматической записи нет/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Открыть управление в Реестре/ }));
     expect(onOpenRegistry).toHaveBeenCalledWith('uo');
 
-    fireEvent.click(screen.getByRole('button', { name: /04 Перепроверка/ }));
+    fireEvent.click(screen.getByRole('button', { name: /04\\s*Перепроверка/ }));
     expect(screen.getByText(/ещё не подтверждают исправление/)).toBeTruthy();
     expect(onReread).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Запросить новое чтение книг/ }));
