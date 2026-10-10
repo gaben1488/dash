@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 57,
+  "scannedPaths": 65,
   "errors": [],
   "records": [
     {
@@ -637,6 +637,155 @@
       "path": "packages/server/src/routes/economic-metrics.ts",
       "sha": "c9ecd30ffe60acda265f74d0d8704c684eb96555",
       "loc": 467,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/issues.ts",
+      "sha": "1b10898af968d6f4c745d17b601ba1b304ba0e0d",
+      "loc": 531,
+      "refs": {
+        "issues": {
+          "count": 27,
+          "lines": [
+            6,
+            52,
+            61,
+            95,
+            96,
+            114,
+            115,
+            116,
+            117,
+            118,
+            119,
+            122,
+            123,
+            124,
+            125,
+            148,
+            189,
+            239,
+            252,
+            254,
+            287,
+            305,
+            319,
+            321,
+            377,
+            386,
+            483
+          ]
+        },
+        "actions": {
+          "count": 3,
+          "lines": [
+            305,
+            312,
+            504
+          ]
+        },
+        "control": {
+          "count": 5,
+          "lines": [
+            7,
+            132,
+            138,
+            144,
+            149
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/journal.ts",
+      "sha": "19b5e235cec2ec8f0f72339d460e540e2b9f3676",
+      "loc": 691,
+      "refs": {
+        "issues": {
+          "count": 8,
+          "lines": [
+            245,
+            246,
+            398,
+            400,
+            401,
+            406,
+            407,
+            408
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/metrics.ts",
+      "sha": "a174b1fcad858214d03169347259e0e6e252b98b",
+      "loc": 55,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            2,
+            42
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/monitoring.ts",
+      "sha": "29682c841d5b71285c4dcd59206acd912ddaf231",
+      "loc": 390,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/provenance.ts",
+      "sha": "393618b3ecbee50963335ae2475005e2ccec57f8",
+      "loc": 523,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/reconciliation.ts",
+      "sha": "16fbbc753355c04df6f89a7545a9345c0901de52",
+      "loc": 342,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/report-recommendations.ts",
+      "sha": "d6409b47a4cc44cde2d67f2dcb295ebc196f9f22",
+      "loc": 361,
+      "refs": {
+        "actions": {
+          "count": 22,
+          "lines": [
+            2,
+            4,
+            45,
+            57,
+            59,
+            72,
+            74,
+            79,
+            100,
+            130,
+            256,
+            271,
+            282,
+            288,
+            289,
+            292,
+            300,
+            308,
+            320,
+            330,
+            333,
+            344
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/report-releases.ts",
+      "sha": "b6ac9a3947ec6db116904f5df200c6b234d1a006",
+      "loc": 144,
       "refs": {}
     }
   ]
