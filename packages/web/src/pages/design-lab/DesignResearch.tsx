@@ -167,8 +167,11 @@ function PulseResearch({ preset }: { preset: LabPreset }) {
   const segments = dept ? rows.map(row => ({ id: row.id, name: row.id + ' · ' + row.work.replace('ДЕМО · ', ''), value: row.planThousands })) : departments;
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
   const chartHeight = layout === 'current' ? 210 : layout === 'hero' ? 330 : 380;
-  const innerRadius = layout === 'current' ? 58 : layout === 'hero' ? 96 : 114;
-  const outerRadius = layout === 'current' ? 85 : layout === 'hero' ? 136 : 164;
+  // Recharts percentages are relative to the available chart radius,
+  // not fixed px: the 380px focus option must not crop on a 390px phone.
+  // At desktop widths these approximate the sourced 58/85, 96/136, 114/164.
+  const innerRadius = layout === 'current' ? '55%' : layout === 'hero' ? '58%' : '60%';
+  const outerRadius = layout === 'current' ? '82%' : layout === 'hero' ? '82%' : '86%';
   function money(value: number) {
     return fmt.format(scale === 'thousands' ? value : value / 1000) + (scale === 'thousands' ? ' тыс. ₽' : ' млн ₽');
   }
