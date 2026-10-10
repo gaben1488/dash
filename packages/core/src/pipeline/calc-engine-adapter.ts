@@ -342,6 +342,9 @@ export function adaptToRecalcMetrics(
       months,
       byMethod,
       byActivity: bySubActivity,
+      byActivityPeriod: Object.fromEntries(
+        ACTIVITY_PERIODS.map((period) => [period, buildActivityBreakdown(grouped, period, name)]),
+      ),
     });
   }
   bySubordinate.sort((a, b) => b.planTotal - a.planTotal);
