@@ -223,6 +223,9 @@ try {
       target.click();
     });
     await page.waitForSelector('.dr-pulse-composition[data-layout="hero"] .recharts-wrapper', { timeout: 30000 });
+    await page.waitForFunction(() =>
+      document.querySelectorAll('.dr-pulse-chart .recharts-pie path').length > 0,
+      { timeout: 15000 });
     const pulseBefore = await page.evaluate(() => ({
       sum: document.querySelector('.dr-pulse-center strong')?.textContent,
       layout: document.querySelector('.dr-pulse-composition')?.getAttribute('data-layout'),
@@ -233,7 +236,7 @@ try {
     assert.equal(pulseBefore.segments, 2);
     const arcGeometry = await page.evaluate(() => {
       const outer = document.querySelector('.dr-pulse-chart').getBoundingClientRect();
-      const sectors = [...document.querySelectorAll('.dr-pulse-chart .recharts-sector')];
+      const sectors = [...document.querySelectorAll('.dr-pulse-chart .recharts-pie path')];
       return {sectors:sectors.length, clipped:sectors.map(el=>{
         const r=el.getBoundingClientRect();
         return {l:r.left-outer.left,r:r.right-outer.right,t:r.top-outer.top,b:r.bottom-outer.bottom};
