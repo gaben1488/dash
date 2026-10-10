@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 85,
+  "scannedPaths": 93,
   "errors": [],
   "records": [
     {
@@ -1126,6 +1126,102 @@
           ]
         }
       }
+    },
+    {
+      "path": "packages/web/src/components/discipline/ActionCard.tsx",
+      "sha": "ef932b27cf16ed2e33cdd6e7e54f4dc72c78dd4b",
+      "loc": 94,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/discipline/actions.ts",
+      "sha": "f6f19dd49800d8d5fc420a97cb3604014d675b20",
+      "loc": 264,
+      "refs": {
+        "signals": {
+          "count": 11,
+          "lines": [
+            28,
+            42,
+            72,
+            82,
+            93,
+            103,
+            112,
+            122,
+            132,
+            142,
+            151
+          ]
+        },
+        "actions": {
+          "count": 2,
+          "lines": [
+            67,
+            200
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/monitoring/AnalyticsSection.tsx",
+      "sha": "80dcdab3fc08e8a6bf63fc331f858da120e142f4",
+      "loc": 324,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/AnomalyList.tsx",
+      "sha": "07ad0f446624f7a8116ddaf1f54fe734c3d33c62",
+      "loc": 167,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/SignalCards.tsx",
+      "sha": "d4dd48bed970c5348af09bf92eb1d5fb1d8c6939",
+      "loc": 250,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/TripleCheck.tsx",
+      "sha": "e27f05cea90e6e1e6cf9547e06b76337f3cf11da",
+      "loc": 576,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/WorkQueue.tsx",
+      "sha": "4e1a2f40dd1758a8d5d633ff3f29704876947c3f",
+      "loc": 71,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/quality/CommentAnnotationsSection.tsx",
+      "sha": "ebaef2ca2f5296abec73798b18e298fb07a8a8e8",
+      "loc": 310,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            161
+          ]
+        },
+        "actions": {
+          "count": 11,
+          "lines": [
+            51,
+            66,
+            76,
+            85,
+            93,
+            101,
+            109,
+            117,
+            125,
+            135,
+            163
+          ]
+        }
+      }
     }
-  ]
+  ],
+  "webTargetCount": 37
 }
