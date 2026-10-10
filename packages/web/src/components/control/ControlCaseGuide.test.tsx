@@ -48,6 +48,25 @@ describe('ControlCaseGuide integrated workflow', () => {
     expect(screen.getByText(/не считается подтверждённо закрытым/)).toBeTruthy();
   });
 
+  it('lists every underlying finding and lets the operator inspect each one', () => {
+    const original = makeCase('open').evidence[0];
+    const item = buildControlCases([
+      original,
+      { ...original, id: 'legacy-row-17-review', status: 'resolved' },
+    ])[0];
+    const onOpenEvidence = vi.fn();
+    render(<ControlCaseGuide item={item} onClose={vi.fn()}
+      onReread={vi.fn()} onOpenRegistry={vi.fn()} onOpenEvidence={onOpenEvidence} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /02\\s*Доказательства/ }));
+    expect(screen.getByText(/Исходных наблюдений: 2/)).toBeTruthy();
+    expect(screen.getByText(/В работе|Не рассмотрено/)).toBeTruthy();
+    const links = screen.getAllByRole('button', { name: /Показать исходное замечание/ });
+    expect(links).toHaveLength(2);
+    fireEvent.click(links[1]);
+    expect(onOpenEvidence).toHaveBeenCalledWith('legacy-row-17-review');
+  });
+
   it('lets the user close the panel without modifying an issue status', () => {
     const close = vi.fn();
     render(<ControlCaseGuide item={makeCase()} onClose={close}
