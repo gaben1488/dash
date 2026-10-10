@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 101,
+  "scannedPaths": 109,
   "errors": [],
   "records": [
     {
@@ -1286,6 +1286,129 @@
       "sha": "d20699b8c7d9b09629f9282610ccb558e63edc9a",
       "loc": 281,
       "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/workload/WorkloadTable.tsx",
+      "sha": "2a0367cd54979fc1b1b11445a92da62a23beef4e",
+      "loc": 149,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/hooks/useFilteredData.ts",
+      "sha": "a33ebc9c90b4dd5f97d9817351da59ad11cec743",
+      "loc": 423,
+      "refs": {
+        "signals": {
+          "count": 2,
+          "lines": [
+            273,
+            283
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/hooks/useMultiDimMetrics.ts",
+      "sha": "b1b66837cd148dd341a47800dd93a6497c86f63e",
+      "loc": 392,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/lib/control-status-readmodel.ts",
+      "sha": "76869f9226b1eb54069f410a708797608086a686",
+      "loc": 22,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            18
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/diagnostics/control-consequence.ts",
+      "sha": "f81939e41bb47673ad9908006b8fde4962933127",
+      "loc": 80,
+      "refs": {
+        "checks": {
+          "count": 4,
+          "lines": [
+            6,
+            9,
+            27,
+            28
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/diagnostics/mechanism-groups.ts",
+      "sha": "44b57516ebf2dfb82bddb39d28df095c54f2ebc0",
+      "loc": 220,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            21
+          ]
+        },
+        "checks": {
+          "count": 1,
+          "lines": [
+            199
+          ]
+        },
+        "actions": {
+          "count": 5,
+          "lines": [
+            39,
+            76,
+            77,
+            185,
+            201
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/selectors/issues-filtering.ts",
+      "sha": "b7842773fc2d2ed49eab34e83de565e25d17f3da",
+      "loc": 152,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            89
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/selectors/recommendation-source.ts",
+      "sha": "84e01d54deda3a0fa8e06003de91e879a710bcfb",
+      "loc": 88,
+      "refs": {
+        "checks": {
+          "count": 3,
+          "lines": [
+            1,
+            16,
+            24
+          ]
+        },
+        "actions": {
+          "count": 6,
+          "lines": [
+            16,
+            46,
+            60,
+            73,
+            75,
+            83
+          ]
+        }
+      }
     }
   ],
   "webTargetCount": 37
