@@ -63,6 +63,28 @@ try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForSelector('.dash-design-preview', { timeout: 30000 });
     await page.evaluate(() => document.fonts.ready);
+    if (viewport.width === 390) {
+      const collapsed = await page.$eval('.dl-controls', el => getComputedStyle(el).display);
+      assert.equal(collapsed, 'none', 'Mobile layout must not bury the real preview under seven screens of controls');
+      const toggle = await page.$('.dl-mobile-controls-toggle');
+      assert.ok(toggle);
+      await toggle.click();
+      assert.equal(await page.$eval('.dl-controls', el => getComputedStyle(el).display), 'grid');
+      assert.equal(await toggle.evaluate(el => el.getAttribute('aria-expanded')), 'true');
+      await toggle.click();
+      assert.equal(await page.$eval('.dl-controls', el => getComputedStyle(el).display), 'none');
+      report.scenarios.push('mobile-palette-disclosure');
+    }
+    const tabGeometry = await page.evaluate(() => {
+      const list = document.querySelector('.dl-tabs');
+      const rect = list.getBoundingClientRect();
+      return [...list.querySelectorAll('[role="tab"]')].map(el => {
+        const t = el.getBoundingClientRect();
+        return { name: el.textContent?.trim(), left: t.left, right: t.right, containerLeft: rect.left, containerRight: rect.right };
+      });
+    });
+    assert.ok(tabGeometry.every(t => t.left >= t.containerLeft - 2 && t.right <= t.containerRight + 2),
+      'Tabs are clipped: ' + JSON.stringify(tabGeometry));
     await capture(page, '01-palette-' + viewport.width);
     const width = await page.evaluate(() => ({
       inner: window.innerWidth,
