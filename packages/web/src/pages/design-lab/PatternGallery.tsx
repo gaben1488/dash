@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Segmented } from '@/components/ui/segmented';
 import { FINISHES, findPair, findSurface } from './catalog';
 import type { LabPreset } from './presets';
-import { COMPONENT_INDEX, UI_RECIPES, searchRecipes, type RecipeId, type UiRecipe } from './recipes';
+import { COMPONENT_INDEX, searchRecipes, type RecipeId, type UiRecipe } from './recipes';
 import './patterns.css';
 
 type Category = UiRecipe['category'] | 'all';
