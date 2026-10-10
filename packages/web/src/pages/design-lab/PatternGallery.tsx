@@ -26,7 +26,7 @@ export function recipeStageStyle(preset: LabPreset): CSSProperties {
     '--surface-page': skin.bg, '--surface-card': skin.card,
     '--surface-sunken': skin.bg, '--surface-raised': skin.raised,
     '--surface-overlay': skin.card, '--line-soft': skin.line,
-    '--line-strong': skin.line, '--line-card': skin.line,
+    '--line-strong': skin.muted, '--line-card': skin.line,
     '--ink': skin.ink, '--ink-strong': skin.ink,
     '--ink-muted': skin.muted, '--ink-faint': skin.muted,
     '--accent': pair.top, '--accent-hover': pair.bottom,
