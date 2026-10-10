@@ -1,0 +1,476 @@
+{
+  "schema": "dash_code_review_verified_v1",
+  "repository": "gaben1488/dash",
+  "baseBranch": "main",
+  "baseCommit": "2461209c8d0172c4acf94f5606452c589cd4f510",
+  "date": "2026-10-10",
+  "scope": "18 findings from previous assistant review; target static code inspection, prior existing execution evidence and Node22 JavaScript expression checks. No live business sources, full test suite or production mutation.",
+  "counts": {
+    "CONFIRMED": 10,
+    "LATENT": 1,
+    "ARCHITECTURE": 1,
+    "REPRODUCED": 1,
+    "WITHDRAWN": 2,
+    "CHECK_ENV": 1,
+    "CONFIG_RISK": 1,
+    "OBSERVATION": 1
+  },
+  "labels": {
+    "CONFIRMED": "Код подтверждён",
+    "REPRODUCED": "Выполнение подтверждено",
+    "ARCHITECTURE": "Архитектурное ограничение",
+    "LATENT": "Латентная ветка",
+    "WITHDRAWN": "Снято как production-баг",
+    "CHECK_ENV": "Нестабильность проверки",
+    "CONFIG_RISK": "Риск конфигурации",
+    "OBSERVATION": "Наблюдение, не дефект"
+  },
+  "findings": [
+    {
+      "id": "DASH-001",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Запись по позиции строки без сверки объекта",
+      "refs": [
+        [
+          "packages/server/src/routes/rows.ts",
+          73,
+          79
+        ],
+        [
+          "packages/server/src/routes/rows.ts",
+          277,
+          405
+        ],
+        [
+          "packages/server/src/services/google-sheets.ts",
+          899,
+          929
+        ]
+      ],
+      "finding": "PUT/POST принимают dept+rowIndex; rowWriteError проверяет номер только по границам кэша, writeCellValue пишет в тот же A1-адрес. Перед записью нет повторного чтения или сравнения идентичности объекта.",
+      "limitation": "Неверная адресация возникает при внешнем перемещении/сортировке между чтением и записью. Реальный конфликт на боевой книге этим аудитом не воспроизводился.",
+      "action": "Перед каждой правкой сравнивать ожидаемую идентичность и исходные значения с текущей строкой; при несовпадении 409 и сохранение черновика.",
+      "regression": "Открыть закупку в тестовой книге, переместить её, затем сохранить старый индекс: ни одна чужая ячейка не меняется."
+    },
+    {
+      "id": "DASH-002",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Разрешена запись в строки шапки 2 и 3",
+      "refs": [
+        [
+          "packages/shared/src/column-map.ts",
+          102,
+          105
+        ],
+        [
+          "packages/server/src/routes/rows.ts",
+          64,
+          79
+        ],
+        [
+          "packages/server/src/rows-write-bounds.test.ts",
+          33,
+          49
+        ]
+      ],
+      "finding": "DEPT_HEADER_ROWS=3, но rowWriteError отклоняет лишь idx<2. Более того, существующий тест ошибочно считает валидными строки 2..5 при трёх строках заголовка.",
+      "limitation": "Путь записи требует полномочия на API и права сервисного аккаунта в источнике. Тест реального Google API здесь не запускался.",
+      "action": "Минимальная строка данных = DEPT_HEADER_ROWS+1; отдельно отклонять итоги/служебные строки и проверить guard в PUT и POST.",
+      "regression": "Обе ручки блокируют 1,2,3, ИТОГО и за пределами; принимают существующую рабочую строку 4."
+    },
+    {
+      "id": "DASH-003",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Усечённые и бесконечные денежные значения проходят входной парсер",
+      "refs": [
+        [
+          "packages/server/src/routes/rows.ts",
+          328,
+          339
+        ],
+        [
+          "packages/server/src/routes/rows.ts",
+          515,
+          531
+        ],
+        [
+          "packages/web/src/components/TableEditor.tsx",
+          632,
+          645
+        ]
+      ],
+      "finding": "Используются parseFloat() и isNaN(), а не полное совпадение и Number.isFinite(). Node 22 подтвердил: '12abc'→12, '1.2.3'→1.2, '1e309'→Infinity; все проходят локальную проверку.",
+      "limitation": "Фактический исход отправки Infinity в Google Sheets не проверялся; утверждается только ошибочная серверная приёмка.",
+      "action": "Общий строгий парсер сумм и полная серверная проверка; клиент использует такую же семантику, но сервер остаётся источником контроля.",
+      "regression": "Отклонить 12abc, 1.2.3, 1e309; принять 1 234,50 как 1234.5."
+    },
+    {
+      "id": "DASH-004",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Изменение страницы/фильтра сбрасывает черновик редактора",
+      "refs": [
+        [
+          "packages/web/src/pages/DataBrowser.tsx",
+          808,
+          826
+        ],
+        [
+          "packages/web/src/pages/DataBrowser.tsx",
+          844,
+          878
+        ],
+        [
+          "packages/web/src/components/TableEditor.tsx",
+          403,
+          421
+        ]
+      ],
+      "finding": "Эффект зависит от paged и без проверки dirty заменяет editorRows/editorOriginals. Dirty хранится отдельно внутри TableEditor; пользовательский переход/изменение выборки не согласованы с черновиком.",
+      "limitation": "Прежнее объяснение про непосредственный эффект таймера Header было избыточным: quickRefresh обновляет dashboardData, а не обязательно локальные rows DataBrowser. Это не часть доказательства.",
+      "action": "Хранить черновики по устойчивым ключам вне пересборки paged, запрашивать решение конфликта/сохранения при переходе, не сбрасывать dirty без подтверждения.",
+      "regression": "Редактировать ячейку, переключить фильтр и вернуться; значение либо сохранено в черновике, либо явно предложено к разрешению."
+    },
+    {
+      "id": "DASH-005",
+      "priority": "P3",
+      "verdict": "LATENT",
+      "title": "Ранний return при отсутствии original выглядит как успешное сохранение",
+      "refs": [
+        [
+          "packages/web/src/pages/DataBrowser.tsx",
+          545,
+          549
+        ],
+        [
+          "packages/web/src/components/TableEditor.tsx",
+          739,
+          765
+        ]
+      ],
+      "finding": "onSaveRow при !editorOriginals[rowId] разрешает Promise без сетевого вызова, TableEditor снимает dirty после любого разрешившегося onSaveRow.",
+      "limitation": "Нормальная инициализация editorRows/editorOriginals происходит в одном эффекте; достижимость этой ветки через штатный UI не доказана. Нельзя объявлять это наблюдавшейся потерей данных.",
+      "action": "Заменить return на явную ошибку и добавить тест данного граничного контракта; затем доказать пользовательский маршрут.",
+      "regression": "Вызов save отсутствующей original-строки не снимает dirty и показывает ошибку."
+    },
+    {
+      "id": "DASH-006",
+      "priority": "P2",
+      "verdict": "ARCHITECTURE",
+      "title": "Нет персональной авторизации и атрибуции официального действия",
+      "refs": [
+        [
+          "packages/server/src/middleware/auth.ts",
+          26,
+          97
+        ],
+        [
+          "deploy/Caddyfile",
+          55,
+          89
+        ],
+        [
+          "packages/server/src/routes/report-recommendations.ts",
+          271,
+          305
+        ]
+      ],
+      "finding": "Обычный API защищён единым Bearer-секретом, а edge — общим Basic Auth; маршрут новой рекомендации выставляет ISSUED, не проверяя личность/роль УЭР.",
+      "limitation": "Публичный AEMR_PUBLIC_READONLY блокирует мутации; это не найденный обход авторизации. Риск зависит от того, кому реально выдают общий доступ.",
+      "action": "Персональная идентификация, проверка полномочия УЭР на POST/PUT и актор в журнале. Не возвращать лишнее согласование официальных рекомендаций.",
+      "regression": "Только уполномоченный УЭР выпускает рекомендацию; viewer/другой ГРБС получает 403 с проверяемым аудитом."
+    },
+    {
+      "id": "DASH-007",
+      "priority": "P1",
+      "verdict": "REPRODUCED",
+      "title": "Составные номера ошибочно признаются одинаковыми",
+      "refs": [
+        [
+          "packages/shared/src/rule-book.ts",
+          37,
+          46
+        ],
+        [
+          "packages/shared/src/rule-book.ts",
+          779,
+          800
+        ],
+        [
+          "packages/shared/src/sequence-integrity.ts",
+          110,
+          131
+        ]
+      ],
+      "finding": "row_numbering передаёт A в денежный toNumber() на parseFloat. Для '173','173/1','173/2' ранее выполненное воспроизведение на том же SHA даёт ложный дубликат; sequence-integrity правильно различает исходные строки.",
+      "limitation": "Исполняемое подтверждение уже лежит в PR #70: docs/superpowers/audits/2026-10-10-dash-foundation/evidence/numbering-reproduction.json; в этом сеансе полный Node module test не повторён.",
+      "action": "Выделить канон string rowSeq (не денежный парсер) и проверить всех потребителей идентификатора.",
+      "regression": "173,173/1,173/2 не повторяются; два 173/18 действительно повторяются; видимые форматы даты не порождают фальшивых номеров."
+    },
+    {
+      "id": "DASH-008",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Ошибки правил могут теряться без сигнала неполноты",
+      "refs": [
+        [
+          "packages/core/src/pipeline/validate.ts",
+          85,
+          103
+        ],
+        [
+          "packages/core/src/pipeline/orchestrator.ts",
+          867,
+          879
+        ]
+      ],
+      "finding": "Вызов rule.check() и detectSignals() имеет catch/continue без Issue и без счётчика отказов. Неисправная проверка уменьшает число сигналов.",
+      "limitation": "Конкретный падающий валидатор на сегодняшнем снимке не предъявлен; путь подавления исключения однозначно присутствует.",
+      "action": "Логировать источник/правило/строку и отдавать явную ошибку полноты (не 'замечаний нет') без остановки всей партии.",
+      "regression": "Тестовый валидатор throw Error создаёт фиксируемый validation_error и неполный coverage."
+    },
+    {
+      "id": "DASH-009",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Нумерация выделяет память по ширине диапазона, а не числу строк",
+      "refs": [
+        [
+          "packages/shared/src/sequence-integrity.ts",
+          110,
+          145
+        ],
+        [
+          "packages/server/src/routes/integrity.ts",
+          399,
+          423
+        ]
+      ],
+      "finding": "checkSequenceIntegrity собирает все отсутствующие integer от min до max циклом. Для двух строк с далёкими номерами работа и память растут с диапазоном.",
+      "limitation": "Нагрузочный запуск на десятках миллионов значений умышленно не выполнялся; вывод следует из кода цикла.",
+      "action": "Строить интервалы между соседними отсортированными номерами и считать gapCount арифметически.",
+      "regression": "Для 1 и 100000000 один интервал 2..99999999; время/память пропорциональны количеству реальных строк."
+    },
+    {
+      "id": "DASH-010",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Нулевой формульный хвост участвует в проверке номеров",
+      "refs": [
+        [
+          "packages/core/src/pipeline/classify.ts",
+          36,
+          105
+        ],
+        [
+          "packages/shared/src/rule-book.ts",
+          713,
+          732
+        ],
+        [
+          "packages/shared/src/rule-book.ts",
+          770,
+          790
+        ]
+      ],
+      "finding": "При A/B/G/L пустых и K=0 classifyRow ставит service (hasAmounts=true); isNumberedRow считает любой service строкой с обязательным A. Ложное предупреждение следует из реальной цепочки функций.",
+      "limitation": "Сколько таких строк находится в текущем production, этим сеансом не измерялось. Ранние численные оценки issue #69 относятся к отдельному срезу.",
+      "action": "Признак реальной закупки отделить от наличия формульных нулей и зафиксировать один предикат между классификацией и нумерацией.",
+      "regression": "Пустой формульный хвост молчит, настоящая строка без A при наличии предмета/способа/суммы сигналит."
+    },
+    {
+      "id": "DASH-011",
+      "priority": "—",
+      "verdict": "WITHDRAWN",
+      "title": "Правила both применяются к месячному ШДЮ в production",
+      "refs": [
+        [
+          "packages/core/src/pipeline/validate.ts",
+          49,
+          89
+        ],
+        [
+          "packages/server/src/services/snapshot.ts",
+          541,
+          588
+        ],
+        [
+          "packages/server/src/services/snapshot.ts",
+          645,
+          695
+        ]
+      ],
+      "finding": "Функция validateData технически не отсекает scope='both' для shdyu_monthly. Однако createSnapshot читает ШДЮ отдельно, кладёт в shdyuData, а не в sheetRows для runPipeline. Следовательно, прежний диагноз как текущий production-баг не обоснован.",
+      "limitation": "Возможные сторонние вызовы validateData на вручную переданном ШДЮ — отдельный сценарий; это не доказательство текущей ошибки продукта.",
+      "action": "Снять из очереди исправлений как production bug; возвращаться только при реальном вызывающем или воспроизводимом неправильном СВОД-профиле.",
+      "regression": "При изменении маршрута данных добавить тест, исключающий неверные схемы; сейчас тест не нужен ради неиспользуемого пути."
+    },
+    {
+      "id": "DASH-012",
+      "priority": "P2",
+      "verdict": "CONFIRMED",
+      "title": "Читаемость СВОД/ШДЮ показывается как полноценная валидация",
+      "refs": [
+        [
+          "packages/server/src/services/source-validation.ts",
+          151,
+          180
+        ],
+        [
+          "packages/web/src/pages/Settings.tsx",
+          960,
+          979
+        ]
+      ],
+      "finding": "Для обоих сводов сразу возвращаются success:true, пустые issues и rowsChecked=rawRows.length без проверки строк. Settings рисует зелёный статус 'Замечаний не найдено · проверено строк N'.",
+      "limitation": "Обход 22 правил на этих сводах намеренно не делается; ошибка именно в названии статуса/покрытия, а не в требовании слепо запустить все правила.",
+      "action": "Разделить read_ok/validated_ok и число проверенных строк; для сводов показывать 'источник прочитан, содержимое не проверялось этим инструментом'.",
+      "regression": "Тест UI/API отличает 0 замечаний после реальной валидации от 0 применённых проверок."
+    },
+    {
+      "id": "DASH-013",
+      "priority": "P1",
+      "verdict": "CONFIRMED",
+      "title": "Поштучная запись без полного следа изменения и атомарности",
+      "refs": [
+        [
+          "packages/server/src/routes/rows.ts",
+          369,
+          404
+        ],
+        [
+          "packages/server/src/routes/rows.ts",
+          437,
+          625
+        ],
+        [
+          "packages/web/src/pages/DataBrowser.tsx",
+          574,
+          590
+        ]
+      ],
+      "finding": "Каждая ячейка записывается отдельно. При отказе части Google правки остальных уже сохранены; сервер возвращает 207, UI видит failures. Audit-log после записи не блокирует success при собственном отказе, в одиночном PUT oldValue=null.",
+      "limitation": "Прошлая общая формулировка 'частичные отказы скрыты' неверна: обработка 207 уже существует и покрыта rows-batch-write.test.ts. Проблема — атомарность, повтор и полнота аудита.",
+      "action": "Ввести безопасный preflight и reconciliation частичного write, сохранить предыдущее значение/актора и устойчивый статус каждой правки; не обещать транзакцию между Google и SQLite, которой нет.",
+      "regression": "Симулировать запись первой и отказ второй ячейки: UI правильно показывает обе судьбы; повтор не теряет след и не переписывает чужие изменения."
+    },
+    {
+      "id": "DASH-014",
+      "priority": "P2",
+      "verdict": "CONFIRMED",
+      "title": "Ввод дат проверяет форму, но не календарь",
+      "refs": [
+        [
+          "packages/server/src/routes/rows.ts",
+          340,
+          353
+        ],
+        [
+          "packages/server/src/routes/rows.ts",
+          532,
+          545
+        ]
+      ],
+      "finding": "DD.MM.YYYY и ISO проверяются регулярными выражениями без существования даты. ISO regexp не якорит конец: '2026-13-99' и '2026-01-14garbage' проходят серверный regex.",
+      "limitation": "Поведение Google USER_ENTERED после такой записи не проверялось, но серверная валидация несостоятельна.",
+      "action": "Единый разбор календаря с полным совпадением строкового формата, понятными маркерами пустоты и проверкой високосности.",
+      "regression": "Отклонять 31.02.2026, 2026-13-99, 2026-01-14garbage; принимать 29.02.2024."
+    },
+    {
+      "id": "DASH-015",
+      "priority": "—",
+      "verdict": "WITHDRAWN",
+      "title": "Локализованные корректные денежные ячейки дают ложные ошибки",
+      "refs": [
+        [
+          "packages/shared/src/rule-book.ts",
+          37,
+          46
+        ],
+        [
+          "packages/server/src/services/source-validation.ts",
+          113,
+          135
+        ],
+        [
+          "packages/server/src/services/google-sheets.ts",
+          279,
+          299
+        ]
+      ],
+      "finding": "Различие Number('1 234,5')=NaN и общего toNumber('1 234,5')=1234.5 есть, но getSheetData задаёт UNFORMATTED_VALUE: корректная числовая ячейка обычно приходит как number. Ложный производственный дефект не доказан.",
+      "limitation": "Текстовая ячейка, содержащая цифры в локализованном виде, может вести себя иначе; без класса/примера исходной ячейки нельзя объявлять её допустимым числом.",
+      "action": "Не менять валидаторы вслепую; при наличии реального спорного случая проверить userEnteredValue/effectiveValue и контракт текстовых сумм.",
+      "regression": "При появлении подтверждённой проблемной ячейки добавить её минимальный fixture, тогда решать политику текста."
+    },
+    {
+      "id": "DASH-016",
+      "priority": "P2",
+      "verdict": "CHECK_ENV",
+      "title": "Расхождение тестов Node24/local и Node22/CI",
+      "refs": [
+        [
+          ".github/workflows/ci.yml",
+          15,
+          79
+        ]
+      ],
+      "finding": "На main 2461209 CI run 37916827475 successful на Node22. PR #70 зафиксировал Node24 локально: часть server/web проверок красная, при одиночном повторе сохраняются weekly-table-context, Report.exports и RegistryTable.",
+      "limitation": "Это доказанная разница результатов среды, но первопричина неизвестна: нельзя объявлять конкретный production-дефект или списывать всё на Node24.",
+      "action": "Повторить изолированные failing tests в точно таком же Node22/lockfile и с controlled clocks; найти источник тайм-аутов, не ослаблять testTimeout.",
+      "regression": "Одни и те же тесты стабильно проходят повторные запуски в поддерживаемом Node22."
+    },
+    {
+      "id": "DASH-017",
+      "priority": "P2",
+      "verdict": "CONFIG_RISK",
+      "title": "HTTP-режим возможно запустить без обязательного TLS-гейта",
+      "refs": [
+        [
+          "deploy/docker-compose.yml",
+          18,
+          25
+        ],
+        [
+          "deploy/.env.production.example",
+          24,
+          33
+        ],
+        [
+          "deploy/Caddyfile",
+          1,
+          14
+        ]
+      ],
+      "finding": "DOMAIN по умолчанию ':80'; Caddy обслуживает Basic Auth поверх HTTP в таком режиме. Документация прямо ограничивает это отладкой; в CI deploy не видно автоматической проверки, что DOMAIN не :80.",
+      "limitation": "Нет доказательства, что текущий боевой сервер действительно работает без TLS. Это контурная эксплуатационная защита, не выявленная утечка.",
+      "action": "Проверить фактический edge и добавить deployment gate: защищённая эксплуатация должна требовать домен/HTTPS, а явный debug HTTP разрешать только отдельно.",
+      "regression": "Для production DOMAIN=:80 preflight отказывается; HTTPS smoke проходит; для отладки есть осознанное исключение."
+    },
+    {
+      "id": "DASH-018",
+      "priority": "—",
+      "verdict": "OBSERVATION",
+      "title": "Крупные компоненты React усложняют сопровождение",
+      "refs": [
+        [
+          "packages/web/src/pages/DataBrowser.tsx",
+          837,
+          878
+        ],
+        [
+          "packages/web/src/App.tsx",
+          1,
+          22
+        ]
+      ],
+      "finding": "DataBrowser.tsx содержит 2737 строк, интерфейс и состояние сосредоточены в крупных модулях. Это факт о структуре, но не доказанный баг и не основание немедленно переписать приложение.",
+      "limitation": "Не показана конкретная регрессия, объясняемая только размером файла; не учитывать в числе подтверждённых дефектов.",
+      "action": "Точечный рефактор только под исправление отдельного бага, после characterization tests и без визуального редизайна по умолчанию.",
+      "regression": "Сохранить текущий UI и поведение при локальном выделении нужной функции."
+    }
+  ]
+}

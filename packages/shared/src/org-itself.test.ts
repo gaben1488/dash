@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isOrgItself, subordinateKey, ORG_ITSELF_PLACEHOLDERS } from './org-itself';
+import { isOrgItself, subordinateKey, subordinateNameMatchKey, ORG_ITSELF_PLACEHOLDERS } from './org-itself';
 import { ORG_ITSELF_SENTINEL } from './dictionaries/subordinate-registry';
 
 describe('org-itself канон (столбец C — аппарат ГРБС vs подвед)', () => {
@@ -29,6 +29,15 @@ describe('org-itself канон (столбец C — аппарат ГРБС vs
     expect(subordinateKey('  МКУ ЦЭР  ')).toBe('МКУ ЦЭР');
   });
 
+  it('варианты кавычек, е/ё, регистра и № не создают разных организаций', () => {
+    expect(subordinateNameMatchKey('МБУ ДО "КДМШ"')).toBe(subordinateNameMatchKey('МБУ ДО «КДМШ»'));
+    expect(subordinateNameMatchKey('МБДОУ ДС № 9 «Звездочка»')).toBe(subordinateNameMatchKey('МБДОУ ДС № 9 «Звёздочка»'));
+    expect(subordinateNameMatchKey('МБОУ «Школа №3»')).toBe(subordinateNameMatchKey('МБОУ «Школа № 3»'));
+    expect(subordinateNameMatchKey('МБУ ДО «ДШИ п.Термальный»')).toBe(subordinateNameMatchKey('МБУ ДО «ДШИ п. Термальный»'));
+    expect(subordinateNameMatchKey('МБУ ДО «КДМШ»')).not.toBe(subordinateNameMatchKey('МБУ ДО «РДМШ»'));
+    expect(subordinateNameMatchKey('Х')).toBe(ORG_ITSELF_SENTINEL);
+    expect(subordinateKey('МБУ ДО "КДМШ"')).toBe('МБУ ДО "КДМШ"');
+  });
   it('регресс бага regex-only: н/д/нет/не определена входят в канон', () => {
     // orchestrator/dataset-signals/validate раньше считали их отдельным подведом
     for (const v of ['н/д', 'нет', 'не определена']) {

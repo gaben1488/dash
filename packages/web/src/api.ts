@@ -338,14 +338,16 @@ export const api = {
     return fetchJSON<any>(`/rows/${encodeURIComponent(deptId)}?${search}`);
   },
 
-  updateField: (deptId: string, rowIndex: number, field: string, value: string) =>
+  updateField: (deptId: string, rowIndex: number, field: string, value: string,
+    expectedRow: { A: unknown; B: unknown; C: unknown; G: unknown }) =>
     fetchJSON<any>(`/rows/${encodeURIComponent(deptId)}/${rowIndex}/field`, {
       method: 'PUT',
-      body: JSON.stringify({ field, value }),
+      body: JSON.stringify({ field, value, expectedRow }),
     }),
 
-  /** Batch-save edited rows (multiple field updates with audit logging) */
-  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>) =>
+  /** Every edit carries the original identity, never rowIndex alone. */
+  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>;
+    expectedRow: { A: unknown; B: unknown; C: unknown; G: unknown } }>) =>
     fetchJSON<any>('/data/rows', {
       method: 'POST',
       body: JSON.stringify({ rows }),
