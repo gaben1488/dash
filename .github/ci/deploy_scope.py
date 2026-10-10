@@ -34,8 +34,15 @@ def main() -> int:
     if not SHA.fullmatch(before) or not SHA.fullmatch(head) or before == "0" * 40:
         raise SystemExit("DEPLOY_SCOPE_REVISION_NOT_VERIFIED")
     try:
+        # A renamed source file must still count as a runtime deletion,
+        # even if the new path happens to be a README or documentation file.
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", before, head],
+            check=True, capture_output=True, text=True, timeout=60,
+        )
         changes = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACDMRTUXB", before, head],
+            ["git", "diff", "--no-renames", "--name-only",
+             "--diff-filter=ACDMRTUXB", before, head],
             capture_output=True, text=True, check=True, timeout=60,
         ).stdout.splitlines()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
