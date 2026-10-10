@@ -58,7 +58,7 @@ export function controlConsequenceOf(issue: Input): ControlConsequence {
       stateObserved: false,
     };
   }
-  if (check?.article44fz || issue.origin === 'compliance_44fz') {
+  if (check?.article44fz) {
     return {
       kind: 'legal_qualification',
       explanation: 'Нужно проверить правовое основание и первичные документы. Автоматический признак не устанавливает нарушение закона.',
