@@ -562,7 +562,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       const validChanges: Array<[string, unknown]> = [];
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
-        let validationError: string | null = null;
+        let validationError: string | null;
         if (COL_LETTER_INDEX[field] === undefined) {
           validationError = 'Такого столбца в книге закупок нет — правка отклонена';
         } else {
