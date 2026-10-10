@@ -570,7 +570,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     }
     // The subject itself may be edited. Compare the immutable source anchor,
     // not the new text the operator is trying to save.
-    if (!sameEditorSource(original, { ...data, subject: data._sourceOriginalSubject } as RowData)) {
+    if (!sameEditorSource(original, { ...data, _id: rowId, subject: data._sourceOriginalSubject })) {
       throw new Error('Источник изменил закупку по этому адресу. Черновик сохранён, но запись в чужую строку запрещена.');
     }
 
