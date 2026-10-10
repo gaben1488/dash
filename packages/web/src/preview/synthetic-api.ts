@@ -170,7 +170,7 @@ function fixture(path:string): unknown | undefined {
   if(path==='/workload') return {items:[],rows:[],summary:{},counts:{total:0},departments:[]};
   if(path==='/anomalies') return {rows:[],summary:{},byDepartment:{},departments:[]};
   if(path==='/integrity') return {rows:[],issues:[],checks:[],summary:{},books:[]};
-  if(path==='/analytics/scorecard') return {rows:[],departments:[],items:[],summary:{},asOf};
+  if(path==='/analytics/scorecard') return {};
   if(path==='/annotations/yearlong') return {overrides:[],total:0};
   if(path==='/annotations/comments') return {asOf,source:'snapshot',rowsScanned:0,total:0,byKind:{},annotations:[]};
   if(path==='/sources') return {sources:departments.map(([,short])=>({name:short,type:'sheet',
@@ -184,7 +184,7 @@ function fixture(path:string): unknown | undefined {
   if(path==='/rows/subjects') return {subjects:[],total:0};
   if(path==='/rows/scatter') return {points:[],unreadDepartments:[],truncated:false,pointLimit:100};
   if(path==='/analytics/profiles') return {profiles:[],byDepartment:{},departments:[]};
-  if(path==='/analytics/compliance') return {rows:[],summary:{},departments:[]};
+  if(path==='/analytics/compliance') return {totalIssues:0,critical:0,warnings:0,issues:[]};
   if(path==='/analytics/ep-reasons') return {byDept:{},justification:{byDept:{},rowsScanned:0,readAt:asOf}};
   if(path==='/analytics/anomalies') return {rows:[],departments:[],summary:{}};
   if(path==='/analytics/subjects') return {groups:[],rows:[]};
