@@ -22,13 +22,20 @@ export const COMPONENT_INDEX = [
   { id: 'tokens', title: 'Роли облика', path: 'packages/web/src/components/ui/tokens.ts', purpose: 'Порядок текста, отступов, линий, данных и хрома', category: 'Облик' },
   { id: 'density', title: 'Плотность', path: 'packages/web/src/components/ui/density.ts', purpose: 'Два режима без ручной смены кегля', category: 'Облик' },
   { id: 'chart-theme', title: 'Графический язык', path: 'packages/web/src/components/ui/chart-theme.ts', purpose: 'Сетка, оси, легенды через смысловые переменные', category: 'Облик' },
+  { id: 'badge', title: 'Смысловая метка', path: 'packages/web/src/components/ui/badge.tsx', purpose: 'Пассивное состояние', category: 'Контролы' },
+  { id: 'page-header', title: 'Шапка страницы', path: 'packages/web/src/components/ui/page-header.tsx', purpose: 'Название, периметр и действия', category: 'Композиция' },
+  { id: 'drawer', title: 'Панель деталей', path: 'packages/web/src/components/ui/drawer.tsx', purpose: 'Закрытие и возврат фокуса', category: 'Композиция' },
+  { id: 'chart-frame', title: 'Обрамление графика', path: 'packages/web/src/components/ui/chart-frame.tsx', purpose: 'Оси, единицы и сравнение значений', category: 'Данные' },
+  { id: 'tooltip', title: 'Подсказка поля', path: 'packages/web/src/components/ui/tooltip.tsx', purpose: 'Краткое объяснение без потери контекста', category: 'Контролы' },
+  { id: 'kb-tooltip', title: 'Знание о метрике', path: 'packages/web/src/components/ui/kb-tooltip.tsx', purpose: 'Объяснение происхождения показателя', category: 'Данные' },
   { id: 'kit', title: 'Витрина рабочих элементов', path: 'packages/web/src/pages/Kit.tsx', purpose: 'Живой dev-стенд существующей дизайн-системы', category: 'Инструменты' },
 ] as const;
 
 export type ComponentId = (typeof COMPONENT_INDEX)[number]['id'];
 export type RecipeId =
   'source-metric' | 'source-row' | 'triage' | 'filters' |
-  'reliable-update' | 'honest-empty' | 'typography' | 'material';
+  'reliable-update' | 'honest-empty' | 'typography' | 'material' |
+  'action-hierarchy' | 'signal-priority' | 'measured-zero' | 'unit-scale' | 'long-content' | 'evidence-confidence';
 
 export interface UiRecipe {
   id: RecipeId;
@@ -124,6 +131,78 @@ export const UI_RECIPES: readonly UiRecipe[] = [
     components: ['tokens', 'card', 'button'],
     status: 'concept',
     code: "/* Демонстрационное оформление строго на контейнере, не :root. */\n.dash-design-preview { --dl-top: #4a6da6; --dl-bottom: #324b78; }\n/* Берите настоящую геометрию из pulse.html и действующего Header, не из стенда. */",
+  },
+  {
+    id: "action-hierarchy",
+    title: "Действие без ложного успеха",
+    category: "Рабочие действия",
+    answer: "Как сделать одно главное действие, показать ожидание и подтвердить опасное действие?",
+    rationale: "Готовый Button знает четыре тона и блокировку busy. Демонстрационная отмена отделена от подтверждения.",
+    mistake: "Красная сплошная кнопка на каждый шаг, ложный успех до записи и опасное действие без подтверждения.",
+    criteria: ["Одно главное действие","Ожидание не меняет ширину кнопки","Необратимое действие подтверждается"],
+    components: ["button","card","toast"],
+    status: "production-parts",
+    code: "import { Button } from '@/components/ui/button';\n<Button tone=\"primary\" busy={isSaving} onClick={saveAndVerify}>Сохранить</Button>\n<Button tone=\"danger\" onClick={requestConfirmation}>Удалить</Button>\n// Обработчики и статус записи определяются вызывающим экраном.",
+  },
+  {
+    id: "signal-priority",
+    title: "Один самый важный сигнал",
+    category: "Состояния",
+    answer: "Почему этому числу нельзя доверять и какое действие даст ответ?",
+    rationale: "FreshnessMark отличает подтверждено, устарело и ошибку, а worstState выбирает худший статус.",
+    mistake: "Гирлянда бейджей, зелёное отсутствие сверки, тревога без конкретной инструкции.",
+    criteria: ["В заголовке один самый тяжёлый сигнал","Детали доступны по раскрытию","Неполная сверка содержит действие"],
+    components: ["freshness","card","origin"],
+    status: "production-parts",
+    code: "import { worstState, FreshnessMark } from '@/components/ui/freshness';\nconst worst = worstState(['verified', 'uncovered', 'stale']); // stale\n// Причина и whatToDo обязаны приходить из настоящего результата проверки.",
+  },
+  {
+    id: "measured-zero",
+    title: "Нулевое значение или нет базы",
+    category: "Основания",
+    answer: "Когда ноль является измеренным фактом, а когда причиной отсутствия числа?",
+    rationale: "Stat получает значение 0 только после измерения; отсутствующая база обозначается null с человеческим объяснением.",
+    mistake: "Подставлять 0 при ошибке чтения, отсутствии знаменателя или неизвестной формуле.",
+    criteria: ["Измеренный ноль показывается цифрой","Отсутствующая база объяснена","Период находится рядом с числом"],
+    components: ["stat","card"],
+    status: "production-parts",
+    code: "import { Stat } from '@/components/ui/stat';\n<Stat label=\"Отклонение\" value=\"0\" unit=\"₽\" scope=\"2026 · ДЕМО\" />\n<Stat label=\"Неизвестный план\" value={null} emptyReason=\"Источник ещё не прочитан\" />",
+  },
+  {
+    id: "unit-scale",
+    title: "Единицы без изменения закупок",
+    category: "Рабочие действия",
+    answer: "Как переключать тысячи и миллионы, не меняя состав данных и фильтры?",
+    rationale: "Исходная величина остаётся одной, выбранная единица стоит рядом с числом.",
+    mistake: "Изменять сами строки при переключении шкалы, скрывать единицы или округлять исходник.",
+    criteria: ["Рядом с числом названа единица","Обе шкалы выводятся из одной величины","Количество строк не меняется"],
+    components: ["segmented","stat","tokens"],
+    status: "concept",
+    code: "import { Segmented } from '@/components/ui/segmented';\n// Переключатель выбирает единицу. Конвертацию выполняет общий formatter проекта.",
+  },
+  {
+    id: "long-content",
+    title: "Длинные названия и масштаб",
+    category: "Облик",
+    answer: "Как показывать полное имя учреждения, не скрывая столбцы, действия и суммы?",
+    rationale: "Название переносится, числовые значения выровнены, горизонтальная прокрутка достигается с клавиатуры.",
+    mistake: "Троеточие без полного имени, жёсткая высота, пропадающие столбцы и мелкий текст.",
+    criteria: ["Длинное имя можно прочитать полностью","Прокрутка доступна клавиатуре","Числа сохраняют единицу"],
+    components: ["data-table","page-header","card"],
+    status: "production-parts",
+    code: "import { DataTable } from '@/components/ui/data-table';\n<DataTable caption=\"ДЕМО · длинные названия\">{/* Реальная шапка и строки */}</DataTable>\n// Браузерная проверка 200% остаётся обязательной.",
+  },
+  {
+    id: "evidence-confidence",
+    title: "Факт, предположение, не проверено",
+    category: "Основания",
+    answer: "Как не выдавать эвристический вывод за подтверждённые сведения из книги?",
+    rationale: "Источник, признак и проверка названы словами; неопределённость не получает зелёную печать.",
+    mistake: "Автоклассификатор назван источником истины; эвристика окрашена как достоверный факт.",
+    criteria: ["Источник доказательства назван","Предположение помечено словами","Есть следующий шаг для проверки"],
+    components: ["chip","freshness","card"],
+    status: "concept",
+    code: "import { FreshnessMark } from '@/components/ui/freshness';\n<FreshnessMark info={{state:'uncovered',reason:'Вывод по косвенным признакам',whatToDo:'Сверить с официальной строкой'}} />",
   },
 ] as const;
 
