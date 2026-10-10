@@ -35,6 +35,7 @@ import {
   classifyQuarter,
   dayPartsOfDateValue,
   isFutureMonth,
+  productTodayIso,
   isoWeekKeyOfDate,
   isoWeekKeyOfParts,
   monthCountOf,
@@ -158,6 +159,11 @@ describe('вид квартала — агрегат трёх его месяц�
 });
 
 describe('продуктовое время — Камчатка (UTC+12), не часы зрителя', () => {
+  it('камчатское 1 января наступает ещё 31 декабря в UTC', () => {
+    const utcNow = new Date(Date.UTC(2026, 11, 31, 12, 20));
+    expect(productTodayIso(utcNow)).toBe('2027-01-01');
+  });
+
   it('зритель ещё 31 августа, на Камчатке уже 1 сентября — сентябрь наступил', () => {
     const now = new Date(Date.UTC(2026, 7, 31, 23, 0)); // 01.09 11:00 на Камчатке
     expect(isFutureMonth(2026, 9, now)).toBe(false);

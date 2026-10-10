@@ -72,9 +72,9 @@ describe('computeDeltas', () => {
     const calculated = new Map([['m1', makeMetric('m1', 50)]]);
     const results = computeDeltas(official, calculated, [entry]);
     expect(results[0].withinTolerance).toBe(false);
-    expect(results[0].deltaPercent).toBeNull(); // Relative % is undefined with zero denominator
+    expect(results[0].deltaPercent).toBeNull(); // no relative baseline at official zero
     expect(results[0].delta).toBe(50);
-    expect(results[0].explanation).toContain('не определяется');
+    expect(results[0].explanation).toContain('относительный процент расхождения не определён');
   });
 
   it('skips entries where both official and calculated are absent', () => {
