@@ -146,23 +146,24 @@ REVIEWS[0].update(
         [24, 2, '7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe']],
     previous_semantics=[*REVIEWS[0]['previous_semantics'],
         '40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf'])
-# 10.10 additive ZMO reconciliation fields: retain the exact recorded v3
-# migration (18 -> 19), then pin a distinct reviewed 19 -> 32 extension.
-# The live sheet has data in T:AF. Do NOT truncate, auto-discover or accept
-# changed headers; the old 18/19 identities remain approved predecessors.
+# 10.10 additive ZMO fields and two working-name columns: retain recorded
+# 18 -> 19 -> 32 predecessors and PIN the observed, populated 34-column live
+# sheet. Never truncate original evidence or silently accept changed headers.
 directory_review = next(p for p in REVIEWS if p['sheet'] == 'Справочник заказчиков')
 directory_review.update(
     sheet_id=837564274,
-    reason='Reviewed 2026-10-10: 13 ZMO evidence fields appended to the unchanged 19-column customer-directory header; no historical rows or identities rewritten.',
-    columns=32,
-    fingerprint='1d9f66c2f5372d0c4dc6f3064561018fb1584adcc438527354b3d2380e9f4064',
-    semantic='a20ac644d7f02ead1920415bf1c322040ac7b1cb19bd6df8bb2678234b60db7b',
+    reason='Reviewed 2026-10-10: 13 ZMO evidence columns and 2 working-name columns appended after the unchanged 19-column customer directory; original identities and historical evidence remain intact.',
+    columns=34,
+    fingerprint='7c36865897a22ee4566007606c59ff0b674e6ba9255ce3052c69899597ffe3bb',
+    semantic='3221dea64b4fb0dfdba08cf9cb8909ffe5af3d535d4aabac380d4bed12ce9bfd',
     previous_geometry=[
         *directory_review['previous_geometry'],
-        [19, 1, '994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042']],
+        [19, 1, '994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042'],
+        [32, 1, '1d9f66c2f5372d0c4dc6f3064561018fb1584adcc438527354b3d2380e9f4064']],
     previous_semantics=[
         *directory_review['previous_semantics'],
-        'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1'],
+        'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1',
+        'a20ac644d7f02ead1920415bf1c322040ac7b1cb19bd6df8bb2678234b60db7b'],
 )
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
