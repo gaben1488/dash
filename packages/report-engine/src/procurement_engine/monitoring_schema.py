@@ -226,6 +226,11 @@ def review_registry(original, sealed, client):
             raise ValueError('MONITORING_SCHEMA_BASE_MISMATCH')
         prior = sealed.get(source['source_id'])
         accepted_semantic = {patch['previous_semantic'], patch['semantic'], *patch.get('previous_semantics', [])}
+        # A registry with an invented semantic fingerprint must not be
+        # repaired implicitly merely because the live sheet looks familiar.
+        if (patch['sheet'] == 'Справочник заказчиков'
+                and source.get('semantic_header_fingerprint') not in accepted_semantic | {None}):
+            raise ValueError('MONITORING_SCHEMA_BASE_MISMATCH')
         if patch.get('sealed_baseline') and prior and tuple(prior[0].get(k) for k in ('columns', 'header_rows', 'schema_fingerprint')) == old_geometry:
             accepted_semantic.add(prior[1])
         if prior and (any(prior[0].get(k) != source.get(k) for k in ('provider_id', 'sheet_id', 'role', 'grbs'))

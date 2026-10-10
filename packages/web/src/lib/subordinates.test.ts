@@ -3,6 +3,7 @@
  * не должен вытеснять канон — только дополнять его.
  */
 import { describe, expect, it } from 'vitest';
+import { SUBORDINATE_REGISTRY, subordinateNameMatchKey } from '@aemr/shared';
 import { mergeSubordinates } from './subordinates';
 import { SUBORDINATES_FALLBACK } from '../store';
 
@@ -13,6 +14,48 @@ const FALLBACK = {
 };
 
 describe('mergeSubordinates', () => {
+  it('живые нынешние имена имеют приоритет независимо от порядка с историческими', () => {
+    const historical = 'МБУК «Елизовский районный зоопарк»';
+    const current = 'МБУК ЕРЗ';
+    for (const order of [[historical, current], [current, historical]]) {
+      expect(mergeSubordinates({ 'УКСиМП': [current] }, { 'УКСиМП': order })['УКСиМП'])
+        .toEqual([current]);
+    }
+    expect(mergeSubordinates({ 'УКСиМП': [current] }, { 'УКСиМП': [historical] })['УКСиМП'])
+      .toEqual([historical]);
+  });
+
+  it('70 действующих имён и исторические алиасы сохраняют единственный пункт и все суммы строк', () => {
+    const entries = SUBORDINATE_REGISTRY.filter((e) => !e.isOrgItself);
+    expect(entries).toHaveLength(70);
+    const byDept = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const group = byDept.get(entry.grbsId) ?? [];
+      group.push(entry);
+      byDept.set(entry.grbsId, group);
+    }
+    for (const [dept, group] of byDept) {
+      const current = group.map((e) => e.canonicalName);
+      const historical = group.map((e) => e.legacyCanonicalName ?? e.canonicalName);
+      expect(new Set(current).size, dept).toBe(group.length);
+      const union = mergeSubordinates({ [dept]: current }, { [dept]: [...historical, ...current] })[dept];
+      expect(new Set(union), dept).toEqual(new Set(current));
+
+      const byIdentity = new Map<string, number>();
+      let total = 0;
+      for (let i = 0; i < group.length; i++) {
+        for (const spelling of [historical[i], current[i]]) {
+          const amount = i + 1; // каждая запись — отдельная закупка, не дубль
+          total += amount;
+          const key = subordinateNameMatchKey(spelling);
+          byIdentity.set(key, (byIdentity.get(key) ?? 0) + amount);
+        }
+      }
+      expect(byIdentity.size, dept).toBe(group.length);
+      expect([...byIdentity.values()].reduce((a, b) => a + b, 0), dept).toBe(total);
+    }
+  });
+
   it('неполный ответ API не вытесняет канон — объединение, не замена', () => {
     const api = { edu: ['Школа № 2'] }; // книга прочитана частично
     const merged = mergeSubordinates(FALLBACK, api);
