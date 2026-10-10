@@ -278,7 +278,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
     const body = request.body as { field?: string; value?: unknown };
-    const idx = parseInt(rowIndex, 10);
+    const idx = Number(rowIndex);
 
     if (!body.field || body.value === undefined) {
       return reply.status(400).send({ error: 'Не указано, какой столбец и какое значение сохранять' });
