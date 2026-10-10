@@ -364,7 +364,7 @@ const CANONICAL_NAMES: readonly string[] = SUBORDINATE_REGISTRY.map((s) => s.can
 const CANONICAL_SET: ReadonlySet<string> = new Set(CANONICAL_NAMES);
 /** Подтверждённые прежние названия допустимы в исторических срезах. */
 const HISTORIC_SET: ReadonlySet<string> = new Set(SUBORDINATE_REGISTRY.flatMap((e) => e.legacyCanonicalName ? [e.legacyCanonicalName] : []));
-const ACCEPTED_NAMES: ReadonlySet<string> = new Set([...CANONICAL_NAMES, ...HISTORIC_SET]);
+const ACCEPTED_NAMES: ReadonlySet<string> = new Set([...CANONICAL_SET, ...HISTORIC_SET]);
 const MATCHABLE_NAMES = SUBORDINATE_REGISTRY.flatMap((entry) => [
   { spelling: entry.canonicalName, canonical: entry.canonicalName },
   ...(entry.legacyCanonicalName ? [{ spelling: entry.legacyCanonicalName, canonical: entry.canonicalName }] : []),
