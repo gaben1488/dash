@@ -33,7 +33,7 @@ describe('Design Lab pattern gallery', () => {
   it('searches recipes and correctly restores the full list', () => {
     const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
     const input = screen.getByRole('searchbox', { name: 'Найти рецепт' });
-    fireEvent.change(input, { target: { value: 'обновление' } });
+    fireEvent.change(input, { target: { value: 'подмены' } });
     expect(container.querySelectorAll('.dl-pat-links button')).toHaveLength(1);
     fireEvent.change(input, { target: { value: 'несуществующая_тема' } });
     expect(screen.getByText('Совпадений нет. Измените фильтр.')).toBeTruthy();
