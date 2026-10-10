@@ -26,7 +26,7 @@ export async function mappingRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/mapping', async (_request, reply) => {
     // Load overrides from DB
-    let overrides: Array<{ metricId: string; cellRef: string; sheetName: string | null }> = [];
+    let overrides: Array<{ metricId: string; cellRef: string; sheetName: string | null }>;
     try {
       overrides = db.select().from(schema.mappingOverrides).all();
     } catch (err) {
