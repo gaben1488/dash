@@ -22,8 +22,7 @@ import { DEPARTMENT_SPREADSHEETS } from '../config.js';
 import { getMonitoringBook } from '../services/monitoring.js';
 import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { monitoringFormulaDiagnostics, queueDriftSignals } from '../services/monitoring-diagnostics.js';
-import { buildMonitoringSignals } from '@aemr/core';
-import { MONITORING_MASTER_SHEET } from '@aemr/shared';
+import { MONITORING_MASTER_SHEET, buildMonitoringSignals, type MonitoringSignal } from '@aemr/core';
 
 type Reading = Omit<ControlChannelObservation, 'id'>;
 
@@ -134,7 +133,7 @@ async function monitoringRead(): Promise<Reading> {
     journal, directory, svod,
   });
   const additional = queueDriftSignals(book, registry.procedures);
-  let formula = [];
+  let formula: MonitoringSignal[] = [];
   let formulaCheckFailed = false;
   try { formula = (await monitoringFormulaDiagnostics(book)).signals; }
   catch { formulaCheckFailed = true; }
