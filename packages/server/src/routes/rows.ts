@@ -16,6 +16,7 @@ import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
 import { detectSignals, classifyRowState, getSignalBadges, applyTextNormalization } from '@aemr/core';
 import { readDeptRows } from '../services/rows-read.js';
+import { isWritableDate, parseWritableMoney } from '../services/row-input.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
 import {
   parseYearFilter,
@@ -65,13 +66,13 @@ function sourceUnavailableMessage(deptShortName: string, reason: 'read-error' | 
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
  * Возвращает текст ошибки или null, если писать можно.
  *
- * Нижняя граница: строка 1 — заголовок. Верхняя: строка обязана существовать в листе
+ * Нижняя граница: первые DEPT_HEADER_ROWS строк — заголовок. Верхняя: строка обязана существовать в листе
  * (иначе writeCellValue создаст ячейку за пределами данных и побьёт итоговые формулы,
  * а кэш этого не заметит — values[idx-1] просто undefined).
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
-  if (!Number.isInteger(idx) || idx < 2) return `Номер строки «${display}» не подходит: строки данных начинаются со второй`;
+  if (!Number.isInteger(idx) || idx <= DEPT_HEADER_ROWS) return `Номер строки «${display}» не подходит: данные начинаются со строки ${DEPT_HEADER_ROWS + 1}`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
@@ -207,7 +208,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/rows/:deptId/:rowIndex', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const idx = parseInt(rowIndex, 10);
+    const idx = Number(rowIndex);
 
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
@@ -327,9 +328,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     // Type validation and normalization
     if (NUMERIC_COLUMNS.has(field)) {
-      const num = typeof body.value === 'number' ? body.value
-        : parseFloat(String(body.value).replace(/\s/g, '').replace(/,/g, '.'));
-      if (isNaN(num)) {
+      const num = parseWritableMoney(body.value);
+      if (num === null) {
         return reply.status(400).send({
           error: `Столбец «${columnTitle(field)}» принимает только число — например 1 234,56`,
           field,
@@ -338,18 +338,14 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       }
       normalizedValue = num;
     } else if (DATE_COLUMNS.has(field)) {
-      // Accept DD.MM.YYYY or ISO format
-      const str = String(body.value).trim();
-      const ddmmyyyy = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!ddmmyyyy && !iso && str !== '') {
+      if (!isWritableDate(body.value)) {
         return reply.status(400).send({
-          error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+          error: `Столбец «${columnTitle(field)}» принимает календарную дату — например 15.03.2026`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = str;
+      normalizedValue = String(body.value).trim();
     }
     // TEXT_COLUMNS: accept any string value
 
@@ -515,10 +511,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         // Normalize value
         let normalizedValue: unknown = rawValue;
         if (NUMERIC_COLUMNS.has(field)) {
-          const num = typeof rawValue === 'number'
-            ? rawValue
-            : parseFloat(String(rawValue).replace(/\s/g, '').replace(/,/g, '.'));
-          if (isNaN(num) && rawValue !== null && rawValue !== '') {
+          const clearing = rawValue === null || rawValue === '';
+          const num = clearing ? null : parseWritableMoney(rawValue);
+          if (num === null && !clearing) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
@@ -528,16 +523,16 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
             });
             continue;
           }
-          normalizedValue = isNaN(num) ? null : num;
+          normalizedValue = num;
         } else if (DATE_COLUMNS.has(field)) {
           const str = String(rawValue ?? '').trim();
-          if (str && !/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str) && !/^\d{4}-\d{2}-\d{2}/.test(str)) {
+          if (!isWritableDate(str)) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
               success: false,
-              error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+              error: `Столбец «${columnTitle(field)}» принимает календарную дату — например 15.03.2026`,
             });
             continue;
           }
