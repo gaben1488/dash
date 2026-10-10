@@ -146,3 +146,15 @@ test('mixed source snapshots on one side fail closed', () => {
   ), /mixed snapshotIds/);
   assert.throws(() => result([row('same', 1, '1')], [row('same', 2, '1')]), /different snapshotIds/);
 });
+
+test('human decision cannot hijack a stable ID already assigned to another observation', () => {
+  const owned = row('before', 1, '10', { entityId: 'UUID-TAKEN' });
+  const unrelated = row('before', 2, '11');
+  const newUnrelated = row('after', 2, '11');
+  const out = result([owned, unrelated], [newUnrelated], [
+    { from: observationKey(unrelated), to: observationKey(newUnrelated),
+      fromHash: A, toHash: A, entityId: 'UUID-TAKEN' },
+  ]);
+  assert.equal(out.summary.confirmedLinks, 0);
+  assert.ok(out.conflicts.some(x => x.kind === 'identity_conflict'));
+});
