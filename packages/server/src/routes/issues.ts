@@ -4,7 +4,7 @@ import { overlayPersistedIssueStatus } from '../services/issue-status-overlay.js
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import type { Issue } from '@aemr/shared';
-import { ISSUE_STATUS_LABELS, productLabel } from '@aemr/shared';
+import { ISSUE_STATUS_LABELS, productLabel, buildControlCases, controlCaseCounters } from '@aemr/shared';
 import { z } from 'zod';
 import { parseBody } from '../lib/validate.js';
 
@@ -124,6 +124,49 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
           warning: allIssues.filter((i: Issue) => i.severity === 'warning').length,
           info: allIssues.filter((i: Issue) => i.severity === 'info').length,
         },
+      },
+    });
+  });
+
+  /**
+   * GET /api/control/cases — one read-only place for reviewable cases.
+   *
+   * This does not mint durable business IDs or migrate decisions. Original
+   * observations and their SQLite statuses are preserved; grouping is
+   * conservative and confined to the displayed snapshot.
+   */
+  app.get('/api/control/cases', async (request, reply) => {
+    const query = request.query as Record<string, string>;
+    let snapshot;
+    try {
+      snapshot = await getSnapshot();
+    } catch (err) {
+      app.log.warn({ err }, 'control/cases: snapshot unavailable');
+      return reply.status(503).send(SNAPSHOT_UNAVAILABLE);
+    }
+
+    const observed = overlayPersistedIssueStatus(snapshot.issues ?? []);
+    const allCases = buildControlCases(observed);
+    let filtered = allCases;
+    if (query.deptId) {
+      filtered = filtered.filter(c => c.departmentId === query.deptId || c.sheet === query.deptId);
+    }
+    if (query.workState) filtered = filtered.filter(c => c.workState === query.workState);
+    if (query.impact) filtered = filtered.filter(c => c.impact === query.impact);
+
+    const page = Math.max(1, parseInt(query.page || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit || '30', 10) || 30));
+    const total = filtered.length;
+    return reply.send({
+      cases: filtered.slice((page - 1) * limit, page * limit),
+      counters: controlCaseCounters(allCases),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      source: {
+        snapshotId: snapshot.id,
+        createdAt: snapshot.createdAt,
+        identityScope: 'snapshot',
+        /** An available old snapshot does not prove a fresh source read. */
+        liveSourceVerification: 'not_asserted',
       },
     });
   });
