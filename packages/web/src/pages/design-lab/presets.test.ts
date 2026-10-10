@@ -23,7 +23,7 @@ describe('Dash design lab — no silent source drift', () => {
     }));
     expect(pairs).toHaveLength(39);
     expect(ORIGINAL_FAMILIES.map((family) => family.sections.length)).toEqual([13, 13, 13]);
-    expect(ORIGINAL_FAMILIES.flatMap((family) => family.sections)).toEqual(pairs);
+    expect([...ORIGINAL_FAMILIES[0].sections, ...ORIGINAL_FAMILIES[1].sections, ...ORIGINAL_FAMILIES[2].sections]).toEqual(pairs);
   });
 
   it('has 7 expressly experimental surfaces, 6 source finishes and 3 layouts', () => {
