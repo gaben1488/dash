@@ -125,6 +125,28 @@ export function recalcTotalsByActivity(depts: any[], opts: {
     if (method === 'competitive') totalKP += value.plan;
     else totalEP += value.plan;
   }
+
+  // Legacy snapshots may contain correct activity-level money but no
+  // activity×method provenance. Preserve their *known total* when neither
+  // method is filtered out; never invent the missing KP/EP distribution.
+  // Existing independent whole-versus-parts checks must remain meaningful.
+  if ((opts.showKP ?? true) && (opts.showEP ?? true)) {
+    for (const d of depts) {
+      for (const pk of opts.periodKeys) {
+        const period = d.byActivity?.[pk];
+        if (!period) continue;
+        for (const ak of opts.actKeys) {
+          const activity = period[ak];
+          if (!activity || activity.byMethod) continue;
+          const money = opts.budgetPlanFact(activity);
+          totalPlan += money.plan;
+          totalFact += money.fact;
+          planCount += activity.planCount ?? 0;
+          factCount += activity.factCount ?? 0;
+        }
+      }
+    }
+  }
   return { totalPlan, totalFact, totalKP, totalEP, planCount, factCount, complete: selected.complete };
 }
 
