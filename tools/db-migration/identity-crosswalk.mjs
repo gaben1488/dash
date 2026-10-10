@@ -17,7 +17,8 @@ function naturalNumberKey(row) {
 function validate(rows, name) {
   if (!Array.isArray(rows)) throw new TypeError(name + ' must be an array');
   const seen = new Set();
-  return rows
+  const snapshotIds = new Set();
+  const observations = rows
     .filter(row => {
       if (!row || typeof row !== 'object') throw new TypeError(name + ': bad observation');
       if (!['data', 'service', 'meta'].includes(row.rowClass)) throw new TypeError(name + ': rowClass is mandatory');
@@ -37,12 +38,16 @@ function validate(rows, name) {
       if (row.entityId != null && (typeof row.entityId !== 'string' || !row.entityId.trim())) {
         throw new TypeError(name + ': invalid authoritative entityId');
       }
+      if (!row.snapshotId.trim() || !row.sourceFileId.trim()) throw new TypeError(name + ': empty source identity');
       const key = observationKey(row);
       if (seen.has(key)) throw new Error(name + ': duplicate observation locator');
       seen.add(key);
+      snapshotIds.add(row.snapshotId);
       return { ...row, key };
     })
     .sort((a, b) => a.key.localeCompare(b.key));
+  if (snapshotIds.size > 1) throw new Error(name + ': mixed snapshotIds');
+  return observations;
 }
 
 function groupBy(rows, keyFn) {
@@ -67,6 +72,9 @@ const sorted = rows => rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.
 export function reconcileSnapshots({ older, newer, decisions = [] }) {
   const oldRows = validate(older, 'older');
   const newRows = validate(newer, 'newer');
+  if (oldRows.length && newRows.length && oldRows[0].snapshotId === newRows[0].snapshotId) {
+    throw new Error('older and newer must have different snapshotIds');
+  }
   if (!Array.isArray(decisions)) throw new TypeError('decisions must be an array');
   const oldByKey = new Map(oldRows.map(row => [row.key, row]));
   const newByKey = new Map(newRows.map(row => [row.key, row]));
@@ -76,6 +84,7 @@ export function reconcileSnapshots({ older, newer, decisions = [] }) {
   const newByNumber = groupBy(newRows, naturalNumberKey);
   const usedOld = new Set();
   const usedNew = new Set();
+  const usedEntities = new Set();
   const matched = [];
   const candidates = [];
   const conflicts = [];
@@ -98,9 +107,10 @@ export function reconcileSnapshots({ older, newer, decisions = [] }) {
   }
 
   function bind(from, to, kind, id) {
-    if (usedOld.has(from.key) || usedNew.has(to.key)) return false;
+    if (usedOld.has(from.key) || usedNew.has(to.key) || usedEntities.has(id)) return false;
     usedOld.add(from.key);
     usedNew.add(to.key);
+    usedEntities.add(id);
     matched.push({ from: from.key, to: to.key, entityId: id, evidence: kind });
     return true;
   }
@@ -130,6 +140,10 @@ export function reconcileSnapshots({ older, newer, decisions = [] }) {
     if (corruptIds.has(entityId) || (a.entityId && a.entityId !== entityId) ||
         (b.entityId && b.entityId !== entityId)) {
       conflicts.push({ kind: 'identity_conflict', from, to, entityId });
+      continue;
+    }
+    if (usedEntities.has(entityId) && !usedOld.has(a.key) && !usedNew.has(b.key)) {
+      conflicts.push({ kind: 'decision_reuses_identity', from, to, entityId });
       continue;
     }
     if (!bind(a, b, 'approved_human_decision', entityId)) {
