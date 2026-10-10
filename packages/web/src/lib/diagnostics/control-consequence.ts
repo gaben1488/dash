@@ -7,8 +7,6 @@
  * until the verified case/evidence model is accepted.
  */
 import { CHECK_REGISTRY } from '@aemr/shared';
-import type { Issue } from '@aemr/shared';
-
 export type ControlConsequenceKind =
   | 'control_not_completed'
   | 'observed_discrepancy'
@@ -24,7 +22,7 @@ export interface ControlConsequence {
   stateObserved: boolean;
 }
 
-type Input = Pick<Issue, 'checkId' | 'category' | 'origin' | 'severity'>;
+type Input = { checkId?: string; category?: string; origin?: string; severity?: string };
 
 const checks = new Map(CHECK_REGISTRY.map((entry) => [entry.id, entry]));
 for (const check of CHECK_REGISTRY) {
