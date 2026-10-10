@@ -7,6 +7,7 @@
  */
 import { dayNumberOf } from '@aemr/shared';
 import { makeReportFixture } from '../lib/report/fixture';
+import { SUBORDINATES_FALLBACK } from '../store';
 
 const asOf = '2026-10-09T09:18:00+12:00';
 const year = 2026;
@@ -21,12 +22,9 @@ const departments = [
   ['uo', 'УО', 'Управление образования'],
 ] as const;
 
-const subs: Record<string,string[]> = Object.fromEntries(
-  departments.map(([,short]) => [short, [
-    short + ' — учреждение А (демо)',
-    short + ' — учреждение Б (демо)',
-  ]]),
-);
+// Use the same reviewed directory names the production OrgStrip already knows.
+// Do not append invented A/B institutions to the canonical fallback.
+const subs = SUBORDINATES_FALLBACK;
 const pct = (a: number, b: number): number | null => b > 0 ? +(a / b * 100).toFixed(1) : null;
 const period = (scale: number) => ({
   planCount: 18 * scale, factCount: 12 * scale,
@@ -85,7 +83,7 @@ const dashboard = {
 
 const demoRows = departments.flatMap(([id,short],i) => [0,1,2].map((j) => ({
   rowIndex:11+i*8+j, rowRevision:'a'.repeat(64), id:j===1 ? '173/1' : String(10+i*3+j),
-  managementName:short,subordinate:subs[short][j%2],
+  managementName:short,subordinate:subs[short]?.[j%2] ?? short,
   dept:id,subject:['Поставка оборудования — демонстрация','Работы по содержанию — демонстрация','Лицензии и сопровождение — демонстрация'][j],
   programName:'X',type:j===2?'ТД':'ПМ',planDate:'2026-10-15',planDateRaw:'15.10.2026',
   factDate:j===2?null:'2026-10-09',factDateRaw:j===2?null:'09.10.2026',
@@ -138,7 +136,7 @@ const monitoring = {
 
 function fixture(path:string): unknown | undefined {
   if(path==='/dashboard') return dashboard;
-  if(path==='/rows/subordinates') return subs;
+  if(path==='/rows/subordinates') return {}; // preserve canonical fallback; no invented organizations
   if(path==='/registry/buckets') return {asOf,source:'snapshot',unfunded:{rows:4,planSum:1500},yearlong:{rows:3,planSum:990}};
   if(path==='/report'){
     const raw=makeReportFixture();
