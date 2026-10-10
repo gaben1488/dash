@@ -69,3 +69,24 @@ Nothing in business grids needs restoration because it was not modified. If requ
 - `docs/DATA_SOURCES.md` / `docs/METRICS_CONTRACT.md` — source and official KPI contracts.
 
 No code runtime or Apps Script changes were deployed by this release.
+
+## Independent follow-up audit — 2026-10-10
+
+**Verdict: NOT ACCEPTED AS TECHNICAL-SHEET CONSOLIDATION.** This release successfully deployed ten informational dashboards, not the requested reduction of technical sheets. Each book has **one additional tab**; the original utility sheets remain. Do not report this as completed consolidation, full dependency parity or verified live Apps Script compatibility. The former "10/10" statement establishes only creation and formula readback of the new consoles.
+
+Follow-up Google Sheets API reads after the rollout:
+
+- All ten `СИСТЕМА` tabs are present at index 1; their own displayed/formula cells (A1:L50) currently show **zero evaluation errors**, not proof that their source systems are healthy.
+- The existing GRBS `_Настройки` spill errors still exist: **УФБП G2; УД G2; УДТХ G2; УКСиМП F2/G2; УО E2/G2** (7 confirmed `#REF!`). **УЭР _Настройки!J6** is entered as a date serial 46027 although rendered as programme code `5.1.`. These inputs were not repaired.
+- All eight primary GRBS C:E dropdown validation rules were read at row 4 and still point to `_Настройки!H:J`. Whole-column validation, chip presentation, append/sort edge cases and all dependent Apps Script triggers were **not** acceptance-tested.
+- GRBS setting `Игнорируемые листы` was read back and contains `Settings, GOOGLE_ФОРМУЛЫ, СИСТЕМА`. This reflects configuration, **not an execution test of the actual Apps Script code**. Installation triggers, scheduled notifications and `_ChangeLog` append/send/retry behavior have not been audited. The static dashboard text "Сохранён" for `_ChangeLog` must **not** be interpreted as a live monitor of event delivery.
+- The pults' `addProtectedRange` is `warningOnly=true`. It gives edit warnings, **not access denial**. The dashboards also link to *start-of-column* locations rather than the exact offending data rows.
+- The dashboard's `E8` check-sum measures counts from the **legacy** `Контроль` only; `I8` detects errors only at `_Настройки!E2:G2`. Zero is therefore **not** full formula, validation, QA or cross-book acceptance.
+- Procedures console was corrected during deployment: `A8` now counts **442** non-share live subjects (not the initial erroneous **994** formula-result overcount), with **2** QA expectation mismatches and **1** master diagnostic row. That is a limited count/check, not a sign-off on procedure completeness.
+- SVOD console reports **8 configured URLs, 8 mirrors with some rows, 0 mirror A1 anchor errors**. This does not prove source URLs are canonical, imports are fresh, mirror row counts match or plan/fact/economy and monthly views reconcile. Legacy `Контроль!B5` remains suspect.
+- The design has been verified as cell data, formulas and metadata, **not in the actual Google Sheets rendered application**. Typography, clipping, mobile layout and aesthetic quality cannot yet be treated as accepted.
+- Existing `Settings` and `Контроль` sheets were hidden in selected GRBS books, but script behavior depending on sheet visibility is unverified; their content was not changed.
+
+**Acceptance gates for the deferred cutover:** (1) inspect the actual Apps Script source and installed triggers; (2) inventory every range/validation/named-range/protection/integration consumer; (3) test journal append and notification flows; (4) unify legacy settings/lookup logic into the minimum useful sheets without duplicating truth; (5) independent same-snapshot parity for all books and Dash/Word consumers; (6) visual inspection in native Google Sheets; (7) rollback; (8) only then retire redundant tabs. Do not touch bound scripts in the present phase, per the owner's instruction.
+
+**Immediate product decision:** keep the deployed read-only-by-convention dashboards, retain `_ChangeLog` and the legacy compatibility tabs, and do **not** claim the reduction to 1–2 technical tabs is achieved. Do not delete legacy tabs merely to reach a numeric target.
