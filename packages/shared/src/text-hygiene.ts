@@ -359,9 +359,13 @@ function normalizeQuotes(s: string): string {
   return s.replace(/[«»„“”‟"’‘']/gu, '"');
 }
 
-/** Дословные имена справочника подведов (включая категории строк). */
+/** Дословные имена действующего справочника и проверенные исторические варианты. */
 const CANONICAL_NAMES: readonly string[] = SUBORDINATE_REGISTRY.map((s) => s.canonicalName);
 const CANONICAL_SET: ReadonlySet<string> = new Set(CANONICAL_NAMES);
+const MATCHABLE_NAMES = SUBORDINATE_REGISTRY.flatMap((entry) => [
+  { spelling: entry.canonicalName, canonical: entry.canonicalName },
+  ...(entry.legacyCanonicalName ? [{ spelling: entry.legacyCanonicalName, canonical: entry.canonicalName }] : []),
+]);
 
 /**
  * Кэш сличения: имена подведов повторяются тысячами строк, уникальных —
@@ -391,14 +395,16 @@ export function nearestCanonicalSubordinate(name: string): string | null {
     let best: number | null = null;
     let bestName: string | null = null;
     let bestCount = 0;
-    for (const canonical of CANONICAL_NAMES) {
-      const d = boundedLevenshtein(norm, normalizeQuotes(canonical), REGISTRY_DISTANCE_MAX);
+    for (const candidate of MATCHABLE_NAMES) {
+      const d = boundedLevenshtein(norm, normalizeQuotes(candidate.spelling), REGISTRY_DISTANCE_MAX);
       if (d === null) continue;
       if (best === null || d < best) {
         best = d;
-        bestName = canonical;
+        bestName = candidate.canonical;
         bestCount = 1;
-      } else if (d === best) {
+      } else if (d === best && bestName !== candidate.canonical) {
+        // Несколько написаний ОДНОГО учреждения допустимы;
+        // при двух разных организациях исправление не угадываем.
         bestCount++;
       }
     }
