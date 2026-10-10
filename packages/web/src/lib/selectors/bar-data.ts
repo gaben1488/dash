@@ -1,7 +1,7 @@
 import type { BudgetPlanFactFn } from './budget-filter';
 import type { PeriodResolution } from './period-resolution';
 import { aggregateNodeTotals } from './totals-aggregation';
-import { recalcTotalsByActivity, activityPeriodKeys } from './activity-aggregation';
+import { ALL_ACTIVITY_KEYS, recalcTotalsByActivity, activityPeriodKeys } from './activity-aggregation';
 
 /**
  * Данные бар-чарта исполнения per-департамент (план/факт/%, КП/ЕП, счётное
@@ -45,13 +45,34 @@ export function buildBarData(depts: any[], opts: {
     // суммировала все 4 квартала независимо от выбранного периода — бар
     // управления показывал год под заголовком квартала. aggregateNodeTotals
     // сам разбирает _subFiltered-узел периодной ветвью (см. totals-aggregation).
-    if (isActivityFiltered) {
-      // The activity×method×period index exists on the selected scope: selected
-      // subordinates have already been reduced to their own source-row data.
+    if (isActivityFiltered || showKP !== showEP) {
+      // A method-only filter needs the SAME source-row cross-index as an
+      // activity+method filter. Otherwise the bar keeps all money while
+      // its method counter is filtered (false execution percentages).
       const a = recalcTotalsByActivity([d], {
-        actKeys, periodKeys: activityPeriodKeys(resolution, hasMonthData),
+        actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
+        periodKeys: activityPeriodKeys(resolution, hasMonthData),
         budgetPlanFact, showKP, showEP,
       });
+      if (!a.complete) {
+        // Legacy snapshots cannot prove the method × budget × subordinate
+        // split: suppress monetary figures instead of showing a false total.
+        const known = aggregateNodeTotals(d, resolution, {
+          showKP, showEP, activeMonths, hasMonthData,
+        });
+        return {
+          name: d.department?.nameShort ?? d.department?.id ?? '?',
+          nameShort: d.department?.nameShort ?? d.department?.id ?? '?',
+          id: d.department?.id,
+          pct: null,
+          planTotal: null,
+          factTotal: null,
+          kpCount: d._subFiltered ? null : showKP ? known.kp : 0,
+          epCount: d._subFiltered ? null : showEP ? known.ep : 0,
+          execCountPct: null,
+          scopeComplete: false,
+        };
+      }
       plan = a.totalPlan;
       fact = a.totalFact;
       kp = a.totalKP;

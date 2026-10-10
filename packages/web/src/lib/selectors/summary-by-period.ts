@@ -1,5 +1,5 @@
 import type { BudgetPlanFactFn } from './budget-filter';
-import { methodPlanFact, selectActivityMethods } from './activity-aggregation';
+import { ALL_ACTIVITY_KEYS, methodPlanFact, selectActivityMethods } from './activity-aggregation';
 
 /**
  * Пересчёт summaryByPeriod (сводка q1..q4/year: КП/ЕП счётчики, план/факт,
@@ -24,12 +24,16 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
     let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
     let coverageComplete = true;
+    const methodRestricted = showKP !== showEP;
+    const selected = isActivityFiltered || methodRestricted
+      ? selectActivityMethods(depts, {
+          actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
+          periodKeys: [pk], showKP, showEP,
+        })
+      : null;
+    coverageComplete = selected?.complete ?? true;
 
-    if (isActivityFiltered) {
-      const selected = selectActivityMethods(depts, {
-        actKeys, periodKeys: [pk], showKP, showEP,
-      });
-      coverageComplete = selected.complete;
+    if (selected && (isActivityFiltered || selected.complete)) {
       for (const { method, value } of selected.entries) {
         const money = methodPlanFact(value, budgetPlanFact);
         if (method === 'competitive') {
@@ -79,12 +83,20 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
       epCount = 0; epFactCount = 0; epPlan = 0; epFact = 0;
     }
 
+    // Without per-method provenance the *combined* budget breakdown
+    // cannot be attributed to only EP/KP. A null is not a computed zero.
+    const unknownBudget = methodRestricted && !coverageComplete;
     filteredSummary[pk] = {
       kpCount, kpFactCount, kpPlan, kpFact,
       kpPercent: kpCount > 0 ? kpFactCount / kpCount : 0,
       epCount, epFactCount, epPlan, epFact,
       epPercent: epCount > 0 ? epFactCount / epCount : 0,
-      fbPlan, kbPlan, mbPlan, fbFact, kbFact, mbFact,
+      fbPlan: unknownBudget ? null : fbPlan,
+      kbPlan: unknownBudget ? null : kbPlan,
+      mbPlan: unknownBudget ? null : mbPlan,
+      fbFact: unknownBudget ? null : fbFact,
+      kbFact: unknownBudget ? null : kbFact,
+      mbFact: unknownBudget ? null : mbFact,
       source: coverageComplete ? 'filtered' : 'unverified_activity_method',
     };
   }

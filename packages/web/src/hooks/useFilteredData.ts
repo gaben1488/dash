@@ -13,7 +13,7 @@ import { filterDeltas } from '../lib/selectors/deltas-filtering';
 import { filterKpiCards, selectTopKpis } from '../lib/selectors/kpi-filtering';
 import { aggregateTotals } from '../lib/selectors/totals-aggregation';
 import { makeBudgetPlanFact, recalcTotalsByBudget } from '../lib/selectors/budget-filter';
-import { resolveActivityKeys, recalcTotalsByActivity, activityPeriodKeys } from '../lib/selectors/activity-aggregation';
+import { ALL_ACTIVITY_KEYS, resolveActivityKeys, recalcTotalsByActivity, activityPeriodKeys } from '../lib/selectors/activity-aggregation';
 import { buildBarData, buildDeptCardOverrides } from '../lib/selectors/bar-data';
 import { recalcSummaryByPeriod, applyBudgetZeroing } from '../lib/selectors/summary-by-period';
 import { buildExecCountKpiCard, buildEconomyKpiCard, buildCompetitiveRatioKpiCard } from '../lib/selectors/derived-kpis';
@@ -145,21 +145,27 @@ export function computeFilteredData(input: FilterInputs) {
   const isActivityFiltered = selectedActivities.size > 0;
   const actKeys = resolveActivityKeys(selectedActivities);
 
+  const methodRestricted = showKP !== showEP;
   let activityMethodCoverage = true;
-  if (isActivityFiltered) {
+  if (isActivityFiltered || methodRestricted) {
     const activityTotals = recalcTotalsByActivity(depts, {
-      actKeys, periodKeys: activityPeriodKeys(resolution, hasMonthData),
+      actKeys: isActivityFiltered ? actKeys : ALL_ACTIVITY_KEYS,
+      periodKeys: activityPeriodKeys(resolution, hasMonthData),
       budgetPlanFact, showKP, showEP,
     });
-    ({ totalPlan, totalFact, totalKP, totalEP } = activityTotals);
-    totalPlanCount = activityTotals.planCount;
-    totalFactCount = activityTotals.factCount;
     activityMethodCoverage = activityTotals.complete;
+    // Never label an unverifiable historical method slice as exact. Keep
+    // separately known whole/method totals and tell the user provenance lacks.
+    if (activityTotals.complete || isActivityFiltered) {
+      ({ totalPlan, totalFact, totalKP, totalEP } = activityTotals);
+      totalPlanCount = activityTotals.planCount;
+      totalFactCount = activityTotals.factCount;
+    }
   }
-  if (isBudgetFiltered && !isActivityFiltered) {
+  if (isBudgetFiltered && !isActivityFiltered && !methodRestricted) {
     ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
       budgetPlanFact, useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
-      resolution, hasMonthData, // подвед-ветвь считается общим ядром (баг #4)
+      resolution, hasMonthData,
     }));
   }
 
@@ -248,7 +254,7 @@ export function computeFilteredData(input: FilterInputs) {
 
   // ── Оверрайды карточек, severity, сигналы ──
   const deptCardOverrides = buildDeptCardOverrides(
-    barData, isActivityFiltered || useMonthLevel || isBudgetFiltered);
+    barData, isActivityFiltered || methodRestricted || useMonthLevel || isBudgetFiltered);
   const { criticalIssues, warningIssues } = splitIssuesBySeverity(issues);
   // Signal counts: суммируем по ОТФИЛЬТРОВАННЫМ депам (depts), фолбэк на серверный полный.
   const signalCounts = aggregateSignalCounts(depts, dashboardData?.signalCounts ?? {});
