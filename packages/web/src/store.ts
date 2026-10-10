@@ -282,7 +282,7 @@ export function getActiveFilterCount(input: ActiveFilterCountInput): number {
 
 // ── Динамические годы: не хардкодим, определяем от текущей даты ──
 const FIRST_DATA_YEAR = 2025; // первый год с данными
-const currentYear = new Date().getFullYear();
+const currentYear = productDayParts().y;
 /** Доступные годы: от первого года данных до текущего+1, плюс "all" */
 export const AVAILABLE_YEARS: number[] = Array.from(
   { length: currentYear - FIRST_DATA_YEAR + 2 },
@@ -610,8 +610,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Фильтры — default year: current year if in AVAILABLE_YEARS, else last available
-  year: (AVAILABLE_YEARS.includes(new Date().getFullYear())
-    ? new Date().getFullYear()
+  year: (AVAILABLE_YEARS.includes(productDayParts().y)
+    ? productDayParts().y
     : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1]) as YearFilter,
   setYear: (year) => {
     // Mirror toggleMonthInYear/toggleQuarterInYear/toggleYearFull: when the user is in
@@ -778,7 +778,7 @@ export const useStore = create<AppState>((set, get) => ({
     // недели isWeekShifted сравнивает с ним же, иначе к западу от Камчатки
     // сброшенное умолчание само считалось бы срезом у границы недель.
     const monday = getProductMonday();
-    const currentYear = new Date().getFullYear();
+    const currentYear = productDayParts().y;
     const defaultYear: YearFilter = AVAILABLE_YEARS.includes(currentYear)
       ? currentYear
       : AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1];
@@ -837,7 +837,7 @@ export const useStore = create<AppState>((set, get) => ({
     // вместе, иначе week-mode молча съедает переданный период, а старые месяцы
     // перебивают новый квартал.
     const rawTargetYear = filters?.year ?? get().year;
-    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : new Date().getFullYear();
+    const targetYear = typeof rawTargetYear === 'number' ? rawTargetYear : productDayParts().y;
     if (filters?.months) {
       updates.activeMonths = new Set(filters.months);
       updates.monthsByYear = { ...get().monthsByYear, [targetYear]: new Set(filters.months) };
@@ -1174,7 +1174,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Данные
   dashboardData: null,
-  dataYear: new Date().getFullYear(),
+  dataYear: productDayParts().y,
   loading: false,
   error: null,
   lastRefreshed: null,
@@ -1197,7 +1197,7 @@ export const useStore = create<AppState>((set, get) => ({
       );
       set({
         dashboardData: data,
-        dataYear: data.year ?? new Date().getFullYear(),
+        dataYear: data.year ?? productDayParts().y,
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
@@ -1233,7 +1233,7 @@ export const useStore = create<AppState>((set, get) => ({
         // Баг #11: dataYear пишется во ВСЕХ путях загрузки — иначе после
         // обновления баннер «данные за другой год» сравнивал год фильтра
         // с годом давно прошедшей загрузки.
-        dataYear: data.year ?? new Date().getFullYear(),
+        dataYear: data.year ?? productDayParts().y,
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),
@@ -1266,7 +1266,7 @@ export const useStore = create<AppState>((set, get) => ({
       );
       set({
         dashboardData: data,
-        dataYear: data.year ?? new Date().getFullYear(), // баг #11 — см. refresh
+        dataYear: data.year ?? productDayParts().y, // баг #11 — см. refresh
         lastRefreshed: data.lastRefreshed,
         loading: false,
         isDemo: isDemoData(data),

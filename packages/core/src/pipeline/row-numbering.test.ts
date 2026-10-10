@@ -66,6 +66,36 @@ describe('row_numbering — дубли', () => {
   });
 });
 
+describe('row_numbering — составные номера и хвост формул', () => {
+  it('№ 173, 173/1, 173/2 не являются дублями', () => {
+    expect(run([procRow(4, '173'), procRow(5, '173/1'), procRow(6, '173/2')])).toHaveLength(0);
+  });
+
+  it('два одинаковых составных номера остаются дублем', () => {
+    const [issue] = run([procRow(4, '173/18'), procRow(5, '173/18')]);
+    expect(issue.description).toContain('№ 173/18');
+    expect(issue.description).toContain('4, 5');
+  });
+
+  it('нулевые результаты формул без предмета и способа не требуют №', () => {
+    const blankTail = procRow(5, '', {
+      classification: 'service',
+      cells: { A: '', H: 0, I: 0, J: 0, K: 0 },
+    });
+    expect(run([procRow(4, 1), blankTail])).toHaveLength(0);
+  });
+
+  it('реальная закупка без A по-прежнему обнаруживается', () => {
+    const actual = procRow(5, '', {
+      classification: 'service',
+      cells: { A: '', G: 'Поставка канцтоваров', L: 'ЕП', K: 70 },
+    });
+    const [issue] = run([procRow(4, 1), actual]);
+    expect(issue.description).toContain('без номера');
+    expect(issue.description).toContain('5');
+  });
+});
+
 describe('row_numbering — пропуски (п.118: информация, не нарушение)', () => {
   it('ТОЛЬКО пропуски — карточки нет: дыра это след удалённой строки', () => {
     expect(run([procRow(4, 1), procRow(5, 2), procRow(6, 5)])).toHaveLength(0);

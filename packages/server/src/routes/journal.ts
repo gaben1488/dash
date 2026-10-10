@@ -628,9 +628,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
    */
   app.put('/api/sources/:name', async (request, reply) => {
     const { name } = request.params as { name: string };
-    const { spreadsheetId } = request.body as { spreadsheetId: unknown };
-
-    const validation = validateSpreadsheetIdForSourceChange(spreadsheetId);
+    const input = request.body as { spreadsheetId?: unknown } | null;
+    const validation = validateSpreadsheetIdForSourceChange(input?.spreadsheetId);
     if (!validation.success) {
       // Причина отказа приходит из config.ts английской технической строкой
       // («spreadsheetId must be a raw Google Sheets ID…»). Заголовок ответа —
@@ -646,15 +645,22 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
     if (name === SVOD_SHEET_NAME) {
       // Update main spreadsheet ID in config (runtime only; .env update is separate)
       config.google.spreadsheetId = nextSpreadsheetId;
-      return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId });
+      return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId,
+        persisted: false, message: 'Адрес действует до перезапуска сервера. Для постоянной замены измените конфигурацию сервера.' });
     }
 
     if (!(name in DEPARTMENT_SPREADSHEETS)) {
       return reply.status(404).send({ error: `Источник «${name}» не найден` });
     }
 
-    updateSpreadsheetId(name, nextSpreadsheetId);
-    return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId });
+    try {
+      updateSpreadsheetId(name, nextSpreadsheetId);
+    } catch (err) {
+      app.log.error({ err, source: name }, 'source config write failed');
+      return reply.status(503).send({ success: false,
+        error: 'Не удалось сохранить источник. Прежний адрес остаётся действующим; проверьте хранилище сервера и повторите.' });
+    }
+    return reply.send({ success: true, name, spreadsheetId: nextSpreadsheetId, persisted: true });
   });
 
 
