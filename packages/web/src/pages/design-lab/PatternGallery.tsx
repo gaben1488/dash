@@ -218,9 +218,10 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
     searchRecipes(query, category === 'all' ? undefined : category),
     [query, category],
   );
-  const recipe = UI_RECIPES.find(x => x.id === selected)!;
-  const components = COMPONENT_INDEX.filter(x => recipe.components.includes(x.id));
+  const recipe = results.find((item) => item.id === selected) ?? results[0] ?? null;
+  const components = recipe ? COMPONENT_INDEX.filter(x => recipe.components.includes(x.id)) : [];
   const copy = async () => {
+    if (!recipe) return;
     try { await navigator.clipboard.writeText(recipe.code); setCopied('yes'); }
     catch { setCopied('blocked'); }
   };
@@ -243,7 +244,7 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
           </label>
           <div className="dl-pat-links">
             {results.map(x => (
-              <button type="button" key={x.id} aria-pressed={selected === x.id}
+              <button type="button" key={x.id} aria-pressed={recipe?.id === x.id}
                 onClick={() => { setSelected(x.id); setCopied('idle'); }}>
                 <strong>{x.title}</strong>
                 <small>{x.category} · {x.status === 'production-parts' ? 'рабочие элементы' : 'концепция'}</small>
@@ -253,7 +254,7 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
             {results.length === 0 && <p role="status">Совпадений нет. Измените фильтр.</p>}
           </div>
         </aside>
-        <div className="dl-pat-details">
+        {recipe ? <div className="dl-pat-details">
           <div className="dl-pat-description">
             <span className="dl-small-label">{recipe.category}</span>
             <h3>{recipe.title}</h3><p><strong>{recipe.answer}</strong></p><p>{recipe.rationale}</p>
@@ -270,10 +271,11 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
             </section>
           </div>
           <div className="dl-pat-code-header">
-            <strong><FileCode2 size={15} aria-hidden="true" /> Готовая заготовка</strong>
-            <Button tone="secondary" size="sm" icon={<Copy size={13} />} onClick={() => { void copy(); }}>Копировать</Button>
+            <strong><FileCode2 size={15} aria-hidden="true" /> Иллюстративный фрагмент кода</strong>
+            <Button tone="secondary" size="sm" icon={<Copy size={13} />} onClick={() => { void copy(); }}>Копировать фрагмент</Button>
           </div>
           {copied !== 'idle' && <p role="status" className="dl-pat-copy">{copied === 'yes' ? 'Код скопирован.' : 'Буфер обмена недоступен — выделите код ниже.'}</p>}
+          <p className="dl-pat-copy">Для включения в продукт требуются обработчики действий, предметная логика и проверка поведения. Это не готовый самостоятельный компонент.</p>
           <pre className="dl-pat-code"><code>{recipe.code}</code></pre>
           <div className="dl-pat-sources"><strong>Файлы настоящих компонентов</strong><div>
             {components.map(item => (
@@ -282,7 +284,10 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
               </a>
             ))}
           </div></div>
-        </div>
+        </div> : <div className="dl-pat-details dl-pat-none" role="status">
+          <strong>Под заданный поиск рецептов нет</strong>
+          <p>Измените запрос или категорию. Прежний рецепт не показывается как найденный.</p>
+        </div>}
       </div>
     </div>
   );
