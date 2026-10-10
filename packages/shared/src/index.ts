@@ -174,3 +174,6 @@ export * from './control-cases.js';
 
 // One human-oriented, read-only explanation for each canonical control case.
 export * from './control-case-guide.js';
+
+// Cross-system source registry: not a competing issue list or scoring formula.
+export * from './control-portfolio.js';
