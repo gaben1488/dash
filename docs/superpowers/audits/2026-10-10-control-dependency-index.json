@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 73,
+  "scannedPaths": 81,
   "errors": [],
   "records": [
     {
@@ -867,6 +867,202 @@
       "sha": "807d9b01cfb5fbabac4248d876e670f319042fc6",
       "loc": 235,
       "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/provenance-journal.ts",
+      "sha": "a2abd75f34a11b6890f850fa43088dc123594a94",
+      "loc": 203,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/check-registry.ts",
+      "sha": "17d709e63538a9868d7c29363308758091ea6161",
+      "loc": 1193,
+      "refs": {
+        "checks": {
+          "count": 5,
+          "lines": [
+            38,
+            42,
+            204,
+            416,
+            967
+          ]
+        },
+        "actions": {
+          "count": 53,
+          "lines": [
+            34,
+            65,
+            78,
+            107,
+            138,
+            154,
+            168,
+            182,
+            196,
+            215,
+            233,
+            269,
+            290,
+            304,
+            318,
+            350,
+            363,
+            376,
+            393,
+            407,
+            429,
+            443,
+            463,
+            481,
+            512,
+            532,
+            561,
+            577,
+            595,
+            615,
+            630,
+            663,
+            680,
+            694,
+            724,
+            748,
+            794,
+            810,
+            827,
+            848,
+            863,
+            888,
+            925,
+            943,
+            957
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/control-cases.ts",
+      "sha": "c1ee283088c1553664385550122934ce5be745a6",
+      "loc": 204,
+      "refs": {
+        "issues": {
+          "count": 9,
+          "lines": [
+            8,
+            13,
+            46,
+            47,
+            72,
+            84,
+            95,
+            138,
+            139
+          ]
+        },
+        "signals": {
+          "count": 1,
+          "lines": [
+            74
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            14,
+            63,
+            64
+          ]
+        },
+        "actions": {
+          "count": 7,
+          "lines": [
+            56,
+            57,
+            155,
+            156,
+            157,
+            181,
+            182
+          ]
+        },
+        "control": {
+          "count": 6,
+          "lines": [
+            9,
+            37,
+            138,
+            151,
+            164,
+            191
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/ep-justification-grade.ts",
+      "sha": "9785517362d6042854a6bfad86aea9e00a0dfb60",
+      "loc": 249,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/grade-scale.ts",
+      "sha": "96f83c177fa4773c9363787185cb9f917cb65ff3",
+      "loc": 93,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/issue-conversion.ts",
+      "sha": "327bf4c1255d84875c10574c51693ce2cf8b2277",
+      "loc": 104,
+      "refs": {
+        "issues": {
+          "count": 4,
+          "lines": [
+            33,
+            37,
+            38,
+            46
+          ]
+        },
+        "checks": {
+          "count": 2,
+          "lines": [
+            28,
+            51
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/metric-provenance.ts",
+      "sha": "ebbfb065fd888a42a5b669d9fda61ae41f94d4ec",
+      "loc": 939,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/plan-integrity-rules.ts",
+      "sha": "376faedf3cc90a9cf8763c4405b4935cb3bbb183",
+      "loc": 849,
+      "refs": {
+        "checks": {
+          "count": 4,
+          "lines": [
+            24,
+            84,
+            784,
+            796
+          ]
+        },
+        "actions": {
+          "count": 3,
+          "lines": [
+            811,
+            827,
+            843
+          ]
+        }
+      }
     }
   ]
 }
