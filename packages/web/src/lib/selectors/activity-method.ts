@@ -22,6 +22,7 @@ export interface MethodActivitySlice {
   factCount: number;
   planTotal: number;
   factTotal: number;
+  economyTotal: number;
   planFB: number;
   planKB: number;
   planMB: number;
@@ -33,7 +34,7 @@ export interface MethodActivitySlice {
 const EMPTY: MethodActivitySlice = {
   exact: false, kpCount: 0, epCount: 0, kpFactCount: 0, epFactCount: 0,
   kpPlan: 0, epPlan: 0, kpFact: 0, epFact: 0,
-  planCount: 0, factCount: 0, planTotal: 0, factTotal: 0,
+  planCount: 0, factCount: 0, planTotal: 0, factTotal: 0, economyTotal: 0,
   planFB: 0, planKB: 0, planMB: 0, factFB: 0, factKB: 0, factMB: 0,
 };
 
@@ -55,6 +56,7 @@ export function activityMethodSlice(
   showKP: boolean,
   showEP: boolean,
   budgetPlanFact: BudgetPlanFactFn,
+  selectedBudgets: ReadonlySet<string> = new Set(),
 ): MethodActivitySlice {
   if (!entry) return { ...EMPTY, exact: true }; // No applicable rows in this slice
   const byMethod = entry.byMethod;
@@ -66,6 +68,17 @@ export function activityMethodSlice(
   const kMoney = showKP ? budgetPlanFact({ ...kp, planTotal: kp.planSum, factTotal: kp.factSum }) : { plan: 0, fact: 0 };
   const eMoney = showEP ? budgetPlanFact({ ...ep, planTotal: ep.planSum, factTotal: ep.factSum }) : { plan: 0, fact: 0 };
   const f = (key: keyof Method) => (showKP ? kp[key] ?? 0 : 0) + (showEP ? ep[key] ?? 0 : 0);
+  // Economy has its own AD='да' and fact-date source gates. It is NOT
+  // plan-fact difference. Budget selection applies to the same guarded
+  // method-specific cells, not a broad department-level economy total.
+  const guardedEconomy = (m: Method): number => {
+    if (selectedBudgets.size === 0) return m.economyTotal ?? 0;
+    let sum = 0;
+    if (selectedBudgets.has('fb')) sum += m.economyFB ?? 0;
+    if (selectedBudgets.has('kb')) sum += m.economyKB ?? 0;
+    if (selectedBudgets.has('mb')) sum += m.economyMB ?? 0;
+    return sum;
+  };
   return {
     exact: true,
     kpCount: showKP ? kp.plan ?? 0 : 0,
@@ -80,6 +93,7 @@ export function activityMethodSlice(
     factCount: (showKP ? kp.fact ?? 0 : 0) + (showEP ? ep.fact ?? 0 : 0),
     planTotal: kMoney.plan + eMoney.plan,
     factTotal: kMoney.fact + eMoney.fact,
+    economyTotal: (showKP ? guardedEconomy(kp) : 0) + (showEP ? guardedEconomy(ep) : 0),
     planFB: f('planFB'),
     planKB: f('planKB'),
     planMB: f('planMB'),
