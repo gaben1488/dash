@@ -45,6 +45,22 @@ describe('data-quality component of the existing scorecard', () => {
     expect(dataQualityScore(findings, 'uo', 'УО', 10)).toBe(1);
   });
 
+  it('does not punish a confirmed human false-positive disposition', () => {
+    const findings = [
+      issue({ id: 'false-positive', status: 'false_positive', checkId: 'data_quality', group: 'completeness', row: 5 }),
+      issue({ id: 'open', status: 'open', checkId: 'data_quality', group: 'completeness', row: 6 }),
+    ];
+    expect(dataQualityScore(findings, 'uo', 'УО', 10)).toBe(0.9);
+  });
+
+  it('does not treat unverified resolved and in-progress statuses as automatically corrected rows', () => {
+    const findings = [
+      issue({ id: 'resolved', status: 'resolved', checkId: 'data_quality', group: 'completeness', row: 5 }),
+      issue({ id: 'in-progress', status: 'in_progress', checkId: 'data_quality', group: 'completeness', row: 6 }),
+    ];
+    expect(dataQualityScore(findings, 'uo', 'УО', 10)).toBe(0.8);
+  });
+
   it('keeps legacy snapshots with no group or checkId observable', () => {
     expect(dataQualityScore([issue({ checkId: undefined, group: undefined })], 'uo', 'УО', 10)).toBe(0.9);
   });
