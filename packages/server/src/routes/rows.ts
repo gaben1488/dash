@@ -556,10 +556,34 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
 
+      // Validate each edit BEFORE revision preflight. An invalid column/header
+      // is a 400-style input failure, not a misleading missing-revision error.
+      // Keep valid cells so a mixed batch can report each outcome accurately.
+      const validChanges: Array<[string, unknown]> = [];
+      for (const [rawField, rawValue] of Object.entries(entry.changes)) {
+        const field = rawField.toUpperCase();
+        let validationError: string | null = null;
+        if (COL_LETTER_INDEX[field] === undefined) {
+          validationError = 'Такого столбца в книге закупок нет — правка отклонена';
+        } else {
+          validationError = rowWriteError(entry.rowIndex, dept.nameShort);
+          if (!validationError && FORMULA_COLUMNS.has(field)) {
+            validationError = `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`;
+          }
+        }
+        if (validationError) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: validationError });
+        } else {
+          validChanges.push([field, rawValue]);
+        }
+      }
+      if (validChanges.length === 0) continue;
+
       const expectedRevision = entry.expectedRevision;
       if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
           process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
-        for (const field of Object.keys(entry.changes)) {
+        for (const [field] of validChanges) {
           results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
             success: false, error: 'Обновите реестр: исходная версия строки отсутствует' });
         }
@@ -574,14 +598,14 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
             originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
           } catch (readErr) {
             app.log.warn({ err: readErr }, 'batch-save: source preflight failed');
-            for (const field of Object.keys(entry.changes)) {
+            for (const [field] of validChanges) {
               results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
                 success: false, error: 'Исходная строка не прочитана — запись не выполнялась' });
             }
             return;
           }
           if (rowRevision(originalRow) !== expectedRevision) {
-            for (const field of Object.keys(entry.changes)) {
+            for (const [field] of validChanges) {
               results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
                 success: false, error: 'Строка изменена или перемещена — перечитайте реестр; запись не выполнялась' });
             }
@@ -591,40 +615,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           originalRow = [...(getDeptSheetValues()[dept.nameShort]?.[entry.rowIndex - 1] ?? [])];
         }
 
-      for (const [rawField, rawValue] of Object.entries(entry.changes)) {
-        const field = rawField.toUpperCase();
-
-        // SECURITY (C2/H3): field обязан быть реальной колонкой — иначе range-injection.
-        if (COL_LETTER_INDEX[field] === undefined) {
-          results.push({
-            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: 'Такого столбца в книге закупок нет — правка отклонена',
-          });
-          continue;
-        }
-
-        // Та же граница строки, что и в PUT: строка обязана существовать в листе.
-        const boundsError = rowWriteError(entry.rowIndex, dept.nameShort);
-        if (boundsError) {
-          results.push({
-            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: boundsError,
-          });
-          continue;
-        }
-
-        // Block formula columns
-        if (FORMULA_COLUMNS.has(field)) {
-          results.push({
-            deptId: entry.deptId,
-            rowIndex: entry.rowIndex,
-            field,
-            success: false,
-            error: `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`,
-          });
-          continue;
-        }
-
+      for (const [field, rawValue] of validChanges) {
+        // Field name, sheet-row bounds and formula protection were checked
+        // before revision verification. Never write a field that failed it.
         // Normalize value
         let normalizedValue: unknown = rawValue;
         if (NUMERIC_COLUMNS.has(field)) {
