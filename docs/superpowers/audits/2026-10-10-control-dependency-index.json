@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 109,
+  "scannedPaths": 117,
   "errors": [],
   "records": [
     {
@@ -1409,6 +1409,207 @@
           ]
         }
       }
+    },
+    {
+      "path": "packages/web/src/lib/signal-counts.ts",
+      "sha": "be08c7110656ed895dc22b18cebb4c5f0601b8e1",
+      "loc": 15,
+      "refs": {
+        "signals": {
+          "count": 4,
+          "lines": [
+            1,
+            3,
+            7,
+            11
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/trust-metrics.ts",
+      "sha": "9aedb11c8023f1c59e52c77208610b079918628c",
+      "loc": 76,
+      "refs": {
+        "scores": {
+          "count": 3,
+          "lines": [
+            4,
+            31,
+            72
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Analytics.tsx",
+      "sha": "3e5840f959c39bbdc378655bf029413585f7e20b",
+      "loc": 2219,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            529,
+            536
+          ]
+        },
+        "scores": {
+          "count": 1,
+          "lines": [
+            544
+          ]
+        },
+        "actions": {
+          "count": 2,
+          "lines": [
+            50,
+            2194
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Dashboard.tsx",
+      "sha": "a8bb342a6939e470d3227f9dec7c0bf9bc39ab68",
+      "loc": 1720,
+      "refs": {
+        "signals": {
+          "count": 24,
+          "lines": [
+            299,
+            802,
+            1268,
+            1354,
+            1364,
+            1379,
+            1435,
+            1436,
+            1437,
+            1444,
+            1456,
+            1468,
+            1478,
+            1479,
+            1486,
+            1487,
+            1489,
+            1490,
+            1499,
+            1526,
+            1527,
+            1529,
+            1534,
+            1592
+          ]
+        },
+        "scores": {
+          "count": 6,
+          "lines": [
+            378,
+            975,
+            976,
+            986,
+            990,
+            1081
+          ]
+        },
+        "actions": {
+          "count": 2,
+          "lines": [
+            294,
+            305
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Discipline.tsx",
+      "sha": "2c14ceb4a5cc2cb36c1fe1eadca052626578d094",
+      "loc": 408,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            91
+          ]
+        },
+        "actions": {
+          "count": 4,
+          "lines": [
+            17,
+            47,
+            81,
+            116
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Issues.tsx",
+      "sha": "29ea449ef1a7a8816524574ae3c72607584331e9",
+      "loc": 1068,
+      "refs": {
+        "issues": {
+          "count": 7,
+          "lines": [
+            344,
+            365,
+            369,
+            410,
+            413,
+            466,
+            578
+          ]
+        },
+        "signals": {
+          "count": 1,
+          "lines": [
+            354
+          ]
+        },
+        "checks": {
+          "count": 2,
+          "lines": [
+            2,
+            387
+          ]
+        },
+        "actions": {
+          "count": 10,
+          "lines": [
+            46,
+            101,
+            112,
+            196,
+            362,
+            480,
+            857,
+            858,
+            927,
+            928
+          ]
+        },
+        "control": {
+          "count": 3,
+          "lines": [
+            2,
+            410,
+            670
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Journal.tsx",
+      "sha": "a208ed846af6da3b43b7ca90ed0470b92710b78e",
+      "loc": 426,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Monitoring.tsx",
+      "sha": "7ed084e694626f40ff80d509156588255bfac201",
+      "loc": 772,
+      "refs": {}
     }
   ],
   "webTargetCount": 37
