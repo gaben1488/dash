@@ -1,0 +1,11 @@
+{
+  "pulse": {
+    "path": "docs/superpowers/mockups/pulse.html",
+    "sha256": "65bfc00c5fdb591408799137f1dce8e0c9572b570d62b6cf37e94cc1e3b040b5"
+  },
+  "corner": {
+    "path": "docs/superpowers/mockups/ugol-varianty.html",
+    "sha256": "3af324092100497551e3a5ed00a9fc61bc293272287c0229d2d3575ba89b1434"
+  },
+  "method": "Original navigation markup, shield SVG and selected CSS rules. Interactions adapted to React; no Pulse content copied."
+}
