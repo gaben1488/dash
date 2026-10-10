@@ -90,6 +90,17 @@ export function selectActivityMethods(depts: any[], opts: {
         if (hasSourceRowsForPeriod(d, pk)) complete = false;
         continue;
       }
+      // A period can contain one perfectly valid group while entire other
+      // activities disappeared. Compare coverage BEFORE applying the UI filter.
+      const month = /^m(1[0-2]|[1-9])$/.exec(pk);
+      const source = month ? d.months?.[Number(month[1])]
+        : pk === 'year' ? (d.quarters?.year ?? d)
+        : d.quarters?.[pk];
+      if (typeof source?.planCount === 'number' && Number.isFinite(source.planCount)) {
+        const classified = ALL_ACTIVITY_KEYS.reduce(
+          (sum, key) => sum + (period[key]?.planCount ?? 0), 0);
+        if (classified !== source.planCount) complete = false;
+      }
       for (const ak of actKeys) {
         const activity = period[ak] as ActivityValue | undefined;
         if (!activity) continue;

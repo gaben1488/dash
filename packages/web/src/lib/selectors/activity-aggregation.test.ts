@@ -105,6 +105,20 @@ describe('разрез деятельности × способа закупки
     }).complete).toBe(true);
   });
 
+  it('выпавший вид деятельности выявляется сверкой с общим количеством периода', () => {
+    const partial = {
+      quarters: { q1: { planCount: 4, planTotal: 80 } },
+      byActivity: { q1: { program: { planCount: 2, byMethod: {
+        competitive: metric(1, 0, 20), ep: metric(1, 0, 10),
+      } } } },
+    };
+    const result = recalcTotalsByActivity([partial], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    });
+    expect(result.planCount).toBe(2);
+    expect(result.complete).toBe(false); // TD vanished from a nonempty source
+  });
+
   it('разрез с обеими группами КП/ЕП, но с потерянной позицией, не считается полным', () => {
     const partial = { byActivity: { q1: { program: {
       planCount: 4, factCount: 2,
