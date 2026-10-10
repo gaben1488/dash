@@ -156,17 +156,35 @@ async function workloadRead(): Promise<Reading> {
   );
 }
 
+/**
+ * Bound the wait for external readers. A slow monitoring/ChangeLog API must
+ * not hold the whole Control page indefinitely. A timeout is recorded as a
+ * failed source, never as a successful empty result.
+ *
+ * The read itself can finish later in its own cache; this endpoint makes no
+ * source writes.
+ */
+function withReadDeadline<T>(promise: Promise<T>, ms = 12_000): Promise<T> {
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    handle = setTimeout(() => reject(new Error('Время ожидания контроля источника превышено')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (handle) clearTimeout(handle);
+  });
+}
+
 /** Each source fails independently: no one-off Google outage turns all zeros green. */
 export function controlPortfolioRoutes(app: FastifyInstance): void {
   app.get('/api/control/portfolio', async (_request, reply) => {
     const at = new Date().toISOString();
     const reads = await Promise.allSettled([
-      planAndSvodRead(),
-      Promise.resolve().then(formulaRead),
-      Promise.resolve().then(integrityRead),
-      textRead(),
-      monitoringRead(),
-      workloadRead(),
+      withReadDeadline(planAndSvodRead()),
+      withReadDeadline(Promise.resolve().then(formulaRead)),
+      withReadDeadline(Promise.resolve().then(integrityRead)),
+      withReadDeadline(textRead()),
+      withReadDeadline(monitoringRead()),
+      withReadDeadline(workloadRead()),
     ] as const);
 
     const data: Partial<Record<ControlChannelId, Reading>> = {};
