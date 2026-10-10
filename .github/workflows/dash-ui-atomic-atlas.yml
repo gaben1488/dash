@@ -1,0 +1,54 @@
+name: Dash UI atomic atlas
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'packages/web/src/**'
+      - 'packages/web/scripts/ui-atomic-atlas.mjs'
+      - '.github/workflows/dash-ui-atomic-atlas.yml'
+  push:
+    branches: [codex/dash-design-library-patterns-20261010]
+    paths:
+      - 'packages/web/src/**'
+      - 'packages/web/scripts/ui-atomic-atlas.mjs'
+      - '.github/workflows/dash-ui-atomic-atlas.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: dash-ui-atlas-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: Source-addressed React elements and dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Scan all current UI source atoms without live data
+        run: pnpm -F @aemr/web exec node scripts/ui-atomic-atlas.mjs
+      - name: Add verifiable source SHA to the generated manifest
+        run: |
+          python3 - <<'PY'
+          import json, os
+          p='packages/web/artifacts/ui-atomic-atlas.json'
+          with open(p, encoding='utf8') as f: obj=json.load(f)
+          obj['source_sha']=os.environ['GITHUB_SHA']
+          with open(p,'w',encoding='utf8') as f: json.dump(obj,f,ensure_ascii=False,indent=2)
+          print('Atlas recorded for source commit',obj['source_sha'])
+          PY
+      - name: Preserve the full address graph as a review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dash-ui-atomic-atlas-${{ github.run_number }}
+          path: packages/web/artifacts/ui-atomic-atlas.*
+          retention-days: 30

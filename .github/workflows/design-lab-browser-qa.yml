@@ -1,0 +1,77 @@
+name: Design Lab browser QA
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'packages/web/src/pages/DesignLab*'
+      - 'packages/web/src/pages/design-lab/**'
+      - 'packages/web/src/pages/design-lab.css'
+      - 'packages/web/src/pages/Kit.tsx'
+      - 'scripts/design-lab-browser-qa.mjs'
+      - '.github/workflows/design-lab-browser-qa.yml'
+  push:
+    branches: [codex/dash-design-library-patterns-20261010]
+    paths:
+      - 'packages/web/src/pages/DesignLab*'
+      - 'packages/web/src/pages/design-lab/**'
+      - 'packages/web/src/pages/design-lab.css'
+      - 'scripts/design-lab-browser-qa.mjs'
+      - '.github/workflows/design-lab-browser-qa.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: design-lab-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-real-chromium:
+    name: Real Chromium + screenshots (no production access)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install workspace dependencies without changing the lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Install test-only browser control outside repository
+        run: npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/dash-browser-qa" puppeteer-core@24.18.0
+      - name: Start Vite dev-only Kit
+        run: |
+          pnpm -F @aemr/web dev --host 127.0.0.1 > "$RUNNER_TEMP/design-lab-vite.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/design-lab-vite.pid"
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:5173/ > /dev/null; then
+              echo "Dev-only web server responds."
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/design-lab-vite.log"
+          exit 1
+      - name: Use installed Chrome, not a mocked DOM
+        run: |
+          browser=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium)
+          test -n "$browser"
+          echo "CHROME_PATH=$browser" >> "$GITHUB_ENV"
+          "$browser" --version
+      - name: Capture palettes, compare scenes, original HTML and accessibility smoke
+        run: node scripts/design-lab-browser-qa.mjs
+      - name: Archive images and reproducible browser measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-lab-chromium-${{ github.run_number }}
+          path: |
+            artifacts/design-lab-browser-qa/
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Vite log on failure
+        if: failure()
+        run: tail -150 "$RUNNER_TEMP/design-lab-vite.log"
