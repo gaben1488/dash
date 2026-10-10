@@ -41,6 +41,7 @@ type Method = {
   plan?: number; fact?: number; planSum?: number; factSum?: number;
   planFB?: number; planKB?: number; planMB?: number;
   factFB?: number; factKB?: number; factMB?: number;
+  economyTotal?: number; economyFB?: number; economyKB?: number; economyMB?: number;
 };
 type ActivityLike = {
   planCount?: number; factCount?: number;
