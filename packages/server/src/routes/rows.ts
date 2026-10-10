@@ -11,7 +11,11 @@ import {
   isMetaRow,
   isOrgItself,
 } from '@aemr/shared';
-import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
+import { writeCellValue, resolveDeptSheetName, readLiveRowCells } from '../services/google-sheets.js';
+import {
+  hasRowWriteIdentity, rowIdentityMatches, ROW_IDENTITY_COLUMNS,
+  type RowWriteIdentity,
+} from '../services/row-write-identity.js';
 import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
@@ -105,6 +109,31 @@ function rowWriteError(idx: number, deptShortName: string, display: string | num
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
   return null;
+}
+
+/**
+ * A mutable sheet row may have moved since the user opened the editor.
+ * Require original A/B/C/G and compare twice: the current server cache AND
+ * a fresh read from the actual spreadsheet. Google values.update has no
+ * atomic compare-and-swap: later external movement remains a bounded risk.
+ */
+async function rowWritePreconditionError(
+  deptShortName: string,
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+  expected: RowWriteIdentity,
+): Promise<string | null> {
+  const raw = getDeptSheetValues()[deptShortName]?.[rowIndex - 1];
+  if (!raw) return 'Исходная строка не загружена — перечитайте реестр перед правкой.';
+  const cached = Object.fromEntries(ROW_IDENTITY_COLUMNS.map(col => [
+    col, raw[COL_LETTER_INDEX[col]],
+  ]));
+  const staleMessage = 'Строка в книге изменилась или переместилась после открытия редактора. '
+    + 'Правка не внесена. Обновите реестр, проверьте предмет и повторите.';
+  if (!rowIdentityMatches(expected, cached)) return staleMessage;
+  const live = await readLiveRowCells(spreadsheetId, sheetName, rowIndex, ROW_IDENTITY_COLUMNS);
+  return rowIdentityMatches(expected, live) ? null : staleMessage;
 }
 
 /**
@@ -305,7 +334,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const body = request.body as { field?: string; value?: unknown } | null;
+    const body = request.body as { field?: string; value?: unknown; expectedRow?: unknown } | null;
     const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
     if (!body || typeof body.field !== 'string' || !body.field.trim() || body.value === undefined) {
@@ -386,12 +415,21 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     // РЕАЛЬНОЕ имя вкладки книги (кандидаты «ВСЕ»/«Все»/имя по метаданным) —
     // статичное имя из реестра могло не существовать → запись в никуда.
+    if (!hasRowWriteIdentity(body.expectedRow)) {
+      return reply.status(428).send({
+        error: 'Неизвестна исходная закупка. Откройте строку заново и повторите правку.',
+      });
+    }
     const sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
 
     const cellAddress = `${field}${idx}`;
     const now = new Date().toISOString();
 
     try {
+      const conflict = await rowWritePreconditionError(
+        dept.nameShort, spreadsheetId, sheetName, idx, body.expectedRow,
+      );
+      if (conflict) return reply.status(409).send({ error: conflict });
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
       // Прочитанные значения книги догоняют сохранённую правку (см. reflectEditInCache).
@@ -461,7 +499,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.post('/api/data/rows', async (request, reply) => {
     const body = request.body as {
-      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>;
+      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRow?: unknown }>;
     };
 
     if (!body?.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
@@ -517,6 +555,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       // Ленивый резолв РЕАЛЬНОГО имени вкладки: только когда есть что писать
       // (после всех валидаций) — невалидные запросы отклоняются без сетевого вызова.
       let sheetName: string | null = null;
+      // At most one live preflight for each entry. A subject edit (G) during
+      // this batch must not invalidate its own original identity on field #2.
+      let preflightDone = false;
+      let preflightError: string | null = null;
 
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
@@ -583,6 +625,28 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const cellAddress = `${field}${entry.rowIndex}`;
+
+        if (!preflightDone) {
+          preflightDone = true;
+          if (!hasRowWriteIdentity(entry.expectedRow)) {
+            preflightError = 'Нет исходной идентичности закупки. Откройте строку заново перед сохранением.';
+          } else {
+            try {
+              sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
+              preflightError = await rowWritePreconditionError(
+                dept.nameShort, spreadsheetId, sheetName, entry.rowIndex, entry.expectedRow,
+              );
+            } catch (err) {
+              app.log.warn({ err, department: dept.nameShort }, 'batch-save: live row verification failed');
+              preflightError = 'Не удалось проверить актуальную строку книги. Сохранение заблокировано; повторите позже.';
+            }
+          }
+        }
+        if (preflightError) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: preflightError });
+          continue;
+        }
 
         try {
           sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
