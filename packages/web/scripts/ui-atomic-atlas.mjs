@@ -186,6 +186,7 @@ function human(atlas) {
     '## Измеренное покрытие',
     '',
     'Просмотрено файлов: '+atlas.summary.files+'; с JSX: '+atlas.summary.jsxFiles+'; атомов JSX: '+atlas.summary.atoms+'; обработчиков/ссылок: '+atlas.summary.interactive+'; граф связей: '+atlas.graph.edges.length+'.',
+    'Отдельно исключено тестовых файлов: '+atlas.summary.testFilesExcluded+'; они не составляют рабочий экран.',
     '',
     '| Исходный файл | Элементов | С действиями | Теги компонентов |',
     '|---|---:|---:|---|',
@@ -213,10 +214,15 @@ function human(atlas) {
   return md.join('\n')+'\n';
 }
 export async function buildAtlas() {
+  const paths=await walk(root);
+  const testPaths=paths.filter(file=>/\.(?:test|spec)\.[jt]sx?$/.test(file));
+  // Production JSX is not inflated with render() calls inside Vitest fixtures.
   const files=[];
-  for(const file of await walk(root)) files.push(inspect(file,await readFile(file,'utf8')));
+  for(const file of paths.filter(file=>!/\.(?:test|spec)\.[jt]sx?$/.test(file)))
+    files.push(inspect(file,await readFile(file,'utf8')));
   const graph=graphOf(files);
-  const summary={files:files.length,jsxFiles:files.filter(f=>f.atoms.length).length,
+  const summary={files:files.length,testFilesExcluded:testPaths.length,
+    jsxFiles:files.filter(f=>f.atoms.length).length,
     atoms:files.reduce((n,f)=>n+f.atoms.length,0),interactive:files.reduce((n,f)=>n+f.eventCount,0)};
   for(const name of ['Dashboard.tsx','Report.tsx','DataBrowser.tsx','Monitoring.tsx','Quality.tsx',
     'Header.tsx','OrgStrip.tsx','DrillPieChart.tsx']) {
@@ -225,7 +231,7 @@ export async function buildAtlas() {
   if(summary.atoms<700 || summary.jsxFiles<40) throw Error('Incomplete UI tree '+JSON.stringify(summary));
   const routes=await routeCoverage(files,graph);
   if(routes.length!==13 || routes.some(page=>page.jsx<1))throw Error('Incomplete route coverage');
-  return {schema:2,summary,graph,routes,files};
+  return {schema:3,summary,graph,routes,files};
 }
 async function main() {
   const result=await buildAtlas();
