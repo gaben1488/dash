@@ -87,6 +87,17 @@ describe('целостность нумерации рабочего листа'
     expect(r.note).toContain('как адрес нумерация');
   });
 
+  it('большая дыра не создаёт массив из миллионов номеров', () => {
+    const started = Date.now();
+    const r = checkSequenceIntegrity([
+      row({ sheetRow: 4, rowSeq: '1' }),
+      row({ sheetRow: 5, rowSeq: '100000000' }),
+    ]);
+    expect(r.gapCount).toBe(99_999_998);
+    expect(r.gaps).toEqual([{ from: 2, to: 99_999_999, count: 99_999_998 }]);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it('пустой лист не ломает проверку', () => {
     const r = checkSequenceIntegrity([]);
     expect(r).toMatchObject({ rows: 0, countable: 0, gapCount: 0, range: null, coveragePct: null });
