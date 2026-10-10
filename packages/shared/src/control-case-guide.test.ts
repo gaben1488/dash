@@ -22,6 +22,7 @@ describe('canonical four-step control-case guide', () => {
     const g = guide();
     expect(g.sourceAddress).toContain('№ п/п 173/1');
     expect(g.sourceAddress).toContain('K44');
+    expect(buildControlCaseGuide(buildControlCases([finding()])[0], 'УО').sourceAddress.startsWith('УО')).toBe(true);
     expect(g.verificationRequired).toBe(true);
     expect(g.steps.map(s => s.id)).toEqual(['understand', 'evidence', 'action', 'recheck']);
     expect(g.steps[1].description).toContain('Исходных наблюдений: 1');
