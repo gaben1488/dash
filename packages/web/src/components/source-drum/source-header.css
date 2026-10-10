@@ -1,0 +1,63 @@
+/* Consolidated PR #70 source geometry applied to real Header.tsx.
+ * ShieldHub, TimeDrum, WeekRoller, original filter buttons, LiveHistory,
+ * SelectionTokens, ProvenanceHub and every handler remain production-owned. */
+.hbar.dash-source-layout{
+  display:grid;
+  grid-template-columns:40px minmax(450px,550px) minmax(315px,1fr) minmax(110px,.7fr) auto;
+  grid-template-areas:
+    "shield navigation time live tools"
+    "filters filters filters filters filters";
+  gap:6px 10px;
+  padding:8px 12px;
+  align-items:center;
+  min-height:0;
+}
+.hbar.dash-source-layout>.shield-hub{grid-area:shield;justify-self:center;align-self:center}
+.hbar.dash-source-layout>.dash-source-navigation{grid-area:navigation;width:100%;max-width:none;min-width:0}
+.hbar.dash-source-layout>.time-machine{grid-area:time;min-width:0;justify-content:flex-start}
+.hbar.dash-source-layout>.hdr-ugol{grid-area:live;min-width:0;align-items:stretch;margin:0}
+.hbar.dash-source-layout>.nav-tools{grid-area:tools;min-width:0;margin:0;justify-content:flex-end}
+.hbar.dash-source-layout>.dash-source-filters{
+  grid-area:filters;
+  display:flex;align-items:center;flex-wrap:wrap;
+  gap:7px 11px;min-width:0;
+  padding:4px 0 0;
+  border-top:1px solid var(--line-soft);
+}
+.hbar.dash-source-layout .dash-source-filters>.vf-drum{
+  flex:0 0 auto;
+}
+.hbar.dash-source-layout .dash-source-filters>.relative{
+  flex:0 0 auto;
+}
+@media(max-width:1280px){
+  .hbar.dash-source-layout{
+    grid-template-columns:40px minmax(0,1fr) auto;
+    grid-template-areas:
+      "shield navigation tools"
+      "time time live"
+      "filters filters filters";
+    column-gap:10px;
+    row-gap:7px;
+  }
+  .hbar.dash-source-layout>.dash-source-navigation{justify-self:stretch;max-width:550px}
+  .hbar.dash-source-layout>.time-machine{justify-content:flex-start}
+}
+@media(max-width:710px){
+  .hbar.dash-source-layout{
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:
+      "shield tools"
+      "navigation navigation"
+      "time time"
+      "live live"
+      "filters filters";
+    padding:7px 10px;
+    gap:7px;
+  }
+  .hbar.dash-source-layout>.shield-hub{justify-self:start}
+  .hbar.dash-source-layout>.dash-source-navigation{width:100%;max-width:100%}
+  .hbar.dash-source-layout>.time-machine{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+  .hbar.dash-source-layout>.hdr-ugol{max-width:100%;margin:0}
+  .hbar.dash-source-layout>.dash-source-filters{gap:6px 8px;overflow-x:auto}
+}
