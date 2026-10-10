@@ -374,18 +374,18 @@ export function TrustPage() {
           )}
           {scopedToFilter && (
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
-              Считается по выбранным управлениям ({filteredDeptSummaries.length}), а не по всему району
+              Историческая модель рассчитывается по выбранным управлениям ({filteredDeptSummaries.length}), а не по всему району
             </p>
           )}
           {/* Подпись периметра (канон п.58): индекс считается по последнему
               прочтению книг целиком — периоду и месяцам шапки не подчиняется. */}
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
-            Периметр: 2026 · вся книга · {scopedToFilter ? 'выбранные управления' : 'все управления'} · на момент последнего чтения
+            Периметр: {fd.dataYear ?? 'год не установлен'} · вся книга · {scopedToFilter ? 'выбранные управления' : 'все управления'} · на момент последнего чтения
           </p>
 
           <details className="mt-3 w-full group">
             <summary className="text-[11px] text-blue-600 dark:text-blue-400 cursor-pointer hover:text-blue-700 flex items-center gap-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
-              <Info size={11} /> Как получается этот балл
+              <Info size={11} /> Как устроена прежняя балльная модель
             </summary>
             <div className="mt-2 space-y-2 text-[11px] leading-relaxed">
               {liveOverall && (
