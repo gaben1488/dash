@@ -110,6 +110,11 @@
 .dl-reset { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 3px; }
 .dl-reset:hover { border-color: var(--lab-accent); }
 
+
+.dl-mobile-controls-toggle { display:none; align-items:center; gap:10px; justify-content:space-between; padding:12px 14px;
+  min-height:44px; background:var(--lab-card); color:var(--lab-text); border:1px solid var(--lab-line);
+  border-radius:11px; font-size:13px; font-weight:650; text-align:left; }
+.dl-mobile-controls-toggle > span { margin-left:auto; color:var(--lab-accent); font-size:19px; font-weight:500; }
 .dl-content { min-width: 0; }
 .dl-tabs {
   display: flex; gap: 3px; padding: 5px;
@@ -117,6 +122,9 @@
   background: var(--lab-card); border: 1px solid var(--lab-line);
   border-radius: 12px; width: max-content; max-width: 100%;
   margin-bottom: 18px;
+  flex-wrap:wrap;
+  overflow:visible;
+  width:100%;
 }
 .dl-tabs [role="tab"] {
   flex: 0 0 auto; background: transparent; border: 0;
@@ -376,6 +384,13 @@
   .dl-controls .dl-motion-button { align-self: end; }
 }
 @media (max-width: 700px) {
+  .dl-mobile-controls-toggle { display:flex; grid-column:1 / -1; }
+  .dl-controls.is-mobile-closed { display:none; }
+  .dl-controls.is-mobile-open { display:grid; }
+  .dl-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; max-width:100%;
+    overflow:visible; gap:4px; padding:5px; }
+  .dl-tabs [role="tab"] { min-width:0; width:100%; text-align:center; padding:9px 6px;
+    font-size:12px; line-height:1.25; min-height:42px; white-space:normal; }
   .dl-header-main { align-items: start; }
   .dl-summary-stamp { display: none; }
   .dl-controls { grid-template-columns: repeat(2,minmax(0,1fr)); }
