@@ -201,7 +201,7 @@ function Preview({
                     </td>
                     <td>{row.org}</td>
                     <td>{row.work}</td>
-                    <td className="dl-numeric">{row.plan}</td>
+                    <td className="dl-numeric">{row.planDisplay}</td>
                     <td><span className={'dl-row-state ' + (row.issue ? 'needs-work' : 'is-verified')}>{row.state}</span></td>
                   </tr>
                 ))}
