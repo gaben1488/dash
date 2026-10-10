@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 41,
+  "scannedPaths": 49,
   "errors": [],
   "records": [
     {
@@ -375,6 +375,116 @@
       "sha": "6cb830d229185cc57b125654b301eba89bbc31a3",
       "loc": 466,
       "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/recon-keys.ts",
+      "sha": "8b07464d4e9f90f324c8317f2f03fd9bb5a23732",
+      "loc": 30,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/reconcile-cross.ts",
+      "sha": "4de86ca492ab294cfe8c531f876f8ed7c268cc78",
+      "loc": 174,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/reconcile-monthly.ts",
+      "sha": "b92f379a2617d0e19209bc73c73bc84ab63d204a",
+      "loc": 562,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/reconcile.ts",
+      "sha": "c0270254ecfa4e6330ac4588c8495168972cb50f",
+      "loc": 285,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/signals.ts",
+      "sha": "ead8b02408d4e56c829966434f5232d43d7d90ef",
+      "loc": 1184,
+      "refs": {
+        "signals": {
+          "count": 13,
+          "lines": [
+            62,
+            66,
+            67,
+            76,
+            458,
+            473,
+            556,
+            634,
+            722,
+            984,
+            998,
+            1050,
+            1068
+          ]
+        },
+        "checks": {
+          "count": 4,
+          "lines": [
+            62,
+            144,
+            723,
+            815
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/provenance/plan-provenance.ts",
+      "sha": "0548a9d41166228deef3c929f8eea558d018901d",
+      "loc": 1126,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/report/build-report.ts",
+      "sha": "a6b0be5dbf9c93ef2718e7985b9fc15f5d020fb2",
+      "loc": 841,
+      "refs": {
+        "issues": {
+          "count": 3,
+          "lines": [
+            30,
+            76,
+            318
+          ]
+        },
+        "signals": {
+          "count": 1,
+          "lines": [
+            586
+          ]
+        },
+        "actions": {
+          "count": 1,
+          "lines": [
+            331
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/report/types.ts",
+      "sha": "b837b761022e4680695717e8da509e1f297e38ad",
+      "loc": 375,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            168
+          ]
+        },
+        "actions": {
+          "count": 1,
+          "lines": [
+            182
+          ]
+        }
+      }
     }
   ]
 }
