@@ -6,7 +6,7 @@ import { contrastRatio } from './presets';
 
 describe('Dash recipe library: source-backed and extensible', () => {
   it('lists real existing components without duplicates or phantom paths', () => {
-    expect(COMPONENT_INDEX).toHaveLength(15);
+    expect(COMPONENT_INDEX).toHaveLength(21);
     expect(new Set(COMPONENT_INDEX.map(item => item.id)).size).toBe(COMPONENT_INDEX.length);
     for (const item of COMPONENT_INDEX) {
       expect(item.path.startsWith('packages/web/src/')).toBe(true);
@@ -29,7 +29,7 @@ describe('Dash recipe library: source-backed and extensible', () => {
   });
 
   it('supplies exactly 8 behavior-first recipes with actionable acceptance criteria', () => {
-    expect(UI_RECIPES).toHaveLength(8);
+    expect(UI_RECIPES).toHaveLength(14);
     expect(new Set(UI_RECIPES.map(item => item.id)).size).toBe(UI_RECIPES.length);
     const known = new Set<string>(COMPONENT_INDEX.map(item => item.id));
     for (const recipe of UI_RECIPES) {
@@ -59,6 +59,6 @@ describe('Dash recipe library: source-backed and extensible', () => {
     );
     expect(searchRecipes('', 'Облик')).toHaveLength(2);
     expect(searchRecipes('невероятное_несуществующее')).toEqual([]);
-    expect(UI_RECIPES).toHaveLength(8);
+    expect(UI_RECIPES).toHaveLength(14);
   });
 });
