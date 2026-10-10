@@ -22,7 +22,7 @@ describe('SUBORDINATES_FALLBACK — производные от канониче
   });
 
   it('УАГЗО (форма данных) получает подвед через мост УАГиЗО→УАГЗО', () => {
-    expect(SUBORDINATES_FALLBACK['УАГЗО']).toContain('МКУ «Елизовское РУС»');
+    expect(SUBORDINATES_FALLBACK['УАГЗО']).toContain('МКУ "Елизовское РУС"');
   });
 
   it('записи самого управления (org_itself) исключены', () => {
