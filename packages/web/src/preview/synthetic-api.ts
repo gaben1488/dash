@@ -168,8 +168,12 @@ function fixture(path:string): unknown | undefined {
   if(path==='/events') return {events:[],entries:[],latest:[],total:0,newIssues:0};
   if(path==='/report-releases') return {latest:null,release:null,status:'NOT_AVAILABLE',history:[]};
   if(path==='/workload') return {items:[],rows:[],summary:{},counts:{total:0},departments:[]};
-  if(path==='/anomalies') return {rows:[],summary:{},byDepartment:{},departments:[]};
-  if(path==='/integrity') return {rows:[],issues:[],checks:[],summary:{},books:[]};
+  if(path==='/anomalies') return {asOf,booksRead:[],booksSilent:[],journalsSilent:[],rowsScanned:0,
+    typo:[],fitted:[],counts:{},amountAtRisk:{typo:0,fitted:0},dataset:[],noise:[],
+    datasetAvailable:false,notes:['Демо: анализ реальных закупок не проводился']};
+  if(path==='/integrity') return {asOf,books:[],totals:{gapCount:0,duplicates:0,countableWithoutSeq:0,dateFormat:0},
+    comparison:null,comparisonNote:'В демонстрации нет пары реальных снимков',
+    notes:['Это не проверка производственной целостности']};
   if(path==='/analytics/scorecard') return {};
   if(path==='/annotations/yearlong') return {overrides:[],total:0};
   if(path==='/annotations/comments') return {asOf,source:'snapshot',rowsScanned:0,total:0,byKind:{},annotations:[]};
