@@ -10,6 +10,7 @@ import {
   resolveYearlongKind,
   subordinateKey,
   subordinateNameMatchKey,
+  parseEditableAmount,
   sumInitiativeRows,
   type YearlongKindId,
 } from '@aemr/shared';
@@ -507,7 +508,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   /** Проверка числового поля редактора — одна на все денежные колонки. */
   const moneyCell = useCallback((v: unknown): string | null => {
     if (v === null || v === '' || v === undefined) return null;
-    return isNaN(parseFloat(String(v))) ? 'Ожидается число, например 1250,50' : null;
+    return parseEditableAmount(v).ok ? null : 'Введите полное число, например 1 250,50';
   }, []);
 
   const defaultEditorColumns: ColumnConfig[] = useMemo(() => [
@@ -537,11 +538,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   ], [moneyCell]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */
-  const sumBudgets = useCallback((row: RowData, keys: string[]): number => {
-    return keys.reduce((acc, key) => {
-      const n = parseFloat(String(row[key] ?? ''));
-      return acc + (isNaN(n) ? 0 : n);
-    }, 0);
+  const sumBudgets = useCallback((row: RowData, keys: string[]): number | null => {
+    let total = 0;
+    for (const key of keys) {
+      const amount = parseEditableAmount(row[key]);
+      // Never present a made-up total when one amount is not a valid number.
+      if (!amount.ok) return null;
+      total += amount.value ?? 0;
+    }
+    return total;
   }, []);
 
   const handleEditorCellChange = useCallback((rowId: string, colKey: string, value: unknown) => {
