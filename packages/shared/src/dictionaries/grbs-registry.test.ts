@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getGrbs, resolveGrbsAlias } from './grbs-registry';
+import { SUBORDINATE_REGISTRY } from './subordinate-registry';
 
 /** Снимок только восьми публикуемых названий, без строк организаций или ID таблиц. */
 const ACTIVE: ReadonlyArray<readonly [Parameters<typeof getGrbs>[0], string, string]> = [
@@ -25,6 +26,18 @@ describe('округ: действующее полное имя и истори
     for (const [id, _current, old] of ACTIVE) expect(resolveGrbsAlias(old)).toBe(id);
     expect(resolveGrbsAlias('УАГЗО')).toBe('УАГиЗО');
     expect(resolveGrbsAlias('УАГиЗО')).toBe('УАГиЗО');
+  });
+  it('записи аппаратов остаются единственными, имеют нынешнее имя и исторический алиас', () => {
+    const seen = new Set<string>();
+    for (const [id, current] of ACTIVE) {
+      const entries = SUBORDINATE_REGISTRY.filter((e) => e.grbsId === id && e.isOrgItself);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].canonicalName).toBe(current);
+      expect(entries[0].legacyCanonicalName).toBeTruthy();
+      expect(entries[0].legacyCanonicalName).not.toBe(current);
+      seen.add(entries[0].id);
+    }
+    expect(seen.size).toBe(8);
   });
   it('не угадывает незнакомый орган по строковому сходству', () => {
     expect(resolveGrbsAlias('Управление без подтверждённой преемственности')).toBeUndefined();
