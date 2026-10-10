@@ -142,6 +142,7 @@ export function computeFilteredData(input: FilterInputs) {
   // Activity selection must change both numerator and denominator.
   let { totalPlanCount, totalFactCount, totalKP, totalEP, totalPlan, totalFact } = aggregated;
   let activityMethodBreakdownAvailable = true;
+  let selectedActivityEconomy = 0;
 
   // ── Оси бюджета и вида деятельности (пересчёт тоталов при активном фильтре) ──
   const isBudgetFiltered = selectedBudgets.size > 0;
@@ -154,10 +155,11 @@ export function computeFilteredData(input: FilterInputs) {
       ? [...resolution.fullQuarters, ...resolution.partialMonths.map((m) => `m${m}`)]
       : activePeriodKeys(resolution);
     const activity = recalcTotalsByActivity(depts, {
-      actKeys, periodKeys: activityPeriods, budgetPlanFact, showKP, showEP,
+      actKeys, periodKeys: activityPeriods, budgetPlanFact, showKP, showEP, selectedBudgets,
     });
     ({ totalPlan, totalFact, totalKP, totalEP, totalPlanCount, totalFactCount } = activity);
     activityMethodBreakdownAvailable = activity.methodBreakdownAvailable;
+    selectedActivityEconomy = activity.totalEconomy;
   }
   if (isBudgetFiltered && !isActivityFiltered) {
     ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
@@ -233,11 +235,13 @@ export function computeFilteredData(input: FilterInputs) {
   // Экономия за выбранный период считается ОДИН раз: и карточке KPI, и итогу
   // страницы нужен один и тот же обход всех управлений. fullQuarters/partialMonths
   // включают месячную ветвь (баг #10: экономия месяца бралась за весь квартал).
-  const totalEconomy = getFilteredEconomyTotal({
-    depts, periodKey, coveredQuarters,
-    fullQuarters: resolution.fullQuarters, partialMonths: resolution.partialMonths,
-    hasMonthData, selectedBudgets,
-  });
+  const totalEconomy = isActivityFiltered
+    ? (activityMethodBreakdownAvailable ? selectedActivityEconomy : 0)
+    : getFilteredEconomyTotal({
+      depts, periodKey, coveredQuarters,
+      fullQuarters: resolution.fullQuarters, partialMonths: resolution.partialMonths,
+      hasMonthData, selectedBudgets,
+    });
 
   // ── Производные KPI-карточки (гварды порядка/заполнения — как до разреза) ──
   if (overallExecCountPct != null && (!isActivityFiltered || activityMethodBreakdownAvailable)) {
