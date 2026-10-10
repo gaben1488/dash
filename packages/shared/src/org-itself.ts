@@ -1,4 +1,4 @@
-import { ORG_ITSELF_SENTINEL } from './dictionaries/subordinate-registry.js';
+import { ORG_ITSELF_SENTINEL, SUBORDINATE_REGISTRY } from './dictionaries/subordinate-registry.js';
 
 /**
  * Канон «само управление» (org-itself) — ЕДИНЫЙ предикат столбца C
@@ -32,6 +32,28 @@ export function isOrgItself(c: unknown): boolean {
 /** Ключ-ведро по столбцу C: сентинел «само управление» или имя подведа (trim). */
 export function subordinateKey(c: unknown): string {
   return isOrgItself(c) ? ORG_ITSELF_SENTINEL : String(c).trim();
+}
+
+/**
+ * Проверенные связи прежнего и действующего написаний.
+ * Строится из уже существующего реестра — не из расплывчатой транслитерации
+ * и не из нового ID в рабочих планах. Исторические имена не теряются.
+ */
+function normalizeSubordinateSpelling(raw: unknown): string {
+  const key = normalizeSubordinateSpelling(raw);
+  return HISTORIC_SUBORDINATE_NAMES.get(key) ?? key;
+}
+
+const HISTORIC_SUBORDINATE_NAMES = new Map<string, string>();
+for (const entry of SUBORDINATE_REGISTRY) {
+  if (!entry.legacyCanonicalName) continue;
+  const legacy = normalizeSubordinateSpelling(entry.legacyCanonicalName);
+  const current = normalizeSubordinateSpelling(entry.canonicalName);
+  if (HISTORIC_SUBORDINATE_NAMES.has(legacy)
+      && HISTORIC_SUBORDINATE_NAMES.get(legacy) !== current) {
+    throw new Error('SUBORDINATE_HISTORIC_ALIAS_CONFLICT');
+  }
+  HISTORIC_SUBORDINATE_NAMES.set(legacy, current);
 }
 
 /**
