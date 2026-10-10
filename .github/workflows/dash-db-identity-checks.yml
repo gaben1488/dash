@@ -1,0 +1,23 @@
+name: Dash DB identity audit checks
+on:
+  push:
+    paths:
+      - 'tools/db-migration/**'
+      - '.github/workflows/dash-db-identity-checks.yml'
+  pull_request:
+    paths:
+      - 'tools/db-migration/**'
+      - '.github/workflows/dash-db-identity-checks.yml'
+permissions:
+  contents: read
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run conservative identity-contract tests on synthetic fixtures
+        run: node --test tools/db-migration/tests/identity-crosswalk.test.mjs
