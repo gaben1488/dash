@@ -17,6 +17,7 @@ import {
 import { PatternGallery } from './design-lab/PatternGallery';
 import { LAB_DEMO_ROWS as DEMO_ROWS, demoFilterRows } from './design-lab/demo-data';
 import { OriginalSources } from './design-lab/OriginalSources';
+import { DesignResearch } from './design-lab/DesignResearch';
 import './design-lab.css';
 
 type Mode = 'ready' | 'pending' | 'error' | 'empty';
@@ -455,11 +456,16 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
               <Tabs.Trigger value="palettes">Палитры</Tabs.Trigger>
               <Tabs.Trigger value="patterns">Компоненты и практики</Tabs.Trigger>
               <Tabs.Trigger value="originals">Исходные HTML</Tabs.Trigger>
+              <Tabs.Trigger value="research">Мастерская продукта</Tabs.Trigger>
               <Tabs.Trigger value="states">Состояния</Tabs.Trigger>
               <Tabs.Trigger value="layouts">Компоновки</Tabs.Trigger>
               <Tabs.Trigger value="compare">Сравнение</Tabs.Trigger>
               <Tabs.Trigger value="code">Код и наборы</Tabs.Trigger>
             </Tabs.List>
+
+            <Tabs.Content value="research" className="dl-tab-panel">
+              <DesignResearch preset={preset} onPresetChange={update} />
+            </Tabs.Content>
 
             <Tabs.Content value="originals" className="dl-tab-panel">
               <OriginalSources />
