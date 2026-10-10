@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 65,
+  "scannedPaths": 73,
   "errors": [],
   "records": [
     {
@@ -786,6 +786,86 @@
       "path": "packages/server/src/routes/report-releases.ts",
       "sha": "b6ac9a3947ec6db116904f5df200c6b234d1a006",
       "loc": 144,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/report.ts",
+      "sha": "d91a9b68c611fceffd4b684875650f171311a6f2",
+      "loc": 291,
+      "refs": {
+        "issues": {
+          "count": 6,
+          "lines": [
+            49,
+            137,
+            140,
+            168,
+            185,
+            191
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/timeline.ts",
+      "sha": "9ed050bc69dc2b3ebfc11794671d2c5487442591",
+      "loc": 314,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/workload.ts",
+      "sha": "5eb79078794caf163357ae24e55f7c85b98f9e6d",
+      "loc": 435,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/issue-news.ts",
+      "sha": "ff2ceb4f24831804d76f1498e6f7104823d54b4e",
+      "loc": 126,
+      "refs": {
+        "issues": {
+          "count": 5,
+          "lines": [
+            26,
+            33,
+            52,
+            67,
+            89
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/services/issue-status-overlay.ts",
+      "sha": "b75ac6cbeb267600a2db07d7bd1d3f55ecdf2000",
+      "loc": 25,
+      "refs": {
+        "issues": {
+          "count": 3,
+          "lines": [
+            8,
+            11,
+            22
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/services/monitoring-diagnostics.ts",
+      "sha": "8d59540ca3acf0f8e12ebcc5b1ab603a5d8a6b57",
+      "loc": 177,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/monitoring-parsed.ts",
+      "sha": "90d3fe402cdd33c9f453c96c35262c9ffe51968d",
+      "loc": 118,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/monitoring.ts",
+      "sha": "807d9b01cfb5fbabac4248d876e670f319042fc6",
+      "loc": 235,
       "refs": {}
     }
   ]
