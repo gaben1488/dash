@@ -32,7 +32,7 @@ describe('ControlCaseGuide integrated workflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /02\\s*Доказательства/ }));
     expect(screen.getByText(/Исходных наблюдений: 1/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Открыть исходные замечания/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Показать исходное замечание/ }));
     expect(onOpenEvidence).toHaveBeenCalledWith('legacy-row-17');
 
     fireEvent.click(screen.getByRole('button', { name: /03\\s*Действие/ }));
