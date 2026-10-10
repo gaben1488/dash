@@ -6,7 +6,7 @@
  * works without changes.
  */
 
-import { noYearRemainderOf, type GroupedResults, type AccumulatedValue } from './calc-engine.js';
+import { activityContextKey, noYearRemainderOf, type GroupedResults, type AccumulatedValue } from './calc-engine.js';
 import type {
   RecalculatedMetrics,
   QuarterMetrics,
@@ -90,7 +90,11 @@ function buildQuarterMetrics(
   };
 }
 
-function buildActivityEntry(map: Map<string, AccumulatedValue> | undefined): ActivityMetrics {
+function buildActivityEntry(
+  map: Map<string, AccumulatedValue> | undefined,
+  competitive: Map<string, AccumulatedValue> | undefined,
+  ep: Map<string, AccumulatedValue> | undefined,
+): ActivityMetrics {
   const pc = get(map, 'plan_count');
   const fc = get(map, 'fact_count');
   return {
@@ -109,19 +113,40 @@ function buildActivityEntry(map: Map<string, AccumulatedValue> | undefined): Act
     economyMB: get(map, 'economy_mb'),
     economyTotal: get(map, 'economy_total'),
     execCountPct: pct(fc, pc),
+    byMethod: {
+      competitive: buildMethodMetrics(competitive),
+      ep: buildMethodMetrics(ep),
+    },
   };
 }
 
 function buildActivityBreakdown(
   grouped: GroupedResults,
-  prefix: string,
+  period: string,
+  subordinate?: string,
 ): ActivityBreakdown {
+  const find = (activity: string): ActivityMetrics => {
+    const map = subordinate === undefined
+      ? (period.startsWith('m')
+        ? grouped.byMonthActivity.get(`${period}.${activity}`)
+        : grouped.byQuarterActivity.get(`${period}.${activity}`))
+      : grouped.bySubordinatePeriodActivity.get(activityContextKey(subordinate, period, activity));
+    const methodMap = (method: 'competitive' | 'ep') => subordinate === undefined
+      ? grouped.byPeriodActivityMethod.get(`${period}.${activity}.${method}`)
+      : grouped.bySubordinatePeriodActivityMethod.get(activityContextKey(subordinate, period, activity, method));
+    return buildActivityEntry(map, methodMap('competitive'), methodMap('ep'));
+  };
   return {
-    program: buildActivityEntry(grouped.byQuarterActivity.get(`${prefix}.program`)),
-    current_program: buildActivityEntry(grouped.byQuarterActivity.get(`${prefix}.current_program`)),
-    current_non_program: buildActivityEntry(grouped.byQuarterActivity.get(`${prefix}.current_non_program`)),
+    program: find('program'),
+    current_program: find('current_program'),
+    current_non_program: find('current_non_program'),
   };
 }
+
+const ACTIVITY_PERIODS = [
+  'q1', 'q2', 'q3', 'q4', 'year',
+  ...Array.from({ length: 12 }, (_, i) => `m${i + 1}`),
+] as const;
 
 // ── Main adapter function ────────────────────────────────────────────
 
@@ -223,13 +248,9 @@ export function adaptToRecalcMetrics(
   }
 
   // byActivity: per-quarter and year
-  const byActivity: Record<string, ActivityBreakdown> = {
-    q1: buildActivityBreakdown(grouped, 'q1'),
-    q2: buildActivityBreakdown(grouped, 'q2'),
-    q3: buildActivityBreakdown(grouped, 'q3'),
-    q4: buildActivityBreakdown(grouped, 'q4'),
-    year: buildActivityBreakdown(grouped, 'year'),
-  };
+  const byActivity: Record<string, ActivityBreakdown> = Object.fromEntries(
+    ACTIVITY_PERIODS.map((period) => [period, buildActivityBreakdown(grouped, period)]),
+  );
 
   // bySubordinate: extract from grouped.bySubordinate + cross-dimensional maps
   const emptySubPeriod = (): SubPeriodMetrics => ({
