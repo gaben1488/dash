@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEPT_COLUMNS } from '@aemr/shared';
 import { DEFAULT_EXTRACTORS, type RawRow } from './calc-engine.js';
 
@@ -10,15 +10,13 @@ function planDate(value: unknown): RawRow {
 
 describe('CalcEngine plan month uses calendar day, not server timezone', () => {
   it('keeps late-day Sheets serial within January even in Kamchatka timezone', () => {
-    const previous = process.env.TZ;
+    vi.stubEnv('TZ', 'Asia/Kamchatka');
     try {
-      process.env.TZ = 'Asia/Kamchatka';
       // 31.01.2026 at 18:00 in Google serial; old local getMonth() gave February.
       expect(DEFAULT_EXTRACTORS.month(planDate(46053.75))).toBe(1);
       expect(DEFAULT_EXTRACTORS.month(planDate(46054))).toBe(2);
     } finally {
-      if (previous === undefined) delete process.env.TZ;
-      else process.env.TZ = previous;
+      vi.unstubAllEnvs();
     }
   });
 
