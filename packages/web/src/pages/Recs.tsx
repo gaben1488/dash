@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { SEVERITY_LABELS, productLabel } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, buildControlCases } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { ORIGIN_LABELS } from '../components/IssueList';
@@ -72,6 +72,9 @@ interface Recommendation {
   actionOrigin: RecommendationOrigin;
   /** Место в книге: «лист УО, ячейка K1481». */
   where: string | null;
+  /** One case can retain several independent observations. */
+  observationCount: number;
+  recommendationConflict: boolean;
 }
 
 export function RecsPage() {
@@ -79,24 +82,33 @@ export function RecsPage() {
   const fd = useFilteredData();
   const [openDepts, setOpenDepts] = useState<Set<string>>(new Set());
 
-  // Use centralized filtered issues (respects dept, subordinate, search, activity)
+  // "Рекомендации" is a view of the SAME reviewable cases as "Замечания",
+  // not a second independent backlog. Conservative grouping only removes
+  // exact duplicate observations; uncertain causal links stay separate.
   const recs: Recommendation[] = useMemo(() => {
-    const filtered = fd.issues;
-    if (!filtered || filtered.length === 0) return [];
-    return filtered.map((issue: any, idx: number) => {
-      const resolved = resolveRecommendation(issue);
-      return {
-        id: issue.id ?? `rec-${idx}`,
-        severity: toRecSeverity(issue.severity),
-        dept: issue.departmentId || issue.sheet || '',
-        title: issue.title || issue.message || 'Замечание без заголовка',
-        description: issue.description || '',
-        source: issue.origin ? (ORIGIN_LABELS[issue.origin] ?? productLabel(issue.origin)) : 'Проверка данных',
-        action: resolved.text,
-        actionOrigin: resolved.origin,
-        where: resolved.where,
-      };
-    });
+    const cases = buildControlCases(fd.issues);
+    return cases
+      // Reviewed false alarms and accepted exceptions remain in the source
+      // history, but must not generate new operator instructions.
+      .filter(c => c.workState !== 'false_positive' && c.workState !== 'exception_recorded')
+      .map(c => {
+        const source = c.evidence[0];
+        const resolved = resolveRecommendation(source);
+        const action = c.recommendationConflict ? null : c.recommendation ?? resolved.text;
+        return {
+          id: c.caseKey,
+          severity: toRecSeverity(c.severity),
+          dept: c.departmentId || c.sheet || '',
+          title: c.label,
+          description: source.description || '',
+          source: source.origin ? (ORIGIN_LABELS[source.origin] ?? productLabel(source.origin)) : 'Проверка данных',
+          action,
+          actionOrigin: c.recommendationConflict ? 'none' : c.recommendation === null ? resolved.origin : 'issue',
+          where: resolved.where,
+          observationCount: c.observationCount,
+          recommendationConflict: c.recommendationConflict,
+        };
+      });
   }, [fd.issues]);
 
   // Auto-open departments with critical issues on first load
@@ -184,8 +196,8 @@ export function RecsPage() {
                   : `Критических замечаний нет. Всего рекомендаций: ${recs.length}`}
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 max-w-2xl">
-                Текст каждой рекомендации принадлежит проверке, которая нашла замечание. Своего совета продукт не сочиняет:
-                где у проверки готового текста нет, так и написано.
+                Один вопрос — одна карточка, даже если его обнаружили несколько проверок. Исходные замечания
+                сохраняются в «Замечаниях». Рекомендации не подтверждают автоматически нарушение или завершение работы.
                 {withoutText > 0 && ` Сейчас без текста — ${withoutText} из ${recs.length}.`}
               </p>
             </div>
@@ -255,7 +267,12 @@ export function RecsPage() {
                                 {cfg.label}
                               </span>
                             </div>
-                            <h4 className="text-sm font-medium text-zinc-800 dark:text-white">{rec.title}</h4>
+                            <h4 className="text-sm font-medium text-zinc-800 dark:text-white">
+                              {rec.title}
+                              {rec.observationCount > 1 && <span className="ml-2 text-[10px] font-normal text-zinc-500 dark:text-zinc-400">
+                                {rec.observationCount} наблюдения одной проверки
+                              </span>}
+                            </h4>
                             {rec.description && <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1">{rec.description}</p>}
                             <div className="flex items-center gap-4 mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
                               <span>Нашла проверка: <strong className="text-zinc-600 dark:text-zinc-300">{rec.source}</strong></span>
@@ -268,7 +285,9 @@ export function RecsPage() {
                                 </p>
                               ) : (
                                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                                  <strong className="text-zinc-600 dark:text-zinc-300">Готовой рекомендации нет.</strong>{' '}
+                                  <strong className="text-zinc-600 dark:text-zinc-300">
+                                    {rec.recommendationConflict ? 'Несовпадающие рекомендации — требуется разбор.' : 'Готовой рекомендации нет.'}
+                                  </strong>{' '}
                                   У этой проверки текст не заполнен, а сочинять совет за неё продукт не станет.
                                   {rec.where
                                     ? ` Разберите по описанию замечания: ${rec.where}.`
