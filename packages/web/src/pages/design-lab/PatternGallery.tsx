@@ -10,6 +10,7 @@ import { DataTable, THead, TBody, Tr, Th, Td, RowAddress, RowSignals } from '@/c
 import { EmptyState } from '@/components/EmptyState';
 import { Segmented } from '@/components/ui/segmented';
 import { FINISHES, findPair, findSurface } from './catalog';
+import { LAB_DEMO_ROWS, LAB_DEMO_TOTAL_THOUSANDS } from './demo-data';
 import type { LabPreset } from './presets';
 import { COMPONENT_INDEX, searchRecipes, type RecipeId, type UiRecipe } from './recipes';
 import './patterns.css';
@@ -122,11 +123,11 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
   );
 
   if (id === 'unit-scale') {
-    const amount = 7800; // only a fictitious demo value in thousands
+    const amount = LAB_DEMO_TOTAL_THOUSANDS; // one fictitious source of money and rows
     const formatted = scale === 'thousand' ? amount.toLocaleString('ru-RU')
       : (amount / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
     return <Card>
-      <CardHeader title="Одна величина, две единицы" scope="ДЕМО · 3 строки"
+      <CardHeader title="Одна величина, две единицы" scope={"ДЕМО · " + LAB_DEMO_ROWS.length + " строки"}
         note="Режим меняет представление, а не состав записей." />
       <Segmented<'thousand' | 'million'> legend="Единицы денежного итога"
         value={scale} onChange={setScale} options={[
@@ -134,8 +135,8 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
           { value: 'million', label: 'Миллионы', hint: 'Показать то же значение в миллионах рублей' },
         ]} />
       <div className="dl-pat-figure"><Stat label="План, из одной базы" value={formatted}
-        unit={scale === 'thousand' ? 'тыс. ₽' : 'млн ₽'} scope="2026 · три учебные строки" /></div>
-      <CardFooter>Исходная величина: 7 800 тыс. ₽. Количество строк остаётся 3.</CardFooter>
+        unit={scale === 'thousand' ? 'тыс. ₽' : 'млн ₽'} scope={"2026 · " + LAB_DEMO_ROWS.length + " учебные строки"} /></div>
+      <CardFooter>Исходная величина: {amount.toLocaleString('ru-RU')} тыс. ₽. Количество строк остаётся {LAB_DEMO_ROWS.length}.</CardFooter>
     </Card>;
   }
 
@@ -148,10 +149,10 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
       <DataTable caption="ДЕМО · организации, предметы, номера и суммы">
         <THead><Tr><Th>№ п/п</Th><Th>Наименование учреждения</Th><Th>Предмет закупки</Th><Th numeric>План, тыс. ₽</Th></Tr></THead>
         <TBody>
-          <Tr><Td><RowAddress row={42} seq="173/1" /></Td>
+          <Tr><Td><RowAddress row={LAB_DEMO_ROWS[0].sourceRow} seq={LAB_DEMO_ROWS[0].id} /></Td>
             <Td className="dl-pat-longname">Муниципальное бюджетное общеобразовательное учреждение «Средняя общеобразовательная школа № 3 имени выдающегося исследователя Камчатского края»</Td>
             <Td className="dl-pat-longname">Приобретение и установка оборудования для специализированных учебных кабинетов с обеспечением обслуживания</Td>
-            <Td numeric>7 800</Td></Tr>
+            <Td numeric>{LAB_DEMO_ROWS[0].planDisplay}</Td></Tr>
         </TBody>
       </DataTable>
       <p className="dl-pat-under">Текст перенесён, не скрыт многоточием. Для 200% увеличения необходим реальный браузерный тест.</p>
@@ -181,12 +182,12 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
       <CardHeader title="Оснащение учреждения" scope="ДЕМО · 2026"
         note="Число и адрес источника рядом. Данные вымышлены." />
       <div className="dl-pat-row">
-        <Stat label="План" value="7 800" unit="тыс. ₽" scope="Учебный период · 2026"
+        <Stat label="План" value={LAB_DEMO_ROWS[0].planDisplay} unit="тыс. ₽" scope="Учебный период · 2026"
           hint="Пример без подключения к реестрам." />
         <div className="dl-pat-support">
           <FreshnessMark info={{ state: 'uncovered', reason: 'Сверка учебного поля не настроена', whatToDo: 'Откройте учебный источник' }} />
-          <Origin metric="План" source="ДЕМО · учебная книга" howSourceCounts="Берём значение D14 без пересчёта"
-            match="initiative" sheetRef="ДЕМО · D14" rowAddress="строка 14 · № п/п 173/1"
+          <Origin metric="План" source="ДЕМО · учебная книга" howSourceCounts={LAB_DEMO_ROWS[0].formula}
+            match="initiative" sheetRef={LAB_DEMO_ROWS[0].source} rowAddress={"строка " + LAB_DEMO_ROWS[0].sourceRow + " · № п/п " + LAB_DEMO_ROWS[0].id}
             readAt="Дата не применяется" note="Выгрузка не содержит настоящих записей">
             <span className="dl-pat-link">Показать происхождение</span>
           </Origin>
@@ -201,16 +202,14 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
       <DataTable caption="ДЕМО · адреса, формулы и замечания">
         <THead><Tr><Th>Адрес</Th><Th>ГРБС</Th><Th numeric formula>План, тыс. ₽</Th><Th>Что проверить</Th></Tr></THead>
         <TBody>
-          <Tr signalTone="warn">
-            <Td><RowAddress sheet="ДЕМО" row={14} seq="173/1" /></Td><Td>УО</Td><Td numeric formula>7 800</Td>
-            <Td><RowSignals signals={[{ label: 'Уточнить источник суммы', tone: 'warn' }]} /></Td>
-          </Tr>
-          <Tr><Td><RowAddress sheet="ДЕМО" row={15} seq="173/2" /></Td><Td>УКСиМП</Td>
-            <Td numeric formula>5 200</Td><Td><RowSignals signals={[]} /></Td></Tr>
-          <Tr signalTone="bad"><Td><RowAddress sheet="ДЕМО" row={16} seq={null} /></Td><Td>УО</Td>
-            <Td numeric formula>—</Td>
-            <Td><RowSignals signals={[{ label: 'Не проставлен № п/п', tone: 'bad' }]} /></Td>
-          </Tr>
+          {LAB_DEMO_ROWS.map((row) => (
+            <Tr key={row.id} signalTone={row.issue ? 'warn' : undefined}>
+              <Td><RowAddress sheet="ДЕМО" row={row.sourceRow} seq={row.id} /></Td>
+              <Td>{row.org}</Td>
+              <Td numeric formula>{row.planDisplay}</Td>
+              <Td><RowSignals signals={row.issue ? [{ label: row.state, tone: 'warn' }] : []} /></Td>
+            </Tr>
+          ))}
         </TBody>
       </DataTable>
       <p className="dl-pat-under">Составной номер остаётся строкой. У формульной колонки есть обозначение.</p>
@@ -231,7 +230,7 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
       <div className="dl-pat-actions">
         {triage === 'start' && <Button tone="primary" onClick={() => setTriage('opened')}>Открыть учебный источник</Button>}
         {triage === 'opened' && <>
-          <span className="dl-pat-muted">ДЕМО · D14 = 7 800 тыс. ₽</span>
+          <span className="dl-pat-muted">ДЕМО · D14 = {LAB_DEMO_ROWS[0].planDisplay} тыс. ₽</span>
           <Button tone="primary" onClick={() => setTriage('checked')}>Отметить шаг в демо</Button>
         </>}
         {triage === 'checked' && <Button tone="secondary" onClick={() => setTriage('start')}>Повторить упражнение</Button>}
@@ -241,7 +240,7 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
   );
 
   if (id === 'filters') {
-    const rows = [{ seq: '173/1', org: 'УО' }, { seq: '173/2', org: 'УКСиМП' }, { seq: '174', org: 'УО' }];
+    const rows = LAB_DEMO_ROWS;
     const result = rows.filter(row => dept === 'all' || row.org === dept);
     return (
       <Card>
@@ -252,7 +251,7 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
           <Chip tone="accent" pressed={dept === 'УКСиМП'} onClick={() => setDept('УКСиМП')}>УКСиМП</Chip>
           <Button size="sm" tone="quiet" icon={<RotateCcw size={13} />} onClick={() => setDept('all')}>Сброс</Button>
         </div>
-        <p className="dl-pat-result" role="status">Показано {result.length} из 3: {result.map(row => row.seq).join(', ')}</p>
+        <p className="dl-pat-result" role="status">Показано {result.length} из {LAB_DEMO_ROWS.length}: {result.map(row => row.id).join(', ')}</p>
         <CardDivider />
         <Segmented<'norm' | 'live'> legend="Учебный режим счёта" value={rate} onChange={setRate}
           options={[
@@ -309,7 +308,7 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
         <p className="ds-text-lg">Проверка источников</p>
         <p className="ds-text-base">Содержательный текст о закупке без обрыва важных слов.</p>
         <p className="ds-text-sm">Точная дата и период всегда возле показателя.</p>
-        <p className="ds-text-xs tabular-nums">173/1 · 2026 · 7 800,00</p>
+        <p className="ds-text-xs tabular-nums">173/1 · 2026 · 4 200,00</p>
         <p className="ds-text-2xs">ДЕМО · лист · строка 14 · № п/п 173/1</p>
         <p className="ds-text-3xs">Служебное примечание к учебному источнику.</p>
       </div>
