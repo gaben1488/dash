@@ -29,7 +29,10 @@ export async function mappingRoutes(app: FastifyInstance): Promise<void> {
     let overrides: Array<{ metricId: string; cellRef: string; sheetName: string | null }> = [];
     try {
       overrides = db.select().from(schema.mappingOverrides).all();
-    } catch (err) { app.log.warn({ err }, 'mapping: failed to read overrides'); }
+    } catch (err) {
+      app.log.error({ err }, 'mapping: failed to read overrides');
+      return reply.status(503).send({ error: 'Настройки привязки метрик недоступны. Повторите после восстановления базы данных.' });
+    }
     const overrideMap = new Map(overrides.map(o => [o.metricId, o]));
 
     // Build grouped response matching frontend expectations
@@ -106,20 +109,31 @@ export async function mappingRoutes(app: FastifyInstance): Promise<void> {
 
     const now = new Date().toISOString();
     try {
-      // Upsert override
-      const existing = db.select().from(schema.mappingOverrides).where(eq(schema.mappingOverrides.metricId, metricId)).get();
-      if (existing) {
-        db.update(schema.mappingOverrides).set({ cellRef: body.cellRef, sheetName: body.sheetName ?? null, comment: body.comment ?? null, updatedAt: now }).where(eq(schema.mappingOverrides.metricId, metricId)).run();
-      } else {
-        db.insert(schema.mappingOverrides).values({ metricId, cellRef: body.cellRef, sheetName: body.sheetName ?? null, comment: body.comment ?? null, createdAt: now }).run();
-      }
+      db.transaction((tx) => {
+        const existing = tx.select().from(schema.mappingOverrides)
+          .where(eq(schema.mappingOverrides.metricId, metricId)).get();
+        if (existing) {
+          tx.update(schema.mappingOverrides)
+            .set({ cellRef: body.cellRef, sheetName: body.sheetName ?? null,
+              comment: body.comment ?? null, updatedAt: now })
+            .where(eq(schema.mappingOverrides.metricId, metricId)).run();
+        } else {
+          tx.insert(schema.mappingOverrides).values({
+            metricId, cellRef: body.cellRef, sheetName: body.sheetName ?? null,
+            comment: body.comment ?? null, createdAt: now,
+          }).run();
+        }
+        tx.insert(schema.auditLog).values({
+          action: 'mapping_change', entity: 'mapping', entityId: metricId,
+          details: `${metric.sourceCell} → ${body.cellRef}`, timestamp: now,
+        }).run();
+      });
     } catch (err) {
-      app.log.warn('Failed to save mapping override: %s', (err as Error).message);
+      app.log.error({ err }, 'mapping: transaction not persisted');
+      return reply.status(503).send({
+        success: false, error: 'Не удалось сохранить привязку и журнал изменений. Данные не подтверждены.',
+      });
     }
-
-    try {
-      db.insert(schema.auditLog).values({ action: 'mapping_change', entity: 'mapping', entityId: metricId, details: `${metric.sourceCell} → ${body.cellRef}`, timestamp: now }).run();
-    } catch (err) { app.log.warn({ err }, 'mapping: failed to write audit_log'); }
 
     return reply.send({
       success: true,
@@ -198,12 +212,19 @@ export async function mappingRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/mapping/reset', async (_request, reply) => {
     const now = new Date().toISOString();
     try {
-      db.delete(schema.mappingOverrides).run();
-    } catch (err) { app.log.warn({ err }, 'mapping/reset: failed to delete overrides'); }
-
-    try {
-      db.insert(schema.auditLog).values({ action: 'mapping_change', entity: 'mapping', details: 'Все оверрайды сброшены', timestamp: now }).run();
-    } catch (err) { app.log.warn({ err }, 'mapping/reset: failed to write audit_log'); }
+      db.transaction((tx) => {
+        tx.delete(schema.mappingOverrides).run();
+        tx.insert(schema.auditLog).values({
+          action: 'mapping_change', entity: 'mapping',
+          details: 'Все оверрайды сброшены', timestamp: now,
+        }).run();
+      });
+    } catch (err) {
+      app.log.error({ err }, 'mapping/reset: transaction not persisted');
+      return reply.status(503).send({
+        success: false, error: 'Не удалось сбросить привязки. Предыдущие настройки сохранены.',
+      });
+    }
 
     return reply.send({
       success: true,
