@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   columnsFingerprint,
+  numericEditorValue,
   countRowsBelow,
   defaultColumnWidth,
   describeRowsBelow,
@@ -21,6 +22,18 @@ function stubStorage(): Map<string, string> {
   });
   return store;
 }
+
+describe('редактор: числовой ввод без потери хвоста', () => {
+  it('сохраняет всю русскую сумму с разделителем тысяч', () => {
+    expect(numericEditorValue('1 234,50')).toBe(1234.5);
+    expect(numericEditorValue('1,50')).toBe(1.5);
+  });
+  it('оставляет неполную запись для показа ошибки валидации', () => {
+    expect(numericEditorValue('12abc')).toBe('12abc');
+    expect(numericEditorValue('1.2.3')).toBe('1.2.3');
+    expect(numericEditorValue('')).toBeNull();
+  });
+});
 
 describe('буфер обмена: значение и строка в формате TSV', () => {
   it('обычное значение уходит как есть', () => {

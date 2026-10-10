@@ -121,7 +121,7 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       ],
       trust: { overall: 100, components: [], grade: 'A', computedAt: '2026-01-01T00:00:00Z', basedOnSnapshot: 'seed-1' },
       rowCount: 0,
-      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0 },
+      metadata: { sheetsRead: [], cellsRead: 0, readDurationMs: 0, pipelineDurationMs: 0, targetYear: null },
     };
     db.insert(schema.snapshots)
       .values({

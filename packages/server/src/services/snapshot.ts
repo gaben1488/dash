@@ -5,6 +5,7 @@ import { buildRowDto, isDataRow } from './rows-dto.js';
 import { batchGetCells, batchGetFormulas, batchGetSheetValues, getSheetData, fetchSHDYUSheet } from './google-sheets.js';
 import { parseSHDYUSheet } from '@aemr/core';
 import { db, schema } from '../db/index.js';
+import { sameSnapshotYearScope } from './snapshot-year-scope.js';
 import { config, DEPARTMENT_SPREADSHEETS, isDemoMode, SHDYU_SPREADSHEET_ID } from '../config.js';
 import { and, eq, desc, getTableColumns, lt, sql } from 'drizzle-orm';
 import { createDemoSnapshot } from './demo-data.js';
@@ -693,7 +694,9 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     }
 
     attachUnifiedGrid(snapshot, sheetRows, targetYear);
-    await saveSnapshot(snapshot);
+    if (!(await saveSnapshot(snapshot))) {
+      throw new Error('SNAPSHOT_PERSIST_FAILED');
+    }
 
     return snapshot;
   } catch (error) {
@@ -702,7 +705,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
     // пайплайна после чтения) отдаётся честно: последний сохранённый снимок из SQL,
     // а если истории нет — ошибка пробрасывается, и роуты отвечают 503.
     if (!isDemoMode) {
-      const last = loadLatestSavedSnapshot();
+      const last = loadLatestSavedSnapshot(targetYear);
       if (last) {
         logSourceProblem('Снимок не собран — отдан последний сохранённый из базы', {
           reason: classifySourceFailure((error as Error)?.message ?? String(error)),
@@ -731,7 +734,7 @@ async function createSnapshot(targetYear?: number): Promise<PipelineSnapshot> {
  * не совпадать с запрошенным годом — это устаревшие, но НАСТОЯЩИЕ данные, в
  * отличие от демо-генератора.
  */
-function loadLatestSavedSnapshot(): PipelineSnapshot | null {
+function loadLatestSavedSnapshot(targetYear?: number): PipelineSnapshot | null {
   try {
     const rows = db.select({ data: schema.snapshots.data })
       .from(schema.snapshots)
@@ -742,7 +745,7 @@ function loadLatestSavedSnapshot(): PipelineSnapshot | null {
       if (!row.data) continue;
       try {
         const snapshot = JSON.parse(row.data) as PipelineSnapshot;
-        if (snapshot?.id && !snapshot.id.startsWith('demo-')) return snapshot;
+        if (snapshot?.id && !snapshot.id.startsWith('demo-') && sameSnapshotYearScope(snapshot, targetYear)) return snapshot;
       } catch {
         // Повреждённый data-JSON — пробуем снимок старше.
       }

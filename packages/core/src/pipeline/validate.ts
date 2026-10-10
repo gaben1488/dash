@@ -82,6 +82,9 @@ export function validateData(
     if (rule.scope === 'svod' && sheetClass.kind !== 'svod') continue;
     if (rule.scope === 'department' && sheetClass.kind !== 'department' && sheetClass.kind !== 'subordinates_agg') continue;
 
+    // A failing rule must not silently turn an incomplete validation into clean data.
+    let failedRows = 0;
+    let firstFailedRow: number | null = null;
     // Run the rule's check() against each applicable row
     for (const row of rows) {
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
@@ -98,7 +101,9 @@ export function validateData(
       try {
         result = rule.check(ctx);
       } catch (_err) {
-        // Skip broken rule, don't crash entire validation
+        // Continue with other rows, but surface one bounded diagnostic per rule.
+        failedRows += 1;
+        if (firstFailedRow === null) firstFailedRow = row.rowIndex;
         continue;
       }
       if (!result.passed) {
@@ -147,6 +152,23 @@ export function validateData(
           detectedBy: `rule:${rule.id}`,
         });
       }
+    }
+    if (failedRows > 0) {
+      issues.push({
+        id: issueIdentity(['validation-rule-failed', rule.id, sheetName]),
+        severity: 'error',
+        origin: 'runtime_error',
+        category: 'rule_execution_failed',
+        title: `Проверка «${rule.name}» выполнена не полностью`,
+        description: `Проверка не смогла обработать ${failedRows} строк листа «${sheetName}» (первая — ${firstFailedRow}). Остальные проверки выполнены, но считать весь лист проверенным нельзя.`,
+        sheet: sheetName,
+        row: firstFailedRow ?? undefined,
+        departmentId: sheetClass.latinId,
+        recommendation: 'Передать сопровождению название проверки и лист; повторить проверку после исправления.',
+        status: 'open',
+        detectedAt: now,
+        detectedBy: `rule:${rule.id}`,
+      });
     }
   }
 

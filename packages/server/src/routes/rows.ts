@@ -5,12 +5,16 @@ import {
   DEPT_COLUMNS,
   DEPT_HEADER_LABELS,
   DEPT_HEADER_ROWS,
+  dayNumberOf,
+  parseEditableAmount,
   FACT_DATE_PLACEHOLDERS,
   buildCellDict,
   isMetaRow,
   isOrgItself,
 } from '@aemr/shared';
-import { writeCellValue, resolveDeptSheetName } from '../services/google-sheets.js';
+import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow } from '../services/google-sheets.js';
+import { rowRevision } from '../services/row-revision.js';
+import { withRowWriteLock } from '../services/row-write-lock.js';
 import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { db, schema } from '../db/index.js';
@@ -50,6 +54,17 @@ function columnTitle(letter: string): string {
   return key ? DEPT_HEADER_LABELS[key] : letter;
 }
 
+/** Date input must be a real calendar date, not merely match a prefix. */
+function validEditableDate(raw: unknown): string | null {
+  const str = String(raw ?? '').trim();
+  if (!str) return '';
+  if (!/^(?:\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})$/.test(str)) return null;
+  return dayNumberOf(str) === null ? null : str;
+}
+
+const MAX_BATCH_ROWS = 50;
+const MAX_BATCH_CELLS = 100;
+
 /**
  * Причина недоступности книги управления — человеческой фразой с действием.
  * Одно место на все роуты чтения: пользователь должен понять, к кому идти
@@ -65,13 +80,13 @@ function sourceUnavailableMessage(deptShortName: string, reason: 'read-error' | 
  * Единственная проверка адресуемости строки перед записью в живую таблицу.
  * Возвращает текст ошибки или null, если писать можно.
  *
- * Нижняя граница: строка 1 — заголовок. Верхняя: строка обязана существовать в листе
+ * Нижняя граница: первые три строки — шапка. Верхняя: строка обязана существовать в листе
  * (иначе writeCellValue создаст ячейку за пределами данных и побьёт итоговые формулы,
  * а кэш этого не заметит — values[idx-1] просто undefined).
  * Кэша нет — писать вслепую нельзя: сначала обновить снимок.
  */
 function rowWriteError(idx: number, deptShortName: string, display: string | number = idx): string | null {
-  if (!Number.isInteger(idx) || idx < 2) return `Номер строки «${display}» не подходит: строки данных начинаются со второй`;
+  if (!Number.isSafeInteger(idx) || idx <= DEPT_HEADER_ROWS) return `Номер строки «${display}» не подходит: строки данных начинаются с ${DEPT_HEADER_ROWS + 1}-й`;
   const rowCount = getDeptSheetValues()[deptShortName]?.length ?? 0;
   if (rowCount === 0) return `Книга управления «${deptShortName}» ещё не прочитана — обновите данные и повторите правку`;
   if (idx > rowCount) return `Строки ${idx} в книге управления «${deptShortName}» нет — сейчас там ${rowCount} строк. Обновите данные, если таблицу дополнили`;
@@ -207,7 +222,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/rows/:deptId/:rowIndex', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const idx = parseInt(rowIndex, 10);
+    const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
     const dept = DEPARTMENTS.find(d => d.id === deptId || d.nameShort === deptId);
     if (!dept) {
@@ -233,7 +248,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     if (!Number.isInteger(idx)) {
       return reply.status(400).send({ error: `Номер строки «${rowIndex}» не похож на число` });
     }
-    if (idx < 2 || idx - 1 >= rawRows.length) {
+    if (idx <= DEPT_HEADER_ROWS || idx - 1 >= rawRows.length) {
       return reply.status(404).send({
         error: `Строки ${idx} в книге управления «${dept.nameShort}» нет — сейчас там ${rawRows.length} строк`,
       });
@@ -276,10 +291,10 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.put('/api/rows/:deptId/:rowIndex/field', async (request, reply) => {
     const { deptId, rowIndex } = request.params as { deptId: string; rowIndex: string };
-    const body = request.body as { field?: string; value?: unknown };
-    const idx = parseInt(rowIndex, 10);
+    const body = request.body as { field?: string; value?: unknown; expectedRevision?: string } | null;
+    const idx = /^\d+$/.test(rowIndex) ? Number(rowIndex) : NaN;
 
-    if (!body.field || body.value === undefined) {
+    if (!body || typeof body.field !== 'string' || !body.field.trim() || body.value === undefined) {
       return reply.status(400).send({ error: 'Не указано, какой столбец и какое значение сохранять' });
     }
 
@@ -316,7 +331,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         details: `запрошенный столбец: ${body.field}`,
       });
     }
-    // idx обязан быть integer >= 2 (строка 1 — заголовок) И существовать в листе,
+    // idx обязан быть integer >= 4 (строки 1–3 — шапка) И существовать в листе,
     // иначе cellAddress "GNaN"/"G-1"/header либо запись за пределами данных.
     const boundsError = rowWriteError(idx, dept.nameShort, rowIndex);
     if (boundsError) {
@@ -327,29 +342,25 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     // Type validation and normalization
     if (NUMERIC_COLUMNS.has(field)) {
-      const num = typeof body.value === 'number' ? body.value
-        : parseFloat(String(body.value).replace(/\s/g, '').replace(/,/g, '.'));
-      if (isNaN(num)) {
+      const parsed = parseEditableAmount(body.value);
+      if (!parsed.ok) {
         return reply.status(400).send({
           error: `Столбец «${columnTitle(field)}» принимает только число — например 1 234,56`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = num;
+      normalizedValue = parsed.value;
     } else if (DATE_COLUMNS.has(field)) {
-      // Accept DD.MM.YYYY or ISO format
-      const str = String(body.value).trim();
-      const ddmmyyyy = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!ddmmyyyy && !iso && str !== '') {
+      const date = validEditableDate(body.value);
+      if (date === null) {
         return reply.status(400).send({
-          error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+          error: `Столбец «${columnTitle(field)}» принимает действительную дату — например 15.03.2026`,
           field,
           received: body.value,
         });
       }
-      normalizedValue = str;
+      normalizedValue = date;
     }
     // TEXT_COLUMNS: accept any string value
 
@@ -365,6 +376,38 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
     const cellAddress = `${field}${idx}`;
     const now = new Date().toISOString();
+    const expectedRevision = body.expectedRevision;
+    if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
+        process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
+      return reply.status(409).send({ error: 'Обновите реестр: для безопасной правки нужна версия исходной строки' });
+    }
+    return withRowWriteLock(`${spreadsheetId}:${idx}`, async () => {
+      let originalRow: unknown[];
+      try {
+        originalRow = expectedRevision
+          ? await readCurrentDeptRow(spreadsheetId, sheetName, idx)
+          : (getDeptSheetValues()[dept.nameShort]?.[idx - 1] ?? []);
+      } catch (readErr) {
+        app.log.warn({ err: readErr }, 'field-update: source preflight failed');
+        return reply.status(503).send({ error: 'Исходная строка не прочитана — правка не выполнялась' });
+      }
+      if (expectedRevision && rowRevision(originalRow) !== expectedRevision) {
+        return reply.status(409).send({ error: 'Строка изменилась или переместилась. Обновите реестр; правка не выполнена.' });
+      }
+      const previousValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+      try {
+        db.insert(schema.auditLog).values({
+          action: 'cell_edit_intent', entity: 'row',
+          entityId: `${deptId}:${idx}:${field}`,
+          departmentId: deptId, rowIndex: idx, field,
+          oldValue: String(previousValue ?? ''), newValue: String(normalizedValue ?? ''),
+          details: JSON.stringify({ expectedRevision: expectedRevision ?? null }),
+          timestamp: now,
+        }).run();
+      } catch (auditErr) {
+        app.log.error({ err: auditErr }, 'field-update: audit intent unavailable');
+        return reply.status(503).send({ error: 'Журнал изменений недоступен — запись в книгу не выполнялась' });
+      }
 
     try {
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
@@ -378,18 +421,26 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           action: 'cell_edit',
           entity: 'row',
           entityId: `${deptId}:${idx}:${field}`,
+          departmentId: deptId,
+          rowIndex: idx, field,
+          oldValue: String(previousValue ?? ''), newValue: String(normalizedValue ?? ''),
           details: JSON.stringify({
             department: deptId,
             row: idx,
             field,
-            oldValue: null, // Would need pre-read for old value
+            oldValue: previousValue,
             newValue: normalizedValue,
             sheetRange: result.updatedRange,
           }),
           timestamp: now,
         }).run();
       } catch (logErr) {
-        app.log.warn({ logErr }, 'field-update: failed to write audit log');
+        app.log.error({ err: logErr }, 'field-update: source saved but confirmation audit failed');
+        return reply.status(503).send({
+          error: 'Значение записано в Google Таблицу, но журнал не подтвердил операцию',
+          savedToSource: true,
+          action: 'refresh_and_reconcile',
+        });
       }
 
       return reply.send({
@@ -411,7 +462,6 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({
           error: `Нет прав на запись в книгу управления «${dept.nameShort}»`,
           reason: 'Учётной записи сервиса выдан доступ только на чтение. Откройте доступ на редактирование книги и повторите правку',
-          details: err.message,
         });
       }
 
@@ -420,9 +470,9 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(503).send({
         error: `Не удалось сохранить значение в ячейку ${cellAddress}`,
         reason: 'Google Таблицы не приняли правку. Повторите через минуту; если повторяется — проверьте доступ к книге',
-        details: err.message ?? String(err),
       });
     }
+    });
   });
 
   /**
@@ -436,11 +486,26 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
   // E11-3: вынести в rows-write service (живой критичный путь записи — не разрезан в E11-2)
   app.post('/api/data/rows', async (request, reply) => {
     const body = request.body as {
-      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>;
+      rows?: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRevision?: string }>;
     };
 
-    if (!body.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
+    if (!body?.rows || !Array.isArray(body.rows) || body.rows.length === 0) {
       return reply.status(400).send({ error: 'Не переданы строки для сохранения' });
+    }
+    // Bound Google API writes BEFORE any side effect; JSON bodyLimit alone is not
+    // a limit on the number of potentially expensive sequential cell updates.
+    if (body.rows.length > MAX_BATCH_ROWS) {
+      return reply.status(413).send({ error: `В одном сохранении допускается до ${MAX_BATCH_ROWS} строк` });
+    }
+    if (body.rows.some(entry => !entry || typeof entry !== 'object' ||
+      typeof entry.deptId !== 'string' || !Number.isSafeInteger(entry.rowIndex) ||
+      !entry.changes || typeof entry.changes !== 'object' ||
+      Array.isArray(entry.changes) || Object.keys(entry.changes).length === 0)) {
+      return reply.status(400).send({ error: 'Каждая строка должна содержать управление, номер и изменяемые поля' });
+    }
+    const cellCount = body.rows.reduce((sum, entry) => sum + Object.keys(entry.changes).length, 0);
+    if (cellCount > MAX_BATCH_CELLS) {
+      return reply.status(413).send({ error: `В одном сохранении допускается до ${MAX_BATCH_CELLS} ячеек` });
     }
 
     const FORMULA_COLUMNS = new Set(['K', 'O', 'P', 'R', 'S', 'T', 'Y', 'Z', 'AA', 'AB', 'AC']);
@@ -456,6 +521,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     }> = [];
 
     const now = new Date().toISOString();
+    const rowRevisions: Record<string, string> = {};
 
     for (const entry of body.rows) {
       const dept = DEPARTMENTS.find(d => d.id === entry.deptId || d.nameShort === entry.deptId);
@@ -474,51 +540,73 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
 
-      // Ленивый резолв РЕАЛЬНОГО имени вкладки: только когда есть что писать
-      // (после всех валидаций) — невалидные запросы отклоняются без сетевого вызова.
-      let sheetName: string | null = null;
-
+      // Validate each edit BEFORE revision preflight. An invalid column/header
+      // is a 400-style input failure, not a misleading missing-revision error.
+      // Keep valid cells so a mixed batch can report each outcome accurately.
+      const validChanges: Array<[string, unknown]> = [];
       for (const [rawField, rawValue] of Object.entries(entry.changes)) {
         const field = rawField.toUpperCase();
-
-        // SECURITY (C2/H3): field обязан быть реальной колонкой — иначе range-injection.
+        let validationError: string | null;
         if (COL_LETTER_INDEX[field] === undefined) {
-          results.push({
-            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: 'Такого столбца в книге закупок нет — правка отклонена',
-          });
-          continue;
+          validationError = 'Такого столбца в книге закупок нет — правка отклонена';
+        } else {
+          validationError = rowWriteError(entry.rowIndex, dept.nameShort);
+          if (!validationError && FORMULA_COLUMNS.has(field)) {
+            validationError = `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`;
+          }
+        }
+        if (validationError) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: validationError });
+        } else {
+          validChanges.push([field, rawValue]);
+        }
+      }
+      if (validChanges.length === 0) continue;
+
+      const expectedRevision = entry.expectedRevision;
+      if ((!expectedRevision || !/^[a-f0-9]{64}$/.test(expectedRevision)) &&
+          process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
+        for (const [field] of validChanges) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: 'Обновите реестр: исходная версия строки отсутствует' });
+        }
+        continue;
+      }
+      await withRowWriteLock(`${spreadsheetId}:${entry.rowIndex}`, async () => {
+        let sheetName: string | null = null;
+        let originalRow: unknown[];
+        if (expectedRevision) {
+          try {
+            sheetName = await resolveDeptSheetName(dept.nameShort, spreadsheetId);
+            originalRow = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+          } catch (readErr) {
+            app.log.warn({ err: readErr }, 'batch-save: source preflight failed');
+            for (const [field] of validChanges) {
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+                success: false, error: 'Исходная строка не прочитана — запись не выполнялась' });
+            }
+            return;
+          }
+          if (rowRevision(originalRow) !== expectedRevision) {
+            for (const [field] of validChanges) {
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+                success: false, error: 'Строка изменена или перемещена — перечитайте реестр; запись не выполнялась' });
+            }
+            return;
+          }
+        } else {
+          originalRow = [...(getDeptSheetValues()[dept.nameShort]?.[entry.rowIndex - 1] ?? [])];
         }
 
-        // Та же граница строки, что и в PUT: строка обязана существовать в листе.
-        const boundsError = rowWriteError(entry.rowIndex, dept.nameShort);
-        if (boundsError) {
-          results.push({
-            deptId: entry.deptId, rowIndex: entry.rowIndex, field,
-            success: false, error: boundsError,
-          });
-          continue;
-        }
-
-        // Block formula columns
-        if (FORMULA_COLUMNS.has(field)) {
-          results.push({
-            deptId: entry.deptId,
-            rowIndex: entry.rowIndex,
-            field,
-            success: false,
-            error: `Столбец «${columnTitle(field)}» книга считает формулой — измените исходные суммы или даты, итог пересчитается сам`,
-          });
-          continue;
-        }
-
+      for (const [field, rawValue] of validChanges) {
+        // Field name, sheet-row bounds and formula protection were checked
+        // before revision verification. Never write a field that failed it.
         // Normalize value
         let normalizedValue: unknown = rawValue;
         if (NUMERIC_COLUMNS.has(field)) {
-          const num = typeof rawValue === 'number'
-            ? rawValue
-            : parseFloat(String(rawValue).replace(/\s/g, '').replace(/,/g, '.'));
-          if (isNaN(num) && rawValue !== null && rawValue !== '') {
+          const parsed = parseEditableAmount(rawValue);
+          if (!parsed.ok) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
@@ -528,23 +616,39 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
             });
             continue;
           }
-          normalizedValue = isNaN(num) ? null : num;
+          normalizedValue = parsed.value;
         } else if (DATE_COLUMNS.has(field)) {
-          const str = String(rawValue ?? '').trim();
-          if (str && !/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str) && !/^\d{4}-\d{2}-\d{2}/.test(str)) {
+          const date = validEditableDate(rawValue);
+          if (date === null) {
             results.push({
               deptId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
               success: false,
-              error: `Столбец «${columnTitle(field)}» принимает дату в виде ДД.ММ.ГГГГ — например 15.03.2026`,
+              error: `Столбец «${columnTitle(field)}» принимает действительную дату — например 15.03.2026`,
             });
             continue;
           }
-          normalizedValue = str;
+          normalizedValue = date;
         }
 
         const cellAddress = `${field}${entry.rowIndex}`;
+        const oldValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+        try {
+          db.insert(schema.auditLog).values({
+            action: 'batch_cell_edit_intent', entity: 'row',
+            entityId: `${entry.deptId}:${entry.rowIndex}:${field}`,
+            departmentId: entry.deptId, rowIndex: entry.rowIndex, field,
+            oldValue: String(oldValue ?? ''), newValue: String(normalizedValue ?? ''),
+            details: JSON.stringify({ expectedRevision: expectedRevision ?? null }),
+            timestamp: now,
+          }).run();
+        } catch (logErr) {
+          app.log.error({ err: logErr }, 'batch-save: audit intent unavailable');
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+            success: false, error: 'Журнал изменений недоступен — ячейка не изменялась' });
+          continue;
+        }
 
         try {
           sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
@@ -562,11 +666,13 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               departmentId: entry.deptId,
               rowIndex: entry.rowIndex,
               field,
+              oldValue: String(oldValue ?? ''),
               newValue: String(normalizedValue ?? ''),
               details: JSON.stringify({
                 department: entry.deptId,
                 row: entry.rowIndex,
                 field,
+                oldValue,
                 newValue: normalizedValue,
                 updatedRange: writeResult.updatedRange,
                 batchSave: true,
@@ -574,7 +680,12 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
               timestamp: now,
             }).run();
           } catch (logErr) {
-            app.log.warn({ logErr }, 'batch-save: failed to write audit log');
+            app.log.error({ err: logErr }, 'batch-save: source saved but confirmation audit failed');
+            results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field,
+              success: false,
+              error: 'Ячейка записана в источник, но подтверждение в журнале не сохранилось — обновите реестр, не повторяйте правку вслепую',
+            });
+            continue;
           }
 
           results.push({
@@ -599,6 +710,16 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           });
         }
       }
+      if (expectedRevision && sheetName && results.some(r =>
+        r.deptId === entry.deptId && r.rowIndex === entry.rowIndex && r.success)) {
+        try {
+          const confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+          rowRevisions[`${entry.deptId}:${entry.rowIndex}`] = rowRevision(confirmed);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'batch-save: saved but final source row version unavailable');
+        }
+      }
+      });
     }
 
     const totalChanges = results.length;
@@ -620,6 +741,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
       successCount,
       failCount,
       results,
+      rowRevisions,
       timestamp: now,
     });
   });
