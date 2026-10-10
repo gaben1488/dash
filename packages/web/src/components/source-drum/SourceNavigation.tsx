@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import type { Page } from '../../store';
 import navigationHtml from './navigation.html?raw';
@@ -31,6 +31,15 @@ const safeLabels = [
   'Мониторинг', 'Экономия', 'Конкуренция', 'Дисциплина',
   'Аналитика', 'Контроль', 'Система',
 ] as const;
+
+// The original SourceHeader.jsx (PR #70) memoizes the raw navigation DOM.
+ // Without this, the live Header's countdown rerender resets innerHTML each
+ // second and silently loses checked inputs, classes and data-route.
+ const SourceDrumMarkup = memo(forwardRef<HTMLDivElement>(function SourceDrumMarkup(_props, ref) {
+   return <div ref={ref} className="баран-навигации" tabIndex={0}
+     role="group" aria-label="Барабан разделов"
+     dangerouslySetInnerHTML={{__html:navigationHtml}}/>;
+ }));
 
 type Props = { activePage: Page; setPage: (page: Page) => void };
 
@@ -161,8 +170,7 @@ export function SourceNavigation({ activePage, setPage }: Props) {
 
   return (
     <div ref={host} className="dash-source-navigation" aria-label="Разделы Dash — оригинальный барабан">
-      <div className="баран-навигации" tabIndex={0} role="group" aria-label="Барабан разделов"
-        dangerouslySetInnerHTML={{__html:navigationHtml}}/>
+      <SourceDrumMarkup />
       <div className="source-nav-keys" role="group" aria-label="Навигация по группам">
         <button type="button" onClick={()=>move(-1)} title="Предыдущие группы" aria-label="Предыдущие группы"><ChevronUp/></button>
         <button type="button" onClick={()=>setMenuOpen(x=>!x)} aria-expanded={menuOpen}
