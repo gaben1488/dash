@@ -61,6 +61,20 @@ try{
  await delay(1100);
  const topCount=await page.locator('.np-btn').count();
  if(topCount!==13)fail('Expected 13 original nav buttons; rendered '+topCount);
+ const navQuality=await page.evaluate(()=>{
+   const nav=document.querySelector('.nav-pills-wrap');
+   const labels=[...document.querySelectorAll('.np-label')].map(x=>{
+     const css=getComputedStyle(x),r=x.getBoundingClientRect();
+     return {text:x.textContent?.trim(),whiteSpace:css.whiteSpace,break:css.overflowWrap,height:r.height,lineHeight:css.lineHeight};
+   });
+   return {layout:document.documentElement.dataset.previewNav,navClient:nav?.clientWidth,
+     navScroll:nav?.scrollWidth,labels};
+ });
+ report.nav=navQuality;
+ if(navQuality.layout!=='review')fail('Proposed navigation not activated');
+ for(const label of navQuality.labels){
+   if(label.whiteSpace!=='nowrap'||label.break==='anywhere')fail('Navigation label wraps: '+JSON.stringify(label));
+ }
  await page.screenshot({path:out+'/00-initial-desktop.png',fullPage:true});
  report.screenshots.push('00-initial-desktop.png');
  for(const [id,label]of routes){
