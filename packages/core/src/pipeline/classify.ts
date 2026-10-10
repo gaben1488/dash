@@ -62,7 +62,7 @@ function classifyRow(
   // Проверяем маркеры служебных строк
   const isTotalMarker = nameText.includes('итого') || nameText.includes('всего');
   const isHeaderMarker = nameText.includes('раздел') || nameText.includes('блок') ||
-                         nameText === '' && !hasAmounts;
+                         nameText === '' && !hasAmounts && subjectEmpty && procurementMethodEmpty;
   const isSeparator = Object.values(cells).every(v => v === null || v === undefined || v === '');
 
   // Классификация
