@@ -65,7 +65,7 @@ export function ControlCaseGuide({ item, onClose, onOpenEvidence, onOpenRegistry
         </div>
       </div>
 
-      <div id="control-guide-step-panel" role="tabpanel" aria-labelledby={`control-guide-step-${active.id}`}
+      <div id="control-guide-step-panel" role="region" aria-labelledby={`control-guide-step-${active.id}`}
         className="p-4" tabIndex={0}>
         <div className={clsx(TILE, 'p-4')}>
           <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{active.title}</p>
