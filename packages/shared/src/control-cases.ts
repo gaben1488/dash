@@ -192,6 +192,24 @@ export function buildControlCases(issues: readonly Issue[]): ControlCase[] {
   );
 }
 
+/**
+ * A page-level filter selects whole reviewable cases, not fragments of them.
+ *
+ * Build the canonical cases from ALL observations already in the global data
+ * perimeter, then use the currently visible Issue IDs only to choose which
+ * cases to display. Otherwise a status/search filter can hide an acknowledged
+ * companion observation and falsely change a mixed case into "new".
+ *
+ * Source issues, status decisions and snapshot-scoped case keys stay intact.
+ */
+export function selectControlCasesWithVisibleEvidence(
+  cases: readonly ControlCase[],
+  visibleIssueIds: ReadonlySet<string>,
+): ControlCase[] {
+  if (visibleIssueIds.size === 0) return [];
+  return cases.filter(c => c.issueIds.some(id => visibleIssueIds.has(id)));
+}
+
 export function controlCaseCounters(cases: readonly ControlCase[]) {
   return {
     cases: cases.length,
