@@ -20,4 +20,4 @@ jobs:
         with:
           node-version: '22'
       - name: Run conservative identity-contract tests on synthetic fixtures
-        run: node --test tools/db-migration/tests/identity-crosswalk.test.mjs
+        run: node --test tools/db-migration/tests/*.test.mjs
