@@ -40,6 +40,8 @@ export interface TableEditorProps {
   onSaveRow?: (rowId: string, data: Record<string, unknown>) => Promise<void>;
   onRevertRow?: (rowId: string) => void;
   onAddColumn?: (column: ColumnConfig) => void;
+  /** Restored parent-held draft fields after leaving/re-entering the editor. */
+  draftDirty?: Readonly<Record<string, readonly string[]>>;
   loading?: boolean;
   readOnly?: boolean;
   /**
@@ -393,6 +395,7 @@ export function TableEditor({
   onSaveRow,
   onRevertRow,
   onAddColumn,
+  draftDirty = {},
   loading = false,
   readOnly = false,
   emptyReason,
@@ -832,18 +835,20 @@ export function TableEditor({
   );
 
   const isDirtyRow = useCallback((rowId: string) => {
-    return dirty[rowId] && dirty[rowId].size > 0;
-  }, [dirty]);
+    return (dirty[rowId]?.size ?? 0) > 0 || (draftDirty[rowId]?.length ?? 0) > 0;
+  }, [dirty, draftDirty]);
 
   const isDirtyCell = useCallback((rowId: string, colKey: string) => {
-    return dirty[rowId]?.has(colKey) ?? false;
-  }, [dirty]);
+    return (dirty[rowId]?.has(colKey) ?? false) || (draftDirty[rowId]?.includes(colKey) ?? false);
+  }, [dirty, draftDirty]);
 
   const hasRowErrors = useCallback((rowId: string) => {
     return Object.keys(errors).some(k => k.startsWith(`${rowId}:`));
   }, [errors]);
 
-  const dirtyCount = Object.keys(dirty).length;
+  const visibleRowIds = new Set(rows.map(row => row._id));
+  const dirtyCount = new Set([...Object.keys(dirty), ...Object.keys(draftDirty)]
+    .filter(rowId => visibleRowIds.has(rowId) && isDirtyRow(rowId))).size;
   const failedCount = Object.keys(saveErrors).length;
   const colSpan = visibleColumns.length + (readOnly ? 0 : 1);
   const hiddenCount = columns.length - visibleColumns.length;

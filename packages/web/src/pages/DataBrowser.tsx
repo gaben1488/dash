@@ -57,6 +57,7 @@ import { pluralRu } from '../lib/economy-copy';
 import { formatPct } from '../lib/economy/format';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { subordinateLabel } from '../lib/subordinate-label';
+import { restoreEditorPage, sameEditorSource, type EditorDraft } from '../lib/rows/editor-drafts';
 import {
   REGISTRY_SLICE_PRESETS,
   findSlicePreset,
@@ -486,6 +487,21 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const [editorRows, setEditorRows] = useState<RowData[]>([]);
   const [editorColumns, setEditorColumns] = useState<ColumnConfig[]>([]);
   const [editorOriginals, setEditorOriginals] = useState<Record<string, RowData>>({});
+  // Drafts must survive server refetch, filtering and pagination. Avoid browser
+  // persistence of unpublished financial/organization text.
+  const editorDraftsRef = useRef<Map<string, EditorDraft>>(new Map());
+  const [draftVersion, setDraftVersion] = useState(0);
+  const [draftConflicts, setDraftConflicts] = useState(0);
+
+  useEffect(() => {
+    const warnUnpublished = (event: BeforeUnloadEvent) => {
+      if (editorDraftsRef.current.size === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnUnpublished);
+    return () => window.removeEventListener('beforeunload', warnUnpublished);
+  }, []);
 
   /** Проверка числового поля редактора — одна на все денежные колонки. */
   const moneyCell = useCallback((v: unknown): string | null => {
@@ -528,26 +544,28 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   }, []);
 
   const handleEditorCellChange = useCallback((rowId: string, colKey: string, value: unknown) => {
-    setEditorRows(prev => prev.map(r => {
-      if (r._id !== rowId) return r;
-      const next = { ...r, [colKey]: value };
-      // Итоги — производные: в книге их считает формула, здесь пересчитываем
-      // сразу, иначе на экране осталась бы прежняя сумма, противоречащая
-      // только что введённым бюджетам.
-      if (colKey === 'planFB' || colKey === 'planKB' || colKey === 'planMB') {
-        next.planSum = sumBudgets(next, ['planFB', 'planKB', 'planMB']);
-      }
-      if (colKey === 'factFB' || colKey === 'factKB' || colKey === 'factMB') {
-        next.factSum = sumBudgets(next, ['factFB', 'factKB', 'factMB']);
-      }
-      return next;
-    }));
-  }, [sumBudgets]);
+    const row = editorRows.find(r => r._id === rowId);
+    const baseline = editorDraftsRef.current.get(rowId)?.baseline ?? editorOriginals[rowId];
+    if (!row || !baseline) return;
+    const next = { ...row, [colKey]: value };
+    if (colKey === 'planFB' || colKey === 'planKB' || colKey === 'planMB') {
+      next.planSum = sumBudgets(next, ['planFB', 'planKB', 'planMB']);
+    }
+    if (colKey === 'factFB' || colKey === 'factKB' || colKey === 'factMB') {
+      next.factSum = sumBudgets(next, ['factFB', 'factKB', 'factMB']);
+    }
+    editorDraftsRef.current.set(rowId, { baseline, edited: next });
+    setEditorRows(prev => prev.map(r => r._id === rowId ? next : r));
+    setDraftVersion(v => v + 1);
+  }, [editorRows, editorOriginals, sumBudgets]);
 
   const handleEditorSaveRow = useCallback(async (rowId: string, data: Record<string, unknown>) => {
-    const original = editorOriginals[rowId];
+    const original = editorDraftsRef.current.get(rowId)?.baseline ?? editorOriginals[rowId];
     if (!original) {
       throw new Error('Исходная запись не найдена. Обновите реестр: правка не сохранена.');
+    }
+    if (!sameEditorSource(original, data as RowData)) {
+      throw new Error('Источник изменил закупку по этому адресу. Черновик сохранён, но запись в чужую строку запрещена.');
     }
 
     // Поле редактора → колонка листа. Итоги (план/факт) не пишутся: их считает
@@ -570,7 +588,11 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       }
     }
 
-    if (Object.keys(changes).length === 0) return;
+    if (Object.keys(changes).length === 0) {
+      editorDraftsRef.current.delete(rowId);
+      setDraftVersion(v => v + 1);
+      return;
+    }
 
     const deptId = String(data._dept ?? '');
     const rowIndex = Number(data._rowIndex ?? 0);
@@ -595,6 +617,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       throw new Error(`Книга не приняла правку — ${failures.join('; ')}`);
     }
 
+    editorDraftsRef.current.delete(rowId);
+    setDraftVersion(v => v + 1);
     setEditorOriginals(prev => ({
       ...prev,
       [rowId]: { ...data, _id: rowId } as RowData,
@@ -602,8 +626,10 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   }, [editorOriginals]);
 
   const handleEditorRevertRow = useCallback((rowId: string) => {
-    const original = editorOriginals[rowId];
+    const original = editorDraftsRef.current.get(rowId)?.baseline ?? editorOriginals[rowId];
     if (!original) return;
+    editorDraftsRef.current.delete(rowId);
+    setDraftVersion(v => v + 1);
     setEditorRows(prev => prev.map(r =>
       r._id === rowId ? { ...original } : r
     ));
@@ -855,7 +881,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // оговорке редактора это сказано прямо, чтобы правка страницы не выглядела
   // правкой всего реестра.
   useEffect(() => {
-    if (viewMode !== 'editor' || paged.length === 0) return;
+    if (viewMode !== 'editor') return;
     const mapped: RowData[] = paged.map((r, idx) => ({
       _id: `${r.dept}-${r.rowIndex ?? idx}`,
       _dept: r.dept,
@@ -881,16 +907,31 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       flag: r.flag,
       commentGRBS: r.commentGRBS,
     }));
-    setEditorRows(mapped);
-    const origMap: Record<string, RowData> = {};
-    for (const row of mapped) {
-      origMap[row._id] = { ...row };
-    }
-    setEditorOriginals(origMap);
+    const restored = restoreEditorPage(mapped, editorDraftsRef.current);
+    setEditorRows(restored.rows);
+    setEditorOriginals({
+      ...Object.fromEntries([...editorDraftsRef.current.entries()].map(([id, draft]) => [id, draft.baseline])),
+      ...restored.originals,
+    });
+    setDraftConflicts(prev => prev === restored.conflicts ? prev : restored.conflicts);
     if (editorColumns.length === 0) {
       setEditorColumns(defaultEditorColumns);
     }
   }, [viewMode, paged, defaultEditorColumns, editorColumns.length]);
+
+  const visibleDraftDirty = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const row of editorRows) {
+      const draft = editorDraftsRef.current.get(row._id);
+      if (!draft || !sameEditorSource(draft.baseline, row)) continue;
+      const fields = ['subject', 'method', 'planFB', 'planKB', 'planMB',
+        'factFB', 'factKB', 'factMB', 'planDate', 'factDate', 'flag', 'commentGRBS'];
+      const changed = fields.filter(field => row[field] !== draft.baseline[field]);
+      if (changed.length) out[row._id] = changed;
+    }
+    return out;
+  // draftVersion increments when a parent-held draft changes, including off page.
+  }, [editorRows, draftVersion]);
 
   // ── Курсор по строкам ──
   const { rowsBelow, showBackToTop, scrollToTop } = useTableScroll(scrollRef, rowRefs, paged.length);
@@ -1585,6 +1626,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             onSaveRow={handleEditorSaveRow}
             onRevertRow={handleEditorRevertRow}
             onAddColumn={handleEditorAddColumn}
+            draftDirty={visibleDraftDirty}
             emptyReason={
               everythingFailed
                 ? 'Книги управлений не прочитаны — правки сейчас невозможны. Проверьте доступ и обновите данные.'
@@ -1596,6 +1638,12 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
               `Редактор правит страницу реестра — сейчас это ${paged.length} ${pluralRu(paged.length, 'строка', 'строки', 'строк')} `
               + `из ${filtered.length} в выборке; остальные листаются кнопками рядом с выбором размера страницы. `
               + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист.'
+              + (editorDraftsRef.current.size > 0
+                ? ` Несохранённых черновиков в текущем Реестре: ${editorDraftsRef.current.size} (включая другие страницы). Не закрывайте раздел, пока не сохраните или не отмените их.`
+                : '')
+              + (draftConflicts > 0
+                ? ` Внимание: ${draftConflicts} черновиков относятся к изменившимся строкам и не перенесены на другие закупки.`
+                : '')
             }
             rowAddress={(row) => rowAddressOf(row._dept, row._rowIndex)}
             prefsName="registry-editor"
