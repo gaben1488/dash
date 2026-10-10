@@ -82,25 +82,18 @@ RECORDED_REVIEWS_V3 = [{'old_sheet': 'Процедуры в работе',
  {'old_sheet': 'Справочник заказчиков',
   'sheet': 'Справочник заказчиков',
   'role': 'formula_dependency',
-  'sheet_id': 837564274,
   'old_columns': 18,
-  'columns': 32,
+  'columns': 19,
   'old_header_rows': 1,
   'header_rows': 1,
   'old_fingerprint': '33c63a8f5a1b2bd6fb5bd4d49a325bdd04c174f53859c29a3373fa991f941b50',
-  # 10.10 live: 19 unchanged legacy columns + 13 substantive ZMO-evidence columns.
-  # Neither trim the grid to 19 nor infer approval from physical width alone.
-  'fingerprint': '1d9f66c2f5372d0c4dc6f3064561018fb1584adcc438527354b3d2380e9f4064',
+  'fingerprint': '994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042',
   'previous_semantic': '594117f4a78542aaee93605b400d737e6b08692748aee1faf5df20359cc66ea5',
-  'semantic': 'a20ac644d7f02ead1920415bf1c322040ac7b1cb19bd6df8bb2678234b60db7b',
+  'semantic': 'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1',
   'volatile_cells': [],
   'optional': True,
-  'previous_geometry': [
-      [18, 1, '04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3'],
-      [19, 1, '994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042']],
-  'previous_semantics': [
-      'be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe',
-      'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1']},
+  'previous_geometry': [[18, 1, '04d9440713606d56c7ed624aa3c5c872b2ae55e39a3e7ea84f9e11d86fbdfcb3']],
+  'previous_semantics': ['be2978db6b2c34e25bf5803977f4da10e01294928126bf8056e1965f305792fe']},
  {'old_sheet': '_Проверки',
   'sheet': '_Проверки',
   'role': 'historical_control_dependency',
@@ -153,6 +146,23 @@ REVIEWS[0].update(
         [24, 2, '7410aa94a1ca8067db0aee24c04859bee9c88abec9a077542f00ad5291420afe']],
     previous_semantics=[*REVIEWS[0]['previous_semantics'],
         '40e6c01b2bcc1aee6f7d1fe8bb63139b23ddd37cda12ba347494f07ae522ccdf'])
+# 10.10 additive ZMO reconciliation fields: retain the exact recorded v3
+# migration (18 -> 19), then pin a distinct reviewed 19 -> 32 extension.
+# The live sheet has data in T:AF. Do NOT truncate, auto-discover or accept
+# changed headers; the old 18/19 identities remain approved predecessors.
+directory_review = next(p for p in REVIEWS if p['sheet'] == 'Справочник заказчиков')
+directory_review.update(
+    sheet_id=837564274,
+    columns=32,
+    fingerprint='1d9f66c2f5372d0c4dc6f3064561018fb1584adcc438527354b3d2380e9f4064',
+    semantic='a20ac644d7f02ead1920415bf1c322040ac7b1cb19bd6df8bb2678234b60db7b',
+    previous_geometry=[
+        *directory_review['previous_geometry'],
+        [19, 1, '994786f28666c28c7633243f2e881b2a1bd7bbfb2efbccb6293694a86b19d042']],
+    previous_semantics=[
+        *directory_review['previous_semantics'],
+        'c7a3d028c03385f80ad24e79e85ac45c80fc98d73fcf62764b57121a4f1a3dc1'],
+)
 RETIRED = [('_Связи процедур',
   'procedure_lifecycle',
   6,
