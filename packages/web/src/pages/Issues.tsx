@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, buildControlCases, controlCaseCounters } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, buildControlCases, controlCaseCounters, selectControlCasesWithVisibleEvidence } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
@@ -423,12 +423,15 @@ export function IssuesPage() {
   // The same case projection is used by the server and by Recommendations.
   // Filter AFTER the common header/local filters; do not invent a new list
   // with different dates, organizations or legal assumptions.
-  const filteredCases = useMemo(() => {
-    const visibleIds = new Set(filtered.map(i => i.id));
-    return buildControlCases(fd.issues
-      .filter(i => visibleIds.has(i.id))
-      .map(i => ({ ...i, status: statusOverrides[i.id] ?? i.status })));
-  }, [fd.issues, filtered, statusOverrides]);
+  // First form complete cases inside the GLOBAL data perimeter, then select
+  // whole cases via page search/status/severity. A local filter must never
+  // erase accompanying evidence or make a mixed human decision look "open".
+  const allCases = useMemo(() => buildControlCases(
+    fd.issues.map(i => ({ ...i, status: statusOverrides[i.id] ?? i.status })),
+  ), [fd.issues, statusOverrides]);
+  const filteredCases = useMemo(() => selectControlCasesWithVisibleEvidence(
+    allCases, new Set(filtered.map(i => i.id)),
+  ), [allCases, filtered]);
   const caseCounters = useMemo(() => controlCaseCounters(filteredCases), [filteredCases]);
   const actionableCases = filteredCases.filter(c =>
     c.workState !== 'false_positive' && c.workState !== 'exception_recorded',
@@ -726,7 +729,17 @@ export function IssuesPage() {
               item={focusedCase}
               onClose={() => setFocusedCaseKey(null)}
               onOpenEvidence={(id) => {
-                const group = mechanismGroups.find(g => g.issues.some(i => i.id === id));
+                // All evidence survives a local filter. When the selected
+                // observation was hidden by that filter, clear only the PAGE
+                // controls before opening its real original card.
+                if (!filtered.some(i => i.id === id)) {
+                  setSearch('');
+                  setSevFilter(new Set());
+                  setStatusFilter(new Set());
+                  setTrustFilterOn(false);
+                }
+                const allMechanisms = groupIssuesByMechanism(issues, productLabel);
+                const group = allMechanisms.find(g => g.issues.some(i => i.id === id));
                 if (group) setOpenGroups(prev => new Set([...prev, group.key]));
                 setExpandedId(id);
                 window.requestAnimationFrame(() => {
