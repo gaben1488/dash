@@ -115,6 +115,7 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
           origin: 'system',
           category: 'test',
           title: 'seed',
+          departmentId: 'uer',
           status: 'open',
           detectedAt: '2026-01-01T00:00:00Z',
         },
@@ -159,5 +160,17 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     const issue = getBody.issues.find((i) => i.id === 'seed-issue-003');
 
     expect(issue?.status).toBe('acknowledged');
+
+    // A page reload uses /api/dashboard (not /api/issues) for its rows and
+    // status chips. It must observe the very same human decision from SQLite.
+    const dashboardRes = await app.inject({ method: 'GET', url: '/api/dashboard' });
+    expect(dashboardRes.statusCode).toBe(200);
+    const dashboard = dashboardRes.json<{ snapshot: { issues: Array<{ id: string; status: string }> } }>();
+    expect(dashboard.snapshot.issues.find(i => i.id === 'seed-issue-003')?.status).toBe('acknowledged');
+
+    const trustRes = await app.inject({ method: 'GET', url: '/api/trust/uer' });
+    expect(trustRes.statusCode).toBe(200);
+    const trust = trustRes.json<{ issues: Array<{ id: string; status: string }> }>();
+    expect(trust.issues.find(i => i.id === 'seed-issue-003')?.status).toBe('acknowledged');
   }, 30_000);
 });
