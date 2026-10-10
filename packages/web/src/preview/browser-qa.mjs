@@ -122,7 +122,17 @@ try{
     const r=el.getBoundingClientRect();const cs=getComputedStyle(el);
     return {tag:el.tagName,cls:typeof el.className==='string'?el.className.slice(0,110):'',right:Math.round(r.right),left:Math.round(r.left),width:Math.round(r.width),position:cs.position,overflowX:cs.overflowX};
   }).filter(x=>x.right>window.innerWidth+4&&x.width>20).sort((a,b)=>b.right-a.right).slice(0,15);
-  return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,nodes};
+  const table=document.querySelector('#main-content table');
+  const ancestry=[];let current=table;
+  while(current && current!==document.documentElement){
+    const rect=current.getBoundingClientRect(),computed=getComputedStyle(current);
+    ancestry.push({tag:current.tagName,cls:typeof current.className==='string'?current.className.slice(0,115):'',
+      clientWidth:current.clientWidth,scrollWidth:current.scrollWidth,
+      rectWidth:Math.round(rect.width),rectRight:Math.round(rect.right),
+      overflowX:computed.overflowX,minWidth:computed.minWidth,maxWidth:computed.maxWidth,display:computed.display});
+    current=current.parentElement;
+  }
+  return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,nodes,ancestry};
  });
  report.mobile=widths;
  if(widths.scroll>widths.client+2)fail('Mobile page overflows: '+JSON.stringify(widths));
