@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { ACTIVITY_TYPES } from '@aemr/shared';
 import { useStore } from '../store';
+import { productDayParts } from '../lib/period-coverage';
 import type { PeriodScope, ProcurementFilter, ActivityFilter, BudgetType } from '../store';
 
 const VALID_PERIODS: PeriodScope[] = ['year', 'q1', 'q2', 'q3', 'q4'];
@@ -18,7 +19,7 @@ const VALID_METHOD_SET = new Set(['competitive', 'single']);
 const VALID_ACTIVITY_SET = new Set<string>(ACTIVITY_TYPES);
 const VALID_BUDGET_SET = new Set<BudgetType>(['fb', 'kb', 'mb']);
 
-const DEFAULT_YEAR = new Date().getFullYear();
+const DEFAULT_YEAR = productDayParts().y;
 const DEFAULT_PERIOD: PeriodScope = 'year';
 const DEFAULT_METHOD: ProcurementFilter = 'all';
 const DEFAULT_ACTIVITY: ActivityFilter = 'all';
