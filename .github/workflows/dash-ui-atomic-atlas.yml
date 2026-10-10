@@ -7,6 +7,12 @@ on:
       - 'packages/web/src/**'
       - 'packages/web/scripts/ui-atomic-atlas.mjs'
       - '.github/workflows/dash-ui-atomic-atlas.yml'
+  push:
+    branches: [codex/dash-design-library-patterns-20261010]
+    paths:
+      - 'packages/web/src/**'
+      - 'packages/web/scripts/ui-atomic-atlas.mjs'
+      - '.github/workflows/dash-ui-atomic-atlas.yml'
   workflow_dispatch:
 
 concurrency:
