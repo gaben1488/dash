@@ -51,6 +51,18 @@ describe('groupIssuesByMechanism', () => {
     expect(overdue.addresses.map((a) => a.row)).toEqual([4, 2237]);
   });
 
+  it('поясняет потенциальное влияние формулы, не выдавая его за доказанную потерю денег', () => {
+    const [group] = groupIssuesByMechanism([{
+      id: 'f1', checkId: 'formula_mutant', severity: 'error',
+      title: 'Формула расходится с эталоном', sheet: 'УО', row: 17,
+    }]);
+    expect(group.consequence).toMatchObject({
+      kind: 'possible_calculation_impact',
+      stateObserved: false,
+    });
+    expect(group.issues).toHaveLength(1);
+  });
+
   it('заголовок карточки — механизм, не предмет закупки', () => {
     const [first] = groupIssuesByMechanism([overdueA]);
     expect(first.label).toBe('Просрочен');
