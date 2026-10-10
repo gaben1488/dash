@@ -14,19 +14,19 @@
   background:var(--lab-raised); border:1px solid var(--lab-line);
   color:var(--lab-muted); border-radius:10px;
 }
-.dl-pat-search input { flex:1; min-width:0; width:100%; border:0; background:transparent; color:var(--lab-ink); outline-offset:5px; font-size:13px; }
+.dl-pat-search input { flex:1; min-width:0; width:100%; border:0; background:transparent; color:var(--lab-text); outline-offset:5px; font-size:13px; }
 .dl-pat-search input::placeholder { color:var(--lab-muted); opacity:.9; }
 .dl-pat-category { display:grid; gap:5px; margin-top:13px; color:var(--lab-muted); font-size:11px; }
 .dl-pat-category select {
   width:100%; padding:9px 8px; border-radius:9px; border:1px solid var(--lab-line);
-  background:var(--lab-card); color:var(--lab-ink); font-size:12px;
+  background:var(--lab-card); color:var(--lab-text); font-size:12px;
 }
 .dl-pat-links { margin-top:13px; display:grid; gap:5px; }
 .dl-pat-links button {
   position:relative; display:flex; flex-direction:column; align-items:flex-start;
   gap:4px; text-align:left; min-height:56px; border-radius:10px;
   border:1px solid transparent; padding:10px 29px 10px 11px; background:transparent;
-  color:var(--lab-ink); transition:background-color 150ms,border-color 150ms;
+  color:var(--lab-text); transition:background-color 150ms,border-color 150ms;
 }
 .dl-pat-links button strong { font-size:12px; font-weight:650; line-height:1.35; }
 .dl-pat-links button small { font-size:10px; color:var(--lab-muted); line-height:1.3; }
@@ -42,10 +42,10 @@
   padding:17px 20px; background:var(--lab-card); border-radius:15px;
   border:1px solid var(--lab-line);
 }
-.dl-pat-description h3 { font-size:19px; font-weight:700; margin:4px 0 7px; letter-spacing:-.025em; color:var(--lab-ink); }
+.dl-pat-description h3 { font-size:19px; font-weight:700; margin:4px 0 7px; letter-spacing:-.025em; color:var(--lab-text); }
 .dl-pat-description p { margin:0 0 7px; color:var(--lab-muted); line-height:1.6; font-size:12px; }
 .dl-pat-description p:last-child { margin-bottom:0; }
-.dl-pat-description p strong { font-weight:600; color:var(--lab-ink); }
+.dl-pat-description p strong { font-weight:600; color:var(--lab-text); }
 .dl-pat-stage {
   min-width:0; color:var(--ink); background:var(--surface-page);
   border:1px solid var(--line-strong); border-radius:15px;
@@ -85,17 +85,17 @@
 .dl-pat-material p { font-size:11px; color:var(--ink-muted); margin-top:6px; line-height:1.55; }
 .dl-pat-acceptance { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .dl-pat-acceptance section { border:1px solid var(--lab-line); background:var(--lab-card); padding:15px; border-radius:13px; }
-.dl-pat-acceptance h4 { margin:0 0 7px; font-size:11px; font-weight:650; color:var(--lab-ink); }
+.dl-pat-acceptance h4 { margin:0 0 7px; font-size:11px; font-weight:650; color:var(--lab-text); }
 .dl-pat-acceptance p { color:var(--lab-muted); font-size:12px; line-height:1.5; }
 .dl-pat-acceptance ul { list-style:none; padding:0; margin:0; display:grid; gap:7px; }
 .dl-pat-acceptance li { display:flex; align-items:flex-start; gap:7px; font-size:11px; line-height:1.5; color:var(--lab-muted); }
 .dl-pat-acceptance li svg { margin-top:2px; flex-shrink:0; color:var(--lab-accent); }
 .dl-pat-code-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
-.dl-pat-code-header strong { display:flex; gap:8px; align-items:center; font-size:13px; font-weight:650; color:var(--lab-ink); }
+.dl-pat-code-header strong { display:flex; gap:8px; align-items:center; font-size:13px; font-weight:650; color:var(--lab-text); }
 .dl-pat-code {
   max-height:280px; overflow:auto; min-width:0; width:100%; padding:14px;
   background:var(--lab-card); border-radius:12px; border:1px solid var(--lab-line);
-  color:var(--lab-ink); font-size:11px; line-height:1.6; white-space:pre;
+  color:var(--lab-text); font-size:11px; line-height:1.6; white-space:pre;
   tab-size:2;
 }
 .dl-pat-copy { color:var(--lab-muted); font-size:11px; }
@@ -104,7 +104,7 @@
 .dl-pat-sources > div { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
 .dl-pat-sources a {
   display:inline-flex; align-items:center; gap:5px; border-radius:7px;
-  padding:6px 8px; font-size:11px; color:var(--lab-ink);
+  padding:6px 8px; font-size:11px; color:var(--lab-text);
   border:1px solid var(--lab-line); text-decoration:none;
 }
 .dl-pat-sources a:hover { background:var(--lab-raised); }
@@ -132,3 +132,6 @@
   .dl-pat-links button[aria-pressed="true"] { outline:2px solid Highlight; outline-offset:-2px; }
   .dl-pat-stage { border-color:CanvasText; }
 }
+
+.dl-pat-none { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:var(--lab-card); border:1px dashed var(--lab-line); border-radius:14px; color:var(--lab-text); padding:20px; }
+.dl-pat-none p { margin-top:7px; color:var(--lab-muted); font-size:12px; }
