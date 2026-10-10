@@ -20,6 +20,7 @@ import clsx from 'clsx';
 import { CHECK_REGISTRY, THRESHOLDS, TRUST_COMPONENT_CONFIG, productLabel } from '@aemr/shared';
 import type { TrustComponentId, TrustComponent } from '@aemr/shared';
 import { buildTrustViewModel } from '../lib/trust-metrics';
+import { assessReconciliation } from '../lib/reconciliation-assurance';
 import { kbFor } from '../lib/kb/metric-kb';
 import { natureOf } from '../lib/diagnostics/nature-categories';
 import { CARD, HEAD_STRIP, NOTE, RULE_DIVIDE, RULE_HEAD, TILE } from '../components/control/surfaces';
@@ -261,6 +262,7 @@ export function TrustPage() {
   // обязано показывать те же строки, по которым посчитан балл на экране.
   const filteredIssues = fd.issues;
   const deltas = fd.deltas;
+  const reconciliation = assessReconciliation(deltas);
 
   const factors: TrustFactor[] = filteredIssues
     .filter((issue: TrustIssue) => issue.severity === 'critical' || issue.severity === 'significant')
@@ -293,6 +295,38 @@ export function TrustPage() {
 
   return (
     <div className="space-y-6">
+      {/* Доказательство сверки не смешивается с историческим композитным баллом.
+          Сначала сообщаем сколько удалось действительно сравнить, затем индекс. */}
+      <section aria-label="Доказательность сверки" className={clsx(CARD, 'rounded-xl p-4 shadow-sm dark:shadow-none')}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Сверка расчётов с официальными числами</h2>
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1">
+              {reconciliation.state === 'not_checked'
+                ? 'Не удалось сравнить ни одну пару. Отсутствие найденных расхождений здесь не означает, что всё верно.'
+                : reconciliation.state === 'divergent'
+                  ? `Есть ${reconciliation.mismatched} расхождений в сопоставимых числах — требуется проверка причин.`
+                  : reconciliation.state === 'incomplete'
+                    ? 'Проверенные пары совпали, но часть показателей сравнить не удалось.'
+                    : 'Все доступные пары совпали. Это результат сверки этих пар, а не доказательство исправности всех книг.'}
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 tabular-nums">
+              Сравнено: {reconciliation.comparable} из {reconciliation.total};
+              {' '}совпало: {reconciliation.matched};
+              {' '}расходится: {reconciliation.mismatched};
+              {' '}не сравнивалось: {reconciliation.unavailable}.
+              {reconciliation.coveragePct !== null ? ` Покрытие: ${reconciliation.coveragePct}%.` : ' Покрытие не определено.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigateTo('quality', { qualityTab: 'recon' })}
+            className="text-xs font-medium text-blue-700 dark:text-blue-300 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 rounded"
+          >
+            Разобрать причины в сверке
+          </button>
+        </div>
+      </section>
       {/* Главный индекс + компоненты */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Индекс */}
@@ -315,7 +349,7 @@ export function TrustPage() {
           </div>
           <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            Качество заполнения книг: {overallScore} из 100
+            Исторический индекс качества: {overallScore} из 100
           </p>
           {scopedToFilter && (
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
@@ -342,7 +376,7 @@ export function TrustPage() {
                 </div>
               )}
               <p className="text-zinc-600 dark:text-zinc-300">
-                Балл — средневзвешенная оценка пяти сторон данных. Вес показывает, насколько сторона
+                Это прежняя балльная модель, не подтверждение того, что все проверки выполнены. Балл — средневзвешенная оценка пяти сторон данных. Вес показывает, насколько сторона
                 важна для итога: качество данных весит больше всех, операционные риски — меньше всех.
                 Каждый компонент раскрывается ниже: там сказано, что именно он проверяет и что его роняет.
               </p>
