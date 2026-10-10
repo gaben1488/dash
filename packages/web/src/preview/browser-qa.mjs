@@ -113,7 +113,13 @@ try{
  await mobile.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
  await mobile.locator('.np-btn').first().waitFor({timeout:30000});
  await delay(700);
- const widths=await mobile.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
+ const widths=await mobile.evaluate(()=>{
+  const nodes=[...document.querySelectorAll('body *')].map(el=>{
+    const r=el.getBoundingClientRect();const cs=getComputedStyle(el);
+    return {tag:el.tagName,cls:typeof el.className==='string'?el.className.slice(0,110):'',right:Math.round(r.right),left:Math.round(r.left),width:Math.round(r.width),position:cs.position,overflowX:cs.overflowX};
+  }).filter(x=>x.right>window.innerWidth+4&&x.width>20).sort((a,b)=>b.right-a.right).slice(0,15);
+  return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,nodes};
+ });
  report.mobile=widths;
  if(widths.scroll>widths.client+2)fail('Mobile page overflows: '+JSON.stringify(widths));
  await mobile.screenshot({path:out+'/mobile-pult.png',fullPage:true});
