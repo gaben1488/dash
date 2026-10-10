@@ -12,7 +12,6 @@ from procurement_engine.raw_pipeline import header_hash
 from procurement_engine.semantic_headers import semantic_header_hash
 from test_runtime import inputs
 
-
 # Only published column labels from the 10.10 live customer-directory schema.
 # None of the customer records, IDs, transactions, or private data are fixtures.
 ZMO_DIRECTORY_EXTENSION = [
