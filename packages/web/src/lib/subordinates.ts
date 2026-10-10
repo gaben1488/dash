@@ -21,16 +21,23 @@ export function mergeSubordinates(
   const merged: Record<string, string[]> = {};
   for (const dept of new Set([...Object.keys(fallback), ...Object.keys(api)])) {
     const names = new Map<string, string>();
+    const canonical = new Map<string, string>();
     // Keep known organizations when a source read is partial or unavailable.
     for (const name of fallback[dept] ?? []) {
       const key = subordinateNameMatchKey(name);
-      if (key !== ORG_ITSELF_SENTINEL) names.set(key, name);
+      if (key === ORG_ITSELF_SENTINEL) continue;
+      names.set(key, name);
+      canonical.set(key, name);
     }
-    // Prefer the live C-column spelling, so the UI selection addresses the
-    // actual source row. The match key never replaces the displayed source.
-    for (const name of api[dept] ?? []) {
+    const live = api[dept] ?? [];
+    const liveNames = new Set(live);
+    // Prefer the active spelling when a read contains both generations.
+    // A historical-only snapshot retains its original visible label.
+    for (const name of live) {
       const key = subordinateNameMatchKey(name);
-      if (key !== ORG_ITSELF_SENTINEL) names.set(key, name);
+      if (key === ORG_ITSELF_SENTINEL) continue;
+      const current = canonical.get(key);
+      names.set(key, current && liveNames.has(current) ? current : name);
     }
     merged[dept] = [...names.values()].sort((a, b) => a.localeCompare(b, 'ru'));
   }
