@@ -13,7 +13,7 @@ import { SourceNavigation } from './source-drum/SourceNavigation';
 import './source-drum/source-header.css';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
-import { SelectionTokens } from './SelectionTokens';
+import { SourceFilterCorner } from './source-drum/SourceFilterCorner';
 import { ProvenanceHub } from './live/ProvenanceHub';
 import { LiveHistory } from './live/LiveHistory';
 import { useLiveEvents } from '../hooks/useLiveEvents';
@@ -1022,7 +1022,7 @@ export function Header() {
             variant="panel" на Пульте живёт как жил. */}
         <div className="hdr-ugol">
           <LiveHistory />
-          <SelectionTokens />
+          <SourceFilterCorner />
         </div>
 
         {/* 5. Tools (right edge) — тема, сброс фильтров, узел провенанса */}
