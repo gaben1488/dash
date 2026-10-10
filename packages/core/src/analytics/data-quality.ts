@@ -10,8 +10,30 @@
  */
 import { CHECK_REGISTRY, TRUST_COMPONENT_CONFIG } from '@aemr/shared';
 import type { Issue } from '@aemr/shared';
+import { standardRowFilter, type RawRow } from '../pipeline/calc-engine.js';
 
 type QualityIssue = Pick<Issue, 'departmentId' | 'checkId' | 'group' | 'category' | 'origin' | 'row'>;
+
+/**
+ * Count exactly the rows considered substantive by the current calculation
+ * classifier, before the per-year selection. Issues on this scorecard also span
+ * the book rather than its filtered Q1 slice.
+ *
+ * Google reads often include 900+ padded formula rows with zero values: using
+ * rows.length dilutes real data-quality findings and favours smaller books.
+ *
+ * Rows rejected by the classifier are tracked separately by droppedRows; this
+ * counter is the denominator only for the provisional book-quality component,
+ * not a full migration-readiness or workforce-effort denominator.
+ */
+export function countAssessedBookRows(rows: readonly RawRow[]): number {
+  let count = 0;
+  for (const row of rows) {
+    if (standardRowFilter(row)) count += 1;
+  }
+  return count;
+}
+
 
 const qualityGroups: ReadonlySet<string> =
   new Set(TRUST_COMPONENT_CONFIG.data_quality.issueGroups);
