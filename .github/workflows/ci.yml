@@ -38,6 +38,9 @@ jobs:
       - name: Verify patched dependency security guard
         run: pnpm verify:braces-patch
 
+      - name: Verify deployment scope (no production writes)
+        run: python3 -m unittest discover -s .github/ci -p 'test_deploy_scope.py' -v
+
       - name: ESLint
         run: pnpm lint
 
@@ -109,10 +112,27 @@ jobs:
       - name: Biome check
         run: pnpm biome:check || true
 
+  deploy_scope:
+    name: Classify push before deploying
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      runtime_changed: ${{ steps.compare.outputs.runtime_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changes; refuse unknown revisions
+        id: compare
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: python3 .github/ci/deploy_scope.py
+
   deploy:
     name: Deploy to VPS
-    needs: [verify, report-engine, server-image]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [verify, report-engine, server-image, deploy_scope]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.deploy_scope.outputs.runtime_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
