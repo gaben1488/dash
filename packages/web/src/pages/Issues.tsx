@@ -17,6 +17,7 @@ import { natureOf, NATURE_ORDER, NATURE_CATEGORIES, type NatureCategory } from '
 import { pluralRu } from '../lib/economy-copy';
 import { Segmented } from '../components/ui/segmented';
 import { TextHygieneSection } from '../components/text-hygiene/TextHygieneSection';
+import { ControlCaseGuide } from '../components/control/ControlCaseGuide';
 import { FormulaIntegritySection } from '../components/formulas/FormulaIntegritySection';
 import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw, X } from 'lucide-react';
 import clsx from 'clsx';
@@ -298,6 +299,10 @@ export function IssuesPage() {
   const [sevFilter, setSevFilter] = useState<Set<Severity>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Guide selection is strictly a screen state. The case key is snapshot-
+  // scoped and MUST NOT be persisted as a procurement or issue identity.
+  const [focusedCaseKey, setFocusedCaseKey] = useState<string | null>(null);
+  const [showAllCases, setShowAllCases] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, Status>>({});
   const [statusError, setStatusError] = useState<Record<string, string>>({});
@@ -412,6 +417,10 @@ export function IssuesPage() {
       .map(i => ({ ...i, status: statusOverrides[i.id] ?? i.status })));
   }, [fd.issues, filtered, statusOverrides]);
   const caseCounters = useMemo(() => controlCaseCounters(filteredCases), [filteredCases]);
+  const actionableCases = filteredCases.filter(c =>
+    c.workState !== 'false_positive' && c.workState !== 'exception_recorded',
+  );
+  const focusedCase = filteredCases.find(c => c.caseKey === focusedCaseKey) ?? null;
 
   const caseImpactLabel = (kind: string): string => {
     switch (kind) {
@@ -663,30 +672,57 @@ export function IssuesPage() {
             Одно дело — одна проверяемая причина и исходные доказательства
           </span>
         </div>
-        {filteredCases.length > 0 && (
+        {actionableCases.length > 0 && (
           <div className="mt-3 space-y-2">
-            {filteredCases.filter(c => c.workState !== 'false_positive' && c.workState !== 'exception_recorded')
-              .slice(0, 4).map(c => (
+            {(showAllCases ? actionableCases : actionableCases.slice(0, 4)).map(c => (
               <button key={c.caseKey} type="button"
-                className="w-full text-left flex flex-wrap items-center gap-3 rounded-lg bg-zinc-50/60 dark:bg-white/[0.05] px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-700/60 transition focus-visible:outline focus-visible:outline-2"
-                onClick={() => {
-                  const target = c.issueIds[0];
-                  const group = mechanismGroups.find(g => g.issues.some(i => i.id === target));
-                  if (group) setOpenGroups(prev => new Set([...prev, group.key]));
-                  setExpandedId(target);
-                }}>
+                aria-pressed={focusedCaseKey === c.caseKey}
+                className={clsx(
+                  'w-full text-left flex flex-wrap items-center gap-3 rounded-lg px-3 py-2.5 transition focus-visible:outline focus-visible:outline-2',
+                  focusedCaseKey === c.caseKey
+                    ? 'bg-[var(--accent-soft)] text-[var(--ink-strong)] ring-1 ring-[var(--accent-line)]'
+                    : 'bg-zinc-50/60 dark:bg-white/[0.05] hover:bg-zinc-100 dark:hover:bg-zinc-700/60',
+                )}
+                onClick={() => setFocusedCaseKey(prev => prev === c.caseKey ? null : c.caseKey)}>
                 <span className="flex-1 min-w-[180px]">
                   <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-100">{c.label}</span>
                   <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
                     {deptLabel(c.departmentId ?? '')}
                     {c.row != null ? ` · строка ${c.row}` : ''}
-                    {c.observationCount > 1 ? ` · ${c.observationCount} подтверждения источников` : ''}
+                    {c.observationCount > 1 ? ` · ${c.observationCount} исходных наблюдений` : ''}
                   </span>
                 </span>
                 <span className="text-[11px] text-zinc-600 dark:text-zinc-300">{caseImpactLabel(c.impact)}</span>
-                <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">Разобрать <span aria-hidden="true">→</span></span>
+                <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                  {focusedCaseKey === c.caseKey ? 'Скрыть разбор' : 'Разобрать'} <span aria-hidden="true">→</span>
+                </span>
               </button>
             ))}
+            {actionableCases.length > 4 && (
+              <button type="button" onClick={() => setShowAllCases(v => !v)}
+                className="px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline">
+                {showAllCases ? 'Свернуть очередь' : `Показать все ${actionableCases.length} вопросов`}
+              </button>
+            )}
+          </div>
+        )}
+        {focusedCase && (
+          <div className="mt-3">
+            <ControlCaseGuide
+              key={focusedCase.caseKey}
+              item={focusedCase}
+              onClose={() => setFocusedCaseKey(null)}
+              onOpenEvidence={(id) => {
+                const group = mechanismGroups.find(g => g.issues.some(i => i.id === id));
+                if (group) setOpenGroups(prev => new Set([...prev, group.key]));
+                setExpandedId(id);
+                window.requestAnimationFrame(() => {
+                  document.getElementById(`issue-body-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+              }}
+              onOpenRegistry={(department) => navigateTo('data', { department })}
+              onReread={() => { void useStore.getState().fetchDashboard(true); }}
+            />
           </div>
         )}
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-3">
