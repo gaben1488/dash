@@ -50,6 +50,7 @@ import { collectAllPages } from '../lib/rows/collect-pages';
 import { monthOfDateValue, formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { useLiveEvents } from '../hooks/useLiveEvents';
+import { productTodayIso } from '../lib/period-coverage';
 import { changedRowKey, rowChangeHint } from '../components/live/live-text';
 import { pluralRu } from '../lib/economy-copy';
 import { formatPct } from '../lib/economy/format';
@@ -1248,7 +1249,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = productTodayIso();
     // Периметр в имени файла: выгрузка живёт дальше экрана — по почте, в папке
     // среди соседних файлов, — и «Реестр закупок 2026-08-21.csv» ничего не
     // говорит о том, чьи строки и за какой год внутри. Косая черта и двоеточие
