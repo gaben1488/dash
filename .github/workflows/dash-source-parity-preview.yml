@@ -5,6 +5,8 @@ on:
       - codex/dash-source-parity-preview-20261010
     paths:
       - 'packages/web/src/preview/**'
+      - 'packages/web/src/components/source-drum/**'
+      - 'packages/web/src/components/Header.tsx'
       - 'packages/web/preview.html'
       - 'packages/web/vite.preview.config.ts'
       - 'packages/web/scripts/build-source-preview.mjs'
