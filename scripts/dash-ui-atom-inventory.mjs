@@ -172,12 +172,13 @@ rows.push('','## Инварианты перед переплавкой','',
 '1. Запустить node scripts/dash-ui-atom-inventory.mjs и открыть ui-atoms.json из папки artifacts/dash-ui-atom-inventory.',
 '2. По компоненту найти files[path].jsx/store/api/imports и coverage[].dependencies, затем составить матрицу до/после.',
 '3. Любую замену принять только после E2E на настоящем срезе и браузерных проверок 390/768/1280/200% + отказ/пустота/клавиатура.',
-''].join('\n');
+'');
+const markdown=rows.join('\n');
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const output=path.resolve(process.argv[2]??'artifacts/dash-ui-atom-inventory');
   fs.mkdirSync(output,{recursive:true});
   fs.writeFileSync(path.join(output,'ui-atoms.json'),JSON.stringify(report,null,2));
-  fs.writeFileSync(path.join(output,'ui-atoms.md'),rows);
+  fs.writeFileSync(path.join(output,'ui-atoms.md'),markdown);
   console.log('Dash UI atomic map: '+files.length+' files / '+jsxTotal+' JSX / '+coverage.length+' routes');
 }
 export { report, rows };
