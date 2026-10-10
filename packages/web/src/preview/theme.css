@@ -91,4 +91,9 @@
 .dash-qa-status{background:#1d354d;margin-top:14px;padding:8px;border-radius:6px;}
 .dash-qa-status[data-incomplete='true']{color:#ffdc86;}
 .dash-qa-muted{font-size:11px;margin-top:8px;color:#adbed0;line-height:1.4;}
-@media(max-width:680px){#dash-qa.dash-qa{bottom:6px;right:6px;width:calc(100vw - 12px);}}
+@media(max-width:680px){
+ #dash-qa.dash-qa{bottom:6px;right:6px;width:calc(100vw - 12px);}
+ /* Main has wide native procurement tables; horizontal scrolling must stay
+    within the content pane, not force the entire page outside the viewport. */
+ #main-content{overflow-x:auto;}
+}
