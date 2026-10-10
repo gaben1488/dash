@@ -722,15 +722,17 @@ export function Dashboard() {
                     // тёмный текст на тёмной подложке (жалоба п.24-25 интервью)
                     <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-transparent rounded-lg p-3 shadow-lg text-xs text-zinc-700 dark:text-zinc-100">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-100 mb-1">{d.name}</p>
-                      {d.pct != null
-                        ? <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
-                        : <p className="text-zinc-400">По сумме: плана за период нет</p>}
-                      {d.execCountPct != null
+                      {d.scopeComplete === false
+                        ? <p className="text-amber-700 dark:text-amber-300">Разрез по способу не подтверждён: данные старого снимка неполные</p>
+                        : d.pct != null
+                          ? <p>По сумме: <strong>{formatPercent(d.pct)}</strong>{d.pct > 100 && <span className="ml-1 text-purple-500">факт выше плана</span>}</p>
+                          : <p className="text-zinc-400">По сумме: плана за период нет</p>}
+                      {d.scopeComplete !== false && (d.execCountPct != null
                         ? <p>По количеству: <strong>{formatPercent(d.execCountPct)}</strong></p>
-                        : <p className="text-zinc-400">По количеству: плана за период нет</p>}
-                      <p>План: {formatMoney(d.planTotal)}</p>
-                      <p>Факт: {formatMoney(d.factTotal)}</p>
-                      <p>Конкурентных: {d.kpCount}; у единственного поставщика: {d.epCount}</p>
+                        : <p className="text-zinc-400">По количеству: плана за период нет</p>)}
+                      <p>План: {d.planTotal == null ? 'не подтверждён' : formatMoney(d.planTotal)}</p>
+                      <p>Факт: {d.factTotal == null ? 'не подтверждён' : formatMoney(d.factTotal)}</p>
+                      <p>Конкурентных: {d.kpCount == null ? 'нет подтверждения' : d.kpCount}; у единственного поставщика: {d.epCount == null ? 'нет подтверждения' : d.epCount}</p>
                     </div>
                   );
                 }}
