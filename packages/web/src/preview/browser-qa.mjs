@@ -12,7 +12,7 @@ const routes=[
  ['economy','Экономия'],['competition','Конкуренция'],['discipline','Дисциплина'],
  ['analytics','Аналитика'],['quality','Контроль'],['settings','Система'],
 ];
-const report={url,routes:[],subtabs:[],screenshots:[],missing:[],pageErrors:[],hardFailures:[]};
+const report={url,routes:[],subtabs:[],screenshots:[],missing:[],pageErrors:[],consoleErrors:[],hardFailures:[]};
 const browser=await chromium.launch({headless:true,executablePath:bin,args:['--no-sandbox','--disable-dev-shm-usage']});
 let page;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -45,13 +45,17 @@ const checkSubtabs=async(id,label,names,selector)=>{
  for(const name of names){
    const item=nav.filter({hasText:new RegExp(name)});
    if(!await item.count()){fail(id+': subtab '+name+' missing');continue;}
-   try{await item.first().click({timeout:4000});await delay(180);}
+   try{await item.first().click({timeout:4000});await delay(250);
+     const crashed=await page.locator('#main-content').innerText();
+     if(crashed.includes('Этот раздел не открылся')){fail(id+' subtab '+name+' crashed: '+crashed.slice(0,290));break;}
+   }
    catch(e){fail(id+': cannot activate '+name+': '+String(e));}
  }
 };
 try{
  page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1});
  page.on('pageerror',e=>report.pageErrors.push(String(e)));
+ page.on('console',m=>{if(m.type()==='error' && /ErrorBoundary|TypeError|Uncaught/.test(m.text())) report.consoleErrors.push(m.text().slice(0,2200));});
  await page.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
  await page.locator('.np-btn').first().waitFor({timeout:30000});
  await delay(1100);
@@ -138,6 +142,7 @@ console.log('DASH_BROWSER_QA_RESULT '+JSON.stringify({
  missing:report.missing,
  hardFailures:report.hardFailures,
  pageErrors:report.pageErrors,
+ consoleErrors:report.consoleErrors.slice(0,5),
  mobile:report.mobile,
 }));
 if(report.hardFailures.length)process.exitCode=1;
