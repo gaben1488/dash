@@ -57,7 +57,7 @@ describe('Dash recipe library: source-backed and extensible', () => {
     expect(searchRecipes('НОМЕР')).toEqual(
       expect.arrayContaining([UI_RECIPES.find(x => x.id === 'source-row')]),
     );
-    expect(searchRecipes('', 'Облик')).toHaveLength(2);
+    expect(searchRecipes('', 'Облик')).toHaveLength(3);
     expect(searchRecipes('невероятное_несуществующее')).toEqual([]);
     expect(UI_RECIPES).toHaveLength(14);
   });
