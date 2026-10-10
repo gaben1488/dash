@@ -19,8 +19,12 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const fail=(reason)=>report.hardFailures.push(reason);
 const openRoute=async(id,label)=>{
  try{
-   const button=page.locator('.np-btn').filter({has:page.locator('.np-label',{hasText:label})});
-   if(await button.count()!==1){fail('Missing/duplicate real route '+label);return false;}
+   const node=page.locator('.dash-source-navigation input[data-route="'+id+'"]');
+   if(await node.count()!==1){fail('Missing/duplicate original route '+label);return false;}
+   const list=page.locator('.source-nav-list');
+   if(!await list.count())await page.locator('.source-nav-keys button[aria-label="Все 13 разделов"]').click();
+   const button=page.locator('.source-nav-list button').filter({hasText:label});
+   if(await button.count()!==1){fail('Cannot find original route '+label+' in full list');return false;}
    await button.click({timeout:8000});
    await delay(350);
    const state=await page.evaluate(()=>({
@@ -57,13 +61,13 @@ try{
  page.on('pageerror',e=>report.pageErrors.push(String(e)));
  page.on('console',m=>{if(m.type()==='error' && /ErrorBoundary|TypeError|Uncaught/.test(m.text())) report.consoleErrors.push(m.text().slice(0,2200));});
  await page.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
- await page.locator('.np-btn').first().waitFor({timeout:30000});
+ await page.locator('.dash-source-navigation input[data-route]').first().waitFor({timeout:30000});
  await delay(1100);
- const topCount=await page.locator('.np-btn').count();
+ const topCount=await page.locator('.dash-source-navigation input[data-route]').count();
  if(topCount!==13)fail('Expected 13 original nav buttons; rendered '+topCount);
  const navQuality=await page.evaluate(()=>{
-   const nav=document.querySelector('.nav-pills-wrap');
-   const labels=[...document.querySelectorAll('.np-label')].map(x=>{
+   const nav=document.querySelector('.dash-source-navigation');
+   const labels=[...document.querySelectorAll('.dash-source-navigation .vkladka-telo>span')].map(x=>{
      const css=getComputedStyle(x),r=x.getBoundingClientRect();
      return {text:x.textContent?.trim(),whiteSpace:css.whiteSpace,break:css.overflowWrap,height:r.height,lineHeight:css.lineHeight};
    });
@@ -73,6 +77,18 @@ try{
  report.nav=navQuality;
  // Historic Header is shown as baseline only; its wrapping is a known design debt.
  // Do not approve or reject target navigation until original 3-row drum is integrated.
+ const navGeometry=await page.evaluate(()=>{
+   const root=document.querySelector('.dash-source-navigation');
+   const groups=[...(root?.querySelectorAll('.vkladki-stroka')??[])];
+   const visible=groups.filter(x=>getComputedStyle(x).opacity!=='0' && x.getAttribute('aria-hidden')==='false');
+   const checked=[...(root?.querySelectorAll('input[name=razdel]:checked')??[])];
+   return {rows:groups.length,visible:visible.length,chosen:checked.map(x=>x.dataset.route),
+     fullList:root?.querySelectorAll('input[name=razdel]').length,
+     geometry:root?.getBoundingClientRect().width};
+ });
+ report.navSource=navGeometry;
+ if(navGeometry.rows!==4 || navGeometry.visible!==3 || navGeometry.fullList!==13)
+   fail('Original 3-row cylinder not functioning: '+JSON.stringify(navGeometry));
  await page.screenshot({path:out+'/00-initial-desktop.png',fullPage:true});
  report.screenshots.push('00-initial-desktop.png');
  for(const [id,label]of routes){
@@ -127,7 +143,7 @@ try{
  const mobile=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
  mobile.on('pageerror',e=>report.pageErrors.push('mobile '+String(e)));
  await mobile.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
- await mobile.locator('.np-btn').first().waitFor({timeout:30000});
+ await mobile.locator('.dash-source-navigation input[data-route]').first().waitFor({timeout:30000});
  await delay(700);
  const widths=await mobile.evaluate(()=>{
   const nodes=[...document.querySelectorAll('body *')].map(el=>{
