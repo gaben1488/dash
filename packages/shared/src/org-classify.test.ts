@@ -30,6 +30,12 @@ describe('classifyOrg (1.2): тип организации по ОПФ, не п�
     expect(classifyOrg('Опека').type).toBe('apparatus');
     expect(classifyOrg('Администрирование').type).toBe('apparatus');
   });
+  it('новые R/E-названия функций УО остаются аппаратом, исторические значения также распознаются', () => {
+    for (const name of ['УО (Опека)', 'УО (Администрирование)', 'Опека', 'Администрирование']) {
+      expect(classifyOrg(name)).toMatchObject({ type: 'apparatus', isPBS: true });
+    }
+    expect(classifyOrg('Совместные закупки (УО)').type).toBe('joint_procurement');
+  });
   it('isPBS = только казённые + органы', () => {
     expect(classifyOrg('МКУ "ЦЭР"').isPBS).toBe(true);
     expect(classifyOrg('МБДОУ ДС № 24 «Журавлик»').isPBS).toBe(false);
