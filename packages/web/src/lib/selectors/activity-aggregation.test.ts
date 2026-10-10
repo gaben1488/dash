@@ -6,8 +6,8 @@ const noBudget = makeBudgetPlanFact(new Set());
 const a = {
   planCount: 3, factCount: 2, planTotal: 60, factTotal: 30,
   byMethod: {
-    competitive: { plan: 1, fact: 1, planSum: 40, factSum: 25, planFB: 30, factFB: 20, planKB: 10, factKB: 5 },
-    ep: { plan: 2, fact: 1, planSum: 20, factSum: 5, planFB: 20, factFB: 5 },
+    competitive: { plan: 1, fact: 1, planSum: 40, factSum: 25, planFB: 30, factFB: 20, planKB: 10, factKB: 5, economyTotal: 3, economyFB: 2, economyKB: 1 },
+    ep: { plan: 2, fact: 1, planSum: 20, factSum: 5, planFB: 20, factFB: 5, economyTotal: 4, economyFB: 4 },
   },
 };
 const dept = { byActivity: { q1: { program: a } } };
@@ -28,7 +28,7 @@ describe('recalcTotalsByActivity from exact activity × method evidence', () => 
       showKP: true, showEP: true,
     });
     expect(t).toMatchObject({
-      totalPlan: 60, totalFact: 30, totalKP: 1, totalEP: 2,
+      totalPlan: 60, totalFact: 30, totalEconomy: 7, totalKP: 1, totalEP: 2,
       totalPlanCount: 3, totalFactCount: 2, methodBreakdownAvailable: true,
     });
   });
@@ -39,7 +39,7 @@ describe('recalcTotalsByActivity from exact activity × method evidence', () => 
       showKP: false, showEP: true,
     });
     expect(t).toMatchObject({
-      totalPlan: 20, totalFact: 5, totalKP: 0, totalEP: 2,
+      totalPlan: 20, totalFact: 5, totalEconomy: 4, totalKP: 0, totalEP: 2,
       totalPlanCount: 2, totalFactCount: 1, methodBreakdownAvailable: true,
     });
   });
@@ -48,9 +48,10 @@ describe('recalcTotalsByActivity from exact activity × method evidence', () => 
     const t = recalcTotalsByActivity([dept], {
       actKeys: ['program'], periodKeys: ['q1'],
       budgetPlanFact: makeBudgetPlanFact(new Set(['fb'])),
+      selectedBudgets: new Set(['fb']),
       showKP: true, showEP: true,
     });
-    expect(t).toMatchObject({ totalPlan: 50, totalFact: 25, totalKP: 1, totalEP: 2 });
+    expect(t).toMatchObject({ totalPlan: 50, totalFact: 25, totalEconomy: 6, totalKP: 1, totalEP: 2 });
   });
 
   it('a zero selected period is zero and is still comparable', () => {
