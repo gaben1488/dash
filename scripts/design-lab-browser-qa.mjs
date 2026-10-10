@@ -293,7 +293,7 @@ try {
       item.click();
     });
     await page.waitForSelector('.dr-atlas-list', {timeout:10000});
-    const routes=await page.$eval('.dr-atlas-list button',els=>els.length);
+    const routes=await page.$$eval('.dr-atlas-list button',els=>els.length);
     assert.equal(routes,13,'The atom viewer hides a real Dash route');
     await capture(page,'09-atom-contracts-'+viewport.width);
     report.scenarios.push('13-interactive-atom-contracts-'+viewport.width);
