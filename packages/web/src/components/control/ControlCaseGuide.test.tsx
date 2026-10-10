@@ -30,17 +30,17 @@ describe('ControlCaseGuide integrated workflow', () => {
     expect(screen.getByText(/№ п\/п 173\/1/)).toBeTruthy();
     expect(screen.getByText(/K17/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /02\\s*Доказательства/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Доказательства/ }));
     expect(screen.getByText(/Исходных наблюдений: 1/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Показать исходное замечание/ }));
     expect(onOpenEvidence).toHaveBeenCalledWith('legacy-row-17');
 
-    fireEvent.click(screen.getByRole('button', { name: /03\\s*Действие/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Действие/ }));
     expect(screen.getByText(/Автоматической записи нет/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Открыть управление в Реестре/ }));
     expect(onOpenRegistry).toHaveBeenCalledWith('uo');
 
-    fireEvent.click(screen.getByRole('button', { name: /04\\s*Перепроверка/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Перепроверка/ }));
     expect(screen.getByText(/ещё не подтверждают исправление/)).toBeTruthy();
     expect(onReread).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Запросить новое чтение книг/ }));
@@ -58,7 +58,7 @@ describe('ControlCaseGuide integrated workflow', () => {
     render(<ControlCaseGuide item={item} onClose={vi.fn()}
       onReread={vi.fn()} onOpenRegistry={vi.fn()} onOpenEvidence={onOpenEvidence} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /02\\s*Доказательства/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Доказательства/ }));
     expect(screen.getByText(/Исходных наблюдений: 2/)).toBeTruthy();
     expect(screen.getByText(/^Открыто/)).toBeTruthy();
     expect(screen.getByText(/^Исправлено/)).toBeTruthy();
