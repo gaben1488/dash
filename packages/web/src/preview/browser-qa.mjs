@@ -231,8 +231,10 @@ try{
  await mobile.mouse.wheel(450,0);
  await delay(180);
  const gestureScrollX=await mobile.evaluate(()=>window.scrollX);
+ const mainScrollX=await mobile.locator('#main-content').evaluate(el=>el.scrollLeft);
  report.mobile.gestureScrollX=gestureScrollX;
- if(gestureScrollX>2 || widths.bodyScroll>widths.client+2){
+ report.mobile.mainGestureScrollX=mainScrollX;
+ if(gestureScrollX>2 || mainScrollX>2 || widths.bodyScroll>widths.client+2){
    fail('Mobile page shifts horizontally on gesture: '+JSON.stringify({gestureScrollX,widths}));
  }
  if(!widths.localScroller)fail('Full procurement table lacks internal horizontal scrolling: '+JSON.stringify(widths));
