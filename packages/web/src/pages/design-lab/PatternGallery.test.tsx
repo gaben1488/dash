@@ -88,11 +88,11 @@ describe('Design Lab pattern gallery', () => {
   it('switches the unit only, with one stable source amount and scope', () => {
     render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Единицы без изменения закупок');
-    expect(screen.getByText('7\u00a0800')).toBeTruthy();
+    expect(screen.getByText('13\u00a0620')).toBeTruthy();
     fireEvent.click(screen.getByText('Миллионы'));
-    expect(screen.getByText('7,8')).toBeTruthy();
+    expect(screen.getByText('13,62')).toBeTruthy();
     expect(screen.getByText('млн ₽')).toBeTruthy();
-    expect(screen.getByText('Исходная величина: 7 800 тыс. ₽. Количество строк остаётся 3.')).toBeTruthy();
+    expect(screen.getByText('Исходная величина: 13 620 тыс. ₽. Количество строк остаётся 3.')).toBeTruthy();
   });
 
   it('keeps long institution names and controls instead of cutting to an ellipsis', () => {
@@ -139,7 +139,7 @@ describe('Design Lab pattern gallery', () => {
     render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Провести человека через исправление');
     fireEvent.click(screen.getByRole('button', { name: 'Открыть учебный источник' }));
-    expect(screen.getByText('ДЕМО · D14 = 7 800 тыс. ₽')).toBeTruthy();
+    expect(screen.getByText('ДЕМО · D14 = 4 200 тыс. ₽')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Отметить шаг в демо' }));
     expect(screen.getByText('Учебный шаг выполнен')).toBeTruthy();
 
