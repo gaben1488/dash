@@ -28,6 +28,7 @@ import {
 } from '@aemr/core';
 import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS } from '@aemr/shared';
 import { getDeptSheetValues } from '../services/snapshot.js';
+import { overlayPersistedIssueStatus } from '../services/issue-status-overlay.js';
 
 /**
  * Плановые ДЕНЬГИ ЕП за год = Σ ep.planSum по четырём кварталам (тыс. руб.).
@@ -229,6 +230,9 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       const recalcResults = snapshot.recalcResults ?? {};
       const deptCache = getDeptSheetValues();
       const profiles = buildGRBSProfiles(recalcResults);
+      // The pipeline snapshot cannot know human dispositions stored in SQLite.
+      // Use the same read model as /api/issues, /api/dashboard and /api/trust.
+      const reviewedIssues = overlayPersistedIssueStatus(snapshot.issues ?? []);
       const c01 = (v: number) => Math.min(1, Math.max(0, v));
       const result: Record<string, unknown> = {};
 
@@ -297,7 +301,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
           dynamicsScore: c01(0.6 + profile.execDeviation),
           epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: dataQualityScore(snapshot.issues, profile.grbsId, profile.grbsShort, substantiveRowCount),
+          dataScore: dataQualityScore(reviewedIssues, profile.grbsId, profile.grbsShort, substantiveRowCount),
           anomalyScore: c01(1 - anomalyCount * 0.3),
           complianceScore: c01(1 - violations * 0.15),
           anticorruptionPenalty: anticorruption.disciplinaryPenalty,
