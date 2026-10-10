@@ -28,7 +28,7 @@ export function buildBarData(depts: any[], opts: {
 }): any[] {
   const {
     budgetPlanFact, isBudgetFiltered, isActivityFiltered, actKeys,
-    useMonthLevel, activeMonths, hasActiveMonths, coveredQuarters, periodKey,
+    useMonthLevel, activeMonths, periodKey,
     showKP, showEP, resolution, hasMonthData,
   } = opts;
 
@@ -38,7 +38,7 @@ export function buildBarData(depts: any[], opts: {
     // это различие держал с самого начала, денежный процент — нет
     // (реестр расхождений §2 «Ноль вместо „нет базы“»).
     let pct: number | null, plan = 0, fact = 0, kp = 0, ep = 0;
-    let execCountPct: number | null = null;
+    let execCountPct: number | null;
 
     // Subordinate-filtered: считаем ТЕМ ЖЕ ядром, что итоги страницы.
     // Баг #4 реестра охоты 08.08: раньше ветвь брала годовые значения узла и
