@@ -1,0 +1,181 @@
+/* Unmodified selector and material geometry extracted from PR #70 source-shell/original.css.
+ * Before editing, compare with original HTML; project glue below overrides only collisions. */
+.баран-навигации{
+  display:flex;flex-direction:column;justify-content:center;
+  max-width:100%;min-width:0;
+  padding:5px 7px;border-radius:14px;
+  background-color:var(--steklo-pod);
+  background-image:var(--steklo);
+  border:1px solid var(--steklo-ln);
+  backdrop-filter:var(--steklo-blur);
+  -webkit-backdrop-filter:var(--steklo-blur);
+  box-shadow:var(--steklo-sh);
+  transition:transform 180ms var(--steklo-ease),
+             box-shadow 280ms var(--steklo-ease),border-color 280ms ease;
+}
+.баран-навигации:hover{
+  transform:scale(1.01);
+  border-color:var(--steklo-lnh);
+  box-shadow:var(--steklo-sh),0 0 24px color-mix(in srgb,var(--action) 16%,transparent);
+}
+.баран-навигации:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+
+@property --vkladka-ugol{syntax:"<angle>";initial-value:0deg;inherits:false}
+@keyframes vkladka-vrashchenie{from{--vkladka-ugol:0deg}to{--vkladka-ugol:360deg}}
+.vkladki{display:block;user-select:none;min-width:0}
+.navig-okno{position:relative;overflow:hidden;height:calc(var(--navig-rh,24px) * 3);min-width:0}
+.navig-lenta{display:flex;flex-direction:column;
+  transition:transform 220ms var(--steklo-ease)}
+.vkladki-stroka{display:flex;align-items:center;gap:8px;height:var(--navig-rh,24px);
+  flex:0 0 auto;min-width:0;
+  transition:opacity 180ms ease,transform 220ms cubic-bezier(.16,1,.3,1)}
+.vkladki-stroka{opacity:0;pointer-events:none}
+.vkladki-stroka--verh{opacity:.82;pointer-events:auto;
+  transform:perspective(300px) rotateX(8deg) scale(.94);transform-origin:center bottom}
+.vkladki-stroka--centr{opacity:1;pointer-events:auto;transform:none}
+.vkladki-stroka--niz{opacity:.82;pointer-events:auto;
+  transform:perspective(300px) rotateX(-8deg) scale(.94);transform-origin:center top}
+.vkladki-stroka--verh:hover,.vkladki-stroka--niz:hover{opacity:1}
+.vkladki-stroka:focus-within{opacity:1;transform:none;pointer-events:auto}
+.vkladki-gruppa{position:relative;display:flex;align-items:center;gap:6px;min-width:0}
+.vkladki-imya-gruppy{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink-muted);
+  text-transform:uppercase;white-space:nowrap;flex:0 0 auto;min-width:74px}
+.vkladki-telo{display:flex;gap:3px;min-width:0}
+.vkladka{position:relative;border-radius:8px;cursor:pointer;overflow:hidden;
+  --ton:var(--tone-sistema);transition:transform 100ms ease}
+.vkladka input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:2}
+.vkladka:active{transform:scale(.93)}
+.vkladka-telo{position:relative;z-index:1;display:flex;align-items:center;gap:4px;padding:3px 8px;
+  border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap;
+  color:var(--ink-muted);background:var(--chrome-soft);border:1px solid var(--chrome-line);
+  transition:all 200ms cubic-bezier(.23,1,.32,1)}
+.vkladka-telo::before{content:'';flex:0 0 auto;width:7px;height:7px;border-radius:50%;
+  background-color:var(--ton);box-shadow:0 0 0 1px color-mix(in srgb,var(--ton) 45%,transparent)}
+.vkladka-telo svg{color:var(--ton)}
+.vkladka:hover .vkladka-telo{color:var(--ink);border-color:var(--chrome)}
+.vkladka{--небо-вкл:var(--ton);
+  --небо-вкл-нав:color-mix(in srgb,var(--ton) 90%,white);
+  --небо-вкл-наж:color-mix(in srgb,var(--ton) 92%,black)}
+.vkladka-puls{--небо-вкл:#5b99f8;--небо-вкл-нав:#6ba3f9;--небо-вкл-наж:#4d8ef7}
+.vkladka:has(input:checked) .vkladka-telo{
+  --п-небо:var(--небо-вкл);--п-гор:#9d8150;--п-небо-нав:var(--небо-вкл-нав);
+  color:#1b170f;
+  background:linear-gradient(180deg,var(--п-небо) 0%,var(--п-гор) 100%);
+  border-color:transparent;
+  box-shadow:0 1px 3px rgba(0,0,0,.22)}
+.vkladka:has(input:checked):hover .vkladka-telo{
+  --п-небо:var(--небо-вкл-нав);--п-гор:#bfa161;color:#1b170f}
+.vkladka:has(input:checked):active .vkladka-telo{
+  --п-небо:var(--небо-вкл-наж);--п-гор:#9d8150;transition-duration:80ms}
+.vkladka:has(input:checked):active{transform:scale(.985)}
+.vkladka:has(input:checked) .vkladka-telo svg{color:#1b170f}
+.vkladka:has(input:checked) .vkladka-telo::before{box-shadow:0 0 0 1px rgba(27,23,15,.35)}
+.vkladka:has(input:focus-visible){outline:2px solid #7dd3fc;outline-offset:2px}
+.vkladka-svechenie{display:none}
+.vkladka-schet{display:inline-flex;align-items:center;justify-content:center;min-width:16px;
+  padding:0 4px;border-radius:999px;font-size:11px;line-height:14px;font-weight:600;color:inherit;
+  background:color-mix(in srgb,var(--ink) 12%,transparent)}
+.vkladka:has(input:checked) .vkladka-schet{
+  background:color-mix(in srgb,var(--accent-ink) 18%,transparent)}
+.vkladka-puls{--ton:var(--tone-puls)}
+.vkladka-otchet{--ton:var(--tone-otchet)}
+.vkladka-svod{--ton:var(--tone-svod)}
+.vkladka-reestr{--ton:var(--tone-reestr)}
+.vkladka-neobespechennye{--ton:var(--tone-neobespechennye)}
+.vkladka-vtechenie{--ton:var(--tone-vtechenie)}
+.vkladka-monitoring{--ton:var(--tone-monitoring)}
+.vkladka-economy{--ton:var(--tone-economy)}
+.vkladka-konkurenciya{--ton:var(--tone-konkurenciya)}
+.vkladka-disciplina{--ton:var(--tone-disciplina)}
+.vkladka-analitika{--ton:var(--tone-analitika)}
+.vkladka-kontrol{--ton:var(--tone-kontrol)}
+.vkladka-sistema{--ton:var(--tone-sistema)}
+@media (prefers-reduced-motion:reduce){
+  .vkladka:has(input:checked) .vkladka-svechenie{animation:none;opacity:.45}
+  .navig-lenta,.vkladki-stroka{transition:none}}
+
+
+/* Host-scoped material contracts use real application surface variables.
+ * Source nav alone uses the original glass; content pages remain untouched. */
+.dash-source-navigation {
+  --navig-rh: 27px;
+  --steklo-pod: color-mix(in srgb, var(--surface-card) 80%, transparent);
+  --steklo: linear-gradient(155deg, color-mix(in srgb, var(--surface-raised) 70%, transparent), color-mix(in srgb, var(--surface-card) 94%, transparent));
+  --steklo-ln: var(--line-strong);
+  --steklo-lnh: var(--ink-faint);
+  --steklo-blur: blur(16px) saturate(1.3);
+  --steklo-sh: inset 0 1px 0 #ffffff14, 0 3px 10px #00000020;
+  --steklo-ease: cubic-bezier(.2,.8,.2,1);
+  --chrome-soft: var(--surface-raised);
+  --chrome-line: var(--line-soft);
+  --chrome: var(--ink);
+  --action: var(--accent);
+  position:relative;display:flex;align-items:stretch;gap:3px;
+  min-width:0;width:min(550px, 100%);
+  max-width:min(550px, 100%);
+}
+.hbar > .dash-source-navigation {
+  flex:0 1 550px;
+  max-width:min(550px,100%);
+  flex-direction:row;gap:4px;
+}
+/* Input HTML is source-owned and binds to the existing setPage.
+ * Both rows and content are sized from original geometry. */
+.dash-source-navigation .баран-навигации {
+  width:calc(100% - 22px);
+  flex:1 1 auto;min-width:0;padding:5px 7px;
+}
+.dash-source-navigation .navig-okno{height:calc(var(--navig-rh) * 3);}
+.dash-source-navigation .vkladki-gruppa{width:max-content;max-width:none;}
+.dash-source-navigation .vkladka{flex:none;}
+.dash-source-navigation .vkladki-imya-gruppy{min-width:60px;font-size:10px;}
+.dash-source-navigation .vkladka-telo{padding-inline:5px;flex:none;max-width:none;}
+.dash-source-navigation .vkladka-telo svg{width:10px;height:10px;}
+.dash-source-navigation .vkladka-telo>span{white-space:nowrap;overflow-wrap:normal;word-break:normal;}
+.dash-source-navigation .vkladka:has(input:checked) .vkladka-telo {
+  color:var(--z-ink,#fff);
+  background:linear-gradient(166deg,var(--z-top,#8a6a1f),var(--z-bottom,#5f470f));
+  border-color:transparent;box-shadow:inset 0 1px 0 #ffffff25, 0 2px 7px #0004;
+}
+.dash-source-navigation .vkladka:has(input:checked) .vkladka-telo svg {color:inherit;}
+.dash-source-navigation .vkladka:has(input:checked) .vkladka-telo::before{background:var(--z-top,#8a6a1f);}
+.dash-source-navigation .vkladka:has(input:checked):hover .vkladka-telo{
+  color:var(--z-ink,#fff);
+  background:linear-gradient(166deg,var(--z-top,#8a6a1f),var(--z-bottom,#5f470f));
+}
+.dash-source-navigation .source-nav-keys{
+  display:flex;flex:0 0 19px;flex-direction:column;justify-content:space-between;align-items:center;
+}
+.dash-source-navigation .source-nav-keys button{
+  display:grid;place-items:center;width:19px;min-height:24px;padding:1px;
+  border-radius:6px;background:transparent;color:var(--ink-muted);
+  border:1px solid transparent;cursor:pointer;
+}
+.dash-source-navigation .source-nav-keys button:hover,.dash-source-navigation .source-nav-keys button:focus-visible{
+  background:var(--surface-raised);color:var(--ink-strong);border-color:var(--line-strong);
+}
+.dash-source-navigation .source-nav-keys svg{width:13px;height:13px;}
+.dash-source-navigation .source-nav-list{
+  position:absolute;inset-block-start:100%;inset-inline-start:0;z-index:99;
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;
+  width:min(425px,calc(100vw - 32px));padding:12px;
+  border-radius:12px;background:var(--surface-overlay);
+  border:1px solid var(--line-strong);box-shadow:0 15px 35px #0005;
+}
+.dash-source-navigation .source-nav-list button{
+  min-height:34px;display:flex;align-items:center;justify-content:flex-start;gap:6px;
+  padding:6px 9px;border:1px solid var(--line-soft);border-radius:7px;
+  background:var(--surface-card);color:var(--ink);
+  font-size:11px;text-align:left;cursor:pointer;white-space:nowrap;
+}
+.dash-source-navigation .source-nav-list button[aria-current='page']{
+  background:var(--accent-soft);color:var(--ink-strong);border-color:var(--line-strong);
+}
+.dash-source-navigation .source-nav-list button:hover{background:var(--surface-raised);}
+.dash-source-navigation .vkladka:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px;}
+@media (max-width:900px){
+  .hbar > .dash-source-navigation{width:min(100%,550px);max-width:100%;flex:1 1 100%;}
+}
+@media (prefers-reduced-motion:reduce){
+ .dash-source-navigation .navig-lenta,.dash-source-navigation .vkladki-stroka{transition:none!important;}
+}
