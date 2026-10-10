@@ -242,7 +242,7 @@ describe('правка ячейки и прочитанные книги (п.14)
     await app.inject({
       method: 'PUT',
       url: '/api/rows/УО/4/field',
-      payload: { field: 'G', value: 'Одиночная правка' },
+      payload: { field: 'G', value: 'Одиночная правка', expectedRow: expectedRow(4) },
     });
     await app.inject({
       method: 'POST',
