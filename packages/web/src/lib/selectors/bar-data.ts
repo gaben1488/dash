@@ -1,6 +1,7 @@
 import type { BudgetPlanFactFn } from './budget-filter';
 import type { PeriodResolution } from './period-resolution';
 import { aggregateNodeTotals } from './totals-aggregation';
+import { recalcTotalsByActivity, activityPeriodKeys } from './activity-aggregation';
 
 /**
  * Данные бар-чарта исполнения per-департамент (план/факт/%, КП/ЕП, счётное
@@ -44,7 +45,20 @@ export function buildBarData(depts: any[], opts: {
     // суммировала все 4 квартала независимо от выбранного периода — бар
     // управления показывал год под заголовком квартала. aggregateNodeTotals
     // сам разбирает _subFiltered-узел периодной ветвью (см. totals-aggregation).
-    if (d._subFiltered) {
+    if (isActivityFiltered) {
+      // The activity×method×period index exists on the selected scope: selected
+      // subordinates have already been reduced to their own source-row data.
+      const a = recalcTotalsByActivity([d], {
+        actKeys, periodKeys: activityPeriodKeys(resolution, hasMonthData),
+        budgetPlanFact, showKP, showEP,
+      });
+      plan = a.totalPlan;
+      fact = a.totalFact;
+      kp = a.totalKP;
+      ep = a.totalEP;
+      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
+      execCountPct = a.planCount > 0 ? +((a.factCount / a.planCount) * 100).toFixed(1) : null;
+    } else if (d._subFiltered) {
       const n = aggregateNodeTotals(d, resolution, { showKP: true, showEP: true, activeMonths, hasMonthData });
       kp = n.kp;
       ep = n.ep;
@@ -54,27 +68,6 @@ export function buildBarData(depts: any[], opts: {
       plan = bf.plan; fact = bf.fact;
       pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : (d.executionPercent ?? null);
       execCountPct = n.planCount > 0 ? +((n.factCount / n.planCount) * 100).toFixed(1) : null;
-    } else if (isActivityFiltered) {
-      // Use byActivity breakdown for activity-filtered bar data
-      const ba = d.byActivity ?? {};
-      const periodKeys = hasActiveMonths && coveredQuarters.length > 0
-        ? coveredQuarters
-        : [periodKey];
-
-      for (const pk of periodKeys) {
-        const qAct = ba[pk];
-        if (!qAct) continue;
-        for (const ak of actKeys) {
-          const a = qAct[ak];
-          if (!a) continue;
-          // Apply budget filter when active; ActivityMetrics has planFB/factFB fields
-          const bf = budgetPlanFact(a);
-          plan += bf.plan;
-          fact += bf.fact;
-          kp += a.planCount ?? 0;
-        }
-      }
-      pct = plan > 0 ? +((fact / plan) * 100).toFixed(1) : null;
     } else if (useMonthLevel) {
       // Aggregate selected months for this department
       let dPC = 0, dFC = 0;
