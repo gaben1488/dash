@@ -38,20 +38,19 @@ export function changeEditorDraft(
   original: Record<string, unknown>,
 ): EditorDrafts {
   const current = drafts[rowId] ?? { original: { ...original }, changes: {} };
-  const changes = { ...current.changes };
-  if (Object.is(value, current.original[field])) delete changes[field];
-  else changes[field] = value;
-  const next = { ...drafts };
-  if (Object.keys(changes).length === 0) delete next[rowId];
-  else next[rowId] = { original: current.original, changes };
-  return next;
+  const changes: Record<string, unknown> = Object.fromEntries(
+    Object.entries(current.changes).filter(([key]) => key !== field),
+  );
+  if (!Object.is(value, current.original[field])) changes[field] = value;
+  if (Object.keys(changes).length === 0) {
+    return Object.fromEntries(Object.entries(drafts).filter(([key]) => key !== rowId));
+  }
+  return { ...drafts, [rowId]: { original: current.original, changes } };
 }
 
 export function clearEditorDraft(drafts: EditorDrafts, rowId: string): EditorDrafts {
   if (!drafts[rowId]) return drafts;
-  const next = { ...drafts };
-  delete next[rowId];
-  return next;
+  return Object.fromEntries(Object.entries(drafts).filter(([key]) => key !== rowId));
 }
 
 export function applicableDraft(
