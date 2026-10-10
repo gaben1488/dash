@@ -49,7 +49,7 @@ export function controlConsequenceOf(issue: Input): ControlConsequence {
 
   const check = checks.get(issue.checkId ?? '');
   if (check?.group === 'formula_consistency' || YEAR_EXCLUSIONS.has(issue.checkId ?? '') ||
-    YEAR_EXCLUSIONS.has(issue.category)) {
+    YEAR_EXCLUSIONS.has(issue.category ?? '')) {
     return {
       kind: 'possible_calculation_impact',
       explanation: 'Это может менять расчёты, период или итоговую отчётность. Конкретное денежное влияние подтверждается повторным независимым пересчётом, не цветом сигнала.',
