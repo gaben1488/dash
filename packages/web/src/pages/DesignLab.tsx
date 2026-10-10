@@ -14,6 +14,7 @@ import {
   parsePresetPackJSON, readStoredPresets, upsertPreset, writeStoredPresets,
   type LabPreset,
 } from './design-lab/presets';
+import { PatternGallery } from './design-lab/PatternGallery';
 import './design-lab.css';
 
 type Mode = 'ready' | 'pending' | 'error' | 'empty';
@@ -425,11 +426,16 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
           <Tabs.Root value={panel} onValueChange={setPanel}>
             <Tabs.List className="dl-tabs" aria-label="Разделы лаборатории">
               <Tabs.Trigger value="palettes">Палитры</Tabs.Trigger>
+              <Tabs.Trigger value="patterns">Компоненты и практики</Tabs.Trigger>
               <Tabs.Trigger value="states">Состояния</Tabs.Trigger>
               <Tabs.Trigger value="layouts">Компоновки</Tabs.Trigger>
               <Tabs.Trigger value="compare">Сравнение</Tabs.Trigger>
               <Tabs.Trigger value="code">Код и наборы</Tabs.Trigger>
             </Tabs.List>
+
+            <Tabs.Content value="patterns" className="dl-tab-panel">
+              <PatternGallery preset={preset} />
+            </Tabs.Content>
 
             <Tabs.Content value="palettes" className="dl-tab-panel">
               <div className="dl-panel-intro">
