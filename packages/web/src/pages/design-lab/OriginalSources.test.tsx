@@ -9,10 +9,10 @@ afterEach(() => cleanup());
 
 describe('source-faithful dev gallery', () => {
   it('indexes the real source HTML rather than imagined screenshots', () => {
-    expect(ORIGINAL_SOURCES).toHaveLength(7);
-    expect(new Set(ORIGINAL_SOURCES.map(s => s.id)).size).toBe(7);
+    expect(ORIGINAL_SOURCES).toHaveLength(12);
+    expect(new Set(ORIGINAL_SOURCES.map(s => s.id)).size).toBe(12);
     for (const source of ORIGINAL_SOURCES) {
-      expect(existsSync(new URL('../../../../../docs/superpowers/mockups/' + source.file, import.meta.url))).toBe(true);
+      expect(existsSync(new URL('../../../../../' + source.path, import.meta.url))).toBe(true);
       expect(source.limitation.length).toBeGreaterThan(20);
     }
   });
@@ -26,6 +26,14 @@ describe('source-faithful dev gallery', () => {
     const fragment = sandboxOriginal('<style>body{margin:0}</style><div>Фрагмент</div>');
     expect(fragment).toContain('<!doctype html>');
     expect(fragment).toContain('Фрагмент');
+  });
+
+  it('does not pass the archival ether HTML fragment off as a complete standalone mock', async () => {
+    render(<OriginalSources />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Оригинальный макет' }), { target: { value: 'ether' } });
+    const source = await screen.findByLabelText('Исходный HTML-фрагмент');
+    expect(source.textContent).toContain('pv-panel');
+    expect(screen.queryByTitle(/Архивный оригинал: Эфир/)).toBeNull();
   });
 
   it('lets users inspect a whole original at a selected viewport without replacing product UI', async () => {
