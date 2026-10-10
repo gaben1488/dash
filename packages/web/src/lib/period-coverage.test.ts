@@ -208,6 +208,17 @@ describe('разбор значений дат', () => {
     expect(dayPartsOfDateValue('31.12.20261')).toBeNull();
   });
 
+  it('несуществующие даты не создают ложное покрытие месяцев и недель', () => {
+    for (const date of ['2026-02-31', '31.02.2026', '2026-13-01']) {
+      expect(dayPartsOfDateValue(date)).toBeNull();
+    }
+    const index = buildCoverageIndex([{ planDate: '31.02.2026', factDate: '2026-02-31' }]);
+    expect(index.weeks).toEqual({});
+    expect(index.months).toEqual({});
+    expect(index.years).toEqual({});
+    expect(dayPartsOfDateValue('29.02.2024')).toEqual({ y: 2024, m: 2, d: 29 });
+  });
+
   it('легаси-серийник разбирается фоллбэком parseSheetDate', () => {
     // 46023 дня от 30.12.1899 = 01.01.2026
     expect(dayPartsOfDateValue('46023')).toEqual({ y: 2026, m: 1, d: 1 });
