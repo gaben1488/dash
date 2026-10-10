@@ -135,3 +135,11 @@
 
 .dl-pat-none { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:var(--lab-card); border:1px dashed var(--lab-line); border-radius:14px; color:var(--lab-text); padding:20px; }
 .dl-pat-none p { margin-top:7px; color:var(--lab-muted); font-size:12px; }
+
+.dl-pat-disclosure { margin-top:14px; border-top:1px solid var(--line-soft); padding-top:10px; font-size:12px; }
+.dl-pat-disclosure summary { cursor:pointer; color:var(--ink-strong); padding:7px 0; }
+.dl-pat-disclosure ul { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:8px; }
+.dl-pat-figure { margin-top:15px; }
+.dl-pat-padded { padding:var(--card-pad); }
+.dl-pat-longname { min-width:230px; max-width:370px; overflow-wrap:anywhere; white-space:normal; line-height:1.5; }
+.dl-pat-theme-warning { border:1px dashed var(--lab-line); color:var(--lab-muted); font-size:11px; line-height:1.5; padding:11px 13px; border-radius:10px; }
