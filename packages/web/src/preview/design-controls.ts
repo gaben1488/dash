@@ -19,7 +19,7 @@ const INNER:Record<string,string[]> = {
  quality:['Сверка','Качество заполнения','Замечания','Оценка управлений','Рекомендации','Журнал'],
  settings:['Источники данных','Соответствие ячеек','Подключение'],
 };
-const state={family:'Космос',finish:'candy',nav:'review',collapsed:true};
+const state={family:'Космос',finish:'candy',collapsed:true};
 let routeHost:HTMLElement,innerHost:HTMLElement,messageHost:HTMLElement,coverageHost:HTMLElement;
 let themeHost:HTMLElement,finishHost:HTMLElement,drawer:HTMLElement;
 function inform(s:string){if(messageHost)messageHost.textContent=s;}
@@ -85,7 +85,6 @@ export function installDesignControls(){
  if(document.getElementById('dash-qa'))return;
  document.documentElement.dataset.previewFamily=state.family;
  document.documentElement.dataset.previewFinish=state.finish;
- document.documentElement.dataset.previewNav=state.nav;
  drawer=document.createElement('aside');drawer.id='dash-qa';drawer.className='dash-qa';
  drawer.setAttribute('aria-label','Контроль макета');
  drawer.innerHTML=[
@@ -95,7 +94,6 @@ export function installDesignControls(){
   '<div id="qa-body" class="dash-qa-body" hidden>',
   '<p class="dash-qa-caution">Непринятый облик поверх настоящего фронтенда.',
   'Рабочие страницы и линейка организаций не подменены.</p>',
-  '<h3>Компоновка навигации</h3><div id="qa-nav" class="dash-qa-group"></div>',
   '<h3>Цветовое семейство</h3><div id="qa-families" class="dash-qa-group"></div>',
   '<h3>Отделка</h3><div id="qa-finishes" class="dash-qa-group"></div>',
   '<h3>13 существующих страниц</h3><div id="qa-routes" class="dash-qa-group"></div>',
@@ -116,14 +114,6 @@ export function installDesignControls(){
  };
  routeHost=drawer.querySelector<HTMLElement>('#qa-routes')!;
  innerHost=drawer.querySelector<HTMLElement>('#qa-inner')!;
- const navHost=drawer.querySelector<HTMLElement>('#qa-nav')!;
- for(const [id,label] of [['review','Новая шапка (проект)'],['original','Как сейчас']]){
-   navHost.append(button(label,()=>{
-     state.nav=id;document.documentElement.dataset.previewNav=id;
-     navHost.querySelectorAll('button').forEach(b=>b.classList.toggle('dash-qa-choice--active',b.textContent===label));
-     inform(id==='review'?'Новый вариант на настоящих компонентах: названия без разрывов.':'Исходная компоновка без исправлений.');
-   },id===state.nav));
- }
  themeHost=drawer.querySelector<HTMLElement>('#qa-families')!;
  finishHost=drawer.querySelector<HTMLElement>('#qa-finishes')!;
  coverageHost=drawer.querySelector<HTMLElement>('#qa-coverage')!;
