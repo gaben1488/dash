@@ -162,8 +162,15 @@ function fixture(path:string): unknown | undefined {
     editCount:0,errorCount:0,issueCreated:0,issueResolved:0};
   if(path==='/reconciliation') return {rows:[],summary:{},year};
   if(path==='/reconciliation/monthly') return {rows:[],summary:{}};
-  if(path==='/svod/unified') return {year,grid:[],rows:[],total:{},reconciliation:[]};
+  if(path==='/svod/unified') return {year,grid:{cells:{}},reconciliation:[]};
   if(path==='/report-recommendations') return {revision:'DEMO-1',records:[],counts:{active:0,historical:0,uerAuthored:0}};
+  if(path==='/changes') return {since:asOf,total:0,records:[]};
+  if(path==='/events') return {events:[],entries:[],latest:[],total:0,newIssues:0};
+  if(path==='/report-releases') return {latest:null,release:null,status:'NOT_AVAILABLE',history:[]};
+  if(path==='/workload') return {items:[],rows:[],summary:{},counts:{total:0},departments:[]};
+  if(path==='/anomalies') return {rows:[],summary:{},byDepartment:{},departments:[]};
+  if(path==='/integrity') return {rows:[],issues:[],checks:[],summary:{},books:[]};
+  if(path==='/analytics/scorecard') return {rows:[],departments:[],items:[],summary:{},asOf};
   if(path==='/annotations/yearlong') return {overrides:[],total:0};
   if(path==='/annotations/comments') return {asOf,source:'snapshot',rowsScanned:0,total:0,byKind:{},annotations:[]};
   if(path==='/sources') return {sources:departments.map(([,short])=>({name:short,type:'sheet',
@@ -175,13 +182,13 @@ function fixture(path:string): unknown | undefined {
     message:'Тестовый режим — ключи и подключение отсутствуют'};
   if(path==='/mapping') return {mapping:[],overrides:[],total:0};
   if(path==='/rows/subjects') return {subjects:[],total:0};
-  if(path==='/rows/scatter') return {rows:[],data:[]};
+  if(path==='/rows/scatter') return {points:[],unreadDepartments:[],truncated:false,pointLimit:100};
   if(path==='/analytics/profiles') return {profiles:[],byDepartment:{},departments:[]};
   if(path==='/analytics/compliance') return {rows:[],summary:{},departments:[]};
   if(path==='/analytics/ep-reasons') return {byDept:{},justification:{byDept:{},rowsScanned:0,readAt:asOf}};
   if(path==='/analytics/anomalies') return {rows:[],departments:[],summary:{}};
   if(path==='/analytics/subjects') return {groups:[],rows:[]};
-  if(path==='/analytics/centralization') return {groups:[],rows:[]};
+  if(path==='/analytics/centralization') return {opportunities:[],totalOpportunities:0,totalAmount:0,totalEpAmount:0};
   if(path.startsWith('/analytics/forecast/')) return {forecast:[],rows:[],trend:[]};
   if(path==='/cell-refs') return {refs:[],total:0};
   if(path==='/timeline/upcoming') return {asOf:'2026-10-09',days:14,total:0,rows:[],monitoringLinked:true};
