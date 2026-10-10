@@ -194,7 +194,10 @@ def test_three_word_acceptance_rejects_a_missing_or_corrupt_operational_document
      'INVALID_FINISH_TIME'),
 ])
 def test_worker_cycle_failure_has_safe_reason_category(last, reason):
-    from procurement_engine.deployment_smoke import WorkerCycleFailure, check_worker_cycle
+    from procurement_engine.deployment_smoke import (
+        WorkerCycleFailure,
+        check_worker_cycle,
+    )
 
     with pytest.raises(WorkerCycleFailure) as caught:
         check_worker_cycle(lambda: last, '2026-10-06T08:01:00+00:00',
@@ -204,7 +207,10 @@ def test_worker_cycle_failure_has_safe_reason_category(last, reason):
 
 
 def test_worker_cycle_missing_status_is_not_confused_with_stale_worker():
-    from procurement_engine.deployment_smoke import WorkerCycleFailure, check_worker_cycle
+    from procurement_engine.deployment_smoke import (
+        WorkerCycleFailure,
+        check_worker_cycle,
+    )
 
     def unavailable():
         raise FileNotFoundError('/do-not-log-private-status-file.json')
