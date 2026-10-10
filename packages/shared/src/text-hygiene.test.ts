@@ -190,15 +190,13 @@ describe('детектор 6 — отступление имени подвед�
     expect(f.fix).toBe('МБУ ДО СШОР по ЛВС');
   });
 
-  it('старые названия обозначают проверенные прежние имена, а исправление — текущий R→E', () => {
-    for (const [name, expected] of [
-      ['МБУ ДО «КДМШ»', 'МБУ ДО КДМШ'],
-      ['МБУК «Елизовский районный зоопарк»', 'МБУК ЕРЗ'],
-      ['МКУ «ЕДДС»', 'МКУ "ЕДДС ЕМР"'],
+  it('подтверждённые прежние имена не рождают замечания в архиве', () => {
+    for (const name of [
+      'МБУ ДО «КДМШ»', 'МБУК «Елизовский районный зоопарк»',
+      'МКУ «ЕДДС»', 'МБДОУ ДС № 3 «Жар-Птица»',
     ]) {
-      const [found] = detectSubordinateNameHygiene(name);
-      expect(found?.kind, name).toBe('registry_mismatch');
-      expect(found?.fix, name).toBe(expected);
+      expect(detectSubordinateNameHygiene(name), name).toEqual([]);
+      expect(nearestCanonicalSubordinate(name), name).toBeNull();
     }
   });
 
@@ -229,6 +227,6 @@ describe('детектор 6 — отступление имени подвед�
   it('nearestCanonicalSubordinate на каноничном имени возвращает null (нет находки)', () => {
     expect(nearestCanonicalSubordinate('МБУ ДО ЕДМШ')).toBeNull();
     // Прежнее официальное написание — известный алиас, а не новый подвед.
-    expect(nearestCanonicalSubordinate('МБУ ДО «ЕДМШ»')).toBe('МБУ ДО ЕДМШ');
+    expect(nearestCanonicalSubordinate('МБУ ДО «ЕДМШ»')).toBeNull();
   });
 });
