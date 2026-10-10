@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Issue } from './types.js';
-import { buildControlCases, controlCaseCounters } from './control-cases.js';
+import { buildControlCases, controlCaseCounters, selectControlCasesWithVisibleEvidence } from './control-cases.js';
 
 function finding(patch: Partial<Issue> = {}): Issue {
   return {
@@ -31,6 +31,23 @@ describe('canonical control-case projection', () => {
       workState: 'needs_review', provenFinancialEffect: null,
     });
     expect(controlCaseCounters(cases)).toMatchObject({ cases: 1, observations: 2 });
+  });
+
+  it('local status/search filters retain every observation and mixed status of a selected case', () => {
+    const both = buildControlCases([
+      finding({ id: 'opened', status: 'open' }),
+      finding({ id: 'completed', status: 'resolved', checkId: 'plan_year_missing',
+        signal: undefined, category: 'rule:plan_year_missing' }),
+      finding({ id: 'unrelated', row: 174, status: 'open' }),
+    ]);
+    const filtered = selectControlCasesWithVisibleEvidence(both, new Set(['opened']));
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]).toBe(both.find(c => c.issueIds.includes('opened')));
+    expect(filtered[0].issueIds).toEqual(['opened', 'completed']);
+    expect(filtered[0].observationCount).toBe(2);
+    expect(filtered[0].workState).toBe('mixed');
+    expect(controlCaseCounters(filtered)).toMatchObject({ cases: 1, observations: 2 });
+    expect(selectControlCasesWithVisibleEvidence(both, new Set())).toEqual([]);
   });
 
   it('does not merge distinct causes found on the same row', () => {
