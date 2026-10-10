@@ -101,7 +101,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'uo_org_itself',
-    canonicalName: 'Управление образования АЕМР',
+    canonicalName: 'Управление образования администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление образования АЕМР',
     displayName: 'УО (орг.)',
     shortName: 'УО',
     grbsId: 'УО',
@@ -223,7 +224,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'uksimp_org_itself',
-    canonicalName: 'Управление культуры, спорта и молодёжной политики АЕМР',
+    canonicalName: 'Управление культуры, спорта и молодежной политики администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление культуры, спорта и молодёжной политики АЕМР',
     displayName: 'УКСиМП (орг.)',
     shortName: 'УКСиМП',
     grbsId: 'УКСиМП',
@@ -289,7 +291,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'uagizo_org_itself',
-    canonicalName: 'Управление архитектуры, градостроительства и земельных отношений АЕМР',
+    canonicalName: 'Управление архитектуры, градостроительства и земельных отношений администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление архитектуры, градостроительства и земельных отношений АЕМР',
     displayName: 'УАГиЗО (орг.)',
     shortName: 'УАГиЗО',
     grbsId: 'УАГиЗО',
@@ -316,7 +319,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
     // с приписанным юридическим статусом, которого в книгах нет (у УИО в
     // графе учреждения только «Х»). Поймано владельцем 29.08.2026. Приведено
     // в ряд с остальными семью управлениями: честная развёртка без выдумок.
-    canonicalName: 'Управление имущественных отношений АЕМР',
+    canonicalName: 'Управление имущественных отношений администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление имущественных отношений АЕМР',
     displayName: 'УИО',
     shortName: 'УИО',
     grbsId: 'УИО',
@@ -329,7 +333,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'ufbp_org_itself',
-    canonicalName: 'Управление финансово-бюджетной политики АЕМР',
+    canonicalName: 'Управление финансов администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление финансово-бюджетной политики АЕМР',
     displayName: 'УФБП',
     shortName: 'УФБП',
     grbsId: 'УФБП',
@@ -342,7 +347,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'ud_org_itself',
-    canonicalName: 'Управление делами Администрации АЕМР',
+    canonicalName: 'Управление делами администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление делами Администрации АЕМР',
     displayName: 'УД (орг.)',
     shortName: 'УД',
     grbsId: 'УД',
@@ -365,7 +371,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'uer_org_itself',
-    canonicalName: 'Управление экономического развития АЕМР',
+    canonicalName: 'Управление экономического развития администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление экономического развития АЕМР',
     displayName: 'УЭР (орг.)',
     shortName: 'УЭР',
     grbsId: 'УЭР',
@@ -388,7 +395,8 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
 
   {
     id: 'udtx_org_itself',
-    canonicalName: 'Управление дорожно-транспортного хозяйства АЕМР',
+    canonicalName: 'Управление дорожно-транспортного хозяйства и благоустройства администрации Елизовского муниципального округа',
+    legacyCanonicalName: 'Управление дорожно-транспортного хозяйства АЕМР',
     displayName: 'УДТХ',
     shortName: 'УДТХ',
     grbsId: 'УДТХ',
