@@ -52,6 +52,20 @@ export interface SelectedActivityMethod {
   value: MethodActivityValue;
 }
 
+/** Did selected month/quarter/year have known source rows despite missing
+ * activity breakdown? If so, absent byActivity is a coverage gap, not zero. */
+function hasSourceRowsForPeriod(dept: any, periodKey: string): boolean {
+  const month = /^m(1[0-2]|[1-9])$/.exec(periodKey);
+  const source = month
+    ? dept.months?.[Number(month[1])]
+    : periodKey === 'year'
+      ? (dept.quarters?.year ?? dept)
+      : dept.quarters?.[periodKey];
+  return ['planCount', 'factCount', 'planTotal', 'factTotal']
+    .some(field => typeof source?.[field] === 'number' &&
+      Number.isFinite(source[field]) && source[field] !== 0);
+}
+
 /**
  * Missing byMethod in an older persisted snapshot is UNVERIFIED coverage, not
  * evidence that there are no EP procurements. Do not infer method from total.
@@ -71,8 +85,9 @@ export function selectActivityMethods(depts: any[], opts: {
     for (const pk of periodKeys) {
       const period = byActivity[pk];
       if (!period) {
-        // A selected period may simply have no data; only a subordinate
-        // projection without provenance is explicitly unverified.
+        // A populated source period with no activity partition is NOT a clean
+        // zero. Empty time periods remain legitimate and keep their zero.
+        if (hasSourceRowsForPeriod(d, pk)) complete = false;
         continue;
       }
       for (const ak of actKeys) {
@@ -86,6 +101,14 @@ export function selectActivityMethods(depts: any[], opts: {
           continue;
         }
         if (populated && (!activity.byMethod.competitive || !activity.byMethod.ep)) complete = false;
+        // The two method counts must reconcile to the activity count.
+        // A truncated read with both method keys present is still incomplete.
+        const methodPlan = (activity.byMethod.competitive?.plan ?? 0) +
+          (activity.byMethod.ep?.plan ?? 0);
+        const methodFact = (activity.byMethod.competitive?.fact ?? 0) +
+          (activity.byMethod.ep?.fact ?? 0);
+        if (typeof activity.planCount === 'number' && activity.planCount !== methodPlan) complete = false;
+        if (typeof activity.factCount === 'number' && activity.factCount !== methodFact) complete = false;
         if (showKP && activity.byMethod.competitive) {
           entries.push({ method: 'competitive', value: activity.byMethod.competitive });
         }

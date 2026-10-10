@@ -88,6 +88,35 @@ describe('разрез деятельности × способа закупки
     expect(t.totalKP).toBe(0);
     expect(t.totalEP).toBe(0);
   });
+  it('месяц с закупками без byActivity — неполнота, а не проверенный ноль', () => {
+    const legacy = {
+      months: { 1: { planCount: 2, factCount: 1, planTotal: 40, factTotal: 20 } },
+      byActivity: {},
+    };
+    const result = recalcTotalsByActivity([legacy], {
+      actKeys: ['program'], periodKeys: ['m1'], budgetPlanFact: noBudget,
+    });
+    expect(result).toMatchObject({ complete: false, totalPlan: 0, totalKP: 0, totalEP: 0 });
+
+    // Genuine empty month is not automatically a failed read.
+    const emptyMonth = { months: { 1: { planCount: 0, factCount: 0, planTotal: 0 } }, byActivity: {} };
+    expect(recalcTotalsByActivity([emptyMonth], {
+      actKeys: ['program'], periodKeys: ['m1'], budgetPlanFact: noBudget,
+    }).complete).toBe(true);
+  });
+
+  it('разрез с обеими группами КП/ЕП, но с потерянной позицией, не считается полным', () => {
+    const partial = { byActivity: { q1: { program: {
+      planCount: 4, factCount: 2,
+      byMethod: { competitive: metric(1, 1, 10), ep: metric(1, 1, 10) },
+    } } } };
+    const result = recalcTotalsByActivity([partial], {
+      actKeys: ['program'], periodKeys: ['q1'], budgetPlanFact: noBudget,
+    });
+    expect(result.complete).toBe(false);
+    expect(result.planCount).toBe(2); // known positions, not invented missing ones
+  });
+
   it('суммирует только выбранные подведы без подсоса всего управления', () => {
     const a = { activityByPeriod: { q1: { program: {
       planCount: 2, factCount: 1, planTotal: 50, factTotal: 20,
