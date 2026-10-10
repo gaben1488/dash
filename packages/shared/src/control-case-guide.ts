@@ -78,8 +78,8 @@ const GUIDANCE: Record<ControlImpact, {
 };
 
 /** One location can be a sheet-level issue without a row or cell. */
-export function controlCaseSourceAddress(c: Pick<ControlCase, 'departmentId' | 'sheet' | 'row' | 'rowSeq' | 'cell'>): string {
-  const bits = [c.departmentId || 'Управление не установлено'];
+export function controlCaseSourceAddress(c: Pick<ControlCase, 'departmentId' | 'sheet' | 'row' | 'rowSeq' | 'cell'>, departmentLabel?: string): string {
+  const bits = [departmentLabel || c.departmentId || 'Управление не установлено'];
   if (c.sheet) bits.push(`лист «${c.sheet}»`);
   if (c.row !== null) bits.push(`строка ${c.row}`);
   if (c.rowSeq) bits.push(`№ п/п ${c.rowSeq}`);
@@ -89,8 +89,9 @@ export function controlCaseSourceAddress(c: Pick<ControlCase, 'departmentId' | '
 }
 
 /** Never translate a human click on "resolved" into a proven fix. */
-export function buildControlCaseGuide(c: ControlCase): ControlCaseGuide {
+export function buildControlCaseGuide(c: ControlCase, departmentLabel?: string): ControlCaseGuide {
   const info = GUIDANCE[c.impact];
+  const sourceAddress = controlCaseSourceAddress(c, departmentLabel);
   const evidenceProof = c.issueIds.length > 0;
   const stateNote = c.workState === 'needs_reverification'
     ? 'Исправление отмечено, но ещё не подтверждено независимым чтением и пересчётом.'
@@ -118,7 +119,7 @@ export function buildControlCaseGuide(c: ControlCase): ControlCaseGuide {
     whoCanHelp: info.owner,
     confirmedFinding: info.finding,
     potentialConsequence: info.effect,
-    sourceAddress: controlCaseSourceAddress(c),
+    sourceAddress,
     verificationRequired: true,
     steps: [
       {
@@ -128,7 +129,7 @@ export function buildControlCaseGuide(c: ControlCase): ControlCaseGuide {
       },
       {
         id: 'evidence', title: 'Доказательства',
-        description: `Исходных наблюдений: ${c.observationCount}. ${controlCaseSourceAddress(c)}. Постоянные идентификаторы исходных замечаний сохранены; группировка относится только к текущему снимку.`,
+        description: `Исходных наблюдений: ${c.observationCount}. ${sourceAddress}. Постоянные идентификаторы исходных замечаний сохранены; группировка относится только к текущему снимку.`,
         proven: evidenceProof,
       },
       {
