@@ -43,3 +43,14 @@ export function assessReconciliation(deltas: readonly DeltaResult[]): Reconcilia
     coveragePct: total > 0 ? Math.round(comparable / total * 1000) / 10 : null,
   };
 }
+
+/**
+ * A legacy composite score is informational only when every declared
+ * reconciliation pair was checked. In particular, 0/0 and 2/5 are NOT
+ * evidence for the large green "reliability" gauge.
+ */
+export function hasCompleteComparisonEvidence(
+  assurance: ReconciliationAssurance,
+): boolean {
+  return assurance.comparable > 0 && assurance.unavailable === 0;
+}
