@@ -144,7 +144,21 @@ try{
  mobile.on('pageerror',e=>report.pageErrors.push('mobile '+String(e)));
  await mobile.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
  await mobile.locator('.dash-source-navigation input[data-route]').first().waitFor({state:'attached',timeout:30000});
- await delay(700);
+ await delay(900);
+ await mobile.screenshot({path:out+'/mobile-before-org.png',fullPage:false});
+ report.screenshots.push('mobile-before-org.png');
+ const beforeMobile=await mobile.evaluate(()=>{
+   const main=document.querySelector('#main-content');
+   const content=main?.firstElementChild;
+   const rect=main?.getBoundingClientRect(),childRect=content?.getBoundingClientRect();
+   return {mainHeight:rect?.height,mainTop:rect?.top,mainWidth:rect?.width,
+     mainScrollTop:main?.scrollTop,mainScrollLeft:main?.scrollLeft, mainScrollWidth:main?.scrollWidth,
+     text:(main?.textContent??'').slice(0,350),
+     childHeight:childRect?.height,childTop:childRect?.top,childLeft:childRect?.left};
+ });
+ report.mobileBefore=beforeMobile;
+ if((beforeMobile.mainHeight??0)<180 || !beforeMobile.text.trim())
+   fail('Mobile main content missing before opening organizations: '+JSON.stringify(beforeMobile));
  const mobilePicker=mobile.locator('.dash-org-mobile-toggle');
  if(await mobilePicker.count()!==1)fail('Mobile lost the organization selector toggle');
  else{
