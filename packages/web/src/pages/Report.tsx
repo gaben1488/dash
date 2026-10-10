@@ -65,6 +65,7 @@ import {
 } from '../lib/report/proof';
 import { generateReportText } from '../lib/report/text';
 import { reportRequestParams, type ReportMode } from '../lib/report/request';
+import { productTodayIso } from '../lib/period-coverage';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { bookCellUrl, bookLinkHint, bookRowUrl } from '../lib/report/book-link';
 import { reportPerimeter } from '../lib/report/perimeter';
@@ -699,7 +700,7 @@ export function ReportPage() {
     }
   }, [ctx.weekStart]);
   const request = useMemo(
-    () => reportRequestParams(ctx, dayNumberOf(new Date())!, localQuarter ?? undefined, mode),
+    () => reportRequestParams(ctx, dayNumberOf(productTodayIso())!, localQuarter ?? undefined, mode),
     [ctx, localQuarter, mode],
   );
 
