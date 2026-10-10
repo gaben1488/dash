@@ -3,6 +3,7 @@ import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, buildControlCases, contr
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
+import { withReviewedIssueStatus } from '../lib/control-status-readmodel';
 import { issueAxesWithoutData } from '../lib/selectors/issues-filtering';
 import {
   allowedIssueTransitions,
@@ -308,6 +309,11 @@ export function IssuesPage() {
     setStatusError(prev => ({ ...prev, [issueId]: '' }));
     try {
       await api.updateIssueStatus(issueId, target, reason);
+      // A human decision is one saved fact, not an Issues-page-only override:
+      // synchronize all consumers of dashboardData at the same time.
+      useStore.setState(state => ({
+        dashboardData: withReviewedIssueStatus(state.dashboardData, issueId, target),
+      }));
       setStatusOverrides(prev => ({ ...prev, [issueId]: target }));
       setReasonDraft(null);
     } catch (err) {
