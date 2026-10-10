@@ -11,6 +11,12 @@ class DeploymentScopeTests(unittest.TestCase):
             "README.md",
         ]))
 
+    def test_root_claude_md_is_docs_but_nested_claude_md_is_runtime(self):
+        self.assertTrue(is_non_runtime("CLAUDE.md"))
+        self.assertFalse(runtime_changed(["docs/README.md", "AGENTS.md", "CLAUDE.md"]))
+        self.assertTrue(runtime_changed(["packages/server/CLAUDE.md"]))
+        self.assertTrue(runtime_changed(["CLAUDE.md", "packages/web/src/App.tsx"]))
+
     def test_workflow_change_alone_does_not_stop_report_worker(self):
         self.assertFalse(runtime_changed([
             ".github/workflows/ci.yml",

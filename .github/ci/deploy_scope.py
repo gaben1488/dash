@@ -22,7 +22,7 @@ def is_non_runtime(path: str) -> bool:
             or path.startswith(".github/")
             # A markdown file under runtime packages may be a template/input.
             # Only known non-runtime root files are exempt.
-            or path in {"README.md", "AGENTS.md", "CONTRIBUTING.md",
+            or path in {"README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md",
                         "LICENSE", "LICENSE.txt"})
 
 
