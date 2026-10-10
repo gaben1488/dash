@@ -704,6 +704,7 @@ export function runPipeline(input: PipelineInput): PipelineSnapshot {
       cellsRead: ingestResult.cells.size,
       readDurationMs: ingestResult.durationMs,
       pipelineDurationMs: Date.now() - pipelineStart,
+      targetYear: input.targetYear ?? null,
       perSheetRowCount,
     },
   };

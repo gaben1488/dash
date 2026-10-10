@@ -190,10 +190,10 @@ describe('детектор 6 — отступление имени подвед�
     expect(f.fix).toBe('МБУ ДО СШОР по ЛВС');
   });
 
-  it('дословное имя справочника молчит — вид кавычек и «№» правит владелец, не сигнал', () => {
+  it('дословные имена актуального справочника молчат — вид кавычек правит владелец', () => {
     expect(detectSubordinateNameHygiene('МБДОУ ДС № 3 «Жар-Птица»')).toEqual([]);
-    expect(detectSubordinateNameHygiene('МБУ ДО "КДМШ"')).toEqual([]);
-    expect(detectSubordinateNameHygiene('МБУ ДО СШОР ЕДИНОБОРСТВ "КРЕЧЕТ"')).toEqual([]);
+    expect(detectSubordinateNameHygiene('МБУ ДО «КДМШ»')).toEqual([]);
+    expect(detectSubordinateNameHygiene('МБУ ДО СШОР единоборств «КРЕЧЕТ»')).toEqual([]);
   });
 
   it('каноничное имя с краевым пробелом — только обрезка, имя не переписывается', () => {

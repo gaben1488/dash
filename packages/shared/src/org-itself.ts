@@ -33,3 +33,17 @@ export function isOrgItself(c: unknown): boolean {
 export function subordinateKey(c: unknown): string {
   return isOrgItself(c) ? ORG_ITSELF_SENTINEL : String(c).trim();
 }
+
+/**
+ * Ключ только для сопоставления написаний названия, не юридический ID.
+ * Исходное поле C не изменяется: схлопываем лишь кавычки, е/ё и интервалы.
+ */
+export function subordinateNameMatchKey(raw: unknown): string {
+  if (raw === ORG_ITSELF_SENTINEL || isOrgItself(raw)) return ORG_ITSELF_SENTINEL;
+  return String(raw).trim().toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е')
+    .replace(/[«»„“”"]/g, '"')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*№\s*/g, '№')
+    .replace(/\s*\.\s*/g, '.');
+}
