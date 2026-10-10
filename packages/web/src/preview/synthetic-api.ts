@@ -129,7 +129,7 @@ const monitoring = {
     closed:procedures.slice(0,3).map(p=>({procedure:p,action:'Завершено',referenceDate:null,daysToDate:null})),triage:[]},
   svod:{rows:[],notes:['Демонстрационный лист; приёмка полных строк не проведена']},
   journal:{rows:[],lineage:[],notes:[]},
-  directory:{entries:departments.map(([id,short,name],i)=>({sheet:'Справочник заказчиков',row:i+2,
+  directory:{entries:departments.map(([,short,name],i)=>({sheet:'Справочник заказчиков',row:i+2,
     ordinal:i+1,grbs:short,fullName:name+' (пример)',shortName:short+' — демо',usageCount:3})),customersOutside:[]},
   suppliers:{readAt:asOf,error:null,rows:[]},
   ancestors:{sheets:[],missingFields:[]},signals:[],unparsedCodes:[],
