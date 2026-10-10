@@ -6,6 +6,7 @@ import {
   DEPT_HEADER_LABELS,
   DEPT_HEADER_ROWS,
   dayNumberOf,
+  parseEditableAmount,
   FACT_DATE_PLACEHOLDERS,
   buildCellDict,
   isMetaRow,
@@ -51,23 +52,6 @@ function columnTitle(letter: string): string {
   if (index === undefined) return letter;
   const key = COLUMN_KEY_BY_INDEX.get(index);
   return key ? DEPT_HEADER_LABELS[key] : letter;
-}
-
-/** Shared validation for both PUT and batch-save; parseFloat truncates "12abc". */
-function parseEditableAmount(raw: unknown): { ok: true; value: number | null } | { ok: false } {
-  if (raw === null || raw === '') return { ok: true, value: null };
-  if (typeof raw === 'number') {
-    return Number.isFinite(raw) ? { ok: true, value: raw } : { ok: false };
-  }
-  if (typeof raw !== 'string') return { ok: false };
-  const str = raw.trim();
-  if (!str) return { ok: true, value: null };
-  // Accept ordinary decimal and grouped thousands; never partial parse/exponents.
-  if (!/^[+-]?(?:\d+|\d{1,3}(?:[ \u00a0\u202f]\d{3})+)(?:[.,]\d+)?$/.test(str)) {
-    return { ok: false };
-  }
-  const value = Number(str.replace(/[ \u00a0\u202f]/g, '').replace(',', '.'));
-  return Number.isFinite(value) ? { ok: true, value } : { ok: false };
 }
 
 /** Date input must be a real calendar date, not merely match a prefix. */
