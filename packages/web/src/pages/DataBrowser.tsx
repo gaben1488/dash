@@ -575,7 +575,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     const deptId = String(data._dept ?? '');
     const rowIndex = Number(data._rowIndex ?? 0);
 
-    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes }]);
+    // A sheet row is a mutable ADDRESS, not the procurement identity.
+    // Send original A/B/C/G so the server can reject a moved/rewritten row.
+    const expectedRow = {
+      A: original.id ?? null,
+      B: original._sourceManagementName ?? null,
+      C: original._sourceSubordinate ?? null,
+      G: original.subject ?? null,
+    };
+    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes, expectedRow }]);
 
     // Сервер отвечает 200 и при отказе отдельных ячеек: раньше отказ проходил
     // молча — правка исчезала из отметки «изменено», а в книгу не попадала.
@@ -853,6 +861,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       _dept: r.dept,
       _rowIndex: r.rowIndex,
       id: r.id,
+      _sourceManagementName: r.managementName,
+      _sourceSubordinate: r.subordinate,
       // Ключ управления остаётся в _dept для записи; на экран идёт имя.
       dept: deptDisplayName(r.dept),
       subject: r.subject,

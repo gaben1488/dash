@@ -853,6 +853,45 @@ async function getWriteApi(): Promise<sheets_v4.Sheets> {
 }
 
 /**
+ * Read current identity cells immediately before a mutable positional write.
+ * Never reuse the dashboard cache as proof of the LIVE row: other users can
+ * sort the Google sheet between loading the register and pressing Save.
+ * This is a preflight, not an atomic compare-and-swap with Google.
+ */
+export async function readLiveRowCells(
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndex: number,
+  columns: readonly string[],
+): Promise<Record<string, unknown>> {
+  if (!Number.isSafeInteger(rowIndex) || rowIndex < 1 || columns.length === 0) {
+    throw new Error('Invalid write precondition range');
+  }
+  const unique = [...new Set(columns)];
+  const ranges = unique.map(column => sheetValuesRange(sheetName, `${column}${rowIndex}`));
+  const response = await readWithRetry('проверка актуальной строки перед записью', async () => {
+    const api = await getWriteApi();
+    return api.spreadsheets.values.batchGet(
+      {
+        spreadsheetId,
+        ranges,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'FORMATTED_STRING',
+      },
+      { timeout: SHEETS_TIMEOUT_MS },
+    );
+  }, response => (response.data.valueRanges ?? []).length);
+  const returned = response.data.valueRanges;
+  if (!returned || returned.length !== ranges.length) {
+    throw new Error('Google Sheets did not return all precondition cells');
+  }
+  return Object.fromEntries(unique.map((column, i) => [
+    column,
+    (returned[i].values as unknown[][] | undefined)?.[0]?.[0] ?? null,
+  ]));
+}
+
+/**
  * Запись в источник со сроком ожидания, повтором при временном отказе и записью
  * в журнал сервера.
  *
