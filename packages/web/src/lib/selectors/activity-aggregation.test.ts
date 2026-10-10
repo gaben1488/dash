@@ -27,6 +27,9 @@ const dept = {
     m2: { program: { planCount: 2, byMethod: {
       competitive: comp, ep: metric(0, 0, 0),
     } } },
+    m4: { program: { planCount: 1, byMethod: {
+      competitive: metric(0, 0, 0), ep: metric(1, 0, 7),
+    } } },
   },
 };
 
@@ -66,6 +69,16 @@ describe('разрез деятельности × способа закупки
     });
     expect(t).toMatchObject({ totalPlan: 10, totalEP: 1, totalKP: 0 });
   });
+  it('полный Q1 + часть Q2 не удваивают январь–март', () => {
+    const selected = resolvePeriodSelection('year', new Set([1, 2, 3, 4]), true);
+    const keys = activityPeriodKeys(selected, true);
+    expect(keys).toEqual(['q1', 'm4']);
+    const result = recalcTotalsByActivity([dept], {
+      actKeys: ['program'], periodKeys: keys, budgetPlanFact: noBudget,
+    });
+    expect(result).toMatchObject({ totalPlan: 67, totalKP: 2, totalEP: 2, planCount: 4 });
+  });
+
   it('устаревший снимок без оси способа НЕ объявляется нулём ЕП', () => {
     const old = { byActivity: { q1: { program: { planCount: 7, planTotal: 100 } } } };
     const t = recalcTotalsByActivity([old], {
