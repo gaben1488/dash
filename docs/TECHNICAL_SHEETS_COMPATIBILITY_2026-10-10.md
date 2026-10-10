@@ -1096,3 +1096,19 @@ Follow-up Google Sheets API reads after the rollout:
 Полный просмотр отображаемых формул основных листов ГРБС (≈ 100 тыс. формульных ячеек включая заготовленные строки) не обнаружил прямых ссылок на `Settings!`, `Контроль!`, `_Настройки!`, `_ChangeLog!` или `СИСТЕМА!` внутри самих основных строк закупок. Это **не** означает отсутствия нативных валидаций C:E (они доказанно ссылаются на H:J), именных диапазонов, внешних инструментов или обращений из Apps Script. Нельзя трактовать этот факт как разрешение на удаление старых технических листов.
 
 При последнем чтении интерфейса `_ChangeLog` живой тест ограничен доступностью заголовка `A1`; подпись рядом обновлена так, чтобы не создавать ложного впечатления проверки доставки. Последовательность изменений фиксирована в этом же файле, а не в новом отчёте-копии.
+
+### UI/UX-polish of existing _Настройки — 2026-10-10
+
+Completed in-place Google Sheets changes across all eight GRBS books:
+- The EXISTING _Настройки tabs now share a restrained navy header, readable A-C and H-J column widths, frozen top row, hidden gridlines, improved row heights, and three explanatory header notes for H-J.
+- Computed auxiliary columns E:G and empty K:Z are HIDDEN as dimensions, NOT deleted. Primary manually maintained dictionary H:J, source values, legacy key/value settings, formulas, data validations, and sheet identities are intact.
+- The existing SVOD Settings tab has a frozen heading, adjusted widths/row heights, and readable URL rows. All eight original source URLs / IMPORTRANGE formulas remain unchanged.
+
+Post-change verification against LIVE Sheets API:
+- All eight GRBS _Настройки!H1:J1 retain headers and three contextual notes.
+- C4:E4 in each source book remains native ONE_OF_RANGE validation against _Настройки!H:J.
+- All eight new СИСТЕМА views show A53,D53,G53,J53 = 0 in this snapshot. E2:G2 currently show zero #REF! evaluation errors. This does not prove future changes cannot introduce problems.
+- All eight hidden _Справочник copies were compared across 85 data entries and 170 formulas each (A:P): identical at inspection time. The parallel organizations-migration work is left untouched.
+- All eight primary books previously passed 4091 filled rows * 11 mandated formula columns without missing formulas or calculation errors; seven priority mirrored fields in SVOD compared 28805 cells with no mismatches. These checks are time-scoped, not an exhaustive acceptance of all integrations.
+
+Boundary: _ChangeLog visibility and contents, Apps Script/triggers, _Справочник values/IDs, working business grids and all formula/validation mechanisms were left unchanged. The resulting visible technical UI is СИСТЕМА and _Настройки, plus _ChangeLog where historically visible. No physical deletion of legacy Settings/Контроль/_Справочник/_ChangeLog until all external consumers are verified. This is not a completed 1–2 physical tab cutover.
