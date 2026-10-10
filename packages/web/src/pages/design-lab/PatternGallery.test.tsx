@@ -41,6 +41,18 @@ describe('Design Lab pattern gallery', () => {
     expect(container.querySelectorAll('.dl-pat-links button')).toHaveLength(8);
   });
 
+  it('does not leave an invisible selected recipe open after a search or zero results', () => {
+    const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
+    const search = screen.getByRole('searchbox', { name: 'Найти рецепт' });
+    fireEvent.change(search, { target: { value: 'подмены' } });
+    expect(screen.getByRole('heading', { name: 'Изменение без подмены версии' })).toBeTruthy();
+    expect(container.querySelector('.dl-pat-links button[aria-pressed="true"]')).not.toBeNull();
+    fireEvent.change(search, { target: { value: 'несуществующая_тема' } });
+    expect(screen.getByText('Под заданный поиск рецептов нет')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Изменение без подмены версии' })).toBeNull();
+    expect(container.querySelector('.dl-pat-stage')).toBeNull();
+  });
+
   it('shows production components with compound row numbering and formula metadata', () => {
     const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Строка и её проблема');
