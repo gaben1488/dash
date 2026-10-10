@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { SourceNavigation } from './source-drum/SourceNavigation';
+import './source-drum/source-header.css';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
 import { SelectionTokens } from './SelectionTokens';
@@ -889,7 +890,7 @@ export function Header() {
       )}
 
       {/* ══════ ONE CONTINUOUS HORIZONTAL BAR ══════ */}
-      <div className="hbar">
+      <div className="hbar dash-source-layout">
         {/* 1. Shield Hub — animated logo with status */}
         <ShieldHub
           page={page}
@@ -910,7 +911,8 @@ export function Header() {
           </div>
         )}
 
-        {/* 4. Filter drums */}
+        {/* 4. Source design's second row: keep every production filter/handler. */}
+        <div className="dash-source-filters" role="group" aria-label="Фильтры и режимы расчёта">
         {showMethod && (
           <div className="vf-drum" role="group" aria-label="Способ закупки">
             {/* Симметрично кнопке ЕП: активный КП снимается, чужой выбор
@@ -1012,6 +1014,7 @@ export function Header() {
           </div>
         )}
 
+        </div>
         {/* Правый угол линейки (контракт пробы «угол», срез 1): эфир-история
             (мини-барабан правок с журналом) над жетонами состояния отбора.
             Заменил FilterBreadcrumb variant="inline" — умения строчных чипов
