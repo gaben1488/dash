@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { ArrowRight, BookOpen, ClipboardCheck, ExternalLink, RefreshCw, X } from 'lucide-react';
 import type { ControlCase, ControlGuideStepId } from '@aemr/shared';
-import { buildControlCaseGuide } from '@aemr/shared';
+import { buildControlCaseGuide, productLabel } from '@aemr/shared';
 import clsx from 'clsx';
 import { CARD, RULE_HEAD, TILE } from './surfaces';
 
@@ -23,7 +23,7 @@ const ORDER: ControlGuideStepId[] = ['understand', 'evidence', 'action', 'rechec
 export function ControlCaseGuide({ item, onClose, onOpenEvidence, onOpenRegistry, onReread }: Props) {
   const [selectedStep, setSelectedStep] = useState<ControlGuideStepId>('understand');
   const [rereadRequested, setRereadRequested] = useState(false);
-  const guide = buildControlCaseGuide(item);
+  const guide = buildControlCaseGuide(item, item.departmentId ? productLabel(item.departmentId) : undefined);
   const stepIndex = ORDER.indexOf(selectedStep);
   const active = guide.steps[stepIndex];
   const canOpenRegistry = Boolean(item.departmentId);
