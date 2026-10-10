@@ -267,6 +267,7 @@ function Field({
 export function DesignLabPage({ onExit }: { onExit: () => void }) {
   const [preset, setPreset] = useState<LabPreset>(DEFAULT_PRESET);
   const [panel, setPanel] = useState('palettes');
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('ready');
   const [session, setSession] = useState<PreviewSession>(INITIAL_SESSION);
   const changeSession = (change: Partial<PreviewSession>) => setSession((prev) => ({ ...prev, ...change }));
@@ -375,7 +376,15 @@ export function DesignLabPage({ onExit }: { onExit: () => void }) {
         </div>
       </header>
       <div className="dl-workspace">
-        <aside className="dl-controls" aria-label="Управление визуальным рецептом">
+        <button className="dl-mobile-controls-toggle" type="button" aria-controls="dl-studio-controls"
+          aria-expanded={mobileControlsOpen} onClick={() => setMobileControlsOpen(previous => !previous)}>
+          <Layers size={16} aria-hidden="true" />
+          {mobileControlsOpen ? 'Скрыть настройки внешнего вида' : 'Настроить внешний вид'}
+          <span aria-hidden="true">{mobileControlsOpen ? '−' : '+'}</span>
+        </button>
+        <aside id="dl-studio-controls"
+          className={'dl-controls ' + (mobileControlsOpen ? 'is-mobile-open' : 'is-mobile-closed')}
+          aria-label="Управление визуальным рецептом">
           <div className="dl-control-heading">
             <Layers size={16} aria-hidden="true" />
             <div><strong>Рецепт внешнего вида</strong><span>Изменения только в этой пробе</span></div>
