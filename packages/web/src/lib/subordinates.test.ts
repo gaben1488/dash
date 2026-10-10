@@ -50,4 +50,21 @@ describe('mergeSubordinates', () => {
     expect(merged['УКСиМП']).toHaveLength(uksimp.length); // 21: без роста
     expect(new Set(merged['УКСиМП']).size).toBe(merged['УКСиМП'].length); // без дублей
   });
+  it('миграция названий R/E: действующие названия не дублируются в каталоге', () => {
+    const uo = SUBORDINATES_FALLBACK['УО'];
+    const culture = SUBORDINATES_FALLBACK['УКСиМП'];
+    expect(uo).toHaveLength(46);
+    expect(culture).toHaveLength(21);
+    expect(uo).toContain('МБДОУ № 36');
+    expect(uo).toContain('УО (Опека)');
+    expect(uo).toContain('Совместные закупки (УО)');
+    expect(culture).toContain('МБУК ЕРЗ');
+    expect(culture).toContain('Совместные закупки (УКСиМП)');
+    for (const [dept, names] of Object.entries({ УО: uo, УКСиМП: culture })) {
+      const merged = mergeSubordinates({ [dept]: names }, { [dept]: [...names] })[dept];
+      expect(merged).toHaveLength(names.length);
+      expect(new Set(merged).size).toBe(names.length);
+    }
+  });
+
 });
