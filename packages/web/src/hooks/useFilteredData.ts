@@ -158,8 +158,15 @@ export function computeFilteredData(input: FilterInputs) {
     // separately known whole/method totals and tell the user provenance lacks.
     if (activityTotals.complete || isActivityFiltered) {
       ({ totalPlan, totalFact, totalKP, totalEP } = activityTotals);
-      totalPlanCount = activityTotals.planCount;
-      totalFactCount = activityTotals.factCount;
+      // Contract of the global «План/Заключено, шт.» cards: selecting
+      // a procurement method narrows money and method counts, but the
+      // overall position counts remain across both methods unless an
+      // activity filter is also active. Keep the old independently tested
+      // count scope rather than silently changing KPI meaning.
+      if (isActivityFiltered) {
+        totalPlanCount = activityTotals.planCount;
+        totalFactCount = activityTotals.factCount;
+      }
     }
   }
   if (isBudgetFiltered && !isActivityFiltered && !methodRestricted) {
