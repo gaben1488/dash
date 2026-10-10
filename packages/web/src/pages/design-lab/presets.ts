@@ -41,7 +41,7 @@ function validPreset(value: unknown): LabPreset {
     throw new Error('Состав полей набора не соответствует версии 1.');
   }
   if (obj.version !== CATALOG_VERSION) throw new Error('Неизвестная версия набора.');
-  if (typeof obj.name !== 'string' || !obj.name.trim() || obj.name.length > 64 || /[\u0000-\u001f\u007f]/.test(obj.name)) {
+  if (typeof obj.name !== 'string' || !obj.name.trim() || obj.name.length > 64 || Array.from(obj.name).some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127)) {
     throw new Error('Название должно содержать от 1 до 64 символов без служебных знаков.');
   }
   if (!listed(ORIGINAL_FAMILIES, obj.family)) throw new Error('Неизвестное семейство цветов.');
