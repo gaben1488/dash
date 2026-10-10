@@ -123,7 +123,6 @@ export function App() {
   const [page, setPage] = useState('data'),
     [group, setGroup] = useState(1),
     [dark, setDark] = useState(true),
-    [unit, setUnit] = useState('тыс'),
     [selected, setSelected] = useState(null),
     [detailTab, setDetailTab] = useState('overview'),
     [popup, setPopup] = useState(null),
@@ -132,16 +131,17 @@ export function App() {
     [finish, setFinish] = useState('candy'),
     [motion, setMotion] = useState(true),
     [mode, setMode] = useState('webhook'),
-    [week, setWeek] = useState(41),
     [density, setDensity] = useState('normal'),
     [replies, setReplies] = useState([]),
     [reply, setReply] = useState(''),
     [closedThreads, setClosedThreads] = useState({}),
     [reportType, setReportType] = useState('Оперативный');
-  const [{ filters, undo }, dispatchFilterSession] = useReducer(filterSession, undefined, initialFilterSession);
+  const [{ filters, unit, week, undo }, dispatchFilterSession] = useReducer(filterSession, undefined, initialFilterSession);
   // Every change from periods, organizations, search, or page controls
   // invalidates stale Undo. Only reset/restore bypass this path.
   const setFilters = (next) => dispatchFilterSession({ type: 'change', next });
+  const setUnit = (next) => dispatchFilterSession({ type: 'unit', next });
+  const setWeek = (next) => dispatchFilterSession({ type: 'week', next });
   const returnTo = useRef(null),
     closeDetail = useRef(null),
     toastTimer = useRef(null);
@@ -152,7 +152,7 @@ export function App() {
   const current = navInfo(page);
   const pair = palette.tabs.find(t=>t.name===current[1]);
   const accent = { '--planet-top': pair.top, '--planet-bottom': pair.bottom, '--planet-ink': pair.ink };
-  const restore = () => { if (!undo) return; dispatchFilterSession({ type: 'restore' }); setUnit(undo.unit); setWeek(undo.week); };
+  const restore = () => dispatchFilterSession({ type: 'restore' });
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.classList.toggle('tma', dark);
@@ -247,9 +247,7 @@ export function App() {
   const sums = summarize(visible),
     orgRows = selectRows(ROWS, { year: filters.year });
   const reset = () => {
-    dispatchFilterSession({ type: 'reset', unit, week });
-    setUnit('тыс');
-    setWeek(41);
+    dispatchFilterSession({ type: 'reset' });
     setPopup(null);
   };
   const exportCsv = () => {
