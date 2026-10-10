@@ -242,7 +242,7 @@ export function computeFilteredData(input: FilterInputs) {
   if (topKpis.length < 6 && totalPlan > 0) {
     topKpis.push(buildEconomyKpiCard({ totalPlan, economyTotal: totalEconomy, periodKey }));
   }
-  if (topKpis.length < 6 && (totalKP + totalEP) > 0) {
+  if (activityMethodCoverage && topKpis.length < 6 && (totalKP + totalEP) > 0) {
     topKpis.push(buildCompetitiveRatioKpiCard({ totalKP, totalEP, periodKey }));
   }
 
