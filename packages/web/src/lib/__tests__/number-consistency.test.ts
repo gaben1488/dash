@@ -262,9 +262,23 @@ function subPeriodBlock(rows: Row[]): Record<string, number | null> {
   };
 }
 
+/** Source-backed per-method figures, mirroring CalcEngine.buildMethodMetrics.
+ * The fixture is built from ROWS, never copied from computed UI totals. */
+function methodActivityStats(rows: Row[]) {
+  const a = agg(rows);
+  return {
+    plan: a.planCount, fact: a.factCount,
+    planSum: a.planTotal, factSum: a.factTotal,
+    planFB: a.planFB, planKB: a.planKB, planMB: a.planMB,
+    factFB: a.factFB, factKB: a.factKB, factMB: a.factMB,
+    economyTotal: a.economyTotal, economyFB: a.economyFB,
+    economyKB: a.economyKB, economyMB: a.economyMB,
+  };
+}
+
 function activityBlock(rows: Row[]) {
-  const of = (kind: Activity) => {
-    const a = agg(rows.filter(r => r.activity === kind));
+  const of = (chosen: Row[]) => {
+    const a = agg(chosen);
     return {
       planCount: a.planCount, factCount: a.factCount,
       planTotal: a.planTotal, factTotal: a.factTotal,
@@ -273,14 +287,18 @@ function activityBlock(rows: Row[]) {
       economyTotal: a.economyTotal,
       economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
       execCountPct: pct1(a.factCount, a.planCount),
+      byMethod: {
+        competitive: methodActivityStats(chosen.filter(r => r.method === 'kp')),
+        ep: methodActivityStats(chosen.filter(r => r.method === 'ep')),
+      },
     };
   };
-  const zero = of('pm');
   return {
-    program: of('pm'),
-    // Канон п.30: значение больше не выдаётся — вид деятельности ровно два.
-    current_program: Object.fromEntries(Object.keys(zero).map(k => [k, 0])),
-    current_non_program: of('td'),
+    program: of(rows.filter(r => r.activity === 'pm')),
+    // Current-program was removed by owner canon: it remains an explicit
+    // empty, but *assessable*, slice rather than byMethod=0.
+    current_program: of([]),
+    current_non_program: of(rows.filter(r => r.activity === 'td')),
   };
 }
 
@@ -308,6 +326,15 @@ function subEntry(name: string, rows: Row[]) {
     economyTotal: a.economyTotal,
     economyFB: a.economyFB, economyKB: a.economyKB, economyMB: a.economyMB,
     quarters, months,
+    // New source shape: a subordinate also carries the period/activity/method
+    // intersection. Never reconstruct these from the parent department.
+    byActivityPeriod: Object.fromEntries([
+      ...QUARTER_KEYS.map(qk => [qk, activityBlock(rows.filter(r => `q${r.quarter}` === qk))] as const),
+      ['year', activityBlock(rows)] as const,
+      ...Array.from({ length: 12 }, (_, i) => [
+        `m${i + 1}`, activityBlock(rows.filter(r => r.month === i + 1)),
+      ] as const),
+    ]),
   };
 }
 
@@ -334,6 +361,10 @@ function buildDashboardData() {
       byActivity[qk] = activityBlock(deptRows.filter(r => `q${r.quarter}` === qk));
     }
     byActivity.year = activityBlock(deptRows);
+    // CalcEngine now emits this same intersection for every month.
+    for (let mi = 1; mi <= 12; mi++) {
+      byActivity[`m${mi}`] = activityBlock(deptRows.filter(r => r.month === mi));
+    }
 
     return {
       department: { id: DEPT_META[short].id, nameShort: short, name: DEPT_META[short].name },

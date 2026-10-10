@@ -1,0 +1,1734 @@
+{
+  "schema": "dash-control-dependency-index-v1",
+  "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
+  "ref": "codex/dash-control-signal-rethink-20261010",
+  "expectedSourcePaths": 85,
+  "scannedPaths": 122,
+  "errors": [],
+  "records": [
+    {
+      "path": "packages/core/src/analytics/anomaly-detection.ts",
+      "sha": "6f0436e2b9e11b8ee3b4f6ff19897776079c787b",
+      "loc": 1222,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/anomaly.ts",
+      "sha": "373ffaf1bafbc94ff9ccb18116ef8b4b9eeef595",
+      "loc": 206,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/anticorruption.ts",
+      "sha": "b26ab30b46e5bc5dcd41bdcf295d5d27c60e2d47",
+      "loc": 261,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/centralization.ts",
+      "sha": "161c1b2b82ff68fe11ea0fe42a25468398c9b4e6",
+      "loc": 162,
+      "refs": {
+        "actions": {
+          "count": 2,
+          "lines": [
+            47,
+            149
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/compliance-44fz.ts",
+      "sha": "79c1bd07e0c1e2326ad3b4b0cbd62763b31747d2",
+      "loc": 244,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/data-quality.ts",
+      "sha": "0a22af1a155b0e1d405a2c84c4774bcb228b8d37",
+      "loc": 91,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            12,
+            15
+          ]
+        },
+        "signals": {
+          "count": 2,
+          "lines": [
+            57,
+            58
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            4,
+            11,
+            42
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/discipline-index.ts",
+      "sha": "6f01119005084fceae188e22ea8e84eaf09b9aef",
+      "loc": 92,
+      "refs": {
+        "scores": {
+          "count": 1,
+          "lines": [
+            45
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/ep-justification.ts",
+      "sha": "8b0f5bc98f572ccf72b7e8edf2f29022a18c2f79",
+      "loc": 351,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/forecast.ts",
+      "sha": "9fb8e20eea4cb50642125ca4d34f6eeba4d51322",
+      "loc": 190,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/grbs-grade.ts",
+      "sha": "54a8a4ec123e8b397e809a6bf865db858919841b",
+      "loc": 129,
+      "refs": {
+        "scores": {
+          "count": 1,
+          "lines": [
+            84
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/grbs-profile.ts",
+      "sha": "f6a41137240de1446bcf33d3776dcceba5259e27",
+      "loc": 151,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/index.ts",
+      "sha": "605ccb0bc693f303cb77236499583a5268d51848",
+      "loc": 122,
+      "refs": {
+        "scores": {
+          "count": 2,
+          "lines": [
+            5,
+            6
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/analytics/journal-events.ts",
+      "sha": "7e80370c94b9dd51f68eacbac4b4aeb9be0f5498",
+      "loc": 137,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/subject-classify.ts",
+      "sha": "0b32babf10029ae5a00dfa3e3055dd4794a9fa1d",
+      "loc": 116,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/subject-fuzzy.ts",
+      "sha": "1c742cfaf5639fb6dff98e898173f3024efa278f",
+      "loc": 294,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/vanished-rows.ts",
+      "sha": "40b2bf8105bcae34e625336e77343507f196db8a",
+      "loc": 156,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/analytics/workload.ts",
+      "sha": "b1cdeb68498a8b356e1de32ad0ee7deaf3df0891",
+      "loc": 150,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/economic.ts",
+      "sha": "6a3064a7e6001508afb8c41cc92ecc84a673fa09",
+      "loc": 735,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/index.ts",
+      "sha": "0abdff4929be91e9060d332c87e1dc166ce2fe05",
+      "loc": 4,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/kb-uplift.ts",
+      "sha": "07740f5e17083587e36948b4745f28336a0f43ed",
+      "loc": 1133,
+      "refs": {
+        "scores": {
+          "count": 4,
+          "lines": [
+            91,
+            106,
+            144,
+            157
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/metrics/quarter-execution.ts",
+      "sha": "9978530b5fc584b9b4e1ae35d62b507e6e7735bc",
+      "loc": 113,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/metrics/registry.ts",
+      "sha": "5f533308928d3c27014bc2ed6bdb35fbfdd2f9db",
+      "loc": 1265,
+      "refs": {
+        "issues": {
+          "count": 4,
+          "lines": [
+            695,
+            871,
+            889,
+            898
+          ]
+        },
+        "signals": {
+          "count": 8,
+          "lines": [
+            1094,
+            1108,
+            1123,
+            1156,
+            1169,
+            1183,
+            1197,
+            1211
+          ]
+        },
+        "scores": {
+          "count": 1,
+          "lines": [
+            610
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/metrics/types.ts",
+      "sha": "b71bcdd43d0d659682454aedf36aa9f312b215fc",
+      "loc": 98,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/analytics.ts",
+      "sha": "34a6a52f11c4b1e9046b7e18d6ba819a35a3b0e4",
+      "loc": 1050,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/cells.ts",
+      "sha": "95e7a6ffbb95b7b90a2531f786a80d25a4965e3c",
+      "loc": 171,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/cross-check.ts",
+      "sha": "f308e53c467e86b9d7ca5b0b9415a63b1c8ef485",
+      "loc": 354,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/directory.ts",
+      "sha": "1f927b84c7b4bfbb74dab8c74b6cf457d6de7b15",
+      "loc": 335,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/journal.ts",
+      "sha": "46ac1801e805261b2d3a8db9b29ceef37926c4d5",
+      "loc": 388,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/procedures.ts",
+      "sha": "c7c6644bd5832fdba206a0799acc21430f762af6",
+      "loc": 908,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/signals.ts",
+      "sha": "d1609a29b7a9fc4da0996008b4496ea9aec14bcd",
+      "loc": 459,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/svod.ts",
+      "sha": "32bafdadd1c858fb9ed61e2e999814f471d85508",
+      "loc": 373,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/triple-check.ts",
+      "sha": "94a68a960b435a7608298a39d626388187d3e16d",
+      "loc": 873,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/monitoring/winner.ts",
+      "sha": "b8b443ed9df39459ade6756ec94e695f88338473",
+      "loc": 145,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/anomalies.ts",
+      "sha": "536c248cc992195f12e32f8b83a8e2396562a142",
+      "loc": 392,
+      "refs": {
+        "signals": {
+          "count": 2,
+          "lines": [
+            13,
+            241
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/pipeline/dataset-signals.ts",
+      "sha": "d1486f68b6189220ad16031e78087b546d6b1f2b",
+      "loc": 719,
+      "refs": {
+        "signals": {
+          "count": 5,
+          "lines": [
+            18,
+            462,
+            499,
+            550,
+            551
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/pipeline/input-control.ts",
+      "sha": "8268f87269bd43a4e8939a61f71122a587740df5",
+      "loc": 268,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/issue-identity.ts",
+      "sha": "cdcb750e688dfa46f854a40d6349e6a39b330db7",
+      "loc": 65,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            9
+          ]
+        },
+        "checks": {
+          "count": 1,
+          "lines": [
+            12
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/pipeline/monitoring-match.ts",
+      "sha": "6617219e875fd698b24b09a66c450348b4f3f370",
+      "loc": 335,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/normalizer-rules.ts",
+      "sha": "8d2deb4e435b43322b405655ea689231a2683ede",
+      "loc": 353,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/recon-causes.ts",
+      "sha": "01a3f1bc941e7611371c580bd75a0e37c2fdcdfe",
+      "loc": 140,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/recon-classify.ts",
+      "sha": "6cb830d229185cc57b125654b301eba89bbc31a3",
+      "loc": 466,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/recon-keys.ts",
+      "sha": "8b07464d4e9f90f324c8317f2f03fd9bb5a23732",
+      "loc": 30,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/reconcile-cross.ts",
+      "sha": "4de86ca492ab294cfe8c531f876f8ed7c268cc78",
+      "loc": 174,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/reconcile-monthly.ts",
+      "sha": "b92f379a2617d0e19209bc73c73bc84ab63d204a",
+      "loc": 562,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/reconcile.ts",
+      "sha": "c0270254ecfa4e6330ac4588c8495168972cb50f",
+      "loc": 285,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/pipeline/signals.ts",
+      "sha": "ead8b02408d4e56c829966434f5232d43d7d90ef",
+      "loc": 1184,
+      "refs": {
+        "signals": {
+          "count": 13,
+          "lines": [
+            62,
+            66,
+            67,
+            76,
+            458,
+            473,
+            556,
+            634,
+            722,
+            984,
+            998,
+            1050,
+            1068
+          ]
+        },
+        "checks": {
+          "count": 4,
+          "lines": [
+            62,
+            144,
+            723,
+            815
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/provenance/plan-provenance.ts",
+      "sha": "0548a9d41166228deef3c929f8eea558d018901d",
+      "loc": 1126,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/report/build-report.ts",
+      "sha": "a6b0be5dbf9c93ef2718e7985b9fc15f5d020fb2",
+      "loc": 841,
+      "refs": {
+        "issues": {
+          "count": 3,
+          "lines": [
+            30,
+            76,
+            318
+          ]
+        },
+        "signals": {
+          "count": 1,
+          "lines": [
+            586
+          ]
+        },
+        "actions": {
+          "count": 1,
+          "lines": [
+            331
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/report/types.ts",
+      "sha": "b837b761022e4680695717e8da509e1f297e38ad",
+      "loc": 375,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            168
+          ]
+        },
+        "actions": {
+          "count": 1,
+          "lines": [
+            182
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/core/src/timeline/row-timeline.ts",
+      "sha": "27a063fc999d2467f26d59835646bd6bc557598b",
+      "loc": 377,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/timeline/upcoming.ts",
+      "sha": "180e5b4f47b8dc0cdbafa02b7334296b1124b285",
+      "loc": 191,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/timeline/week-slices.ts",
+      "sha": "bce80c06ae84fe4230cc7071fd4b648f49e37746",
+      "loc": 124,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/trust/scorer.ts",
+      "sha": "5cb1f28d6324c9d32b5e626b33ccd6f768b5babb",
+      "loc": 259,
+      "refs": {
+        "issues": {
+          "count": 8,
+          "lines": [
+            1,
+            9,
+            25,
+            66,
+            97,
+            134,
+            161,
+            236
+          ]
+        },
+        "signals": {
+          "count": 12,
+          "lines": [
+            28,
+            33,
+            34,
+            35,
+            44,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            55
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            54,
+            177,
+            178
+          ]
+        },
+        "scores": {
+          "count": 1,
+          "lines": [
+            64
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/analytics.ts",
+      "sha": "b7e7063b7258da55ac1e55ef9509925d796b4e2c",
+      "loc": 532,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            230,
+            498
+          ]
+        },
+        "scores": {
+          "count": 4,
+          "lines": [
+            21,
+            22,
+            288,
+            298
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/anomalies.ts",
+      "sha": "ffda4964eefea800482ef37c1aaf5d71ed2ba3de",
+      "loc": 601,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/dashboard.ts",
+      "sha": "76b4206de11ea6fe01ee33ba07e5b8e5c4d4538f",
+      "loc": 694,
+      "refs": {
+        "issues": {
+          "count": 14,
+          "lines": [
+            8,
+            139,
+            148,
+            149,
+            150,
+            172,
+            173,
+            182,
+            207,
+            385,
+            395,
+            468,
+            469,
+            597
+          ]
+        },
+        "signals": {
+          "count": 7,
+          "lines": [
+            274,
+            384,
+            392,
+            398,
+            399,
+            403,
+            422
+          ]
+        },
+        "scores": {
+          "count": 6,
+          "lines": [
+            9,
+            222,
+            232,
+            233,
+            270,
+            473
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/economic-metrics.ts",
+      "sha": "c9ecd30ffe60acda265f74d0d8704c684eb96555",
+      "loc": 467,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/issues.ts",
+      "sha": "1b10898af968d6f4c745d17b601ba1b304ba0e0d",
+      "loc": 531,
+      "refs": {
+        "issues": {
+          "count": 27,
+          "lines": [
+            6,
+            52,
+            61,
+            95,
+            96,
+            114,
+            115,
+            116,
+            117,
+            118,
+            119,
+            122,
+            123,
+            124,
+            125,
+            148,
+            189,
+            239,
+            252,
+            254,
+            287,
+            305,
+            319,
+            321,
+            377,
+            386,
+            483
+          ]
+        },
+        "actions": {
+          "count": 3,
+          "lines": [
+            305,
+            312,
+            504
+          ]
+        },
+        "control": {
+          "count": 5,
+          "lines": [
+            7,
+            132,
+            138,
+            144,
+            149
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/journal.ts",
+      "sha": "19b5e235cec2ec8f0f72339d460e540e2b9f3676",
+      "loc": 691,
+      "refs": {
+        "issues": {
+          "count": 8,
+          "lines": [
+            245,
+            246,
+            398,
+            400,
+            401,
+            406,
+            407,
+            408
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/metrics.ts",
+      "sha": "a174b1fcad858214d03169347259e0e6e252b98b",
+      "loc": 55,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            2,
+            42
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/monitoring.ts",
+      "sha": "29682c841d5b71285c4dcd59206acd912ddaf231",
+      "loc": 390,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/provenance.ts",
+      "sha": "393618b3ecbee50963335ae2475005e2ccec57f8",
+      "loc": 523,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/reconciliation.ts",
+      "sha": "16fbbc753355c04df6f89a7545a9345c0901de52",
+      "loc": 342,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/report-recommendations.ts",
+      "sha": "d6409b47a4cc44cde2d67f2dcb295ebc196f9f22",
+      "loc": 361,
+      "refs": {
+        "actions": {
+          "count": 22,
+          "lines": [
+            2,
+            4,
+            45,
+            57,
+            59,
+            72,
+            74,
+            79,
+            100,
+            130,
+            256,
+            271,
+            282,
+            288,
+            289,
+            292,
+            300,
+            308,
+            320,
+            330,
+            333,
+            344
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/report-releases.ts",
+      "sha": "b6ac9a3947ec6db116904f5df200c6b234d1a006",
+      "loc": 144,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/report.ts",
+      "sha": "d91a9b68c611fceffd4b684875650f171311a6f2",
+      "loc": 291,
+      "refs": {
+        "issues": {
+          "count": 6,
+          "lines": [
+            49,
+            137,
+            140,
+            168,
+            185,
+            191
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/timeline.ts",
+      "sha": "9ed050bc69dc2b3ebfc11794671d2c5487442591",
+      "loc": 314,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/workload.ts",
+      "sha": "5eb79078794caf163357ae24e55f7c85b98f9e6d",
+      "loc": 435,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/issue-news.ts",
+      "sha": "ff2ceb4f24831804d76f1498e6f7104823d54b4e",
+      "loc": 126,
+      "refs": {
+        "issues": {
+          "count": 5,
+          "lines": [
+            26,
+            33,
+            52,
+            67,
+            89
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/services/issue-status-overlay.ts",
+      "sha": "b75ac6cbeb267600a2db07d7bd1d3f55ecdf2000",
+      "loc": 25,
+      "refs": {
+        "issues": {
+          "count": 3,
+          "lines": [
+            8,
+            11,
+            22
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/services/monitoring-diagnostics.ts",
+      "sha": "8d59540ca3acf0f8e12ebcc5b1ab603a5d8a6b57",
+      "loc": 177,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/monitoring-parsed.ts",
+      "sha": "90d3fe402cdd33c9f453c96c35262c9ffe51968d",
+      "loc": 118,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/monitoring.ts",
+      "sha": "807d9b01cfb5fbabac4248d876e670f319042fc6",
+      "loc": 235,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/services/provenance-journal.ts",
+      "sha": "a2abd75f34a11b6890f850fa43088dc123594a94",
+      "loc": 203,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/check-registry.ts",
+      "sha": "17d709e63538a9868d7c29363308758091ea6161",
+      "loc": 1193,
+      "refs": {
+        "checks": {
+          "count": 5,
+          "lines": [
+            38,
+            42,
+            204,
+            416,
+            967
+          ]
+        },
+        "actions": {
+          "count": 53,
+          "lines": [
+            34,
+            65,
+            78,
+            107,
+            138,
+            154,
+            168,
+            182,
+            196,
+            215,
+            233,
+            269,
+            290,
+            304,
+            318,
+            350,
+            363,
+            376,
+            393,
+            407,
+            429,
+            443,
+            463,
+            481,
+            512,
+            532,
+            561,
+            577,
+            595,
+            615,
+            630,
+            663,
+            680,
+            694,
+            724,
+            748,
+            794,
+            810,
+            827,
+            848,
+            863,
+            888,
+            925,
+            943,
+            957
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/control-cases.ts",
+      "sha": "c1ee283088c1553664385550122934ce5be745a6",
+      "loc": 204,
+      "refs": {
+        "issues": {
+          "count": 9,
+          "lines": [
+            8,
+            13,
+            46,
+            47,
+            72,
+            84,
+            95,
+            138,
+            139
+          ]
+        },
+        "signals": {
+          "count": 1,
+          "lines": [
+            74
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            14,
+            63,
+            64
+          ]
+        },
+        "actions": {
+          "count": 7,
+          "lines": [
+            56,
+            57,
+            155,
+            156,
+            157,
+            181,
+            182
+          ]
+        },
+        "control": {
+          "count": 6,
+          "lines": [
+            9,
+            37,
+            138,
+            151,
+            164,
+            191
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/ep-justification-grade.ts",
+      "sha": "9785517362d6042854a6bfad86aea9e00a0dfb60",
+      "loc": 249,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/grade-scale.ts",
+      "sha": "96f83c177fa4773c9363787185cb9f917cb65ff3",
+      "loc": 93,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/issue-conversion.ts",
+      "sha": "327bf4c1255d84875c10574c51693ce2cf8b2277",
+      "loc": 104,
+      "refs": {
+        "issues": {
+          "count": 4,
+          "lines": [
+            33,
+            37,
+            38,
+            46
+          ]
+        },
+        "checks": {
+          "count": 2,
+          "lines": [
+            28,
+            51
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/metric-provenance.ts",
+      "sha": "ebbfb065fd888a42a5b669d9fda61ae41f94d4ec",
+      "loc": 939,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/plan-integrity-rules.ts",
+      "sha": "376faedf3cc90a9cf8763c4405b4935cb3bbb183",
+      "loc": 849,
+      "refs": {
+        "checks": {
+          "count": 4,
+          "lines": [
+            24,
+            84,
+            784,
+            796
+          ]
+        },
+        "actions": {
+          "count": 3,
+          "lines": [
+            811,
+            827,
+            843
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/recon-root-cause.ts",
+      "sha": "beb1cc0660ab0fe487b7a2beff30eeca24221635",
+      "loc": 274,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/report-map.ts",
+      "sha": "f94a1bd3722db6ca85233273f97036f7eff939c3",
+      "loc": 827,
+      "refs": {}
+    },
+    {
+      "path": "packages/shared/src/rule-book.ts",
+      "sha": "f3800a4f899f49cdc1516a8c63e23dd5e6ad0c60",
+      "loc": 1524,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            1459
+          ]
+        },
+        "checks": {
+          "count": 5,
+          "lines": [
+            728,
+            980,
+            981,
+            1486,
+            1522
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/shared/src/signal-answer.ts",
+      "sha": "8a508ada1e28ec2b4f1ff7d0affd2844af863491",
+      "loc": 510,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            31,
+            402
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            19,
+            27,
+            432
+          ]
+        },
+        "actions": {
+          "count": 1,
+          "lines": [
+            480
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/discipline/ActionCard.tsx",
+      "sha": "ef932b27cf16ed2e33cdd6e7e54f4dc72c78dd4b",
+      "loc": 94,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/discipline/actions.ts",
+      "sha": "f6f19dd49800d8d5fc420a97cb3604014d675b20",
+      "loc": 264,
+      "refs": {
+        "signals": {
+          "count": 11,
+          "lines": [
+            28,
+            42,
+            72,
+            82,
+            93,
+            103,
+            112,
+            122,
+            132,
+            142,
+            151
+          ]
+        },
+        "actions": {
+          "count": 2,
+          "lines": [
+            67,
+            200
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/monitoring/AnalyticsSection.tsx",
+      "sha": "80dcdab3fc08e8a6bf63fc331f858da120e142f4",
+      "loc": 324,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/AnomalyList.tsx",
+      "sha": "07ad0f446624f7a8116ddaf1f54fe734c3d33c62",
+      "loc": 167,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/SignalCards.tsx",
+      "sha": "d4dd48bed970c5348af09bf92eb1d5fb1d8c6939",
+      "loc": 250,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/TripleCheck.tsx",
+      "sha": "e27f05cea90e6e1e6cf9547e06b76337f3cf11da",
+      "loc": 576,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/monitoring/WorkQueue.tsx",
+      "sha": "4e1a2f40dd1758a8d5d633ff3f29704876947c3f",
+      "loc": 71,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/quality/CommentAnnotationsSection.tsx",
+      "sha": "ebaef2ca2f5296abec73798b18e298fb07a8a8e8",
+      "loc": 310,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            161
+          ]
+        },
+        "actions": {
+          "count": 11,
+          "lines": [
+            51,
+            66,
+            76,
+            85,
+            93,
+            101,
+            109,
+            117,
+            125,
+            135,
+            163
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/recon/RootCauseCard.tsx",
+      "sha": "a7dfdb2599df53fa398438e5f6d129bcc94bcc45",
+      "loc": 161,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/report/ReasonsPanel.tsx",
+      "sha": "c9bb4001b8f14bb48dee75c55412acc0a9cc2357",
+      "loc": 159,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/report/RecommendationRegister.tsx",
+      "sha": "f2b372ab32ae8fec37d274baed103c6af92ae9ce",
+      "loc": 434,
+      "refs": {
+        "actions": {
+          "count": 3,
+          "lines": [
+            9,
+            193,
+            268
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/rows/RowStatusChip.tsx",
+      "sha": "adceee2fa3327dca92b9898bad08f094e56a4203",
+      "loc": 48,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/rows/SignalChip.tsx",
+      "sha": "bdf8a32fa3ba3dd0a1d2c4a2ddd7b8c0b7fdd7ff",
+      "loc": 75,
+      "refs": {
+        "signals": {
+          "count": 2,
+          "lines": [
+            31,
+            36
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/components/scorecard/ScorecardSection.tsx",
+      "sha": "480222e048d53642fc39466fc5c7c7ce748bc5c2",
+      "loc": 255,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/scorecard/ScorecardTable.tsx",
+      "sha": "cc02dbcc9f6cacdaafa840d34cdc6737d70b377f",
+      "loc": 209,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/workload/WorkloadSection.tsx",
+      "sha": "d20699b8c7d9b09629f9282610ccb558e63edc9a",
+      "loc": 281,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/components/workload/WorkloadTable.tsx",
+      "sha": "2a0367cd54979fc1b1b11445a92da62a23beef4e",
+      "loc": 149,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/hooks/useFilteredData.ts",
+      "sha": "a33ebc9c90b4dd5f97d9817351da59ad11cec743",
+      "loc": 423,
+      "refs": {
+        "signals": {
+          "count": 2,
+          "lines": [
+            273,
+            283
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/hooks/useMultiDimMetrics.ts",
+      "sha": "b1b66837cd148dd341a47800dd93a6497c86f63e",
+      "loc": 392,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/lib/control-status-readmodel.ts",
+      "sha": "76869f9226b1eb54069f410a708797608086a686",
+      "loc": 22,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            18
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/diagnostics/control-consequence.ts",
+      "sha": "f81939e41bb47673ad9908006b8fde4962933127",
+      "loc": 80,
+      "refs": {
+        "checks": {
+          "count": 4,
+          "lines": [
+            6,
+            9,
+            27,
+            28
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/diagnostics/mechanism-groups.ts",
+      "sha": "44b57516ebf2dfb82bddb39d28df095c54f2ebc0",
+      "loc": 220,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            21
+          ]
+        },
+        "checks": {
+          "count": 1,
+          "lines": [
+            199
+          ]
+        },
+        "actions": {
+          "count": 5,
+          "lines": [
+            39,
+            76,
+            77,
+            185,
+            201
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/selectors/issues-filtering.ts",
+      "sha": "b7842773fc2d2ed49eab34e83de565e25d17f3da",
+      "loc": 152,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            89
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/selectors/recommendation-source.ts",
+      "sha": "84e01d54deda3a0fa8e06003de91e879a710bcfb",
+      "loc": 88,
+      "refs": {
+        "checks": {
+          "count": 3,
+          "lines": [
+            1,
+            16,
+            24
+          ]
+        },
+        "actions": {
+          "count": 6,
+          "lines": [
+            16,
+            46,
+            60,
+            73,
+            75,
+            83
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/signal-counts.ts",
+      "sha": "be08c7110656ed895dc22b18cebb4c5f0601b8e1",
+      "loc": 15,
+      "refs": {
+        "signals": {
+          "count": 4,
+          "lines": [
+            1,
+            3,
+            7,
+            11
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/lib/trust-metrics.ts",
+      "sha": "9aedb11c8023f1c59e52c77208610b079918628c",
+      "loc": 76,
+      "refs": {
+        "scores": {
+          "count": 3,
+          "lines": [
+            4,
+            31,
+            72
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Analytics.tsx",
+      "sha": "3e5840f959c39bbdc378655bf029413585f7e20b",
+      "loc": 2219,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            529,
+            536
+          ]
+        },
+        "scores": {
+          "count": 1,
+          "lines": [
+            544
+          ]
+        },
+        "actions": {
+          "count": 2,
+          "lines": [
+            50,
+            2194
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Dashboard.tsx",
+      "sha": "a8bb342a6939e470d3227f9dec7c0bf9bc39ab68",
+      "loc": 1720,
+      "refs": {
+        "signals": {
+          "count": 24,
+          "lines": [
+            299,
+            802,
+            1268,
+            1354,
+            1364,
+            1379,
+            1435,
+            1436,
+            1437,
+            1444,
+            1456,
+            1468,
+            1478,
+            1479,
+            1486,
+            1487,
+            1489,
+            1490,
+            1499,
+            1526,
+            1527,
+            1529,
+            1534,
+            1592
+          ]
+        },
+        "scores": {
+          "count": 6,
+          "lines": [
+            378,
+            975,
+            976,
+            986,
+            990,
+            1081
+          ]
+        },
+        "actions": {
+          "count": 2,
+          "lines": [
+            294,
+            305
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Discipline.tsx",
+      "sha": "2c14ceb4a5cc2cb36c1fe1eadca052626578d094",
+      "loc": 408,
+      "refs": {
+        "signals": {
+          "count": 1,
+          "lines": [
+            91
+          ]
+        },
+        "actions": {
+          "count": 4,
+          "lines": [
+            17,
+            47,
+            81,
+            116
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Issues.tsx",
+      "sha": "29ea449ef1a7a8816524574ae3c72607584331e9",
+      "loc": 1068,
+      "refs": {
+        "issues": {
+          "count": 7,
+          "lines": [
+            344,
+            365,
+            369,
+            410,
+            413,
+            466,
+            578
+          ]
+        },
+        "signals": {
+          "count": 1,
+          "lines": [
+            354
+          ]
+        },
+        "checks": {
+          "count": 2,
+          "lines": [
+            2,
+            387
+          ]
+        },
+        "actions": {
+          "count": 10,
+          "lines": [
+            46,
+            101,
+            112,
+            196,
+            362,
+            480,
+            857,
+            858,
+            927,
+            928
+          ]
+        },
+        "control": {
+          "count": 3,
+          "lines": [
+            2,
+            410,
+            670
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Journal.tsx",
+      "sha": "a208ed846af6da3b43b7ca90ed0470b92710b78e",
+      "loc": 426,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Monitoring.tsx",
+      "sha": "7ed084e694626f40ff80d509156588255bfac201",
+      "loc": 772,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Quality.tsx",
+      "sha": "b212abda9f9a56ba775fe35e82bb3090039fa833",
+      "loc": 149,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Recon.tsx",
+      "sha": "fbd1393922ec2cf9c457be17061265ac3f9903c7",
+      "loc": 358,
+      "refs": {}
+    },
+    {
+      "path": "packages/web/src/pages/Recs.tsx",
+      "sha": "d15bf509fdb728bd503661d64ea05a3b0947afbb",
+      "loc": 493,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            89,
+            112
+          ]
+        },
+        "actions": {
+          "count": 6,
+          "lines": [
+            7,
+            77,
+            97,
+            106,
+            109,
+            289
+          ]
+        },
+        "control": {
+          "count": 3,
+          "lines": [
+            2,
+            89,
+            99
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Report.tsx",
+      "sha": "62682c69761c977857877c77c30f1d3f4c816304",
+      "loc": 1506,
+      "refs": {
+        "actions": {
+          "count": 3,
+          "lines": [
+            234,
+            235,
+            1148
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/web/src/pages/Trust.tsx",
+      "sha": "6c7faf067a2cb31ef50e64cfbcefa908e99c612e",
+      "loc": 855,
+      "refs": {
+        "issues": {
+          "count": 1,
+          "lines": [
+            263
+          ]
+        },
+        "signals": {
+          "count": 14,
+          "lines": [
+            5,
+            827,
+            828,
+            829,
+            830,
+            839,
+            843,
+            844,
+            845,
+            846,
+            847,
+            848,
+            849,
+            850
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            20,
+            110,
+            111
+          ]
+        },
+        "scores": {
+          "count": 13,
+          "lines": [
+            50,
+            249,
+            253,
+            256,
+            288,
+            335,
+            340,
+            343,
+            347,
+            352,
+            469,
+            573,
+            608
+          ]
+        }
+      }
+    }
+  ],
+  "webTargetCount": 37
+}

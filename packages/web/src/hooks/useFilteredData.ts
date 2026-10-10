@@ -123,10 +123,14 @@ export function computeFilteredData(input: FilterInputs) {
   // карточке навсегда, и охранник «уже есть тренд — пропустить» блокировал
   // пересчёт при смене периода. Копия делает охранник тем, чем он задуман, —
   // защитой тренда, пришедшего с сервера.
-  const topKpis = selectTopKpis(filteredKpiCards, periodKey, selectedMethods).map((k: any) => ({ ...k }));
+  // Official cells cannot be narrowed by free-text activity without a
+  // row-level cross-dimensional calculation. Do not show unsliced source
+  // KPI cards underneath a selected activity.
+  const topKpis = selectedActivities.size > 0 ? [] as any[]
+    : selectTopKpis(filteredKpiCards, periodKey, selectedMethods).map((k: any) => ({ ...k }));
   // DEPRECATED (спека §3.4): умирает при переходе на FilterContext — слепой
   // фолбэк «первые 6 карточек» заменится честным year-фолбэком с бейджем скоупа.
-  if (topKpis.length === 0 && filteredKpiCards.length > 0) {
+  if (selectedActivities.size === 0 && topKpis.length === 0 && filteredKpiCards.length > 0) {
     topKpis.push(...filteredKpiCards.slice(0, 6).map((k: any) => ({ ...k })));
   }
 
@@ -134,10 +138,11 @@ export function computeFilteredData(input: FilterInputs) {
   const showKP = selectedMethods.size === 0 || selectedMethods.has('competitive');
   const showEP = selectedMethods.size === 0 || selectedMethods.has('single');
   const aggregated = aggregateTotals(depts, resolution, { showKP, showEP, activeMonths, hasMonthData });
-  // Счётчики процедур фильтры по бюджету и виду деятельности не пересчитывают —
-  // ниже правятся только суммы, поэтому счётчики объявлены неизменяемыми.
-  const { totalPlanCount, totalFactCount } = aggregated;
-  let { totalKP, totalEP, totalPlan, totalFact } = aggregated;
+  // Only budget selection leaves the count of procedures unchanged.
+  // Activity selection must change both numerator and denominator.
+  let { totalPlanCount, totalFactCount, totalKP, totalEP, totalPlan, totalFact } = aggregated;
+  let activityMethodBreakdownAvailable = true;
+  let selectedActivityEconomy = 0;
 
   // ── Оси бюджета и вида деятельности (пересчёт тоталов при активном фильтре) ──
   const isBudgetFiltered = selectedBudgets.size > 0;
@@ -146,9 +151,15 @@ export function computeFilteredData(input: FilterInputs) {
   const actKeys = resolveActivityKeys(selectedActivities);
 
   if (isActivityFiltered) {
-    ({ totalPlan, totalFact, totalKP, totalEP } = recalcTotalsByActivity(depts, {
-      actKeys, periodKeys: activePeriodKeys(resolution), budgetPlanFact,
-    }));
+    const activityPeriods = useMonthLevel && hasActiveMonths
+      ? [...resolution.fullQuarters, ...resolution.partialMonths.map((m) => `m${m}`)]
+      : activePeriodKeys(resolution);
+    const activity = recalcTotalsByActivity(depts, {
+      actKeys, periodKeys: activityPeriods, budgetPlanFact, showKP, showEP, selectedBudgets,
+    });
+    ({ totalPlan, totalFact, totalKP, totalEP, totalPlanCount, totalFactCount } = activity);
+    activityMethodBreakdownAvailable = activity.methodBreakdownAvailable;
+    selectedActivityEconomy = activity.totalEconomy;
   }
   if (isBudgetFiltered && !isActivityFiltered) {
     ({ totalPlan, totalFact } = recalcTotalsByBudget(depts, {
@@ -168,6 +179,7 @@ export function computeFilteredData(input: FilterInputs) {
 
   // ── summaryByPeriod: пересчёт, когда фильтры сузили датасет ──
   const needsSummaryRecalc = (hasDeptFilter && depts.length > 0 && depts.length < allDepts.length)
+    || hasSubFilter || normalizedSearch !== ''
     || selectedMethods.size > 0 || isActivityFiltered || selectedBudgets.size > 0;
   let summaryByPeriod = needsSummaryRecalc
     ? recalcSummaryByPeriod(depts, { isActivityFiltered, actKeys, budgetPlanFact, showKP, showEP })
@@ -223,20 +235,33 @@ export function computeFilteredData(input: FilterInputs) {
   // Экономия за выбранный период считается ОДИН раз: и карточке KPI, и итогу
   // страницы нужен один и тот же обход всех управлений. fullQuarters/partialMonths
   // включают месячную ветвь (баг #10: экономия месяца бралась за весь квартал).
-  const totalEconomy = getFilteredEconomyTotal({
-    depts, periodKey, coveredQuarters,
-    fullQuarters: resolution.fullQuarters, partialMonths: resolution.partialMonths,
-    hasMonthData, selectedBudgets,
-  });
+  const totalEconomy = isActivityFiltered
+    ? (activityMethodBreakdownAvailable ? selectedActivityEconomy : 0)
+    : getFilteredEconomyTotal({
+      depts, periodKey, coveredQuarters,
+      fullQuarters: resolution.fullQuarters, partialMonths: resolution.partialMonths,
+      hasMonthData, selectedBudgets,
+    });
 
   // ── Производные KPI-карточки (гварды порядка/заполнения — как до разреза) ──
-  if (overallExecCountPct != null) {
-    topKpis.unshift(buildExecCountKpiCard(overallExecCountPct, periodKey, depts));
+  if (overallExecCountPct != null && (!isActivityFiltered || activityMethodBreakdownAvailable)) {
+    const executionCard = buildExecCountKpiCard(overallExecCountPct, periodKey, depts);
+    if (isActivityFiltered) {
+      // Use the same sliced numerators and denominators as the main number,
+      // not the unsliced department quarter sparkline from the legacy builder.
+      executionCard.sparkData = ['q1', 'q2', 'q3', 'q4'].map((qk) => {
+        const q = summaryByPeriod[qk];
+        const planned = (q?.kpCount ?? 0) + (q?.epCount ?? 0);
+        const done = (q?.kpFactCount ?? 0) + (q?.epFactCount ?? 0);
+        return planned > 0 ? +((done / planned) * 100).toFixed(1) : 0;
+      });
+    }
+    topKpis.unshift(executionCard);
   }
-  if (topKpis.length < 6 && totalPlan > 0) {
+  if (!isActivityFiltered && topKpis.length < 6 && totalPlan > 0) {
     topKpis.push(buildEconomyKpiCard({ totalPlan, economyTotal: totalEconomy, periodKey }));
   }
-  if (topKpis.length < 6 && (totalKP + totalEP) > 0) {
+  if ((!isActivityFiltered || activityMethodBreakdownAvailable) && topKpis.length < 6 && (totalKP + totalEP) > 0) {
     topKpis.push(buildCompetitiveRatioKpiCard({ totalKP, totalEP, periodKey }));
   }
 
@@ -271,6 +296,7 @@ export function computeFilteredData(input: FilterInputs) {
     overallExecCountPct,
     totalPlanCount,
     totalFactCount,
+    activityMethodBreakdownAvailable,
     criticalIssues,
     warningIssues,
     periodKey,

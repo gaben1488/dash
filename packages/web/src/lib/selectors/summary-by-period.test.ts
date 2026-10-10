@@ -34,14 +34,37 @@ describe('recalcSummaryByPeriod (извлечено из useFilteredData §11)',
     expect(s.q1.epCount).toBe(1);
   });
 
-  it('activity-ветвь: суммирует byActivity, счётчики — аппроксимация в kp*', () => {
-    const actDepts = [{
-      byActivity: { q1: { program: { planCount: 3, factCount: 2, planTotal: 60, factTotal: 30, planFB: 50, factFB: 25 } } },
-    }];
-    const s = recalcSummaryByPeriod(actDepts, {
-      isActivityFiltered: true, actKeys: ['program'], budgetPlanFact: noBudget, showKP: true, showEP: true,
+  it('activity-ветвь: берёт метод из того же периода и деятельности', () => {
+    const program = {
+      planCount: 3, factCount: 2, planTotal: 60, factTotal: 30,
+      byMethod: {
+        competitive: { plan: 1, fact: 1, planSum: 40, factSum: 20, planFB: 30, factFB: 15 },
+        ep: { plan: 2, fact: 1, planSum: 20, factSum: 10, planFB: 20, factFB: 10 },
+      },
+    };
+    const actDepts = [{ byActivity: { q1: { program } } }];
+    const both = recalcSummaryByPeriod(actDepts, {
+      isActivityFiltered: true, actKeys: ['program'], budgetPlanFact: noBudget,
+      showKP: true, showEP: true,
     });
-    expect(s.q1).toMatchObject({ kpCount: 3, kpFactCount: 2, kpPlan: 60, kpFact: 30, fbPlan: 50, epCount: 0 });
+    expect(both.q1).toMatchObject({
+      kpCount: 1, kpFactCount: 1, kpPlan: 40, kpFact: 20,
+      epCount: 2, epFactCount: 1, epPlan: 20, epFact: 10, fbPlan: 50,
+    });
+    const ep = recalcSummaryByPeriod(actDepts, {
+      isActivityFiltered: true, actKeys: ['program'], budgetPlanFact: noBudget,
+      showKP: false, showEP: true,
+    });
+    expect(ep.q1).toMatchObject({ kpCount: 0, kpPlan: 0, epCount: 2, epPlan: 20, fbPlan: 20 });
+  });
+
+  it('snapshot without the cross-dimension data is not comparable, not 100% competitive', () => {
+    const legacy = [{ byActivity: { q1: { program: { planCount: 3, planTotal: 60 } } } }];
+    const summary = recalcSummaryByPeriod(legacy, {
+      isActivityFiltered: true, actKeys: ['program'], budgetPlanFact: noBudget,
+      showKP: true, showEP: true,
+    });
+    expect(summary.q1).toMatchObject({ source: 'not_comparable', kpCount: null, epCount: null, kpPlan: null });
   });
 });
 

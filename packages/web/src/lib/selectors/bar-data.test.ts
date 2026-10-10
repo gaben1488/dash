@@ -87,6 +87,38 @@ describe('buildBarData (извлечено из useFilteredData §10)', () => {
     expect(b.pct).toBe(44.4);
   });
 
+  it('activity + EP only shows the EP share rather than whole activity as competitive', () => {
+    const selected = {
+      ...dept,
+      byActivity: { q1: { program: {
+        planCount: 3, factCount: 2, planTotal: 60, factTotal: 30,
+        byMethod: {
+          competitive: { plan: 1, fact: 1, planSum: 40, factSum: 20 },
+          ep: { plan: 2, fact: 1, planSum: 20, factSum: 10 },
+        },
+      } } },
+    };
+    const [b] = buildBarData([selected], makeOpts({
+      isActivityFiltered: true, actKeys: ['program'], showKP: false, showEP: true,
+    }));
+    expect(b).toMatchObject({
+      planTotal: 20, factTotal: 10, pct: 50,
+      kpCount: 0, epCount: 2, execCountPct: 50,
+      activityBreakdownAvailable: true,
+    });
+  });
+
+  it('unavailable legacy method split is not displayed as a real zero', () => {
+    const selected = { ...dept, byActivity: { q1: { program: { planCount: 3, planTotal: 60 } } } };
+    const [b] = buildBarData([selected], makeOpts({
+      isActivityFiltered: true, actKeys: ['program'], showKP: true, showEP: true,
+    }));
+    expect(b).toMatchObject({
+      kpCount: null, epCount: null, planTotal: null,
+      activityBreakdownAvailable: false,
+    });
+  });
+
   it('month-ветвь: агрегация выбранных месяцев', () => {
     const [b] = buildBarData([dept], makeOpts({ activeMonths: new Set([1]), hasMonthData: true }));
     expect(b.planTotal).toBe(30);

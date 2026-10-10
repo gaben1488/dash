@@ -168,3 +168,12 @@ export * from './threshold-registry.js';
 // именами колонок. Модуль писался агентом, который погиб на середине;
 // дописан 22.08 вместе со стражами.
 export * from './signal-answer.js';
+
+// One read model of reviewable cases for Issues, Recommendations and API.
+export * from './control-cases.js';
+
+// One human-oriented, read-only explanation for each canonical control case.
+export * from './control-case-guide.js';
+
+// Cross-system source registry: not a competing issue list or scoring formula.
+export * from './control-portfolio.js';
