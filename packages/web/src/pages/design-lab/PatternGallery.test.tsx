@@ -25,9 +25,17 @@ describe('Design Lab pattern gallery', () => {
     expect(stage!.style.getPropertyValue('--accent')).toBe('#4a6da6');
     expect(stage!.style.getPropertyValue('--accent-ink')).toBe('#ffffff');
     expect(stage!.style.getPropertyValue('--surface-card')).not.toBe('');
+    expect(stage!.style.getPropertyValue('--line-card')).toBe('transparent');
     expect(stage!.style.getPropertyValue('--data-bad')).toBe(''); // preserved semantic colors
     expect(stage!.closest('.dl-pattern-gallery')).not.toBeNull();
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('respects the actual Dash rule: dark cards have no outline, light cards retain it', () => {
+    const { container } = render(<PatternGallery preset={{ ...DEFAULT_PRESET, mode: 'light' }} />);
+    const stage = container.querySelector<HTMLElement>('.dl-pat-stage')!;
+    expect(stage.style.getPropertyValue('--line-card')).not.toBe('transparent');
+    expect(stage.style.getPropertyValue('--line-strong')).not.toBe('');
   });
 
   it('searches recipes and correctly restores the full list', () => {
