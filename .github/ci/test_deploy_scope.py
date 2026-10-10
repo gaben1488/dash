@@ -32,6 +32,7 @@ class DeploymentScopeTests(unittest.TestCase):
     def test_unknown_paths_are_not_exempt(self):
         self.assertTrue(runtime_changed(["scripts/something.py"]))
         self.assertTrue(runtime_changed([".env.production.example"]))
+        self.assertTrue(runtime_changed(["packages/report-engine/templates/report.md"]))
 
     def test_empty_diff_has_no_runtime_change(self):
         self.assertFalse(runtime_changed([]))
