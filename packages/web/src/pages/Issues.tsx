@@ -303,6 +303,13 @@ export function IssuesPage() {
   // scoped and MUST NOT be persisted as a procurement or issue identity.
   const [focusedCaseKey, setFocusedCaseKey] = useState<string | null>(null);
   const [showAllCases, setShowAllCases] = useState(false);
+  // A case key identifies evidence only within one snapshot, never a durable
+  // purchase. Prevent a refreshed snapshot from reusing the old selection
+  // for a different row that happens to have the same location.
+  const selectedSnapshotId = dashboardData?.snapshot?.id;
+  useEffect(() => {
+    setFocusedCaseKey(null);
+  }, [selectedSnapshotId]);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, Status>>({});
   const [statusError, setStatusError] = useState<Record<string, string>>({});
