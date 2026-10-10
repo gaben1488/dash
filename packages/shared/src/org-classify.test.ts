@@ -29,6 +29,8 @@ describe('classifyOrg (1.2): тип организации по ОПФ, не п�
   it('функции аппарата (Опека/Администрирование) → аппарат', () => {
     expect(classifyOrg('Опека').type).toBe('apparatus');
     expect(classifyOrg('Администрирование').type).toBe('apparatus');
+    expect(classifyOrg('УО (Опека)').type).toBe('apparatus');
+    expect(classifyOrg('УО (Администрирование)').type).toBe('apparatus');
   });
   it('isPBS = только казённые + органы', () => {
     expect(classifyOrg('МКУ "ЦЭР"').isPBS).toBe(true);
