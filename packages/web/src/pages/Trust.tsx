@@ -263,7 +263,9 @@ export function TrustPage() {
   const filteredIssues = fd.issues;
   const deltas = fd.deltas;
   const reconciliation = assessReconciliation(deltas);
-  const hasCompleteEvidence = hasCompleteComparisonEvidence(reconciliation);
+  // Deltas only carry the GRBS/department scope, not an institution-level
+  // cross-check. Selecting a subordinate cannot inherit its parent's proof.
+  const hasCompleteEvidence = !fd.hasSubFilter && hasCompleteComparisonEvidence(reconciliation);
 
   const factors: TrustFactor[] = filteredIssues
     .filter((issue: TrustIssue) => issue.severity === 'critical' || issue.severity === 'significant')
@@ -303,8 +305,10 @@ export function TrustPage() {
           <div>
             <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Сверка расчётов с официальными числами</h2>
             <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1">
-              {reconciliation.state === 'not_checked'
-                ? 'Не удалось сравнить ни одну пару. Отсутствие найденных расхождений здесь не означает, что всё верно.'
+              {fd.hasSubFilter
+                ? 'Сверка выбранного подведомственного учреждения отдельно не выполнялась. Ниже — показатели управления, но не доказательство по этому учреждению.'
+                : reconciliation.state === 'not_checked'
+                  ? 'Не удалось сравнить ни одну пару. Отсутствие найденных расхождений здесь не означает, что всё верно.'
                 : reconciliation.state === 'divergent'
                   ? `Есть ${reconciliation.mismatched} расхождений в сопоставимых числах — требуется проверка причин.`
                   : reconciliation.state === 'incomplete'
@@ -440,7 +444,7 @@ export function TrustPage() {
                 const description = kb?.what ?? COMPONENT_FALLBACK_DESCRIPTIONS[c.name] ?? '';
                 const componentIssues = getComponentIssues(c.name, filteredIssues, deltas);
                 const contribution = totalWeight > 0 ? (c.score * c.weight) / totalWeight : 0;
-                const componentNotChecked = c.name === 'mapping_consistency' && reconciliation.comparable === 0;
+                const componentNotChecked = c.name === 'mapping_consistency' && (reconciliation.comparable === 0 || fd.hasSubFilter);
                 const panelId = `trust-component-${c.name}`;
 
                 return (
@@ -469,7 +473,7 @@ export function TrustPage() {
                         </div>
                       </div>
                       {componentNotChecked ? (
-                        <p className="ml-6 text-[11px] text-amber-700 dark:text-amber-300">Не оценено: ни одного сравнимого показателя</p>
+                        <p className="ml-6 text-[11px] text-amber-700 dark:text-amber-300">Не оценено в выбранном периметре</p>
                       ) : (
                       <div
                         className="h-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden ml-6"
