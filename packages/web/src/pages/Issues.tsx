@@ -783,6 +783,11 @@ export function IssuesPage() {
 
                 {groupOpen && (
                   <div id={groupBodyId} className="space-y-2 px-3 pb-3 border-t border-zinc-100 dark:border-zinc-700/50 pt-3">
+                    {group.consequence.kind !== 'unclassified' && (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed px-1 pb-2">
+                        <strong>Почему это важно:</strong> {group.consequence.explanation}
+                      </p>
+                    )}
                     {groupIssues.map(iss => {
             const sev = SEV_CONFIG[iss.severity] ?? SEV_CONFIG.info;
             const stat = STATUS_CONFIG[iss.status] ?? STATUS_CONFIG.open;
