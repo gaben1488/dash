@@ -5,7 +5,7 @@ import { Card, CardHeader, CardDivider, CardFooter } from '@/components/ui/card'
 import { Chip } from '@/components/ui/chip';
 import { Stat } from '@/components/ui/stat';
 import { Origin } from '@/components/ui/origin';
-import { FreshnessMark } from '@/components/ui/freshness';
+import { FreshnessMark, worstState, type FreshnessInfo } from '@/components/ui/freshness';
 import { DataTable, THead, TBody, Tr, Th, Td, RowAddress, RowSignals } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/EmptyState';
 import { Segmented } from '@/components/ui/segmented';
@@ -49,6 +49,132 @@ function LiveRecipe({ id, preset }: { id: RecipeId; preset: LabPreset }) {
   const [failed, setFailed] = useState(false);
   const [problem, setProblem] = useState(false);
   const [rate, setRate] = useState<'norm' | 'live'>('norm');
+  const [actionStep, setActionStep] = useState<'idle' | 'pending' | 'confirmed'>('idle');
+  const [deleteStep, setDeleteStep] = useState<'idle' | 'ask' | 'done'>('idle');
+  const [scale, setScale] = useState<'thousand' | 'million'>('thousand');
+  const [confidence, setConfidence] = useState<'fact' | 'inferred' | 'unknown'>('inferred');
+
+
+  if (id === 'action-hierarchy') return (
+    <Card>
+      <CardHeader title="Только одно главное действие" scope="ДЕМО · не запись"
+        note="Кнопки используются из рабочего Button. Состояние «сохранено» требует отдельного подтверждения." />
+      <div className="dl-pat-actions">
+        {actionStep === 'idle' && <Button tone="primary" onClick={() => setActionStep('pending')}>Сохранить изменения</Button>}
+        {actionStep === 'pending' && <>
+          <Button tone="primary" busy>Сохранить изменения</Button>
+          <Button tone="secondary" onClick={() => setActionStep('confirmed')}>Подтвердить учебный результат</Button>
+        </>}
+        {actionStep === 'confirmed' && <Chip tone="good">Учебное подтверждение получено</Chip>}
+        <Button tone="secondary" onClick={() => setActionStep('idle')}>Начать заново</Button>
+        <Button tone="quiet" onClick={() => setActionStep('idle')}>Отменить</Button>
+      </div>
+      <CardDivider />
+      <div className="dl-pat-actions">
+        {deleteStep === 'idle' && <Button tone="danger" onClick={() => setDeleteStep('ask')}>Запросить удаление</Button>}
+        {deleteStep === 'ask' && <>
+          <strong className="dl-pat-muted">Подтвердите удаление учебной строки</strong>
+          <Button tone="danger" onClick={() => setDeleteStep('done')}>Подтвердить в демо</Button>
+          <Button tone="secondary" onClick={() => setDeleteStep('idle')}>Отказаться</Button>
+        </>}
+        {deleteStep === 'done' && <>
+          <span role="status">Строка помечена удалённой только в демо.</span>
+          <Button tone="secondary" onClick={() => setDeleteStep('idle')}>Повторить</Button>
+        </>}
+        <Button tone="secondary" disabled>Нет полномочий</Button>
+      </div>
+      <CardFooter>Ни одно действие не обращается к серверу. В настоящем Dash подтверждение должно исходить от сохранения и повторного чтения.</CardFooter>
+    </Card>
+  );
+
+  if (id === 'signal-priority') {
+    const infos: readonly FreshnessInfo[] = [
+      { state: 'verified', reason: 'ДЕМО · значение сверено с исходным полем' },
+      { state: 'uncovered', reason: 'Для вторичного показателя сверка не настроена', whatToDo: 'Определить источник и процедуру проверки' },
+      { state: 'stale', reason: 'Учебный снимок старше даты контроля', whatToDo: 'Перечитать исходную запись и проверить расхождение' },
+    ];
+    const worst = worstState(infos.map(info => info.state));
+    const info = infos.find(item => item.state === worst)!;
+    return <Card>
+      <CardHeader title="Состояние доверия к показателю" scope="Учебный срез"
+        note="Главный индикатор — только самый серьёзный из реально известных." />
+      <FreshnessMark info={info} readAt="Дата учебного примера" />
+      <details className="dl-pat-disclosure">
+        <summary>Все проверки · {infos.length}</summary>
+        <ul>{infos.map(item => <li key={item.state}><FreshnessMark info={item} /></li>)}</ul>
+      </details>
+      <CardFooter>Цвет не заменяет объяснение. При ненастроенной проверке нельзя показывать подтверждённый статус.</CardFooter>
+    </Card>;
+  }
+
+  if (id === 'measured-zero') return (
+    <Card>
+      <CardHeader title="Одно место, два принципиально разных случая" scope="ДЕМО · 2026"
+        note="0 — результат измерения, null — отсутствие известного значения." />
+      <div className="dl-pat-row">
+        <Stat label="Проверенное отклонение" value="0" unit="тыс. ₽"
+          scope="2026 · пример" tone="neutral" hint="Источник сообщает измеренное нулевое значение." />
+        <Stat label="План без подтверждённой базы" value={null} unit="тыс. ₽"
+          scope="2026 · пример" emptyReason="Исходный лист не прочитан — число неизвестно" />
+      </div>
+      <CardFooter>Неизвестное не участвует в итоговой сумме как якобы измеренный ноль.</CardFooter>
+    </Card>
+  );
+
+  if (id === 'unit-scale') {
+    const amount = 7800; // only a fictitious demo value in thousands
+    const formatted = scale === 'thousand' ? amount.toLocaleString('ru-RU')
+      : (amount / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+    return <Card>
+      <CardHeader title="Одна величина, две единицы" scope="ДЕМО · 3 строки"
+        note="Режим меняет представление, а не состав записей." />
+      <Segmented<'thousand' | 'million'> legend="Единицы денежного итога"
+        value={scale} onChange={setScale} options={[
+          { value: 'thousand', label: 'Тысячи', hint: 'Показать исходное демо-значение в тысячах рублей' },
+          { value: 'million', label: 'Миллионы', hint: 'Показать то же значение в миллионах рублей' },
+        ]} />
+      <div className="dl-pat-figure"><Stat label="План, из одной базы" value={formatted}
+        unit={scale === 'thousand' ? 'тыс. ₽' : 'млн ₽'} scope="2026 · три учебные строки" /></div>
+      <CardFooter>Исходная величина: 7 800 тыс. ₽. Количество строк остаётся 3.</CardFooter>
+    </Card>;
+  }
+
+  if (id === 'long-content') return (
+    <Card bare>
+      <div className="dl-pat-padded">
+        <CardHeader title="Длинные названия не пропадают" scope="ДЕМО · 2026"
+          note="Таблицу можно прокрутить горизонтально с клавиатуры; текст остаётся целым." />
+      </div>
+      <DataTable caption="ДЕМО · организации, предметы, номера и суммы">
+        <THead><Tr><Th>№ п/п</Th><Th>Наименование учреждения</Th><Th>Предмет закупки</Th><Th numeric>План, тыс. ₽</Th></Tr></THead>
+        <TBody>
+          <Tr><Td><RowAddress row={42} seq="173/1" /></Td>
+            <Td className="dl-pat-longname">Муниципальное бюджетное общеобразовательное учреждение «Средняя общеобразовательная школа № 3 имени выдающегося исследователя Камчатского края»</Td>
+            <Td className="dl-pat-longname">Приобретение и установка оборудования для специализированных учебных кабинетов с обеспечением обслуживания</Td>
+            <Td numeric>7 800</Td></Tr>
+        </TBody>
+      </DataTable>
+      <p className="dl-pat-under">Текст перенесён, не скрыт многоточием. Для 200% увеличения необходим реальный браузерный тест.</p>
+    </Card>
+  );
+
+  if (id === 'evidence-confidence') {
+    const info: FreshnessInfo = confidence === 'fact'
+      ? { state: 'verified', reason: 'ДЕМО · значение вручную сверено с учебной строкой' }
+      : confidence === 'inferred'
+        ? { state: 'uncovered', reason: 'ДЕМО · это косвенный вывод, официальная строка не проверена', whatToDo: 'Проверить первоисточник прежде чем принимать решение' }
+        : { state: 'unmeasurable', reason: 'Источник не был прочитан, статус определить нельзя', whatToDo: 'Получить исходный снимок и повторить проверку' };
+    return <Card>
+      <CardHeader title="Статус доказательства, а не украшение" scope="Учебная запись 173/1" />
+      <div className="dl-pat-actions">
+        <Chip tone="accent" pressed={confidence === 'fact'} onClick={() => setConfidence('fact')}>Подтверждено</Chip>
+        <Chip tone="accent" pressed={confidence === 'inferred'} onClick={() => setConfidence('inferred')}>Предположение</Chip>
+        <Chip tone="accent" pressed={confidence === 'unknown'} onClick={() => setConfidence('unknown')}>Неизвестно</Chip>
+      </div>
+      <div className="dl-pat-figure"><FreshnessMark info={info} /></div>
+      <p className="dl-pat-muted">Признаки классификатора не превращают вывод в факт из официальной книги.</p>
+    </Card>;
+  }
 
   if (id === 'source-metric') return (
     <Card aria-label="Учебная карточка числа и происхождения">
