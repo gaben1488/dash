@@ -10,44 +10,71 @@ interface Source {
   id: string;
   name: string;
   file: string;
+  path: string;
+  fragment?: boolean;
   role: string;
   limitation: string;
   load: () => Promise<{ default: string }>;
 }
 
 export const ORIGINAL_SOURCES: readonly Source[] = [
-  { id: 'pulse', name: 'Пульс: барабаны, щит, оболочка', file: 'pulse.html',
+  { id: 'pulse', name: 'Пульс: барабаны, щит, оболочка', file: 'pulse.html', path: 'docs/superpowers/mockups/pulse.html',
     role: 'Общая геометрия навигации, щита, барабанов и многомерного экрана',
     limitation: 'Предметные расчёты и вымышленные данные Пульса не переносить',
     load: () => import('../../../../../docs/superpowers/mockups/pulse.html?raw') },
-  { id: 'zarya', name: 'Заря: космос, Камчатка, минералы', file: 'zarya-vystavka.html',
+  { id: 'zarya', name: 'Заря: космос, Камчатка, минералы', file: 'zarya-vystavka.html', path: 'docs/superpowers/mockups/zarya-vystavka.html',
     role: 'Три исходных тематических семейства, 39 пар цветов, живая заря',
     limitation: 'Выставка вариантов не является выбором владельца',
     load: () => import('../../../../../docs/superpowers/mockups/zarya-vystavka.html?raw') },
-  { id: 'finish', name: 'Отделки: автомобильные материалы', file: 'otdelki.html',
+  { id: 'finish', name: 'Отделки: автомобильные материалы', file: 'otdelki.html', path: 'docs/superpowers/mockups/otdelki.html',
     role: 'Проверка шести оригинальных физических эффектов в исходном оформлении',
     limitation: 'Материал выбирается по назначению, не покрывает строки реестра',
     load: () => import('../../../../../docs/superpowers/mockups/otdelki.html?raw') },
-  { id: 'corner', name: 'Угол: три варианта', file: 'ugol-varianty.html',
+  { id: 'corner', name: 'Угол: три варианта', file: 'ugol-varianty.html', path: 'docs/superpowers/mockups/ugol-varianty.html',
     role: 'Сравнение решётки, прибора, жетонов и раскрываемых условий',
     limitation: 'Пометка автора «рекомендую» не означает согласия владельца',
     load: () => import('../../../../../docs/superpowers/mockups/ugol-varianty.html?raw') },
-  { id: 'corner-large', name: 'Угол: крупная геометрия', file: 'ugol-otbora-krupno.html',
+  { id: 'corner-large', name: 'Угол: крупная геометрия', file: 'ugol-otbora-krupno.html', path: 'docs/superpowers/mockups/ugol-otbora-krupno.html',
     role: 'Размеры, оси и варианты открытого прибора',
     limitation: 'Увеличенный образец — не масштабы и контракты рабочего Dash',
     load: () => import('../../../../../docs/superpowers/mockups/ugol-otbora-krupno.html?raw') },
-  { id: 'corner-strip', name: 'Угол в линейке', file: 'ugol-v-linejke-demo.html',
+  { id: 'corner-strip', name: 'Угол в линейке', file: 'ugol-v-linejke-demo.html', path: 'docs/superpowers/mockups/ugol-v-linejke-demo.html',
     role: 'Проверка прибора в настоящем окружении полосы',
     limitation: 'Демо-счётчики и вебхуки не являются серверным состоянием',
     load: () => import('../../../../../docs/superpowers/mockups/ugol-v-linejke-demo.html?raw') },
-  { id: 'archeology', name: 'Заря: история оформления', file: 'zarya-arheologiya.html',
+  { id: 'archeology', name: 'Заря: история оформления', file: 'zarya-arheologiya.html', path: 'docs/superpowers/mockups/zarya-arheologiya.html',
     role: 'Преемственность, внутренний градиент и ранняя эпоха оформления',
     limitation: 'Архивная реконструкция не отменяет позднейших поправок',
     load: () => import('../../../../../docs/superpowers/mockups/zarya-arheologiya.html?raw') },
+  { id: 'controls', name: 'Палитра и исходные контролы', file: 'palette-and-controls.html',
+    path: 'docs/superpowers/mockups/palette-and-controls.html',
+    role: 'Переключатели, частичный выбор, фокус, возврат и пояснение выбранного периметра',
+    limitation: 'Ранняя рекомендация спокойной темы не отменяет позднюю «Зарю»',
+    load: () => import('../../../../../docs/superpowers/mockups/palette-and-controls.html?raw') },
+  { id: 'control-print', name: 'Образец кнопок и выбора 22.08', file: '2026-08-22-controls-sample.html',
+    path: 'docs/superpowers/audits/2026-08-22-controls-sample.html',
+    role: 'Три иерархии кнопок, флажки, выбор, раскрытие и возврат к строкам',
+    limitation: 'Размер нарисованного флажка не равен размеру зоны нажатия',
+    load: () => import('../../../../../docs/superpowers/audits/2026-08-22-controls-sample.html?raw') },
+  { id: 'early-palette', name: 'Первичная палитра 22.08', file: '2026-08-22-palette-sample.html',
+    path: 'docs/superpowers/audits/2026-08-22-palette-sample.html',
+    role: 'Четыре смысловых цвета, варианты светлой темы и состояния',
+    limitation: 'Архивный внешний ореол не замещает позднюю внутреннюю «Зарю»',
+    load: () => import('../../../../../docs/superpowers/audits/2026-08-22-palette-sample.html?raw') },
+  { id: 'baseline', name: 'База дизайна: три поколения', file: '2026-08-22-design-baseline-mockup.html',
+    path: 'docs/superpowers/audits/2026-08-22-design-baseline-mockup.html',
+    role: 'Три поколения навигации, объяснений и состава данных',
+    limitation: 'Старые статичные кнопки и счётчики не могут служить доказательством работающих маршрутов',
+    load: () => import('../../../../../docs/superpowers/audits/2026-08-22-design-baseline-mockup.html?raw') },
+  { id: 'ether', name: 'Эфир: фрагмент узла щита (исходный код)', file: 'efir-uzel-schita.html',
+    path: 'docs/superpowers/mockups/efir-uzel-schita.html', fragment: true,
+    role: 'Три слоя эфира: изменения, человеческие комментарии, откуда числа',
+    limitation: 'Этот исходник — HTML-фрагмент без независимой темы. Не выдавать за сломанный самостоятельный макет; смотреть его исходный текст и интеграцию.',
+    load: () => import('../../../../../docs/superpowers/mockups/efir-uzel-schita.html?raw') },
 ] as const;
 
 export type OriginalSourceId = (typeof ORIGINAL_SOURCES)[number]['id'];
-const sourceRoot = 'https://github.com/gaben1488/dash/blob/main/docs/superpowers/mockups/';
+const sourceRoot = 'https://github.com/gaben1488/dash/blob/main/';
 
 /**
  * Prevent scripts in historical prototypes from reaching live endpoints or the parent.
@@ -76,7 +103,7 @@ export function OriginalSources() {
     setHtml('');
     source.load().then((module) => {
       if (cancelled) return;
-      setHtml(sandboxOriginal(module.default));
+      setHtml(source.fragment ? module.default : sandboxOriginal(module.default));
       setStatus('ready');
     }).catch(() => {
       if (!cancelled) setStatus('error');
@@ -114,7 +141,7 @@ export function OriginalSources() {
       <div className="dl-original-context">
         <div><strong>Что здесь сохранять</strong><p>{source.role}</p></div>
         <div><strong>Что не считать готовым</strong><p>{source.limitation}</p></div>
-        <a href={sourceRoot + source.file} rel="noopener noreferrer" target="_blank">
+        <a href={sourceRoot + source.path} rel="noopener noreferrer" target="_blank">
           Открыть исходный файл <ExternalLink size={13} aria-hidden="true" />
         </a>
       </div>
@@ -127,7 +154,9 @@ export function OriginalSources() {
         {status === 'error' && <div role="alert" className="dl-original-message">
           Исходник не удалось загрузить. <button type="button" onClick={() => setReload(v => v + 1)}>Повторить</button>
         </div>}
-        {status === 'ready' && <iframe
+        {status === 'ready' && (source.fragment ? (
+          <pre className="dl-original-code" aria-label="Исходный HTML-фрагмент"><code>{html}</code></pre>
+        ) : <iframe
           key={selected + ':' + reload}
           title={'Архивный оригинал: ' + source.name}
           sandbox="allow-scripts"
@@ -136,7 +165,7 @@ export function OriginalSources() {
           width={width}
           height={750}
           loading="lazy"
-        />}
+        />)}
       </div>
       <p className="dl-original-foot"><Eye size={14} aria-hidden="true" /> Страница прокручивается внутри окна. Сравнение с действующим Dash и дизайн-приёмка остаются отдельными действиями.</p>
     </div>
