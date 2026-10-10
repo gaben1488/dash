@@ -791,7 +791,7 @@ const rowNumbering: ValidationRule = {
       }
       // Номер A — текстовый адрес, не денежная сумма. parseFloat('173/1')
       // ошибочно возвращал 173 и склеивал три разных позиции в один дубль.
-      const n = /^\\d+$/.test(raw) ? Number(raw) : null;
+      const n = /^\d+$/.test(raw) ? Number(raw) : null;
       const intNo = n !== null && Number.isSafeInteger(n) ? n : null;
       if (intNo !== null) ints.add(intNo);
       // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
