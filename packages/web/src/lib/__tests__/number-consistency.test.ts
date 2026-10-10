@@ -575,9 +575,6 @@ const STATES = allStates();
 const methodFiltered = (s: State): boolean => s.m.methods.length > 0;
 /** Выбраны подведы — классы Д-В, Д-Г, Д-Д. */
 const subFiltered = (s: State): boolean => s.o.subs.length > 0;
-/** Выбраны месяцы как настоящий фильтр (не «неделя») — класс Д-Е. */
-const monthsSelected = (s: State): boolean => s.p.mode === 'explicit' && s.p.months.length > 0;
-
 /** Тело проверки: заполняет протокол по одному состоянию. */
 type Check = (rep: Report, s: State) => void;
 
