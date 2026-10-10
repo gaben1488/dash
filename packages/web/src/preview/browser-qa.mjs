@@ -61,7 +61,7 @@ try{
  page.on('pageerror',e=>report.pageErrors.push(String(e)));
  page.on('console',m=>{if(m.type()==='error' && /ErrorBoundary|TypeError|Uncaught/.test(m.text())) report.consoleErrors.push(m.text().slice(0,2200));});
  await page.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
- await page.locator('.dash-source-navigation input[data-route]').first().waitFor({timeout:30000});
+ await page.locator('.dash-source-navigation input[data-route]').first().waitFor({state:'attached',timeout:30000});
  await delay(1100);
  const topCount=await page.locator('.dash-source-navigation input[data-route]').count();
  if(topCount!==13)fail('Expected 13 original nav buttons; rendered '+topCount);
@@ -143,7 +143,7 @@ try{
  const mobile=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
  mobile.on('pageerror',e=>report.pageErrors.push('mobile '+String(e)));
  await mobile.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
- await mobile.locator('.dash-source-navigation input[data-route]').first().waitFor({timeout:30000});
+ await mobile.locator('.dash-source-navigation input[data-route]').first().waitFor({state:'attached',timeout:30000});
  await delay(700);
  const widths=await mobile.evaluate(()=>{
   const nodes=[...document.querySelectorAll('body *')].map(el=>{
@@ -202,7 +202,10 @@ try{
  report.screenshots.push('mobile-pult.png');
  await mobile.close();
  if(report.pageErrors.length)fail('Unhandled browser errors: '+report.pageErrors.join(' | ').slice(0,900));
-} catch(e){fail('Browser audit failed: '+String(e));}
+} catch(e){
+ if(page) {const dom=await page.evaluate(()=>({body:document.body.innerText.slice(0,900),inputCount:document.querySelectorAll('.dash-source-navigation input').length,headerCount:document.querySelectorAll('header').length})).catch(()=>null);report.bootstrapDiagnostic=dom;}
+ fail('Browser audit failed: '+String(e));
+}
 finally {
  writeFileSync(out+'/qa-summary.json',JSON.stringify(report,null,2));
  await browser.close();
