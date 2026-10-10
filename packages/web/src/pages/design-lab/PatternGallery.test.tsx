@@ -70,9 +70,11 @@ describe('Design Lab pattern gallery', () => {
   it('keeps one worst freshness mark and exposes the full reasoning on demand', () => {
     const { container } = render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Один самый важный сигнал');
-    expect(container.querySelectorAll('.dl-pat-stage [data-freshness]')).toHaveLength(1);
+    const detail = container.querySelector('details.dl-pat-disclosure')!;
+    expect(detail.hasAttribute('open')).toBe(false);
     expect(container.querySelector('.dl-pat-stage [data-freshness]')?.getAttribute('data-freshness')).toBe('stale');
     fireEvent.click(screen.getByText('Все проверки · 3'));
+    expect(detail.hasAttribute('open')).toBe(true);
     expect(container.querySelectorAll('.dl-pat-stage [data-freshness]')).toHaveLength(4);
   });
 
@@ -86,7 +88,7 @@ describe('Design Lab pattern gallery', () => {
   it('switches the unit only, with one stable source amount and scope', () => {
     render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Единицы без изменения закупок');
-    expect(screen.getByText('7 800')).toBeTruthy();
+    expect(screen.getByText('7\u00a0800')).toBeTruthy();
     fireEvent.click(screen.getByText('Миллионы'));
     expect(screen.getByText('7,8')).toBeTruthy();
     expect(screen.getByText('млн ₽')).toBeTruthy();
