@@ -3,7 +3,7 @@
   "purpose": "Read-only source/line references; not proof of semantic identity or full runtime behavior.",
   "ref": "codex/dash-control-signal-rethink-20261010",
   "expectedSourcePaths": 85,
-  "scannedPaths": 49,
+  "scannedPaths": 57,
   "errors": [],
   "records": [
     {
@@ -485,6 +485,159 @@
           ]
         }
       }
+    },
+    {
+      "path": "packages/core/src/timeline/row-timeline.ts",
+      "sha": "27a063fc999d2467f26d59835646bd6bc557598b",
+      "loc": 377,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/timeline/upcoming.ts",
+      "sha": "180e5b4f47b8dc0cdbafa02b7334296b1124b285",
+      "loc": 191,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/timeline/week-slices.ts",
+      "sha": "bce80c06ae84fe4230cc7071fd4b648f49e37746",
+      "loc": 124,
+      "refs": {}
+    },
+    {
+      "path": "packages/core/src/trust/scorer.ts",
+      "sha": "5cb1f28d6324c9d32b5e626b33ccd6f768b5babb",
+      "loc": 259,
+      "refs": {
+        "issues": {
+          "count": 8,
+          "lines": [
+            1,
+            9,
+            25,
+            66,
+            97,
+            134,
+            161,
+            236
+          ]
+        },
+        "signals": {
+          "count": 12,
+          "lines": [
+            28,
+            33,
+            34,
+            35,
+            44,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            55
+          ]
+        },
+        "checks": {
+          "count": 3,
+          "lines": [
+            54,
+            177,
+            178
+          ]
+        },
+        "scores": {
+          "count": 1,
+          "lines": [
+            64
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/analytics.ts",
+      "sha": "b7e7063b7258da55ac1e55ef9509925d796b4e2c",
+      "loc": 532,
+      "refs": {
+        "issues": {
+          "count": 2,
+          "lines": [
+            230,
+            498
+          ]
+        },
+        "scores": {
+          "count": 4,
+          "lines": [
+            21,
+            22,
+            288,
+            298
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/anomalies.ts",
+      "sha": "ffda4964eefea800482ef37c1aaf5d71ed2ba3de",
+      "loc": 601,
+      "refs": {}
+    },
+    {
+      "path": "packages/server/src/routes/dashboard.ts",
+      "sha": "76b4206de11ea6fe01ee33ba07e5b8e5c4d4538f",
+      "loc": 694,
+      "refs": {
+        "issues": {
+          "count": 14,
+          "lines": [
+            8,
+            139,
+            148,
+            149,
+            150,
+            172,
+            173,
+            182,
+            207,
+            385,
+            395,
+            468,
+            469,
+            597
+          ]
+        },
+        "signals": {
+          "count": 7,
+          "lines": [
+            274,
+            384,
+            392,
+            398,
+            399,
+            403,
+            422
+          ]
+        },
+        "scores": {
+          "count": 6,
+          "lines": [
+            9,
+            222,
+            232,
+            233,
+            270,
+            473
+          ]
+        }
+      }
+    },
+    {
+      "path": "packages/server/src/routes/economic-metrics.ts",
+      "sha": "c9ecd30ffe60acda265f74d0d8704c684eb96555",
+      "loc": 467,
+      "refs": {}
     }
   ]
 }
