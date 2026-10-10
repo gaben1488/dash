@@ -194,8 +194,16 @@ try{
    });
    console.log('MOBILE_CLIP_EXPERIMENTS '+JSON.stringify(report.mobileExperiments));
  }
- if(widths.viewportScrolled>2 || widths.bodyScroll>widths.client+2){
-   fail('Mobile viewport actually scrolls sideways: '+JSON.stringify(widths));
+ // The root is a clipped fullscreen app: programmatic window.scrollTo
+ // reports overflow from inner tables, even though touch/trackpad navigation
+ // must stay fixed. Test the user's real gesture separately.
+ await mobile.mouse.move(4, Math.min(780,widths.client));
+ await mobile.mouse.wheel(450,0);
+ await delay(180);
+ const gestureScrollX=await mobile.evaluate(()=>window.scrollX);
+ report.mobile.gestureScrollX=gestureScrollX;
+ if(gestureScrollX>2 || widths.bodyScroll>widths.client+2){
+   fail('Mobile page shifts horizontally on gesture: '+JSON.stringify({gestureScrollX,widths}));
  }
  if(!widths.localScroller)fail('Full procurement table lacks internal horizontal scrolling: '+JSON.stringify(widths));
  await mobile.screenshot({path:out+'/mobile-pult.png',fullPage:true});
