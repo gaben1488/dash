@@ -112,7 +112,7 @@ describe('guarded row writes against live source movement', () => {
     const response = await app.inject({ method: 'POST', url: '/api/data/rows',
       payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Допустимая правка' }, expectedRevision }] } });
     expect(response.statusCode).toBe(200);
-    expect(readCurrentDeptRow).toHaveBeenCalledTimes(1);
+    expect(readCurrentDeptRow).toHaveBeenCalledTimes(2); // preflight + post-write revision
     expect(writeCellValue).toHaveBeenCalledTimes(1);
   });
 

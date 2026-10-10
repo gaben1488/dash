@@ -397,7 +397,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
         process.env.AEMR_ALLOW_LEGACY_WRITES !== 'true') {
       return reply.status(409).send({ error: 'Обновите реестр: для безопасной правки нужна версия исходной строки' });
     }
-    return withRowWriteLock(`${spreadsheetId}:${sheetName}:${idx}`, async () => {
+    return withRowWriteLock(`${spreadsheetId}:${idx}`, async () => {
       let originalRow: unknown[];
       try {
         originalRow = expectedRevision

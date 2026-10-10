@@ -622,7 +622,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     const original = editorDrafts[rowId]?.original ?? editorOriginals[rowId];
     if (!original) return;
     setEditorRows(prev => prev.map(r =>
-      r._id === rowId ? { ...original } : r
+      r._id === rowId ? { ...original, _id: rowId } : r
     ));
     updateEditorDrafts(prev => clearEditorDraft(prev, rowId));
   }, [editorOriginals, editorDrafts, updateEditorDrafts]);
