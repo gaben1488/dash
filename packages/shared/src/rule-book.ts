@@ -720,15 +720,17 @@ const deptEconomySumConsistency: ValidationRule = {
 const NUMBERED_CLASSES: ReadonlySet<string> = new Set([
   'procurement',
   'procurement_derived',
-  'service',
 ]);
 
 function isNumberedRow(row: ClassifiedRow): boolean {
+  // Служебный/формульный хвост с K=0 не становится закупкой только из-за того,
+  // что нулевая формула распарсена как число (classifyRows -> service).
+  if (row.classification === 'header' || row.classification === 'separator' || row.classification === 'summary') return false;
   if (NUMBERED_CLASSES.has(row.classification)) return true;
-  // Шапку validateData не проверяет вовсе: якорь на ней молча отключил бы
-  // проверку всего листа — поэтому header из страховки исключён.
-  if (row.classification === 'header') return false;
-  return hasData(row.cells['L']) && (toNumber(row.cells['K']) ?? 0) > 0;
+  const subject = hasData(row.cells['G']);
+  const method = hasData(row.cells['L']);
+  const hasPlan = (toNumber(row.cells['K']) ?? 0) !== 0;
+  return subject && (method || hasPlan);
 }
 
 /**
@@ -787,8 +789,10 @@ const rowNumbering: ValidationRule = {
         emptyRows.push(r.rowIndex);
         continue;
       }
-      const n = toNumber(raw);
-      const intNo = n !== null && Number.isInteger(n) ? n : null;
+      // Номер A — текстовый адрес, не денежная сумма. parseFloat('173/1')
+      // ошибочно возвращал 173 и склеивал три разных позиции в один дубль.
+      const n = /^\\d+$/.test(raw) ? Number(raw) : null;
+      const intNo = n !== null && Number.isSafeInteger(n) ? n : null;
       if (intNo !== null) ints.add(intNo);
       // «531» и 531 — один номер; нецелые/нечисловые сверяются как текст.
       const key = intNo !== null ? String(intNo) : raw;
