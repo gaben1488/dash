@@ -20,8 +20,10 @@ def is_non_runtime(path: str) -> bool:
     path = path.replace("\\", "/")
     return (path.startswith("docs/")
             or path.startswith(".github/")
-            or path.lower().endswith((".md", ".mdx", ".rst"))
-            or path in {"LICENSE", "LICENSE.txt"})
+            # A markdown file under runtime packages may be a template/input.
+            # Only known non-runtime root files are exempt.
+            or path in {"README.md", "AGENTS.md", "CONTRIBUTING.md",
+                        "LICENSE", "LICENSE.txt"})
 
 
 def runtime_changed(paths: Iterable[str]) -> bool:
