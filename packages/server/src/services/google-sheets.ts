@@ -903,7 +903,8 @@ export async function writeCellValue(
   value: unknown,
 ): Promise<{ updatedRange: string; updatedCells: number }> {
   const range = sheetValuesRange(sheetName, cell);
-  const safeValue =
+  // Google values.update skips JSON nulls: an explicit clear must be "".
+  const safeValue = value === null ? '' :
     typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : value;
   const response = await writeWithRetry(
     `запись в ячейку ${cell}`,
@@ -922,9 +923,13 @@ export async function writeCellValue(
     (r) => r.data.updatedCells ?? 0,
   );
 
+  const updatedCells = response.data.updatedCells ?? 0;
+  if (updatedCells !== 1) {
+    throw new Error('Google Sheets не подтвердили запись ровно одной ячейки');
+  }
   return {
     updatedRange: response.data.updatedRange ?? range,
-    updatedCells: response.data.updatedCells ?? 0,
+    updatedCells,
   };
 }
 
