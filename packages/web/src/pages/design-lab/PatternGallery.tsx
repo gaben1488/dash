@@ -354,7 +354,7 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
   return (
     <div className="dl-pattern-gallery">
       <div className="dl-panel-intro">
-        <div><h2>Библиотека рабочих практик</h2><p>8 рецептов и 15 существующих компонентов: поведение, основания, ошибки, композиция и материал.</p></div>
+        <div><h2>Библиотека рабочих практик</h2><p>14 рецептов и 21 существующий компонент: поведение, основания, ошибки, композиция и материал.</p></div>
         <span className="dl-origin-label">Все значения в образцах вымышленные</span>
       </div>
       <div className="dl-pat-columns">
@@ -385,6 +385,12 @@ export function PatternGallery({ preset }: { preset: LabPreset }) {
             <span className="dl-small-label">{recipe.category}</span>
             <h3>{recipe.title}</h3><p><strong>{recipe.answer}</strong></p><p>{recipe.rationale}</p>
           </div>
+          {preset.mode === 'light' && (recipe.id === 'source-metric' || recipe.id === 'honest-empty') && (
+            <p className="dl-pat-theme-warning" role="note">
+              Ограничение исходного компонента: источник открывается через портал в body, а EmptyState наследует глобальную тему.
+              Внешний вид здесь нельзя считать проверенным в светлом режиме — сравните также в исходном Kit.
+            </p>
+          )}
           <div className="dl-pat-stage" data-scheme={preset.mode} data-density={preset.density}
             style={recipeStageStyle(preset)}>
             <span className="dl-pat-stage-label">Живой пример · ДЕМО</span>
