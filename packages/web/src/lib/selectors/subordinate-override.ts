@@ -10,6 +10,7 @@
  * Пустой выбор подведов = депты возвращаются без изменений.
  */
 import { ORG_ITSELF_SENTINEL, subordinateNameMatchKey } from '@aemr/shared';
+import { mergeSubordinateActivityPeriods } from './activity-aggregation';
 
 export function applySubordinateFilter(
   depts: any[],
@@ -134,6 +135,7 @@ export function applySubordinateFilter(
       quarters,
       months,
       subordinates: matchedSubs,
+      byActivity: mergeSubordinateActivityPeriods(matchedSubs),
       _subFiltered: true,
       _subRowCount: subRows,
     };
