@@ -88,11 +88,11 @@ describe('Design Lab pattern gallery', () => {
   it('switches the unit only, with one stable source amount and scope', () => {
     render(<PatternGallery preset={DEFAULT_PRESET} />);
     visit('Единицы без изменения закупок');
-    expect(screen.getByText('13\u00a0620')).toBeTruthy();
+    expect(screen.getByText('13 620')).toBeTruthy();
     fireEvent.click(screen.getByText('Миллионы'));
     expect(screen.getByText('13,62')).toBeTruthy();
     expect(screen.getByText('млн ₽')).toBeTruthy();
-    expect(screen.getByText('Исходная величина: 13 620 тыс. ₽. Количество строк остаётся 3.')).toBeTruthy();
+    expect(screen.getByText('Исходная величина: 13 620 тыс. ₽. Количество строк остаётся 3.')).toBeTruthy();
   });
 
   it('keeps long institution names and controls instead of cutting to an ellipsis', () => {
