@@ -92,7 +92,7 @@ def check_worker_cycle(read_status, since, *, sleep=time.sleep, attempts=91):
         try:
             status = read_status()
             started = datetime.fromisoformat(status['started_at'])
-        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
             # A missing or malformed status file is not evidence of no work.
             last_reason = 'STATUS_UNREADABLE'
             if attempt < attempts - 1:
