@@ -1,3 +1,5 @@
+import { subordinateNameMatchKey } from '@aemr/shared';
+
 /**
  * Пропавшие и появившиеся закупки — канон п.105.
  *
@@ -132,7 +134,8 @@ function normalized(value: string | undefined): string {
  */
 function subjectFingerprint(row: SnapshotRow): string | null {
   const subject = normalized(row.subject);
-  const subordinate = normalized(row.subordinate);
+  // Историческое и действующее имя одной организации — один ключ сопоставления.
+  const subordinate = subordinateNameMatchKey(row.subordinate);
   const amount = row.planSum;
   const method = normalized(row.method);
   if (!subject || !subordinate || !method || !Number.isFinite(amount) || (amount as number) <= 0) return null;
@@ -199,8 +202,8 @@ export function diffSnapshots(
     // предметную принадлежность, но не выдаём правку текста за подмену.
     const beforeSubject = normalized(row.subject);
     const afterSubject = normalized(still.subject);
-    const beforeOrg = normalized(row.subordinate);
-    const afterOrg = normalized(still.subordinate);
+    const beforeOrg = subordinateNameMatchKey(row.subordinate);
+    const afterOrg = subordinateNameMatchKey(still.subordinate);
     if ((beforeSubject && afterSubject && beforeSubject !== afterSubject) ||
         (beforeOrg && afterOrg && beforeOrg !== afterOrg)) {
       contextChanged.push({

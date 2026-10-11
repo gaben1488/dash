@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SUBORDINATE_REGISTRY } from '@aemr/shared';
 import { diffSnapshots, type SnapshotRow } from './vanished-rows.js';
 
 const row = (o: Partial<SnapshotRow> & { rowSeq: string; sheetRow: number }): SnapshotRow => ({
@@ -219,6 +220,28 @@ describe('сохранённый номер не означает сохранё
     );
     expect(diff.contextChanged).toEqual([]);
     expect(diff.ambiguousKeys?.before).toContain('70');
+  });
+});
+
+describe('историческое наименование учреждения не меняет идентичность закупки', () => {
+  const renamed = SUBORDINATE_REGISTRY.find((x) => x.legacyCanonicalName && x.legacyCanonicalName !== x.canonicalName)!;
+
+  it('не создаёт ложное событие смены содержания под тем же номером', () => {
+    const before = [row({ rowSeq: '19', sheetRow: 50, subject: 'Капремонт', subordinate: renamed.legacyCanonicalName, planSum: 500, method: 'ЕП' })];
+    const after = [row({ rowSeq: '19', sheetRow: 50, subject: 'Капремонт', subordinate: renamed.canonicalName, planSum: 500, method: 'ЕП' })];
+    const result = diffSnapshots(before, after);
+    expect(result.contextChanged).toEqual([]);
+    expect(result.vanished).toEqual([]);
+  });
+
+  it('связывает возможную перенумерацию несмотря на миграцию старого названия на новое', () => {
+    const result = diffSnapshots(
+      [row({ rowSeq: '19', sheetRow: 50, subject: 'Капремонт', subordinate: renamed.legacyCanonicalName, planSum: 500, method: 'ЕП' })],
+      [row({ rowSeq: '25', sheetRow: 51, subject: 'Капремонт', subordinate: renamed.canonicalName, planSum: 500, method: 'ЕП' })],
+    );
+    expect(result.identityCandidates).toEqual([expect.objectContaining({
+      beforeRowSeq: '19', afterRowSeq: '25', status: 'needs-review',
+    })]);
   });
 });
 
