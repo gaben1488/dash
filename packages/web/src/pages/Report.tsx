@@ -24,7 +24,6 @@ import {
   buildSheetUrl,
   SVOD_SPREADSHEET_ID,
   dayNumberOf,
-  isoOfDayNumber,
   getMetricByKey,
   productLabel,
   quarterLabel,
