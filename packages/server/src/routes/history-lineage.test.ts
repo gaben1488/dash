@@ -41,11 +41,12 @@ describe('GET /api/history/procurement-lineage — восстановление 
       return cells;
     };
 
-    const context = (at: string) => ({
+    const context = (at: string, historical = false) => ({
       contract: 'dash-weekly-table-context-v1',
       sealedAt: at,
       masters: Object.fromEntries(departments.map((name) => [
-        name, { formulasRead: true },
+        historical && name === 'УАГЗО' ? 'УАГиЗО' : name,
+        { formulasRead: true },
       ])),
       monitoring: {
         readAt: at,
@@ -62,13 +63,17 @@ describe('GET /api/history/procurement-lineage — восстановление 
       ]),
     );
     const first = rowsByDept(false);
+    // Тот же контроль v1, но до переименования ключа одной из восьми книг.
+    // Исходный снимок и атомы хранят прежние подписи, нормализация только на чтении.
+    const historicFirst = Object.fromEntries(Object.entries(first).map(([name, rows]) =>
+      [name === 'УАГЗО' ? 'УАГиЗО' : name, rows]));
     const second = rowsByDept(true);
 
     db.insert(schema.snapshots).values([
       {
         id: 'week-1', spreadsheetId: 'synthetic',
         createdAt: PREVIOUS,
-        data: JSON.stringify({ rowsByDept: first, weeklyTableContext: context(PREVIOUS) }),
+        data: JSON.stringify({ rowsByDept: historicFirst, weeklyTableContext: context(PREVIOUS, true) }),
       },
       {
         id: 'week-2', spreadsheetId: 'synthetic',
@@ -78,18 +83,21 @@ describe('GET /api/history/procurement-lineage — восстановление 
     ]).run();
 
     const atoms = (id: string, at: string, source: Record<string, unknown[][]>) =>
-      departments.map((name) => ({
+      departments.map((name) => {
+        const savedName = id === 'week-1' && name === 'УАГЗО' ? 'УАГиЗО' : name;
+        return {
         snapshotId: id,
-        departmentId: findDept(name)!.latinId,
+        departmentId: savedName === 'УАГиЗО' ? savedName : findDept(name)!.latinId,
         rowIndex: 4,
-        cellsJson: JSON.stringify(buildCellDict(source[name][0])),
+        cellsJson: JSON.stringify(buildCellDict(source[savedName][0])),
         subject: 'Учебные пособия',
         planAmount: 100,
         factAmount: null,
         createdAt: at,
-      }));
+        };
+      });
     db.insert(schema.procurementRows).values([
-      ...atoms('week-1', PREVIOUS, first),
+      ...atoms('week-1', PREVIOUS, historicFirst),
       ...atoms('week-2', CURRENT, second),
     ]).run();
 
@@ -129,6 +137,20 @@ describe('GET /api/history/procurement-lineage — восстановление 
       author: null, at: null,
       comparisonEvidence: { baselineId: 'week-1' },
     });
+  });
+
+  it('историческое написание книги не делает полный недельный срез повреждённым', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/history/procurement-lineage?book=%D0%A3%D0%90%D0%93%D0%97%D0%9E&weeks=1',
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      coverage: string; total: number; periods: Array<{ status: string }>;
+    }>();
+    expect(body.coverage).toBe('complete');
+    expect(body.periods).toMatchObject([{ status: 'checked' }]);
+    expect(body.total).toBe(0);
   });
 
   it('фильтр книги изолирует чужие номера; якорь фиксирует страницу истории', async () => {
