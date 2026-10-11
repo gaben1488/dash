@@ -46,7 +46,7 @@ const story = (over: Partial<ChangeStoryResponse> = {}): ChangeStoryResponse => 
     books: 1, booksNamed: ['УО'], rows: 2, entries: 2,
     byKind: {
       money: 1, dates: 0, comment: 0, method: 0, subject: 0, flag: 0,
-      'row-added': 0, 'row-vanished': 1, 'row-cleared': 0, other: 0,
+      'row-added': 0, 'row-vanished': 1, 'row-identity-candidate': 0, 'row-cleared': 0, other: 0,
     },
     authors: ['ivanova@aemr.ru'],
     firstAt: '2026-08-20T09:00:00', lastAt: '2026-08-20T09:00:00',
@@ -55,7 +55,12 @@ const story = (over: Partial<ChangeStoryResponse> = {}): ChangeStoryResponse => 
   gaps: [],
   deletionsUnobservable: true,
   note: '',
-  comparison: { beforeAt: '2026-08-14T00:00:00Z', afterAt: '2026-08-21T00:00:00Z' },
+  comparison: {
+    baselineId: 'test-weekly-control',
+    beforeAt: '2026-08-14T00:00:00Z',
+    afterAt: '2026-08-21T00:00:00Z',
+    oldestCurrentAt: '2026-08-21T00:00:00Z',
+  },
   facets: { books: [{ book: 'УО', count: 2 }], authors: [{ author: 'ivanova@aemr.ru', count: 1 }] },
   total: 2,
   shown: 2,
