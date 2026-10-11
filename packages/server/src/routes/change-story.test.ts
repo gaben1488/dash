@@ -223,27 +223,15 @@ describe('GET /api/change-story', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json<{ message: string }>().message).toContain('неизвестен');
   });
-});
 
-describe('фильтр по событию возможной перенумерации', () => {
-  it('распознаёт канонический род и не возвращает ошибку 400', async () => {
-    const original = process.env;
-    // Маршрут использует ту же форму kind, что и ChangeJournal — новый чип
-    // не должен быть объявлен «неизвестным» и ронять весь журнал.
-    const { createApp } = await import('../app.js');
-    const app = await createApp({ logger: false });
-    try {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/change-story?since=2026-01-01&kind=row-identity-candidate',
-      });
-      expect(response.statusCode).toBe(200);
-      const data = response.json<{ entries: Array<{ kind: string }> }>();
-      expect(data.entries.every((entry) => entry.kind === 'row-identity-candidate')).toBe(true);
-    } finally {
-      await app.close();
-      process.env = original;
-    }
+  it('фильтр чипа «Возможная смена номера» принимается сервером', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/change-story?since=2026-01-01&kind=row-identity-candidate',
+    });
+    expect(res.statusCode).toBe(200);
+    const data = res.json<StoryDto>();
+    expect(data.entries.every((entry) => entry.kind === 'row-identity-candidate')).toBe(true);
   });
-});
 
+});
