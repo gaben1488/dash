@@ -5,6 +5,7 @@ import {
   AlertCircle, Info, Columns3, Copy, MapPin, X,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { parseEditableAmount } from '@aemr/shared';
 import { formatDateCell } from '../lib/sheet-date';
 import { pluralRu } from '../lib/economy-copy';
 
@@ -40,6 +41,8 @@ export interface TableEditorProps {
   onSaveRow?: (rowId: string, data: Record<string, unknown>) => Promise<void>;
   onRevertRow?: (rowId: string) => void;
   onAddColumn?: (column: ColumnConfig) => void;
+  /** Unsaved fields owned by the parent so filter/navigation cannot erase them. */
+  externalDirtyFields?: Record<string, string[]>;
   loading?: boolean;
   readOnly?: boolean;
   /**
@@ -95,9 +98,9 @@ const EMPTY_CELL_HINT = 'В книге значение не заполнено'
  * в ячейку уедет ровно то число, которое видит и правит оператор.
  */
 function formatCurrency(value: unknown): string {
-  const num = typeof value === 'number' ? value : parseFloat(String(value ?? ''));
-  if (isNaN(num)) return EMPTY_CELL;
-  return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' тыс. ₽';
+  const parsed = parseEditableAmount(value);
+  if (!parsed.ok || parsed.value === null) return EMPTY_CELL;
+  return parsed.value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' тыс. ₽';
 }
 
 // Дата: DTO отдаёт ISO «YYYY-MM-DD» | null; локализация в дд.мм.гггг — здесь.
@@ -109,8 +112,8 @@ function displayValue(value: unknown, type: CellType): string {
   switch (type) {
     case 'currency': return formatCurrency(value);
     case 'number': {
-      const n = typeof value === 'number' ? value : parseFloat(String(value));
-      return isNaN(n) ? String(value) : n.toLocaleString('ru-RU');
+      const parsed = parseEditableAmount(value);
+      return !parsed.ok || parsed.value === null ? String(value) : parsed.value.toLocaleString('ru-RU');
     }
     case 'date': {
       const formatted = formatDate(value);
@@ -118,6 +121,13 @@ function displayValue(value: unknown, type: CellType): string {
     }
     default: return String(value);
   }
+}
+
+/** Numeric editor input must not silently truncate malformed values. */
+export function numericEditorValue(input: string): number | string | null {
+  if (input.trim() === '' || input.trim() === EMPTY_CELL) return null;
+  const parsed = parseEditableAmount(input);
+  return parsed.ok ? parsed.value : input;
 }
 
 function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -393,6 +403,7 @@ export function TableEditor({
   onSaveRow,
   onRevertRow,
   onAddColumn,
+  externalDirtyFields = {},
   loading = false,
   readOnly = false,
   emptyReason,
@@ -599,8 +610,10 @@ export function TableEditor({
         const av = a[sortKey];
         const bv = b[sortKey];
         if (col?.type === 'number' || col?.type === 'currency') {
-          const an = parseFloat(String(av ?? '0')) || 0;
-          const bn = parseFloat(String(bv ?? '0')) || 0;
+          const aNum = parseEditableAmount(av);
+          const bNum = parseEditableAmount(bv);
+          const an = aNum.ok ? (aNum.value ?? 0) : 0;
+          const bn = bNum.ok ? (bNum.value ?? 0) : 0;
           return sortDir === 'asc' ? an - bn : bn - an;
         }
         const as = String(av ?? '');
@@ -636,13 +649,7 @@ export function TableEditor({
 
     let parsedValue: unknown = editValue;
     if (col?.type === 'number' || col?.type === 'currency') {
-      const cleaned = editValue.replace(/\s/g, '').replace(/,/g, '.').replace(/₽/g, '').trim();
-      if (cleaned === '' || cleaned === EMPTY_CELL) {
-        parsedValue = null;
-      } else {
-        const num = parseFloat(cleaned);
-        parsedValue = isNaN(num) ? editValue : num;
-      }
+      parsedValue = numericEditorValue(editValue);
     }
 
     const errKey = `${rowId}:${colKey}`;
@@ -832,18 +839,19 @@ export function TableEditor({
   );
 
   const isDirtyRow = useCallback((rowId: string) => {
-    return dirty[rowId] && dirty[rowId].size > 0;
-  }, [dirty]);
+    return (dirty[rowId]?.size ?? 0) > 0 || (externalDirtyFields[rowId]?.length ?? 0) > 0;
+  }, [dirty, externalDirtyFields]);
 
   const isDirtyCell = useCallback((rowId: string, colKey: string) => {
-    return dirty[rowId]?.has(colKey) ?? false;
-  }, [dirty]);
+    return dirty[rowId]?.has(colKey) === true || (externalDirtyFields[rowId]?.includes(colKey) ?? false);
+  }, [dirty, externalDirtyFields]);
 
   const hasRowErrors = useCallback((rowId: string) => {
     return Object.keys(errors).some(k => k.startsWith(`${rowId}:`));
   }, [errors]);
 
-  const dirtyCount = Object.keys(dirty).length;
+  const dirtyCount = new Set([...Object.keys(dirty), ...Object.keys(externalDirtyFields)])
+    .size;
   const failedCount = Object.keys(saveErrors).length;
   const colSpan = visibleColumns.length + (readOnly ? 0 : 1);
   const hiddenCount = columns.length - visibleColumns.length;

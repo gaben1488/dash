@@ -20,14 +20,21 @@ process.env.NODE_ENV = 'test';
 process.env.AEMR_API_KEY = '';
 process.env.SQLITE_PATH = ':memory:';
 process.env.LOG_LEVEL = 'silent';
+process.env.AEMR_ALLOW_LEGACY_WRITES = 'true';
 process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
 process.env.GOOGLE_PRIVATE_KEY = '';
 process.env.GOOGLE_API_KEY = '';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
+const readCurrentDeptRow = vi.fn(async () => {
+  const row: unknown[] = Array(34).fill('');
+  row[0] = 1; row[6] = 'Закупка 1';
+  return row;
+});
 
 vi.mock('../services/google-sheets.js', () => ({
   writeCellValue,
+  readCurrentDeptRow,
   resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
   batchGetCells: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
   batchGetFormulas: vi.fn(async () => { throw new Error('сеть в тесте выключена'); }),
@@ -78,8 +85,50 @@ afterAll(async () => {
 
 beforeEach(() => {
   writeCellValue.mockClear();
+  readCurrentDeptRow.mockClear();
+  readCurrentDeptRow.mockImplementation(async () => sheetValues()[3]);
   writeCellValue.mockImplementation(async () => ({ updatedCells: 1, updatedRange: 'ВСЕ!G4' }));
   setDeptSheetCache({ 'УО': { values: sheetValues(), formulas: [], sheetName: 'ВСЕ' } });
+});
+
+describe('guarded row writes against live source movement', () => {
+  it('refuses a stale row revision without touching Google', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3];
+    const expectedRevision = rowRevision(source);
+    readCurrentDeptRow.mockResolvedValueOnce(sheetValues()[4]);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Чужая правка' }, expectedRevision }] } });
+    expect(response.statusCode).toBe(207);
+    expect(response.json<{ results: Array<{ success: boolean; error: string }> }>().results[0]).toMatchObject({
+      success: false, error: expect.stringContaining('перемещена'),
+    });
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('accepts an unchanged source row and performs the write', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const expectedRevision = rowRevision(sheetValues()[3]);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Допустимая правка' }, expectedRevision }] } });
+    expect(response.statusCode).toBe(200);
+    expect(readCurrentDeptRow).toHaveBeenCalledTimes(2); // preflight + post-write revision
+    expect(writeCellValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects unversioned production writes even when the cache is populated', async () => {
+    const old = process.env.AEMR_ALLOW_LEGACY_WRITES;
+    delete process.env.AEMR_ALLOW_LEGACY_WRITES;
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Без версии' } }] } });
+      expect(response.statusCode).toBe(207);
+      expect(writeCellValue).not.toHaveBeenCalled();
+    } finally {
+      if (old === undefined) delete process.env.AEMR_ALLOW_LEGACY_WRITES;
+      else process.env.AEMR_ALLOW_LEGACY_WRITES = old;
+    }
+  });
 });
 
 describe('POST /api/data/rows — код ответа не врёт (п.16)', () => {
@@ -122,6 +171,44 @@ describe('POST /api/data/rows — код ответа не врёт (п.16)', ()
     expect(body.ok).toBe(false);
     expect(body.successCount).toBe(1); // G сохранена
     expect(body.failCount).toBe(1);    // K — формульный столбец
+  });
+});
+
+describe('серверная валидация ввода: числа, даты и размер пакета', () => {
+  it('не отбрасывает хвост денежной строки и не принимает Infinity', async () => {
+    for (const bad of ['12abc', '1.2.3', '1e309', 'Infinity']) {
+      const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: bad } }] } });
+      expect(res.statusCode).toBe(207);
+      expect(res.json<{ ok: boolean }>().ok).toBe(false);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('принимает русские разделители и записывает полное число', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: '1 234,50' } }] } });
+    expect(res.statusCode).toBe(200);
+    expect(writeCellValue).toHaveBeenCalledWith(expect.any(String), 'ВСЕ', 'H4', 1234.5);
+  });
+
+  it('не считает календарную ошибку корректной датой', async () => {
+    for (const bad of ['31.02.2026', '2026-13-99', '2026-01-14garbage']) {
+      const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { N: bad } }] } });
+      expect(res.statusCode).toBe(207);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('отклоняет большой или некорректный пакет до первой записи', async () => {
+    const over = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: Array.from({ length: 51 }, () => ({ deptId: 'УО', rowIndex: 4, changes: { G: 'a' } })) } });
+    expect(over.statusCode).toBe(413);
+    const malformed = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'a' } }, { deptId: 'УО', rowIndex: 5, changes: null }] } });
+    expect(malformed.statusCode).toBe(400);
+    expect(writeCellValue).not.toHaveBeenCalled();
   });
 });
 
