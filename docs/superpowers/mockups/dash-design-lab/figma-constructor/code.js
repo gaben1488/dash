@@ -255,9 +255,9 @@ function routeBody(main,r,cfg,phase,pair,s,w,mobile){
  const descriptions=data.sections;
  for(let i=0;i<r.tabs.length;i++){
   const tab=r.tabs[i],panel=block(all,'ПОДВКЛАДКА / '+tab,w,'VERTICAL',s.card,6,13);
-  const tag=block(panel,'Заголовок и состояние / '+tab,w-26,'HORIZONTAL',null,9,0);
-  chip(tag,tab,Math.min(220,Math.max(105,tab.length*8+38)),pair,s,i===0,cfg.finish);
-  label(tag,(i+1)+'/'+r.tabs.length+' · '+(phase==='target'?'Цель: действие и доказательство':'Имеющиеся возможности'),Math.max(160,w-265),11,s.muted);
+  const tag=block(panel,'Заголовок и состояние / '+tab,w-26,mobile?'VERTICAL':'HORIZONTAL',null,9,0);
+  chip(tag,tab,Math.min(mobile?w-45:220,Math.max(105,tab.length*8+38)),pair,s,i===0,cfg.finish);
+  label(tag,(i+1)+'/'+r.tabs.length+' · '+(phase==='target'?'Цель: действие и доказательство':'Имеющиеся возможности'),mobile?w-45:Math.max(160,w-265),11,s.muted);
   label(panel,descriptions[i%descriptions.length],w-26,13,s.ink,'Semi Bold');
   const steps=block(panel,'Условия + переходы / '+tab,w-26,mobile?'VERTICAL':'HORIZONTAL',null,7,0);
   const stepW=mobile?w-26:Math.floor((w-42)/3);
@@ -314,8 +314,76 @@ function buildScreen(page,r,cfg,phase){
  for(const q of r.protects.slice(0,3))label(foot,'Сохранить: '+q,w-52,10,s.muted);
  return true;
 }
+
+/* Native Figma component sets, not a screenshot-like collection of frames.
+ * Text variants have editable Label component properties. 25 variants across
+ * five UI roles; users can make instances, override text, and change styling.
+ * Never mutate/recreate a component set when it already exists.
+ */
+function buildNativeComponents(page,cfg){
+ if(!figma.createComponent||!figma.combineAsVariants)return [];
+ const material=setup(cfg),s=material.surface;
+ const groupDefs=[
+  {name:'Action Button',base:'Действие',width:190,states:['Default','Hover','Pressed','Disabled','Danger']},
+  {name:'Navigation Button',base:'Реестр',width:190,states:['Default','Hover','Selected','Focused','Disabled']},
+  {name:'Status Badge',base:'Требует внимания',width:190,states:['Neutral','Success','Warning','Error','Info']},
+  {name:'Filter Control',base:'Фильтры',width:190,states:['Off','Selected','Partial','Focused','Disabled']},
+  {name:'Text Field',base:'Поиск по закупкам',width:250,states:['Empty','Filled','Focused','Error','Disabled']}
+ ];
+ const made=[];
+ for(let g=0;g<groupDefs.length;g++){
+  const d=groupDefs[g],name='DASH / Components / '+d.name;
+  if(page.children.some(x=>x.name===name))continue;
+  const variants=[];
+  for(let j=0;j<d.states.length;j++){
+   const state=d.states[j],width=d.width;
+   const node=figma.createComponent();
+   node.name='State='+state;
+   node.layoutMode='HORIZONTAL';
+   node.primaryAxisSizingMode='FIXED';
+   node.counterAxisSizingMode='FIXED';
+   node.resize(width,44);
+   node.cornerRadius=d.name==='Status Badge'?22:9;
+   node.paddingTop=node.paddingBottom=10;
+   node.paddingLeft=node.paddingRight=12;
+   node.itemSpacing=8;
+   node.counterAxisAlignItems='CENTER';
+   const accent=material.family.sections.find(x=>x.name==='Реестр')||material.family.sections[0];
+   const chosen=state==='Selected'||state==='Success'||state==='Pressed';
+   const bg=chosen?accent.top:state==='Danger'||state==='Error'?'#7d2831':s.raised;
+   node.fills=fill(bg);
+   node.strokes=[{type:'SOLID',color:rgb(chosen?accent.bottom:s.line),opacity:.95}];
+   node.strokeWeight=1;
+   if(state==='Disabled')node.opacity=.48;
+   if(state==='Focused')node.effects=[{type:'DROP_SHADOW',color:{...rgb(accent.top),a:.38},offset:{x:0,y:0},radius:5,spread:2,visible:true}];
+   const text=label(node,d.base,width-24,12,chosen?accent.ink:s.ink,'Semi Bold');
+   text.name='Label / editable';
+   if(node.addComponentProperty){
+    const key=node.addComponentProperty('Label','TEXT',d.base);
+    text.componentPropertyReferences={characters:key};
+   }
+   variants.push(node);
+  }
+  const set=figma.combineAsVariants(variants,page);
+  set.name=name;
+  set.description='Dash / живой UI-компонент для композиции экранов. Источник: '
+    + 'packages/web/src/components/ и docs/superpowers/mockups/dash-design-lab. '
+    +'Состояния дизайн-концепции; бизнес-логика остаётся в React.';
+  // combineAsVariants stacks children at (0,0). Place variants separately.
+  for(let i=0;i<set.children.length;i++){
+   const n=set.children[i];n.x=16+i*(d.width+22);n.y=22;
+  }
+  if(set.resizeWithoutConstraints)set.resizeWithoutConstraints(40+variants.length*(d.width+22),92);
+  else set.resize(40+variants.length*(d.width+22),92);
+  set.x=1250;set.y=110+g*160;
+  made.push({name,id:set.id,variants:variants.length});
+ }
+ return made;
+}
+
 function buildMaterials(page,cfg){
  const t=setup(cfg),s=t.surface,p=t.family.sections.find(x=>x.name==='Реестр'),count=[];
+ const native=buildNativeComponents(page,cfg);
  for(const finish of DATA.finishes){
   const name='DASH / Материал / '+finish.label+' / '+cfg.family+' / '+cfg.surface+' / '+cfg.mode;
   if(page.children.some(x=>x.name===name))continue;
@@ -328,7 +396,7 @@ function buildMaterials(page,cfg){
   label(f,'Изменяйте заливки и эффекты руками. Данные и Word-документы не покрывать лаком.',730,11,s.muted);
   count.push(f.id);
  }
- return count;
+ return {materials:count,components:native};
 }
 figma.ui.onmessage=async cfg=>{
  if(!cfg||!['screens','materials'].includes(cfg.kind))return;
@@ -340,8 +408,8 @@ figma.ui.onmessage=async cfg=>{
   if(!page)throw Error('Не обнаружена существующая страница Figma');
   await figma.setCurrentPageAsync(page);
   if(cfg.kind==='materials'){
-   const ids=buildMaterials(page,cfg);
-   figma.ui.postMessage({message:'Добавлено '+ids.length+' образцов; остальные сохранены. Все слои редактируются в Figma.'});
+   const result=buildMaterials(page,cfg);
+   figma.ui.postMessage({message:'Добавлено '+result.materials.length+' сцен отделки и '+result.components.length+' наборов компонентов ('+result.components.reduce((n,x)=>n+x.variants,0)+' вариантов). Уже созданное сохранено.'});
   }else{
    const chosen=cfg.screen==='all'?DATA.routes:DATA.routes.filter(x=>x.id===cfg.screen);
    if(!chosen.length)throw Error('Неизвестный раздел');
