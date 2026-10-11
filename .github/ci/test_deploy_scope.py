@@ -124,6 +124,20 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         self.assertIn("environment: production", gate)
         self.assertNotIn("needs.deploy_scope.outputs.runtime_changed == 'true'", gate)
 
+    def test_raw_backup_inputs_never_enter_remote_shell(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
+        remote = workflow.split("      - name: Deploy tested commit over SSH", 1)[1]
+        self.assertNotIn("verified_backup_root='${{ inputs.backup_root }}'", remote)
+        self.assertNotIn("verified_backup_name='${{ inputs.backup_name }}'", remote)
+        self.assertIn("steps.release_inputs.outputs.backup_root", remote)
+        self.assertIn("steps.release_inputs.outputs.backup_name", remote)
+        validation = workflow.split("      - name: Validate explicit release intent", 1)[1]
+        self.assertIn("id: release_inputs", validation)
+        self.assertIn('BACKUP_ROOT', validation)
+        self.assertIn('BACKUP_NAME', validation)
+        self.assertIn('>> "$GITHUB_OUTPUT"', validation)
+
     def test_production_release_validates_restorable_backup_before_changes(self):
         from pathlib import Path
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
