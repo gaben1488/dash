@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, currentSheetToSnapshotRows, pickLatestControlSnapshot, indexHistoricalDepartments, interpretWeeklySnapshotJson } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -210,3 +210,23 @@ describe('текущие книги против последнего контр
   });
 });
 
+
+
+describe('исторические снимки — совместимость без подмены происхождения', () => {
+  it('книга читается по удостоверенному алиасу, но коллизии не объединяются', () => {
+    expect(indexHistoricalDepartments({ 'УАГЗО': 1, 'УДТХ': 2 })?.get('uagzo')).toBe(1);
+    expect(indexHistoricalDepartments({ 'УАГиЗО': 1, 'УДТХ': 2 })?.get('uagzo')).toBe(1);
+    expect(indexHistoricalDepartments({ 'Управление архитектуры, градостроительства и земельных отношений': 1 })?.get('uagzo')).toBe(1);
+    expect(indexHistoricalDepartments({ 'УАГЗО': 1, 'УАГиЗО': 2 })).toBeNull();
+    expect(indexHistoricalDepartments({ 'Неизвестная организация': 1 })).toBeNull();
+  });
+
+  it('не путает отсутствующий снимок, прежний формат и нечитаемый JSON', () => {
+    expect(interpretWeeklySnapshotJson(null).error).toContain('отсутствует');
+    expect(interpretWeeklySnapshotJson('{}').error).toContain('не сохранён');
+    expect(interpretWeeklySnapshotJson('null').error).toContain('не поддерживается');
+    expect(interpretWeeklySnapshotJson('{\"weeklyTableContext\":{\"contract\":\"dash-weekly-table-context-v2\"}}').error).toContain('не поддерживается');
+    expect(interpretWeeklySnapshotJson('{invalid').error).toContain('не разбирается');
+    expect(interpretWeeklySnapshotJson('{\"weeklyTableContext\":{\"contract\":\"dash-weekly-table-context-v1\"}}').error).toBeNull();
+  });
+});
