@@ -77,3 +77,60 @@ describe('пропавшие и появившиеся закупки (кано�
     expect(d.note).toContain('на месте');
   });
 });
+
+describe('провенанс номера без догадок об удалении закупки', () => {
+  it('уникальное содержимое связывает прежний и новый № только как гипотезу', () => {
+    const was = [row({ rowSeq: '12', sheetRow: 20, subject: 'Ремонт кровли', planSum: 400, method: 'ЭА' })];
+    const now = [row({ rowSeq: '15', sheetRow: 24, subject: 'Ремонт кровли', planSum: 400, method: 'ЭА' })];
+    const result = diffSnapshots(was, now);
+    expect(result.vanished.map((r) => r.rowSeq)).toEqual(['12']);
+    expect(result.appeared.map((r) => r.rowSeq)).toEqual(['15']);
+    expect(result.identityCandidates).toEqual([expect.objectContaining({
+      beforeRowSeq: '12', afterRowSeq: '15', beforeSheetRow: 20, afterSheetRow: 24,
+      evidence: 'subject+subordinate+plan+method', status: 'needs-review',
+    })]);
+    expect(result.note).toContain('не доказана');
+  });
+
+  it('одинаковые закупки не порождают вымышленную преемственность', () => {
+    const was = [
+      row({ rowSeq: '12', sheetRow: 20, subject: 'Канцтовары', planSum: 10 }),
+      row({ rowSeq: '13', sheetRow: 21, subject: 'Канцтовары', planSum: 10 }),
+    ];
+    const now = [row({ rowSeq: '15', sheetRow: 22, subject: 'Канцтовары', planSum: 10 })];
+    const result = diffSnapshots(was, now);
+    expect(result.identityCandidates).toEqual([]);
+  });
+
+  it('различия в способе или сумме не считаются подтверждением перенумерации', () => {
+    const was = [row({ rowSeq: '12', sheetRow: 20, method: 'ЭА', planSum: 100 })];
+    const now = [row({ rowSeq: '13', sheetRow: 21, method: 'ЕП', planSum: 100 })];
+    expect(diffSnapshots(was, now).identityCandidates).toEqual([]);
+    now[0].method = 'ЭА';
+    now[0].planSum = 200;
+    expect(diffSnapshots(was, now).identityCandidates).toEqual([]);
+  });
+
+  it('повтор № п/п запрещает first-wins, а не скрывает неопределённость', () => {
+    const was = [
+      row({ rowSeq: '7', sheetRow: 1, subject: 'Первая' }),
+      row({ rowSeq: '7', sheetRow: 2, subject: 'Вторая' }),
+    ];
+    const now = [row({ rowSeq: '7', sheetRow: 2, subject: 'Вторая' })];
+    const d = diffSnapshots(was, now);
+    expect(d.ambiguousKeys?.before).toEqual(['7']);
+    expect(d.vanished).toEqual([]);
+    expect(d.moved).toEqual([]);
+    expect(d.note).toContain('не сопоставлялись');
+  });
+
+  it('переезд строки с неизменным номером не считается новым объектом', () => {
+    const d = diffSnapshots(
+      [row({ rowSeq: '10', sheetRow: 4, method: 'ЕП' })],
+      [row({ rowSeq: '10', sheetRow: 9, method: 'ЕП' })],
+    );
+    expect(d.vanished).toEqual([]);
+    expect(d.identityCandidates).toEqual([]);
+  });
+});
+
