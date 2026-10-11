@@ -413,7 +413,23 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const data: DashboardData = {
-      snapshot,
+      // HTTP-представление для экранов, а не полный архивный снимок.
+      // Строки-атомы, расчётные таблицы и недельный контекст остаются на сервере
+      // и в истории; реестр, отчёты и сверки получают их своими маршрутами.
+      // Явный список не позволяет новым внутренним полям увеличивать загрузку.
+      snapshot: {
+        id: snapshot.id,
+        spreadsheetId: snapshot.spreadsheetId,
+        createdAt: snapshot.createdAt,
+        officialMetrics: snapshot.officialMetrics,
+        calculatedMetrics: snapshot.calculatedMetrics,
+        deltas: snapshot.deltas,
+        issues: snapshot.issues,
+        trust: snapshot.trust,
+        rowCount: snapshot.rowCount,
+        metadata: snapshot.metadata,
+        ...(snapshot.datasetAnalyses ? { datasetAnalyses: snapshot.datasetAnalyses } : {}),
+      },
       kpiCards,
       departmentSummaries,
       summaryByPeriod,
