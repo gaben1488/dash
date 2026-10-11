@@ -32,7 +32,7 @@ function sourceArray(name){
  return JSON.parse(catalog.slice(start,end+1));
 }
 const begin=src.indexOf('const DATA=')+'const DATA='.length;
-const finish=src.indexOf(';\nconst SCREENS=',begin);
+const finish=src.indexOf(';\nconst HOME=',begin);
 assert.ok(begin>12&&finish>begin,'Figma builder data not found');
 const embedded=JSON.parse(src.slice(begin,finish));
 assert.deepEqual(embedded.palettes,sourceArray('ORIGINAL_FAMILIES'));
