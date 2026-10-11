@@ -35,7 +35,7 @@ jobs:
             python3 - <<'PYDIAG'
             import json, re, shlex, subprocess
             from pathlib import Path
-            session=Path('/home/aemr/.dash-private-backups/recovery-38176811396')
+            session=Path('/home/aemr/.dash-private-backups/recovery-38178313782')
             log=(session/'private-command.log').read_text(errors='replace')
             patterns={
               'MISSING_DEPLOYMENT_SMOKE_MODULE': r'No module named.*procurement_engine.deployment_smoke',
@@ -49,7 +49,24 @@ jobs:
             print(json.dumps({'failure_categories': [key for key, pattern in patterns.items() if re.search(pattern,log,re.I)],
               'fixed_errors': sorted(set(re.findall(r'\b(?:REPORT_EXPORT|WORKER|BACKUP)_[A-Z0-9_]+\b',log))),
               'rollback_receipt': (session/'rollback.json').exists(), 'cycle1_receipt': (session/'cycle-1.json').exists()}))
-            baseline=json.loads((session.parent/'worker-38171945386/runtime.json').read_text())
+            baseline=json.loads((session.parent/'worker-38178244703/runtime.json').read_text())
+            failure_probe='''import json;from pathlib import Path
+            from procurement_engine.deployment_diagnostics import summarize_status,public_error_code,PUBLIC_TYPES,PUBLIC_STAGES
+            status=json.loads(Path('/recovery/failure-status.json').read_text())
+            error_path=Path('/recovery/attempt-error.json')
+            error=json.loads(error_path.read_text()) if error_path.is_file() else {}
+            stage=error.get('stage')
+            print(json.dumps({'failed_cycle':summarize_status(status),
+                'started_at':status.get('started_at'),'finished_at':status.get('finished_at'),
+                'exception_code':public_error_code(str(error.get('message',''))),
+                'exception_type':error.get('error_type') if error.get('error_type') in PUBLIC_TYPES else 'OtherError',
+                'exception_stage':stage if stage in PUBLIC_STAGES else 'unknown'}))'''
+            failure_read=subprocess.run(['docker','run','--rm','--network','none','--read-only','--user','0',
+                '--mount','type=bind,src='+str(session)+',dst=/recovery,readonly',
+                '--entrypoint','/opt/report-env/bin/python',baseline['image'],'-B','-c',failure_probe],
+                capture_output=True,timeout=60)
+            assert failure_read.returncode==0, 'WORKER_PRIVATE_FAILURE_READ_FAILED'
+            print(json.dumps(json.loads(failure_read.stdout)))
             server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
             workers=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc','--filter',
               'label=com.docker.compose.project=aemr','--filter','label=com.docker.compose.service=report-worker'],text=True).split()
@@ -106,7 +123,7 @@ jobs:
             print(json.dumps(rows))'''
             result=subprocess.run(['docker','run','--rm','-i','--network','none','--read-only','--user','0',
               '--mount','type=volume,src='+baseline['volume']+',dst=/source,readonly',
-              '--mount','type=bind,src='+str(session.parent/'worker-38171945386/backup')+',dst=/backup,readonly',
+              '--mount','type=bind,src='+str(session.parent/'worker-38178244703/backup')+',dst=/backup,readonly',
               '--mount','type=bind,src='+str(session/'stateful_backup.py')+',dst=/tool.py,readonly',
               '--entrypoint','/opt/report-env/bin/python',baseline['image'],'-B','-'],
               input=probe.encode(),capture_output=True,timeout=600)

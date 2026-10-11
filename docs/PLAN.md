@@ -44,9 +44,12 @@ CI38178298350 SUCCESS, повторный полный restore/reports-only dril
 quiesced report-match и первый самостоятельный цикл +3 native Word PASS
 (step5 SUCCESS на22:39UTC). Worker StartedAt22:31:17UTC/RestartCount0;
 attempt fdd77a5d06bc47f7974e7a61566d212b finished22:38:05UTC,
-VERIFIED_WITH_WARNINGS/error_code=null. Worker восстановлен, API healthy; идёт проверка
-второго timer-цикла после штатного интервала900s. R08 остаётся частичным
-до второго самостоятельного цикла и независимой сверки.
+VERIFIED_WITH_WARNINGS/error_code=null. Второй цикл отказал:23:05:36UTC
+WORKER_NEW_CYCLE_FAILED; recovery38178313782 завершён FAILURE. Защитный
+reports-only rollback возобновляет исходный Node; внешний health23:07UTC
+HTTP200/status=ok. Два цикла не приняты, R08 не закрыт. Сохранённые failure-status
+и attempt-error читаются приватно до следующего восстановления; повторный
+запуск без установления причины не выполняется.
 
 Независимая согласованная проверка после backup: health HTTP200/ok;
 существующий REL-3958a9401e5f4c582012db641443eb0d37c9aae928bc1639c3e1203440f79a58
