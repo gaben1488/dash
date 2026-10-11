@@ -9,6 +9,54 @@ permissions:
   contents: read
 
 jobs:
+  worker-recovery-preflight:
+    if: >-
+      github.event.label.name == 'maintenance: worker-recovery-preflight' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Read-only worker image and full-state backup capacity
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            tool=$(mktemp)
+            trap 'rm -f "$tool"' EXIT
+            git show "$candidate:packages/report-engine/src/procurement_engine/monitoring_schema.py" > "$tool"
+            candidate_schema=$(sha256sum "$tool" | cut -d' ' -f1)
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
+            test -n "$server"
+            test -n "$worker"
+            server_image=$(docker inspect --format '{{.Image}}' "$server")
+            worker_image=$(docker inspect --format '{{.Image}}' "$worker")
+            volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$server")
+            case "$volume" in ''|*[!A-Za-z0-9_.-]*) exit 2 ;; esac
+            if [ "$server_image" = "$worker_image" ]; then echo 'worker_server_image_equal=true'; else echo 'worker_server_image_equal=false'; fi
+            docker inspect --format 'worker_state={{.State.Status}} worker_exit={{.State.ExitCode}} worker_oom={{.State.OOMKilled}} worker_restarts={{.RestartCount}}' "$worker"
+            for image in "$worker_image" "$server_image"; do
+              installed_schema=$(docker run --rm --network none --read-only --entrypoint /opt/report-env/bin/python "$image" -B -c 'import hashlib; from pathlib import Path; import procurement_engine.monitoring_schema as m; print(hashlib.sha256(Path(m.__file__).read_bytes()).hexdigest())')
+              if [ "$installed_schema" = "$candidate_schema" ]; then echo 'schema_matches_candidate=true'; else echo 'schema_matches_candidate=false'; fi
+            done
+            docker run --rm --network none --read-only --user 0               --mount "type=volume,src=$volume,dst=/source,readonly"               --entrypoint /opt/report-env/bin/python "$server_image" -B -c 'import json,shutil; from pathlib import Path; root=Path("/source"); paths=list(root.rglob("*")); print(json.dumps({"source_files":sum(p.is_file() for p in paths),"source_logical_bytes":sum(p.stat().st_size for p in paths if p.is_file()),"source_unsafe_entries":sum(p.is_symlink() or not(p.is_dir() or p.is_file()) for p in paths),"free_bytes":shutil.disk_usage(root).free},sort_keys=True))'
   runtime-readback:
     if: >-
       github.event.label.name == 'maintenance: runtime-readback' &&
