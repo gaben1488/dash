@@ -153,6 +153,38 @@ try{
        fail('Dark theme did not restore');
    }
  }
+
+ // Unlike the earlier demo, finish selectors must visibly affect the complete
+ // chrome family (original source drum, week/year drum, method drum, corner).
+ await openRoute('dashboard','Пульс');
+ const finishes=page.locator('#qa-finishes button');
+ if(await finishes.count()!==6)fail('Expected exactly six physical materials');
+ const samples=[];
+ for(const title of ['Кэнди','Металлик','Перламутр','Ксираллик','Мат','Стекло']){
+   const button=finishes.filter({hasText:title});
+   if(await button.count()!==1){fail('Missing material '+title);continue;}
+   await button.click();await delay(160);
+   const sample=await page.evaluate(()=>{
+     const selectors=['.dash-source-navigation .баран-навигации','.hbar .tg-drum','.hbar .vf-drum','.dash-source-axis-toggle'];
+     const nodes=selectors.map(selector=>{
+       const node=document.querySelector(selector);
+       if(!node)return{selector,missing:true};
+       const style=getComputedStyle(node),r=node.getBoundingClientRect();
+       return{selector,image:style.backgroundImage,shadow:style.boxShadow,backdrop:style.backdropFilter,
+         border:style.borderColor,width:Math.round(r.width),height:Math.round(r.height)};
+     });
+     return {finish:document.documentElement.dataset.previewFinish,nodes};
+   });
+   samples.push({title,...sample});
+ }
+ report.materialSamples=samples;
+ const signatures=samples.map(x=>x.nodes[0]?.image+'|'+x.nodes[0]?.shadow);
+ if(new Set(signatures).size<5)fail('Six material choices do not produce distinct visible chrome: '+JSON.stringify(samples));
+ if(samples.some(x=>x.nodes.filter(n=>!n.missing).length<3))
+   fail('Material recipe fails to cover at least three real chrome elements');
+ const matte=samples.find(x=>x.title==='Мат'),glass=samples.find(x=>x.title==='Стекло');
+ if(matte?.nodes[0]?.backdrop===glass?.nodes[0]?.backdrop)
+   fail('Matte and Liquid Glass have indistinguishable backdrop treatment');
  const put=await page.evaluate(()=>fetch('/api/rows/uo/5/field',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({field:'A',value:'DANGER'})}).then(r=>r.status));
  if(put!==409)fail('Writes not blocked: PUT returned '+put);
  for(const label of ['Пульс','Отчёт','Мониторинг']){
@@ -316,6 +348,7 @@ console.log('DASH_BROWSER_QA_RESULT '+JSON.stringify({
  mobile:report.mobile,
  noJS:report.noJS,
  fileOpen:report.fileOpen,
+ materialSamples:report.materialSamples?.map(x=>({name:x.title,finish:x.finish,chrome:x.nodes.filter(n=>!n.missing).length,navBackground:x.nodes[0]?.image.slice(0,120)})),
  themeSurfaces:report.themeSurfaces,
 }));
 if(report.hardFailures.length)process.exitCode=1;
