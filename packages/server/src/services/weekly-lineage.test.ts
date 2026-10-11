@@ -76,3 +76,23 @@ describe('история недельного провенанса', () => {
     expect(items.map((v) => v.id)).toEqual(['thu-late', 'prior']);
   });
 });
+
+describe('честное отсутствие результатов', () => {
+  it('без двух архивных контролей нет доказанного нуля изменений', () => {
+    const result = compareVerifiedWeeklyControls([], 12);
+    expect(result.coverage).toBe('no-control-pair');
+    expect(result.coverageNote).toContain('не означает');
+    expect(result.totalEvents).toBe(0);
+  });
+
+  it('неделя с пробелом в архивах не выдаётся за полный охват', () => {
+    const result = compareVerifiedWeeklyControls([
+      control('oct15', '2026-10-15T06:00:00.000Z', [row('15')]),
+      control('oct01', '2026-10-01T06:00:00.000Z', [row('10')]),
+    ], 12);
+    expect(result.coverage).toBe('partial');
+    expect(result.totalEvents).toBe(0);
+    expect(result.coverageNote).toContain('неполная');
+  });
+});
+

@@ -77,6 +77,7 @@ describe('history routes', () => {
     expect(res.json()).toMatchObject({
       source: 'confirmed-weekly-snapshots',
       anchorId: null,
+      coverage: 'no-control-pair',
       periods: [],
       total: 0,
       shown: 0,

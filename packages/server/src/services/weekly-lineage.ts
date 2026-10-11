@@ -41,6 +41,9 @@ export interface WeeklyLineageEvent {
 export interface WeeklyLineageResult {
   source: 'confirmed-weekly-snapshots';
   anchorId: string | null;
+  /** Не наблюдали ≠ не было изменений. */
+  coverage: 'complete' | 'partial' | 'no-control-pair';
+  coverageNote: string;
   periods: WeeklyLineagePeriod[];
   totalEvents: number;
   events: WeeklyLineageEvent[];
@@ -131,9 +134,21 @@ export function compareVerifiedWeeklyControls(
     }
     periods.push(period);
   }
+  const unavailable = periods.filter((period) => period.status !== 'checked').length;
+  const coverage = periods.length === 0
+    ? 'no-control-pair' as const
+    : unavailable > 0 ? 'partial' as const : 'complete' as const;
+  const coverageNote = coverage === 'no-control-pair'
+    ? 'Нет двух пригодных соседних недельных контрольных срезов в выбранном окне. Отсутствие событий не означает, что изменений не было.'
+    : unavailable > 0
+      ? 'Недельная история неполная: ' + unavailable +
+        ' из ' + periods.length + ' интервалов содержат пробелы или неоднозначные номера.'
+      : 'Все перечисленные недельные интервалы сопоставлены; обнаруженные события являются наблюдениями, а не доказательством причины или авторства.';
   return {
     source: 'confirmed-weekly-snapshots',
     anchorId: controls[0]?.id ?? null,
+    coverage,
+    coverageNote,
     periods,
     totalEvents: events.length,
     events,
