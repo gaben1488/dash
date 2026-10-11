@@ -2,16 +2,17 @@
 # Run from deploy/. All private source and report output stays inside server_data.
 set -euo pipefail
 
-deployment_stage=bootstrap
+deployment_stage=preflight
+worker_stopped=false
 deployment_started_at=$(date -u +'%Y-%m-%dT%H:%M:%S+00:00')
 previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
 restore_schedule_on_failure() {
   result=$?
   trap - EXIT
-  if [ "$result" -ne 0 ]; then
+  if [ "$result" -ne 0 ] && [ "$worker_stopped" = true ]; then
     docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_diagnostics "$deployment_stage" "$deployment_started_at" || true
   fi
-  if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
+  if [ "$result" -ne 0 ] && [ "$worker_stopped" = true ] && [ -n "$previous_worker" ]; then
     # Start the same container, not simply a replacement with a success exit.
     if ! docker compose --env-file .env.production --profile reports start report-worker >/dev/null; then
       echo 'REPORT_WORKER_RESTART_COMMAND_FAILED' >&2
@@ -25,10 +26,14 @@ restore_schedule_on_failure() {
 }
 trap restore_schedule_on_failure EXIT
 
+# Validate the installed report runtime BEFORE any worker or archive mutation.
+# This also prevents a bad server image from stopping a previously healthy worker.
+docker compose --env-file .env.production exec -T server /opt/report-env/bin/proc-report --help >/dev/null
+deployment_stage=bootstrap
+worker_stopped=true
 docker compose --env-file .env.production --profile reports stop report-worker >/dev/null
-echo 'Recovering retained Thursday evidence and compacting transient report payloads.'
-docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -c \
-  'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
+# Recovery and retention of historical attempts are separate, approved
+# maintenance operations. A report release must never compact its own evidence.
 docker compose --env-file .env.production exec -T server sh -eu -c '
   umask 077
   mkdir -p data/reports
