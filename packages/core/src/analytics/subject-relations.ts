@@ -52,8 +52,10 @@ function action(value: string): string | null {
 }
 
 function amountOrDocumentNumbers(text: string): string[] {
-  const norm = String(text).replace(/\d{2}\.\d{2}\.\d{4}/gu, m => m.replaceAll('.', ' '));
-  return [...norm.matchAll(/\d+/gu)].map(x => x[0]);
+  // Preserve punctuation inside numbers: a range and a decimal are different facts.
+  const norm = String(text).replace(/[–—]/gu, '-');
+  return [...norm.matchAll(/[+-]?\s*\d+(?:\s*[.,-]\s*\d+)*/gu)]
+    .map(x => x[0].replace(/\s+/gu, ''));
 }
 
 function paymentPolarity(value: string): 'no' | 'yes' | null {
@@ -73,9 +75,7 @@ export function compareSubjectDescriptions(a: string, b: string): SubjectRelatio
   if (!left || !right) {
     return { kind: 'unknown', blocked: true, evidence: ['Одно из описаний отсутствует'] };
   }
-  if (left === right) {
-    return { kind: 'exact_text', blocked: false, evidence: ['Совпадают все слова и числа после разбора набора'] };
-  }
+
 
   const pa = paymentPolarity(a), pb = paymentPolarity(b);
   if (pa && pb && pa !== pb) {
@@ -88,6 +88,10 @@ export function compareSubjectDescriptions(a: string, b: string): SubjectRelatio
       kind: 'material_difference', blocked: true,
       evidence: ['Отличаются числа, период, адресный номер или реквизиты; без первоисточника эквивалентность запрещена'],
     };
+  }
+
+  if (left === right) {
+    return { kind: 'exact_text', blocked: false, evidence: ['Совпадают все слова и числа после разбора набора'] };
   }
 
   const modifiers: Array<[RegExp, string]> = [

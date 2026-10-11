@@ -577,8 +577,10 @@ export function detectCommentInconsistencies(
       if (text === null) continue;
       if (EXECUTION_FALSE_FRIENDS.test(text)) continue; // «качество исполнения» и родня
       for (const marker of EXECUTION_MARKERS) {
-        const m = marker.re.exec(text);
-        if (m === null || m.index === undefined || isNegatedClaim(text, m.index)) continue;
+        const matches = text.matchAll(new RegExp(marker.re.source, marker.re.flags.includes('g')
+          ? marker.re.flags : marker.re.flags + 'g'));
+        const m = Array.from(matches).find(hit => !isNegatedClaim(text, hit.index));
+        if (m === undefined) continue;
         annotations.push({
           rowKey,
           column,

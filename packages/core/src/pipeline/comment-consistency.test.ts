@@ -555,3 +555,15 @@ describe('оплата и отрицание — проверка двух ко�
     expect(issues.some((x) => x.kind === 'payment_text_conflict')).toBe(true);
   });
 });
+
+
+describe('повторные утверждения исполнения', () => {
+  it('сохраняет положительное утверждение после отрицания в одной ячейке', () => {
+    const findings = detectCommentInconsistencies(ref('УО', 331), {
+      AF: 'Ранее не оплачено; теперь оплачено полностью',
+      V: 0, W: 0, X: 0, Y: 0,
+    }, SNAPSHOT);
+    expect(findings.filter(x => x.kind === 'execution_claim_no_fact')).toHaveLength(1);
+    expect(findings.some(x => x.kind === 'payment_text_conflict')).toBe(false);
+  });
+});

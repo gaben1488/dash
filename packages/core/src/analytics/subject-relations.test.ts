@@ -64,3 +64,24 @@ describe('Смысловые отношения текстов: безопасн
     expect(compare('интерактивных заданий', 'интерактивных зданий').blocked).toBe(true);
   });
 });
+
+
+it('не отождествляет числовой диапазон с десятичным значением', () => {
+  for (const range of ['5-10', '5–10', '5—10']) {
+    const result = compare(`Толщина ${range} мм`, 'Толщина 5,10 мм');
+    expect(result.kind).toBe('material_difference');
+    expect(result.blocked).toBe(true);
+  }
+});
+
+
+it('сохраняет знак числа и разделители с пробелами', () => {
+  for (const [a, b] of [
+    ['Температура -5 °C', 'Температура 5 °C'],
+    ['Размеры 5 - 10 мм', 'Размеры 5, 10 мм'],
+  ]) {
+    const result = compare(a, b);
+    expect(result.kind).toBe('material_difference');
+    expect(result.blocked).toBe(true);
+  }
+});
