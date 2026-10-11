@@ -9,6 +9,7 @@ import {
   issueStatusLabel,
   issueTransitionNeedsReason,
   issueTransitionRefusal,
+  issueDecisionExplanation,
 } from '../lib/selectors/issue-transitions';
 import { formatEventTime } from '../lib/selectors/event-time';
 import { groupIssuesByMechanism, type MechanismGroup } from '../lib/diagnostics/mechanism-groups';
@@ -834,6 +835,9 @@ export function IssuesPage() {
 
                 {expanded && (
                   <div id={bodyId} className="border-t border-zinc-100 dark:border-zinc-700/50 px-4 py-4 bg-zinc-50/50 dark:bg-zinc-900/30">
+                    <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-300" role="status">
+                      {issueDecisionExplanation(iss.status)}
+                    </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <div>
                         <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2">{iss.description}</p>

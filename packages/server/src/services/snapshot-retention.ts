@@ -118,6 +118,24 @@ export function pruneSnapshotsByRetention(now: Date = new Date()): number {
         hasWeeklyContext: r.hasWeeklyContext === 1 }));
     const offset = config.weeklySnapshot.utcOffsetHours;
     const keep = retentionKeepIds(rows, productCalendarDay(now, offset), offset);
+    // A discarded daily version may be the only exact identity proof behind a
+    // saved decision. Preserve its immutable raw rows and user history. This
+    // intentionally retains extra snapshots; reviewed cases need an explicit
+    // archival policy before their provenance can ever be removed.
+    const reviewed = db.select({ id: schema.issues.id, snapshotId: schema.issues.snapshotId }).from(schema.issues).where(sql`
+      ${schema.issues.status} <> 'open'
+      OR length(trim(coalesce(${schema.issues.comment}, ''))) > 0
+      OR EXISTS (SELECT 1 FROM issue_history WHERE issue_history.issue_id = ${schema.issues.id})
+      OR EXISTS (SELECT 1 FROM audit_log WHERE audit_log.entity_id = ${schema.issues.id} AND audit_log.action = 'issue_comment')
+    `).all();
+    for (const issue of reviewed) {
+      if (issue.snapshotId) keep.add(issue.snapshotId);
+      // Keep earlier proofs as well: the old hash omitted organization C, and
+      // deleting a conflicting version would manufacture a unique match later.
+      const versions = db.select({ id: schema.snapshots.id }).from(schema.snapshots)
+        .where(sql`instr(${schema.snapshots.data}, ${JSON.stringify(issue.id)}) > 0`).all();
+      for (const version of versions) keep.add(version.id);
+    }
     const drop = rows.filter((r) => !keep.has(r.id)).map((r) => r.id);
     if (drop.length === 0) return 0;
 

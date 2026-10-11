@@ -55,6 +55,7 @@ const COLUMN_INDEX: Record<string, number> = {
  */
 interface RowSpec {
   seq: string | number;
+  subject?: string;
   /** Подмены формульных ячеек: '' = дыра, число = вбито, строка = формула. */
   cells?: Record<string, unknown>;
 }
@@ -76,7 +77,7 @@ function book(rows: RowSpec[]): { values: unknown[][]; formulas: unknown[][] } {
     const sheetRow = HEADER_ROWS + i + 1;
     const line: unknown[] = new Array(34).fill('');
     line[DEPT_COLUMNS.ID] = spec.seq;
-    line[DEPT_COLUMNS.SUBJECT] = `Закупка ${spec.seq}`;
+    line[DEPT_COLUMNS.SUBJECT] = spec.subject ?? `Закупка ${spec.seq}`;
     values.push(line);
 
     const fline: unknown[] = [];
@@ -102,6 +103,35 @@ function detect(rows: RowSpec[], extra: Partial<FormulaIntegrityInput> = {}) {
 const HEALTHY: RowSpec[] = [
   { seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }, { seq: 5 },
 ];
+
+describe('назначение строки и составные номера', () => {
+  it('служебные числа без предмета не являются закупкой даже внутри данных', () => {
+    expect(detect([...HEALTHY, { seq: 6, subject: '', cells: { K: 11, AA: 27 } }])).toEqual([]);
+  });
+
+  it('номер колонки и заголовок итога в графе предмета не являются закупкой', () => {
+    expect(detect([...HEALTHY,
+      { seq: 1, subject: '7', cells: { K: 11 } },
+      { seq: 2, subject: 'Итого', cells: { K: 100 } },
+    ])).toEqual([]);
+  });
+
+  it.each(['173/1', '173/18'])('проверяет обязательные формулы закупки № %s', (seq) => {
+    const defects = detect([...HEALTHY, { seq, cells: { K: 100, Y: '' } }]);
+    expect(defects.map(({ column, kind, rowSeq }) => ({ column, kind, rowSeq }))).toEqual([
+      { column: 'K', kind: 'formula_overwritten', rowSeq: seq },
+      { column: 'Y', kind: 'formula_hole', rowSeq: seq },
+    ]);
+  });
+
+  it('служебные формулы не создают эталон для реальных закупок', () => {
+    const defects = detect([
+      { seq: 1, subject: '' }, { seq: 2, subject: '' }, { seq: 3, subject: '' },
+      { seq: 4, cells: { K: 100 } },
+    ]);
+    expect(defects).toEqual([]);
+  });
+});
 
 // ────────────────────────────────────────────────────────────
 // 1. Канон списка граф и паспорта

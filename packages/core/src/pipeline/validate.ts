@@ -1,4 +1,4 @@
-import { issueIdentity, nextOccurrence, SEP } from './issue-identity.js';
+import { issueIdentity, ruleIssueIdentityParts, nextOccurrence, SEP } from './issue-identity.js';
 import type { Issue, NormalizedMetric, ValidationRule, ClassifiedRow, ReportMapEntry } from '@aemr/shared';
 import { CHECK_REGISTRY, LEGACY_RULE_TO_CHECK, subordinateKey, classifyActivity, classifySheet } from '@aemr/shared';
 
@@ -110,7 +110,7 @@ export function validateData(
         // Enrich with unified class system metadata
         const checkId = LEGACY_RULE_TO_CHECK[rule.id] ?? rule.id;
         // Стабильный id (issue-identity.ts): содержимое-якорь, не номер строки.
-        const idBase = ['rule', checkId, row.sheet, result.cell ?? '', String(row.cells['A'] ?? ''), String(row.cells['B'] ?? ''), String(row.cells['G'] ?? '')] as const;
+        const idBase = ruleIssueIdentityParts(checkId, row.sheet, result.cell ?? '', row.cells);
         const occ = nextOccurrence(idOccurrence, idBase.join(SEP));
         const check = CHECK_REGISTRY.find(c => c.id === checkId);
 

@@ -9,9 +9,9 @@
  * замечаний.
  */
 import { describe, it, expect } from 'vitest';
-import { DEPT_COLUMNS } from '@aemr/shared';
+import { DEPT_COLUMNS, SVOD_SHEET_NAME } from '@aemr/shared';
 import { runPipeline, type PipelineInput } from './orchestrator.js';
-import { issueIdentity } from './issue-identity.js';
+import { issueIdentity, ruleIssueIdentityParts } from './issue-identity.js';
 
 const COL = DEPT_COLUMNS;
 
@@ -138,4 +138,26 @@ describe('dataAnomalyFlags переживает JSON-сериализацию (f
     // строка «Услуги связи»: факт == план → EXACT_MATCH
     expect(Object.keys(flags as object).length).toBeGreaterThan(0);
   });
+});
+
+describe('department rule identity on physical moves', () => {
+  it('keeps the same rule case when a different row is inserted above', () => {
+    const rows = baseRows();
+    const input = makeInput(rows);
+    input.rules = [{ id: 'budget_sum_plan', name: 'Budget', description: 'Budget', severity: 'error', origin: 'spreadsheet_rule', scope: 'department', params: {}, check: ctx => ({ passed: false, cell: `K${ctx.rowIndex}` }) }];
+    const old = runPipeline(input);
+    const moved = runPipeline({ ...input, sheetRows: { 'УЭР': buildSheet([makeRow({ id: 'extra', subject: 'Другая закупка', totalPlan: 1 }), ...rows]) } });
+    const rules = old.issues.filter(i => i.detectedBy.startsWith('rule:'));
+    expect(rules.length).toBeGreaterThan(0);
+    for (const issue of rules) {
+      expect(moved.issues.find(i => i.category === issue.category && i.rowSeq === issue.rowSeq)?.id).toBe(issue.id);
+    }
+  });
+});
+
+it('keeps full summary cell addresses and historical hashes unchanged', () => {
+  const cells = { A: 'row', B: 'code', C: 'Organization', G: 'Subject' };
+  const fixed = ruleIssueIdentityParts('budget_sum_plan', SVOD_SHEET_NAME, 'K155', cells);
+  expect(fixed).toEqual(ruleIssueIdentityParts('budget_sum_plan', SVOD_SHEET_NAME, 'K155', cells, true));
+  expect(issueIdentity(fixed)).not.toBe(issueIdentity(ruleIssueIdentityParts('budget_sum_plan', SVOD_SHEET_NAME, 'K534', cells)));
 });

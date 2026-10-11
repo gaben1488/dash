@@ -552,13 +552,14 @@ const statusOnDataRows: ValidationRule = {
       factTotal: toNumber(ctx.cells['Y']),
       adCell: ctx.cells['AD'],
       isEp: method.includes('еп') || method.includes('единствен'),
+      completed: parseSheetDate(ctx.cells['Q']) !== null,
     });
     if (!verdict.matches) return { passed: true };
 
     // Род называется вслух (канон: «ЕП включённо, но с пометкой рода»).
     const kindNote = verdict.kind === 'ep'
-      ? ' Способ — единственный поставщик: по нему экономии быть не должно вовсе, поэтому строку'
-        + ' стоит разобрать заодно с проверкой «По ЕП факт не равен плану».'
+      ? ' Способ — единственный поставщик: сверьте завершённую годовую потребность'
+        + ' и накопленные обязательства по всем контрактам; разница сама не доказывает нарушение.'
       : '';
 
     return {

@@ -11,6 +11,7 @@ export { detectSignals, classifyRowState, getSignalBadges, type RowSignals, type
 export {
   detectFormulaIntegrity,
   formulaIntegrityIssues,
+  formulaIntegrityRowNumber,
   FORMULA_COLUMNS as FORMULA_INTEGRITY_COLUMNS,
   type FormulaDefect,
   type FormulaIntegrityInput,
@@ -215,3 +216,5 @@ export type {
 } from './provenance/plan-provenance.js';
 
 export { monitoringDate } from './monitoring/cells.js';
+
+export { issueIdentity, ruleIssueIdentityParts } from './pipeline/issue-identity.js';

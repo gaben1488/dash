@@ -13,7 +13,7 @@ import {
 } from './economy-flag.js';
 import { SIGNAL_LABELS } from './product-dictionary.js';
 
-const base = { planTotal: 1000, factTotal: 800, adCell: '', isEp: false };
+const base = { planTotal: 1000, factTotal: 800, adCell: '', isEp: false, completed: true };
 
 describe('графа «Статус» (AD) — решение органа', () => {
   it('«да» и «нет» — это решения, всё остальное решением не является', () => {
@@ -102,4 +102,11 @@ describe('слова канона — один дом', () => {
       expect(text).not.toMatch(/[a-z]+[A-Z][a-zA-Z]*/);
     }
   });
+});
+
+
+it('остаток годовой потребности без даты последнего контракта не является экономией', () => {
+  const result = economyFlagVerdict({ ...base, completed: false });
+  expect(result.matches).toBe(false);
+  expect(result.economy).toBe(0);
 });

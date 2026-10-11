@@ -67,6 +67,9 @@ export function computeTrustScore(
   deltas: DeltaResult[],
   snapshotId: string,
 ): TrustScore {
+  // A saved resolution is not proof while the source still emits this issue.
+  // Only an explicit false-positive decision excludes an extant signal.
+  issues = issues.filter(issue => issue.status !== 'false_positive');
   const components: TrustComponent[] = [
     computeDataQuality(metrics, issues),
     computeFormulaIntegrity(issues),

@@ -49,6 +49,8 @@ vi.mock('../../api', () => ({
 afterEach(() => {
   cleanup();
   fetchJSONMock.mockReset();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /** Ответ с находками: живой кейс «Жар-Птица» + двойной пробел + опечатка. */
@@ -207,5 +209,35 @@ describe('TextHygieneSection', () => {
 
     expect(await screen.findByText('Строки книг не прочитаны — проверки не было')).toBeTruthy();
     expect(screen.queryByText('Дефектов не найдено')).toBeNull();
+  });
+});
+
+
+describe('копирование готового значения при запрете браузера', () => {
+  it('использует запасное копирование после отказа Clipboard API', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('Denied')) } });
+    const legacyCopy = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: legacyCopy });
+    fetchJSONMock.mockResolvedValueOnce(WITH_FINDINGS);
+    renderSection();
+    await screen.findByText('ВСЕ · C2309');
+    fireEvent.click(screen.getAllByLabelText('Скопировать готовое значение ячейки')[0]!);
+    await waitFor(() => expect(legacyCopy).toHaveBeenCalledWith('copy'));
+    expect(screen.getByText('скопировано')).toBeTruthy();
+  });
+
+  it('при отказе обоих способов оставляет полный текст для ручного копирования', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('Denied')) } });
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: vi.fn(() => false) });
+    fetchJSONMock.mockResolvedValueOnce(WITH_FINDINGS);
+    renderSection();
+    await screen.findByText('ВСЕ · C2309');
+    fireEvent.click(screen.getAllByLabelText('Скопировать готовое значение ячейки')[0]!);
+    const field = await screen.findByLabelText('Готовое значение для ручного копирования') as HTMLTextAreaElement;
+    expect(field.value).toBe('МБДОУ ДС № 3 «Жар-Птица»');
+    expect(field.readOnly).toBe(true);
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(field.value.length);
+    expect(screen.getByText(/Скопируйте выделенный текст вручную/)).toBeTruthy();
   });
 });

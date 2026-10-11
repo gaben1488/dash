@@ -14,7 +14,7 @@
  * только доставка и хранение последнего вердикта по книге; сами правила
  * (эталон графы, мутанты, дыры) живут в ядре и сюда не переезжают.
  */
-import { detectFormulaIntegrity, type FormulaDefect } from '@aemr/core';
+import { detectFormulaIntegrity, formulaIntegrityRowNumber, type FormulaDefect } from '@aemr/core';
 import { setFormulaSink, type FormulaDelivery } from './source-refresh.js';
 
 export interface BookFormulaVerdict {
@@ -53,11 +53,9 @@ export function resetFormulaVerdicts(): void {
 export function acceptFormulaDelivery(delivery: FormulaDelivery): void {
   // ШАПКА КНИГИ НЕ СУДИТСЯ. Лист приходит целиком с первой строки, а данные
   // начинаются с четвёртой: строки 1-3 — заголовки, и третья из них несёт
-  // НОМЕРА КОЛОНОК (1, 2, 3 … 27, 28). Гейт слоя «номер закупки — число
-  // больше нуля» её пропускает: в графе A стоит «1». Замер на проде 30.08
-  // это и показал — одиннадцать «затёртых формул» в первой строке УАГЗО
-  // оказались номерами столбцов. Режем шапку здесь, а не в слое: слой судит
-  // то, что ему дали, и знать про устройство книги не обязан.
+  // НОМЕРА КОЛОНОК (1, 2, 3 … 27, 28). Старый гейт по одному A принимал
+  // их за закупки. Сохраняем границу чтения книги; слой дополнительно
+  // исключает служебные строки по назначению, в том числе внутри данных.
   const skip = Math.max(0, FIRST_DATA_ROW - delivery.startRow);
   const values = (delivery.values ?? []).slice(skip) as string[][];
   const formulas = (delivery.formulas ?? []).slice(skip) as string[][];
@@ -69,8 +67,7 @@ export function acceptFormulaDelivery(delivery: FormulaDelivery): void {
   });
   let rowsJudged = 0;
   for (const row of values) {
-    const a = Number(String((row?.[0] ?? '')).trim());
-    if (Number.isFinite(a) && a > 0) rowsJudged++;
+    if (formulaIntegrityRowNumber(row ?? []) !== null) rowsJudged++;
   }
   verdicts.set(delivery.book, {
     book: delivery.book,

@@ -171,14 +171,13 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
       { id: 'drop-mon', spreadsheetId: 't', createdAt: iso(oldThu - 3, 10), data: rowful },
       { id: 'keep-thu', spreadsheetId: 't', createdAt: iso(oldThu, 10), data: rowful },
     ]).run();
-    // У ОБОИХ снимков — issue с историей статуса: без каскада по issue_history
-    // DELETE issues бросает FOREIGN KEY (foreign_keys=ON) — блокер №2 ревью.
+    // У проигравшего снимка нет пользовательского решения;
+    // история решения другого снимка должна сохраниться.
     db.insert(schema.issues).values([
       { id: 'iss-drop', snapshotId: 'drop-mon', severity: 'info', origin: 'calc', category: 'c', title: 't', status: 'open', detectedAt: iso(oldThu - 3, 10) },
       { id: 'iss-keep', snapshotId: 'keep-thu', severity: 'info', origin: 'calc', category: 'c', title: 't', status: 'open', detectedAt: iso(oldThu, 10) },
     ]).run();
     db.insert(schema.issueHistory).values([
-      { issueId: 'iss-drop', fromStatus: 'open', toStatus: 'acknowledged', timestamp: iso(oldThu - 3, 11) },
       { issueId: 'iss-keep', fromStatus: 'open', toStatus: 'acknowledged', timestamp: iso(oldThu, 11) },
     ]).run();
     db.insert(schema.metricHistory).values(
@@ -201,4 +200,21 @@ describe('pruneSnapshotsByRetention — живой in-memory SQLite: каска�
     expect(db.select().from(schema.metricHistory).all()).toEqual([]);
     expect(db.select().from(schema.procurementRows).all()).toEqual([]);
   });
+  it.each(['history', 'status', 'comment', 'comment_audit'])('preserves the raw snapshot needed by a saved %s, but prunes ordinary unreviewed snapshots', async kind => {
+    const { db, schema } = await import('../db/index.js');
+    const { pruneSnapshotsByRetention } = await import('./snapshot-retention.js');
+    const oldThu = THU - 14;
+    const iso = (day: number) => new Date(day * 86400000 + 36000000).toISOString();
+    for (const [id, day] of [['older-proof', oldThu - 4], ['protected', oldThu - 3], ['ordinary', oldThu - 2], ['winner', oldThu]] as const) {
+      db.insert(schema.snapshots).values({ id, spreadsheetId: 'x', createdAt: iso(day), data: JSON.stringify({ rowsByDept: { 'УКСиМП': [['immutable source']] }, issues: id === 'protected' || id === 'older-proof' ? [{ id: 'case' }] : [] }) }).run();
+    }
+    db.insert(schema.issues).values({ id: 'case', snapshotId: 'protected', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', title: 'Budget', detectedAt: iso(oldThu - 3), status: kind === 'status' ? 'false_positive' : 'open', comment: kind === 'comment' ? 'Пояснение' : null }).run();
+    if (kind === 'comment_audit') db.insert(schema.auditLog).values({ action: 'issue_comment', entity: 'issue', entityId: 'case', details: 'История пояснения', timestamp: iso(oldThu - 3) }).run();
+    if (kind === 'history') db.insert(schema.issueHistory).values({ issueId: 'case', fromStatus: 'false_positive', toStatus: 'open', timestamp: iso(oldThu - 3) }).run();
+    expect(pruneSnapshotsByRetention(new Date((THU + 1) * 86400000))).toBe(1);
+    expect(db.select().from(schema.snapshots).all().map(s => s.id).sort()).toEqual(['older-proof', 'protected', 'winner']);
+    expect(db.select().from(schema.issues).all()[0].id).toBe('case');
+    expect(db.select().from(schema.issueHistory).all()).toHaveLength(kind === 'history' ? 1 : 0);
+  });
+
 });

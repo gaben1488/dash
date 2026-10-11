@@ -148,7 +148,7 @@ function kbSourceForReader(source: string): string {
 // Шкала надёжности словами вместо латинской отметки A–F
 // ────────────────────────────────────────────────────────────
 
-type VerdictTone = 'high' | 'good' | 'medium' | 'low' | 'critical';
+type VerdictTone = 'unavailable' | 'high' | 'good' | 'medium' | 'low' | 'critical';
 
 const VERDICTS: { min: number; tone: VerdictTone; label: string }[] = [
   { min: THRESHOLDS.TRUST.A, tone: 'high', label: 'Высокая' },
@@ -174,6 +174,7 @@ const VERDICT_SCALE_TEXT = [
 
 function verdictColor(tone: VerdictTone) {
   switch (tone) {
+    case 'unavailable': return { bg: 'bg-zinc-100 dark:bg-zinc-800', text: 'text-zinc-600 dark:text-zinc-400' };
     case 'high': return { bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-400' };
     case 'good': return { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400' };
     case 'medium': return { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400' };
@@ -247,12 +248,14 @@ export function TrustPage() {
   const hasDeptFilter = fd.hasDeptFilter || fd.hasSubFilter;
   const filteredDeptSummaries = [...fd.depts].sort((a: TrustDept, b: TrustDept) => (a.trustScore ?? 0) - (b.trustScore ?? 0));
 
-  const scopedToFilter = hasDeptFilter && filteredDeptSummaries.length > 0;
-  const trustView = buildTrustViewModel(trustData, scopedToFilter ? filteredDeptSummaries : []);
+  const scopedToFilter = hasDeptFilter;
+  const trustView = buildTrustViewModel(trustData, scopedToFilter ? filteredDeptSummaries : undefined);
   const overallScore = trustView.overallScore;
   const components = trustView.components;
 
-  const verdict = trustVerdict(overallScore);
+  const verdict = overallScore === null
+    ? { tone: 'unavailable' as const, label: 'Оценка недоступна' }
+    : trustVerdict(overallScore);
   const vc = verdictColor(verdict.tone);
 
   const deptSummaries = filteredDeptSummaries;
@@ -282,7 +285,7 @@ export function TrustPage() {
   // Подстановка живых чисел: читатель видит ровно ту арифметику, что дала
   // балл на экране, а не абстрактную формулу.
   const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-  const liveOverall = components.length > 0 && totalWeight > 0
+  const liveOverall = overallScore !== null && components.length > 0 && totalWeight > 0
     ? `${overallScore} = (${components.map((c) => `${c.score} × ${c.weight}`).join(' + ')}) ÷ ${totalWeight}`
     : null;
 
@@ -298,25 +301,30 @@ export function TrustPage() {
         {/* Индекс */}
         <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none p-6 flex flex-col items-center justify-center')}>
           <div className="relative w-48 h-24 mb-4">
-            <svg viewBox="0 0 200 100" className="w-full h-full" role="img" aria-label={`Надёжность данных: ${overallScore} из 100, оценка «${verdict.label}»`}>
+            <svg viewBox="0 0 200 100" className="w-full h-full" role="img" aria-label={overallScore === null ? 'Оценка недоступна' : `Надёжность данных: ${overallScore} из 100, оценка «${verdict.label}»`}>
               <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth="14" strokeLinecap="round" />
               <path
                 d="M 10 100 A 90 90 0 0 1 190 100"
                 fill="none"
-                stroke={gaugeStroke(overallScore)}
+                stroke={overallScore === null ? 'currentColor' : gaugeStroke(overallScore)}
                 strokeWidth="14"
                 strokeLinecap="round"
-                strokeDasharray={`${(overallScore / 100) * 283} 283`}
+                strokeDasharray={`${((overallScore ?? 0) / 100) * 283} 283`}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-end pb-1" aria-hidden="true">
-              <span className="text-4xl font-bold text-zinc-800 dark:text-white tabular-nums">{overallScore}</span>
+              <span className="text-4xl font-bold text-zinc-800 dark:text-white tabular-nums">{overallScore ?? '—'}</span>
             </div>
           </div>
           <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            Качество заполнения книг: {overallScore} из 100
+            {overallScore === null ? 'Для выбранного периметра недостаточно данных для расчёта.' : `Качество заполнения книг: ${overallScore} из 100`}
           </p>
+          {trustView.unavailableComponents.length > 0 && (
+            <p className="text-xs text-zinc-500 mt-2 text-center">
+              Недоступные компоненты: {trustView.unavailableComponents.join(', ')}. Обновите данные.
+            </p>
+          )}
           {scopedToFilter && (
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
               Считается по выбранным управлениям ({filteredDeptSummaries.length}), а не по всему району
@@ -430,10 +438,10 @@ export function TrustPage() {
                     {isExpanded && (
                       <div id={panelId} className={clsx('px-4 pb-4 border-t', RULE_HEAD)}>
                         {/* Живая подстановка: вклад ИМЕННО этого балла в итог */}
-                        <div className="mt-3 ml-5 mb-3 text-[11px] font-mono text-zinc-700 dark:text-zinc-200">
+                        {overallScore !== null && <div className="mt-3 ml-5 mb-3 text-[11px] font-mono text-zinc-700 dark:text-zinc-200">
                           {c.score} × {c.weight} ÷ {totalWeight} = {NUM1.format(contribution)} —
                           {' '}столько этот компонент даёт в общий балл {overallScore}
-                        </div>
+                        </div>}
 
                         <div className="flex items-start gap-2 mb-3">
                           <Info size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />

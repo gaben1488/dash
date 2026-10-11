@@ -7,6 +7,7 @@ import {
   issueTransitionNeedsReason,
   issueTransitionRefusal,
   statusesLeadingTo,
+  issueDecisionExplanation,
 } from './issue-transitions';
 
 describe('allowedIssueTransitions (кнопки обещают только то, что примет сервер)', () => {
@@ -83,5 +84,21 @@ describe('issueTransitionRefusal (подсказка объясняет проп
   it('в подсказке нет сырых ключей', () => {
     const text = issueTransitionRefusal('open', 'resolved');
     expect(text).not.toMatch(/open|resolved|in_progress/);
+  });
+});
+
+
+describe('решение и повторная проверка источника', () => {
+  it('заявленное исправление не обещает подтверждённого снятия сигнала', () => {
+    expect(issueDecisionExplanation('resolved')).toMatch(/выбранном снимке/);
+    expect(issueDecisionExplanation('resolved')).toMatch(/Перечитайте источники/);
+    expect(issueDecisionExplanation('resolved')).toMatch(/учитывается в оценке/);
+  });
+  it('объясняет исключение ложного срабатывания и сохранение риска при отказе', () => {
+    expect(issueDecisionExplanation('false_positive')).toMatch(/не снижает оценку доверия/);
+    expect(issueDecisionExplanation('wont_fix')).toMatch(/риск сохраняется/);
+  });
+  it('свободное пояснение не закрывает сигнал', () => {
+    expect(issueDecisionExplanation('open')).toMatch(/не закрывает/);
   });
 });

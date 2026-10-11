@@ -112,3 +112,14 @@ describe('computeTrustScore', () => {
     expect(result.components).toHaveLength(5);
   });
 });
+
+describe('saved control decisions', () => {
+  it('excludes confirmed false positives but keeps unresolved evidence and accepted risk', () => {
+    const metrics = new Map([['m1', makeMetric('m1', 100)]]);
+    const clean = computeTrustScore(metrics, [], [], 'snapshot');
+    for (const status of ['open', 'acknowledged', 'in_progress', 'resolved', 'wont_fix'] as const) {
+      expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status })], [], 'snapshot').overall).toBeLessThan(clean.overall);
+    }
+    expect(computeTrustScore(metrics, [makeIssue({ category: 'formula_continuity', severity: 'critical', status: 'false_positive' })], [], 'snapshot').overall).toBe(clean.overall);
+  });
+});

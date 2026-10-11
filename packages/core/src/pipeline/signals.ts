@@ -588,6 +588,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factTotal,
     adCell: cells['AD'],
     isEp: isEP,
+    completed: factDay !== null,
   });
   const economyFlag = economyCanon.state === 'approved';
   const economyFlagUndetermined = economyCanon.matches;
@@ -640,7 +641,7 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
   let highEconomy = false;
   let lowCompetition = false;
 
-  if (!isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
+  if (factDay !== null && !isEP && !isNaN(planTotal) && planTotal > 0 && factTotal > 0) {
     const economyPct = ((planTotal - factTotal) / planTotal) * 100;
     if (economyPct > ANTI_DUMPING_PERCENT) {
       highEconomy = true;
@@ -707,15 +708,11 @@ export function detectSignals(cells: Record<string, unknown>, today?: Date): Row
     factExceedsPlan = true;
   }
 
-  // ── Расхождение факт/план по ЕП (канон п.98м + семантика п.102, 18.08.2026) ──
-  // По ЕП в план (K) пишут планируемую сумму договора, обязанную равняться
-  // потраченной (Y): торгов нет, тезис владельца — «по ЕП не может быть
-  // экономии». Расхождение в любую сторону сверх допуска — ошибка заполнения
-  // либо «экономия», которой по ЕП быть не должно. Допуск округления тот же
-  // 0.5%, что у factExceedsPlan выше (план в 2 знака, факт в 5 — шум).
-  // Конкурентные способы (ЭА/ЭК/ЭЗК) не трогаются: там план = НМЦК, и
-  // факт < план — нормальная торговая экономия (п.102).
-  const epFactDeviation = isEP
+  // ── ЕП: сверка годовой потребности после последнего контракта Q ──
+  // Накопленные обязательства до Q не означают закрытие позиции; остаток
+  // не является ошибкой или подтверждённой экономией. После закрытия
+  // отклонение свыше 0,5% требует сверки документов, а не подгонки сумм.
+  const epFactDeviation = factDay !== null && isEP
     && !isNaN(planTotal) && planTotal > 0 && factTotal > 0
     && Math.abs(factTotal - planTotal) > planTotal * 0.005;
 

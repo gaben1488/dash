@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { getSnapshot } from '../services/snapshot.js';
+import { overlayPersistedStatus } from '../services/issue-decisions.js';
 import {
   approvedEconomy,
   buildGRBSProfiles,
@@ -41,7 +42,7 @@ import { getDeptSheetValues } from '../services/snapshot.js';
  * источника с дисциплиной исполнителя. Это видно отдельным сигналом.
  */
 function dataQualityScore(
-  issues: readonly { departmentId?: string; group?: string; row?: number }[],
+  issues: readonly { departmentId?: string; group?: string; row?: number; status?: string }[],
   grbsId: string,
   grbsShort: string,
   rowCount: number,
@@ -49,7 +50,7 @@ function dataQualityScore(
   if (rowCount <= 0) return 1;
   const dirtyRows = new Set<number>();
   for (const issue of issues) {
-    if (issue.group !== 'data_quality') continue;
+    if (issue.status === 'false_positive' || issue.group !== 'data_quality') continue;
     const dept = issue.departmentId;
     if (dept !== grbsId && dept !== grbsShort) continue;
     // Замечание без номера строки относится к листу целиком: считаем его
@@ -254,6 +255,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       const snapshot = await getSnapshot();
       const recalcResults = snapshot.recalcResults ?? {};
       const deptCache = getDeptSheetValues();
+      const decisionIssues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
       const profiles = buildGRBSProfiles(recalcResults);
       const c01 = (v: number) => Math.min(1, Math.max(0, v));
       const result: Record<string, unknown> = {};
@@ -323,7 +325,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
           dynamicsScore: c01(0.6 + profile.execDeviation),
           epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: dataQualityScore(snapshot.issues, profile.grbsId, profile.grbsShort, rowData.length),
+          dataScore: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, rowData.length),
           anomalyScore: c01(1 - anomalyCount * 0.3),
           complianceScore: c01(1 - violations * 0.15),
           anticorruptionPenalty: anticorruption.disciplinaryPenalty,

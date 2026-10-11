@@ -111,9 +111,9 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       issues: [
         {
           id: 'seed-issue-003',
-          severity: 'warning',
+          severity: 'critical',
           origin: 'system',
-          category: 'test',
+          category: 'formula_continuity',
           title: 'seed',
           status: 'open',
           detectedAt: '2026-01-01T00:00:00Z',
@@ -137,9 +137,9 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
       .values({
         id: 'seed-issue-003',
         snapshotId: 'seed-1',
-        severity: 'warning',
+        severity: 'critical',
         origin: 'system',
-        category: 'test',
+        category: 'formula_continuity',
         title: 'seed',
         status: 'open',
         detectedAt: '2026-01-01T00:00:00Z',
@@ -159,5 +159,80 @@ describe('PUT /api/issues/:id/status — persistence integrity (B-4)', () => {
     const issue = getBody.issues.find((i) => i.id === 'seed-issue-003');
 
     expect(issue?.status).toBe('acknowledged');
+    const dashboard = await app.inject({ method: 'GET', url: '/api/dashboard' });
+    expect(dashboard.statusCode).toBe(200);
+    expect(dashboard.json().recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('acknowledged');
+    const before = dashboard.json().trust.overall;
+    expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'in_progress' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'resolved' } })).statusCode).toBe(200);
+    const unconfirmed = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
+    expect(unconfirmed.recentIssues[0].status).toBe('resolved');
+    expect(unconfirmed.trust.overall).toBe(before);
+    expect((await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'open' } })).statusCode).toBe(200);
+    const falsePositive = await app.inject({ method: 'PUT', url: '/api/issues/seed-issue-003/status', payload: { status: 'false_positive', reason: 'Проверено владельцем' } });
+    expect(falsePositive.statusCode).toBe(200);
+    const after = (await app.inject({ method: 'GET', url: '/api/dashboard' })).json();
+    expect(after.recentIssues.find((i: { id: string }) => i.id === 'seed-issue-003')?.status).toBe('false_positive');
+    expect(after.trust.overall).toBeGreaterThan(before);
+    expect((await app.inject({ method: 'GET', url: '/api/trust' })).json().overall).toBe(after.trust.overall);
+    const { getSnapshot } = await import('../services/snapshot.js');
+    expect((await getSnapshot()).issues[0].status).toBe('open');
+
+
   }, 30_000);
+  it('reads a moved rule case through its original decision/history ID and current source address', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { issueIdentity, ruleIssueIdentityParts } = await import('@aemr/core');
+    const { buildCellDict } = await import('@aemr/shared');
+    const { invalidateCache } = await import('../services/snapshot.js');
+    const base = JSON.parse(db.select().from(schema.snapshots).where(eq(schema.snapshots.id, 'seed-1')).get()!.data!);
+    const raw = new Array(34).fill(''); raw[0] = '173/18'; raw[1] = '42'; raw[2] = 'Учреждение'; raw[6] = 'Поставка';
+    const oldId = issueIdentity([...ruleIssueIdentityParts('budget_sum_plan', 'УКСиМП', 'K4', buildCellDict(raw), true), 0]);
+    const newId = issueIdentity([...ruleIssueIdentityParts('budget_sum_plan', 'УКСиМП', 'K5', buildCellDict(raw)), 0]);
+    const issue = { ...base.issues[0], id: oldId, sheet: 'УКСиМП', row: 4, cell: 'K4', rowSeq: '173/18', category: 'budget_sum_plan', checkId: 'budget_sum_plan', detectedBy: 'rule:budget_sum_plan', status: 'open' };
+    const old = { ...base, id: 'old-rule', createdAt: '2026-10-11T00:00:00Z', issues: [issue], rowsByDept: { 'УКСиМП': [raw] } };
+    db.insert(schema.snapshots).values({ id: old.id, spreadsheetId: 'x', createdAt: old.createdAt, data: JSON.stringify(old) }).run();
+    db.insert(schema.issues).values({ id: oldId, snapshotId: old.id, title: 'Budget', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', status: 'false_positive', detectedAt: old.createdAt }).run();
+    db.insert(schema.issueHistory).values({ issueId: oldId, fromStatus: 'open', toStatus: 'false_positive', reason: 'Проверено', timestamp: old.createdAt }).run();
+    const other = [...raw]; other[0] = 'other'; other[6] = 'Другое';
+    const current = { ...old, id: 'new-rule', createdAt: '2026-10-12T00:00:00Z', issues: [{ ...issue, id: newId, row: 5, cell: 'K5' }], rowsByDept: { 'УКСиМП': [other, raw] } };
+    db.insert(schema.snapshots).values({ id: current.id, spreadsheetId: 'x', createdAt: current.createdAt, data: JSON.stringify(current) }).run();
+    // The pipeline saves its new open ID before the user requests the view.
+    db.insert(schema.issues).values({ id: newId, snapshotId: current.id, title: 'Budget', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', status: 'open', detectedAt: current.createdAt }).run();
+    const { pruneSnapshotsByRetention } = await import('../services/snapshot-retention.js');
+    pruneSnapshotsByRetention(new Date('2026-11-12T00:00:00Z'));
+    expect(db.select().from(schema.snapshots).where(eq(schema.snapshots.id, old.id)).get()).toBeDefined();
+    invalidateCache();
+    const list = (await app.inject({ method: 'GET', url: '/api/issues' })).json();
+    expect(list.issues[0]).toMatchObject({ id: oldId, status: 'false_positive', row: 5, cell: 'K5' });
+    const detail = (await app.inject({ method: 'GET', url: `/api/issues/${oldId}` })).json();
+    expect(detail.issue.cell).toBe('K5');
+    expect(detail.history).toHaveLength(1);
+    expect(detail.history[0].reason).toBe('Проверено');
+    expect((await app.inject({ method: 'PUT', url: `/api/issues/${oldId}/status`, payload: { status: 'open' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: `/api/issues/${oldId}` })).json().history).toHaveLength(2);
+    expect(db.select().from(schema.issues).where(eq(schema.issues.id, newId)).get()!.status).toBe('open');
+  }, 30_000);
+
+  it('does not apply a direct-ID false positive to occurrence zero after an identical row is inserted', async () => {
+    const { db, schema } = await import('../db/index.js');
+    const { issueIdentity, ruleIssueIdentityParts } = await import('@aemr/core');
+    const { buildCellDict } = await import('@aemr/shared');
+    const { overlayPersistedStatus } = await import('../services/issue-decisions.js');
+    const raw = new Array(34).fill(''); raw[0] = 'duplicate'; raw[1] = '42'; raw[2] = 'Учреждение'; raw[6] = 'Поставка';
+    const parts = ruleIssueIdentityParts('budget_sum_plan', 'УКСиМП', 'K4', buildCellDict(raw));
+    const id = issueIdentity([...parts, 0]);
+    const base = JSON.parse(db.select().from(schema.snapshots).where(eq(schema.snapshots.id, 'seed-1')).get()!.data!);
+    const issue = { ...base.issues[0], id, sheet: 'УКСиМП', row: 4, cell: 'K4', checkId: 'budget_sum_plan', detectedBy: 'rule:budget_sum_plan', status: 'open' };
+    db.insert(schema.issues).values({ id, title: 'Budget', severity: 'critical', origin: 'spreadsheet_rule', category: 'budget_sum_plan', status: 'false_positive', detectedAt: base.createdAt }).run();
+    const current = { ...base, issues: [issue, { ...issue, id: issueIdentity([...parts, 1]), row: 5, cell: 'K5' }], rowsByDept: { 'УКСиМП': [raw, [...raw]] } };
+    expect(overlayPersistedStatus(current.issues, current).map(i => i.status)).toEqual(['open', 'open']);
+    expect(db.select().from(schema.issues).where(eq(schema.issues.id, id)).get()!.status).toBe('false_positive');
+    // Missing historical raw rows cannot support this ambiguity check; retain
+    // compatibility with prior direct-ID readback rather than invent an anchor.
+    expect(overlayPersistedStatus([issue])[0].status).toBe('false_positive');
+    expect(overlayPersistedStatus([{ ...issue, detectedBy: 'pipeline:signal:overdue' }], current)[0].status).toBe('false_positive');
+    expect(overlayPersistedStatus([{ ...issue, sheet: 'СВОД ТД-ПМ' }], current)[0].status).toBe('false_positive');
+  });
+
 });

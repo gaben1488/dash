@@ -49,6 +49,7 @@ import {
   type TextHygieneKind,
 } from './contract';
 import { useTextHygiene } from './useTextHygiene';
+import { copyText } from '../TableEditor';
 
 /* ── Подсветка дефектного места в контексте ──────────────────────────── */
 
@@ -99,18 +100,17 @@ function CopyFixButton({ fix }: { fix: string }) {
   const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(fix);
+    if (await copyText(fix)) {
       setState('done');
-    } catch {
-      // Буфер обмена недоступен (например, страница не в фокусе) — говорим
-      // словами, а не делаем вид, что скопировалось.
+      window.setTimeout(() => setState('idle'), 1600);
+    } else {
+      // Отказ сохраняется, пока пользователь не перенесёт полный текст вручную.
       setState('failed');
     }
-    window.setTimeout(() => setState('idle'), 1600);
   };
 
   return (
+    <span className="inline-flex flex-col gap-1">
     <button
       type="button"
       onClick={() => void copy()}
@@ -127,6 +127,23 @@ function CopyFixButton({ fix }: { fix: string }) {
           ? <><AlertTriangle size={11} aria-hidden="true" style={{ color: 'var(--data-warn)' }} /> не удалось</>
           : <><Copy size={11} aria-hidden="true" /> копировать</>}
     </button>
+    {state === 'failed' && (
+      <span className="flex flex-col gap-1">
+        <span role="status" className="ds-text-3xs text-[var(--ink-muted)]">
+          Скопируйте выделенный текст вручную (Ctrl+C или меню браузера).
+        </span>
+        <textarea
+          aria-label="Готовое значение для ручного копирования"
+          value={fix}
+          readOnly
+          autoFocus
+          onFocus={event => event.currentTarget.select()}
+          rows={3}
+          className="w-full min-w-48 rounded px-2 py-1 font-mono ds-text-2xs"
+        />
+      </span>
+    )}
+    </span>
   );
 }
 
