@@ -9,6 +9,9 @@ on:
       - 'packages/web/src/pages/design-lab.css'
       - 'packages/web/src/pages/Kit.tsx'
       - 'scripts/design-lab-browser-qa.mjs'
+      - 'scripts/figma-constructor-qa.mjs'
+      - 'docs/superpowers/mockups/dash-design-lab/figma-constructor/**'
+      - 'docs/superpowers/mockups/dash-design-lab/PATTERNS.md'
       - '.github/workflows/design-lab-browser-qa.yml'
   push:
     branches: [codex/dash-design-library-patterns-20261010]
@@ -17,6 +20,9 @@ on:
       - 'packages/web/src/pages/design-lab/**'
       - 'packages/web/src/pages/design-lab.css'
       - 'scripts/design-lab-browser-qa.mjs'
+      - 'scripts/figma-constructor-qa.mjs'
+      - 'docs/superpowers/mockups/dash-design-lab/figma-constructor/**'
+      - 'docs/superpowers/mockups/dash-design-lab/PATTERNS.md'
       - '.github/workflows/design-lab-browser-qa.yml'
   workflow_dispatch:
 
@@ -38,6 +44,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Validate editable Figma constructor, 13 routes and six materials
+        run: |
+          node --check docs/superpowers/mockups/dash-design-lab/figma-constructor/code.js
+          node scripts/figma-constructor-qa.mjs
       - name: Install workspace dependencies without changing the lockfile
         run: pnpm install --frozen-lockfile
       - name: Install test-only browser control outside repository
