@@ -124,10 +124,16 @@ try{
  for(const name of ['Исходная','Минералы','Космос']){
    const btn=family.filter({hasText:name});
    await btn.click();
+   await delay(180); // wait for theme material and React style propagation
    const actual=await page.evaluate(()=>document.documentElement.dataset.previewFamily);
    if(actual!==(name==='Исходная'?'original':name))fail('Palette control not applied: '+name);
-   const background=await page.locator('#root > div').evaluate(el=>getComputedStyle(el).backgroundColor);
-   themeSurfaces.push({name,background});
+   const details=await page.evaluate(()=>({
+     background:getComputedStyle(document.querySelector('#root > div')).backgroundColor,
+     rootSurface:getComputedStyle(document.documentElement).getPropertyValue('--surface-page').trim(),
+     rootTheme:document.documentElement.className,
+     family:document.documentElement.dataset.previewFamily,
+   }));
+   themeSurfaces.push({name,...details});
  }
  report.themeSurfaces=themeSurfaces;
  if(new Set(themeSurfaces.map(x=>x.background)).size<3)
