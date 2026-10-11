@@ -153,13 +153,14 @@ jobs:
             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['native_word']=='PASS'
             baseline=json.loads((session.parent/'worker-38178244703/runtime.json').read_text())
             assert result['worker_image']==baseline['image']
-            ids=[]
+            ids=[]; cycle_times=[]
             for number in (1,2):
                 cycle=json.loads((session/f'cycle-{number}.json').read_text())
                 assert cycle['status'] in {'VERIFIED','VERIFIED_WITH_WARNINGS'}
                 assert cycle['snapshot_id']==cycle['publication']['snapshot_id']
                 assert cycle['publication']['operational_available'] is True
                 ids.append(cycle['attempt_id'])
+                cycle_times.append({key:cycle[key] for key in ('started_at','finished_at','status')})
             assert len(set(ids))==2 and sorted(ids)==result['attempt_ids']
             server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
             assert server['Image']==baseline['image'] and server['State']['Status']=='running'
@@ -214,7 +215,7 @@ jobs:
             assert smoke.returncode==0, 'WORKER_NATIVE_WORD_READBACK_FAILED'
             fields=json.loads(smoke.stdout)
             assert all(fields.get(key)=='PASS' for key in ('context','snapshot','main','supplement','operational'))
-            print(json.dumps({'accepted_timer_cycles':2,'worker_running':True,'server_healthy':True,
+            print(json.dumps({'accepted_timer_cycles':2,'cycle_times':cycle_times,'worker_running':True,'server_healthy':True,
                 'worker_image_pinned':True,'web_assurance_v2_hotfix_preserved':True,'native_three_word':'PASS'}))
             # Compile exact candidate public sources in memory, never import the
             # installed v1-only shared package or overwrite runtime source files.

@@ -42,7 +42,9 @@ exact-head d8a7dfa015a531f5653640427836bf535d87ff79 (CI38177512771 SUCCESS)
 Recovery38178313782 на5094505944da1f3701cb5e468234c1f4f43d8b31:
 CI38178298350 SUCCESS, повторный полный restore/reports-only drill PASS;
 quiesced report-match и первый самостоятельный цикл +3 native Word PASS
-(step5 SUCCESS на22:39UTC). Worker восстановлен, API healthy; идёт проверка
+(step5 SUCCESS на22:39UTC). Worker StartedAt22:31:17UTC/RestartCount0;
+attempt fdd77a5d06bc47f7974e7a61566d212b finished22:38:05UTC,
+VERIFIED_WITH_WARNINGS/error_code=null. Worker восстановлен, API healthy; идёт проверка
 второго timer-цикла после штатного интервала900s. R08 остаётся частичным
 до второго самостоятельного цикла и независимой сверки.
 
@@ -56,14 +58,14 @@ sha256:43520e97cb59f2f27aeec7144fbf7d19ce9405ab883d0db6c62ced7d12f46334
 историей. Диагностический CI probe импортирует старый installed Node shared
 и сообщает CONTRACT_FAIL наv2; зелёный CI не подменяет клиентскую приёмку.
 
-По последнему поручению worker #93 — первый приоритет. Live read-only
+Историческая диагностика до указанного выше восстановления worker #93: live read-only
 38170496420 на dd267377 подтвердил exited(0), разные server/worker image
 и нехватку VPS для полного scratch restore: source22 054 396 941 B,
 free21 541 068 800 B. CI38170475213 SUCCESS; source-schema38170475150
 SUCCESS. Причина остановки: docs deploy ae6ef74d выключил worker перед
 MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH и не восстановил расписание.
-Native Word сейчас PASS, browser Zod FAIL на automation_assurance.contract;
-это разные результаты, browser-исправление ещё не выпущено.
+На момент этой диагностики native Word PASS, browser Zod FAIL на automation_assurance.contract;
+последующий webhotfix и его доказательства указаны выше.
 Подготовлено закрытое полное compressed backup/restore окно с временным
 scratch на Actions через SSH, без публичных artifacts. При отказе/завершении
 возвращается прежний Node-контейнер с health-check, worker не запускается.
