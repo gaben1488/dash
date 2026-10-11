@@ -38,6 +38,7 @@ import {
   TrustGradeSchema,
   DashboardDataSchema,
   DepartmentSummarySchema,
+  SelectedReportReleaseStatusSchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -321,5 +322,77 @@ describe('TS inference (compile-time check, runtime is trivial)', () => {
     // changes break this inference, tsc catches it.
     const card: Card = validKpiCard;
     expect(card.metricKey).toBe('total_exec_count_pct');
+  });
+});
+
+
+describe('published Word response: actionable assurance 19/32/34 lineage', () => {
+  const receipt = {
+    release_id: 'REL-' + 'a'.repeat(64),
+    snapshot_id: 'SNP-verified',
+    report_date: '11.10.2026',
+    cutoff_at: '2026-10-11T09:54:00Z',
+    published_at: '2026-10-11T09:54:40Z',
+    model_sha256: 'b'.repeat(64),
+    rules_version: 'rules-test',
+    renderer_version: 'renderer-test',
+    status: 'VERIFIED_WITH_WARNINGS',
+    report_year: 2026,
+    quarter: 4,
+  } as const;
+
+  const common = {
+    fully_automated: false,
+    user_action_count: 0,
+    engine_action_count: 1,
+    active_recommendations: 159,
+    link_status_counts: { CONFIRMED: 90, ORIGIN_UNPROVEN: 69 },
+    action_status_counts: { UNKNOWN: 12 },
+    actions: [],
+    meaning: 'Контроль на исходных данных не означает всеобщую завершённость.',
+  };
+
+  const v2 = {
+    ...common,
+    contract: 'actionable-assurance-v2',
+    nonprocurement_identity_observations: 0,
+    source_observations: [{
+      source_row_key: 'stable-row-reference',
+      events: [{
+        kind: 'NO_FUNDING_REPORTED', target: null, field: 'explanations',
+        column: 'U', quote: 'финансирование отсутствует',
+        source_text: 'финансирование отсутствует',
+        evidence_kind: 'SOURCE_STATEMENT',
+      }],
+    }],
+  };
+
+  it('accepts the exact v2 receipt deployed by the report engine without skipping assurance', () => {
+    const checked = SelectedReportReleaseStatusSchema.safeParse({
+      attempt: null, selected: { ...receipt, automation_assurance: v2 },
+    });
+    expect(checked.success).toBe(true);
+  });
+
+  it('continues reading historical v1 receipts with the same semantic actions', () => {
+    const checked = SelectedReportReleaseStatusSchema.safeParse({
+      attempt: null, selected: { ...receipt, automation_assurance: {
+        ...common, contract: 'actionable-assurance-v1',
+      } },
+    });
+    expect(checked.success).toBe(true);
+  });
+
+  it('refuses incomplete v2 evidence and unreviewed future contracts', () => {
+    for (const assurance of [
+      { ...v2, source_observations: undefined },
+      { ...v2, nonprocurement_identity_observations: -1 },
+      { ...v2, contract: 'actionable-assurance-v3' },
+      { ...v2, source_observations: [{ source_row_key: 'row', events: [{ kind: 'FUNDING_REPORTED' }] }] },
+    ]) {
+      expect(SelectedReportReleaseStatusSchema.safeParse({
+        attempt: null, selected: { ...receipt, automation_assurance: assurance },
+      }).success).toBe(false);
+    }
   });
 });
