@@ -78,4 +78,7 @@ test('standalone HTML contains the actual React app bundle',()=>{
  assert.match(html,/data-bundle="dash-real-pages"/);
  assert.ok(!/(?:src|href)="\.\/assets\//.test(html));
  assert.ok(html.includes('Dash · дизайн-гейт'));
+ assert.ok(html.includes('dash-boot-fallback'),'offline viewer fallback missing');
+ assert.ok(html.includes('Открыть интерактивный Dash в браузере'),'offline browser link missing');
+ assert.ok(html.includes('<noscript>'),'non-JS guidance missing');
 });
