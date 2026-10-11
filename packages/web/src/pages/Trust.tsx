@@ -20,6 +20,7 @@ import clsx from 'clsx';
 import { CHECK_REGISTRY, THRESHOLDS, TRUST_COMPONENT_CONFIG, productLabel } from '@aemr/shared';
 import type { TrustComponentId, TrustComponent } from '@aemr/shared';
 import { buildTrustViewModel } from '../lib/trust-metrics';
+import { assessReconciliation, hasCompleteComparisonEvidence } from '../lib/reconciliation-assurance';
 import { kbFor } from '../lib/kb/metric-kb';
 import { natureOf } from '../lib/diagnostics/nature-categories';
 import { CARD, HEAD_STRIP, NOTE, RULE_DIVIDE, RULE_HEAD, TILE } from '../components/control/surfaces';
@@ -261,6 +262,10 @@ export function TrustPage() {
   // обязано показывать те же строки, по которым посчитан балл на экране.
   const filteredIssues = fd.issues;
   const deltas = fd.deltas;
+  const reconciliation = assessReconciliation(deltas);
+  // Deltas only carry the GRBS/department scope, not an institution-level
+  // cross-check. Selecting a subordinate cannot inherit its parent's proof.
+  const hasCompleteEvidence = !fd.hasSubFilter && hasCompleteComparisonEvidence(reconciliation);
 
   const factors: TrustFactor[] = filteredIssues
     .filter((issue: TrustIssue) => issue.severity === 'critical' || issue.severity === 'significant')
@@ -293,44 +298,98 @@ export function TrustPage() {
 
   return (
     <div className="space-y-6">
+      {/* Доказательство сверки не смешивается с историческим композитным баллом.
+          Сначала сообщаем сколько удалось действительно сравнить, затем индекс. */}
+      <section aria-label="Доказательность сверки" className={clsx(CARD, 'rounded-xl p-4 shadow-sm dark:shadow-none')}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Сверка расчётов с официальными числами</h2>
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1">
+              {fd.hasSubFilter
+                ? 'Сверка выбранного подведомственного учреждения отдельно не выполнялась. Ниже — показатели управления, но не доказательство по этому учреждению.'
+                : reconciliation.state === 'not_checked'
+                  ? 'Не удалось сравнить ни одну пару. Отсутствие найденных расхождений здесь не означает, что всё верно.'
+                : reconciliation.state === 'divergent'
+                  ? `Есть ${reconciliation.mismatched} расхождений в сопоставимых числах — требуется проверка причин.`
+                  : reconciliation.state === 'incomplete'
+                    ? 'Проверенные пары совпали, но часть показателей сравнить не удалось.'
+                    : 'Все доступные пары совпали. Это результат сверки этих пар, а не доказательство исправности всех книг.'}
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 tabular-nums">
+              Сравнено: {reconciliation.comparable} из {reconciliation.total};
+              {' '}совпало: {reconciliation.matched};
+              {' '}расходится: {reconciliation.mismatched};
+              {' '}не сравнивалось: {reconciliation.unavailable}.
+              {reconciliation.coveragePct !== null ? ` Покрытие: ${reconciliation.coveragePct}%.` : ' Покрытие не определено.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigateTo('quality', { qualityTab: 'recon' })}
+            className="text-xs font-medium text-blue-700 dark:text-blue-300 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 rounded"
+          >
+            Разобрать причины в сверке
+          </button>
+        </div>
+      </section>
       {/* Главный индекс + компоненты */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Индекс */}
         <div className={clsx(CARD, 'rounded-xl shadow-sm dark:shadow-none p-6 flex flex-col items-center justify-center')}>
-          <div className="relative w-48 h-24 mb-4">
-            <svg viewBox="0 0 200 100" className="w-full h-full" role="img" aria-label={`Надёжность данных: ${overallScore} из 100, оценка «${verdict.label}»`}>
-              <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth="14" strokeLinecap="round" />
-              <path
-                d="M 10 100 A 90 90 0 0 1 190 100"
-                fill="none"
-                stroke={gaugeStroke(overallScore)}
-                strokeWidth="14"
-                strokeLinecap="round"
-                strokeDasharray={`${(overallScore / 100) * 283} 283`}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-end pb-1" aria-hidden="true">
-              <span className="text-4xl font-bold text-zinc-800 dark:text-white tabular-nums">{overallScore}</span>
+          {hasCompleteEvidence ? (
+            <>
+              <div className="relative w-48 h-24 mb-4">
+                <svg viewBox="0 0 200 100" className="w-full h-full" role="img" aria-label={`Надёжность данных: ${overallScore} из 100, оценка «${verdict.label}»`}>
+                  <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth="14" strokeLinecap="round" />
+                  <path
+                    d="M 10 100 A 90 90 0 0 1 190 100"
+                    fill="none"
+                    stroke={gaugeStroke(overallScore)}
+                    strokeWidth="14"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(overallScore / 100) * 283} 283`}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-end pb-1" aria-hidden="true">
+                  <span className="text-4xl font-bold text-zinc-800 dark:text-white tabular-nums">{overallScore}</span>
+                </div>
+              </div>
+              <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
+                Исторический индекс качества: {overallScore} из 100
+              </p>
+            </>
+          ) : (
+            <div role="status" className="w-full text-center space-y-3">
+              <ShieldCheck size={32} className="mx-auto text-amber-600 dark:text-amber-400" aria-hidden="true" />
+              <p className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">Не оценено</p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                Сравнимых показателей недостаточно для общей оценки. Сравнено{' '}
+                {reconciliation.comparable} из {reconciliation.total}.
+                Отсутствие расхождений в непроверенном не означает правильность.
+              </p>
+              <details className="text-[11px] text-zinc-500 dark:text-zinc-400 text-left">
+                <summary className="cursor-pointer text-blue-700 dark:text-blue-300">Показать исторический расчёт без статуса достоверности</summary>
+                <p className="mt-2">Прежняя модель формально возвращает {overallScore} из 100.
+                  Этот балл включает непроверенные составляющие и не должен использоваться для оценки исполнителей,
+                  публикации качества или признания данных готовыми к переносу.</p>
+              </details>
             </div>
-          </div>
-          <span className={clsx('text-lg font-bold px-4 py-1 rounded-full text-center', vc.bg, vc.text)}>{verdict.label}</span>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            Качество заполнения книг: {overallScore} из 100
-          </p>
+          )}
           {scopedToFilter && (
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
-              Считается по выбранным управлениям ({filteredDeptSummaries.length}), а не по всему району
+              Историческая модель рассчитывается по выбранным управлениям ({filteredDeptSummaries.length}), а не по всему району
             </p>
           )}
           {/* Подпись периметра (канон п.58): индекс считается по последнему
               прочтению книг целиком — периоду и месяцам шапки не подчиняется. */}
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1 text-center">
-            Периметр: 2026 · вся книга · {scopedToFilter ? 'выбранные управления' : 'все управления'} · на момент последнего чтения
+            Периметр: {fd.dataYear ?? 'год не установлен'} · вся книга · {scopedToFilter ? 'выбранные управления' : 'все управления'} · на момент последнего чтения
           </p>
 
           <details className="mt-3 w-full group">
             <summary className="text-[11px] text-blue-600 dark:text-blue-400 cursor-pointer hover:text-blue-700 flex items-center gap-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
-              <Info size={11} /> Как получается этот балл
+              <Info size={11} /> Как устроена прежняя балльная модель
             </summary>
             <div className="mt-2 space-y-2 text-[11px] leading-relaxed">
               {liveOverall && (
@@ -342,7 +401,7 @@ export function TrustPage() {
                 </div>
               )}
               <p className="text-zinc-600 dark:text-zinc-300">
-                Балл — средневзвешенная оценка пяти сторон данных. Вес показывает, насколько сторона
+                Это прежняя балльная модель, не подтверждение того, что все проверки выполнены. Балл — средневзвешенная оценка пяти сторон данных. Вес показывает, насколько сторона
                 важна для итога: качество данных весит больше всех, операционные риски — меньше всех.
                 Каждый компонент раскрывается ниже: там сказано, что именно он проверяет и что его роняет.
               </p>
@@ -361,7 +420,7 @@ export function TrustPage() {
         {/* Пять компонентов с раскрытием */}
         <div className={clsx('lg:col-span-2', CARD, 'rounded-xl shadow-sm dark:shadow-none p-6')}>
           <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 mb-1">
-            {weakest
+            {!hasCompleteEvidence ? 'Исторические компоненты · общий рейтинг скрыт' : weakest
               ? `Слабое место — «${weakest.label}»: ${weakest.score} из 100`
               : 'Из чего складывается надёжность'}
           </h3>
@@ -385,6 +444,7 @@ export function TrustPage() {
                 const description = kb?.what ?? COMPONENT_FALLBACK_DESCRIPTIONS[c.name] ?? '';
                 const componentIssues = getComponentIssues(c.name, filteredIssues, deltas);
                 const contribution = totalWeight > 0 ? (c.score * c.weight) / totalWeight : 0;
+                const componentNotChecked = c.name === 'mapping_consistency' && (reconciliation.comparable === 0 || fd.hasSubFilter);
                 const panelId = `trust-component-${c.name}`;
 
                 return (
@@ -409,9 +469,12 @@ export function TrustPage() {
                               {c.criticalIssues > 0 ? `${c.criticalIssues} крит.` : ''}{c.criticalIssues > 0 && c.issues > 0 ? ' / ' : ''}{c.issues > 0 ? `${c.issues} ${plural(c.issues, 'замечание', 'замечания', 'замечаний')}` : ''}
                             </span>
                           )}
-                          <span className={clsx('text-sm font-bold tabular-nums', cellColor(c.score))}>{c.score}</span>
+                          <span className={clsx('text-sm font-bold tabular-nums', componentNotChecked ? 'text-zinc-500 dark:text-zinc-400' : cellColor(c.score))}>{componentNotChecked ? '—' : c.score}</span>
                         </div>
                       </div>
+                      {componentNotChecked ? (
+                        <p className="ml-6 text-[11px] text-amber-700 dark:text-amber-300">Не оценено в выбранном периметре</p>
+                      ) : (
                       <div
                         className="h-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden ml-6"
                         role="progressbar"
@@ -425,14 +488,18 @@ export function TrustPage() {
                           style={{ width: `${c.score}%` }}
                         />
                       </div>
+                      )}
                     </button>
 
                     {isExpanded && (
                       <div id={panelId} className={clsx('px-4 pb-4 border-t', RULE_HEAD)}>
                         {/* Живая подстановка: вклад ИМЕННО этого балла в итог */}
                         <div className="mt-3 ml-5 mb-3 text-[11px] font-mono text-zinc-700 dark:text-zinc-200">
-                          {c.score} × {c.weight} ÷ {totalWeight} = {NUM1.format(contribution)} —
-                          {' '}столько этот компонент даёт в общий балл {overallScore}
+                          {componentNotChecked
+                            ? 'Нет сопоставления: вклад этого компонента в прежнюю числовую модель нельзя интерпретировать как доказанное качество.'
+                            : hasCompleteEvidence
+                              ? `${c.score} × ${c.weight} ÷ ${totalWeight} = ${NUM1.format(contribution)} — исторический вклад в балл ${overallScore}`
+                              : 'Это историческая балльная модель с неполным охватом. Сводная оценка намеренно не публикуется.'}
                         </div>
 
                         <div className="flex items-start gap-2 mb-3">

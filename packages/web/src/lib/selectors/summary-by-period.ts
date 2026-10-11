@@ -1,4 +1,5 @@
 import type { BudgetPlanFactFn } from './budget-filter';
+import { activityMethodSlice } from './activity-method';
 
 /**
  * Пересчёт summaryByPeriod (сводка q1..q4/year: КП/ЕП счётчики, план/факт,
@@ -23,28 +24,32 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     let epCount = 0, epFactCount = 0, epPlan = 0, epFact = 0;
     let fbPlan = 0, kbPlan = 0, mbPlan = 0, fbFact = 0, kbFact = 0, mbFact = 0;
 
+    let missingActivitySplit = false;
     if (isActivityFiltered) {
-      // Use byActivity breakdown when activity filter is active
       for (const d of depts) {
         const ba = d.byActivity?.[pk];
-        if (!ba) continue;
+        if (!ba) {
+          if (d._subFiltered && d._activityBreakdownAvailable === false) missingActivitySplit = true;
+          continue;
+        }
         for (const ak of actKeys) {
           const a = ba[ak];
           if (!a) continue;
-          // byActivity doesn't split KP/EP budget, so approximate from counts
-          kpCount += a.planCount ?? 0;
-          kpFactCount += a.factCount ?? 0;
-          // Apply budget filter; ActivityMetrics has planFB/factFB fields
-          const bf = budgetPlanFact(a);
-          kpPlan += bf.plan;
-          kpFact += bf.fact;
-          // Accumulate per-budget totals from activity entries
-          fbPlan += a.planFB ?? 0;
-          kbPlan += a.planKB ?? 0;
-          mbPlan += a.planMB ?? 0;
-          fbFact += a.factFB ?? 0;
-          kbFact += a.factKB ?? 0;
-          mbFact += a.factMB ?? 0;
+          const part = activityMethodSlice(a, showKP, showEP, budgetPlanFact);
+          if (!part.exact) {
+            missingActivitySplit = true;
+            continue;
+          }
+          kpCount += part.kpCount;
+          kpFactCount += part.kpFactCount;
+          kpPlan += part.kpPlan;
+          kpFact += part.kpFact;
+          epCount += part.epCount;
+          epFactCount += part.epFactCount;
+          epPlan += part.epPlan;
+          epFact += part.epFact;
+          fbPlan += part.planFB; kbPlan += part.planKB; mbPlan += part.planMB;
+          fbFact += part.factFB; kbFact += part.factKB; mbFact += part.factMB;
         }
       }
     } else {
@@ -77,12 +82,25 @@ export function recalcSummaryByPeriod(depts: any[], opts: {
     }
 
     filteredSummary[pk] = {
-      kpCount, kpFactCount, kpPlan, kpFact,
-      kpPercent: kpCount > 0 ? kpFactCount / kpCount : 0,
-      epCount, epFactCount, epPlan, epFact,
-      epPercent: epCount > 0 ? epFactCount / epCount : 0,
-      fbPlan, kbPlan, mbPlan, fbFact, kbFact, mbFact,
-      source: 'filtered',
+      // A legacy snapshot without activity × method evidence is not a
+      // zero-competitive/zero-EP period. Expose unavailable, not false zero.
+      kpCount: missingActivitySplit ? null : kpCount,
+      kpFactCount: missingActivitySplit ? null : kpFactCount,
+      kpPlan: missingActivitySplit ? null : kpPlan,
+      kpFact: missingActivitySplit ? null : kpFact,
+      kpPercent: missingActivitySplit ? null : kpCount > 0 ? kpFactCount / kpCount : null,
+      epCount: missingActivitySplit ? null : epCount,
+      epFactCount: missingActivitySplit ? null : epFactCount,
+      epPlan: missingActivitySplit ? null : epPlan,
+      epFact: missingActivitySplit ? null : epFact,
+      epPercent: missingActivitySplit ? null : epCount > 0 ? epFactCount / epCount : null,
+      fbPlan: missingActivitySplit ? null : fbPlan,
+      kbPlan: missingActivitySplit ? null : kbPlan,
+      mbPlan: missingActivitySplit ? null : mbPlan,
+      fbFact: missingActivitySplit ? null : fbFact,
+      kbFact: missingActivitySplit ? null : kbFact,
+      mbFact: missingActivitySplit ? null : mbFact,
+      source: missingActivitySplit ? 'not_comparable' : 'filtered',
     };
   }
   return filteredSummary;

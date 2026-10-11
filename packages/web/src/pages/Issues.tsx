@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, buildControlCases, controlCaseCounters, selectControlCasesWithVisibleEvidence } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
+import { withReviewedIssueStatus } from '../lib/control-status-readmodel';
 import { issueAxesWithoutData } from '../lib/selectors/issues-filtering';
 import {
   allowedIssueTransitions,
@@ -16,6 +17,7 @@ import { natureOf, NATURE_ORDER, NATURE_CATEGORIES, type NatureCategory } from '
 import { pluralRu } from '../lib/economy-copy';
 import { Segmented } from '../components/ui/segmented';
 import { TextHygieneSection } from '../components/text-hygiene/TextHygieneSection';
+import { ControlCaseGuide } from '../components/control/ControlCaseGuide';
 import { FormulaIntegritySection } from '../components/formulas/FormulaIntegritySection';
 import { AlertTriangle, CheckCircle2, Clock, XCircle, Search, Filter, ChevronDown, ChevronUp, MessageSquare, Loader2, Send, GitCommit, Edit3, PlusCircle, Download, Info, ExternalLink, RotateCcw, X } from 'lucide-react';
 import clsx from 'clsx';
@@ -288,15 +290,32 @@ export function IssuesPage() {
    * но переход, о разделе не просивший, открывать вкладку не тем разделом не
    * должен.
    */
+  const issuesSectionSeed = useStore(s => s.issuesSectionSeed);
   const [view, setView] = useState<'checks' | 'hygiene' | 'formulas'>(
     () => useStore.getState().issuesSectionSeed ?? 'checks',
   );
+  // A source link may target a different sub-section while IssuesPage remains
+  // mounted. The old one-shot effect left the wrong list displayed.
   useEffect(() => {
-    if (useStore.getState().issuesSectionSeed) useStore.getState().clearIssuesSectionSeed();
-  }, []);
+    if (issuesSectionSeed) {
+      setView(issuesSectionSeed);
+      useStore.getState().clearIssuesSectionSeed();
+    }
+  }, [issuesSectionSeed]);
   const [sevFilter, setSevFilter] = useState<Set<Severity>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<Status>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Guide selection is strictly a screen state. The case key is snapshot-
+  // scoped and MUST NOT be persisted as a procurement or issue identity.
+  const [focusedCaseKey, setFocusedCaseKey] = useState<string | null>(null);
+  const [showAllCases, setShowAllCases] = useState(false);
+  // A case key identifies evidence only within one snapshot, never a durable
+  // purchase. Prevent a refreshed snapshot from reusing the old selection
+  // for a different row that happens to have the same location.
+  const selectedSnapshotId = dashboardData?.snapshot?.id;
+  useEffect(() => {
+    setFocusedCaseKey(null);
+  }, [selectedSnapshotId]);
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, Status>>({});
   const [statusError, setStatusError] = useState<Record<string, string>>({});
@@ -308,6 +327,11 @@ export function IssuesPage() {
     setStatusError(prev => ({ ...prev, [issueId]: '' }));
     try {
       await api.updateIssueStatus(issueId, target, reason);
+      // A human decision is one saved fact, not an Issues-page-only override:
+      // synchronize all consumers of dashboardData at the same time.
+      useStore.setState(state => ({
+        dashboardData: withReviewedIssueStatus(state.dashboardData, issueId, target),
+      }));
       setStatusOverrides(prev => ({ ...prev, [issueId]: target }));
       setReasonDraft(null);
     } catch (err) {
@@ -395,6 +419,36 @@ export function IssuesPage() {
       return true;
     });
   }, [issues, search, sevFilter, statusFilter, trustFilterOn, trustCheckIds]);
+
+  // The same case projection is used by the server and by Recommendations.
+  // Filter AFTER the common header/local filters; do not invent a new list
+  // with different dates, organizations or legal assumptions.
+  // First form complete cases inside the GLOBAL data perimeter, then select
+  // whole cases via page search/status/severity. A local filter must never
+  // erase accompanying evidence or make a mixed human decision look "open".
+  const allCases = useMemo(() => buildControlCases(
+    fd.issues.map(i => ({ ...i, status: statusOverrides[i.id] ?? i.status })),
+  ), [fd.issues, statusOverrides]);
+  const filteredCases = useMemo(() => selectControlCasesWithVisibleEvidence(
+    allCases, new Set(filtered.map(i => i.id)),
+  ), [allCases, filtered]);
+  const caseCounters = useMemo(() => controlCaseCounters(filteredCases), [filteredCases]);
+  const actionableCases = filteredCases.filter(c =>
+    c.workState !== 'false_positive' && c.workState !== 'exception_recorded',
+  );
+  const focusedCase = filteredCases.find(c => c.caseKey === focusedCaseKey) ?? null;
+
+  const caseImpactLabel = (kind: string): string => {
+    switch (kind) {
+      case 'observed_discrepancy': return 'Подтверждено расхождение расчётов';
+      case 'source_unavailable': return 'Проверка не выполнилась';
+      case 'calculation_possible': return 'Возможное влияние на расчёты';
+      case 'legal_review': return 'Нужно установить правовое основание';
+      case 'source_data': return 'Качество исходных данных';
+      case 'process_review': return 'Нужно разобрать состояние закупки';
+      default: return 'Последствия ещё не установлены';
+    }
+  };
 
   // Карточки диагноста (канон п.53): одна группа = один механизм проверки.
   // Простыня «строка N: предмет» удалена решением владельца (п.69д) — список
@@ -613,6 +667,102 @@ export function IssuesPage() {
         })}
       </div>
 
+      {/* One work queue, with original observations retained below as evidence.
+          A status marked "resolved" without a source re-read is NOT a
+          verified correction; unconfirmed financial effect stays unknown. */}
+      <section aria-label="Общая очередь вопросов контроля"
+        className="bg-white dark:bg-zinc-800/60 rounded-xl border border-zinc-200/70 dark:border-transparent p-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-white">
+              Единые вопросы контроля — {caseCounters.cases}
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              Исходных наблюдений: {caseCounters.observations}.
+              {' '}Требуют разбора: {caseCounters.openForReview}.
+              {' '}Отмечено исправленным, ожидает независимой перепроверки: {caseCounters.awaitingIndependentRecheck}.
+              {' '}Обоснованно признаны ложными: {caseCounters.validatedAsFalsePositive}.
+            </p>
+          </div>
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+            Одно дело — одна проверяемая причина и исходные доказательства
+          </span>
+          {(hasLocalFilter || trustFilterOn) && (
+            <p className="w-full text-[11px] text-zinc-500 dark:text-zinc-400">
+              Отбор показывает подходящие вопросы целиком: внутри сохранены все связанные замечания
+              и их решения, даже если отдельные записи не соответствуют выбранному статусу.
+            </p>
+          )}
+        </div>
+        {actionableCases.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {(showAllCases ? actionableCases : actionableCases.slice(0, 4)).map(c => (
+              <button key={c.caseKey} type="button"
+                aria-pressed={focusedCaseKey === c.caseKey}
+                className={clsx(
+                  'w-full text-left flex flex-wrap items-center gap-3 rounded-lg px-3 py-2.5 transition focus-visible:outline focus-visible:outline-2',
+                  focusedCaseKey === c.caseKey
+                    ? 'bg-[var(--accent-soft)] text-[var(--ink-strong)] ring-1 ring-[var(--accent-line)]'
+                    : 'bg-zinc-50/60 dark:bg-white/[0.05] hover:bg-zinc-100 dark:hover:bg-zinc-700/60',
+                )}
+                onClick={() => setFocusedCaseKey(prev => prev === c.caseKey ? null : c.caseKey)}>
+                <span className="flex-1 min-w-[180px]">
+                  <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-100">{c.label}</span>
+                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    {deptLabel(c.departmentId ?? '')}
+                    {c.row != null ? ` · строка ${c.row}` : ''}
+                    {c.observationCount > 1 ? ` · ${c.observationCount} исходных наблюдений` : ''}
+                  </span>
+                </span>
+                <span className="text-[11px] text-zinc-600 dark:text-zinc-300">{caseImpactLabel(c.impact)}</span>
+                <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                  {focusedCaseKey === c.caseKey ? 'Скрыть разбор' : 'Разобрать'} <span aria-hidden="true">→</span>
+                </span>
+              </button>
+            ))}
+            {actionableCases.length > 4 && (
+              <button type="button" onClick={() => setShowAllCases(v => !v)}
+                className="px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline">
+                {showAllCases ? 'Свернуть очередь' : `Показать все ${actionableCases.length} вопросов`}
+              </button>
+            )}
+          </div>
+        )}
+        {focusedCase && (
+          <div className="mt-3">
+            <ControlCaseGuide
+              key={focusedCase.caseKey}
+              item={focusedCase}
+              onClose={() => setFocusedCaseKey(null)}
+              onOpenEvidence={(id) => {
+                // All evidence survives a local filter. When the selected
+                // observation was hidden by that filter, clear only the PAGE
+                // controls before opening its real original card.
+                if (!filtered.some(i => i.id === id)) {
+                  setSearch('');
+                  setSevFilter(new Set());
+                  setStatusFilter(new Set());
+                  setTrustFilterOn(false);
+                }
+                const allMechanisms = groupIssuesByMechanism(issues, productLabel);
+                const group = allMechanisms.find(g => g.issues.some(i => i.id === id));
+                if (group) setOpenGroups(prev => new Set([...prev, group.key]));
+                setExpandedId(id);
+                window.requestAnimationFrame(() => {
+                  document.getElementById(`issue-body-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+              }}
+              onOpenRegistry={(department) => navigateTo('data', { department })}
+              onReread={() => { void useStore.getState().fetchDashboard(true); }}
+            />
+          </div>
+        )}
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-3">
+          Влияние на суммы и причины предполагаемых отклонений определяются только повторной проверкой.
+          Порядок ниже — по характеру последствий, не оценка работы сотрудников.
+        </p>
+      </section>
+
       {/* Какие оси шапки здесь работают, а какие нечем применить */}
       {deadAxes.length > 0 && (
         <div className="flex items-start gap-2 text-xs bg-white dark:bg-zinc-800/60 rounded-xl shadow-sm border border-zinc-100 dark:border-transparent px-5 py-3">
@@ -783,6 +933,11 @@ export function IssuesPage() {
 
                 {groupOpen && (
                   <div id={groupBodyId} className="space-y-2 px-3 pb-3 border-t border-zinc-100 dark:border-zinc-700/50 pt-3">
+                    {group.consequence.kind !== 'unclassified' && (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed px-1 pb-2">
+                        <strong>Почему это важно:</strong> {group.consequence.explanation}
+                      </p>
+                    )}
                     {groupIssues.map(iss => {
             const sev = SEV_CONFIG[iss.severity] ?? SEV_CONFIG.info;
             const stat = STATUS_CONFIG[iss.status] ?? STATUS_CONFIG.open;
