@@ -179,27 +179,62 @@ git -C /home/aemr/dash rev-parse HEAD > /home/aemr/dash/deploy/.last-known-good
 for img in aemr-server aemr-web; do docker tag "$img:latest" "$img:previous"; done
 ```
 
-## SQLite Backup
+## Полная резервная копия состояния и проверка восстановления
 
-В репозитории нет автоматического cron backup. Делайте backup volume явно:
+**Состояние: процедура подготовлена в PR, но на рабочем VPS не проводилась.**
+Старый пример копирования одного \`aemr.db\` при работающем сервисе
+**не является надёжным backup**: SQLite может использовать WAL, а отчёты
+держат дополнительные базы, журнал рекомендаций, immutable releases, DOCX,
+архивы и прочую историю в одном томе \`server_data\`.
+
+Добавлен \`deploy/verify-state-backup.sh\`. Он работает только когда оператор
+**уже остановил запись** и явно проверил согласованное окно, сам не выполняет
+\`stop\`, \`up\`, \`migrate\`, \`run-google\` или публикацию. Он:
+
+1. Fail-closed удостоверяет через Docker inspect, что \`server\` остановлен,
+   а \`report-worker\` отсутствует либо тоже остановлен; закрепляет
+   существующие container/image/volume (а не предполагает имя тома).
+2. Читает весь том \`server_data\` через Docker mount **read-only** и делает
+   отдельную копию вне тома с SHA-256 каждого файла, владельцами,
+   разрешениями и сохранением пустых каталогов. Изменение источника
+   во время копирования или неполнота обязательных файлов останавливает процесс.
+3. В отдельном временном Docker volume пересоздаёт копию, сверяет
+   содержимое и метаданные, проверяет SQLite \`PRAGMA integrity_check\`
+   и целостность каждого DOCX. Временный том удаляется.
+4. Печатает только технические счётчики и фиксированные статусы, без
+   исходных строк, комментариев, идентификаторов или секретов.
+
+В согласованное окно **и только после отдельного допуска** оператор может
+использовать следующие шаги (пути и ID копии выбрать до начала):
 
 ```bash
-docker run --rm \
-  -v aemr_server_data:/data:ro \
-  -v "$PWD":/backup \
-  alpine sh -c 'cp /data/aemr.db /backup/aemr-db-$(date +%F-%H%M%S).db'
-```
-
-Restore:
-
-```bash
+cd /home/aemr/dash/deploy
+# /private/backups/aemr должен существовать, быть закрыт от посторонних
+# и находиться вне repository/server_data. Скрипт не создаёт корневую папку.
+docker compose --env-file .env.production --profile reports stop report-worker
 docker compose --env-file .env.production stop server
-docker run --rm \
-  -v aemr_server_data:/data \
-  -v "$PWD":/backup \
-  alpine sh -c 'cp /backup/aemr.db /data/aemr.db && chown 1000:1000 /data/aemr.db'
-docker compose --env-file .env.production start server
+bash verify-state-backup.sh /private/backups/aemr RELEASE-APPROVED-SHA
 ```
+
+Не использовать пример выше как команду для запуска из этого аудита:
+остановка двух служб — **production-операция**, требует отдельного решения.
+Не хранить резервные копии и \`manifest.json\` в Git или публичном Actions.
+Нужны независимое хранилище и проверка возможности восстановления данных
+и образов старого рабочего выпуска.
+
+**Граница результата.** Успешная пробная распаковка и SQLite/DOCX integrity
+показывают побайтовую сохранность \`server_data\`, но не подтверждают работающий
+старый сервер, атомарность правок Google Sheets, сохранность всех внешних
+зависимостей или успешный релизный rollback. Для допуска обязательны:
+проверенный restore в отдельном старом runtime, все ссылки snapshot/receipt,
+предыдущее image digest, контроль старых DOCX, проверка версии источников,
+затем контролируемый запуск и два самостоятельных цикла worker.
+
+Текущий \`deploy/rollback.sh\` возвращает **только код и образы**, но не
+содержимое \`server_data\`. Его нельзя считать самостоятельным планом
+восстановления после миграции БД. \`enable-reports.sh\` также пока меняет
+report state и может публиковать новый выпуск — использовать только после
+полного выпускного допуска.
 
 ## Web Auth Bootstrap
 
