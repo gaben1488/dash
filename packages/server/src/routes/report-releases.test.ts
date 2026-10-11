@@ -116,6 +116,7 @@ it('starts a single manual refresh and responds without waiting for full Google 
   const first = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
   expect(first.statusCode).toBe(202);
   expect(first.json().status).toBe('STARTED');
+  expect(first.json().message).toContain('не подтверждён');
   await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   const other = await app.inject({ method: 'POST', url: '/api/report-releases/refresh', payload: {} });
   expect(other.statusCode).toBe(202);
