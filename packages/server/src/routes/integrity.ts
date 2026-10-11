@@ -64,6 +64,7 @@ import {
 import { db, schema } from '../db/index.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
 import { productCalendarDay } from '../services/product-calendar.js';
+import { isDataRow } from '../services/rows-dto.js';
 import { getDeptCacheFilledAt, getDeptLoadMeta, getDeptSheetValues, getWeeklySnapshotHistory } from '../services/snapshot.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 
@@ -276,9 +277,16 @@ export function atomsToSnapshotRows(atoms: readonly AtomRow[]): Map<string, Snap
     try {
       cells = JSON.parse(atom.cellsJson) as Record<string, unknown>;
     } catch {
-      // Повреждённый JSON строки — пропускаем её, а не роняем сравнение книги.
+      // Повреждённый JSON строки учитывается отдельной проверкой целостности
+      // контрольного среза; функция конвертации не утверждает полноту.
       continue;
     }
+    // Один и тот же предикат для исторических атомов и текущего листа:
+    // иначе строки шапки/разделов могут выглядеть «исчезнувшими закупками».
+    if (!isDataRow({
+      id: cells.A ?? '', subject: cells.G ?? '',
+      method: String(cells.L ?? ''), planSum: atom.planAmount ?? 0,
+    })) continue;
     const bucket = byDept.get(atom.departmentId) ?? [];
     bucket.push({
       rowSeq: String(cells.A ?? '').trim(),
@@ -331,9 +339,10 @@ export function currentSheetToSnapshotRows(values: readonly unknown[][]): Snapsh
     if (index < DEPT_HEADER_ROWS || !Array.isArray(raw)) return;
     const rowSeq = text(raw, DEPT_COLUMNS.ID);
     const subject = text(raw, DEPT_COLUMNS.SUBJECT);
-    // Строка разметки/итогов не должна маскироваться под пропавшую закупку.
-    if ((!rowSeq && !subject) || isMetaRow(subject)) return;
+    // Канон фильтра — тот же isDataRow, что и в SQL-атомах /api/rows.
+    const method = text(raw, DEPT_COLUMNS.METHOD);
     const planSum = money(raw, DEPT_COLUMNS.TOTAL_PLAN);
+    if (!isDataRow({ id: rowSeq, subject, planSum: planSum ?? 0, method })) return;
     const factSum = money(raw, DEPT_COLUMNS.TOTAL_FACT);
     result.push({
       rowSeq,
@@ -342,7 +351,7 @@ export function currentSheetToSnapshotRows(values: readonly unknown[][]): Snapsh
       subordinate: orgLabel(raw[DEPT_COLUMNS.SUBORDINATE]),
       ...(planSum === null ? {} : { planSum }),
       ...(factSum === null ? {} : { factSum }),
-      method: text(raw, DEPT_COLUMNS.METHOD),
+      method,
     });
   });
   return result;

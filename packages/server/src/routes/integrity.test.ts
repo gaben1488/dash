@@ -136,6 +136,35 @@ describe('atomsToSnapshotRows + diffSnapshots — пропажа строки', 
 });
 
 
+
+describe('единая классификация строк для исторического контроля и текущего чтения', () => {
+  const history = (row: Record<string, unknown>, rowIndex: number, planAmount: number) => ({
+    snapshotId: 'history', departmentId: 'uer', rowIndex,
+    cellsJson: JSON.stringify(row), subject: String(row.G ?? ''),
+    planAmount, factAmount: null,
+  });
+
+  it('служебный итог/заголовок не создаёт ложное исчезновение закупки', () => {
+    const before = atomsToSnapshotRows([
+      history({ A: '1', C: 'Школа', G: 'Ремонт', L: 'ЕП' }, 4, 100),
+      history({ A: 'ИТОГО', G: 'Итого', L: 'Подзаголовок' }, 5, 500),
+    ]).get('uer') ?? [];
+    const live = [
+      ...HEADER,
+      row({ 0: '1', 2: 'Школа', 6: 'Ремонт', 10: 100, 11: 'ЕП' }),
+    ];
+    const after = currentSheetToSnapshotRows(live);
+    expect(before.map((r) => r.rowSeq)).toEqual(['1']);
+    expect(after.map((r) => r.rowSeq)).toEqual(['1']);
+    expect(diffSnapshots(before, after).vanished).toEqual([]);
+  });
+
+  it('разметочная строка без предмета и без плана не становится закупкой', () => {
+    const live = [...HEADER, row({ 0: '2' })];
+    expect(currentSheetToSnapshotRows(live)).toEqual([]);
+  });
+});
+
 describe('текущие книги против последнего контрольного четверга', () => {
   const snap = (id: string, createdAt: string) => ({ id, createdAt });
 
