@@ -235,6 +235,18 @@ it('explains known live geometry failure without leaking raw diagnostic blockers
   expect(result.current.status).toContain('Новый комплект не выпущен');
 });
 
+
+it('names an access rejection on the refresh button rather than saying only that update failed', async () => {
+  request.mockImplementation(async (url: string) => url === '/api/report-releases/refresh'
+    ? { ok: false, status: 401, text: async () => 'private edge reply' }
+    : response(receipt));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release).not.toBeNull());
+  await act(() => result.current.refresh());
+  expect(result.current.refreshNotice).toContain('401');
+  expect(result.current.refreshNotice).not.toContain('private edge reply');
+});
+
 it('cannot overwrite historical inputs through the live refresh action', async () => {
   request.mockResolvedValue(response(receipt));
   const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
