@@ -116,3 +116,80 @@ def test_frozen_identity_reader_projects_dated_reviews_independently(tmp_path):
         evidence={'source_ref': 'synthetic', 'reason': 'documented identity'})
     assert read_saved_identity(store.path, 's2', as_of='2026-10-01T00:00:00Z')['rows'][0]['procurement_uid'] is None
     assert read_saved_identity(store.path, 's2', as_of='2026-10-03T00:00:00Z')['rows'][0]['procurement_uid'] == uid
+
+
+def test_scoped_retention_recovery_repairs_old_donor_without_rewriting_results(tmp_path):
+    from procurement_engine.runtime import run_once
+    from test_clean_documents import BusinessGoogle
+    from test_runtime import inputs
+
+    registry, ledger = inputs(tmp_path)
+    state = tmp_path / 'state'
+    first = run_once(registry, ledger, state, client=BusinessGoogle())
+    assert first['status'] == 'VERIFIED'
+
+    class UpdatedGoogle(BusinessGoogle):
+        def values(self, provider, title, start, end, columns):
+            values = super().values(provider, title, start, end, columns)
+            if provider == 'master-0':
+                for physical, value in enumerate(values, start):
+                    if physical == 5:
+                        value[31] = 'Later factual comment'
+            return values
+
+    second = run_once(registry, ledger, state, client=UpdatedGoogle())
+    assert second['status'] == 'VERIFIED'
+    store = IdentityStore(state / 'identity.sqlite')
+    with closing(store.connect()) as db, db:
+        db.execute('UPDATE observations SET plan_signature=NULL,entity_signature=NULL WHERE snapshot_id=?', (first['snapshot_id'],))
+        frozen = db.execute('SELECT snapshot_id,result FROM snapshots ORDER BY seq').fetchall()
+        later = db.execute('SELECT * FROM observations WHERE snapshot_id=? ORDER BY locator', (second['snapshot_id'],)).fetchall()
+    donors = list((state / 'published/releases').glob('*/snapshot_bundle'))
+    diagnostics = {}
+    repaired = store.recover_latest_plan_signatures(donors, required_snapshot_ids={first['snapshot_id']}, diagnostics=diagnostics)
+    assert repaired > 0
+    assert diagnostics['unrecovered_snapshots'] == 0
+    with closing(store.connect()) as db:
+        assert [tuple(r) for r in db.execute('SELECT snapshot_id,result FROM snapshots ORDER BY seq')] == [tuple(r) for r in frozen]
+        assert [tuple(r) for r in db.execute('SELECT * FROM observations WHERE snapshot_id=? ORDER BY locator', (second['snapshot_id'],))] == [tuple(r) for r in later]
+        assert db.execute('SELECT COUNT(*) FROM observations WHERE snapshot_id=? AND (plan_signature IS NULL OR entity_signature IS NULL)', (first['snapshot_id'],)).fetchone()[0] == 0
+    assert store.recover_latest_plan_signatures(donors, required_snapshot_ids={first['snapshot_id']}) == 0
+
+
+def test_explicit_empty_recovery_does_not_fall_back_to_latest(tmp_path):
+    store, original, _ = legacy_store(tmp_path)
+    diagnostics = {}
+    assert store.recover_latest_plan_signatures([], required_snapshot_ids=set(), diagnostics=diagnostics) == 0
+    assert diagnostics['unrecovered_snapshots'] == 0
+    with closing(store.connect()) as db:
+        assert db.execute('SELECT plan_signature FROM observations WHERE snapshot_id=?', (original.snapshot_id,)).fetchone()[0] is None
+
+
+def test_unknown_required_snapshot_is_rejected(tmp_path):
+    store, _, _ = legacy_store(tmp_path)
+    with pytest.raises(ValueError, match='IDENTITY_BACKFILL_TARGET_MISSING'):
+        store.recover_latest_plan_signatures([], required_snapshot_ids={'unknown'})
+
+
+def test_required_old_donor_missing_cannot_report_complete(tmp_path):
+    store, original, _ = legacy_store(tmp_path)
+    diagnostics = {}
+    assert store.recover_latest_plan_signatures([], required_snapshot_ids={original.snapshot_id}, diagnostics=diagnostics) == 0
+    assert diagnostics['unrecovered_snapshots'] == 1
+
+
+def test_required_target_without_observations_is_rejected(tmp_path):
+    store, original, _ = legacy_store(tmp_path)
+    with closing(store.connect()) as db, db:
+        db.execute('DELETE FROM observations WHERE snapshot_id=?', (original.snapshot_id,))
+    with pytest.raises(ValueError, match='IDENTITY_BACKFILL_TARGET_MISSING'):
+        store.recover_latest_plan_signatures([], required_snapshot_ids={original.snapshot_id})
+
+
+def test_explicit_retention_recovery_refuses_transient_donor(tmp_path):
+    store, original, _ = legacy_store(tmp_path)
+    donor = tmp_path / 'attempts' / 'transient' / 'bundle' / 'snapshot_bundle'
+    donor.mkdir(parents=True)
+    (donor / 'manifest.json').write_text(json.dumps({'snapshot_id': original.snapshot_id}))
+    with pytest.raises(ValueError, match='IDENTITY_BACKFILL_DONOR_NOT_SEALED'):
+        store.recover_latest_plan_signatures([donor], required_snapshot_ids={original.snapshot_id})

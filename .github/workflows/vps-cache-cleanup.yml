@@ -9,6 +9,54 @@ permissions:
   contents: read
 
 jobs:
+  identity-retention-proof:
+    if: >-
+      github.event.label.name == 'maintenance: identity-retention-proof' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Prove historical identity recovery on private scratch restore
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 14m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            work=$(mktemp -d)
+            trap 'rm -rf "$work"' EXIT
+            git archive "$candidate" packages/report-engine deploy/plan-weekly-publications.py \
+              deploy/prove-weekly-identity-recovery.py | tar -x -C "$work"
+            # This directory contains reviewed repository code only, no live data.
+            chmod -R a+rX "$work"
+            cd deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            data_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$server")
+            case "$data_volume" in ''|*[!A-Za-z0-9_.-]*) exit 2 ;; esac
+            docker volume inspect "$data_volume" >/dev/null
+            docker run --rm --network none --read-only \
+              --mount type=volume,dst=/tmp \
+              -v "$data_volume:/app/packages/server/data:ro" \
+              -v "$work:/candidate:ro" \
+              -e PYTHONPATH=/candidate/packages/report-engine/src \
+              --entrypoint /opt/report-env/bin/python "$image" -B \
+              /candidate/deploy/prove-weekly-identity-recovery.py --state /app/packages/server/data/reports
   weekly-census:
     if: >-
       github.event.label.name == 'maintenance: weekly-census' &&

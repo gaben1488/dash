@@ -103,3 +103,14 @@ JSON записываются компактно и потоком; значен
 Оптимизация времени загрузки страниц, таблиц и API ведётся отдельно от
 минимизации диска: она требует собственных baseline, нагрузочных замеров и
 проверки времени ответа/рендера. Уменьшение объёма хранения её не закрывает.
+
+
+Перед удалением sealed исторических доноров требуется доказать, что
+identity.sqlite хранит все производные plan/entity signatures для их snapshot
+IDs. Read-only census12.10 выявил8126 NULLзначений. Для восстановления
+переиспользуется строгий IdentityStore.backfill_plan_signatures: полное покрытие
+locator, исходный fingerprint и UID должны совпасть; обновляются только NULL
+метаданные. Frozenresults и экспертные решения не переписываются. Explicit
+список targets расширяет существующий recovery, не меняя обычный latest/chain
+режим. Missingdonor остаётся блокером; нужен и счётчик unrecovered=0, и повторный
+NULLcoverage=0. До liveизменения identity — privatebackup и scratchrestore.

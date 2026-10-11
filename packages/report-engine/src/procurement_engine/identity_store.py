@@ -266,32 +266,47 @@ class IdentityStore:
                 updated += int(changed)
         return updated
 
-    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None):
-        """Recover the complete previous import from its sealed source payloads."""
+    def recover_latest_plan_signatures(self, bundle_roots, *, recover_chain=False, diagnostics=None, required_snapshot_ids=None):
+        """Recover derived migration metadata from sealed source payloads.
+
+        Explicit targets support retention preparation. None preserves runtime's
+        latest/chain selection; an empty set never falls back to that selection.
+        Frozen results, UIDs and source signatures remain unchanged.
+        """
         from .adapters import normalize_master_values
         from .snapshot_bundle_io import verify_persisted_bundle
 
         if diagnostics is not None:
             diagnostics.update(skipped_transient_donors=0, unrecovered_snapshots=0)
         with closing(self.connect()) as db:
-            latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
-            if latest is None:
-                return 0
-            earliest = latest['seq']
-            if recover_chain:
-                # Only restore the observed chain needed by currently unresolved
-                # anchors, not an unbounded scan of all unrelated historic rows.
-                prior = db.execute("""SELECT MIN(start_seq) FROM (
-                    SELECT MAX(s.seq) AS start_seq FROM observations current
-                    JOIN observations known ON known.anchor=current.anchor AND known.business_id=current.business_id
-                    JOIN snapshots s ON s.snapshot_id=known.snapshot_id
-                    WHERE current.snapshot_id=? AND current.uid IS NULL AND known.uid IS NOT NULL
-                    GROUP BY current.locator)""", (latest['snapshot_id'],)).fetchone()[0]
-                if prior is not None:
-                    earliest = min(earliest, prior)
-            targets = {item['snapshot_id'] for item in db.execute("""SELECT DISTINCT s.snapshot_id
-                FROM snapshots s JOIN observations o ON o.snapshot_id=s.snapshot_id
-                WHERE s.seq>=? AND (o.plan_signature IS NULL OR o.entity_signature IS NULL)""", (earliest,))}
+            if required_snapshot_ids is not None:
+                requested = set(required_snapshot_ids)
+                if any(not isinstance(sid, str) or not sid for sid in requested):
+                    raise ValueError('IDENTITY_BACKFILL_TARGET_INVALID')
+                known = {r[0] for r in db.execute('SELECT snapshot_id FROM snapshots')}
+                observed = {r[0] for r in db.execute('SELECT DISTINCT snapshot_id FROM observations')}
+                if not requested <= known & observed:
+                    raise ValueError('IDENTITY_BACKFILL_TARGET_MISSING')
+                targets = {r[0] for r in db.execute('SELECT DISTINCT snapshot_id FROM observations WHERE plan_signature IS NULL OR entity_signature IS NULL') if r[0] in requested}
+            else:
+                latest = db.execute('SELECT snapshot_id, seq FROM snapshots ORDER BY seq DESC LIMIT 1').fetchone()
+                if latest is None:
+                    return 0
+                earliest = latest['seq']
+                if recover_chain:
+                    # Only restore the observed chain needed by currently unresolved
+                    # anchors, not an unbounded scan of all unrelated historic rows.
+                    prior = db.execute("""SELECT MIN(start_seq) FROM (
+                        SELECT MAX(s.seq) AS start_seq FROM observations current
+                        JOIN observations known ON known.anchor=current.anchor AND known.business_id=current.business_id
+                        JOIN snapshots s ON s.snapshot_id=known.snapshot_id
+                        WHERE current.snapshot_id=? AND current.uid IS NULL AND known.uid IS NOT NULL
+                        GROUP BY current.locator)""", (latest['snapshot_id'],)).fetchone()[0]
+                    if prior is not None:
+                        earliest = min(earliest, prior)
+                targets = {item['snapshot_id'] for item in db.execute("""SELECT DISTINCT s.snapshot_id
+                    FROM snapshots s JOIN observations o ON o.snapshot_id=s.snapshot_id
+                    WHERE s.seq>=? AND (o.plan_signature IS NULL OR o.entity_signature IS NULL)""", (earliest,))}
         if not targets:
             return 0
         updated = 0
@@ -304,6 +319,8 @@ class IdentityStore:
             # half-written bundle left by a killed/failed run. published/releases/
             # is immutable evidence: corruption there must remain fail-closed.
             immutable = ('published' in root.parts and 'releases' in root.parts) or 'archives' in root.parts
+            if required_snapshot_ids is not None and not immutable:
+                raise ValueError('IDENTITY_BACKFILL_DONOR_NOT_SEALED')
             try:
                 manifest = json.loads(path.read_text(encoding='utf-8'))
                 if not isinstance(manifest, dict):

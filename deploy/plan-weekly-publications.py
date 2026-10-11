@@ -95,10 +95,10 @@ def plan(state):
         with _connect(identity_path) as db:
             db.execute('BEGIN')
             missing = missing_snapshots = 0
-            for rid in retired:
-                sid = metadata[rid]['snapshot_id']
-                if not isinstance(sid, str) or not sid:
-                    raise ValueError('RETENTION_SNAPSHOT_INVALID')
+            targets = {metadata[rid]['snapshot_id'] for rid in retired}
+            if any(not isinstance(sid, str) or not sid for sid in targets):
+                raise ValueError('RETENTION_SNAPSHOT_INVALID')
+            for sid in targets:
                 if db.execute('SELECT COUNT(*) FROM observations WHERE snapshot_id=?', (sid,)).fetchone()[0] == 0:
                     missing_snapshots += 1
                 missing += db.execute('SELECT COUNT(*) FROM observations WHERE snapshot_id=? AND (plan_signature IS NULL OR entity_signature IS NULL)', (sid,)).fetchone()[0]
@@ -111,11 +111,20 @@ def plan(state):
             'catalog_revision': hashlib.sha256(json.dumps(records, separators=(',', ':')).encode()).hexdigest()}
 
 
-if __name__ == '__main__':
+def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--state', required=True)
-    args = parser.parse_args()
-    result = plan(args.state)
+    args = parser.parse_args(argv)
+    try:
+        result = plan(args.state)
+    except Exception:  # noqa: BLE001 — CLI boundary must never expose private paths or content.
+        print(json.dumps({'status': 'CENSUS_BLOCKED', 'error_code': 'RETENTION_CENSUS_FAILED'}))
+        return 2
     result.pop('keep_release_ids')
     result.pop('retire_release_ids')
     print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -100,6 +100,27 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             self.assertNotIn(rid, result.stdout)
             self.assertNotIn('keep_release_ids', result.stdout)
 
+    def test_multiple_releases_of_one_snapshot_do_not_duplicate_identity_defects(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            first = self.add(published, 1, '2026-09-28')
+            second = self.add(published, 2, '2026-09-29')
+            for n in range(3, 6):
+                self.add(published, n, f'2026-10-{n-2:02d}')
+            with sqlite3.connect(published / 'publications.sqlite') as db:
+                receipt = json.loads(db.execute('SELECT receipt FROM publications WHERE release_id=?', (second,)).fetchone()[0])
+                receipt['snapshot_id'] = 'SNAP-1'
+                db.execute('UPDATE publications SET receipt=? WHERE release_id=?', (json.dumps(receipt), second))
+            with sqlite3.connect(root / 'identity.sqlite') as db:
+                db.execute('CREATE TABLE observations (snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+                db.executemany('INSERT INTO observations VALUES (?,?,?)', [('SNAP-1', None, None), ('SNAP-3', 'valid', 'valid')])
+            result = tool.plan(root)
+            self.assertIn(first, result['retire_release_ids'])
+            self.assertIn(second, result['retire_release_ids'])
+            self.assertEqual(result['identity_missing_signatures'], 1)
+
     def test_absent_identity_observations_cannot_be_reported_ready(self):
         tool = self.load_tool()
         with tempfile.TemporaryDirectory() as tmp:
