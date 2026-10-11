@@ -141,6 +141,7 @@ await figma.ui.onmessage({kind:'all',...props});
 assert.ok(!messages.at(-1).error,JSON.stringify(messages.at(-1)));
 const homeFrames=pages[0].children.filter(x=>x.name.startsWith('DASH / INDEX /'));
 assert.equal(homeFrames.length,1,'one-click build must enrich the existing Foundations page');
+assert.ok(homeFrames[0].x<1400,'foundations map must stack below, not widen the canvas');
 assert.ok(walk(homeFrames[0]).filter(x=>x.type==='TEXT').some(x=>x.characters.includes('13 реальных маршрутов')||x.characters.includes('НАСТОЯЩИЙ БАРАБАН')),'home cannot remain only color swatches');
 assert.equal(pages[1].children.filter(x=>x.type==='COMPONENT_SET').length,5,'all call duplicated component sets');
 assert.equal(pages[2].children.filter(x=>x.name.startsWith('DASH / ')).length,27,'all call duplicated existing screens');
