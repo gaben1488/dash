@@ -132,6 +132,52 @@ jobs:
             else
               echo 'report_status_readback=SERVER_NOT_RUNNING'
             fi
+            echo '=== Report browser-path forensic preflight (read-only) ==='
+            # Fastify JSON is not enough: the actual browser enforces @aemr/shared
+            # Zod. Check production's exact selected date and schema without exposing
+            # row values, documents, release IDs or authorization headers.
+            if docker compose --env-file .env.production ps --status running --quiet server | grep -q .; then
+              docker compose --env-file .env.production exec -T server ./node_modules/.bin/tsx -e '
+                import { readFileSync } from "node:fs";
+                import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
+                void (async () => {
+                  const x = JSON.parse(readFileSync("/app/packages/server/data/reports/status.json","utf8"));
+                  const day = x.publication?.report_date || x.report_date;
+                  if (typeof day !== "string" || !/^\d{2}\.\d{2}\.\d{4}$/.test(day)) {
+                    console.log(JSON.stringify({report_status_contract:"NO_VALID_DATE"})); return;
+                  }
+                  const [d,m,y] = day.split(".");
+                  const date = y+"-"+m+"-"+d;
+                  const quarter = Math.ceil(Number(m)/3);
+                  const url = "http://127.0.0.1:3000/api/report-releases?date="+date+"&year="+y+"&quarter="+quarter;
+                  const resp = await fetch(url,{headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(25000)});
+                  const value = await resp.json();
+                  const parsed = SelectedReportReleaseStatusSchema.safeParse(value);
+                  console.log(JSON.stringify({
+                    report_status_http:resp.status,
+                    browser_zod_contract:parsed.success?"PASS":"FAIL",
+                    selected_present:Boolean(value?.selected),
+                    errors:parsed.success?[]:parsed.error.issues.slice(0,6).map(e=>({
+                      path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),
+                      code:e.code
+                    }))
+                  }));
+                })().catch(() => console.log(JSON.stringify({report_browser_contract:"READ_ONLY_CHECK_FAILED"})));
+              ' 2>/dev/null || echo 'browser_schema_probe=UNAVAILABLE'
+            fi
+            # Caddy access telemetry never prints URLs, identities, query values,
+            # tokens or IPs: only finite status labels for report endpoints.
+            docker compose --env-file .env.production logs --since 45m --no-color caddy 2>/dev/null \
+              | tail -n 1200 \
+              | python3 -c 'import collections,json,re,sys; counts=collections.Counter(); total=0; 
+for line in sys.stdin:
+ if "/api/report-releases" not in line: continue
+ total+=1
+ match=re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",line)
+ counts[match.group(1) if match else "UNKNOWN"]+=1
+print(json.dumps({"report_endpoint_log_entries":total,"http_status_classes":dict(counts)},sort_keys=True))' \
+              || echo 'edge_access_diagnostic=UNAVAILABLE'
+            echo '=== End report browser-path preflight ==='
             echo 'report_worker_diagnostic=READ_ONLY_COMPLETED'
   source-schema:
     if: >-
