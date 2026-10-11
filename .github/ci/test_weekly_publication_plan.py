@@ -3,6 +3,8 @@ import importlib.util
 import json
 import sqlite3
 import sys
+import subprocess
+import textwrap
 import tempfile
 import unittest
 from pathlib import Path
@@ -80,6 +82,23 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             (published / 'releases' / rid / 'escape').symlink_to(root)
             with self.assertRaises(ValueError):
                 tool.plan(root)
+
+    def test_exact_workflow_bootstrap_executes_candidate_and_emits_only_aggregates(self):
+        workflow = SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml'
+        source = workflow.read_text().split("<<'PYPROBE'\n", 1)[1].split('            PYPROBE', 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            rid = self.add(published, 1, '2026-10-01')
+            output = root / 'probe.py'
+            subprocess.run([sys.executable, '-', str(SCRIPT.parents[1] / 'packages/report-engine/src/procurement_engine/readonly_catalog.py'), str(SCRIPT), str(output)],
+                           input=textwrap.dedent(source), text=True, check=True, capture_output=True)
+            result = subprocess.run([sys.executable, str(output), '--state', str(root)],
+                                    text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['publication_count'], 1)
+            self.assertNotIn(rid, result.stdout)
+            self.assertNotIn('keep_release_ids', result.stdout)
 
     def test_absent_identity_observations_cannot_be_reported_ready(self):
         tool = self.load_tool()

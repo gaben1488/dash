@@ -51,7 +51,7 @@ jobs:
             bootstrap = "import sys, types\nmodule=types.ModuleType('procurement_engine.readonly_catalog')\n"
             bootstrap += "exec(compile(" + repr(catalog.read_text()) + ", '<reviewed-catalog>', 'exec'), module.__dict__)\n"
             bootstrap += "sys.modules[module.__name__]=module\n"
-            output.write_text(bootstrap + planner.read_text())
+            output.write_text(bootstrap + "exec(compile(" + repr(planner.read_text()) + ", '<reviewed-weekly-plan>', 'exec'))\n")
             PYPROBE
             cd deploy
             df -PB1 /
