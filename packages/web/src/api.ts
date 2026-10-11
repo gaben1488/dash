@@ -237,13 +237,18 @@ async function fetchResponse(url: string, init?: RequestInit): Promise<Response>
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  // Attach Bearer token if configured (for auth middleware), unless the caller already set one
+  // Production is served through Caddy Basic auth. The browser owns the
+  // cached Basic credentials and Caddy injects the server-side Bearer token.
+  // A legacy aemr_api_key in localStorage MUST NOT overwrite Authorization:
+  // Bearer would be rejected by Caddy as invalid Basic credentials.
+  // Only the direct local development API needs a browser-supplied Bearer.
   const apiKey = typeof localStorage !== 'undefined' ? localStorage.getItem('aemr_api_key') : null;
-  if (apiKey && !headers.has('Authorization')) {
+  if (!import.meta.env.PROD && apiKey && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${apiKey}`);
   }
   const res = await fetch(`${API_BASE}${url}`, {
     ...init,
+    credentials: init?.credentials ?? 'same-origin',
     headers,
   });
   if (!res.ok) {
