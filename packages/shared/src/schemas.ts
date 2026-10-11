@@ -533,7 +533,9 @@ export const ReportActionSchema = z.object({
   })),
 });
 export const ReportAssuranceSchema = z.object({
-  contract: z.literal('actionable-assurance-v1'), fully_automated: z.boolean(),
+  // Historical releases use v1; the current report engine publishes v2.
+  // Accept only these two reviewed versions, not arbitrary future contracts.
+  contract: z.enum(['actionable-assurance-v1', 'actionable-assurance-v2']), fully_automated: z.boolean(),
   user_action_count: z.number().int().nonnegative(), engine_action_count: z.number().int().nonnegative(),
   active_recommendations: z.number().int().nonnegative(),
   link_status_counts: z.record(z.string(), z.number().int().nonnegative()),
