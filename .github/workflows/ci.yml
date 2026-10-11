@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      release_sha:
+        description: "Exact 40-character main SHA to release"
+        type: string
+        required: true
+      backup_root:
+        description: "Absolute private backup directory outside repository and server_data"
+        type: string
+        required: true
+      backup_name:
+        description: "Previously verified immutable backup name in that directory"
+        type: string
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -135,8 +148,18 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: [verify, report-engine, server-image, deploy_scope]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.deploy_scope.outputs.runtime_changed == 'true'
+    # No unattended production writes on a main push. Only a separately
+    # approved, exact-SHA dispatch with a verified backup is eligible.
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release_sha == github.sha &&
+      needs.verify.result == 'success' &&
+      needs.report-engine.result == 'success' &&
+      needs.server-image.result == 'success'
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 20
     env:
       # Deployment address confirmed by the owner; do not rely on a stale secret.
@@ -145,6 +168,29 @@ jobs:
       group: deploy-vps
       cancel-in-progress: false
     steps:
+      - name: Validate explicit release intent
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          BACKUP_ROOT: ${{ inputs.backup_root }}
+          BACKUP_NAME: ${{ inputs.backup_name }}
+        run: |
+          case "$RELEASE_SHA" in
+            *[!0-9a-f]*|'') exit 2 ;;
+          esac
+          test "${#RELEASE_SHA}" -eq 40
+          test "$RELEASE_SHA" = "$GITHUB_SHA"
+          case "$BACKUP_ROOT" in
+            /*) ;;
+            *) exit 2 ;;
+          esac
+          case "$BACKUP_ROOT" in
+            *[!A-Za-z0-9_./-]*) exit 2 ;;
+          esac
+          case "$BACKUP_NAME" in
+            ''|*[!A-Za-z0-9_.-]*) exit 2 ;;
+          esac
+          echo 'Explicit exact-SHA release input validated; production state still untouched.'
+
       - name: Check deployment configuration without exposing credentials
         env:
           PREVIOUS_DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -176,6 +222,7 @@ jobs:
             cd /home/aemr/dash
             cd deploy
             previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            verification_dir=
             restore_worker_on_failure() {
               result=$?
               trap - EXIT
@@ -192,9 +239,35 @@ jobs:
                   echo 'REPORT_WORKER_RESTORE_FAILED: the previous worker is not running.' >&2
                 fi
               fi
+              if [ -n "$verification_dir" ]; then
+                rm -rf "$verification_dir"
+              fi
               exit "$result"
             }
             trap restore_worker_on_failure EXIT
+
+            # Backup and scratch restore must succeed BEFORE any production
+            # image, code, source, report state or scheduler is modified.
+            verified_backup_root='${{ inputs.backup_root }}'
+            verified_backup_name='${{ inputs.backup_name }}'
+            test -f "$verified_backup_root/$verified_backup_name/manifest.json"
+            verification_dir=$(mktemp -d /tmp/aemr-release-check.XXXXXX)
+            release_sha='${{ github.sha }}'
+            cd ..
+            git fetch --quiet origin "$release_sha"
+            git show "$release_sha:deploy/stateful_backup.py" > "$verification_dir/stateful_backup.py"
+            cd deploy
+            current_server=$(docker compose --env-file .env.production ps --all --quiet server)
+            test -n "$current_server"
+            server_image=$(docker inspect --format '{{.Image}}' "$current_server")
+            case "$server_image" in sha256:*) ;; *) exit 2 ;; esac
+            docker run --rm --network none --read-only --user 0 \
+              --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
+              --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
+              --mount type=volume,dst=/scratch \
+              --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
+              --backup "/backups/$verified_backup_name" --scratch-parent /scratch
+            echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'
 
             # Storage is a deployment prerequisite, not a post-failure repair.
             # Keep rollback-tagged images and reusable build layers. Removing
