@@ -41,6 +41,9 @@ jobs:
       - name: Verify deployment scope (no production writes)
         run: python3 -m unittest discover -s .github/ci -p 'test_deploy_scope.py' -v
 
+      - name: Verify stateful backup and scratch restore (synthetic; no VPS)
+        run: python3 -m unittest discover -s .github/ci -p 'test_stateful_backup.py' -v
+
       - name: ESLint
         run: pnpm lint
 
