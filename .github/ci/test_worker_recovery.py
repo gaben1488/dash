@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -152,6 +153,43 @@ class WorkerRecoveryTests(unittest.TestCase):
             (backup/'backup/manifest.json').write_bytes(b'changed')
             with self.assertRaisesRegex(self.module.RecoveryError, 'WORKER_BACKUP_RECEIPT_INVALID'):
                 self.module.Recovery(repo, session)
+
+    def test_failure_diagnostics_are_saved_privately_before_destructive_report_restore(self):
+        recovery = self.module.Recovery.__new__(self.module.Recovery)
+        recovery.worker = 'b'*64
+        with tempfile.TemporaryDirectory() as tmp:
+            recovery.session = Path(tmp)
+            def copy(args, **kwargs):
+                self.assertEqual(args[:2], ['docker', 'cp'])
+                if args[-1].endswith('failure-status.json'):
+                    Path(args[-1]).write_text(json.dumps({'attempt_id':'d'*32, 'status':'NOT_ISSUED'}))
+                return ''
+            recovery.call = Mock(side_effect=copy)
+            recovery.save_failure_diagnostics()
+            self.assertEqual(recovery.call.call_count, 2)
+            recovery.call = Mock(side_effect=self.module.RecoveryError('CONTAINER_UNAVAILABLE'))
+            recovery.save_failure_diagnostics()  # Failure to copy must not prevent rollback.
+
+    def test_diagnostic_timeout_cannot_skip_recovery_failure_rollback(self):
+        recovery = self.module.Recovery.__new__(self.module.Recovery)
+        recovery.server, recovery.worker, recovery.volume = 'a'*64, 'b'*64, 'synthetic'
+        recovery.image = 'sha256:'+'c'*64
+        mounts = [{'Type':'volume', 'Name':'synthetic', 'Destination':'/app/packages/server/data'}]
+        server = {'Image': recovery.image, 'Mounts': mounts, 'State': {'Status':'running'}}
+        worker = {'Image':'sha256:'+'d'*64, 'Mounts': mounts, 'State': {'Status':'exited'},
+                  'Config': {'Cmd':['proc-report', 'worker', '--interval-seconds', '900']}}
+        recovery.require_no_manual_writer, recovery.smoke = Mock(), Mock()
+        recovery.match_report_backup, recovery.override, recovery.rollback = Mock(), Mock(), Mock()
+        for failure in (subprocess.TimeoutExpired('docker cp', 1), AttributeError('invalid private status shape')):
+            recovery.inspect = Mock(side_effect=[server, worker])
+            recovery.compose = Mock(side_effect=self.module.RecoveryError('COMPOSE_START_FAILED'))
+            recovery.call = Mock(side_effect=failure)
+            recovery.rollback.reset_mock()
+            with tempfile.TemporaryDirectory() as tmp:
+                recovery.session = Path(tmp)
+                with self.assertRaisesRegex(self.module.RecoveryError, 'COMPOSE_START_FAILED'):
+                    recovery.recover()
+            recovery.rollback.assert_called_once()
 
     def test_stop_failure_still_resumes_original_node(self):
         recovery = self.module.Recovery.__new__(self.module.Recovery)

@@ -99,13 +99,6 @@ pnpm audit --audit-level moderate # dependency security audit
 
 Подробно: [deploy/README.md](deploy/README.md).
 
-## Документация
-
-- [AGENTS.md](AGENTS.md) — правила для агентов: лестница ponytail + инварианты AEMR.
-- [docs/PLAN.md](docs/PLAN.md) — цель, контрольный список покрытия отчёта, порядок работ, уход от таблиц.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — слои, данные, API, runtime flow.
-- [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — боевые Google Sheets, архивы, копии и запреты для production ingest.
-- [docs/METRICS_CONTRACT.md](docs/METRICS_CONTRACT.md) — трассировка KPI от колонок Google Sheets до DTO и UI.
 Для отдельного восстановления уже остановленного report-worker предусмотрен
 owner-authorized `maintenance: restore-current-worker` в каноническом PR79.
 Он требует exact-head CI, read-only совместимость установленного server image,
@@ -116,6 +109,14 @@ Node/web и исходные Google-книги не развёртываются
 Word-документа. Детальные receipts и backup остаются вне Git; полный выпуск
 новой версии проходит собственные gates отдельно.
 
+
+## Документация
+
+- [AGENTS.md](AGENTS.md) — правила для агентов: лестница ponytail + инварианты AEMR.
+- [docs/PLAN.md](docs/PLAN.md) — цель, контрольный список покрытия отчёта, порядок работ, уход от таблиц.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — слои, данные, API, runtime flow.
+- [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — боевые Google Sheets, архивы, копии и запреты для production ingest.
+- [docs/METRICS_CONTRACT.md](docs/METRICS_CONTRACT.md) — трассировка KPI от колонок Google Sheets до DTO и UI.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — запуск, проверка, обновление, backup/restore.
 - [docs/SECURITY.md](docs/SECURITY.md) — auth, secrets, production security notes.
 - [docs/REVIEW.md](docs/REVIEW.md) — code/security review status и оставшиеся риски.

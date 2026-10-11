@@ -154,6 +154,22 @@ class Recovery:
         pids = {int(line.strip()) for line in self.call(['docker', 'top', self.worker, '-eo', 'pid']).splitlines()[1:]}
         return worker_lock_held(Path('/proc/locks').read_text(), pids, *metadata)
 
+    def save_failure_diagnostics(self):
+        try:
+            # Docker cp works even after a worker exits. Keep new failure evidence
+            # outside reports/ before restoring the original report state.
+            self.call(['docker', 'cp', self.worker + ':/app/packages/server/data/reports/status.json',
+                       str(self.session / 'failure-status.json')], timeout=30)
+            status = json.loads((self.session / 'failure-status.json').read_text())
+            identity = status.get('attempt_id', '')
+            if re.fullmatch('[0-9a-f]{32}', identity):
+                self.call(['docker', 'cp', self.worker + ':/app/packages/server/data/reports/attempts/'
+                    + identity + '/error.json', str(self.session / 'attempt-error.json')], timeout=30)
+        except Exception:  # noqa: BLE001 — diagnostics must never prevent rollback.
+            # Private command stderr records an absent error file/container. This
+            # never blocks recovery, nor turns a failed cycle into accepted work.
+            return False
+
     def rollback(self):
         # Independent Docker lookup still works if Compose itself caused the failure.
         workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
@@ -250,6 +266,7 @@ class Recovery:
                 time.sleep(5)
             raise RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
         except Exception:
+            self.save_failure_diagnostics()
             self.rollback()
             raise
 
