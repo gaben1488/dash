@@ -59,10 +59,21 @@ jobs:
               'worker_image_equals_server':worker['Image']==server['Image'], 'worker_oom':worker['State']['OOMKilled'],
               'worker_restarts':worker['RestartCount']}))
             top=subprocess.run(['docker','top',baseline['server'],'-eo','args'],capture_output=True)
+            default_top=subprocess.run(['docker','top',baseline['server']],capture_output=True)
+            pid_top=subprocess.run(['docker','top',baseline['server'],'-eo','pid'],capture_output=True)
+            top_error=(top.stdout+top.stderr).decode(errors='replace')
             smoke=subprocess.run(['docker','exec',baseline['server'],'/opt/report-env/bin/python','-m',
               'procurement_engine.deployment_smoke'],capture_output=True,timeout=180)
             output=(smoke.stdout+smoke.stderr).decode(errors='replace')
             print(json.dumps({'private_command_stderr_bytes':len(log.encode()), 'process_probe_exit':top.returncode,
+              'default_process_probe_exit':default_top.returncode, 'pid_process_probe_exit':pid_top.returncode,
+              'process_error_categories':[name for name,pattern in {
+                'PS_UNSUPPORTED_FORMAT':r'(unknown|invalid|unrecognized|unsupported).*(args|format|option)',
+                'PS_EXECUTABLE_MISSING':r'(executable file not found|exec:.*ps.*not found)',
+                'PS_EMPTY_FORMAT':r'(no argument|requires an argument|improper list)',
+                'PS_UNKNOWN_USER':r'(unknown user|user name does not exist)',
+                'PS_USAGE':r'(Usage:|usage:)'
+              }.items() if re.search(pattern,top_error,re.I)],
               'native_word_probe_exit':smoke.returncode,
               'native_word_fixed_errors':sorted(set(re.findall(r'\bREPORT_EXPORT_[A-Z0-9_]+\b',output))),
               'native_word_pass_fields':[key for key in ('context','snapshot','main','supplement','operational')
