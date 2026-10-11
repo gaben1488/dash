@@ -65,6 +65,32 @@
   .dash-source-navigation .navig-lenta,.dash-source-navigation .vkladki-stroka {transition:none!important;}
 }
 
+/* Source design meets the production shell: only surfaces, never
+   semantic procurement colors, table content or business logic. The old
+   zinc backgrounds otherwise hid every planetary theme under near-black. */
+:root:not([data-preview-family='original']) #root > div {
+  background:var(--surface-page)!important;
+  transition:background-color 180ms ease;
+}
+:root.dark:not([data-preview-family='original']) .header-glass {
+  background:linear-gradient(113deg,
+    color-mix(in srgb,var(--surface-sunken) 94%,transparent),
+    color-mix(in srgb,var(--surface-card) 82%,transparent))!important;
+  border-bottom:1px solid var(--line-strong)!important;
+}
+:root.dark:not([data-preview-family='original']) .ob-strip {
+  background:linear-gradient(180deg,
+    color-mix(in srgb,var(--surface-card) 86%,transparent),
+    color-mix(in srgb,var(--surface-sunken) 92%,transparent))!important;
+  border-right:1px solid var(--line-soft)!important;
+}
+:root:not([data-preview-family='original']) .analytics-chart-card {
+  border-color:var(--line-soft);
+}
+@media(prefers-reduced-motion:reduce){
+  :root:not([data-preview-family='original']) #root > div {transition:none}
+}
+
 /* Floating QA control: it is not a replacement navigation bar. */
 #dash-qa.dash-qa {
  position:fixed;z-index:2147483000;bottom:12px;right:12px;
