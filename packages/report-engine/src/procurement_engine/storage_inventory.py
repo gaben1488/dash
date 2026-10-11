@@ -80,7 +80,7 @@ def inventory_state(root, *, max_hash_bytes=2 * 1024**3, max_hash_files=512, max
     result['unsafe_entries'] = unsafe
     result['catalog_status'] = 'READ'
     hashed_bytes = hashed_files = 0
-    for (digest, size), inodes in sorted(groups.items(), key=lambda item: item[0][1]):
+    for (digest, size), inodes in sorted(groups.items(), key=lambda item: item[0][1] * (len(item[1]) - 1), reverse=True):
         if len(inodes) < 2:
             continue
         result['catalog_claimed_duplicate_bytes'] += size * (len(inodes) - 1)

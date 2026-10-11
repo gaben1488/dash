@@ -58,3 +58,17 @@ def test_does_not_follow_external_symlinks(tmp_path):
     result = inventory_state(tmp_path)
     assert result['unsafe_entries'] == 1
     assert 'passwd' not in json.dumps(result)
+
+
+def test_bounded_probe_prioritizes_largest_potential_duplicate_group(tmp_path):
+    size = fixture(tmp_path)
+    with sqlite3.connect(tmp_path / 'reports/published/publications.sqlite') as db:
+        for i in range(3):
+            name = 'REL-' + str(i) * 64
+            (tmp_path / 'reports/published/releases' / name / 'small.json').write_bytes(b'x')
+            row = json.loads(db.execute('SELECT files FROM publications WHERE release_id=?', (name,)).fetchone()[0])
+            row['small.json'] = hashlib.sha256(b'x').hexdigest()
+            db.execute('UPDATE publications SET files=? WHERE release_id=?', (json.dumps(row), name))
+    result = inventory_state(tmp_path, max_hash_files=2)
+    assert result['verified_duplicate_bytes'] == size
+    assert result['verification_complete'] is False

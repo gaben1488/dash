@@ -126,7 +126,7 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         # Injecting after the function's opening brace exits before result=$?.
         if script_stop:
             guard = "DRONE_SSH_PREV_COMMAND_EXIT_CODE=$?; if [ $DRONE_SSH_PREV_COMMAND_EXIT_CODE -ne 0 ]; then exit $DRONE_SSH_PREV_COMMAND_EXIT_CODE; fi"
-            shell = "\n".join(line + "\n" + guard for line in shell.splitlines())
+            shell = "\n".join(line + ("\n" + guard if line.strip() and not line.rstrip().endswith("\\") else "") for line in shell.splitlines())
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
             (folder / "deploy").mkdir()
