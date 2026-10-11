@@ -6,6 +6,7 @@ import { FINISHES, ORIGINAL_FAMILIES, type FamilyId, type FinishId, type NavSect
 import type { LabPreset } from './presets';
 import { LAB_DEMO_ROWS } from './demo-data';
 import { getChartColors } from '@/lib/chart-colors';
+import { fmtPct } from '@/lib/report/mappers';
 import { AURORA_STATES, AURORA_VARIANTS, auroraColors, auroraMatrix, familyMatrix, type AuroraVariantId, type AuroraState } from './aurora-research';
 import { AtomAtlas } from './AtomAtlas';
 import './design-research.css';
@@ -14,7 +15,6 @@ type ResearchView = 'aurora' | 'pulse' | 'workflows' | 'atlas';
 type PulseLayout = 'current' | 'hero' | 'focus';
 
 const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
-const fmtPct = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 const historicalSources = [
   { title: 'До: 7 августа · лазурь + бронза', url: 'https://github.com/gaben1488/dash/blob/853548a/packages/web/src/index.css' },
   { title: 'Археология цвета и эффекта', url: 'https://github.com/gaben1488/dash/blob/main/docs/superpowers/mockups/zarya-arheologiya.html' },
@@ -226,7 +226,7 @@ function PulseResearch({ preset }: { preset: LabPreset }) {
               <span className="dr-slice-dot" style={{ background: chartColors[i % chartColors.length] }} aria-hidden="true" />
               <span className="dr-legend-name">{part.name}</span>
               <strong>{money(part.value)}</strong>
-              <em>{total > 0 ? fmtPct.format(part.value * 100 / total) : '—'}%</em>
+              <em>{total > 0 ? fmtPct(part.value * 100 / total) : '—'}</em>
             </button>)}
             <p>Сумма срезов: {money(total)}. Источник в демонстрации: {rows.length} учебные строки из единого набора. В рабочем Dash нужен реальный MDM, периметр и ссылка на исходный лист.</p>
           </div>
