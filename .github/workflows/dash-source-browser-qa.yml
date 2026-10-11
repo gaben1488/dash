@@ -54,6 +54,7 @@ jobs:
           DASH_QA_URL: http://127.0.0.1:4174/Dash-source-bound-preview.html
         run: |
           CHROME_BIN="$(command -v google-chrome)" \
+          DASH_QA_FILE_URL="file://$(pwd)/docs/superpowers/mockups/dash-source-parity/Dash-source-bound-preview.html" \
           node packages/web/src/preview/browser-qa.mjs
       - uses: actions/upload-artifact@v4
         if: always()
