@@ -32,9 +32,14 @@ def inventory(root: Path) -> dict[str, dict[str, object]]:
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             raise BackupError("BACKUP_UNSAFE_FILE")
+        metadata = path.stat()
+        attributes = {"uid": metadata.st_uid, "gid": metadata.st_gid,
+                      "mode": stat.S_IMODE(metadata.st_mode)}
         if path.is_dir():
+            result[path.relative_to(root).as_posix() + "/"] = {
+                **attributes, "kind": "directory", "bytes": 0}
             continue
-        if not path.is_file() or not stat.S_ISREG(path.stat().st_mode):
+        if not path.is_file() or not stat.S_ISREG(metadata.st_mode):
             raise BackupError("BACKUP_UNSAFE_FILE")
         digest = hashlib.sha256()
         size = 0
@@ -42,7 +47,8 @@ def inventory(root: Path) -> dict[str, dict[str, object]]:
             for block in iter(lambda: src.read(1024 * 1024), b""):
                 digest.update(block)
                 size += len(block)
-        result[path.relative_to(root).as_posix()] = {"sha256": digest.hexdigest(), "bytes": size}
+        result[path.relative_to(root).as_posix()] = {
+            **attributes, "sha256": digest.hexdigest(), "bytes": size}
     must_exist = {"aemr.db", "reports/inputs/registry.json", "reports/inputs/ledger.json"}
     if not must_exist.issubset(result):
         raise BackupError("BACKUP_STATE_INCOMPLETE")
@@ -56,6 +62,8 @@ def verify_restored_documents_and_sqlite(root: Path, files: dict) -> tuple[int, 
     dbs = 0
     documents = 0
     for rel in files:
+        if rel.endswith("/"):
+            continue
         path = root / rel
         if path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
             try:
@@ -78,6 +86,19 @@ def verify_restored_documents_and_sqlite(root: Path, files: dict) -> tuple[int, 
     return dbs, documents
 
 
+
+def copy_with_ownership(source: Path, destination: Path) -> None:
+    """Copy exact file contents and owner/mode; never operate on the source."""
+    shutil.copytree(source, destination, symlinks=False, copy_function=shutil.copy2)
+    if os.geteuid() == 0:
+        # The production image runs this helper as root; a simple copytree
+        # alone would silently turn all node-owned SQLite files root-owned.
+        for original in [source, *source.rglob("*")]:
+            target = destination / original.relative_to(source)
+            metadata = original.stat()
+            os.chown(target, metadata.st_uid, metadata.st_gid)
+
+
 def check_nonoverlapping(source: Path, backup: Path) -> None:
     if source == backup or source in backup.parents or backup in source.parents:
         raise BackupError("BACKUP_PATH_OVERLAP")
@@ -98,7 +119,7 @@ def create(source: Path, backup: Path) -> dict:
         raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
     staging = Path(tempfile.mkdtemp(prefix=".aemr-backup-", dir=backup.parent))
     try:
-        shutil.copytree(source, staging / "state", symlinks=False, copy_function=shutil.copy2)
+        copy_with_ownership(source, staging / "state")
         if inventory(source) != before:
             raise BackupError("SOURCE_CHANGED_DURING_BACKUP")
         if inventory(staging / "state") != before:
@@ -131,7 +152,7 @@ def verify(backup: Path, scratch_parent: Path) -> dict:
         raise BackupError("BACKUP_MISMATCH")
     with tempfile.TemporaryDirectory(prefix="aemr-restore-", dir=scratch_parent) as scratch:
         restored = Path(scratch) / "state"
-        shutil.copytree(backup / "state", restored, symlinks=False, copy_function=shutil.copy2)
+        copy_with_ownership(backup / "state", restored)
         if inventory(restored) != files:
             raise BackupError("BACKUP_MISMATCH")
         dbs, documents = verify_restored_documents_and_sqlite(restored, files)
