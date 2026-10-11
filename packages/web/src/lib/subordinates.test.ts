@@ -131,6 +131,16 @@ describe('mergeSubordinates', () => {
     expect(SUBORDINATES_FALLBACK['УКСиМП']).toHaveLength(21);
   });
 
+  it('после переименования вкладок прямые sheetName у подведов указывают на действующие листы', () => {
+    const byId = new Map(SUBORDINATE_REGISTRY.map(entry => [entry.id, entry]));
+    expect(byId.get('ud_mku_edds')?.sheetName).toBe('МКУ "ЕДДС ЕМР"');
+    expect(byId.get('uagizo_mku_elrус')?.sheetName).toBe('МКУ "Елизовское РУС"');
+    expect(byId.get('uer_mku_tser')?.sheetName).toBe('МКУ "ЦЭР"');
+    // Исходные коды ГРБС и старые названия сохраняются для исторических снимков.
+    expect(byId.get('ud_mku_edds')?.legacyCanonicalName).toBe('МКУ «ЕДДС»');
+    expect(byId.get('uagizo_mku_elrус')?.legacyCanonicalName).toBe('МКУ «Елизовское РУС»');
+  });
+
   it('историческое имя и текущее R→E равны по явно проверенному алиасу, не по нестрогому сходству', () => {
     const cases: [string, string, string][] = [
       ['УО', 'МАДОУ ДС № 1 «Ласточка»', 'МАДОУ "Детский сад № 1 "Ласточка"'],
