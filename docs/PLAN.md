@@ -45,9 +45,21 @@ Maintenance label снят. Exact-head CI f6e029ff run38166778725 SUCCESS.
 исторических snapshot IDs, только sealed published/archive donors; обычный
 latest/chain контракт не меняется. Empty set не означает fallback; неизвестные
 и пустые targets блокируются. Отрицательные тесты и независимые 15 identity
-тестов PASS; общая Python-регрессия 952 PASS. Live repair ещё не выполнялся:
-следующий шаг — проверенная private backup/scratch rehearsal, затем полный
-readback NULLcoverage=0, после чего сокращение каталога и комплектов вместе.
+тестов PASS; общая Python-регрессия 952 PASS. Exact-head CI a456ae46 run38167757659 SUCCESS. Private scratch proof
+[38167780078](https://github.com/gaben1488/dash/actions/runs/38167780078) SUCCESS:
+8 126 производных строк восстановлены, missing=0, unrecovered=0;
+backup/restore identity-копии проверен, frozen state и живая база неизменны.
+Это не полный R06 backup. Live repair ещё не выполнялся; следующий шаг —
+защищённая запись производных сигнатур и readback, затем согласованное
+сокращение каталога и комплектов.
+
+Повторный cache-run38168738611 FAILURE: prune=0B, protected-state hash изменился.
+Причина не доказана; это не PASS и не дополнительное освобождение места.
+Добавлен read-only runtime probe: два чтения без prune, отдельно реальные
+mount/runtime/tag/dangling изменения и перестановка массива mounts;
+никаких путей, environment или данных реестра в выводе. Старый отказ не
+переклассифицируется по догадке. Rehearsal38167757661 FAILURE — отдельная
+проверка, зелёный CI не означает готовность live worker.
 
 R06/R09: подготовлен полный сжатый backup формата 2 без потери файлов,
 метаданных, SQLite/WAL и документов; старый формат совместим. Воспроизведён
