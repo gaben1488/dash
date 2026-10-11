@@ -54,7 +54,7 @@ const MAX_LIMIT = 2000;
 /** Роды правок — закрытый словарь; чужое слово в отборе не молчит, а отвергается. */
 const KINDS: readonly ChangeKind[] = [
   'money', 'dates', 'comment', 'method', 'subject', 'flag',
-  'row-added', 'row-vanished', 'row-cleared', 'other',
+  'row-added', 'row-vanished', 'row-identity-candidate', 'row-cleared', 'other',
 ];
 
 /** Значение запроса может прийти строкой или списком — сводим к списку. */
