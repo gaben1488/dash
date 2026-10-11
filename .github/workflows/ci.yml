@@ -175,10 +175,19 @@ jobs:
             previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
             restore_worker_on_failure() {
               result=$?
+              trap - EXIT
               if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
-                docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+                if ! docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
-                  start report-worker >/dev/null 2>&1 || true
+                  start report-worker >/dev/null 2>&1; then
+                  echo 'REPORT_WORKER_RESTART_COMMAND_FAILED' >&2
+                fi
+                restored_worker=$(docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
+                  --env-file /home/aemr/dash/deploy/.env.production --profile reports \
+                  ps --status running --quiet report-worker 2>/dev/null || true)
+                if [ "$restored_worker" != "$previous_worker" ]; then
+                  echo 'REPORT_WORKER_RESTORE_FAILED: the previous worker is not running.' >&2
+                fi
               fi
               exit "$result"
             }
@@ -187,14 +196,10 @@ jobs:
             # Storage is a deployment prerequisite, not a post-failure repair.
             # Keep rollback-tagged images and reusable build layers. Removing
             # all build cache on every deploy forces a slow full frontend build.
-            docker compose --env-file .env.production --profile reports stop report-worker >/dev/null 2>&1 || true
+            # Never stop the report scheduler or change the report history during
+            # disk/image preparation. Both belong to the separately gated
+            # report release, after stateful backup + restore acceptance.
             docker image prune --force >/dev/null
-            if docker image inspect aemr-server:latest >/dev/null 2>&1; then
-              echo "Recovering canonical weekly evidence and compacting transient report payloads before build."
-              docker compose --env-file .env.production run --rm --no-deps \
-                --entrypoint /opt/report-env/bin/python server -c \
-                'import json; from collections import Counter; from procurement_engine.weekly_archive import recover_weekly_archives; from procurement_engine.retention import plan_transient_attempt_retention, apply_transient_attempt_retention; state="/app/packages/server/data/reports"; weekly=recover_weekly_archives(state); plan=plan_transient_attempt_retention(state); result=apply_transient_attempt_retention(state, expected_attempts=plan["compact_attempts"]); safe={k:v for k,v in result.items() if k!="compact_attempts"}; print(json.dumps({"weekly_archive_status_counts":dict(Counter(item.get("status","UNKNOWN") for item in weekly)),"retention":safe},ensure_ascii=False,sort_keys=True))'
-            fi
             free_kb=$(df -Pk / | awk 'NR==2 {print $4}')
             if [ "${free_kb:-0}" -lt 8388608 ]; then
               echo "Less than 8 GiB free; reclaiming unused build cache."
