@@ -126,7 +126,9 @@ jobs:
             PYSTATUS
               # Read-only loopback GET through the same published three Word routes as the UI.
               # The smoke prints only fixed diagnostic labels, never document bytes.
-              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -m procurement_engine.deployment_smoke 2>/dev/null || echo 'native_word_http_readonly=BLOCKED'
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -m procurement_engine.deployment_smoke 2>&1 \
+                | python3 -c 'import json,sys; s=sys.stdin.read(); keys=("context","main","supplement","operational","snapshot"); ok=all("\""+k+"\": \"PASS\"" in s for k in keys); codes=("REPORT_EXPORT_CONTEXT_MISSING","REPORT_EXPORT_SNAPSHOT_MISMATCH","REPORT_EXPORT_DOCUMENT_INVALID","REPORT_EXPORT_RESPONSE_TOO_LARGE","REPORT_EXPORT_HTTP_400","REPORT_EXPORT_HTTP_401","REPORT_EXPORT_HTTP_403","REPORT_EXPORT_HTTP_404","REPORT_EXPORT_HTTP_429","REPORT_EXPORT_HTTP_500","REPORT_EXPORT_HTTP_502","REPORT_EXPORT_HTTP_503","REPORT_EXPORT_HTTP_504","REPORT_EXPORT_HTTP_CHECK_FAILED");print(json.dumps({"native_word_http_status":"PASS" if ok else "BLOCKED","reason":"NONE" if ok else next((x for x in codes if x in s),"OTHER_OR_UNKNOWN")},sort_keys=True));sys.exit(0 if ok else 1)' \
+                || echo 'native_word_http_readonly=BLOCKED'
             else
               echo 'report_status_readback=SERVER_NOT_RUNNING'
             fi
