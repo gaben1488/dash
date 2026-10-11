@@ -5,6 +5,38 @@ from deploy_scope import is_non_runtime, runtime_changed
 
 
 class DeploymentScopeTests(unittest.TestCase):
+    def test_workflow_script_bodies_cannot_escape_yaml_blocks(self):
+        import re
+        from pathlib import Path
+
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        for workflow in workflows.glob("*.yml"):
+            body_indent = None
+            delimiter = None
+            for number, line in enumerate(workflow.read_text().splitlines(), 1):
+                if not line.strip():
+                    continue
+                indentation = len(line) - len(line.lstrip())
+                if body_indent is not None and indentation < body_indent:
+                    self.assertIsNone(delimiter,
+                                      f"{workflow.name}:{number}: heredoc escaped YAML script")
+                    self.assertRegex(line, r"^\s*(?:-\s+)?[A-Za-z_][A-Za-z_0-9-]*:\s*",
+                                     f"{workflow.name}:{number}: code escaped YAML script")
+                    body_indent = None
+                if re.fullmatch(r"\s*(?:run|script):\s*\|[-+]?\s*", line):
+                    body_indent = indentation + 2
+                    continue
+                if body_indent is None:
+                    continue
+                if delimiter is not None:
+                    if line.strip() == delimiter:
+                        delimiter = None
+                else:
+                    match = re.search(r"<<\s*['\"]?([A-Za-z_][A-Za-z_0-9]*)['\"]?", line)
+                    if match:
+                        delimiter = match.group(1)
+            self.assertIsNone(delimiter, f"{workflow.name}: unterminated heredoc")
+
     def test_docs_only_does_not_deploy(self):
         self.assertFalse(runtime_changed([
             "docs/TECHNICAL_SHEETS_COMPATIBILITY_2026-10-10.md",

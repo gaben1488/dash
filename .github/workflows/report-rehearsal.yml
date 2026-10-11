@@ -170,12 +170,12 @@ jobs:
             docker compose --env-file .env.production logs --since 45m --no-color caddy 2>/dev/null \
               | tail -n 1200 \
               | python3 -c 'import collections,json,re,sys; counts=collections.Counter(); total=0; 
-for line in sys.stdin:
- if "/api/report-releases" not in line: continue
- total+=1
- match=re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",line)
- counts[match.group(1) if match else "UNKNOWN"]+=1
-print(json.dumps({"report_endpoint_log_entries":total,"http_status_classes":dict(counts)},sort_keys=True))' \
+            for line in sys.stdin:
+             if "/api/report-releases" not in line: continue
+             total+=1
+             match=re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",line)
+             counts[match.group(1) if match else "UNKNOWN"]+=1
+            print(json.dumps({"report_endpoint_log_entries":total,"http_status_classes":dict(counts)},sort_keys=True))' \
               || echo 'edge_access_diagnostic=UNAVAILABLE'
             echo '=== End report browser-path preflight ==='
             echo 'report_worker_diagnostic=READ_ONLY_COMPLETED'
