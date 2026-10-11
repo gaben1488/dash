@@ -70,6 +70,8 @@ export type ChangeKind =
   | 'row-added'
   /** Закупка исчезла — видно ТОЛЬКО сравнением снимков. */
   | 'row-vanished'
+  /** Вероятная перенумерация: подтверждена только предметная схожесть. */
+  | 'row-identity-candidate'
   /** Строка осталась, но её ячейки обнулили. Это не удаление. */
   | 'row-cleared'
   /** Колонка вне канона шапки — род не назначаем, а признаём незнание. */
@@ -84,7 +86,8 @@ export const CHANGE_KIND_LABELS: Readonly<Record<ChangeKind, string>> = {
   subject: 'Предмет и принадлежность',
   flag: 'Признак учёта экономии',
   'row-added': 'Новые закупки',
-  'row-vanished': 'Исчезнувшие закупки',
+  'row-vanished': 'Нет прежнего номера',
+  'row-identity-candidate': 'Возможная смена номера',
   'row-cleared': 'Очищенные строки',
   other: 'Прочие колонки',
 };
@@ -95,7 +98,7 @@ export const CHANGE_KIND_LABELS: Readonly<Record<ChangeKind, string>> = {
  * снимков, не заметит.
  */
 export const CHANGE_KIND_ORDER: readonly ChangeKind[] = [
-  'row-vanished', 'money', 'dates', 'row-added', 'method', 'comment', 'flag', 'subject', 'other',
+  'row-vanished', 'row-identity-candidate', 'money', 'dates', 'row-added', 'method', 'comment', 'flag', 'subject', 'other',
 ];
 
 /** Откуда запись — разная полнота источников не должна быть спрятана. */
@@ -124,6 +127,7 @@ const KIND_BY_COLUMN_KEY: Readonly<Record<ChangeKind, ReadonlyArray<keyof typeof
   flag: ['FLAG'],
   'row-added': [],
   'row-vanished': [],
+  'row-identity-candidate': [],
   'row-cleared': [],
   other: [],
 };
@@ -244,6 +248,8 @@ export interface ChangeEntry {
   /** Учреждение — если источник его знает. */
   readonly subordinate: string | null;
   readonly origin: ChangeOrigin;
+  /** Для возможной смены номера: текущий кандидат; исходный № сохраняется в rowSeq. */
+  readonly relatedRowSeq?: string;
   /**
    * Адреса ячеек, свёрнутых в одно событие строки («новая закупка» — это
    * десяток ячеек, заполненных в одну минуту). У обычной правки поля нет.
@@ -260,7 +266,11 @@ export interface ChangeGap {
     /** Прежнего снимка нет — исчезнувшие закупки не с чем сравнить. */
     | 'no-previous-snapshot'
     /** Записи журнала без ключа строки: адрес по № п/п невосстановим. */
-    | 'row-key-missing';
+    | 'row-key-missing'
+    /** У прежнего или текущего состояния повторяется № п/п. */
+    | 'row-key-ambiguous'
+    /** Действующая книга отсутствует, повреждена или не перечитана. */
+    | 'source-unavailable';
   readonly detail: string;
   /** Сколько записей затронуто (для 'row-key-missing'). */
   readonly count?: number;
@@ -401,8 +411,14 @@ export function entriesFromBookJournal(
  */
 export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
   const entries: ChangeEntry[] = [];
+  const candidates = diff.identityCandidates ?? [];
+  const candidateOld = new Set(candidates.map((c) => c.beforeRowSeq));
+  const candidateNew = new Set(candidates.map((c) => c.afterRowSeq));
 
   for (const v of diff.vanished) {
+    // Событие возможной смены номера уже несёт факт отсутствия старого №.
+    // Два независимых события для одной гипотезы были бы двойным счётом.
+    if (candidateOld.has(v.rowSeq)) continue;
     entries.push({
       id: `${book}|снимки|исчезла|${v.rowSeq}`,
       book,
@@ -424,6 +440,7 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
   }
 
   for (const a of diff.appeared) {
+    if (candidateNew.has(a.rowSeq)) continue;
     entries.push({
       id: `${book}|снимки|появилась|${a.rowSeq}`,
       book,
@@ -440,6 +457,28 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       atMs: null,
       subject: a.subject ?? null,
       subordinate: a.subordinate ?? null,
+      origin: 'snapshot-diff',
+    });
+  }
+
+  for (const candidate of candidates) {
+    entries.push({
+      id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq,
+      book,
+      sheet: 'ВСЕ',
+      rowSeq: candidate.beforeRowSeq,
+      relatedRowSeq: candidate.afterRowSeq,
+      sheetRow: candidate.beforeSheetRow,
+      column: null,
+      columnLabel: '№ п/п',
+      kind: 'row-identity-candidate',
+      before: candidate.beforeRowSeq,
+      after: candidate.afterRowSeq,
+      author: null,
+      at: null,
+      atMs: null,
+      subject: candidate.subject,
+      subordinate: candidate.subordinate,
       origin: 'snapshot-diff',
     });
   }
@@ -535,7 +574,7 @@ function rowEventOf(items: readonly ChangeEntry[], kind: 'row-added' | 'row-clea
 function emptyByKind(): Record<ChangeKind, number> {
   return {
     money: 0, dates: 0, comment: 0, method: 0, subject: 0, flag: 0,
-    'row-added': 0, 'row-vanished': 0, 'row-cleared': 0, other: 0,
+    'row-added': 0, 'row-vanished': 0, 'row-identity-candidate': 0, 'row-cleared': 0, other: 0,
   };
 }
 
@@ -564,10 +603,12 @@ export function summarizeChanges(
     }
   }
 
-  const allUnread = gaps.length > 0 && gaps.every((g) => g.reason === 'journal-unread');
+  const incomplete = gaps.some((g) => g.reason === 'journal-unread' ||
+    g.reason === 'no-previous-snapshot' || g.reason === 'source-unavailable' ||
+    g.reason === 'row-key-ambiguous');
   const emptiness = entries.length > 0
     ? 'none'
-    : allUnread ? 'unknown' : 'quiet';
+    : incomplete ? 'unknown' : 'quiet';
 
   return {
     books: books.size,

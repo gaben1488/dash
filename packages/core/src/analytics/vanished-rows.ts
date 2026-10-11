@@ -103,7 +103,7 @@ function groupByNumber(rows: readonly SnapshotRow[]): Map<string, SnapshotRow[]>
 }
 
 function normalized(value: string | undefined): string {
-  return String(value ?? '').replace(/\\s+/gu, ' ').trim().toLocaleLowerCase('ru-RU');
+  return String(value ?? '').replace(/\s+/gu, ' ').trim().toLocaleLowerCase('ru-RU');
 }
 
 /**
@@ -117,7 +117,7 @@ function subjectFingerprint(row: SnapshotRow): string | null {
   const subordinate = normalized(row.subordinate);
   const amount = row.planSum;
   const method = normalized(row.method);
-  if (!subject || !subordinate || !Number.isFinite(amount) || (amount as number) <= 0) return null;
+  if (!subject || !subordinate || !method || !Number.isFinite(amount) || (amount as number) <= 0) return null;
   return JSON.stringify([subject, subordinate, Math.round((amount as number) * 100), method]);
 }
 
@@ -154,12 +154,12 @@ export function diffSnapshots(
     after: [...afterGroups].filter(([, rows]) => rows.length > 1).map(([key]) => key).sort(),
   };
   const ambiguous = new Set([...ambiguousKeys.before, ...ambiguousKeys.after]);
-  const was = new Map([...beforeGroups]
+  const was = new Map<string, SnapshotRow>([...beforeGroups]
     .filter(([key]) => !ambiguous.has(key))
-    .map(([key, rows]) => [key, rows[0]]));
-  const now = new Map([...afterGroups]
+    .map(([key, rows]) => [key, rows[0]] as const));
+  const now = new Map<string, SnapshotRow>([...afterGroups]
     .filter(([key]) => !ambiguous.has(key))
-    .map(([key, rows]) => [key, rows[0]]));
+    .map(([key, rows]) => [key, rows[0]] as const));
 
   const vanished: VanishedRow[] = [];
   const moved: MovedRow[] = [];

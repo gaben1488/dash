@@ -292,3 +292,33 @@ describe('свод сам по себе', () => {
     expect(digest.emptiness).toBe('unknown');
   });
 });
+
+describe('контекстная связь номера в журнале', () => {
+  it('возможная перенумерация — одна проверяемая гипотеза, не пропажа и новая закупка одновременно', () => {
+    const diff = {
+      vanished: [{ rowSeq: '12', wasAtSheetRow: 20, subject: 'Ремонт', subordinate: 'МБОУ школа', planSum: 100, factSum: 0 }],
+      appeared: [{ rowSeq: '18', sheetRow: 21, subject: 'Ремонт', subordinate: 'МБОУ школа', planSum: 100 }],
+      moved: [], vanishedPlanSum: 100, vanishedFactSum: 0, unkeyed: { before: 0, after: 0 },
+      identityCandidates: [{
+        beforeRowSeq: '12', afterRowSeq: '18', beforeSheetRow: 20, afterSheetRow: 21,
+        subject: 'Ремонт', subordinate: 'МБОУ школа', planSum: 100,
+        evidence: 'subject+subordinate+plan+method' as const,
+        status: 'needs-review' as const,
+      }],
+      note: 'Вероятное изменение',
+    };
+    const result = entriesFromRowDiff('УО', diff);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      kind: 'row-identity-candidate', rowSeq: '12', relatedRowSeq: '18',
+      before: '12', after: '18', author: null, at: null, origin: 'snapshot-diff',
+    });
+  });
+
+  it('неполный контроль не становится тихим отсутствием правок', () => {
+    expect(summarizeChanges([], [
+      { book: 'УО', reason: 'source-unavailable', detail: 'Книга не прочитана' },
+    ]).emptiness).toBe('unknown');
+  });
+});
+

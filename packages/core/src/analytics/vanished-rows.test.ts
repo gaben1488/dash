@@ -94,10 +94,10 @@ describe('провенанс номера без догадок об удале�
 
   it('одинаковые закупки не порождают вымышленную преемственность', () => {
     const was = [
-      row({ rowSeq: '12', sheetRow: 20, subject: 'Канцтовары', planSum: 10 }),
-      row({ rowSeq: '13', sheetRow: 21, subject: 'Канцтовары', planSum: 10 }),
+      row({ rowSeq: '12', sheetRow: 20, subject: 'Канцтовары', planSum: 10, method: 'ЕП' }),
+      row({ rowSeq: '13', sheetRow: 21, subject: 'Канцтовары', planSum: 10, method: 'ЕП' }),
     ];
-    const now = [row({ rowSeq: '15', sheetRow: 22, subject: 'Канцтовары', planSum: 10 })];
+    const now = [row({ rowSeq: '15', sheetRow: 22, subject: 'Канцтовары', planSum: 10, method: 'ЕП' })];
     const result = diffSnapshots(was, now);
     expect(result.identityCandidates).toEqual([]);
   });
