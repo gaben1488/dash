@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { dayNumberOf } from '@aemr/shared';
 
 /**
  * Source-row identity + editable fields. Exclude computed formula columns
@@ -18,4 +19,20 @@ export function rowRevision(row: readonly unknown[]): string {
     return value;
   });
   return createHash('sha256').update(JSON.stringify(cells)).digest('hex');
+}
+
+
+/** Verify the intended result, allowing only date presentation changes by Sheets. */
+export function writtenRowMatches(expected: readonly unknown[], observed: readonly unknown[], changedIndexes: readonly number[]): boolean {
+  const expectedCells = [...expected], observedCells = [...observed];
+  for (const index of changedIndexes) {
+    if (index !== 13 && index !== 16) continue;
+    const expectedDay = dayNumberOf(expectedCells[index]);
+    const observedDay = dayNumberOf(observedCells[index]);
+    if (expectedDay !== null && observedDay !== null) {
+      expectedCells[index] = expectedDay;
+      observedCells[index] = observedDay;
+    }
+  }
+  return rowRevision(expectedCells) === rowRevision(observedCells);
 }

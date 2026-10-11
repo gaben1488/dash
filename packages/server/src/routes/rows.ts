@@ -13,7 +13,7 @@ import {
   isOrgItself,
 } from '@aemr/shared';
 import { writeCellValue, resolveDeptSheetName, readCurrentDeptRow } from '../services/google-sheets.js';
-import { rowRevision } from '../services/row-revision.js';
+import { rowRevision, writtenRowMatches } from '../services/row-revision.js';
 import { withRowWriteLock } from '../services/row-write-lock.js';
 import { getDeptSheetValues, getDeptSheetCache } from '../services/snapshot.js';
 import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
@@ -111,12 +111,13 @@ function rowWriteError(idx: number, deptShortName: string, display: string | num
  * Возвращает false, если строки в прочитанных значениях нет (правка ушла в
  * книгу, но показать её до перечитки неоткуда).
  */
-function reflectEditInCache(deptShortName: string, rowIndex: number, field: string, value: unknown): boolean {
+function reflectEditInCache(deptShortName: string, rowIndex: number, field: string, value: unknown, expectedRow?: readonly unknown[]): boolean {
   const deptResult = getDeptSheetCache()[deptShortName];
   if (!deptResult) return false;
   const colIdx = COL_LETTER_INDEX[field];
   const row = deptResult.values[rowIndex - 1];
   if (colIdx === undefined || !row) return false;
+  if (expectedRow && !writtenRowMatches(expectedRow, row, [13, 16])) return false;
   (row as unknown[])[colIdx] = value;
   return true;
 }
@@ -412,8 +413,23 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const result = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
+      if (expectedRevision) {
+        const intended = [...originalRow];
+        intended[COL_LETTER_INDEX[field]] = normalizedValue;
+        let confirmed: unknown[];
+        try {
+          confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, idx);
+        } catch (readErr) {
+          app.log.warn({ err: readErr }, 'field-update: written but source confirmation unavailable');
+          return reply.status(503).send({ error: 'Запись отправлена, но источник не подтвердил результат. Перечитайте строку перед повтором.', savedToSource: true, action: 'refresh_and_reconcile' });
+        }
+        if (!writtenRowMatches(intended, confirmed, [COL_LETTER_INDEX[field]])) {
+          return reply.status(409).send({ error: 'После записи строка или её значение изменились. Результат не подтверждён — перечитайте реестр.', savedToSource: true, action: 'refresh_and_reconcile' });
+        }
+      }
+
       // Прочитанные значения книги догоняют сохранённую правку (см. reflectEditInCache).
-      reflectEditInCache(dept.nameShort, idx, field, normalizedValue);
+      reflectEditInCache(dept.nameShort, idx, field, normalizedValue, expectedRevision ? originalRow : undefined);
 
       // Audit log
       try {
@@ -599,7 +615,15 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           originalRow = [...(getDeptSheetValues()[dept.nameShort]?.[entry.rowIndex - 1] ?? [])];
         }
 
+      let writeBlocked = false;
+      const changedIndexes: number[] = [];
+      let confirmedRevision: string | undefined;
       for (const [field, rawValue] of validChanges) {
+        if (writeBlocked) {
+          results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
+            error: 'Остальные правки не выполнялись: предыдущая запись не подтверждена. Перечитайте строку.' });
+          continue;
+        }
         // Field name, sheet-row bounds and formula protection were checked
         // before revision verification. Never write a field that failed it.
         // Normalize value
@@ -634,6 +658,7 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
 
         const cellAddress = `${field}${entry.rowIndex}`;
         const oldValue = originalRow[COL_LETTER_INDEX[field]] ?? null;
+        const beforeWrite = [...originalRow];
         try {
           db.insert(schema.auditLog).values({
             action: 'batch_cell_edit_intent', entity: 'row',
@@ -654,8 +679,33 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           sheetName ??= await resolveDeptSheetName(dept.nameShort, spreadsheetId);
           const writeResult = await writeCellValue(spreadsheetId, sheetName, cellAddress, normalizedValue);
 
+          if (expectedRevision) {
+            const intended = [...originalRow];
+            const columnIndex = COL_LETTER_INDEX[field];
+            intended[columnIndex] = normalizedValue;
+            changedIndexes.push(columnIndex);
+            let confirmed: unknown[];
+            try {
+              confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
+            } catch (readErr) {
+              app.log.warn({ err: readErr }, 'batch-save: written but source confirmation unavailable');
+              writeBlocked = true;
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
+                error: 'Запись отправлена, но источник не подтвердил результат. Перечитайте строку перед повтором.' });
+              continue;
+            }
+            if (!writtenRowMatches(intended, confirmed, changedIndexes)) {
+              writeBlocked = true;
+              results.push({ deptId: entry.deptId, rowIndex: entry.rowIndex, field, success: false,
+                error: 'После записи строка или её значение изменились. Результат не подтверждён — перечитайте реестр.' });
+              continue;
+            }
+            originalRow = [...confirmed];
+            confirmedRevision = rowRevision(confirmed);
+          }
+
           // Та же точечная правка прочитанных значений, что и в одиночном PUT.
-          reflectEditInCache(dept.nameShort, entry.rowIndex, field, normalizedValue);
+          reflectEditInCache(dept.nameShort, entry.rowIndex, field, normalizedValue, expectedRevision ? beforeWrite : undefined);
 
           // Audit log
           try {
@@ -710,14 +760,8 @@ export async function rowsRoutes(app: FastifyInstance): Promise<void> {
           });
         }
       }
-      if (expectedRevision && sheetName && results.some(r =>
-        r.deptId === entry.deptId && r.rowIndex === entry.rowIndex && r.success)) {
-        try {
-          const confirmed = await readCurrentDeptRow(spreadsheetId, sheetName, entry.rowIndex);
-          rowRevisions[`${entry.deptId}:${entry.rowIndex}`] = rowRevision(confirmed);
-        } catch (readErr) {
-          app.log.warn({ err: readErr }, 'batch-save: saved but final source row version unavailable');
-        }
+      if (!writeBlocked && confirmedRevision) {
+        rowRevisions[`${entry.deptId}:${entry.rowIndex}`] = confirmedRevision;
       }
       });
     }

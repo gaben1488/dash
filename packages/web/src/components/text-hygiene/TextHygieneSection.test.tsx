@@ -158,10 +158,10 @@ describe('TextHygieneSection', () => {
     });
     renderSection();
     await waitFor(() => expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(100));
-    fireEvent.click(screen.getByRole('button', { name: 'Следующая страница орфографии' }));
+    fireEvent.click(screen.getByLabelText('Следующая страница орфографии'));
     expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(5);
     expect(screen.getByText('ВСЕ · M108')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Следующая страница орфографии' }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByLabelText('Следующая страница орфографии') as HTMLButtonElement).disabled).toBe(
       true,
     );
   });
@@ -287,13 +287,13 @@ it('показывает большой перечень страницами, �
   await screen.findByText('ВСЕ · C4');
   expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(100);
   expect(screen.getByText('205 из 205 находок')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  fireEvent.click(screen.getByLabelText('Следующая страница дефектов набора'));
   expect(screen.queryByText('ВСЕ · C4')).toBeNull();
   expect(screen.getByText('ВСЕ · C104')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  fireEvent.click(screen.getByLabelText('Следующая страница дефектов набора'));
   expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(5);
   expect(screen.getByText('ВСЕ · C208')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Следующая страница дефектов набора' })).toHaveProperty('disabled', true);
+  expect(screen.getByLabelText('Следующая страница дефектов набора')).toHaveProperty('disabled', true);
 });
 
 it('сбрасывает страницу при отборе и ограничивает её при сокращении свежего ответа', async () => {
@@ -313,12 +313,13 @@ it('сбрасывает страницу при отборе и огранич�
     .mockResolvedValueOnce({ ...large, byDept: [{ ...large.byDept[0]!, items: items.slice(0, 2) }] });
   renderSection();
   await screen.findByText('ВСЕ · C4');
-  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
-  fireEvent.click(screen.getByRole('button', { name: /имя подведа не по справочнику · 205/ }));
+  fireEvent.click(screen.getByLabelText('Следующая страница дефектов набора'));
+  fireEvent.click(screen.getByText('имя подведа не по справочнику · 205'));
   expect(screen.getByText('ВСЕ · C4')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  fireEvent.click(screen.getByLabelText('Следующая страница дефектов набора'));
   fireEvent.click(screen.getByRole('button', { name: /перечитать/i }));
   await waitFor(() => expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(2));
   expect(screen.getByText('ВСЕ · C4')).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Следующая страница дефектов набора' })).toBeNull();
-});
+  expect(screen.queryByLabelText('Следующая страница дефектов набора')).toBeNull();
+// Multiple real table renders under concurrent CI are functional checks, not a latency assertion.
+}, 15_000);

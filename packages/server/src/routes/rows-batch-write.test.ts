@@ -106,14 +106,110 @@ describe('guarded row writes against live source movement', () => {
     expect(writeCellValue).not.toHaveBeenCalled();
   });
 
+
+  it.each([0, 1, 2])('rejects source identity substitution in column index %s before writing', async (index) => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3]!; source[0] = '173/1'; source[1] = 'УО'; source[2] = 'Учреждение';
+    const other = [...source]; other[index] = index === 0 ? '173/18' : 'Другая организация';
+    readCurrentDeptRow.mockResolvedValueOnce(other);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: 12 }, expectedRevision: rowRevision(source) }] } });
+    expect(response.statusCode).toBe(207);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
   it('accepts an unchanged source row and performs the write', async () => {
     const { rowRevision } = await import('../services/row-revision.js');
     const expectedRevision = rowRevision(sheetValues()[3]);
+    const confirmed = [...sheetValues()[3]!]; confirmed[6] = 'Допустимая правка';
+    readCurrentDeptRow.mockResolvedValueOnce(sheetValues()[3]!).mockResolvedValueOnce(confirmed);
     const response = await app.inject({ method: 'POST', url: '/api/data/rows',
       payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Допустимая правка' }, expectedRevision }] } });
     expect(response.statusCode).toBe(200);
     expect(readCurrentDeptRow).toHaveBeenCalledTimes(2); // preflight + post-write revision
     expect(writeCellValue).toHaveBeenCalledTimes(1);
+  });
+
+
+  it.each(['other-row', 'unchanged-value', 'read-error'])('does not confirm a write after %s readback', async (mode) => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3]!;
+    readCurrentDeptRow.mockResolvedValueOnce(source);
+    if (mode === 'read-error') readCurrentDeptRow.mockRejectedValueOnce(new Error('source unavailable'));
+    else readCurrentDeptRow.mockResolvedValueOnce(mode === 'other-row' ? sheetValues()[4]! : source);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Новый предмет' }, expectedRevision: rowRevision(source) }] } });
+    expect(response.statusCode).toBe(207);
+    expect(response.json().results[0].success).toBe(false);
+    expect(response.json().rowRevisions['УО:4']).toBeUndefined();
+    expect(getDeptSheetValues()['УО']![3]![6]).toBe('Закупка 1');
+  });
+
+
+  it('stops remaining cells if the first write cannot be confirmed', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3]!;
+    readCurrentDeptRow.mockResolvedValueOnce(source).mockResolvedValueOnce(sheetValues()[4]!);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Новый предмет', H: 12 }, expectedRevision: rowRevision(source) }] } });
+    expect(response.statusCode).toBe(207);
+    expect(response.json().results).toHaveLength(2);
+    expect(response.json().results.every((result: { success: boolean }) => !result.success)).toBe(true);
+    expect(writeCellValue).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('does not mirror a confirmed edit into another row from a concurrent cache refresh', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3]!; const confirmed = [...source]; confirmed[6] = 'Новый предмет';
+    readCurrentDeptRow.mockResolvedValueOnce(source).mockResolvedValueOnce(confirmed);
+    writeCellValue.mockImplementationOnce(async () => {
+      setDeptSheetCache({ 'УО': { values: [[], [], [], dataRow(2)], formulas: [], sheetName: 'ВСЕ' } });
+      return { updatedCells: 1, updatedRange: 'ВСЕ!G4' };
+    });
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { G: 'Новый предмет' }, expectedRevision: rowRevision(source) }] } });
+    expect(response.statusCode).toBe(200);
+    expect(getDeptSheetValues()['УО']![3]![6]).toBe('Закупка 2');
+  });
+
+
+  it('confirms each intended cell and returns only the final authoritative revision', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3]!;
+    const first = [...source]; first[7] = 12;
+    const final = [...first]; final[16] = '12.10.2026';
+    readCurrentDeptRow.mockResolvedValueOnce(source).mockResolvedValueOnce(first).mockResolvedValueOnce(final);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { H: 12, Q: '2026-10-12' }, expectedRevision: rowRevision(source) }] } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().rowRevisions['УО:4']).toBe(rowRevision(final));
+    expect(writeCellValue).toHaveBeenCalledTimes(2);
+    expect(readCurrentDeptRow).toHaveBeenCalledTimes(3);
+  });
+
+
+  it('mirrors the next confirmed cell after Sheets reformats an edited date', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    const source = sheetValues()[3]!;
+    const first = [...source]; first[16] = '12.10.2026';
+    const final = [...first]; final[7] = 12;
+    readCurrentDeptRow.mockResolvedValueOnce(source).mockResolvedValueOnce(first).mockResolvedValueOnce(final);
+    const response = await app.inject({ method: 'POST', url: '/api/data/rows',
+      payload: { rows: [{ deptId: 'УО', rowIndex: 4, changes: { Q: '2026-10-12', H: 12 }, expectedRevision: rowRevision(source) }] } });
+    expect(response.statusCode).toBe(200);
+    expect(getDeptSheetValues()['УО']![3]![7]).toBe(12);
+  });
+
+  it('single-field PUT does not report success for a different post-write row', async () => {
+    const { rowRevision } = await import('../services/row-revision.js');
+    readCurrentDeptRow.mockResolvedValueOnce(sheetValues()[3]!).mockResolvedValueOnce(sheetValues()[4]!);
+    const response = await app.inject({ method: 'PUT', url: '/api/rows/УО/4/field',
+      payload: { field: 'G', value: 'Новый предмет', expectedRevision: rowRevision(sheetValues()[3]!) } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().success).not.toBe(true);
+    expect(response.json().savedToSource).toBe(true);
+    expect(getDeptSheetValues()['УО']![3]![6]).toBe('Закупка 1');
   });
 
   it('rejects unversioned production writes even when the cache is populated', async () => {
