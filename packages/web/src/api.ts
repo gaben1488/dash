@@ -109,6 +109,8 @@ export type RowTimelineResponse = RowTimeline & {
     journalEntries: number;
     snapshotObservations: number;
     weekSliceDates: string[];
+    /** null — признаков разрыва за последний контрольный интервал не обнаружено. */
+    identityWarning?: string | null;
   };
 };
 
