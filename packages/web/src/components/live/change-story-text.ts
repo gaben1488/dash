@@ -182,6 +182,13 @@ export function entryChangeLine(entry: ChangeEntry): string {
     case 'row-identity-candidate':
       return 'Возможная смена № ' + entry.before + ' → № ' + entry.after +
         ': совпадают предмет, учреждение, сумма и способ. Это гипотеза, не подтверждённая перенумерация.';
+    case 'subject':
+      if (entry.origin === 'snapshot-diff') {
+        return 'У № ' + (entry.rowSeq ?? '?') + ' изменились предмет или учреждение: ' +
+          valueLabel(entry.before) + ' → ' + valueLabel(entry.after) +
+          '. Причина не установлена — возможна редакторская правка.';
+      }
+      return `${valueLabel(entry.before)} → ${valueLabel(entry.after)}`;
     case 'row-cleared':
       return 'Строку очистили — ячейки обнулены, сама строка в книге осталась';
     default:

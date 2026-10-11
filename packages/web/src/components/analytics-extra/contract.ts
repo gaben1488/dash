@@ -165,6 +165,12 @@ export interface VanishedBookDto {
     evidence: 'subject+subordinate+plan+method'; status: 'needs-review';
   }>;
   ambiguousKeys: { before: string[]; after: string[] };
+  contextChanged: Array<{
+    rowSeq: string; beforeSheetRow: number; afterSheetRow: number;
+    beforeSubject: string; afterSubject: string;
+    beforeSubordinate: string; afterSubordinate: string;
+    status: 'needs-review';
+  }>;
   note: string;
 }
 

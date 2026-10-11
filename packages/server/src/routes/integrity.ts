@@ -142,6 +142,13 @@ export interface VanishedBookDto {
   }>;
   /** Ключи с дублями не сравнивались: first-wins скрывал неопределённость. */
   ambiguousKeys: { before: string[]; after: string[] };
+  /** № остался, но изменились предмет или учреждение — это ещё не доказанная подмена. */
+  contextChanged: Array<{
+    rowSeq: string; beforeSheetRow: number; afterSheetRow: number;
+    beforeSubject: string; afterSubject: string;
+    beforeSubordinate: string; afterSubordinate: string;
+    status: 'needs-review';
+  }>;
 }
 
 export interface IntegrityResponse {
@@ -549,10 +556,11 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     vanishedTotal += diff.vanished.length;
     vanishedPlanSum += diff.vanishedPlanSum;
     const identityCandidates = diff.identityCandidates ?? [];
+    const contextChanged = diff.contextChanged ?? [];
     const ambiguousKeys = diff.ambiguousKeys ?? { before: [], after: [] };
     if (diff.vanished.length === 0 && diff.moved.length === 0 &&
         diff.unkeyed.before === 0 && diff.unkeyed.after === 0 &&
-        identityCandidates.length === 0 &&
+        identityCandidates.length === 0 && contextChanged.length === 0 &&
         ambiguousKeys.before.length === 0 && ambiguousKeys.after.length === 0) continue;
     books.push({
       dept: dept.id,
@@ -577,6 +585,7 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
       vanishedFactSum: diff.vanishedFactSum,
       unkeyed: diff.unkeyed,
       identityCandidates,
+      contextChanged,
       ambiguousKeys,
       note: diff.note,
     });

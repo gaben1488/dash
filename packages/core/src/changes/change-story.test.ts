@@ -341,3 +341,28 @@ describe('контрольное основание выводов журнал�
   });
 });
 
+describe('провенанс изменившегося контекста при прежнем №', () => {
+  it('показывает доказанное изменение предмета, не выдумывает удаление и автора', () => {
+    const events = entriesFromRowDiff('УО', {
+      vanished: [], appeared: [], moved: [], vanishedPlanSum: 0, vanishedFactSum: 0,
+      unkeyed: { before: 0, after: 0 },
+      contextChanged: [{
+        rowSeq: '31', beforeSheetRow: 41, afterSheetRow: 41,
+        beforeSubject: 'Ремонт', afterSubject: 'Канцтовары',
+        beforeSubordinate: 'Школа № 1', afterSubordinate: 'Школа № 1', status: 'needs-review',
+      }],
+      note: 'У номера изменился контекст',
+    }, {
+      baselineId: 'control-week', controlAt: '2026-10-08T06:00:00.000Z',
+      observedAt: '2026-10-11T08:00:00.000Z',
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'subject', origin: 'snapshot-diff', rowSeq: '31',
+      author: null, at: null, before: 'Ремонт · Школа № 1',
+      after: 'Канцтовары · Школа № 1',
+      comparisonEvidence: { baselineId: 'control-week' },
+    });
+  });
+});
+

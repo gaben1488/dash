@@ -473,6 +473,34 @@ export function entriesFromRowDiff(
     });
   }
 
+  // Смена предмета/учреждения при сохранённом № — независимый след:
+  // номер тот же, но преемственность закупки не доказана.
+  // Род subject уже в каноне журнала, дополнительную сущность не создаём.
+  for (const change of diff.contextChanged ?? []) {
+    const prior = [change.beforeSubject, change.beforeSubordinate].filter(Boolean).join(' · ');
+    const current = [change.afterSubject, change.afterSubordinate].filter(Boolean).join(' · ');
+    entries.push({
+      id: book + '|контроль|изменение-контекста|' + change.rowSeq +
+        '|' + (comparisonEvidence?.baselineId ?? '?'),
+      book,
+      sheet: 'ВСЕ',
+      rowSeq: change.rowSeq,
+      sheetRow: change.afterSheetRow,
+      column: null,
+      columnLabel: 'Предмет и учреждение',
+      kind: 'subject',
+      before: prior,
+      after: current,
+      author: null,
+      at: null,
+      atMs: null,
+      subject: change.afterSubject || null,
+      subordinate: change.afterSubordinate || null,
+      origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
+    });
+  }
+
   for (const candidate of candidates) {
     entries.push({
       id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq,

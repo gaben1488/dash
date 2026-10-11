@@ -199,7 +199,9 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
         </span>
         <span className="tabular-nums ds-text-xs text-[var(--ink-muted)]">
           {unexplained.length === 0 && book.identityCandidates.length === 0
-            ? 'отсутствующих прежних номеров нет'
+            ? (book.contextChanged.length > 0
+              ? book.contextChanged.length + ' изменений контекста при прежнем №'
+              : 'отсутствующих прежних номеров нет')
             : `${unexplained.length} ${pluralRu(unexplained.length, 'номер без соответствия', 'номера без соответствия', 'номеров без соответствия')}` +
               ` · ${book.identityCandidates.length} возможных смен №`}
         </span>
@@ -231,6 +233,20 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
               </span>
               {' · '}{candidate.subject} · {candidate.subordinate}
               {' · совпадают предмет, учреждение, план и способ. Это гипотеза; требуется проверка.'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {book.contextChanged.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {book.contextChanged.map((item) => (
+            <li key={item.rowSeq} className="ds-text-xs text-[var(--ink-muted)]">
+              <span className="font-medium text-[var(--ink)]">
+                № {item.rowSeq}: изменились предмет или учреждение
+              </span>
+              {' · было: '}{item.beforeSubject}{item.beforeSubordinate ? ' · ' + item.beforeSubordinate : ''}
+              {' → стало: '}{item.afterSubject}{item.afterSubordinate ? ' · ' + item.afterSubordinate : ''}
+              {' · причина неизвестна; не считать автоматически той же или другой закупкой.'}
             </li>
           ))}
         </ul>

@@ -188,3 +188,20 @@ describe('контрольная сверка с действующими кни
   });
 
 });
+
+describe('контекстная смена без перенумерации', () => {
+  it('фиксируется в Core и при сверке с недельным контролем', async () => {
+    // Это отдельный инвариант ядра: совпадение A не является доказательством
+    // неизменности закупки. Тест контракта не касается Google и БД.
+    const before = [{
+      rowSeq: '10', sheetRow: 4, subject: 'Ремонт кровли', subordinate: 'МБОУ СОШ № 1', method: 'ЕП', planSum: 100,
+    }];
+    const after = [{
+      rowSeq: '10', sheetRow: 4, subject: 'Канцелярские товары', subordinate: 'МБОУ СОШ № 1', method: 'ЕП', planSum: 100,
+    }];
+    expect((await import('@aemr/core')).diffSnapshots(before, after).contextChanged?.[0]).toMatchObject({
+      rowSeq: '10', beforeSubject: 'Ремонт кровли', afterSubject: 'Канцелярские товары',
+    });
+  });
+});
+
