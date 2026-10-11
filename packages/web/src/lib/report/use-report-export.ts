@@ -103,10 +103,27 @@ export function useReportExport(context: ExportContext | null) {
   const attemptApplies = context?.mode === 'live' && attemptDay === context.date
     && context.year === Number(attemptDay?.slice(0, 4))
     && context.quarter === Math.ceil(Number(attemptDay?.slice(5, 7)) / 3);
-  if (attemptApplies && attempt?.status === 'RUNNING') status += ' Готовится следующий комплект.';
+  const attemptStartMs = attempt?.started_at ? Date.parse(attempt.started_at) : NaN;
+  const staleAttempt = attempt?.status === 'RUNNING' && Number.isFinite(attemptStartMs) &&
+    Date.now() - attemptStartMs > 20 * 60_000;
+  if (context?.mode === 'live' && staleAttempt) {
+    // A terminated worker may leave an orphaned RUNNING marker.
+    status += ' Предыдущая попытка имеет устаревший статус «выполняется». Новый выпуск не подтверждён; требуется проверка генератора.';
+  }
+  if (attemptApplies && attempt?.status === 'RUNNING' && !staleAttempt) status += ' Готовится следующий комплект.';
   if (attemptApplies && attempt?.status === 'NOT_ISSUED') {
     status += ' Новый комплект не выпущен.';
-    if (!attempt.automation_assurance && attempt.blockers?.length) status += ' Причина сохранена в диагностике сопровождения; исправлять отчёт вручную не требуется.';
+    const safeReason = attempt.error_code === 'MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH'
+      ? 'Изменилась схема справочника заказчиков; необходима проверенная совместимая версия генератора.'
+      : attempt.error_code === 'SOURCE_CHANGED_DURING_FREEZE'
+        ? 'Источник изменился во время снятия среза; данные нужно перечитать.'
+        : attempt.error_code === 'GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'
+          ? 'Название источника изменилось без обновления контракта чтения.'
+          : null;
+    if (safeReason) status += ` ${safeReason}`;
+    else if (!attempt.automation_assurance && attempt.blockers?.length) {
+      status += ' Причина сохранена в диагностике сопровождения; исправлять отчёт вручную не требуется.';
+    }
   }
   if (release && current?.error) status += ` ${current.error}`;
 
