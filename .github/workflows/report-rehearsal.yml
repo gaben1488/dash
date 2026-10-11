@@ -99,6 +99,30 @@ jobs:
                 "failure_code": data.get("error_code") if data.get("error_code") in codes else "NONE_OR_OTHER",
                 "failure_stage": data.get("failure_stage") if data.get("failure_stage") in stages else "NONE_OR_OTHER",
             }, sort_keys=True))
+            import re
+            publication = data.get("publication") if isinstance(data.get("publication"), dict) else {}
+            key = publication.get("release_id")
+            valid_key = isinstance(key, str) and bool(re.fullmatch(r"REL-[a-f0-9]{64}", key))
+            release = Path("/app/packages/server/data/reports/published/releases") / key if valid_key else None
+            docs = ("main_report.docx", "management_report.docx", "operational_report.docx")
+            availability = [
+                release.joinpath(name).is_file() and release.joinpath(name).stat().st_size > 0
+                if release else False for name in docs
+            ]
+            pub_date = publication.get("report_date")
+            pub_date = pub_date if isinstance(pub_date, str) and re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", pub_date) else None
+            finished = data.get("finished_at")
+            finished = finished[:16] if isinstance(finished, str) and len(finished) > 15 else None
+            print(json.dumps({
+                "publication_report_date": pub_date,
+                "attempt_finish_utc_minute": finished,
+                "snapshot_matches_publication": bool(publication.get("snapshot_id"))
+                  and publication.get("snapshot_id") == data.get("snapshot_id"),
+                "primary_docx_present": availability[0],
+                "supplement_docx_present": availability[1],
+                "operational_docx_present": availability[2],
+                "operational_expected": publication.get("operational_available") is True,
+            }, sort_keys=True))
             PYSTATUS
             else
               echo 'report_status_readback=SERVER_NOT_RUNNING'
