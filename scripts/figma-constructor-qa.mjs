@@ -65,6 +65,9 @@ const figma={
   ui:{onmessage:null,postMessage(msg){messages.push(msg)}},
   showUI(markup,args){assert.equal(typeof markup,'string');assert.ok(args.width>=400);},
   createFrame(){return node('FRAME')},
+  createComponent(){const n=node('COMPONENT');n.addComponentProperty=(name,type,value)=>name+'#TEST';n.createInstance=()=>node('INSTANCE');return n;},
+  combineAsVariants(components,parent){const set=node('COMPONENT_SET');set.resizeWithoutConstraints=set.resize;for(const c of components)set.appendChild(c);parent.appendChild(set);return set;},
+  createRectangle(){return node('RECTANGLE')},
   createText(){return node('TEXT')},
   createEllipse(){return node('ELLIPSE')},
   async loadFontAsync(){},
@@ -84,6 +87,8 @@ for(const screen of screens){
   const text=walk(screen).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
   assert.ok(text.includes('СОХРАНИТЬ')||text.includes('Сохранить')||text.includes('Источник'),screen.name);
   assert.ok(!/Демо-позиция.+₽/.test(text),'placeholder named production money');
+  assert.ok(!text.includes('Три элемента сводки'),'old generic layout leaked');
+  assert.ok(walk(screen).some(n=>n.name==='ПОДРАЗДЕЛЫ / каждый имеет собственную рабочую сцену'),'route tabs lack independent content');
 }
 const report=screens.find(x=>x.name.includes(' / report / ')&&x.name.includes(' / target / '));
 const reportStrings=walk(report).map(x=>x.name);
@@ -92,9 +97,11 @@ assert.ok(!reportStrings.some(x=>x.includes('Исходный OrgStrip')));
 const monitoring=screens.find(x=>x.name.includes(' / monitoring / ')&&x.name.includes(' / target / '));
 const mtext=walk(monitoring).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
 for(const label of ['В работе','Реестр','Обзор','Связи','Справочники'])assert.ok(mtext.includes(label),label);
+assert.equal(walk(monitoring).filter(n=>n.name.startsWith('ПОДВКЛАДКА / ')).length,5);
 const quality=screens.find(x=>x.name.includes(' / quality / ')&&x.name.includes(' / target / '));
 const qtext=walk(quality).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
 for(const label of ['Сверка','Качество заполнения','Замечания','Оценка управлений','Рекомендации','Журнал'])assert.ok(qtext.includes(label),label);
+assert.equal(walk(quality).filter(n=>n.name.startsWith('ПОДВКЛАДКА / ')).length,6);
 const guard=screens[0].children.find(x=>x.name==='Решение · provenance / запреты');
 if(!guard)throw Error('provenance marker missing');
 guard.customManualEdit='Сохранить';
@@ -109,10 +116,15 @@ assert.ok(mobileText.includes('Оглавление отчёта'));
 await figma.ui.onmessage({kind:'materials',...props});
 assert.ok(!messages.at(-1).error,JSON.stringify(messages.at(-1)));
 assert.equal(pages[1].children.filter(x=>x.name.startsWith('DASH / Материал')).length,6);
+const nativeSets=pages[1].children.filter(x=>x.type==='COMPONENT_SET');
+assert.equal(nativeSets.length,5,'need five distinct real Figma component sets');
+assert.equal(nativeSets.reduce((n,x)=>n+x.children.length,0),25,'need 25 edit-ready variants');
+assert.ok(nativeSets.every(set=>set.children.every(n=>n.type==='COMPONENT')));
 await figma.ui.onmessage({kind:'materials',...props});
 assert.equal(pages[1].children.filter(x=>x.name.startsWith('DASH / Материал')).length,6);
+assert.equal(pages[1].children.filter(x=>x.type==='COMPONENT_SET').length,5,'rerun duplicated sets');
 const allTexts=walk(pages[2]).filter(x=>x.type==='TEXT').map(x=>x.characters);
 assert.ok(allTexts.some(x=>/неделя/iu.test(x)));
 console.log(JSON.stringify({result:'PASS (stubbed Figma Plugin API; NOT in-editor rendering)',
   initialScreens:26,mobileExtra:1,materials:6,duplicateAfterRerun:0,
-  routeCount:13,notes:'Native Figma Starter editing and visual acceptance still required'},null,2));
+  routeCount:13,componentSets:5,componentVariants:25,subtabScenes:embedded.routes.reduce((n,r)=>n+r.tabs.length,0),notes:'Native Figma Starter editing and visual acceptance still required'},null,2));
