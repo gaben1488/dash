@@ -15,7 +15,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  source-schema:
+  worker-diagnostics:
+    name: Read-only report-worker state and rollback prerequisites
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect running state without credentials or source rows
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 5m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            umask 077
+            cd /home/aemr/dash/deploy
+            # Do not expose .env.production, logs, source rows or credentials.
+            if ! docker compose --env-file .env.production --profile reports config --services >/dev/null 2>&1; then
+              echo 'compose_readback=UNAVAILABLE'
+              exit 1
+            fi
+            worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker 2>/dev/null || true)
+            if [ -z "$worker" ]; then
+              echo 'report_worker_state=NOT_CREATED'
+            else
+              raw=$(docker inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.RestartCount}}|{{.State.StartedAt}}|{{.State.FinishedAt}}' "$worker" 2>/dev/null) || { echo 'worker_inspect=UNAVAILABLE'; exit 1; }
+              IFS='|' read -r state exitcode oom restarts started finished <<< "$raw"
+              case "$state" in running|exited|created|restarting|paused|dead|removing) ;; *) state=UNKNOWN ;; esac
+              echo "report_worker_state=$state"
+              echo "report_worker_exitcode=$exitcode"
+              echo "report_worker_oom=$oom"
+              echo "report_worker_restarts=$restarts"
+              echo "report_worker_started_at=$started"
+              echo "report_worker_finished_at=$finished"
+              docker logs --tail 200 "$worker" 2>&1 | python3 -c 'import sys,json;data=sys.stdin.read();codes=("MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH","SOURCE_CHANGED_DURING_FREEZE","RUNNING_REPORT_WORKER_NOT_FOUND","REPORT_WORKER_CYCLE_FAILED","DUPLICATE_PROCEDURE_CODE");print(json.dumps({"worker_log_evidence_counts":{c:data.count(c) for c in codes}},sort_keys=True))'
+            fi
+            docker ps --all --filter label=com.docker.compose.service=report-worker --format '{{.ID}}' 2>/dev/null | python3 -c 'import sys,json;print(json.dumps({"compose_worker_container_count":len([x for x in sys.stdin if x.strip()])}))'
+            for name in aemr-server:previous aemr-web:previous; do
+              if docker image inspect "$name" >/dev/null 2>&1; then echo "rollback_image_${name%%:*}=PRESENT"; else echo "rollback_image_${name%%:*}=MISSING"; fi
+            done
+            if test -s .last-known-good; then echo 'rollback_code_marker=PRESENT'; else echo 'rollback_code_marker=MISSING'; fi
+            if docker compose --env-file .env.production ps --status running --quiet server 2>/dev/null | grep -q .; then
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -c 'import json;from pathlib import Path;p=Path("/app/packages/server/data/reports/status.json");d=json.loads(p.read_text()) if p.is_file() else {};s=str(d.get("status",""));valid={"VERIFIED","VERIFIED_WITH_WARNINGS","FAILED","NOT_ISSUED","RUNNING","PLAN_CHANGED"};print(json.dumps({"status_exists":p.is_file(),"status_class":s if s in valid else "UNKNOWN","attempt_started":bool(d.get("started_at")),"attempt_finished":bool(d.get("finished_at")),"has_snapshot":bool(d.get("snapshot_id")),"has_publication":bool(d.get("publication"))},sort_keys=True))' 2>/dev/null || echo 'report_status_readback=UNAVAILABLE'
+            else
+              echo 'report_status_readback=SERVER_NOT_RUNNING'
+            fi
+            echo 'report_worker_diagnostic=READ_ONLY_COMPLETED'
+    source-schema:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
