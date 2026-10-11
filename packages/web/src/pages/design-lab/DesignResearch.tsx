@@ -352,7 +352,7 @@ export function DesignResearch({ preset, onPresetChange }: {
   useEffect(() => {
     function shortcut(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
-      const editing = target?.matches('input, textarea, select, [contenteditable="true"]');
+      const editing = target instanceof Element && target.matches('input, textarea, select, [contenteditable="true"]');
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandOpen(open => !open);
