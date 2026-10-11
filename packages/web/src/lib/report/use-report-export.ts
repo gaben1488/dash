@@ -183,9 +183,9 @@ export function useReportExport(context: ExportContext | null) {
         method: 'POST',
       });
       setRefreshState({ key, busy: false, notice: data.message });
-    } catch {
+    } catch (error) {
       setRefreshState({ key, busy: false,
-        notice: 'Запустить обновление сейчас не удалось. Последний проверенный Word остаётся доступен.' });
+        notice: `Запрос обновления не принят. ${wordReadFailure(error)} Последний проверенный Word сохраняется.` });
     }
   }
   const canRefresh = Boolean(key && !archiveMode);
