@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkSequenceIntegrity } from '@aemr/shared';
 import { diffSnapshots } from '@aemr/core';
-import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows } from './integrity.js';
+import { atomsToSnapshotRows, buildDateFormatFindings, buildSequenceRows, pickConsecutiveWeeklySnapshots } from './integrity.js';
 
 function row(overrides: Record<number, unknown>): unknown[] {
   const cells = new Array<unknown>(30).fill('');
@@ -132,5 +132,44 @@ describe('atomsToSnapshotRows + diffSnapshots — пропажа строки', 
     ]);
     expect(rows.get('uer')).toHaveLength(1);
     expect(rows.get('uer')?.[0].rowSeq).toBe('13');
+  });
+});
+
+describe('пропавшие закупки — только соседние недельные контрольные срезы', () => {
+  const snap = (id: string, createdAt: string) => ({ id, createdAt });
+
+  it('суточные сохранения не заменяют сравнение двух четвергов', () => {
+    const pair = pickConsecutiveWeeklySnapshots([
+      snap('friday-daily', '2026-07-24T02:00:00Z'),
+      snap('thursday-late', '2026-07-23T07:00:00Z'),
+      snap('thursday-early', '2026-07-22T17:00:00Z'),
+      snap('wednesday-daily', '2026-07-21T21:00:00Z'),
+      snap('previous-thursday', '2026-07-16T07:00:00Z'),
+    ], 12);
+    expect(pair.map((s) => s.id)).toEqual(['thursday-late', 'previous-thursday']);
+  });
+
+  it('четверг Камчатки ещё в среду UTC — сравнение остаётся недельным', () => {
+    const pair = pickConsecutiveWeeklySnapshots([
+      snap('current', '2026-07-22T17:00:00Z'),
+      snap('previous', '2026-07-15T17:00:00Z'),
+    ], 12);
+    expect(pair.map((s) => s.id)).toEqual(['current', 'previous']);
+  });
+
+  it('не подменяет пропущенный четверг двухнедельным интервалом', () => {
+    expect(pickConsecutiveWeeklySnapshots([
+      snap('current', '2026-10-08T06:00:00Z'),
+      snap('two-weeks-ago', '2026-09-24T06:00:00Z'),
+      snap('older', '2026-09-17T06:00:00Z'),
+    ], 12)).toEqual([]);
+  });
+
+  it('если есть лишь один действительный недельный срез, сравнения нет', () => {
+    expect(pickConsecutiveWeeklySnapshots([
+      snap('daily', '2026-07-24T10:00:00Z'),
+      snap('week', '2026-07-23T06:00:00Z'),
+      snap('broken', 'нет даты'),
+    ], 12)).toEqual([]);
   });
 });

@@ -375,14 +375,14 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Сравнение двух сохранённых чтений: {fmtMoment(data.comparison.beforeAt)} против{' '}
+                    Недельные контрольные срезы: {fmtMoment(data.comparison.beforeAt)} и{' '}
                     {fmtMoment(data.comparison.afterAt)}. Строки сопоставляются по «№ п/п», а не
                     по номеру строки листа: строки двигаются от вставок и сортировок, номер
                     закупки живёт вместе с ней.
                   </p>
                   {vanishedBooks.length === 0 ? (
                     <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
-                      Все закупки прежнего чтения на месте. Строки без «№ п/п» в сравнение не
+                      Между этими недельными срезами пропаж не выявлено. Строки без «№ п/п» в сравнение не
                       входят — их судьбу проследить нечем.
                     </p>
                   ) : (

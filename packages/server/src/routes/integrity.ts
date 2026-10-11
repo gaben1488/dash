@@ -34,8 +34,9 @@
  * снимков в местной базе. Момент чтения назван всегда (канон п.58).
  */
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
+  DAYS_PER_WEEK,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -60,8 +61,9 @@ import {
   type SnapshotRow,
 } from '@aemr/core';
 import { db, schema } from '../db/index.js';
-import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { getDeptSheetValues } from '../services/snapshot.js';
+import { DEPARTMENT_SPREADSHEETS, config } from '../config.js';
+import { productCalendarDay } from '../services/product-calendar.js';
+import { getDeptSheetValues, getWeeklySnapshotHistory } from '../services/snapshot.js';
 
 /** Номер строки книги = индекс в массиве листа + 1 (кэш несёт шапку). */
 const SHEET_ROW_FROM_INDEX = 1;
@@ -69,8 +71,8 @@ const SHEET_ROW_FROM_INDEX = 1;
 /** Сколько строк со сбитым видом даты показывать поимённо. */
 const SHOWN_DATE_ROWS = 20;
 
-/** Сколько снимков просматривать в поисках двух со строками. */
-const SNAPSHOT_LOOKBACK = 10;
+/** До года подтверждённых недельных срезов без чтения тяжёлых JSON-блобов. */
+const WEEKLY_LOOKBACK = 52;
 
 // ────────────────────────────────────────────────────────────
 // Формы ответа
@@ -235,7 +237,7 @@ export function buildDateFormatFindings(values: readonly unknown[][]): DateForma
 }
 
 // ────────────────────────────────────────────────────────────
-// Пропавшие строки: два последних снимка со строками-атомами
+// Пропавшие строки: два последовательных подтверждённых недельных среза
 // ────────────────────────────────────────────────────────────
 
 interface AtomRow {
@@ -273,24 +275,67 @@ export function atomsToSnapshotRows(atoms: readonly AtomRow[]): Map<string, Snap
   return byDept;
 }
 
-/** Два последних снимка, у которых строки-атомы записаны. */
-function findComparableSnapshots(): Array<{ id: string; createdAt: string }> {
-  const recent = db.select({ id: schema.snapshots.id, createdAt: schema.snapshots.createdAt })
-    .from(schema.snapshots)
-    .orderBy(desc(schema.snapshots.createdAt))
-    .limit(SNAPSHOT_LOOKBACK)
-    .all();
-  const withRows: Array<{ id: string; createdAt: string }> = [];
-  for (const snap of recent) {
-    const probe = db.select({ id: schema.procurementRows.id })
+interface WeeklySnapshotRef {
+  id: string;
+  createdAt: string;
+}
+
+/**
+ * Выбираем два последовательных четверга календаря продукта, а не два
+ * последних суточных обновления. Источник этого выбора — только срезы с
+ * завершённым weeklyTableContext (см. findComparableSnapshots).
+ * Пропущенная неделя не заменяется более старой.
+ */
+export function pickConsecutiveWeeklySnapshots(
+  sealed: readonly WeeklySnapshotRef[],
+  utcOffsetHours: number,
+): WeeklySnapshotRef[] {
+  const byDay = new Map<number, WeeklySnapshotRef>();
+  for (const snap of sealed) {
+    const at = Date.parse(snap.createdAt);
+    if (!Number.isFinite(at)) continue;
+    const day = productCalendarDay(new Date(at), utcOffsetHours);
+    if (day % DAYS_PER_WEEK !== 0) continue;
+    const previous = byDay.get(day);
+    if (!previous || snap.createdAt > previous.createdAt) byDay.set(day, snap);
+  }
+  const days = [...byDay.keys()].sort((a, b) => b - a);
+  if (days.length < 2 || days[0] - days[1] !== DAYS_PER_WEEK) return [];
+  const after = byDay.get(days[0]);
+  const before = byDay.get(days[1]);
+  return after && before ? [after, before] : [];
+}
+
+function findComparableSnapshots(): { snapshots: WeeklySnapshotRef[]; note: string } {
+  // Только полный недельный контекст (8 masters + формулы + процедуры).
+  // Обычные суточные snapshots не имеют weeklyTableContext.
+  const sealed = getWeeklySnapshotHistory(WEEKLY_LOOKBACK);
+  const snapshots = pickConsecutiveWeeklySnapshots(sealed, config.weeklySnapshot.utcOffsetHours);
+  if (snapshots.length < 2) {
+    return {
+      snapshots: [],
+      note: sealed.length === 0
+        ? 'Подтверждённых недельных контрольных срезов пока нет. Суточные обновления для поиска пропавших закупок не сравниваются.'
+        : 'Нет двух последовательных подтверждённых недельных контрольных срезов. Пропущенную неделю нельзя заменять суточным или более старым снимком.',
+    };
+  }
+
+  // Если из БД потерялись строки-атомы одной стороны, сравнение с пустотой
+  // ложно объявило бы пропавшими все закупки. Не подставлять дневной снимок.
+  for (const snap of snapshots) {
+    const atom = db.select({ id: schema.procurementRows.id })
       .from(schema.procurementRows)
       .where(eq(schema.procurementRows.snapshotId, snap.id))
       .limit(1)
-      .all();
-    if (probe.length > 0) withRows.push(snap);
-    if (withRows.length === 2) break;
+      .get();
+    if (!atom) {
+      return {
+        snapshots: [],
+        note: `Недельный контрольный срез ${snap.createdAt.slice(0, 10)} не содержит строк закупок. Сверка пропаж недоступна, суточный снимок не подставляется.`,
+      };
+    }
   }
-  return withRows;
+  return { snapshots, note: '' };
 }
 
 function readAtoms(snapshotIds: readonly string[]): AtomRow[] {
@@ -330,17 +375,8 @@ function unreadNote(dept: DepartmentEntry): string {
 
 /** Сравнение двух снимков по книгам; null — сравнивать не с чем. */
 export function buildComparison(): { comparison: IntegrityResponse['comparison']; note: string } {
-  const snaps = findComparableSnapshots();
-  if (snaps.length < 2) {
-    return {
-      comparison: null,
-      note: snaps.length === 0
-        ? 'Строк-атомов нет ни в одном сохранённом снимке: сравнивать нечего. Пропажу строки ' +
-          'иначе не увидеть — журнал книги удаление не записывает.'
-        : 'Сохранён только один снимок со строками. Пропажи видны сравнением двух — ' +
-          'следующий недельный снимок даст первую пару.',
-    };
-  }
+  const { snapshots: snaps, note } = findComparableSnapshots();
+  if (snaps.length < 2) return { comparison: null, note };
   const [after, before] = snaps;
   const atoms = readAtoms([before.id, after.id]);
   const beforeRows = atomsToSnapshotRows(atoms.filter((a) => a.snapshotId === before.id));
