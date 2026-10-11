@@ -58,6 +58,15 @@ jobs:
               'server_image_unchanged':server['Image']==baseline['image'], 'worker_state':worker['State']['Status'],
               'worker_image_equals_server':worker['Image']==server['Image'], 'worker_oom':worker['State']['OOMKilled'],
               'worker_restarts':worker['RestartCount']}))
+            top=subprocess.run(['docker','top',baseline['server'],'-eo','args'],capture_output=True)
+            smoke=subprocess.run(['docker','exec',baseline['server'],'/opt/report-env/bin/python','-m',
+              'procurement_engine.deployment_smoke'],capture_output=True,timeout=180)
+            output=(smoke.stdout+smoke.stderr).decode(errors='replace')
+            print(json.dumps({'private_command_stderr_bytes':len(log.encode()), 'process_probe_exit':top.returncode,
+              'native_word_probe_exit':smoke.returncode,
+              'native_word_fixed_errors':sorted(set(re.findall(r'\bREPORT_EXPORT_[A-Z0-9_]+\b',output))),
+              'native_word_pass_fields':[key for key in ('context','snapshot','main','supplement','operational')
+                if '"'+key+'": "PASS"' in output]}))
             PYDIAG
   restore-current-worker:
     if: >-
