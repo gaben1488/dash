@@ -226,11 +226,12 @@ jobs:
             cd /home/aemr/dash
             cd deploy
             previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            report_release_started=false
             verification_dir=
             restore_worker_on_failure() {
               result=$?
               trap - EXIT
-              if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
+              if [ "$result" -ne 0 ] && [ "$report_release_started" = true ] && [ -n "$previous_worker" ]; then
                 if ! docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
                   start report-worker >/dev/null 2>&1; then
@@ -263,14 +264,32 @@ jobs:
             cd deploy
             current_server=$(docker compose --env-file .env.production ps --all --quiet server)
             test -n "$current_server"
+            server_state=$(docker inspect --format '{{.State.Status}}' "$current_server")
+            if [ "$server_state" != exited ]; then
+              echo 'BACKUP_REQUIRES_SERVER_QUIESCENCE' >&2
+              exit 2
+            fi
+            worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
+            if [ -n "$worker" ]; then
+              worker_state=$(docker inspect --format '{{.State.Status}}' "$worker")
+              case "$worker_state" in
+                exited|created) ;;
+                *) echo 'BACKUP_REQUIRES_WORKER_QUIESCENCE' >&2; exit 2 ;;
+              esac
+            fi
+            source_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$current_server")
+            case "$source_volume" in
+              ''|*[!a-zA-Z0-9_.-]*) echo 'BACKUP_SOURCE_VOLUME_NOT_VERIFIED' >&2; exit 2 ;;
+            esac
             server_image=$(docker inspect --format '{{.Image}}' "$current_server")
             case "$server_image" in sha256:*) ;; *) exit 2 ;; esac
             docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
               --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
               --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
               --mount type=volume,dst=/scratch \
               --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
-              --backup "/backups/$verified_backup_name" --scratch-parent /scratch
+              --backup "/backups/$verified_backup_name" --scratch-parent /scratch --source /source
             echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'
 
             # Storage is a deployment prerequisite, not a post-failure repair.
@@ -338,6 +357,7 @@ jobs:
               curl -fsS -m 15 http://127.0.0.1:3000/api/health && echo " — deploy OK"
             # Private inputs and audit output stay in server_data, not Actions logs.
             # Start the scheduler only after a successful service-account release.
+            report_release_started=true
             bash enable-reports.sh
             trap - EXIT
 

@@ -2,6 +2,7 @@
 
 Only synthetic SQLite, JSON and DOCX are created; never contacts the VPS.
 """
+import importlib.util
 import json
 import sqlite3
 import subprocess
@@ -10,7 +11,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "stateful_backup.py"
 
@@ -96,6 +97,68 @@ class StatefulBackupTests(unittest.TestCase):
         self.assertNotEqual(verify.returncode, 0)
         self.assertIn("BACKUP_MISMATCH", verify.stderr)
         self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_release_verification_matches_current_source_without_writing_it(self):
+        done = self.run_cli("create", "--source", self.source, "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        before = {p.relative_to(self.source): p.read_bytes()
+                  for p in self.source.rglob("*") if p.is_file()}
+        verified = self.run_cli("verify", "--backup", self.backup,
+                                "--scratch-parent", self.scratch, "--source", self.source)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertTrue(json.loads(verified.stdout)["source_matched"])
+        self.assertEqual(before, {p.relative_to(self.source): p.read_bytes()
+                                 for p in self.source.rglob("*") if p.is_file()})
+
+    def test_release_rejects_intact_backup_of_older_source(self):
+        done = self.run_cli("create", "--source", self.source, "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        # An intact historical backup remains usable for recovery, but must
+        # not authorize a release after new ledger history has been recorded.
+        (self.source / "reports" / "inputs" / "ledger.json").write_text(
+            '{"history": [{"id": "new-decision"}]}', encoding="utf-8")
+        historical = self.run_cli("verify", "--backup", self.backup,
+                                  "--scratch-parent", self.scratch)
+        self.assertEqual(historical.returncode, 0, historical.stderr)
+        release = self.run_cli("verify", "--backup", self.backup,
+                              "--scratch-parent", self.scratch, "--source", self.source)
+        self.assertNotEqual(release.returncode, 0)
+        self.assertIn("BACKUP_SOURCE_MISMATCH", release.stderr)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_release_refuses_scratch_inside_current_source(self):
+        done = self.run_cli("create", "--source", self.source, "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        release = self.run_cli("verify", "--backup", self.backup,
+                              "--scratch-parent", self.source, "--source", self.source)
+        self.assertNotEqual(release.returncode, 0)
+        self.assertIn("BACKUP_PATH_OVERLAP", release.stderr)
+        self.assertFalse(any(self.source.glob("aemr-restore-*")))
+
+    def test_release_detects_source_change_during_scratch_recovery(self):
+        done = self.run_cli("create", "--source", self.source, "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        spec = importlib.util.spec_from_file_location("stateful_backup", SCRIPT)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        copy = tool.copy_with_ownership
+
+        def concurrent_change(source, destination):
+            copy(source, destination)
+            (self.source / "reports" / "inputs" / "ledger.json").write_text(
+                '{"history": [{"id": "concurrent-decision"}]}', encoding="utf-8")
+
+        # Simulate another writer after the initial source comparison. The
+        # scratch restore remains intact, so only the final recheck can fail.
+        with (
+            patch.object(tool, "copy_with_ownership", side_effect=concurrent_change),
+            self.assertRaisesRegex(tool.BackupError, "SOURCE_CHANGED_DURING_BACKUP_VERIFICATION"),
+        ):
+            tool.verify(self.backup, self.scratch, self.source)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+        historical = self.run_cli("verify", "--backup", self.backup,
+                                  "--scratch-parent", self.scratch)
+        self.assertEqual(historical.returncode, 0, historical.stderr)
 
 
     def test_manifest_preserves_owner_mode_and_empty_directories(self):

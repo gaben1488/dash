@@ -12,13 +12,13 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import sqlite3
 import stat
 import sys
 import tempfile
 import zipfile
+from pathlib import Path
 
 
 class BackupError(Exception):
@@ -139,29 +139,43 @@ def create(source: Path, backup: Path) -> dict:
     return {"state": "BACKUP_CREATED", "files": len(before), "bytes": total}
 
 
-def verify(backup: Path, scratch_parent: Path) -> dict:
+def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> dict:
     backup = backup.resolve(strict=True)
     scratch_parent = scratch_parent.resolve(strict=True)
     if not scratch_parent.is_dir() or (backup == scratch_parent or backup in scratch_parent.parents):
         raise BackupError("BACKUP_PATH_OVERLAP")
-    with (backup / "manifest.json").open(encoding="utf-8") as source:
-        manifest = json.load(source)
+    if source is not None:
+        source = source.resolve(strict=True)
+        check_nonoverlapping(source, backup)
+        check_nonoverlapping(source, scratch_parent)
+    with (backup / "manifest.json").open(encoding="utf-8") as receipt:
+        manifest = json.load(receipt)
     if manifest.get("format") != 1 or not isinstance(manifest.get("files"), dict):
         raise BackupError("BACKUP_MANIFEST_INVALID")
     files = manifest["files"]
     if inventory(backup / "state") != files:
         raise BackupError("BACKUP_MISMATCH")
+    if source is not None and inventory(source) != files:
+        raise BackupError("BACKUP_SOURCE_MISMATCH")
     with tempfile.TemporaryDirectory(prefix="aemr-restore-", dir=scratch_parent) as scratch:
         restored = Path(scratch) / "state"
         copy_with_ownership(backup / "state", restored)
         if inventory(restored) != files:
             raise BackupError("BACKUP_MISMATCH")
         dbs, documents = verify_restored_documents_and_sqlite(restored, files)
+    # A release needs the current quiesced state, not merely a valid old copy.
+    # Recheck after scratch recovery; never open production SQLite for a read
+    # that could create WAL/SHM sidecars. Quiescence is enforced by the caller.
+    if source is not None and inventory(source) != files:
+        raise BackupError("SOURCE_CHANGED_DURING_BACKUP_VERIFICATION")
     total = sum(int(row["bytes"]) for row in files.values())
     if total != manifest.get("bytes"):
         raise BackupError("BACKUP_MISMATCH")
-    return {"state": "VERIFIED_IN_SCRATCH", "files": len(files),
-            "bytes": total, "sqlite_checked": dbs, "docx_checked": documents}
+    result = {"state": "VERIFIED_IN_SCRATCH", "files": len(files),
+              "bytes": total, "sqlite_checked": dbs, "docx_checked": documents}
+    if source is not None:
+        result["source_matched"] = True
+    return result
 
 
 def main() -> int:
@@ -173,15 +187,17 @@ def main() -> int:
     read = sub.add_parser("verify")
     read.add_argument("--backup", type=Path, required=True)
     read.add_argument("--scratch-parent", type=Path, required=True)
+    read.add_argument("--source", type=Path,
+                      help="Остановленный источник для проверки актуальности перед выпуском")
     args = parser.parse_args()
     try:
         result = (create(args.source, args.backup) if args.command == "create"
-                  else verify(args.backup, args.scratch_parent))
+                  else verify(args.backup, args.scratch_parent, args.source))
         print(json.dumps(result, sort_keys=True))
         return 0
     except BackupError as exc:
         print(str(exc), file=sys.stderr)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, json.JSONDecodeError):
         print("BACKUP_IO_OR_MANIFEST_FAILED", file=sys.stderr)
     return 2
 
