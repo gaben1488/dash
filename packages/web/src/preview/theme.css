@@ -1,3 +1,5 @@
+@import './material-recipes.css';
+
 /* Presentation-only override for the REAL production frontend.
    No page layout, component order, OrgStrip geometry or report sections altered. */
 :root[data-preview-family='Космос'].dark {
