@@ -87,6 +87,33 @@ it('distinguishes unavailable service from missing historical data', async () =>
   expect(result.current.release).toBeNull();
 });
 
+
+it('shows the real access failure instead of a generic Word-readiness error', async () => {
+  request.mockResolvedValue({
+    ok: false, status: 401, text: async () => 'PRIVATE AUTH MESSAGE NEVER SHOW',
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('401'));
+  expect(result.current.status).toContain('Вход');
+  expect(result.current.status).not.toContain('PRIVATE AUTH');
+});
+
+it('reports a response-schema mismatch as a contract problem, not a missing Word', async () => {
+  request.mockResolvedValue({
+    ok: true, status: 200, json: async () => ({ selected: 42, attempt: null }),
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('Несовместимый'));
+  expect(result.current.status).not.toContain('ещё не выпущен');
+});
+
+it('distinguishes upstream 503 from unavailable published Word', async () => {
+  request.mockResolvedValue({ ok: false, status: 503, text: async () => 'sensitive source path' });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('503'));
+  expect(result.current.status).not.toContain('sensitive source path');
+});
+
 it('does not overlap polling while a previous response is pending', async () => {
   let deliver!: (value: ReturnType<typeof response>) => void;
   request.mockImplementation(() => new Promise(resolve => { deliver = resolve; }));
