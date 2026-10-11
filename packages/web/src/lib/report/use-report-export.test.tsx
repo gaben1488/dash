@@ -158,6 +158,20 @@ it('distinguishes upstream 503 from unavailable published Word', async () => {
   expect(result.current.status).not.toContain('sensitive source path');
 });
 
+it('retains only the same-context verified Word after transient 502 readiness failure', async () => {
+  let gatewayUnavailable = false;
+  request.mockImplementation(async (_url: string) => gatewayUnavailable
+    ? { ok: false, status: 502, text: async () => 'sensitive upstream details' }
+    : response(receipt));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  gatewayUnavailable = true;
+  await act(async () => { poll(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(result.current.release?.release_id).toBe(receipt.release_id);
+  expect(result.current.status).toContain('HTTP 502');
+  expect(result.current.status).not.toContain('sensitive upstream details');
+});
+
 it('does not overlap polling while a previous response is pending', async () => {
   let deliver!: (value: ReturnType<typeof response>) => void;
   request.mockImplementation(() => new Promise(resolve => { deliver = resolve; }));
