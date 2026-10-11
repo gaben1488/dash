@@ -65,6 +65,22 @@ export interface IdentityCandidate {
   status: 'needs-review';
 }
 
+/**
+ * Прежний № остался, но описывает другой предмет или учреждение.
+ * Это наблюдение о перемене контекста, не доказательство подмены закупки:
+ * возможны и обычные правки содержания.
+ */
+export interface NumberContextChange {
+  rowSeq: string;
+  beforeSheetRow: number;
+  afterSheetRow: number;
+  beforeSubject: string;
+  afterSubject: string;
+  beforeSubordinate: string;
+  afterSubordinate: string;
+  status: 'needs-review';
+}
+
 export interface RowDiff {
   /** Были в прежнем снимке, в новом их нет. */
   vanished: VanishedRow[];
@@ -86,6 +102,8 @@ export interface RowDiff {
   ambiguousKeys?: { before: string[]; after: string[] };
   /** Возможная смена № п/п: только уникальное совпадение содержимого с доказательством. */
   identityCandidates?: IdentityCandidate[];
+  /** Тот же № стал описывать другое содержание: не приравнивать к сохранённой идентичности. */
+  contextChanged?: NumberContextChange[];
   note: string;
 }
 
@@ -163,6 +181,7 @@ export function diffSnapshots(
 
   const vanished: VanishedRow[] = [];
   const moved: MovedRow[] = [];
+  const contextChanged: NumberContextChange[] = [];
   for (const [key, row] of was) {
     const still = now.get(key);
     if (!still) {
@@ -175,6 +194,25 @@ export function diffSnapshots(
         factSum: row.factSum,
       });
       continue;
+    }
+    // Совпавший номер не гарантирует совпавшую закупку: сравниваем
+    // предметную принадлежность, но не выдаём правку текста за подмену.
+    const beforeSubject = normalized(row.subject);
+    const afterSubject = normalized(still.subject);
+    const beforeOrg = normalized(row.subordinate);
+    const afterOrg = normalized(still.subordinate);
+    if ((beforeSubject && afterSubject && beforeSubject !== afterSubject) ||
+        (beforeOrg && afterOrg && beforeOrg !== afterOrg)) {
+      contextChanged.push({
+        rowSeq: key,
+        beforeSheetRow: row.sheetRow,
+        afterSheetRow: still.sheetRow,
+        beforeSubject: row.subject ?? '',
+        afterSubject: still.subject ?? '',
+        beforeSubordinate: row.subordinate ?? '',
+        afterSubordinate: still.subordinate ?? '',
+        status: 'needs-review',
+      });
     }
     if (still.sheetRow !== row.sheetRow) {
       moved.push({
@@ -272,6 +310,10 @@ export function diffSnapshots(
   if (ambiguous.size > 0) {
     notes.push('Повторяющиеся № п/п не сопоставлялись: ' + [...ambiguous].sort().join(', ') + '.');
   }
+  if (contextChanged.length > 0) {
+    notes.push('Контекст при прежнем № изменён: ' + contextChanged.length +
+      '. Это может быть редакторская правка или другая закупка — связь требует проверки.');
+  }
   if (notes.length === 0) notes.push('Все закупки прежнего снимка на месте.');
 
   return {
@@ -283,6 +325,7 @@ export function diffSnapshots(
     unkeyed,
     ambiguousKeys,
     identityCandidates,
+    contextChanged,
     note: notes.join(' '),
   };
 }

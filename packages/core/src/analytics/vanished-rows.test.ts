@@ -178,3 +178,47 @@ describe('повторное использование номера — не с
   });
 });
 
+describe('сохранённый номер не означает сохранённый предмет закупки', () => {
+  it('выделяет смену предмета при прежнем №, даже если исчезновения номеров нет', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '10', sheetRow: 6, subject: 'Ремонт кровли', subordinate: 'Школа № 1', planSum: 100, method: 'ЕП' })],
+      [row({ rowSeq: '10', sheetRow: 6, subject: 'Канцелярские товары', subordinate: 'Школа № 1', planSum: 100, method: 'ЕП' })],
+    );
+    expect(diff.vanished).toEqual([]);
+    expect(diff.appeared).toEqual([]);
+    expect(diff.identityCandidates).toEqual([]);
+    expect(diff.contextChanged).toEqual([expect.objectContaining({
+      rowSeq: '10', beforeSubject: 'Ремонт кровли', afterSubject: 'Канцелярские товары',
+      status: 'needs-review',
+    })]);
+    expect(diff.note).toContain('Это может быть редакторская правка');
+  });
+
+  it('смена учреждения при одинаковом предмете требует проверки', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '42', sheetRow: 9, subordinate: 'МБОУ СОШ № 1' })],
+      [row({ rowSeq: '42', sheetRow: 9, subordinate: 'МБОУ СОШ № 2' })],
+    );
+    expect(diff.contextChanged?.[0]).toMatchObject({
+      rowSeq: '42', beforeSubordinate: 'МБОУ СОШ № 1', afterSubordinate: 'МБОУ СОШ № 2',
+    });
+  });
+
+  it('правка плана и способа без перемены предмета не шумит об идентичности', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '50', sheetRow: 9, subject: 'Ремонт', planSum: 100, method: 'ЕП' })],
+      [row({ rowSeq: '50', sheetRow: 9, subject: 'Ремонт', planSum: 200, method: 'ЭА' })],
+    );
+    expect(diff.contextChanged).toEqual([]);
+  });
+
+  it('дубли номера не становятся ложными изменениями контекста', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '70', sheetRow: 9, subject: 'А' }), row({ rowSeq: '70', sheetRow: 10, subject: 'Б' })],
+      [row({ rowSeq: '70', sheetRow: 9, subject: 'В' })],
+    );
+    expect(diff.contextChanged).toEqual([]);
+    expect(diff.ambiguousKeys?.before).toContain('70');
+  });
+});
+
