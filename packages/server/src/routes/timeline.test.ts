@@ -238,7 +238,7 @@ describe('/api/timeline/*', () => {
     it('при отсутствии контрольной пары предупреждает, а не подтверждает идентичность', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/timeline/УЭР/4' });
       expect(res.statusCode).toBe(200);
-      expect(res.json().coverage.identityWarning).toContain('номер строки листа');
+      expect(res.json().coverage.identityWarning).toContain('строки листа');
     });
 
     it('связывает возможную перенумерацию из общего сравнения с таймлайном строки', async () => {
