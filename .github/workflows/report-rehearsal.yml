@@ -65,6 +65,41 @@ jobs:
             if test -s .last-known-good; then echo 'rollback_code_marker=PRESENT'; else echo 'rollback_code_marker=MISSING'; fi
             if docker compose --env-file .env.production ps --status running --quiet server 2>/dev/null | grep -q .; then
               docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -c 'import json;from pathlib import Path;p=Path("/app/packages/server/data/reports/status.json");d=json.loads(p.read_text()) if p.is_file() else {};s=str(d.get("status",""));valid={"VERIFIED","VERIFIED_WITH_WARNINGS","FAILED","NOT_ISSUED","RUNNING","PLAN_CHANGED"};print(json.dumps({"status_exists":p.is_file(),"status_class":s if s in valid else "UNKNOWN","attempt_started":bool(d.get("started_at")),"attempt_finished":bool(d.get("finished_at")),"has_snapshot":bool(d.get("snapshot_id")),"has_publication":bool(d.get("publication"))},sort_keys=True))' 2>/dev/null || echo 'report_status_readback=UNAVAILABLE'
+              # Manual refresh is independent of the scheduled worker.
+              # Only publish coarse age/process/error classes, never paths/args.
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - <<'PYSTATUS' 2>/dev/null || echo 'manual_refresh_diagnostic=UNAVAILABLE'
+              import json
+              import os
+              from datetime import datetime, timezone
+              from pathlib import Path
+              p = Path("/app/packages/server/data/reports/status.json")
+              data = json.loads(p.read_text()) if p.is_file() else {}
+              stamp = data.get("started_at")
+              try:
+                  started = datetime.fromisoformat(stamp) if isinstance(stamp, str) else None
+                  seconds = (datetime.now(timezone.utc) - started).total_seconds() if started and started.tzinfo else None
+              except ValueError:
+                  seconds = None
+              count = 0
+              for item in Path("/proc").iterdir():
+                  if not item.name.isdigit() or int(item.name) == os.getpid():
+                      continue
+                  try:
+                      cmd = (item / "cmdline").read_bytes()
+                      count += int(b"proc-report" in cmd and b"run-google" in cmd)
+                  except OSError:
+                      continue
+              codes = {"MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH", "SOURCE_CHANGED_DURING_FREEZE",
+                       "GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT"}
+              stages = {"inputs", "acquisition", "publication_selection", "build", "publication"}
+              print(json.dumps({
+                  "manual_run_google_process_count": count,
+                  "attempt_age_bucket": "UNKNOWN" if seconds is None else (
+                      "FUTURE" if seconds < 0 else "OLDER_THAN_20_MIN" if seconds > 1200 else "RECENT"),
+                  "failure_code": data.get("error_code") if data.get("error_code") in codes else "NONE_OR_OTHER",
+                  "failure_stage": data.get("failure_stage") if data.get("failure_stage") in stages else "NONE_OR_OTHER",
+              }, sort_keys=True))
+              PYSTATUS
             else
               echo 'report_status_readback=SERVER_NOT_RUNNING'
             fi
