@@ -157,6 +157,41 @@ docker compose --env-file .env.production logs -f caddy
 восстанавливает постоянное состояние. Два самостоятельных успешных цикла worker
 и live-проверка трёх Word остаются отдельными критериями R07/R08/R10.
 
+### Восстановление только report-worker (#93)
+
+Первопричина инцидента: docs deployment остановил worker перед проверкой
+схемы источника; MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH прервал запуск без
+возврата расписания. Проверка `deploy_scope` исключает чистые документационные
+изменения; отказ runtime-preflight обязан сохранить прежний worker. Для SSH
+скриптов с Bash trap используется `script_stop: false`: injected exits иначе
+обходят обработку отказа. Запущенный контейнер сам по себе не доказывает работу.
+
+Разрешённая owner-операция `maintenance: restore-current-worker` в PR79
+требует exact-head CI, проверенную текущую полную приватную копию и совместимость
+установленного Node image с источниками. Повторный independent restore проверяет
+reports-only rollback над scratch с сохранением нового core state. Затем
+оператор кратко останавливает Node для quiesced report-source match, возобновляет
+тот же Node и меняет только worker на его immutable image. Web/Caddy, bootstrap,
+миграции и записи Google не затрагиваются. Detached supervisor завершает приёмку
+или откат даже после обрыва SSH. Отказ сохраняется в приватном session receipt.
+
+Приёмка требует двух разных timer attempts, RUNNING+FLOCK/PID-атрибуции worker,
+неизменного исходного Node image и PASS трёх native Word после каждого цикла.
+Отдельный `maintenance: worker-acceptance-readback` сверяет runtime, receipts,
+старые sealed деревья releases/weekly archives (набор путей, bytes, uid/gid/mode)
+и сохранность согласованного webhotfix. Он также проверяет строгую candidate
+схему assurance на исторических model presentations и текущем GET выпуска;
+это не полная приёмка всех исторических contextual DTO. Данные и секреты
+остаются на VPS, в Actions выводятся только агрегаты и фиксированные коды.
+
+Backup38178244703 проверен наd8a7dfa015a531f5653640427836bf535d87ff79:
+3970entries,66SQLite/133DOCX,22 048 941 998B→2 438 244 961B compressed;
+scratch restore и still-quiesced source-match PASS. Node healthy после возврата
+22:16:19UTC. Recovery38178313782 на50945059: full restore/reports-only drill,
+quiesced match, первый самостоятельный цикл и3 native Word PASS
+(step5 SUCCESS на22:39UTC). Второй цикл после штатных900s ещё проверяется;
+#93/R08 не закрыты.
+
 ## Common Failures
 
 - `AEMR_API_KEY is required when NODE_ENV=production`: set `AEMR_API_KEY`.

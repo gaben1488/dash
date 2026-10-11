@@ -56,6 +56,8 @@ jobs:
 
       - name: Verify stateful backup and scratch restore (synthetic; no VPS)
         run: python3 -m unittest discover -s .github/ci -p 'test_stateful_backup.py' -v
+      - name: Verify exact-candidate report schema probe (synthetic; no VPS)
+        run: python3 .github/ci/test_report_schema_probe.py
 
       - name: ESLint
         run: pnpm lint

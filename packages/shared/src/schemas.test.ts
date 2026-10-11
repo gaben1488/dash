@@ -383,6 +383,28 @@ describe('published Word response: actionable assurance 19/32/34 lineage', () =>
     expect(checked.success).toBe(true);
   });
 
+  it('accepts both assurance versions in attempts and validates their counters', () => {
+    for (const assurance of [v2, { ...common, contract: 'actionable-assurance-v1' }]) {
+      const response = {
+        selected: null,
+        attempt: {
+          status: 'VERIFIED_WITH_WARNINGS', attempt_id: 'attempt-schema-test',
+          started_at: receipt.cutoff_at, finished_at: receipt.published_at,
+          automation_assurance: assurance,
+        },
+      };
+      expect(SelectedReportReleaseStatusSchema.safeParse(response).success).toBe(true);
+      for (const change of [{ contract: 'actionable-assurance-v3' }, { user_action_count: -1 }]) {
+        expect(SelectedReportReleaseStatusSchema.safeParse({
+          ...response, attempt: { ...response.attempt, automation_assurance: { ...assurance, ...change } },
+        }).success).toBe(false);
+        expect(SelectedReportReleaseStatusSchema.safeParse({
+          attempt: null, selected: { ...receipt, automation_assurance: { ...assurance, ...change } },
+        }).success).toBe(false);
+      }
+    }
+  });
+
   it('refuses incomplete v2 evidence and unreviewed future contracts', () => {
     for (const assurance of [
       { ...v2, source_observations: undefined },

@@ -123,6 +123,121 @@ jobs:
               counts[key+':'+row['change']]=counts.get(key+':'+row['change'],0)+1
             print(json.dumps({'private_scope_diff_saved':True,'report_scope_difference_classes':counts}))
             PYDIAG
+  worker-acceptance-readback:
+    if: >-
+      github.event.label.name == 'maintenance: worker-acceptance-readback' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Independently read accepted cycles, preserved releases and web hotfix
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 11m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            python3 - <<'PYACCEPT'
+            import hashlib, json, stat, subprocess
+            from pathlib import Path
+            session=Path('/home/aemr/.dash-private-backups/recovery-38178313782')
+            result=json.loads((session/'result.json').read_text())
+            assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['native_word']=='PASS'
+            baseline=json.loads((session.parent/'worker-38178244703/runtime.json').read_text())
+            assert result['worker_image']==baseline['image']
+            ids=[]
+            for number in (1,2):
+                cycle=json.loads((session/f'cycle-{number}.json').read_text())
+                assert cycle['status'] in {'VERIFIED','VERIFIED_WITH_WARNINGS'}
+                assert cycle['snapshot_id']==cycle['publication']['snapshot_id']
+                assert cycle['publication']['operational_available'] is True
+                ids.append(cycle['attempt_id'])
+            assert len(set(ids))==2 and sorted(ids)==result['attempt_ids']
+            server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
+            assert server['Image']==baseline['image'] and server['State']['Status']=='running'
+            assert server['State']['Health']['Status']=='healthy'
+            workers=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc','--filter',
+                'label=com.docker.compose.project=aemr','--filter','label=com.docker.compose.service=report-worker'],text=True).split()
+            assert len(workers)==1
+            worker=json.loads(subprocess.check_output(['docker','inspect',workers[0]]))[0]
+            assert worker['State']['Status']=='running' and worker['Image']==baseline['image']
+            assert not worker['State']['OOMKilled'] and worker['RestartCount']==0
+            web=json.loads(subprocess.check_output(['docker','inspect','aemr-web-1']))[0]
+            assert web['State']['Status']=='running'
+            assert web['Image']=='sha256:43520e97cb59f2f27aeec7144fbf7d19ce9405ab883d0db6c62ced7d12f46334'
+            probe="""import hashlib,json,stat;from pathlib import Path
+            expected=json.loads(Path('/backup/manifest.json').read_text())['files']
+            source=Path('/source'); count=0
+            roots=set()
+            for name in expected:
+                parts=Path(name).parts
+                if len(parts)>=4 and parts[:3]==('reports','published','releases'):roots.add('/'.join(parts[:4]))
+                if len(parts)>=3 and parts[:2]==('reports','archives') and parts[2].startswith('WEEKLY-'):roots.add('/'.join(parts[:3]))
+            for root in roots:
+                tree=source/root
+                actual={p.relative_to(source).as_posix()+('/' if p.is_dir() else '') for p in [tree,*tree.rglob('*')]}
+                sealed={name for name in expected if name.startswith(root+'/')}
+                assert actual==sealed
+            for name,before in expected.items():
+                if not (name.startswith('reports/published/releases/') or name.startswith('reports/archives/WEEKLY-')):continue
+                path=source/name
+                assert not path.is_symlink()
+                meta=path.stat(); after={'uid':meta.st_uid,'gid':meta.st_gid,'mode':stat.S_IMODE(meta.st_mode)}
+                if before.get('kind')=='directory':
+                    assert path.is_dir();after.update(kind='directory',bytes=0)
+                else:
+                    assert path.is_file();digest=hashlib.sha256();size=0
+                    with path.open('rb') as stream:
+                        for block in iter(lambda:stream.read(1024*1024),b''):digest.update(block);size+=len(block)
+                    after.update(sha256=digest.hexdigest(),bytes=size)
+                assert after==before
+                count+=1
+            assert count>0
+            print(json.dumps({'old_sealed_entries':count,'old_sealed_bytes_and_metadata':'PASS'}))"""
+            checked=subprocess.run(['docker','run','--rm','-i','--network','none','--read-only','--user','0',
+                '--mount','type=volume,src='+baseline['volume']+',dst=/source,readonly',
+                '--mount','type=bind,src='+str(session.parent/'worker-38178244703/backup')+',dst=/backup,readonly',
+                '--entrypoint','/opt/report-env/bin/python',baseline['image'],'-B','-'],
+                input=probe.encode(),capture_output=True,timeout=360)
+            assert checked.returncode==0, 'WORKER_OLD_SEALED_STATE_READBACK_FAILED'
+            print(checked.stdout.decode())
+            smoke=subprocess.run(['docker','exec',baseline['server'],'/opt/report-env/bin/python','-m',
+                'procurement_engine.deployment_smoke'],capture_output=True,timeout=180)
+            assert smoke.returncode==0, 'WORKER_NATIVE_WORD_READBACK_FAILED'
+            fields=json.loads(smoke.stdout)
+            assert all(fields.get(key)=='PASS' for key in ('context','snapshot','main','supplement','operational'))
+            print(json.dumps({'accepted_timer_cycles':2,'worker_running':True,'server_healthy':True,
+                'worker_image_pinned':True,'web_assurance_v2_hotfix_preserved':True,'native_three_word':'PASS'}))
+            # Compile exact candidate public sources in memory, never import the
+            # installed v1-only shared package or overwrite runtime source files.
+            repo=Path('/home/aemr/dash')
+            candidate='${{ github.event.pull_request.head.sha }}'
+            assert len(candidate)==40 and all(c in '0123456789abcdef' for c in candidate)
+            subprocess.run(['git','fetch','--quiet','origin',candidate],cwd=repo,check=True,capture_output=True)
+            def public_source(name):
+                return subprocess.check_output(['git','show',candidate+':'+name],cwd=repo,text=True)
+            payload=json.dumps({'schemas':public_source('packages/shared/src/schemas.ts'),
+                'registry':public_source('packages/shared/src/department-registry.ts')})
+            program=public_source('.github/ci/report-schema-probe.cjs')
+            program+='\nmain().catch(()=>{console.log("CANDIDATE_SCHEMA_PROBE_FAILED");process.exitCode=2;});'
+            schema=subprocess.run(['docker','run','--rm','-i','--read-only','--network','aemr_aemr',
+                '--env-file',str(repo/'deploy/.env.production'),
+                '--mount','type=volume,src='+baseline['volume']+',dst=/app/packages/server/data,readonly',
+                '--entrypoint','node',baseline['image'],'-e',program],
+                input=payload.encode(),capture_output=True,timeout=180)
+            try: summary=json.loads(schema.stdout)
+            except ValueError: raise AssertionError('CANDIDATE_SCHEMA_PROBE_NO_PROOF') from None
+            print(json.dumps({'candidate_sha':candidate,**summary}))
+            assert schema.returncode==0 and summary['candidate_schema_history']=='PASS', 'CANDIDATE_SCHEMA_HISTORY_READBACK_FAILED'
+            PYACCEPT
   restore-current-worker:
     if: >-
       github.event.label.name == 'maintenance: restore-current-worker' &&

@@ -34,11 +34,27 @@ Recovery38176811396 остановлен до runtime на BACKUP_REPORT_SCOPE_M
 Read-only38177526291 доказал точное отличие: два новых entries попытки,
 новый status и изменённый root status; прежние published/archive/registry/ledger
 побайтово неизменны. Старый backup корректен исторически, но не является
-текущим rollback checkpoint. Новая полная копия38178244703 запущена на
-exact-head d8a7dfa015a531f5653640427836bf535d87ff79 (CI38177512771 SUCCESS).
-Recovery gate перепривязан к новой копии и повторному независимому полному
-restore/reports-only drill; свежий quiesced report-match сохранён.
-Worker пока exited, R08 остаётся частичным до двух самостоятельных циклов.
+текущим rollback checkpoint. Новая полная копия38178244703 на
+exact-head d8a7dfa015a531f5653640427836bf535d87ff79 (CI38177512771 SUCCESS)
+проверена:3970entries,22 048 941 998B→2 438 244 961B compressed,
+66SQLite/133DOCX, внешний scratch restore и still-quiesced source-match PASS.
+Прежний Node возобновлён22:16:19UTC и healthy; hotfix web сохранён.
+Recovery38178313782 на5094505944da1f3701cb5e468234c1f4f43d8b31:
+CI38178298350 SUCCESS, повторный полный restore/reports-only drill PASS;
+quiesced report-match и первый самостоятельный цикл +3 native Word PASS
+(step5 SUCCESS на22:39UTC). Worker восстановлен, API healthy; идёт проверка
+второго timer-цикла после штатного интервала900s. R08 остаётся частичным
+до второго самостоятельного цикла и независимой сверки.
+
+Независимая согласованная проверка после backup: health HTTP200/ok;
+существующий REL-3958a9401e5f4c582012db641443eb0d37c9aae928bc1639c3e1203440f79a58
+принимается webhotfix actionable-assurance-v2; три DOCX200+ZIP,
+107508/64891/41656B,~0,44–0,50s. Hotfix image
+sha256:43520e97cb59f2f27aeec7144fbf7d19ce9405ab883d0db6c62ced7d12f46334
+не заменять при worker-only recovery. Это проверка web/API/скачивания,
+не доказательство совместимости строгой v2-схемы нового candidate со всей
+историей. Диагностический CI probe импортирует старый installed Node shared
+и сообщает CONTRACT_FAIL наv2; зелёный CI не подменяет клиентскую приёмку.
 
 По последнему поручению worker #93 — первый приоритет. Live read-only
 38170496420 на dd267377 подтвердил exited(0), разные server/worker image
