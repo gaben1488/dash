@@ -31,11 +31,13 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 5m
-          script_stop: true
+          script_stop: false
           script: |
             set -euo pipefail
+            echo 'worker_diagnostic_ssh=CONNECTED'
             umask 077
             cd /home/aemr/dash/deploy
+            echo 'worker_diagnostic_directory=FOUND'
             # Do not expose .env.production, logs, source rows or credentials.
             if ! docker compose --env-file .env.production --profile reports config --services >/dev/null 2>&1; then
               echo 'compose_readback=UNAVAILABLE'
