@@ -40,6 +40,8 @@ export interface TableEditorProps {
   onSaveRow?: (rowId: string, data: Record<string, unknown>) => Promise<void>;
   onRevertRow?: (rowId: string) => void;
   onAddColumn?: (column: ColumnConfig) => void;
+  /** Unsaved fields owned by the parent so filter/navigation cannot erase them. */
+  externalDirtyFields?: Record<string, string[]>;
   loading?: boolean;
   readOnly?: boolean;
   /**
@@ -393,6 +395,7 @@ export function TableEditor({
   onSaveRow,
   onRevertRow,
   onAddColumn,
+  externalDirtyFields = {},
   loading = false,
   readOnly = false,
   emptyReason,
@@ -832,18 +835,19 @@ export function TableEditor({
   );
 
   const isDirtyRow = useCallback((rowId: string) => {
-    return dirty[rowId] && dirty[rowId].size > 0;
-  }, [dirty]);
+    return (dirty[rowId]?.size ?? 0) > 0 || (externalDirtyFields[rowId]?.length ?? 0) > 0;
+  }, [dirty, externalDirtyFields]);
 
   const isDirtyCell = useCallback((rowId: string, colKey: string) => {
-    return dirty[rowId]?.has(colKey) ?? false;
-  }, [dirty]);
+    return dirty[rowId]?.has(colKey) === true || (externalDirtyFields[rowId]?.includes(colKey) ?? false);
+  }, [dirty, externalDirtyFields]);
 
   const hasRowErrors = useCallback((rowId: string) => {
     return Object.keys(errors).some(k => k.startsWith(`${rowId}:`));
   }, [errors]);
 
-  const dirtyCount = Object.keys(dirty).length;
+  const dirtyCount = new Set([...Object.keys(dirty), ...Object.keys(externalDirtyFields)])
+    .size;
   const failedCount = Object.keys(saveErrors).length;
   const colSpan = visibleColumns.length + (readOnly ? 0 : 1);
   const hiddenCount = columns.length - visibleColumns.length;

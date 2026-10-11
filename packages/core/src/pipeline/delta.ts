@@ -62,15 +62,18 @@ export function computeDeltas(
       explanation = scopeReason;
     } else if (officialValue !== null && calculatedValue !== null) {
       delta = calculatedValue - officialValue;
-      deltaPercent = officialValue !== 0
-        ? (delta / Math.abs(officialValue)) * 100
-        : (delta === 0 ? 0 : 100);
+      // A zero official base cannot produce a meaningful relative percentage.
+      // A manufactured "100 %" conceals the actual difference (old debt L1).
+      deltaPercent = officialValue === 0
+        ? (delta === 0 ? 0 : null)
+        : (delta / Math.abs(officialValue)) * 100;
 
       const tolerance = entry.tolerance ?? 0.01;
-      withinTolerance = Math.abs(deltaPercent / 100) <= tolerance;
-
+      withinTolerance = deltaPercent !== null && Math.abs(deltaPercent / 100) <= tolerance;
       if (withinTolerance) {
         explanation = 'Значения совпадают в пределах допуска';
+      } else if (deltaPercent === null) {
+        explanation = `Официальное значение равно нулю, относительный процент не определяется; абсолютная разница ${delta}`;
       } else {
         explanation = `Расхождение ${deltaPercent.toFixed(2)}% (допуск: ${(tolerance * 100).toFixed(1)}%)`;
       }

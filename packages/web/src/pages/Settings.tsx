@@ -960,11 +960,18 @@ SQLITE_PATH=./data/aemr.db
                         {/* Результат проверки данных */}
                         {check?.result && !check.result.error && (
                           <div className={clsx('mt-2 px-2.5 py-2 rounded-lg text-[10px] space-y-1',
-                            (check.result.summary?.total ?? 0) === 0
+                            (check.result.summary?.total ?? 0) === 0 && check.result.validationPerformed !== false && check.result.rowsChecked > 0
                               ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
                               : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
                           )}>
-                            {(check.result.summary?.total ?? 0) === 0 ? (
+                            {check.result.validationPerformed === false ? (
+                              <div>
+                                Лист «{check.result.resolvedSheetName}» прочитан: {check.result.rowsRead ?? 0} строк.
+                                Проверка содержимого этого вида свода здесь не выполняется.
+                              </div>
+                            ) : check.result.rowsChecked === 0 ? (
+                              <div>Рабочих строк для проверки не найдено — проверьте содержимое источника.</div>
+                            ) : (check.result.summary?.total ?? 0) === 0 ? (
                               <div className="flex items-center gap-1">
                                 <CheckCircle2 size={10} aria-hidden="true" /> Замечаний не найдено
                                 {check.result.rowsChecked > 0 && (
