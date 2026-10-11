@@ -1,6 +1,6 @@
 # Architecture
 
-Last verified: 2026-06-04.
+Last broad overview: 2026-06-04. Source/storage paths below rechecked: 2026-10-12 (Kamchatka).
 
 ## Layers
 
@@ -78,3 +78,43 @@ Global state lives in `packages/web/src/store.ts`. Filter semantics: empty Set m
 ## 44-FZ Thresholds
 
 Canonical 44-ФЗ numeric thresholds are in `packages/shared/src/constants.ts` under `LAW_44FZ_THRESHOLDS`. Core analytics and signals should import those constants instead of duplicating numbers.
+
+
+## Source versions and report storage — current and target
+
+The operational Dash reader and Python report worker currently acquire Google
+sources independently. Dash persists complete PipelineSnapshot JSON plus SQL
+row/metric projections; Python persists snapshot payloads, one ReportModel and
+several JSON projections, then PublicationStore copies the candidate directory.
+The published Python dashboard projection is verified against its ReportModel;
+this does not establish version parity with all live Dash routes.
+
+Target: one sealed source revision used by both consumers; unchanged content
+stored once, changes and bounded recovery checkpoints retained, weekly markers
+referencing completed revisions in Asia/Kamchatka. A verified release references
+that revision, rules/renderer versions and one frozen model. Derived views use
+indexed current state or bounded caches; they do not retain new full source
+copies per release. Human decisions and their minimal exact proofs survive GC.
+The current live head may be newer than the verified release; consumers expose
+both explicitly instead of silently changing historical document input.
+
+```mermaid
+flowchart LR
+    G[Registered Google sources] --> I[One acquisition coordinator]
+    I --> V[Sealed source revision and change history]
+    V --> D[Dash indexed queries]
+    V --> R[Report calculations and validation]
+    V --> W[Weekly revision markers]
+    H[Human decisions and exact proofs] --> D
+    H --> R
+    R --> P[Verified release references and frozen model]
+    P --> DOC[Word documents]
+    P --> VIEW[Published dashboard view]
+```
+
+This is a transition design, not deployed behavior. It does not move independent
+Operational Tasks or OKRUG production data into Dash. See the existing
+[ADR-001 revision](decisions/0001-verified-report-publication.md) for current
+byte measurements, alternatives, migration stages, failure handling and tests.
+PostgreSQL selection remains C08; changing the database alone cannot remove
+application-level snapshot duplication or unify acquisition.
