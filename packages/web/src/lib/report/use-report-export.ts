@@ -61,7 +61,19 @@ export function useReportExport(context: ExportContext | null) {
       controller.signal.addEventListener('abort', abort, { once: true });
       let timeout = setTimeout(abort, 35_000);
       try {
-        const data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        // Caddy may return a short-lived 502 while Fastify reloads. Retry one
+        // idempotent GET; never re-run POST refresh, rebuild Word or hide a
+        // sustained upstream failure behind a fabricated success.
+        let data: SelectedReportReleaseStatus;
+        try {
+          data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        } catch (error) {
+          if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status) ||
+              requestController.signal.aborted) throw error;
+          await new Promise<void>(resolve => setTimeout(resolve, 750));
+          if (requestController.signal.aborted) return;
+          data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        }
         if (controller.signal.aborted) return;
         setState({ key: key!, data, error: '' });
         if (archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
