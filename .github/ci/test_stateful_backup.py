@@ -68,12 +68,111 @@ class StatefulBackupTests(unittest.TestCase):
                         for p in self.source.rglob("*") if p.is_file()))
         self.assertEqual(list(self.scratch.iterdir()), [])  # Scratch auto-cleaned.
 
+    def test_compressed_full_backup_restores_exact_state_and_metadata(self):
+        (self.source / "reports" / "empty").mkdir()
+        (self.source / "aemr.db").chmod(0o600)
+        (self.source / "reports" / "attempts" / "large.json").write_text(
+            json.dumps({"rows": [[i, "сохранённый оригинал"] for i in range(10000)]}),
+            encoding="utf-8")
+        done = self.run_cli("create", "--compressed", "--source", self.source,
+                            "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        manifest = json.loads((self.backup / "manifest.json").read_text())
+        self.assertEqual(manifest["format"], 2)
+        self.assertFalse((self.backup / "state").exists())
+        self.assertLess(manifest["archive_bytes"], manifest["bytes"] // 2)
+        verified = self.run_cli("verify", "--backup", self.backup,
+                                "--scratch-parent", self.scratch, "--source", self.source)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertTrue(json.loads(verified.stdout)["source_matched"])
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_compressed_backup_corruption_does_not_authorize_restore(self):
+        done = self.run_cli("create", "--compressed", "--source", self.source,
+                            "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        archive = self.backup / "state.tar.gz"
+        archive.write_bytes(archive.read_bytes()[:-8] + b"CORRUPT!")
+        verified = self.run_cli("verify", "--backup", self.backup,
+                                "--scratch-parent", self.scratch)
+        self.assertNotEqual(verified.returncode, 0)
+        self.assertIn("BACKUP_MISMATCH", verified.stderr)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_restore_checks_uncompressed_capacity_before_writing_scratch(self):
+        spec = importlib.util.spec_from_file_location("stateful_backup", SCRIPT)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        tool.create(self.source, self.backup, compressed=True)
+        before = tool.inventory(self.source)
+        with (patch.object(tool.shutil, "disk_usage",
+                           return_value=type("Disk", (), {"free": 1})()),
+              patch.object(tool, "_restore_compressed", wraps=tool._restore_compressed) as restore,
+              self.assertRaisesRegex(tool.BackupError, "BACKUP_STORAGE_INSUFFICIENT")):
+            tool.verify(self.backup, self.scratch, self.source)
+        restore.assert_not_called()
+        self.assertEqual(tool.inventory(self.source), before)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_compressed_restore_refuses_archive_traversal_even_with_matching_hash(self):
+        import hashlib
+        import io
+        import tarfile
+        done = self.run_cli("create", "--compressed", "--source", self.source,
+                            "--backup", self.backup)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        archive = self.backup / "state.tar.gz"
+        with tarfile.open(archive, "w:gz") as stream:
+            member = tarfile.TarInfo("../escape")
+            member.size = 3
+            stream.addfile(member, io.BytesIO(b"bad"))
+        manifest_path = self.backup / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest.update(archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+                        archive_bytes=archive.stat().st_size)
+        manifest_path.write_text(json.dumps(manifest))
+        verified = self.run_cli("verify", "--backup", self.backup,
+                                "--scratch-parent", self.scratch)
+        self.assertNotEqual(verified.returncode, 0)
+        self.assertIn("BACKUP_UNSAFE_FILE", verified.stderr)
+        self.assertFalse((self.scratch / "escape").exists())
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
     def test_refuses_backup_destination_inside_live_state(self):
         target = self.source / "bad-backup"
         result = self.run_cli("create", "--source", self.source, "--backup", target)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("BACKUP_PATH_OVERLAP", result.stderr)
         self.assertFalse(target.exists())
+
+    def test_compressed_writer_respects_free_space_reserve_and_cleans_partial_archive(self):
+        import os
+        spec = importlib.util.spec_from_file_location("stateful_backup", SCRIPT)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        (self.source / "reports" / "attempts" / "noise").write_bytes(os.urandom(100000))
+        before = tool.inventory(self.source)
+        with (patch.object(tool.shutil, "disk_usage",
+                           return_value=type("Disk", (), {"free": 128 * 1024 * 1024 + 1000})()),
+              self.assertRaisesRegex(tool.BackupError, "BACKUP_STORAGE_INSUFFICIENT")):
+            tool.create(self.source, self.backup, compressed=True)
+        self.assertEqual(tool.inventory(self.source), before)
+        self.assertFalse(self.backup.exists())
+        self.assertEqual(list(self.backup.parent.glob(".aemr-backup-*")), [])
+
+    def test_compressed_source_change_invalidates_the_complete_archive(self):
+        spec = importlib.util.spec_from_file_location("stateful_backup", SCRIPT)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        compress = tool._compress_state
+        def concurrent_change(*args):
+            compress(*args)
+            (self.source / "reports" / "inputs" / "ledger.json").write_text('{"changed":true}')
+        with (patch.object(tool, "_compress_state", side_effect=concurrent_change),
+              self.assertRaisesRegex(tool.BackupError, "SOURCE_CHANGED_DURING_BACKUP")):
+            tool.create(self.source, self.backup, compressed=True)
+        self.assertFalse(self.backup.exists())
+        self.assertEqual(list(self.backup.parent.glob(".aemr-backup-*")), [])
 
     def test_refuses_missing_required_state(self):
         (self.source / "reports" / "inputs" / "ledger.json").unlink()

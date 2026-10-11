@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ import shutil
 import sqlite3
 import stat
 import sys
+import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
@@ -104,7 +106,68 @@ def check_nonoverlapping(source: Path, backup: Path) -> None:
         raise BackupError("BACKUP_PATH_OVERLAP")
 
 
-def create(source: Path, backup: Path) -> dict:
+def _archive_hash(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _compress_state(source: Path, archive: Path, files: dict, max_bytes: int) -> None:
+    """Stream a full copy; refuse to consume the caller's free-space reserve."""
+    with archive.open("xb") as output:
+        class BoundedOutput:
+            def write(self, data):
+                if output.tell() + len(data) > max_bytes:
+                    raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
+                return output.write(data)
+
+        with (gzip.GzipFile(fileobj=BoundedOutput(), mode="wb", mtime=0) as compressed,
+              tarfile.open(fileobj=compressed, mode="w|", dereference=True) as stream):
+            for relative in files:
+                stream.add(source / relative, arcname=relative.rstrip("/"), recursive=False)
+        output.flush()
+        os.fsync(output.fileno())
+
+
+def _restore_compressed(backup: Path, restored: Path, files: dict) -> None:
+    """Extract only expected regular files/directories; never use extractall."""
+    restored.mkdir(mode=0o700)
+    seen = set()
+    directories = []
+    with tarfile.open(backup / "state.tar.gz", "r|gz") as stream:
+        for member in stream:
+            path = Path(member.name)
+            if (path.is_absolute() or ".." in path.parts or path.as_posix() != member.name
+                    or not path.parts or not (member.isfile() or member.isdir())):
+                raise BackupError("BACKUP_UNSAFE_FILE")
+            relative = member.name + ("/" if member.isdir() else "")
+            info = files.get(relative)
+            if relative in seen or not isinstance(info, dict):
+                raise BackupError("BACKUP_MISMATCH")
+            if ((info.get("kind") == "directory") != member.isdir()
+                    or member.size != info.get("bytes")
+                    or any(getattr(member, key) != info.get(key) for key in ("uid", "gid", "mode"))):
+                raise BackupError("BACKUP_MISMATCH")
+            seen.add(relative)
+            target = restored / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if member.isdir():
+                target.mkdir(exist_ok=True)
+                directories.append((target, info))
+            else:
+                with stream.extractfile(member) as src, target.open("xb") as destination:
+                    shutil.copyfileobj(src, destination)
+                os.chmod(target, info["mode"])
+                if os.geteuid() == 0:
+                    os.chown(target, info["uid"], info["gid"])
+    if seen != set(files):
+        raise BackupError("BACKUP_MISMATCH")
+    for target, info in reversed(directories):
+        os.chmod(target, info["mode"])
+        if os.geteuid() == 0:
+            os.chown(target, info["uid"], info["gid"])
+
+
+def create(source: Path, backup: Path, *, compressed: bool = False) -> dict:
     source = source.resolve(strict=True)
     backup = backup.resolve(strict=False)
     check_nonoverlapping(source, backup)
@@ -115,18 +178,26 @@ def create(source: Path, backup: Path) -> dict:
     before = inventory(source)
     total = sum(int(row["bytes"]) for row in before.values())
     # Requires room for both the backup and its later independent scratch restore.
-    if shutil.disk_usage(backup.parent).free < total * 2 + 128 * 1024 * 1024:
+    free = shutil.disk_usage(backup.parent).free
+    reserve = 128 * 1024 * 1024
+    if free < (reserve if compressed else total * 2 + reserve):
         raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
     staging = Path(tempfile.mkdtemp(prefix=".aemr-backup-", dir=backup.parent))
     try:
-        copy_with_ownership(source, staging / "state")
+        if compressed:
+            _compress_state(source, staging / "state.tar.gz", before, free - reserve)
+        else:
+            copy_with_ownership(source, staging / "state")
         if inventory(source) != before:
             raise BackupError("SOURCE_CHANGED_DURING_BACKUP")
-        if inventory(staging / "state") != before:
+        if not compressed and inventory(staging / "state") != before:
             raise BackupError("BACKUP_MISMATCH")
         # SQLite WAL may create a shared-memory sidecar even for a read. Run
         # integrity checks only on the disposable restore, never on the backup.
-        manifest = {"format": 1, "files": before, "bytes": total}
+        manifest = {"format": 2 if compressed else 1, "files": before, "bytes": total}
+        if compressed:
+            manifest.update(archive_sha256=_archive_hash(staging / "state.tar.gz"),
+                            archive_bytes=(staging / "state.tar.gz").stat().st_size)
         receipt = staging / "manifest.json"
         with receipt.open("x", encoding="utf-8") as stream:
             json.dump(manifest, stream, ensure_ascii=False, sort_keys=True)
@@ -136,7 +207,9 @@ def create(source: Path, backup: Path) -> dict:
     finally:
         if staging.exists():
             shutil.rmtree(staging)
-    return {"state": "BACKUP_CREATED", "files": len(before), "bytes": total}
+    return {"state": "BACKUP_CREATED", "format": manifest["format"],
+            "files": len(before), "bytes": total,
+            **({"archive_bytes": manifest["archive_bytes"]} if compressed else {})}
 
 
 def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> dict:
@@ -150,16 +223,34 @@ def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> di
         check_nonoverlapping(source, scratch_parent)
     with (backup / "manifest.json").open(encoding="utf-8") as receipt:
         manifest = json.load(receipt)
-    if manifest.get("format") != 1 or not isinstance(manifest.get("files"), dict):
+    if manifest.get("format") not in (1, 2) or not isinstance(manifest.get("files"), dict):
         raise BackupError("BACKUP_MANIFEST_INVALID")
     files = manifest["files"]
-    if inventory(backup / "state") != files:
+    if any(not isinstance(row, dict) or type(row.get("bytes")) is not int
+           or row["bytes"] < 0 for row in files.values()):
+        raise BackupError("BACKUP_MANIFEST_INVALID")
+    total = sum(row["bytes"] for row in files.values())
+    if type(manifest.get("bytes")) is not int or total != manifest["bytes"]:
+        raise BackupError("BACKUP_MISMATCH")
+    if manifest["format"] == 2:
+        archive = backup / "state.tar.gz"
+        if archive.is_symlink() or not archive.is_file():
+            raise BackupError("BACKUP_UNSAFE_FILE")
+        if (archive.stat().st_size != manifest.get("archive_bytes")
+                or _archive_hash(archive) != manifest.get("archive_sha256")):
+            raise BackupError("BACKUP_MISMATCH")
+    elif inventory(backup / "state") != files:
         raise BackupError("BACKUP_MISMATCH")
     if source is not None and inventory(source) != files:
         raise BackupError("BACKUP_SOURCE_MISMATCH")
+    if shutil.disk_usage(scratch_parent).free < total + 128 * 1024 * 1024:
+        raise BackupError("BACKUP_STORAGE_INSUFFICIENT")
     with tempfile.TemporaryDirectory(prefix="aemr-restore-", dir=scratch_parent) as scratch:
         restored = Path(scratch) / "state"
-        copy_with_ownership(backup / "state", restored)
+        if manifest["format"] == 2:
+            _restore_compressed(backup, restored, files)
+        else:
+            copy_with_ownership(backup / "state", restored)
         if inventory(restored) != files:
             raise BackupError("BACKUP_MISMATCH")
         dbs, documents = verify_restored_documents_and_sqlite(restored, files)
@@ -168,9 +259,6 @@ def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> di
     # that could create WAL/SHM sidecars. Quiescence is enforced by the caller.
     if source is not None and inventory(source) != files:
         raise BackupError("SOURCE_CHANGED_DURING_BACKUP_VERIFICATION")
-    total = sum(int(row["bytes"]) for row in files.values())
-    if total != manifest.get("bytes"):
-        raise BackupError("BACKUP_MISMATCH")
     result = {"state": "VERIFIED_IN_SCRATCH", "files": len(files),
               "bytes": total, "sqlite_checked": dbs, "docx_checked": documents}
     if source is not None:
@@ -184,6 +272,8 @@ def main() -> int:
     write = sub.add_parser("create")
     write.add_argument("--source", type=Path, required=True)
     write.add_argument("--backup", type=Path, required=True)
+    write.add_argument("--compressed", action="store_true",
+                       help="Полная сжатая копия; восстановление может требовать другой диск")
     read = sub.add_parser("verify")
     read.add_argument("--backup", type=Path, required=True)
     read.add_argument("--scratch-parent", type=Path, required=True)
@@ -191,13 +281,13 @@ def main() -> int:
                       help="Остановленный источник для проверки актуальности перед выпуском")
     args = parser.parse_args()
     try:
-        result = (create(args.source, args.backup) if args.command == "create"
+        result = (create(args.source, args.backup, compressed=args.compressed) if args.command == "create"
                   else verify(args.backup, args.scratch_parent, args.source))
         print(json.dumps(result, sort_keys=True))
         return 0
     except BackupError as exc:
         print(str(exc), file=sys.stderr)
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError, json.JSONDecodeError, tarfile.TarError, EOFError):
         print("BACKUP_IO_OR_MANIFEST_FAILED", file=sys.stderr)
     return 2
 

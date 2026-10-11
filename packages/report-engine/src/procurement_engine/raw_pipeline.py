@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from collections import Counter, defaultdict
 from dataclasses import asdict, replace
 from datetime import datetime
@@ -62,7 +64,18 @@ FORMULA_ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#ER
 
 
 def dump(value, path):
-    Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str, allow_nan=False), encoding='utf-8')
+    # Large matrices are machine-readable evidence, not a presentation document.
+    # Streaming avoids a second complete JSON string and preserves semantic hashes.
+    target = Path(path)
+    mode = target.stat().st_mode & 0o777 if target.exists() else 0o600
+    temporary = target.with_name(target.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        with temporary.open('x', encoding='utf-8') as stream:
+            os.fchmod(stream.fileno(), mode)
+            json.dump(value, stream, ensure_ascii=False, separators=(',', ':'), default=str, allow_nan=False)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def header_hash(values, header_rows, *, volatile_cells=()):

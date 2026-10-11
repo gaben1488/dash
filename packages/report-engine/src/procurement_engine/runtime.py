@@ -27,10 +27,12 @@ def _load(path):
 
 
 def _write(path, value):
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
     try:
         with temporary.open('x', encoding='utf-8') as file:
-            json.dump(value, file, ensure_ascii=False, indent=2, allow_nan=False)
+            os.fchmod(file.fileno(), mode)
+            json.dump(value, file, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
             file.flush()
             os.fsync(file.fileno())
         os.replace(temporary, path)
