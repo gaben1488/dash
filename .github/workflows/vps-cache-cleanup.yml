@@ -33,9 +33,9 @@ jobs:
           script: |
             set -euo pipefail
             python3 - <<'PYDIAG'
-            import json, re, subprocess
+            import json, re, shlex, subprocess
             from pathlib import Path
-            session=Path('/home/aemr/.dash-private-backups/recovery-38174351649')
+            session=Path('/home/aemr/.dash-private-backups/recovery-38176081446')
             log=(session/'private-command.log').read_text(errors='replace')
             patterns={
               'MISSING_DEPLOYMENT_SMOKE_MODULE': r'No module named.*procurement_engine.deployment_smoke',
@@ -60,6 +60,21 @@ jobs:
               'worker_restarts':worker['RestartCount']}))
             top=subprocess.run(['docker','top',baseline['server'],'-eo','args'],capture_output=True)
             default_top=subprocess.run(['docker','top',baseline['server']],capture_output=True)
+            table=default_top.stdout.decode(errors='replace').splitlines()
+            command_index=len(table[0].split())-1
+            matches=[]
+            for line in table[1:]:
+              command=line.split(None,command_index)[-1]
+              if re.search(r'proc-report\s+(?:run-google|worker)|procurement_engine.*(?:run-google|worker)',command):
+                argv=shlex.split(command)
+                names={'python','python3','node','proc-report','sh','bash'}
+                executable=Path(argv[0]).name
+                modules=[x for x in argv if re.fullmatch(r'procurement_engine\.[a-z_]+',x)]
+                matches.append({'executable':executable if executable in names else 'OTHER',
+                  'module':modules[0] if modules else 'NONE',
+                  'standalone_writer_subcommand':any(x in {'worker','run-google'} for x in argv),
+                  'is_python_inline_code':'-c' in argv})
+            print(json.dumps({'matching_process_classes':matches}))
             pid_top=subprocess.run(['docker','top',baseline['server'],'-eo','pid'],capture_output=True)
             top_error=(top.stdout+top.stderr).decode(errors='replace')
             smoke=subprocess.run(['docker','exec',baseline['server'],'/opt/report-env/bin/python','-m',
