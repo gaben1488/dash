@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
-const rd=p=>readFileSync(p,'utf8');
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+// The same test is executed by root GitHub CI and by packages/web tests.
+// Locate fixtures relative to this module, never process.cwd().
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const rd = p => readFileSync(resolve(repoRoot,p),'utf8');
 const base='packages/web/src/';
 const header=rd(base+'components/Header.tsx'), app=rd(base+'App.tsx');
 const org=rd(base+'components/OrgStrip.tsx'),report=rd(base+'pages/Report.tsx');
@@ -67,7 +72,7 @@ test('CSS changes tokens not OrgStrip, report or table layout',()=>{
 });
 test('standalone HTML contains the actual React app bundle',()=>{
  const p='docs/superpowers/mockups/dash-source-parity/Dash-source-bound-preview.html';
- assert.ok(existsSync(p));
+ assert.ok(existsSync(resolve(repoRoot,p)));
  const html=rd(p);
  assert.ok(html.length>150000,'not a full React app');
  assert.match(html,/data-bundle="dash-real-pages"/);
