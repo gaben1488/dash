@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
 import * as React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { DesignResearch } from './DesignResearch';
 import { DEFAULT_PRESET } from './presets';
 import { ATOM_CONTRACTS } from './AtomAtlas';
 
+// Recharts uses browser ResizeObserver; jsdom has no layout observer.
+// Use a browser-contract stub only in this test file, never in production.
+beforeAll(() => vi.stubGlobal('ResizeObserver', class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}));
+afterAll(() => vi.unstubAllGlobals());
 afterEach(() => cleanup());
 const research = () => render(<DesignResearch preset={DEFAULT_PRESET} onPresetChange={() => {}} />);
 
@@ -104,7 +112,7 @@ describe('Design Research: real decisions, not inert decoration', () => {
     fireEvent.click(screen.getByRole('button',{name:'Адреса исходников и проверок'}));
     const links=within(screen.getByRole('article',{name:'Контракт раздела Мониторинг'})).getAllByRole('link');
     expect(links.some(link=>link.getAttribute('href')?.includes('/pages/Monitoring.tsx'))).toBe(true);
-    expect(links.some(link=>link.getAttribute('href')?.includes('/cards-map/monitoring.md'))).toBe(true);
+    expect(links.some(link=>link.getAttribute('href')?.includes('/2026-08-20-cards-map/monitoring.md'))).toBe(true);
     fireEvent.change(search,{target:{value:'нет_такого_раздела'}});
     expect(screen.getByText('По этому поиску разделов нет.')).toBeTruthy();
     expect(screen.getAllByRole('status').some(node => node.textContent?.includes('По этому поиску'))).toBe(true);
