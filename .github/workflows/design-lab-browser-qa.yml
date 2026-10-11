@@ -48,6 +48,18 @@ jobs:
         run: |
           node --check docs/superpowers/mockups/dash-design-lab/figma-constructor/code.js
           node scripts/figma-constructor-qa.mjs
+      - name: Package the current Figma constructor for the design owner
+        run: |
+          mkdir -p artifacts/figma
+          cd docs/superpowers/mockups/dash-design-lab
+          zip -q -r "$GITHUB_WORKSPACE/artifacts/figma/Dash-Figma-Constructor.zip" figma-constructor
+      - name: Preserve editable Figma constructor (not a raster mock)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dash-Figma-Constructor
+          path: artifacts/figma/Dash-Figma-Constructor.zip
+          retention-days: 60
+          if-no-files-found: error
       - name: Install workspace dependencies without changing the lockfile
         run: pnpm install --frozen-lockfile
       - name: Install test-only browser control outside repository
