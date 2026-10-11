@@ -306,7 +306,7 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
     displayName: 'МКУ Елизовское РУС',
     shortName: 'Елизово РУС',
     grbsId: 'УАГиЗО',
-    sheetName: 'ПОДВЕД_МКУ "Елизовское РУС"',
+    sheetName: 'МКУ "Елизовское РУС"',
     orgType: 'mkу',
     // TODO: fill ИНН/КПП из реестра
   },
@@ -362,7 +362,7 @@ export const SUBORDINATE_REGISTRY: SubordinateEntry[] = [
     displayName: 'МКУ ЕДДС',
     shortName: 'ЕДДС',
     grbsId: 'УД',
-    sheetName: 'МКУ "ЕДДС"',
+    sheetName: 'МКУ "ЕДДС ЕМР"',
     orgType: 'mkу',
     // TODO: fill ИНН/КПП из реестра
   },
