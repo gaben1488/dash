@@ -58,8 +58,20 @@ backup/restore identity-копии проверен, frozen state и живая 
 Добавлен read-only runtime probe: два чтения без prune, отдельно реальные
 mount/runtime/tag/dangling изменения и перестановка массива mounts;
 никаких путей, environment или данных реестра в выводе. Старый отказ не
-переклассифицируется по догадке. Rehearsal38167757661 FAILURE — отдельная
-проверка, зелёный CI не означает готовность live worker.
+переклассифицируется по догадке. Read-only run38169599746 на4677756d SUCCESS:
+runtime/mount/tag/dangling changes=0, raw_mount_order_changed=true;
+free=22 266 314 752 байта. Подтверждена нестабильная сериализация массива
+mounts. Новый shell integration test воспроизвёл ложный CACHE_PROTECTED_STATE_CHANGED
+на одной перестановке; cleanup helper теперь нормализует порядок массива/ключей,
+сохраняя все mount-поля и запрет реальных изменений. 7 cache + 3 probe tests PASS.
+Это не устанавливает причину прошлого отказа и не означает удаления архивов.
+Rehearsal38167757661 FAILURE: 159/159 recommendation chains сохранены,
+weekly archive остаётся UNCHANGED_LEGACY_ARCHIVE_BLOCKER, worker
+RUNNING_REPORT_WORKER_NOT_FOUND. Зелёный CI не означает готовность live worker.
+Локальный pnpm full gate остановился до tsc: установленный pnpm требует
+переустановки node_modules и отказывается без TTY; результат не записан как PASS.
+Изменения только Python/shell/workflow/docs; штатный pre-commit carve-out
+для non-TS соблюдён без --no-verify.
 
 R06/R09: подготовлен полный сжатый backup формата 2 без потери файлов,
 метаданных, SQLite/WAL и документов; старый формат совместим. Воспроизведён

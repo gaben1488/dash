@@ -35,7 +35,12 @@ elif args[0] == 'inspect':
     if scenario == 'unreadable':
         sys.exit(2)
     changed = scenario == 'changed' and 'prune' in previous
-    print('different-state' if changed else 'synthetic-protected-state')
+    mounts = [{'Destination': '/a', 'Source': '/private/a'}, {'Destination': '/b', 'Source': '/private/b'}]
+    if scenario == 'mount-order' and 'prune' in previous:
+        mounts.reverse()
+    if scenario == 'mount-changed' and 'prune' in previous:
+        mounts[0]['Source'] = '/private/replaced'
+    print(('different' if changed else 'synthetic') + '|image|running|' + json.dumps(mounts))
 elif args[:2] == ['image', 'ls']:
     print('sha256:synthetic rollback:previous')
 elif args[:2] == ['builder', 'prune']:
@@ -65,6 +70,15 @@ else:
         self.assertGreaterEqual(sum(call[0] == 'inspect' for call in calls), 2)
         self.assertFalse(any(call[0] in {'rm', 'rmi', 'stop', 'start', 'restart', 'volume'}
                              for call in calls))
+
+    def test_mount_serialization_order_does_not_trigger_false_state_change(self):
+        result, _ = self.run_cleanup('mount-order')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_actual_mount_change_still_blocks_success(self):
+        result, _ = self.run_cleanup('mount-changed')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('CACHE_ONLY_CLEANUP_PASS', result.stdout)
 
     def test_unreadable_protected_state_refuses_cleanup(self):
         result, calls = self.run_cleanup('unreadable')
