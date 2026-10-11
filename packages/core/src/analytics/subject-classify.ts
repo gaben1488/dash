@@ -82,8 +82,10 @@ export function buildSubjectAnalysis(
     categories[cat].count++;
     categories[cat].totalAmount += row.planTotal;
 
-    // Normalize subject for grouping
-    const normalized = row.subject.trim().substring(0, 100).toLowerCase();
+    // Для поиска совпадений сравниваем ВЕСЬ предмет: хвост после 100 символов
+    // может определять конкретную квартиру, получателя, период или объём.
+    // Лимит отображения должен применяться только при рендеринге, не к ключу.
+    const normalized = row.subject.trim().toLowerCase();
     if (normalized) {
       const existing = subjectMap.get(normalized) ?? { count: 0, totalAmount: 0 };
       existing.count++;

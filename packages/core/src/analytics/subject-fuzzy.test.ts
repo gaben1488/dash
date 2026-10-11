@@ -15,7 +15,7 @@ import {
   matchSubjectFuzzy,
   fuzzyIncludes,
 } from './subject-fuzzy.js';
-import { classifySubject } from './subject-classify.js';
+import { buildSubjectAnalysis, classifySubject } from './subject-classify.js';
 
 describe('subject-fuzzy — приведение к сравнимому виду', () => {
   it('снимает регистр, «ё» и знаки препинания', () => {
@@ -157,5 +157,37 @@ describe('subject-classify — прежнее поведение сохране�
   it('по-настоящему незнакомое остаётся «Другое»', () => {
     expect(classifySubject('Что-то совершенно неизвестное')).toBe('Другое');
     expect(classifySubject('')).toBe('Другое');
+  });
+});
+
+// Адресная регрессия по восьми действующим книгам: УИО — разные квартиры
+// в одном доме, УДТХ — «приобретение контейнеров» после 100-го символа.
+// Сходство префикса не доказывает тождественность объекта или объёма.
+describe('subject-analysis — полнота предмета и безопасность группировки', () => {
+  it('не объединяет описания с одинаковыми первыми 100 символами', () => {
+    const common = 'Капитальный ремонт жилого помещения по адресу: Камчатский край, г. Елизово, улица Геофизическая, дом 20, ';
+    expect(common.length).toBeGreaterThan(100);
+    const a = common + 'квартира 21';
+    const b = common + 'квартира 26';
+    const report = buildSubjectAnalysis([
+      { subject: a, planTotal: 100 },
+      { subject: b, planTotal: 200 },
+    ]);
+    expect(report.totalRows).toBe(2);
+    expect(report.topSubjects).toHaveLength(2);
+    expect(report.topSubjects.map(x => x.subject)).toEqual(expect.arrayContaining([
+      a.toLowerCase(), b.toLowerCase(),
+    ]));
+    expect(report.topSubjects.map(x => x.count)).toEqual([1, 1]);
+  });
+
+  it('сворачивает лишь точные варианты регистра без изменения предмета', () => {
+    const report = buildSubjectAnalysis([
+      { subject: 'Продукты питания', planTotal: 200 },
+      { subject: 'продукты питания', planTotal: 300 },
+    ]);
+    expect(report.topSubjects).toEqual([
+      { subject: 'продукты питания', count: 2, totalAmount: 500 },
+    ]);
   });
 });

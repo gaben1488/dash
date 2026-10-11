@@ -42,6 +42,7 @@ function sheetRow(
   subordinate: string,
   subject: string,
   epReason = '',
+  finalComment = '',
 ): unknown[] {
   const r: unknown[] = new Array(34).fill('');
   r[0] = id;            // A — № п/п
@@ -50,6 +51,7 @@ function sheetRow(
   r[10] = 100;          // K — план
   r[11] = 'ЕП';         // L — способ
   r[12] = epReason;     // M — основание выбора ЕП
+  r[31] = finalComment; // AF — фактический комментарий / ход исполнения
   r[16] = 'Х';          // Q — факта нет
   return r;
 }
@@ -122,7 +124,8 @@ describe('GET /api/text-hygiene', () => {
           // Чистые имена — ДОСЛОВНО из справочника: близкое-но-не-точное имя
           // само стало бы находкой registry_mismatch и зашумило бы счётчики.
           sheetRow('2', ZHAR_CANON, 'Поставка  канцелярии'),                 // G5: двойной пробел
-          sheetRow('3', ZHAR_CANON, 'Ремонт кровли', 'закупка катриджей у единственного поставщика'), // M6: опечатка
+          sheetRow('3', ZHAR_CANON, 'Ремонт кровли', 'закупка катриджей у единственного поставщика',
+            'Кемонт картриджей в связи со сменой наименования'), // M6 + AF6: опечатка и защищённое слово
           sheetRow('4', 'Х', 'x'),                                           // маркеры отсутствия — молчание
         ],
         formulas: [],
@@ -196,6 +199,16 @@ describe('GET /api/text-hygiene', () => {
     expect(typo!.context).toContain('катриджей');
     expect(typo!.fix).toContain('картриджей');
     expect(body.totals.languageFindings).toBeGreaterThanOrEqual(1);
+  });
+
+  it('AF тоже проходит проверенную орфографию, но «сменой» не заменяется на «сметной»', () => {
+    const af = body.language.find(item => item.dept === 'УЭР' && item.cell === 'AF6' && item.word === 'Кемонт');
+    expect(af).toBeDefined();
+    expect(af?.col).toBe('AF');
+    expect(af?.suggestion).toBe('Ремонт');
+    expect(af?.fix).toContain('Ремонт картриджей в связи со сменой наименования');
+    expect(af?.fix).not.toContain('сметной');
+    expect(body.language.some(item => item.col === 'AF' && item.word === 'сменой')).toBe(false);
   });
 
   it('маркеры отсутствия «X/х» дефектом не считаются (канон п.62)', () => {
