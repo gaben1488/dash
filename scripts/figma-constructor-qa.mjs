@@ -88,7 +88,7 @@ for(const screen of screens){
   assert.ok(text.includes('СОХРАНИТЬ')||text.includes('Сохранить')||text.includes('Источник'),screen.name);
   assert.ok(!/Демо-позиция.+₽/.test(text),'placeholder named production money');
   assert.ok(!text.includes('Три элемента сводки'),'old generic layout leaked');
-  assert.ok(walk(screen).some(n=>n.name==='ПОДРАЗДЕЛЫ / каждый имеет собственную рабочую сцену'),'route tabs lack independent content');
+  assert.ok(walk(screen).some(n=>n.name==='РЕАЛЬНЫЕ РЕЖИМЫ И ПРОЕКТНЫЕ СЦЕНЫ (не смешивать)'),'route tabs lack independent content');
 }
 const report=screens.find(x=>x.name.includes(' / report / ')&&x.name.includes(' / target / '));
 const reportStrings=walk(report).map(x=>x.name);
