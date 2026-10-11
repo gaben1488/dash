@@ -83,6 +83,16 @@ def test_retention_compacts_only_old_payloads_and_keeps_audit_records(tmp_path):
         assert (root / "bundle").is_dir()
 
 
+def test_default_does_not_keep_a_dozen_redundant_full_captures(tmp_path):
+    state = tmp_path / "state"
+    base = datetime(2034, 10, 7, tzinfo=timezone.utc)
+    for i in range(8):
+        _attempt(state, f"a{i:02d}", when=base + timedelta(minutes=i))
+    plan = plan_transient_attempt_retention(state)
+    assert plan["compact_count"] == 6
+    assert plan["keep_full"] == 2
+
+
 def test_unsealed_thursday_is_fail_closed_and_never_compacted(tmp_path):
     state = tmp_path / "state"
     # 2034-09-28 is Thursday.

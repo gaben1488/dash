@@ -23,7 +23,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FULL_ATTEMPTS = 12
+# Owner policy: weekly history; only the working/previous attempts stay complete.
+DEFAULT_FULL_ATTEMPTS = 2
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
