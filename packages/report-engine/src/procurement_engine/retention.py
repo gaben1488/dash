@@ -311,7 +311,10 @@ def plan_publication_compaction(store):
     if status_path.exists() or status_path.is_symlink():
         if status_path.is_symlink():
             raise ValueError('PUBLICATION_RETENTION_STATUS_UNSAFE')
-        current = (_load_json(status_path) or {}).get('publication') or {}
+        status = _load_json(status_path)
+        if status is None or not isinstance(status.get('publication') or {}, dict):
+            raise ValueError('PUBLICATION_RETENTION_STATUS_INVALID')
+        current = status.get('publication') or {}
         if current.get('release_id'):
             if current['release_id'] not in {r[0] for r in records}:
                 raise ValueError('PUBLICATION_RETENTION_CURRENT_MISSING')
@@ -331,7 +334,7 @@ def plan_publication_compaction(store):
                     missing_signatures += missing or 0
                     if not count or missing:
                         signatures = False
-    return {'catalog_revision': hashlib.sha256(json.dumps(records, separators=(',', ':')).encode()).hexdigest(),
+    return {'catalog_revision': hashlib.sha256(json.dumps([records, sorted(keep), sorted(r[0] for r in targets)], separators=(',', ':')).encode()).hexdigest(),
             'keep_release_ids': sorted(keep), 'retire_release_ids': sorted(r[0] for r in targets),
             'identity_ready': signatures, 'records': records,
             'identity_missing_signatures': missing_signatures if identity.is_file() else None,

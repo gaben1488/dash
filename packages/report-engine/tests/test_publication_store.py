@@ -395,3 +395,22 @@ def test_interrupted_rollback_never_overwrites_changed_catalog(tmp_path):
     with pytest.raises(PublicationError, match='CATALOG_CHANGED'):
         store.recover_compaction()
     assert not (store.releases / rid / 'snapshot_bundle').exists()
+
+
+def test_compaction_rejects_malformed_current_status_before_planning(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    (store.root.parent / 'status.json').write_text('[]')
+    with pytest.raises((PublicationError, ValueError), match='STATUS_INVALID'):
+        store.plan_compaction()
+    assert not (store.root / '.retirement').exists()
+
+
+def test_compaction_stale_plan_cannot_retire_changed_current_pointer(tmp_path):
+    store, receipts = _compaction_fixture(tmp_path)
+    status = store.root.parent / 'status.json'
+    status.write_text(json.dumps({'publication': receipts[0]}))
+    plan = store.plan_compaction()
+    status.write_text(json.dumps({'publication': receipts[1]}))
+    with pytest.raises(PublicationError, match='PLAN_CHANGED'):
+        store.compact_publications(expected_revision=plan['catalog_revision'])
+    assert not (store.root / '.retirement').exists()
