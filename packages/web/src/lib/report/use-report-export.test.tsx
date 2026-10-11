@@ -313,3 +313,38 @@ it('cannot overwrite historical inputs through the live refresh action', async (
   await act(() => result.current.refresh());
   expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(0);
 });
+
+it('uses prior verified Word for the same live year and quarter, naming its publication date', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({
+    selected: null, latest_matching: receipt, attempt: null,
+  }) });
+  const { result } = renderHook(() => useReportExport({
+    date: '2026-10-11', year: 2026, quarter: 3, mode: 'live',
+  }));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  expect(result.current.status).toContain('выпуск от 30.09.2026');
+  expect(result.current.status).toContain('новый Word не подтверждён');
+});
+
+it('cannot substitute a prior Word in archive mode or for another quarter or future date', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({
+    selected: null, latest_matching: receipt, attempt: null,
+    archive: { status: 'NOT_ISSUED', code: 'ARCHIVE_INPUT_INCOMPLETE', message: 'Нет архива.' },
+  }) });
+  const archive = renderHook(() => useReportExport({
+    date: '2026-10-11', year: 2026, quarter: 3, mode: 'archive',
+  }));
+  await waitFor(() => expect(archive.result.current.status).toContain('Нет архива.'));
+  expect(archive.result.current.release).toBeNull();
+  archive.unmount();
+
+  for (const [date, year, quarter] of [
+    ['2026-10-11', 2026, 4], ['2026-10-11', 2027, 3], ['2026-09-24', 2026, 3],
+  ] as const) {
+    const probe = renderHook(() => useReportExport({ date, year, quarter, mode: 'live' }));
+    await waitFor(() => expect(probe.result.current.status).toContain('ещё не выпущен'));
+    expect(probe.result.current.release).toBeNull();
+    probe.unmount();
+  }
+});
+

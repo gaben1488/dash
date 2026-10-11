@@ -626,12 +626,17 @@ export const ArchivePreparationSchema = z.object({
     missing_sections: z.array(z.string()) }).optional(),
 });
 
+/** Strict receipt context for exact and last-in-period frozen Word. */
+const ContextualPublishedReleaseSchema = PublishedReleaseSchema.extend({
+  report_year: z.number().int().min(1900).max(9999),
+  quarter: z.number().int().min(1).max(4),
+});
+
 export const SelectedReportReleaseStatusSchema = z.object({
   archive: ArchivePreparationSchema.optional(),
   attempt: ReportReleaseStatusSchema.shape.attempt,
-  selected: PublishedReleaseSchema.extend({
-    report_year: z.number().int().min(1900).max(9999),
-    quarter: z.number().int().min(1).max(4),
-  }).nullable(),
+  selected: ContextualPublishedReleaseSchema.nullable(),
+  /** Read-only period fallback; old Python engines may omit this key. */
+  latest_matching: ContextualPublishedReleaseSchema.nullable().optional(),
 });
 export type SelectedReportReleaseStatus = z.infer<typeof SelectedReportReleaseStatusSchema>;

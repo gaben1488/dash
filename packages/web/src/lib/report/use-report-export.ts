@@ -113,10 +113,22 @@ export function useReportExport(context: ExportContext | null) {
   }, [key, query, archiveMode]);
 
   const current = state?.key === key ? state : null;
-  const candidate = pinned?.key === key ? pinned.release : current?.data?.selected;
-  // Guard the response boundary as well as the server: never trust stale/mismatched metadata.
-  const release = candidate && context && candidate.report_year === context.year && candidate.quarter === context.quarter
-    && candidate.report_date.split('.').reverse().join('-') === context.date ? candidate : null;
+  const exact = current?.data?.selected ?? null;
+  // In live mode alone, an earlier verified Word for the SAME year/quarter is
+  // useful while a new release is blocked. Python proves its reporting period
+  // from the frozen model. Archive mode NEVER uses this optional fallback.
+  const previous = !archiveMode ? current?.data?.latest_matching ?? null : null;
+  const isPinned = pinned?.key === key;
+  const candidate = isPinned ? pinned.release : exact ?? previous;
+  const candidateDay = candidate?.report_date.split('.').reverse().join('-') ?? null;
+  const isPriorLive = context?.mode === 'live' &&
+    (isPinned || (exact === null && candidate === previous));
+  // Exact selector stays exact even in live mode. Period fallback is never
+  // accepted from a later report date or from another year/quarter.
+  const dateMatches = candidateDay !== null && context !== null &&
+    (isPriorLive ? candidateDay <= context.date : candidateDay === context.date);
+  const release = candidate && context && dateMatches &&
+    candidate.report_year === context.year && candidate.quarter === context.quarter ? candidate : null;
   const saving = transfer?.key === key ? transfer.saving : null;
   const downloadError = transfer?.key === key ? transfer.error : '';
 
@@ -129,9 +141,14 @@ export function useReportExport(context: ExportContext | null) {
     if (assurance?.user_action_count) {
       status += ' Есть вопросы по исходным данным; подробности можно открыть ниже.';
     }
-    // Engine-only historical uncertainty is kept in the collapsed diagnostics,
-    // never framed as an error in an otherwise verified Word release.
-    if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
+    // Engine-only historical uncertainty is kept in the collapsed diagnostics.
+    // An older publication is labelled as OLDER, not today's confirmed Word.
+    if (context?.mode === 'live' && candidateDay !== context.date) {
+      status = `Последний проверенный Word за выбранные год и квартал: выпуск от ${release.report_date}. ` +
+        'На выбранную дату новый Word не подтверждён. Показатели текущей страницы могут отличаться. ' + status;
+    } else if (context?.mode === 'live') {
+      status += ' Данные в прямом эфире могут обновиться позднее.';
+    }
   }
   if (archiveMode && !release && current?.data?.archive) {
     status = current.data.archive.message;

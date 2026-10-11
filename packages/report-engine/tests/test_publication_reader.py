@@ -85,3 +85,36 @@ def test_intact_archive_can_be_read_even_if_a_later_release_is_corrupt(tmp_path)
 def test_reader_rejects_invalid_selection(tmp_path, selection):
     with pytest.raises(PublicationError, match='PUBLICATION_CONTEXT_INVALID'):
         read_publication(tmp_path, 'status', selection=selection)
+
+def test_live_period_fallback_is_verified_and_never_changes_archive_selection(tmp_path):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    old = store.publish(candidate(tmp_path / 'quarter_three', date='30.09.2026', year=2026, quarter=3),
+        read_revisions=revisions)
+    # A later calendar release for another reporting quarter must not replace Q3.
+    store.publish(candidate(tmp_path / 'quarter_four', date='10.10.2026', year=2026, quarter=4),
+        read_revisions=revisions)
+
+    result = json.loads(read_publication(state, 'status', selection=('2026-10-11', 2026, 3)))
+    assert result['selected'] is None
+    assert result['latest_matching']['release_id'] == old['release_id']
+    assert result['latest_matching']['report_date'] == '30.09.2026'
+    assert (result['latest_matching']['report_year'], result['latest_matching']['quarter']) == (2026, 3)
+
+    # No leakage to a different reporting period or an earlier requested day.
+    assert json.loads(read_publication(state, 'status',
+        selection=('2026-09-29', 2026, 3)))['latest_matching'] is None
+    assert json.loads(read_publication(state, 'status',
+        selection=('2026-10-11', 2027, 3)))['latest_matching'] is None
+    assert json.loads(read_publication(state, 'status',
+        selection=('2026-10-11', 2026, 1)))['latest_matching'] is None
+
+
+def test_period_fallback_never_serves_corrupt_published_documents(tmp_path):
+    state = tmp_path / 'state'
+    store = PublicationStore(state / 'published')
+    release = store.publish(candidate(tmp_path / 'quarter_three'), read_revisions=revisions)
+    (store.releases / release['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
+    with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
+        read_publication(state, 'status', selection=('2026-10-11', 2026, 3))
+
