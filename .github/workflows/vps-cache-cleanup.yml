@@ -165,7 +165,7 @@ jobs:
             python3 - <<'PYACCEPT'
             import hashlib, json, stat, subprocess
             from pathlib import Path
-            session=Path('/home/aemr/.dash-private-backups/recovery-38178313782')
+            session=Path('/home/aemr/.dash-private-backups/recovery-38184331772')
             result=json.loads((session/'result.json').read_text())
             assert result['state']=='TWO_AUTONOMOUS_CYCLES_VERIFIED' and result['native_word']=='PASS'
             baseline=json.loads((session.parent/'worker-38178244703/runtime.json').read_text())
