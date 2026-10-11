@@ -272,3 +272,72 @@ def safe_compact_transient_attempts(state_dir: str | Path, *, keep_full: int = D
             "error_type": type(error).__name__,
             "bytes_reclaimed": 0,
         }
+
+
+def plan_publication_compaction(store):
+    """Keep weekly replay roots and current/previous; compact only daily copies.
+
+    The catalog keeps exact artifact links. Ledger/RAW/identity databases are
+    never deletion targets. Every full release is checksum checked before plan.
+    """
+    import hashlib
+    import sqlite3
+    from contextlib import closing
+    from datetime import timedelta
+
+    from .readonly_catalog import copied_catalog
+
+    if store.releases.is_symlink() or not store.releases.is_dir():
+        raise ValueError('PUBLICATION_RETENTION_ROOT_UNSAFE')
+    with copied_catalog(store.database_path) as path, closing(sqlite3.connect(path)) as db:
+        records = db.execute('SELECT release_id,report_date,cutoff_at,receipt,files FROM publications ORDER BY report_date DESC,cutoff_at DESC,release_id DESC').fetchall()
+    keep, weeks, live = set(), {}, []
+    for rid, day, cutoff, receipt, files in records:
+        record = store._checked((receipt, files))
+        if record.get('replay_available') is False:
+            continue
+        if 'archive_origin' in record:
+            keep.add(rid)
+            continue
+        live.append(rid)
+        parsed = date.fromisoformat(day)
+        week = (parsed - timedelta(days=parsed.weekday())).isoformat()
+        priority = (parsed.weekday() in {3, 4}, day, cutoff, rid)
+        if week not in weeks or priority > weeks[week][0]:
+            weeks[week] = priority, rid
+    keep.update(live[:2])
+    keep.update(rid for _, rid in weeks.values())
+    status_path = store.root.parent / 'status.json'
+    if status_path.exists() or status_path.is_symlink():
+        if status_path.is_symlink():
+            raise ValueError('PUBLICATION_RETENTION_STATUS_UNSAFE')
+        current = (_load_json(status_path) or {}).get('publication') or {}
+        if current.get('release_id'):
+            if current['release_id'] not in {r[0] for r in records}:
+                raise ValueError('PUBLICATION_RETENTION_CURRENT_MISSING')
+            keep.add(current['release_id'])
+    targets = [r for r in records if r[0] not in keep and json.loads(r[3]).get('replay_available') is not False]
+    signatures = True
+    missing_signatures = missing_snapshots = 0
+    identity = store.root.parent / 'identity.sqlite'
+    if targets:
+        if not identity.is_file() or identity.is_symlink():
+            signatures = False
+        else:
+            with copied_catalog(identity) as path, closing(sqlite3.connect(path)) as db:
+                for sid in {json.loads(r[3])['snapshot_id'] for r in targets}:
+                    count, missing = db.execute('SELECT COUNT(*), SUM(plan_signature IS NULL OR entity_signature IS NULL) FROM observations WHERE snapshot_id=?', (sid,)).fetchone()
+                    missing_snapshots += int(not count)
+                    missing_signatures += missing or 0
+                    if not count or missing:
+                        signatures = False
+    return {'catalog_revision': hashlib.sha256(json.dumps(records, separators=(',', ':')).encode()).hexdigest(),
+            'keep_release_ids': sorted(keep), 'retire_release_ids': sorted(r[0] for r in targets),
+            'identity_ready': signatures, 'records': records,
+            'identity_missing_signatures': missing_signatures if identity.is_file() else None,
+            'identity_missing_snapshots': missing_snapshots if identity.is_file() else None,
+            'weekly_live_count': len(weeks), 'publication_count': len(records),
+            'keep_count': len(keep), 'retire_count': len(targets),
+            # Upper bound before retaining old downloadable artifacts and exact
+            # ledger/identity proofs. Finalization reports actual removed bytes.
+            'bytes_reclaimable_upper_bound': sum(_payload_bytes(store.releases / r[0]) for r in targets)}

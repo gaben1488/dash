@@ -31,9 +31,15 @@ class Source:
                              '0', 'schema1')
 
 
-def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:00:00Z', year=2026, quarter=3):
+def candidate(path, *, blocked=False, date='30.09.2026', cutoff='2026-09-29T15:00:00Z', year=2026, quarter=3, history=False):
     path.mkdir()
-    bundle = capture_atomic_snapshot([Source()], report_date=date, report_year=year,
+    class HistorySource(Source):
+        source_id = 'HISTORICAL_RECOMMENDATIONS'
+        role = 'historical_ledger'
+        def read_payload(self):
+            return SourcePayload(self.source_id, self.role, self.provider_id,
+                [{'chain': i, 'original': 'Synthetic'} for i in range(159)], '0', 'schema1')
+    bundle = capture_atomic_snapshot([Source(), *([HistorySource()] if history else [])], report_date=date, report_year=year,
         cutoff_at=cutoff, rules_version='rules1', renderer_version='renderer1')
     persist_atomic_bundle(bundle, path / 'snapshot_bundle')
     model = {'snapshot': {k: bundle.manifest[k] for k in (
@@ -181,3 +187,211 @@ def test_source_revision_barrier_retains_exact_private_mismatch(tmp_path, observ
     }
     assert str(caught.value) == 'SOURCE_CHANGED_BEFORE_PUBLICATION'
     assert store.history() == []
+
+
+def test_compacted_publication_preserves_artifacts_and_context_without_replay(tmp_path):
+    store = PublicationStore(tmp_path / 'state/published')
+    old = store.publish(candidate(tmp_path / 'old', date='28.09.2026'), read_revisions=revisions)
+    latest = store.publish(candidate(tmp_path / 'new', date='30.09.2026'), read_revisions=revisions)
+    rid = old['release_id']
+    assert hasattr(store, 'compact_publications'), 'published retention has no safe apply phase'
+    # Synthetic fixture has no longitudinal identity DB. Real apply requires it.
+    import sqlite3
+    identity = tmp_path / 'state/identity.sqlite'
+    with sqlite3.connect(identity) as db:
+        db.execute('CREATE TABLE observations(snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+        db.execute('INSERT INTO observations VALUES (?, ?, ?)', (old['snapshot_id'], 'plan', 'entity'))
+    # Protected roots are calculated by the planner, never caller-created.
+    plan = store.plan_compaction()
+    assert rid not in plan['retire_release_ids']  # current + previous protected
+    assert store.latest() == latest
+
+
+def _compaction_fixture(tmp_path):
+    store = PublicationStore(tmp_path / 'state/published')
+    receipts = []
+    for i, day in enumerate(('28.09.2026', '29.09.2026', '30.09.2026', '01.10.2026', '02.10.2026', '03.10.2026', '04.10.2026')):
+        receipts.append(store.publish(candidate(tmp_path / f'c{i}', date=day), read_revisions=revisions))
+    with sqlite3.connect(tmp_path / 'state/identity.sqlite') as db:
+        db.execute('CREATE TABLE observations(snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+        db.executemany('INSERT INTO observations VALUES (?, ?, ?)', [(r['snapshot_id'], 'plan', 'entity') for r in receipts])
+    return store, receipts
+
+
+def test_publication_compaction_keeps_weekly_current_previous_and_old_downloads(tmp_path):
+    store, receipts = _compaction_fixture(tmp_path)
+    assert hasattr(store, 'plan_compaction'), 'missing published compaction plan'
+    plan = store.plan_compaction()
+    assert set(plan['keep_release_ids']) == {receipts[i]['release_id'] for i in (4, 5, 6)}
+    before = {r['release_id']: store.read_artifact(r['release_id'], 'main_report.docx') for r in receipts}
+    result = store.compact_publications(expected_revision=plan['catalog_revision'])
+    assert result['compacted'] == 4
+    assert store.latest()['release_id'] == receipts[-1]['release_id']
+    for r in receipts:
+        assert store.read_artifact(r['release_id'], 'main_report.docx') == before[r['release_id']]
+        assert store.select(r['report_date'][6:]+'-'+r['report_date'][3:5]+'-'+r['report_date'][:2], 2026, 3)
+    compact = store.history()[-1]
+    assert compact['replay_available'] is False
+    assert not (store.releases / compact['release_id'] / 'snapshot_bundle').exists()
+    assert store.recover_compaction()['status'] == 'COMMITTED'
+    assert store.rollback_compaction()['status'] == 'ROLLED_BACK'
+    assert all((store.releases / r['release_id'] / 'snapshot_bundle').exists() for r in receipts)
+
+
+@pytest.mark.parametrize('problem', ['stale', 'identity', 'corrupt'])
+def test_compaction_blocks_without_mutation(tmp_path, problem):
+    store, receipts = _compaction_fixture(tmp_path)
+    assert hasattr(store, 'plan_compaction'), 'missing safe planner'
+    plan = store.plan_compaction()
+    if problem == 'identity':
+        with sqlite3.connect(tmp_path / 'state/identity.sqlite') as db:
+            db.execute('UPDATE observations SET plan_signature=NULL')
+    elif problem == 'corrupt':
+        (store.releases / receipts[-1]['release_id'] / 'dashboard.json').write_text('corrupt')
+    with pytest.raises((PublicationError, ValueError)):
+        store.compact_publications(expected_revision='stale' if problem == 'stale' else plan['catalog_revision'])
+    assert not (store.root / '.retirement/journal.json').exists()
+    assert len(store.history()) == 7
+
+
+@pytest.mark.parametrize('crash_at', [1, 2, 5, 8])
+def test_compaction_crash_recovers_exact_originals_before_commit(tmp_path, monkeypatch, crash_at):
+    import os
+    store, receipts = _compaction_fixture(tmp_path)
+    assert hasattr(store, 'plan_compaction'), 'missing crash-safe compaction'
+    plan = store.plan_compaction()
+    real = os.rename
+    count = 0
+    def crash(source, target):
+        nonlocal count
+        count += 1
+        real(source, target)
+        if count == crash_at:
+            raise RuntimeError('simulated process death after rename')
+    monkeypatch.setattr(os, 'rename', crash)
+    with pytest.raises(RuntimeError):
+        store.compact_publications(expected_revision=plan['catalog_revision'])
+    monkeypatch.setattr(os, 'rename', real)
+    assert store.recover_compaction()['status'] == 'ROLLED_BACK'
+    assert len(store.history()) == 7
+    assert all((store.releases / r['release_id'] / 'snapshot_bundle').exists() for r in receipts)
+    assert store.latest()['release_id'] == receipts[-1]['release_id']
+
+
+def test_compaction_repeat_finalize_and_republish_are_safe(tmp_path):
+    store, _receipts = _compaction_fixture(tmp_path)
+    plan = store.plan_compaction()
+    store.compact_publications(expected_revision=plan['catalog_revision'])
+    assert hasattr(store, 'finalize_compaction'), 'no verified quarantine disposal'
+    assert store.finalize_compaction()['status'] == 'FINALIZED'
+    assert store.finalize_compaction()['status'] == 'UNCHANGED'
+    assert store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])['status'] == 'UNCHANGED'
+    with pytest.raises(PublicationError, match='PUBLICATION_REPLAY_COMPACTED'):
+        store.publish(tmp_path / 'c0', read_revisions=revisions)
+    assert store.select('2026-09-28', 2026, 3)['replay_available'] is False
+
+
+def test_finalize_rejects_corrupt_quarantine_and_keeps_recovery(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    plan = store.plan_compaction()
+    store.compact_publications(expected_revision=plan['catalog_revision'])
+    assert hasattr(store, 'finalize_compaction'), 'missing finalize preflight'
+    first = next((store.root / '.retirement/original').iterdir())
+    (first / 'report_model.json').write_text('tampered')
+    with pytest.raises(PublicationError, match='QUARANTINE_CORRUPT'):
+        store.finalize_compaction()
+    assert (store.root / '.retirement/journal.json').exists()
+
+
+def test_rollback_crash_resumes_without_losing_originals(tmp_path, monkeypatch):
+    import os
+    store, receipts = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    real = os.rename
+    def crash(source, target):
+        real(source, target)
+        raise RuntimeError('death during rollback')
+    monkeypatch.setattr(os, 'rename', crash)
+    with pytest.raises(RuntimeError):
+        store.rollback_compaction()
+    monkeypatch.setattr(os, 'rename', real)
+    assert store.recover_compaction()['status'] == 'ROLLED_BACK'
+    assert all((store.releases / r['release_id'] / 'snapshot_bundle').exists() for r in receipts)
+
+
+
+def test_compaction_preserves_all_historical_ledger_chain_bytes(tmp_path):
+    store, _receipts = _compaction_fixture(tmp_path)
+    r = store.publish(candidate(tmp_path / 'hist', date='28.09.2026', history=True), read_revisions=lambda: {'synthetic': 'revision1', 'HISTORICAL_RECOMMENDATIONS': 'revision1'})
+    with sqlite3.connect(tmp_path / 'state/identity.sqlite') as db:
+        db.execute('INSERT INTO observations VALUES (?, ?, ?)', (r['snapshot_id'], 'plan', 'entity'))
+    plan = store.plan_compaction()
+    assert r['release_id'] in plan['retire_release_ids']
+    root = store.releases / r['release_id']
+    before = (root / 'snapshot_bundle/payloads/HISTORICAL_RECOMMENDATIONS.json').read_bytes()
+    store.compact_publications(expected_revision=plan['catalog_revision'])
+    evidence = root / 'retained_evidence/payloads/HISTORICAL_RECOMMENDATIONS.json'
+    assert evidence.is_file(), 'retirement loses historical ledger proof'
+    assert evidence.read_bytes() == before
+    assert len(json.loads(before)['semantic_values']) == 159
+
+
+def test_compaction_blocks_symlinked_release_parent(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    real = store.root / 'outside'
+    store.releases.rename(real)
+    store.releases.symlink_to(real, target_is_directory=True)
+    with pytest.raises((PublicationError, ValueError), match='UNSAFE'):
+        store.plan_compaction()
+    assert not (store.root / '.retirement').exists()
+
+
+def test_finalization_crash_can_resume_but_cannot_rollback_deleted_quarantine(tmp_path, monkeypatch):
+    import shutil
+    store, _ = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    real = shutil.rmtree
+    def crash(path, *args, **kwargs):
+        real(path, *args, **kwargs)
+        if str(path).endswith('.retirement/original'):
+            raise RuntimeError('death after quarantine disposal')
+    monkeypatch.setattr(shutil, 'rmtree', crash)
+    with pytest.raises(RuntimeError):
+        store.finalize_compaction()
+    monkeypatch.setattr(shutil, 'rmtree', real)
+    assert store.recover_compaction()['status'] == 'FINALIZING'
+    with pytest.raises(PublicationError, match='ROLLBACK_EXPIRED'):
+        store.rollback_compaction()
+    assert store.finalize_compaction()['status'] == 'FINALIZED'
+    assert len(store.history()) == 7
+
+
+def test_existing_readonly_census_shares_apply_policy_after_compaction(tmp_path):
+    import runpy
+    from pathlib import Path
+    census = runpy.run_path(str(Path(__file__).parents[3] / 'deploy/plan-weekly-publications.py'))['plan']
+    store, _ = _compaction_fixture(tmp_path)
+    expected = store.plan_compaction()
+    before = census(store.root.parent)
+    assert before['retire_release_ids'] == expected['retire_release_ids']
+    store.compact_publications(expected_revision=expected['catalog_revision'])
+    after = census(store.root.parent)
+    assert after['retire_count'] == 0
+    assert after['publication_count'] == 7  # exact old links still catalogued
+
+
+def test_interrupted_rollback_never_overwrites_changed_catalog(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    path = store.root / '.retirement/journal.json'
+    journal = json.loads(path.read_text())
+    journal['rollback_requested'] = True
+    path.write_text(json.dumps(journal))
+    rid = journal['entries'][0]['release_id']
+    with sqlite3.connect(store.database_path) as db:
+        record = json.loads(db.execute('SELECT receipt FROM publications WHERE release_id=?', (rid,)).fetchone()[0])
+        record['external_decision'] = 'new'
+        db.execute('UPDATE publications SET receipt=? WHERE release_id=?', (json.dumps(record), rid))
+    with pytest.raises(PublicationError, match='CATALOG_CHANGED'):
+        store.recover_compaction()
+    assert not (store.releases / rid / 'snapshot_bundle').exists()

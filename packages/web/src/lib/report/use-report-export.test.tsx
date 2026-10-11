@@ -348,3 +348,11 @@ it('cannot substitute a prior Word in archive mode or for another quarter or fut
   }
 });
 
+
+it('preserves compacted release downloads and names missing source replay', async () => {
+  request.mockResolvedValue(response({ ...receipt, replay_available: false }));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  expect(result.current.status).toContain('повторный расчёт');
+  expect(result.current.status).toContain('недоступен');
+});

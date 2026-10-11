@@ -137,6 +137,9 @@ export function useReportExport(context: ExportContext | null) {
       : current.error || 'Для выбранной даты, года и квартала проверенный комплект ещё не выпущен.';
   if (release) {
     status = `Word: ${release.status === 'VERIFIED' ? 'проверен' : 'проверен, есть замечания'}. Источники прочитаны ${timestamp.format(new Date(release.cutoff_at))} (Камчатка).`;
+    if (release.replay_available === false) {
+      status += ' Документы и сохранённый дашборд доступны; исходная ежедневная история сокращена, повторный расчёт недоступен.';
+    }
     const assurance = release.automation_assurance;
     if (assurance?.user_action_count) {
       status += ' Есть вопросы по исходным данным; подробности можно открыть ниже.';

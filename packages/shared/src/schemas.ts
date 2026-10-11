@@ -600,6 +600,8 @@ export const PublishedReleaseSchema = z.object({
   renderer_version: z.string().min(1),
   status: z.enum(['VERIFIED', 'VERIFIED_WITH_WARNINGS']),
   operational_available: z.boolean().optional(),
+  /** False retains exact artifacts/context but makes no source-replay promise. */
+  replay_available: z.boolean().optional(),
   automation_assurance: ReportAssuranceSchema.optional(),
   weekly_summary: PublishedWeeklySummarySchema.optional(),
 });
