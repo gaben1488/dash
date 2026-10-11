@@ -218,6 +218,34 @@ export function diffSnapshots(
     });
   }
 
+
+  // Два закупочных номера могут поменяться местами, а прежний № — быть
+  // использован для другой закупки. Обычный set-diff номеров пропустит такую
+  // замену ЦЕЛИКОМ. Ищем прежнее содержимое под другим номером даже тогда,
+  // когда прежний номер остался занят. Это тоже только проверяемая гипотеза:
+  // изменение описания может быть законным редактированием, а не заменой.
+  for (const [beforeSeq, old] of was) {
+    const atOldNumber = now.get(beforeSeq);
+    if (!atOldNumber) continue; // отсутствующий номер уже обработан выше
+    const fingerprint = subjectFingerprint(old);
+    if (!fingerprint || subjectFingerprint(atOldNumber) === fingerprint) continue;
+    if (uniqueBefore.get(fingerprint) !== old) continue;
+    const candidate = uniqueAfter.get(fingerprint);
+    if (!candidate || candidate.rowSeq === beforeSeq ||
+        now.get(candidate.rowSeq) !== candidate) continue;
+    identityCandidates.push({
+      beforeRowSeq: beforeSeq,
+      afterRowSeq: candidate.rowSeq,
+      beforeSheetRow: old.sheetRow,
+      afterSheetRow: candidate.sheetRow,
+      subject: old.subject ?? '',
+      subordinate: old.subordinate ?? '',
+      planSum: old.planSum as number,
+      evidence: 'subject+subordinate+plan+method',
+      status: 'needs-review',
+    });
+  }
+
   const sum = (rows: VanishedRow[], field: 'planSum' | 'factSum'): number =>
     rows.reduce((s, r) => s + (Number.isFinite(r[field]) ? (r[field] as number) : 0), 0);
 

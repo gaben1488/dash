@@ -134,3 +134,47 @@ describe('провенанс номера без догадок об удале�
   });
 });
 
+describe('повторное использование номера — не скрывать за совпавшим A', () => {
+  const purchase = (seq: string, row: number, subject: string): SnapshotRow => ({
+    rowSeq: seq, sheetRow: row, subject,
+    subordinate: 'Школа № 1', planSum: 100, method: 'ЕП',
+  });
+
+  it('обмен номерами двух закупок виден без ложных удалений строк', () => {
+    const before = [
+      purchase('10', 5, 'Кровля'),
+      purchase('20', 6, 'Мебель'),
+    ];
+    const after = [
+      purchase('10', 5, 'Мебель'),
+      purchase('20', 6, 'Кровля'),
+    ];
+    const diff = diffSnapshots(before, after);
+    expect(diff.vanished).toEqual([]);
+    expect(diff.appeared).toEqual([]);
+    expect(diff.identityCandidates).toEqual([
+      expect.objectContaining({ beforeRowSeq: '10', afterRowSeq: '20', status: 'needs-review' }),
+      expect.objectContaining({ beforeRowSeq: '20', afterRowSeq: '10', status: 'needs-review' }),
+    ]);
+  });
+
+  it('обычная правка предмета при том же № не выдаётся за перенумерацию', () => {
+    const diff = diffSnapshots(
+      [purchase('10', 5, 'Кровля')],
+      [purchase('10', 5, 'Кровельный ремонт')],
+    );
+    expect(diff.vanished).toEqual([]);
+    expect(diff.identityCandidates).toEqual([]);
+  });
+
+  it('совпадение предмета без учреждения, плана или способа не позволяет связывать номера', () => {
+    const old = purchase('10', 5, 'Одинаковый предмет');
+    const next = purchase('20', 6, 'Одинаковый предмет');
+    next.method = '';
+    expect(diffSnapshots([old], [next]).identityCandidates).toEqual([]);
+    next.method = 'ЕП';
+    next.subordinate = 'Другая организация';
+    expect(diffSnapshots([old], [next]).identityCandidates).toEqual([]);
+  });
+});
+
