@@ -13,7 +13,7 @@ async function reloadSourceVariables(){
  for(const v of vs){
   const group=names.get(v.variableCollectionId);
   if(!group||!group.startsWith('Dash / Source · '))continue;
-  const m=v.name.match(/^navigation\\/\\d+-(.+)\\/(top|bottom|ink)$/);
+  const m=v.name.match(/^navigation\/\d+-(.+)\/(top|bottom|ink)$/);
   if(m)editableColors.set(group.slice('Dash / Source · '.length)+'|'+m[1]+'|'+m[2],v);
  }
 }
