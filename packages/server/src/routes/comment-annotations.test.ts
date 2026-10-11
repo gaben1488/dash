@@ -55,7 +55,7 @@ describe('/api/annotations/comments и /api/registry/buckets', () => {
       PRODUCT_TZ_OFFSET_HOURS: '12',
     };
 
-    const { setDeptSheetCache } = await import('../services/snapshot.js');
+    const { setDeptSheetCache, setDeptLoadMeta } = await import('../services/snapshot.js');
     const headers = [new Array(34).fill('h'), new Array(34).fill('h'), new Array(34).fill('h')];
     setDeptSheetCache({
       'УЭР': {
@@ -92,6 +92,7 @@ describe('/api/annotations/comments и /api/registry/buckets', () => {
       },
     });
 
+    setDeptLoadMeta({ УЭР: { loadedAt: '2026-07-22T20:01:00.000Z', rowCount: 9, sheetName: 'УЭР' } });
     const { createApp } = await import('../app.js');
     app = await createApp({ logger: false });
     await app.ready();

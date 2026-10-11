@@ -5,10 +5,10 @@
  * (канонический периметр /api/report), при пустом кэше — rowsByDept
  * последнего сохранённого снимка. Момент чтения отдаётся ЯВНО (канон п.58:
  * подпись момента — данными, а не догадкой клиента): для живого кэша это
- * «сейчас», для снимка — его createdAt.
+ * самый ранний момент чтения возвращённых книг, для снимка — его createdAt.
  */
 import { collectRowsByDept } from '@aemr/shared';
-import { getDeptSheetValues, getSnapshot } from './snapshot.js';
+import { getDeptLoadMeta, getDeptSheetValues, getSnapshot } from './snapshot.js';
 
 export interface DeptRowsReading {
   /**
@@ -31,8 +31,13 @@ export interface DeptRowsReading {
  */
 export async function readDeptRows(): Promise<DeptRowsReading> {
   const live = collectRowsByDept(getDeptSheetValues());
-  if (Object.keys(live).length > 0) {
-    return { rowsByDept: live, asOf: new Date().toISOString(), source: 'live' };
+  const books = Object.keys(live);
+  const meta = getDeptLoadMeta();
+  const readTimes = books.map(book => meta[book]?.error ? NaN : Date.parse(meta[book]?.loadedAt ?? ''));
+  // Общий filledAt меняется даже при пустом/частичном цикле. Только метаданные
+  // каждой возвращаемой книги подтверждают её чтение; это не атомарный freeze.
+  if (books.length > 0 && readTimes.every(time => Number.isFinite(time) && time > 0)) {
+    return { rowsByDept: live, asOf: new Date(Math.min(...readTimes)).toISOString(), source: 'live' };
   }
   try {
     const snapshot = await getSnapshot();

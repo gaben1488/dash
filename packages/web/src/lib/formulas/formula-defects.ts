@@ -24,7 +24,7 @@
  * принял, продукт обязан говорить «не смотрели», а не «чисто»: за это отвечает
  * `formulaIntegritySpot`, и молчание он отличает от нуля.
  */
-import { getCheckById } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, getCheckById } from '@aemr/shared';
 import { pluralRu } from '../economy-copy';
 import { toCanonicalDeptId } from '../dept-key';
 
@@ -241,6 +241,11 @@ export function indexFormulaDefectsByRow(
   const index = new Map<string, FormulaDefectView[]>();
   for (const d of defects) {
     if (d.rowSeq === '') continue;
+    // Старый снимок мог принять нумерацию колонок шапки за закупку №1.
+    // Не переписываем историю, но такой адрес не является строкой реестра.
+    const cellRow = /\$?[A-Z]+\$?(\d+)$/i.exec(d.cell)?.[1];
+    if ((d.row !== null && d.row <= DEPT_HEADER_ROWS)
+      || (cellRow !== undefined && Number(cellRow) <= DEPT_HEADER_ROWS)) continue;
     // Книга замечания приходит именем листа («УО»), ключ строки Реестра —
     // ключом управления: обе формы канонизируются одной функцией.
     const key = formulaRowKey(d.book !== '' ? d.book : d.departmentId, d.rowSeq);
