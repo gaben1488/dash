@@ -372,15 +372,13 @@ jobs:
               import { execFileSync } from "node:child_process";
               import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
               void(async()=>{
-                const saved=JSON.parse(execFileSync("/opt/report-env/bin/proc-report",
-                  ["read-publication","--state","/app/packages/server/data/reports","--view","status"],
-                  {encoding:"utf8",timeout:20000}));
-                const raw=saved.latest?.report_date;
-                if(typeof raw!=="string"||!/^\d{2}\.\d{2}\.\d{4}$/.test(raw)){
-                  console.log(JSON.stringify({kind:"browser_word_status",result:"INVALID_SELECTED_DATE"}));return;
-                }
-                const [dd,mm,yyyy]=raw.split(".");
-                const url="http://127.0.0.1:3000/api/report-releases?date="+yyyy+"-"+mm+"-"+dd+"&year="+yyyy+"&quarter="+Math.ceil(Number(mm)/3);
+                // Probe the SAME product-local current date the browser selects,
+                // not status.json: an in-flight RUNNING attempt has no report_date.
+                const now=new Intl.DateTimeFormat("sv-SE",{timeZone:"Asia/Kamchatka",
+                  year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+                const yyyy=now.slice(0,4),mm=now.slice(5,7);
+                const url="http://127.0.0.1:3000/api/report-releases?date="+now+
+                  "&year="+yyyy+"&quarter="+Math.ceil(Number(mm)/3);
                 const resp=await fetch(url,{headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(25000)});
                 if(resp.status!==200){console.log(JSON.stringify({kind:"browser_word_status",result:"HTTP_ERROR",status:resp.status}));return;}
                 const parsed=SelectedReportReleaseStatusSchema.safeParse(await resp.json());
@@ -399,16 +397,14 @@ jobs:
             from pathlib import Path
             from urllib.request import Request, urlopen
             from urllib.error import HTTPError
-            from subprocess import check_output
-            state = json.loads(check_output(["/opt/report-env/bin/proc-report", "read-publication",
-                "--state", "/app/packages/server/data/reports", "--view", "status"],timeout=25))
-            day = (state.get("latest") or {}).get("report_date")
-            if not isinstance(day, str) or not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", day):
+            from zoneinfo import ZoneInfo
+            day = datetime.now(ZoneInfo("Asia/Kamchatka")).date().isoformat()
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
                 print(json.dumps({"kind":"report_status_http_shape","result":"NO_DATE"}))
             else:
-                dd, mm, yy = day.split(".")
+                yy, mm, dd = day.split("-")
                 url = ("http://127.0.0.1:3000/api/report-releases?date="+
-                       yy+"-"+mm+"-"+dd+"&year="+yy+"&quarter="+str((int(mm)+2)//3))
+                       day+"&year="+yy+"&quarter="+str((int(mm)+2)//3))
                 request = Request(url, headers={"Authorization": "Bearer "+os.environ.get("AEMR_API_KEY", "")})
                 try:
                     with urlopen(request, timeout=25) as response:
