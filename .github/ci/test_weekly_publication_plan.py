@@ -2,10 +2,10 @@
 import importlib.util
 import json
 import sqlite3
-import sys
 import subprocess
-import textwrap
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
