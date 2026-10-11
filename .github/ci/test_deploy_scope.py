@@ -1,9 +1,42 @@
 """The production gate must never mistake real code for documentation."""
 import unittest
+
 from deploy_scope import is_non_runtime, runtime_changed
 
 
 class DeploymentScopeTests(unittest.TestCase):
+    def test_workflow_script_bodies_cannot_escape_yaml_blocks(self):
+        import re
+        from pathlib import Path
+
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        for workflow in workflows.glob("*.yml"):
+            body_indent = None
+            delimiter = None
+            for number, line in enumerate(workflow.read_text().splitlines(), 1):
+                if not line.strip():
+                    continue
+                indentation = len(line) - len(line.lstrip())
+                if body_indent is not None and indentation < body_indent:
+                    self.assertIsNone(delimiter,
+                                      f"{workflow.name}:{number}: heredoc escaped YAML script")
+                    self.assertRegex(line, r"^\s*(?:-\s+)?[A-Za-z_][A-Za-z_0-9-]*:\s*",
+                                     f"{workflow.name}:{number}: code escaped YAML script")
+                    body_indent = None
+                if re.fullmatch(r"\s*(?:run|script):\s*\|[-+]?\s*", line):
+                    body_indent = indentation + 2
+                    continue
+                if body_indent is None:
+                    continue
+                if delimiter is not None:
+                    if line.strip() == delimiter:
+                        delimiter = None
+                else:
+                    match = re.search(r"<<\s*['\"]?([A-Za-z_][A-Za-z_0-9]*)['\"]?", line)
+                    if match:
+                        delimiter = match.group(1)
+            self.assertIsNone(delimiter, f"{workflow.name}: unterminated heredoc")
+
     def test_docs_only_does_not_deploy(self):
         self.assertFalse(runtime_changed([
             "docs/TECHNICAL_SHEETS_COMPATIBILITY_2026-10-10.md",
@@ -60,13 +93,67 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         self.assertNotIn("recover_weekly_archives", before_report_preflight)
         self.assertNotIn("apply_transient_attempt_retention", before_report_preflight)
 
-    def test_failed_bootstrap_cannot_report_worker_recovered_without_running_state(self):
+    def test_report_enable_never_prunes_or_recovers_historical_state_implicitly(self):
+        from pathlib import Path
+        script = (Path(__file__).resolve().parents[2] / "deploy" / "enable-reports.sh").read_text()
+        self.assertNotIn("apply_transient_attempt_retention", script)
+        self.assertNotIn("recover_weekly_archives", script)
+        self.assertNotIn("prune-state --apply", script)
+
+    def test_report_preflight_checks_engine_before_stopping_worker(self):
+        from pathlib import Path
+        script = (Path(__file__).resolve().parents[2] / "deploy" / "enable-reports.sh").read_text()
+        self.assertLess(script.index("proc-report --help"), script.index("stop report-worker"))
+        self.assertIn("worker_stopped=false", script)
+        self.assertIn('"$worker_stopped" = true', script)
+
+    def test_failed_engine_preflight_does_not_stop_worker_or_touch_history(self):
         import json
         import os
-        from pathlib import Path
         import subprocess
         import tempfile
         import textwrap
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_docker = Path(tmp) / "docker"
+            trace = Path(tmp) / "calls.jsonl"
+            fake_docker.write_text(textwrap.dedent("""\
+                #!/usr/bin/env python3
+                import json, os, sys
+                from pathlib import Path
+                argv = sys.argv[1:]
+                with Path(os.environ["MOCK_DOCKER_TRACE"]).open("a") as log:
+                    log.write(json.dumps(argv) + "\\n")
+                if "ps" in argv and "report-worker" in argv:
+                    print("old-running-worker")
+                if "--help" in argv and "proc-report" in " ".join(argv):
+                    sys.exit(27)
+                """), encoding="utf-8")
+            fake_docker.chmod(0o755)
+            env = {**os.environ,
+                   "PATH": tmp + os.pathsep + os.environ.get("PATH", ""),
+                   "MOCK_DOCKER_TRACE": str(trace)}
+            process = subprocess.run(
+                ["bash", str(root / "deploy" / "enable-reports.sh")],
+                cwd=root / "deploy", env=env,
+                capture_output=True, text=True, timeout=10, check=False)
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            self.assertNotEqual(process.returncode, 0)
+            self.assertTrue(any("--help" in args for args in calls))
+            self.assertFalse(any("stop" in args or "start" in args for args in calls))
+            self.assertFalse(any("deployment_diagnostics" in " ".join(args) for args in calls))
+            self.assertFalse(any("apply_transient_attempt_retention" in " ".join(args)
+                                 for args in calls))
+
+    def test_failed_bootstrap_cannot_report_worker_recovered_without_running_state(self):
+        import json
+        import os
+        import subprocess
+        import tempfile
+        import textwrap
+        from pathlib import Path
 
         root = Path(__file__).resolve().parents[2]
         # The fake Docker client records calls but has no access to production.
@@ -146,6 +233,70 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         self.assertIn("stateful_backup.py", deploy)
         self.assertLess(deploy.index("BACKUP_AND_SCRATCH_RESTORE"),
                         deploy.index("docker image prune --force"))
+
+    def test_production_release_requires_backup_of_quiesced_current_volume(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
+        deploy = workflow.split("\n  deploy:\n", 1)[1]
+        preflight = deploy.split("echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'", 1)[0]
+        self.assertIn('BACKUP_REQUIRES_SERVER_QUIESCENCE', preflight)
+        self.assertIn('BACKUP_REQUIRES_WORKER_QUIESCENCE', preflight)
+        self.assertIn('BACKUP_SOURCE_VOLUME_NOT_VERIFIED', preflight)
+        self.assertIn('type=volume,src=$source_volume,dst=/source,readonly', preflight)
+        self.assertIn('--scratch-parent /scratch --source /source', preflight)
+
+    def test_failed_release_backup_preflight_never_restarts_running_worker(self):
+        import json
+        import os
+        import subprocess
+        import tempfile
+        import textwrap
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/ci.yml").read_text()
+        remote = workflow.split('      - name: Deploy tested commit over SSH', 1)[1]
+        remote = remote.split('          script: |\n', 1)[1].split('\n  browser-report-contract:', 1)[0]
+        # Execute the actual workflow's shell, with only destinations and
+        # external executables isolated. No Docker or SSH server is contacted.
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            repo = folder / "repo"
+            (repo / "deploy").mkdir(parents=True)
+            backup = folder / "backups" / "REL-test"
+            backup.mkdir(parents=True)
+            (backup / "manifest.json").write_text('{}')
+            trace = folder / "calls.jsonl"
+            docker = folder / "docker"
+            docker.write_text(textwrap.dedent('''\
+                #!/usr/bin/env python3
+                import json, os, sys
+                from pathlib import Path
+                args = sys.argv[1:]
+                with Path(os.environ["MOCK_DOCKER_TRACE"]).open("a") as log:
+                    log.write(json.dumps(args) + "\\n")
+                if "ps" in args:
+                    print("old-worker" if "report-worker" in args else "old-server")
+                elif "inspect" in args:
+                    print("running")
+                '''))
+            docker.chmod(0o755)
+            git = folder / "git"
+            git.write_text('#!/bin/sh\nexit 0\n')
+            git.chmod(0o755)
+            script = textwrap.dedent(remote).replace('/home/aemr/dash', str(repo))
+            script = script.replace('${{ steps.release_inputs.outputs.backup_root }}', str(backup.parent))
+            script = script.replace('${{ steps.release_inputs.outputs.backup_name }}', backup.name)
+            script = script.replace('${{ github.sha }}', 'a' * 40)
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                                    timeout=10, check=False, env={**os.environ,
+                                    "PATH": tmp + os.pathsep + os.environ.get("PATH", ""),
+                                    "MOCK_DOCKER_TRACE": str(trace)})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('BACKUP_REQUIRES_SERVER_QUIESCENCE', result.stderr)
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            self.assertFalse(any('start' in call or 'stop' in call or 'up' in call
+                                 or 'run' in call or 'prune' in call for call in calls), calls)
 
 
 if __name__ == "__main__":

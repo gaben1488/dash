@@ -248,6 +248,12 @@ export interface ChangeEntry {
   /** Учреждение — если источник его знает. */
   readonly subordinate: string | null;
   readonly origin: ChangeOrigin;
+  /** Контроль и интервал наблюдения; НЕ момент правки или её автор. */
+  readonly comparisonEvidence?: {
+    readonly baselineId: string;
+    readonly controlAt: string;
+    readonly observedAt: string;
+  };
   /** Для возможной смены номера: текущий кандидат; исходный № сохраняется в rowSeq. */
   readonly relatedRowSeq?: string;
   /**
@@ -409,18 +415,26 @@ export function entriesFromBookJournal(
  * нельзя: снимок говорит «между двумя чтениями», а не «в 14:32». Пустые поля
  * здесь — не недоделка, а форма источника.
  */
-export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
+export function entriesFromRowDiff(
+  book: string,
+  diff: RowDiff,
+  comparisonEvidence?: ChangeEntry['comparisonEvidence'],
+): ChangeEntry[] {
   const entries: ChangeEntry[] = [];
   const candidates = diff.identityCandidates ?? [];
   const candidateOld = new Set(candidates.map((c) => c.beforeRowSeq));
   const candidateNew = new Set(candidates.map((c) => c.afterRowSeq));
+  // У одного номера могут быть разные истории на последовательных контрольных
+  // базах. Не схлопывать их в одну запись при склейке/будущем хранении.
+  // Момент повторного чтения в ключ НЕ включаем: он не является новой правкой.
+  const controlKey = comparisonEvidence ? '|контроль:' + comparisonEvidence.baselineId : '';
 
   for (const v of diff.vanished) {
     // Событие возможной смены номера уже несёт факт отсутствия старого №.
     // Два независимых события для одной гипотезы были бы двойным счётом.
     if (candidateOld.has(v.rowSeq)) continue;
     entries.push({
-      id: `${book}|снимки|исчезла|${v.rowSeq}`,
+      id: `${book}|снимки|исчезла|${v.rowSeq}${controlKey}`,
       book,
       sheet: 'ВСЕ',
       rowSeq: v.rowSeq,
@@ -436,13 +450,14 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: v.subject ?? null,
       subordinate: v.subordinate ?? null,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 
   for (const a of diff.appeared) {
     if (candidateNew.has(a.rowSeq)) continue;
     entries.push({
-      id: `${book}|снимки|появилась|${a.rowSeq}`,
+      id: `${book}|снимки|появилась|${a.rowSeq}${controlKey}`,
       book,
       sheet: 'ВСЕ',
       rowSeq: a.rowSeq,
@@ -458,12 +473,41 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: a.subject ?? null,
       subordinate: a.subordinate ?? null,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
+    });
+  }
+
+  // Смена предмета/учреждения при сохранённом № — независимый след:
+  // номер тот же, но преемственность закупки не доказана.
+  // Род subject уже в каноне журнала, дополнительную сущность не создаём.
+  for (const change of diff.contextChanged ?? []) {
+    const prior = [change.beforeSubject, change.beforeSubordinate].filter(Boolean).join(' · ');
+    const current = [change.afterSubject, change.afterSubordinate].filter(Boolean).join(' · ');
+    entries.push({
+      id: book + '|контроль|изменение-контекста|' + change.rowSeq +
+        '|' + (comparisonEvidence?.baselineId ?? '?'),
+      book,
+      sheet: 'ВСЕ',
+      rowSeq: change.rowSeq,
+      sheetRow: change.afterSheetRow,
+      column: null,
+      columnLabel: 'Предмет и учреждение',
+      kind: 'subject',
+      before: prior,
+      after: current,
+      author: null,
+      at: null,
+      atMs: null,
+      subject: change.afterSubject || null,
+      subordinate: change.afterSubordinate || null,
+      origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 
   for (const candidate of candidates) {
     entries.push({
-      id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq,
+       id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq + controlKey,
       book,
       sheet: 'ВСЕ',
       rowSeq: candidate.beforeRowSeq,
@@ -480,6 +524,7 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: candidate.subject,
       subordinate: candidate.subordinate,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 

@@ -112,3 +112,48 @@ def test_canonical_directory_exact_physical_width_guards_live_capture(
     assert len(payload.semantic_values[1]) == registered_width
     assert payload.metadata['formula_evidence']['columns'] == registered_width
     assert 'extra_values' not in payload.metadata['formula_evidence']
+
+
+@pytest.mark.parametrize('provider,sheet_id,former,approved', [
+    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП', 'УФ'),
+    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ', 'УДТХиБ'),
+])
+def test_only_reviewed_primary_source_title_change_reads_same_stable_sheet_id(
+        provider, sheet_id, former, approved):
+    """Rename only the visible sheet title, never its ID or 34-column payload."""
+    class RenameClient(Client):
+        def __init__(self, title):
+            self.title = title
+            self.calls = []
+
+        def grid(self, provider_id, requested_id):
+            assert provider_id == provider and requested_id == sheet_id
+            return {'title': self.title, 'gridProperties': {'rowCount': 3, 'columnCount': 3}}
+
+        def values(self, provider_id, title, start, end, columns):
+            self.calls.append(title)
+            assert title == self.title
+            return super().values(provider_id, title, start, end, columns)
+
+        def formulas(self, provider_id, title, start, end, columns):
+            self.calls.append(title)
+            assert title == self.title
+            return super().formulas(provider_id, title, start, end, columns)
+
+    contract = {'source_id': former, 'role': 'master', 'provider_id': provider,
+                'sheet_id': sheet_id, 'sheet': former, 'columns': 3, 'header_rows': 1,
+                'units': 'thousand', 'schema_fingerprint': header_hash([['header']], 1)}
+    old = GoogleSheetSourceAdapter(contract, RenameClient(former)).read_payload()
+    client = RenameClient(approved)
+    renamed = GoogleSheetSourceAdapter(contract, client).read_payload()
+    assert renamed.semantic_values == old.semantic_values
+    assert renamed.schema_fingerprint == old.schema_fingerprint
+    assert renamed.metadata['sheet_title'] == approved
+    assert client.calls and set(client.calls) == {approved}
+    for wrong_title in ['UNKNOWN', approved + ' ', 'Все']:
+        with pytest.raises(GoogleReadError, match='GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'):
+            GoogleSheetSourceAdapter(contract, RenameClient(wrong_title)).read_payload()
+    # Name-only similarity is never enough: wrong provider/id must fail closed.
+    wrong = {**contract, 'sheet_id': sheet_id + 1}
+    with pytest.raises(AssertionError):
+        GoogleSheetSourceAdapter(wrong, RenameClient(approved)).read_payload()

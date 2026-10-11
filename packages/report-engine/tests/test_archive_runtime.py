@@ -218,3 +218,53 @@ def test_native_archive_selection_never_imports_old_xlsx_inbox(tmp_path, monkeyp
     result = ensure_archive_release(tmp_path, day='2034-09-28', year=2034, quarter=3)
     assert result['archive']['code'] == 'ARCHIVE_NOT_FOUND'
     assert result['selected'] is None
+
+
+
+def test_sealed_week_missing_inputs_does_not_masquerade_as_corruption(original, tmp_path):
+    state = tmp_path / 'state'
+    weekly = state / 'archives/WEEKLY-2034-09-28'
+    shutil.copytree(original, weekly)
+    # A later complete candidate must never silently replace the named week.
+    shutil.copytree(original, state / 'attempts/later/bundle')
+    (weekly / 'identity.sqlite').unlink()
+    before = hashes(weekly)
+
+    result = ensure_archive_release(state, day='2034-09-28', year=2034, quarter=3)
+
+    assert result['selected'] is None
+    assert result['archive']['code'] == 'ARCHIVE_INPUT_INCOMPLETE'
+    assert hashes(weekly) == before
+    assert not (state / 'published/publications.sqlite').exists()
+
+
+def test_sealed_week_with_bad_bytes_is_still_corrupt(original, tmp_path):
+    state = tmp_path / 'state'
+    weekly = state / 'archives/WEEKLY-2034-09-28'
+    shutil.copytree(original, weekly)
+    next((weekly / 'snapshot_bundle/payloads').glob('*.json')).write_text('{}')
+
+    result = ensure_archive_release(state, day='2034-09-28', year=2034, quarter=3)
+
+    assert result['selected'] is None
+    assert result['archive']['code'] == 'ARCHIVE_CORRUPT'
+    assert not (state / 'published/publications.sqlite').exists()
+
+
+def test_intact_frozen_archive_with_unsupported_contract_is_not_corrupt(original, tmp_path, monkeypatch):
+    import procurement_engine.archive_runtime as runtime
+    state = tmp_path / 'state'
+    weekly = state / 'archives/WEEKLY-2034-09-28'
+    shutil.copytree(original, weekly)
+    before = hashes(weekly)
+
+    def obsolete_contract(_registry, _ledger):
+        raise ValueError('INPUT_PROCEDURE_SOURCES_MISSING')
+
+    monkeypatch.setattr(runtime, 'validate_inputs', obsolete_contract)
+    result = ensure_archive_release(state, day='2034-09-28', year=2034, quarter=3)
+
+    assert result['archive']['code'] == 'ARCHIVE_CONTRACT_UNSUPPORTED'
+    assert result['selected'] is None
+    assert hashes(weekly) == before
+    assert not (state / 'published/publications.sqlite').exists()

@@ -532,14 +532,35 @@ export const ReportActionSchema = z.object({
     subject: z.string().nullable(), business_id: z.string().nullable(),
   })),
 });
-export const ReportAssuranceSchema = z.object({
-  contract: z.literal('actionable-assurance-v1'), fully_automated: z.boolean(),
+// Historical immutable Word releases use v1; the current report engine
+// publishes v2 with source observations. Both are approved, but v2 must retain
+// the new evidence rather than silently treating a missing field as success.
+const ReportAssuranceCoreSchema = z.object({
+  fully_automated: z.boolean(),
   user_action_count: z.number().int().nonnegative(), engine_action_count: z.number().int().nonnegative(),
   active_recommendations: z.number().int().nonnegative(),
   link_status_counts: z.record(z.string(), z.number().int().nonnegative()),
   action_status_counts: z.record(z.string(), z.number().int().nonnegative()),
   actions: z.array(ReportActionSchema), meaning: z.string(),
 });
+const ReportSourceStatementSchema = z.object({
+  kind: z.enum(['NO_FUNDING_REPORTED', 'FUNDING_REPORTED', 'POSTPONED_REPORTED',
+    'PLAN_YEAR_CHANGE_REPORTED', 'CONTRACT_DATE_REPORTED']),
+  target: z.union([z.number().int(), z.string(), z.null()]),
+  field: z.string(), column: z.string(), quote: z.string(),
+  source_text: z.string(), evidence_kind: z.literal('SOURCE_STATEMENT'),
+});
+export const ReportAssuranceSchema = z.discriminatedUnion('contract', [
+  ReportAssuranceCoreSchema.extend({ contract: z.literal('actionable-assurance-v1') }),
+  ReportAssuranceCoreSchema.extend({
+    contract: z.literal('actionable-assurance-v2'),
+    source_observations: z.array(z.object({
+      source_row_key: z.string().nullable(),
+      events: z.array(ReportSourceStatementSchema),
+    })),
+    nonprocurement_identity_observations: z.number().int().nonnegative(),
+  }),
+]);
 export type ReportAssurance = z.infer<typeof ReportAssuranceSchema>;
 
 export const ReportRefreshResponseSchema = z.object({
@@ -605,12 +626,17 @@ export const ArchivePreparationSchema = z.object({
     missing_sections: z.array(z.string()) }).optional(),
 });
 
+/** Strict receipt context for exact and last-in-period frozen Word. */
+const ContextualPublishedReleaseSchema = PublishedReleaseSchema.extend({
+  report_year: z.number().int().min(1900).max(9999),
+  quarter: z.number().int().min(1).max(4),
+});
+
 export const SelectedReportReleaseStatusSchema = z.object({
   archive: ArchivePreparationSchema.optional(),
   attempt: ReportReleaseStatusSchema.shape.attempt,
-  selected: PublishedReleaseSchema.extend({
-    report_year: z.number().int().min(1900).max(9999),
-    quarter: z.number().int().min(1).max(4),
-  }).nullable(),
+  selected: ContextualPublishedReleaseSchema.nullable(),
+  /** Read-only period fallback; old Python engines may omit this key. */
+  latest_matching: ContextualPublishedReleaseSchema.nullable().optional(),
 });
 export type SelectedReportReleaseStatus = z.infer<typeof SelectedReportReleaseStatusSchema>;

@@ -26,7 +26,9 @@ def read_publication(state_dir, view, release_id=None, *, selection=None):
         attempt_path = state / 'status.json'
         attempt = json.loads(attempt_path.read_text(encoding='utf-8')) if attempt_path.exists() else None
         if selection is not None:
-            result = {'selected': store.select(*selection) if store else None, 'attempt': attempt}
+            result = {'selected': store.select(*selection) if store else None,
+                      'latest_matching': store.latest_for_period(*selection) if store else None,
+                      'attempt': attempt}
             # GET remains read-only. Archive job status never overwrites the live worker status.
             from .archive_runtime import MESSAGES, selection_key
             archive_path = state / 'archive_attempts' / selection_key(*selection) / 'status.json'

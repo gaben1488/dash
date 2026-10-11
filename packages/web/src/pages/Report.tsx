@@ -24,7 +24,6 @@ import {
   buildSheetUrl,
   SVOD_SPREADSHEET_ID,
   dayNumberOf,
-  isoOfDayNumber,
   getMetricByKey,
   productLabel,
   quarterLabel,
@@ -64,7 +63,7 @@ import {
   unfundedProof,
 } from '../lib/report/proof';
 import { generateReportText } from '../lib/report/text';
-import { reportRequestParams, type ReportMode } from '../lib/report/request';
+import { reportRequestParams, wordExportContext, type ReportMode } from '../lib/report/request';
 import { productTodayIso } from '../lib/period-coverage';
 import { kpiDeltaFor } from '../lib/report/kpi-delta';
 import { bookCellUrl, bookLinkHint, bookRowUrl } from '../lib/report/book-link';
@@ -785,19 +784,9 @@ export function ReportPage() {
   const asOfDate = report ? fmtAsOfDate(report.period.asOfDay) : null;
   // Режим просмотра: эфир — числа на сейчас; архив — снимок недели.
   const isLive = report?.period.live ?? false;
-  const exportDate = report ? isoOfDayNumber(report.period.asOfDay) : null;
-  const reportMatchesRequest = report && report.period.year === request.year
-    && (request.quarter === undefined || report.period.quarter === request.quarter)
-    && isLive === (mode === 'live') && (request.asOf === undefined || exportDate === request.asOf);
-  // Frozen Word evidence is independent of the legacy dashboard snapshot.
-  // A failed /api/report must not suppress /report-releases/prepare.
-  const word = useReportExport(mode === 'archive' && request.asOf ? {
-    date: request.asOf, year: request.year,
-    quarter: request.quarter ?? (Math.floor((Number(request.asOf.slice(5, 7)) - 1) / 3) + 1) as Quarter,
-    mode,
-  } : reportMatchesRequest && exportDate ? {
-    date: exportDate, year: request.year, quarter: report.period.quarter, mode,
-  } : null);
+  // Word has its own immutable publication and must not depend on
+  // GET /api/report or a stale cached analytics day.
+  const word = useReportExport(wordExportContext(request, mode, productTodayIso()));
 
   const onCopy = () => {
     if (!report || asOfDate === null) return;

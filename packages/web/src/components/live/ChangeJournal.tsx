@@ -115,12 +115,12 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
     setKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
 
   /**
-   * Провал к закупке в Реестре. Ведёт № п/п: отбор Реестра ищет его по
-   * колонке A. Если ключа нет, ведём предметом — это хуже точного адреса, и
-   * потому второй, а не первый.
+   * Переход к существующему номеру — точный поиск. Для отсутствующей строки
+   * возможен только поиск похожих по предмету: не обещать открытие того,
+   * чего больше нет в книге. У гипотезы смены № переходим на номер кандидата.
    */
   const drillTo = (entry: ChangeEntry) => {
-    const needle = entry.rowSeq ?? entry.subject ?? '';
+    const needle = entry.relatedRowSeq ?? (entry.kind === 'row-vanished' ? entry.subject : entry.rowSeq) ?? entry.subject ?? '';
     if (needle === '') return;
     navigateTo('data', { department: entry.book, search: needle });
     onClose();
@@ -165,7 +165,7 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
             <p className="mt-1 text-[10px] text-[var(--ink-faint)]">
               {readAt === null ? 'журнал ещё не прочитан' : `прочитано ${relativeMoment(readAt)}`}
               {response?.comparison
-                ? ` · пропажи найдены сравнением снимков ${response.comparison.beforeAt.slice(0, 10)} и ${response.comparison.afterAt.slice(0, 10)}`
+                ? ` · контроль ${response.comparison.beforeAt.slice(0, 10)} → текущие чтения (${response.comparison.oldestCurrentAt.slice(0, 10)}–${response.comparison.afterAt.slice(0, 10)})`
                 : ''}
             </p>
           </div>
@@ -280,14 +280,14 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
                     {entryWhoWhen(e)} · {originNote(e)}
                   </p>
                 </div>
-                {(e.rowSeq !== null || e.subject !== null) && (
+                {(e.kind === 'row-vanished' ? Boolean(e.subject?.trim()) : e.relatedRowSeq !== undefined || e.rowSeq !== null || e.subject !== null) && (
                   <button
                     type="button"
                     onClick={() => drillTo(e)}
                     className="shrink-0 mt-0.5 px-1.5 py-0.5 rounded-md text-[10px] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-raised)]"
-                    title="Открыть эту закупку в Реестре"
+                    title={e.kind === 'row-vanished' ? 'Поиск похожих закупок; прежней строки уже нет' : 'Открыть эту закупку в Реестре'}
                   >
-                    в Реестре
+                    {e.kind === 'row-vanished' ? 'поиск в Реестре' : 'в Реестре'}
                   </button>
                 )}
               </li>

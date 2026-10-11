@@ -169,6 +169,13 @@ describe('GET /api/change-story', () => {
     expect(body.note).toContain('Удаление строки журнал не записывает');
   });
 
+  it('объяснение API различает текущие чтения и последний контроль, не две прошлые недели', () => {
+    expect(body.note).toContain('последнему подтверждённому недельному');
+    expect(body.note).toContain('текущим достоверным чтениям');
+    expect(body.note).not.toContain('двух соседних');
+    expect(body.note).toContain('требуются дополнительные свидетельства');
+  });
+
   it('свод отвечает на «сколько книг, сколько закупок, кем и когда»', () => {
     expect(body.digest.books).toBe(1);
     expect(body.digest.booksNamed).toEqual(['УЭР']);
@@ -223,4 +230,15 @@ describe('GET /api/change-story', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json<{ message: string }>().message).toContain('неизвестен');
   });
+
+  it('фильтр чипа «Возможная смена номера» принимается сервером', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/change-story?since=2026-01-01&kind=row-identity-candidate',
+    });
+    expect(res.statusCode).toBe(200);
+    const data = res.json<StoryDto>();
+    expect(data.entries.every((entry) => entry.kind === 'row-identity-candidate')).toBe(true);
+  });
+
 });

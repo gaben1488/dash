@@ -26,6 +26,35 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const response = (selected: unknown) => ({ ok: true, json: async () => ({ latest: receipt, selected, attempt: null }) });
 
+it.each(['actionable-assurance-v1', 'actionable-assurance-v2'])(
+  'loads verified Word receipt with reviewed assurance contract %s', async contract => {
+    const assurance = {
+      contract, fully_automated: false, user_action_count: 1,
+      engine_action_count: 2, active_recommendations: 159,
+      link_status_counts: { CONFIRMED: 40 }, action_status_counts: { UNKNOWN: 10 },
+      actions: [], meaning: 'Synthetic review evidence.',
+      source_observations: [], nonprocurement_identity_observations: 0,
+    };
+    request.mockResolvedValue(response({ ...receipt, automation_assurance: assurance }));
+    const { result } = renderHook(() => useReportExport(context));
+    await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+    expect(result.current.assurance?.contract).toBe(contract);
+    expect(result.current.status).toContain('Word: проверен');
+  },
+);
+
+it('rejects unknown future assurance contract instead of accepting unreviewed semantics', async () => {
+  const assurance = {
+    contract: 'actionable-assurance-v3', fully_automated: false,
+    user_action_count: 1, engine_action_count: 2, active_recommendations: 159,
+    link_status_counts: {}, action_status_counts: {}, actions: [], meaning: 'Synthetic.',
+  };
+  request.mockResolvedValue(response({ ...receipt, automation_assurance: assurance }));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('Несовместимый'));
+  expect(result.current.release).toBeNull();
+});
+
 it('pins the pair when a background publication arrives after the first download', async () => {
   let selected = receipt;
   const downloads: string[] = [];
@@ -79,12 +108,68 @@ it.each([
   expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
 });
 
+
+it('recovers from a transient Caddy 502 on the idempotent release-status GET', async () => {
+  let attempts = 0;
+  request.mockImplementation(async (url: string) => {
+    if (url.startsWith('/api/report-releases?') && ++attempts === 1) {
+      return { ok: false, status: 502, text: async () => 'gateway upstream unavailable' };
+    }
+    return response(receipt);
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id), { timeout: 5000 });
+  expect(attempts).toBe(2);
+  expect(result.current.status).not.toContain('Не удалось проверить');
+});
+
 it('distinguishes unavailable service from missing historical data', async () => {
   request.mockRejectedValue(new Error('offline'));
   const { result } = renderHook(() => useReportExport(context));
   await waitFor(() => expect(result.current.status).toContain('Не удалось проверить'));
   expect(result.current.status).not.toContain('ещё не выпущен');
   expect(result.current.release).toBeNull();
+});
+
+
+it('shows the real access failure instead of a generic Word-readiness error', async () => {
+  request.mockResolvedValue({
+    ok: false, status: 401, text: async () => 'PRIVATE AUTH MESSAGE NEVER SHOW',
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('401'));
+  expect(result.current.status).toContain('Вход');
+  expect(result.current.status).not.toContain('PRIVATE AUTH');
+});
+
+it('reports a response-schema mismatch as a contract problem, not a missing Word', async () => {
+  request.mockResolvedValue({
+    ok: true, status: 200, json: async () => ({ selected: 42, attempt: null }),
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('Несовместимый'));
+  expect(result.current.status).not.toContain('ещё не выпущен');
+});
+
+it('distinguishes upstream 503 from unavailable published Word', async () => {
+  request.mockResolvedValue({ ok: false, status: 503, text: async () => 'sensitive source path' });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('503'));
+  expect(result.current.status).not.toContain('sensitive source path');
+});
+
+it('retains only the same-context verified Word after transient 502 readiness failure', async () => {
+  let gatewayUnavailable = false;
+  request.mockImplementation(async (_url: string) => gatewayUnavailable
+    ? { ok: false, status: 502, text: async () => 'sensitive upstream details' }
+    : response(receipt));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  gatewayUnavailable = true;
+  await act(async () => { poll(); });
+  await waitFor(() => expect(result.current.status).toContain('HTTP 502'));
+  expect(result.current.release?.release_id).toBe(receipt.release_id);
+  expect(result.current.status).not.toContain('sensitive upstream details');
 });
 
 it('does not overlap polling while a previous response is pending', async () => {
@@ -208,6 +293,18 @@ it('explains known live geometry failure without leaking raw diagnostic blockers
   expect(result.current.status).toContain('Новый комплект не выпущен');
 });
 
+
+it('names an access rejection on the refresh button rather than saying only that update failed', async () => {
+  request.mockImplementation(async (url: string) => url === '/api/report-releases/refresh'
+    ? { ok: false, status: 401, text: async () => 'private edge reply' }
+    : response(receipt));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release).not.toBeNull());
+  await act(() => result.current.refresh());
+  expect(result.current.refreshNotice).toContain('401');
+  expect(result.current.refreshNotice).not.toContain('private edge reply');
+});
+
 it('cannot overwrite historical inputs through the live refresh action', async () => {
   request.mockResolvedValue(response(receipt));
   const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
@@ -216,3 +313,38 @@ it('cannot overwrite historical inputs through the live refresh action', async (
   await act(() => result.current.refresh());
   expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(0);
 });
+
+it('uses prior verified Word for the same live year and quarter, naming its publication date', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({
+    selected: null, latest_matching: receipt, attempt: null,
+  }) });
+  const { result } = renderHook(() => useReportExport({
+    date: '2026-10-11', year: 2026, quarter: 3, mode: 'live',
+  }));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+  expect(result.current.status).toContain('выпуск от 30.09.2026');
+  expect(result.current.status).toContain('новый Word не подтверждён');
+});
+
+it('cannot substitute a prior Word in archive mode or for another quarter or future date', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({
+    selected: null, latest_matching: receipt, attempt: null,
+    archive: { status: 'NOT_ISSUED', code: 'ARCHIVE_INPUT_INCOMPLETE', message: 'Нет архива.' },
+  }) });
+  const archive = renderHook(() => useReportExport({
+    date: '2026-10-11', year: 2026, quarter: 3, mode: 'archive',
+  }));
+  await waitFor(() => expect(archive.result.current.status).toContain('Нет архива.'));
+  expect(archive.result.current.release).toBeNull();
+  archive.unmount();
+
+  for (const [date, year, quarter] of [
+    ['2026-10-11', 2026, 4], ['2026-10-11', 2027, 3], ['2026-09-24', 2026, 3],
+  ] as const) {
+    const probe = renderHook(() => useReportExport({ date, year, quarter, mode: 'live' }));
+    await waitFor(() => expect(probe.result.current.status).toContain('ещё не выпущен'));
+    expect(probe.result.current.release).toBeNull();
+    probe.unmount();
+  }
+});
+

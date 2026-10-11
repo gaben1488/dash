@@ -123,7 +123,7 @@ export function emptinessLine(digest: ChangeDigest, gaps: readonly ChangeGap[]):
     const named = books.length === 0
       ? 'ни одна книга'
       : books.length <= 3 ? books.join(', ') : `${books.slice(0, 3).join(', ')} и ещё ${books.length - 3}`;
-    return `Сведения неполны (${named}): часть журналов или контрольных данных недоступна. Отсутствие записей не означает отсутствие изменений.`;
+    return `Сведения неполны (${named}): часть журналов или контрольных данных недоступна. Это не «правок не было»: отсутствие записей не означает отсутствие изменений.`;
   }
   return 'Журналы книг прочитаны, правок в выбранном окне нет.';
 }
@@ -135,7 +135,7 @@ export function emptinessLine(digest: ChangeDigest, gaps: readonly ChangeGap[]):
  */
 export const DELETION_NOTE =
   'Удаление строки книга не записывает: через меню таблицы закупка уходит без единой ' +
-  'правки ячейки. Отсутствие прежнего № проверяется по текущей книге относительно ' +
+  'правки ячейки. Отсутствие прежнего № п/п проверяется по текущей книге относительно ' +
   'последнего недельного контроля. Перенумерация и удаление — разные возможные причины.';
 
 /** Пробелы рассказа фразами — по одной на пробел, без склейки в кашу. */
@@ -182,6 +182,13 @@ export function entryChangeLine(entry: ChangeEntry): string {
     case 'row-identity-candidate':
       return 'Возможная смена № ' + entry.before + ' → № ' + entry.after +
         ': совпадают предмет, учреждение, сумма и способ. Это гипотеза, не подтверждённая перенумерация.';
+    case 'subject':
+      if (entry.origin === 'snapshot-diff') {
+        return 'У № ' + (entry.rowSeq ?? '?') + ' изменились предмет или учреждение: ' +
+          valueLabel(entry.before) + ' → ' + valueLabel(entry.after) +
+          '. Причина не установлена — возможна редакторская правка.';
+      }
+      return `${valueLabel(entry.before)} → ${valueLabel(entry.after)}`;
     case 'row-cleared':
       return 'Строку очистили — ячейки обнулены, сама строка в книге осталась';
     default:
@@ -192,6 +199,11 @@ export function entryChangeLine(entry: ChangeEntry): string {
 /** Кто и когда — хвост строки. Незнание называется, а не заполняется. */
 export function entryWhoWhen(entry: ChangeEntry): string {
   const who = entry.author ?? 'автор источником не назван';
+  if (entry.at === null && entry.origin === 'snapshot-diff' && entry.comparisonEvidence) {
+    return 'между контролем ' + entry.comparisonEvidence.controlAt.slice(0, 10) +
+      ' и чтением ' + entry.comparisonEvidence.observedAt.slice(0, 10) +
+      ' · точный момент и автор неизвестны';
+  }
   if (entry.at === null) {
     return entry.origin === 'snapshot-diff'
       ? 'момент и автор неизвестны — вывод из сравнения текущих книг с контрольным срезом'

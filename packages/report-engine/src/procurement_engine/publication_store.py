@@ -290,6 +290,31 @@ class PublicationStore:
                     return {**receipt, 'report_year': year, 'quarter': selected_quarter}
         return None
 
+    def latest_for_period(self, report_date, report_year, quarter):
+        """Last intact LIVE Word publication for the exact year and quarter.
+
+        This is a fallback for the live dashboard only, not an archival
+        selector. A release dated after the requested day or reconstructed
+        from an archive is never silently substituted. Match the sealed
+        report model, not the receipt date's calendar quarter.
+        """
+        with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:
+            rows = db.execute('''SELECT receipt, files FROM publications
+                WHERE report_date <= ?
+                ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (report_date,))
+            for row in rows:
+                receipt = json.loads(row[0])
+                if 'archive_origin' in receipt:
+                    continue
+                model = _json(self.releases / receipt['release_id'] / 'report_model.json')
+                year = (model.get('snapshot') or {}).get('report_year')
+                selected_quarter = (model.get('headline') or {}).get('current_quarter')
+                if year != report_year or selected_quarter != quarter:
+                    continue
+                verified = self._checked(row)
+                return {**verified, 'report_year': year, 'quarter': selected_quarter}
+        return None
+
     def previous_model(self, report_date):
         day = datetime.strptime(report_date, '%d.%m.%Y').date().isoformat()  # noqa: DTZ007 — civil date.
         with closing(sqlite3.connect(self.database_path.as_uri() + '?mode=ro', uri=True)) as db:

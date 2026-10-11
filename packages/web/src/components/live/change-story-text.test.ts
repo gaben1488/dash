@@ -38,7 +38,7 @@ describe('краткая глубина — четыре фразы одним �
 
   it('вторая фраза называет роды правок и не проговаривает нули', () => {
     const line = digestKindLine(digest);
-    expect(line).toContain('исчезнувших закупок — 1');
+    expect(line).toContain('прежних номеров не найдено — 1');
     expect(line).toContain('деньги — 1');
     expect(line).toContain('сроки — 1');
     expect(line).not.toContain('комментарии');
@@ -119,7 +119,7 @@ describe('подробная глубина — адрес и суть прав�
     expect(entryChangeLine(entry({ kind: 'row-added', subject: 'Поставка мебели' })))
       .toBe('Появилась новая закупка: Поставка мебели');
     expect(entryChangeLine(entry({ kind: 'row-vanished', subject: 'Ремонт кровли' })))
-      .toBe('Закупка исчезла: Ремонт кровли');
+      .toBe('Прежний № не найден: Ремонт кровли; причина не установлена');
     // Очистка — НЕ удаление: строка осталась в книге.
     expect(entryChangeLine(entry({ kind: 'row-cleared' }))).toContain('осталась');
   });
@@ -128,7 +128,7 @@ describe('подробная глубина — адрес и суть прав�
     expect(entryWhoWhen(entry({}))).toBe('ivanova@aemr.ru · 20.08 09:00');
     expect(entryWhoWhen(entry({ author: null }))).toContain('автор источником не назван');
     expect(entryWhoWhen(entry({ at: null, origin: 'snapshot-diff' })))
-      .toContain('пропажа найдена сравнением снимков');
+      .toContain('момент и автор неизвестны');
   });
 
   it('обрезанный список говорит, сколько всего', () => {
@@ -142,3 +142,16 @@ describe('подробная глубина — адрес и суть прав�
     expect(shortDate(null)).toBeNull();
   });
 });
+describe('контекстный провенанс', () => {
+  it('кандидат перенумерации описан как проверяемая гипотеза с обеими сторонами', () => {
+    const candidate = entry({
+      kind: 'row-identity-candidate', rowSeq: '212', relatedRowSeq: '305',
+      before: '212', after: '305', at: null, atMs: null,
+      origin: 'snapshot-diff',
+    });
+    expect(entryChangeLine(candidate)).toContain('Возможная смена № 212 → № 305');
+    expect(entryChangeLine(candidate)).toContain('гипотеза');
+    expect(entryWhoWhen(candidate)).toContain('момент и автор неизвестны');
+  });
+});
+

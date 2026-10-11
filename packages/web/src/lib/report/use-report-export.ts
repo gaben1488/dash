@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
-import { fetchBlob, fetchParsed } from '../../api';
+import { ApiContractError, ApiError, fetchBlob, fetchParsed } from '../../api';
 import type { ReportMode } from './request';
 
 export interface ExportContext { date: string; year: number; quarter: number; mode: ReportMode }
@@ -12,6 +12,27 @@ const timestamp = new Intl.DateTimeFormat('ru-RU', {
 const businessDay = new Intl.DateTimeFormat('sv-SE', {
   year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Kamchatka',
 });
+
+/** Distinguish edge auth, server failure and schema drift without showing private API bodies. */
+function wordReadFailure(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return `Вход на сайте не подтверждён (HTTP ${error.status}). Проверьте авторизацию домена и обновите страницу.`;
+    }
+    if (error.status === 404) return 'Сервер не нашёл сведения о выбранном выпуске (HTTP 404).';
+    if (error.status === 502 || error.status === 503 || error.status === 504) {
+      return `Сервис отчётов не ответил (HTTP ${error.status}). Последний опубликованный Word при этом может сохраниться.`;
+    }
+    return `Проверка готовности Word отклонена сервером (HTTP ${error.status}).`;
+  }
+  if (error instanceof ApiContractError) {
+    return 'Несовместимый формат сведений о выпуске Word. Требуется синхронизация интерфейса и серверного контракта.';
+  }
+  if (error instanceof Error && error.name === 'AbortError') {
+    return 'Проверка готовности Word превысила время ожидания. Серверный выпуск может сохраниться.';
+  }
+  return 'Не удалось проверить готовность Word. Причина не определена; автоматический повтор запланирован.';
+}
 
 /** Native Word actions share one frozen release, including across background updates. */
 export function useReportExport(context: ExportContext | null) {
@@ -40,7 +61,19 @@ export function useReportExport(context: ExportContext | null) {
       controller.signal.addEventListener('abort', abort, { once: true });
       let timeout = setTimeout(abort, 35_000);
       try {
-        const data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        // Caddy may return a short-lived 502 while Fastify reloads. Retry one
+        // idempotent GET; never re-run POST refresh, rebuild Word or hide a
+        // sustained upstream failure behind a fabricated success.
+        let data: SelectedReportReleaseStatus;
+        try {
+          data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        } catch (error) {
+          if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status) ||
+              requestController.signal.aborted) throw error;
+          await new Promise<void>(resolve => setTimeout(resolve, 750));
+          if (requestController.signal.aborted) return;
+          data = await fetchParsed(`/report-releases?${query}`, SelectedReportReleaseStatusSchema, { signal: requestController.signal });
+        }
         if (controller.signal.aborted) return;
         setState({ key: key!, data, error: '' });
         if (archiveMode && !data.selected && data.archive?.status !== 'RUNNING' && !preparationRequested) {
@@ -57,9 +90,17 @@ export function useReportExport(context: ExportContext | null) {
           if (!controller.signal.aborted) setState({ key: key!, data: prepared, error: '' });
           if (prepared.archive?.code === 'ARCHIVE_BUSY') preparationRequested = false;
         }
-      } catch {
+      } catch (error) {
         preparationRequested = false;
-        if (!controller.signal.aborted) setState({ key: key!, data: null, error: 'Не удалось проверить готовность Word. Повторим запрос автоматически.' });
+        if (!controller.signal.aborted) {
+          const warning = wordReadFailure(error);
+          // A transient 502 or schema-read failure must not make a previously
+          // verified frozen Word disappear. Keep only the SAME selected context
+          // and show the warning; never substitute a different date/snapshot.
+          setState(previous => ({
+            key: key!, data: previous?.key === key ? previous.data : null, error: warning,
+          }));
+        }
       } finally {
         clearTimeout(timeout);
         controller.signal.removeEventListener('abort', abort);
@@ -72,10 +113,22 @@ export function useReportExport(context: ExportContext | null) {
   }, [key, query, archiveMode]);
 
   const current = state?.key === key ? state : null;
-  const candidate = pinned?.key === key ? pinned.release : current?.data?.selected;
-  // Guard the response boundary as well as the server: never trust stale/mismatched metadata.
-  const release = candidate && context && candidate.report_year === context.year && candidate.quarter === context.quarter
-    && candidate.report_date.split('.').reverse().join('-') === context.date ? candidate : null;
+  const exact = current?.data?.selected ?? null;
+  // In live mode alone, an earlier verified Word for the SAME year/quarter is
+  // useful while a new release is blocked. Python proves its reporting period
+  // from the frozen model. Archive mode NEVER uses this optional fallback.
+  const previous = !archiveMode ? current?.data?.latest_matching ?? null : null;
+  const isPinned = pinned?.key === key;
+  const candidate = isPinned ? pinned.release : exact ?? previous;
+  const candidateDay = candidate?.report_date.split('.').reverse().join('-') ?? null;
+  const isPriorLive = context?.mode === 'live' &&
+    (isPinned || (exact === null && candidate === previous));
+  // Exact selector stays exact even in live mode. Period fallback is never
+  // accepted from a later report date or from another year/quarter.
+  const dateMatches = candidateDay !== null && context !== null &&
+    (isPriorLive ? candidateDay <= context.date : candidateDay === context.date);
+  const release = candidate && context && dateMatches &&
+    candidate.report_year === context.year && candidate.quarter === context.quarter ? candidate : null;
   const saving = transfer?.key === key ? transfer.saving : null;
   const downloadError = transfer?.key === key ? transfer.error : '';
 
@@ -88,9 +141,14 @@ export function useReportExport(context: ExportContext | null) {
     if (assurance?.user_action_count) {
       status += ' Есть вопросы по исходным данным; подробности можно открыть ниже.';
     }
-    // Engine-only historical uncertainty is kept in the collapsed diagnostics,
-    // never framed as an error in an otherwise verified Word release.
-    if (context?.mode === 'live') status += ' Данные в прямом эфире могут обновиться позднее.';
+    // Engine-only historical uncertainty is kept in the collapsed diagnostics.
+    // An older publication is labelled as OLDER, not today's confirmed Word.
+    if (context?.mode === 'live' && candidateDay !== context.date) {
+      status = `Последний проверенный Word за выбранные год и квартал: выпуск от ${release.report_date}. ` +
+        'На выбранную дату новый Word не подтверждён. Показатели текущей страницы могут отличаться. ' + status;
+    } else if (context?.mode === 'live') {
+      status += ' Данные в прямом эфире могут обновиться позднее.';
+    }
   }
   if (archiveMode && !release && current?.data?.archive) {
     status = current.data.archive.message;
@@ -162,9 +220,9 @@ export function useReportExport(context: ExportContext | null) {
         method: 'POST',
       });
       setRefreshState({ key, busy: false, notice: data.message });
-    } catch {
+    } catch (error) {
       setRefreshState({ key, busy: false,
-        notice: 'Запустить обновление сейчас не удалось. Последний проверенный Word остаётся доступен.' });
+        notice: `Запрос обновления не принят. ${wordReadFailure(error)} Последний проверенный Word сохраняется.` });
     }
   }
   const canRefresh = Boolean(key && !archiveMode);

@@ -62,9 +62,10 @@ docker run --rm --network none --read-only --user 0 \
 # Copy to a disposable Docker volume, check every byte and SQLite/Word
 # content, then discard scratch. Original remains read-only.
 docker run --rm --network none --read-only --user 0 \
+  --mount "type=volume,src=$volume,dst=/source,readonly" \
   --mount "type=bind,src=$BACKUP_PARENT,dst=/backups,readonly" \
   --mount "type=bind,src=$DEPLOY_DIR/stateful_backup.py,dst=/tool.py,readonly" \
   --mount type=volume,dst=/scratch \
   --entrypoint /opt/report-env/bin/python "$image" /tool.py verify \
-  --backup "/backups/$BACKUP_NAME" --scratch-parent /scratch
+  --backup "/backups/$BACKUP_NAME" --scratch-parent /scratch --source /source
 echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'

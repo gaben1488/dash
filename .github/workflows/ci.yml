@@ -226,11 +226,12 @@ jobs:
             cd /home/aemr/dash
             cd deploy
             previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
+            report_release_started=false
             verification_dir=
             restore_worker_on_failure() {
               result=$?
               trap - EXIT
-              if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
+              if [ "$result" -ne 0 ] && [ "$report_release_started" = true ] && [ -n "$previous_worker" ]; then
                 if ! docker compose -f /home/aemr/dash/deploy/docker-compose.yml \
                   --env-file /home/aemr/dash/deploy/.env.production --profile reports \
                   start report-worker >/dev/null 2>&1; then
@@ -263,14 +264,32 @@ jobs:
             cd deploy
             current_server=$(docker compose --env-file .env.production ps --all --quiet server)
             test -n "$current_server"
+            server_state=$(docker inspect --format '{{.State.Status}}' "$current_server")
+            if [ "$server_state" != exited ]; then
+              echo 'BACKUP_REQUIRES_SERVER_QUIESCENCE' >&2
+              exit 2
+            fi
+            worker=$(docker compose --env-file .env.production --profile reports ps --all --quiet report-worker)
+            if [ -n "$worker" ]; then
+              worker_state=$(docker inspect --format '{{.State.Status}}' "$worker")
+              case "$worker_state" in
+                exited|created) ;;
+                *) echo 'BACKUP_REQUIRES_WORKER_QUIESCENCE' >&2; exit 2 ;;
+              esac
+            fi
+            source_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$current_server")
+            case "$source_volume" in
+              ''|*[!a-zA-Z0-9_.-]*) echo 'BACKUP_SOURCE_VOLUME_NOT_VERIFIED' >&2; exit 2 ;;
+            esac
             server_image=$(docker inspect --format '{{.Image}}' "$current_server")
             case "$server_image" in sha256:*) ;; *) exit 2 ;; esac
             docker run --rm --network none --read-only --user 0 \
+              --mount "type=volume,src=$source_volume,dst=/source,readonly" \
               --mount "type=bind,src=$verified_backup_root,dst=/backups,readonly" \
               --mount "type=bind,src=$verification_dir/stateful_backup.py,dst=/tool.py,readonly" \
               --mount type=volume,dst=/scratch \
               --entrypoint /opt/report-env/bin/python "$server_image" /tool.py verify \
-              --backup "/backups/$verified_backup_name" --scratch-parent /scratch
+              --backup "/backups/$verified_backup_name" --scratch-parent /scratch --source /source
             echo 'BACKUP_AND_SCRATCH_RESTORE_PASS'
 
             # Storage is a deployment prerequisite, not a post-failure repair.
@@ -338,5 +357,96 @@ jobs:
               curl -fsS -m 15 http://127.0.0.1:3000/api/health && echo " — deploy OK"
             # Private inputs and audit output stay in server_data, not Actions logs.
             # Start the scheduler only after a successful service-account release.
+            report_release_started=true
             bash enable-reports.sh
             trap - EXIT
+
+  browser-report-contract:
+    name: Read-only browser Word readiness and Caddy edge diagnosis
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Compare actual production response against browser schema (no writes)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          # Bash owns failure handling: injected per-line stops corrupt Python/JS blocks.
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            # JS uses the Zod schema imported by browser code, but only GETs
+            # an existing release through Fastify, without invoking refresh.
+            docker compose --env-file .env.production exec -T server node --import tsx --input-type=module -e '
+              import { execFileSync } from "node:child_process";
+              import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
+              void(async()=>{
+                // Probe the SAME product-local current date the browser selects,
+                // not status.json: an in-flight RUNNING attempt has no report_date.
+                const now=new Intl.DateTimeFormat("sv-SE",{timeZone:"Asia/Kamchatka",
+                  year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+                const yyyy=now.slice(0,4),mm=now.slice(5,7);
+                const url="http://127.0.0.1:3000/api/report-releases?date="+now+
+                  "&year="+yyyy+"&quarter="+Math.ceil(Number(mm)/3);
+                const resp=await fetch(url,{headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(25000)});
+                if(resp.status!==200){console.log(JSON.stringify({kind:"browser_word_status",result:"HTTP_ERROR",status:resp.status}));return;}
+                const parsed=SelectedReportReleaseStatusSchema.safeParse(await resp.json());
+                console.log(JSON.stringify({kind:"browser_word_status",result:parsed.success?"CONTRACT_PASS":"CONTRACT_FAIL",
+                  field_errors:parsed.success?[]:parsed.error.issues.slice(0,8).map(e=>({path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),code:e.code}))
+                }));
+              })().catch(()=>console.log(JSON.stringify({kind:"browser_word_status",result:"DIAGNOSTIC_UNAVAILABLE"})));
+            ' 2>&1 | python3 -c 'import sys,json; out=sys.stdin.read(); labels=("CONTRACT_PASS","CONTRACT_FAIL","HTTP_ERROR","INVALID_SELECTED_DATE","DIAGNOSTIC_UNAVAILABLE","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","SyntaxError","ReferenceError","TypeError"); found=next((x for x in labels if x in out),"UNKNOWN"); issues=[{"path":"".join(ch for ch in str(entry.get("path","")) if ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.")[:90],"code":"".join(ch for ch in str(entry.get("code","")) if ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_")[:30]} for entry in json.loads(next((ln for ln in out.splitlines() if ln.startswith("{") and "browser_word_status" in ln),"{}")).get("field_errors",[])][:8]; print(json.dumps({"kind":"browser_contract_probe","result":found,"invalid_fields":issues},sort_keys=True))' || echo 'browser_node_probe=FAILED'
+            # Python makes an independent read-only request using the existing
+            # production service token; output only status and schema shape.
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - <<'PYREPORT' 2>/dev/null || echo 'browser_python_probe=UNAVAILABLE'
+            import json
+            import os
+            import re
+            from datetime import datetime
+            from pathlib import Path
+            from urllib.request import Request, urlopen
+            from urllib.error import HTTPError
+            from zoneinfo import ZoneInfo
+            day = datetime.now(ZoneInfo("Asia/Kamchatka")).date().isoformat()
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                print(json.dumps({"kind":"report_status_http_shape","result":"NO_DATE"}))
+            else:
+                yy, mm, dd = day.split("-")
+                url = ("http://127.0.0.1:3000/api/report-releases?date="+
+                       day+"&year="+yy+"&quarter="+str((int(mm)+2)//3))
+                request = Request(url, headers={"Authorization": "Bearer "+os.environ.get("AEMR_API_KEY", "")})
+                try:
+                    with urlopen(request, timeout=25) as response:
+                        status = response.status
+                        data = json.loads(response.read(2*1024*1024))
+                    selected = data.get("selected") if isinstance(data, dict) else None
+                    attempt = data.get("attempt") if isinstance(data, dict) else None
+                    required = ("release_id","snapshot_id","report_date","cutoff_at",
+                                "published_at","model_sha256","rules_version",
+                                "renderer_version","status","report_year","quarter")
+                    missing = [k for k in required if isinstance(selected,dict) and k not in selected]
+                    print(json.dumps({"kind":"report_status_http_shape",
+                                      "http_status":status,"body_type":type(data).__name__,
+                                      "selected_type":type(selected).__name__,
+                                      "selected_missing_required":missing,
+                                      "attempt_type":type(attempt).__name__},sort_keys=True))
+                except HTTPError as e:
+                    print(json.dumps({"kind":"report_status_http_shape","http_status":e.code,"result":"HTTP_ERROR"}))
+                except Exception:
+                    print(json.dumps({"kind":"report_status_http_shape","result":"READBACK_FAILED"}))
+            PYREPORT
+            # Caddy sees real requests; only aggregate HTTP statuses leave VPS.
+            docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
+              | tail -n 2000 \
+              | python3 -c 'import collections,json,re,sys; records=[l for l in sys.stdin if "/api/report-releases" in l]; matches=[re.search(r"(?i)(?:status|status_code)[^0-9]{0,10}([245][0-9][0-9])",l) or re.search(r"\b(200|202|400|401|403|404|429|500|502|503|504)\b",l) for l in records]; counts=collections.Counter(m.group(1) if m else "UNKNOWN" for m in matches); print(json.dumps({"kind":"caddy_report_access","matching_log_lines":len(records),"status_counts":dict(counts)},sort_keys=True))' || echo 'edge_log_probe=FAILED'

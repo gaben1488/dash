@@ -1,3 +1,5 @@
+import { subordinateNameMatchKey } from '@aemr/shared';
+
 /**
  * Пропавшие и появившиеся закупки — канон п.105.
  *
@@ -65,6 +67,22 @@ export interface IdentityCandidate {
   status: 'needs-review';
 }
 
+/**
+ * Прежний № остался, но описывает другой предмет или учреждение.
+ * Это наблюдение о перемене контекста, не доказательство подмены закупки:
+ * возможны и обычные правки содержания.
+ */
+export interface NumberContextChange {
+  rowSeq: string;
+  beforeSheetRow: number;
+  afterSheetRow: number;
+  beforeSubject: string;
+  afterSubject: string;
+  beforeSubordinate: string;
+  afterSubordinate: string;
+  status: 'needs-review';
+}
+
 export interface RowDiff {
   /** Были в прежнем снимке, в новом их нет. */
   vanished: VanishedRow[];
@@ -86,6 +104,8 @@ export interface RowDiff {
   ambiguousKeys?: { before: string[]; after: string[] };
   /** Возможная смена № п/п: только уникальное совпадение содержимого с доказательством. */
   identityCandidates?: IdentityCandidate[];
+  /** Тот же № стал описывать другое содержание: не приравнивать к сохранённой идентичности. */
+  contextChanged?: NumberContextChange[];
   note: string;
 }
 
@@ -114,7 +134,8 @@ function normalized(value: string | undefined): string {
  */
 function subjectFingerprint(row: SnapshotRow): string | null {
   const subject = normalized(row.subject);
-  const subordinate = normalized(row.subordinate);
+  // Историческое и действующее имя одной организации — один ключ сопоставления.
+  const subordinate = subordinateNameMatchKey(row.subordinate);
   const amount = row.planSum;
   const method = normalized(row.method);
   if (!subject || !subordinate || !method || !Number.isFinite(amount) || (amount as number) <= 0) return null;
@@ -163,6 +184,7 @@ export function diffSnapshots(
 
   const vanished: VanishedRow[] = [];
   const moved: MovedRow[] = [];
+  const contextChanged: NumberContextChange[] = [];
   for (const [key, row] of was) {
     const still = now.get(key);
     if (!still) {
@@ -175,6 +197,25 @@ export function diffSnapshots(
         factSum: row.factSum,
       });
       continue;
+    }
+    // Совпавший номер не гарантирует совпавшую закупку: сравниваем
+    // предметную принадлежность, но не выдаём правку текста за подмену.
+    const beforeSubject = normalized(row.subject);
+    const afterSubject = normalized(still.subject);
+    const beforeOrg = subordinateNameMatchKey(row.subordinate);
+    const afterOrg = subordinateNameMatchKey(still.subordinate);
+    if ((beforeSubject && afterSubject && beforeSubject !== afterSubject) ||
+        (beforeOrg && afterOrg && beforeOrg !== afterOrg)) {
+      contextChanged.push({
+        rowSeq: key,
+        beforeSheetRow: row.sheetRow,
+        afterSheetRow: still.sheetRow,
+        beforeSubject: row.subject ?? '',
+        afterSubject: still.subject ?? '',
+        beforeSubordinate: row.subordinate ?? '',
+        afterSubordinate: still.subordinate ?? '',
+        status: 'needs-review',
+      });
     }
     if (still.sheetRow !== row.sheetRow) {
       moved.push({
@@ -218,6 +259,34 @@ export function diffSnapshots(
     });
   }
 
+
+  // Два закупочных номера могут поменяться местами, а прежний № — быть
+  // использован для другой закупки. Обычный set-diff номеров пропустит такую
+  // замену ЦЕЛИКОМ. Ищем прежнее содержимое под другим номером даже тогда,
+  // когда прежний номер остался занят. Это тоже только проверяемая гипотеза:
+  // изменение описания может быть законным редактированием, а не заменой.
+  for (const [beforeSeq, old] of was) {
+    const atOldNumber = now.get(beforeSeq);
+    if (!atOldNumber) continue; // отсутствующий номер уже обработан выше
+    const fingerprint = subjectFingerprint(old);
+    if (!fingerprint || subjectFingerprint(atOldNumber) === fingerprint) continue;
+    if (uniqueBefore.get(fingerprint) !== old) continue;
+    const candidate = uniqueAfter.get(fingerprint);
+    if (!candidate || candidate.rowSeq === beforeSeq ||
+        now.get(candidate.rowSeq) !== candidate) continue;
+    identityCandidates.push({
+      beforeRowSeq: beforeSeq,
+      afterRowSeq: candidate.rowSeq,
+      beforeSheetRow: old.sheetRow,
+      afterSheetRow: candidate.sheetRow,
+      subject: old.subject ?? '',
+      subordinate: old.subordinate ?? '',
+      planSum: old.planSum as number,
+      evidence: 'subject+subordinate+plan+method',
+      status: 'needs-review',
+    });
+  }
+
   const sum = (rows: VanishedRow[], field: 'planSum' | 'factSum'): number =>
     rows.reduce((s, r) => s + (Number.isFinite(r[field]) ? (r[field] as number) : 0), 0);
 
@@ -244,6 +313,10 @@ export function diffSnapshots(
   if (ambiguous.size > 0) {
     notes.push('Повторяющиеся № п/п не сопоставлялись: ' + [...ambiguous].sort().join(', ') + '.');
   }
+  if (contextChanged.length > 0) {
+    notes.push('Контекст при прежнем № изменён: ' + contextChanged.length +
+      '. Это может быть редакторская правка или другая закупка — связь требует проверки.');
+  }
   if (notes.length === 0) notes.push('Все закупки прежнего снимка на месте.');
 
   return {
@@ -255,6 +328,7 @@ export function diffSnapshots(
     unkeyed,
     ambiguousKeys,
     identityCandidates,
+    contextChanged,
     note: notes.join(' '),
   };
 }

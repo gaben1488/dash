@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SUBORDINATE_REGISTRY } from '@aemr/shared';
 import { diffSnapshots, type SnapshotRow } from './vanished-rows.js';
 
 const row = (o: Partial<SnapshotRow> & { rowSeq: string; sheetRow: number }): SnapshotRow => ({
@@ -131,6 +132,116 @@ describe('провенанс номера без догадок об удале�
     );
     expect(d.vanished).toEqual([]);
     expect(d.identityCandidates).toEqual([]);
+  });
+});
+
+describe('повторное использование номера — не скрывать за совпавшим A', () => {
+  const purchase = (seq: string, row: number, subject: string): SnapshotRow => ({
+    rowSeq: seq, sheetRow: row, subject,
+    subordinate: 'Школа № 1', planSum: 100, method: 'ЕП',
+  });
+
+  it('обмен номерами двух закупок виден без ложных удалений строк', () => {
+    const before = [
+      purchase('10', 5, 'Кровля'),
+      purchase('20', 6, 'Мебель'),
+    ];
+    const after = [
+      purchase('10', 5, 'Мебель'),
+      purchase('20', 6, 'Кровля'),
+    ];
+    const diff = diffSnapshots(before, after);
+    expect(diff.vanished).toEqual([]);
+    expect(diff.appeared).toEqual([]);
+    expect(diff.identityCandidates).toEqual([
+      expect.objectContaining({ beforeRowSeq: '10', afterRowSeq: '20', status: 'needs-review' }),
+      expect.objectContaining({ beforeRowSeq: '20', afterRowSeq: '10', status: 'needs-review' }),
+    ]);
+  });
+
+  it('обычная правка предмета при том же № не выдаётся за перенумерацию', () => {
+    const diff = diffSnapshots(
+      [purchase('10', 5, 'Кровля')],
+      [purchase('10', 5, 'Кровельный ремонт')],
+    );
+    expect(diff.vanished).toEqual([]);
+    expect(diff.identityCandidates).toEqual([]);
+  });
+
+  it('совпадение предмета без учреждения, плана или способа не позволяет связывать номера', () => {
+    const old = purchase('10', 5, 'Одинаковый предмет');
+    const next = purchase('20', 6, 'Одинаковый предмет');
+    next.method = '';
+    expect(diffSnapshots([old], [next]).identityCandidates).toEqual([]);
+    next.method = 'ЕП';
+    next.subordinate = 'Другая организация';
+    expect(diffSnapshots([old], [next]).identityCandidates).toEqual([]);
+  });
+});
+
+describe('сохранённый номер не означает сохранённый предмет закупки', () => {
+  it('выделяет смену предмета при прежнем №, даже если исчезновения номеров нет', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '10', sheetRow: 6, subject: 'Ремонт кровли', subordinate: 'Школа № 1', planSum: 100, method: 'ЕП' })],
+      [row({ rowSeq: '10', sheetRow: 6, subject: 'Канцелярские товары', subordinate: 'Школа № 1', planSum: 100, method: 'ЕП' })],
+    );
+    expect(diff.vanished).toEqual([]);
+    expect(diff.appeared).toEqual([]);
+    expect(diff.identityCandidates).toEqual([]);
+    expect(diff.contextChanged).toEqual([expect.objectContaining({
+      rowSeq: '10', beforeSubject: 'Ремонт кровли', afterSubject: 'Канцелярские товары',
+      status: 'needs-review',
+    })]);
+    expect(diff.note).toContain('Это может быть редакторская правка');
+  });
+
+  it('смена учреждения при одинаковом предмете требует проверки', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '42', sheetRow: 9, subordinate: 'МБОУ СОШ № 1' })],
+      [row({ rowSeq: '42', sheetRow: 9, subordinate: 'МБОУ СОШ № 2' })],
+    );
+    expect(diff.contextChanged?.[0]).toMatchObject({
+      rowSeq: '42', beforeSubordinate: 'МБОУ СОШ № 1', afterSubordinate: 'МБОУ СОШ № 2',
+    });
+  });
+
+  it('правка плана и способа без перемены предмета не шумит об идентичности', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '50', sheetRow: 9, subject: 'Ремонт', planSum: 100, method: 'ЕП' })],
+      [row({ rowSeq: '50', sheetRow: 9, subject: 'Ремонт', planSum: 200, method: 'ЭА' })],
+    );
+    expect(diff.contextChanged).toEqual([]);
+  });
+
+  it('дубли номера не становятся ложными изменениями контекста', () => {
+    const diff = diffSnapshots(
+      [row({ rowSeq: '70', sheetRow: 9, subject: 'А' }), row({ rowSeq: '70', sheetRow: 10, subject: 'Б' })],
+      [row({ rowSeq: '70', sheetRow: 9, subject: 'В' })],
+    );
+    expect(diff.contextChanged).toEqual([]);
+    expect(diff.ambiguousKeys?.before).toContain('70');
+  });
+});
+
+describe('историческое наименование учреждения не меняет идентичность закупки', () => {
+  const renamed = SUBORDINATE_REGISTRY.find((x) => x.legacyCanonicalName && x.legacyCanonicalName !== x.canonicalName)!;
+
+  it('не создаёт ложное событие смены содержания под тем же номером', () => {
+    const before = [row({ rowSeq: '19', sheetRow: 50, subject: 'Капремонт', subordinate: renamed.legacyCanonicalName, planSum: 500, method: 'ЕП' })];
+    const after = [row({ rowSeq: '19', sheetRow: 50, subject: 'Капремонт', subordinate: renamed.canonicalName, planSum: 500, method: 'ЕП' })];
+    const result = diffSnapshots(before, after);
+    expect(result.contextChanged).toEqual([]);
+    expect(result.vanished).toEqual([]);
+  });
+
+  it('связывает возможную перенумерацию несмотря на миграцию старого названия на новое', () => {
+    const result = diffSnapshots(
+      [row({ rowSeq: '19', sheetRow: 50, subject: 'Капремонт', subordinate: renamed.legacyCanonicalName, planSum: 500, method: 'ЕП' })],
+      [row({ rowSeq: '25', sheetRow: 51, subject: 'Капремонт', subordinate: renamed.canonicalName, planSum: 500, method: 'ЕП' })],
+    );
+    expect(result.identityCandidates).toEqual([expect.objectContaining({
+      beforeRowSeq: '19', afterRowSeq: '25', status: 'needs-review',
+    })]);
   });
 });
 

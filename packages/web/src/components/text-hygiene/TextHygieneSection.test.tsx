@@ -213,7 +213,7 @@ describe('TextHygieneSection', () => {
     renderSection();
 
     expect(await screen.findByText(/проверенных конкретных опечаток/)).toBeTruthy();
-    expect(screen.getByText(/частота слова сама по себе не доказывает ошибку/)).toBeTruthy();
+    expect(screen.getByText(/частота слова сама по себе не доказывает ошибку/i)).toBeTruthy();
     expect(screen.getAllByTitle(/сверьте по смыслу и первоисточнику/).length).toBeGreaterThan(0);
   });
 

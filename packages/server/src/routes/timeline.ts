@@ -45,6 +45,7 @@ import { getDeptSheetValues, getSnapshot } from '../services/snapshot.js';
 import { getMonitoringBook } from '../services/monitoring.js';
 import { parsedMonitoringBook } from '../services/monitoring-parsed.js';
 import { buildRowDto, isDataRow } from '../services/rows-dto.js';
+import { buildComparison, type IntegrityResponse } from './integrity.js';
 
 /** «Сегодня» календаря продукта (Камчатка +12), как у /api/report и /api/changes. */
 const productToday = (): number =>
@@ -53,6 +54,70 @@ const productToday = (): number =>
 /** Окно «близких к реализации» по умолчанию и потолок (год — дальше не «близко»). */
 const DEFAULT_UPCOMING_DAYS = 14;
 const MAX_UPCOMING_DAYS = 366;
+
+/**
+ * Контроль преемственности для таймлайна, адресованного ФИЗИЧЕСКОЙ строкой.
+ * Журнал по адресу N178 и наблюдение строки 178 не доказывают, что это одна
+ * закупка после сортировки/перенумерации. Берём признаки из того же ядра,
+ * что /api/integrity и единый журнал, не заводя четвёртую модель идентичности.
+ *
+ * null — в доступном последнем интервале явных препятствий нет; это не
+ * положительное доказательство идентичности за все исторические периоды.
+ */
+export function timelineIdentityWarning(
+  comparison: IntegrityResponse['comparison'],
+  deptId: string,
+  sheetRow: number,
+  rowSeq: string,
+): string | null {
+  if (comparison === null) {
+    return 'Недельный контроль преемственности пока не сопоставим с текущими книгами. ' +
+      'Таймлайн составлен по номеру строки листа, который меняется при сортировках и вставках.';
+  }
+  const unread = comparison.unavailableBooks.find((b) => b.dept === deptId);
+  if (unread) {
+    return 'Преемственность с недельным контролем не проверена: ' + unread.reason +
+      '. Историю по номеру строки нельзя считать доказанной историей одной закупки.';
+  }
+  const book = comparison.books.find((b) => b.dept === deptId);
+  if (!book) return null;
+
+  const ambiguous = [...book.ambiguousKeys.before, ...book.ambiguousKeys.after];
+  if (rowSeq && ambiguous.includes(rowSeq)) {
+    return 'Номер ' + rowSeq + ' повторяется в контрольном или текущем состоянии. ' +
+      'Связь исторических правок с одной закупкой неоднозначна.';
+  }
+
+  const candidate = book.identityCandidates.find((c) =>
+    c.beforeSheetRow === sheetRow || c.afterSheetRow === sheetRow ||
+    (rowSeq !== '' && (c.beforeRowSeq === rowSeq || c.afterRowSeq === rowSeq)));
+  if (candidate) {
+    return 'Возможная смена № ' + candidate.beforeRowSeq + ' → № ' +
+      candidate.afterRowSeq + ' между недельным контролем и текущим чтением. ' +
+      'Это проверяемая гипотеза, не подтверждённая история одной закупки.';
+  }
+
+  const changed = book.contextChanged.find((c) =>
+    c.beforeSheetRow === sheetRow || c.afterSheetRow === sheetRow ||
+    (rowSeq !== '' && c.rowSeq === rowSeq));
+  if (changed) {
+    return 'При № ' + changed.rowSeq +
+      ' изменились предмет или учреждение. Это может быть обычная правка ' +
+      'или другая закупка; прежнюю историю нельзя объединять без проверки.';
+  }
+
+  const moved = book.moved.find((m) =>
+    m.fromSheetRow === sheetRow || m.toSheetRow === sheetRow ||
+    (rowSeq !== '' && m.rowSeq === rowSeq));
+  if (moved) {
+    return '№ ' + moved.rowSeq + ' переместился из строки ' +
+      moved.fromSheetRow + ' в ' + moved.toSheetRow +
+      '. Этот таймлайн ищет события по физическому номеру строки, ' +
+      'поэтому старые записи могут относиться к другой закупке.';
+  }
+  return null;
+}
+
 
 /**
  * Строки книг для сводных расчётов: живой кэш книг ГРБС (канонический
@@ -288,9 +353,23 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
         asOfDay: productToday(),
       });
 
+      // Сверка исключительно read-only. Её отсутствие не отменяет таймлайн:
+      // предупреждение объясняет границы доверия вместо ложной уверенности.
+      let identityWarning: string | null;
+      try {
+        const { comparison } = buildComparison();
+        identityWarning = timelineIdentityWarning(
+          comparison, dept.id, sheetRow, String(liveRow?.[DEPT_COLUMNS.ID] ?? '').trim(),
+        );
+      } catch {
+        identityWarning = 'Контроль идентичности сейчас не ответил. ' +
+          'История ниже привязана к позиции листа, а не к подтверждённой закупке.';
+      }
+
       return reply.send({
         ...timeline,
         coverage: {
+          identityWarning,
           /** Журнал правок: false — таблица журнала недоступна (не «правок не было»). */
           journalAvailable: journal.available,
           journalEntries: journalChanges.length,
