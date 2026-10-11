@@ -109,6 +109,10 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
       ambiguousKeys: book.ambiguousKeys,
       identityCandidates: book.identityCandidates,
       note: book.note,
+    }, {
+      baselineId: comparison.baselineId,
+      controlAt: comparison.beforeAt,
+      observedAt: book.currentAt,
     }));
   }
 

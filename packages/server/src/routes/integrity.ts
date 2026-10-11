@@ -132,6 +132,8 @@ export interface VanishedBookDto {
   unkeyed: { before: number; after: number };
   note: string;
   /** Возможная смена № п/п, требующая подтверждения; не автоматическая идентичность. */
+  /** Время последнего достоверного чтения данной ведомственной книги. */
+  currentAt: string;
   identityCandidates: Array<{
     beforeRowSeq: string; afterRowSeq: string;
     beforeSheetRow: number; afterSheetRow: number;
@@ -555,6 +557,7 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     books.push({
       dept: dept.id,
       deptName: dept.fullName,
+      currentAt: new Date(loadedAt).toISOString(),
       vanished: diff.vanished.map((v) => ({
         rowSeq: v.rowSeq,
         wasAtSheetRow: v.wasAtSheetRow,

@@ -248,6 +248,12 @@ export interface ChangeEntry {
   /** Учреждение — если источник его знает. */
   readonly subordinate: string | null;
   readonly origin: ChangeOrigin;
+  /** Контроль и интервал наблюдения; НЕ момент правки или её автор. */
+  readonly comparisonEvidence?: {
+    readonly baselineId: string;
+    readonly controlAt: string;
+    readonly observedAt: string;
+  };
   /** Для возможной смены номера: текущий кандидат; исходный № сохраняется в rowSeq. */
   readonly relatedRowSeq?: string;
   /**
@@ -409,7 +415,11 @@ export function entriesFromBookJournal(
  * нельзя: снимок говорит «между двумя чтениями», а не «в 14:32». Пустые поля
  * здесь — не недоделка, а форма источника.
  */
-export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
+export function entriesFromRowDiff(
+  book: string,
+  diff: RowDiff,
+  comparisonEvidence?: ChangeEntry['comparisonEvidence'],
+): ChangeEntry[] {
   const entries: ChangeEntry[] = [];
   const candidates = diff.identityCandidates ?? [];
   const candidateOld = new Set(candidates.map((c) => c.beforeRowSeq));
@@ -436,6 +446,7 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: v.subject ?? null,
       subordinate: v.subordinate ?? null,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 
@@ -458,6 +469,7 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: a.subject ?? null,
       subordinate: a.subordinate ?? null,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 
@@ -480,6 +492,7 @@ export function entriesFromRowDiff(book: string, diff: RowDiff): ChangeEntry[] {
       subject: candidate.subject,
       subordinate: candidate.subordinate,
       origin: 'snapshot-diff',
+      ...(comparisonEvidence ? { comparisonEvidence } : {}),
     });
   }
 

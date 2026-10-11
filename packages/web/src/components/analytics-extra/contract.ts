@@ -144,6 +144,7 @@ export interface IntegrityBookDto {
 export interface VanishedBookDto {
   dept: string;
   deptName: string;
+  currentAt: string;
   vanished: Array<{
     rowSeq: string;
     wasAtSheetRow: number;

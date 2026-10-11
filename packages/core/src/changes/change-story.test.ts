@@ -322,3 +322,22 @@ describe('контекстная связь номера в журнале', () 
   });
 });
 
+describe('контрольное основание выводов журнала', () => {
+  it('указывает два наблюдения и оставляет неизвестными автора и момент удаления', () => {
+    const evidence = {
+      baselineId: 'week-control-20261008',
+      controlAt: '2026-10-08T06:00:00Z',
+      observedAt: '2026-10-11T08:00:00Z',
+    };
+    const events = entriesFromRowDiff('УО', {
+      vanished: [{ rowSeq: '12', wasAtSheetRow: 4, subject: 'Кровля' }],
+      appeared: [], moved: [], vanishedPlanSum: 0, vanishedFactSum: 0,
+      unkeyed: { before: 0, after: 0 }, note: 'проверить',
+    }, evidence);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      origin: 'snapshot-diff', author: null, at: null, comparisonEvidence: evidence,
+    });
+  });
+});
+

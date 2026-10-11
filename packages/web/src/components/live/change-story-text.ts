@@ -192,6 +192,11 @@ export function entryChangeLine(entry: ChangeEntry): string {
 /** Кто и когда — хвост строки. Незнание называется, а не заполняется. */
 export function entryWhoWhen(entry: ChangeEntry): string {
   const who = entry.author ?? 'автор источником не назван';
+  if (entry.at === null && entry.origin === 'snapshot-diff' && entry.comparisonEvidence) {
+    return 'между контролем ' + entry.comparisonEvidence.controlAt.slice(0, 10) +
+      ' и чтением ' + entry.comparisonEvidence.observedAt.slice(0, 10) +
+      ' · точный момент и автор неизвестны';
+  }
   if (entry.at === null) {
     return entry.origin === 'snapshot-diff'
       ? 'момент и автор неизвестны — вывод из сравнения текущих книг с контрольным срезом'
