@@ -393,7 +393,21 @@ class PublicationStore:
                                 raise PublicationError(str(exc)) from exc
                     observed = read_revisions()
                     if not observed or observed != expected:
-                        raise PublicationError('SOURCE_CHANGED_BEFORE_PUBLICATION')
+                        error = PublicationError('SOURCE_CHANGED_BEFORE_PUBLICATION')
+                        # Runtime stores evidence only in private error.json.
+                        # Provider identities/revision tokens must never enter
+                        # the public error string, status or logs.
+                        actual = observed if isinstance(observed, dict) else {}
+                        error.evidence = {
+                            'expected_revisions': expected,
+                            'observed_revisions': observed,
+                            'changed': {key: {'expected': expected[key], 'observed': actual[key]}
+                                        for key in sorted(expected.keys() & actual.keys())
+                                        if expected[key] != actual[key]},
+                            'missing_keys': sorted(expected.keys() - actual.keys()),
+                            'added_keys': sorted(actual.keys() - expected.keys()),
+                        }
+                        raise error
                     files = _files(stage)
                     for name in files:
                         with (stage / name).open('rb') as file:

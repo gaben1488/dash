@@ -162,3 +162,22 @@ def test_older_report_cannot_replace_latest_and_damage_is_detected(tmp_path):
     (tmp_path / 'published/releases' / current['release_id'] / 'main_report.docx').write_bytes(b'corrupt')
     with pytest.raises(PublicationError, match='PUBLISHED_BUNDLE_CORRUPT'):
         store.latest()
+
+
+@pytest.mark.parametrize('observed, changed, missing, added', [
+    ({'synthetic': 'revision2'}, {'synthetic': {'expected': 'revision1', 'observed': 'revision2'}}, [], []),
+    ({'added': 'revision3'}, {}, ['synthetic'], ['added']),
+    ({}, {}, ['synthetic'], []),
+])
+def test_source_revision_barrier_retains_exact_private_mismatch(tmp_path, observed, changed, missing, added):
+    store = PublicationStore(tmp_path / 'published')
+    with pytest.raises(PublicationError, match='^SOURCE_CHANGED_BEFORE_PUBLICATION$') as caught:
+        store.publish(candidate(tmp_path / 'candidate'), read_revisions=lambda: observed)
+    assert hasattr(caught.value, 'evidence'), 'provider mismatch evidence is lost at publication boundary'
+    assert caught.value.evidence == {
+        'expected_revisions': {'synthetic': 'revision1'},
+        'observed_revisions': observed,
+        'changed': changed, 'missing_keys': missing, 'added_keys': added,
+    }
+    assert str(caught.value) == 'SOURCE_CHANGED_BEFORE_PUBLICATION'
+    assert store.history() == []
