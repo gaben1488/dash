@@ -345,7 +345,7 @@ export const api = {
     }),
 
   /** Batch-save edited rows (multiple field updates with audit logging) */
-  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown> }>) =>
+  saveRows: (rows: Array<{ deptId: string; rowIndex: number; changes: Record<string, unknown>; expectedRevision?: string }>) =>
     fetchJSON<any>('/data/rows', {
       method: 'POST',
       body: JSON.stringify({ rows }),

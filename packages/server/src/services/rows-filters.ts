@@ -9,6 +9,7 @@ import {
   METHOD_FAMILY_MAP,
   ORG_ITSELF_SENTINEL,
   isOrgItself,
+  subordinateNameMatchKey,
   matchesActivityScope,
 } from '@aemr/shared';
 
@@ -68,12 +69,12 @@ export function applyTypeFilter<T extends FilterableRow>(rows: T[], filterType: 
  */
 export function applySubordinateFilter<T extends FilterableRow>(rows: T[], filterSubordinate: string): T[] {
   if (!filterSubordinate) return rows;
-  const subs = filterSubordinate.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const subs = filterSubordinate.split(',').map(s => subordinateNameMatchKey(s)).filter(Boolean);
   const wantsOrgItself = subs.includes(ORG_ITSELF_SENTINEL);
   const nameSubs = subs.filter(s => s !== ORG_ITSELF_SENTINEL);
   return rows.filter(r => {
     if (wantsOrgItself && isOrgItself(r.subordinate)) return true;
-    const sub = String(r.subordinate ?? '').trim().toLowerCase();
+    const sub = subordinateNameMatchKey(r.subordinate);
     return nameSubs.some(s => sub.includes(s));
   });
 }

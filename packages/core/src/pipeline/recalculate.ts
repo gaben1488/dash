@@ -77,6 +77,8 @@ export interface ActivityMetrics {
   economyTotal: number;
   /** `null` = плана нет (см. QuarterMetrics.executionPct). */
   execCountPct: number | null;
+  /** Actual procurement-method breakdown. Missing in legacy snapshots; never guess. */
+  byMethod?: { competitive: QuarterMetrics['competitive']; ep: QuarterMetrics['ep'] };
 }
 
 /** Activity-type breakdown: program / current_program / current_non_program */
@@ -137,6 +139,8 @@ export interface SubordinateMetrics {
   byMethod: { competitive: SubPeriodMetrics; ep: SubPeriodMetrics };
   /** By activity type */
   byActivity: { program: SubPeriodMetrics; current_program: SubPeriodMetrics; current_non_program: SubPeriodMetrics };
+  /** True per-period/activity/method aggregates for selected subordinate filters. */
+  activityByPeriod?: Record<string, ActivityBreakdown>;
 }
 
 export interface RecalculatedMetrics {

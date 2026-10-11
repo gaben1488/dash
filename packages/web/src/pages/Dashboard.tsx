@@ -464,6 +464,12 @@ export function Dashboard() {
       {/* Активные фильтры: раньше компонент существовал, но не был отрисован —
           выбранные управления/способ/период молча резали все числа страницы. */}
       <FilterBreadcrumb />
+      {fd.isActivityFiltered && !fd.activityMethodCoverage && (
+        <div role="alert" className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-transparent rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <Info size={16} aria-hidden="true" />
+          <span>В сохранённом снимке отсутствует проверенный разрез «вид деятельности × способ закупки». Числа КП/ЕП для этого отбора не подтверждены. Обновите данные из книг управлений.</span>
+        </div>
+      )}
 
       {/* Полоса замечаний ПЕРЕЕХАЛА в раздел «Сигналы проверок» (канон п.132):
           на одном экране она стояла третьим домом одного факта — рядом с
