@@ -10,6 +10,55 @@ permissions:
   actions: read
 
 jobs:
+  worker-failure-diagnostics:
+    if: >-
+      github.event.label.name == 'maintenance: worker-failure-diagnostics' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Read private failure categories and unchanged runtime only
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            python3 - <<'PYDIAG'
+            import json, re, subprocess
+            from pathlib import Path
+            session=Path('/home/aemr/.dash-private-backups/recovery-38174351649')
+            log=(session/'private-command.log').read_text(errors='replace')
+            patterns={
+              'MISSING_DEPLOYMENT_SMOKE_MODULE': r'No module named.*procurement_engine.deployment_smoke',
+              'PERMISSION_DENIED': r'Permission denied',
+              'DOCKER_DAEMON_UNAVAILABLE': r'Cannot connect to the Docker daemon',
+              'DOCKER_CONTAINER_MISSING': r'No such container',
+              'DOCKER_CONTAINER_STOPPED': r'container .* is not running',
+              'COMPOSE_CONFIG_INVALID': r'(invalid compose|validating .*docker-compose|unsupported config)',
+              'PYTHON_TRACEBACK': r'Traceback \(most recent call last\)',
+            }
+            print(json.dumps({'failure_categories': [key for key, pattern in patterns.items() if re.search(pattern,log,re.I)],
+              'fixed_errors': sorted(set(re.findall(r'\b(?:REPORT_EXPORT|WORKER|BACKUP)_[A-Z0-9_]+\b',log))),
+              'rollback_receipt': (session/'rollback.json').exists(), 'cycle1_receipt': (session/'cycle-1.json').exists()}))
+            baseline=json.loads((session.parent/'worker-38171945386/runtime.json').read_text())
+            server=json.loads(subprocess.check_output(['docker','inspect',baseline['server']]))[0]
+            workers=subprocess.check_output(['docker','ps','--all','--quiet','--no-trunc','--filter',
+              'label=com.docker.compose.project=aemr','--filter','label=com.docker.compose.service=report-worker'],text=True).split()
+            worker=json.loads(subprocess.check_output(['docker','inspect',workers[0]]))[0]
+            print(json.dumps({'server_state':server['State']['Status'], 'server_health':server['State'].get('Health',{}).get('Status'),
+              'server_image_unchanged':server['Image']==baseline['image'], 'worker_state':worker['State']['Status'],
+              'worker_image_equals_server':worker['Image']==server['Image'], 'worker_oom':worker['State']['OOMKilled'],
+              'worker_restarts':worker['RestartCount']}))
+            PYDIAG
   restore-current-worker:
     if: >-
       github.event.label.name == 'maintenance: restore-current-worker' &&
