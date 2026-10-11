@@ -7,14 +7,18 @@ deployment_started_at=$(date -u +'%Y-%m-%dT%H:%M:%S+00:00')
 previous_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker)
 restore_schedule_on_failure() {
   result=$?
+  trap - EXIT
   if [ "$result" -ne 0 ]; then
     docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -m procurement_engine.deployment_diagnostics "$deployment_stage" "$deployment_started_at" || true
   fi
   if [ "$result" -ne 0 ] && [ -n "$previous_worker" ]; then
-    # Start the existing container; a failed preflight must not replace its image
-    # or permanently disable the schedule that was running before this attempt.
+    # Start the same container, not simply a replacement with a success exit.
     if ! docker compose --env-file .env.production --profile reports start report-worker >/dev/null; then
-      echo 'Could not restore the previously running report worker.' >&2
+      echo 'REPORT_WORKER_RESTART_COMMAND_FAILED' >&2
+    fi
+    restored_worker=$(docker compose --env-file .env.production --profile reports ps --status running --quiet report-worker 2>/dev/null || true)
+    if [ "$restored_worker" != "$previous_worker" ]; then
+      echo 'REPORT_WORKER_RESTORE_FAILED: the previous worker is not running.' >&2
     fi
   fi
   exit "$result"
