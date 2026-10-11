@@ -367,7 +367,7 @@ jobs:
             test -n "$server"
             # JS uses the Zod schema imported by browser code, but only GETs
             # an existing release through Fastify, without invoking refresh.
-            docker compose --env-file .env.production exec -T server ./node_modules/.bin/tsx -e '
+            docker compose --env-file .env.production exec -T server node --import tsx --input-type=module -e '
               import { readFileSync } from "node:fs";
               import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
               void(async()=>{
@@ -385,8 +385,8 @@ jobs:
                   field_errors:parsed.success?[]:parsed.error.issues.slice(0,8).map(e=>({path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),code:e.code}))
                 }));
               })().catch(()=>console.log(JSON.stringify({kind:"browser_word_status",result:"DIAGNOSTIC_UNAVAILABLE"})));
-            ' 2>/dev/null || echo 'browser_schema_execution=UNAVAILABLE'
+            ' 2>&1 | python3 -c 'import sys,json; out=sys.stdin.read(); labels=("CONTRACT_PASS","CONTRACT_FAIL","HTTP_ERROR","INVALID_SELECTED_DATE","DIAGNOSTIC_UNAVAILABLE","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","SyntaxError","ReferenceError","TypeError"); found=next((x for x in labels if x in out),"UNKNOWN"); print(json.dumps({"kind":"browser_contract_probe","result":found},sort_keys=True))'
             # Caddy sees real requests; only aggregate HTTP statuses leave VPS.
             docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
               | tail -n 2000 \
-              | python3 -c 'import collections,json,re,sys; records=[l for l in sys.stdin if "/api/report-releases" in l]; matches=[re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",l) for l in records]; counts=collections.Counter(m.group(1) if m else "UNKNOWN" for m in matches); print(json.dumps({"kind":"caddy_report_access","matching_log_lines":len(records),"status_counts":dict(counts)},sort_keys=True))'
+              | python3 -c 'import collections,json,re,sys; records=[l for l in sys.stdin if "/api/report-releases" in l]; matches=[re.search(r"(?i)(?:status|status_code)[^0-9]{0,10}([245][0-9][0-9])",l) or re.search(r"\b(200|202|400|401|403|404|429|500|502|503|504)\b",l) for l in records]; counts=collections.Counter(m.group(1) if m else "UNKNOWN" for m in matches); print(json.dumps({"kind":"caddy_report_access","matching_log_lines":len(records),"status_counts":dict(counts)},sort_keys=True))'
