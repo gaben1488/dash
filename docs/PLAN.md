@@ -19,7 +19,15 @@ core SQLite, откатывает только reports/, проверяет дв
 с FLOCK-атрибуцией реальному worker PID и три native Word после каждого.
 Независимое ревью исправило stop/finally, lookup rollback, короткие Docker IDs,
 manual-lock turnover и повторный Compose отказ после успешного data restore.
-Это подготовленный код/тесты, не факт запуска или закрытия R08/R02/R07.
+Recovery38174351649: exact-head5a1f27b2 CI38174342202 SUCCESS,
+повторный полный scratch restore + reports-only rollback drill SUCCESS,
+но предварительный `docker top -eo args` отказал до любых изменений runtime.
+Read-only38175835890 подтвердил: default top=0, PID top=0, args top=1,
+Node healthy/image unchanged, прежний worker exited, native Word5PASS.
+Исправлен только несовместимый формат process probe; отрицательный тест
+воспроизведён,16 worker guard +22 backup теста PASS. Повторный запуск
+ещё не принят: два самостоятельных цикла остаются обязательным gate.
+R08/R02/R07 не закрыты.
 
 По последнему поручению worker #93 — первый приоритет. Live read-only
 38170496420 на dd267377 подтвердил exited(0), разные server/worker image

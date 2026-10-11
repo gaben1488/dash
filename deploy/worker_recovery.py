@@ -141,7 +141,8 @@ class Recovery:
             raise RecoveryError('WORKER_WORD_SMOKE_FAILED')
 
     def require_no_manual_writer(self):
-        processes = self.call(['docker', 'top', self.server, '-eo', 'args'])
+        # The VPS host ps rejects the args format; Docker's default retains CMD.
+        processes = self.call(['docker', 'top', self.server])
         if re.search(r'proc-report\s+(?:run-google|worker)|procurement_engine.*(?:run-google|worker)', processes):
             raise RecoveryError('WORKER_CONCURRENT_MANUAL_WRITER')
 

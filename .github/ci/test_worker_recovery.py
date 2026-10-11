@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'deploy/worker_recovery.py'
 
@@ -70,6 +70,26 @@ class WorkerRecoveryTests(unittest.TestCase):
         self.assertTrue(self.module.worker_lock_held(locks, {123}, 0, 65, 789))
         self.assertFalse(self.module.worker_lock_held(locks, {456}, 0, 65, 789))
         self.assertFalse(self.module.worker_lock_held(locks, {123}, 0, 65, 788))
+
+    def test_default_docker_top_works_when_host_rejects_ps_format_options(self):
+        recovery = self.module.Recovery.__new__(self.module.Recovery)
+        recovery.server, recovery.worker = 'node', 'worker'
+        processes = 'UID PID PPID C STIME TTY TIME CMD\nroot 123 1 0 21:00 ? 00:00:00 proc-report worker\n'
+        def docker(args):
+            if args[:2] == ['docker', 'exec']:
+                return '[0, 65, 789]'
+            if args == ['docker', 'top', 'worker', '-eo', 'pid']:
+                return 'PID\n123\n'
+            if args[:2] == ['docker', 'top'] and len(args) == 3:
+                return processes if args[2] == 'worker' else processes.replace('proc-report worker', 'node server.js')
+            raise self.module.RecoveryError('HOST_PS_FORMAT_UNSUPPORTED')
+        recovery.call = docker
+        recovery.require_no_manual_writer()
+        with patch.object(Path, 'read_text', return_value='29: FLOCK ADVISORY WRITE 123 00:41:789 0 EOF'):
+            self.assertTrue(recovery.holds_worker_lock())
+        recovery.call = lambda args: processes.replace('worker', 'run-google')
+        with self.assertRaisesRegex(self.module.RecoveryError, 'WORKER_CONCURRENT_MANUAL_WRITER'):
+            recovery.require_no_manual_writer()
 
     def test_restore_failure_never_claims_rollback_or_restarts_partial_state(self):
         recovery = self.module.Recovery.__new__(self.module.Recovery)
