@@ -55,6 +55,25 @@ describe('fetchJSON header merging (B-13)', () => {
   });
 });
 
+
+describe('production edge basic-auth compatibility', () => {
+  it('does not overwrite the browser Basic authorization with a stale stored API bearer', async () => {
+    vi.stubEnv('PROD', true);
+    vi.stubGlobal('localStorage', { getItem: () => 'old-browser-token' });
+    const call = vi.fn(async () => fakeResponse());
+    vi.stubGlobal('fetch', call);
+    try {
+      await fetchJSON('/report-releases?date=2026-10-11&year=2026&quarter=4');
+      const headers = new Headers(call.mock.calls[0]?.[1]?.headers);
+      expect(headers.has('Authorization')).toBe(false);
+      expect(call.mock.calls[0]?.[1]?.credentials).toBe('same-origin');
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('reconciliation endpoints thread the year filter (B-11)', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', { getItem: () => null });
