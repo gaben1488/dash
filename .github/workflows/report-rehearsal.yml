@@ -67,7 +67,7 @@ jobs:
               echo 'report_status_readback=SERVER_NOT_RUNNING'
             fi
             echo 'report_worker_diagnostic=READ_ONLY_COMPLETED'
-    source-schema:
+  source-schema:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (startsWith(github.head_ref, 'codex/report-') || github.head_ref == 'codex/monitoring-workplace' ||
