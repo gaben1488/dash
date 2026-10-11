@@ -225,8 +225,8 @@ describe('исторические снимки — совместимость �
     expect(interpretWeeklySnapshotJson(null).error).toContain('отсутствует');
     expect(interpretWeeklySnapshotJson('{}').error).toContain('не сохранён');
     expect(interpretWeeklySnapshotJson('null').error).toContain('не поддерживается');
-    expect(interpretWeeklySnapshotJson('{\"weeklyTableContext\":{\"contract\":\"dash-weekly-table-context-v2\"}}').error).toContain('не поддерживается');
+    expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v2"}}').error).toContain('не поддерживается');
     expect(interpretWeeklySnapshotJson('{invalid').error).toContain('не разбирается');
-    expect(interpretWeeklySnapshotJson('{\"weeklyTableContext\":{\"contract\":\"dash-weekly-table-context-v1\"}}').error).toBeNull();
+    expect(interpretWeeklySnapshotJson('{"weeklyTableContext":{"contract":"dash-weekly-table-context-v1"}}').error).toBeNull();
   });
 });
