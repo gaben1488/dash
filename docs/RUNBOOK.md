@@ -170,10 +170,19 @@ docker compose --env-file .env.production logs -f caddy
 требует exact-head CI, проверенную текущую полную приватную копию и совместимость
 установленного Node image с источниками. Повторный independent restore проверяет
 reports-only rollback над scratch с сохранением нового core state. Затем
-оператор кратко останавливает Node для quiesced report-source match, возобновляет
-тот же Node и меняет только worker на его immutable image. Web/Caddy, bootstrap,
-миграции и записи Google не затрагиваются. Detached supervisor завершает приёмку
-или откат даже после обрыва SSH. Отказ сохраняется в приватном session receipt.
+оператор сверяет reports/ только read-only, сохраняет работающий Node и
+меняет только worker на его immutable image. Это проверка свежести, а не новый
+quiesced rollback checkpoint. Web/Caddy, bootstrap, миграции и записи Google не
+затрагиваются. Detached supervisor сохраняет приватный терминальный receipt.
+
+Точный attributed NOT_ISSUED / SOURCE_CHANGED_BEFORE_PUBLICATION на стадии
+publication — защитный отказ; он не принимается за успешный цикл, worker
+продолжает штатный таймер. Истечение окна наблюдения при running worker выдаёт
+pending.json / NOT_ACCEPTED / exit3 и сохраняет API и worker. Настоящий отказ
+сохраняет evidence и останавливает только worker с подтверждённым собственным
+container ID. Автоматического восстановления reports/ или stop/start Node нет.
+Ручное восстановление данных — отдельная согласованная операция с quiescence;
+проверенный scratch rollback не разрешает затирать новые конкурентные данные.
 
 Приёмка требует двух разных timer attempts, RUNNING+FLOCK/PID-атрибуции worker,
 неизменного исходного Node image и PASS трёх native Word после каждого цикла.
@@ -188,9 +197,15 @@ Backup38178244703 проверен наd8a7dfa015a531f5653640427836bf535d87ff79:
 3970entries,66SQLite/133DOCX,22 048 941 998B→2 438 244 961B compressed;
 scratch restore и still-quiesced source-match PASS. Node healthy после возврата
 22:16:19UTC. Recovery38178313782 на50945059: full restore/reports-only drill,
-quiesced match, первый самостоятельный цикл и3 native Word PASS
-(step5 SUCCESS на22:39UTC). Второй цикл после штатных900s ещё проверяется;
-#93/R08 не закрыты.
+quiesced match, первый самостоятельный цикл и3 native Word PASS.
+Первый finished22:38:05UTC VERIFIED_WITH_WARNINGS/error_code=null.
+Второй22:53:10–22:59:02UTC NOT_ISSUED/SOURCE_CHANGED_BEFORE_PUBLICATION,
+failure_stage=publication. Старый оператор ошибочно счёл защитный отказ
+аварией и восстановил reports/ с остановкой Node. Node resumed23:04:47UTC;
+read-only38183214317 подтвердил полный match reports/ и5 native smoke PASS.
+Это дефект процедуры приёмки, а не доказанный crash worker. Исправление
+обработки source-change, pending и ownership проверяется отдельно; #93/R08
+не закрыты до двух новых самостоятельных успешных циклов.
 
 ## Common Failures
 

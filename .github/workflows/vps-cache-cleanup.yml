@@ -311,7 +311,7 @@ jobs:
           job = next(j for j in jobs if j['name'] == 'full-worker-backup')
           assert job['status'] == 'completed' and job['conclusion'] == 'success'
           # Full copy, independent restore and source-match already passed.
-          # Worker scope is rechecked while quiesced after Node has resumed.
+          # Worker scope is checked read-only; Node remains online.
           required = {'Quiesce writers and create private full compressed backup',
               'Transfer privately and prove complete independent scratch restore',
               'Match still-quiesced original bytes after successful restore',
@@ -355,13 +355,14 @@ jobs:
           scp -q "${ssh_args[@]}" deploy/worker_recovery.py deploy/stateful_backup.py \
             "$RUNNER_TEMP/worker-recovery/receipt.json" "$VPS_USER@193.233.91.162:$session/"
           # Detached remote supervisor survives a runner/SSH disconnect and
-          # completes acceptance or rollback with a private terminal receipt.
+          # records acceptance, pending or failure privately without stopping Node.
           ssh "${ssh_args[@]}" "$VPS_USER@193.233.91.162" \
             "umask 077; nohup python3 '$session/worker_recovery.py' --repo /home/aemr/dash --session '$session' </dev/null >'$session/supervisor.log' 2>&1 &"
           for attempt in $(seq 1 170); do
             outcome=$(ssh "${ssh_args[@]}" "$VPS_USER@193.233.91.162" \
-              "if test -f '$session/failure.json'; then echo FAILED; elif test -f '$session/cycle-1.json'; then echo FIRST; else echo PENDING; fi")
+              "if test -f '$session/failure.json'; then echo FAILED; elif test -f '$session/pending.json'; then echo NOT_ACCEPTED; elif test -f '$session/cycle-1.json'; then echo FIRST; else echo PENDING; fi")
             if test "$outcome" = FIRST; then echo 'WORKER_FIRST_ATTRIBUTED_AUTONOMOUS_CYCLE_AND_THREE_WORDS_PASS'; exit 0; fi
+            if test "$outcome" = NOT_ACCEPTED; then echo 'WORKER_ACCEPTANCE_PENDING'; exit 3; fi
             if test "$outcome" = FAILED; then
               ssh "${ssh_args[@]}" "$VPS_USER@193.233.91.162" "grep -E '^WORKER_[A-Z0-9_]+$' '$session/supervisor.log' || true"
               echo 'WORKER_RECOVERY_FAILED_PRIVATE_RECEIPT_SAVED'; exit 2
@@ -376,8 +377,9 @@ jobs:
           ssh_args=(-i "$RUNNER_TEMP/worker-recovery/key" -o UserKnownHostsFile="$RUNNER_TEMP/worker-recovery/known_hosts" -o StrictHostKeyChecking=yes)
           for attempt in $(seq 1 170); do
             outcome=$(ssh "${ssh_args[@]}" "$VPS_USER@193.233.91.162" \
-              "if test -f '$session/failure.json'; then echo FAILED; elif test -f '$session/result.json'; then echo ACCEPTED; else echo PENDING; fi")
+              "if test -f '$session/failure.json'; then echo FAILED; elif test -f '$session/pending.json'; then echo NOT_ACCEPTED; elif test -f '$session/result.json'; then echo ACCEPTED; else echo PENDING; fi")
             if test "$outcome" = ACCEPTED; then echo 'WORKER_TWO_ATTRIBUTED_AUTONOMOUS_CYCLES_AND_THREE_WORDS_PASS'; exit 0; fi
+            if test "$outcome" = NOT_ACCEPTED; then echo 'WORKER_ACCEPTANCE_PENDING'; exit 3; fi
             if test "$outcome" = FAILED; then
               ssh "${ssh_args[@]}" "$VPS_USER@193.233.91.162" "grep -E '^WORKER_[A-Z0-9_]+$' '$session/supervisor.log' || true"
               echo 'WORKER_RECOVERY_FAILED_PRIVATE_RECEIPT_SAVED'; exit 2

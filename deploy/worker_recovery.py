@@ -29,6 +29,15 @@ def accept_cycle(status, since, seen, attributed, interval_seconds):
         if started < marker:
             return False
         outcome = status['status']
+        if (outcome == 'NOT_ISSUED' and status.get('error_code') == 'SOURCE_CHANGED_BEFORE_PUBLICATION'
+                and status.get('failure_stage') == 'publication'):
+            # A rejected publication precedes rename/catalog commit. The normal
+            # worker retries on its timer; this is never a successful cycle.
+            finished = datetime.fromisoformat(status['finished_at'])
+            if (finished.tzinfo is None or finished < started
+                    or not status.get('attempt_id') or status['attempt_id'] not in attributed):
+                raise ValueError
+            return False
         if outcome in {'NOT_ISSUED', 'FAILED', 'PLAN_CHANGED'}:
             raise RecoveryError('WORKER_NEW_CYCLE_FAILED')
         if outcome not in {'VERIFIED', 'VERIFIED_WITH_WARNINGS'}:
@@ -158,7 +167,7 @@ class Recovery:
     def save_failure_diagnostics(self):
         try:
             # Docker cp works even after a worker exits. Keep new failure evidence
-            # outside reports/ before restoring the original report state.
+            # outside reports/ without changing the original report state.
             self.call(['docker', 'cp', self.worker + ':/app/packages/server/data/reports/status.json',
                        str(self.session / 'failure-status.json')], timeout=30)
             status = json.loads((self.session / 'failure-status.json').read_text())
@@ -166,9 +175,9 @@ class Recovery:
             if re.fullmatch('[0-9a-f]{32}', identity):
                 self.call(['docker', 'cp', self.worker + ':/app/packages/server/data/reports/attempts/'
                     + identity + '/error.json', str(self.session / 'attempt-error.json')], timeout=30)
-        except Exception:  # noqa: BLE001 — diagnostics must never prevent rollback.
+        except Exception:  # noqa: BLE001 — diagnostics must never prevent failure handling.
             # Private command stderr records an absent error file/container. This
-            # never blocks recovery, nor turns a failed cycle into accepted work.
+            # never turns a failed cycle into accepted work.
             return False
 
     def rollback(self):
@@ -200,17 +209,36 @@ class Recovery:
             'core_state_preserved': True, 'native_word': 'PASS'}))
 
     def match_report_backup(self):
-        try:
-            self.call(['docker', 'stop', '--time', '75', self.server])
-            if self.inspect(self.server)['State']['Status'] != 'exited':
-                raise RecoveryError('WORKER_SOURCE_NOT_QUIESCENT')
-            if self.tool('match-reports').get('state') != 'REPORT_SCOPE_MATCHED_ONLY':
-                raise RecoveryError('WORKER_BACKUP_STALE')
-        finally:
-            self.resume()
+        # Freshness check only. This is not a quiesced rollback checkpoint:
+        # archive/API writers may run concurrently, so mismatch blocks startup.
+        # Recovery must never stop the API merely to inspect report state.
+        if self.tool('match-reports').get('state') != 'REPORT_SCOPE_MATCHED_ONLY':
+            raise RecoveryError('WORKER_BACKUP_STALE')
+
+    def stop_failed_worker(self):
+        # Do not restore reports/ over concurrent archive/API changes. Keep
+        # Node and all report evidence intact; only the failed worker is stopped.
+        workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
+            'label=com.docker.compose.project=aemr', '--filter',
+            'label=com.docker.compose.service=report-worker']).split()
+        if len(workers) != 1 or not re.fullmatch('[0-9a-f]{64}', workers[0]):
+            raise RecoveryError('WORKER_CONTAINER_UNAVAILABLE')
+        if workers[0] != self.worker:
+            raise RecoveryError('WORKER_RUNTIME_CHANGED')
+        if self.inspect(workers[0])['State']['Status'] not in {'created', 'exited'}:
+            self.call(['docker', 'stop', '--time', '75', workers[0]])
 
     def recover(self):
         server = self.inspect(self.server)
+        # Compose may have recreated the stopped service during an earlier
+        # rollback. The backup's old container ID is not a current identity.
+        # The new session has no Compose override yet: use Docker directly.
+        workers = self.call(['docker', 'ps', '--all', '--quiet', '--no-trunc', '--filter',
+            'label=com.docker.compose.project=aemr', '--filter',
+            'label=com.docker.compose.service=report-worker']).split()
+        if len(workers) != 1 or not re.fullmatch('[0-9a-f]{64}', workers[0]):
+            raise RecoveryError('WORKER_CONTAINER_UNAVAILABLE')
+        self.worker = workers[0]
         self.original_worker = self.inspect(self.worker)
         (self.session / 'original-worker.json').write_text(json.dumps(self.original_worker))
         def volume(config):
@@ -218,7 +246,7 @@ class Recovery:
                          and x['Type'] == 'volume'), None)
         if (server['Image'] != self.image or volume(server) != self.volume
                 or volume(self.original_worker) != self.volume or server['State']['Status'] != 'running'
-                or self.original_worker['State']['Status'] != 'exited'):
+                or self.original_worker['State']['Status'] not in {'created', 'exited'}):
             raise RecoveryError('WORKER_RUNTIME_CHANGED')
         self.require_no_manual_writer()
         self.smoke()
@@ -265,10 +293,13 @@ class Recovery:
                     return {'state': 'TWO_AUTONOMOUS_CYCLES_VERIFIED', 'worker_image': self.image,
                             'worker_started_at': since, 'attempt_ids': sorted(seen), 'native_word': 'PASS'}
                 time.sleep(5)
+            if self.inspect(self.worker)['State']['Status'] != 'running':
+                raise RecoveryError('WORKER_EXITED')
             raise RecoveryError('WORKER_TWO_CYCLES_TIMED_OUT')
-        except Exception:
+        except Exception as error:
             self.save_failure_diagnostics()
-            self.rollback()
+            if not (isinstance(error, RecoveryError) and str(error) == 'WORKER_TWO_CYCLES_TIMED_OUT'):
+                self.stop_failed_worker()
             raise
 
 
@@ -286,6 +317,10 @@ def main():
         return 0
     except Exception as error:  # noqa: BLE001 — sanitize the process boundary.
         reason = str(error) if isinstance(error, RecoveryError) else 'WORKER_RECOVERY_IO_FAILED'
+        if reason == 'WORKER_TWO_CYCLES_TIMED_OUT':
+            (args.session / 'pending.json').write_text(json.dumps({'state': 'NOT_ACCEPTED', 'reason': reason}))
+            print('WORKER_ACCEPTANCE_PENDING', flush=True)
+            return 3
         (args.session / 'failure.json').write_text(json.dumps({'state': 'FAILED', 'reason': reason}))
         print(reason, flush=True)
         return 2

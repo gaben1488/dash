@@ -7,6 +7,23 @@
 
 ## Продолжение выпуска — 12.10.2026 (Камчатка)
 
+Текущая точка после инцидента: API восстановлен, прежний worker Created.
+Второй цикл22:53:10–22:59:02UTC отказал безопасно:
+NOT_ISSUED/SOURCE_CHANGED_BEFORE_PUBLICATION на стадии publication.
+Старый acceptance-оператор ошибочно запустил глобальный откат и остановил API;
+Node resumed23:04:47UTC. Read-only38183214317: reports/ совпадают с backup,
+5 native smoke PASS. Внешний dashboard200/schema PASS:15 751 033B/3,405s.
+На72e3b9c CI38183200251 SUCCESS; frozen-replay38183200282 FAILURE
+(после rollback нет failed attempt в восстановленном reports/). Это не green gate.
+Исправление процедуры: точный attributed source-change не засчитывается и
+сохраняет таймер; RO match не останавливает Node; pending не принимается за
+готовность; при аварии останавливается только собственный worker, без data restore.
+22 отрицательных/регрессионных проверок — локальный gate; production-повтор
+требует exact-head CI и независимого ревью. R08 остаётся частично выполненным.
+
+Ниже сохранена история предыдущих процедур; описанный там автоматический
+reports-only rollback с остановкой Node отменён текущим протоколом RUNBOOK.
+
 Минимальное восстановление #93 выделено из общего выпуска: запустить только
 report-worker на точном immutable image уже работающего Node, без замены
 Node/web, bootstrap, миграции схем или записи в Google. Backup38171945386
