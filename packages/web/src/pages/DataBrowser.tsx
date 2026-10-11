@@ -9,6 +9,7 @@ import {
   productLabel,
   resolveYearlongKind,
   subordinateKey,
+  subordinateNameMatchKey,
   sumInitiativeRows,
   type YearlongKindId,
 } from '@aemr/shared';
@@ -50,11 +51,14 @@ import { collectAllPages } from '../lib/rows/collect-pages';
 import { monthOfDateValue, formatDateCell } from '../lib/sheet-date';
 import { toCanonicalDeptId } from '../lib/dept-key';
 import { useLiveEvents } from '../hooks/useLiveEvents';
+import { productTodayIso } from '../lib/period-coverage';
 import { changedRowKey, rowChangeHint } from '../components/live/live-text';
 import { pluralRu } from '../lib/economy-copy';
 import { formatPct } from '../lib/economy/format';
 import { useOrgScope } from '../lib/selectors/org-scope';
 import { subordinateLabel } from '../lib/subordinate-label';
+import { restoreEditorPage, sameEditorSource, type EditorDraft } from '../lib/rows/editor-drafts';
+import { parseEditorNumber } from '../lib/rows/editor-number';
 import {
   REGISTRY_SLICE_PRESETS,
   findSlicePreset,
@@ -484,12 +488,25 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   const [editorRows, setEditorRows] = useState<RowData[]>([]);
   const [editorColumns, setEditorColumns] = useState<ColumnConfig[]>([]);
   const [editorOriginals, setEditorOriginals] = useState<Record<string, RowData>>({});
+  // Drafts must survive server refetch, filtering and pagination. Avoid browser
+  // persistence of unpublished financial/organization text.
+  const editorDraftsRef = useRef<Map<string, EditorDraft>>(new Map());
+  const [draftVersion, setDraftVersion] = useState(0);
+  const [draftConflicts, setDraftConflicts] = useState(0);
+
+  useEffect(() => {
+    const warnUnpublished = (event: BeforeUnloadEvent) => {
+      if (editorDraftsRef.current.size === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnUnpublished);
+    return () => window.removeEventListener('beforeunload', warnUnpublished);
+  }, []);
 
   /** Проверка числового поля редактора — одна на все денежные колонки. */
-  const moneyCell = useCallback((v: unknown): string | null => {
-    if (v === null || v === '' || v === undefined) return null;
-    return isNaN(parseFloat(String(v))) ? 'Ожидается число, например 1250,50' : null;
-  }, []);
+  const moneyCell = useCallback((v: unknown): string | null =>
+    typeof parseEditorNumber(v) === 'string' ? 'Ожидается целое число или дробь, например 1250,50' : null, []);
 
   const defaultEditorColumns: ColumnConfig[] = useMemo(() => [
     // Ширины — стартовые: столбцы редактора тянутся мышью, и выбор пользователя
@@ -518,33 +535,44 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   ], [moneyCell]);
 
   /** Сумма трёх бюджетов; нечисловой ввод в сумму не попадает. */
-  const sumBudgets = useCallback((row: RowData, keys: string[]): number => {
-    return keys.reduce((acc, key) => {
-      const n = parseFloat(String(row[key] ?? ''));
-      return acc + (isNaN(n) ? 0 : n);
-    }, 0);
+  const sumBudgets = useCallback((row: RowData, keys: string[]): number | null => {
+    let total = 0;
+    for (const key of keys) {
+      const value = parseEditorNumber(row[key]);
+      // Incomplete input means the derived total is UNKNOWN, not an invented
+      // amount from parseFloat('12abc') or an invalid cell silently counted 0.
+      if (typeof value === 'string') return null;
+      total += value ?? 0;
+    }
+    return total;
   }, []);
 
   const handleEditorCellChange = useCallback((rowId: string, colKey: string, value: unknown) => {
-    setEditorRows(prev => prev.map(r => {
-      if (r._id !== rowId) return r;
-      const next = { ...r, [colKey]: value };
-      // Итоги — производные: в книге их считает формула, здесь пересчитываем
-      // сразу, иначе на экране осталась бы прежняя сумма, противоречащая
-      // только что введённым бюджетам.
-      if (colKey === 'planFB' || colKey === 'planKB' || colKey === 'planMB') {
-        next.planSum = sumBudgets(next, ['planFB', 'planKB', 'planMB']);
-      }
-      if (colKey === 'factFB' || colKey === 'factKB' || colKey === 'factMB') {
-        next.factSum = sumBudgets(next, ['factFB', 'factKB', 'factMB']);
-      }
-      return next;
-    }));
-  }, [sumBudgets]);
+    const row = editorRows.find(r => r._id === rowId);
+    const baseline = editorDraftsRef.current.get(rowId)?.baseline ?? editorOriginals[rowId];
+    if (!row || !baseline) return;
+    const next = { ...row, [colKey]: value };
+    if (colKey === 'planFB' || colKey === 'planKB' || colKey === 'planMB') {
+      next.planSum = sumBudgets(next, ['planFB', 'planKB', 'planMB']);
+    }
+    if (colKey === 'factFB' || colKey === 'factKB' || colKey === 'factMB') {
+      next.factSum = sumBudgets(next, ['factFB', 'factKB', 'factMB']);
+    }
+    editorDraftsRef.current.set(rowId, { baseline, edited: next });
+    setEditorRows(prev => prev.map(r => r._id === rowId ? next : r));
+    setDraftVersion(v => v + 1);
+  }, [editorRows, editorOriginals, sumBudgets]);
 
   const handleEditorSaveRow = useCallback(async (rowId: string, data: Record<string, unknown>) => {
-    const original = editorOriginals[rowId];
-    if (!original) return;
+    const original = editorDraftsRef.current.get(rowId)?.baseline ?? editorOriginals[rowId];
+    if (!original) {
+      throw new Error('Исходная запись не найдена. Обновите реестр: правка не сохранена.');
+    }
+    // The subject itself may be edited. Compare the immutable source anchor,
+    // not the new text the operator is trying to save.
+    if (!sameEditorSource(original, { ...data, _id: rowId, subject: data._sourceOriginalSubject })) {
+      throw new Error('Источник изменил закупку по этому адресу. Черновик сохранён, но запись в чужую строку запрещена.');
+    }
 
     // Поле редактора → колонка листа. Итоги (план/факт) не пишутся: их считает
     // формула книги, запись затёрла бы её значением.
@@ -559,6 +587,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       flag: 'AD', commentGRBS: 'AF',
     };
 
+    // A custom column in this editor has no source address in the Google
+    // workbook. Never acknowledge a draft-only value as durably saved.
+    const localOnlyChanges = Object.keys(data)
+      .filter(key => key.startsWith('custom_') && data[key] !== original[key] &&
+        data[key] !== null && data[key] !== undefined && data[key] !== '');
+    if (localOnlyChanges.length > 0) {
+      throw new Error('Добавленные здесь столбцы не связаны с книгой управления и не сохраняются. '
+        + 'Скопируйте значения перед закрытием либо внесите столбец в исходную книгу.');
+    }
     const changes: Record<string, unknown> = {};
     for (const [editorKey, sheetCol] of Object.entries(FIELD_TO_COL)) {
       if (data[editorKey] !== original[editorKey]) {
@@ -566,12 +603,24 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       }
     }
 
-    if (Object.keys(changes).length === 0) return;
+    if (Object.keys(changes).length === 0) {
+      editorDraftsRef.current.delete(rowId);
+      setDraftVersion(v => v + 1);
+      return;
+    }
 
     const deptId = String(data._dept ?? '');
     const rowIndex = Number(data._rowIndex ?? 0);
 
-    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes }]);
+    // A sheet row is a mutable ADDRESS, not the procurement identity.
+    // Send original A/B/C/G so the server can reject a moved/rewritten row.
+    const expectedRow = {
+      A: original.id ?? null,
+      B: original._sourceManagementName ?? null,
+      C: original._sourceSubordinate ?? null,
+      G: original.subject ?? null,
+    };
+    const response: SaveRowsResponse = await api.saveRows([{ deptId, rowIndex, changes, expectedRow }]);
 
     // Сервер отвечает 200 и при отказе отдельных ячеек: раньше отказ проходил
     // молча — правка исчезала из отметки «изменено», а в книгу не попадала.
@@ -580,18 +629,28 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       .filter((r) => !r?.success)
       .map((r) => `${r.field ?? ''}${r.rowIndex ?? ''}: ${r.error ?? 'причина не названа'}`);
     if (failures.length > 0) {
-      throw new Error(`Книга не приняла правку — ${failures.join('; ')}`);
+      const accepted = (response.results ?? []).filter(r => r.success).length;
+      throw new Error(accepted > 0
+        ? `Часть полей уже записана (${accepted}), но остальные отклонены: ${failures.join('; ')}. Обновите строку и сверьте её перед повтором.`
+        : `Книга не приняла правку — ${failures.join('; ')}`);
     }
 
+    editorDraftsRef.current.delete(rowId);
+    setDraftVersion(v => v + 1);
+    setEditorRows(prev => prev.map(row =>
+      row._id === rowId ? { ...row, _sourceOriginalSubject: row.subject } : row
+    ));
     setEditorOriginals(prev => ({
       ...prev,
-      [rowId]: { ...data, _id: rowId } as RowData,
+      [rowId]: { ...data, _id: rowId, _sourceOriginalSubject: data.subject } as RowData,
     }));
   }, [editorOriginals]);
 
   const handleEditorRevertRow = useCallback((rowId: string) => {
-    const original = editorOriginals[rowId];
+    const original = editorDraftsRef.current.get(rowId)?.baseline ?? editorOriginals[rowId];
     if (!original) return;
+    editorDraftsRef.current.delete(rowId);
+    setDraftVersion(v => v + 1);
     setEditorRows(prev => prev.map(r =>
       r._id === rowId ? { ...original } : r
     ));
@@ -806,7 +865,8 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
    * разбивка, поэтому число в её строке и число под таблицей совпадают.
    */
   const filtered = useMemo(
-    () => (subFocus === null ? scopedRows : scopedRows.filter((r) => rowSubordinateKey(r) === subFocus)),
+    () => (subFocus === null ? scopedRows : scopedRows.filter((r) =>
+      subordinateNameMatchKey(rowSubordinateKey(r)) === subordinateNameMatchKey(subFocus))),
     [scopedRows, subFocus],
   );
 
@@ -842,12 +902,15 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
   // оговорке редактора это сказано прямо, чтобы правка страницы не выглядела
   // правкой всего реестра.
   useEffect(() => {
-    if (viewMode !== 'editor' || paged.length === 0) return;
+    if (viewMode !== 'editor') return;
     const mapped: RowData[] = paged.map((r, idx) => ({
       _id: `${r.dept}-${r.rowIndex ?? idx}`,
       _dept: r.dept,
       _rowIndex: r.rowIndex,
       id: r.id,
+      _sourceManagementName: r.managementName,
+      _sourceSubordinate: r.subordinate,
+      _sourceOriginalSubject: r.subject,
       // Ключ управления остаётся в _dept для записи; на экран идёт имя.
       dept: deptDisplayName(r.dept),
       subject: r.subject,
@@ -866,16 +929,31 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
       flag: r.flag,
       commentGRBS: r.commentGRBS,
     }));
-    setEditorRows(mapped);
-    const origMap: Record<string, RowData> = {};
-    for (const row of mapped) {
-      origMap[row._id] = { ...row };
-    }
-    setEditorOriginals(origMap);
+    const restored = restoreEditorPage(mapped, editorDraftsRef.current);
+    setEditorRows(restored.rows);
+    setEditorOriginals({
+      ...Object.fromEntries([...editorDraftsRef.current.entries()].map(([id, draft]) => [id, draft.baseline])),
+      ...restored.originals,
+    });
+    setDraftConflicts(prev => prev === restored.conflicts ? prev : restored.conflicts);
     if (editorColumns.length === 0) {
       setEditorColumns(defaultEditorColumns);
     }
   }, [viewMode, paged, defaultEditorColumns, editorColumns.length]);
+
+  const visibleDraftDirty = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const row of editorRows) {
+      const draft = editorDraftsRef.current.get(row._id);
+      if (!draft || !sameEditorSource(draft.baseline, { ...row, subject: row._sourceOriginalSubject })) continue;
+      const fields = ['subject', 'method', 'planFB', 'planKB', 'planMB',
+        'factFB', 'factKB', 'factMB', 'planDate', 'factDate', 'flag', 'commentGRBS'];
+      const changed = fields.filter(field => row[field] !== draft.baseline[field]);
+      if (changed.length) out[row._id] = changed;
+    }
+    return out;
+  // draftVersion increments when a parent-held draft changes, including off page.
+  }, [editorRows, draftVersion]);
 
   // ── Курсор по строкам ──
   const { rowsBelow, showBackToTop, scrollToTop } = useTableScroll(scrollRef, rowRefs, paged.length);
@@ -1246,7 +1324,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = productTodayIso();
     // Периметр в имени файла: выгрузка живёт дальше экрана — по почте, в папке
     // среди соседних файлов, — и «Реестр закупок 2026-08-21.csv» ничего не
     // говорит о том, чьи строки и за какой год внутри. Косая черта и двоеточие
@@ -1570,6 +1648,7 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             onSaveRow={handleEditorSaveRow}
             onRevertRow={handleEditorRevertRow}
             onAddColumn={handleEditorAddColumn}
+            draftDirty={visibleDraftDirty}
             emptyReason={
               everythingFailed
                 ? 'Книги управлений не прочитаны — правки сейчас невозможны. Проверьте доступ и обновите данные.'
@@ -1580,7 +1659,14 @@ export function DataBrowserPage({ bucket }: { bucket?: RegistryBucket } = {}) {
             notice={
               `Редактор правит страницу реестра — сейчас это ${paged.length} ${pluralRu(paged.length, 'строка', 'строки', 'строк')} `
               + `из ${filtered.length} в выборке; остальные листаются кнопками рядом с выбором размера страницы. `
-              + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист.'
+              + 'Строки заводятся и удаляются в самой книге управления: редактор правит существующие ячейки и пишет их в лист. '
+              + 'Добавленные в этом окне собственные столбцы временные: они не записываются в книгу.'
+              + (editorDraftsRef.current.size > 0
+                ? ` Несохранённых черновиков в текущем Реестре: ${editorDraftsRef.current.size} (включая другие страницы). Не закрывайте раздел, пока не сохраните или не отмените их.`
+                : '')
+              + (draftConflicts > 0
+                ? ` Внимание: ${draftConflicts} черновиков относятся к изменившимся строкам и не перенесены на другие закупки.`
+                : '')
             }
             rowAddress={(row) => rowAddressOf(row._dept, row._rowIndex)}
             prefsName="registry-editor"
