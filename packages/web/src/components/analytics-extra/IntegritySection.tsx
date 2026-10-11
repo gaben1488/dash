@@ -187,6 +187,10 @@ function BookCard({ book }: { book: IntegrityBookDto }) {
 
 /** Пропажи и переезды строк одной книги между двумя снимками. */
 function VanishedCard({ book }: { book: VanishedBookDto }) {
+  const likelyOld = new Set(book.identityCandidates.map((c) => c.beforeRowSeq));
+  const unexplained = book.vanished.filter((v) => !likelyOld.has(v.rowSeq));
+  const ambiguous = [...new Set([...book.ambiguousKeys.before, ...book.ambiguousKeys.after])];
+
   return (
     <div className="border-b border-[var(--line-soft)] py-[var(--space-3)] last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -194,37 +198,57 @@ function VanishedCard({ book }: { book: VanishedBookDto }) {
           {book.deptName}
         </span>
         <span className="tabular-nums ds-text-xs text-[var(--ink-muted)]">
-          {book.vanished.length === 0
-            ? 'пропаж нет'
-            : `${book.vanished.length} ${pluralRu(book.vanished.length, 'закупка исчезла', 'закупки исчезли', 'закупок исчезло')} · ${fmtTys(book.vanishedPlanSum)} плана`}
+          {unexplained.length === 0 && book.identityCandidates.length === 0
+            ? 'отсутствующих прежних номеров нет'
+            : `${unexplained.length} ${pluralRu(unexplained.length, 'номер без соответствия', 'номера без соответствия', 'номеров без соответствия')}` +
+              ` · ${book.identityCandidates.length} возможных смен №`}
         </span>
       </div>
-      {book.vanished.length > 0 && (
+      {unexplained.length > 0 && (
         <ul className="mt-1 space-y-0.5">
-          {book.vanished.map((v) => (
+          {unexplained.map((v) => (
             <li key={v.rowSeq} className="ds-text-xs text-[var(--ink-muted)]">
               <span className="font-mono ds-text-3xs">
-                № {v.rowSeq} · была строкой {v.wasAtSheetRow}
+                Прежний № {v.rowSeq} · была строка {v.wasAtSheetRow}
               </span>
               {v.subject ? ` — ${v.subject}` : ' — предмет не заполнен'}
               {v.subordinate ? ` · ${v.subordinate}` : ''}
               {v.planSum !== null && (
-                <span className="tabular-nums text-[var(--ink-faint)]"> · {fmtTys(v.planSum)}</span>
+                <span className="tabular-nums text-[var(--ink-faint)]"> · {fmtTys(v.planSum)} плана по прежней записи</span>
               )}
+              {' · причина не установлена'}
             </li>
           ))}
         </ul>
       )}
+      {book.identityCandidates.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {book.identityCandidates.map((candidate) => (
+            <li key={candidate.beforeRowSeq + ':' + candidate.afterRowSeq}
+                className="ds-text-xs text-[var(--ink-muted)]">
+              <span className="font-medium text-[var(--ink)]">
+                Возможная смена № {candidate.beforeRowSeq} → № {candidate.afterRowSeq}
+              </span>
+              {' · '}{candidate.subject} · {candidate.subordinate}
+              {' · совпадают предмет, учреждение, план и способ. Это гипотеза; требуется проверка.'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {ambiguous.length > 0 && (
+        <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+          Повторяющиеся № п/п: {ambiguous.join(', ')}. Их преемственность не установлена.
+        </p>
+      )}
       {book.moved.length > 0 && (
         <p className="mt-1 ds-text-3xs text-[var(--ink-faint)]">
-          Переехали на другие строки листа: {book.moved.length}. Это не пропажа — закупка на
-          месте, сместился номер строки; ссылаться нужно на «№ п/п».
+          Сместились по листу без изменения №: {book.moved.length}. Это не пропажа.
         </p>
       )}
       {(book.unkeyed.before > 0 || book.unkeyed.after > 0) && (
         <p className="mt-1 ds-text-3xs text-[var(--data-warn)]">
-          Строк без «№ п/п»: было {book.unkeyed.before}, стало {book.unkeyed.after} — их судьбу
-          сравнение проследить не может.
+          Строк без «№ п/п»: в контроле {book.unkeyed.before}, сейчас {book.unkeyed.after} — их
+          преемственность не подтверждена.
         </p>
       )}
     </div>
@@ -243,6 +267,10 @@ export function IntegritySection() {
   );
   const vanishedBooks = useMemo(
     () => filterByDeptScope(data?.comparison?.books ?? [], deptScope, (b) => b.dept),
+    [data, deptScope],
+  );
+  const unavailableBooks = useMemo(
+    () => filterByDeptScope(data?.comparison?.unavailableBooks ?? [], deptScope, (b) => b.dept),
     [data, deptScope],
   );
 
@@ -375,15 +403,23 @@ export function IntegritySection() {
               ) : (
                 <>
                   <p className="ds-prose mt-0.5 ds-text-xs text-[var(--ink-muted)]">
-                    Недельные контрольные срезы: {fmtMoment(data.comparison.beforeAt)} и{' '}
-                    {fmtMoment(data.comparison.afterAt)}. Строки сопоставляются по «№ п/п», а не
-                    по номеру строки листа: строки двигаются от вставок и сортировок, номер
-                    закупки живёт вместе с ней.
+                    Последний недельный контроль: {fmtMoment(data.comparison.beforeAt)}. Текущие
+                    книги прочитаны с {fmtMoment(data.comparison.oldestCurrentAt)} по{' '}
+                    {fmtMoment(data.comparison.afterAt)}. Отсутствие прежнего номера не доказывает
+                    удаление закупки; возможна перенумерация.
                   </p>
+                  {unavailableBooks.length > 0 && (
+                    <p className="mt-1 ds-text-xs text-[var(--data-warn)]">
+                      Не удалось сверить: {unavailableBooks.map((b) => b.dept + ' — ' + b.reason).join('; ')}.
+                      По этим книгам не утверждаем, что пропаж нет.
+                    </p>
+                  )}
                   {vanishedBooks.length === 0 ? (
                     <p className="mt-2 ds-text-xs text-[var(--ink-faint)]">
-                      Между этими недельными срезами пропаж не выявлено. Строки без «№ п/п» в сравнение не
-                      входят — их судьбу проследить нечем.
+                      {unavailableBooks.length === 0
+                        ? 'По сопоставленным книгам отсутствующих прежних номеров не найдено.'
+                        : 'По доступным книгам отсутствующих прежних номеров не найдено; проверка неполная.'}
+                      {' '}Строки без «№ п/п» не позволяют установить преемственность.
                     </p>
                   ) : (
                     <ul className="mt-1">
