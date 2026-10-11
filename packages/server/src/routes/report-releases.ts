@@ -74,7 +74,7 @@ export async function reportReleaseRoutes(app: FastifyInstance,
     });
     refreshInProgress = task;
     return reply.code(202).send({ status: 'STARTED',
-      message: 'Проверка актуальных данных запущена. Два Word станут доступны после успешного выпуска.' });
+      message: 'Запрос на новый отчёт принят. Успешный выпуск пока не подтверждён; результат появится после проверки источников.' });
   });
   // One expensive archive build per server. Repeated requests for the same
   // context share its result; another context retries via the existing polling.
