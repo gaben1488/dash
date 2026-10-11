@@ -260,6 +260,53 @@ jobs:
               -c 'import json; from procurement_engine.retention import plan_transient_attempt_retention as p; r=p("/app/packages/server/data/reports"); r.pop("compact_attempts", None); print(json.dumps(r, ensure_ascii=False, sort_keys=True))'
             echo "=== end report state footprint ==="
 
+            echo "=== live monitoring header contracts (no values or identifiers) ==="
+            docker run --rm -i --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --env-file .env.production --volumes-from "$server":ro \
+              -v "$work/packages/report-engine:/candidate:ro" -e PYTHONPATH=/candidate/src \
+              --entrypoint /opt/report-env/bin/python "$image" - <<'PY'
+            import json
+            import re
+            from pathlib import Path
+            from procurement_engine.google_adapter import GoogleReadClient
+            from procurement_engine.publication_store import PublicationStore
+            from procurement_engine.readonly_catalog import copied_catalog
+            from procurement_engine.semantic_headers import _headers, header_contract_diagnostic
+            state = Path('/app/packages/server/data/reports')
+            registry = json.loads((state / 'inputs/registry.json').read_text())
+            published = state / 'published'
+            store = PublicationStore(published, readonly=True)
+            with copied_catalog(store.database_path) as catalog:
+                store.database_path = catalog
+                receipt = store.latest()
+            previous = _headers(published / 'releases' / receipt['release_id']) if receipt else {}
+            status = json.loads((state / 'status.json').read_text())
+            attempt = status.get('attempt_id', '')
+            failed_sid = None
+            if isinstance(attempt, str) and re.fullmatch('[a-f0-9]{32}', attempt):
+                error_path = state / 'attempts' / attempt / 'error.json'
+                if error_path.is_file():
+                    message = json.loads(error_path.read_text()).get('message', '')
+                    if isinstance(message, str) and message.startswith(('SOURCE_SCHEMA_CHANGED:', 'SOURCE_SEMANTIC_HEADER_CHANGED:')):
+                        failed_sid = message.split(':')[1]
+            client = GoogleReadClient()
+            known = {'Рабочий реестр процедур', 'Процедуры в работе', '_Поставщики',
+                'Сводный аналитический лист', 'Справочник заказчиков'}
+            results = []
+            for source in registry['sources']:
+                if source['sheet'] not in known and source['source_id'] != failed_sid:
+                    continue
+                before = client.revision(source['provider_id'])
+                values = client.values(source['provider_id'], source['sheet'], 1, source['header_rows'], source['columns'])
+                prior = previous.get(source['source_id'])
+                diagnostic = header_contract_diagnostic(source, values, prior[1] if prior else None)
+                diagnostic['revision_stable'] = before == client.revision(source['provider_id'])
+                diagnostic['failed_source'] = source['source_id'] == failed_sid
+                results.append(diagnostic)
+            print(json.dumps({'header_contracts': results}, sort_keys=True))
+            PY
+            echo "=== end header contracts ==="
+
             echo "Rehearsing candidate $candidate on frozen evidence, with production volumes read-only and network disabled."
             docker run --rm --network none --read-only \
               --mount type=volume,dst=/tmp \
