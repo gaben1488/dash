@@ -5,6 +5,7 @@
  * Все данные теста вымышленные; Google и production не используются.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 
 const ENV = { ...process.env };
 const CONTROL_AT = '2026-10-08T06:00:00.000Z';
@@ -44,7 +45,24 @@ describe('контрольная сверка с действующими кни
     departmentNames = Object.keys(config.DEPARTMENT_SPREADSHEETS);
     expect(departmentNames).toHaveLength(8);
 
-    // Исторический недельный контроль: все восемь masters, у каждого атом.
+    // Контрольный снимок с реальным sealed-contract и всеми восемью книгами.
+    const core = await import('@aemr/core');
+    const baselineRows = Object.fromEntries(departmentNames.map((name) => [
+      name, [sheet('10')[3]],
+    ]));
+    const weeklyContext = {
+      contract: 'dash-weekly-table-context-v1',
+      sealedAt: CONTROL_AT,
+      masters: Object.fromEntries(departmentNames.map((name) => [
+        name, { formulasRead: true },
+      ])),
+      monitoring: {
+        readAt: CONTROL_AT,
+        version: 7,
+        sheets: Object.fromEntries(core.MONITORING_DATA_SHEETS.map((name) => [name, [[name]]])),
+      },
+    };
+
     dbModule.db.insert(dbModule.schema.snapshots).values([
       {
         id: 'control-previous',
@@ -59,7 +77,8 @@ describe('контрольная сверка с действующими кни
         spreadsheetId: 'test',
         createdAt: CONTROL_AT,
         data: JSON.stringify({
-          weeklyTableContext: { contract: 'dash-weekly-table-context-v1' },
+          weeklyTableContext: weeklyContext,
+          rowsByDept: baselineRows,
         }),
       },
       {
@@ -74,9 +93,7 @@ describe('контрольная сверка с действующими кни
       snapshotId: 'control-latest',
       departmentId: shared.findDept(name)!.latinId,
       rowIndex: 4,
-      cellsJson: JSON.stringify({
-        A: '10', C: 'МБОУ СОШ № 1', G: 'Ремонт кровли', L: 'ЕП',
-      }),
+      cellsJson: JSON.stringify(shared.buildCellDict(sheet('10')[3])),
       subject: 'Ремонт кровли',
       planAmount: 100,
       factAmount: null,
@@ -149,4 +166,25 @@ describe('контрольная сверка с действующими кни
       dept: 'УО', reason: expect.stringContaining('устарело'),
     }));
   });
+  it('контроль без строки-атома не даёт ложной сверки даже при наличии текущих книг', () => {
+    const id = 'control-latest';
+    const old = dbModule.db.select({ data: dbModule.schema.snapshots.data })
+      .from(dbModule.schema.snapshots).where(eq(dbModule.schema.snapshots.id, id)).get();
+    expect(old?.data).toBeTruthy();
+    const parsed = JSON.parse(old!.data!) as Record<string, unknown>;
+    const prior = parsed.weeklyTableContext;
+    try {
+      dbModule.db.update(dbModule.schema.snapshots)
+        .set({ data: JSON.stringify({ ...parsed, weeklyTableContext: { contract: 'dash-weekly-table-context-v1' } }) })
+        .where(eq(dbModule.schema.snapshots.id, id)).run();
+      const result = integrity.buildComparison(NOW);
+      expect(result.comparison).toBeNull();
+      expect(result.note).toContain('не пригоден');
+    } finally {
+      dbModule.db.update(dbModule.schema.snapshots)
+        .set({ data: JSON.stringify({ ...parsed, weeklyTableContext: prior }) })
+        .where(eq(dbModule.schema.snapshots.id, id)).run();
+    }
+  });
+
 });

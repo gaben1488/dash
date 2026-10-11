@@ -35,9 +35,10 @@
  * Момент чтения назван всегда (канон п.58).
  */
 import type { FastifyInstance } from 'fastify';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   DAYS_PER_WEEK,
+  buildCellDict,
   DEPT_COLUMNS,
   DEPT_HEADER_ROWS,
   checkSequenceIntegrity,
@@ -54,6 +55,7 @@ import {
 } from '@aemr/shared';
 import {
   diffSnapshots,
+  MONITORING_DATA_SHEETS,
   // Тот же дом разбора «значение ячейки → число либо честный null», что и у
   // /api/anomalies: копия правила разъехалась бы с ним на первом живом
   // формате (страж — shared/canon-homes.test.ts).
@@ -373,6 +375,86 @@ function readAtoms(snapshotIds: readonly string[]): AtomRow[] {
     .all();
 }
 
+
+interface SealedControlData {
+  rowsByDept?: Record<string, unknown[][]>;
+  weeklyTableContext?: {
+    contract?: string;
+    sealedAt?: string;
+    masters?: Record<string, { formulasRead?: boolean }>;
+    monitoring?: { sheets?: Record<string, unknown[][]> };
+  };
+}
+
+/**
+ * Строки-атомы — только индексированный вариант данных snapshot.rowsByDept.
+ * Проверяем ВСЮ популяцию контрольного среза до диффа: иначе один потерянный
+ * атом выдаст ложную «новую закупку»/ложную тишину. Неполный weekly context
+ * с маркером в JSON не является подтверждённой контрольной точкой.
+ */
+function verifiedBaselineRows(baseline: WeeklySnapshotRef):
+  { rows: Map<string, SnapshotRow[]>; error: string | null } {
+  const stored = db.select({ data: schema.snapshots.data })
+    .from(schema.snapshots).where(eq(schema.snapshots.id, baseline.id)).get();
+  let source: SealedControlData;
+  try {
+    if (!stored?.data) throw new Error('нет данных');
+    source = JSON.parse(stored.data) as SealedControlData;
+  } catch {
+    return { rows: new Map(), error: 'JSON контрольного снимка отсутствует или повреждён' };
+  }
+
+  const names = Object.keys(DEPARTMENT_SPREADSHEETS).sort();
+  const context = source.weeklyTableContext;
+  const masters = context?.masters;
+  const monitoring = context?.monitoring?.sheets;
+  const raw = source.rowsByDept;
+  const matches = (actual: readonly string[], expected: readonly string[]) =>
+    actual.length === expected.length && actual.every((name, i) => name === expected[i]);
+  if (context?.contract !== 'dash-weekly-table-context-v1' ||
+      !context.sealedAt || !Number.isFinite(Date.parse(context.sealedAt)) ||
+      !masters || !raw || !monitoring ||
+      !matches(Object.keys(masters).sort(), names) ||
+      !matches(Object.keys(raw).sort(), names) ||
+      !matches(Object.keys(monitoring).sort(), [...MONITORING_DATA_SHEETS].sort()) ||
+      names.some((name) => masters[name]?.formulasRead !== true || !Array.isArray(raw[name]))) {
+    return { rows: new Map(), error: 'Контрольный снимок не содержит полного подтверждённого контекста восьми книг и процедур' };
+  }
+
+  const atoms = readAtoms([baseline.id]);
+  const perDept = new Map<string, Map<number, AtomRow>>();
+  for (const atom of atoms) {
+    const book = perDept.get(atom.departmentId) ?? new Map<number, AtomRow>();
+    if (book.has(atom.rowIndex)) {
+      return { rows: new Map(), error: 'Повтор строки-атома в контрольном снимке: ' + atom.departmentId };
+    }
+    book.set(atom.rowIndex, atom);
+    perDept.set(atom.departmentId, book);
+  }
+  for (const name of names) {
+    const deptId = findDept(name)?.latinId;
+    const rows = raw[name];
+    const actual = deptId ? perDept.get(deptId) : undefined;
+    if (!deptId || !rows) {
+      return { rows: new Map(), error: 'Неизвестная ведомственная книга контрольного снимка: ' + name };
+    }
+    let expectedCount = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!Array.isArray(row) || row.every((cell) => String(cell ?? '').trim() === '')) continue;
+      expectedCount++;
+      const atom = actual?.get(i + DEPT_HEADER_ROWS + 1);
+      if (!atom || atom.cellsJson !== JSON.stringify(buildCellDict(row))) {
+        return { rows: new Map(), error: 'Строки контрольного снимка не совпадают с сохранёнными атомами книги ' + name };
+      }
+    }
+    if (actual?.size !== expectedCount) {
+      return { rows: new Map(), error: 'Количество строк-атомов не совпадает с недельным контрольным снимком книги ' + name };
+    }
+  }
+  return { rows: atomsToSnapshotRows(atoms), error: null };
+}
+
 // ────────────────────────────────────────────────────────────
 // Сборка ответа
 // ────────────────────────────────────────────────────────────
@@ -409,7 +491,15 @@ export function buildComparison(now: number = Date.now()): { comparison: Integri
     };
   }
 
-  const baselineRows = atomsToSnapshotRows(readAtoms([baseline.id]));
+  const verified = verifiedBaselineRows(baseline);
+  if (verified.error !== null) {
+    return {
+      comparison: null,
+      note: 'Последний недельный контроль не пригоден для достоверной сверки: ' +
+        verified.error + '. Отсутствие сравнения не доказывает отсутствие пропаж.',
+    };
+  }
+  const baselineRows = verified.rows;
   const liveValues = getDeptSheetValues();
   const loadMeta = getDeptLoadMeta();
   const unavailableBooks: Array<{ dept: string; reason: string }> = [];
