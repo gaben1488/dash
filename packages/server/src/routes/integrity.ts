@@ -401,7 +401,7 @@ interface SealedControlData {
  * атом выдаст ложную «новую закупку»/ложную тишину. Неполный weekly context
  * с маркером в JSON не является подтверждённой контрольной точкой.
  */
-function verifiedBaselineRows(baseline: WeeklySnapshotRef):
+export function verifiedBaselineRows(baseline: WeeklySnapshotRef):
   { rows: Map<string, SnapshotRow[]>; error: string | null } {
   const stored = db.select({ data: schema.snapshots.data })
     .from(schema.snapshots).where(eq(schema.snapshots.id, baseline.id)).get();
