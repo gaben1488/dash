@@ -141,6 +141,7 @@ jobs:
             probe_dir=$(mktemp -d)
             trap 'rm -rf "$probe_dir"' EXIT
             git show "$candidate:.github/ci/report_storage_probe.py" > "$probe_dir/probe.py"
+            git show "$candidate:.github/ci/report_auth_probe.py" > "$probe_dir/auth.py"
             git show "$candidate:packages/report-engine/src/procurement_engine/readonly_catalog.py" > "$probe_dir/catalog.py"
             git show "$candidate:packages/report-engine/src/procurement_engine/storage_inventory.py" > "$probe_dir/inventory.py"
             python3 - "$probe_dir" > "$probe_dir/execute.py" <<'PYSTORAGE'
@@ -153,6 +154,8 @@ jobs:
             print((root / "probe.py").read_text().replace("sys.stdin.readline()", "next(_probe_sources)"))
             PYSTORAGE
             cd deploy
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - < "$probe_dir/auth.py" \
+              || echo 'auth_refresh_diagnostic=UNAVAILABLE'
             docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - < "$probe_dir/execute.py" \
               || echo 'report_storage_inventory=UNAVAILABLE'
             echo '=== Report browser-path forensic preflight (read-only) ==='
