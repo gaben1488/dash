@@ -181,6 +181,33 @@ it('offers one-click fresh release only in live mode and keeps Word available wh
   expect(request.mock.calls.filter(([url]) => url === '/api/report-releases/refresh')).toHaveLength(1);
 });
 
+
+it('treats an abandoned RUNNING attempt as unverified, even on the next day', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({
+    latest: receipt, selected: null,
+    attempt: { status: 'RUNNING', started_at: '2026-10-09T09:00:00Z' },
+  }) });
+  const { result } = renderHook(() => useReportExport({
+    date: '2026-10-11', year: 2026, quarter: 4, mode: 'live',
+  }));
+  await waitFor(() => expect(result.current.status).toContain('Предыдущая попытка'));
+  expect(result.current.status).not.toContain('Готовится следующий комплект');
+});
+
+it('explains known live geometry failure without leaking raw diagnostic blockers', async () => {
+  request.mockResolvedValue({ ok: true, json: async () => ({
+    latest: receipt, selected: null,
+    attempt: { status: 'NOT_ISSUED', report_date: '30.09.2026',
+      error_code: 'MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH',
+      blockers: [{ code: 'SOURCE_BLOCKED', message: 'private spreadsheet path must not leak' }],
+    },
+  }) });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('схема справочника'));
+  expect(result.current.status).not.toContain('private');
+  expect(result.current.status).toContain('Новый комплект не выпущен');
+});
+
 it('cannot overwrite historical inputs through the live refresh action', async () => {
   request.mockResolvedValue(response(receipt));
   const { result } = renderHook(() => useReportExport({ ...context, mode: 'archive' }));
