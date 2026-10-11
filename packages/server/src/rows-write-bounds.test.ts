@@ -19,6 +19,7 @@ process.env.NODE_ENV = 'test';
 process.env.AEMR_API_KEY = '';
 process.env.SQLITE_PATH = ':memory:';
 process.env.LOG_LEVEL = 'silent';
+process.env.AEMR_ALLOW_LEGACY_WRITES = 'true';
 
 const writeCellValue = vi.fn(async () => ({ updatedCells: 1 }));
 
@@ -30,7 +31,7 @@ vi.mock('./services/google-sheets.js', () => ({
   resolveDeptSheetName: vi.fn(async () => 'ВСЕ'),
 }));
 
-/** Лист: 3 строки заголовка + N строк данных. Валидные для записи sheet-строки: 2..(3+N). */
+/** Лист: 3 строки заголовка + N строк данных. Запись только в sheet-строки 4..(3+N). */
 function makeDataRow(id: number): unknown[] {
   const row = Array<unknown>(32).fill('');
   row[0] = id; // A
@@ -45,7 +46,7 @@ function makeDataRow(id: number): unknown[] {
  * четыре полных сборки графа сервера давали 50+ секунд и плавающий
  * таймаут под нагрузкой — тест падал не из-за логики, а из-за занятого
  * процессора. Все четыре теста работают с одной и той же фикстурой
- * (3 строки заголовка + 2 строки данных, валидные строки листа 2..5),
+ * (3 строки заголовка + 2 строки данных, валидные строки листа 4..5),
  * изоляция между ними нужна только по счётчику вызовов записи — его и
  * сбрасываем.
  */
@@ -77,6 +78,22 @@ afterAll(async () => {
 beforeEach(() => writeCellValue.mockClear());
 
 describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя граница строки', () => {
+  it('блокирует обе дополнительные строки шапки: 2 и 3', async () => {
+    for (const idx of [2, 3]) {
+      const res = await app.inject({ method: 'PUT',
+        url: `/api/rows/uo/${idx}/field`, payload: { field: 'G', value: 'опасная правка шапки' } });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
+  it('не принимает частично разобранный адрес вроде /4abc', async () => {
+    const res = await app.inject({ method: 'PUT',
+      url: '/api/rows/uo/4abc/field', payload: { field: 'G', value: 'не писать' } });
+    expect(res.statusCode).toBe(400);
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
   it('отклоняет строку за пределами листа и НЕ пишет в таблицу', async () => {
       const res = await app.inject({
         method: 'PUT',
@@ -115,6 +132,16 @@ describe('PUT /api/rows/:deptId/:rowIndex/field — верхняя границ�
 });
 
 describe('POST /api/data/rows (batch) — та же верхняя граница', () => {
+  it('запрещает запись в строки шапки 2 и 3', async () => {
+    for (const idx of [2, 3]) {
+      const res = await app.inject({ method: 'POST', url: '/api/data/rows',
+        payload: { rows: [{ deptId: 'uo', rowIndex: idx, changes: { G: 'не писать' } }] } });
+      expect(res.statusCode).toBe(207);
+      expect(res.json<{ results: Array<{ success: boolean }> }>().results[0].success).toBe(false);
+    }
+    expect(writeCellValue).not.toHaveBeenCalled();
+  });
+
   it('отклоняет запись за пределами листа и НЕ пишет в таблицу', async () => {
       const res = await app.inject({
         method: 'POST',

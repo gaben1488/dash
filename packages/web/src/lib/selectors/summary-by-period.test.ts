@@ -34,14 +34,27 @@ describe('recalcSummaryByPeriod (извлечено из useFilteredData §11)',
     expect(s.q1.epCount).toBe(1);
   });
 
-  it('activity-ветвь: суммирует byActivity, счётчики — аппроксимация в kp*', () => {
-    const actDepts = [{
-      byActivity: { q1: { program: { planCount: 3, factCount: 2, planTotal: 60, factTotal: 30, planFB: 50, factFB: 25 } } },
-    }];
+  it('activity-ветвь: квартальная сводка сохраняет КП и ЕП раздельно', () => {
+    const m = (plan: number, fact: number, sum: number) => ({
+      plan, fact, planSum: sum, factSum: sum / 2,
+      planFB: sum, planKB: 0, planMB: 0,
+      factFB: sum / 2, factKB: 0, factMB: 0,
+    });
+    const actDepts = [{ byActivity: { q1: { program: {
+      planCount: 3,
+      byMethod: { competitive: m(2, 1, 50), ep: m(1, 1, 10) },
+    } } } }];
     const s = recalcSummaryByPeriod(actDepts, {
       isActivityFiltered: true, actKeys: ['program'], budgetPlanFact: noBudget, showKP: true, showEP: true,
     });
-    expect(s.q1).toMatchObject({ kpCount: 3, kpFactCount: 2, kpPlan: 60, kpFact: 30, fbPlan: 50, epCount: 0 });
+    expect(s.q1).toMatchObject({
+      kpCount: 2, kpFactCount: 1, kpPlan: 50, kpFact: 25,
+      epCount: 1, epFactCount: 1, epPlan: 10, epFact: 5, fbPlan: 60,
+    });
+    const sole = recalcSummaryByPeriod(actDepts, {
+      isActivityFiltered: true, actKeys: ['program'], budgetPlanFact: noBudget, showKP: false, showEP: true,
+    });
+    expect(sole.q1).toMatchObject({ kpCount: 0, epCount: 1, epPlan: 10 });
   });
 });
 

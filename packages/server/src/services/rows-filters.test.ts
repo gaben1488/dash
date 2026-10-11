@@ -103,6 +103,14 @@ describe('applySubordinateFilter', () => {
     expect(applySubordinateFilter(rows, '_org_itself')).toEqual([empty, selfRef, selfRefLat]);
   });
 
+  it('ссылка на историческое написание находит живую организацию', () => {
+    const originals = [
+      row({ subordinate: 'МБУ ДО «КДМШ»' }),
+      row({ subordinate: 'МБОУ «Елизовская средняя школа № 3»' }),
+    ];
+    expect(applySubordinateFilter(originals, 'МБУ ДО "КДМШ"')).toEqual([originals[0]]);
+    expect(applySubordinateFilter(originals, 'МБОУ «Елизовская средняя школа №3»')).toEqual([originals[1]]);
+  });
   it('список через запятую: имя + _org_itself объединяются', () => {
     expect(applySubordinateFilter(rows, 'спортивная,_org_itself')).toEqual(rows);
   });

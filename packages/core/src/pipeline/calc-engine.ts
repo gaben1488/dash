@@ -18,6 +18,7 @@ import {
   PROCUREMENT_METHODS,
   classifyActivity,
   factCountsOn,
+  dayNumberOf,
   toNumber,
   type ProcurementMethodCode,
 } from '@aemr/shared';
@@ -179,6 +180,12 @@ export interface GroupedResults {
   // NOTE: byMonthMethod is stored IN byQuarterMethod (keys "m{N}.{method}") — adapter already reads it
   /** By month × activity (e.g., "m3.program"). */
   byMonthActivity: Map<string, Map<string, AccumulatedValue>>;
+  /** Activity × procurement method with the SAME period as the quarter/month. */
+  byPeriodActivityMethod: Map<string, Map<string, AccumulatedValue>>;
+  /** Subordinate × period × activity, independent of the overall department. */
+  bySubordinatePeriodActivity: Map<string, Map<string, AccumulatedValue>>;
+  /** Subordinate × period × activity × method for exact multi-filter totals. */
+  bySubordinatePeriodActivityMethod: Map<string, Map<string, AccumulatedValue>>;
   /**
    * ЧЕСТНАЯ КОРЗИНА ГОДА: строки, не попавшие в годовой срез только потому,
    * что плановый год (P) пуст, — при `emptyYearPolicy: 'bucket'`.
@@ -300,28 +307,17 @@ function defaultQuarterExtractor(row: RawRow): string | null {
 }
 
 function defaultMonthExtractor(row: RawRow): number | null {
-  const dateStr = String(row[COL.PLAN_DATE] ?? '').trim();
-  if (!dateStr) return null;
-  // DD.MM.YYYY or DD/MM/YYYY
-  const dotMatch = dateStr.match(/\d{1,2}[./](\d{1,2})[./]\d{2,4}/);
-  if (dotMatch) {
-    const m = parseInt(dotMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // ISO: YYYY-MM-DD
-  const isoMatch = dateStr.match(/\d{4}-(\d{2})-\d{2}/);
-  if (isoMatch) {
-    const m = parseInt(isoMatch[1], 10);
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  // Excel serial date
-  const n = parseFloat(dateStr);
-  if (!isNaN(n) && n > 40000 && n < 60000) {
-    const date = new Date((n - 25569) * 86400000);
-    const m = date.getMonth() + 1;
-    return m >= 1 && m <= 12 ? m : null;
-  }
-  return null;
+  const raw = row[COL.PLAN_DATE];
+  // Historical DD/MM/YYYY strings are allowed only as complete real calendar
+  // dates. All eight currently configured GRBS books predominantly return
+  // numeric Google serials in N; never use local getMonth() for those dates.
+  const value = typeof raw === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw.trim())
+    ? raw.trim().replace(/\//g, '.')
+    : raw;
+  const day = dayNumberOf(value);
+  if (day === null) return null;
+  // The shared calendar day is invariant under the Node/server timezone.
+  return new Date(day * 86400000).getUTCMonth() + 1;
 }
 
 function defaultMethodExtractor(row: RawRow): MethodGroup {
@@ -588,6 +584,9 @@ export class CalcEngine {
       bySubordinateActivity: new Map(),
       byActivityMethod: new Map(),
       byMonthActivity: new Map(),
+      byPeriodActivityMethod: new Map(),
+      bySubordinatePeriodActivity: new Map(),
+      bySubordinatePeriodActivityMethod: new Map(),
       noYear: new Map(),
       unknownMethodRows: [],
       rowCount: 0,
@@ -686,6 +685,22 @@ export class CalcEngine {
           // By quarter × activity
           const qaKey = `${quarter}.${activity}`;
           this.accumulateInGroup(result.byQuarterActivity, qaKey, m.key, val, i);
+          // Year is the sum of plan-qualified quarters, not all rows without a quarter.
+          this.accumulateInGroup(result.byQuarterActivity, `year.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}.${quarter}.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}.year.${activity}`, m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `${quarter}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `year.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}.${quarter}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}.year.${activity}.${method}`, m.key, val, i);
+          }
         } else if (hasFact) {
           // Orphan: has fact but no plan quarter → tracked separately for year total derivation
           this.accumulateInGroup(result.byQuarter, '_orphan', m.key, val, i);
@@ -699,9 +714,6 @@ export class CalcEngine {
           this.accumulateInGroup(result.byYearQuarter, `${yearBucket}._orphan`, m.key, val, i);
         }
 
-        // By year × activity (always accumulate for year-level activity breakdown)
-        this.accumulateInGroup(result.byQuarterActivity, `year.${activity}`, m.key, val, i);
-
         // By month
         if (month) {
           this.accumulateInMonthGroup(result.byMonth, month, m.key, val, i);
@@ -712,6 +724,14 @@ export class CalcEngine {
           }
           // By month × activity
           this.accumulateInGroup(result.byMonthActivity, `m${month}.${activity}`, m.key, val, i);
+          this.accumulateInGroup(result.bySubordinatePeriodActivity,
+            `${subordinate}.m${month}.${activity}`, m.key, val, i);
+          if (method) {
+            this.accumulateInGroup(result.byPeriodActivityMethod,
+              `m${month}.${activity}.${method}`, m.key, val, i);
+            this.accumulateInGroup(result.bySubordinatePeriodActivityMethod,
+              `${subordinate}.m${month}.${activity}.${method}`, m.key, val, i);
+          }
         }
 
         // By method
@@ -789,6 +809,9 @@ export class CalcEngine {
     for (const group of result.bySubordinateActivity.values()) this.computeDerived(group);
     for (const group of result.byActivityMethod.values()) this.computeDerived(group);
     for (const group of result.byMonthActivity.values()) this.computeDerived(group);
+    for (const group of result.byPeriodActivityMethod.values()) this.computeDerived(group);
+    for (const group of result.bySubordinatePeriodActivity.values()) this.computeDerived(group);
+    for (const group of result.bySubordinatePeriodActivityMethod.values()) this.computeDerived(group);
 
     return result;
   }

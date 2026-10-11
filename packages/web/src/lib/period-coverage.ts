@@ -1,4 +1,4 @@
-import { parseSheetDate } from '@aemr/shared';
+import { dayNumberOf, parseSheetDate } from '@aemr/shared';
 
 /**
  * period-coverage.ts — покрытие периодов данными (недели, месяцы, годы).
@@ -57,10 +57,17 @@ export function dayPartsOfDateValue(value: unknown): DayParts | null {
   const s = String(value).trim();
 
   const iso = s.match(ISO_RE);
-  if (iso) return { y: Number(iso[1]), m: Number(iso[2]), d: Number(iso[3]) };
+  if (iso) {
+    // The canonical parser rejects impossible days; regex-only extraction did not.
+    if (dayNumberOf(`${iso[1]}-${iso[2]}-${iso[3]}`) === null) return null;
+    return { y: Number(iso[1]), m: Number(iso[2]), d: Number(iso[3]) };
+  }
 
   const ru = s.match(RU_RE);
-  if (ru) return { y: Number(ru[3]), m: Number(ru[2]), d: Number(ru[1]) };
+  if (ru) {
+    if (dayNumberOf(`${ru[1]}.${ru[2]}.${ru[3]}`) === null) return null;
+    return { y: Number(ru[3]), m: Number(ru[2]), d: Number(ru[1]) };
+  }
 
   // Фоллбэк на канон. Сюда доходят только строки, не разобранные регулярками
   // выше, — у parseSheetDate для них остаются серийники (UTC-полночь) и общий
@@ -152,6 +159,12 @@ const MS_PER_DAY = 86400000;
 export function productDayParts(now: Date = new Date()): DayParts {
   const shifted = new Date(now.getTime() + PRODUCT_UTC_OFFSET * MS_PER_HOUR);
   return { y: shifted.getUTCFullYear(), m: shifted.getUTCMonth() + 1, d: shifted.getUTCDate() };
+}
+
+/** ISO date label in the jurisdiction's calendar, independent of viewer timezone. */
+export function productTodayIso(now: Date = new Date()): string {
+  const { y, m, d } = productDayParts(now);
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
 /**
