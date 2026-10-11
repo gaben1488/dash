@@ -21,6 +21,31 @@ assert.match(html,/Текущий \+ целевой/);
 assert.match(html,/материал/iu);
 assert.doesNotMatch(src,/\bfetch\(|\.remove\(\)|\.delete\(\)/);
 
+/* The generated Figma builder must stay byte-for-byte aligned with the source
+ * palettes, surfaces and finishes already maintained by the real Kit lab. */
+const catalog=readFileSync(resolve(root,'packages/web/src/pages/design-lab/catalog.ts'),'utf8');
+function sourceArray(name){
+ const token='export const '+name+' = ';
+ const i=catalog.indexOf(token);
+ assert.ok(i>=0,name+' missing');
+ const start=i+token.length,end=catalog.indexOf('] as const;',start);
+ return JSON.parse(catalog.slice(start,end+1));
+}
+const begin=src.indexOf('const DATA=')+'const DATA='.length;
+const finish=src.indexOf(';\nconst SCREENS=',begin);
+assert.ok(begin>12&&finish>begin,'Figma builder data not found');
+const embedded=JSON.parse(src.slice(begin,finish));
+assert.deepEqual(embedded.palettes,sourceArray('ORIGINAL_FAMILIES'));
+assert.deepEqual(embedded.surfaces,sourceArray('EXPERIMENTAL_SURFACES'));
+assert.deepEqual(embedded.finishes,sourceArray('FINISHES'));
+assert.equal(embedded.routes.length,13);
+assert.deepEqual(embedded.routes.map(x=>x.id),[
+ 'dashboard','report','svod','data','unfunded','yearlong','monitoring',
+ 'economy','competition','discipline','analytics','quality','settings'
+]);
+assert.equal(embedded.palettes.reduce((n,f)=>n+f.sections.length,0),39);
+
+
 let serial=1;
 function node(type){
   const result={
