@@ -93,6 +93,35 @@ jobs:
               'native_word_fixed_errors':sorted(set(re.findall(r'\bREPORT_EXPORT_[A-Z0-9_]+\b',output))),
               'native_word_pass_fields':[key for key in ('context','snapshot','main','supplement','operational')
                 if '"'+key+'": "PASS"' in output]}))
+            probe='''import importlib.util,json; from pathlib import Path
+            spec=importlib.util.spec_from_file_location("backup_tool","/tool.py"); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+            expected=json.loads(Path("/backup/manifest.json").read_text())["files"]
+            current=m.inventory(Path("/source"),require_complete=False)
+            rows=[]
+            for name in sorted(set(expected)|set(current)):
+                if name.startswith("reports/") and expected.get(name)!=current.get(name):
+                    before,after=expected.get(name),current.get(name)
+                    rows.append({"path":name,"change":"added" if before is None else "removed" if after is None else "modified",
+                      "fields":[k for k in set(before or {})|set(after or {}) if (before or {}).get(k)!=(after or {}).get(k)]})
+            print(json.dumps(rows))'''
+            result=subprocess.run(['docker','run','--rm','-i','--network','none','--read-only','--user','0',
+              '--mount','type=volume,src='+baseline['volume']+',dst=/source,readonly',
+              '--mount','type=bind,src='+str(session.parent/'worker-38171945386/backup')+',dst=/backup,readonly',
+              '--mount','type=bind,src='+str(session/'stateful_backup.py')+',dst=/tool.py,readonly',
+              '--entrypoint','/opt/report-env/bin/python',baseline['image'],'-B','-'],
+              input=probe.encode(),capture_output=True,timeout=600)
+            if result.returncode: raise SystemExit('PRIVATE_SCOPE_COMPARISON_FAILED')
+            rows=json.loads(result.stdout)
+            (session/'scope-diff.json').write_text(json.dumps(rows))
+            counts={}
+            safe={'status.json','run.lock','ledger.json','registry.json','identity.sqlite',
+              'identity.sqlite-wal','identity.sqlite-shm','publications.sqlite',
+              'publications.sqlite-wal','publications.sqlite-shm'}
+            for row in rows:
+              path=Path(row['path']); group=path.parts[1] if len(path.parts)>1 else 'ROOT'
+              key=path.name if path.name in safe else group
+              counts[key+':'+row['change']]=counts.get(key+':'+row['change'],0)+1
+            print(json.dumps({'private_scope_diff_saved':True,'report_scope_difference_classes':counts}))
             PYDIAG
   restore-current-worker:
     if: >-
