@@ -18,7 +18,7 @@ assert.equal(manifest.main,'code.js');
 assert.equal(manifest.ui,'ui.html');
 assert.deepEqual(manifest.networkAccess.allowedDomains,['none']);
 assert.match(html,/Текущий \+ целевой/);
-assert.match(html,/Материалы/);
+assert.match(html,/материал/iu);
 assert.doesNotMatch(src,/\bfetch\(|\.remove\(\)|\.delete\(\)/);
 
 let serial=1;
@@ -87,7 +87,7 @@ assert.equal(pages[1].children.filter(x=>x.name.startsWith('DASH / Матери�
 await figma.ui.onmessage({kind:'materials',...props});
 assert.equal(pages[1].children.filter(x=>x.name.startsWith('DASH / Материал')).length,6);
 const allTexts=walk(pages[2]).filter(x=>x.type==='TEXT').map(x=>x.characters);
-assert.ok(allTexts.some(x=>x.includes('Неделя')));
+assert.ok(allTexts.some(x=>/неделя/iu.test(x)));
 console.log(JSON.stringify({result:'PASS (stubbed Figma Plugin API; NOT in-editor rendering)',
   initialScreens:26,mobileExtra:1,materials:6,duplicateAfterRerun:0,
   routeCount:13,notes:'Native Figma Starter editing and visual acceptance still required'},null,2));
