@@ -169,6 +169,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Validate explicit release intent
+        id: release_inputs
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
           BACKUP_ROOT: ${{ inputs.backup_root }}
@@ -187,8 +188,11 @@ jobs:
             *[!A-Za-z0-9_./-]*) exit 2 ;;
           esac
           case "$BACKUP_NAME" in
-            ''|*[!A-Za-z0-9_.-]*) exit 2 ;;
+            ''|'.'|'..'|*[!A-Za-z0-9_.-]*) exit 2 ;;
           esac
+          # These values contain only the checked safe alphabet (no quotes,
+          # newlines or shell metacharacters). Publish only sanitized outputs.
+          printf 'backup_root=%s\nbackup_name=%s\n' "$BACKUP_ROOT" "$BACKUP_NAME" >> "$GITHUB_OUTPUT"
           echo 'Explicit exact-SHA release input validated; production state still untouched.'
 
       - name: Check deployment configuration without exposing credentials
@@ -248,8 +252,8 @@ jobs:
 
             # Backup and scratch restore must succeed BEFORE any production
             # image, code, source, report state or scheduler is modified.
-            verified_backup_root='${{ inputs.backup_root }}'
-            verified_backup_name='${{ inputs.backup_name }}'
+            verified_backup_root='${{ steps.release_inputs.outputs.backup_root }}'
+            verified_backup_name='${{ steps.release_inputs.outputs.backup_name }}'
             test -f "$verified_backup_root/$verified_backup_name/manifest.json"
             verification_dir=$(mktemp -d /tmp/aemr-release-check.XXXXXX)
             release_sha='${{ github.sha }}'
