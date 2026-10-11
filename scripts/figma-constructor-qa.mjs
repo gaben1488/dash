@@ -97,14 +97,17 @@ assert.ok(!reportStrings.some(x=>x.includes('Исходный OrgStrip')));
 const monitoring=screens.find(x=>x.name.includes(' / monitoring / ')&&x.name.includes(' / target / '));
 const mtext=walk(monitoring).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
 for(const label of ['В работе','Реестр','Обзор','Связи','Справочники'])assert.ok(mtext.includes(label),label);
-assert.equal(walk(monitoring).filter(n=>n.name.startsWith('ПОДВКЛАДКА / ')).length,5);
+assert.equal(walk(monitoring).filter(n=>n.name.startsWith('РЕАЛЬНЫЙ РЕЖИМ / ')).length,5);
 const quality=screens.find(x=>x.name.includes(' / quality / ')&&x.name.includes(' / target / '));
 const qtext=walk(quality).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
 for(const label of ['Сверка','Качество заполнения','Замечания','Оценка управлений','Рекомендации','Журнал'])assert.ok(qtext.includes(label),label);
-assert.equal(walk(quality).filter(n=>n.name.startsWith('ПОДВКЛАДКА / ')).length,6);
+assert.equal(walk(quality).filter(n=>n.name.startsWith('РЕАЛЬНЫЙ РЕЖИМ / ')).length,6);
 // Full route-specific coverage is a structural requirement, not a palette-only mock.
-const allTabs=screens.reduce((n,screen)=>n+walk(screen).filter(x=>x.name.startsWith('ПОДВКЛАДКА / ')).length,0);
-assert.equal(allTabs,embedded.routes.reduce((n,r)=>n+r.tabs.length,0)*2,'missing real subtab scenes');
+const allTabs=screens.reduce((n,screen)=>n+walk(screen).filter(x=>x.name.startsWith('РЕАЛЬНЫЙ РЕЖИМ / ')||x.name.startsWith('ПРОЕКТНАЯ СЦЕНА / ')).length,0);
+assert.equal(allTabs,84,'missing editable screens/scenes');
+const realCount=screens.reduce((n,screen)=>n+walk(screen).filter(x=>x.name.startsWith('РЕАЛЬНЫЙ РЕЖИМ / ')).length,0);
+assert.equal(realCount,44,'confirmed navigation modes must be 22 × Current/Target, not invented');
+assert.equal(allTabs-realCount,40,'nonexistent tabs must be marked as conceptual scenes');
 for(const entry of embedded.routes){
  const target=screens.find(x=>x.name.includes(' / '+entry.id+' / ')&&x.name.includes(' / target / '));
  assert.ok(target,entry.id+' target missing');
@@ -146,5 +149,5 @@ assert.equal(pages[0].children.filter(x=>x.name.startsWith('DASH / INDEX /')).le
 const allTexts=walk(pages[2]).filter(x=>x.type==='TEXT').map(x=>x.characters);
 assert.ok(allTexts.some(x=>/неделя/iu.test(x)));
 console.log(JSON.stringify({result:'PASS (stubbed Figma Plugin API; NOT in-editor rendering)',
-  initialScreens:26,mobileExtra:1,materials:6,foundationHomes:1,allTabScenes:84,duplicateAfterRerun:0,
+  initialScreens:26,mobileExtra:1,materials:6,foundationHomes:1,allTabScenes:84,realModeScenes:44,conceptScenes:40,duplicateAfterRerun:0,
   routeCount:13,componentSets:5,componentVariants:25,subtabScenes:embedded.routes.reduce((n,r)=>n+r.tabs.length,0),notes:'Native Figma Starter editing and visual acceptance still required'},null,2));
