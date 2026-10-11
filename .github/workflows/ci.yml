@@ -358,7 +358,8 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 4m
-          script_stop: true
+          # Bash owns failure handling: injected per-line stops corrupt Python/JS blocks.
+          script_stop: false
           script: |
             set -euo pipefail
             umask 077
