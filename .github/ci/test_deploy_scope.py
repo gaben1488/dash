@@ -113,6 +113,26 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
             self.assertGreaterEqual(len(queried), 2)
             self.assertIn("REPORT_WORKER_RESTORE_FAILED", completed.stderr)
 
+    def test_production_release_is_explicit_and_bound_to_exact_sha(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
+        deploy = workflow.split("\n  deploy:\n", 1)[1]
+        gate = deploy.split("    steps:\n", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", gate)
+        self.assertIn("inputs.release_sha == github.sha", gate)
+        self.assertIn("inputs.backup_name", workflow)
+        self.assertIn("environment: production", gate)
+        self.assertNotIn("needs.deploy_scope.outputs.runtime_changed == 'true'", gate)
+
+    def test_production_release_validates_restorable_backup_before_changes(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "ci.yml").read_text()
+        deploy = workflow.split("\n  deploy:\n", 1)[1]
+        self.assertIn("BACKUP_AND_SCRATCH_RESTORE", deploy)
+        self.assertIn("stateful_backup.py", deploy)
+        self.assertLess(deploy.index("BACKUP_AND_SCRATCH_RESTORE"),
+                        deploy.index("docker image prune --force"))
+
 
 if __name__ == "__main__":
     unittest.main()
