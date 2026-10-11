@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Dash · Конструктор</title>
+  <style>
+    :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#ecf3f9;background:#111e2d}
+    *{box-sizing:border-box}
+    html,body{margin:0}
+    body{padding:16px;line-height:1.48;font-size:12px}
+    h1{font-size:20px;margin:0;letter-spacing:-.025em}
+    h2{font-size:12px;margin:19px 0 9px;color:#c6d7e7}
+    p{color:#aec0d1;font-size:11px}
+    .sub{margin:5px 0 14px}
+    .box{border:1px solid #3a5167;border-radius:12px;padding:12px;background:#16283b}
+    .notice{border-left:3px solid #e6c17d;padding:8px 12px;color:#ecdaa9;background:#483a283d;margin:12px 0;border-radius:6px}
+    label{display:block;color:#e1edf6;font-size:11px;font-weight:550;margin:8px 0 4px}
+    select{display:block;width:100%;min-height:38px;padding:7px 9px;border:1px solid #445d76;border-radius:8px;background:#0d1c2b;color:#f1f5f9;font:inherit}
+    select:focus-visible,button:focus-visible{outline:2px solid #82c9f3;outline-offset:2px}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    button{display:flex;align-items:center;justify-content:center;gap:6px;border-radius:9px;border:1px solid #627b94;padding:10px 13px;min-height:42px;font:600 12px/1.25 inherit;cursor:pointer;color:#edf5fc;background:#284a67}
+    button.primary{width:100%;background:linear-gradient(156deg,#2e7fba,#1d557d);border-color:#6698bf;margin-top:13px}
+    button.secondary{width:100%;margin-top:8px;background:#1e374e}
+    button:disabled{opacity:.5;cursor:wait}
+    #status{font-size:11px;line-height:1.5;border:1px solid #344f69;border-radius:9px;min-height:52px;padding:11px;background:#0d1c2b;white-space:pre-wrap;overflow-wrap:anywhere}
+    #status[data-tone=error]{color:#ffd0c4;border-color:#a15b51}
+    #status[data-tone=ok]{color:#bcf8df;border-color:#3f8d77}
+    small{display:block;color:#99adc1;font-size:10px;line-height:1.5}
+    a{color:#86c8ff}
+    strong{color:#fff}
+    .checks{display:flex;flex-direction:column;gap:5px}
+    .checks label{display:flex;align-items:flex-start;gap:7px;font-size:11px;line-height:1.4;font-weight:400;margin:1px 0}
+    input[type=checkbox]{accent-color:#5ab5e6;width:15px;height:15px;flex:none}
+  </style>
+</head>
+<body>
+  <h1>Dash · Конструктор</h1>
+  <p class="sub">Настоящие редактируемые слои Figma. Основа — существующие React-экраны и исходные HTML, не растровые изображения.</p>
+  <div class="notice">Текущий экран — это <strong>каркас для ручной доработки</strong>, а не готовое точное воспроизведение React 1:1. Ваши изменения в уже созданных фреймах не будут перезаписаны автоматически.</div>
+  <div class="box">
+    <label for="screen">Раздел продукта</label>
+    <select id="screen">
+      <option value="all">Все 13 разделов</option>
+      <option value="dashboard">Пульс</option>
+      <option value="report">Отчёт</option>
+      <option value="svod">Свод</option>
+      <option value="data">Реестр</option>
+      <option value="unfunded">Не обеспеченные</option>
+      <option value="yearlong">В течение года</option>
+      <option value="monitoring">Мониторинг</option>
+      <option value="economy">Экономия</option>
+      <option value="competition">Конкуренция</option>
+      <option value="discipline">Дисциплина</option>
+      <option value="quality">Контроль</option>
+      <option value="analytics">Аналитика</option>
+      <option value="settings">Система</option>
+    </select>
+    <div class="two">
+      <div>
+        <label for="version">Вариант</label>
+        <select id="version">
+          <option value="both">Текущий + целевой</option>
+          <option value="current">Только текущий (схема)</option>
+          <option value="target">Только целевой (проект)</option>
+        </select>
+      </div>
+      <div>
+        <label for="viewport">Размер</label>
+        <select id="viewport">
+          <option value="1440">Компьютер · 1440</option>
+          <option value="1280">Ноутбук · 1280</option>
+          <option value="390">Телефон · 390</option>
+        </select>
+      </div>
+    </div>
+    <div class="two">
+      <div><label for="family">Палитра</label><select id="family">
+        <option value="cosmos">Космос</option><option value="kamchatka">Камчатка</option><option value="minerals">Минералы</option>
+      </select></div>
+      <div><label for="finish">Отделка</label><select id="finish">
+        <option value="glass">Жидкое стекло</option><option value="candy">Кэнди</option>
+        <option value="metallic">Металлик</option><option value="pearl">Перламутр</option>
+        <option value="xirallic">Ксираллик</option><option value="matte">Мат</option>
+      </select></div>
+    </div>
+    <div class="two">
+      <div><label for="surface">Подложка</label><select id="surface">
+        <option value="heritage">Тёплый графит</option>
+        <option value="basalt">Базальт</option>
+        <option value="ocean">Тихий океан</option>
+        <option value="parchment">Архивный крем</option>
+        <option value="frost">Северный иней</option>
+        <option value="platinum">Тёплая платина</option>
+        <option value="ink">Чёрные чернила</option>
+      </select></div>
+      <div><label for="mode">Освещение</label><select id="mode"><option value="dark">Тёмное</option><option value="light">Светлое</option></select></div>
+    </div>
+    <label for="density">Плотность</label><select id="density">
+      <option value="comfortable">Обычная — текст от 12 px</option><option value="compact">Компактная — расстояния меньше, не текст</option>
+    </select>
+    <h2>Безопасность редактирования</h2>
+    <div class="checks">
+      <label><input type="checkbox" checked disabled> Не изменять исходные Figma-компоненты</label>
+      <label><input type="checkbox" checked disabled> Не удалять существующие экраны и правки</label>
+      <label><input type="checkbox" checked disabled> Сохранять точные названия, организационные режимы и секции</label>
+    </div>
+    <button class="primary" id="build">Добавить отсутствующие редактируемые экраны</button>
+    <button class="secondary" id="materials">Добавить образцы материалов и состояний</button>
+  </div>
+  <h2>Результат</h2>
+  <div id="status" role="status" aria-live="polite">Выберите состав и нажмите «Добавить». Повторный запуск не удалит изменения.</div>
+  <p>Сначала сравнивайте «Текущий» и «Целевой». Меняйте реальные свойства слоёв, а не скриншот. После выбора — отдельный допуск в React PR.</p>
+  <small>Код и происхождение: существующая лаборатория PR #83 → #88, исходные HTML PR #70, настоящий фронтенд PR #96. Тексты и числа внутри новых кадров помечены как учебные. Figma Starter допускает три страницы.</small>
+  <script>
+    const $ = id => document.getElementById(id);
+    function post(kind){
+      const values={};
+      for(const id of ['screen','version','viewport','family','finish','surface','mode','density'])values[id]=$(id).value;
+      $('build').disabled=true;$('materials').disabled=true;
+      $('status').dataset.tone='';
+      $('status').textContent='Готовятся редактируемые слои…';
+      parent.postMessage({pluginMessage:{kind,...values}},'*');
+    }
+    $('build').addEventListener('click',()=>post('screens'));
+    $('materials').addEventListener('click',()=>post('materials'));
+    onmessage=event=>{
+      const msg=event.data.pluginMessage;
+      if(!msg)return;
+      $('status').dataset.tone=msg.error?'error':'ok';
+      $('status').textContent=msg.message||'Операция завершена.';
+      $('build').disabled=false;$('materials').disabled=false;
+    };
+  </script>
+</body>
+</html>
