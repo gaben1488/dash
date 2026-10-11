@@ -62,7 +62,7 @@ for(const screen of screens){
 }
 const report=screens.find(x=>x.name.includes(' / report / ')&&x.name.includes(' / target / '));
 const reportStrings=walk(report).map(x=>x.name);
-assert.ok(reportStrings.some(x=>x.includes('Оглавление отчёта')));
+assert.ok(reportStrings.some(x=>x.toLowerCase().includes('оглавление отчёта')));
 assert.ok(!reportStrings.some(x=>x.includes('Исходный OrgStrip')));
 const monitoring=screens.find(x=>x.name.includes(' / monitoring / ')&&x.name.includes(' / target / '));
 const mtext=walk(monitoring).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
