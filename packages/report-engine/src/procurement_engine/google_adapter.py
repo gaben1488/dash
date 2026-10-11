@@ -222,9 +222,17 @@ class GoogleSheetSourceAdapter:
         if grid['title']!=c['sheet']:
             raise GoogleReadError('GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT')
         count=grid['gridProperties']['rowCount']
-        if grid['gridProperties']['columnCount']<c['columns']:
+        physical_columns=grid['gridProperties']['columnCount']
+        # The reviewed canonical customer directory uses all physical columns
+        # as business/evidence fields, unlike sheets with spare formula columns.
+        # An installed 18/19/32 contract must not silently read a live 34 grid.
+        if ((c['provider_id'], c['sheet_id']) ==
+            ('1wET-yUf9OQGTgPWSs96xAE3X7WSrVejtVGWRH1pv-1E', 837564274)
+            and physical_columns != c['columns']):
+            raise GoogleReadError('MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH')
+        if physical_columns<c['columns']:
             raise GoogleReadError('GOOGLE_SOURCE_COLUMNS_MISSING')
-        full_columns=grid['gridProperties']['columnCount']
+        full_columns=physical_columns
         values=[[] for _ in range(count)]
         extra_values=[[] for _ in range(count)]
         for start, end, chunk in self._chunks(count, full_columns, 'UNFORMATTED_VALUE'):
