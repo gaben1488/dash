@@ -67,6 +67,19 @@ function textRow(parent,caption,w,color,bg){
  * Every real secondary tab has its OWN content, rather than an inert tab chip.
  * Existing generated frames are extended rather than deleted or replaced.
  * ════════════════════════════════════════════════════════════════════════ */
+// Only these are verified navigation modes in the actual React code.
+// The catalogue's "Обзор / Детали / Источники" on other pages are proposed
+// design perspectives, NOT real product tabs. No invented routes in acceptance.
+const REAL_MODES={
+ report:['В прямом эфире','Архив недели'],
+ data:['Просмотр','Редактор таблиц'],
+ unfunded:['Просмотр','Редактор таблиц'],
+ yearlong:['Просмотр','Редактор таблиц'],
+ monitoring:['В работе','Реестр','Обзор','Связи','Справочники'],
+ quality:['Сверка','Качество заполнения','Замечания','Оценка управлений','Рекомендации','Журнал'],
+ settings:['Источники данных','Соответствие ячеек','Подключение'],
+};
+const isRealMode=(id,label)=>(REAL_MODES[id]||[]).includes(label);
 const ROUTE_LAYOUTS={
  dashboard:{
   metric:['Исполнение · по количеству и сумме','Экономия · только при применимом основании','Доверие · есть проверка / нет проверки'],
@@ -251,13 +264,15 @@ function routeBody(main,r,cfg,phase,pair,s,w,mobile){
   label(r,'Проверить, прежде чем действовать',inspectW-40,10,s.muted);
  }
  // Every real subordinate page gets its own editable scenario, not inert chips.
- const all=block(main,'ПОДРАЗДЕЛЫ / каждый имеет собственную рабочую сцену',w,'VERTICAL',null,10,0);
+ const all=block(main,'РЕАЛЬНЫЕ РЕЖИМЫ И ПРОЕКТНЫЕ СЦЕНЫ (не смешивать)',w,'VERTICAL',null,10,0);
  const descriptions=data.sections;
  for(let i=0;i<r.tabs.length;i++){
-  const tab=r.tabs[i],panel=block(all,'ПОДВКЛАДКА / '+tab,w,'VERTICAL',s.card,6,13);
+  const tab=r.tabs[i],real=isRealMode(r.id,tab);
+  const panel=block(all,(real?'РЕАЛЬНЫЙ РЕЖИМ / ':'ПРОЕКТНАЯ СЦЕНА / ')+tab,w,'VERTICAL',s.card,6,13);
   const tag=block(panel,'Заголовок и состояние / '+tab,w-26,mobile?'VERTICAL':'HORIZONTAL',null,9,0);
   chip(tag,tab,Math.min(mobile?w-45:220,Math.max(105,tab.length*8+38)),pair,s,i===0,cfg.finish);
-  label(tag,(i+1)+'/'+r.tabs.length+' · '+(phase==='target'?'Цель: действие и доказательство':'Имеющиеся возможности'),mobile?w-45:Math.max(160,w-265),11,s.muted);
+  label(tag,(real?'Режим в React':'Предложение, не существующая вкладка')+' · '+(i+1)+'/'+r.tabs.length,
+   mobile?w-45:Math.max(160,w-265),11,s.muted);
   label(panel,descriptions[i%descriptions.length],w-26,13,s.ink,'Semi Bold');
   const steps=block(panel,'Условия + переходы / '+tab,w-26,mobile?'VERTICAL':'HORIZONTAL',null,7,0);
   const stepW=mobile?w-26:Math.floor((w-42)/3);
@@ -397,7 +412,7 @@ function buildHome(page,cfg){
  const map=block(root,'Карта рабочих поверхностей',1200,'HORIZONTAL',null,15,0);
  const panels=[
   ['1. Исходники','Не перерисовывать','Три ряда барабана / щит / физика материалов / 39 пар'],
-  ['2. Текущее приложение','Фактическая структура','13 React-страниц и 42 действительных внутренних режима'],
+  ['2. Текущее приложение','Фактическая структура','13 React-страниц · 22 подтверждённых режима + 20 проектных сцен'],
   ['3. Целевая версия','Предложение','Те же действия и данные, но яснее компоновка и typographic hierarchy'],
  ];
  for(const [title,status,description] of panels){
@@ -417,7 +432,7 @@ function buildHome(page,cfg){
    const route=DATA.routes.find(x=>x.id===id),pair=p.find(x=>x.name===route.label)||p[0];
    const btn=block(row,'Пункт / '+route.label,Math.floor(1000/ids.length)-9,'VERTICAL',id==='data'?pair.top:colors.card,2,8);
    label(btn,route.label,Math.floor(1000/ids.length)-25,12,id==='data'?pair.ink:colors.ink,'Semi Bold');
-   label(btn,route.tabs.length+' подраздела',Math.floor(1000/ids.length)-25,10,id==='data'?pair.ink:colors.muted);
+   label(btn,(REAL_MODES[id]?.length||0)+' действ. · '+(route.tabs.length-(REAL_MODES[id]?.length||0))+' идеи',Math.floor(1000/ids.length)-25,10,id==='data'?pair.ink:colors.muted);
   }
  }
  const compare=block(root,'ПРИЁМКА / роли и рамки работы',1200,'HORIZONTAL',null,15,0);
@@ -490,7 +505,7 @@ figma.ui.onmessage=async cfg=>{
   }else{
    figma.ui.postMessage({message:
     'Добавлено '+done.made+' экранов; сохранено прежних '+done.kept+
-    '; самостоятельных сцен под вкладки: '+done.sectionCount+
+    '; визуальных сцен: '+done.sectionCount+
     (materials?'; новые компоненты: '+materials.components.length+' наборов':'')+
     (cover?'; создана стартовая карта проекта':'')+
     '. Исходники React остаются главным критерием точности.'});
