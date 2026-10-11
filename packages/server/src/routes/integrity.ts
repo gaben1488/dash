@@ -35,7 +35,7 @@
  * Момент чтения назван всегда (канон п.58).
  */
 import type { FastifyInstance } from 'fastify';
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import {
   DAYS_PER_WEEK,
   DEPT_COLUMNS,
