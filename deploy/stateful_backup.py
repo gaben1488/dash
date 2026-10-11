@@ -124,7 +124,8 @@ def create(source: Path, backup: Path) -> dict:
             raise BackupError("SOURCE_CHANGED_DURING_BACKUP")
         if inventory(staging / "state") != before:
             raise BackupError("BACKUP_MISMATCH")
-        verify_restored_documents_and_sqlite(staging / "state", before)
+        # SQLite WAL may create a shared-memory sidecar even for a read. Run
+        # integrity checks only on the disposable restore, never on the backup.
         manifest = {"format": 1, "files": before, "bytes": total}
         receipt = staging / "manifest.json"
         with receipt.open("x", encoding="utf-8") as stream:
