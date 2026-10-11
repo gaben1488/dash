@@ -405,8 +405,12 @@ function buildHome(page,cfg){
  if(page.children.some(x=>x.name===name))return null;
  const t=setup(cfg),colors=t.surface,p=t.family.sections;
  const root=block(page,name,1260,'VERTICAL',colors.bg,16,26);
- let edge=0;for(const child of page.children){if(child!==root)edge=Math.max(edge,child.x+child.width);}
- root.x=edge+160;root.y=140;
+ const others=page.children.filter(child=>child!==root);
+ const startX=others.length?Math.min(...others.map(child=>child.x)):120;
+ const bottom=others.length?Math.max(...others.map(child=>child.y+child.height)):0;
+ // Stack below foundations; do not widen the whole Figma canvas into a tiny
+ // uninspectable dot on mobile and never move any owner-edited frame.
+ root.x=startX;root.y=bottom+120;
  label(root,'DASH / СИСТЕМА МАКЕТОВ И ЖИВЫХ КОМПОНЕНТОВ',1190,28,colors.ink,'Semi Bold');
  label(root,'Один файл · исходный HTML → реальный React → проектное решение → ручная приёмка в Figma',1180,15,colors.muted);
  const map=block(root,'Карта рабочих поверхностей',1200,'HORIZONTAL',null,15,0);
