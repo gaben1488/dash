@@ -124,6 +124,9 @@ jobs:
                 "operational_expected": publication.get("operational_available") is True,
             }, sort_keys=True))
             PYSTATUS
+              # Read-only loopback GET through the same published three Word routes as the UI.
+              # The smoke prints only fixed diagnostic labels, never document bytes.
+              docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B -m procurement_engine.deployment_smoke 2>/dev/null || echo 'native_word_http_readonly=BLOCKED'
             else
               echo 'report_status_readback=SERVER_NOT_RUNNING'
             fi
