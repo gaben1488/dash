@@ -487,3 +487,55 @@ describe('ЕП-обоснование при конкурентном спосо
     expect(found.some((c) => c.kind === 'ep_reason_on_competitive')).toBe(false);
   });
 });
+
+
+/** Регрессия задач 12–13: смысл отрицания, а не буквенное совпадение. */
+describe('оплата и отрицание — проверка двух колонок', () => {
+  const source = ref('УО', 331);
+
+  it('не читает «не оплачено» как заявление об оплате', () => {
+    const issues = detectCommentInconsistencies(source, {
+      Q: '18.08.2026', V: 0, W: 0, X: 0, Y: 0,
+      AE: 'Работы выполнены ранее, сумма не оплачена',
+    }, SNAPSHOT);
+    expect(issues.some((x) => x.kind === 'execution_claim_no_fact' && x.mechanism.includes('оплачено'))).toBe(false);
+  });
+
+  it('показывает конфликт двух колонок одной строки, не утверждая факт оплаты', () => {
+    const issues = detectCommentInconsistencies(source, {
+      G: 'Опрессовка отопления', Q: '18.08.2026', X: 45, Y: 45,
+      AE: 'Не оплачено 45000 за 2 здания',
+      AF: '45000 за 2 здания оплачено',
+    }, SNAPSHOT);
+    const conflicts = issues.filter((x) => x.kind === 'payment_text_conflict');
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.cell).toBe('AE331');
+    expect(conflicts[0]?.mechanism).toContain('AF331');
+    expect(conflicts[0]?.mechanism).toContain('разные моменты');
+    expect(conflicts[0]?.action).toContain('платёжным');
+  });
+
+  it('не превращает историю оплаты в конфликт внутри одной ячейки', () => {
+    const issues = detectCommentInconsistencies(source, {
+      AE: '01.08 не оплачено, 20.08 оплачено',
+    }, SNAPSHOT);
+    expect(issues.some((x) => x.kind === 'payment_text_conflict')).toBe(false);
+  });
+
+  it('совпадающие отрицания и совпадающие утверждения не конфликтуют', () => {
+    for (const [AE, AF] of [
+      ['Не оплачено', 'Оплата не произведена'],
+      ['Оплачено', 'Оплата произведена'],
+    ]) {
+      const issues = detectCommentInconsistencies(source, { AE, AF }, SNAPSHOT);
+      expect(issues.some((x) => x.kind === 'payment_text_conflict')).toBe(false);
+    }
+  });
+
+  it('наличие принятых обязательств само по себе не доказывает оплату', () => {
+    const issues = detectCommentInconsistencies(source, {
+      AE: 'Не оплачено', AF: 'Оплачено', X: 45, Y: 45,
+    }, SNAPSHOT);
+    expect(issues.some((x) => x.kind === 'payment_text_conflict')).toBe(true);
+  });
+});
