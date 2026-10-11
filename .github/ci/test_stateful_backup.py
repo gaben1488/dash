@@ -98,5 +98,53 @@ class StatefulBackupTests(unittest.TestCase):
         self.assertEqual(list(self.scratch.iterdir()), [])
 
 
+    def test_manifest_preserves_owner_mode_and_empty_directories(self):
+        import os
+        target = self.source / "reports" / "empty"
+        target.mkdir()
+        (self.source / "aemr.db").chmod(0o600)
+        made = self.run_cli("create", "--source", self.source, "--backup", self.backup)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        metadata = json.loads((self.backup / "manifest.json").read_text())["files"]
+        self.assertIn("reports/empty/", metadata)
+        self.assertEqual(metadata["aemr.db"]["mode"], 0o600)
+        self.assertEqual(metadata["aemr.db"]["uid"], os.stat(self.source / "aemr.db").st_uid)
+        restored = self.run_cli("verify", "--backup", self.backup,
+                                "--scratch-parent", self.scratch)
+        self.assertEqual(restored.returncode, 0, restored.stderr)
+
+    def test_wrapper_rejects_running_service_without_touching_volume(self):
+        import os
+        import textwrap
+        wrapper = SCRIPT.with_name("verify-state-backup.sh")
+        self.assertEqual(subprocess.run(
+            ["bash", "-n", str(wrapper)], capture_output=True, check=False).returncode, 0)
+        root = Path(self.temp.name)
+        fake = root / "bin"
+        fake.mkdir()
+        docker = fake / "docker"
+        docker.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import sys
+            args = sys.argv[1:]
+            if "compose" in args and "ps" in args and "server" in args:
+                print("server-id")
+            elif args and args[0] == "inspect":
+                print("running")
+            """))
+        docker.chmod(0o755)
+        output = root / "private-backups"
+        output.mkdir()
+        env = os.environ.copy()
+        env["PATH"] = str(fake) + os.pathsep + env.get("PATH", "")
+        result = subprocess.run(
+            ["bash", str(wrapper), str(output), "REL-test"],
+            text=True, capture_output=True, timeout=10, check=False, env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BACKUP_REQUIRES_SERVER_QUIESCENCE", result.stderr)
+        self.assertFalse((output / "REL-test").exists())
+
+
+
 if __name__ == "__main__":
     unittest.main()
