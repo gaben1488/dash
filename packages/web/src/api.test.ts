@@ -60,7 +60,7 @@ describe('production edge basic-auth compatibility', () => {
   it('does not overwrite the browser Basic authorization with a stale stored API bearer', async () => {
     vi.stubEnv('PROD', true);
     vi.stubGlobal('localStorage', { getItem: () => 'old-browser-token' });
-    const call = vi.fn(async () => fakeResponse());
+    const call = vi.fn(async (_url: string, _init: RequestInit) => fakeResponse());
     vi.stubGlobal('fetch', call);
     try {
       await fetchJSON('/report-releases?date=2026-10-11&year=2026&quarter=4');
