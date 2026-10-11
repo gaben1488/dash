@@ -79,6 +79,21 @@ it.each([
   expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
 });
 
+
+it('recovers from a transient Caddy 502 on the idempotent release-status GET', async () => {
+  let attempts = 0;
+  request.mockImplementation(async (url: string) => {
+    if (url.startsWith('/api/report-releases?') && ++attempts === 1) {
+      return { ok: false, status: 502, text: async () => 'gateway upstream unavailable' };
+    }
+    return response(receipt);
+  });
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id), { timeout: 5000 });
+  expect(attempts).toBe(2);
+  expect(result.current.status).not.toContain('Не удалось проверить');
+});
+
 it('distinguishes unavailable service from missing historical data', async () => {
   request.mockRejectedValue(new Error('offline'));
   const { result } = renderHook(() => useReportExport(context));
