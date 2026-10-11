@@ -1,6 +1,6 @@
 # Runbook
 
-Last verified: 2026-06-05.
+Основная историческая редакция: 05.06.2026. Релизные ограничения актуализированы 12.10.2026 (Asia/Kamchatka). Текущее состояние кандидата и допуски — issue #69 / PR #79; этот документ не подтверждает готовность production.
 
 ## Local Development
 
@@ -37,13 +37,16 @@ Before changing spreadsheet IDs, sheet names, or metric formulas:
 4. Run `pnpm -F @aemr/server test source-inventory.test.ts` for source defaults and runtime spreadsheet ID validation.
 5. Run the full verification block above before handoff.
 
-## Production Deploy
+## Выпуск в production
 
-```bash
-cd deploy
-cp .env.production.example .env.production
-docker compose --env-file .env.production up -d --build
-```
+Для действующего сервера применяется проверяемый exact-SHA release gate из
+[deploy/README.md](../deploy/README.md), а не прямой `compose up --build`.
+Перед выпуском обязательны отдельный допуск владельца, проверенная полная
+резервная копия и воспроизводимый откат к прежнему runtime и данным.
+`enable-reports.sh` не является диагностической командой: он может применять
+миграции и публиковать документы. Без допуска выполняется только read-only
+проверка. Обновление Caddy/доменного режима ниже также относится к разрешённому
+эксплуатационному окну; сами примеры не дают разрешения менять production.
 
 Required production variables:
 
@@ -133,27 +136,26 @@ docker compose --env-file .env.production logs -f server
 docker compose --env-file .env.production logs -f caddy
 ```
 
-## SQLite Backup
+## Резервная копия и восстановление постоянного состояния
 
-```bash
-cd deploy
-docker run --rm \
-  -v aemr_server_data:/data:ro \
-  -v "$PWD":/backup \
-  alpine sh -c 'cp /data/aemr.db /backup/aemr-db-$(date +%F-%H%M%S).db'
-```
+Копирование только `aemr.db` из работающего тома не является согласованной
+резервной копией: необходимо сохранить WAL, все SQLite-базы, RecommendationLedger,
+исторические входы, архивы, публикации и Word-документы из `server_data`.
+Исторические инструкции одиночного `cp` заменены этим контрактом.
 
-## SQLite Restore
+Используется существующий [verify-state-backup.sh](../deploy/verify-state-backup.sh)
+с закрытым каталогом вне репозитория и production-тома. Скрипт сам не останавливает
+писателей: согласованная остановка Node server, report-worker и отсутствие
+ручного запуска предварительно подтверждаются в разрешённом окне. Он проверяет
+полную копию и восстановление в изолированный scratch volume; исходный том
+монтируется только для чтения. Подробные условия и команда — в разделе
+«Полная резервная копия» [deploy/README.md](../deploy/README.md).
 
-```bash
-cd deploy
-docker compose --env-file .env.production stop server
-docker run --rm \
-  -v aemr_server_data:/data \
-  -v "$PWD":/backup \
-  alpine sh -c 'cp /backup/aemr.db /data/aemr.db && chown 1000:1000 /data/aemr.db'
-docker compose --env-file .env.production start server
-```
+Проверка scratch restore не означает принятый rollback приложения. До выпуска
+нужен отдельный запуск прежнего runtime над копией, проверка прежних документов,
+снимков и идентичности. `rollback.sh` возвращает код/образы, но сам по себе не
+восстанавливает постоянное состояние. Два самостоятельных успешных цикла worker
+и live-проверка трёх Word остаются отдельными критериями R07/R08/R10.
 
 ## Common Failures
 

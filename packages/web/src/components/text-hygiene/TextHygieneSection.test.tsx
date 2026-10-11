@@ -144,6 +144,28 @@ function renderSection() {
 }
 
 describe('TextHygieneSection', () => {
+  it('орфография также разбита на страницы без потери последней находки', async () => {
+    const language = Array.from({ length: 105 }, (_, i) => ({
+      ...WITH_FINDINGS.language[0]!,
+      cell: `M${i + 4}`,
+      row: i + 4,
+    }));
+    fetchJSONMock.mockResolvedValueOnce({
+      ...WITH_FINDINGS,
+      byDept: [],
+      language,
+      totals: { ...WITH_FINDINGS.totals, hygieneFindings: 0, languageFindings: 105 },
+    });
+    renderSection();
+    await waitFor(() => expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(100));
+    fireEvent.click(screen.getByRole('button', { name: 'Следующая страница орфографии' }));
+    expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(5);
+    expect(screen.getByText('ВСЕ · M108')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Следующая страница орфографии' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
   it('находка — строка таблицы: адрес, род, контекст, готовое значение (п.122)', async () => {
     fetchJSONMock.mockResolvedValueOnce(WITH_FINDINGS);
     renderSection();
@@ -218,9 +240,7 @@ describe('TextHygieneSection', () => {
     expect(screen.getByText(/частота слова сама по себе не доказывает ошибку/i)).toBeTruthy();
     expect(screen.getAllByTitle(/сверьте по смыслу и первоисточнику/).length).toBeGreaterThan(0);
   });
-
 });
-
 
 describe('копирование готового значения при запрете браузера', () => {
   it('использует запасное копирование после отказа Clipboard API', async () => {
@@ -242,11 +262,63 @@ describe('копирование готового значения при зап
     renderSection();
     await screen.findByText('ВСЕ · C2309');
     fireEvent.click(screen.getAllByLabelText('Скопировать готовое значение ячейки')[0]!);
-    const field = await screen.findByLabelText('Готовое значение для ручного копирования') as HTMLTextAreaElement;
+    const field = (await screen.findByLabelText('Готовое значение для ручного копирования')) as HTMLTextAreaElement;
     expect(field.value).toBe('МБДОУ ДС № 3 «Жар-Птица»');
     expect(field.readOnly).toBe(true);
     expect(field.selectionStart).toBe(0);
     expect(field.selectionEnd).toBe(field.value.length);
     expect(screen.getByText(/Скопируйте выделенный текст вручную/)).toBeTruthy();
   });
+});
+
+it('показывает большой перечень страницами, сохраняя все находки и общий счётчик', async () => {
+  const items = Array.from({ length: 205 }, (_, index) => ({
+    ...WITH_FINDINGS.byDept[0]!.items[0]!,
+    cell: `C${index + 4}`,
+    row: index + 4,
+  }));
+  fetchJSONMock.mockResolvedValueOnce({
+    ...WITH_FINDINGS,
+    language: [],
+    byDept: [{ ...WITH_FINDINGS.byDept[0]!, items }],
+    totals: { ...WITH_FINDINGS.totals, hygieneFindings: 205, languageFindings: 0 },
+  });
+  renderSection();
+  await screen.findByText('ВСЕ · C4');
+  expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(100);
+  expect(screen.getByText('205 из 205 находок')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  expect(screen.queryByText('ВСЕ · C4')).toBeNull();
+  expect(screen.getByText('ВСЕ · C104')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(5);
+  expect(screen.getByText('ВСЕ · C208')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Следующая страница дефектов набора' })).toHaveProperty('disabled', true);
+});
+
+it('сбрасывает страницу при отборе и ограничивает её при сокращении свежего ответа', async () => {
+  const items = Array.from({ length: 205 }, (_, index) => ({
+    ...WITH_FINDINGS.byDept[0]!.items[0]!,
+    cell: `C${index + 4}`,
+    row: index + 4,
+  }));
+  const large = {
+    ...WITH_FINDINGS,
+    language: [],
+    byDept: [{ ...WITH_FINDINGS.byDept[0]!, items }],
+    totals: { ...WITH_FINDINGS.totals, hygieneFindings: 205, languageFindings: 0 },
+  };
+  fetchJSONMock
+    .mockResolvedValueOnce(large)
+    .mockResolvedValueOnce({ ...large, byDept: [{ ...large.byDept[0]!, items: items.slice(0, 2) }] });
+  renderSection();
+  await screen.findByText('ВСЕ · C4');
+  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  fireEvent.click(screen.getByRole('button', { name: /имя подведа не по справочнику · 205/ }));
+  expect(screen.getByText('ВСЕ · C4')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Следующая страница дефектов набора' }));
+  fireEvent.click(screen.getByRole('button', { name: /перечитать/i }));
+  await waitFor(() => expect(screen.getAllByLabelText('Скопировать готовое значение ячейки')).toHaveLength(2));
+  expect(screen.getByText('ВСЕ · C4')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Следующая страница дефектов набора' })).toBeNull();
 });
