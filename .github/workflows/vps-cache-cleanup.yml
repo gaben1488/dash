@@ -81,6 +81,85 @@ jobs:
       - name: Remove all private runner copies and credentials
         if: always()
         run: sudo rm -rf "$RUNNER_TEMP/worker-backup"
+  current-worker-compat:
+    if: >-
+      github.event.label.name == 'maintenance: current-worker-compat' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Prove installed server image can read current worker inputs without writing
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 18m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --all --quiet server)
+            test -n "$server"
+            image=$(docker inspect --format '{{.Image}}' "$server")
+            volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/packages/server/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$server")
+            case "$volume" in ''|*[!A-Za-z0-9_.-]*) exit 2 ;; esac
+            probe=$(mktemp)
+            trap 'rm -f "$probe"' EXIT
+            docker run -i --rm --read-only --network aemr_aemr --tmpfs /tmp:rw,nosuid \
+              --env-file .env.production \
+              --mount "type=volume,src=$volume,dst=/app/packages/server/data,readonly" \
+              --entrypoint /opt/report-env/bin/python "$image" -B - >"$probe" 2>&1 <<'PYCOMPAT' || true
+            import json
+            from importlib.metadata import version
+            from pathlib import Path
+            from procurement_engine.google_adapter import GoogleReadClient, capture_google
+            from procurement_engine.runtime_inputs import validate_inputs
+            from procurement_engine.recommendation_history import issued_recommendations
+            try:
+                root = Path('/app/packages/server/data/reports/inputs')
+                registry = json.loads((root/'registry.json').read_text())
+                ledger = json.loads((root/'ledger.json').read_text())
+                validate_inputs(registry, ledger)
+                client = GoogleReadClient()
+                from procurement_engine.recommendation_history import read_google_history
+                current, _, metadata, package = read_google_history(client, issued_recommendations(ledger), include_package=True)
+                capture = capture_google(registry, client)
+                print(json.dumps({'installed_worker_capture': 'PASS',
+                    'engine_version': version('aemo-procurement-report-engine'),
+                    'source_count': len(registry['sources']), 'history_read': metadata is not None,
+                    'report_date': capture['report_date']}))
+            except Exception as exc:
+                code = str(exc).split(':', 1)[0]
+                permitted = {'MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH',
+                    'SOURCE_CHANGED_DURING_FREEZE', 'GOOGLE_AUTH_REFRESH_FAILED',
+                    'GOOGLE_CREDENTIALS_REQUIRED', 'GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT'}
+                print(json.dumps({'installed_worker_capture': 'BLOCKED',
+                    'reason': code if code in permitted else 'OTHER_READ_OR_CONTRACT_FAILURE'}))
+                raise SystemExit(2) from None
+            PYCOMPAT
+            python3 - "$probe" <<'PYRESULT'
+            import json, sys
+            from pathlib import Path
+            result = None
+            for line in Path(sys.argv[1]).read_text().splitlines():
+                try:
+                    item = json.loads(line)
+                    if isinstance(item, dict) and item.get('installed_worker_capture') in {'PASS', 'BLOCKED'}:
+                        result = item
+                except ValueError:
+                    pass
+            if not result:
+                print('INSTALLED_WORKER_CAPTURE_NO_PROOF')
+                sys.exit(2)
+            print(json.dumps(result))
+            sys.exit(0 if result['installed_worker_capture'] == 'PASS' else 2)
+            PYRESULT
   worker-recovery-preflight:
     if: >-
       github.event.label.name == 'maintenance: worker-recovery-preflight' &&
