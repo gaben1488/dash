@@ -369,11 +369,13 @@ jobs:
             # JS uses the Zod schema imported by browser code, but only GETs
             # an existing release through Fastify, without invoking refresh.
             docker compose --env-file .env.production exec -T server node --import tsx --input-type=module -e '
-              import { readFileSync } from "node:fs";
+              import { execFileSync } from "node:child_process";
               import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
               void(async()=>{
-                const status=JSON.parse(readFileSync("/app/packages/server/data/reports/status.json","utf8"));
-                const raw=status.publication?.report_date||status.report_date;
+                const saved=JSON.parse(execFileSync("/opt/report-env/bin/proc-report",
+                  ["read-publication","--state","/app/packages/server/data/reports","--view","status"],
+                  {encoding:"utf8",timeout:20000}));
+                const raw=saved.latest?.report_date;
                 if(typeof raw!=="string"||!/^\d{2}\.\d{2}\.\d{4}$/.test(raw)){
                   console.log(JSON.stringify({kind:"browser_word_status",result:"INVALID_SELECTED_DATE"}));return;
                 }
@@ -397,8 +399,10 @@ jobs:
             from pathlib import Path
             from urllib.request import Request, urlopen
             from urllib.error import HTTPError
-            state = json.loads(Path("/app/packages/server/data/reports/status.json").read_text())
-            day = (state.get("publication") or {}).get("report_date") or state.get("report_date")
+            from subprocess import check_output
+            state = json.loads(check_output(["/opt/report-env/bin/proc-report", "read-publication",
+                "--state", "/app/packages/server/data/reports", "--view", "status"],timeout=25))
+            day = (state.get("latest") or {}).get("report_date")
             if not isinstance(day, str) or not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", day):
                 print(json.dumps({"kind":"report_status_http_shape","result":"NO_DATE"}))
             else:
