@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-10",
+  "scope": "prototype only, production unchanged",
+  "sourceCommit": "2461209c8d0172c4acf94f5606452c589cd4f510",
+  "tests": {
+    "pass": 16,
+    "fail": 0,
+    "new_behavior_tests": 6,
+    "red_observed": true
+  },
+  "build": "passed",
+  "ui": {
+    "themes": [
+      "dark",
+      "light"
+    ],
+    "multiOrganizations": {
+      "rows": 3,
+      "plan": 6960,
+      "knownFact": 6352
+    },
+    "dismissKeepsVersion": true,
+    "replyDraftSurvivedRefresh": true,
+    "allEightTableColumnsRemain": true,
+    "partialQuarter": "mixed",
+    "motionOff": "none"
+  },
+  "limits": [
+    "production page parity not implemented in demo",
+    "mobile design incomplete",
+    "full accessibility matrix pending",
+    "real weekly archive and Drive write contracts pending",
+    "main test failures remain as documented"
+  ]
+}

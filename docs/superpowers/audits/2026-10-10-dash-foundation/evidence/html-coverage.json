@@ -1,0 +1,2602 @@
+{
+  "revision": "2461209c8d0172c4acf94f5606452c589cd4f510",
+  "current_originals": [
+    {
+      "path": "docs/superpowers/mockups/efir-uzel-schita.html",
+      "sha256": "c1dee596776c8aa3317daf5ed1eca6937157452068aa86ce3ed2dfc50c1a12da",
+      "bytes": 13685,
+      "text_chars": 2494,
+      "script_chars": 0,
+      "style_chars": 4531,
+      "headings": [
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Узел эфира в правом углу линейки предложение"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": "обновлено 3 мин назад 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "последнее чтение 47 мин назад 0"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "обновлено 3 мин назад 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Что изменилось 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Комментарии 3"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Откуда числа"
+        }
+      ],
+      "handlers": [],
+      "media": [],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/otdelki.html",
+      "sha256": "7d7f6fb98dabee03bcc29e0db85a180ba7cba85db0c55d1656b5889129e69598",
+      "bytes": 51509,
+      "text_chars": 4829,
+      "script_chars": 1908,
+      "style_chars": 24739,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Отделки Пульса — как утверждённые цвета играют в материале"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "1 · Сетка «цвет × отделка»"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "2 · Шесть узлов продукта в трёх собранных направлениях"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "А · Сдержанный металл"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Б · Заря-кэнди"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "В · Жидкое стекло"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "3 · Искра глины — ксираллик на полосе тревоги"
+        }
+      ],
+      "buttons": [],
+      "handlers": [],
+      "media": [
+        "@media (max-width:760px)",
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/palette-and-controls.html",
+      "sha256": "58fa9ed94008618f47ce52a766b6f646f17cbb4d975c2a42020ca2513111b662",
+      "bytes": 91736,
+      "text_chars": 15340,
+      "script_chars": 9994,
+      "style_chars": 24201,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Палитра и элементы: образец на согласование"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Три палитры на одном и том же куске продукта"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Ведомственный сигнал"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Приборная панель"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Печатный свод"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Набор элементов в рекомендованной палитре"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Два рода углубления, живьём"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Что рекомендуется и почему"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": "theme",
+          "text": "Светлая тема"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть реестр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть реестр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть реестр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть реестр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть реестр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть реестр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять фильтры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять фильтры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять фильтры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять фильтры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять фильтры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять фильтры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "×"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "×"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "×"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "×"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2024"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сбросить"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2025"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сбросить"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сбросить"
+        },
+        {
+          "tag": "button",
+          "id": "accbtn",
+          "text": "▾ Экономия за 2026 год · район 85 508,89 тыс. руб., это 4,0 % плана"
+        },
+        {
+          "tag": "button",
+          "id": "godeep",
+          "text": "Открыть 7 критических замечаний →"
+        },
+        {
+          "tag": "button",
+          "id": "goback",
+          "text": "← К обзору управления образования"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (prefers-reduced-motion: reduce) ",
+        "@media (max-width: 1080px) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (max-width: 900px) ",
+        "@media (hover: hover) and (pointer: fine) "
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/pulse.html",
+      "sha256": "65bfc00c5fdb591408799137f1dce8e0c9572b570d62b6cf37e94cc1e3b040b5",
+      "bytes": 684063,
+      "text_chars": 93603,
+      "script_chars": 86304,
+      "style_chars": 174686,
+      "headings": [
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Рабочий стол"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Опаздываем по плановым датам"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Наступает срок за четырнадцать дней"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Не заключено в третьем квартале"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Операционная нагрузка: чем занят район"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Дисциплина планирования"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Анализ экономии: что осталось и что не отмечено"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Строки ждут правки в книгах"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Свод не видит эти строки"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Не размечен вид у закупок в течение года"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Три источника не сходятся между собой"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Похожие закупки ниже порога"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "План снижён задним числом"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Суммы не похожи на настоящие"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Замечания, к которым нет действия"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Что правили в книгах за неделю"
+        },
+        {
+          "tag": "h2",
+          "id": "vr-title",
+          "text": "Витрина района"
+        },
+        {
+          "tag": "h3",
+          "id": "vr-exec-h",
+          "text": "Район освоил 85,8 % плана, и хуже всех идёт краевой рубль — 72,4 % против 90,0 % местного"
+        },
+        {
+          "tag": "h3",
+          "id": "vr-seas-h",
+          "text": "Год открыл январь — 25,7 % факта в первый же месяц; сентябрь — декабрь ещё не наступили и не оцениваются"
+        },
+        {
+          "tag": "h3",
+          "id": "vr-meth-h",
+          "text": "По деньгам способы почти пополам, по штукам — один к семи"
+        },
+        {
+          "tag": "h3",
+          "id": "vr-eco-h",
+          "text": "Экономия района — 102,7 млн руб., но в отчёт не идёт каждый шестой рубль"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Объяснения"
+        },
+        {
+          "tag": "h4",
+          "id": null,
+          "text": "Три следа одной ячейки на одной оси времени"
+        },
+        {
+          "tag": "h4",
+          "id": null,
+          "text": "Обратный разрыв: объяснение есть, правки нет"
+        },
+        {
+          "tag": "h4",
+          "id": null,
+          "text": "Перечень объяснений"
+        },
+        {
+          "tag": "h4",
+          "id": null,
+          "text": "Кто объясняет свои правки"
+        },
+        {
+          "tag": "h4",
+          "id": null,
+          "text": "Чего эта вкладка не знает"
+        },
+        {
+          "tag": "h2",
+          "id": "dolgi-h",
+          "text": "Что не сделано"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": "47"
+        },
+        {
+          "tag": "button",
+          "id": "сброс-периода",
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2025"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2027"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "все чтения"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "по уведомлению"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "по расписанию"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "вручную"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "полная перекачка"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "только с расхождениями"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "показать ещё 43 правки этого чтения"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "показать остальные 25 изменений значений"
+        },
+        {
+          "tag": "button",
+          "id": "кнопка-темы",
+          "text": "Светлая тема Тёмная тема"
+        },
+        {
+          "tag": "button",
+          "id": "отбор-сброс",
+          "text": "вернуть весь 2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ЕП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ПМ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ТД"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ФБ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КБ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "МБ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "тыс"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "млн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ФБ · 87,6 % 16,7 % плана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КБ · 72,4 % 21,6 % плана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "МБ · 90,0 % 61,7 % плана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ЭА · 80,7 % 59,5 % плана, 494 процедуры"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ЕП · 93,2 % 40,5 % плана, 3 428 строк"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Реестр: не заключено, конкурентный способ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "98,7 % 22,3 % плана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "86 % 9,2 % плана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "96,2 % 8,9 % плана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "67,8 % месяц идёт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ещё не наступил план 55 844,47"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "—"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "— план 154 901,70"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ещё не наступил план 392 839,55 — 21,3 % года"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Реестр: осенний план, не заключено"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Конкуренция: ЕП дороже 600 тыс."
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ФБ 26,1 %"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КБ 21,2 %"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "МБ 52,7 %"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Экономия: строки без отметки «учитывать»"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "47"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "…"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "!"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (max-width:1279px)",
+        "@media (max-width:900px)",
+        "@media (prefers-reduced-motion:reduce)",
+        "@media (prefers-reduced-motion:reduce)",
+        "@media (prefers-reduced-motion:reduce)",
+        "@media (prefers-reduced-motion:reduce)",
+        "@media (max-width:1180px)",
+        "@media (max-width:720px)",
+        "@media (max-width:1180px)",
+        "@media (prefers-reduced-motion:reduce)",
+        "@media (prefers-color-scheme: light) ",
+        "@media (max-width: 1180px) ",
+        "@media (max-width: 720px) ",
+        "@media (max-width: 560px) ",
+        "@media (max-width: 480px) ",
+        "@media (prefers-color-scheme: light) ",
+        "@media (max-width: 1180px) ",
+        "@media (max-width: 760px) ",
+        "@media (prefers-reduced-motion: reduce) ",
+        "@media (max-width: 1440px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "@media (max-width: 900px)",
+        "@media (max-width:720px)",
+        "@media (max-width:1600px)",
+        "@media (max-width:1400px)",
+        "@media (max-width:1180px)",
+        "@media (prefers-reduced-motion:reduce)",
+        "@media (prefers-reduced-motion:reduce)"
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/ugol-otbora-krupno.html",
+      "sha256": "4fb657c9152c706608689cbc47c9644ebb2b5aae01bad39b0b866cb1e5f5ddd9",
+      "bytes": 73128,
+      "text_chars": 1045,
+      "script_chars": 14266,
+      "style_chars": 31523,
+      "headings": [],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "обновлено 1 минуту назад 1 мин"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Пришло уведомление"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Книга прочитана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Прочитана, правок нет"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Весь путь целиком"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Тишина"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Нет связи"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Отбор: пять осей"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Отбор: умолчание"
+        },
+        {
+          "tag": "button",
+          "id": "tema",
+          "text": "тема"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (max-width: 1440px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "@media (max-width:1560px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "@media (max-width:760px)",
+        "@media (max-width:1200px)"
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/ugol-v-linejke-demo.html",
+      "sha256": "d19864a48c14cba834233495929ecfcb0f020407110fa2c30382328017f888a0",
+      "bytes": 75167,
+      "text_chars": 1147,
+      "script_chars": 14335,
+      "style_chars": 32932,
+      "headings": [],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "обновлено 1 минуту назад 1 мин"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Пришло уведомление"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Книга прочитана"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Прочитана, правок нет"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Весь путь целиком"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Тишина"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Нет связи"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Отбор: пять осей"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Отбор: умолчание"
+        },
+        {
+          "tag": "button",
+          "id": "tema",
+          "text": "Светлая тема"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (max-width:1180px)",
+        "@media (max-width: 1440px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "@media (max-width:1560px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "@media (max-width:760px)",
+        "@media (max-width:1200px)",
+        "@media (max-width:1180px)"
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/ugol-varianty.html",
+      "sha256": "3af324092100497551e3a5ed00a9fc61bc293272287c0229d2d3575ba89b1434",
+      "bytes": 18684,
+      "text_chars": 1948,
+      "script_chars": 3081,
+      "style_chars": 6449,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Угол отбора — три варианта"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "А. Решётка 12 ячеек (нынешний)"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Б. Прибор со счётом"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "В. Жетоны по-осево"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Текстовка варианта Б — уже по замене (из разбора, §6)"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": ""
+        },
+        {
+          "tag": "button",
+          "id": "прибор",
+          "text": "3"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": "домой",
+          "text": "Показать весь 2026 год"
+        },
+        {
+          "tag": "button",
+          "id": "вернуть",
+          "text": "Вернуть"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сбросить"
+        }
+      ],
+      "handlers": [],
+      "media": [],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/zarya-arheologiya.html",
+      "sha256": "47f14d7236d04eea27dccc387e2c5face41677ce7065b8be25f466b820ef5ee0",
+      "bytes": 17369,
+      "text_chars": 2958,
+      "script_chars": 0,
+      "style_chars": 7857,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Заря: археология по гиту"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "0 · НАСТОЯЩАЯ ЗАРЯ — найдена по снимку владельца"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "1 · Эпоха 853548a — как было на самом деле"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "2 · Момент лага — то, что выглядело «чертовски красиво»"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "3 · Нынешняя заря — моя интерпретация, для честного сравнения"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "4 · Те же три состояния на свету"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ЕП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "тыс"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "живой лаг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "лаг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "сейчас"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (prefers-reduced-motion:reduce)"
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/mockups/zarya-vystavka.html",
+      "sha256": "0cd437b8b28bab70d2efb2799c3e4d11b32c92adda9375af160ecd0e23ab7770",
+      "bytes": 171707,
+      "text_chars": 24189,
+      "script_chars": 28284,
+      "style_chars": 59906,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Заря живьём — выставка к приёмке"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "1 · Сверка с живым образцом 7–10.08 — попиксельная реконструкция, не пересказ"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Таблица сверки (тёмная тема; состояние снимка: 2026 полный год, «ВСЕ» включена)"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Фрагмент реконструкции — правила 853548a дословно"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Вердикт реконструкции — дословно"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "2 · Матрица живьём — 63 клетки «элементы × состояния»"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "3 · Живая заря — рассвет дышит внутри предмета"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Дышит, отвечает мыши, нажимается"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "При запрете движения — статичная пара §20.1"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "4 · Отделки × заря — шесть машинных физик несут рассвет"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "5 · Стекло без регрессий — заря ПОД барабаном"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "6 · Семейства вкладок — тематические небеса, выбор за владельцем"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Как сейчас в проде — линейка §20.1 путь А"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "7 · Модные стили — заря внутри приёма, вердикт каждому"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Жидкое стекло / стеклянность"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Aurora / mesh-градиенты"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Зернистые градиенты"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Глиняная объёмность (claymorphism)"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Возвращение хрома и металла"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Голографика и иридисценция"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Enterprise-минимализм (hairline-кромки, тонкая типографика)"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Бенто-сетки"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Мягкая неоморфность (soft UI)"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Фонарик за курсором (spotlight / glow)"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Нарастающее размытие кромок (progressive blur)"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": "тумблер",
+          "text": "Свет"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "×"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2025"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2027"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ЕП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ПМ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ТД-ПМ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ТД"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "×"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2025"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2026"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2027"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Янв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Фев"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Мар"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "2кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Апр"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Май"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июн"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "3кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Июл"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Авг"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сен"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4кв"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Окт"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Ноя"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Дек"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "КП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ЕП"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ВСЕ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ПМ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ТД-ПМ"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "ТД"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Выдавлено из бумаги — нажмите"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-22-controls-sample.html",
+      "sha256": "d4f4841ec9c7adec25d286df35a6abfb200fc3f950885fe75947761bc349b906",
+      "bytes": 30615,
+      "text_chars": 3551,
+      "script_chars": 2461,
+      "style_chars": 13926,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Оттиск"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Кнопка в трёх видах"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Переключатель режима, включая «частично»"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Сегменты: один из нескольких"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Чип фильтра со снятием"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Два рода углубления"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Что здесь замерено"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть выгрузку"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Скрыть служебные"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Снять сверку"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Обновить"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Обновить"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Обновить"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сверить с отчётом"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "✕"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "и ещё 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Экономия за квартал — 4,1 %"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Открыть 47 строк"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "К обзору квартала"
+        }
+      ],
+      "handlers": [
+        {
+          "tag": "input",
+          "event": "onchange",
+          "code": "tog(this)"
+        },
+        {
+          "tag": "input",
+          "event": "onchange",
+          "code": "tog(this)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "drop(this)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "drop(this)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "drop(this)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "drop(this)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "disc(this)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "deep(1)"
+        },
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "deep(0)"
+        }
+      ],
+      "media": [
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (max-width: 760px) ",
+        "@media (hover: hover) and (pointer: fine) ",
+        "@media (prefers-reduced-motion: reduce) "
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-22-design-baseline-mockup.html",
+      "sha256": "c5cda6cb1b80e0703b50b659cb06fed4b76a4b9a1ecbed6cca96ce91c7c73ef0",
+      "bytes": 72274,
+      "text_chars": 13351,
+      "script_chars": 0,
+      "style_chars": 23076,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Облик: база, сегодня, предложение"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "1. Верхняя линейка"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "2. Палитра"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "3. Карточка Пульса: приписка против предмета"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "4. Решения владельца, применённые в макете"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Узел эфира в правом углу линейки предложение"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "5. Вкладка «Объяснения» предложение, данные живые"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Сменить тему"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "обновлено 3 мин назад 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "последнее чтение 47 мин назад 0"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "обновлено 3 мин назад 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Что изменилось 7"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Комментарии 3"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "Откуда числа"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "72 ждут ответа 68 — дольше месяца"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "16 правок предложено и не применено"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "4 /9 книги молчат ни одного объяснения"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "1 дн. срединный ответ самый долгий — 119"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "6 удалено след есть, текста нет"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "строка →"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "строка →"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "строка →"
+        },
+        {
+          "tag": "button",
+          "id": null,
+          "text": "свернуть"
+        }
+      ],
+      "handlers": [
+        {
+          "tag": "button",
+          "event": "onclick",
+          "code": "var к=document.documentElement;к.dataset.theme=(к.dataset.theme==='light'?'dark':'light')"
+        }
+      ],
+      "media": [
+        "@media (max-width: 860px) ",
+        "@media (max-width: 860px) "
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-22-palette-sample.html",
+      "sha256": "597f7089081667bacce5f6a3301ad4ac244a40b5b7dc119f6cafa1b398c4806b",
+      "bytes": 26247,
+      "text_chars": 3997,
+      "script_chars": 3671,
+      "style_chars": 6572,
+      "headings": [
+        {
+          "tag": "h1",
+          "id": null,
+          "text": "Заря: палитра продукта"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Четыре роли красок"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Заря — крем и лазурь"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Глина — тревога"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Платина — металлик-нейтраль"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Графит — поверхности без синевы"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Заря на хроме — как пара работает по роли"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Три вида полноты периода"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Вкладки — тринадцать характеров, группы по три-четыре"
+        },
+        {
+          "tag": "h2",
+          "id": null,
+          "text": "Заря каждой вкладки — пары и посчитанные контрасты"
+        },
+        {
+          "tag": "h3",
+          "id": null,
+          "text": "Правила, которые страница закрепляет"
+        }
+      ],
+      "buttons": [
+        {
+          "tag": "button",
+          "id": "кнопка-темы",
+          "text": "Свет"
+        }
+      ],
+      "handlers": [],
+      "media": [
+        "@media (max-width: 860px) "
+      ],
+      "browser_opened": true,
+      "review_scope": "Semantic sections, labels, interaction model, important CSS; selected browser states. Not exhaustive accessibility or all-state verification.",
+      "screenshot": "see HTML-REVIEW.md; not every opened file retained as image"
+    }
+  ],
+  "historical_original": {
+    "path": "prototype.html",
+    "revision": "22d35c0",
+    "browser_opened": true,
+    "reviewed": "Full extracted text and JavaScript; dashboard and row-browser states",
+    "sha256": "d45025bd68a8caed8e4f8ff64b506125865d267aaa4cfd73f779443b1905bd9a"
+  }
+}

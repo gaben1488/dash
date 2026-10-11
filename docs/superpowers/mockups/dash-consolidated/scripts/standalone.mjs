@@ -1,0 +1,12 @@
+import { readFile, writeFile } from 'node:fs/promises';
+const root = new URL('../', import.meta.url);
+let html = await readFile(new URL('dist/client/index.html', root), 'utf8');
+const script = html.match(/<script[^>]+src="([^"]+)"[^>]*><\/script>/);
+const style = html.match(/<link[^>]+href="([^"]+\.css)"[^>]*>/);
+if (!script || !style) throw new Error('Expected one Vite JavaScript bundle and stylesheet');
+const js = await readFile(new URL('dist/client' + script[1], root), 'utf8');
+const css = await readFile(new URL('dist/client' + style[1], root), 'utf8');
+html = html.replace(script[0], () => '<script type="module">' + js.replaceAll('</script', '<\\/script') + '</script>');
+html = html.replace(style[0], () => '<style>' + css + '</style>');
+await writeFile(new URL('Dash-concept.html', root), html.replace(/[ \t]+$/gm, ''));
+console.log('Created Dash-concept.html: bundled UI, data and styles; Google Fonts is optional.');

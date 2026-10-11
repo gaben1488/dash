@@ -1,0 +1,179 @@
+{
+  "revision": "2461209c8d0172c4acf94f5606452c589cd4f510",
+  "date": "2026-10-10",
+  "environment": {
+    "node": "24.19.0",
+    "pnpm": "10.33.0",
+    "ciNode": "22"
+  },
+  "productionCodeChanged": false,
+  "lockfileChanged": false,
+  "ci": {
+    "run": 37916827475,
+    "url": "https://github.com/gaben1488/dash/actions/runs/37916827475",
+    "conclusion": "success",
+    "includes": [
+      "lint",
+      "typecheck",
+      "tests",
+      "build",
+      "audit",
+      "report-engine checks",
+      "production image checks",
+      "deployment job"
+    ],
+    "limitation": "Existing CI run of inspected main; not a new deployment triggered by this audit"
+  },
+  "checks": [
+    {
+      "name": "install",
+      "command": "pnpm install --frozen-lockfile --reporter=append-only --fetch-retries=1 --fetch-timeout=25000",
+      "status": "passed"
+    },
+    {
+      "name": "lint",
+      "command": "pnpm lint",
+      "status": "passed",
+      "errors": 0,
+      "warnings": 295
+    },
+    {
+      "name": "typecheck",
+      "command": "pnpm typecheck",
+      "status": "passed"
+    },
+    {
+      "name": "build",
+      "command": "pnpm build",
+      "status": "passed",
+      "warning": "Some web chunks >500 kB; main index ~2.47 MB uncompressed / 442 kB gzip"
+    },
+    {
+      "name": "braces",
+      "command": "pnpm verify:braces-patch",
+      "status": "passed"
+    },
+    {
+      "name": "audit",
+      "command": "pnpm audit --audit-level moderate",
+      "status": "passed",
+      "note": "Exit 0 under existing allowlist: output reports 1 high vulnerability, 1 ignored; not zero vulnerabilities"
+    },
+    {
+      "name": "tests",
+      "command": "pnpm -r test",
+      "status": "failed",
+      "exitCode": 1,
+      "summary": [
+        "packages/shared test:  Test Files  45 passed (45)",
+        "packages/shared test:       Tests  646 passed (646)",
+        "packages/shared test:    Duration  28.69s (transform 49.13s, setup 0ms, import 69.90s, tests 8.28s, environment 20ms)",
+        "packages/core test:  Test Files  75 passed | 1 skipped (76)",
+        "packages/core test:       Tests  1740 passed | 1 skipped (1741)",
+        "packages/core test:    Duration  40.50s (transform 48.11s, setup 0ms, import 145.09s, tests 18.08s, environment 61ms)",
+        "packages/server test:  Test Files  3 failed | 106 passed (109)",
+        "packages/server test:       Tests  6 failed | 799 passed (805)",
+        "packages/server test:    Duration  295.80s (transform 100.77s, setup 0ms, import 396.22s, tests 1270.27s, environment 152ms)"
+      ],
+      "failedCases": [
+        "packages/server test:  FAIL  src/services/google-sheets-dept-errors.test.ts > fetchDepartmentSpreadsheets — per-candidate error handling > keys errors[] by the plain department name, not a mangled string parsed from the error message",
+        "packages/server test:  FAIL  src/services/google-sheets-dept-errors.test.ts > fetchDepartmentSpreadsheets — per-candidate error handling > surfaces a rate-limit error distinctly instead of masking it as \"not found\", and stops probing further name candidates",
+        "packages/server test:  FAIL  src/services/snapshot.test.ts > getSnapshot — дедупликация конкурентных загрузок (TOCTOU, B-9) > два параллельных force-refresh вызова шарят один in-flight load, а не гоняют createSnapshot дважды",
+        "packages/server test:  FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > привязывает шапки, формулы и все процедурные листы к тому же snapshot.id",
+        "packages/server test:  FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > несовпадение хотя бы одной master-строки с уже сохранённым rowsByDept запрещает seal",
+        "packages/server test:  FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > отсутствие формульного чтения хотя бы одной книги запрещает seal"
+      ]
+    },
+    {
+      "name": "server-bounded",
+      "command": "pnpm --filter @aemr/server exec vitest run --maxWorkers=2",
+      "status": "failed",
+      "exitCode": 1,
+      "summary": [
+        "Test Files  2 failed | 107 passed (109)",
+        "Tests  5 failed | 800 passed (805)",
+        "Duration  306.87s (transform 25.97s, setup 0ms, import 102.34s, tests 410.93s, environment 76ms)"
+      ],
+      "failedCases": [
+        "FAIL  src/services/snapshot.test.ts > getSnapshot — дедупликация конкурентных загрузок (TOCTOU, B-9) > два параллельных force-refresh вызова шарят один in-flight load, а не гоняют createSnapshot дважды",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > привязывает шапки, формулы и все процедурные листы к тому же snapshot.id",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > несовпадение хотя бы одной master-строки с уже сохранённым rowsByDept запрещает seal",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > отсутствие формульного чтения хотя бы одной книги запрещает seal",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > неполный процедурный периметр запрещает seal независимо от заявленного expectedSheets"
+      ]
+    },
+    {
+      "name": "web-bounded",
+      "command": "pnpm --filter @aemr/web exec vitest run --maxWorkers=2",
+      "status": "failed",
+      "exitCode": 1,
+      "summary": [
+        "Test Files  3 failed | 191 passed (194)",
+        "Tests  7 failed | 2080 passed (2087)",
+        "Duration  375.22s (transform 64.95s, setup 0ms, import 252.58s, tests 147.68s, environment 171.41s)"
+      ],
+      "failedCases": [
+        "FAIL  src/pages/Monitoring.test.tsx > ежедневный сценарий канонического реестра > открывает строку без кода и возвращает к прежней очереди",
+        "FAIL  src/pages/Monitoring.test.tsx > ежедневный сценарий канонического реестра > сохраняет успешную очередь во время обновления и после отказа",
+        "FAIL  src/pages/Report.exports.test.tsx > keeps three native Word actions on one frozen release instead of the browser renderer",
+        "FAIL  src/pages/Report.exports.test.tsx > changing quarter clears the previous download and explains a missing matching bundle",
+        "FAIL  src/pages/Report.exports.test.tsx > an archive selection never downloads the current release",
+        "FAIL  src/pages/Report.exports.test.tsx > prepares and downloads the full frozen archive even when the old dashboard snapshot is unavailable",
+        "FAIL  src/components/monitoring/RegistryTable.test.tsx > порция ограничивает только показ и позволяет открыть последнюю процедуру отбора"
+      ]
+    },
+    {
+      "name": "server-isolated",
+      "command": "pnpm --filter @aemr/server exec vitest run src/services/weekly-table-context.test.ts src/services/snapshot.test.ts --maxWorkers=1",
+      "status": "failed",
+      "exitCode": 1,
+      "summary": [
+        "Test Files  1 failed | 1 passed (2)",
+        "Tests  4 failed | 5 passed (9)",
+        "Duration  28.03s (transform 11.51s, setup 0ms, import 861ms, tests 24.22s, environment 1ms)"
+      ],
+      "failedCases": [
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > привязывает шапки, формулы и все процедурные листы к тому же snapshot.id",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > несовпадение хотя бы одной master-строки с уже сохранённым rowsByDept запрещает seal",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > отсутствие формульного чтения хотя бы одной книги запрещает seal",
+        "FAIL  src/services/weekly-table-context.test.ts > sealWeeklyTableContext — недельный snapshot таблиц > неполный процедурный периметр запрещает seal независимо от заявленного expectedSheets"
+      ]
+    },
+    {
+      "name": "numbering-reproduction",
+      "status": "confirmed_disagreement",
+      "input": [
+        "173",
+        "173/1",
+        "173/2"
+      ],
+      "evidence": "numbering-reproduction.json",
+      "note": "Imported current shared source through node --import tsx; no production edits. Direct tsx CLI first failed trying to open an unnecessary IPC socket."
+    },
+    {
+      "name": "web-isolated",
+      "command": "pnpm --filter @aemr/web exec vitest run src/components/monitoring/RegistryTable.test.tsx src/pages/Monitoring.test.tsx src/pages/Report.exports.test.tsx --maxWorkers=1",
+      "exitCode": 1,
+      "status": "failed",
+      "summary": [
+        "Test Files  2 failed | 1 passed (3)",
+        "Tests  5 failed | 20 passed (25)",
+        "Duration  91.90s (transform 12.29s, setup 0ms, import 22.63s, tests 45.83s, environment 18.95s)"
+      ],
+      "failedCases": [
+        "FAIL  src/pages/Report.exports.test.tsx > keeps three native Word actions on one frozen release instead of the browser renderer",
+        "FAIL  src/pages/Report.exports.test.tsx > changing quarter clears the previous download and explains a missing matching bundle",
+        "FAIL  src/pages/Report.exports.test.tsx > an archive selection never downloads the current release",
+        "FAIL  src/pages/Report.exports.test.tsx > prepares and downloads the full frozen archive even when the old dashboard snapshot is unavailable",
+        "FAIL  src/components/monitoring/RegistryTable.test.tsx > порция ограничивает только показ и позволяет открыть последнюю процедуру отбора"
+      ]
+    }
+  ],
+  "unresolved": [
+    "Local weekly-table-context timeouts and following state assertion failure persist with one worker. Root cause not established.",
+    "Server snapshot test passed on isolated rerun; a full-suite timeout does not establish a deterministic business-logic defect.",
+    "Web isolated rerun: Monitoring passed; Report.exports (4 failures) and RegistryTable (1 timeout) remain unresolved.",
+    "Local Node differs from CI Node; causality not established.",
+    "Python and Docker checks not repeated locally; evidence comes from the existing CI run."
+  ]
+}
