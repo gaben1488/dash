@@ -59,6 +59,219 @@ function textRow(parent,caption,w,color,bg){
  const row=block(parent,'Строка / '+caption,w,'VERTICAL',bg,3,8);
  label(row,caption,w-16,12,color);return row;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+ * Page-specific, source-constrained editable views.
+ * These are visual design proposals, NOT a rendering of real React output:
+ * no real KPIs, customers, Word releases, secrets or authoritative counts.
+ * Every real secondary tab has its OWN content, rather than an inert tab chip.
+ * Existing generated frames are extended rather than deleted or replaced.
+ * ════════════════════════════════════════════════════════════════════════ */
+const ROUTE_LAYOUTS={
+ dashboard:{
+  metric:['Исполнение · по количеству и сумме','Экономия · только при применимом основании','Доверие · есть проверка / нет проверки'],
+  table:['ГРБС','Исполнение, %','По сумме, %','Доверие','Изменения'],
+  subjects:['УЭР','УИО','УАГЗО','УФБП','УД','УДТХ','УКСиМП','УО'],
+  sections:['Срез источника и дата данных','Крупный круг: управление → подведы → закупки',
+   'Исполнение: два знаменателя без усреднения процентов','Рейтинг управлений · переход в источник','Объяснение отклонений и условий расчёта'],
+  states:['Загрузка всех книг','Частичный снимок','Снимок прочитан','Источника нет'],
+  action:'Открыть первичную закупку и восстановить прежний отбор'
+ },
+ report:{
+  metric:['Исполнение: 67,5 % · демонстрация','Экономия: неизвестно до сверки','Выпуск Word: не подтверждён'],
+  table:['Раздел','План, тыс. ₽','Факт, тыс. ₽','Статус','Доказательство'],
+  subjects:['Итоговая сводка','УЭР','УИО','УАГЗО','УФБП','УД','УДТХ','УКСиМП','УО'],
+  sections:['Документный лист, а не ряд произвольных KPI','Оглавление со всеми восемью ГРБС','Версия, правила и происхождение чисел',
+    'Основной Word / дополнительный Word / оперативный Word','Рекомендации и изменения недели по источнику'],
+  states:['Прямой эфир','Архив недели','Релиз готов','Worker недоступен'],
+  action:'Проверить исходные данные перед созданием Word'
+ },
+ svod:{
+  metric:['Официально · исходная ячейка','Пересчитано · версия правил','Расхождение · открываемое основание'],
+  table:['Показатель','Официально','Пересчитано','Дельта','Источник'],
+  subjects:['План','Факт','Экономия','Количество процедур'],
+  sections:['Строго единые единицы измерения','Две версии и первоисточник одновременно',
+    'Таблица по способу и бюджету','Расхождение не равно ошибке','Формула/значение/адрес раздельно'],
+  states:['Совпало','Есть разница','Не прочитано','Формула недоступна'],
+  action:'Открыть ячейку, которая объясняет дельту'
+ },
+ data:{
+  metric:['Полный №: 173/1 ≠ 173/2','Строка и подведомственное учреждение','Редактирование с повторной сверкой'],
+  table:['№ п/п','Предмет закупки','ГРБС/подвед','План','Факт','Статус'],
+  subjects:['173/1 · учебный предмет №1','173/2 · учебный предмет №2','234 · учебный предмет №3'],
+  sections:['Просмотр таблицы со всеми полями','Редактор таблиц · защита формул','Инспектор закупки справа и обратный переход',
+    'Формула, вычисленное значение и примечание','Drive-обсуждение и AF / AG / AH по отдельности'],
+  states:['Выбрана строка','Конфликт редактирования','Нет прав на запись','Чтение источника'],
+  action:'Изменить только подтверждённое поле без потери формулы'
+ },
+ unfunded:{
+  metric:['Финансирование не подтверждено','Год плана ≠ деньги','Причина и следующее действие'],
+  table:['№ п/п','Предмет','Причина включения','Финансирование','Источник'],
+  subjects:['173/1 · пример для разбора','Проверить источник бюджета','Не подменять отсутствие года'],
+  sections:['Корзина на общей модели закупки','Почему запись здесь','Не выдавать null за 0 ₽',
+    'Просмотр и редактор на тех же исходных полях','Кто может подтвердить основание'],
+  states:['Причина установлена','Требует уточнения','Данных нет','Источник прочитан'],
+  action:'Подтвердить основание после прочтения источника'
+ },
+ yearlong:{
+  metric:['Повторяемость не равна дублю','Правило вида серии сохранено','История решений отдельно'],
+  table:['№ п/п','Категория серии','Период','Этап','Источник'],
+  subjects:['Платежи в течение года','Серии договоров','План / факт по периодам'],
+  sections:['Текущая категория не скрывается','Виды серий с правилами','Не назначать техническую дату плана',
+    'Раскрытие отдельных исполнений','Оверрайды прежней разметки не теряются'],
+  states:['Продолжается','Завершена','Нужно уточнение','Есть история решений'],
+  action:'Проверить ряд исходных исполнений без потери группировки'
+ },
+ monitoring:{
+  metric:['Процедуры в работе','Исправление данных отдельно','Связь с планом · many-to-many'],
+  table:['Код процедуры','Заказчик','Предмет','Этап','Следующее действие','Дата'],
+  subjects:['ЭА101-26 · пример процедуры','ЭА102-26 · пример процедуры','ЭЗК103-26 · пример'],
+  sections:['В работе: очередь действий, а не общий список замечаний','Реестр: все поля процедуры',
+    'Обзор: суммы и периоды без догадок','Связи: план ↔ процедура по основанию',
+    'Справочники: текущие и исторические названия'],
+  states:['В работе','Ожидает исправления','Завершена','Нет первички'],
+  action:'Открыть процедуру и проверить основание связи с планом'
+ },
+ economy:{
+  metric:['Подтверждённая экономия','Расчёт: Z+AA+AB при AD=да','Плановый резерв отдельно'],
+  table:['ГРБС','Расчёт по источнику','Подтверждено','Бюджет','Статус'],
+  subjects:['Подтверждённая сумма','Ожидается проверка AD','Не применимо'],
+  sections:['Не считать экономией план минус факт','Три бюджетных составляющих','Доказательство при AD = да',
+    'Неподтверждённое отдельно','Вернуться к строке закупки'],
+  states:['Подтверждено','Не подтверждено','Не применимо','Пустой источник'],
+  action:'Проверить AD и поля Z, AA, AB'
+ },
+ competition:{
+  metric:['Конкурентные способы','Единственный поставщик · основания','Стоимость отказа · гипотеза'],
+  table:['Способ','Количество','Сумма','Доля','Обоснование'],
+  subjects:['Электронный аукцион','Единственный поставщик','Сравнимый периметр'],
+  sections:['Сопоставить КП и ЕП без ложной классификации','Причины выбора ЕП отдельным слоем',
+    'Конкуренция: числитель/знаменатель','Только доказанные кандидаты объединения',
+    'Переход к первичным закупкам'],
+  states:['Сравнимо','Нет основания','Требует проверки','Метод не применим'],
+  action:'Посмотреть почему выбран способ, а не красный рейтинг'
+ },
+ discipline:{
+  metric:['Текущие просрочки','Будущие сроки · не просрочка','Причина и владелец решения'],
+  table:['ГРБС','Срок по плану','Факт','Отклонение','Действие'],
+  subjects:['Срок наступил','Срок ещё впереди','Неизвестна первая дата'],
+  sections:['Период применимости обязателен','Отдельно техническая и реальная дата',
+    'Срок с подтверждённым переносом','Причина до санкционной окраски','Возврат к первичной строке'],
+  states:['В срок','Просрочено','Будущий этап','Не подтверждено'],
+  action:'Проверить, действительно ли нарушен срок'
+ },
+ analytics:{
+  metric:['Покрытие источников','Аномалии с доказательством','Границы метода и версии'],
+  table:['Срез','Данные','Сигнал','Доказательство','Ограничение'],
+  subjects:['Период и версия','Связанные строки','Показатель с неполным периметром'],
+  sections:['Анализ наборов данных','Основания расчётов','Сигналы и доверие не множить',
+    'Один профиль сущности','Переход к первичной строке'],
+  states:['Метрика проверена','Неполный периметр','Не прочитано','Требует исследования'],
+  action:'Показать доказательства гипотезы и вернуть фильтр'
+ },
+ quality:{
+  metric:['Обнаружено / источник','Решение / журнал','Повторная проверка / версия'],
+  table:['Сигнал','Основание','Область','Решение','Состояние'],
+  subjects:['Отсутствующая формула','Замечание к ячейке','Контекст проверки'],
+  sections:['Сверка: официал / расчёт / отличие','Качество заполнения: только доказанные дефекты',
+    'Замечания: единый адресат и история','Оценка управлений: охват и основания',
+    'Рекомендации: решение переживает пересчёт','Журнал: кто/когда/зачем'],
+  states:['Нужно действие','Решено','Ложный сигнал','Не проверялось'],
+  action:'Сигнал → доказательство → решение → повторная проверка'
+ },
+ settings:{
+  metric:['8 книг: источник и свежесть','Формулы / примечания / ошибки чтения','Подключение и возврат'],
+  table:['Источник','Последнее чтение','Полнота','Ошибка','Действие'],
+  subjects:['УЭР','УИО','УАГЗО','УФБП','УД','УДТХ','УКСиМП','УО'],
+  sections:['Источники данных: состояние чтения','Соответствие ячеек: схема и fingerprint',
+    'Подключение: диагностика без секретов','Нельзя объявлять пустые данные успешной проверкой',
+    'Резервное состояние и возможность отката'],
+  states:['Работает','Источник недоступен','Снимок устарел','Схема не совпала'],
+  action:'Повторить чтение и проверить факт изменения версии'
+ }
+};
+
+function routeBody(main,r,cfg,phase,pair,s,w,mobile){
+ const data=ROUTE_LAYOUTS[r.id];
+ if(!data)throw Error('Нет уникальной модели макета для раздела '+r.id);
+ const tone=phase==='current'?s.raised:s.card;
+ const pairStrong=phase==='target'?pair.top:s.muted;
+ const pick=(arr,i)=>arr[Math.min(i,arr.length-1)];
+ const header=block(main,'СЦЕНАРИЙ / '+r.id+' / '+phase,w,'VERTICAL',s.card,6,12);
+ label(header,(phase==='target'?'ЦЕЛЕВОЙ РЕЖИМ':'ТЕКУЩИЙ СОСТАВ')+' · '+r.label,w-24,16,s.ink,'Semi Bold');
+ label(header,'Исходник: packages/web/src/pages/'+r.owner+' · все действия перепроверяются по реальному React',w-24,10,s.muted);
+ label(header,'Цель: '+data.action,w-24,12,s.ink,'Medium');
+ const metrics=block(main,'Актуальные блоки и доказательства',w,mobile?'VERTICAL':'HORIZONTAL',null,10,0);
+ const tileW=mobile?w:Math.floor((w-24)/3);
+ for(const [i,caption] of data.metric.entries()){
+  const tile=block(metrics,'Метрика '+(i+1)+' / '+caption,tileW,'VERTICAL',s.card,8,13);
+  const indicator=figma.createRectangle();indicator.name='Полоса смысла / не статус';indicator.resize(38,3);
+  indicator.cornerRadius=2;indicator.fills=fill(i===0?pair.top:s.line);tile.appendChild(indicator);
+  label(tile,caption,tileW-28,12,s.ink,'Semi Bold');
+  label(tile,'Значение — только из источника',tileW-28,11,s.muted);
+  label(tile,'Источник ↗  ·  период  ·  версия',tileW-28,10,s.muted);
+ }
+ if(r.id==='dashboard'){
+  const hero=block(main,'ПУЛЬС / размер ведущего круга · сравнение',w,mobile?'VERTICAL':'HORIZONTAL',s.card,12,16);
+  const size=Math.min(mobile?w-40:(phase==='target'?340:215),phase==='target'?340:220);
+  const pie=figma.createEllipse();pie.name='Круг / управление / реальный источник нужен';pie.resize(size,size);pie.fills=fill(pair.top);hero.appendChild(pie);
+  const hole=block(hero,'Показатели круга / одна база',Math.max(240,w-size-50),'VERTICAL',null,5,8);
+  label(hole,phase==='target'?'Круг увеличен · управляет срезом':'Текущий круг · компактный',240,15,s.ink,'Semi Bold');
+  for(const x of ['ГРБС → подвед → предмет','План/факт на едином периметре','Прямой переход к исходной строке'])
+   label(hole,x,Math.max(215,w-size-70),12,s.muted);
+ }
+ if(r.id==='report'){
+  const tools=block(main,'ОТЧЁТ / действия и документная структура',w,mobile?'VERTICAL':'HORIZONTAL',s.card,7,12);
+  for(const x of ['Основной Word','Дополнительный Word','Оперативный Word','Методика и версия']){
+   const xw=mobile?w-24:Math.floor((w-56)/4);
+   const b=block(tools,'Кнопка / '+x,xw,'VERTICAL',s.raised,2,9);
+   label(b,x,xw-18,11,s.ink,'Semi Bold');
+   label(b,'Только макет',xw-18,10,s.muted);
+  }
+ }
+ const panes=block(main,'РАБОЧИЙ КОНТЕКСТ / таблица и детали',w,mobile?'VERTICAL':'HORIZONTAL',null,9,0);
+ const gridW=mobile?w:Math.floor(w*.66),inspectW=mobile?w:w-gridW-12;
+ const table=block(panes,'Таблица / уникальная схема '+r.id,gridW,'VERTICAL',s.card,7,12);
+ label(table,'Содержание: '+r.label,gridW-24,14,s.ink,'Semi Bold');
+ const headings=mobile?data.table.slice(0,2):data.table;
+ const columns=block(table,'Заголовки / применимая схема',gridW-24,'HORIZONTAL',s.raised,4,7);
+ const cw=mobile?Math.floor((gridW-40)/2):Math.floor((gridW-45)/headings.length);
+ for(const col of headings)label(columns,col,cw,10,s.ink,'Medium');
+ for(let i=0;i<Math.min(data.subjects.length,5);i++){
+  const row=block(table,'Строка '+(i+1)+' / условный пример',gridW-24,'HORIZONTAL',i%2?s.raised:null,4,7);
+  const vals=mobile?[data.subjects[i],pick(data.states,i)]:[data.subjects[i],'Демо · источник',pick(data.states,i),'—','Открыть ↗'];
+  for(let j=0;j<headings.length;j++)label(row,pick(vals,j),cw,11,j===0?s.ink:s.muted,j===0?'Medium':'Regular');
+ }
+ const inspect=block(panes,'Инспектор / основание и контекст',inspectW,'VERTICAL',s.card,8,13);
+ label(inspect,'Выбранная запись',inspectW-26,13,s.ink,'Semi Bold');
+ label(inspect,r.id==='report'?'Документ / раздел ГРБС':'Условная запись · без рабочих данных',inspectW-26,11,s.muted);
+ for(const name of ['Источник и дата','Формула ≠ значение','Примечание ≠ обсуждение','Решение и история']){
+  const r=block(inspect,name,inspectW-26,'VERTICAL',s.raised,3,7);
+  label(r,name,inspectW-40,10,s.ink,'Medium');
+  label(r,'Проверить, прежде чем действовать',inspectW-40,10,s.muted);
+ }
+ // Every real subordinate page gets its own editable scenario, not inert chips.
+ const all=block(main,'ПОДРАЗДЕЛЫ / каждый имеет собственную рабочую сцену',w,'VERTICAL',null,10,0);
+ const descriptions=data.sections;
+ for(let i=0;i<r.tabs.length;i++){
+  const tab=r.tabs[i],panel=block(all,'ПОДВКЛАДКА / '+tab,w,'VERTICAL',s.card,6,13);
+  const tag=block(panel,'Заголовок и состояние / '+tab,w-26,'HORIZONTAL',null,9,0);
+  chip(tag,tab,Math.min(220,Math.max(105,tab.length*8+38)),pair,s,i===0,cfg.finish);
+  label(tag,(i+1)+'/'+r.tabs.length+' · '+(phase==='target'?'Цель: действие и доказательство':'Имеющиеся возможности'),Math.max(160,w-265),11,s.muted);
+  label(panel,descriptions[i%descriptions.length],w-26,13,s.ink,'Semi Bold');
+  const steps=block(panel,'Условия + переходы / '+tab,w-26,mobile?'VERTICAL':'HORIZONTAL',null,7,0);
+  const stepW=mobile?w-26:Math.floor((w-42)/3);
+  for(const [j,step] of ['Увидеть данные','Проверить основание','Вернуться с контекстом'].entries()){
+   const sub=block(steps,'Шаг '+(j+1)+' / '+step,stepW,'VERTICAL',s.raised,3,8);
+   label(sub,step,stepW-16,11,s.ink,'Medium');
+   label(sub,j===0?pick(data.subjects,i):j===1?pick(data.states,i):data.action,stepW-16,10,s.muted);
+  }
+ }
+ const edge=block(main,'ГРАНИЦЫ ПОЛЬЗОВАТЕЛЬСКОГО КОНТРАКТА',w,'VERTICAL',s.card,5,12);
+ for(const condition of data.states)label(edge,'Состояние: '+condition,w-24,11,s.muted);
+ label(edge,'Сценарий нельзя объявлять прошедшим без проверки поведения соответствующего React-компонента.',w-24,11,s.ink,'Semi Bold');
+}
+
 function buildScreen(page,r,cfg,phase){
  const w=Number(cfg.viewport),mobile=w<700,theme=setup(cfg),s=theme.surface,sections=theme.family.sections;
  const pair=sections.find(x=>x.name===r.label)||sections[0];
@@ -94,29 +307,7 @@ function buildScreen(page,r,cfg,phase){
   for(const n of ['УЭР','УИО','УАГЗО','УФБП','УД','УДТХ','УКСиМП','УО'])label(side,n,172,11,s.muted);
  }else label(body,r.id==='report'?'Оглавление отчёта: собственный выбор раздела':'Организации: выдвижной выбор',w-35,11,s.ink,'Medium');
  const mainW=mobile?w-40:w-240,main=block(body,'Содержимое / '+r.label,mainW,'VERTICAL',null,9,0);
- const tabs=block(main,'Действительные подразделы',mainW,'HORIZONTAL',null,5,0);
- for(const t of r.tabs.slice(0,mobile?2:6))chip(tabs,t,Math.max(95,Math.min(175,35+t.length*7)),pair,s,t===r.tabs[0],cfg.finish);
- const stats=block(main,'Три элемента сводки',mainW,'HORIZONTAL',null,8,0);
- for(const k of ['Исполнение','Источник','Основание']){
-  const tile=block(stats,'Карточка '+k,Math.floor((mainW-20)/3),'VERTICAL',s.card,5,12);
-  label(tile,k,Math.floor((mainW-20)/3)-24,12,s.ink,'Semi Bold');
-  label(tile,'— · тестовые данные',Math.floor((mainW-20)/3)-24,11,s.muted);
- }
- if(r.id==='dashboard'){
-  const pie=block(main,phase==='target'?'Крупный ведущий круг · пример':'Существующий круг · пример',mainW,'VERTICAL',s.card,8,12);
-  label(pie,'Четыре меры · ГРБС / подведы / бюджеты / время',mainW-24,11,s.ink);
-  const ellipse=figma.createEllipse();ellipse.name='Редактируемый круг · НЕ расчёт';
-  const size=Math.min(mainW-40,phase==='target'?300:155);
-  ellipse.resize(size,size);ellipse.fills=fill(pair.top);pie.appendChild(ellipse);
- }
- const table=block(main,'Основная таблица или аналитический узел',mainW,'VERTICAL',s.card,7,11);
- label(table,r.goal,mainW-26,14,s.ink,'Semi Bold');
- const cols=block(table,'Заголовки таблицы',mainW-22,'HORIZONTAL',s.raised,5,5);
- for(const n of ['№','Предмет / показатель','Статус','Источник'])label(cols,n,Math.max(65,(mainW-40)/4),10,s.ink,'Medium');
- for(const [n,text] of [['173/1','Нужно проверить'],['173/2','Исходник неизвестен']]){
-  const row=block(table,'Учебный пример '+n,mainW-22,'HORIZONTAL',null,5,5);
-  for(const v of [n,'Демо-позиция',text,'Адрес'])label(row,v,Math.max(65,(mainW-40)/4),11,s.muted);
- }
+ routeBody(main,r,cfg,phase,pair,s,mainW,mobile);
  const foot=block(root,'Решение · provenance / запреты',w-32,'VERTICAL',s.card,5,10);
  label(foot,'НЕ УТВЕРЖДЕНО: редактируемая схема, НЕ 1:1 фотография React.',w-52,11,s.ink,'Semi Bold');
  label(foot,'Исходник: '+r.owner+' · '+r.opportunity,w-52,10,s.muted);
