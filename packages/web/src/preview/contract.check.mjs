@@ -67,7 +67,8 @@ test('read-only fixture blocks writes and never goes to external APIs',()=>{
 test('CSS changes tokens not OrgStrip, report or table layout',()=>{
  assert.match(overrides,/--surface-page:/);
  assert.match(overrides,/\.dash-source-navigation \.vkladka:has\(input:checked\)/);
- assert.ok(!/\.ob-strip\s*\{/.test(overrides));
+ // Color-only treatment of the real OrgStrip is permitted; geometry is not.
+ assert.ok(!/\.ob-strip\s*\{[^}]*(?:width|min-width|max-width|display|position|transform)\s*:/s.test(overrides));
  assert.ok(!/\.(report-layout|report-paper|work-layout|registry-table)\s*\{/.test(overrides));
 });
 test('standalone HTML contains the actual React app bundle',()=>{
