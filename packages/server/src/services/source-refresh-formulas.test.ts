@@ -177,5 +177,9 @@ describe('чтение формул в цикле источников', () => {
     // Обратный порядок: просьба о формулах уже стояла — обычный вызов её не снимает.
     const kept = widenScopeForTests(wider, { books: ['УД'] });
     expect(kept.withFormulas).toBe(true);
+    const forced = widenScopeForTests(kept, { books: ['УЭР'], askDrive: false });
+    expect(forced.askDrive).toBe(false);
+    const stillForced = widenScopeForTests(forced, { books: ['УФБП'] });
+    expect(stillForced.askDrive).toBe(false);
   });
 });
