@@ -698,20 +698,25 @@ jobs:
             cd /home/aemr/dash
             git fetch --quiet origin "$candidate"
             tool=$(mktemp)
-            trap 'rm -f "$tool"' EXIT
-            catalog=$(mktemp)
-            planner=$(mktemp)
-            trap 'rm -f "$tool" "$catalog" "$planner"' EXIT
-            git show "$candidate:packages/report-engine/src/procurement_engine/readonly_catalog.py" > "$catalog"
-            git show "$candidate:deploy/plan-weekly-publications.py" > "$planner"
-            python3 - "$catalog" "$planner" "$tool" <<'PYPROBE'
+            work=$(mktemp -d)
+            trap 'rm -f "$tool"; rm -rf "$work"' EXIT
+            # Reviewed public code only: never package the private report state.
+            git archive "$candidate" packages/report-engine/src/procurement_engine deploy/plan-weekly-publications.py | tar -x -C "$work"
+            python3 - "$work/packages/report-engine/src/procurement_engine" "$work/deploy/plan-weekly-publications.py" "$tool" <<'PYPROBE'
             import sys
             from pathlib import Path
-            catalog, planner, output = map(Path, sys.argv[1:])
-            bootstrap = "import sys, types\nmodule=types.ModuleType('procurement_engine.readonly_catalog')\n"
-            bootstrap += "exec(compile(" + repr(catalog.read_text()) + ", '<reviewed-catalog>', 'exec'), module.__dict__)\n"
-            bootstrap += "sys.modules[module.__name__]=module\n"
-            output.write_text(bootstrap + "exec(compile(" + repr(planner.read_text()) + ", '<reviewed-weekly-plan>', 'exec'))\n")
+            package, planner, output = map(Path, sys.argv[1:])
+            modules = {p.relative_to(package).as_posix(): p.read_text() for p in sorted(package.rglob('*.py'))}
+            bootstrap = "import sys, tempfile\nfrom pathlib import Path\n"
+            bootstrap += "with tempfile.TemporaryDirectory(prefix='reviewed-weekly-code-') as temporary:\n"
+            bootstrap += "    package=Path(temporary)/'procurement_engine'\n"
+            bootstrap += "    for name, source in " + repr(modules) + ".items():\n"
+            bootstrap += "        path=package/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(source)\n"
+            bootstrap += "    for name in list(sys.modules):\n"
+            bootstrap += "        if name == 'procurement_engine' or name.startswith('procurement_engine.'): del sys.modules[name]\n"
+            bootstrap += "    sys.path.insert(0, temporary)\n"
+            bootstrap += "    exec(compile(" + repr(planner.read_text()) + ", '<reviewed-weekly-plan>', 'exec'))\n"
+            output.write_text(bootstrap)
             PYPROBE
             cd deploy
             df -PB1 /

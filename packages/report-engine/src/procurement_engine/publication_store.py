@@ -498,6 +498,7 @@ class PublicationStore:
                 return {'status': 'UNCHANGED', 'compacted': 0}
             entries = []
             work.mkdir(mode=0o700)
+            _sync_directory(self.root)
             try:
                 for rid, day, cutoff, receipt, files in plan['records']:
                     if rid not in selected:
@@ -560,6 +561,7 @@ class PublicationStore:
                 _sync_directory(self.releases)
                 _sync_directory(work / 'original')
                 os.rename(work / 'staged' / rid, self.releases / rid)
+                _sync_directory(work / 'staged')
                 _sync_directory(self.releases)
             with closing(sqlite3.connect(self.database_path, timeout=30)) as db, db:
                 db.execute('PRAGMA synchronous=FULL')
@@ -596,8 +598,39 @@ class PublicationStore:
     def recover_compaction(self):
         """Catalog is the commit marker. Partial/mismatched commits fail closed."""
         with self._maintenance_locks():
-            if not (self.root / '.retirement').exists():
+            if not (self.root / '.retirement').exists() and not (self.root / '.retirement').is_symlink():
                 return {'status': 'UNCHANGED'}
+            work = self.root / '.retirement'
+            if not (work / 'journal.json').exists():
+                # No originals directory/move is ever created before a durable
+                # journal. A killed preparation can therefore discard only known
+                # staging copies, after every catalog source is checksum proven.
+                if work.is_symlink() or not work.is_dir() or any(p.name != 'staged' for p in work.iterdir()):
+                    raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
+                records = {r[0]: json.loads(r[4]) for r in self.plan_compaction()['records']}
+                staged = work / 'staged'
+                if staged.exists() or staged.is_symlink():
+                    if staged.is_symlink() or not staged.is_dir():
+                        raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
+                    for root in staged.iterdir():
+                        if root.is_symlink() or not root.is_dir() or root.name not in records:
+                            raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
+                        for item in root.rglob('*'):
+                            if item.is_dir() and not item.is_symlink():
+                                name = str(item.relative_to(root)).replace('retained_evidence/', 'snapshot_bundle/')
+                                if name == 'retained_evidence':
+                                    name = 'snapshot_bundle'
+                                if not any(path.startswith(name + '/') for path in records[root.name]):
+                                    raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
+                        for name in _files(root):
+                            original = name.replace('retained_evidence/source_manifest.json', 'snapshot_bundle/manifest.json').replace('retained_evidence/', 'snapshot_bundle/')
+                            if name not in {'dashboard.json', 'main_report.docx', 'management_report.docx', 'operational_report.docx', 'identity.sqlite'} and not name.startswith('retained_evidence/'):
+                                raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
+                            if original not in records[root.name]:
+                                raise PublicationError('PUBLICATION_RETENTION_PREPARE_UNSAFE')
+                shutil.rmtree(work)
+                _sync_directory(self.root)
+                return {'status': 'PREPARE_DISCARDED'}
             work, entries = self._retirement_entries()
             with closing(sqlite3.connect(self.database_path)) as db:
                 states = [db.execute('SELECT receipt,files FROM publications WHERE release_id=?', (e['release_id'],)).fetchone() for e in entries]
@@ -643,6 +676,7 @@ class PublicationStore:
                 if root.exists():
                     shutil.rmtree(root)
                 os.rename(original, root)
+                _sync_directory(work / 'original')
                 _sync_directory(self.releases)
         with closing(sqlite3.connect(self.database_path, timeout=30)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
@@ -655,7 +689,7 @@ class PublicationStore:
 
     def rollback_compaction(self):
         with self._maintenance_locks():
-            if not (self.root / '.retirement').exists():
+            if not (self.root / '.retirement').exists() and not (self.root / '.retirement').is_symlink():
                 return {'status': 'UNCHANGED'}
             work, entries = self._retirement_entries()
             with closing(sqlite3.connect(self.database_path)) as db:
@@ -674,7 +708,7 @@ class PublicationStore:
         """
         from .runtime import _write
         with self._maintenance_locks():
-            if not (self.root / '.retirement').exists():
+            if not (self.root / '.retirement').exists() and not (self.root / '.retirement').is_symlink():
                 return {'status': 'UNCHANGED'}
             work, entries = self._retirement_entries()
             journal = _json(work / 'journal.json')

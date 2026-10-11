@@ -433,3 +433,120 @@ def test_finalize_preserves_quarantine_if_current_pointer_now_needs_retired_repl
     with pytest.raises((PublicationError, ValueError), match='CURRENT_COMPACTED'):
         store.finalize_compaction()
     assert (store.root / '.retirement/original' / receipts[0]['release_id'] / 'snapshot_bundle').exists()
+
+
+@pytest.mark.parametrize('operation', ['apply', 'rollback'])
+def test_every_retirement_rename_syncs_both_parent_directories(tmp_path, monkeypatch, operation):
+    import os
+
+    import procurement_engine.publication_store as module
+    store, _ = _compaction_fixture(tmp_path)
+    if operation == 'rollback':
+        store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    events = []
+    rename, sync = os.rename, module._sync_directory
+    def observed_rename(source, target):
+        events.append(('rename', source.parent, target.parent))
+        return rename(source, target)
+    def observed_sync(path):
+        events.append(('sync', path))
+        return sync(path)
+    monkeypatch.setattr(os, 'rename', observed_rename)
+    monkeypatch.setattr(module, '_sync_directory', observed_sync)
+    if operation == 'apply':
+        store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    else:
+        store.rollback_compaction()
+    for i, event in enumerate(events):
+        if event[0] != 'rename':
+            continue
+        following = []
+        for later in events[i+1:]:
+            if later[0] == 'rename':
+                break
+            following.append(later[1])
+        assert event[1] in following, f'unsynced source parent {event[1]}'
+        assert event[2] in following, f'unsynced destination parent {event[2]}'
+
+
+def test_recovery_discards_partial_prepare_only_when_catalog_sources_are_intact(tmp_path):
+    store, receipts = _compaction_fixture(tmp_path)
+    before = store.history()
+    work = store.root / '.retirement'
+    staged = work / 'staged' / receipts[0]['release_id']
+    staged.mkdir(parents=True)
+    # A killed copy can have incomplete bytes; it is never a committed source.
+    (staged / 'main_report.docx').write_bytes(b'partial copy')
+    assert store.recover_compaction()['status'] == 'PREPARE_DISCARDED'
+    assert not work.exists()
+    assert store.history() == before
+    assert all((store.releases / r['release_id'] / 'snapshot_bundle').is_dir() for r in receipts)
+    assert store.latest() == receipts[-1]
+
+
+@pytest.mark.parametrize('problem', ['unknown', 'symlink', 'original', 'source_corrupt'])
+def test_prepare_only_recovery_rejects_unknown_or_unproven_state(tmp_path, problem):
+    store, receipts = _compaction_fixture(tmp_path)
+    work = store.root / '.retirement'
+    staged = work / 'staged' / receipts[0]['release_id']
+    staged.mkdir(parents=True)
+    (staged / 'main_report.docx').write_bytes(b'partial copy')
+    if problem == 'unknown':
+        (staged / 'human-note.txt').write_text('unknown')
+    elif problem == 'symlink':
+        (staged / 'main_report.docx').unlink()
+        (staged / 'main_report.docx').symlink_to(store.releases / receipts[0]['release_id'] / 'main_report.docx')
+    elif problem == 'original':
+        (work / 'original').mkdir()
+    else:
+        (store.releases / receipts[0]['release_id'] / 'dashboard.json').write_text('corrupt')
+    with pytest.raises((PublicationError, ValueError)):
+        store.recover_compaction()
+    assert work.exists()
+
+
+def test_prepare_only_recovery_rejects_broken_work_symlink(tmp_path):
+    store, _ = _compaction_fixture(tmp_path)
+    work = store.root / '.retirement'
+    work.symlink_to(tmp_path / 'missing')
+    with pytest.raises(PublicationError, match='UNSAFE'):
+        store.recover_compaction()
+    assert work.is_symlink()
+
+
+def test_prepare_only_recovery_rejects_unknown_empty_directory(tmp_path):
+    store, receipts = _compaction_fixture(tmp_path)
+    work = store.root / '.retirement'
+    (work / 'staged' / receipts[0]['release_id'] / 'unknown-human-directory').mkdir(parents=True)
+    with pytest.raises(PublicationError, match='UNSAFE'):
+        store.recover_compaction()
+    assert work.exists()
+
+
+def test_actual_process_death_before_journal_recovers_only_staging(tmp_path):
+    import multiprocessing
+    import os
+
+    from procurement_engine import runtime
+    store, receipts = _compaction_fixture(tmp_path)
+    plan = store.plan_compaction()
+    def die_before_journal():
+        original = runtime._write
+        def write(path, value):
+            if path.name == 'journal.json':
+                os._exit(71)
+            return original(path, value)
+        runtime._write = write
+        store.compact_publications(expected_revision=plan['catalog_revision'])
+    child = multiprocessing.get_context('fork').Process(target=die_before_journal)
+    child.start()
+    child.join(timeout=10)
+    if child.is_alive():
+        child.kill()
+        child.join()
+    assert child.exitcode == 71
+    assert not (store.root / '.retirement/journal.json').exists()
+    assert not (store.root / '.retirement/original').exists()
+    assert store.recover_compaction()['status'] == 'PREPARE_DISCARDED'
+    assert store.latest() == receipts[-1]
+    assert all((store.releases / r['release_id'] / 'snapshot_bundle').is_dir() for r in receipts)

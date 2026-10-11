@@ -281,9 +281,10 @@ def plan_publication_compaction(store):
     never deletion targets. Every full release is checksum checked before plan.
     """
     import hashlib
+    import re
     import sqlite3
     from contextlib import closing
-    from datetime import timedelta
+    from datetime import datetime, timedelta, timezone
 
     from .readonly_catalog import copied_catalog
 
@@ -293,6 +294,24 @@ def plan_publication_compaction(store):
         records = db.execute('SELECT release_id,report_date,cutoff_at,receipt,files FROM publications ORDER BY report_date DESC,cutoff_at DESC,release_id DESC').fetchall()
     keep, weeks, live = set(), {}, []
     for rid, day, cutoff, receipt, files in records:
+        # Bind the catalog selector to the same root and civil period validated
+        # by _checked; never permit a receipt to redirect an apply path.
+        try:
+            metadata = json.loads(receipt)
+            if not isinstance(rid, str) or re.fullmatch(r'REL-[0-9a-f]{64}', rid) is None:
+                raise ValueError('release id')
+            if metadata.get('release_id') != rid:
+                raise ValueError('receipt release id')
+            parsed_day = date.fromisoformat(day)
+            receipt_day = datetime.strptime(metadata['report_date'], '%d.%m.%Y').date()  # noqa: DTZ007 — civil report date.
+            sql_cutoff = datetime.fromisoformat(cutoff.replace('Z', '+00:00'))
+            receipt_cutoff = datetime.fromisoformat(metadata['cutoff_at'].replace('Z', '+00:00'))
+            if (receipt_day != parsed_day or sql_cutoff.utcoffset() is None
+                    or receipt_cutoff.utcoffset() is None
+                    or sql_cutoff.astimezone(timezone.utc) != receipt_cutoff.astimezone(timezone.utc)):
+                raise ValueError('period metadata')
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise ValueError('PUBLICATION_RETENTION_METADATA_INVALID') from error
         record = store._checked((receipt, files))
         if record.get('replay_available') is False:
             continue

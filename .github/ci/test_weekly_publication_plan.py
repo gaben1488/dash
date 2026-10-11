@@ -1,4 +1,5 @@
 """Use a real private catalog; no production data or VPS access."""
+import hashlib
 import importlib.util
 import json
 import sqlite3
@@ -38,7 +39,7 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
         if archived:
             receipt['archive_origin'] = {'source': 'historical'}
         with sqlite3.connect(published / 'publications.sqlite') as db:
-            db.execute('INSERT INTO publications VALUES (?,?,?,?,?)', (rid, day, receipt['cutoff_at'], json.dumps(receipt), '{}'))
+            db.execute('INSERT INTO publications VALUES (?,?,?,?,?)', (rid, day, receipt['cutoff_at'], json.dumps(receipt), json.dumps({'data.json': hashlib.sha256(b'x' * 100).hexdigest()})))
         return rid
 
     def test_weekly_control_and_two_latest_are_retained_without_catalog_writes(self):
@@ -83,6 +84,34 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tool.plan(root)
 
+    def test_native_planner_rejects_inconsistent_catalog_metadata(self):
+        tool = self.load_tool()
+        mutations = [('release_id', '../escape'), ('receipt_id', 'REL-' + 'f' * 64),
+                     ('report_date', '2026-10-02'), ('cutoff_at', '2026-10-01T09:00:00+00:00'),
+                     ('naive_cutoff', '2026-10-01T08:00:00')]
+        for field, value in mutations:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                published = self.fixture(root)
+                rid = self.add(published, 1, '2026-10-01')
+                with sqlite3.connect(published / 'publications.sqlite') as db:
+                    if field == 'receipt_id':
+                        receipt = json.loads(db.execute('SELECT receipt FROM publications').fetchone()[0])
+                        receipt['release_id'] = value
+                        db.execute('UPDATE publications SET receipt=?', (json.dumps(receipt),))
+                    elif field == 'naive_cutoff':
+                        receipt = json.loads(db.execute('SELECT receipt FROM publications').fetchone()[0])
+                        receipt['cutoff_at'] = value
+                        db.execute('UPDATE publications SET cutoff_at=?,receipt=?', (value, json.dumps(receipt)))
+                    else:
+                        db.execute(f'UPDATE publications SET {field}=?', (value,))
+                before = (published / 'publications.sqlite').read_bytes()
+                with self.assertRaises(ValueError):
+                    tool.plan(root)
+                self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+                self.assertFalse((published / '.retirement').exists())
+                self.assertTrue((published / 'releases' / rid / 'data.json').exists())
+
     def test_exact_workflow_bootstrap_executes_candidate_and_emits_only_aggregates(self):
         workflow = SCRIPT.parents[1] / '.github/workflows/vps-cache-cleanup.yml'
         source = workflow.read_text().split("<<'PYPROBE'\n", 1)[1].split('            PYPROBE', 1)[0]
@@ -91,7 +120,7 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             published = self.fixture(root)
             rid = self.add(published, 1, '2026-10-01')
             output = root / 'probe.py'
-            subprocess.run([sys.executable, '-', str(SCRIPT.parents[1] / 'packages/report-engine/src/procurement_engine/readonly_catalog.py'), str(SCRIPT), str(output)],
+            subprocess.run([sys.executable, '-', str(SCRIPT.parents[1] / 'packages/report-engine/src/procurement_engine'), str(SCRIPT), str(output)],
                            input=textwrap.dedent(source), text=True, check=True, capture_output=True)
             result = subprocess.run([sys.executable, str(output), '--state', str(root)],
                                     text=True, capture_output=True, check=False)
@@ -99,6 +128,21 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout)['publication_count'], 1)
             self.assertNotIn(rid, result.stdout)
             self.assertNotIn('keep_release_ids', result.stdout)
+            # An installed pre-compaction engine must never supply the reader or
+            # policy. Execute the exact bootstrap with poisoned old modules.
+            poison = ("import sys,types;from pathlib import Path;"
+                      "package=types.ModuleType('procurement_engine');package.__path__=[];"
+                      "old=types.ModuleType('procurement_engine.publication_store');"
+                      "old.PublicationStore=type('OldStore',(),{});"
+                      "sys.modules['procurement_engine']=package;"
+                      "sys.modules[old.__name__]=old;"
+                      "sys.argv=['probe.py','--state'," + repr(str(root)) + "];"
+                      "exec(compile(Path(" + repr(str(output)) + ").read_text(),'<probe>','exec'))")
+            isolated = subprocess.run([sys.executable, '-c', poison], text=True, capture_output=True, check=False)
+            self.assertEqual(isolated.returncode, 0, isolated.stderr)
+            self.assertEqual(json.loads(isolated.stdout)['publication_count'], 1)
+            self.assertNotIn(rid, isolated.stdout)
+
 
     def test_multiple_releases_of_one_snapshot_do_not_duplicate_identity_defects(self):
         tool = self.load_tool()
@@ -144,7 +188,9 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             writer = sqlite3.connect(path)
             writer.execute('PRAGMA journal_mode=WAL')
             writer.execute('PRAGMA wal_autocheckpoint=0')
-            writer.execute("UPDATE publications SET files='{}'")
+            receipt = json.loads(writer.execute('SELECT receipt FROM publications').fetchone()[0])
+            receipt['synthetic_wal_revision'] = 2
+            writer.execute('UPDATE publications SET receipt=?', (json.dumps(receipt),))
             writer.commit()
             wal = path.with_name(path.name + '-wal')
             frozen_db, frozen_wal = path.read_bytes(), wal.read_bytes()
