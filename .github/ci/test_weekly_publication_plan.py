@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import sqlite3
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ SCRIPT = Path(__file__).resolve().parents[2] / 'deploy' / 'plan-weekly-publicati
 class WeeklyPublicationPlanTests(unittest.TestCase):
     def load_tool(self):
         self.assertTrue(SCRIPT.is_file(), 'Missing weekly publication planner')
+        sys.path.insert(0, str(SCRIPT.parents[1] / 'packages/report-engine/src'))
         spec = importlib.util.spec_from_file_location('weekly_plan', SCRIPT)
         tool = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(tool)
@@ -78,6 +80,41 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             (published / 'releases' / rid / 'escape').symlink_to(root)
             with self.assertRaises(ValueError):
                 tool.plan(root)
+
+    def test_absent_identity_observations_cannot_be_reported_ready(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            for n in range(1, 5):
+                self.add(published, n, f'2026-10-{n:02d}')
+            with sqlite3.connect(root / 'identity.sqlite') as db:
+                db.execute('CREATE TABLE observations (snapshot_id TEXT, plan_signature TEXT, entity_signature TEXT)')
+            result = tool.plan(root)
+            self.assertFalse(result['identity_ready'])
+            self.assertGreater(result['identity_missing_snapshots'], 0)
+
+    def test_live_wal_databases_do_not_gain_shared_memory_files(self):
+        tool = self.load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published = self.fixture(root)
+            self.add(published, 1, '2026-10-01')
+            path = published / 'publications.sqlite'
+            writer = sqlite3.connect(path)
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('PRAGMA wal_autocheckpoint=0')
+            writer.execute("UPDATE publications SET files='{}'")
+            writer.commit()
+            wal = path.with_name(path.name + '-wal')
+            frozen_db, frozen_wal = path.read_bytes(), wal.read_bytes()
+            writer.close()
+            path.write_bytes(frozen_db)
+            wal.write_bytes(frozen_wal)
+            shm = path.with_name(path.name + '-shm')
+            self.assertFalse(shm.exists())
+            tool.plan(root)
+            self.assertFalse(shm.exists(), 'readonly census created production SHM')
 
     def test_missing_identity_signatures_are_exposed_as_deletion_blocker(self):
         tool = self.load_tool()

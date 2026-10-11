@@ -39,7 +39,20 @@ jobs:
             git fetch --quiet origin "$candidate"
             tool=$(mktemp)
             trap 'rm -f "$tool"' EXIT
-            git show "$candidate:deploy/plan-weekly-publications.py" > "$tool"
+            catalog=$(mktemp)
+            planner=$(mktemp)
+            trap 'rm -f "$tool" "$catalog" "$planner"' EXIT
+            git show "$candidate:packages/report-engine/src/procurement_engine/readonly_catalog.py" > "$catalog"
+            git show "$candidate:deploy/plan-weekly-publications.py" > "$planner"
+            python3 - "$catalog" "$planner" "$tool" <<'PYPROBE'
+            import sys
+            from pathlib import Path
+            catalog, planner, output = map(Path, sys.argv[1:])
+            bootstrap = "import sys, types\nmodule=types.ModuleType('procurement_engine.readonly_catalog')\n"
+            bootstrap += "exec(compile(" + repr(catalog.read_text()) + ", '<reviewed-catalog>', 'exec'), module.__dict__)\n"
+            bootstrap += "sys.modules[module.__name__]=module\n"
+            output.write_text(bootstrap + planner.read_text())
+            PYPROBE
             cd deploy
             df -PB1 /
             docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - \

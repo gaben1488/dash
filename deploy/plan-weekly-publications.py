@@ -11,9 +11,11 @@ import hashlib
 import json
 import re
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from procurement_engine.readonly_catalog import copied_catalog
 
 
 def _read(path):
@@ -25,10 +27,12 @@ def _read(path):
     return data
 
 
+@contextmanager
 def _connect(path):
-    if path.is_symlink() or not path.is_file():
-        raise ValueError('RETENTION_CATALOG_UNSAFE')
-    return sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
+    # SQLite mode=ro can create -shm on a WAL source. Read DB+WAL from a
+    # byte-stable scratch copy instead, using the existing rehearsal barrier.
+    with copied_catalog(path) as copied, closing(sqlite3.connect(copied)) as db:
+        yield db
 
 
 def plan(state):
@@ -37,7 +41,7 @@ def plan(state):
     releases = published / 'releases'
     if published.is_symlink() or releases.is_symlink() or not releases.is_dir():
         raise ValueError('RETENTION_ROOT_UNSAFE')
-    with closing(_connect(published / 'publications.sqlite')) as db:
+    with _connect(published / 'publications.sqlite') as db:
         db.execute('BEGIN')
         records = db.execute('SELECT release_id, report_date, cutoff_at, receipt, files FROM publications ORDER BY report_date DESC, cutoff_at DESC, release_id DESC').fetchall()
     keep = set()
@@ -85,21 +89,24 @@ def plan(state):
                 raise ValueError('RETENTION_CURRENT_RELEASE_MISSING')
             keep.add(current)
     retired = sorted(set(metadata) - keep)
-    missing = None
+    missing = missing_snapshots = None
     identity_path = state / 'identity.sqlite'
     if identity_path.exists():
-        with closing(_connect(identity_path)) as db:
+        with _connect(identity_path) as db:
             db.execute('BEGIN')
-            missing = 0
+            missing = missing_snapshots = 0
             for rid in retired:
                 sid = metadata[rid]['snapshot_id']
                 if not isinstance(sid, str) or not sid:
                     raise ValueError('RETENTION_SNAPSHOT_INVALID')
+                if db.execute('SELECT COUNT(*) FROM observations WHERE snapshot_id=?', (sid,)).fetchone()[0] == 0:
+                    missing_snapshots += 1
                 missing += db.execute('SELECT COUNT(*) FROM observations WHERE snapshot_id=? AND (plan_signature IS NULL OR entity_signature IS NULL)', (sid,)).fetchone()[0]
     return {'status': 'READ_ONLY_PLAN', 'publication_count': len(records),
             'weekly_live_count': len(weeks), 'keep_count': len(keep),
             'retire_count': len(retired), 'bytes_reclaimable': sum(metadata[r]['bytes'] for r in retired),
-            'identity_missing_signatures': missing, 'identity_ready': missing == 0,
+            'identity_missing_signatures': missing, 'identity_missing_snapshots': missing_snapshots,
+            'identity_ready': missing == 0 and missing_snapshots == 0,
             'keep_release_ids': sorted(keep), 'retire_release_ids': retired,
             'catalog_revision': hashlib.sha256(json.dumps(records, separators=(',', ':')).encode()).hexdigest()}
 
