@@ -318,6 +318,9 @@ def plan_publication_compaction(store):
         if current.get('release_id'):
             if current['release_id'] not in {r[0] for r in records}:
                 raise ValueError('PUBLICATION_RETENTION_CURRENT_MISSING')
+            current_record = next(json.loads(r[3]) for r in records if r[0] == current['release_id'])
+            if current_record.get('replay_available') is False:
+                raise ValueError('PUBLICATION_RETENTION_CURRENT_COMPACTED')
             keep.add(current['release_id'])
     targets = [r for r in records if r[0] not in keep and json.loads(r[3]).get('replay_available') is not False]
     signatures = True

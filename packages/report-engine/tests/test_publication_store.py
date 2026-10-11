@@ -424,3 +424,12 @@ def test_compacted_documents_remain_available_to_exact_period_fallback(tmp_path)
     assert result['release_id'] == receipts[0]['release_id']
     assert result['replay_available'] is False
     assert store.latest_for_period('2026-09-28', 2027, 3) is None
+
+
+def test_finalize_preserves_quarantine_if_current_pointer_now_needs_retired_replay(tmp_path):
+    store, receipts = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    (store.root.parent / 'status.json').write_text(json.dumps({'publication': receipts[0]}))
+    with pytest.raises((PublicationError, ValueError), match='CURRENT_COMPACTED'):
+        store.finalize_compaction()
+    assert (store.root / '.retirement/original' / receipts[0]['release_id'] / 'snapshot_bundle').exists()
