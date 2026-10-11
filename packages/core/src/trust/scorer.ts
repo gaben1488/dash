@@ -1,5 +1,5 @@
 import type { TrustScore, TrustComponent, Issue, NormalizedMetric, DeltaResult } from '@aemr/shared';
-import { THRESHOLDS, TRUST_COMPONENT_CONFIG } from '@aemr/shared';
+import { THRESHOLDS, TRUST_COMPONENT_CONFIG, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { TrustComponentId } from '@aemr/shared';
 
 /**
@@ -68,8 +68,9 @@ export function computeTrustScore(
   snapshotId: string,
 ): TrustScore {
   // A saved resolution is not proof while the source still emits this issue.
-  // Only an explicit false-positive decision excludes an extant signal.
-  issues = issues.filter(issue => issue.status !== 'false_positive');
+  // Proven numbering-header diagnostics are retained history, not procurement evidence.
+  issues = issues.filter(issue => issue.status !== 'false_positive'
+    && !formulaDiagnosticInapplicableReason(issue));
   const components: TrustComponent[] = [
     computeDataQuality(metrics, issues),
     computeFormulaIntegrity(issues),

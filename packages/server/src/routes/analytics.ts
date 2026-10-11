@@ -21,11 +21,12 @@ import {
   detectAntiCorruption,
   gradeGRBS,
   disciplineIndex,
+  standardRowFilter,
   type ComplianceIssue,
   type AntiCorruptionRow,
   type AntiCorruptionResult,
 } from '@aemr/core';
-import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod } from '@aemr/shared';
+import { DEPARTMENTS, DEPT_COLUMNS, DEPT_HEADER_ROWS, normalizeMethod, CHECK_REGISTRY, TRUST_COMPONENT_CONFIG, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { getDeptSheetValues } from '../services/snapshot.js';
 
 /**
@@ -42,7 +43,7 @@ import { getDeptSheetValues } from '../services/snapshot.js';
  * источника с дисциплиной исполнителя. Это видно отдельным сигналом.
  */
 function dataQualityScore(
-  issues: readonly { departmentId?: string; group?: string; row?: number; status?: string }[],
+  issues: readonly { departmentId?: string; group?: string; row?: number; status?: string; checkId?: string; category?: string; origin?: string; sheet?: string; cell?: string }[],
   grbsId: string,
   grbsShort: string,
   rowCount: number,
@@ -50,7 +51,18 @@ function dataQualityScore(
   if (rowCount <= 0) return 1;
   const dirtyRows = new Set<number>();
   for (const issue of issues) {
-    if (issue.status === 'false_positive' || issue.group !== 'data_quality') continue;
+    if (issue.status === 'false_positive' || issue.origin === 'runtime_error'
+      || formulaDiagnosticInapplicableReason(issue)) continue;
+    // Регламентные состояния (необеспеченная закупка и закупка в течение года)
+    // не являются дефектами заполнения или дисциплины сотрудника.
+    if (issue.checkId === 'plan_year_missing' || issue.checkId === 'fact_without_date'
+      || issue.category === 'signal:planYearMissing' || issue.category === 'signal:factWithoutDate') continue;
+    const check = issue.checkId ? CHECK_REGISTRY.find(check => check.id === issue.checkId || check.legacyId === issue.checkId) : undefined;
+    const quality = check ? check.trustComponent === 'data_quality'
+      : (TRUST_COMPONENT_CONFIG.data_quality.issueGroups.some(group => group === issue.group)
+        || issue.group === 'data_quality' || issue.category === 'signal:dataQuality'
+        || issue.category === 'signal:dateWithoutFact');
+    if (!quality) continue;
     const dept = issue.departmentId;
     if (dept !== grbsId && dept !== grbsShort) continue;
     // Замечание без номера строки относится к листу целиком: считаем его
@@ -325,7 +337,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           execScore: c01(profile.actualExecQ1 / Math.max(profile.expectedExecQ1, 0.01)),
           dynamicsScore: c01(0.6 + profile.execDeviation),
           epScore: profile.actualEpShare <= epShareLimit ? 1 : c01(1 - (profile.actualEpShare - epShareLimit) / epShareLimit),
-          dataScore: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, rowData.length),
+          dataScore: dataQualityScore(decisionIssues, profile.grbsId, profile.grbsShort, rows.slice(DEPT_HEADER_ROWS).filter(standardRowFilter).length),
           anomalyScore: c01(1 - anomalyCount * 0.3),
           complianceScore: c01(1 - violations * 0.15),
           anticorruptionPenalty: anticorruption.disciplinaryPenalty,

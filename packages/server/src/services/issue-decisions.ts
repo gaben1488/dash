@@ -1,6 +1,6 @@
 import type { Issue, DataSnapshot } from '@aemr/shared';
 import { computeTrustScore, issueIdentity, ruleIssueIdentityParts } from '@aemr/core';
-import { buildCellDict, DEPT_HEADER_ROWS, classifySheet } from '@aemr/shared';
+import { buildCellDict, DEPT_HEADER_ROWS, classifySheet, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { eq, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 
@@ -58,7 +58,8 @@ export function overlayPersistedStatus(issues: Issue[], snapshot?: DataSnapshot)
 /** Request-time decision view; the stored/cached source snapshot stays immutable. */
 export function withPersistedDecisions<T extends DataSnapshot>(snapshot: T): T {
   const issues = overlayPersistedStatus(snapshot.issues ?? [], snapshot);
-  const changed = issues.some((issue, index) => issue.status !== snapshot.issues[index].status);
+  const changed = issues.some((issue, index) => issue.status !== snapshot.issues[index].status
+    || formulaDiagnosticInapplicableReason(issue));
   return { ...snapshot, issues, trust: changed
     ? computeTrustScore(new Map(Object.entries(snapshot.officialMetrics)), issues, snapshot.deltas ?? [], snapshot.id)
     : snapshot.trust };

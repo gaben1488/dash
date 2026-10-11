@@ -220,7 +220,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 60s
           command_timeout: 18m
-          script_stop: true             # упасть на первой же ошибке шага
+          script_stop: false            # Bash owns fail-fast; per-line SSH guards bypass EXIT recovery
           script: |
             set -euo pipefail
             cd /home/aemr/dash

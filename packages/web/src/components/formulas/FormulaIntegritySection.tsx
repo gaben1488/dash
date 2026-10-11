@@ -69,8 +69,8 @@ export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIs
   const spot = useMemo(() => formulaIntegritySpot(readState, counts), [readState, counts]);
 
   const books = useMemo(
-    () => Object.keys(counts.byBook).sort((a, b) => a.localeCompare(b, 'ru')),
-    [counts.byBook],
+    () => [...new Set(defects.map(d => d.book))].sort((a, b) => a.localeCompare(b, 'ru')),
+    [defects],
   );
 
   const shown = useMemo(() => defects.filter((d) => {
@@ -259,11 +259,15 @@ export function FormulaIntegritySection({ issues }: { issues: readonly FormulaIs
                     </td>
                     <td className="px-4 py-2">
                       <span
-                        title={`${formulaDefectDescription(d.checkId)}\n\nЧто сделать: ${d.recommendation}`}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                        title={d.inapplicableReason ?? `${formulaDefectDescription(d.checkId)}\n\nЧто сделать: ${d.recommendation}`}
+                        className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium',
+                          d.inapplicableReason
+                            ? 'bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'
+                            : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400')}
                       >
                         {d.className}
                       </span>
+                      {d.inapplicableReason && <p className="mt-1 text-xs text-zinc-500">{d.inapplicableReason}</p>}
                     </td>
                     <td className="px-4 py-2 max-w-xs break-words font-mono text-[11px] text-zinc-600 dark:text-zinc-300">
                       {d.actual === null

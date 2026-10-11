@@ -8,7 +8,7 @@
  * депт-ключей (selectedDeptBothForms) умирает при канонизации DepartmentId
  * в FilterContext; до резки — обе формы (Б5).
  */
-import { classifySheet } from '@aemr/shared';
+import { classifySheet, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { isRetiredIssue } from '../diagnostics/mechanism-groups';
 
 export function filterIssues(allIssues: any[], opts: {
@@ -145,7 +145,7 @@ export function issueAxesWithoutData(issues: readonly unknown[]): IssueAxisGap[]
 /** Severity-разбиение отфильтрованных issues (бывшие :843–844). */
 export function splitIssuesBySeverity(issues: any[]): { criticalIssues: any[]; warningIssues: any[] } {
   return {
-    criticalIssues: issues.filter((i: any) => i.severity === 'critical' || i.severity === 'error'),
-    warningIssues: issues.filter((i: any) => i.severity === 'warning' || i.severity === 'significant'),
+    criticalIssues: issues.filter((i: any) => !formulaDiagnosticInapplicableReason(i) && (i.severity === 'critical' || i.severity === 'error')),
+    warningIssues: issues.filter((i: any) => !formulaDiagnosticInapplicableReason(i) && (i.severity === 'warning' || i.severity === 'significant')),
   };
 }

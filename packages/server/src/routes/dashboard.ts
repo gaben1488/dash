@@ -4,7 +4,7 @@ import { getSheetData } from '../services/google-sheets.js';
 import { overlayPersistedStatus, withPersistedDecisions } from '../services/issue-decisions.js';
 import { refreshAllSources } from '../services/source-refresh.js';
 import { DEPARTMENT_SPREADSHEETS } from '../config.js';
-import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME } from '@aemr/shared';
+import { REPORT_MAP, DEPARTMENTS, DashboardDataSchema, SVOD_SHEET_NAME, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import type { KPICard, DepartmentSummary, DashboardData, DashboardPeriodSummary, Issue, DeltaResult, NormalizedMetric } from '@aemr/shared';
 import { computeTrustScore, crossVerifyQuarterly, validateSHDYUConsistency } from '@aemr/core';
 
@@ -143,7 +143,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       if (!metric) continue;
 
       const delta = snapshot.deltas?.find((d: DeltaResult) => d.metricKey === entry.metricKey);
-      const issues = snapshot.issues?.filter((i: Issue) => i.status !== 'false_positive' && i.metricKey === entry.metricKey) ?? [];
+      const issues = snapshot.issues?.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i) && i.metricKey === entry.metricKey) ?? [];
       const hasCritical = issues.some((i: Issue) => i.severity === 'critical');
       const hasWarning = issues.some((i: Issue) => i.severity === 'warning' || i.severity === 'significant');
 
@@ -169,7 +169,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const deptSignalCounts: Record<string, Record<string, number>> = {};
     for (const iss of (snapshot.issues ?? [])) {
       const i = iss as Issue;
-      if (i.status === 'false_positive' || !i.departmentId || !i.signal) continue;
+      if (i.status === 'false_positive' || formulaDiagnosticInapplicableReason(i) || !i.departmentId || !i.signal) continue;
       if (!deptSignalCounts[i.departmentId]) deptSignalCounts[i.departmentId] = {};
       deptSignalCounts[i.departmentId][i.signal] = (deptSignalCounts[i.departmentId][i.signal] ?? 0) + 1;
     }
@@ -202,7 +202,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         ? calcEcoYear
         : ((svodGet(`${prefix}.economy.kp`) ?? 0) + (svodGet(`${prefix}.economy.ep`) ?? 0)) || null;
 
-      const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive');
+      const activeDeptIssues = deptIssues.filter((i: Issue) => i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i));
       const criticalCount = activeDeptIssues.filter((i: Issue) => i.severity === 'critical').length;
       const executionPct = calcExecYear != null
         ? +(calcExecYear * 100).toFixed(1)
@@ -393,7 +393,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     for (const iss of allIssues) {
       const i = iss as Issue;
       // Historical summaries remain complete; BlindSpots count active signals only.
-      if (i.signal && i.status !== 'false_positive') {
+      if (i.signal && i.status !== 'false_positive' && !formulaDiagnosticInapplicableReason(i)) {
         signalCounts[i.signal] = (signalCounts[i.signal] || 0) + 1;
         issueSummary.signalCounts[i.signal] = (issueSummary.signalCounts[i.signal] || 0) + 1;
       }

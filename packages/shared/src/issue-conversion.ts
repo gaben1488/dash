@@ -7,6 +7,23 @@
  * в следующем году молча проставил бы всем issue прошлый год.
  * Словари живые: orchestrator.ts, validate.ts, source-validation.ts.
  */
+import { DEPT_HEADER_ROWS } from './column-map.js';
+import { findDept } from './department-registry.js';
+import { FORMULA_COLUMNS } from './report-map.js';
+
+/** Совместимость старых снимков: ошибка распознавания шапки не является риском закупки. */
+export function formulaDiagnosticInapplicableReason(issue: {
+  checkId?: unknown; sheet?: unknown; row?: unknown; cell?: unknown;
+}): string | undefined {
+  if (!['formula_overwritten', 'formula_mutant', 'formula_hole'].includes(String(issue.checkId))) return;
+  if (typeof issue.sheet !== 'string' || !findDept(issue.sheet)) return;
+  if (typeof issue.row !== 'number' || !Number.isInteger(issue.row)
+    || issue.row < 1 || issue.row > DEPT_HEADER_ROWS || typeof issue.cell !== 'string') return;
+  const address = /^\$?([A-Z]+)\$?([1-9]\d*)$/i.exec(issue.cell);
+  if (!address || Number(address[2]) !== issue.row
+    || !FORMULA_COLUMNS.some(column => column === address[1].toUpperCase())) return;
+  return 'Историческая диагностика шапки; к закупкам неприменима. Исходную ячейку исправлять по этому замечанию не нужно.';
+}
 
 export const LEGACY_SIGNAL_TO_CHECK: Record<string, string> = {
   // Сигналы из SIGNAL_ISSUE_MAP

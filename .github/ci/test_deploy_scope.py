@@ -107,6 +107,44 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         self.assertIn("worker_stopped=false", script)
         self.assertIn('"$worker_stopped" = true', script)
 
+    def test_ssh_wrapping_preserves_exit_trap_after_report_release_failure(self):
+        import os
+        import subprocess
+        import tempfile
+        import textwrap
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/ci.yml").read_text()
+        remote = workflow.split("name: Deploy tested commit over SSH", 1)[1]
+        script_stop = "script_stop: true" in remote.split("script: |", 1)[0]
+        shell = textwrap.dedent(remote.split("script: |\n", 1)[1])
+        # Execute the actual recovery trap, isolating all later production work.
+        shell = shell.split("trap restore_worker_on_failure EXIT", 1)[0] + "trap restore_worker_on_failure EXIT\n"
+        shell += "report_release_started=true\ndocker stop report-worker\nfalse\n"
+        # drone-ssh v1.8.0 (ssh-action v1.2.0) injects this after every line.
+        # Injecting after the function's opening brace exits before result=$?.
+        if script_stop:
+            guard = "DRONE_SSH_PREV_COMMAND_EXIT_CODE=$?; if [ $DRONE_SSH_PREV_COMMAND_EXIT_CODE -ne 0 ]; then exit $DRONE_SSH_PREV_COMMAND_EXIT_CODE; fi"
+            shell = "\n".join(line + "\n" + guard for line in shell.splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "deploy").mkdir()
+            trace = folder / "trace"
+            docker = folder / "docker"
+            docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$MOCK_DOCKER_TRACE"\ncase " $* " in *" ps "*) echo old-worker ;; esac\n')
+            docker.chmod(0o755)
+            shell = shell.replace("/home/aemr/dash", tmp)
+            result = subprocess.run(["bash", "-c", shell], capture_output=True, text=True,
+                timeout=10, check=False, env={**os.environ, "PATH": tmp + os.pathsep + os.environ["PATH"],
+                "MOCK_DOCKER_TRACE": str(trace)})
+            self.assertNotEqual(result.returncode, 0)
+            calls = trace.read_text().splitlines()
+            self.assertTrue(any("stop report-worker" in call for call in calls), calls)
+            self.assertTrue(any("start report-worker" in call for call in calls), calls)
+            self.assertGreaterEqual(sum("ps --status running --quiet report-worker" in call for call in calls), 2)
+            self.assertNotIn("REPORT_WORKER_RESTORE_FAILED", result.stderr)
+
     def test_failed_engine_preflight_does_not_stop_worker_or_touch_history(self):
         import json
         import os

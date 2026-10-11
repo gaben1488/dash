@@ -24,7 +24,7 @@
  * принял, продукт обязан говорить «не смотрели», а не «чисто»: за это отвечает
  * `formulaIntegritySpot`, и молчание он отличает от нуля.
  */
-import { DEPT_HEADER_ROWS, getCheckById } from '@aemr/shared';
+import { DEPT_HEADER_ROWS, getCheckById, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { pluralRu } from '../economy-copy';
 import { toCanonicalDeptId } from '../dept-key';
 
@@ -82,6 +82,8 @@ export interface FormulaIssueLike {
 
 /** Дефект формулы, как его показывают экраны. */
 export interface FormulaDefectView {
+  /** Доказанная неприменимость к закупкам; исходное замечание остаётся в истории. */
+  inapplicableReason?: string;
   /** Идентификатор замечания — ключ отрисовки. */
   id: string;
   /** Класс дефекта (идентификатор паспорта). */
@@ -174,6 +176,7 @@ export function collectFormulaDefects(
     const description = textOrEmpty(issue.description);
     const rowRaw = Number(issue.row);
     out.push({
+      inapplicableReason: formulaDiagnosticInapplicableReason(issue),
       id: textOrEmpty(issue.id),
       checkId: kind,
       className: formulaDefectName(kind),
@@ -216,10 +219,11 @@ export function countFormulaDefects(
   } as Record<FormulaDefectCheckId, number>;
   const byBook: Record<string, number> = {};
   for (const d of defects) {
+    if (d.inapplicableReason) continue;
     byClass[d.checkId] += 1;
     byBook[d.book] = (byBook[d.book] ?? 0) + 1;
   }
-  return { total: defects.length, byClass, byBook };
+  return { total: Object.values(byClass).reduce((sum, count) => sum + count, 0), byClass, byBook };
 }
 
 /**

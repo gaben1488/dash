@@ -76,3 +76,53 @@ describe('persisted false-positive decisions across control routes', () => {
     expect(fixture.snapshot.issues[0].status).toBe('open');
   });
 });
+
+it('использует реальную группу completeness вместо вымышленной data_quality', async () => {
+  const original = fixture.snapshot.issues[0];
+  fixture.snapshot.issues[0] = { ...original, group: 'completeness', checkId: 'data_quality' };
+  try {
+    const reviewed = (await app.inject('/api/analytics/scorecard')).json();
+    db.delete(schema.issues).run();
+    const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
+    expect(reviewed.uksimp.discipline - unreviewed.uksimp.discipline).toBe(10);
+  } finally { fixture.snapshot.issues[0] = original; }
+});
+
+it('сохраняет header-историю, но не штрафует управление и не добавляет действующий риск', async () => {
+  const original = fixture.snapshot.issues[0];
+  const header: Issue = { ...original, id: 'historical-header', sheet: 'УКСиМП', row: 1, cell: 'AA1', rowSeq: '1', checkId: 'formula_overwritten', group: 'formula_consistency', signal: 'formulaBroken' };
+  fixture.snapshot.issues[0] = header;
+  try {
+    const dashboard = (await app.inject('/api/dashboard')).json();
+    const local = dashboard.departmentSummaries.find((d: DepartmentSummary) => d.department.id === 'uksimp');
+    expect(local.criticalIssueCount).toBe(0);
+    expect(local.signalCounts.formulaBroken ?? 0).toBe(0);
+    expect(dashboard.recentIssues.find((i: Issue) => i.id === header.id).severity).toBe('critical');
+    const audit = (await app.inject('/api/export/audit')).json();
+    expect(audit.snapshot.issuesSummary.critical).toBe(1);
+    expect(audit.issues).toHaveLength(2);
+    expect(fixture.snapshot.issues[0]).toBe(header);
+  } finally { fixture.snapshot.issues[0] = original; }
+});
+
+it('не считает отсутствие финансирования дефектом дисциплины заполнения', async () => {
+  const original = fixture.snapshot.issues[0];
+  fixture.snapshot.issues[0] = { ...original, category: 'signal:planYearMissing', checkId: 'plan_year_missing', group: 'data_integrity' };
+  try {
+    const reviewed = (await app.inject('/api/analytics/scorecard')).json();
+    db.delete(schema.issues).run();
+    const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
+    expect(reviewed.uksimp.discipline).toBe(unreviewed.uksimp.discipline);
+  } finally { fixture.snapshot.issues[0] = original; }
+});
+
+it('не превращает исторический дефект формулы без checkId в ошибку заполнения', async () => {
+  const original = fixture.snapshot.issues[0];
+  fixture.snapshot.issues[0] = { ...original, category: 'formula_mutant', checkId: undefined, group: 'formula_consistency', origin: 'spreadsheet_rule' };
+  try {
+    const reviewed = (await app.inject('/api/analytics/scorecard')).json();
+    db.delete(schema.issues).run();
+    const unreviewed = (await app.inject('/api/analytics/scorecard')).json();
+    expect(reviewed.uksimp.discipline).toBe(unreviewed.uksimp.discipline);
+  } finally { fixture.snapshot.issues[0] = original; }
+});

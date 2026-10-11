@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY } from '@aemr/shared';
+import { SEVERITY_LABELS, productLabel, CHECK_REGISTRY, formulaDiagnosticInapplicableReason } from '@aemr/shared';
 import { useStore } from '../store';
 import { useFilteredData } from '../hooks/useFilteredData';
 import { api, humanizeRequestError } from '../api';
@@ -31,6 +31,7 @@ interface DisplayIssue {
   description: string;
   /** Ключ управления; пустая строка = управление у замечания не проставлено. */
   dept: string;
+  sheet?: string;
   row?: number;
   /** «№ п/п» из колонки A — стабильный второй адрес: строки листа двигаются (п.98б). */
   rowSeq?: string;
@@ -339,10 +340,11 @@ export function IssuesPage() {
     const raw = fd.issues;
     return raw.map((iss: any) => ({
       id: iss.id,
-      severity: iss.severity as Severity,
+      severity: formulaDiagnosticInapplicableReason(iss) ? 'info' : iss.severity as Severity,
       title: iss.title,
-      description: iss.description,
+      description: formulaDiagnosticInapplicableReason(iss) ? `${formulaDiagnosticInapplicableReason(iss)} Исходная серьёзность: ${iss.severity}. ${iss.description}` : iss.description,
       dept: iss.departmentId || iss.sheet || '',
+      sheet: iss.sheet,
       row: iss.row,
       rowSeq: iss.rowSeq,
       cell: iss.cell,
@@ -354,7 +356,7 @@ export function IssuesPage() {
       // другим значит выдавать «когда последний раз читали книги» за «когда
       // нашли это». Обе величины про прогон конвейера, но у замечания она своя.
       detectedAt: iss.detectedAt ?? dashboardData?.lastRefreshed ?? '',
-      recommendation: iss.recommendation,
+      recommendation: formulaDiagnosticInapplicableReason(iss) ?? iss.recommendation,
       comments: [],
     }));
   }, [fd.issues, dashboardData, statusOverrides]);

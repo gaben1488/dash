@@ -122,3 +122,13 @@ describe('splitIssuesBySeverity', () => {
     expect(warningIssues).toHaveLength(2);
   });
 });
+
+it('не относит доказанную диагностику шапки к действующим рискам и сохраняет историю', () => {
+  const header = { checkId: 'formula_overwritten', sheet: 'УЭР', row: 1, cell: 'AA1', severity: 'critical' };
+  const real = { ...header, row: 4, cell: 'AA4' };
+  const conflict = { ...header, cell: 'AA4' };
+  const source = [header, real, conflict];
+  expect(splitIssuesBySeverity(source).criticalIssues).toEqual([real, conflict]);
+  expect(filterIssues(source, noFilters)).toBe(source);
+  expect(header.severity).toBe('critical');
+});

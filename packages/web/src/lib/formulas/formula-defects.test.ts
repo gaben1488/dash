@@ -219,6 +219,8 @@ describe('сбор дефектов и счёт из данных', () => {
       .toEqual(['purchase']);
     // Исторический факт остаётся доступен в общем перечне для диагностики.
     expect(defects.map(d => d.id)).toContain('header');
+    expect(countFormulaDefects(defects).total).toBe(1);
+    expect(defects[0].inapplicableReason).toContain('шапки');
   });
 });
 

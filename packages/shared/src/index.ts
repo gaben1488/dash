@@ -1,5 +1,6 @@
 // Re-export everything from types (base definitions)
 export * from './types.js';
+export { formulaDiagnosticInapplicableReason } from './issue-conversion.js';
 
 // Re-export schemas (zod schemas for runtime validation, API contracts, drizzle-lite)
 export * from './schemas.js';

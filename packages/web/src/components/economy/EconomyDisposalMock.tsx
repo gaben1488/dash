@@ -1,28 +1,9 @@
-// ────────────────────────────────────────────────────────────────
-// МАКЕТ «Распоряжение экономией» (канон п.101д, вопрос 72).
-//
-// Владелец решает по скриншоту: показать, на какие статусы распадается
-// свободная экономия, — и только потом он ответит, «какой ещё может быть»
-// статус и в какой момент экономия считается погашенной (п.99/72).
-// Все числа здесь ИЛЛЮСТРАТИВНЫЕ — из констант ниже, к данным книг блок
-// не подключён и подключён быть не может до решения владельца.
-//
-// Откуда статусы (не выдуманы):
-//  • п.99/68 — УФБП решает только «забирать или нет»; что не забрали —
-//    распоряжается сам ГРБС → статусы «изъята УФБП» и «оставлена ГРБС»;
-//  • п.99/71 — арбитра нет: ГРБС просит УФБП не считать остаток
-//    экономией → статус «спорная»;
-//  • «решения ещё нет» и «возвращена в бюджет» — крайние точки жизни
-//    суммы: до первого решения и после конца года (БК РФ, фронт п.101е).
-//
-// Почему НЕ lib/economy/disposal.ts: там только текстовая ПОДСВЕТКА
-// «похоже на распоряжение» (безопасная версия п.85/12б), категорий
-// статусов в ней нет — счёт по статусам появится лишь после решения
-// владельца и подтверждения строк человеком. Store не читает — только
-// пропсы, как все блоки страницы «Экономия».
-// ────────────────────────────────────────────────────────────────
+// Пять состояний утверждены владельцем 22.08 (owner-week, п.86).
+// Демонстрационные суммы в рублях; форматтер Dash принимает тысячи рублей.
+// Запись финансовых решений требует подтверждённого источника, прав и хранилища.
 
 import clsx from 'clsx';
+import { useState } from 'react';
 import { FlaskConical, SendHorizonal } from 'lucide-react';
 import { CHROME_BOX, Card, FOCUS_RING, SectionHead, TILE } from './primitives';
 
@@ -103,8 +84,8 @@ export const DISPOSAL_MOCK: readonly DisposalStatusMock[] = [
     label: 'Возвращена в бюджет',
     amount: 3_900_000, // МАКЕТ
     explain:
-      'Деньги вернулись в бюджет и в закупках этого года больше не участвуют. '
-      + 'Конечная точка: перераспределить возвращённое уже нельзя.',
+      'Возврат средств зафиксирован. Исходная позиция и история сохраняются; '
+      + 'основание возврата подтверждает ответственный.',
     fill: '#71717a',
     dot: 'bg-zinc-500',
     text: 'text-zinc-600 dark:text-zinc-400',
@@ -115,6 +96,8 @@ export const DISPOSAL_MOCK: readonly DisposalStatusMock[] = [
 const MOCK_TOTAL = DISPOSAL_MOCK.reduce((s, r) => s + r.amount, 0);
 
 export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) => string }) {
+  const [selected, setSelected] = useState<DisposalStatusKey>('free');
+  const selectedStatus = DISPOSAL_MOCK.find(row => row.key === selected)!;
   return (
     <Card accent="purple">
       <SectionHead
@@ -123,22 +106,23 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
         hint="куда уходит свободная экономия после утверждения"
         right={
           // Честная пометка макета: числа не из книг, а из констант — блок
-          // существует, чтобы владелец решил по скриншоту (п.101д).
+          // финансовые решения и исходные книги этот макет не изменяет.
           <span
-            className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-inset ring-purple-500/20"
-            title="Числа иллюстративные, из констант компонента; к данным книг блок будет подключён после решения владельца по вопросу 72"
+            className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-inset ring-purple-500/20"
+            title="Демонстрационные данные. Пять состояний утверждены; запись решений пока не подключена."
           >
-            макет, ждёт решения
+            Интерактивный макет
           </span>
         }
       />
 
-      <div className="px-4 py-3 space-y-3">
+      <div className="px-4 py-3 space-y-4">
+        <p className="text-sm text-zinc-500">Демонстрационные данные · всего {formatMoney(MOCK_TOTAL / 1000)}. Выберите состояние, чтобы увидеть порядок действий.</p>
         {/* ── Стек-бар долей: одна полоса, пять сегментов ── */}
         <div
           role="img"
           aria-label={DISPOSAL_MOCK
-            .map(r => `${r.label}: ${((r.amount / MOCK_TOTAL) * 100).toFixed(0)} %`)
+            .map(r => `${r.label}: ${((r.amount / MOCK_TOTAL) * 100).toFixed(1).replace('.', ',')} %`)
             .join(', ')}
           title="Доли статусов от всей утверждённой экономии (данные иллюстративные)"
           className="w-full h-2.5 rounded-full overflow-hidden flex bg-zinc-200 dark:bg-zinc-800/40"
@@ -153,49 +137,57 @@ export function EconomyDisposalMock({ formatMoney }: { formatMoney: (v: number) 
         </div>
 
         {/* ── Мини-карточки статусов: сумма + доля + объяснение словами ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
           {DISPOSAL_MOCK.map(r => (
-            <div
+            <button
+              type="button"
+              aria-pressed={selected === r.key}
+              onClick={() => setSelected(r.key)}
               key={r.key}
               // Плитку статуса отделяет светлота поверхности, не обводка (п.129).
-              className={clsx(TILE, 'px-2.5 py-2 space-y-1')}
+              className={clsx(TILE, FOCUS_RING, 'min-h-32 px-3 py-3 space-y-2 text-left', selected === r.key && 'ring-2 ring-purple-500/60')}
             >
               <div className="flex items-center gap-1.5">
                 <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', r.dot)} aria-hidden="true" />
-                <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 leading-tight">
+                <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 leading-tight">
                   {r.label}
                 </span>
               </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className={clsx('text-sm font-bold tabular-nums', r.text)}>
-                  {formatMoney(r.amount)}
+              <div className="flex flex-wrap items-baseline gap-1.5">
+                <span className={clsx('text-lg font-bold tabular-nums', r.text)}>
+                  {formatMoney(r.amount / 1000)}
                 </span>
-                <span className="text-[9px] text-zinc-500 tabular-nums">
-                  {((r.amount / MOCK_TOTAL) * 100).toFixed(0)} %
+                <span className="text-xs text-zinc-500 tabular-nums">
+                  {((r.amount / MOCK_TOTAL) * 100).toFixed(1).replace('.', ',')} %
                 </span>
               </div>
-              <p className="text-[9px] text-zinc-500 leading-relaxed">{r.explain}</p>
-            </div>
+              <p className="text-xs text-zinc-500 leading-relaxed">{r.explain}</p>
+            </button>
           ))}
         </div>
 
+        <div className="rounded-xl bg-purple-500/5 p-4 text-sm space-y-2" aria-live="polite">
+          <p className="font-semibold">Выбрано: {selectedStatus.label}</p>
+          <p>{selectedStatus.explain}</p>
+          <p className="text-zinc-500">Связь решения: исходная закупка → заявка ГРБС → решение УФБП → получатель или возврат → история. Текст комментария сам по себе не подтверждает финансовое решение.</p>
+        </div>
         {/* ── Шов с заявкой на перераспределение (п.99/68-69): кнопка-заглушка.
               Disabled-кнопка не показывает title в части браузеров — тултип
               несёт обёртка, кнопке остаётся aria-disabled и honest disabled. ── */}
         <div className="flex items-center justify-between gap-3 flex-wrap pt-1 border-t border-zinc-200/70 dark:border-white/[0.04]">
-          <p className="text-[10px] text-zinc-500 leading-relaxed max-w-xl">
+          <p className="text-sm text-zinc-500 leading-relaxed max-w-xl">
             Свободная экономия — кандидат на заявку: ГРБС подаёт заявку на
             перераспределение, УФБП решает «забирать или нет» (п.99/68).
-            Статусы заявок будет вести продукт (п.99/69) — после решения
-            владельца по этому макету.
+            Пять состояний согласованы. Отправка станет доступна после подключения
+            подтверждённых данных, прав и хранилища решений.
           </p>
-          <span title="Кнопка заработает после решения владельца по вопросу 72 — сейчас это макет">
+          <span title="Отправка недоступна: подтверждённый источник, права и хранилище решений ещё не подключены">
             <button
               type="button"
               disabled
               aria-disabled="true"
               className={clsx(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider',
+                'inline-flex items-center gap-1.5 min-h-[44px] px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider',
                 CHROME_BOX,
                 'text-zinc-400 dark:text-zinc-600 cursor-not-allowed',
                 FOCUS_RING,
