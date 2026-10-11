@@ -230,6 +230,8 @@ def _validate(root):
 
 class PublicationStore:
     def __init__(self, root: str | Path, *, readonly=False):
+        if Path(root).is_symlink():
+            raise ValueError('PUBLICATION_RETENTION_ROOT_UNSAFE')
         self.root = Path(root).resolve()
         self.releases = self.root / 'releases'
         self.database_path = self.root / 'publications.sqlite'

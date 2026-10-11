@@ -84,6 +84,24 @@ class WeeklyPublicationPlanTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tool.plan(root)
 
+    def test_publication_root_symlink_is_rejected_before_resolution(self):
+        tool = self.load_tool()
+        from procurement_engine.publication_store import PublicationStore
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actual = root / 'actual'
+            actual.mkdir()
+            published = self.fixture(actual)
+            self.add(published, 1, '2026-10-01')
+            (root / 'published').symlink_to(published, target_is_directory=True)
+            before = (published / 'publications.sqlite').read_bytes()
+            for readonly in (True, False):
+                with self.subTest(readonly=readonly), self.assertRaises(ValueError):
+                    PublicationStore(root / 'published', readonly=readonly)
+            with self.assertRaises(ValueError):
+                tool.plan(root)
+            self.assertEqual((published / 'publications.sqlite').read_bytes(), before)
+
     def test_native_planner_rejects_inconsistent_catalog_metadata(self):
         tool = self.load_tool()
         mutations = [('release_id', '../escape'), ('receipt_id', 'REL-' + 'f' * 64),
