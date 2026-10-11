@@ -74,6 +74,46 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         self.assertIn("worker_stopped=false", script)
         self.assertIn('"$worker_stopped" = true', script)
 
+    def test_failed_engine_preflight_does_not_stop_worker_or_touch_history(self):
+        import json
+        import os
+        from pathlib import Path
+        import subprocess
+        import tempfile
+        import textwrap
+
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_docker = Path(tmp) / "docker"
+            trace = Path(tmp) / "calls.jsonl"
+            fake_docker.write_text(textwrap.dedent("""\
+                #!/usr/bin/env python3
+                import json, os, sys
+                from pathlib import Path
+                argv = sys.argv[1:]
+                with Path(os.environ["MOCK_DOCKER_TRACE"]).open("a") as log:
+                    log.write(json.dumps(argv) + "\\n")
+                if "ps" in argv and "report-worker" in argv:
+                    print("old-running-worker")
+                if "--help" in argv and "proc-report" in " ".join(argv):
+                    sys.exit(27)
+                """), encoding="utf-8")
+            fake_docker.chmod(0o755)
+            env = {**os.environ,
+                   "PATH": tmp + os.pathsep + os.environ.get("PATH", ""),
+                   "MOCK_DOCKER_TRACE": str(trace)}
+            process = subprocess.run(
+                ["bash", str(root / "deploy" / "enable-reports.sh")],
+                cwd=root / "deploy", env=env,
+                capture_output=True, text=True, timeout=10, check=False)
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            self.assertNotEqual(process.returncode, 0)
+            self.assertTrue(any("--help" in args for args in calls))
+            self.assertFalse(any("stop" in args or "start" in args for args in calls))
+            self.assertFalse(any("deployment_diagnostics" in " ".join(args) for args in calls))
+            self.assertFalse(any("apply_transient_attempt_retention" in " ".join(args)
+                                 for args in calls))
+
     def test_failed_bootstrap_cannot_report_worker_recovered_without_running_state(self):
         import json
         import os
