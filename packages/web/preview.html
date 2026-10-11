@@ -4,11 +4,37 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <meta name="color-scheme" content="dark light"/>
-  <title>Dash — исходный фронтенд • испытание интерфейса</title>
+  <title>Dash — интерактивный прототип для приёмки дизайна</title>
   <meta name="robots" content="noindex,nofollow"/>
+  <!-- This is a real, user-readable loading and no-JS state, not an empty root.
+       Quick Look, embedded document previews and restrictive viewers commonly
+       block JavaScript. Never show them a blank black page again. -->
+  <style>
+    .dash-boot-fallback{box-sizing:border-box;display:grid;place-content:center;gap:13px;
+      min-height:100vh;max-width:720px;margin:auto;padding:28px 24px;color:#e5edf8;
+      font:14px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .dash-boot-fallback h1{margin:0;font-size:clamp(20px,3vw,32px);font-weight:650;letter-spacing:-.03em}
+    .dash-boot-fallback p{margin:0;color:#b8c9dc}
+    .dash-boot-fallback a{display:inline-flex;align-items:center;justify-content:center;
+      width:max-content;max-width:100%;min-height:42px;padding:9px 16px;border-radius:10px;
+      border:1px solid #476e91;color:#e4f0ff;background:#17334c;
+      font-size:14px;text-decoration:none}
+    .dash-boot-fallback small{color:#91a5b8}
+    .dash-boot-fallback a:focus-visible{outline:2px solid #71b8ed;outline-offset:3px}
+    .dash-boot-fallback strong{color:#f6f8ff}
+  </style>
 </head>
 <body class="bg-surface-900 text-slate-100 font-sans antialiased">
-  <div id="root"></div>
+  <div id="root">
+    <main class="dash-boot-fallback" role="status" aria-label="Загрузка интерфейса Dash">
+      <h1>Dash · интерактивный прототип</h1>
+      <p><strong>Загружается интерфейс.</strong> Здесь 13 реальных разделов приложения, исходный трёхрядный барабан и безопасные тестовые данные.</p>
+      <p>Если это сообщение остаётся на экране, просмотрщик файлов не запускает JavaScript. Это бывает во встроенном просмотре документов на телефоне. <strong>Откройте прототип в Safari или Chrome как веб-страницу:</strong></p>
+      <a href="https://raw.githack.com/gaben1488/dash/codex/dash-source-parity-preview-20261010/docs/superpowers/mockups/dash-source-parity/Dash-source-bound-preview.html" target="_blank" rel="noopener noreferrer">Открыть интерактивный Dash в браузере ↗</a>
+      <small>Макет использует вымышленные данные, ничего не записывает в рабочие таблицы или на сервер. Это черновой вариант для дизайн-приёмки.</small>
+    </main>
+  </div>
+  <noscript><p style="color:#e5edf8;padding:10px 24px;font:14px system-ui">Для работы интерактивного прототипа требуется JavaScript. Используйте Safari или Chrome вместо встроенного просмотра файлов.</p></noscript>
   <script type="module" src="/src/preview/entry.ts"></script>
 </body>
 </html>
