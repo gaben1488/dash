@@ -15,6 +15,11 @@ on:
       - 'packages/web/scripts/build-source-preview.mjs'
       - '.github/workflows/dash-source-parity-preview.yml'
   workflow_dispatch:
+# Only the newest source revision is allowed to publish a built HTML.
+# Previous attempts raced each other and pushed stale artifacts.
+concurrency:
+  group: dash-source-html-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -48,6 +53,13 @@ jobs:
         run: |
           git config user.name 'dash-preview-bot'
           git config user.email 'dash-preview-bot@users.noreply.github.com'
+          # Never publish an HTML built on an earlier commit over newer source.
+          expected="$(git rev-parse HEAD)"
+          current="$(git ls-remote origin refs/heads/codex/dash-source-parity-preview-20261010 | cut -f1)"
+          if [ "$expected" != "$current" ]; then
+            echo "Newer source revision already exists; skip stale HTML publication"
+            exit 0
+          fi
           git add -f docs/superpowers/mockups/dash-source-parity/Dash-source-bound-preview.html
           if ! git diff --cached --quiet; then
             git commit -m 'build(preview): standalone original Dash React review'
