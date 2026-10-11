@@ -501,6 +501,22 @@ describe('оплата и отрицание — проверка двух ко�
     expect(issues.some((x) => x.kind === 'execution_claim_no_fact' && x.mechanism.includes('оплачено'))).toBe(false);
   });
 
+  it('не приписывает оплату в формах «не был оплачен» и «неоплачено»', () => {
+    for (const AE of [
+      'Договор не был оплачен',
+      'Здание ещё не было оплачено',
+      'Счёт неоплачен',
+      'Оплата пока не произведена',
+    ]) {
+      const findings = detectCommentInconsistencies(source, {
+        AE, AF: 'Счёт оплачен', V: 0, W: 0, X: 0, Y: 0,
+      }, SNAPSHOT);
+      expect(findings.some((x) =>
+        x.kind === 'execution_claim_no_fact' && x.cell === 'AE331'), AE).toBe(false);
+      expect(findings.filter((x) => x.kind === 'payment_text_conflict'), AE).toHaveLength(1);
+    }
+  });
+
   it('показывает конфликт двух колонок одной строки, не утверждая факт оплаты', () => {
     const issues = detectCommentInconsistencies(source, {
       G: 'Опрессовка отопления', Q: '18.08.2026', X: 45, Y: 45,
