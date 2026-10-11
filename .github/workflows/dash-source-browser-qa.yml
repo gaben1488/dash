@@ -36,17 +36,22 @@ jobs:
           google-chrome --version
       - name: Bundle real Dash frontend with synthetic API
         run: pnpm --dir packages/web exec vite build --config vite.preview.config.ts
-      - name: Serve the same frontend that is packed into HTML
+      - name: Build the EXACT downloadable HTML, not just a Vite preview
+        run: node packages/web/scripts/build-source-preview.mjs
+      - name: Serve that exact single HTML to the QA browser
         run: |
-          pnpm --dir packages/web exec vite preview --config vite.preview.config.ts \
-            --host 127.0.0.1 --port 4173 --strictPort > /tmp/dash-preview-server.log 2>&1 &
+          python3 -m http.server 4174 --bind 127.0.0.1 \
+            --directory docs/superpowers/mockups/dash-source-parity \
+            > /tmp/dash-standalone-html-server.log 2>&1 &
           for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:4173/preview.html > /dev/null; then exit 0; fi
+            if curl -fsS http://127.0.0.1:4174/Dash-source-bound-preview.html > /dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/dash-preview-server.log
+          cat /tmp/dash-standalone-html-server.log
           exit 1
-      - name: Inspect actual production React routes and QA states
+      - name: Inspect all routes of the exact delivered HTML and no-JS fallback
+        env:
+          DASH_QA_URL: http://127.0.0.1:4174/Dash-source-bound-preview.html
         run: |
           CHROME_BIN="$(command -v google-chrome)" \
           node packages/web/src/preview/browser-qa.mjs
