@@ -59,7 +59,7 @@ function buildScreen(page,r,cfg,phase){
  for(let j=focus-1;j<=focus+1;j++){
   const row=block(drum,'Ряд / '+groups[j][0],Math.min(730,w-70),'HORIZONTAL',j===focus?s.card:s.raised,4,3);
   label(row,groups[j][0],mobile?50:70,10,s.muted);
-  for(const t of groups[j][1]){
+  for(const t of (w<650?groups[j][1].filter((n,k)=>k<2||n===index):groups[j][1])){
    const item=DATA.routes[t],p=sections.find(x=>x.name===item.label)||sections[0];
    chip(row,item.label,Math.max(95,Math.min(151,item.label.length*7+35)),p,s,t===index,cfg.finish);
   }
@@ -70,7 +70,7 @@ function buildScreen(page,r,cfg,phase){
   const side=block(body,r.id==='report'?'Собственное оглавление отчёта':'Исходный OrgStrip',194,'VERTICAL',s.card,8,10);
   label(side,r.id==='report'?'Оглавление документа':'Управления и подведы',172,12,s.ink,'Semi Bold');
   for(const n of ['УЭР','УИО','УАГЗО','УФБП','УД','УДТХ','УКСиМП','УО'])label(side,n,172,11,s.muted);
- }else label(body,'Организации: выдвижной выбор',w-35,11,s.ink,'Medium');
+ }else label(body,r.id==='report'?'Оглавление отчёта: собственный выбор раздела':'Организации: выдвижной выбор',w-35,11,s.ink,'Medium');
  const mainW=mobile?w-40:w-240,main=block(body,'Содержимое / '+r.label,mainW,'VERTICAL',null,9,0);
  const tabs=block(main,'Действительные подразделы',mainW,'HORIZONTAL',null,5,0);
  for(const t of r.tabs.slice(0,mobile?2:6))chip(tabs,t,Math.max(95,Math.min(175,35+t.length*7)),pair,s,t===r.tabs[0],cfg.finish);
