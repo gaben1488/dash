@@ -140,27 +140,40 @@ jobs:
           printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/worker-recovery/key"
           ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/worker-recovery/known_hosts" 2>/dev/null
           test -s "$RUNNER_TEMP/worker-recovery/known_hosts"
-      - name: Independently restore exact private backup and exercise reports-only rollback
+      - name: Reuse verified immutable backup restore and require fresh scope matching
         run: |
           set -euo pipefail
           umask 077
-          mkdir "$RUNNER_TEMP/worker-recovery/backup" "$RUNNER_TEMP/worker-recovery/scratch"
-          scp -q -i "$RUNNER_TEMP/worker-recovery/key" -o UserKnownHostsFile="$RUNNER_TEMP/worker-recovery/known_hosts" -o StrictHostKeyChecking=yes \
-            "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-38171945386/backup/manifest.json" \
-            "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-38171945386/backup/state.tar.gz" "$RUNNER_TEMP/worker-recovery/backup/"
-          sudo python3 deploy/stateful_backup.py verify --backup "$RUNNER_TEMP/worker-recovery/backup" \
-            --scratch-parent "$RUNNER_TEMP/worker-recovery/scratch" --trial-report-restore > "$RUNNER_TEMP/worker-recovery/restore.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38174351649" > "$RUNNER_TEMP/worker-recovery/prior-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38174351649/jobs" > "$RUNNER_TEMP/worker-recovery/prior-jobs.json"
+          git fetch --quiet origin 5a1f27b2c7dc243f3c54c866dcf79456656af664
+          git show 5a1f27b2c7dc243f3c54c866dcf79456656af664:deploy/stateful_backup.py > "$RUNNER_TEMP/worker-recovery/verified-backup-tool.py"
+          cmp deploy/stateful_backup.py "$RUNNER_TEMP/worker-recovery/verified-backup-tool.py"
+          ssh_args=(-i "$RUNNER_TEMP/worker-recovery/key" -o UserKnownHostsFile="$RUNNER_TEMP/worker-recovery/known_hosts" -o StrictHostKeyChecking=yes)
+          scp -q "${ssh_args[@]}" \
+            "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/recovery-38174351649/receipt.json" "$RUNNER_TEMP/worker-recovery/receipt.json"
+          scp -q "${ssh_args[@]}" \
+            "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-38171945386/backup/manifest.json" "$RUNNER_TEMP/worker-recovery/manifest.json"
           python3 - "$RUNNER_TEMP/worker-recovery" <<'PYRECEIPT'
-          import json, sys
+          import hashlib, json, sys
           from pathlib import Path
           root=Path(sys.argv[1])
-          proof=json.loads((root/'restore.json').read_text())
-          assert proof['state']=='VERIFIED_IN_SCRATCH' and proof['worker_scope_rollback']=='PASS'
-          (root/'receipt.json').write_text(json.dumps({'full_restore':proof['state'], 'compatibility':'PASS',
-              'backup_session':'/home/aemr/.dash-private-backups/worker-38171945386',
-              'backup_sha':'00e62b607165d4bfc1350ad6cc388cd333dd50d9',
-              'manifest_sha256':proof['manifest_sha256']}))
-          print('FULL_PRIVATE_RESTORE_AND_WORKER_SCOPE_ROLLBACK_PASS')
+          prior=json.loads((root/'prior-run.json').read_text())
+          assert prior['status']=='completed' and prior['conclusion']=='failure'
+          assert prior['head_sha']=='5a1f27b2c7dc243f3c54c866dcf79456656af664'
+          assert prior['head_repository']['full_name']=='gaben1488/dash'
+          assert prior['head_branch']=='codex/dash-audit-integrated-20261010'
+          job=next(j for j in json.loads((root/'prior-jobs.json').read_text())['jobs'] if j['name']=='restore-current-worker')
+          step=next(s for s in job['steps'] if s['name']=='Independently restore exact private backup and exercise reports-only rollback')
+          assert step['status']=='completed' and step['conclusion']=='success'
+          proof=json.loads((root/'receipt.json').read_text())
+          assert proof['full_restore']=='VERIFIED_IN_SCRATCH' and proof['compatibility']=='PASS'
+          assert proof['backup_session']=='/home/aemr/.dash-private-backups/worker-38171945386'
+          assert proof['backup_sha']=='00e62b607165d4bfc1350ad6cc388cd333dd50d9'
+          assert proof['manifest_sha256']==hashlib.sha256((root/'manifest.json').read_bytes()).hexdigest()
+          # Recovery still revalidates archive bytes and quiesced live reports
+          # with the unchanged verified helper before changing any runtime.
+          print('IMMUTABLE_FULL_RESTORE_AND_SCOPE_ROLLBACK_PROOF_REUSED')
           PYRECEIPT
       - name: Recover only pinned worker and verify first attributed timer cycle and native Word
         run: |
