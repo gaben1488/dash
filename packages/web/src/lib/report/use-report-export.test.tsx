@@ -26,6 +26,35 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const response = (selected: unknown) => ({ ok: true, json: async () => ({ latest: receipt, selected, attempt: null }) });
 
+it.each(['actionable-assurance-v1', 'actionable-assurance-v2'])(
+  'loads verified Word receipt with reviewed assurance contract %s', async contract => {
+    const assurance = {
+      contract, fully_automated: false, user_action_count: 1,
+      engine_action_count: 2, active_recommendations: 159,
+      link_status_counts: { CONFIRMED: 40 }, action_status_counts: { UNKNOWN: 10 },
+      actions: [], meaning: 'Synthetic review evidence.',
+      source_observations: [], nonprocurement_identity_observations: 0,
+    };
+    request.mockResolvedValue(response({ ...receipt, automation_assurance: assurance }));
+    const { result } = renderHook(() => useReportExport(context));
+    await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
+    expect(result.current.assurance?.contract).toBe(contract);
+    expect(result.current.status).toContain('Word: проверен');
+  },
+);
+
+it('rejects unknown future assurance contract instead of accepting unreviewed semantics', async () => {
+  const assurance = {
+    contract: 'actionable-assurance-v3', fully_automated: false,
+    user_action_count: 1, engine_action_count: 2, active_recommendations: 159,
+    link_status_counts: {}, action_status_counts: {}, actions: [], meaning: 'Synthetic.',
+  };
+  request.mockResolvedValue(response({ ...receipt, automation_assurance: assurance }));
+  const { result } = renderHook(() => useReportExport(context));
+  await waitFor(() => expect(result.current.status).toContain('Несовместимый'));
+  expect(result.current.release).toBeNull();
+});
+
 it('pins the pair when a background publication arrives after the first download', async () => {
   let selected = receipt;
   const downloads: string[] = [];
