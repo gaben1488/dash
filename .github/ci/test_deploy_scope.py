@@ -5,6 +5,26 @@ from deploy_scope import is_non_runtime, runtime_changed
 
 
 class DeploymentScopeTests(unittest.TestCase):
+    def test_rehearsal_worker_lookup_reports_blocker_without_masking_failure(self):
+        import json
+        import subprocess
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" /
+                    "report-rehearsal.yml").read_text()
+        shell = workflow.split('# Startup success is insufficient: observe a later timer attempt.', 1)[1]
+        shell = shell.split('started=$(docker inspect', 1)[0]
+        for status, reason in [(0, 'RUNNING_REPORT_WORKER_NOT_FOUND'),
+                               (2, 'REPORT_WORKER_LOOKUP_FAILED')]:
+            with self.subTest(status=status):
+                result = subprocess.run(
+                    ['bash', '-c', 'set -euo pipefail\n'
+                     + f'docker() {{ return {status}; }}\n' + shell],
+                    text=True, capture_output=True, timeout=5, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(result.stdout.strip(), 'Lookup failure lost its blocker diagnostic')
+                self.assertEqual(json.loads(result.stdout)['scheduled_worker_cycle'],
+                                 {'status': 'BLOCKED', 'reason': reason})
+
     def test_workflow_script_bodies_cannot_escape_yaml_blocks(self):
         import re
         from pathlib import Path
