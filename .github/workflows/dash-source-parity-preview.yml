@@ -42,7 +42,7 @@ jobs:
       - name: Pack actual routes to one HTML
         run: node packages/web/scripts/build-source-preview.mjs
       - name: Check all production route and subtab gates
-        run: node --test packages/web/src/preview/contract.test.mjs
+        run: node --test packages/web/src/preview/contract.check.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: Dash-source-bound-interactive-HTML
