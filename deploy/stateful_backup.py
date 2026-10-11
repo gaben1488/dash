@@ -212,15 +212,7 @@ def create(source: Path, backup: Path, *, compressed: bool = False) -> dict:
             **({"archive_bytes": manifest["archive_bytes"]} if compressed else {})}
 
 
-def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> dict:
-    backup = backup.resolve(strict=True)
-    scratch_parent = scratch_parent.resolve(strict=True)
-    if not scratch_parent.is_dir() or (backup == scratch_parent or backup in scratch_parent.parents):
-        raise BackupError("BACKUP_PATH_OVERLAP")
-    if source is not None:
-        source = source.resolve(strict=True)
-        check_nonoverlapping(source, backup)
-        check_nonoverlapping(source, scratch_parent)
+def _validated_backup(backup: Path) -> tuple[dict, dict, int]:
     with (backup / "manifest.json").open(encoding="utf-8") as receipt:
         manifest = json.load(receipt)
     if manifest.get("format") not in (1, 2) or not isinstance(manifest.get("files"), dict):
@@ -241,6 +233,34 @@ def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> di
             raise BackupError("BACKUP_MISMATCH")
     elif inventory(backup / "state") != files:
         raise BackupError("BACKUP_MISMATCH")
+    return manifest, files, total
+
+
+def match_source(backup: Path, source: Path) -> dict:
+    """Check freshness after an independently executed external scratch restore.
+
+    This is not a restore certificate or deployment authorization. The calling
+    trusted workflow must already have completed verify() on the identical backup.
+    """
+    backup = backup.resolve(strict=True)
+    source = source.resolve(strict=True)
+    check_nonoverlapping(source, backup)
+    _, files, total = _validated_backup(backup)
+    if inventory(source) != files:
+        raise BackupError('BACKUP_SOURCE_MISMATCH')
+    return {'state': 'SOURCE_MATCHED_ONLY', 'files': len(files), 'bytes': total}
+
+
+def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> dict:
+    backup = backup.resolve(strict=True)
+    scratch_parent = scratch_parent.resolve(strict=True)
+    if not scratch_parent.is_dir() or (backup == scratch_parent or backup in scratch_parent.parents):
+        raise BackupError("BACKUP_PATH_OVERLAP")
+    if source is not None:
+        source = source.resolve(strict=True)
+        check_nonoverlapping(source, backup)
+        check_nonoverlapping(source, scratch_parent)
+    manifest, files, total = _validated_backup(backup)
     if source is not None and inventory(source) != files:
         raise BackupError("BACKUP_SOURCE_MISMATCH")
     if shutil.disk_usage(scratch_parent).free < total + 128 * 1024 * 1024:
@@ -279,10 +299,17 @@ def main() -> int:
     read.add_argument("--scratch-parent", type=Path, required=True)
     read.add_argument("--source", type=Path,
                       help="Остановленный источник для проверки актуальности перед выпуском")
+    match = sub.add_parser('match-source', help='Compare quiesced source with a backup; does not claim restore')
+    match.add_argument('--backup', type=Path, required=True)
+    match.add_argument('--source', type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = (create(args.source, args.backup, compressed=args.compressed) if args.command == "create"
-                  else verify(args.backup, args.scratch_parent, args.source))
+        if args.command == 'create':
+            result = create(args.source, args.backup, compressed=args.compressed)
+        elif args.command == 'match-source':
+            result = match_source(args.backup, args.source)
+        else:
+            result = verify(args.backup, args.scratch_parent, args.source)
         print(json.dumps(result, sort_keys=True))
         return 0
     except BackupError as exc:

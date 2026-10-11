@@ -7,6 +7,21 @@
 
 ## Продолжение выпуска — 12.10.2026 (Камчатка)
 
+По последнему поручению worker #93 — первый приоритет. Live read-only
+38170496420 на dd267377 подтвердил exited(0), разные server/worker image
+и нехватку VPS для полного scratch restore: source22 054 396 941 B,
+free21 541 068 800 B. CI38170475213 SUCCESS; source-schema38170475150
+SUCCESS. Причина остановки: docs deploy ae6ef74d выключил worker перед
+MONITORING_SCHEMA_LIVE_GEOMETRY_MISMATCH и не восстановил расписание.
+Native Word сейчас PASS, browser Zod FAIL на automation_assurance.contract;
+это разные результаты, browser-исправление ещё не выпущено.
+Подготовлено закрытое полное compressed backup/restore окно с временным
+scratch на Actions через SSH, без публичных artifacts. При отказе/завершении
+возвращается прежний Node-контейнер с health-check, worker не запускается.
+Независимый VPS-watchdog ограничивает quiescence30мин; нарушение окна
+блокирует source-match до/после проверки. Полная live копия и restore ещё
+НЕ выполнены; этот инструмент не является worker/release acceptance.
+
 Последнее уточнение минимального хранения: общий source revision для Dash/Word,
 история изменений вместо полных копий каждого обновления, недельные маркеры и
 ограниченные checkpoints. Архитектура изучена на фактических source-refresh,

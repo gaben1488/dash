@@ -298,6 +298,25 @@ bash verify-state-backup.sh /private/backups/aemr RELEASE-APPROVED-SHA
 report state и может публиковать новый выпуск — использовать только после
 полного выпускного допуска.
 
+### Полная копия при недостатке VPS для scratch
+
+Owner-authorized maintenance label `maintenance: full-worker-backup` на
+каноническом PR #79 требует exact-head CI, прекращает оба writer, создаёт
+полную неизменяемую compressed копию вне checkout и тома данных. Manifest
+и архив передаются по SSH на временный закрытый Actions scratch; UID/GID,
+SQLite/WAL, DOCX и все байты проверяются существующим `verify`. Публичные
+artifacts не создаются. Прежний Node возобновляется с проверкой health;
+worker не запускается. Независимый30мин watchdog возвращает Node при
+потере runner; source-match обязан проверить quiescence до и после scan.
+
+`match-source` отдельно означает только сравнение с копией. Он не заменяет
+restore и не разрешает deployment. Завершённый workflow доказывает копию
+на момент quiescence; после resume источник может измениться. Допуск к
+выпуску требует нового сопоставления текущего остановленного состояния,
+доказанного rollback старого runtime и самостоятельных worker cycles.
+Копия остаётся в приватном `.dash-private-backups`; временные runner copies
+и SSH credentials удаляются даже после ошибки.
+
 ## Web Auth Bootstrap
 
 Пока полноценного login-flow нет, web client берёт API key из browser localStorage:

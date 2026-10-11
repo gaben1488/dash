@@ -1,4 +1,4 @@
-name: Owner-authorized VPS build cache cleanup
+name: Owner-authorized VPS maintenance
 
 on:
   pull_request:
@@ -7,8 +7,80 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  full-worker-backup:
+    if: >-
+      github.event.label.name == 'maintenance: full-worker-backup' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    env:
+      RECOVERY_SHA: ${{ github.event.pull_request.head.sha }}
+      RECOVERY_RUN: ${{ github.run_id }}
+      VPS_USER: ${{ secrets.DEPLOY_USER }}
+      VPS_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Require exact-head CI and private scratch capacity
+        run: |
+          set -euo pipefail
+          case "$RECOVERY_SHA" in *[!0-9a-f]*|'') exit 2 ;; esac
+          test "${#RECOVERY_SHA}" = 40
+          # Wait only before the maintenance window; no service has been stopped.
+          ready=false
+          for attempt in $(seq 1 30); do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RECOVERY_SHA&event=pull_request"               --jq '.workflow_runs[] | select(.name == "CI" and .conclusion == "success") | .id' | grep -q .; then
+              ready=true
+              break
+            fi
+            sleep 20
+          done
+          test "$ready" = true
+          test "$(df -PB1 "$RUNNER_TEMP" | awk 'NR==2 {print $4}')" -gt 32212254720
+          [[ "$VPS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          umask 077
+          mkdir -p "$RUNNER_TEMP/worker-backup"
+          printf '%s\n' "$VPS_KEY" > "$RUNNER_TEMP/worker-backup/key"
+          ssh-keyscan -T 10 -H 193.233.91.162 > "$RUNNER_TEMP/worker-backup/known_hosts" 2>/dev/null
+          test -s "$RUNNER_TEMP/worker-backup/known_hosts"
+      - name: Quiesce writers and create private full compressed backup
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- prepare "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups < deploy/report-backup-window.sh
+      - name: Transfer privately and prove complete independent scratch restore
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir "$RUNNER_TEMP/worker-backup/backup" "$RUNNER_TEMP/worker-backup/scratch"
+          scp -q -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup/manifest.json" \
+            "$VPS_USER@193.233.91.162:/home/aemr/.dash-private-backups/worker-$RECOVERY_RUN/backup/state.tar.gz"             "$RUNNER_TEMP/worker-backup/backup/"
+          # Root is needed to reproduce original file UIDs/GIDs in disposable restore.
+          sudo python3 deploy/stateful_backup.py verify             --backup "$RUNNER_TEMP/worker-backup/backup"             --scratch-parent "$RUNNER_TEMP/worker-backup/scratch"             > "$RUNNER_TEMP/worker-backup/restore.json"
+          cat "$RUNNER_TEMP/worker-backup/restore.json"
+      - name: Match still-quiesced original bytes after successful restore
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/worker-backup/key"             -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes             "$VPS_USER@193.233.91.162" bash -s -- match-source "$RECOVERY_SHA" "$RECOVERY_RUN"             /home/aemr/dash /home/aemr/.dash-private-backups < deploy/report-backup-window.sh
+          echo 'FULL_BACKUP_EXTERNAL_RESTORE_AND_SOURCE_MATCH_PASS'
+      - name: Always resume original server; never start worker or discard private backup
+        if: always()
+        run: |
+          set -euo pipefail
+          if test -f "$RUNNER_TEMP/worker-backup/key"; then
+            ssh -i "$RUNNER_TEMP/worker-backup/key"               -o UserKnownHostsFile="$RUNNER_TEMP/worker-backup/known_hosts" -o StrictHostKeyChecking=yes               "$VPS_USER@193.233.91.162" bash -s -- resume "$RECOVERY_SHA" "$RECOVERY_RUN"               /home/aemr/dash /home/aemr/.dash-private-backups < deploy/report-backup-window.sh
+          fi
+      - name: Remove all private runner copies and credentials
+        if: always()
+        run: sudo rm -rf "$RUNNER_TEMP/worker-backup"
   worker-recovery-preflight:
     if: >-
       github.event.label.name == 'maintenance: worker-recovery-preflight' &&

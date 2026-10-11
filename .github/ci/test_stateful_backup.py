@@ -68,6 +68,30 @@ class StatefulBackupTests(unittest.TestCase):
                         for p in self.source.rglob("*") if p.is_file()))
         self.assertEqual(list(self.scratch.iterdir()), [])  # Scratch auto-cleaned.
 
+    def test_source_match_for_external_restore_is_not_a_restore_claim(self):
+        created = self.run_cli('create', '--compressed', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        result = self.run_cli('match-source', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['state'], 'SOURCE_MATCHED_ONLY')
+        self.assertNotIn('VERIFIED_IN_SCRATCH', result.stdout)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
+    def test_source_match_blocks_changed_live_state_and_corrupt_backup(self):
+        created = self.run_cli('create', '--compressed', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        original = (self.source / 'reports/inputs/ledger.json').read_bytes()
+        (self.source / 'reports/inputs/ledger.json').write_text('changed')
+        result = self.run_cli('match-source', '--source', self.source, '--backup', self.backup)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('BACKUP_SOURCE_MISMATCH', result.stderr)
+        (self.source / 'reports/inputs/ledger.json').write_bytes(original)
+        with (self.backup / 'state.tar.gz').open('ab') as stream:
+            stream.write(b'corrupt')
+        result = self.run_cli('match-source', '--source', self.source, '--backup', self.backup)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('BACKUP_MISMATCH', result.stderr)
+
     def test_compressed_full_backup_restores_exact_state_and_metadata(self):
         (self.source / "reports" / "empty").mkdir()
         (self.source / "aemr.db").chmod(0o600)
