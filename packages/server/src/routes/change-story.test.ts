@@ -169,6 +169,13 @@ describe('GET /api/change-story', () => {
     expect(body.note).toContain('Удаление строки журнал не записывает');
   });
 
+  it('объяснение API различает текущие чтения и последний контроль, не две прошлые недели', () => {
+    expect(body.note).toContain('последнему подтверждённому недельному');
+    expect(body.note).toContain('текущим достоверным чтениям');
+    expect(body.note).not.toContain('двух соседних');
+    expect(body.note).toContain('требуются дополнительные свидетельства');
+  });
+
   it('свод отвечает на «сколько книг, сколько закупок, кем и когда»', () => {
     expect(body.digest.books).toBe(1);
     expect(body.digest.booksNamed).toEqual(['УЭР']);

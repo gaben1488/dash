@@ -159,6 +159,27 @@ describe('исчезнувшие закупки приходят из сравн
   });
 });
 
+describe('устойчивый провенанс наблюдений', () => {
+  it('различает одинаковый номер на разных контрольных срезах', () => {
+    const diff: RowDiff = {
+      vanished: [{ rowSeq: '12', wasAtSheetRow: 50, subject: 'Ремонт' }],
+      appeared: [{ rowSeq: '13', sheetRow: 51, subject: 'Мебель' }],
+      moved: [], vanishedPlanSum: 0, vanishedFactSum: 0,
+      unkeyed: { before: 0, after: 0 }, note: '',
+    };
+    const evidence = (baselineId: string, observedAt: string) => ({
+      baselineId, controlAt: '2026-10-01T08:00:00Z', observedAt,
+    });
+    const original = entriesFromRowDiff('УО', diff, evidence('week-1', '2026-10-02T08:00:00Z'));
+    const reread = entriesFromRowDiff('УО', diff, evidence('week-1', '2026-10-02T09:00:00Z'));
+    const newControl = entriesFromRowDiff('УО', diff, evidence('week-2', '2026-10-09T08:00:00Z'));
+    expect(original).toHaveLength(2);
+    expect(original.map((entry) => entry.id)).toEqual(reread.map((entry) => entry.id));
+    expect(original.map((entry) => entry.id)).not.toEqual(newControl.map((entry) => entry.id));
+    expect(original[0].comparisonEvidence?.baselineId).toBe('week-1');
+  });
+});
+
 describe('честная пустота: «правок не было» ≠ «журнал не прочитан»', () => {
   it('прочитанный пустой журнал даёт «тихо»', () => {
     const story = buildChangeStory([{ book: 'УО', journalAvailable: true, records: [] }]);

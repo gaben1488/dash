@@ -424,13 +424,17 @@ export function entriesFromRowDiff(
   const candidates = diff.identityCandidates ?? [];
   const candidateOld = new Set(candidates.map((c) => c.beforeRowSeq));
   const candidateNew = new Set(candidates.map((c) => c.afterRowSeq));
+  // У одного номера могут быть разные истории на последовательных контрольных
+  // базах. Не схлопывать их в одну запись при склейке/будущем хранении.
+  // Момент повторного чтения в ключ НЕ включаем: он не является новой правкой.
+  const controlKey = comparisonEvidence ? '|контроль:' + comparisonEvidence.baselineId : '';
 
   for (const v of diff.vanished) {
     // Событие возможной смены номера уже несёт факт отсутствия старого №.
     // Два независимых события для одной гипотезы были бы двойным счётом.
     if (candidateOld.has(v.rowSeq)) continue;
     entries.push({
-      id: `${book}|снимки|исчезла|${v.rowSeq}`,
+      id: `${book}|снимки|исчезла|${v.rowSeq}${controlKey}`,
       book,
       sheet: 'ВСЕ',
       rowSeq: v.rowSeq,
@@ -453,7 +457,7 @@ export function entriesFromRowDiff(
   for (const a of diff.appeared) {
     if (candidateNew.has(a.rowSeq)) continue;
     entries.push({
-      id: `${book}|снимки|появилась|${a.rowSeq}`,
+      id: `${book}|снимки|появилась|${a.rowSeq}${controlKey}`,
       book,
       sheet: 'ВСЕ',
       rowSeq: a.rowSeq,
@@ -503,7 +507,7 @@ export function entriesFromRowDiff(
 
   for (const candidate of candidates) {
     entries.push({
-      id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq,
+       id: book + '|контроль|возможная-смена-номера|' + candidate.beforeRowSeq + '|' + candidate.afterRowSeq + controlKey,
       book,
       sheet: 'ВСЕ',
       rowSeq: candidate.beforeRowSeq,
