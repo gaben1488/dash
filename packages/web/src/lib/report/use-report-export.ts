@@ -92,7 +92,15 @@ export function useReportExport(context: ExportContext | null) {
         }
       } catch (error) {
         preparationRequested = false;
-        if (!controller.signal.aborted) setState({ key: key!, data: null, error: wordReadFailure(error) });
+        if (!controller.signal.aborted) {
+          const warning = wordReadFailure(error);
+          // A transient 502 or schema-read failure must not make a previously
+          // verified frozen Word disappear. Keep only the SAME selected context
+          // and show the warning; never substitute a different date/snapshot.
+          setState(previous => ({
+            key: key!, data: previous?.key === key ? previous.data : null, error: warning,
+          }));
+        }
       } finally {
         clearTimeout(timeout);
         controller.signal.removeEventListener('abort', abort);
