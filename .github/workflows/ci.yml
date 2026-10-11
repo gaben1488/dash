@@ -386,7 +386,7 @@ jobs:
                   field_errors:parsed.success?[]:parsed.error.issues.slice(0,8).map(e=>({path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),code:e.code}))
                 }));
               })().catch(()=>console.log(JSON.stringify({kind:"browser_word_status",result:"DIAGNOSTIC_UNAVAILABLE"})));
-            ' 2>&1 | python3 -c 'import sys,json; out=sys.stdin.read(); labels=("CONTRACT_PASS","CONTRACT_FAIL","HTTP_ERROR","INVALID_SELECTED_DATE","DIAGNOSTIC_UNAVAILABLE","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","SyntaxError","ReferenceError","TypeError"); found=next((x for x in labels if x in out),"UNKNOWN"); print(json.dumps({"kind":"browser_contract_probe","result":found},sort_keys=True))' || echo 'browser_node_probe=FAILED'
+            ' 2>&1 | python3 -c 'import sys,json; out=sys.stdin.read(); labels=("CONTRACT_PASS","CONTRACT_FAIL","HTTP_ERROR","INVALID_SELECTED_DATE","DIAGNOSTIC_UNAVAILABLE","ERR_MODULE_NOT_FOUND","ERR_PACKAGE_PATH_NOT_EXPORTED","SyntaxError","ReferenceError","TypeError"); found=next((x for x in labels if x in out),"UNKNOWN"); issues=re.findall(r"\\"path\\":\\"([A-Za-z0-9_.]{1,100})\\",\\"code\\":\\"([A-Za-z_]{1,36})\\"",out)[:8]; print(json.dumps({"kind":"browser_contract_probe","result":found,"invalid_fields":[{"path":p,"code":c} for p,c in issues]},sort_keys=True))' || echo 'browser_node_probe=FAILED'
             # Python makes an independent read-only request using the existing
             # production service token; output only status and schema shape.
             docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - <<'PYREPORT' 2>/dev/null || echo 'browser_python_probe=UNAVAILABLE'
