@@ -9,6 +9,56 @@ permissions:
   contents: read
 
 jobs:
+  attempt-payloads:
+    if: >-
+      github.event.label.name == 'maintenance: transient-attempts' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - name: Compact old transient payloads preserving weekly and current evidence
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 6m
+          script_stop: false
+          script: |
+            set -euo pipefail
+            umask 077
+            candidate='${{ github.event.pull_request.head.sha }}'
+            case "$candidate" in *[!0-9a-f]*|'') exit 2 ;; esac
+            test "${#candidate}" = 40
+            cd /home/aemr/dash
+            git fetch --quiet origin "$candidate"
+            tool=$(mktemp)
+            trap 'rm -f "$tool"' EXIT
+            git show "$candidate:packages/report-engine/src/procurement_engine/retention.py" > "$tool"
+            cat >> "$tool" <<'PYCOMPACT'
+            state = "/app/packages/server/data/reports"
+            plan = plan_transient_attempt_retention(state, keep_full=2)
+            print(json.dumps({"attempt_retention_plan": {k: plan.get(k) for k in (
+                "status", "attempt_count", "compact_count", "bytes_reclaimable",
+                "protected_unsealed_thursdays", "malformed_or_unsafe_entries")}}, sort_keys=True))
+            result = apply_transient_attempt_retention(state, keep_full=2,
+                expected_attempts=plan["compact_attempts"])
+            print(json.dumps({"attempt_retention_result": {k: result.get(k) for k in (
+                "status", "compacted", "bytes_reclaimed")}}, sort_keys=True))
+            if result["status"] not in {"COMPACTED", "NO_ATTEMPTS"}:
+                raise SystemExit(2)
+            if result.get("compacted", 0) != plan.get("compact_count", 0):
+                raise SystemExit(2)
+            PYCOMPACT
+            cd deploy
+            df -PB1 /
+            docker compose --env-file .env.production exec -T server /opt/report-env/bin/python -B - < "$tool"
+            df -PB1 /
   cache-only:
     if: >-
       github.event.label.name == 'maintenance: build-cache-only' &&

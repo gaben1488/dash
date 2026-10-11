@@ -7,7 +7,8 @@ flock -n 9 || { echo 'CACHE_CLEANUP_ALREADY_RUNNING' >&2; exit 2; }
 
 protected_state() {
   local containers
-  containers=$(docker ps --all --filter label=com.docker.compose.project --quiet --no-trunc) || return 2
+  containers=$(docker ps --all --filter label=com.docker.compose.project \
+    --filter label=com.docker.compose.oneoff=False --quiet --no-trunc) || return 2
   [ -n "$containers" ] || { echo 'CACHE_PROTECTED_CONTAINERS_MISSING' >&2; return 2; }
   # Hash only stable deployment state; never print environment or source contents.
   {

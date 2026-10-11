@@ -27,7 +27,11 @@ with trace.open('a') as stream:
 scenario = os.environ['CACHE_TEST_SCENARIO']
 if args[:2] == ['ps', '--all']:
     print('synthetic-container')
+    if scenario == 'oneoff' and 'label=com.docker.compose.oneoff=False' not in args:
+        print('transient-container')
 elif args[0] == 'inspect':
+    if args[-1] == 'transient-container' and 'prune' in previous:
+        sys.exit(2)
     if scenario == 'unreadable':
         sys.exit(2)
     changed = scenario == 'changed' and 'prune' in previous
@@ -76,6 +80,11 @@ else:
         result, _ = self.run_cleanup('prune-failed')
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('CACHE_ONLY_CLEANUP_PASS', result.stdout)
+
+    def test_disappearing_oneoff_rehearsal_does_not_hide_stable_service_readback(self):
+        result, _ = self.run_cleanup('oneoff')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('CACHE_ONLY_CLEANUP_PASS', result.stdout)
 
 
 if __name__ == '__main__':
