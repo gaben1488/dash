@@ -389,10 +389,4 @@ jobs:
             # Caddy sees real requests; only aggregate HTTP statuses leave VPS.
             docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
               | tail -n 2000 \
-              | python3 -c 'import collections,json,re,sys; counts=collections.Counter(); total=0
-for line in sys.stdin:
- if "/api/report-releases" not in line: continue
- total+=1
- match=re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",line)
- counts[match.group(1) if match else "UNKNOWN"]+=1
-print(json.dumps({"kind":"caddy_report_access","matching_log_lines":total,"status_counts":dict(counts)},sort_keys=True))'
+              | python3 -c 'import collections,json,re,sys; records=[l for l in sys.stdin if "/api/report-releases" in l]; matches=[re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",l) for l in records]; counts=collections.Counter(m.group(1) if m else "UNKNOWN" for m in matches); print(json.dumps({"kind":"caddy_report_access","matching_log_lines":len(records),"status_counts":dict(counts)},sort_keys=True))'
