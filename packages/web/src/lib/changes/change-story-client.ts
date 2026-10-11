@@ -44,7 +44,7 @@ export interface ChangeStoryResponse {
   readonly deletionsUnobservable: boolean;
   readonly note: string;
   /** Пара снимков, по которой найдены пропажи; null — сравнивать не с чем. */
-  readonly comparison: { readonly beforeAt: string; readonly afterAt: string } | null;
+  readonly comparison: { readonly baselineId: string; readonly beforeAt: string; readonly afterAt: string; readonly oldestCurrentAt: string } | null;
   readonly facets: {
     readonly books: ReadonlyArray<{ book: string; count: number }>;
     readonly authors: ReadonlyArray<{ author: string; count: number }>;

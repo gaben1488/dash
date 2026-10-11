@@ -120,7 +120,7 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
    * потому второй, а не первый.
    */
   const drillTo = (entry: ChangeEntry) => {
-    const needle = entry.rowSeq ?? entry.subject ?? '';
+    const needle = entry.relatedRowSeq ?? (entry.kind === 'row-vanished' ? entry.subject : entry.rowSeq) ?? entry.subject ?? '';
     if (needle === '') return;
     navigateTo('data', { department: entry.book, search: needle });
     onClose();
@@ -165,7 +165,7 @@ export function ChangeJournal({ open, onClose }: { open: boolean; onClose: () =>
             <p className="mt-1 text-[10px] text-[var(--ink-faint)]">
               {readAt === null ? 'журнал ещё не прочитан' : `прочитано ${relativeMoment(readAt)}`}
               {response?.comparison
-                ? ` · пропажи найдены сравнением снимков ${response.comparison.beforeAt.slice(0, 10)} и ${response.comparison.afterAt.slice(0, 10)}`
+                ? ` · контроль ${response.comparison.beforeAt.slice(0, 10)} → текущие чтения (${response.comparison.oldestCurrentAt.slice(0, 10)}–${response.comparison.afterAt.slice(0, 10)})`
                 : ''}
             </p>
           </div>

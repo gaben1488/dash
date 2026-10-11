@@ -71,7 +71,7 @@ function asList(raw: unknown): string[] {
  * пересчитывается здесь: два места, читающие снимки своими руками, рано или
  * поздно разойдутся в том, какая пара снимков считается сравнимой.
  */
-function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; comparison: { beforeAt: string; afterAt: string } | null } {
+function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; comparison: { baselineId: string; beforeAt: string; afterAt: string; oldestCurrentAt: string } | null } {
   const { comparison, note } = buildComparison();
   if (comparison === null) {
     return {
@@ -80,8 +80,8 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
         book: 'все книги',
         reason: 'no-previous-snapshot',
         detail:
-          `${note} Пока пары снимков нет, исчезнувшие закупки в этом журнале не появятся: ` +
-          'журнал книги удаление строки не записывает.',
+          `${note} Пока нет сопоставимых текущих данных и контроля, ` +
+          'нельзя устанавливать отсутствие прежних номеров: журнал книги удаление строк не регистрирует.',
       }],
       comparison: null,
     };
@@ -106,12 +106,29 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
       vanishedPlanSum: book.vanishedPlanSum,
       vanishedFactSum: book.vanishedFactSum,
       unkeyed: book.unkeyed,
+      ambiguousKeys: book.ambiguousKeys,
+      identityCandidates: book.identityCandidates,
       note: book.note,
     }));
   }
 
-  const gaps: ChangeGap[] = [];
+  const gaps: ChangeGap[] = comparison.unavailableBooks.map((unread) => ({
+    book: unread.dept,
+    reason: 'source-unavailable',
+    detail: 'Книга «' + unread.dept + '» не сверена с недельным контролем: ' +
+      unread.reason + '. Отсутствие данных не равно отсутствию изменений.',
+  }));
   for (const book of comparison.books) {
+    const duplicates = [...new Set([
+      ...book.ambiguousKeys.before, ...book.ambiguousKeys.after,
+    ])];
+    if (duplicates.length > 0) gaps.push({
+      book: book.dept,
+      reason: 'row-key-ambiguous',
+      count: duplicates.length,
+      detail: 'В книге «' + book.dept + '» неоднозначные № п/п: ' +
+        duplicates.join(', ') + '. Их преемственность без уточнения не утверждается.',
+    });
     if (book.unkeyed.before > 0 || book.unkeyed.after > 0) {
       gaps.push({
         book: book.dept,
@@ -124,7 +141,7 @@ function vanishedEntries(): { entries: ChangeEntry[]; gaps: ChangeGap[]; compari
     }
   }
 
-  return { entries, gaps, comparison: { beforeAt: comparison.beforeAt, afterAt: comparison.afterAt } };
+  return { entries, gaps, comparison: { baselineId: comparison.baselineId, beforeAt: comparison.beforeAt, afterAt: comparison.afterAt, oldestCurrentAt: comparison.oldestCurrentAt } };
 }
 
 interface Query {

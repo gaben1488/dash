@@ -24,7 +24,7 @@ export interface UseRemoteResult<T> {
   reload: () => void;
 }
 
-function useRemote<T>(path: string, enabled: boolean): UseRemoteResult<T> {
+function useRemote<T>(path: string, enabled: boolean, rereadSourceOnReload = false): UseRemoteResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +38,9 @@ function useRemote<T>(path: string, enabled: boolean): UseRemoteResult<T> {
     setLoading(true);
     setError(null);
 
-    fetchJSON<T>(path)
+    // Ручное «перечитать» означает реальное чтение Google, а не новый GET из кэша.
+    const requestPath = rereadSourceOnReload && attempt > 0 ? `${path}?refresh=true` : path;
+    fetchJSON<T>(requestPath)
       .then((response) => {
         if (!cancelled) setData(response);
       })
@@ -50,7 +52,7 @@ function useRemote<T>(path: string, enabled: boolean): UseRemoteResult<T> {
       });
 
     return () => { cancelled = true; };
-  }, [path, enabled, attempt]);
+  }, [path, enabled, attempt, rereadSourceOnReload]);
 
   return { data, loading, error, reload };
 }
@@ -62,5 +64,5 @@ export function useAnomalies(enabled = true): UseRemoteResult<AnomaliesResponse>
 
 /** Целостность книг — раздел «Контроль». */
 export function useIntegrity(enabled = true): UseRemoteResult<IntegrityResponse> {
-  return useRemote<IntegrityResponse>('/integrity', enabled);
+  return useRemote<IntegrityResponse>('/integrity', enabled, true);
 }
