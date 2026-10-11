@@ -53,6 +53,48 @@ export function validateData(
   const sheetName = rows.length > 0 ? rows[0].sheet : '';
   const idOccurrence = new Map<string, number>();
   const sheetClass = classifySheet(sheetName);
+  // Один лист содержит несколько таблиц с разными значениями D:U. Граница
+  // определяется шапкой/названием блока, а не номером строки: вставка строк
+  // не должна возвращать проверку количества на денежную аналитическую таблицу.
+  // Старые фрагменты без шапки сохраняют прежний контракт; их геометрия здесь
+  // не переопределяется сведениями из текущей Google-книги.
+  const svodRows = new Set<number>();
+  const unknownSvodRows: number[] = [];
+  const unknownSvodHeaders: number[] = [];
+  if (sheetClass.kind === 'svod') {
+    let layout: 'primary' | 'analytics' | 'unknown' = 'primary';
+    const label = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    for (const row of [...rows].sort((a, b) => a.rowIndex - b.rowIndex)) {
+      const a = label(row.cells.A);
+      if (['анализ экономии', 'операционная нагрузка', 'дисциплина планирования'].includes(a)) {
+        layout = 'analytics';
+      } else if (a === 'грбс') {
+        if (label(row.cells.B) === 'квартал' && label(row.cells.C) === 'год') layout = 'primary';
+        else if (layout !== 'analytics') {
+          layout = 'unknown';
+          unknownSvodHeaders.push(row.rowIndex);
+        }
+      }
+      if (layout === 'primary') svodRows.add(row.rowIndex);
+      else if (layout === 'unknown' && row.classification !== 'header' && row.classification !== 'separator') unknownSvodRows.push(row.rowIndex);
+    }
+    if (unknownSvodHeaders.length > 0) {
+      issues.push({
+        id: issueIdentity(['svod-validation-schema-unknown', sheetName]),
+        severity: 'warning',
+        origin: 'runtime_error',
+        category: 'svod_validation_schema_unknown',
+        title: `Не распознана схема проверок: лист «${sheetName}»`,
+        description: `Неизвестная шапка в строке ${unknownSvodHeaders[0]}; закупочные проверки D:U не применены к ${unknownSvodRows.length} строкам данных неизвестного блока. Финансовые выводы по этому блоку не подтверждены.`,
+        sheet: sheetName,
+        row: unknownSvodHeaders[0],
+        recommendation: 'Сверить заголовки и назначение колонок блока; до подтверждения схемы не считать его прошедшим проверку.',
+        status: 'open',
+        detectedAt: now,
+        detectedBy: 'pipeline:validate',
+      });
+    }
+  }
 
   // Тихие провалы запрещены (AGENTS.md carve-out): нераспознанный лист молча
   // теряет ВСЕ svod- и department-scoped правила ниже (scope='both' по-прежнему
@@ -87,6 +129,7 @@ export function validateData(
     let firstFailedRow: number | null = null;
     // Run the rule's check() against each applicable row
     for (const row of rows) {
+      if (sheetClass.kind === 'svod' && (rule.scope === 'svod' || rule.id === 'budget_sum_plan') && !svodRows.has(row.rowIndex)) continue;
       // ALWAYS skip header rows (first 3 rows of dept sheets) — they contain column titles, not data
       if (row.classification === 'header') continue;
       if (rule.rowFilter && !rule.rowFilter.includes(row.classification)) continue;

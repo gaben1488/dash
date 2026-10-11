@@ -1,5 +1,7 @@
 # AEMR Platform
 
+> **Исполнение 12.10.2026 (Камчатка):** действующий план — [docs/PLAN.md](docs/PLAN.md), канонические требования — [issue #69](https://github.com/gaben1488/dash/issues/69#issuecomment-6107363839), интеграционный кандидат — [PR #79](https://github.com/gaben1488/dash/pull/79). Исторические тестовые числа ниже не являются текущей приёмкой. Production требует exact-SHA release gate, полной проверенной резервной копии, восстановления/отката и допуска владельца.
+
 > **Актуальная перепроверка кода 10.10.2026:** [18 первоначальных замечаний с уточнёнными вердиктами](docs/superpowers/audits/2026-10-10-dash-code-review-verified/README.md). Не все из них подтверждены как production-баги; часть снята. Релизный и тестовый статус из исторического раздела ниже не является новым измерением. В аудите нет исправлений исходного кода или записей в живые источники.
 
 BI-платформа мониторинга закупочной деятельности Елизовского муниципального района.
@@ -90,12 +92,10 @@ pnpm audit --audit-level moderate # dependency security audit
 
 Канонический production stack находится в `deploy/`: Caddy edge, отдельный web container и server container с persisted SQLite volume.
 
-```bash
-cd deploy
-cp .env.production.example .env.production
-# заполнить GOOGLE_*, AEMR_API_KEY, DOMAIN
-docker compose --env-file .env.production up -d --build
-```
+Выпуск выполняется по [release gate](deploy/README.md) и [runbook](docs/RUNBOOK.md).
+Прямой запуск `compose up --build` не является разрешённым обновлением действующего сервера.
+Конфигурация, постоянное состояние SQLite/WAL, архивы, рекомендации и документы должны
+сохраняться; зелёный CI сам по себе не разрешает deployment или запуск worker.
 
 Подробно: [deploy/README.md](deploy/README.md).
 
