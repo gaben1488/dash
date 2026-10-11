@@ -183,6 +183,14 @@ class GoogleReadClient:
         return chunks
 
 
+# Explicit, live-directory-approved title migrations, keyed by immutable book and
+# sheetId. No fuzzy matching, no source identity change and no unknown fallback.
+APPROVED_PRIMARY_TITLE_ALIASES = {
+    ('14A7vvvvPFxY3SKwtYnMsNfmn_kkxbxWSkN78cYBfszQ', 1575754193, 'УФБП'): 'УФ',
+    ('1bxh-mRLQ_ODsdpZ4JW2JJ8sOMjg4zJRhPydR6vjzqb4', 1697519059, 'УДТХ'): 'УДТХиБ',
+}
+
+
 class GoogleSheetSourceAdapter:
     # Drive versions describe the whole workbook, not individual tabs.
     revision_scope = 'provider'
@@ -197,7 +205,8 @@ class GoogleSheetSourceAdapter:
     def revision_token(self):
         return self.client.revision(self.provider_id)
 
-    def _chunks(self, count, columns, render_option):
+    def _chunks(self, count, columns, render_option, *, title=None):
+        title = title or self.contract['sheet']
         # Bound both ranges and requested cells; keep full allocated-grid coverage.
         chunk_rows = min(self.chunk_rows, max(1, 64000 // columns))
         ranges = [(start, min(start + chunk_rows - 1, count))
@@ -206,21 +215,25 @@ class GoogleSheetSourceAdapter:
         for offset in range(0, len(ranges), batch_size):
             group = ranges[offset:offset + batch_size]
             if hasattr(self.client, 'batch_values'):
-                chunks = self.client.batch_values(self.provider_id, self.contract['sheet'],
+                chunks = self.client.batch_values(self.provider_id, title,
                                                   group, columns, render_option)
                 if len(chunks) != len(group):
                     raise GoogleReadError('GOOGLE_BATCH_RANGE_COUNT_MISMATCH')
             else:
                 read = self.client.formulas if render_option == 'FORMULA' else self.client.values
-                chunks = [read(self.provider_id, self.contract['sheet'], start, end, columns)
+                chunks = [read(self.provider_id, title, start, end, columns)
                           for start, end in group]
             for (start, end), chunk in zip(group, chunks):
                 yield start, end, chunk
 
     def read_payload(self):
         c=self.contract;grid=self.client.grid(self.provider_id,c['sheet_id'])
-        if grid['title']!=c['sheet']:
-            raise GoogleReadError('GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT')
+        live_title = grid['title']
+        if live_title != c['sheet']:
+            reviewed = APPROVED_PRIMARY_TITLE_ALIASES.get(
+                (self.provider_id, c['sheet_id'], c['sheet']))
+            if live_title != reviewed:
+                raise GoogleReadError('GOOGLE_SHEET_TITLE_CHANGED_REVIEW_CONTRACT')
         count=grid['gridProperties']['rowCount']
         physical_columns=grid['gridProperties']['columnCount']
         # The reviewed canonical customer directory uses all physical columns
@@ -235,7 +248,7 @@ class GoogleSheetSourceAdapter:
         full_columns=physical_columns
         values=[[] for _ in range(count)]
         extra_values=[[] for _ in range(count)]
-        for start, end, chunk in self._chunks(count, full_columns, 'UNFORMATTED_VALUE'):
+        for start, end, chunk in self._chunks(count, full_columns, 'UNFORMATTED_VALUE', title=live_title):
             if len(chunk)>end-start+1:
                 raise GoogleReadError('GOOGLE_RANGE_OVERFLOW')
             for offset,row in enumerate(chunk):
@@ -245,13 +258,13 @@ class GoogleSheetSourceAdapter:
                     raise GoogleReadError(f'GOOGLE_FORMULA_ERROR:{self.source_id}:{start+offset}')
                 values[start-1+offset]=row[:c['columns']]
                 extra_values[start-1+offset]=row[c['columns']:]
-        metadata={'sheet_title':c['sheet'],'row_count':count,
+        metadata={'sheet_title':live_title,'row_count':count,
                   'column_count':c['columns'],'units':c['units'],'grbs':c.get('grbs')}
         # Legacy adapters can still produce diagnostic snapshots; missing evidence cannot pass closure.
         if hasattr(self.client,'formula_context') and hasattr(self.client,'formulas'):
             context=self.client.formula_context(self.provider_id)
             formulas=[]
-            for start, end, chunk in self._chunks(count, full_columns, 'FORMULA'):
+            for start, end, chunk in self._chunks(count, full_columns, 'FORMULA', title=live_title):
                 if len(chunk)>end-start+1 or any(len(row)>full_columns for row in chunk):
                     raise GoogleReadError('GOOGLE_FORMULA_RANGE_OVERFLOW')
                 for offset,row in enumerate(chunk):
