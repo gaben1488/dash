@@ -105,23 +105,26 @@
       <label><input type="checkbox" checked disabled> Не удалять существующие экраны и правки</label>
       <label><input type="checkbox" checked disabled> Сохранять точные названия, организационные режимы и секции</label>
     </div>
-    <button class="primary" id="build">Добавить отсутствующие редактируемые экраны</button>
+    <button class="primary" id="build-all">Собрать единый дизайн-проект</button>
+    <p>Один запуск: библиотека Figma-компонентов, варианты материалов, <strong>26 основных экранов</strong> (13 текущих + 13 целевых), <strong>84 сцены подразделов</strong>. Все слои редактируемые; прежние ручные правки не удаляются.</p>
+    <button class="secondary" id="build">Создать только выбранные экраны</button>
     <button class="secondary" id="materials">Добавить образцы материалов и состояний</button>
   </div>
   <h2>Результат</h2>
   <div id="status" role="status" aria-live="polite">Выберите состав и нажмите «Добавить». Повторный запуск не удалит изменения.</div>
-  <p>Сначала сравнивайте «Текущий» и «Целевой». Меняйте реальные свойства слоёв, а не скриншот. После выбора — отдельный допуск в React PR.</p>
+  <p><strong>Не только палитры:</strong> в Figma появятся независимые страницы/слои для каждого раздела и каждого внутреннего режима, рабочие макеты таблиц, карточек и подтверждений, состояния ошибок и компоненты с вариантами. Палитра и материал меняют только верхний слой языка, а не структуру данных. Сначала сравнивайте «Текущий» и «Целевой». Меняйте реальные свойства слоёв, а не скриншот. После выбора — отдельный допуск в React PR.</p>
   <small>Код и происхождение: существующая лаборатория PR #83 → #88, исходные HTML PR #70, настоящий фронтенд PR #96. Тексты и числа внутри новых кадров помечены как учебные. Figma Starter допускает три страницы.</small>
   <script>
     const $ = id => document.getElementById(id);
     function post(kind){
       const values={};
       for(const id of ['screen','version','viewport','family','finish','surface','mode','density'])values[id]=$(id).value;
-      $('build').disabled=true;$('materials').disabled=true;
+      $('build').disabled=true;$('build-all').disabled=true;$('materials').disabled=true;
       $('status').dataset.tone='';
       $('status').textContent='Готовятся редактируемые слои…';
       parent.postMessage({pluginMessage:{kind,...values}},'*');
     }
+    $('build-all').addEventListener('click',()=>post('all'));
     $('build').addEventListener('click',()=>post('screens'));
     $('materials').addEventListener('click',()=>post('materials'));
     onmessage=event=>{
@@ -129,7 +132,7 @@
       if(!msg)return;
       $('status').dataset.tone=msg.error?'error':'ok';
       $('status').textContent=msg.message||'Операция завершена.';
-      $('build').disabled=false;$('materials').disabled=false;
+      $('build').disabled=false;$('build-all').disabled=false;$('materials').disabled=false;
     };
   </script>
 </body>
