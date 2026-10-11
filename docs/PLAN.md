@@ -29,6 +29,17 @@ Node healthy/image unchanged, прежний worker exited, native Word5PASS.
 ещё не принят: два самостоятельных цикла остаются обязательным gate.
 R08/R02/R07 не закрыты.
 
+Recovery38176081446 остановлен до runtime на manual-writer guard;
+Recovery38176811396 остановлен до runtime на BACKUP_REPORT_SCOPE_MISMATCH.
+Read-only38177526291 доказал точное отличие: два новых entries попытки,
+новый status и изменённый root status; прежние published/archive/registry/ledger
+побайтово неизменны. Старый backup корректен исторически, но не является
+текущим rollback checkpoint. Новая полная копия38178244703 запущена на
+exact-head d8a7dfa015a531f5653640427836bf535d87ff79 (CI38177512771 SUCCESS).
+Recovery gate перепривязан к новой копии и повторному независимому полному
+restore/reports-only drill; свежий quiesced report-match сохранён.
+Worker пока exited, R08 остаётся частичным до двух самостоятельных циклов.
+
 По последнему поручению worker #93 — первый приоритет. Live read-only
 38170496420 на dd267377 подтвердил exited(0), разные server/worker image
 и нехватку VPS для полного scratch restore: source22 054 396 941 B,
