@@ -120,11 +120,32 @@ try{
  await page.locator('#qa-toggle').click();
  const family=page.locator('#qa-families button');
  if(await family.count()!==4)fail('Design A/B palette controls missing');
+ const themeSurfaces=[];
  for(const name of ['Исходная','Минералы','Космос']){
    const btn=family.filter({hasText:name});
    await btn.click();
    const actual=await page.evaluate(()=>document.documentElement.dataset.previewFamily);
    if(actual!==(name==='Исходная'?'original':name))fail('Palette control not applied: '+name);
+   const background=await page.locator('#root > div').evaluate(el=>getComputedStyle(el).backgroundColor);
+   themeSurfaces.push({name,background});
+ }
+ report.themeSurfaces=themeSurfaces;
+ if(new Set(themeSurfaces.map(x=>x.background)).size<3)
+   fail('Palette selector changes state but not visible app surfaces: '+JSON.stringify(themeSurfaces));
+ // Test both actual themes using the application's existing ThemeProvider.
+ const lightToggle=page.getByRole('button',{name:'Включить светлую тему'});
+ if(await lightToggle.count()!==1) fail('Production light-theme toggle missing');
+ else {
+   await lightToggle.click();
+   const isDark=await page.evaluate(()=>document.documentElement.classList.contains('dark'));
+   if(isDark)fail('Light theme did not apply');
+   const darkToggle=page.getByRole('button',{name:'Включить тёмную тему'});
+   if(await darkToggle.count()!==1)fail('Dark-theme return control missing');
+   else {
+     await darkToggle.click();
+     if(!await page.evaluate(()=>document.documentElement.classList.contains('dark')))
+       fail('Dark theme did not restore');
+   }
  }
  const put=await page.evaluate(()=>fetch('/api/rows/uo/5/field',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({field:'A',value:'DANGER'})}).then(r=>r.status));
  if(put!==409)fail('Writes not blocked: PUT returned '+put);
@@ -289,5 +310,6 @@ console.log('DASH_BROWSER_QA_RESULT '+JSON.stringify({
  mobile:report.mobile,
  noJS:report.noJS,
  fileOpen:report.fileOpen,
+ themeSurfaces:report.themeSurfaces,
 }));
 if(report.hardFailures.length)process.exitCode=1;
