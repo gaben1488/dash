@@ -60,6 +60,20 @@ class ReportWorkerReleaseSafetyTests(unittest.TestCase):
         self.assertNotIn("recover_weekly_archives", before_report_preflight)
         self.assertNotIn("apply_transient_attempt_retention", before_report_preflight)
 
+    def test_report_enable_never_prunes_or_recovers_historical_state_implicitly(self):
+        from pathlib import Path
+        script = (Path(__file__).resolve().parents[2] / "deploy" / "enable-reports.sh").read_text()
+        self.assertNotIn("apply_transient_attempt_retention", script)
+        self.assertNotIn("recover_weekly_archives", script)
+        self.assertNotIn("prune-state --apply", script)
+
+    def test_report_preflight_checks_engine_before_stopping_worker(self):
+        from pathlib import Path
+        script = (Path(__file__).resolve().parents[2] / "deploy" / "enable-reports.sh").read_text()
+        self.assertLess(script.index("proc-report --help"), script.index("stop report-worker"))
+        self.assertIn("worker_stopped=false", script)
+        self.assertIn('"$worker_stopped" = true', script)
+
     def test_failed_bootstrap_cannot_report_worker_recovered_without_running_state(self):
         import json
         import os
