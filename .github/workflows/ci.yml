@@ -88,6 +88,7 @@ jobs:
       - name: Synthetic VPS retention and runtime guard regressions
         run: |
           python .github/ci/test_report_backup_window.py
+          python .github/ci/test_worker_recovery.py
           python .github/ci/test_vps_cache_cleanup.py
           python .github/ci/test_runtime_state_probe.py
           python .github/ci/test_weekly_identity_proof.py

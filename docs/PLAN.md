@@ -7,6 +7,18 @@
 
 ## Продолжение выпуска — 12.10.2026 (Камчатка)
 
+Минимальное восстановление #93 выделено из общего выпуска: запустить только
+report-worker на точном immutable image уже работающего Node, без замены
+Node/web, bootstrap, миграции схем или записи в Google. Backup38171945386
+создан; полный внешний scratch restore ещё выполняется. Следующий gate —
+installed-image acquisition38172548530, точный CI и повторное независимое
+восстановление с пробным reports-only rollback. Новый оператор сохраняет
+core SQLite, откатывает только reports/, проверяет два разных timer-цикла
+с FLOCK-атрибуцией реальному worker PID и три native Word после каждого.
+Независимое ревью исправило stop/finally, lookup rollback, короткие Docker IDs,
+manual-lock turnover и повторный Compose отказ после успешного data restore.
+Это подготовленный код/тесты, не факт запуска или закрытия R08/R02/R07.
+
 По последнему поручению worker #93 — первый приоритет. Live read-only
 38170496420 на dd267377 подтвердил exited(0), разные server/worker image
 и нехватку VPS для полного scratch restore: source22 054 396 941 B,
@@ -19,8 +31,8 @@ Native Word сейчас PASS, browser Zod FAIL на automation_assurance.contra
 scratch на Actions через SSH, без публичных artifacts. При отказе/завершении
 возвращается прежний Node-контейнер с health-check, worker не запускается.
 Независимый VPS-watchdog ограничивает quiescence30мин; нарушение окна
-блокирует source-match до/после проверки. Полная live копия и restore ещё
-НЕ выполнены; этот инструмент не является worker/release acceptance.
+блокирует source-match до/после проверки. Полная live копия38171945386 создана; независимый restore ещё
+НЕ завершён; этот инструмент не является worker/release acceptance.
 
 Последнее уточнение минимального хранения: общий source revision для Dash/Word,
 история изменений вместо полных копий каждого обновления, недельные маркеры и

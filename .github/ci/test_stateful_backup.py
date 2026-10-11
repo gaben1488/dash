@@ -68,6 +68,64 @@ class StatefulBackupTests(unittest.TestCase):
                         for p in self.source.rglob("*") if p.is_file()))
         self.assertEqual(list(self.scratch.iterdir()), [])  # Scratch auto-cleaned.
 
+    def test_report_only_recovery_preserves_new_core_data_and_removes_failed_attempt(self):
+        import hashlib
+        with sqlite3.connect(self.source / 'reports/identity.sqlite') as db:
+            db.execute('create table identity (id integer)')
+        made = self.run_cli('create', '--compressed', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        verified = hashlib.sha256((self.backup / 'manifest.json').read_bytes()).hexdigest()
+        with sqlite3.connect(self.source / 'aemr.db') as db:
+            db.execute('update receipt set value=31')
+        protected = (self.source / 'aemr.db').read_bytes()
+        matched = self.run_cli('match-reports', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(matched.returncode, 0, matched.stderr)
+        (self.source / 'reports/inputs/ledger.json').write_text('changed')
+        failed = self.source / 'reports/failed-new'
+        failed.mkdir()
+        (failed / 'status.json').write_text('{"status":"NOT_ISSUED"}')
+        stale = self.run_cli('match-reports', '--source', self.source, '--backup', self.backup)
+        self.assertNotEqual(stale.returncode, 0)
+        restored = self.run_cli('restore-reports', '--source', self.source, '--backup', self.backup,
+                                '--verified-manifest-sha256', verified)
+        self.assertEqual(restored.returncode, 0, restored.stderr)
+        self.assertEqual((self.source / 'aemr.db').read_bytes(), protected)
+        self.assertFalse(failed.exists())
+        self.assertEqual((self.source / 'reports/inputs/ledger.json').read_text(), '{"history": []}')
+        matched = self.run_cli('match-reports', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(matched.returncode, 0, matched.stderr)
+
+    def test_report_restore_refuses_unverified_or_corrupt_backup_before_deleting(self):
+        made = self.run_cli('create', '--compressed', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        original = (self.source / 'reports/inputs/ledger.json').read_bytes()
+        invalid = self.run_cli('restore-reports', '--source', self.source, '--backup', self.backup,
+                              '--verified-manifest-sha256', '0' * 64)
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn('BACKUP_VERIFIED_MANIFEST_MISMATCH', invalid.stderr)
+        import hashlib
+        verified = hashlib.sha256((self.backup / 'manifest.json').read_bytes()).hexdigest()
+        with (self.backup / 'state.tar.gz').open('ab') as stream:
+            stream.write(b'corrupt')
+        invalid = self.run_cli('restore-reports', '--source', self.source, '--backup', self.backup,
+                              '--verified-manifest-sha256', verified)
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertEqual((self.source / 'reports/inputs/ledger.json').read_bytes(), original)
+
+    def test_full_backup_has_independent_worker_scope_rollback_drill(self):
+        with sqlite3.connect(self.source / 'reports/identity.sqlite') as db:
+            db.execute('create table identity (id integer)')
+        made = self.run_cli('create', '--compressed', '--source', self.source, '--backup', self.backup)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        checked = self.run_cli('verify', '--backup', self.backup, '--scratch-parent', self.scratch,
+                               '--trial-report-restore')
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        proof = json.loads(checked.stdout)
+        self.assertEqual(proof['worker_scope_rollback'], 'PASS')
+        self.assertEqual(proof['state'], 'VERIFIED_IN_SCRATCH')
+        self.assertEqual(len(proof['manifest_sha256']), 64)
+        self.assertEqual(list(self.scratch.iterdir()), [])
+
     def test_source_match_for_external_restore_is_not_a_restore_claim(self):
         created = self.run_cli('create', '--compressed', '--source', self.source, '--backup', self.backup)
         self.assertEqual(created.returncode, 0, created.stderr)

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Проверяемая копия всего server_data с восстановлением только в изолированном каталоге.
+"""Проверяемая копия всего server_data и отдельно ограниченное восстановление reports/.
 
 Источник ОБЯЗАН быть остановленным для записи (server и report-worker).
-Программа не останавливает службы и не пишет в источник. Согласование окна
+Программа не останавливает службы. Только restore-reports заменяет reports/
+в остановленном источнике; остальные команды источник не изменяют. Согласование окна
 и проверка quiescence остаются задачей вызывающего оператора.
 Не публикуйте копии, манифесты и вывод с первичными данными в Git.
 """
@@ -27,7 +28,7 @@ class BackupError(Exception):
     pass
 
 
-def inventory(root: Path) -> dict[str, dict[str, object]]:
+def inventory(root: Path, *, require_complete: bool = True) -> dict[str, dict[str, object]]:
     if not root.is_dir() or root.is_symlink():
         raise BackupError("BACKUP_STATE_INCOMPLETE")
     result: dict[str, dict[str, object]] = {}
@@ -52,10 +53,10 @@ def inventory(root: Path) -> dict[str, dict[str, object]]:
         result[path.relative_to(root).as_posix()] = {
             **attributes, "sha256": digest.hexdigest(), "bytes": size}
     must_exist = {"aemr.db", "reports/inputs/registry.json", "reports/inputs/ledger.json"}
-    if not must_exist.issubset(result):
+    if require_complete and not must_exist.issubset(result):
         raise BackupError("BACKUP_STATE_INCOMPLETE")
-    if not any(name.startswith("reports/published/") and name.endswith(".docx")
-               for name in result):
+    if require_complete and not any(name.startswith("reports/published/") and name.endswith(".docx")
+                                    for name in result):
         raise BackupError("BACKUP_STATE_INCOMPLETE")
     return result
 
@@ -128,26 +129,48 @@ def _compress_state(source: Path, archive: Path, files: dict, max_bytes: int) ->
         os.fsync(output.fileno())
 
 
-def _restore_compressed(backup: Path, restored: Path, files: dict) -> None:
+def _checked_member(member, files, seen):
+    path = Path(member.name)
+    if (path.is_absolute() or ".." in path.parts or path.as_posix() != member.name
+            or not path.parts or not (member.isfile() or member.isdir())):
+        raise BackupError("BACKUP_UNSAFE_FILE")
+    relative = member.name + ("/" if member.isdir() else "")
+    info = files.get(relative)
+    if relative in seen or not isinstance(info, dict):
+        raise BackupError("BACKUP_MISMATCH")
+    if ((info.get("kind") == "directory") != member.isdir()
+            or member.size != info.get("bytes")
+            or any(getattr(member, key) != info.get(key) for key in ("uid", "gid", "mode"))):
+        raise BackupError("BACKUP_MISMATCH")
+    seen.add(relative)
+    return path, info
+
+
+def _validate_archive_content(backup: Path, files: dict) -> None:
+    """Validate every member before destructive scoped recovery, without extra disk."""
+    seen = set()
+    with tarfile.open(backup / "state.tar.gz", "r|gz") as stream:
+        for member in stream:
+            _, info = _checked_member(member, files, seen)
+            if member.isfile():
+                with stream.extractfile(member) as content:
+                    if hashlib.file_digest(content, "sha256").hexdigest() != info.get('sha256'):
+                        raise BackupError('BACKUP_MISMATCH')
+    if seen != set(files):
+        raise BackupError('BACKUP_MISMATCH')
+
+
+def _restore_compressed(backup: Path, restored: Path, files: dict, *, reports_only=False) -> None:
     """Extract only expected regular files/directories; never use extractall."""
-    restored.mkdir(mode=0o700)
+    if not reports_only:
+        restored.mkdir(mode=0o700)
     seen = set()
     directories = []
     with tarfile.open(backup / "state.tar.gz", "r|gz") as stream:
         for member in stream:
-            path = Path(member.name)
-            if (path.is_absolute() or ".." in path.parts or path.as_posix() != member.name
-                    or not path.parts or not (member.isfile() or member.isdir())):
-                raise BackupError("BACKUP_UNSAFE_FILE")
-            relative = member.name + ("/" if member.isdir() else "")
-            info = files.get(relative)
-            if relative in seen or not isinstance(info, dict):
-                raise BackupError("BACKUP_MISMATCH")
-            if ((info.get("kind") == "directory") != member.isdir()
-                    or member.size != info.get("bytes")
-                    or any(getattr(member, key) != info.get(key) for key in ("uid", "gid", "mode"))):
-                raise BackupError("BACKUP_MISMATCH")
-            seen.add(relative)
+            path, info = _checked_member(member, files, seen)
+            if reports_only and path.parts[0] != 'reports':
+                continue
             target = restored / path
             target.parent.mkdir(parents=True, exist_ok=True)
             if member.isdir():
@@ -251,7 +274,53 @@ def match_source(backup: Path, source: Path) -> dict:
     return {'state': 'SOURCE_MATCHED_ONLY', 'files': len(files), 'bytes': total}
 
 
-def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> dict:
+def _reports(files: dict) -> dict:
+    return {key: value for key, value in files.items() if key.startswith('reports/')}
+
+
+def match_reports(backup: Path, source: Path) -> dict:
+    """Worker-only freshness; not authorization for a server/web/code release."""
+    backup, source = backup.resolve(strict=True), source.resolve(strict=True)
+    check_nonoverlapping(source, backup)
+    _, files, _ = _validated_backup(backup)
+    expected = _reports(files)
+    if not expected or _reports(inventory(source, require_complete=False)) != expected:
+        raise BackupError('BACKUP_REPORT_SCOPE_MISMATCH')
+    return {'state': 'REPORT_SCOPE_MATCHED_ONLY', 'files': len(expected)}
+
+
+def restore_reports(backup: Path, source: Path, verified_manifest_sha256: str) -> dict:
+    """Restore ONLY worker state after full external restore of this exact manifest.
+
+    Caller must quiesce both writers and obtain the digest from that trusted
+    successful restore. No core SQLite or operational Dash snapshots are replaced.
+    """
+    backup, source = backup.resolve(strict=True), source.resolve(strict=True)
+    check_nonoverlapping(source, backup)
+    if _archive_hash(backup / 'manifest.json') != verified_manifest_sha256:
+        raise BackupError('BACKUP_VERIFIED_MANIFEST_MISMATCH')
+    manifest, files, _ = _validated_backup(backup)
+    expected = _reports(files)
+    required = {'reports/', 'reports/inputs/registry.json', 'reports/inputs/ledger.json'}
+    if manifest['format'] != 2 or not required.issubset(expected):
+        raise BackupError('BACKUP_STATE_INCOMPLETE')
+    # The archive bytes, contents, paths and attributes all pass before deletion.
+    _validate_archive_content(backup, files)
+    before = inventory(source, require_complete=False)
+    reports = source / 'reports'
+    if reports.exists():
+        shutil.rmtree(reports)
+    _restore_compressed(backup, source, files, reports_only=True)
+    after = inventory(source, require_complete=False)
+    if _reports(after) != expected or {k: v for k, v in after.items() if not k.startswith('reports/')} != {
+            k: v for k, v in before.items() if not k.startswith('reports/')}:
+        raise BackupError('BACKUP_MISMATCH')
+    dbs, documents = verify_restored_documents_and_sqlite(source, expected)
+    return {'state': 'REPORT_SCOPE_RESTORED', 'files': len(expected),
+            'sqlite_checked': dbs, 'docx_checked': documents, 'core_state_preserved': True}
+
+
+def verify(backup: Path, scratch_parent: Path, source: Path | None = None, *, trial_report_restore=False) -> dict:
     backup = backup.resolve(strict=True)
     scratch_parent = scratch_parent.resolve(strict=True)
     if not scratch_parent.is_dir() or (backup == scratch_parent or backup in scratch_parent.parents):
@@ -274,6 +343,18 @@ def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> di
         if inventory(restored) != files:
             raise BackupError("BACKUP_MISMATCH")
         dbs, documents = verify_restored_documents_and_sqlite(restored, files)
+        if trial_report_restore:
+            # Same real archived report state, synthetic failed mutation only in scratch.
+            # Full copy remains intact off-volume; no production/source writer is used.
+            (restored / 'reports/inputs/ledger.json').write_text('synthetic failed worker update')
+            failed = restored / 'reports/synthetic-failed-attempt'
+            failed.mkdir()
+            (failed / 'status.json').write_text('{"status":"NOT_ISSUED"}')
+            (restored / 'core-preservation-proof').write_bytes(b'new core state')
+            result = restore_reports(backup, restored, _archive_hash(backup / 'manifest.json'))
+            if (result.get('core_state_preserved') is not True or failed.exists()
+                    or (restored / 'core-preservation-proof').read_bytes() != b'new core state'):
+                raise BackupError('BACKUP_WORKER_ROLLBACK_INVALID')
     # A release needs the current quiesced state, not merely a valid old copy.
     # Recheck after scratch recovery; never open production SQLite for a read
     # that could create WAL/SHM sidecars. Quiescence is enforced by the caller.
@@ -281,6 +362,8 @@ def verify(backup: Path, scratch_parent: Path, source: Path | None = None) -> di
         raise BackupError("SOURCE_CHANGED_DURING_BACKUP_VERIFICATION")
     result = {"state": "VERIFIED_IN_SCRATCH", "files": len(files),
               "bytes": total, "sqlite_checked": dbs, "docx_checked": documents}
+    if trial_report_restore:
+        result.update(worker_scope_rollback='PASS', manifest_sha256=_archive_hash(backup / 'manifest.json'))
     if source is not None:
         result["source_matched"] = True
     return result
@@ -297,19 +380,31 @@ def main() -> int:
     read = sub.add_parser("verify")
     read.add_argument("--backup", type=Path, required=True)
     read.add_argument("--scratch-parent", type=Path, required=True)
+    read.add_argument('--trial-report-restore', action='store_true')
     read.add_argument("--source", type=Path,
                       help="Остановленный источник для проверки актуальности перед выпуском")
     match = sub.add_parser('match-source', help='Compare quiesced source with a backup; does not claim restore')
     match.add_argument('--backup', type=Path, required=True)
     match.add_argument('--source', type=Path, required=True)
+    for command in ('match-reports', 'restore-reports'):
+        scoped = sub.add_parser(command, help='Worker-only report-state operation, never full release')
+        scoped.add_argument('--backup', type=Path, required=True)
+        scoped.add_argument('--source', type=Path, required=True)
+        if command == 'restore-reports':
+            scoped.add_argument('--verified-manifest-sha256', required=True)
     args = parser.parse_args()
     try:
         if args.command == 'create':
             result = create(args.source, args.backup, compressed=args.compressed)
+        elif args.command == 'match-reports':
+            result = match_reports(args.backup, args.source)
+        elif args.command == 'restore-reports':
+            result = restore_reports(args.backup, args.source, args.verified_manifest_sha256)
         elif args.command == 'match-source':
             result = match_source(args.backup, args.source)
         else:
-            result = verify(args.backup, args.scratch_parent, args.source)
+            result = verify(args.backup, args.scratch_parent, args.source,
+                            trial_report_restore=args.trial_report_restore)
         print(json.dumps(result, sort_keys=True))
         return 0
     except BackupError as exc:
