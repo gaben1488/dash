@@ -241,6 +241,34 @@ try{
  await mobile.screenshot({path:out+'/mobile-pult.png',fullPage:true});
  report.screenshots.push('mobile-pult.png');
  await mobile.close();
+
+ // Shipped HTML must be readable even inside an iOS viewer that blocks JS.
+ const noJS=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844}});
+ const noJSPage=await noJS.newPage();
+ await noJSPage.goto(url,{waitUntil:'domcontentloaded',timeout:40000});
+ const fallback=noJSPage.locator('.dash-boot-fallback');
+ const noJSVisible=await fallback.count()===1 && await fallback.isVisible();
+ const noJSText=await noJSPage.locator('body').innerText();
+ report.noJS={visible:noJSVisible,hasBrowserLink:noJSText.includes('Открыть интерактивный Dash в браузере'),
+   textExcerpt:noJSText.slice(0,260)};
+ if(!noJSVisible || !report.noJS.hasBrowserLink)
+   fail('Standalone HTML is blank when JS is blocked: '+JSON.stringify(report.noJS));
+ await noJSPage.screenshot({path:out+'/no-js-viewer-fallback.png',fullPage:false});
+ report.screenshots.push('no-js-viewer-fallback.png');
+ await noJS.close();
+
+ // Direct file:// open is a different scenario from HTTPS (and from
+ // iOS Quick Look). Record separately rather than calling it tested.
+ if(process.env.DASH_QA_FILE_URL){
+   const filePage=await browser.newPage({viewport:{width:1280,height:800}});
+   filePage.on('pageerror',e=>report.pageErrors.push('local-file '+String(e)));
+   try{
+     await filePage.goto(process.env.DASH_QA_FILE_URL,{waitUntil:'domcontentloaded',timeout:40000});
+     await filePage.locator('.dash-source-navigation input[data-route]').first().waitFor({state:'attached',timeout:20000});
+     report.fileOpen={interactive:true,buttons:await filePage.locator('.dash-source-navigation input[data-route]').count()};
+   }catch(e){report.fileOpen={interactive:false,error:String(e).slice(0,500)};}
+   await filePage.close();
+ }
  if(report.pageErrors.length)fail('Unhandled browser errors: '+report.pageErrors.join(' | ').slice(0,900));
 } catch(e){
  if(page) {const dom=await page.evaluate(()=>({body:document.body.innerText.slice(0,900),inputCount:document.querySelectorAll('.dash-source-navigation input').length,headerCount:document.querySelectorAll('header').length})).catch(()=>null);report.bootstrapDiagnostic=dom;}
@@ -259,5 +287,7 @@ console.log('DASH_BROWSER_QA_RESULT '+JSON.stringify({
  pageErrors:report.pageErrors,
  consoleErrors:report.consoleErrors.slice(0,5),
  mobile:report.mobile,
+ noJS:report.noJS,
+ fileOpen:report.fileOpen,
 }));
 if(report.hardFailures.length)process.exitCode=1;
