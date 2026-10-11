@@ -399,24 +399,40 @@ function buildMaterials(page,cfg){
  return {materials:count,components:native};
 }
 figma.ui.onmessage=async cfg=>{
- if(!cfg||!['screens','materials'].includes(cfg.kind))return;
+ if(!cfg||!['screens','materials','all'].includes(cfg.kind))return;
  try{
   await Promise.all(['Regular','Medium','Semi Bold'].map(style=>figma.loadFontAsync({family:'Inter',style})));
   selectedFamily=(DATA.palettes.find(p=>p.id===cfg.family)||DATA.palettes[0]).label;
   await reloadSourceVariables();
-  const page=figma.root.children.find(x=>x.name===(cfg.kind==='screens'?SCREENS:MATERIALS));
-  if(!page)throw Error('Не обнаружена существующая страница Figma');
-  await figma.setCurrentPageAsync(page);
-  if(cfg.kind==='materials'){
-   const result=buildMaterials(page,cfg);
-   figma.ui.postMessage({message:'Добавлено '+result.materials.length+' сцен отделки и '+result.components.length+' наборов компонентов ('+result.components.reduce((n,x)=>n+x.variants,0)+' вариантов). Уже созданное сохранено.'});
-  }else{
-   const chosen=cfg.screen==='all'?DATA.routes:DATA.routes.filter(x=>x.id===cfg.screen);
-   if(!chosen.length)throw Error('Неизвестный раздел');
-   const phases=cfg.version==='both'?['current','target']:[cfg.version];
-   let made=0,kept=0;
-   for(const phase of phases)for(const r of chosen)buildScreen(page,r,cfg,phase)?made++:kept++;
-   figma.ui.postMessage({message:'Создано '+made+' схем Current/Target; '+kept+' ручных вариантов сохранено. Для точного 1:1 нужен поэкранный браузерный образец.'});
+  const materialsPage=figma.root.children.find(x=>x.name===MATERIALS);
+  const screensPage=figma.root.children.find(x=>x.name===SCREENS);
+  if(!materialsPage||!screensPage)throw Error('Отсутствует страница общего дизайн-проекта');
+  let materials=null,done={made:0,kept:0,phaseCount:0,sectionCount:0};
+  if(cfg.kind==='all'||cfg.kind==='materials'){
+   await figma.setCurrentPageAsync(materialsPage);
+   materials=buildMaterials(materialsPage,cfg);
   }
- }catch(e){figma.ui.postMessage({error:true,message:'Отказ: '+String(e?.message||e)+'. Другие кадры не удалены.'});}
+  if(cfg.kind==='all'||cfg.kind==='screens'){
+   await figma.setCurrentPageAsync(screensPage);
+   const selected=cfg.kind==='all'||cfg.screen==='all'
+     ? DATA.routes:DATA.routes.filter(x=>x.id===cfg.screen);
+   if(!selected.length)throw Error('Неизвестный раздел');
+   const phases=cfg.kind==='all'||cfg.version==='both'?['current','target']:[cfg.version];
+   done.phaseCount=phases.length;
+   done.sectionCount=selected.reduce((n,r)=>n+r.tabs.length,0)*phases.length;
+   for(const phase of phases)for(const r of selected){
+    buildScreen(screensPage,r,cfg,phase)?done.made++:done.kept++;
+   }
+  }
+  if(cfg.kind==='materials'){
+   figma.ui.postMessage({message:'Готово: '+materials.materials.length+' редакторов отделок и '+materials.components.length+
+    ' библиотечных наборов (до 25 нативных компонентов). Существующее не перезаписано.'});
+  }else{
+   figma.ui.postMessage({message:
+    'Добавлено '+done.made+' экранов; сохранено прежних '+done.kept+
+    '; самостоятельных сцен под вкладки: '+done.sectionCount+
+    (materials?'; новые компоненты: '+materials.components.length+' наборов':'')+
+    '. Исходники React остаются главным критерием точности.'});
+  }
+ }catch(e){figma.ui.postMessage({error:true,message:'Отказ: '+String(e?.message||e)+'. Уже существующие кадры и ручные правки не удалены.'});}
 };
