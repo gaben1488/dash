@@ -414,3 +414,13 @@ def test_compaction_stale_plan_cannot_retire_changed_current_pointer(tmp_path):
     with pytest.raises(PublicationError, match='PLAN_CHANGED'):
         store.compact_publications(expected_revision=plan['catalog_revision'])
     assert not (store.root / '.retirement').exists()
+
+
+def test_compacted_documents_remain_available_to_exact_period_fallback(tmp_path):
+    store, receipts = _compaction_fixture(tmp_path)
+    store.compact_publications(expected_revision=store.plan_compaction()['catalog_revision'])
+    result = store.latest_for_period('2026-09-28', 2026, 3)
+    assert result is not None, 'read-only Word fallback lost retained artifact links'
+    assert result['release_id'] == receipts[0]['release_id']
+    assert result['replay_available'] is False
+    assert store.latest_for_period('2026-09-28', 2027, 3) is None

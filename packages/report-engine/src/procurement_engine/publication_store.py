@@ -307,7 +307,7 @@ class PublicationStore:
                 ORDER BY report_date DESC, cutoff_at DESC, release_id DESC''', (report_date,))
             for row in rows:
                 receipt = json.loads(row[0])
-                if 'archive_origin' in receipt or receipt.get('replay_available') is False:
+                if 'archive_origin' in receipt:
                     continue
                 if receipt.get('replay_available') is False:
                     year, selected_quarter = receipt.get('report_year'), receipt.get('quarter')
