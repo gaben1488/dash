@@ -151,7 +151,7 @@ jobs:
     # No unattended production writes on a main push. Only a separately
     # approved, exact-SHA dispatch with a verified backup is eligible.
     if: >-
-      always() &&
+      always() && !cancelled() &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       inputs.release_sha == github.sha &&
