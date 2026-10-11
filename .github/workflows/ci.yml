@@ -340,3 +340,59 @@ jobs:
             # Start the scheduler only after a successful service-account release.
             bash enable-reports.sh
             trap - EXIT
+
+  browser-report-contract:
+    name: Read-only browser Word readiness and Caddy edge diagnosis
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/dash-audit-integrated-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Compare actual production response against browser schema (no writes)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 193.233.91.162
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 4m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            umask 077
+            cd /home/aemr/dash/deploy
+            server=$(docker compose --env-file .env.production ps --status running --quiet server)
+            test -n "$server"
+            # JS uses the Zod schema imported by browser code, but only GETs
+            # an existing release through Fastify, without invoking refresh.
+            docker compose --env-file .env.production exec -T server ./node_modules/.bin/tsx -e '
+              import { readFileSync } from "node:fs";
+              import { SelectedReportReleaseStatusSchema } from "@aemr/shared";
+              void(async()=>{
+                const status=JSON.parse(readFileSync("/app/packages/server/data/reports/status.json","utf8"));
+                const raw=status.publication?.report_date||status.report_date;
+                if(typeof raw!=="string"||!/^\d{2}\.\d{2}\.\d{4}$/.test(raw)){
+                  console.log(JSON.stringify({kind:"browser_word_status",result:"INVALID_SELECTED_DATE"}));return;
+                }
+                const [dd,mm,yyyy]=raw.split(".");
+                const url="http://127.0.0.1:3000/api/report-releases?date="+yyyy+"-"+mm+"-"+dd+"&year="+yyyy+"&quarter="+Math.ceil(Number(mm)/3);
+                const resp=await fetch(url,{headers:{Authorization:"Bearer "+(process.env.AEMR_API_KEY||"")},signal:AbortSignal.timeout(25000)});
+                if(resp.status!==200){console.log(JSON.stringify({kind:"browser_word_status",result:"HTTP_ERROR",status:resp.status}));return;}
+                const parsed=SelectedReportReleaseStatusSchema.safeParse(await resp.json());
+                console.log(JSON.stringify({kind:"browser_word_status",result:parsed.success?"CONTRACT_PASS":"CONTRACT_FAIL",
+                  field_errors:parsed.success?[]:parsed.error.issues.slice(0,8).map(e=>({path:e.path.map(String).join(".").replace(/[^A-Za-z0-9_.]/g,""),code:e.code}))
+                }));
+              })().catch(()=>console.log(JSON.stringify({kind:"browser_word_status",result:"DIAGNOSTIC_UNAVAILABLE"})));
+            ' 2>/dev/null || echo 'browser_schema_execution=UNAVAILABLE'
+            # Caddy sees real requests; only aggregate HTTP statuses leave VPS.
+            docker compose --env-file .env.production logs --since 90m --no-color caddy 2>/dev/null \
+              | tail -n 2000 \
+              | python3 -c 'import collections,json,re,sys; counts=collections.Counter(); total=0
+for line in sys.stdin:
+ if "/api/report-releases" not in line: continue
+ total+=1
+ match=re.search(r"(?:status|status_code)[=: ]+([245][0-9][0-9])",line)
+ counts[match.group(1) if match else "UNKNOWN"]+=1
+print(json.dumps({"kind":"caddy_report_access","matching_log_lines":total,"status_counts":dict(counts)},sort_keys=True))'
