@@ -102,6 +102,17 @@ const quality=screens.find(x=>x.name.includes(' / quality / ')&&x.name.includes(
 const qtext=walk(quality).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
 for(const label of ['Сверка','Качество заполнения','Замечания','Оценка управлений','Рекомендации','Журнал'])assert.ok(qtext.includes(label),label);
 assert.equal(walk(quality).filter(n=>n.name.startsWith('ПОДВКЛАДКА / ')).length,6);
+// Full route-specific coverage is a structural requirement, not a palette-only mock.
+const allTabs=screens.reduce((n,screen)=>n+walk(screen).filter(x=>x.name.startsWith('ПОДВКЛАДКА / ')).length,0);
+assert.equal(allTabs,embedded.routes.reduce((n,r)=>n+r.tabs.length,0)*2,'missing real subtab scenes');
+for(const entry of embedded.routes){
+ const target=screens.find(x=>x.name.includes(' / '+entry.id+' / ')&&x.name.includes(' / target / '));
+ assert.ok(target,entry.id+' target missing');
+ const texts=walk(target).filter(x=>x.type==='TEXT').map(x=>x.characters).join(' ');
+ const layout=walk(target).filter(x=>x.name.includes('Таблица / уникальная схема '+entry.id));
+ assert.equal(layout.length,1,'route-specific table missing: '+entry.id);
+ assert.ok(texts.includes(entry.goal),'business purpose missing '+entry.id);
+}
 const guard=screens[0].children.find(x=>x.name==='Решение · provenance / запреты');
 if(!guard)throw Error('provenance marker missing');
 guard.customManualEdit='Сохранить';
@@ -123,8 +134,17 @@ assert.ok(nativeSets.every(set=>set.children.every(n=>n.type==='COMPONENT')));
 await figma.ui.onmessage({kind:'materials',...props});
 assert.equal(pages[1].children.filter(x=>x.name.startsWith('DASH / Материал')).length,6);
 assert.equal(pages[1].children.filter(x=>x.type==='COMPONENT_SET').length,5,'rerun duplicated sets');
+await figma.ui.onmessage({kind:'all',...props});
+assert.ok(!messages.at(-1).error,JSON.stringify(messages.at(-1)));
+const homeFrames=pages[0].children.filter(x=>x.name.startsWith('DASH / INDEX /'));
+assert.equal(homeFrames.length,1,'one-click build must enrich the existing Foundations page');
+assert.ok(walk(homeFrames[0]).filter(x=>x.type==='TEXT').some(x=>x.characters.includes('13 реальных маршрутов')||x.characters.includes('НАСТОЯЩИЙ БАРАБАН')),'home cannot remain only color swatches');
+assert.equal(pages[1].children.filter(x=>x.type==='COMPONENT_SET').length,5,'all call duplicated component sets');
+assert.equal(pages[2].children.filter(x=>x.name.startsWith('DASH / ')).length,27,'all call duplicated existing screens');
+await figma.ui.onmessage({kind:'all',...props});
+assert.equal(pages[0].children.filter(x=>x.name.startsWith('DASH / INDEX /')).length,1,'rerun duplicated home');
 const allTexts=walk(pages[2]).filter(x=>x.type==='TEXT').map(x=>x.characters);
 assert.ok(allTexts.some(x=>/неделя/iu.test(x)));
 console.log(JSON.stringify({result:'PASS (stubbed Figma Plugin API; NOT in-editor rendering)',
-  initialScreens:26,mobileExtra:1,materials:6,duplicateAfterRerun:0,
+  initialScreens:26,mobileExtra:1,materials:6,foundationHomes:1,allTabScenes:84,duplicateAfterRerun:0,
   routeCount:13,componentSets:5,componentVariants:25,subtabScenes:embedded.routes.reduce((n,r)=>n+r.tabs.length,0),notes:'Native Figma Starter editing and visual acceptance still required'},null,2));
