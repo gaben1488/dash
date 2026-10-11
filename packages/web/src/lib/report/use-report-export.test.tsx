@@ -166,9 +166,9 @@ it('retains only the same-context verified Word after transient 502 readiness fa
   const { result } = renderHook(() => useReportExport(context));
   await waitFor(() => expect(result.current.release?.release_id).toBe(receipt.release_id));
   gatewayUnavailable = true;
-  await act(async () => { poll(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  await act(async () => { poll(); });
+  await waitFor(() => expect(result.current.status).toContain('HTTP 502'));
   expect(result.current.release?.release_id).toBe(receipt.release_id);
-  expect(result.current.status).toContain('HTTP 502');
   expect(result.current.status).not.toContain('sensitive upstream details');
 });
 
