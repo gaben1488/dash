@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SelectedReportReleaseStatusSchema, ReportRefreshResponseSchema, type SelectedReportReleaseStatus } from '@aemr/shared';
-import { fetchBlob, fetchParsed } from '../../api';
+import { ApiContractError, ApiError, fetchBlob, fetchParsed } from '../../api';
 import type { ReportMode } from './request';
 
 export interface ExportContext { date: string; year: number; quarter: number; mode: ReportMode }
@@ -12,6 +12,27 @@ const timestamp = new Intl.DateTimeFormat('ru-RU', {
 const businessDay = new Intl.DateTimeFormat('sv-SE', {
   year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Kamchatka',
 });
+
+/** Distinguish edge auth, server failure and schema drift without showing private API bodies. */
+function wordReadFailure(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return `Вход на сайте не подтверждён (HTTP ${error.status}). Проверьте авторизацию домена и обновите страницу.`;
+    }
+    if (error.status === 404) return 'Сервер не нашёл сведения о выбранном выпуске (HTTP 404).';
+    if (error.status === 502 || error.status === 503 || error.status === 504) {
+      return `Сервис отчётов не ответил (HTTP ${error.status}). Последний опубликованный Word при этом может сохраниться.`;
+    }
+    return `Проверка готовности Word отклонена сервером (HTTP ${error.status}).`;
+  }
+  if (error instanceof ApiContractError) {
+    return 'Несовместимый формат сведений о выпуске Word. Требуется синхронизация интерфейса и серверного контракта.';
+  }
+  if (error instanceof Error && error.name === 'AbortError') {
+    return 'Проверка готовности Word превысила время ожидания. Серверный выпуск может сохраниться.';
+  }
+  return 'Не удалось проверить готовность Word. Причина не определена; автоматический повтор запланирован.';
+}
 
 /** Native Word actions share one frozen release, including across background updates. */
 export function useReportExport(context: ExportContext | null) {
@@ -57,9 +78,9 @@ export function useReportExport(context: ExportContext | null) {
           if (!controller.signal.aborted) setState({ key: key!, data: prepared, error: '' });
           if (prepared.archive?.code === 'ARCHIVE_BUSY') preparationRequested = false;
         }
-      } catch {
+      } catch (error) {
         preparationRequested = false;
-        if (!controller.signal.aborted) setState({ key: key!, data: null, error: 'Не удалось проверить готовность Word. Повторим запрос автоматически.' });
+        if (!controller.signal.aborted) setState({ key: key!, data: null, error: wordReadFailure(error) });
       } finally {
         clearTimeout(timeout);
         controller.signal.removeEventListener('abort', abort);
