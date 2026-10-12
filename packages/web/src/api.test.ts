@@ -185,3 +185,11 @@ describe('issue decision confirmed persistence', () => {
     expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ status: 'false_positive', reason: 'Evidence' });
   });
 });
+
+describe('API base prefix for journal and source consumers',()=>{
+ it.each([['/api/change-story?limit=1','/api/change-story?limit=1'],['/change-story?limit=1','/api/change-story?limit=1'],['/api/sources','/api/sources'],['/apiary','/api/apiary']])('requests %s at exactly one API prefix',async(input,expected)=>{
+  vi.stubGlobal('localStorage',{getItem:()=>null});
+  const request=vi.fn(async(_url:string)=>fakeResponse({}));vi.stubGlobal('fetch',request);
+  await fetchJSON(input);expect(request.mock.calls[0]?.[0]).toBe(expected);
+ });
+});

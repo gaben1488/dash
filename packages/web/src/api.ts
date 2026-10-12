@@ -248,7 +248,10 @@ async function fetchResponse(url: string, init?: RequestInit): Promise<Response>
   if (!import.meta.env.PROD && apiKey && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${apiKey}`);
   }
-  const res = await fetch(`${API_BASE}${url}`, {
+  // Some shared clients return a complete API path. Apply the base exactly
+  // once; /apiary is still an ordinary endpoint, not the /api namespace.
+  const requestUrl = /^\/api(?:\/|\?|$)/.test(url) ? url : `${API_BASE}${url}`;
+  const res = await fetch(requestUrl, {
     ...init,
     credentials: init?.credentials ?? 'same-origin',
     headers,

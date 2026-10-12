@@ -88,3 +88,47 @@ Screenshots use an isolated Header
 with unavailable API and synthetic counts, not a live full-dashboard acceptance.
 All thirteen page bodies, authorization, original DesignLab palette/settings
 catalog and production owner acceptance remain separate requirements.
+
+
+### Dawn rail, recommended instrument and working journal (2026-10-12)
+
+The owner's explicit continuation selects the B instrument in
+`ugol-varianty.html` / `2026-08-29-ugol-otbora-analiz.md` and the inside-object
+Dawn rules of `2026-08-29-zarya-matrica.md`. It supersedes the preceding decision
+not to promote these variants for the bounded Header implementation. The
+original cylinder, shield, both calendar drums, thirteen routes and page
+filter/action gates remain the functional sources. The desktop cylinder is
+535×84px; phones keep 44px targets and a horizontally scrolling common rail.
+The secondary rail holds the existing filter controls. Page-family sky/horizon
+colors drive the glass and selected buttons; OrgStrip has its own design.
+The new 9-second light motion uses compositor transforms and respects reduced
+motion. This does not connect the entire DesignLab palette/settings catalog.
+
+The dot instrument exposes actual applicable axes, individual removal, reset
+and six-second Undo. Undo checks current state and deadline on the click,
+including edits not yet rendered; business data is excluded from restoration.
+One compact journal opens changes/source tabs (keyboard arrows/Home/End), then
+the existing address/search/book/author/kind journal. Both depths default to
+the server's completed control slice. Missing history and failed reads remain
+explicit. Delayed response cancellation, stale source-passport invalidation
+and duplicated API-prefix failures are covered by negative regressions.
+The common API helper supports both prefixed and relative paths with existing
+authorization/error handling. Portaled journal/filter panels inherit the page
+palette without changing global organization styles.
+
+The maintained standalone `packages/web/navigation-qa.html` is a downloadable
+review artifact, with bundled assets and a self-download button. Its counts
+and journal entries are visibly identified as synthetic; source connection
+remains unknown. It is deliberately outside the public source commit. Chrome
+checks of this component and source gates do not establish live authentication,
+all thirteen page bodies, real webhook authorship, Figma creation or release.
+
+Verification of the candidate: Chromium checks 26 page/theme combinations,
+selected-gradient text contrast ≥6.26 across 101 color stops, six viewports,
+200% zoom, distinct button animation frames and reduced-motion animation off.
+The 320×568 Header leaves 343px of main height. The synthetic full journal
+renders both example entries; offline self-download reopens with zero HTTP
+requests/page errors. Web regressions: 2245 PASS; final affected consumers:
+78 PASS; unchanged shared/core/server: 734/1859+1skip/954 PASS. Four-package
+types, lint (existing warnings, zero errors) and web build pass. This evidence
+is for source/component behavior, not production deployment.

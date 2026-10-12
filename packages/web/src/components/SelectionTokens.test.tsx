@@ -14,12 +14,72 @@
  *   • гейт страницей: ось, не входящая в PAGE_FILTERS вкладки, жетоном не
  *     показывается — угол не обещает отбора, которого расчёт не ведёт.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { ALL_DEPT_IDS } from '@aemr/shared';
 import { SelectionTokens } from './SelectionTokens';
 import { getActiveFilterCount, isWeekShifted, useStore, type Page } from '../store';
+vi.stubGlobal('ResizeObserver',class {observe() {} unobserve() {} disconnect() {}});
+
+describe('compact filter instrument',()=>{
+ it('opens the real filter list and restores a reset without changing data',()=>{
+  resetState();useStore.getState().toggleMethod('single');
+  const beforeData=useStore.getState().dashboardData;
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  expect(view.getByRole('button',{name:/Способ закупки/})).toBeTruthy();
+  fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+  expect(useStore.getState().selectedMethods.size).toBe(0);
+  fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
+  expect(useStore.getState().selectedMethods.has('single')).toBe(true);
+  expect(useStore.getState().dashboardData).toBe(beforeData);
+ });
+ it('does not undo over a newer filter edit',()=>{
+  resetState();useStore.getState().toggleMethod('single');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+  act(()=>useStore.getState().toggleBudget('fb'));
+  const undo=view.getByRole('button',{name:/Вернуть фильтры/});
+  expect(undo.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(undo);expect(useStore.getState().selectedMethods.size).toBe(0);
+  expect(useStore.getState().selectedBudgets.has('fb')).toBe(true);
+ });
+ it('checks the store again even before the new edit has rerendered',()=>{
+  resetState();useStore.getState().toggleMethod('single');
+  const view=render(<SelectionTokens compact/>);
+  fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+  fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+  const undo=view.getByRole('button',{name:/Вернуть фильтры/});
+  act(()=>{useStore.getState().toggleBudget('fb');fireEvent.click(undo);});
+  expect(useStore.getState().selectedMethods.size).toBe(0);
+  expect(useStore.getState().selectedBudgets.has('fb')).toBe(true);
+ });
+ it('refuses expired undo even when the browser has not delivered its timer',()=>{
+  vi.useFakeTimers();
+  try {
+   resetState();useStore.getState().toggleMethod('single');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   vi.setSystemTime(Date.now()+6001);
+   fireEvent.click(view.getByRole('button',{name:/Вернуть фильтры/}));
+   expect(useStore.getState().selectedMethods.size).toBe(0);
+  } finally {vi.useRealTimers();}
+ });
+ it('expires reset undo after six seconds',()=>{
+  vi.useFakeTimers();
+  try {
+   resetState();useStore.getState().toggleMethod('single');
+   const view=render(<SelectionTokens compact/>);
+   fireEvent.click(view.getByRole('button',{name:'Фильтры линейки: 1. Открыть настройки'}));
+   fireEvent.click(view.getByRole('button',{name:'Снять фильтры линейки'}));
+   act(()=>{vi.advanceTimersByTime(6001);});
+   expect(view.queryByRole('button',{name:/Вернуть фильтры/})).toBeNull();
+  } finally {vi.useRealTimers();}
+ });
+});
 
 /** Умолчание продукта на заданной вкладке. */
 function resetState(page: Page = 'data'): void {

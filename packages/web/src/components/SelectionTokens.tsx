@@ -32,9 +32,12 @@
  * Общий ✕ виден только при видимых жетонах.
  */
 import { X } from 'lucide-react';
+import {useEffect, useState, type CSSProperties} from 'react';
+import {createPortal} from 'react-dom';
+import * as Popover from '@radix-ui/react-popover';
 import {
   AVAILABLE_YEARS, MONTHS, PAGE_FILTERS, buildStavkaSumsLine, getProductMonday,
-  hasExplicitPeriodFilter, isWeekShifted, useStore, type FilterGroup,
+  hasExplicitPeriodFilter, isWeekShifted, useStore, type FilterGroup, type AppState,
 } from '../store';
 import { getISOWeekNumber } from '../lib/week-number';
 import { weekPosition } from '../lib/period-coverage';
@@ -55,7 +58,26 @@ interface Token {
   onRemove: () => void;
 }
 
-export function SelectionTokens() {
+// Exactly the existing resetAllFilters fields; data and source revisions are
+// excluded. Retain references after reset so undo cannot overwrite a later edit.
+const RESET_FIELDS = ['year','period','periodMode','moneyUnit','stavkaMode','procurementFilter','activityFilter',
+  'selectedMethods','selectedActivities','selectedBudgets','selectedDepartments','selectedSubordinates','deptOnlyMode',
+  'activeMonths','focusedWeekStart','monthsByYear','searchQuery','searchQueryDebounced','registrySignalSeed','issuesSectionSeed'] as const;
+type FilterSnapshot = Pick<AppState, typeof RESET_FIELDS[number]>;
+const captureFilters = ():FilterSnapshot => Object.fromEntries(RESET_FIELDS.map(key=>[key,useStore.getState()[key]])) as FilterSnapshot;
+const DOT_AXES = ['dates','week','orgs','method','activity','budget','unit','stavka','search','','',''];
+
+export function SelectionTokens({compact = false, style}: {compact?: boolean; style?: CSSProperties} = {}) {
+  const [open,setOpen]=useState(false);
+  const [hovered,setHovered]=useState<string|null>(null);
+  const [undo,setUndo]=useState<{before:FilterSnapshot;after:FilterSnapshot;page:AppState['page'];label:string;expiresAt:number}|null>(null);
+  useEffect(()=>{
+    if (!undo) return;
+    const timer=setTimeout(()=>setUndo(null),6000);
+    const dismiss=(e:KeyboardEvent)=>{if(e.key==='Escape')setUndo(null);};
+    document.addEventListener('keydown',dismiss,true);
+    return ()=>{clearTimeout(timer);document.removeEventListener('keydown',dismiss,true);};
+  },[undo]);
   const {
     page,
     year, setYear, periodMode, activeMonths, monthsByYear, period,
@@ -258,7 +280,45 @@ export function SelectionTokens() {
   }
 
   // Молчание на умолчании: ни пустой рамки, ни нуля.
-  if (tokens.length === 0) return null;
+  if (!compact && tokens.length === 0) return null;
+
+  if (compact) {
+    const currentUndo = () => undo !== null && Date.now()<undo.expiresAt && undo.page === useStore.getState().page && RESET_FIELDS.every(key=>Object.is(useStore.getState()[key],undo.after[key]));
+    const canUndo=currentUndo();
+    const reset = () => {
+      const before=structuredClone(captureFilters());
+      const label=tokens.map(t=>t.label).join(' · ');
+      resetAllFilters();
+      setUndo({before,after:captureFilters(),page,label,expiresAt:Date.now()+6000});
+    };
+    return <>
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger asChild>
+          <button type="button" className={`filter-instrument ${tokens.length>0?'filter-instrument-active':''}`} style={style}
+            aria-label={`Фильтры линейки: ${tokens.length}. Открыть настройки`}>
+            <span className="fi-grid" aria-hidden="true">{DOT_AXES.map((key,i)=><i key={i} data-axis={key}
+              className={`${tokens.some(t=>t.key===key)?'fi-dot-active':''} ${hovered===key?'fi-dot-hover':''}`}/>)}</span>
+            {tokens.length>0 && <span className="fi-count">{tokens.length}</span>}
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal><Popover.Content align="end" sideOffset={8} collisionPadding={8} className="fi-panel" style={style} aria-label="Фильтры линейки">
+          <h2>Фильтры линейки · {tokens.length}</h2>
+          {tokens.length===0 && <p>{has('period')?`Показан весь ${defaultYear} год`:'Фильтры линейки не заданы'}</p>}
+          {tokens.map(t=><button key={t.key} type="button" className="fi-entry" aria-label={t.title} onClick={t.onRemove}
+            onPointerEnter={()=>setHovered(t.key)} onPointerLeave={()=>setHovered(null)} onFocus={()=>setHovered(t.key)} onBlur={()=>setHovered(null)}>
+            <span>{t.label}</span><X size={12} aria-hidden="true"/>
+          </button>)}
+          {tokens.length>0 && <button type="button" className="fi-reset" onClick={reset}>Снять фильтры линейки</button>}
+        </Popover.Content></Popover.Portal>
+      </Popover.Root>
+      {undo && createPortal(<div className="fi-undo" role="status" style={style}>
+        <span>Фильтры сняты · {undo.label}</span>
+        <button type="button" disabled={!canUndo} aria-label={`Вернуть фильтры: ${undo.label}`} onClick={()=>{
+          if(currentUndo()){useStore.setState({...undo.before,searchQueryDebounced:undo.before.searchQuery});setUndo(null);}
+        }}>Вернуть</button>
+      </div>,document.body)}
+    </>;
+  }
 
   return (
     <div className="sel-tokens" role="group" aria-label="Отбор отличается от умолчания">

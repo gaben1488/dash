@@ -9,6 +9,37 @@ vi.mock('../hooks/usePeriodCoverage', () => ({usePeriodCoverage: () => ({status:
 vi.mock('../lib/monitoring/analytics-contract', () => ({fetchMonitoringAnalytics: vi.fn(() => new Promise(() => {}))}));
 beforeEach(() => {useStore.getState().resetAllFilters(); useStore.setState({page: 'dashboard', error: null, isDemo: false, loading: false, bucketCounts: null});});
 afterEach(cleanup);
+it('changes the header dawn palette with the page without changing organisation filters', () => {
+ const view=render(<Header />);const header=view.container.querySelector('header')!;
+ const first=header.style.getPropertyValue('--hdr-sky');expect(first).not.toBe('');
+ useStore.setState({selectedDepartments:new Set(['uksimp'])});
+ act(()=>useStore.setState({page:'economy'}));
+ expect(header.style.getPropertyValue('--hdr-sky')).not.toBe(first);
+ expect(useStore.getState().selectedDepartments.has('uksimp')).toBe(true);
+});
+it('opens the unified journal and switches to source evidence', () => {
+ const view=render(<Header />);
+ fireEvent.click(view.getByRole('button',{name:/Журнал обновлений/}));
+ expect(view.getByRole('dialog',{name:'Провенанс: откуда числа и что изменилось'})).toBeTruthy();
+ fireEvent.click(view.getByRole('tab',{name:'Источники'}));
+ expect(view.getByText('Момент чтения:')).toBeTruthy();
+});
+it('keeps navigation and calendar together with working filters in their own lower row', () => {
+ useStore.setState({page:'data'});
+ const view=render(<Header />);
+ const primary=view.getByRole('group',{name:'Навигация и период'});
+ const filters=view.getByRole('group',{name:'Фильтры закупок'});
+ expect(within(primary).getByRole('navigation',{name:'Навигация'})).toBeTruthy();
+ expect(within(primary).getByRole('group',{name:'Период'})).toBeTruthy();
+ expect(within(primary).queryByRole('group',{name:'Способ закупки'})).toBeNull();
+ const single=within(filters).getByRole('button',{name:'Единственный поставщик, статья 93 44-ФЗ'});
+ fireEvent.click(single);
+ expect(single.getAttribute('aria-pressed')).toBe('true');
+ expect(useStore.getState().selectedMethods.has('single')).toBe(true);
+ fireEvent.click(within(filters).getByRole('button',{name:'Все способы закупки'}));
+ expect(useStore.getState().selectedMethods.size).toBe(0);
+ expect(view.getByRole('button',{name:/Журнал обновлений/})).toBeTruthy();
+});
 it('browses the original navigation drum without changing the selected page', () => {
  useStore.setState({page: 'monitoring'});
  const view=render(<Header />);const nav=view.getByRole('navigation',{name:'Навигация'});

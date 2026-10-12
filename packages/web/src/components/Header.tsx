@@ -1,10 +1,10 @@
 import {
-  useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getActiveFilterCount, getMondayOfWeek,
-  PAGE_FILTERS, isWeekShifted, buildStavkaSumsLine, STAVKA_SCOPE_NOTE,
+  useStore, MONTHS, QUARTER_MONTHS, AVAILABLE_YEARS, getMondayOfWeek,
+  PAGE_FILTERS, buildStavkaSumsLine, STAVKA_SCOPE_NOTE,
 } from '../store';
 import type { BudgetType, FilterGroup, Page } from '../store';
 import {
-  Sun, Moon, AlertTriangle, RotateCcw, Search, X,
+  Sun, Moon, AlertTriangle, Search, X,
   Gauge, TrendingUp, ShieldCheck, Settings, Table2, Coins, FileSpreadsheet, FileText, Gavel, ListChecks,
   CalendarX2, Repeat, Radar, ChevronUp, ChevronDown,
 } from 'lucide-react';
@@ -13,7 +13,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from './ThemeProvider';
 import { SelectionTokens } from './SelectionTokens';
 import { ProvenanceHub } from './live/ProvenanceHub';
-import { LiveHistory } from './live/LiveHistory';
 import { useLiveEvents } from '../hooks/useLiveEvents';
 import { getISOWeekNumber } from '../lib/week-number';
 import { fmtPct2 } from '../lib/report/mappers';
@@ -35,6 +34,16 @@ export type { FilterGroup };
  * выборки молча.
  */
 const TD_ACTIVITY_KEYS = ['current_program', 'current_non_program'] as const;
+
+// Header-only page families. OrgStrip retains its own department/subordinate
+// design; warnings and unavailable/future periods retain their semantic states.
+const HEADER_DAWN: Partial<Record<Page, readonly [string,string]>> = {
+  dashboard:['#5b99f8','#e5d3a9'],report:['#f4c46b','#e6cda7'],svod:['#75bfd4','#e6d4ba'],
+  data:['#75bfd4','#e6d4ba'],unfunded:['#efd195','#e5c39c'],yearlong:['#b7b6e2','#ded0bc'],
+  monitoring:['#8dcce4','#e1d1b8'],economy:['#a0d8bc','#e5c5a2'],competition:['#a4dccc','#ddd6bc'],
+  discipline:['#dfb294','#dfc1a6'],quality:['#de9d8c','#e1b78f'],analytics:['#b8a3e3','#dec4b4'],
+  settings:['#b8c4d4','#ded2c2'],
+};
 
 const QTR_KEYS = ['q1', 'q2', 'q3', 'q4'] as const;
 const QTR_SHORT = ['1кв', '2кв', '3кв', '4кв'] as const;
@@ -877,15 +886,11 @@ function NavPills({ activePage, setPage }: { activePage: string; setPage: (p: Pa
 export function Header() {
   const {
     loading, error, isDemo, page, setPage,
-    year,
     moneyUnit, setMoneyUnit,
     selectedMethods, toggleMethod, clearMethods,
     selectedActivities, toggleActivity,
     selectedBudgets, toggleBudget,
     searchQuery, setSearchQuery,
-    resetAllFilters, selectedDepartments, selectedSubordinates,
-    activeMonths, monthsByYear, periodMode, focusedWeekStart,
-    stavkaMode,
   } = useStore();
   const { theme, toggleTheme } = useTheme();
   const { secondsLeft, isOnline } = useAutoRefresh();
@@ -901,23 +906,6 @@ export function Header() {
     }
   })();
 
-  const activeCount = getActiveFilterCount({
-    yearChanged: year !== productDayParts().y,
-    moneyUnitChanged: moneyUnit !== 'тыс',
-    stavkaChanged: stavkaMode !== 'norm',
-    // Срез недели — тем же предикатом, что жетон угла (страж схождения):
-    // жетон без счёта означал бы «Сбросить» молчит про видимый отбор.
-    weekShifted: isWeekShifted(periodMode, focusedWeekStart),
-    selectedMethods,
-    selectedActivities,
-    selectedBudgets,
-    selectedDepartments,
-    selectedSubordinates,
-    activeMonths,
-    monthsByYear,
-    periodMode,
-    searchQuery,
-  });
 
   const showTime = has('period');
   const showMethod = has('procurement');
@@ -930,8 +918,10 @@ export function Header() {
   const aAll = selectedActivities.size === 0;
   const bAll = selectedBudgets.size === 0;
 
+  const dawn=HEADER_DAWN[activePage as Page] ?? HEADER_DAWN.dashboard!;
+  const dawnStyle={'--hdr-sky':dawn[0],'--hdr-horizon':dawn[1],'--hdr-tint':getPageColor(activePage)} as React.CSSProperties;
   return (
-    <header className="sticky top-0 z-40 header-glass flex-shrink-0">
+    <header className="sticky top-0 z-40 header-glass flex-shrink-0" data-page-skin={activePage} style={dawnStyle}>
       {/* Error banner */}
       {error && (
         <div role="alert"
@@ -947,8 +937,9 @@ export function Header() {
         </div>
       )}
 
-      {/* ══════ ONE CONTINUOUS HORIZONTAL BAR ══════ */}
+      {/* Shared glass instrument row, with horizontal controls underneath. */}
       <div className="hbar">
+      <div className="hbar-primary">
         {/* 1. Shield Hub — animated logo with status */}
         <ShieldHub
           page={page}
@@ -958,6 +949,7 @@ export function Header() {
           onRefresh={() => useStore.getState().refresh()}
         />
 
+        <div className="hbar-drumline hdr-liquid-surface" role="group" aria-label="Навигация и период">
         {/* 2. Original navigation cylinder — all thirteen routes */}
         <NavPills activePage={activePage} setPage={setPage} />
 
@@ -969,7 +961,19 @@ export function Header() {
           </div>
         )}
 
-        {/* 4. Filter drums */}
+        </div>
+        {/* Theme stays outside the scrolling drum rail. */}
+        <div className="nav-tools">
+          <button type="button" onClick={toggleTheme} className="hf-icon-btn"
+            title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
+            {theme === 'dark' ? <Sun size={11} aria-hidden="true" /> : <Moon size={11} aria-hidden="true" />}
+          </button>
+        </div>
+      </div>
+      <div className="hbar-secondary">
+        <div className="hbar-filters hdr-liquid-surface" role="group" aria-label="Фильтры закупок">
+        {/* 4. Filter controls — same state/actions, one horizontal row */}
         {showMethod && (
           <div className="vf-drum" role="group" aria-label="Способ закупки">
             {/* Симметрично кнопке ЕП: активный КП снимается, чужой выбор
@@ -1071,38 +1075,18 @@ export function Header() {
           </div>
         )}
 
-        {/* Правый угол линейки (контракт пробы «угол», срез 1): эфир-история
-            (мини-барабан правок с журналом) над жетонами состояния отбора.
-            Заменил FilterBreadcrumb variant="inline" — умения строчных чипов
-            перенесены в SelectionTokens целиком (опись в его шапке); панельный
-            variant="panel" на Пульте живёт как жил. */}
+        </div>
+        {/* Recommended dot instrument + one journal/source node. Existing
+            token actions and the full journal are the functional consumers. */}
         <div className="hdr-ugol hdr-liquid-surface">
-          <LiveHistory />
-          <SelectionTokens />
+          <div className="hbar-journal">
+            <SelectionTokens compact style={dawnStyle} />
+            <ProvenanceHub compact className="hbar-provenance" style={dawnStyle} />
+          </div>
         </div>
 
-        {/* 5. Tools (right edge) — тема, сброс фильтров, узел провенанса */}
-        <div className="nav-tools">
-          <button type="button" onClick={toggleTheme} className="hf-icon-btn"
-            title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>
-            {theme === 'dark' ? <Sun size={11} aria-hidden="true" /> : <Moon size={11} aria-hidden="true" />}
-          </button>
-          {activeCount > 0 && (
-            <button type="button" onClick={resetAllFilters}
-              className="hf-icon-btn group hover:text-red-500 hover:bg-red-50/80 dark:hover:bg-red-950/20"
-              title="Сбросить все фильтры"
-              aria-label={`Сбросить все фильтры (включено: ${activeCount})`}>
-              <RotateCcw size={9} className="group-hover:rotate-[-180deg] transition-transform duration-300" aria-hidden="true" />
-              <span aria-hidden="true" className="w-2.5 h-2.5 flex items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[6px] font-bold">{activeCount}</span>
-            </button>
-          )}
-          {/* Провенанс и изменения — крайний правый угол линейки, справа от
-              смены темы и снятия фильтров (канон п.133). Свёрнутый вид —
-              одна тихая строка «обновлено …»; раскрытый отвечает разом на
-              «откуда числа», «как они обновляются» и «что изменилось». */}
-          <ProvenanceHub className="ml-1" />
-        </div>
+
+      </div>
       </div>
     </header>
   );
